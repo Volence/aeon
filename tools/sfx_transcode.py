@@ -1843,16 +1843,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/, for su
 from suite_paths import suite_path  # noqa: E402
 # Path to the skdisasm SFX directory
 SKDISASM_SFX_DIR = str(suite_path('skdisasm', 'Sound', 'SFX'))
-# The SECOND donor. Every core SFX comes from skdisasm except the spring, whose
-# S&K source (B1 - Spring.asm) changes FM voice MID-STREAM (`smpsSetvoice $01`
-# after its wind-up note) — which _check_sfx_voice0 refuses, because this engine's
-# Sfx_Steal preloads exactly one voice from the SFX blob's own bank and a stream
-# MEV_PATCH would re-resolve against the MUSIC patch table and corrupt the timbre.
-# Sonic 2's spring is the SAME SOUND with one voice: identical
-# `smpsModSet $03,$01,$5D,$0F` wind-up on nB3, identical looping nC5 x $19, and
-# its Voice $00 is byte-identical to S&K's. So the spring is sourced from S2 and
-# the mid-stream-voice restriction stays intact rather than being loosened for
-# one sound. See _CORE_SFX_DONOR below.
+# The SECOND donor, now UNUSED — kept because it is the reversal target.
+#
+# The spring used to be sourced from S2's `CC - Spring.asm` because S&K's own
+# `B1 - Spring.asm` changes FM voice MID-STREAM (`smpsSetvoice $01` after its
+# wind-up note) and this engine could not express that. S2's spring is the same
+# sound built from ONE voice — identical `smpsModSet $03,$01,$5D,$0F` wind-up on
+# nB3, identical looping nC5 x $19, and its Voice $00 is byte-identical to S&K's —
+# so it was the closest thing reachable.
+#
+# THE OWNER LISTENED TO IT AND REPORTED IT "DEFINITELY OFF" against the shipped
+# games (2026-09-07). That is the A/B nothing here can do: oracle's Rust core
+# serves no audio method (probed, not assumed — vgm_start/vgm_stop/vgm_status and
+# audio_spectrum are in the schema but NOT in the running server's method table),
+# so the transcode arithmetic was the only evidence and an ear against the real
+# reference outranks it. SP-6 built the missing mechanism, so the spring is now
+# sourced from S&K and gets its real second voice.
+#
+# TO REVERT: put `0xB1: S2DISASM_SFX_DIR` back in _CORE_SFX_DONOR and set
+# _CORE_SFX_FILENAMES[0xB1] back to 'CC - Spring.asm'. That is the whole change.
+# Nothing in the ENGINE depends on the spring being two-voice — but
+# tools/sfx_voice_change_witness.py does, and it refuses loudly (never passes)
+# when its subject turns out to carry a single voice.
 S2DISASM_SFX_DIR = str(suite_path('s2disasm', 'sound', 'sfx'))
 
 # Core SFX id -> filename prefix map
@@ -1868,13 +1880,11 @@ _CORE_SFX_FILENAMES = {
     0x62: '62 - Jump.asm',
     0x7E: '7E - Ground Slide.asm',
     0xAB: 'AB - Spin Dash.asm',
-    # THE ID IS S&K'S, THE BYTES ARE S2'S, and the FILENAME is S2's own id.
-    # $B1 is sfx_Spring in sonic3k.constants.asm:1304 and that is the id space
-    # this engine numbers in; the data comes from S2's $CC for the mid-stream-voice
-    # reason at S2DISASM_SFX_DIR. (The file's internal labels say `Sound4C_` — S2's
-    # sound index is offset from its SndID_ constants, so neither $4C nor $CC is
-    # this engine's id and only the FILENAME matters here.)
-    0xB1: 'CC - Spring.asm',
+    # SP-6: back to S&K's own spring, two voices and all. $B1 is sfx_Spring in
+    # sonic3k.constants.asm:1304, which is the id space this engine numbers in, so
+    # id and filename finally agree. The S2 stand-in and how to go back to it are
+    # documented at S2DISASM_SFX_DIR above.
+    0xB1: 'B1 - Spring.asm',
     0xB6: 'B6 - Dash.asm',
     0xB9: 'B9 - Ring Loss.asm',
     0xBA: 'BA - Flying.asm',
@@ -1886,7 +1896,11 @@ _CORE_SFX_FILENAMES = {
 # resolves shipped sources too, and a second copy of this map is exactly how the
 # two would drift. One authority, both readers.
 _CORE_SFX_DONOR = {
-    0xB1: S2DISASM_SFX_DIR,     # the spring — see S2DISASM_SFX_DIR's note
+    # EMPTY since SP-6: every core SFX now comes from skdisasm. The spring was the
+    # only override and went back to its own donor when the mid-stream voice change
+    # became expressible. Kept as a live map, not deleted — the override mechanism
+    # is the reversal path documented at S2DISASM_SFX_DIR, and a second donor is a
+    # normal thing for this table to need again.
 }
 
 
