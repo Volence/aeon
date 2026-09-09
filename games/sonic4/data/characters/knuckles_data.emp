@@ -35,12 +35,20 @@
 // ratchet in games/sonic4/data/collision/collision_data.emp.
 //
 // TWO PALETTES, and this is the structural reason Knuckles needed a per-character
-// palette at all. Tails' art was fixable by a lossless index PERMUTATION into our
+// palette at all. Tails' art was fixable by a lossless index PERMUTATION onto our
 // existing CRAM line 0, because he uses only colours we already carry. Knuckles
-// uses S3K index 5 ($0080) for 3,272 pixels and our line 0 does not carry that
-// colour at any index, so no permutation is lossless for him. His art therefore
-// stays in S3K's index order and the PALETTE moves instead — exactly what S3K
-// itself does (it swaps Pal_Knuckles into CRAM line 0 for him).
+// uses S3K index 5 ($0080) for 3,272 pixels and our line 0 carries that colour at
+// no index, so no permutation puts him ON Sonic's line: he needs a line of his own,
+// and S3K agrees (it swaps Pal_Knuckles into CRAM line 0 for him).
+//
+// ⚠ HIS ART IS STILL RE-INDEXED, and this paragraph used to end by saying the
+// opposite ("his art therefore stays in S3K's index order"). Needing his own LINE is
+// not the same as keeping S3K's index ORDER, and conflating the two is what cost the
+// spring: our Sonic line came from sonic_hack's order and his from S3K's, so the two
+// agreed at only 7 of 16 slots and shared line-0 art recoloured under him. Since
+// 2026-09-09 gen_characters.py's KNUCKLES_TO_AEON permutes his art AND his palette
+// into OUR order together — still lossless, since both move — and the two lines now
+// differ only where they must. The block further down states and counts that.
 module games.sonic4.knuckles_data in knuckles_data
 
 // The character DPLC window's DECLARED EXTENT — the VRAM budget the peak guard
@@ -104,25 +112,68 @@ ensure(_pal_sonic_tails.len == 32, "Pal_SonicTails must be exactly one 16-entry 
 ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line (32 bytes)")
 
 // -----------------------------------------------
-// EFFECT-DUST SHARED LINE-0 SLOTS — the convention that keeps the dust gray for every
-// character (the fix for it rendering RED as Knuckles, user screenshot).
+// SHARED LINE-0 SLOTS — the convention that keeps every shared sprite the same colour
+// whichever character is active. Two user-reported bugs live here: the effect dust
+// rendering RED as Knuckles (2026-08-12) and the red spring's base rendering RED/ORANGE
+// as Knuckles (2026-09-09).
 //
-// The shared dust art (skid / spindash / belly-slide — DustPuff + DustSpindash) draws on
-// CRAM LINE 0 at palette indices 4, 6, 7 (index 0 = transparent), authored as grays.
-// Line 0 is the PER-CHARACTER line (CharacterDef.cd_palette), so those indices must hold
-// the SAME colours in EVERY character palette or the dust inherits whatever that
-// character carries there. Sonic/Tails carry the grays natively at 4/6/7; Knuckles' own
-// grays sat at 12/1/13, so his palette + art were permuted (swap 4<->12, 6<->1, 7<->13,
-// applied to art/palettes/knuckles.bin AND art/optimized/characters/knuckles.bin via the
-// same nibble re-index remap_art_indices uses — LOSSLESS, he uses all 16 of his own
-// colours) so his 4/6/7 now match. HUD/rings are on line 1 (unaffected); the Tails
-// appendage rides line 0 only while Tails is active, so it needs no Knuckles alignment.
+// CRAM line 0 is the PER-CHARACTER line: Player_RefreshPhysics copies the active
+// CharacterDef.cd_palette over it (player_common.emp, `lea Palette_Buffer, a2` +
+// `ori.b #1, Palette_Dirty`). So any art drawn with palette 0 renders through whichever
+// character's line is loaded, and a slot the two palettes disagree about recolours that
+// art on a character swap. The line-0 shared drawers and the indices they use:
 //
-// THE BUILD-TIME ENFORCEMENT: every character palette must AGREE with the dust's
-// authoring reference (Pal_SonicTails) at idx 4/6/7. A new character palette (or a
-// re-export) that stomps these slots fails HERE, loudly — never a quiet recolour.
+//   effect dust (DustPuff / DustSpindash)     0, 4, 6, 7          authored gray
+//   insta-shield (Art_InstaShield)            0, 6, 7, 8
+//   spring (Art_Spring, test_solid.emp)       0, 1, 6, 7, 8, 9, 12, 13
+//
+// THE FIX, and it is S3K's own: stock S3K's Pal_SonicTails and Pal_Knuckles are identical
+// at 13 of 16 slots and differ only at 2/3/4 — which is why S3K can draw its spring with
+// `make_art_tile($4A4,0,0)`, the character's own line. We had lost that (our Sonic line is
+// sonic_hack's index order, our Knuckles line was S3K's), so the two agreed at only 7
+// slots. gen_characters.py's KNUCKLES_TO_AEON now re-indexes his art AND his palette into
+// our order together — a pure relabel, every Knuckles pixel keeps its exact colour — and
+// the two lines agree at 12 of 16, differing only at the four CHARACTER-SPECIFIC slots
+// 2/3/5/9. HUD/rings are on line 1 (unaffected); the Tails appendage rides line 0 only
+// while Tails is active, so it needs no Knuckles alignment.
+//
+// THE BUILD-TIME ENFORCEMENT below is in two parts: the general agreement count, and the
+// dust's three slots pinned to their AUTHORED gray values (not merely to each other).
 // idx N = CRAM word at bytes 2N..2N+1 (big-endian).
+//
+// ⚠ SLOT 9 IS THE KNOWN HOLE, and it is why the spring is not fully fixed. Our line 0
+// carries $0444 there; Knuckles has no $0444, so his leftover colour ($0080, green) lands
+// there by elimination — the destination is FORCED, since the other three free slots are
+// pinned by Sonic's own colours through the derived S3K->Aeon table. The spring's 184
+// index-9 pixels (coil mid-tone) still recolour under him. Closing it costs a colour from
+// one side or the other, i.e. a LOOK decision: docs/DEFERRED_WORK.md "Spring index 9".
 // -----------------------------------------------
+
+// The slots the two shipped character lines are RULED to differ at. Not "the slots they
+// happen to differ at" — this is the whole invariant, and a slot leaving the agreeing set
+// silently recolours a shared sprite for one character.
+// SELF-CONTAINED by rule, not by taste: a comptime fn's free names resolve at the CALL
+// SITE, module siblings included (docs/EMP_PITFALLS.md §2, amended 2026-09-07 — a helper
+// calling a helper silently computed a wrong count there). So this one calls nothing and
+// spells the CRAM word extraction inline. 16 slots, byte pairs, big-endian.
+comptime fn line0_mismatches(a: Data, b: Data) -> int {
+    comptime var n = 0
+    for i in 0..16 {
+        comptime var wa = (a[i << 1] << 8) | a[(i << 1) + 1]
+        comptime var wb = (b[i << 1] << 8) | b[(i << 1) + 1]
+        if wa != wb { n = n + 1 }
+    }
+    return n
+}
+
+// Four: 2/3/5 (Sonic's blues vs Knuckles' reds) and 9 (the forced hole above). More than
+// four means a slot left the agreeing set; fewer means the hole closed and this comment,
+// the DEFERRED_WORK entry and the spring's own guard are all stale.
+ensure(line0_mismatches(_pal_sonic_tails, _pal_knux) == 4,
+       "Pal_SonicTails and Pal_Knuckles differ at {line0_mismatches(_pal_sonic_tails, _pal_knux)} line-0 slots, not the ruled 4 (2/3/5 character hues + 9, the forced $0444/$0080 hole). Line 0 is the per-character line, so the AGREEING slots are what make shared line-0 art (effect dust, insta-shield, spring) render the same under either character — a slot leaving that set is the 2026-08-12 red-dust / 2026-09-09 red-spring bug returning. Regenerate with games/sonic4/data/characters_staging/gen_characters.py, which rules the permutation. DOES NOT COVER: WHICH slots differ (a swap of two disagreements holds the count), nor whether any shared art actually draws through them — the spring states its own per-index guard in games/sonic4/objects/test_solid.emp")
+ensure(((_pal_sonic_tails[18] << 8) | _pal_sonic_tails[19]) != ((_pal_knux[18] << 8) | _pal_knux[19]),
+       "slot 9 now AGREES between the two character lines — the forced $0444/$0080 hole is closed, so the spring's index-9 caveat above, its guard in test_solid.emp and the docs/DEFERRED_WORK.md 'Spring index 9' entry are all stale. Delete them and tighten the mismatch count to 3.")
+
 // PINNED TO THE AUTHORED GRAYS, not merely to each other. These used to assert
 // only that Pal_Knuckles AGREED with Pal_SonicTails at 4/6/7 — which is not the
 // property the fix secured. Re-export BOTH palettes with those slots recoloured in
