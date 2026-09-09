@@ -30165,3 +30165,80 @@ exercise, this is ruled out rather than argued about. **Do not write this down a
 lane — it spawns an emulator). `PB_ROM` / `PB_LST` override the shape. It resolves both symbols from
 the listing and derives the buffer size as their difference rather than reading the constant, so it
 cannot agree with the constant by construction.
+## LS-16b — THE ASK TO SIGIL, SENT 2026-09-09, AND WHY IT EXISTED AS A BLOCK ON NOBODY
+
+**Caught by the hub, and the rule is worth more than the row: a `blockedBy` naming a lane is only a
+block if that lane HOLDS the ask.** LS-16b had sat marked `blockedBy: sigil` while sigil had never
+been told. **A row waiting on a lane that does not know it is waiting is waiting on nobody**, and it
+reads on the board exactly like a row that is genuinely queued behind someone. Same family as this
+file's own *an ownership claim needs a liveness check, not a citation* — pointed at an obligation
+instead of at a directory.
+
+**Banked here before the send**, per shared-protocol bar 20's sending side: a cross-lane commitment
+that lives only in mail does not survive a `/clear`, in either direction.
+
+**THE THREE SITES, verified on master before citing them** (a first attempt guessed
+`engine/sound/mt_bank.emp` and found nothing — the files are game-side, and an unverified path in a
+peer-facing ask is the defect this lane keeps booking):
+
+* `games/sonic4/data/sound/mt_bank.emp:120` — `ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, ...)`
+* `games/sonic4/data/sound/mt_bank.emp:121` — `ensure(extern("SONG_COUNT") == SONG_COUNT, ...)`
+* `games/sonic4/data/sound/sfx_blob_win_tab.emp:43` — `ensure(137 == extern("SFX_TABLE_LEN"), ...)`
+
+**WHY THEY ARE UNGATEABLE FROM THIS SIDE.** All three lower through seam-1, so they are structurally
+invisible to `sigil build --check`, which is what `tools/test_extern_guard_reachability.py` uses to
+cover the other 133 + 3. `emit_sound_blob` has no reporting mode to ask instead: its entire
+interface is `usage: emit_sound_blob --aeon <dir> --out-dir <dir>` (read off the binary, `--help` is
+an unexpected argument). So there is no query, from any tool we hold, that answers *was this guard
+evaluated*.
+
+**THE ASK, deliberately shaped as a question and not a design.** Some way to learn which drift
+guards a seam-1 lowering evaluated — a reporting flag, a count on stderr, a listing line, whatever
+is cheap on their side. **We are not asking for per-guard identity**, which the LS-16c work
+established is a harder problem: deciding a LinkAssert proves it was *evaluated*, not that it can be
+*false*. Reachability alone closes this row.
+
+**✅ CLOSED 2026-09-09 — ALL THREE GUARDS ARE EVALUATED, AND NO SIGIL TOOLING WAS NEEDED.** The
+sigil lane answered the ask by **declining to build the tool and handing over a method instead**,
+which was the better answer: **falsify each guard in a scratch tree and see whether the build
+refuses.** It perturbs the SUBJECT rather than the checker, needs nothing from them, and gives per
+guard identity where the count they offered structurally could not.
+
+**Measured in a detached worktree at master `7cb50a06`, each mutation quoted back off disk, the tree
+restored from the committed baseline after each (`git status --porcelain` empty at the end):**
+
+| guard | mutation | `emit_sound_blob` exit |
+|---|---|---|
+| control, unmutated | none | **0**, emits every seam-1 + seam-2 artifact |
+| `mt_bank.emp:121` | `== SONG_COUNT` -> `== SONG_COUNT + 1` | **1** — *"mt_bank co-residency/drift guards fired: 1 error(s): ...:121:1: [Error] SONG_COUNT drifted..."* |
+| `mt_bank.emp:120` | `== SONG_MOVINGTRUCKS` -> `+ 1` | **1** — *"...:120:1: [Error] SONG_MOVINGTRUCKS drifted..."* |
+| `sfx_blob_win_tab.emp:43` | `137 ==` -> `138 ==` | **1** — *"sfx co-residency/drift/span guards fired: ...:43:1: [Error] SfxBlobWinTab span (137 cells) disagrees with SFX_TABLE_LEN"* |
+
+**Each refusal names its OWN file and line**, so this is per-guard identity rather than an aggregate.
+
+**⚠ SCOPE, stated because the result is STRONGER than the row asked for and could be over-read.** The
+row wanted REACHABILITY — *was this guard evaluated*. This delivers more: each guard was made false
+and the build refused, so all three are **proven capable of failing**, which LS-16c established is
+the harder property. **The honest limit: the mutation falsifies the guard's OWN CONDITION, not the
+external symbol it guards.** A real drift makes the same predicate false by the same route, so the
+inference is short — but it is an inference, and a purist mutation would move `SONG_COUNT` at its
+authority instead.
+
+**THE SIGIL LANE'S OWN CAUTION IS WHY THE TOOLING ROUTE WAS DECLINED, and it is kept here rather
+than dropped now that it is convenient.** They offered `Module::comptime_guards`, an existing public
+count populated during lowering, and then said the thing they were **least** sure of is whether it
+counts what we would call a drift guard or a wider set their own machinery decides — and that **a
+count over the wrong population is the most convincing possible wrong answer.** They also priced the
+delivery: `emit_sound_blob` is half the installed shared pair, so any change means a **hub-gated
+binary swap**. An hour of code plus a coordinated ritual, for three guards, against a method costing
+one command each.
+
+**Their standing offer, recorded so it is not lost: if we ever want this per-commit for the whole
+family rather than once for three sites, they will build the reporting and ride the next swap we
+need anyway.** The family drifted 135 -> 139 in two days, which is the argument for taking it up.
+
+**PRICED HONESTLY: this is three guards, and it is not urgent.** The other 136 are covered
+per-commit. If it is expensive on their side the right answer is for it to stay open, and the ask
+says so. Their `[Error]`-renderer work is the precedent for what a small change here unlocks — and
+also the precedent for the trap, since that fix turned out **not** to be what actually blocked
+LS-16c.
