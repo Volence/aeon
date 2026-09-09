@@ -27,9 +27,13 @@ import argparse, json, struct, os, sys
 # BgAnim_Update). A record-format change edits BOTH together.
 # BG_TILE_BASE_SLOT / BG_TILE_CAPACITY are imported from the generated registry
 # mirror — ONE authority (tools/vram_map.py <- games/sonic4/vram.toml), not
-# restated literals (the four-copies-of-448 incident). The capacity is 400 since
-# EFFECTS-W1 item 9d (the top 48 of the physical 448-slot run became the
-# `waterline_strips` region), and was never constants.asm's old 512 nominal:
+# restated literals (the four-copies-of-448 incident). DO NOT RESTATE THE CAPACITY
+# HERE — this comment said "the capacity is 400" until 2026-09-08, two carves after
+# it stopped being true (448 -> 400 at EFFECTS-W1 item 9d, when the top 48 of the
+# physical 448-slot run became `waterline_strips`; then 400 -> 388 -> 376 for the
+# spring). A COMMENT IS THE ONE PLACE tools/prose_bound_sweep.py CANNOT REACH — it
+# excludes comments by construction — so a number written here has no gate at all.
+# It was never constants.asm's old 512 nominal either:
 # the sprite table ($B800) and HScroll table ($BC00) live in the top of the
 # $8000-$BFFF region. Do not restate the number here — read it from the import.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -434,7 +438,10 @@ def view_emission(anims):
         return BGANIM_VIEW_COUNT, None
     why = (f'this act has {len(anims)} band(s), band 0 pattern_px {period}'
            if len(anims) != 1 else
-           f'this act is single-band but its pattern_px is {period}')
+           # No contrastive "but" here: the sentence that consumes this already opens
+           # with "But {why}, so they decline", and the two stacked as
+           # "But this act is single-band but its pattern_px is 32".
+           f'this act is single-band with pattern_px {period}')
     return 0, (
         f'NO DEBUG BG-ANIMATION VIEW TWINS FOR THIS ACT.\n'
         f'  BgAnim_View_H / _V / _T -- the effects lab\'s "perspective vs timer" A/B,\n'

@@ -3243,5 +3243,88 @@ class TestBgAnimViewNamesAreShapeInvariant(unittest.TestCase):
         self.assertEqual(shape_aware_size(anims), 8376)
 
 
+class TestTheContractStatesLiveValues(unittest.TestCase):
+    """Every constant the VENDORED consumer contract restates must equal the live one.
+
+    WHY THIS EXISTS, and it is a measured defect rather than a precaution.
+    `tools/EFFECTS_CONSUMER_CONTRACT.md` is the document the aurora lane vendors as
+    `src/core/formats/bg-override/bganim-consumer-contract.json`. Until 2026-09-08
+    **nothing in this repo parsed it** — every number in it was unguarded prose. Its
+    `tiles` row said `BG_TILE_CAPACITY` was 448 from the file's creation (`7ae610e4`)
+    through 2026-09-08, while the live value went 448 -> 400 -> 388 -> 376. It was wrong
+    by 72 tiles for the entire life of the document, **in the PERMISSIVE direction**: a
+    consumer sizing an author's canvas from it accepts blobs that this tool's own
+    `assert len(tiles) <= BG_TILE_CAPACITY` refuses, so the author learns the real
+    ceiling from a failed BUILD. docs/DEFERRED_WORK.md prices that exact class at 18
+    hours of aurora's master being red over a stale vendored 400.
+
+    WHY THE PROSE SWEEP DID NOT FIND IT — three independent misses, each named in the
+    instrument's OWN docstring, all landing on this one site (measured 2026-09-08):
+      * `tools/prose_bound_sweep.py` is an AST walk over PYTHON. Handed this `.md` it
+        tries to parse it as source, raises, and reports `sites: 0` — a result
+        indistinguishable from a clean file.
+      * It "excludes comments by construction", which is where this tool's own
+        companion restatement ("The capacity is 400 since ...") sat, equally stale.
+      * Its BOUNDWORD arm carries `cap(?:ped)?` but not `capacity`, so the very word
+        the constant is named for is not a bound word to it.
+
+    THE PREDICATE IS KEYED ON THE BARE IDENTIFIER, NOT ON ``NAME`` IN BACKTICKS, and
+    that is load-bearing rather than incidental: the stale site is written
+    ``len(tiles) <= BG_TILE_CAPACITY` (448, ...`, with the backticks spanning the whole
+    EXPRESSION. A first draft keyed on the backticked name matched the six
+    budget-table rows — every one of which was correct — and missed the single site the
+    gate exists for. It would have been green on the defect.
+
+    LOUD ON UNMEASURABLE. A predicate that silently matches nothing reads exactly like
+    a clean document, which is the failure above wearing this instrument's hat, so the
+    site count is asserted against a floor instead of being left to speak for itself.
+    """
+
+    #: Measured 2026-09-08 over the contract: 10 sites across 8 distinct constants.
+    #: A FLOOR, not a pin — adding a restatement must not have to touch this file. It
+    #: exists so a predicate broken by a reformat fails loudly instead of vacuously.
+    MIN_SITES = 8
+
+    #: `NAME` followed by the number the document states for it. Covers the three
+    #: spellings the contract actually uses, ENUMERATED FROM THE FILE rather than
+    #: assumed: a table cell (``NAME` | 44`), a parenthetical (``NAME` (= 64)`), and a
+    #: bare-identifier parenthetical (`... <= BG_TILE_CAPACITY` (376, ...`).
+    STATED = re.compile(r'`?\s*(?:\||\(\s*=?\s*)\s*(\d[\d,]*)\b')
+
+    def test_every_restated_constant_matches_the_live_module(self):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'tools', 'EFFECTS_CONSUMER_CONTRACT.md')
+        with open(path) as f:
+            text = f.read()
+        live = {n: getattr(inject_editor_bg, n)
+                for n in dir(inject_editor_bg)
+                if n.isupper() and type(getattr(inject_editor_bg, n)) is int}
+        sites, wrong = [], []
+        for name, value in sorted(live.items()):
+            for mo in re.finditer(r'\b' + name + r'\b', text):
+                hit = self.STATED.match(text[mo.end():mo.end() + 30])
+                if not hit:
+                    continue
+                stated = int(hit.group(1).replace(',', ''))
+                line = text.count('\n', 0, mo.start()) + 1
+                sites.append((name, line))
+                if stated != value:
+                    wrong.append(
+                        f'EFFECTS_CONSUMER_CONTRACT.md:{line}: the contract states '
+                        f'{name} = {stated}, the live value is {value}')
+        self.assertGreaterEqual(
+            len(sites), self.MIN_SITES,
+            f'the predicate found only {len(sites)} restated constant(s) in the '
+            f'consumer contract; it found 10 when written. A predicate that matches '
+            f'nothing reads like a clean document — fix the predicate, do NOT lower '
+            f'MIN_SITES, unless the restatements really were removed.')
+        self.assertEqual(
+            wrong, [],
+            'the VENDORED consumer contract restates a constant that has since moved. '
+            'Aurora vendors this document, and a stale ceiling in it fails '
+            'PERMISSIVELY. Fix the prose, not this test:\n  ' + '\n  '.join(wrong))
+
+
 if __name__ == "__main__":
     unittest.main()
