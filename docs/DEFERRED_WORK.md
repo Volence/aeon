@@ -31896,3 +31896,72 @@ invert it by overlapping two rectangles on purpose, and watch the build go red. 
 produce a scalar an `ensure` can read, the checks fall to the generator and a pytest — which is
 strictly weaker, and act 1's table is HAND-WRITTEN until the generator lands.** That is the window
 where a hand-authored arch would have no comptime check at all.
+
+## CONTENT-PINNING CHECKS — 19 SITES AUDITED, AND THE DEFECT IS A DIRECTION (2026-09-09)
+
+**Full audit: `docs/superpowers/notes/2026-09-09-content-pinning-audit.md`.** Read-and-report;
+nothing was fixed and no test was changed.
+
+**The owner's criterion, verbatim, after the build refused him turning off a decorative moving
+waterline in one level section:** *"a check may require that authored content is CORRECT; it may
+not require that particular content EXISTS, unless something real breaks without it."*
+
+**THE DISCRIMINATOR, which sorts almost the whole population mechanically.** Write the
+implication as **`authored ⇒ declared`** ("you authored a curve, so declare the capability") and
+removing the content removes the check with it. Write it as **`declared ⇒ authored`** ("you
+declare the capability, so some scene must author it") and it **fires on a legitimate removal**.
+**Every defect found is the second direction; every safe sibling is the first.**
+`scene_registry.emp`'s subset arm is deliberately one-sided for exactly this reason and its own
+banner says so — and three arms were later added that reinstate the other side.
+
+**COUNT, with unit: 19 PINS-CONTENT check sites** (4 comptime `ensure`, 9 pytest assertions,
+6 gate sites), **14 AMBIGUOUS**, across **9 pytest files, 3 gate scripts and 1 `.emp` file** —
+against populations of 1,398 `ensure` sites, 2,217 test functions and 157 tool scripts. **17 of
+the 19 are build-fatal.** The concentration is the good news: this is a small, tractable defect,
+not a verdict on the test culture.
+
+**TONIGHT'S BLAST RADIUS, derived from source and NOT measured (no build was run):** deleting one
+argument in `ojz_scenes.emp:327` trips **five** build-fatal refusals across three enforcement
+mechanisms — two comptime `ensure`s (`scene_registry.emp:488`, `:567`), two pytest assertions in
+the pre-build lane (`test_lab_index_lint.py:502`, `:530`), and one post-sigil gate
+(`row_remap_gate.py:621`) — and the retreat the first message *prescribes* spans **seven source
+files**. **The highest-value follow-up is the one-key control run, not more reading**; BGANIM
+teaches that a sixth wall may sit behind these.
+
+**THE STRUCTURAL FINDING, worth more than any single site: `build.sh` erases the
+FAIL / UNMEASURABLE distinction.** Eleven of the twenty-one build-fatal gates carefully separate
+**exit 1 = the bytes are wrong** from **exit 2 = I cannot measure this**. Every one is invoked as
+`if ! python3 …; then exit 1; fi`. Only `level_staleness.py` and the pytest lane inspect an exit
+code. **So a gate saying "you removed the content, so there is nothing here to measure" fails the
+build identically to "the emitted bytes disagree with the model."** One `case` per gate de-fangs
+a whole class, including cases not yet written. **This is the ranked-first fix.**
+
+**THIS ALREADY HAPPENED THREE DAYS AGO AND WAS SELF-DIAGNOSED.** `a621a69f` (2026-09-06):
+*"fix(bganim): the gate I added pinned the shipped document"* — its body: *"the moment an author
+removed `default_off` — **the exact correct run this parcel exists to keep building** — the build
+failed on a TOOL TEST instead of a link error. **A gate pinning the shipped document's CONTENT is
+the failure being fixed wearing a different hat.**"* That was the tail of **BGANIM-DECOUPLE**
+(`docs/DEFERRED_WORK.md:29335`), where turning off a decorative moving background animation hit
+**three** separate walls on one content edit. **Its fix is the template for the repairs above:
+the condition survives unchanged and stops being able to veto what the act ships; declining is
+ANNOUNCED in two places instead of refusing.**
+
+**QUESTION 2 — "so much of our dev time goes into working around tests": PARTLY SUPPORTED, and
+the honest version is more useful than the flattering one.** Method: 1,233 commits since
+2026-09-01, partitioned by path into check files (`tools/test_*.py`, `*_gate.py`, `*_witness.py`)
+and subject files (non-test `engine/**`, `games/**`). **64 of 1,233 (5.2%) co-edit both.** Of a
+sample of 12 read in full: **4 CHECK WAS WRONG, 8 CONTRACT MOVED, 0 WORKED AROUND.** The 5.2% is
+a **floor** — it cannot see `ensure` edits inside `.emp`, checks corrected in a later separate
+session (the dominant real pattern), prose-only corrections, or work abandoned before a commit.
+**The evidence does NOT support "we game the tests to get things through"** — not one instance of
+a check quietly loosened without being shown wrong. **It supports something narrower and more
+fixable: the check suite's content-shape assumptions are narrow enough that an ordinary content
+edit routinely surfaces two or three previously-unmodelled cases before it can land, which costs
+real hours even when every individual fix is legitimate.**
+
+**AND THE REPO ALREADY HOLDS THE BAR IT IS BREAKING** (`docs/OVERSEER-LOG.md:1131-1136`): *"a
+refusal that fires on correct work trains a route-around … and the route-around is permanent
+while the memory of why is not. So a gate that over-refuses does not merely annoy; it **converts
+itself into a disabled gate** by a path nobody records."* **That is the mechanism by which "ease
+up on the tests" becomes the rational response — the owner's instinct is the bar this file
+already wrote.**
