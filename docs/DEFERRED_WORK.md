@@ -31114,3 +31114,38 @@ and these want rulings rather than reflexes: (1) should the z80 census ASSERT on
 intervening-call list, with leaf-and-no-`sr` as the predicate and an allowlist carrying reasons;
 (4) the `Pal_Variant_Stage` DMA trace; (5) the anchor-sweep coverage and its wrong-mechanism
 docstring; (6) the `test_bg_emit.py` prose. None is urgent; none is a live defect today.
+
+## SIGIL WILL REFUSE AN UNRECOGNISED `cpu:` BY NAME — AEON IS UNAFFECTED, AND HERE IS WHY (2026-09-09)
+
+**If an aeon build ever refuses on a `cpu:` line, it is sigil's parcel and it is a DEFECT — report
+it to them rather than working around it** (their standing request, and the reason this row exists).
+
+**The contract, quoted from sigil's confirmation rather than paraphrased:** the accepted set is
+exactly `z80`, `m68000` and `m68k`, matched **case-insensitively**, with every other value refused
+by name. No canonical-spelling selection, no normalisation toward `m68k` — that spelling is in the
+set only because `examples/main.emp` uses it and is the first thing a newcomer runs.
+
+**Aeon's exposure, measured HERE by mechanism rather than taken from their census:** `git grep -oE
+"cpu:[[:space:]]*[A-Za-z0-9_]+" -- '*.emp'` yields **`z80` 24, `m68000` 9, 33 total, nothing else**.
+Both spellings are in the accepted set, so all 33 sites are accepted and the parcel is byte-neutral
+for us. Their independent count matched ours exactly.
+
+**⚠ THE PART THAT MATTERS FOR THE FUTURE, NOT FOR TODAY: our source has been correct BY ACCIDENT.**
+Neither `m68000` nor `m68k` is *recognised* today — both reach M68000 by falling through the same
+default that let a typo through. So the nine sites work because of a fallthrough, not a contract,
+and sigil's parcel is what converts that into a contract. **A third spelling added to aeon `.emp`
+after this lands WOULD refuse**, and that is the direction to watch.
+
+**They did not leave it as a promise, which is the part worth copying.** A confirmation from the
+sending lane is a claim about an unlanded parcel where the RECEIVING lane's build pays if it is
+wrong. So they added a gate whose expectation is **derived from our tree at test runtime** — scanning
+`AEON_DIR`'s `*.emp` for `cpu:` values and asserting every distinct value found is accepted — falling
+back to asserting the literals **loudly rather than skipping green** if it cannot see our tree. That
+puts the failure at their end before it reaches our build, and it is what catches us adding a third
+spelling.
+
+**And a sharpening of our own SHA discipline, theirs:** they cited `4aabafda` (our master's tip at
+10:12Z, already moved by the time we read it). **The property their census needed was ANCESTRY, not
+currency** — it is a claim about what our source *contains*, and a few commits of drift cannot remove
+a spelling they found. We verified ancestry rather than recognition, which was the right check.
+**A stale read only hurts in the ADD direction, which is exactly what their derived gate covers.**
