@@ -1976,3 +1976,25 @@ exposure is not — **aeon's sweep takes sigil's trees and sigil's takes aeon's,
 validate the rule against its own trees, and the check belongs to whoever is doing the deleting.**
 And **a sweep is not undoable**, so the cheap version of this rule loses to the thorough one on cost
 before it ever loses on correctness.
+
+**⚠ AND THE RULE ITSELF WAS DEFECTIVE, CAUGHT BY BEING THE FIRST TO USE IT (2026-09-09, ~1 h after
+it landed in the shared protocol).** Run against `.sigil-ref-197-mine` — a tree sigil had just
+confirmed superseded — the cmdline check reported **7 hits, cwd 0**, which under its own wording
+reads *actively in use, do not delete*. Identifying each hit rather than trusting the number:
+**(a) it SELF-MATCHES exactly like `pgrep -f`** (the only matching process was the shell running the
+probe, whose command line contains the path being grepped — a trap this very file already carries for
+`pgrep -f`); and **(b) the COUNT IS LINES, NOT PROCESSES** — translating NULs leaves embedded newlines
+in `/proc/<pid>/cmdline`, so one process yielded seven matching lines and `grep -c` reads exactly like
+a process count.
+**Both fail SAFE** (you decline a deletion you could have made), which is the right direction and why
+this is an amendment rather than an alarm — but **a check that reports LIVE unconditionally is not a
+check**, and its predictable end is being disbelieved, which restores the weak `cwd` version.
+**AMENDMENT: never read the COUNT — enumerate the matching PIDs and identify each one** (`exe`, `cwd`,
+full argv), which is what the original measurement did when it named sigil's assembler as pid 3162306.
+Excluding `$$` alone is insufficient: subshells and the harness wrapper carry the string too.
+**THE DURABLE LESSON, and it is against this lane: the MEASUREMENT was sound and the RULE
+GENERALISED FROM IT WAS NOT.** The morning's observation identified a process by hand — pid, exe,
+target dir, argv — and the rule written from it kept only the grep. **The generalisation dropped the
+exact step that made the observation trustworthy**, while being a rule *about* an instrument
+returning a clean answer to a question it cannot answer. Filed to the hub to amend empyrean `d980ba7`
+and to sigil, who had already adopted it.
