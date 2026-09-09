@@ -36,9 +36,14 @@ WHAT IT COMPUTES
    cache is margin + reach. `constants.emp` fixes the smallest legal cache at
    each margin, so sweeping the margin down traces the residency requirement
    to its floor (the plane-fill window) and prices the margin in PAGES.
-3. RE-ENTRY FREQUENCY — an LRU simulation over horizontal traverses: for a
-   cache of F frames, how often does an evicted page get referenced again, per
-   1000 px of camera travel. This prices "keep decompressed pages in work RAM".
+3. RE-ENTRY FREQUENCY — an LRU simulation over every traverse of the act, on
+   BOTH axes: for a cache of F frames, how often does an evicted page get
+   referenced again, per 1000 px of camera travel. This prices the owner's own
+   proposal — keep decompressed pages in work RAM so a re-entry costs a 2 KB
+   DMA instead of a second decode. Vertical churn runs ~2x horizontal here, so
+   a horizontal-only figure would have understated it.
+4. THE BUDGET, per candidate PAGE_FRAMES: the worst single traverse's page-in
+   rate scaled by the camera cap, against idle CPU and DMA_BUDGET_NTSC.
 
 Usage:
     python3 tools/fg_working_set.py report            # human-readable
@@ -497,8 +502,15 @@ def sweep_stats(field, w, h, pinned_mask=0):
 # Re-entry frequency — LRU over horizontal traverses
 # ---------------------------------------------------------------------------
 
-def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True):
-    """Simulate every horizontal traverse of the act at every window row.
+def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True,
+                     axis="h"):
+    """Simulate every traverse of the act along one axis.
+
+    `axis="h"`: every horizontal traverse, one per window row.
+    `axis="v"`: every vertical traverse, one per window column. Both are
+    reported — a horizontal-only churn number would say nothing about the
+    vertical acts this engine is built for, and silence there would read as
+    "no churn" rather than "not measured".
 
     For each row placement the camera walks left-to-right one tile column per
     step (8 px, half the `CAM_MAX_X_STEP` cap — the finest the tile grid
@@ -515,9 +527,13 @@ def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True):
     admit a page reports `unmeasurable` — never 0, never green.
     """
     masks = field.mask_field(w, h)
+    if axis == "v":
+        masks = [list(col) for col in zip(*masks)]
+    elif axis != "h":
+        raise ValueError(f"axis must be 'h' or 'v', not {axis!r}")
     pinned = set(pinned) if honour_pinning else set()
     if len(pinned) > frames:
-        return {"frames": frames, "unmeasurable":
+        return {"frames": frames, "axis": axis, "unmeasurable":
                 f"pinned pages ({len(pinned)}) exceed the {frames}-frame cache"}
 
     total_steps = total_miss = total_reentry = 0
@@ -549,7 +565,7 @@ def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True):
                 while len(resident) >= frames:
                     victim = next((q for q in resident if q not in pinned), None)
                     if victim is None:
-                        return {"frames": frames, "unmeasurable":
+                        return {"frames": frames, "axis": axis, "unmeasurable":
                                 "every resident frame is pinned — no eviction "
                                 "candidate; the cache cannot admit the page"}
                     resident.remove(victim)
@@ -566,7 +582,9 @@ def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True):
     px = total_steps * 8
     return {
         "frames": frames,
+        "axis": axis,
         "traverses": len(masks),
+        "traverse_length_px": (len(masks[0]) * 8) if masks else 0,
         "camera_steps": total_steps,
         "camera_travel_px": px,
         "page_ins": total_miss,
@@ -576,8 +594,12 @@ def traverse_reentry(field, w, h, frames, pinned, honour_pinning=True):
         "page_ins_per_1000px": 1000.0 * total_miss / px if px else None,
         "re_entries_per_1000px": 1000.0 * total_reentry / px if px else None,
         "worst_traverse": None if worst is None else {
-            "window_top_row": worst[0], "re_entries": worst[1],
-            "page_ins": worst[2]},
+            "traverse_index": worst[0], "re_entries": worst[1],
+            "page_ins": worst[2],
+            # the number the CPU/DMA budget is argued from: the worst single
+            # traverse's page-ins over its own length, not the act average
+            "page_ins_per_1000px": (1000.0 * worst[2] / (len(masks[0]) * 8))
+                                   if masks and masks[0] else None},
     }
 
 
@@ -789,10 +811,15 @@ def build_report(model=None, verbose=False):
     tw, th = model.win_tile_cache
     reentry = {}
     reentry_unpinned = {}
+    reentry_vertical = {}
     for frames in range(2, model.c["PAGE_FRAMES"] + 1):
+        if verbose:
+            print(f"  re-entry, {frames} frames ...", file=sys.stderr)
         reentry[str(frames)] = traverse_reentry(field, tw, th, frames, pinned)
         reentry_unpinned[str(frames)] = traverse_reentry(
             field, tw, th, frames, pinned, honour_pinning=False)
+        reentry_vertical[str(frames)] = traverse_reentry(
+            field, tw, th, frames, pinned, honour_pinning=False, axis="v")
 
     # --- the candidate-PAGE_FRAMES table
     tc_peak = windows_out["tile_cache"]["peak"]
@@ -815,6 +842,40 @@ def build_report(model=None, verbose=False):
             "pinned_pages": len(pinned),
             "free_frames_after_pinning": frames - len(pinned),
         }
+        # --- the budget, computed here rather than by hand in a doc.
+        #
+        # WORST TRAVERSE, not the act average: an average over 709 traverses of
+        # a mostly-air act is not what a frame budget is spent against. Taken as
+        # the max over the two axes, unpinned (the regime a smaller cache would
+        # actually run in).
+        worst_rate = None
+        for src in (reentry_unpinned, reentry_vertical):
+            r = src.get(str(frames))
+            if r and "unmeasurable" not in r:
+                v = (r["worst_traverse"] or {}).get("page_ins_per_1000px")
+                if v is not None:
+                    worst_rate = v if worst_rate is None else max(worst_rate, v)
+        if worst_rate is None:
+            row["budget"] = "UNMEASURABLE at this frame count (see churn rows)"
+        else:
+            # 1000 px of camera travel at the CAM_MAX_*_STEP cap
+            frames_per_1000px = 1000.0 / model.cam_step_px
+            pages_per_frame = worst_rate / frames_per_1000px
+            decode = LATENCY_INPUTS["zx0_page_decode_cycles"]["value"]
+            idle = LATENCY_INPUTS["avg_idle_cycles_per_frame"]["value"]
+            dma_budget = model.src.get("DMA_BUDGET_NTSC")
+            page_bytes = model.src.get("ART_POOL_PAGE_BYTES")
+            row["budget"] = {
+                "worst_traverse_page_ins_per_1000px": round(worst_rate, 3),
+                "pages_per_frame_at_camera_cap": round(pages_per_frame, 4),
+                "decode_cycles_per_frame": round(pages_per_frame * decode),
+                "pct_of_idle_cpu": round(100.0 * pages_per_frame * decode / idle, 1),
+                "dma_bytes_per_frame": round(pages_per_frame * page_bytes, 1),
+                "pct_of_dma_budget_ntsc":
+                    round(100.0 * pages_per_frame * page_bytes / dma_budget, 1),
+                "pct_of_admission_cap":
+                    round(100.0 * pages_per_frame / model.c["PAGE_PREFETCH_MAX"], 1),
+            }
         for label, table_src in (("pinned", reentry), ("unpinned", reentry_unpinned)):
             r = table_src.get(str(frames))
             if r is None:
@@ -881,6 +942,7 @@ def build_report(model=None, verbose=False):
         },
         "re_entry": reentry,
         "re_entry_unpinned": reentry_unpinned,
+        "re_entry_vertical_unpinned": reentry_vertical,
         "page_frames_table": table,
         "limits": limits,
     }
@@ -942,37 +1004,52 @@ def human(report):
           f"{str(row['cache_cols']) + 'x' + str(row['cache_rows']):>10}"
           f"{row['peak']:>7}{row['peak_with_pinned']:>9}  {row['note']}")
     a("")
-    for label, key in (("pinning HONOURED (as shipped)", "re_entry"),
-                       ("pinning OFF (policy lifted)", "re_entry_unpinned")):
+    for label, key in (
+            ("horizontal, pinning HONOURED (as shipped)", "re_entry"),
+            ("horizontal, pinning OFF (policy lifted)", "re_entry_unpinned"),
+            ("VERTICAL, pinning OFF", "re_entry_vertical_unpinned")):
         a(f"3. RE-ENTRY — {label}")
-        a("   LRU over the tile-cache window, every horizontal traverse")
+        a("   LRU over the tile-cache window, every traverse along that axis;")
+        a("   'worst' is the single worst traverse, which is what a budget")
+        a("   argument must use rather than the act average.")
         a(f"{'frames':>7}{'page-ins/1000px':>18}{'re-entries/1000px':>20}"
-          f"{'re-entry share':>16}")
+          f"{'re-entry share':>16}{'worst pi/1000px':>18}")
         for k in sorted(report[key], key=int):
             r = report[key][k]
             if "unmeasurable" in r:
                 a(f"{k:>7}  UNMEASURABLE: {r['unmeasurable']}")
                 continue
             frac = r["re_entry_fraction_of_page_ins"]
+            worst = r["worst_traverse"] or {}
+            wpi = worst.get("page_ins_per_1000px")
             a(f"{k:>7}{r['page_ins_per_1000px']:>18.3f}"
               f"{r['re_entries_per_1000px']:>20.3f}"
-              f"{('n/a' if frac is None else f'{frac:.1%}'):>16}")
+              f"{('n/a' if frac is None else f'{frac:.1%}'):>16}"
+              f"{('n/a' if wpi is None else f'{wpi:.3f}'):>18}")
         a("")
     a("4. CANDIDATE PAGE_FRAMES")
     a("   'fits' False = the worst screen CANNOT be drawn at that frame count")
     a("   (a live nametable word would reference an evicted page), not merely")
     a("   'more churn'.")
     a(f"{'frames':>7}{'tiles':>7}{'->objects':>11}{'fits(unpin)':>13}"
-      f"{'fits(pinned)':>14}{'reentry/1000px unpinned':>26}")
+      f"{'fits(pin)':>11}{'pages/frame':>13}{'%idle CPU':>11}{'%DMA':>7}")
     for row in report["page_frames_table"]:
-        churn = row.get("re_entries_per_1000px_unpinned")
-        churn_s = f"{churn:.3f}" if churn is not None else \
-            row.get("churn_unpinned", "-")[:24]
+        b = row.get("budget")
+        if isinstance(b, dict):
+            cells = (f"{b['pages_per_frame_at_camera_cap']:>13.4f}"
+                     f"{b['pct_of_idle_cpu']:>11.1f}"
+                     f"{b['pct_of_dma_budget_ntsc']:>7.1f}")
+        else:
+            cells = "  " + f"{str(b)[:29]:>29}"
         a(f"{row['page_frames']:>7}{row['pool_tiles']:>7}"
           f"{row['tiles_returned_to_objects']:>11}"
           f"{str(row['covers_tile_cache_peak_unpinned']):>13}"
-          f"{str(row['covers_tile_cache_peak_with_pinning']):>14}"
-          f"{churn_s:>26}")
+          f"{str(row['covers_tile_cache_peak_with_pinning']):>11}"
+          f"{cells}")
+    a("")
+    a("   pages/frame = worst-traverse page-ins per 1000 px (max over both axes,")
+    a("   unpinned) scaled by the CAM_MAX_*_STEP camera cap. %idle CPU is against")
+    a("   ARCH 9.7's ~42.5 K idle cycles; %DMA against DMA_BUDGET_NTSC.")
     a("")
     a("LIMITS")
     for k, val in report["limits"].items():
