@@ -27994,7 +27994,11 @@ it is small: a level step that size is not usually what a listener calls clippin
     immediately before the change. The transcoder has a dedicated reconciliation
     pass for exactly when S3K loads those params
     (`_apply_s3k_modset_load_points`), so there IS engine-specific machinery living
-    inside his span. **It was not tested here. This is the next lead.**
+    inside his span. **It was not tested here. This is the next lead.** —
+    **PULLED: see SP-6e.** The reconciliation pass itself is a no-op for this sound
+    (the modSet is followed by an attacked note), but two OTHER pieces of our
+    machinery do diverge inside the span: the sweep runs one frame late, and our
+    block renormalization moves the YM2612 key code. **Neither is his click.**
   * the authored discontinuity itself, which remains the best candidate for the
     percept and which this parcel does not change: modulator **S2 `$30` -> `$23`,
     13 steps = 9.75 dB** of extra modulation index, plus MUL `6` -> `1` on S1 and
@@ -28006,6 +28010,140 @@ it is small: a level step that size is not usually what a listener calls clippin
 **Nobody in this suite can**: there is no audio instrument, the emulator serves no
 `vgm_*`/`audio_*` method, and every claim here is about register values and derived
 decibels. Only the owner's ear can close it.
+
+### SP-6e — the modulation span: the sweep is ONE FRAME LATE and moves the KEY CODE — **MEASURED 2026-09-09, NOT HIS CLICK**
+
+Opened as the last remaining candidate INSIDE the span the owner named — *"sounds
+like it's clipping between the first hit and where it changes"* — and the first one
+that is OUR machinery rather than an inherited S&K characteristic. SP-6d's row above
+nominated it in as many words: *"there IS engine-specific machinery living inside
+his span. It was not tested here. This is the next lead."*
+
+**PLAIN ANSWER TO "IS ANYTHING INSIDE HIS SPAN OURS": YES — two things.** Both are
+measured, both are ours, and **neither has been shown to be what he hears.** Two of
+the last three real finds in this saga were not his artefact either; this row is
+written to be read that way from the first line rather than from a caveat at the end.
+
+**THE TRANSCODER'S MODEL OF S3K IS CORRECT.** `_apply_s3k_modset_load_points`'s
+docstring was re-checked against skdisasm's driver **by symbol** (the 2026-07-03
+line numbers still land on them): `cfModulation` stores only the data pointer and
+the on-flag; `zPrepareModulation` returns early on the no-attack bit
+(`bit 1, (ix+zTrack.PlaybackControl) / ret nz`) and seeds the step count as
+`srl a`, HALF the authored count; `zDoModulation` holds the wait at 1 once elapsed,
+reloads speed from `(iy+1)` and the FULL step count from `(iy+3)`, and negates the
+delta at a reversal. Every claim it makes is true.
+
+**AND FOR THE SPRING THE PASS IS A NO-OP.** The modSet is followed by an ATTACKED
+note (`nB3`, bit 7 clear), so the `attacked_follows` arm keeps the event verbatim.
+The lead was worth pulling, but the pass itself is not where anything is wrong.
+What is wrong sits in two places the docstring is not about.
+
+**(A) THE SWEEP IS ONE FRAME LATE — a PITCH divergence, measured.**
+S3K's note-on path is `zPrepareModulation / zUpdateFreq / zDoModulation / ...`
+(`Z80 Sound Driver.asm`:778-780) — modulation is stepped **in the note-on frame
+itself**, so one decrement of the wait is spent there and an authored wait of `$03`
+fires at note-on+2. Our `Sfx_Frame` calls `ModUpdate` **before**
+`Sequencer_Channel`, so on the frame the note keys ModUpdate has already run and
+`Mod_ReArm`'s fresh `wait=3` is untouched until the next frame: we fire at
+note-on+3. **Measured at note-on+3** by reading the SFX channel's own
+`sc_mod_accum` out of Z80 RAM.
+
+Consequence, at equal frame index across the ten-frame note:
+
+| fr | S&K blk/fnum | ours blk/fnum | cents |
+|---:|---|---|---:|
+| 2 | 3/1308 | 3/1215 | -127.7 |
+| 5 | 3/1587 | 4/747  | -104.5 |
+| 9 | 3/1773 | 4/933  | +88.5 |
+
+The whole sweep is shifted 16.7 ms, and **at the voice change S&K is one step past
+the sweep peak coming down while we are AT the peak** — 88.5 cents apart at the
+exact boundary he pointed at. This is pitch, not amplitude.
+
+**(B) THE BLOCK RENORMALIZATION MOVES THE KEY CODE — an AMPLITUDE mechanism,
+indirect.** `zDoModulation` ends `pop bc / add hl, bc`: a **plain 16-bit add** of
+the accumulator onto the packed `$A4$A0` word, so the f-number climbs 1215 -> 1866
+inside block 3 and the block is never touched. Our `Mod_Advance` splits block from
+fnum, adds only to the fnum, then renormalizes
+(`fnum >= FNUM_HI -> fnum >>= 1, block++`), landing on **block 4, fnum 654 -> 933**.
+
+That is the same chip PITCH, and `Fm_FnumApplyDelta`'s comment is right to say so —
+**measured agreement to 1.24 cents**, which is exactly the `srl h / rr l` half-LSB.
+It is **not the same KEY CODE**. The YM2612 derives KC from the block and the top
+f-number bits, and KC drives KSR and DT. **S&K's KC is CONSTANT at 15 across the
+whole span; ours steps to 16 at the first modulation frame and 17 at the peak.** The
+spring's carrier is KS=2, D1R=6, D2R=8, so +1 KC is +1 on the effective EG rate of
+both decays — a ~2^(1/4) faster carrier decay from mid-note onward.
+
+Nothing in the engine's docs acknowledges this. `Fm_FnumApplyDelta`'s long comment
+and `Mod_Advance`'s inlined twin both justify the correction **on pitch**, which is
+sound; neither notices that the correction is a **deviation from S3K** at all, nor
+that KC is a second observable it moves.
+
+**DOES ANYTHING IN THE SPAN MOVE AMPLITUDE?** No **sequenced** event does — walking
+the shipped stream from the modSet to the modOff turns up exactly one opcode,
+`MEV_NOTE_DUR`. (B) moves it indirectly through KSR, and **in the QUIETER
+direction**, which is the opposite character to clipping.
+
+**SO: NOT HIS CLICK, AND THIS ROW DOES NOT CLAIM IT IS.** (A) is pitch, and a
+uniform one-frame shift of a sweep is not what an ear calls clipping. (B) makes the
+note quieter, not louder. **Nobody in this suite can confirm what he hears**: there
+is no audio instrument — `vgm_*`, `audio_spectrum` and `get_channel_states` appear
+in the bus SCHEMA but are NOT in the running server's method table. **The next move
+is his ear against a specific A/B, not more code reading**: this row removes the
+last untested candidate inside his span.
+
+**NEITHER IS FIXED, DELIBERATELY, AND BOTH NEED HIS SIGN-OFF.** Each fix is a
+global behaviour change reaching every modulated channel in every song, not a
+spring fix:
+  * (A) means moving `ModUpdate` after `Sequencer_Channel` in BOTH `Sfx_Frame` and
+    `Sequencer_Frame` — it re-times every vibrato in the game by a frame.
+  * (B) means replacing the split-and-renormalize with S3K's plain packed add — but
+    the renormalization is load-bearing for fine detune and portamento
+    (`Fm_FnumApplyDelta` is shared), where it exists to stop a +/-127 delta
+    overflowing `fnumHi3` into the block field. Reverting it for modulation only
+    would fork the two paths.
+Both are novel bets against shipped behaviour with an audible blast radius. **FLAGGED
+FOR THE OWNER, not taken.**
+
+**Evidence:** `tools/sfx_modulation_span_gate.py`, **5 legs, exit 0**, wired into
+`tools/effects_gates.py` (`--only sfx_modulation_span`) and therefore the nightly.
+C1 the instrument is live (one `SfxChannel` at Z80 `$1D88`, located by the spring's
+OWN four latched parameters rather than by a computed address, accumulator taking 8
+distinct values over 10 frames) · L1 the engine IS the model (all 10 measured
+`sc_last_freq` words equal the file's `Mod_Advance` port — this is what licenses
+reading the tables above as claims about the engine rather than about Python) · L2
+no sequenced amplitude event in the span · L3 the transcode preserved the authored
+program and the note is attacked · L4 the load lag is exactly one frame. Every
+expectation is derived from the two drivers' own constants and control flow; L4's
+`+1` is read out of `sound_sfx.emp`'s call order at run time, and the gate refuses
+(Unmeasurable, exit 2) rather than asserting a number it can no longer derive.
+
+**RED-FIRST, four of five legs, each mutation shown on disk and restored from the
+committed baseline:**
+  * **L1** — ROM `$0BDAA8` note index `$2F` -> `$2B` (md5 `e62c43ee…` -> `c7eef4a8…`),
+    the on-disk blob the model reads untouched: `10/10` frames diverge, exit 1.
+  * **C1** — ROM `$0BDAA9` note duration `$0A` -> `$02` (md5 -> `9ba842d0…`): the
+    accumulator never leaves 0, exit 1 with C1, L4 and L1 all naming the truncation.
+    (An earlier draft raised `Unmeasurable` here and **hid** the C1 failure behind
+    an exit 2; the ordering was fixed so a dead instrument reads as a FAIL.)
+  * **L2** — the shipped `sfx_B1.bin` reordered so `MEV_PATCH` falls inside the span
+    (md5 `ef425178…` -> `3c771896…`, restored bit-for-bit): exit 1, and L1/C1/L4 stay
+    green because the ROM was not touched.
+  * **L3** — `SKDISASM_DIR` pointed at a copy whose authored `smpsModSet` delta is
+    `$4D` not `$5D`: exit 1 naming both operand tuples.
+  * **L4 could NOT be redded by any in-band data poison, and this is recorded rather
+    than papered over.** All four modSet operands ARE the signature the gate locates
+    the channel by, so any poison that moves the load point also makes the channel
+    unfindable (Unmeasurable, not red). Its discrimination was nonetheless OBSERVED:
+    the file's first run went red at exit 1 because the derivation was written as
+    `wait + 1` when the correct derived value is `wait` (S3K's is `wait - 1`; the
+    `+1` is the DIFFERENCE between the drivers, not an addend on the authored wait).
+    A genuine change to the engine's call order would move `measured_lag` while the
+    derived value stayed at `wait` — and `sfx_frame_order()` refuses first.
+
+**WHAT THIS DOES NOT ESTABLISH.** That the artefact is gone; that either divergence
+is audible at all; that it is what he described. Nobody here can hear the spring.
 
 ### SP-6b — per-channel NON-ZERO INITIAL voice in an SFX (opened 2026-09-09)
 
