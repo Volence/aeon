@@ -27807,6 +27807,91 @@ landing.
 
 **Left open, deliberately kept separate (see SP-6b).**
 
+### SP-6c — the spring's click: INHERENT to the donor data, not to our switch — **ANSWERED 2026-09-09, owner decision open**
+
+The owner listened to SP-6's spring and reported: *"Ok this actually sounds better
+and correct! Only issue is there's an audible click/pop in it"*. The sound being
+right is settled by his ear. The click had two possible answers with very different
+consequences — **(a)** inherent to changing an FM voice under a sounding note, in
+which case it is a design constraint and the call is his taste; or **(b)** a bug in
+how we perform the switch, in which case SP-6 is not finished.
+
+**THE ANSWER IS (a).** Sonic & Knuckles ships this exact sound from this exact
+data, so the decisive comparison was available locally. Both drivers were expanded
+from their own sources and diffed write for write by
+`tools/sfx_voice_change_regdelta.py` (wired into build.sh's pre-build pytest lane):
+for **both** voices, all **25** YM2612 registers written by both drivers carry
+**identical values**. Our `Fm_PatchLoad` puts S&K's bytes in S&K's registers.
+
+**WHERE THE DISCONTINUITY IS.** Eight registers change value across the change.
+Four are TL. TL is consumed with no smoothing (Nuked-OPN2 adds `eg_tl << 3` to the
+level every sample), so a TL write is a waveform step on the *next sample*. The
+largest is modulator **S2 (`$48+ch`) `$30` -> `$23`: thirteen steps, 9.75 dB** of
+modulation index, instantaneously, on a keyed-on note. **That jump is in S&K's own
+authored voice pair.** The other four movers (`$30`/`$38` DT/MUL, `$50`/`$58`
+RS/AR) are phase-continuous or envelope-slope only and cannot step the level —
+GPGX advances the EG level only at EG ticks and re-tests `volume >= sl`, so even a
+D1L change does not rewind or jump the envelope.
+
+**THE TIMING IS THE SAME ON BOTH SIDES TOO**, which is what closes off "we hold the
+new voice under the old note longer than they do": `MEV_PATCH` is a **zero-tick**
+opcode (`Seq_Op_Patch` falls straight through to `Sequencer_NextOpcode.fetch`,
+sound_sequencer.emp:1345-1358), exactly as S&K's coordination flags do, so the
+following `nC5` note-on lands in the *same tick* in both drivers. The stream is a
+1:1 transcode of `B1 - Spring.asm` including that ordering.
+
+**FOUR REAL DIFFERENCES IN THE WRITE SET, EACH CHECKED AND EACH INERT HERE:**
+1. S&K's `cfSetVoice` calls `zSetMaxRelRate` first (`$80+op <- $FF`, all four ops)
+   and we do not. **No-op for this voice pair** — its RR is already `$0F` on every
+   operator in both voices, so the write changes nothing that is not immediately
+   overwritten. It is a de-click only for a channel still *releasing*, not for a
+   keyed-on one.
+2. We write TL **third**; S&K writes it **last**, via `zSendTL`. This changes which
+   intermediate state is briefly audible (~0.5 ms vs ~0.1 ms before the key-off),
+   not the final step. **The step itself is the click, and it is present either
+   way.** Not substantiated as a documented ordering rule anywhere searched.
+3. We write four `$90` SSG-EG registers; S&K's 25-byte record has no SSG-EG bytes
+   and `zSendFMInstrument` never writes `$90`. Ours are **`$00` in both voices**, so
+   the write is a state no-op here. (It would *not* be inert in general — enabling
+   SSG-EG mid-note asserts a phase-generator reset in the die model.)
+4. We source `$B4` from the patch record, S&K from track RAM (`AMSFMSPan`).
+   **`$C0` in both voices**, so nothing moves.
+
+**THE ONE THING THAT IS OURS AND NOT S&K'S.** Voice 0's carrier TL (`$4C`) is `$02`
+where S&K's is `$00` with bit 7 set — its "add the track volume at upload time"
+flag, consumed by `zSendTL` (`Z80 Sound Driver.asm`:3186-3194). Our transcoder
+bakes the channel volume in at **build** time and baked it into **voice 0 only**, so
+our **carrier** steps 2 TL units (1.50 dB) across the change where S&K's steps
+**zero**. That is a level bump, not the pop — the modulator jump is ~6x larger —
+but it is a genuine asymmetry, it is printed by the gate's L3 leg on every run, and
+it is the one thing in this row that is worth fixing on its own merits.
+
+**CAN IT BE MITIGATED AT ALL? YES, AND IT NEEDS THE OWNER'S CALL.** Plutiedev's
+own instrument-loading note says *"Stop channel if needed (to avoid stray
+noises)"*. Neither S&K nor we do that. In our engine it is roughly **7 Z80 bytes**
+in `Seq_HookSetPatch`: `bit SCF_KEYED_B,(ix+sc_flags)` (4 bytes: `DD CB dd op`)
+/ `call nz, Fm_NoteOff` (3 bytes: `C4 nn nn`) before `Fm_PatchLoad`. For the spring this removes the discontinuity outright,
+because the note is retriggered a moment later anyway and would lose nothing.
+**IT IS NOT FREE, AND THAT IS WHY IT IS NOT SHIPPED HERE:** `Seq_HookSetPatch` is
+the MUSIC path too, and a song that changes timbre mid-sustain (a legato voice
+change with no following note-on) would have that note **cut**. Whether any of our
+content does that is a content question, not an engine one. Three ways to take it,
+in increasing cost:
+  * **Do nothing.** S&K ships the same click; the sound is the owner's approved one.
+  * **Key off before the patch load, SFX channels only.** Gate the new `Fm_NoteOff`
+    on `Snd_ChanClass` returning carry-clear. Music is untouched by construction,
+    and SFX voice changes in SMPS content are always immediately followed by a
+    note. **12 bytes** = the 7 above plus `call Snd_ChanClass` (3) + `jr c,skip`
+    (2); `hl` is free at that point in the hook, which is what makes the class test
+    cost nothing extra. **This is the recommended shape if he wants it gone.**
+  * **Edit the donor data** — soften voice 1's modulator TLs toward voice 0's. This
+    changes the sound he just approved, so it is his call and not a fix.
+
+**WHAT NONE OF THIS ESTABLISHES.** It does not say the click is present, does not
+say it is absent, and could not say a fix removed it. There is no audio instrument
+in this suite. **Only his ear can close that**, and the ROM to test it with is the
+one this row's branch builds.
+
 ### SP-6b — per-channel NON-ZERO INITIAL voice in an SFX (opened 2026-09-09)
 
 Distinct from SP-6 and deliberately not folded into it. SP-6 made a **mid-stream**
