@@ -27680,6 +27680,40 @@ palette). Three routes, none taken — it is a content call:
 
 ### SP-6 — mid-stream FM voice change in an SFX (opened 2026-09-07)
 
+**⚠⚠ RETRACTION, SAME DAY — THE "PREREQUISITE" IN THE AMENDMENT BELOW IS WRONG, AND I VERIFIED IT
+WRONG MYSELF. `sc_patch` IS INITIALISED ON THE SFX PATH.** `engine/sound/sound_sfx.emp:1002-1015`
+wipes the whole chosen slot before populating it — `push ix` / `pop hl`, `ld b, SfxChannel_len`, then
+a hand-rolled `.wipe` `djnz` storing 0 through `hl` across all 68 bytes. `sc_patch` is at +6, so it
+is **zeroed at every SFX dispatch**. There is no stale-index hazard and no unbooked prerequisite:
+`d07fb811` is not reintroduced by honouring the index.
+
+**HOW BOTH OF US MISSED IT, AND THE TWO MECHANISMS ARE DIFFERENT — WHICH IS THE POINT.** The research
+agent enumerated `(ix+field)` writes and searched `ldir|Snd_ClearChan|ZeroChan|clear.*Sfx`; the wipe
+writes through `hl` and is labelled `.wipe`, so it was invisible to a vocabulary guessed rather than
+derived from *what writes that address*. **My own check was worse: my grep DID include
+`SfxChannel_len`, it returned 44 hits, I took `head -10`, and the decisive hit is at line 1011** —
+with an `ensure` at `:1136-1137` naming `.wipe` by name eleven lines further on. **I then asserted
+"there is no bulk struct clear" and banked it.** That is this file's own bar — *a completeness claim
+about a TRUNCATED view, and the truncation leaves no mark* — committed by the controller inside a
+commit correcting somebody else's stale claim.
+
+**THE REUSABLE HALF: two independent verifications agreed and were both wrong, because they shared a
+FRAME** (enumerate by guessed name) **while differing in every surface detail.** Mutual verification
+cannot catch a shared frame; only a changed frame can. The frame that would have worked is the one
+neither of us used: **ask what WRITES that address**, not what the writer might be called. And note
+the asymmetry that makes truncation the nastier of the two — a guessed vocabulary can be argued
+about, whereas `head -N` produces a clean, plausible, complete-looking answer with nothing in it
+saying a cut occurred.
+
+**WHAT THIS DOES TO THE FOLLOW-ON (gap 1, the per-channel non-zero INITIAL voice):** it stops being
+independent the moment SP-6 ships. If gap 1 is implemented by pointing `sx_patch_base` at
+`bank_base + N*32` while `Fm_PatchPtr` computes `bank_base + (N + sc_patch)*32`, then `MEV_PATCH 0`
+selects voice N and every later index is offset by it. **The initial voice must travel as an INDEX
+written into `sc_patch` at init, with `sx_patch_base` kept as the immutable bank base.** The
+"independent and free" framing was true when written — `Fm_PatchPtr` ignored the index then — and it
+was *shipping SP-6 that created the coupling*. A correct claim with a shelf life measured in one
+parcel.
+
 **⚠ AMENDED 2026-09-09 — THIS ROW'S STATED HAZARD IS STALE, AND THE CONTROLLER PASSED IT INTO AN
 AGENT BRIEF AS "measured, not theorised" BEFORE CHECKING IT.** The refusal at
 `tools/sfx_transcode.py:374` says a stream `MEV_PATCH` re-resolves through the MUSIC patch table
