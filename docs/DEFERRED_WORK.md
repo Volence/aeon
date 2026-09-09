@@ -30242,3 +30242,50 @@ per-commit. If it is expensive on their side the right answer is for it to stay 
 says so. Their `[Error]`-renderer work is the precedent for what a small change here unlocks — and
 also the precedent for the trap, since that fix turned out **not** to be what actually blocked
 LS-16c.
+
+## A REFERENCE TREE MUST BE PREPARED *AND* EXCLUSIVE — AND THE WRITER YOU FAIL TO RULE OUT IS YOUR OWN (2026-09-09)
+
+**The sigil lane's finding, sharpened by their own correction of it, and it lands on this repo's
+declared trees as hard as on theirs.** They adopted an aeon worktree as their reference, verified it
+by digest at boot, and wrote *"PREPARED, READ-ONLY for you"* into four agent briefs. **That sentence
+is true about what the AGENT may do and says nothing about what anyone else may do, while reading as
+a property of the tree.**
+
+**THE SHARPER FORM, which is the version to keep: the question is not only who ELSE writes to the
+tree, it is whether the lane asking has ruled out ITS OWN GATES.** They were watching for a foreign
+writer *while running the writer* — eight of their test binaries call `emit_generated` into whatever
+`AEON_DIR` names, by absolute path, from any cwd. **A shared tree manufactures a FALSE GREEN as
+easily as a false red**: a gate that should have refused, finding an artifact an earlier run of its
+own rebuilt. The false green is the half nobody goes looking for.
+
+**SELF-APPLICATION, measured here rather than accepted as a peer's lesson.** `build.sh:399` writes
+`--aeon . --out-dir engine/sound/generated`, both paths **relative to the build tree's cwd**, so an
+aeon build structurally cannot reach a sibling. But **`tools/test_extern_guard_reachability.py`,
+landed tonight, IS a writer**: `sigil build --check` on a sound-ON game runs `emit_generated` into
+`engine/sound/generated/`, and the gate resolves `AEON = Path(__file__).resolve().parent.parent`. So
+**any tree holding our tools/ is written to by our own pytest lane** — including every DECLARED
+reference tree in `docs/OVERSEER.md` if a suite is ever run there.
+*Mitigating, and it is why this is a hazard rather than an incident: that gate DIGESTS the directory
+on both sides of its own sweep and asserts nothing changed, so it grades its own writes rather than
+claiming they are harmless. It is a writer that checks itself. It is still a writer.*
+
+**OPERATIONAL, adopted:** before declaring or adopting a reference tree, enumerate **what writes to
+it, starting with your own gates**, and prefer a tree where a write is **the thing that fails**
+rather than the thing that passes. `git status` cannot answer this — the artifacts are gitignored,
+which is this file's own *a killed freeze leaves a half-state `git status` cannot see* arriving on a
+different operation.
+
+**⚠ AND THE TIMESTAMP TRAP THAT NEARLY PRODUCED A SECOND WRONG REPORT** (theirs, disclosed
+unprompted): their first check formatted an mtime with a **trailing literal `Z` in the format
+string**, so a LOCAL time rendered as `…T21:04:06Z` and read as UTC — **four hours off, which would
+have moved the write outside their own run and back onto this lane.** `--time-style=full-iso` prints
+the real offset and settles it. **A timestamp carrying a timezone marker it did not earn** is the
+companion to this repo's existing *`stat` prints local time and your evidence is in UTC* rule, and
+it is worse, because the bare wall-clock at least looks ambiguous while a false `Z` looks resolved.
+
+**HOW IT WAS CAUGHT, recorded because the method is the transferable part.** Their agent reported the
+writes as *"by aeon session 38649c2b"* and they relayed that to this lane as fact. **One question —
+*how did you attribute it?* — was the whole audit**, and they had never established it. The structural
+half was already available here: our writes are cwd-relative and cannot reach a sibling; theirs
+resolve an absolute path from `AEON_DIR`. **Deducing the SHAPE of the writer from the mechanism beat
+the timestamp evidence on both sides**, and the timestamp evidence was the part that was wrong.
