@@ -2,8 +2,8 @@
 """spring_launch_witness — is a solid's SIDE face really solid, and do the springs launch?
 
 THE CLAIM UNDER TEST is not "the spring object builds" and not "Touch_Spring is
-reachable in the listing". It is eight runtime facts about a real player meeting real
-objects placed in real level data. SIX DRIVE LEGS AND TWO CONTROLS, and the count is
+reachable in the listing". It is eleven runtime facts about a real player meeting real
+objects placed in real level data. EIGHT DRIVE LEGS AND THREE CONTROLS, and the count is
 asserted at the end so a leg that silently did not run cannot be read as a leg that
 passed:
 
@@ -37,6 +37,18 @@ passed:
                    would not distinguish "the spring launches" from "the spring launches
                    whatever touches it", which is what an object with no direction gate
                    at all would do and what L5 alone would happily call a pass.
+
+  L8 TUMBLE        a vertical launch throws the player into S3K's twelve-frame body
+                   ROTATION: the spin arms, the drawn mapping frame stays inside
+                   Player_TumbleFrames' own set, it takes at least the DERIVED number of
+                   distinct frames (a spin that arms but never advances draws one pose for
+                   the whole flight -- Sonic 2's spring, not Sonic 3's), and it ENDS.
+
+  C3 SIDE NO SPIN  the CONTROL on L8: the same side spring L5 drives must NOT arm the
+                   rotation. Without it L8 cannot tell the seed sitting on the vertical
+                   launch arm -- where this engine put it, because the horizontal arm
+                   leaves the player GROUNDED -- from a seed that fires on every spring in
+                   the game, which is one `jbsr` moved a few lines up.
 
   C2 TOP LAND      the CONTROL on the shared top face: landing on the TOP of a
                    SIDE-pointing spring must be an ordinary landing and must NOT produce
@@ -249,9 +261,20 @@ JUMP_DX = 20             # px to the LEFT of the down spring the L6 jump starts 
                          # axis at y=487. At 20 he is 7px off at band entry.
 JUMP_TRACE_FRAMES = 45   # frames of ascent sampled before the underside contact
 WALK_FRAMES = 300        # frames of walking L7 allows before it calls the corridor broken
-DRIVE_LEGS = 7           # L1 · L2 · L3 · L4 · L5 side launch · L6 underside · L7 walk
-CONTROL_LEGS = 2         # C1 back face · C2 top land
+DRIVE_LEGS = 8           # L1 · L2 · L3 · L4 · L5 side launch · L6 underside · L7 walk
+                         # · L8 tumble
+CONTROL_LEGS = 3         # C1 back face · C2 top land · C3 side launch does not tumble
 LEGS = DRIVE_LEGS + CONTROL_LEGS
+
+# --- L8/C3, the spring TUMBLE (the S3K rotation a vertical launch throws him into).
+#
+# Every number this pair compares against is DERIVED from the constants that build the
+# mechanism (games/sonic4/player/player_common.emp), never copied from a run — see
+# tumble_model(). The one number here is a sampling allowance, not an expectation:
+TUMBLE_EXTRA_FRAMES = 40 # frames sampled BEYOND the derived tumble duration, so a spin
+                         # that never ends is measured as never ending rather than as a
+                         # window that happened to stop first. It only has to be
+                         # positive; nothing is tuned to it.
 
 # The four directions this engine implements, and the two strengths, spelled exactly as
 # the published `ObjSub_Spring__<Dir>_<Strength>` equates spell them — these strings are
@@ -546,6 +569,91 @@ def spring_launch_table(rom: str, sym: dict, equ: dict, mags: tuple) -> tuple:
 
 # --------------------------------------------------------------------------- machine
 
+def emp_const(path, name):
+    """`const NAME = <int>` (with or without `pub`) out of an .emp file.
+
+    The tumble constants are `const`, not `equ`, so they emit NO listing row — this
+    file's own SPRING_RED_VELOCITY note already records that distinction. Reading
+    the source is therefore the only way to name them, and it is the right way
+    round: a leg whose expectation came from the ROM it is testing would agree with
+    any value the ROM happened to hold.
+    """
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError as e:
+        raise Unmeasurable(f"cannot read {path} to derive the tumble model: {e}")
+    m = re.search(r'^\s*(?:pub\s+)?const\s+' + re.escape(name) +
+                  r'\s*=\s*(\$?[0-9A-Fa-f]+)\s*(?://.*)?$', text, re.M)
+    if not m:
+        raise Unmeasurable(f"no `const {name} = <int>` in {path} — the tumble model "
+                           f"cannot be derived, and this run must not guess it")
+    raw = m.group(1)
+    return int(raw[1:], 16) if raw.startswith('$') else int(raw)
+
+
+def tumble_model():
+    """What the tumble MUST do, derived from the constants that implement it.
+
+    Nothing here is a measurement and nothing is a pin. Each value falls out of the
+    five constants in player_common.emp, so retuning the tumble moves this model
+    with it and a leg cannot silently keep asserting the old shape:
+
+      frames_per_rev  a revolution is TUMBLE_ANGLE_SPAN angle units and the step
+                      adds SPRING_FLIP_STEP of them per frame
+      duration        SPRING_FLIP_REVS is the count still owed AFTER the one in
+                      progress, so the spin is (REVS + 1) whole revolutions
+      frame_lo/hi     the twelve mapping frames Player_TumbleFrames can produce
+      distinct(n)     over n tumbling frames the angle sweeps n*STEP units, and a
+                      new mapping frame begins every TUMBLE_ANGLE_PER of them —
+                      floored, so this is a LOWER bound on what must be seen and
+                      never an exact count the leg could be tuned to
+
+    The three instructions the model depends on are re-read (require_spelling
+    below), so a re-spelled routine fails loud instead of leaving this stale.
+    """
+    P = "games/sonic4/player/player_common.emp"
+    span = emp_const(P, "TUMBLE_ANGLE_SPAN")
+    per = emp_const(P, "TUMBLE_ANGLE_PER")
+    base = emp_const(P, "TUMBLE_FRAME_BASE")
+    count = emp_const(P, "TUMBLE_FRAMES")
+    step = emp_const(P, "SPRING_FLIP_STEP")
+    revs = emp_const(P, "SPRING_FLIP_REVS")
+    if step <= 0 or span <= 0 or per <= 0 or count <= 0:
+        raise Unmeasurable(f"the tumble constants are not all positive "
+                           f"(span={span} per={per} count={count} step={step})")
+
+    src = open(P, encoding="utf-8").read()
+    for pat, why in (
+        (r'^\s*jbsr\s+Player_StepFlip\b',
+         "the tumble is only clocked if Player_Display still calls Player_StepFlip; "
+         "without that call flip_angle never advances and L8 would be measuring a "
+         "frozen angle"),
+        (r'^\s*jbsr\s+Player_ApplyTumble\b',
+         "the rotation is only DRAWN if Player_Display still calls Player_ApplyTumble; "
+         "without it the angle would tick with nothing on screen"),
+        (r'^\s*jbsr\s+Player_StartSpringFlip\b',
+         "nothing arms the tumble if the spring hook no longer seeds it"),
+    ):
+        target = src if "StartSpringFlip" not in pat else \
+            open("games/sonic4/objects/test_solid.emp", encoding="utf-8").read()
+        if not re.search(pat, target, re.M):
+            raise Unmeasurable(f"`{pat}` is gone — {why}")
+
+    frames_per_rev = span // step
+    return dict(
+        frames_per_rev=frames_per_rev,
+        duration=(revs + 1) * frames_per_rev,
+        frame_lo=base, frame_hi=base + count - 1, frames=count,
+        step=step, per=per, span=span, revs=revs,
+        # ANIM_RUN is a `pub const` and so emits NO listing row — it has to come from
+        # the source, and it must not fall back to a literal: a wrong value here would
+        # silently widen or narrow which frames L8 is willing to inspect, and the leg
+        # would still print a pass.
+        anim_run=emp_const("games/sonic4/config/constants.emp", "ANIM_RUN"),
+        distinct=lambda n: min(count, (n * step) // per),
+    )
+
+
 class Probe:
     def __init__(self, bus, sym, equ):
         self.b, self.sym, self.equ = bus, sym, equ
@@ -581,7 +689,18 @@ class Probe:
         # and NOT inferred from "it is PlayerV's first field", either of which would go
         # silently wrong on an overlay reorder and read a neighbouring field as a speed.
         gsp = await self.sword(self.player + self.equ["_pl_gsp"])
-        return dict(x=px, y=py, xv=xv, yv=yv, status=st, w=pw, h=ph, gsp=gsp)
+        # The spring tumble's live state, located the same way gsp is and for the
+        # same reason: through the offset symbols the game exports for a witness
+        # (`_pl_flip_angle` / `_pl_flips_remaining`), never as a literal and never
+        # as "the field after X". `mframe` is what the player is actually DRAWN as
+        # — the whole point of L8 — and `anim` is the id the classifier picked,
+        # which is what decides whether the tumble is allowed to draw at all.
+        flip = int(await self.rd(self.player + self.equ["_pl_flip_angle"], 1), 16)
+        revs = int(await self.rd(self.player + self.equ["_pl_flips_remaining"], 1), 16)
+        mframe = int(await self.rd(self.player + self.equ["SST_mapping_frame"], 1), 16)
+        panim = int(await self.rd(self.player + self.equ["SST_anim"], 1), 16)
+        return dict(x=px, y=py, xv=xv, yv=yv, status=st, w=pw, h=ph, gsp=gsp,
+                    flip=flip, revs=revs, mframe=mframe, anim=panim)
 
     async def springs(self, spring_code_addr):
         """Every LIVE dynamic slot whose dispatch word is Spring_Main's.
@@ -623,6 +742,41 @@ class Probe:
 
     async def anim(self, sst):
         return int(await self.rd(sst + self.equ["SST_anim"], 1), 16)
+
+    async def step_frame_to_render(self):
+        """Advance one frame and stop at Render_Sprites — a FIXED, meaningful PC.
+
+        WHY NOT run_frames(1): it stops at a fixed CYCLE, and where the game is at that
+        instant moves with load, so a sample can land INSIDE Player_Display. Measured
+        2026-09-09 over a 125-frame flight, there are TWO such windows and they look
+        different, which is why a value-based filter cannot close them:
+
+          between AnimateSprite and Player_StepFlip   flip_angle stale, mapping_frame raw
+          between Player_StepFlip and Player_ApplyTumble  flip_angle FRESH, mapping_frame raw
+
+        The second is indistinguishable from a finished frame by any reading of the
+        values alone — the clock has advanced and the pose has not — so the fix has to be
+        the sample POINT, not a filter over samples.
+
+        WHY TWO run_to CALLS: `run_to` is satisfied by the address it is already parked
+        on, so repeating one target returns "reached" having run nothing (measured: a
+        168-sample loop froze on one frame, identical y and y_vel on every row).
+        Alternating two targets that each occur once per frame means neither call is ever
+        already-satisfied, so each pair advances exactly one frame.
+
+        WHY Render_Sprites is the right one to READ at: it is the routine that CONSUMES
+        mapping_frame to build the sprite table. Whatever it sees is what the player is
+        drawn as, which is the only thing this leg is actually about.
+        """
+        a = await self.b.call("emulator/run_to",
+                              {"addr": hex(self.sym["Player_Display"]), "maxFrames": 4})
+        if not a.get("reached"):
+            return dict(reached=False, which="Player_Display")
+        b = await self.b.call("emulator/run_to",
+                              {"addr": hex(self.sym["Render_Sprites"]), "maxFrames": 4})
+        if not b.get("reached"):
+            return dict(reached=False, which="Render_Sprites")
+        return dict(reached=True)
 
     async def run_to_hook(self, max_frames):
         """Stop the machine INSIDE Game.spring_launched, before the player's own tick.
@@ -1511,6 +1665,253 @@ async def test_top_land(pr, spring, out, leg):
     return fails
 
 
+async def test_tumble(pr, spring, model, out, leg):
+    """L8: a vertical launch puts the player into the twelve-frame S3K rotation.
+
+    THE CLAIM IS THE STATE MACHINE, NOT THE LOOK. Nobody in this process can say the
+    rotation looks right — only the owner can, and that is expected. What IS
+    mechanically checkable is the thing a wrong implementation gets wrong, and this
+    leg asserts all four parts of it:
+
+      ARMED      the launch leaves flip_angle non-zero. Without this the other three
+                 are vacuous, so it is checked first and separately.
+      DRAWN      while the tumble is live and the classifier has picked walk/run, the
+                 mapping frame is inside Player_TumbleFrames' twelve. A frame outside
+                 that band means the rotation is indexing art it does not own — the
+                 exact failure the frame-base ensure exists to prevent, caught here
+                 from the runtime side.
+      ROTATING   it takes at least the DERIVED number of distinct frames. This is the
+                 part a static gate cannot reach and the part most likely to be
+                 wrong: an implementation that arms the angle but never advances it,
+                 or that advances it but re-derives the same frame, draws ONE pose for
+                 the whole flight — which is Sonic 2's spring, not Sonic 3's, and
+                 would pass every other check in this file.
+      ENDS       flip_angle returns to zero. A tumble that never ends is the worst
+                 failure available here: the player would keep rotating through the
+                 rest of the act, and it looks CORRECT for the first second.
+
+    The expectations come from tumble_model(), i.e. from the constants that build the
+    mechanism, not from a measurement of it.
+    """
+    if spring["yv"] >= 0 or spring["xv"] != 0:
+        raise Unmeasurable(
+            f"{leg}: the spring at (x={spring['x']},y={spring['y']}) carries "
+            f"({spring['xv']},{spring['yv']}) — this leg is about an UPWARD spring "
+            f"(x_vel zero, y_vel negative) and that is not one")
+
+    # The same drop L4 uses, and for the same reason: it is the ordinary way a player
+    # meets an up spring, so the tumble is measured on the path it will actually be
+    # seen on rather than on a poked-in velocity.
+    start_y = spring["y"] - DROP_HEIGHT
+    await pr.put_player(x=spring["x"], y=start_y, xv=0, yv=0, gsp=0)
+    got = await pr.player_state()
+    if got["y"] != start_y or got["x"] != spring["x"]:
+        raise Unmeasurable(f"{leg}: the poke did not take — asked for ({spring['x']},"
+                           f"{start_y}), the slot reads ({got['x']},{got['y']})")
+    out.append(f"  {leg}: up spring at (x={spring['x']},y={spring['y']}) launch "
+               f"({spring['xv']},{spring['yv']}); dropped from y={start_y}")
+
+    r = await pr.run_to_hook(DROP_FRAMES)
+    if not r.get("reached"):
+        raise Unmeasurable(f"{leg}: the launch hook never ran within {DROP_FRAMES} frames — "
+                           f"no launch happened, so nothing about the tumble was measured")
+    before = await pr.player_state()
+    if before["flip"] != 0:
+        raise Unmeasurable(
+            f"{leg}: flip_angle already reads {before['flip']} at the hook, BEFORE the seed "
+            f"runs — a leftover spin is in progress and this leg cannot tell the launch's "
+            f"own tumble from it")
+
+    window = model["duration"] + TUMBLE_EXTRA_FRAMES
+    seen_frames, samples = set(), []
+    armed_at, ended_at, ended_airborne = None, None, None
+    outside = []
+    tumbling_frames = 0
+    # SAMPLED AT Render_Sprites, one frame at a time — see Probe.step_frame_to_render
+    # for why a plain run_frames(1) cannot answer this leg's question.
+    for f in range(window):
+        r = await pr.step_frame_to_render()
+        if not r.get("reached"):
+            raise Unmeasurable(
+                f"{leg}: {r.get('which')} was not reached within 4 frames on sample "
+                f"{f + 1} — the player stopped being displayed or drawn, so every sample "
+                f"after this one would be a stale read of the last frame that was")
+        st = await pr.player_state()
+        samples.append(st)
+        in_air = (st["status"] >> ST_IN_AIR) & 1
+        if st["flip"]:
+            if armed_at is None:
+                armed_at = f + 1
+            tumbling_frames += 1
+            # The pose is only the tumble's to own on the walk/run ids — every other
+            # animation suppresses it by design (a curled launch keeps spinning as a
+            # ball), so a frame outside the band is only a fault on those ids.
+            if st["anim"] <= model["anim_run"]:
+                seen_frames.add(st["mframe"])
+                if not (model["frame_lo"] <= st["mframe"] <= model["frame_hi"]):
+                    outside.append((f + 1, st["mframe"], st["anim"]))
+        elif armed_at is not None and ended_at is None:
+            ended_at = f + 1
+            ended_airborne = bool(in_air)
+
+
+    fails = []
+    if armed_at is None:
+        fails.append(
+            f"{leg}: THE TUMBLE NEVER ARMED — flip_angle stayed 0 for all {window} frames "
+            f"after the launch hook ran. The spring threw him but nothing seeded the "
+            f"rotation, so he flies in the walk/run cycle exactly as before this feature.")
+        out.append(f"  {leg}: armed=NO over {window} frames")
+        return fails
+
+    out.append(f"  {leg}: armed on frame {armed_at} (flip_angle {samples[armed_at-1]['flip']}, "
+               f"flips_remaining {samples[armed_at-1]['revs']}); tumbled {tumbling_frames} "
+               f"frames, each sampled at Render_Sprites; distinct mapping frames "
+               f"{sorted(hex(v) for v in seen_frames)}")
+    out.append(f"  {leg}: model — {model['frames']} frames ${model['frame_lo']:02X}-"
+               f"${model['frame_hi']:02X}, step {model['step']}/frame over a "
+               f"{model['span']}-unit revolution = {model['frames_per_rev']} frames each, "
+               f"{model['revs'] + 1} revolutions = {model['duration']} frames")
+
+    if outside:
+        # A WINDOW AROUND EACH ONE, not just the frame number. "Drew the wrong frame"
+        # has several possible causes that the frame index alone cannot separate — the
+        # pose routine not running, the angle being re-seeded mid-flight, the player
+        # touching down for a frame — and they are told apart by what flip_angle,
+        # ST_IN_AIR and the anim id were doing on the frames either side.
+        for n, _m, _a in outside[:4]:
+            lo, hi = max(1, n - 2), min(len(samples), n + 2)
+            out.append(f"  {leg}: window around frame {n} —")
+            for k in range(lo, hi + 1):
+                s = samples[k - 1]
+                out.append(f"    f{k:>3} flip={s['flip']:>3} revs={s['revs']} "
+                           f"anim={s['anim']} map=${s['mframe']:02X} "
+                           f"air={(s['status'] >> ST_IN_AIR) & 1} "
+                           f"status=${s['status']:02X} y={s['y']} yv={s['yv']}"
+                           + ("   <-- outside" if k == n else ""))
+        shown = ", ".join(f"frame {n}: mapping ${m:02X} on anim {a}" for n, m, a in outside[:6])
+        fails.append(
+            f"{leg}: THE ROTATION DREW OUTSIDE ITS OWN FRAME SET on {len(outside)} sampled "
+            f"frame(s) ({shown}) — Player_TumbleFrames can only produce "
+            f"${model['frame_lo']:02X}-${model['frame_hi']:02X}, so the player is being "
+            f"drawn as art the tumble does not own")
+
+    need = model["distinct"](tumbling_frames)
+    if len(seen_frames) < need:
+        fails.append(
+            f"{leg}: THE ROTATION DID NOT ROTATE — over {tumbling_frames} tumbling frames "
+            f"the angle sweeps {tumbling_frames * model['step']} units at "
+            f"{model['per']} units per frame, so at least {need} distinct mapping frames "
+            f"must be drawn; {len(seen_frames)} was "
+            f"({sorted(hex(v) for v in seen_frames)}). One pose held for the whole flight "
+            f"is the Sonic 2 spring, not the Sonic 3 one")
+
+    if ended_at is None:
+        last = samples[-1]
+        fails.append(
+            f"{leg}: THE TUMBLE NEVER ENDED — flip_angle still reads {last['flip']} "
+            f"(flips_remaining {last['revs']}) after {window} frames, against a derived "
+            f"duration of {model['duration']}. He keeps rotating for the rest of the act, "
+            f"and it looks correct for the first second")
+    else:
+        how = "the revolutions ran out" if ended_airborne else "he landed"
+        out.append(f"  {leg}: ended on frame {ended_at} ({how}); derived duration "
+                   f"{model['duration']} frames")
+        if ended_airborne and ended_at < model["duration"]:
+            fails.append(
+                f"{leg}: the tumble ended IN THE AIR on frame {ended_at}, short of its "
+                f"derived {model['duration']}-frame duration — the angle reached 0 without "
+                f"spending its revolutions, which is the early-and-silent stop the "
+                f"TUMBLE_SEED_ANGLE ensure exists to make impossible")
+    return fails
+
+
+async def test_side_does_not_tumble(pr, spring, model, out, leg):
+    """C3: the CONTROL on L8 — a SIDE launch must NOT arm the rotation.
+
+    Without this leg L8 is nearly vacuous in the direction that matters. L8 would pass
+    identically whether the seed is on the vertical launch arm (where it belongs, and
+    where this parcel put it) or fired unconditionally on every spring in the game —
+    and the second of those is a real, easy mistake: the seed is one `jbsr`, and moving
+    it a few lines up in Spring_Launched puts it ahead of the arm split.
+
+    It is also the leg that pins the parcel's stated SCOPE. A horizontal spring
+    deliberately leaves the player GROUNDED, and a player spinning end-over-end along
+    the floor is a worse look than no rotation at all. That decision is invisible to
+    every other check here; this is what holds it.
+    """
+    if spring["xv"] == 0:
+        raise Unmeasurable(
+            f"{leg}: the spring at (x={spring['x']},y={spring['y']}) carries "
+            f"({spring['xv']},{spring['yv']}) — this leg is about a SIDE-pointing spring "
+            f"and that is not one")
+
+    # Walked into, not poked into — the same drive L5 uses, so this control runs the
+    # same experiment L5 does and differs from it only in what it asks afterwards.
+    side = launch_side_of(spring)
+    button = "right" if side < 0 else "left"       # he starts ON the launching side
+    p0 = await pr.player_state()
+    half_w = (p0["w"] + spring["w"]) // 2
+    if abs(p0["x"] - spring["x"]) <= half_w:
+        raise Unmeasurable(
+            f"{leg}: the player settled {abs(p0['x'] - spring['x'])}px from the spring's "
+            f"centre, already inside its {half_w}px contact face — he would be launched "
+            f"before taking a step")
+    if p0["flip"] != 0:
+        raise Unmeasurable(
+            f"{leg}: flip_angle already reads {p0['flip']} before the walk — a spin was "
+            f"already running, so this leg cannot attribute one to the side launch")
+
+    reached = False
+    await pr.hold(button, True)
+    try:
+        for _ in range(SIDE_LAUNCH_FRAMES):
+            await pr.frames(1)
+            st = await pr.player_state()
+            if abs(st["x"] - spring["x"]) < half_w:
+                reached = True
+                break
+        if not reached:
+            st = await pr.player_state()
+            raise Unmeasurable(
+                f"{leg}: {SIDE_LAUNCH_FRAMES} frames of holding {button.upper()} never took "
+                f"the player inside the spring's {half_w}px contact face (he ended "
+                f"{abs(st['x'] - spring['x'])}px away) — no side launch happened, so this "
+                f"control measured nothing and must not be read as a pass")
+        r = await pr.run_to_hook(4)
+    finally:
+        await pr.hold(button, False)
+    if not r.get("reached"):
+        raise Unmeasurable(
+            f"{leg}: the player entered the spring's contact face on its launching side but "
+            f"Spring_Launched never ran — no launch happened, so nothing was controlled")
+    before = await pr.player_state()
+    if before["flip"] != 0:
+        raise Unmeasurable(
+            f"{leg}: flip_angle already reads {before['flip']} at the hook — a spin was "
+            f"already running, so this leg cannot attribute one to the side launch")
+
+    window = model["frames_per_rev"]
+    armed = []
+    for f in range(window):
+        await pr.frames(1)
+        st = await pr.player_state()
+        # No phase exclusion here, deliberately: this control asserts flip_angle is
+        # NEVER non-zero, and a mid-Player_Display sample cannot manufacture a non-zero
+        # angle out of a zero one. Every sample is admissible evidence for THIS question.
+        if st["flip"]:
+            armed.append((f + 1, st["flip"], st["mframe"]))
+    out.append(f"  {leg}: {window} frames sampled after the side launch hook "
+               f"(one derived revolution); flip_angle non-zero on {len(armed)} of them")
+    if armed:
+        n, v, m = armed[0]
+        return [f"{leg}: A SIDE LAUNCH ARMED THE TUMBLE — flip_angle read {v} on frame {n} "
+                f"(mapping ${m:02X}) and on {len(armed)} of {window} sampled frames. The "
+                f"seed belongs on the VERTICAL arm only: this arm leaves the player "
+                f"grounded, so the rotation would play out along the floor"]
+    return []
+
+
 async def test_walk_from_spawn(pr, spring, want, out, leg):
     """L7 — from the SPAWN, with no poke at all, walk to a spring and be launched by it.
 
@@ -1931,6 +2332,30 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
     out.append("L7 WALK FROM SPAWN (no put_player anywhere in this leg):")
     fails += await test_walk_from_spawn(pr, left, table[("Left", "Red")][0], out, "L7")
     legs.append("L7 walk from spawn")
+
+    # ---- The spring TUMBLE. Its own boots, like every leg above, so the tumble is
+    # measured from a settled state and cannot inherit a spin from L7's walk.
+    model = tumble_model()
+    out.append("BOOT 9 (L8 tumble):")
+    springs = await boot_and_settle(pr, spring_code, out)
+    # pick_target, not pick_by_subtype — the same chooser L4 uses, and for the reason
+    # L4 uses it: the act places TWO Up_Red springs, so a subtype match is ambiguous and
+    # refuses (measured: "2 spawned springs carry subtype $00"). L8 has no chamber
+    # geometry of its own — it drops straight down onto whichever up spring L4 drops
+    # onto — so the ambiguity that blocks pick_by_subtype does not exist here.
+    up = await pick_target(pr, springs, out)
+    out.append("L8 TUMBLE (the S3K rotation a vertical launch throws him into):")
+    fails += await test_tumble(pr, up, model, out, "L8")
+    legs.append("L8 tumble")
+
+    out.append("BOOT 10 (C3 side launch does not tumble — the control on L8):")
+    springs = await boot_and_settle(pr, spring_code, out)
+    left = pick_by_subtype(springs, subtypes, ("Left", "Red"), "C3")
+    await seat_and_settle(pr, left["x"] + launch_side_of(left) * SIDE_APPROACH_DX,
+                          left["y"] - SIDE_SEAT_DY, out, "C3")
+    out.append("C3 SIDE LAUNCH DOES NOT TUMBLE (the seed is on the VERTICAL arm only):")
+    fails += await test_side_does_not_tumble(pr, left, model, out, "C3")
+    legs.append("C3 side no tumble")
 
     # THE LEG COUNT IS ITSELF AN ASSERTION. A leg that raised Unmeasurable never reaches
     # here (the run exits 2), but a leg deleted or short-circuited during an edit would

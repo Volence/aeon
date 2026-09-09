@@ -277,6 +277,18 @@ equ _pl_state = offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state)
 // the number instead.
 equ _pl_gsp = offsetof(Sst, sst_custom) + offsetof(PlayerV, ground_speed)
 
+// _pl_flip_angle / _pl_flips_remaining — the spring tumble's state, exported for
+// exactly the reason _pl_gsp above is, and on the same terms: no code in either
+// tree reads these names, an `equ` emits no bytes, and both ROMs stay
+// byte-identical with and without them. They exist so the spring witness can ask
+// whether the tumble actually armed, advanced and ENDED, rather than inferring it
+// from the drawn frame alone — which cannot tell "the rotation finished" from
+// "the rotation is still running and happens to be passing through its first
+// frame". flip_step is deliberately NOT exported: nothing outside the two writers
+// has a question about it that the angle does not answer better.
+equ _pl_flip_angle = offsetof(Sst, sst_custom) + offsetof(PlayerV, flip_angle)
+equ _pl_flips_remaining = offsetof(Sst, sst_custom) + offsetof(PlayerV, flips_remaining)
+
 // Sub-field displacement consts — the 16.16 subpixel low words (LevelBound
 // clears them). `Sst.field + N` does not compose inside a displacement, so name
 // the offset (the Act_grid_w_lo precedent).
