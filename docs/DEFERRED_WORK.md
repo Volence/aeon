@@ -27898,6 +27898,115 @@ say it is absent, and could not say a fix removed it. There is no audio instrume
 in this suite. **Only his ear can close that**, and the ROM to test it with is the
 one this row's branch builds.
 
+**THE CARRIER ASYMMETRY IS NOW FIXED — see SP-6d.** The row above called it "worth
+fixing on its own merits" and left it; `parcel/sp6-clipping` fixed it, and found a
+second, larger instance of the same root cause while doing so.
+
+### SP-6d — the channel-volume bake: EVERY voice, and ONCE per channel — **SHIPPED 2026-09-09**
+
+Opened because the owner **rejected SP-6c's verdict**: *"for aeon the click, sure
+that may be how it is but it just kind of sounds wrong I think? like sounds like
+it's clipping between the first hit and where it changes"*. "Clipping" is an
+AMPLITUDE claim, and SP-6c's decisive finding — all 25 registers carry identical
+values — is by construction silent about amplitude, because the carrier TL slot is
+the one slot it compares *modulo* S&K's bit-7 flag. Expanding that flag is where the
+bug was.
+
+**THE ROOT CAUSE, one line.** S&K's `zSendTL` (`Z80 Sound Driver.asm`:3186-3194)
+reads bit 7 of a TL byte as "add THIS CHANNEL's volume at upload time". It fires per
+UPLOAD: it lands on whichever voice the channel is uploading and carries the volume
+of the channel doing the uploading. `tools/sfx_transcode.py` folds that into static
+bytes at build time — fine — but did it with
+`voices[0] = _bake_channel_volume(voices[0], vol_raw)`, which mutates the SFX's ONE
+shared voice list, IN PLACE, INSIDE the per-channel loop. That is correct for
+exactly the shape every core SFX had when it was written: one FM channel, one voice.
+**The tree contains both shapes that break it.**
+
+**D1 — ONE CHANNEL, TWO VOICES ($B1 spring).** Identified by SP-6c, fixed here.
+`B1 - Spring.asm` authors carrier TL `$80` on **both** voices with channel volume
+`$02`, so S&K plays both voices with carrier TL `$02` and the carrier does not move
+across the change. We baked voice 0 only, so the carrier stepped `$02` -> `$00`:
+**2 TL steps = 1.50 dB**, a level jump S&K does not have. `sfx_voice_change_regdelta`
+now prints the residual as **+1.50 dB on BOTH voices** (it was +1.50 / +0.00), and
+its L3 ledger now reads `S4 CARRIER: TL $02 -> $02, +0 steps = +0.00 dB`.
+
+**D2 — TWO CHANNELS, ONE SHARED VOICE ($B9 ring-loss). NEW, AND BIGGER.** `$B9`
+runs `cFM4` (vol `$05`) and `cFM5` (vol `$08`) over the bank it shares with the ring
+(`$33`/`$34`). The in-place mutation ran **once per channel**, so voice 0 ended at
+authored+`$05`+`$08` = `$0D` and **both** channels played it: **8 TL steps (6.00 dB)
+too quiet on FM4 and 5 steps (3.75 dB) too quiet on FM5**. Confirmed against the
+shipped bytes — `$33` emitted `23 23 05 05` (correct) from the identical authored
+voice that `$B9` emitted `23 23 0d 0d` from.
+
+**THE FIX IS STRUCTURAL, because it has to be.** No single static bank can carry two
+different channel volumes, so the bank is baked **per channel** and each channel
+record points at its own copy; `pack_sfx` de-duplicates identical banks. Blast radius
+**measured, not assumed**: exactly two files. `$B1` stays 221 bytes (one channel, no
+second bank needed); `$B9` grows 98 -> 130 (+32, one extra bank, its two records now
+pointing at `$42` and `$62` carrying `05 05` and `08 08`). The other 14 core SFX are
+byte-identical.
+
+**DOES IT REOPEN SP-6? NO.** SP-6's engine change (`Fm_PatchPtr` resolving
+`sx_patch_base + sc_patch*FmPatch_len`) is untouched and is vindicated by the same
+gate: our mid-stream switch writes S&K's values into S&K's registers. This is a
+transcoder bug. D2 has been wrong since the bake was introduced and is independent
+of SP-6 entirely; D1 was **latent** until SP-6 made two-voice SFX expressible — SP-6
+exposed it, it did not cause it.
+
+**THE FOUR DIFFERENCES, RE-ASKED FOR *LEVEL* RATHER THAN FOR THE STEP** (SP-6c
+judged them inert for the step; nobody had asked whether they move the LEVEL). The
+question is now settled more cheaply than by argument from register class, because
+only **three** register groups differ between the spring's two voices at all —
+`$30` (DT/MUL), `$40` (TL), and `$50` (KS bits only; AR is `$1F` in both). `$60`,
+`$70`, `$80`, `$90`, `$B0` and `$B4` are **byte-identical**.
+1. **TL written 4th vs S&K's last.** The window after our TL write contains
+   `$50`/`$60`/`$70`/`$80`/`$90`. Four of those five are byte-identical between the
+   voices, so writing them changes nothing; the fifth (`$50`) differs only in KS,
+   which scales envelope *rates* by pitch and cannot move the instantaneous level.
+   **Cannot change the LEVEL.** (Note the converse: S&K's TL-last means S&K runs
+   new-MUL-with-old-TL for *longer* than we do, not shorter.)
+2. **The four `$90` SSG-EG writes S&K lacks.** `$00` in both voices, and SSG-EG
+   `$00` is disabled; `$00` over `$00` is a no-op. **Inert**, and defensively
+   correct against a stolen channel that left SSG-EG on.
+3. **`$B4` from the patch vs from track RAM.** This is the **one of the four with a
+   genuine level mechanism** — `$B4`'s top two bits are the L/R output enables, and
+   losing a side halves the summed output. It is `$C0` (both sides on) in both
+   voices, so it neither steps nor attenuates *here*. **Latent, not present** — an
+   SFX whose voices disagreed on `$B4`, or a channel the music had panned, would
+   take a real level jump. Worth a row if a future SFX does that.
+4. **`zSetMaxRelRate` before the patch write.** The `$80` group is byte-identical
+   (`2F 1F 1F FF`); RR is `$0F` on every operator. **Inert.**
+**So none of the four moves the level for this SFX**, and only #3 has a mechanism.
+
+**WHERE THE FIX LANDS RELATIVE TO WHAT HE DESCRIBED — SAID PLAINLY, NOT IN THE
+FIX'S FAVOUR.** His span is *"between the first hit and where it changes"*. Strictly
+inside it — voice 0's `nB3` under the authored modulation — our carrier TL was
+already `$02`, i.e. **already correct; there was no error there**. The error *began*
+at that span's far edge (`smpsSetvoice $01`) and continued through the 25-pass fade
+tail, every pass of which re-derived the carrier from voice 1's unbaked TL. **So
+this fix is adjacent to the span he named, not contained in it.** And at **1.50 dB**
+it is small: a level step that size is not usually what a listener calls clipping.
+**This fix should not be expected, on its own, to be what he heard.**
+
+**WHAT IS ACTUALLY IN HIS SPAN, then, and untested.** Two things, both authored:
+  * a deep pitch modulation running for the whole first hit —
+    `smpsModSet $03, $01, $5D, $0F` (change `$5D` over `$0F` steps) — switched off
+    immediately before the change. The transcoder has a dedicated reconciliation
+    pass for exactly when S3K loads those params
+    (`_apply_s3k_modset_load_points`), so there IS engine-specific machinery living
+    inside his span. **It was not tested here. This is the next lead.**
+  * the authored discontinuity itself, which remains the best candidate for the
+    percept and which this parcel does not change: modulator **S2 `$30` -> `$23`,
+    13 steps = 9.75 dB** of extra modulation index, plus MUL `6` -> `1` on S1 and
+    `5` -> `3` on S2, under algorithm 0 with feedback 4. A sudden 9.75 dB jump in
+    modulator drive on a serial chain is a burst of high-order sidebands, and a
+    sudden harmonic expansion is perceptually very like clipping.
+
+**WHAT THIS DOES NOT ESTABLISH.** It does not establish that the artefact is gone.
+**Nobody in this suite can**: there is no audio instrument, the emulator serves no
+`vgm_*`/`audio_*` method, and every claim here is about register values and derived
+decibels. Only the owner's ear can close it.
+
 ### SP-6b — per-channel NON-ZERO INITIAL voice in an SFX (opened 2026-09-09)
 
 Distinct from SP-6 and deliberately not folded into it. SP-6 made a **mid-stream**
