@@ -31782,3 +31782,59 @@ as its coordinate**, which is the coordinate-rot bar arriving inside our own ins
 Every ALREADY-FIXED verdict was re-derived by the controller before being banked, and one agent
 mechanism story (the "byte-identical re-open") did not survive that check while its finding did —
 which is the argument for re-deriving a returned mechanism even when the verdict is right.
+
+---
+
+## SP-6 A/B: the spring's pitch-sweep timing, handed to the owner's ear (2026-09-09, `parcel/sp6-ab-timing`)
+
+**There is no audio instrument in this suite.** Three code investigations on `parcel/sp6-modulation`
+each found something real inside the owner's span and none of them was his artefact ("sounds like
+it's clipping between the first hit and where it changes"). The last engine-side candidate left is
+the one measured at **88.5 cents**: our pitch-modulation sweep runs **one frame behind S3K's**,
+because S3K calls `zDoModulation` *inside* the note-on frame and we update modulation *before* the
+sequencer tick. Since the only remaining instrument is the owner's ear, this parcel does not fix
+anything - it **builds the two ROMs he can decide with**.
+
+**WHY THIS IS A CLEAN TEST AND NOT A CONFOUNDED ONE.** The SFX frame and the music frame have
+**separate call sites** for the same two routines - `Sfx_Frame` in `engine/sound/sound_sfx.emp` and
+`Sequencer_Frame` in `engine/sound/sound_sequencer.emp` - so the SFX order can be flipped on its own.
+The whole change is that flip, in `Sfx_Frame`'s slot loop only: tempo gate, then `Sequencer_Channel`,
+then `ModUpdate` (S3K's tick-then-modulate), where it was `ModUpdate` first.
+
+**THE TEMPO GATE MOVES UP WITH IT, and that is safe for a checkable reason, not by inspection:** the
+gate decides whether an event-tick happens, so it must stay in front of `Sequencer_Channel`. It
+carries only when `sc_tempo_mod != 0`, and `Sfx_BeginSound` arms **every** `SfxChannel` with
+`sc_tempo_mod = 0` (`sound_sfx.emp:1115`) - the sole writer of that field on an SfxChannel; the
+driver's other writer (`z80_sound_driver.emp:1630`) seeds SeqChannels from the song header. So the
+`jr c` is unreachable for SFX and `ModUpdate` is still reached every frame.
+
+**ONE CONSEQUENCE STATED RATHER THAN HIDDEN:** on the frame an SFX *ends*, `ModUpdate` no longer runs
+for that slot. That is correct - `Sfx_Restore` hands the physical voice back to music on that frame,
+and rendering SFX modulation onto a reclaimed voice would be a stale write.
+
+**MUSIC IS UNAFFECTED - DEMONSTRATED, NOT ASSERTED.** The resident Z80 image grew by exactly **2
+bytes** (6305 -> 6307, debug shape; one `jr`). Outside `Sfx_Frame` (blob `$0DE0..$0E34` before,
+`$0DE0..$0E36` after) there are 44 differing bytes before it and 116 after it, and **every one of
+them is half of a 16-bit little-endian operand whose value is exactly +2** - a relocated target.
+**Zero unexplained bytes anywhere outside `Sfx_Frame`.** The blob has exactly **two** `call ModUpdate`
+sites (`CD 25 07`); the music one at `$05D0` is **byte-identical in both images** and still reads
+`call ModUpdate` -> `MacroTick` -> tempo gate -> `call Sequencer_Channel`, in that order. The two
+data banks (`sfx_bank_debug.bin`, the spring's own event streams and patches, and
+`mt_bank_body_debug.bin`, the music) are byte-identical AND land at the same ROM offsets in both
+ROMs - `$0BD568` and `$0B8630`.
+
+**WHAT THE ROM-LEVEL DIFF LOOKS LIKE, so nobody reads it as a big change:** 41,638 of 847,089 bytes
+differ. That is a 2-byte insertion near ROM start (the blob is embedded in `BootData` at `$0003D6`)
+and the relocation cascade behind it, not 41 KB of new behaviour.
+
+**THE HONEST LIMIT, and it is the whole reason this parcel exists: nobody here has heard either ROM.**
+Every claim above is arithmetic on register writes and ROM bytes.
+
+**ARTIFACTS** `/home/volence/sonic_hacks/spring-timing-ab/` - `spring-timing-before.debug.bin`,
+`spring-timing-after.debug.bin`, `README.txt` (written for the ear, not for the report).
+
+**OPEN, awaiting the listen.** If the artefact changes, the timing is implicated and the fix to weigh
+is **global** - matching music too would move every song's sweeps, so it is a design decision, not a
+patch. If it sounds the same, the strongest remaining candidate is eliminated and the artefact is
+most likely in the authored source material, which turns the question into re-sourcing the spring or
+living with it. **A "no difference" answer is a result, not a wasted listen.**

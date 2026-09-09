@@ -284,10 +284,33 @@ section sound_sfx (cpu: z80) {
         ld      (ix+sx_extend), a
     .extend_done:
 
-        // (1) modulation layer — render the SFX channel's state -> chip. ix kept.
-        call    ModUpdate
+        // --- A/B LEG "after" (parcel/sp6-ab-timing) -------------------------
+        // TICK-THEN-MODULATE, the S3K order. S3K runs zDoModulation INSIDE the
+        // note-on frame, so a note that keys this frame ALSO gets its first
+        // modulation step this frame. Our original order here (ModUpdate first,
+        // then the event-tick) rendered the modulation of the note that was
+        // playing BEFORE the tick — one frame behind S3K, measured 88.5 cents
+        // apart at the moment the spring's second voice keys. Swapping the two
+        // calls is the ONLY change in this leg.
+        //
+        // WHY THE TEMPO GATE MOVES UP WITH IT, and why that is safe: the gate is
+        // the thing that decides whether an event-tick happens, so it has to stay
+        // immediately in front of Sequencer_Channel. It carries only when
+        // sc_tempo_mod != 0, and Sfx_BeginSound arms EVERY SfxChannel with
+        // sc_tempo_mod = 0 (see `ld (ix+sc_tempo_mod), 0` at dispatch below — the
+        // sole writer of this field on an SfxChannel; the driver's other writer
+        // seeds SeqChannels from the song header). mod 0 never carries, so the
+        // `jr c` below is unreachable for SFX and ModUpdate is reached every
+        // frame exactly as before.
+        //
+        // The ONE other consequence, stated rather than hidden: on the frame an
+        // SFX ENDS, ModUpdate no longer runs for that slot. That is correct here
+        // — Sfx_Restore hands the physical voice back to music on that frame, and
+        // rendering SFX modulation onto a voice music has just reclaimed would be
+        // a stale write.
+        // ---------------------------------------------------------------------
 
-        // (2) tempo gate (S3K TempoWait model, same shape as Sequencer_Frame):
+        // (1) tempo gate (S3K TempoWait model, same shape as Sequencer_Frame):
         // accum += mod; carry -> tempo-delay frame (no event-tick). SFX slots
         // are armed with mod 0 (below, at dispatch) -> the add never carries ->
         // one event-tick EVERY frame (SFX stay unconditioned full-rate).
@@ -298,7 +321,13 @@ section sound_sfx (cpu: z80) {
         call    Sequencer_Channel        // advance the SFX cursor (shared interp)
         // if the SFX stream ended, Seq_Op_End (MEV_END) cleared SCF_ACTIVE.
         bit     SCF_ACTIVE_B, (ix+sc_flags)
-        jr      nz, .slot_done
+        jr      z, .slot_ended
+        // (2) modulation layer — render the SFX channel's state -> chip. ix kept.
+        // AFTER the tick: a note keyed by this frame's event gets its modulation
+        // rendered in the same frame (the S3K note-on-frame behaviour).
+        call    ModUpdate
+        jr      .slot_done
+    .slot_ended:
         call    Sfx_Restore              // SFX ended -> hand the voice back to music
     .slot_done:
         pop     bc
