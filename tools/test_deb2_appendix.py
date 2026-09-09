@@ -65,6 +65,7 @@ byte.  It is a hand instrument, not a lane; a real answer is still four builds.
 
 import os
 import re
+import sys
 
 import pytest
 
@@ -187,6 +188,58 @@ def test_mark_inventory_is_measurable():
                    for loc, _gate in inv.values()), (
             "no mark in engine/ram.emp for game %s — the file this finding is "
             "about no longer declares one" % game)
+
+
+def test_appendix_keeps_one_name_per_address_the_lowest_sorting_one():
+    """THE SECOND CHANNEL (LS-22a-resid, 2026-09-08), hermetic.
+
+    The header above explains how a new NAME moves the ROM through the character
+    histogram.  That is not the only way.  The appendix holds **one record per
+    ADDRESS** — 46 to 116 of each shape's listing names are stored NOWHERE — and
+    the survivor is the one that sorts FIRST, because the listing is emitted
+    sorted by `(value, name)` and `convsym` keeps the first record it reads for an
+    address.  So a new symbol whose name sorts BEFORE the symbol already at its
+    address TAKES that address's record: the stored string changes, the ROM moves,
+    and the character code table need not change at all.  Measured over 3000
+    random names on four shapes and twenty anchors: sort order decided displacement
+    3000/3000, and no appendix moved with the code table identical without one.
+
+    That is a diagnostics regression as well as a byte move — the crash report and
+    the debugger name YOUR symbol where they used to name the variable.
+
+    Hermetic on purpose: a synthetic three-symbol listing, no ROM, no build, so it
+    grades `convsym`'s rule and not this tree's corpus.  Red-first 2026-09-08 by
+    reversing `emit_listing`'s name tie-break in `deb2_probe.py` (the exact premise
+    the rule rests on): all three assertions went red, restored from the committed
+    baseline and green again.
+    """
+    probe = os.path.join(AEON, "tools", "deb2_probe.py")
+    assert os.path.isfile(probe), "tools/deb2_probe.py is gone — this claim is unmeasurable"
+    sys.path.insert(0, os.path.join(AEON, "tools"))
+    import deb2_probe
+
+    assert os.path.isfile(deb2_probe.CONVSYM), (
+        "%s absent — the appendix packer is what this test grades, so this is a "
+        "FAILURE and not a skip" % deb2_probe.CONVSYM)
+
+    base = [("Alpha", 0x1000, False), ("Zulu", 0x1000, False), ("Middle", 0x2000, False)]
+    stored = deb2_probe.decode_names(deb2_probe.deb2(base))
+    assert stored == {0x1000: "Alpha", 0x2000: "Middle"}, (
+        "two symbols at $1000 should leave ONE record, the lowest-sorting name; "
+        "the appendix stored %r" % (stored,))
+
+    lower = deb2_probe.deb2(base + [("Aaa", 0x2000, False)])
+    assert deb2_probe.decode_names(lower)[0x2000] == "Aaa", (
+        "a name sorting BEFORE the symbol at its address must take that address's "
+        "record — $2000 still reads %r" % deb2_probe.decode_names(lower)[0x2000])
+    assert lower != deb2_probe.deb2(base), (
+        "the displaced name changed and the appendix bytes did not — the stored "
+        "string is what moves here")
+
+    higher = deb2_probe.deb2(base + [("Zzz", 0x2000, False)])
+    assert deb2_probe.decode_names(higher)[0x2000] == "Middle", (
+        "a name sorting AFTER the incumbent must NOT displace it — $2000 reads %r"
+        % deb2_probe.decode_names(higher)[0x2000])
 
 
 def test_mark_names_are_unique_per_symbol():

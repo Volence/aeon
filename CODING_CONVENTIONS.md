@@ -999,6 +999,32 @@ anchors changed nothing; holding the address fixed and varying the name moved ev
 35 names: s4 moved for 20 of them, s4.debug for 17, demo for 30, demo.debug for 32, and one
 20-character name moved all four *and* changed their lengths.
 
+**THE HISTOGRAM IS NOT THE ONLY CHANNEL — the other one DELETES A NAME** (LS-22a-resid,
+2026-09-08). The appendix stores **exactly one record per ADDRESS**: 46 to 116 of each shape's
+listing names are stored *nowhere*. The survivor is the one that sorts FIRST, because the listing
+is emitted sorted by `(value, name)` and `convsym` keeps the first record it reads for an address.
+So a new symbol whose name sorts BEFORE the symbol already sitting at its address does not merely
+feed the histogram — **it takes that address's record, and its string replaces the incumbent's.**
+That moves ROM bytes with the character code table completely untouched, which is the case a
+histogram-only story cannot produce. Measured over 3000 random names across four shapes and twenty
+anchors: sort order decided displacement in 3000/3000, and there was **no** case of the appendix
+moving with the code table identical that was not a displacement.
+
+The practical consequence is bigger than bytes. `mark Foo_End` lands on the address of the next
+var; if `Foo_End` sorts before that var's name, **the var loses its name in every crash report and
+debugger view** — the address now reads `Foo_End`. `mark Sound_Dbg_Mirror_End` is safe from this
+only by the accident that `Dynamic_Live` < `Sound_Dbg_Mirror_End`. Prefer a mark name that sorts
+AFTER the symbol it lands on, and check with
+`tools/deb2_probe.py --shape <shape> --add-mark <NAME>`, whose `displaces` line says so outright.
+
+One more trap in the same pipeline: `build.sh` passes `convsym -exclude -filter 'z[A-Z].+'`, so a
+symbol whose name matches that pattern **anchored at the start** is dropped from the appendix
+entirely — invisible to the debugger, no warning. `zA_Marker` disappears; `AzMarker` does not. No
+Aeon label matches it today (measured: 0 of 2306/2870/1376/1707 listing names across the four shapes), but
+a future `zBuffer_Top` would silently vanish from every crash report. (Name counts measured on the
+`df5be38a` listings: s4 2306 listing names / 2190 stored, s4.debug 2870 / 2786, demo 1376 / 1325,
+demo.debug 1707 / 1658.)
+
 **SO:** a name-only edit is a byte-changing parcel and owes the repin/refreeze ritual, and
 **measure all four shapes** — the subset that moves is not derivable from which shape is debug,
 from the mark's address, or from anything short of building them.
