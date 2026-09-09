@@ -30198,6 +30198,45 @@ is cheap on their side. **We are not asking for per-guard identity**, which the 
 established is a harder problem: deciding a LinkAssert proves it was *evaluated*, not that it can be
 *false*. Reachability alone closes this row.
 
+**✅ CLOSED 2026-09-09 — ALL THREE GUARDS ARE EVALUATED, AND NO SIGIL TOOLING WAS NEEDED.** The
+sigil lane answered the ask by **declining to build the tool and handing over a method instead**,
+which was the better answer: **falsify each guard in a scratch tree and see whether the build
+refuses.** It perturbs the SUBJECT rather than the checker, needs nothing from them, and gives per
+guard identity where the count they offered structurally could not.
+
+**Measured in a detached worktree at master `7cb50a06`, each mutation quoted back off disk, the tree
+restored from the committed baseline after each (`git status --porcelain` empty at the end):**
+
+| guard | mutation | `emit_sound_blob` exit |
+|---|---|---|
+| control, unmutated | none | **0**, emits every seam-1 + seam-2 artifact |
+| `mt_bank.emp:121` | `== SONG_COUNT` -> `== SONG_COUNT + 1` | **1** — *"mt_bank co-residency/drift guards fired: 1 error(s): ...:121:1: [Error] SONG_COUNT drifted..."* |
+| `mt_bank.emp:120` | `== SONG_MOVINGTRUCKS` -> `+ 1` | **1** — *"...:120:1: [Error] SONG_MOVINGTRUCKS drifted..."* |
+| `sfx_blob_win_tab.emp:43` | `137 ==` -> `138 ==` | **1** — *"sfx co-residency/drift/span guards fired: ...:43:1: [Error] SfxBlobWinTab span (137 cells) disagrees with SFX_TABLE_LEN"* |
+
+**Each refusal names its OWN file and line**, so this is per-guard identity rather than an aggregate.
+
+**⚠ SCOPE, stated because the result is STRONGER than the row asked for and could be over-read.** The
+row wanted REACHABILITY — *was this guard evaluated*. This delivers more: each guard was made false
+and the build refused, so all three are **proven capable of failing**, which LS-16c established is
+the harder property. **The honest limit: the mutation falsifies the guard's OWN CONDITION, not the
+external symbol it guards.** A real drift makes the same predicate false by the same route, so the
+inference is short — but it is an inference, and a purist mutation would move `SONG_COUNT` at its
+authority instead.
+
+**THE SIGIL LANE'S OWN CAUTION IS WHY THE TOOLING ROUTE WAS DECLINED, and it is kept here rather
+than dropped now that it is convenient.** They offered `Module::comptime_guards`, an existing public
+count populated during lowering, and then said the thing they were **least** sure of is whether it
+counts what we would call a drift guard or a wider set their own machinery decides — and that **a
+count over the wrong population is the most convincing possible wrong answer.** They also priced the
+delivery: `emit_sound_blob` is half the installed shared pair, so any change means a **hub-gated
+binary swap**. An hour of code plus a coordinated ritual, for three guards, against a method costing
+one command each.
+
+**Their standing offer, recorded so it is not lost: if we ever want this per-commit for the whole
+family rather than once for three sites, they will build the reporting and ride the next swap we
+need anyway.** The family drifted 135 -> 139 in two days, which is the argument for taking it up.
+
 **PRICED HONESTLY: this is three guards, and it is not urgent.** The other 136 are covered
 per-commit. If it is expensive on their side the right answer is for it to stay open, and the ask
 says so. Their `[Error]`-renderer work is the precedent for what a small change here unlocks — and
