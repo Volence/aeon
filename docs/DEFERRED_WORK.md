@@ -46,6 +46,93 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## SFX CHANNEL-VOLUME DOUBLE BAKE — FIXED 2026-09-09 (`parcel/sfx-double-bake`)
+
+**THIS IS NOT THE OWNER'S SPRING CLICK.** He reported that the SP-6 spring ($B1) "sounds like
+it's clipping between the first hit and where it changes" (`docs/decisions.jsonl`, SP6-CLICK,
+answered 2026-09-09). This defect was found while investigating that report and is a **different
+defect in a different sound effect** — $B9, ring loss. **His click remains OPEN**, the strongest
+remaining lead is elsewhere, and nothing in this entry should be read as progress on it.
+
+**The defect, and it was SHIPPED.** `tools/sfx_transcode.py` bakes each SFX channel's volume
+into its FM patch's carrier Total Levels, because the engine's `Fm_SetVolume` runs volume through
+a logarithmic curve (`LogVolumeLutZ`) that flattens near-max values to ~0 attenuation and so loses
+the channel volume entirely. The bake is right and was verified against the real S&K ROM. **The
+call site was not.** It read
+
+```python
+voices[0] = _bake_channel_volume(voices[0], vol_raw)
+```
+
+which mutates the SFX's **one shared voice list, in place, inside the per-channel loop**. That is
+correct only for the shape every core SFX had when it was written — a single FM channel. S&K's own
+model (`zSendTL`) applies the volume per **upload**, carrying the volume of the channel doing the
+uploading, so two channels sharing a bank each hear their **own** volume and neither hears the sum.
+
+**Measured in the shipped bytes, not hypothesised.** $B9 runs `cFM4` at vol `$05` and `cFM5` at
+vol `$08` over the bank it shares with $33/$34, so the bake ran twice and compounded:
+
+| artifact | TL group | = |
+|---|---|---|
+| `sfx_33_patches.bin` | `23 23 05 05` | authored + `$05` |
+| `sfx_B9_patches.bin` | `23 23 0d 0d` | authored + `$05` + `$08` |
+
+from the **byte-identical authored voice**. Patch byte [0] is `$04`, so alg = 4,
+`_CARRIER_MASK[4] = $0C`, and TL bytes [8],[9] are the carriers. Against the correct per-channel
+values that is 8 TL steps too much attenuation on `cFM4` and 5 on `cFM5`; at 0.75 dB per step,
+**6.00 dB and 3.75 dB too quiet** respectively. Wrong in the ROM the owner plays today, and wrong
+since the bake was introduced.
+
+**The fix.** The bank is baked **per channel** and each channel's record points at its own copy;
+`pack_sfx` lays the distinct banks out in first-use order and de-duplicates identical ones. The
+engine sets `sx_patch_base` straight from that per-channel `voice_ptr`
+(`engine/sound/sound_sfx.emp`), so this is the path the Z80 actually fetches. The `Sfx_NN_Patches`
+labels embedded alongside each blob in `sfx_bank.emp` are referenced by nothing and are not the
+consumption path.
+
+**Blast radius, measured, with the baseline control run first.** Regenerating on **unmodified
+master** changed **zero** tracked `.bin` files, so the generator was exactly in sync with the
+checked-in artifacts and anything that moves is caused by the fix. After the fix, of the 32 tracked
+`.bin` artifacts exactly **two** moved — `sfx_B9.bin` 98 → 130 bytes (+32, the second bank) and
+`sfx_B9_patches.bin` 32 → 32 with its TL group corrected to `23 23 05 05`. The other **30 are
+byte-identical**, `sfx_B1*` explicitly among them. That matches the prediction by construction: any
+SFX whose channels agree on a volume de-dups back to one bank, and every core SFX but $B9 has a
+single FM channel.
+
+**Extracted from a blocked stack, not cherry-picked.** The fix exists on `parcel/sp6-clipping`,
+which sits on the SP-6 stack held out of master (it shrinks the Z80 blob by one byte and needs a
+paired sigil change). This branch is off **master** and carries **only** the bake fix. The
+mid-stream-voice work is deliberately absent: `_check_sfx_voice0` still refuses every non-zero
+`smpsSetvoice`, and `_CORE_SFX_DONOR` still maps `0xB1` to S2's `CC - Spring.asm`. **That
+`sfx_B1` regenerates byte-identical is the control proving the stack did not follow**, and the
+blob-length tripwire staying silent (no `SIGIL_BLOB_LEN_DRIFT` override needed) is the second.
+
+**The SP-6 half that did NOT come across, and is still open.** The same investigation found a
+second, independent bake defect: a mid-stream `smpsSetvoice` lands on an **unbaked** voice, so the
+voice change steps the carrier by `vol_raw` TL. That defect **cannot exist on master**, because
+master refuses mid-stream voice changes outright — it only becomes reachable once SP-6 lands. Its
+test (`TestChannelVolumeBakeCoversEveryVoice` on `parcel/sp6-clipping`) is therefore **not** in
+this branch. **When SP-6 lands, that fix and its test must land with it**; the per-voice bake in
+`_parse_sfx_source` already covers every voice in the bank, so the code half is present here and
+only the test is owed.
+
+**Tests.** `TestChannelVolumeBakeIsNotCumulative` in `tools/test_sfx_transcode.py`, 5 tests, in
+the build-fatal `python3 -m pytest tools` lane `build.sh` runs. Expectations are **derived, not
+measured**: each transcodes the same fixture twice — once at the authored channel volumes, once
+with them rewritten to `$00` — and asserts the difference, taking carrier identity from
+`_CARRIER_MASK` rather than a literal, so the test cannot agree with whatever the code happens to
+do. A fifth test pins the de-dup, without which the +32 bytes on $B9 would not be evidence of
+anything. Red-first proven with the mutation on disk: against master's literal pre-fix file the
+two discriminating tests fail printing carrier TLs `[13, 13]` = `$0D`, reproducing the shipped
+signature exactly; the unapplied mutation and the restored committed baseline both print green.
+
+**NOT ESTABLISHED.** Nobody here has heard the difference. Oracle's Rust core serves no audio
+method, so there is no listening test behind this — the claim is arithmetic on bytes against S&K's
+documented `zSendTL` model, nothing more. Whether 6 dB on a ring-loss channel is audible **in
+play** is unmeasured.
+
+---
+
 ## SPRING TUMBLE — SHIPPED 2026-09-09 (`parcel/spring-launch-anim`)
 
 **Closes `Player_ApplyTilt`'s "DEVIATION 2: NO TUMBLE GATE".** A spring launch now throws the
