@@ -89,7 +89,13 @@ returns 17 sites, complete. Four of them are the object-art loads, consecutive, 
         jbsr    QueueDMA_Critical @discards(dropped)
 ```
 
-They sit in the level-init block, display off, immediately after `Level_LoadArt`. Adding
+They sit in the level-init block, **display off**, immediately after `Level_LoadArt` — which
+is itself display-blanked and *raises* the window budget to
+`DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC` = 8,192 for the bulk
+load, restoring the active-display budget before it returns
+(`engine/level/load_art.emp:46-50,105-109`). **So the always-resident floor set is loaded
+under an 8 KB window with the display off and is never a bandwidth problem** — only the
+streamed set in §5.3 is. Adding
 an object type today means **hand-adding a fifth stanza to a test scene**. That is not a
 "resident policy" — it is the absence of one. Every "RESIDENT for the whole act" comment
 in `vram.toml`, `dust_data.emp` and `test_solid.emp` is describing this block.
@@ -633,7 +639,33 @@ renders.
 - **No mid-level act transition**, and only DEZ ships, so there is no S.C.E. counterpart to
   S3K's HCZ stream to compare.
 
-### 4.4 What the Sonic trees agree and disagree on
+### 4.4 NOT EXAMINED IN THIS PASS — the Treasure/Sega set
+
+**Gunstar Heroes, Alien Soldier, Vectorman, Thunder Force IV, Ristar and Batman & Robin were
+dispatched to a second research lane which had not returned when this document was
+committed. Their answers are NOT in this document and nothing here should be read as
+covering them.** That is a real gap and the standing rule in `CLAUDE.md` ("do not assume one
+reference covers the others") applies to it: three Sonic trees are three data points from
+one lineage.
+
+What they were asked and what they would most likely change:
+
+- **Alien Soldier and Vectorman** are the likeliest to have per-frame enemy-art streaming
+  during active play — if either does, its rate and cover are directly comparable to §5.3's
+  bandwidth arithmetic and could raise or lower the 5-concurrent-blob figure.
+- **Gunstar Heroes and Alien Soldier** put very large bosses on screen mid-level; how that
+  art arrives is the closest commercial analogue to the "art not resident when it spawns"
+  question in §3.1, and the Sonic trees answer that question only by avoiding it.
+- **Ristar** has per-stage scripting and a Sonic-1-derived lineage
+  (`docs/research/ristar-techniques.md`), so it is the one that might show a *scripted* art
+  load — which would be the authored counterpart to §3.5's derived manifest.
+
+**None of §5 or §6 depends on those answers**, because the cost is derived from aeon's own
+constants and the recommendation's falsifier is a build-time measurement on aeon's own data.
+But a finding from that set could sharpen §3.1's policy choice, and the section should be
+filled in before the design is treated as complete.
+
+### 4.5 What the Sonic trees agree and disagree on
 
 **Agree:**
 1. **The unit of loading is a batch — a zone's or an act's list. An object is never the
