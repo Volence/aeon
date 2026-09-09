@@ -30992,9 +30992,125 @@ non-coverage, construct the case it says it would miss and check whether it is c
 A declaration says *this gate would not catch X*; only a control says *and there is no X here today*.
 Sigil ran exactly that and the answer was no.
 
-**QUEUED, NOT DONE: audit the 38 by asking, per site, whether the declared gap is OCCUPIED.** Ours
+**DONE 2026-09-09 — see "THE BLIND-SPOT SIFT IS DONE" at the end of this file. (Original booking:) audit the 38 by asking, per site, whether the declared gap is OCCUPIED.** Ours
 is a bigger population than sigil's and most of it is legitimate, so this is a sift rather than a
 sweep, and the cheapest first cut is the gates whose declared gap names a SPECIFIC constructible
 case rather than a general limit. **`tools/freeze_preflight.sh` was in this family tonight** and its
 defect was of a neighbouring kind: not an unclosed declared gap but a classifier measuring a
 different tree than the one it judged, printing a category instead of the text it matched.
+
+## THE BLIND-SPOT SIFT IS DONE — 39 GATES AUDITED, 7 DECLARED GAPS OCCUPIED (2026-09-09)
+
+**Closes the QUEUED item in the section above.** Three agents, 13 files each, in isolated
+worktrees. Reports committed at `docs/audits/2026-09-09-gate-blindspot-sift-{a,b,c}.md` with
+every control's command, output and positive control.
+
+**⚠ THE POPULATION FIGURE IS A LOWER BOUND, AND THE AUDIT'S OWN INSTRUMENT IS WHY** (agent A's
+contradiction of its brief, accepted). The booking's grep misses spellings like *"does NOT check"*,
+*"does not tell you"* and *"does not gate"*; several genuine statements were found only by reading
+docstrings directly. So **39 is a floor, not a census** — the same class the sift exists to find,
+committed by the sift's own enumeration. Any successor pass enumerates by reading, not by that grep.
+
+**THE POPULATION WAS 39, NOT 38, AND THE BOOKED NUMBER WAS RIGHT WHEN WRITTEN.** The 39th is the
+one the same night's `freeze_preflight` parcel added and disclosed in its own entry. Re-derived at
+dispatch rather than carried into the briefs — that is the standing answer to a count that grows
+under the instrument counting it, and it is why no agent had to doubt its controller. Third
+instance of the shape across the suite that night (a study's "four reports", oracle's "four highs").
+
+**TOTALS.** 39/39 files examined. ~92 statements extracted, of which **35 were grep false
+positives** — text explaining why a *weaker companion* check would miss something the file's own
+test then proves it catches. That is a real finding about the population: **a third of what a
+non-coverage grep returns is not a non-coverage claim at all**, so the 39 was never a defect count
+and the sift-not-sweep framing was correct. Of the genuine statements: ~22 GENERAL-LIMIT, ~51
+SPECIFIC-CONSTRUCTIBLE, and of the controls run, **7 OCCUPIED, 1 UNRUN, the rest CLEAR**. No
+control was silently downgraded; the one UNRUN is reported as UNRUN.
+
+**THE SEVEN OCCUPIED, RANKED BY WHETHER ANYTHING HOLDS THEM SAFE:**
+
+1. **`test_z80_bus_hold_mask_census.py` — safe by accident, nothing enforcing it.** The census
+   declares that a call sitting between a hand-spelled SR mask and its bus-hold bracket could lower
+   the mask unseen; it PRINTS intervening calls and never asserts on them. `engine/level/section.emp`
+   has exactly that shape: mask at ~233, `jbsr Section_GetSecPtrXY` at ~439, bracket at ~485.
+   **Overseer-verified independently of the agent's hand-trace** by scanning the whole callee body
+   (lines 143-178): **zero `sr` references, zero onward calls** — a leaf, so the mask cannot be
+   lowered. It is benign TODAY and one added line inside that proc changes that with no gate, no
+   sigil `[bus.*]` net (register-indirect destination is its documented bailout, LS-13b) and nothing
+   else able to notice. **This is sigil's original class in its "benign today" form.**
+2. **`test_citation_form.py` — a MOVED citation resolving to real, plausible, WRONG text.**
+   `test_effects_gen.py` cited `ojz_scenes.emp:170-173` for the `drift: SceneDrift.Rate(-32)` idiom.
+   Overseer-verified: those lines today are a comment heading reading *"THE DRIFT, AND WHY IT IS ON
+   ALL FOUR BANDS AT ONE RATE"* — a heading about the very thing cited — while the code sits at
+   220-223. Prose was inserted above the rows at `1636e7726`; the citation was correct when written.
+   The gate deliberately does not gate MOVED/GONE. **FIXED in this parcel, and fixed by DELETING the
+   coordinate rather than retyping it** — a fresh literal goes stale on the identical clock, per this
+   repo's own rule that a correction carrying a line number inherits the defect it was correcting.
+3. **`test_effects_gen.py` — an untracked cross-file agreement.** `_check_cleared_slot_is_not_streamed`
+   returns early unless `variants` is a list with explicit `null`s. `ojz_sec5_showcase.json` **omits
+   `variants` entirely** and streams three `pal_region` bands from slot 0. **Overseer-verified, and
+   sharper than the agent's own report, which said "an empty array":** the agent's probe used
+   `d.get('variants', [])`, which defaults the ABSENT case into the EMPTY case — erasing the exact
+   absent-vs-empty distinction the finding is about. Safety rests on the hand preset supplying slot 0,
+   which it does (`OJZ_Preset_Sec5`, `variants: [Variant_Water_Deep, 0]`). Gap is disclosed and
+   deliberately deferred as rider 2; **the agreement was true and unchecked until now.**
+4. **`test_palette_census_lint.py` — four write mechanisms reach CRAM naming neither tracked symbol.**
+   The agent's FIRST version of this finding did not survive overseer verification (a path that does
+   not exist, and a file claimed not to name the symbols that names them four times) and was sent back
+   to re-derive **by mechanism rather than by the string `CRAM`**. Both the agent's original and the
+   overseer's own check had enumerated by name — the same defect as the audit target, one level up.
+   Re-derived closure, **overseer-verified**: `target_bits(` occurs only in `engine/vdp.emp` (one
+   definition, three `ensure`s, two uses), so every CRAM command word comes from `vdp_comm()` or
+   `vdp_comm_reg()`. Four survivors: OJZ literal-colour bands/gradient, `stream_pal_region` from
+   `Pal_Variant_Stage`, `Raster_BuildShipEntry`'s DMA entry, and `boot.emp`'s CRAM clear.
+   **`Pal_Variant_Stage`'s parallel DMA path is TAGGED for a foreground trace** — not resolved here.
+5. **`test_anchor_sweep_band.py`** — the one live generated sweep (section 5, channel 0) has zero
+   band-fit/headroom coverage, and the module's docstring names the wrong mechanism for its own gap.
+6. **`test_bg_emit.py`** — a claim about aurora's tooling false for 7 days; booked, never reached the
+   file's prose.
+7. **`test_overseer_bound.py`** and **`test_timera_dma_guard_lint.py`** — both occupied, both fully
+   disclosed on every run, both already the owner's card 7 and open row LS-12a respectively. Listed
+   for completeness, not as discoveries.
+
+**THE METHOD FINDING, which outlives the seven.** The discriminator that works is **construct the
+case the note says it would miss and check whether it is present** — not re-read the note and agree
+with it. Two of the seven were safe only by an accident nothing enforces (1 and 3), and both read as
+fully handled to anyone meeting the note. **Our own discipline manufactures the camouflage:** a repo
+that requires every gate to state its non-coverage produces a population of honest notes among which
+an occupied hole wears identical words, and the better the practice is followed the better the cover.
+
+**STALE-DOCSTRING SUB-CLASS, worth its own line:** two gaps were CLEAR because they had been closed
+*elsewhere, hours to days after the note was written* (`test_map_dplc_binding.py`'s unbounded frame
+byte, closed by LS-9a the same day; `test_scene_band_shape_coverage.py`'s `maxItems 8`, closed the
+same day). The gate text is the last thing to learn its own gap was filled — the same shape as
+finding 2, arriving on prose instead of on a coordinate.
+
+**PRIORS KILLED BY FIRSTHAND RE-DERIVATION, recorded so they stop travelling:** `test_s4budget.py`'s
+"RAM = 0, vacuous" is **STALE** — it measures `RAM: 47.8 KB/64.0 KB (74.6%)` against the real
+listings; the file was rewritten 2026-08-18 to fix exactly that, and its docstring's `0KB/64KB` line
+describes the bug it fixed, not current behaviour.
+
+**TWO ITEMS THAT ARE NOT DECLARED-GAP FINDINGS AND MATTER MORE THAN SOME THAT ARE:**
+- **`tools/bganim_vprobe_witness.py` HAS NO AUTOMATED INVOCATION ANYWHERE** — not `build.sh`, not the
+  nightly timer, nothing. `test_bganim_vprobe.py` delegates its whole ROM-side claim to it, so that
+  delegation resolves to a file that exists, is correctly shaped, and **never runs**. Its CLEAR is
+  CLEAR-with-caveat. **This is shared-protocol bar 25 exactly — a green log and an absent run are the
+  same artifact — reached through a DELEGATION rather than through a flag**, which is a new surface
+  for it: the delegate's existence was checked (name), its shape was checked (presence), and its
+  execution was never checked (behaviour). Bar 16's three claims, in one file.
+- **`test_extern_guard_reachability.py::test_excusals_are_not_stale` trusts `--check` output from a
+  shape whose run ERRORED**, producing a loud failure with a wrong stated cause. That is shared bar 10
+  (a verdict and its stated reason are separately checkable) with the reason fabricated from an errored
+  run. **Independently corroborated by the overseer the same hour, by a different route:** a full
+  `pytest tools/` in an interactive shell produced 5 errors in this file, all from `SIGIL_BUILD` being
+  unset — the gate correctly refusing to render "measured nothing" as green, which is the healthy half
+  of the same code path. Flagged adjacent/urgent by the agent; not fixed here.
+
+**TWO SMALLER CORRECTIONS TO THIS FILE, from the same contradiction set:** the line above stating
+`test_freeze_preflight.py` has 12 tests is wrong — it has 13; and `test_gate_fixtures.py` carries no
+genuine non-coverage claim at all (both its regex hits are positive claims, the opposite of a declared
+gap), so it is in the 39 by grep and not by substance.
+
+**OPEN AFTER THIS PARCEL** — findings recorded, not fixed, because a gate change owes red-first proof
+and these want rulings rather than reflexes: (1) should the z80 census ASSERT on its own printed
+intervening-call list, with leaf-and-no-`sr` as the predicate and an allowlist carrying reasons;
+(4) the `Pal_Variant_Stage` DMA trace; (5) the anchor-sweep coverage and its wrong-mechanism
+docstring; (6) the `test_bg_emit.py` prose. None is urgent; none is a live defect today.

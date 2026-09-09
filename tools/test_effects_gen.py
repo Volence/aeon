@@ -766,8 +766,13 @@ class TestLayerDrift(SceneShapeBase):
     schema (empyrean `contract/schema/aurora-effects-scene.schema.json`
     `$defs.layer.drift` — `oneOf ["none", {"rate": integer, -4096..4096, not 0}]`,
     `"default": "none"`), and the emitted spelling from the hand idiom at
-    `games/sonic4/data/effects/ojz_scenes.emp:170-173`, which writes
-    `drift: SceneDrift.Rate(-32)`.
+    `games/sonic4/data/effects/ojz_scenes.emp` — the four `layer(...)` rows of the OJZ
+    act-1 scene, each of which writes `drift: SceneDrift.Rate(-32)`. CITED BY CONSTRUCT,
+    NOT BY LINE, deliberately: this citation said `:170-173` until 2026-09-09, when the
+    blind-spot sift found those lines had become a comment heading reading "THE DRIFT, AND
+    WHY IT IS ON ALL FOUR BANDS AT ONE RATE" — real, plausible, and not the code. Prose was
+    inserted above the rows at `1636e7726`; the citation was correct when written. Retyping
+    today's numbers would go stale on the identical clock, so there are no numbers to rot.
 
     THE UNIT IS THE THING THIS CLASS EXISTS TO PIN. `rate` is on the wire in the
     ENGINE's unit (1/256 px per frame, signed), not in px/frame: the px/frame

@@ -25,6 +25,21 @@ by a separate lane)" with no such section ever landing — that lane's output wa
 this file. O-4 is not disclosed anywhere else in this tree and is the one finding in this batch
 closer to sigil's original shape: its safety today depends on an untracked cross-file agreement.
 
+> **ATTRIBUTION NOTE, added at landing 2026-09-09.** This report originally wrote
+> "Controller-verified" at three points. In context that meant the agent's own controlling
+> pass, not the aeon overseer — but "controller" reads as the lane overseer to anyone meeting
+> this file later, and **a committed artifact must not claim a verification that a named party
+> did not perform.** The wording is corrected to name the auditing agent.
+>
+> **What the overseer DID verify firsthand, at landing, independently of this report:**
+> O-1 (the citation resolves to a comment heading about drift while the code sits elsewhere in
+> the file) and O-4 (`ojz_sec5_showcase.json` omits `variants` ENTIRELY — not "an empty array"
+> as this report says, a distinction its own probe erased with `d.get('variants', [])`, and the
+> exact absent-vs-empty distinction the finding is about; the real check returns early on a
+> non-list, and the hand preset supplies slot 0 as `variants: [Variant_Water_Deep, 0]`, so the
+> untracked agreement HOLDS today). Everything else here is the agent's, checked to the standard
+> its own controls show and not re-run by the overseer.
+
 ### O-1 — `tools/test_citation_form.py:19-28` — a MOVED citation resolving to real, plausible, WRONG text
 
 The gate's declared gap: *"`ojz_scenes.emp` was the worst instance and this gate would NOT have
@@ -33,7 +48,7 @@ citations are deliberately not gated (`tools/test_citation_form.py:387-389`).
 
 **The case is present right now.** `tools/test_effects_gen.py:769-771` cites
 `games/sonic4/data/effects/ojz_scenes.emp:170-173` as the source of the hand idiom
-`drift: SceneDrift.Rate(-32)`. Controller-verified:
+`drift: SceneDrift.Rate(-32)`. Verified by the auditing agent (see the attribution note at the head of this file):
 
 ```
 $ sed -n '165,180p' games/sonic4/data/effects/ojz_scenes.emp
@@ -58,7 +73,7 @@ population, and the gate's design decision not to gate MOVED is what leaves it o
 Declared in three places; the most concrete is line 307-321: reporting the section-5 sweep as a
 violation *"would be a claim this file cannot support: it does not read scene anchors."*
 
-**The case is present.** Controller-verified by running the gate's own coverage report:
+**The case is present.** Verified by the auditing agent, running the gate's own coverage report:
 
 ```
 $ PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/tmp/blindspot-a-ctl-pyc python3 -c \
@@ -272,7 +287,7 @@ a blanket state.
 days. Aurora `docs/ROADMAP.md` row 55 read directly (not relayed) → `DELIVERED 2026-09-03`, branch
 `feat/ew-band-axis-vertical`, `shiftedPhaseBanks`. **Positive control:** two independent sources
 agree (aurora's own ROADMAP, and aeon's `DEFERRED_WORK.md:19022-19030` which strikes the identical
-sentence). Controller-verified the DEFERRED_WORK booking directly.
+sentence). The auditing agent read the DEFERRED_WORK booking directly.
 
 ### O-4 control — `test_effects_gen.py` (follow-up pass)
 
