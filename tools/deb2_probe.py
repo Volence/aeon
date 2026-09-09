@@ -37,6 +37,7 @@ also cannot see a symbol the listing does not carry.
 import argparse
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -128,6 +129,105 @@ def deb2(syms):
     return out
 
 
+# --- appendix anatomy -------------------------------------------------------
+# Derived by dissection 2026-09-08 (LS-22a-resid), then checked against all four
+# built shapes: every bank block's entry array reproduces that bank's own symbol
+# addresses in order, and the entry count the header implies equals the number of
+# DISTINCT addresses in the bank.  Layout of the bytes convsym writes:
+#
+#   0x000  dc.w $DEB2, $0402          magic + version
+#   0x004  256 x dc.l                 block pointer per address bits 23..16,
+#                                     0 where the bank holds no symbol.  A block
+#                                     pointer is (block start - 2).
+#   0x404  N x <code:2><len:1><char:1> the Huffman code table over the CHARACTERS
+#                                     of every name, ending at the lowest block
+#                                     pointer + 2.  `char` 0 terminates a string.
+#   block  dc.w ?, dc.l size          then (size-2)/4 entries of
+#          <addr_low:2><str_off:2>    ascending address, then that block's packed
+#                                     strings, `str_off` counted from their start.
+#
+# The one thing the appendix does NOT hold is a second name for an address: one
+# record per address, so two symbols sharing an address cost one of them its name.
+BLOCK_PTRS = slice(4, 0x404)
+CODE_TABLE_START = 0x404
+
+
+def anatomy(b):
+    """(bank -> (block start, end), code table bytes) for one appendix."""
+    idx = struct.unpack(">256I", b[BLOCK_PTRS])
+    live = sorted((bank, ptr) for bank, ptr in enumerate(idx) if ptr)
+    table = b[CODE_TABLE_START:live[0][1] + 2]
+    blocks = {}
+    for i, (bank, ptr) in enumerate(live):
+        blocks[bank] = (ptr, live[i + 1][1] if i + 1 < len(live) else len(b))
+    return blocks, table
+
+
+def block_entries(b, ptr):
+    """[(addr_low, string offset)] and the block's string area start."""
+    size = struct.unpack(">H", b[ptr + 4:ptr + 6])[0]
+    n = (size - 2) // 4
+    ents = [struct.unpack(">HH", b[ptr + 6 + 4 * i:ptr + 6 + 4 * i + 4]) for i in range(n)]
+    return ents, ptr + 6 + 4 * n
+
+
+def decode_names(b):
+    """{address: name} actually stored in the appendix.
+
+    The strings are MSB-first bitstreams over the code table (`code` compared
+    right-aligned against the bits read so far, char 0 ends the name).  Checked
+    2026-09-08: every name this returns for all four shapes is a name the listing
+    carries, and the count equals the listing's DISTINCT-address count."""
+    blocks, table = anatomy(b)
+    codes = {}
+    for o in range(0, len(table), 4):
+        code, ln, ch = struct.unpack(">HBB", table[o:o + 4])
+        codes[(ln, code)] = ch
+    out = {}
+    for bank, (ptr, _end) in blocks.items():
+        ents, strbase = block_entries(b, ptr)
+        for low, off in ents:
+            name, acc, ln, bit = bytearray(), 0, 0, 0
+            while True:
+                acc = (acc << 1) | ((b[strbase + off + (bit >> 3)] >> (7 - (bit & 7))) & 1)
+                ln += 1
+                bit += 1
+                if (ln, acc) in codes:
+                    ch = codes[(ln, acc)]
+                    if ch == 0:
+                        break
+                    name.append(ch)
+                    acc, ln = 0, 0
+                if ln > 24:
+                    raise ValueError("undecodable string in bank %02X at %#x" % (bank, off))
+            out[(bank << 16) | low] = name.decode("latin-1")
+    return out
+
+
+def locate(b, off):
+    """Which structure a byte offset falls in."""
+    if off < CODE_TABLE_START:
+        return "block-pointer index"
+    blocks, table = anatomy(b)
+    if off < CODE_TABLE_START + len(table):
+        return "CODE TABLE"
+    for bank, (start, end) in blocks.items():
+        if start <= off < end:
+            ents, strbase = block_entries(b, start)
+            what = "entry %d of %d" % ((off - start - 6) // 4, len(ents)) \
+                if off < strbase else "string area +%#x" % (off - strbase)
+            return "bank %02X block, %s" % (bank, what)
+    return "past the last block"
+
+
+def compare(base, mut):
+    """(identical, code table identical, first differing offset)."""
+    first = next((i for i in range(min(len(base), len(mut))) if base[i] != mut[i]), None)
+    if first is None and len(base) != len(mut):
+        first = min(len(base), len(mut))
+    return base == mut, anatomy(base)[1] == anatomy(mut)[1], first
+
+
 def shape_files(shape):
     return os.path.join(AEON, shape + ".bin"), os.path.join(AEON, shape + ".lst")
 
@@ -174,18 +274,47 @@ def cmd_add(shape, name, anchor):
     sharing = sorted(n for n, v, _ in syms if v == addr)
     base, mut = deb2(syms), deb2(syms + [(name, addr, False)])
     nd = sum(1 for a, b in zip(base, mut) if a != b) + abs(len(base) - len(mut))
-    first = next((i for i in range(min(len(base), len(mut))) if base[i] != mut[i]), None)
+    same, table_same, first = compare(base, mut)
+    displaces = name < min(sharing)
     print("shape        %s" % shape)
     print("adding       %s @ %08X (an address already held by %s)" % (name, addr, sharing))
     print("appendix     %#x -> %#x (%+d bytes)" % (len(base), len(mut), len(mut) - len(base)))
-    if base == mut:
+    print("code table   %s" % ("UNCHANGED" if table_same else "CHANGED — a character's code moved"))
+    print("displaces    %s — the appendix keeps ONE name per address, the lowest-sorting"
+          % ("YES, %s loses its name to %s" % (min(sharing), name) if displaces else "no"))
+    if same:
         print("VERDICT      this shape's ROM would NOT move for this name.")
         print("             It says nothing about the other three — measure them too.")
         return 0
     print("VERDICT      this shape's ROM WOULD MOVE: %d appendix bytes differ, first at "
-          "%#x," % (nd, first))
-    print("             plus the $18E header checksum. This is a byte-changing edit and")
-    print("             owes the repin/refreeze ritual. Measure the other three shapes.")
+          "%#x" % (nd, first))
+    print("             (%s), plus the $18E header checksum. This is a byte-changing" % locate(base, first))
+    print("             edit and owes the repin/refreeze ritual. Measure the other three.")
+    return 0
+
+
+def cmd_dissect(shape):
+    lst_path = shape_files(shape)[1]
+    if not os.path.isfile(lst_path):
+        sys.exit("%s absent — build that shape first" % lst_path)
+    syms = demangle(read_symtab(lst_path))
+    b = deb2(syms)
+    blocks, table = anatomy(b)
+    print("%s appendix %#x bytes, code table %d characters (%#x..%#x)"
+          % (shape, len(b), len(table) // 4, CODE_TABLE_START, CODE_TABLE_START + len(table)))
+    for bank, (start, end) in sorted(blocks.items()):
+        ents, strbase = block_entries(b, start)
+        print("  bank %02X  %#08x..%#08x  %4d addresses, strings %#x..%#x (%d bytes)"
+              % (bank, start, end, len(ents), strbase, end, end - strbase))
+    stored = decode_names(b)
+    listed = set(n for n, _, _ in syms)
+    addrs = set(v & 0xFFFFFF for _, v, _ in syms)
+    stray = sorted(n for n in stored.values() if n not in listed)
+    print("  names decoded %d, listing distinct addresses %d, names the listing does not "
+          "have: %d%s" % (len(stored), len(addrs), len(stray), (" " + str(stray[:5])) if stray else ""))
+    dropped = sorted(set(listed) - set(stored.values()))
+    print("  listing names the appendix does NOT store: %d%s"
+          % (len(dropped), (" e.g. " + str(dropped[:5])) if dropped else ""))
     return 0
 
 
@@ -200,8 +329,14 @@ def main(argv=None):
     ap.add_argument("--at", metavar="SYMBOL", default="Dynamic_Live",
                     help="the symbol whose address the new one lands on — a `mark` "
                          "takes the address of the next var (default: Dynamic_Live)")
+    ap.add_argument("--dissect", action="store_true",
+                    help="print the appendix's own structure: code table and bank blocks")
     a = ap.parse_args(argv)
     shapes = [a.shape] if a.shape else list(SHAPES)
+    if a.dissect:
+        if not a.shape:
+            ap.error("--dissect needs --shape")
+        return cmd_dissect(a.shape)
     if a.add_mark:
         if not a.shape:
             ap.error("--add-mark needs --shape")
