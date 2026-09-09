@@ -31211,3 +31211,36 @@ retired per-section VRAM-base scheme, double-counting a tile we dedupe globally.
 fragmentation half does not make that figure equivalent — it stays conservative, and conservative in
 an unquantified amount. **Being told "fragmentation cannot refuse you" must not be read as "your
 number is right now."**
+
+## THE SIFT'S POPULATION WAS TOO NARROW, AND A PEER NEARLY OCCUPIED A GAP OUTSIDE IT (2026-09-09)
+
+**Addendum to the blind-spot sift, from an unrelated exchange the same hour.** The sift enumerated
+`tools/test_*.py` only. `engine/system/constants.emp:365-366` carries a self-declared non-coverage
+statement in **engine source**, about the `PAGE_FRAMES` guard:
+
+> *"it compares the quotient against its own dividend, so it catches inexact division and **can never
+> catch the prose**. Read the value off `POOL_TILE_CEILING`."*
+
+**The guard is NOT vacuous** — verified rather than assumed, because a check comparing a quotient
+against its own dividend looks like it cannot fail: integer division truncates, so
+`ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING)` **fires precisely when the ceiling
+is not a multiple of 64** (768 holds, 640 holds, 700 fires, 63 fires). Aurora reached the same
+conclusion independently and reported it as a NON-finding rather than staying silent, which is the
+right call — *"I looked and it is fine"* and *"I did not look"* are otherwise the same silence.
+
+**But its declared gap — PROSE stating a frame count — was about to be OCCUPIED, by a peer, in a
+parcel whose entire subject was that defect.** Aurora's brief said "12 frames" and "768 / 64 = 12"
+repeatedly, on course to put a hardcoded 12 into a user-facing string beside a derived value: the
+bare `1024` they were fixing, wearing a derivation. **It was prevented by a message, not by any
+gate** — ours cannot see their prose, and theirs could not see that `PAGE_FRAMES` is a live proposal
+(this lane's open `VRAM-FOR-OBJECTS` card moves `POOL_TILE_CEILING` 768 -> 640, so 12 -> 10).
+
+**TWO THINGS THIS CHANGES:**
+1. **The sift's 39 is a floor for a second reason.** Beyond the grep's missed spellings, the
+   POPULATION was wrong: declared non-coverage lives in `.emp` source and its comments too, and that
+   set was never enumerated. A successor pass takes `engine/**` and `games/**` comments, not just
+   `tools/test_*.py`.
+2. **A declared gap can be occupied from OUTSIDE the repo that declares it.** Every control the sift
+   ran looked inward. This one would have been occupied by a peer's artifact, which no inward control
+   could ever have found — and the only instrument that caught it was telling the peer that a value
+   they depend on is about to move.
