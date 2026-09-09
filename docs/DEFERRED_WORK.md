@@ -30313,3 +30313,36 @@ faster and that was the wrong axis to optimise.
 *Banked here rather than in `docs/OVERSEER.md` because that file is over the boot-read bound and
 under a growth moratorium, and rather than nowhere because a rule that lives only in a message is
 not in force for a successor — which is this repo's own most-repeated lesson.*
+
+## A BYTE-IDENTICAL VERIFICATION CANNOT WITNESS THAT THE MERGE HAPPENED (2026-09-09)
+
+**Aurora's finding, second sighting there in one night, and it lands squarely on this lane's landing
+ritual.** A merge command that FAILS prints its error, and the suite run next still passes, because
+it measured the **unmerged** tree — at master's own numbers.
+
+**Why it bites hardest HERE:** tonight's landings were byte-neutral parcels verified by building four
+shapes and asserting the hashes equal **master's** hashes. **An unmerged tree produces exactly those
+hashes by construction.** Green means *either* "merged and neutral" *or* "never merged", and the two
+are indistinguishable in the artifact. This is bar 4's converse — *on a byte-neutral parcel a
+matching CRC cannot witness that the build ran* — arriving one level up, on whether the **merge** ran.
+
+**THE FIX IS ONE EXTRA CHECK AND IT IS ABOUT CONTENT, NOT BYTES: after merging, assert the parcel's
+own artifact is PRESENT in the tree you are about to verify** — a file it adds, a symbol it defines,
+a count it changes. `git diff --stat <base>..HEAD` naming the expected files does it; so does
+grepping for the thing the parcel exists to add. **Read the merge's own output, never the following
+suite's exit code.**
+
+**Two separate claims, and one was standing in for both:** *the merge happened* (content) and *it
+moved no bytes* (hashes). A hash comparison answers only the second.
+
+**AUDITED RETROACTIVELY, since the ritual was already run six times tonight — all six landings carry
+their content on master:** `tools/test_citation_form.py`, `tools/test_extern_guard_reachability.py`
+and `tools/plane_buffer_headroom_probe.py` all present; LS-15b's `pub equ DPLC_PEAK_TILES_SONIC` and
+its `BuildStaticDMA` pin present; LS-22a's `displaces` line present; the lens ledger at 92 ids; the
+LS-17 closure resolving to `crash`. **None was a silent no-op — but the check that established that
+is the one just described, run after the fact, and not the one the landings actually used.**
+
+**Note the direction flips for a byte-MOVING parcel** (the LS-17 implementation is the next one):
+there, an unmerged tree produces master's hashes and the verification **fails loudly**, so that case
+is self-checking. **The trap is specific to the neutral parcels, which is most of what this lane
+lands.**
