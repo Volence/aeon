@@ -31244,3 +31244,66 @@ gate** — ours cannot see their prose, and theirs could not see that `PAGE_FRAM
    ran looked inward. This one would have been occupied by a peer's artifact, which no inward control
    could ever have found — and the only instrument that caught it was telling the peer that a value
    they depend on is about to move.
+
+## THE LEDGER SIFT — ALL 46 OPEN FINDINGS RE-VERIFIED, AND THE ANSWER IS TWO (2026-09-09)
+
+**THE ITEM, from the LENS-LEDGER-RULE section above: how many of the 46 `open` rows are open only in
+the ledger.** Three agents, disjoint slices of 15/16/15, read-only over source and history, each
+returning a per-finding verdict with evidence quoted from disk. **Answer: 42 STILL-TRUE, 2
+ALREADY-FIXED, 1 partially closed, 1 could-not-be-located.** The population is now
+`open` 44 / `fixed` 26 (137 lines, still 92 distinct ids — every verdict is a superseding append,
+no id invented).
+
+**THE TWO THAT WERE OPEN ONLY ON PAPER:**
+- **C2a-4** — fixed by `ca743b5c` (2026-09-08T23:29:35Z), a per-commit runner
+  (`tools/test_extern_guard_reachability.py`) driving `sigil build --check` under
+  `SIGIL_WARNINGS=full`. **Verified RUN, not merely present**: its five tests were confirmed
+  COLLECTED by the exact invocation `build.sh:631` uses. Two limits recorded on the row — the row's
+  literal sentence about `build.sh` itself is still true (a different file does the job), and
+  `FAST=1` skips the pytest lane.
+- **B2b-3** — fixed by `bbeda312` (2026-09-07T09:59:46Z), the `PLAYERV_SPEND`/`PLAYERV_WINDOW`
+  ensures whose message derives headroom rather than restating a literal.
+
+**THE LEDGER DEFECT THIS EXPOSED, and it is worth more than the two closures.** Five rows carry an
+identical `at` of `2026-09-08T23:50:23Z`. The returning agent read that as a mechanical batch
+*re-open*. **It was not** — measured here, the five differ from their predecessors by exactly one
+added field, `batch` (LS-8, LS-23, LS-24). It was a **triage pass tagging each open finding with the
+work item meant to fix it**, and it re-emits `state: open` as a SIDE EFFECT of tagging, from a pass
+that never looked at the code and never claimed to. **B2b-3's fix had landed 38 hours earlier.**
+The sharper instance is the row the triage pass did *not* touch: **C2a-4's fix landed at 23:29:35Z
+and the triage pass ran 21 minutes later, straight past it.**
+**THE GENERAL FORM: a pass that rewrites a row for one reason carries every OTHER field forward at
+full confidence, and `state` is the field that reads as a claim.** Any tooling that re-emits a ledger
+row owes either a re-verification of `state` or an explicit marker that it did not check it. This is
+exactly the drift LENS-LEDGER-RULE prevents going forward and could not fix retroactively — which is
+the whole reason the sift was worth running.
+
+**FOUR ROWS WHOSE FINDING STANDS BUT WHOSE OWN DETAIL WAS WRONG — corrected by append, never edited:**
+`B2b-4` (said twelve guards; it is **thirteen**, and was thirteen at the sweep commit too, so the
+number was wrong WHEN WRITTEN rather than stale — re-derived by the controller on a different
+enumeration parameter than the agent used); `CTRL-1` (its supporting sentence quotes a conventions
+claim that `b83204df` had already corrected a day *before* the row was written); `CTRL-3` (its
+"nightly timer is down" detail is stale — three systemd timers are active; what is absent is *hosted*
+CI, not unattended checking); `B2a-4` ("duplicated verbatim" is wrong for two of three — shared shape
+and names, different bodies, which turns the fix from a de-duplication into a design call).
+
+**ONE PARTIAL, DELIBERATELY NOT CLOSED — `V-7`.** Its sharpest clause is genuinely answered: three
+malformed-stream checks now fault into the crash screen, and `build.sh:217` refuses `CRASH_REPORT=0`,
+so the shipping ROM has the net. **It stays `open` because the row's TITLE is the broad claim and only
+its headline instance was fixed** — marking it fixed would let a true sentence do a bigger sentence's
+work. Residual: `zx0_resume.emp` still has zero checks and cannot easily have one (`raise_error`'s
+frame is build-fatal under `@resumable`), so that gap is structural and needs its own answer.
+**A trap inside it: the two `raise_error` tokens in that file are COMMENTS explaining why one cannot
+be planted, so a bare occurrence count reads as "2 guards present" and is wrong.**
+
+**ONE COULD-NOT-BE-LOCATED — `C1b-2`.** No `detail` field and a rotted `where.line=521` pointing at a
+stray brace today. Every loop in `engine/objects/core.emp` with a real runtime emptiness test was
+enumerated and all four place setup before the test, so the trio the title requires was not found.
+Left OPEN rather than refuted, with the settling step recorded on the row: read `core.emp` at sweep
+sha `9cfebb72` around line 521 and name the routine. **A ledger row with no detail is only as durable
+as its coordinate**, which is the coordinate-rot bar arriving inside our own instrument.
+
+**METHOD NOTE FOR THE NEXT SIFT.** Slice reports are at `docs/superpowers/notes/2026-09-09-ledger-sift-{A,B,C}.md`.
+Every ALREADY-FIXED verdict was re-derived by the controller before being banked, and one agent
+mechanism story (the "byte-identical re-open") did not survive that check while its finding did —
+which is the argument for re-deriving a returned mechanism even when the verdict is right.
