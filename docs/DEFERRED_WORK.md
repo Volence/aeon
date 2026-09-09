@@ -27882,9 +27882,80 @@ ROM→VRAM DMA per load, **resident-on-COMPLETION not on enqueue**, spawn-retry 
 5. **`games/demo` was not examined** — no `Sec` array, no type tables, so an engine-side pool
    must degrade cleanly to "no pool" and that has not been designed.
 
+**THE PRECEDENT TO BUILD AGAINST IS BATMAN & ROBIN, NOT ANY SONIC GAME** (added after the
+second research lane returned; doc §4.4/§4.6). Nine reference trees were surveyed and they
+split three ways: **streams no object art** (S2, S3K, S.C.E., Ristar, Thunder Force IV) ·
+**streams a few large characters' animation frames** (Gunstar 3 slots, Alien Soldier **1**,
+Vectorman, B&R) · **streams many different objects' art — EMPTY.** *Nobody solved aeon's
+problem*, because every one of them kept the loading unit and the spawning unit identical.
+Even Treasure draws every ordinary enemy and boss part from static VRAM. **So "nobody gates
+spawning on art residency" is not nine votes against a residency gate** — it is nine games
+that never needed one. This design's spawn policy is a decision to argue on merit.
+
+**But the machinery is proven twice, commercially.** B&R ships a **refcounted, evicting cache
+over 64 fixed 16-tile slots = 32 KB = half of VRAM**, with per-LEVEL slot count and DMA
+budget, a three-path allocator, a **four-way pre-check with full counter rollback** (DMA
+budget, queue slots, VRAM slots, cache records), **revert-to-previously-resident-art** on
+failure, and **release that does not free the VRAM** — which is this file's own
+"Refcount-based Art Caching / Lazy Reclaim" entry, shipped in 1995. Vectorman adds an
+**atomic rollback** that makes drawing non-resident art structurally impossible, on
+uncompressed ROM-sourced art (aeon's choice already), at 5,760 B/frame — nearly 2× aeon's
+*entire* residual, which it can afford because it streams no level art. **Model the loader on
+B&R.**
+
+**Two design changes this forced, so a planner does not re-derive them:**
+* **There are TWO failure paths, not one.** Spawn-with-no-art → refuse + retry. A **live**
+  object whose animation advances past its resident art → **revert to the last resident art
+  and retry** (there is no spawn to refuse). The doc's original four policies missed the
+  second case entirely.
+* **The slot-class question is a FORK settled by the histogram, not a recommendation.** B&R
+  uses ONE 16-tile class with multi-slot runs; the doc proposed two classes. Step 1 above
+  computes the input to both arms — decide it there.
+
+**⚠ TRUST BOUND on §4.4:** the raw disassemblies have severe holes — **Vectorman is 79.1%
+undisassembled and its VRAM allocator's BODY is inside a gap**, Gunstar omits ~175 KB inside
+its CODE ranges, **Alien Soldier's disasm is lossy** (main loop and VBlank entry absent), and
+B&R's per-frame queue-counter reset was never located. **Strong evidence the SHAPE works,
+weak evidence about the DETAILS.**
+
 **Stale comments found while measuring and deliberately NOT fixed (design-only lane):**
 `test_solid.emp:781` and `ojz_scroll_test.emp:660` both say the spring is "12 tiles"; it has
 been 24 since the side sheet landed. The DMA uses `SPRING_ART_LEN`, so behaviour is right.
+
+#### REF-DOCS — two reference documents of ours are wrong, found 2026-09-09, NOT fixed here
+
+Both re-derived first-hand, not relayed. Neither is in this lane's scope (design-only), and
+both mislead anyone researching from them.
+
+1. **`docs/research/ristar-techniques.md` claim #4 is REFUTED and is marked DONE / already
+   adopted.** It says Ristar uses cell-scroll (~28 entries) as the workhorse with per-line
+   reserved for hero shots. `grep -in '#\$8b0'` over `ristar_disasm/code/disasm.asm` returns
+   **exactly seven VDP register writes** — `$8b03` ×4 (`$00BBE6`, `$00BDD4`, `$00D806`) and
+   `$8b07` ×4 (`$00BE4A`, `$00D836`, `$00DF18`, `$00E0DC`) — plus one `ori.l #$8b0000b2, d2`
+   that is not a VDP write. **`$8b02` never appears.** Reg `$0B` bits 1:0: `$03` = `%11` =
+   per-line; `$07` = the same plus the 2-cell vscroll bit. **Ristar is per-line HScroll
+   always.** Also in the same pass: claim #3 (per-stage HInt dispatch) is CONFIRMED **and
+   larger** — `$05612C` is table-driven and installs per-stage **VBlank** handlers too; claim
+   #1 (event-tagged animation frames) is **PARTIAL** — the `{frame_no, action_byte}` shape
+   exists but the vocabulary is `{none, clear flip bits, set flip bits}`, not
+   SFX/hitbox/callback; and the **"stage script interpreter at `$C01E`" is a
+   misidentification** — it is the attract-mode demo player replaying canned controller input,
+   and it loads no art.
+   ⚠ **Method note, because this nearly went the other way:** a raw hex grep for
+   `8b0[0-9a-f]` over the same file returns ~290 hits including `8b02`, matching the byte
+   pattern in unrelated data, and would have "confirmed" the claim. **The instrument has to
+   select instructions (`#\$8b0`), not bytes.**
+2. **`aliensoldier_disasm/ANALYSIS.md` is a SYMLINK to `../gunstar_disasm/ANALYSIS.md`**
+   (verified with `/usr/bin/ls -l`). There is no Alien-Soldier-specific analysis in the tree,
+   so anyone reading "Alien Soldier's analysis" is reading Gunstar's — and that file's "Direct
+   DMA (No Queue) / art is pre-rendered, not streamed" line is **false for Alien Soldier**,
+   which has both a queue and streaming. Its 96-byte object stride is confirmed for Gunstar
+   only. Reported by the research lane; the symlink itself I verified.
+   Also reported, **not** verified here: `thunderforce4_disasm/ANALYSIS.md`'s pool addresses
+   and 32-byte stride did not reproduce (the lane places the table at `$FF8198` with a 40-slot
+   subtable at `$FF8818`, stride `$60`), and `ristar_disasm/ANALYSIS.md` mislabels `$6580`/
+   `$65B2` (LCG PRNGs, not controller/DMA) and `$FFDFFA` (the object free-list head, proven by
+   its push/pop sites, not a "master object flag pointer").
 
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 
