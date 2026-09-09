@@ -606,7 +606,7 @@ renders.
   consults residency. The spawn itself (`:37885-37889`) takes the routine pointer straight
   from the layout byte.
 
-### 4.3 S.C.E. — the one tree with a real runtime VRAM allocator, and it has one caller
+### 4.3 S.C.E. — the one SONIC tree with a runtime VRAM allocator, and it has one caller
 
 **S.C.E. does not merely inherit S3K's PLC design; it replaces most of it.**
 
@@ -639,31 +639,158 @@ renders.
 - **No mid-level act transition**, and only DEZ ships, so there is no S.C.E. counterpart to
   S3K's HCZ stream to compare.
 
-### 4.4 NOT EXAMINED IN THIS PASS — the Treasure/Sega set
+### 4.4 The Treasure / Sega / BlueSky set — and one of them has already built this design
 
-**Gunstar Heroes, Alien Soldier, Vectorman, Thunder Force IV, Ristar and Batman & Robin were
-dispatched to a second research lane which had not returned when this document was
-committed. Their answers are NOT in this document and nothing here should be read as
-covering them.** That is a real gap and the standing rule in `CLAUDE.md` ("do not assume one
-reference covers the others") applies to it: three Sonic trees are three data points from
-one lineage.
+Read by a second research lane across six trees. **I did not verify these myself**; they are
+relayed with the lane's citations and with its own coverage caveats, which are severe enough
+to matter and are reproduced at the end of this section. Nothing here was checked against a
+running ROM.
 
-What they were asked and what they would most likely change:
+**These six sit at four distinct points on a spectrum, and only two have anything resembling
+a VRAM allocator.**
 
-- **Alien Soldier and Vectorman** are the likeliest to have per-frame enemy-art streaming
-  during active play — if either does, its rate and cover are directly comparable to §5.3's
-  bandwidth arithmetic and could raise or lower the 5-concurrent-blob figure.
-- **Gunstar Heroes and Alien Soldier** put very large bosses on screen mid-level; how that
-  art arrives is the closest commercial analogue to the "art not resident when it spawns"
-  question in §3.1, and the Sonic trees answer that question only by avoiding it.
-- **Ristar** has per-stage scripting and a Sonic-1-derived lineage
-  (`docs/research/ristar-techniques.md`), so it is the one that might show a *scripted* art
-  load — which would be the authored counterpart to §3.5's derived manifest.
+| game | loading unit | cover | VRAM management | per-frame object-art DMA |
+|---|---|---|---|---|
+| **Ristar** | per-STAGE (21 art sets) | **display OFF** | fixed windows; per-stage tile offsets in a data table | player DPLC + animated-tile cycler |
+| **Gunstar Heroes** | per scene-segment / boss-phase | camera clamp + multi-frame spin | fixed windows (2 × 32-tile player + one re-pointed "big object") | **3 fixed slots only** |
+| **Alien Soldier** | per scene-script step | **none — game live** | fixed hand-authored windows | **1 slot; all enemies static** |
+| **Vectorman** | per ANIMATION FRAME, continuous | **none** | allocator exists; **its body is in an undisassembled gap** | bounded 5,760 B/frame, global FCFS |
+| **Thunder Force IV** | per-STAGE | intro cutscene, then amortised over ~128 frames | fixed windows | none (background only) |
+| **Batman & Robin** | per ANIMATION FRAME, demand-loaded | **none** | **refcounted, evicting cache over 64 × 16-tile slots** | bounded, per-level-tuned budget |
 
-**None of §5 or §6 depends on those answers**, because the cost is derived from aeon's own
-constants and the recommendation's falsifier is a build-time measurement on aeon's own data.
-But a finding from that set could sharpen §3.1's policy choice, and the section should be
-filled in before the design is treated as complete.
+#### 4.4.1 Batman & Robin has already built the design in §6, and it is worth copying twice
+
+`disasm/code/engine/objects.asm` and `.../main_loop.asm`:
+
+- **A refcounted, evicting cache over 64 fixed 16-tile (512 B) slots = 32 KB, VRAM
+  `$0BE0–$89DF`** — exactly half of VRAM given to object art. Destination table at `$80B5`,
+  stride `$10`, VRAM step `$0200`.
+- **Slot count and per-frame DMA budget are per-LEVEL constants supplied by the level setup
+  script** (`main_loop.asm:3597,3604`).
+- Allocator `$0085F8` (`main_loop.asm:1407-1500`), three paths: pop a free slot; **reclaim**
+  the oldest unreferenced record and steal its slots; **forced eviction** walking the reclaim
+  list past still-referenced entries.
+- **Release does not free the VRAM.** `$0086AA` decrements the refcount and pushes onto a
+  reclaim list; the art stays resident and re-hittable until something evicts it. **That is
+  precisely the "Refcount-based Art Caching / Lazy Reclaim" entry in `DEFERRED_WORK.md`,
+  shipped in a 1995 commercial game.**
+- A cache hit does no DMA at all (`objects.asm:4200`).
+- Objects leaving a `$170 × $110` camera window **release their art handle**
+  (`objects.asm:2090-2091`) — the same camera-envelope-drives-residency shape as §3.2.
+
+**Three things this changes in my design:**
+
+1. **§3.3's slot classes are probably wrong, or at least not obviously right.** B&R uses **one
+   class** — 16 tiles — and allocates *multi-slot runs* for larger art, handling the resulting
+   fragmentation with the forced-eviction walk. A single class is simpler than my two, and 16
+   tiles happens to fit aeon's blob histogram well (4→1, 9→1, 12→1, 16→1, 24→2, 29→2 slots).
+   **Recommend evaluating single-class-with-runs against my two-class proposal as an explicit
+   fork in the build step**; the histogram is already computable, so the answer is cheap.
+2. **§3.1 gains a better answer for the frame-swap case, though not for the spawn case.** On
+   any failure B&R does `move.w d7, $20(a6)` — it **reverts to the previously-resident art ID**
+   and re-renders the old frame, retrying next frame (`objects.asm:4167-4180`). There is no
+   garbage-tile case and no hard failure. That is strictly better than "refuse" *where a
+   previous frame exists*; at a **spawn** there is no previous art, so §3.1(a) still stands
+   for the spawn path. **Both are needed and they are different paths.**
+3. **The guard should be four-way, not one-way.** B&R checks, before committing:
+   per-frame DMA budget, free queue slots, free VRAM tile slots, and free cache records — and
+   **restores the counters** on any failure. My §3.6(iii) only proposed a resident/pending
+   two-state. Adopt the four-way pre-check and the rollback.
+
+#### 4.4.2 Vectorman — atomic rollback, and a bandwidth figure worth comparing against
+
+- Art is **uncompressed and DMA'd straight from ROM** (the `$95/$96/$97` source-register
+  bytes are copied verbatim out of the descriptor), which is why the ROM is 2 MB with
+  ~1.6 MB of data. **The same choice aeon has already made for object art** (§1.2).
+- **Budget: ≤54 queue entries and ≤`$B40` = 5,760 bytes per frame, globally shared FCFS**,
+  reset once per frame (`:6252`). Objects late in the render list are denied and repeat last
+  frame's art.
+- **The best guard found in any of the six:** if the DMA queue is full, the producer **rolls
+  the entire entry list back and returns 0** (`:6326-6332`); the caller commits nothing and
+  renders from the still-resident art (`:7438-7445`). Atomic per object, retried next frame —
+  *structurally impossible* to draw non-resident art. Plus an unallocated-window skip, an
+  80-sprite clamp, and a 73-site assert framework.
+- **The comparison that matters:** Vectorman spends **5,760 B/frame on object art alone**
+  against aeon's **2,944 B total residual** — nearly 2× aeon's entire remaining window. It can,
+  because Vectorman streams *no level art*: its planes are fixed and the whole budget is
+  sprites. **aeon is buying a foreground streaming tier that Vectorman does not have, and the
+  object tier is paying for it.** That is the honest framing of §1.5's deficit, and it is a
+  design tension, not a defect.
+
+#### 4.4.3 Ristar, Gunstar, Alien Soldier — and the finding that lowers expectations
+
+- **Ristar:** per-stage, **display blanked** (`andi.b #$bf` on the reg-1 shadow at `$014080`,
+  restored `ori.b #$40` at `$0141FE`), VBlank handler set to a bare `rts` during the load, and
+  the loader **manually pumps the SFX queue mid-load** — which is what you do when you know
+  you are blocking for many frames. Placement is *data*: a 22-entry per-stage tile-offset
+  table added to a base tile. **No allocator, no free list, no refcount, no eviction, and no
+  PLC queue at all.** A chunked streamer object does exist (`$05D3BE`, 100 tiles = 3,200 B per
+  frame) but it sits beside a palette fade and a global mutex and reads as a *transition*, not
+  mid-combat — the lane flags "does it run while the player has control" as unproven.
+  `[RUNTIME]`
+- **Gunstar Heroes:** a real PLC (`{flags.w, src.l, dest.w}`, `$FFFF`-terminated), triggered by
+  a camera-X threshold or by an object's own routine. Cover is a **scroll lock plus hiding the
+  boss plus a multi-frame busy-wait** (`btst #$7,$a958.w` → `tst.w $f720.w` → `clr.w $2(a5)` →
+  `jsr $2478`), one frame per `$200`/`$400` chunk — "the screen stops scrolling, then the boss
+  is there." All nine writes to the per-object VRAM base are immediate constants.
+- **Alien Soldier:** the architecture *inverts* — gameplay runs inside the VBlank interrupt and
+  the foreground main loop does nothing but stream art (`$000554`: `move #$2300,sr / jsr $294E
+  / bra`). Loads are **uncovered**, budgeted at 512 or 1,024 B/frame. Exactly **one** write to
+  the per-object VRAM base exists in the entire 2 MB ROM.
+
+**The finding, and it is the one that should temper §5.1's expectations:** **Treasure did not
+stream enemy art either.** Gunstar streams three slots (two players + one big object); Alien
+Soldier streams **one**. Every ordinary enemy and every boss part in both games draws from
+*static* VRAM tile indices. Two of the most sprite-dense games on the platform solved object
+variety by **authoring within a fixed resident set**, exactly as the Sonic trees did. Only the
+two *animation-frame*-driven engines (B&R, Vectorman) built caches — and they built them to
+stream **frames of a few large characters**, not **art of many different objects**, which is
+aeon's actual problem. **Nobody in this set has solved aeon's problem; two of them have built
+the machinery that would.**
+
+#### 4.4.4 Corrections to our own repo that fell out of this
+
+Booked separately in `DEFERRED_WORK.md`; recorded here because they were found in service of
+this design and a reader of §4.4.3 needs to know the Ristar doc is not reliable.
+
+- **`docs/research/ristar-techniques.md` claim #4 is REFUTED**, and it is marked **DONE /
+  already adopted**. It says Ristar uses cell-scroll (~28 entries) as the workhorse with
+  per-line reserved for hero shots. VDP reg `$8B` is only ever written `$03` or `$07` in that
+  ROM (seven sites) and **never `$02`** — both values are **per-line** HScroll, the VBlank
+  unconditionally DMAs the full 1,024-byte per-line table every frame, and init clears all 256
+  longs of it. **Ristar is per-line always.**
+- **Claim #3 (per-stage HInt dispatch) is CONFIRMED and larger than stated** — `$05612C` is
+  table-driven and installs per-stage **VBlank** handlers too.
+- **Claim #1 (event-tagged animation frames) is PARTIAL** — the `{frame_no, action_byte}`
+  table shape exists, but the action vocabulary is `{none, clear flip bits, set flip bits}`,
+  not the SFX/hitbox/callback set the doc claims.
+- **The "stage script interpreter at `$C01E`" is a misidentification** — it is the attract-mode
+  **demo player**, replaying canned controller input. It loads no art.
+
+#### 4.4.5 ⚠ How much to trust §4.4 — the coverage holes, reproduced
+
+The lane reported these unprompted and they are load-bearing limits on everything above:
+
+- **Vectorman: 79.1% of the ROM is not disassembled** (1,658,880 B across 42 markers). **The
+  VRAM allocator's body, the VBlank DMA drain, and the covered-install path are all inside
+  gaps**, and the art-descriptor byte layout is *inferred from access patterns and did not
+  parse when hexdumped*. So "Vectorman has an allocator" is a call-site inference, not a read
+  design.
+- **Gunstar: ~175 KB of code omitted inside the CODE ranges** across 152 label gaps. The
+  DMA-queue primitive, the PLC walker's caller, the VDP register init and the per-scene load
+  lists are all in holes. The stall length is unproven. `[RUNTIME]`
+- **Alien Soldier: the disassembly is LOSSY, not merely truncated** — the main loop and the
+  entire VBlank entry are absent and were recovered by hexdumping the ROM. Its `ANALYSIS.md`
+  is **a symlink to Gunstar's**, so there is no Alien-Soldier-specific analysis, and that
+  file's "no queue, art is pre-rendered not streamed" claim is **false** for Alien Soldier.
+- **Thunder Force IV:** the VBlank dispatch and object-slot allocator are in holes; the plane
+  and SAT assignments are inferred from usage, not read from register writes.
+- **Batman & Robin:** the per-frame reset of the queue counters could not be located — only
+  mode-init writers exist, and the queue would exhaust after 40 total entries without one.
+  **So the "bounded, per-level-tuned budget" in the table is partly inferred.** `[RUNTIME]`
+
+**Reading rule for §4.4: treat the two cache designs (B&R, Vectorman) as strong evidence that
+the shape works and weak evidence about its details.** The details are what the gaps ate.
 
 ### 4.5 What the Sonic trees agree and disagree on
 
@@ -690,6 +817,49 @@ filled in before the design is treated as complete.
   works.**
 - **Whether exhaustion is silent.** S.C.E. raises in DEBUG; the others do not. **Follow
   S.C.E.**
+
+### 4.6 Across all nine trees — what actually generalises
+
+**The single most useful thing the whole survey produced:** the nine games split cleanly on
+one axis, and it is **not** "did they stream art".
+
+| | streams no object art | streams a FEW LARGE characters' frames | streams MANY DIFFERENT objects' art |
+|---|---|---|---|
+| games | S2, S3K, S.C.E., Ristar, Thunder Force IV | Gunstar (3 slots), Alien Soldier (1), Vectorman, **Batman & Robin** | **nobody** |
+
+**Nobody in the reference set solved aeon's problem.** Every one of these games got object
+variety by **authoring within a fixed resident set**, and the four that built streaming
+machinery built it to page *animation frames of a small cast*, not *art of many distinct
+object types*. Even Treasure — Gunstar and Alien Soldier, two of the most sprite-dense games
+on the hardware — stream three slots and one slot respectively and draw every ordinary enemy
+from static VRAM.
+
+Three consequences, and they are the ones that should survive into whatever gets built:
+
+1. **The classics constrain us less than they look like they do.** "Nobody gates spawning on
+   art residency" (§4.5) is not nine independent votes against a residency gate; it is nine
+   games that never needed one because their loading unit and their spawning unit were the
+   same thing. aeon is proposing to separate those two, which is genuinely novel here, and
+   §3.1's policy is therefore a **design decision to be argued on its merits**, not a
+   departure from precedent to be justified.
+2. **But the machinery is proven, twice, in shipped commercial games.** Batman & Robin's
+   refcounted evicting cache with lazy reclaim (§4.4.1) and Vectorman's atomic
+   rollback-on-full (§4.4.2) are exactly the two mechanisms §3 needs, running at 60 Hz on this
+   hardware in 1995. **The risk in this design is in the manifest and the palette, not in the
+   cache.**
+3. **The cover story is the one thing that does NOT generalise.** Display-off (Ristar, S2/S3K
+   init), a title card (S2/S3K), a camera clamp plus a visible stall (Gunstar), a cutscene
+   (TFIV), or nothing at all (Alien Soldier, Vectorman, B&R) — every option in the space is
+   represented, and the choice tracks the *engine*, not the era. aeon's answer is already
+   fixed by its own architecture: the entity window gives 16-24 frames of lead (§1.4), so the
+   cover is **distance**, the same answer S2's signpost reached.
+
+**One number worth carrying:** Batman & Robin gave **half of VRAM — 32 KB, 1,024 tiles — to
+the object art cache.** aeon's proposed pool is 256 tiles, a quarter of that, on a machine
+that is also streaming a foreground tileset B&R did not have. If §6.3's measurement comes
+back saying 256 is not enough, **B&R is the existence proof that a much larger object pool is
+a legitimate shape for a Genesis game** — and the tiles would have to come from the planes or
+the FG pool, which is the conversation `VRAM-NEIGHBOURHOOD` already asks for.
 
 ---
 
