@@ -13,9 +13,27 @@ python3 tools/spring_clip_ab.py --rom B.bin --lst B.lst --label branch --json br
 python3 tools/spring_clip_ab.py --compare master.json branch.json
 ```
 
-Both ROMs are `DEBUG=1 ./build.sh` shapes.
-master `bb492d964eb30440c27feb0ae7a67a5be875e2a6547325822c03bbee63d13b34` (846931 B);
-branch `0450acd2131c7fc6544165d0f0242b25eb5c335f2895874a691104730eafee88` (846907 B).
+Three ROMs, all `DEBUG=1 ./build.sh`:
+
+| role | commit | sha256 | bytes |
+|---|---|---|---|
+| control, isolated | `a7f088af^` = `e249d6b3` | `b96de158b097edbc60c80eea609bcd9637b7d0b8d6f29e58cfa66e504f1ccd04` | 846907 |
+| subject | `a7f088af` | `0450acd2131c7fc6544165d0f0242b25eb5c335f2895874a691104730eafee88` | 846907 |
+| control, master | `25c874ba` | `bb492d964eb30440c27feb0ae7a67a5be875e2a6547325822c03bbee63d13b34` | 846931 |
+
+**The control that means something is the subject's own parent.** `master` was
+20 commits ahead of the branch's base, and those commits touch
+`collision_data.emp`, `ojz_scenes.emp` and 11 more `.emp` files -- so a
+master-vs-branch difference could not have been attributed to `a7f088af` alone.
+The isolated pair (`compare_isolated.txt`) reproduces **every number** from the
+master pair (`compare.txt`), which is what says the drift did not reach this
+measurement.
+
+Note also that the base and subject ROMs are the **same 846907 bytes** and are
+completely different builds. Length is not identity here; hash is.
+
+`origin/parcel/solid-touch-reach` is one commit beyond `a7f088af`
+(`8ed20bcc`), and it is documentation only -- no code difference.
 
 ## What was driven
 
