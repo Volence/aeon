@@ -27760,11 +27760,35 @@ Levers, largest first, none of them taken here:
 * **`fg_art_pool` = 768 tiles = 37% of VRAM.** Never re-measured against what OJZ
   act 1 actually pages in. If 12 frames is more than the act needs, this is where an
   object neighbourhood comes from. Wants a page-in-pressure measurement first.
-* **Plane size.** `PLANE_H_CELLS` / `PLANE_V_CELLS` are 64x64 = 8 KB each = 512
-  tiles for the pair. `engine/system/epilogue.emp` already pins `H*V <= 4096`. Going
-  64x32 returns 256 tiles at the cost of vertical scroll headroom (32 rows against 28
-  visible) — which is exactly what the mega-act's seamless vertical transitions need,
-  so this is probably NOT the lever, but it is the biggest one and should be named.
+* **Plane size. — ⚠ PRICED 2026-09-09, AND THE REASONING IN THIS BULLET WAS WRONG.**
+  `PLANE_H_CELLS` / `PLANE_V_CELLS` are 64x64 = 8 KB each = 512 tiles for the pair.
+  `engine/system/epilogue.emp` already pins `H*V <= 4096`. The bullet used to say the
+  cost was "vertical scroll headroom … which is exactly what the mega-act's seamless
+  vertical transitions need, so this is probably NOT the lever". **That cost does not
+  exist.** See `docs/research/2026-09-09-plane-size-lever.md`:
+  - The vertical streamer's stop target is clamped to the VIEWPORT
+    (`section.emp` ~778/~830), so the 36 off-screen rows are **never written**. The
+    per-frame vertical row cost is 2 rows, set by `VFILL_ROWS_PER_FRAME`, not by the
+    plane. The engine's own guard `SECTION_V_REACH_ROWS_MAX <= PLANE_V_CELLS-1` reads
+    `29 <= 31` at 64x32 — it still passes.
+  - The `±288 px` VSRAM claim is unreachable: `Parallax_Step5_Vscroll` samples a
+    **signed byte** and only ever right-shifts it (`parallax.emp:2864`), capping the
+    representable spread at 255 px. Largest spread any shipped scene requests: **31 px**.
+  - The real blocker is neither: **Plane B is a RESIDENT 512-px background** with no row
+    streamer (`Draw_BG_TileColumn` exists at `plane_buffer.emp:521` with **zero callers**).
+    Rows 32-63 of `ojz/act1/zone_bg.bin` are **100% populated, 248 unique tiles**, and
+    reachable (740 px of BG travel at `v_factor: 3`). Shrinking today deletes shipped art.
+  - Return is **384 tiles, not 256** (256 from the planes + `spare_nametable`'s 128,
+    whose only purpose is to be a future 64x32 plane base), plus a real `window_plane`
+    (it currently declares `overlay_with = ["plane_b"]`), plus a cheaper column write
+    (136 B → 72 B).
+  - **Gated on one item:** wire a Plane B row streamer (priced at ~33 B/frame in
+    `docs/research/2026-08-29-tall-background-map.md`; independently re-derived to the
+    same figure). Before any flip, two SILENT guards must be fixed first:
+    `parallax.emp:685` `PLANE_B_CELL_ROWS` is a second independent literal `64` whose
+    own `ensure(PLANE_B_SPAN == 512)` **would still pass** after a `PLANE_V_CELLS` edit,
+    and `boot_data.emp:186`'s hand-typed `dc.b $11` is tied to the constants by no
+    `ensure` at all.
 * **`spare_nametable` = 128 tiles** reserved for a plane nothing points at yet.
 * **13 tiles of debug tags** reserved in every shape, release included.
 
