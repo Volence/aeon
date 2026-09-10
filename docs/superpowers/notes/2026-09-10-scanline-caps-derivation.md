@@ -273,3 +273,140 @@ So the true union of every folded population is `$08DE`, the declared mask is `$
 and the difference is **exactly** the `$0700` predicted in B1 from reading `scene_caps()`
 — `CAP_ANCHOR_MOTION | CAP_DENSE_TIER | CAP_ROLE_SWAP`. This is the compiler's own
 number, not my reading of the source. **B1 is measured, not argued.**
+
+## F. B5 — THE TRILEMMA: no spelling transports the fold's value into the binding
+
+B1 says the fold is the wrong *value*. This says it cannot be *delivered* either. Since
+`$0700 | $08DE = $0FDE` exactly, a hybrid that declares only the non-foldable bits and
+imports the rest would reproduce the shipped mask byte for byte — so it is worth knowing
+that it is unreachable for an independent reason. All three spellings were built.
+
+| # | Spelling in `games/sonic4/config/game.emp` | sigil result |
+|---|---|---|
+| **E1** | `use games.sonic4.scene_registry.{SCENES}` + `fold_caps(SCENES)` | 30 errors. `unknown name Scene_OJZ_Default` x21 **blamed on `scene_registry.emp:345-368`**; mask silently folds to `$0010` |
+| **E2** | `use ...scene_registry.{SceneRegistry_CapsFolded}` + `$0700 \| SceneRegistry_CapsFolded` | `./games/sonic4/data/effects/scene_registry.emp:494:38: [Error] unknown function `fold_caps`` |
+| **E3** | `use games.sonic4.scene_registry` (whole path), same expression | `./games/sonic4/config/game.emp:147:35: [Error] unknown name `SceneRegistry_CapsFolded`` |
+
+All three are `EMP_PITFALLS.md` §2 — free names resolve at the **call site** — wearing
+three different hats:
+
+- **E1**: the array travels, its **element barewords do not**.
+- **E2**: a selective `use` of a `const` **clones its initializer, not its value**, and
+  re-evaluates the clone in the consumer's scope, where `fold_caps` is not in scope.
+- **E3**: a whole-path `use` **elaborates** the module but **injects no names**.
+
+E2 is not a new discovery — **`scene_registry.emp:17-21` already documents it verbatim**,
+predicting the exact error string this experiment produced:
+
+> The name-list form alone is a trap for the CLOSURE: a selective
+> `use ...{SceneRegistry_CapsFolded}` injects a CLONE of the const whose initializer
+> re-evaluates in the CONSUMER's scope, so it reports `unknown function fold_caps` at a
+> span inside THIS file while never elaborating this module at all.
+
+E2 and E3 are the two halves of a vice: the form that injects the name cannot carry the
+value, and the form that elaborates the value cannot inject the name.
+
+**This is the genuine comptime constraint the brief hypothesised** — just not the
+mechanism it guessed. It is not "the engine sizes RAM from caps, and the registry depends
+on engine types, therefore a cycle". It is that a `.emp` `const` is not a transportable
+value across a module boundary at all: it is an expression re-elaborated wherever it is
+named. Note also that **all three diagnostics point at the wrong file or the wrong
+symbol** — none says "cycle", none says "game.emp asked for this".
+
+## G. Not reachable — so, the fallback, priced honestly
+
+### G1. The brief's own fallback is the one already refused
+
+*"Deriving only the engine-side sizing constants from the fold while the cap mask stays
+declared"* is B2. It was written, built, and rejected — `unknown name Game.SCANLINE_CAPS`,
+twenty times, one per emitted config record (`EMP_PITFALLS.md` §9;
+`parallax.emp:150`'s banner; `docs/benchmarks/scanline-p3/EXTENDED-RECORD.md`). Nor can it
+read `SceneRegistry_CapsFolded` instead: `parallax.emp` is engine and the engine/game wall
+forbids importing game data, and by F the const would not transport anyway.
+
+### G2. The smallest change that genuinely shortens the retreat — and it is not a derivation
+
+The coupling that costs the owner his edits is **not** cap-mask-to-scene. It is
+**cap-bit ↔ `BAND_*_N` ↔ `BAND_*_BYTES`**: three numbers in three files that must move in
+one commit and that **cannot see each other**, purely because §9 blinds the layout and
+harvest contexts to contract members.
+
+The fix for that is already identified, already booked, and is a **sigil** change, not an
+aeon one: expose each game's declared caps as an **`emp_defines` row**, the way
+`MAX_RING_BUFFER` already is. `parallax.emp:157-161` states the evidence that makes it
+concrete rather than speculative — *"A build DEFINE **is** visible there: driving
+`BAND_EXT_N` off `DEBUG` sized the record and built byte-identically."*
+
+With that in place `BAND_REMAP_N` and `BAND_REMAP_BYTES` derive from the define and stop
+being hand-edited. It also buys the thing the pinned literals cannot do today at all:
+**two games that disagree about a bit** (today `demo` pays every widened band record for
+capabilities it will never use).
+
+**Recommend: do not attempt the derivation. Push the `emp_defines` row.** It is the only
+change measured to work in the contexts that matter.
+
+## H. The owner's actual case, counted
+
+The waterline is `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)` at
+**`games/sonic4/data/effects/ojz_scenes.emp:347`**, on `Scene_OJZ_Underwater`'s layer 1.
+Note that file is a **fifth** file the `:489` message does not name.
+
+**Today, to turn it off — 5 files, 7 edits:**
+
+| # | File | Edit |
+|---|---|---|
+| 1 | `games/sonic4/data/effects/ojz_scenes.emp:347` | delete the `rowRemap:` ← **the edit he wanted** |
+| 2 | `games/sonic4/config/game.emp:145` | `$0FDE` -> `$07DE` |
+| 3 | `engine/level/parallax.emp` | `BAND_REMAP_N = 1` -> `0` |
+| 4 | `engine/ram.emp` | `BAND_REMAP_BYTES` -> `0` |
+| 5 | `games/sonic4/data/effects/scene_registry.emp` | flip the `:488` arm to `== 0`; drop the 272-byte `RowRemapLadder_Waterline16` at `:841`; correct the `CapsExpected` prose |
+
+**With a derived cap mask, had it been reachable: 4 files, 6 edits.** Only row 2 goes
+away. Rows 3-5 are exactly the ones §9 forbids deriving.
+
+**This is the part of the proposal that does not survive.** The derivation was supposed to
+collapse the three-file retreat to a one-file edit. Measured against the real case, it
+removes **one** edit of seven — and costs the `CAP_DENSE_TIER` construction gate to do it.
+
+**With the `emp_defines` row (G2): 3 files, 4 edits** — rows 3 and 4 vanish entirely.
+Still not one edit, because clearing the bit (row 2) and retiring the now-unreferenced
+272-byte table (row 5) are real, deliberate consequences that a human should see.
+
+**The one-sentence answer:** with the proposed derivation in place the owner would still
+have had to touch **four files and make six edits** to turn that waterline off — one fewer
+than today — whereas the already-booked `emp_defines` change gets him to **three files and
+four edits**, which is why the sizing constants, not the cap mask, are the thing to fix.
+
+## I. The strongest argument against this conclusion
+
+**B1 is contingent, not fundamental — and I have stated it too much like a theorem.**
+
+`scene_caps()` has no arm for `$0700` because nobody wrote one, not because scenes are
+incapable of expressing those capabilities. `CAP_ROLE_SWAP` is a plausible scene field.
+`CAP_ANCHOR_MOTION` is a property of raster programs, and raster programs *are* registered
+game data — a fold over that population is conceivable. Extend the fold's domain and
+`$0700` folds; B1 evaporates. So B1 is a statement about **today's `scene_caps()`**, and a
+determined implementer could dissolve it.
+
+**And B3 is narrower than I wrote it.** Deriving the *whole* mask inverts the
+`CAP_DENSE_TIER` gate — that holds. But it says nothing against a **hybrid** that leaves
+the intent-declaring bits declared and derives only the foldable ones. B3 is an argument
+against the pure derivation the brief proposed, not against every derivation. What
+actually kills the hybrid is F (the trilemma), not B3 — and F is a property of **sigil
+`af35fa561663`**, which is under active development in a repo that has already changed
+comptime semantics twice this month (`EMP_PITFALLS.md` §12, §13). A sigil that let a
+`const` export its *value* would reopen this.
+
+So the honest scope of the answer is: **not reachable on sigil `af35fa561663` with today's
+`scene_caps()` domain** — not "impossible in principle". The durable finding is not the
+"no"; it is **H**: even granting the derivation everything it wants, it removes one edit of
+seven, and the edits that actually hurt are blocked by §9, which a derivation does not
+touch.
+
+**Where the brief's reasoning holds up, and it is the main point.** The claim that these
+guards prevent a genuinely inconsistent state rather than merely policing waste is
+**correct, and E1 is evidence for it**: a single half-done retreat was caught in nine
+independent places, each naming a different concrete consequence (bytes per band, RAM that
+nothing advances, a gated pass reading a record base as a ROM pointer). A
+"decline and announce" softening would let all nine through. `effects_seam_gate`'s own
+refusal states the principle better than I can: *"a check that cannot run must not pass."*
