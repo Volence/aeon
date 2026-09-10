@@ -210,6 +210,68 @@ CELL_PX_H = 16            # Collision_GetType: lsr.w #3 then lsr.w #1 on Y
 RUN_MIN_COLUMNS = (2 * PROFILE_LEN) // CELL_PX_W
 
 
+def dirty_inputs(root=None):
+    """Which of the files this gate READ differ from HEAD, as a list of paths.
+
+    WHY THIS EXISTS. A failure here prints coordinates and nothing else, and the
+    reader's first move is to look at what LANDED. On 2026-09-10 that cost a
+    session a search: the two new violations came from UNCOMMITTED edits to
+    section 0's collision in the working tree (last written 05:40Z that morning),
+    while the last commit touching the baked file was five days old. Nothing in
+    the gate's own output could have told anyone that -- the word "committed"
+    appears in this module's prose and means "in-repo, donor-free", not "at HEAD",
+    and the test wrapping this gate is named `test_committed_tree_...`, so both
+    point a reader at history when the answer is in `git status`.
+
+    Returns (paths, could_tell). `could_tell` is False when git is absent, this is
+    not a repo, or the query failed -- because an empty list and a failed lookup are
+    the same artifact, and the empty one reads as "your bytes are committed", which
+    is the more misleading of the two. Never raises and never blocks a verdict; the
+    caller prints this as ADDITIONAL context, never as a finding.
+    """
+    import subprocess
+    base = root or ROOT
+    rel = []
+    for d in (gen_dir_for(root), coll_dir_for(root)):
+        try:
+            rel.append(os.path.relpath(d, base))
+        except ValueError:
+            return [], False
+    try:
+        out = subprocess.run(["git", "-C", base, "status", "--porcelain", "--", *rel],
+                             capture_output=True, text=True, timeout=20)
+    except Exception:
+        return [], False
+    if out.returncode != 0:
+        return [], False
+    return [ln[3:] for ln in out.stdout.split("\n") if ln.strip()], True
+
+
+def dirty_note(root=None):
+    """One line for a failure message, or "" when there is nothing to say."""
+    d, could_tell = dirty_inputs(root)
+    if not could_tell:
+        return ("\nNOTE: could not determine whether this gate's input files differ "
+                "from HEAD (git unavailable, or this is not a repo), so nothing here "
+                "says whether the bytes graded above are committed. This is an "
+                "UNKNOWN, not a clean tree.")
+    if not d:
+        return ""
+    # Surface the files the RULES actually read first. gen_dir also holds the art
+    # pool, which is dirty far more often and is not what either rule grades, so an
+    # unsorted sample shows four page blobs and buries the collision file that
+    # produced the violation.
+    def _rank(path):
+        base = os.path.basename(path)
+        return (0 if ("strips" in base or "coll" in base) else 1, base)
+    d = sorted(d, key=_rank)
+    shown = ", ".join(d[:4]) + (f" (+{len(d) - 4} more)" if len(d) > 4 else "")
+    return (f"\nNOTE: {len(d)} of this gate's INPUT file(s) differ from HEAD, so the "
+            f"bytes graded above are UNCOMMITTED work in this tree and not what "
+            f"landed: {shown}. Check `git status` before reading this as a "
+            f"regression in committed data.")
+
+
 class GateError(Exception):
     """Something could not be MEASURED. Never rendered as 0 or as green."""
 
@@ -596,6 +658,9 @@ def main(argv):
 
     print("=" * 78)
     print("COLLISION CONSISTENCY GATE FAILED")
+    note = dirty_note(root)
+    if note:
+        print(note.lstrip("\n"))
     if va:
         print()
         print(f"RULE A — {len(va)} flat run(s) claim a slope they do not have.")

@@ -249,7 +249,15 @@ def test_violation_key_excludes_the_attr_index():
 
 
 # ---------------------------------------------------------------------------
-# Real committed data
+# Real in-repo data — the BAKED FILES ON DISK, which may be uncommitted
+#
+# "committed" in this module's names and prose means IN-REPO and donor-free, not
+# "at HEAD": `cc.check()` reads games/sonic4/data/generated/... off disk, so a
+# working-tree edit is graded exactly as build.sh grades it, which is correct for
+# a build gate and misleading in a test name. A failure here therefore carries
+# `cc.dirty_note()`, which says whether the graded bytes are uncommitted, because
+# without it a reader's first move is to look at what landed. It cost a session
+# that search on 2026-09-10.
 # ---------------------------------------------------------------------------
 
 def test_committed_tree_has_no_violation_outside_the_baseline():
@@ -263,7 +271,8 @@ def test_committed_tree_has_no_violation_outside_the_baseline():
            if tuple(map(cc._hashable, cc.violation_key(v, "A"))) not in baseline]
     new += [v for v in vb
             if tuple(map(cc._hashable, cc.violation_key(v, "B"))) not in baseline]
-    assert new == [], f"{len(new)} collision violation(s) not in the baseline: {new}"
+    assert new == [], (f"{len(new)} collision violation(s) not in the baseline: "
+                       f"{new}{cc.dirty_note()}")
 
 
 def test_baseline_has_no_stale_entries():
