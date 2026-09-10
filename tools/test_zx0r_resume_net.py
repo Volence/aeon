@@ -92,7 +92,9 @@ ART_HDR_VERSION = _const("ART_HDR_VERSION")
 ART_VER_ZX0 = _const("ART_VER_ZX0")
 ART_POOL_PAGE_TILES = _const("ART_POOL_PAGE_TILES")
 # ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * TILE_SIZE
-# (constants.emp:729-730). Re-derived here from its two factors so a page-size
+# (`ART_POOL_PAGE_BYTES` and `ART_STAGING_BUFFER_SIZE` in
+# engine/system/constants.emp — cited by name, not by line, because a line number
+# does not survive an edit). Re-derived here from its two factors so a page-size
 # change moves this walker with it.
 ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * TILE_SIZE
 
