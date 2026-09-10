@@ -2,6 +2,20 @@
 
 **Parcel 1 of the painted-regions project. Design spec and implementation plan.**
 **Date:** 2026-09-09. **Status:** design only — this document changes no engine code.
+
+> **⚠ §3.1 CARRIED A WRONG ROW AND IT IS NOW CORRECTED (2026-09-09,
+> `parcel/section-effects-record-fix`).** The table headed "What act 1 looks like today,
+> **verified**" said section 7's `ojz_act1_sec_scene(sec: 7)` **"returns 0, act default
+> stands"**. It does not — section 7 has bound an editor scene since `c1d0a6be`, 2026-09-05,
+> four days before this document was written and already present at `944c5cc0`, the SHA §0
+> names as its verification point. **§4 step 1 transcribes that table 1:1 into the regions
+> table**, so the row would have become a wrong region inside a migration whose entire proof
+> is byte-identical behaviour. The row is fixed in place with the old text struck through,
+> the other eight rows now state their derived verdict instead of leaving it implicit, and
+> §3.1 also now carries the **frozen-name coupling** (`OJZ_Preset_*` /
+> `EditorSceneBinding_OJZ_Act1_*`: reorder free, rename coordinated with sigil) that step 1
+> must read before renaming anything. **If you are working from a copy of §3.1 taken before
+> 2026-09-09, re-read it.** Nothing else in this document was re-verified by that parcel.
 **Closure pass, 2026-09-09 evening — §10.** Q1, Q4, Q5, Q6 and Q7 are RESOLVED from source and
 from builds in a clean worktree; the T1 baseline gate is GREEN on master; two findings §4 did not
 have are booked there (the T1 gate itself reads the symbols step 3 deletes; the T2 gate's
@@ -462,18 +476,101 @@ migration — **nine distinct presets**:
 
 | flat id | sec (x,y) | rect (x0,x1,y0,y1) | `effects:` | `sec_parallax_config` |
 |---|---|---|---|---|
-| 0 | (0,0) | 0,2047, 0,2047 | `OJZ_Preset_Sec0` | `ojz_act1_sec_scene(sec: 0)` — bound (the editor scene) |
-| 1 | (1,0) | 2048,4095, 0,2047 | `OJZ_Preset_Sec1` | `ojz_act1_sec_scene(sec: 1)` |
-| 2 | (2,0) | 4096,6143, 0,2047 | `OJZ_Preset_Sec2` | `ojz_act1_sec_scene(sec: 2)` |
-| 3 | (0,1) | 0,2047, 2048,4095 | `OJZ_Preset_Sec3` | `ojz_act1_sec_scene(sec: 3)` |
-| 4 | (1,1) | 2048,4095, 2048,4095 | `OJZ_Preset_Depth` | `ojz_act1_sec_scene(sec: 4)` |
-| 5 | (2,1) | 4096,6143, 2048,4095 | `OJZ_Preset_Sec5` | `ojz_act1_sec_scene(sec: 5)` |
-| 6 | (0,2) | 0,2047, 4096,6143 | `OJZ_Preset_Sec6` | `ojz_act1_sec_scene(sec: 6)` |
-| 7 | (1,2) | 2048,4095, 4096,6143 | `OJZ_Preset_Sec7` | `ojz_act1_sec_scene(sec: 7)` — returns 0, act default stands |
-| 8 | (2,2) | 4096,6143, 4096,6143 | `OJZ_Preset_Plain` | `ojz_act1_sec_scene(sec: 8)` |
+| 0 | (0,0) | 0,2047, 0,2047 | `OJZ_Preset_Sec0` | **BOUND** — `EditorSceneBinding_OJZ_Act1_Sec0` (`ojz_act1_start`) |
+| 1 | (1,0) | 2048,4095, 0,2047 | `OJZ_Preset_Sec1` | 0 — no chooser arm; act default stands |
+| 2 | (2,0) | 4096,6143, 0,2047 | `OJZ_Preset_Sec2` | 0 — no chooser arm; act default stands |
+| 3 | (0,1) | 0,2047, 2048,4095 | `OJZ_Preset_Sec3` | 0 — no chooser arm; act default stands |
+| 4 | (1,1) | 2048,4095, 2048,4095 | `OJZ_Preset_Depth` | **BOUND** — `EditorSceneBinding_OJZ_Act1_Sec4` (`ojz_act1_depth`) |
+| 5 | (2,1) | 4096,6143, 2048,4095 | `OJZ_Preset_Sec5` | 0 — no chooser arm; **resolves at RUNG 2** to `ParallaxConfig_OJZ_Underwater` |
+| 6 | (0,2) | 0,2047, 4096,6143 | `OJZ_Preset_Sec6` | 0 — no chooser arm; act default stands |
+| 7 | (1,2) | 2048,4095, 4096,6143 | `OJZ_Preset_Sec7` | **BOUND** — `EditorSceneBinding_OJZ_Act1_Sec7` (`ojz_act1_sec7_worldwater`) ⚠ *~~returns 0, act default stands~~ — corrected, see below* |
+| 8 | (2,2) | 4096,6143, 4096,6143 | `OJZ_Preset_Plain` | **BOUND** — `EditorSceneBinding_OJZ_Act1_Sec8` (`ojz_act1_floor`) |
 
 (Rectangles derived as `sec_x * 2048 .. sec_x * 2048 + 2047`, flat id = `sec_y * 3 + sec_x`.
 The `effects:` column is read out of the nine `ojz_sec(...)` calls at `:239-361`.)
+
+**⚠ CORRECTION, 2026-09-09 — row 7 was wrong, and the whole column was under-specified
+(`parcel/section-effects-record-fix`).**
+
+**What this table said, quoted so a reader who remembers it meets the correction rather than
+quietly inheriting a new value.** Row 7's `sec_parallax_config` cell read
+**`ojz_act1_sec_scene(sec: 7)` — returns 0, act default stands**, and rows 1, 2, 3, 5 and 6
+carried the bare call with no verdict at all, which reads as "bound" beside row 0's explicit
+"bound".
+
+**It does not return 0.** Derived from source, not from any report:
+
+- `games/sonic4/data/editor/ojz/act1/section_7.meta.json` exists and reads
+  `"sceneRef": "ojz_act1_sec7_worldwater"`. It landed at **`c1d0a6be`, 2026-09-05**.
+- The generated chooser therefore carries an arm for it —
+  `games/sonic4/data/generated/ojz/act1/effects_scenes.emp:346`:
+  `if sec == 7 { out = EditorSceneBinding_OJZ_Act1_Sec7 }`.
+- That binding is a real emitted record, `effects_scenes.emp:168`:
+  `pub data EditorSceneBinding_OJZ_Act1_Sec7: SceneCfg3 = lower3(EditorScenes_OJZ_Act1[2])`,
+  and `EditorScenes_OJZ_Act1[2]` is `Scene_Editor_ojz_act1_sec7_worldwater` (`:140`) —
+  3 layers, `v_factor: 15`, `v_offset: 288`, no anchor (`:92-111`).
+
+So **section 7 resolves at rung 1 to an editor scene, and the act default does NOT stand.**
+
+**The full column, derived once so nobody has to re-derive it.** The chooser
+(`effects_scenes.emp:341-349`) has exactly four arms — `{0, 4, 7, 8}` — and
+`act_descriptor.emp:229` calls it as `ojz_act1_sec_scene(sec: sec)` with **no `hand:`
+argument**, so the five sections without an arm get the parameter default `0`. That is what
+the rewritten rows above now state per row.
+
+**Section 5 is the one row where 0 does not mean "act default"**, and the migration must not
+read it that way: with rung 1 at 0, `Effects_ResolveParallax` (`engine/effects/preset.emp:228-245`)
+falls to rung 2 and finds `OJZ_Preset_Sec5`'s own
+`parallax: ParallaxConfig_OJZ_Underwater` (`ojz_effects.emp:1675`, the d-53 loan). Section 5
+is the act's **only live install** of that record — section 0 names it too (`:1517`) but its
+rung 1 overrides it. A transcription that copies `sec_parallax_config` alone would give
+section 5 the act default and change what is on screen.
+
+**Why this matters more than a typo.** This document is the source for a **1:1 transcription**
+(§4 step 1: "the nine rectangles of §3.1, each naming the preset and scene binding its section
+names today"). A wrong row here becomes a wrong region, and the error would land inside a
+migration whose whole proof is byte-identical behaviour. The row was already **four days stale
+when it was written**: the sidecar's `c1d0a6be` is an ancestor of `944c5cc0`, the SHA §0 names
+as this document's verification point, so it was present in the tree the table claims to have
+been verified against.
+
+**The upstream copies were corrected in the same parcel**, so the tree no longer contains the
+sentence this row was transcribed from: `act_descriptor.emp:347-350` (the original), the
+`OJZ_Preset_Sec7` banner in `ojz_effects.emp`, and `ojz_scroll_test.emp`'s parallax-readout
+rationale (which justified a technique with "section 8 carries it and section 7 does not").
+
+**⚠ FROZEN NAMES — read before §4 step 1 renames anything.** `OJZ_Preset_*` and
+`EditorSceneBinding_OJZ_Act1_*`: **reorder free, rename coupled.** Reorder is absorbed because
+`sigil/crates/sigil-harness/src/pins.rs` is generated and `repin_pins::pins_rs_is_current`
+fails loudly if it is not regenerated. Rename breaks by-name resolution in `repin.toml`, a
+generated identifier in `pins.rs` (a compile error, not a test failure), and a string literal
+in `act_descriptor_port.rs`. **Four shapes and four md5s cannot see either hazard** — a
+`pub data` rename moves no ROM byte, so a byte-neutrality proof is structurally blind to it.
+Verified firsthand at sigil `master` `5498bdfb`, 2026-09-09. Expires if `pins.rs` stops being
+generated or the manifest stops resolving by name. A rename is not forbidden, it is
+**coordinated**: three mechanical edits on sigil's side, cheap when expected. Route it rather
+than dropping it. **Basis and expiry, stated because the bare fact is what rotted last time:**
+the consumer sites below were enumerated from two greps of one repo; nobody has swept the
+family exhaustively, so **treat the list as a floor, not a total.**
+
+| sigil site (at `5498bdfb`) | what it does | breaks on |
+|---|---|---|
+| `crates/sigil-cli/tests/act_descriptor_port.rs:117-146` | asserts 7 `OJZ_Preset_*` + `EditorSceneBinding_..._Sec0` + `_Sec4` by **string literal**, each against its own pinned address | rename |
+| `act_descriptor_port.rs:132-136` | `EditorSceneBinding_OJZ_Act1_Sec0` is the **END label of the pinned `SCENE_REGISTRY` region** — asserted as `plain_base + plain_len`, i.e. **arithmetic**, not a lookup | rename |
+| `act_descriptor_port.rs:268` | prefix sweep `["EditorRaster_", "EditorCycle_", "EditorSceneBinding_", "EditorReel", "OJZ_Preset_Sec"]` — membership is decided by the **name's prefix** | rename that changes prefix membership (e.g. `OJZ_Preset_Depth` -> `OJZ_Preset_Sec4` would move it from the pinned list into the swept set **and orphan its `[[symbol]]` pin**) |
+| `crates/sigil-harness/repin.toml:978-1017` | `[[symbol]]` manifest entries resolved **by name** | rename |
+| `crates/sigil-harness/src/pins.rs:341-362` | generated Rust identifiers derived from those manifest names | rename (compile error) |
+| `crates/sigil-harness/src/section_align.rs:228` | `d("EditorSceneBinding_OJZ_Act1_Sec0", 2, WORD)` alignment row | rename |
+| `crates/sigil-harness/src/map_placement.rs:217` | `assert_eq!(section_row("EditorSceneBinding_OJZ_Act1_Sec0"), None)` | rename |
+
+**How three lanes got this wrong, recorded because it transfers.** The premise everyone
+reasoned from was *"nothing derives from their ORDER or ADDRESS"* — a claim about
+**derivation**, which says nothing about **by-name pinning**. Three separate lanes turned it
+into "free to rename". If a premise names properties and a conclusion names operations, check
+each operation against a named property before relying on it. The second half of the same
+lesson: everyone enumerated by the symbol's **declaration** site and found one hit, because
+every consumer lives in another repo. **Enumerate by what touches the data, not by what
+defines it.**
 
 **C's migration rule — "merging adjacent cells with identical tuples, never one region per
 section" — produces nine regions here, because there is nothing to merge.** All nine bindings
@@ -1244,3 +1341,38 @@ the owner's Q2.
 Still a ROM loss; still to be argued for on the sub-section edge and nothing else. Every figure
 above remains an emitted-byte derivation (§4.0 caveat 1 stands: the deb2 appendix makes the ROM
 length delta unpredictable); the first implementing step replaces them with an `EndOfRom` delta.
+
+### 10.12 §3.1 row 7 — WRONG, corrected 2026-09-09 by a later parcel
+
+Filed by `parcel/section-effects-record-fix`, which was not this design's lane. Recorded here
+because §10 is where a returning reader looks for what moved after the closure pass, and
+because the correction lands in the one table §4 step 1 transcribes verbatim.
+
+**The claim.** §3.1's row 7 read `ojz_act1_sec_scene(sec: 7)` **— returns 0, act default
+stands**, under a heading that says **verified**.
+
+**It is false, and the derivation is in §3.1 in full.** `section_7.meta.json` (landed
+`c1d0a6be`, 2026-09-05) binds `"sceneRef": "ojz_act1_sec7_worldwater"`; the generated chooser
+carries `if sec == 7` (`effects_scenes.emp:346`) yielding the emitted record at `:168`.
+Section 7 resolves at rung 1.
+
+**Three things worth carrying past the fix itself.**
+
+1. **"Verified" did not fail on staleness — it failed on the ORIGINAL.** `c1d0a6be` is an
+   ancestor of `944c5cc0`, the SHA §0 pins as the grounding point, so the tree in front of
+   this document already contradicted the row. The row was inherited from
+   `act_descriptor.emp:347-350`'s comment, which is where it had gone stale on 2026-09-05,
+   and re-derivation stopped at a comment rather than reaching the chooser. **§0's rule
+   ("re-derived from source, not copied") held for the numbers and failed for exactly the one
+   cell whose source is a generated file.**
+2. **The whole column was under-specified, which is how one wrong cell survived review.**
+   Only rows 0 and 7 carried a verdict; the other seven carried the bare call. A reader
+   scanning for disagreement sees seven cells that assert nothing and two that disagree with
+   each other. All nine now state their derived verdict.
+3. **Row 5 is a trap the corrected table now names.** Its `sec_parallax_config` really is 0,
+   but 0 there does **not** mean "act default": rung 2 finds `ParallaxConfig_OJZ_Underwater`
+   on `OJZ_Preset_Sec5`. A migration that transcribes rung 1 alone changes what section 5
+   looks like.
+
+**Scope.** That parcel corrected this row, the eight rows around it, and the upstream
+`.emp` comments the row was copied from. It re-verified **nothing else** in this document.
