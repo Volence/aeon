@@ -306,6 +306,17 @@ in both halves.
 
 ## THE EXIT-CODE COLLAPSE — one line that promotes refusals into failures
 
+> ⚠ **CORRECTED 2026-09-10** (`parcel/gate-exit-code-triage`, measured; see DEFERRED_WORK.md).
+> **This count and the fix it prescribes are both wrong.** Over the 22 tools `build.sh` invokes
+> under `if !`: **14** mention the token, **13** carry a `return 2`-shaped token, **13** can reach
+> exit 2 (+1 reaching unmeasurable via exit **3**). Eleven is none of these. The list below
+> **includes `dma_defer_headroom`, which cannot exit 2** (it spells unmeasurable `3`), and
+> **omits `collision_consistency`** (exits 2, prints `COULD NOT MEASURE`, never uses the token),
+> `effects_budget_check`, and `art_rom_report`. **`art_rom_report` is the trap: its 2 means FAIL,
+> it has no exit 1, and it runs without `--no-fail` in every canonical shape** — so "exit 2 does
+> not fail the build" would have silently disarmed the art-pool hard ROM ceiling. Landed form is
+> the helper with **every site `strict`** (no behaviour change); the policy is still open.
+
 **Eleven of the twenty-one build-fatal gates carry a substantive `UNMEASURABLE` / exit-2
 concept** (`dplc_straddle` 72 sites, `bganim_room` 49, `row_remap_gate` 36, `reels_gate` 36,
 `dma_defer_headroom` 32, `editor_palette_golden` 28, `plane_base_swap_gate` 26,
@@ -489,7 +500,12 @@ Ranked first because it is **one change that de-fangs a whole class, including c
 written.** A `case` per gate instead of `if !`, so exit 2 reports **UNMEASURABLE** and does not
 fail the build. Eleven gates already implement the distinction carefully and are being ignored
 at the call site — **the work is already paid for and is being thrown away by one shell idiom.**
-It resolves D3, D4 and D5 outright. **Highest leverage per line changed, and the only item that
+It resolves D3, D4 and D5 outright.
+⚠ **CORRECTED 2026-09-10: for D3 it resolves the GATE but not the WALL.** `scene_registry.emp`'s
+`CAP_BAND_DRIFT` `ensure` (A3, plus A4) refuses the same edit inside `sigil build`, ~300 lines of
+`build.sh` before `band_drift_golden.py` runs. **Items 1 and 3 must land together.** Also measured:
+**no gate has ever been observed to exit 2 here** (zero across six clean canonical builds), so this
+item was ranked first for being cheap and general, not for being what hurt anyone. **Highest leverage per line changed, and the only item that
 also protects the future.**
 
 **2. `tools/test_lab_index_lint.py:502` and `:530` — the two `== 1` pins.** *(C1, C2)*
