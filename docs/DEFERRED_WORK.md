@@ -32833,8 +32833,17 @@ thing stopping it is that binding a `rasterRef` would evict the d-15 showcase he
 
 **Section 3 is the one worth knowing about:** it already owns its own preset AND its raster channel
 is `Raster_Program_None` — the exact pair of conditions that made section 5 the first candidate.
-Nothing structural or content-shaped stops it; it has simply never been threaded. If aurora wants a
-second enabled section to point at, that is it.
+Nothing structural or content-shaped stops it; it has simply never been threaded.
+
+> **⚠ DO NOT THREAD SECTION 3. IT IS INFORMATION FOR THE OWNER, NOT A TASK — and the sentence above
+> is exactly how it would stop being one.** Aurora asked for this guard explicitly, and asked it of
+> THIS lane, on the reasoning that aeon is the lane that could most easily and most reasonably just
+> do it. **Putting a band on a section is a content call and it is his**, the same class as the d-15
+> showcase in section 4 that nobody is evicting either. *Recorded against my own wording: the row
+> first read "it is the cheapest next one", which states a true fact in the grammar of a
+> recommendation. A row that names an unblocked, cheap, obviously-next piece of work is read as a
+> queue item by the next session regardless of the paragraph around it — and the cheaper and freer
+> it is, the more certainly that happens.*
 
 **So the UI answer:** disable for section 0 with the structural reason; keep the enabled control plus
 today's disclosure for 1-4. A single disabled-or-enabled verdict for "0-4" would be wrong either way
