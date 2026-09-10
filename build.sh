@@ -284,13 +284,27 @@ gate() {
         return 0
     fi
 
-    if [[ "${_rc}" -ne 1 ]]; then
+    if [[ "${_rc}" -eq 2 ]]; then
+        # rc 2 at a `strict` site. Distinct from the arm below ON PURPOSE: 2 is not an
+        # unknown code in this repo, it is an AMBIGUOUS one — most gates mean
+        # "unmeasurable" by it and tools/art_rom_report.py means FAIL. So the honest
+        # message is "not benign by default, and this line has not claimed otherwise",
+        # not "nobody has read this". Several of the call sites below DO carry a comment
+        # saying what their 2 means; telling their reader the opposite would be worse
+        # than saying nothing.
+        echo "ERROR: ${_label} exited 2, and this call site is declared \`strict\`, so 2 fails."
+        echo "  2 is AMBIGUOUS across this repo's gates: most mean 'I could not measure',"
+        echo "  but tools/art_rom_report.py means FAIL by it. It is therefore not benign"
+        echo "  by default, and nothing about this line has claimed it is."
+        echo "  If THIS gate's 2 means unmeasurable and the build should survive it, change"
+        echo "  \`strict\` to \`triage\` at this call site — see GATE EXIT-CODE TRIAGE near the"
+        echo "  top of build.sh, and the comment above this line for what this gate means."
+    elif [[ "${_rc}" -ne 1 ]]; then
         # Fail closed. An unrecognised status is not a licence to continue — and for
         # dma_defer_headroom this arm is load-bearing, because ITS unmeasurable is 3.
-        local _known="0 = pass, 1 = fail"
-        if [[ "${_mode}" == "triage" ]]; then _known="${_known}, 2 = unmeasurable"; fi
         echo "ERROR: ${_label} exited ${_rc}, which is not a status this call site knows"
-        echo "  (${_known}); this call site is declared \`${_mode}\`."
+        echo "  (0 = pass, 1 = fail, 2 = unmeasurable where a site declares \`triage\`);"
+        echo "  this call site is declared \`${_mode}\`."
         echo "  Failing closed: an exit code nobody has read is not a pass."
     fi
     return 1
