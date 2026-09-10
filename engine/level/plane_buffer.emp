@@ -68,6 +68,10 @@ pub proc Plane_Buffer_Reset () {
 //           rows-before-physical-wrap across both parts for .copy_col_run)
 // -----------------------------------------------
 pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
+        // LS-8 stride pin. The cache source pointer below is built with
+        // `mul_const.w d1, #160, d2` — origin_row x the row stride IN BYTES.
+        ensure(TILE_CACHE_STRIDE * 2 == 160 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "Draw_TileColumn hand-spells `mul_const.w d1, #160, d2` for the cache row base and the stride is now TILE_CACHE_STRIDE * 2 = {TILE_CACHE_STRIDE * 2} bytes (TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} = TILE_CACHE_COLS = {TILE_CACHE_COLS}). Derived: the nametable cache holds WORD entries, so the byte stride is twice the column count. WHAT THIS PIN DOES NOT COVER: Draw_TileRow_FromCache in this same file, which spells the same stride as #80 (WORDS, doubled afterwards) and carries its own pin — the two halves of this module disagree on units and fixing one is not fixing the other; the five stride sites in engine/level/tile_cache.emp, engine/level/collision_lookup.emp and engine/level/section.emp; and the `andi.w #63` / `andi.w #$FFC0` plane-ring masks in this file, which are PLANE_H_CELLS and are a separate unpinned family (lens-sweep B1-F2, still OPEN)")
         // worst case: 2 headers (8 bytes) + 64 data words (128 bytes) = 136
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #8 + PLANE_V_CELLS*2, d2
@@ -334,6 +338,11 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 // Clobbers: d0–d5, a0–a2
 // -----------------------------------------------
 pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
+        // LS-8 stride pin. The cache row base below is `mul_const.w d0, #80, d3`
+        // — row x the stride in WORDS, doubled to bytes by the `add.w d0, d0` that
+        // follows. Same stride as Draw_TileColumn above, spelled in the other unit.
+        ensure(TILE_CACHE_STRIDE == 80 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "Draw_TileRow_FromCache hand-spells `mul_const.w d0, #80, d3` for the cache row base and the stride is now TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} (= TILE_CACHE_COLS = {TILE_CACHE_COLS}). Derived: this site works in nametable ENTRIES and the `add.w d0, d0` two lines below converts to bytes, so the immediate is the column count itself and NOT the {TILE_CACHE_STRIDE * 2} its sibling Draw_TileColumn spells. WHAT THIS PIN DOES NOT COVER: Draw_TileColumn in this same file, pinned separately in byte units; the five stride sites in engine/level/tile_cache.emp, engine/level/collision_lookup.emp and engine/level/section.emp; and the `andi.w #63` / `andi.w #$FFC0` plane-ring masks in this file (lens-sweep B1-F2, still OPEN)")
         move.w  Plane_Buffer_Ptr, d2
         addi.w  #4 + PLANE_H_CELLS*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
