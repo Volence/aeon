@@ -32050,6 +32050,32 @@ framing for the owner is "we cannot currently detect this class", never "we have
 if the finding is conditional.** "Would, if" and "does" are one word apart in a summary and a world
 apart on the owner's console, and the reader at the far end cannot recover the difference.
 
+## REPLAY RE-RECORD — handed over by oracle, tagged not blocking (2026-09-10)
+
+**Oracle's measurement, RELAYED and not verified here:** `replay_runner` desyncs against the live
+`aeon/s4.debug.bin` at **Logic_Tick 1090**. They report it **pre-existing and not an oracle
+defect** — their before-binary desyncs identically — and that the ROM had been rebuilt after their
+artifact was recorded. **The fixture is oracle's; this tree holds only the August PNGs and notes
+under `docs/benchmarks/replay-restamp/`, last committed `a4cd089c`, 2026-08-13.** The re-record is
+offered to this lane.
+
+**WHAT THIS LANE CAN VERIFY, and it adds a SECOND and independent reason the fixture is stale:**
+`s4.debug.bin` moved TWICE tonight — V-7's four release-shape decoder nets (merge `1a546f08`, crc
+`2884dec6`) and then C1b-2's dispatch-loop reorder (merge `9fcf502a`, crc `07343b59`). So whatever
+is true about tick 1090, **any recording made before 2026-09-10 is stale by construction.** Those
+two facts are independent: oracle's says the desync predates tonight, ours says the fixture would
+need re-recording even if it did not.
+
+**Do not read the re-record as closing the desync.** A fresh recording against today's ROM makes
+the runner green again and says nothing about why tick 1090 diverged on the old pair — the
+before-binary result is what argues the cause is not a recent aeon change, and that is oracle's
+measurement to stand behind, not this lane's. **Re-record and separately keep the question open**,
+or the green will be read as the answer.
+
+**Known constraints on this instrument, from this repo's own record: the replay net is PIXEL-BLIND
+and can never reach Tails or Knuckles.** Price any re-record against what it can actually witness
+before spending on it.
+
 ## REGIONS — THE OWNER DREW AN ARCH, AND IT EXPOSES A RUNTIME GAP THE V1 DESIGN DOES NOT ANSWER (2026-09-09)
 
 **He drew a region as an ARCH over the section grid** — a horizontal span with two legs hanging
