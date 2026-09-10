@@ -17,6 +17,15 @@
 # `export/` trees stay ignored, being supersedable or regenerable.
 !games/sonic4/data/editor/ojz_bg_*.bin
 !games/sonic4/data/editor/ojz_act1_bg*.bin
+# THE AUTHORED ACT PALETTE (2026-09-09). `data/editor/<zone>/<act>/palette.bin` is
+# what project.json's zones[].palette names and the ONLY file the editor writes for
+# colour; the generated ojz_palette.bin is a pure mirror of it (see tools/ojz_common.py,
+# "EXACTLY ONE WRITER"). It MUST be tracked: untracked, a fresh clone has no authored
+# palette, the one-time donor seed fires, and the sonic_hack donor silently becomes the
+# source of truth again -- which is the six-month defect this replaced. Negated
+# explicitly, and tools/test_palette_authored_source.py asserts it is tracked so this
+# line cannot quietly stop matching.
+!games/sonic4/data/editor/*/*/palette.bin
 *.lst
 # ...but the s4budget test fixtures ARE listings, on purpose. They are excerpts
 # cut from real `sigil build --emit-lst` output (tools/fixtures/make_listing_excerpt.py)

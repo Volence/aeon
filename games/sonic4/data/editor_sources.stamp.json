@@ -1,5 +1,5 @@
 {
- "count": 115,
+ "count": 116,
  "files": {
   "games/sonic4/data/editor/bg_src/ojz_cave_lilypad.png": "492d187e5cca907fd9ea5844f94b14694b3039955fdfbc65a30756717ba428ad",
   "games/sonic4/data/editor/bg_src/ojz_forest_flowers.png": "2204777e2f106e7cd4c567873667355d1bb03bfc74653e09d0ec3215a4a1e09f",
@@ -14,6 +14,7 @@
   "games/sonic4/data/editor/effects/presets/ojz_sec6_baseswap.json": "126a63d7ad8d1465697735e12584450d538e8d05ecf8d4b3744836599e4b9e91",
   "games/sonic4/data/editor/effects/presets/ramp_probe.json": "19e8f8f2f258923acee45b3ab88fd611b9d9cc457036cb049fcfd60e727e02cf",
   "games/sonic4/data/editor/objects.json": "d839b14f2b52ee86d022af9bfacdb0b8db1c0bd6a466ce89da3143d5056be1c2",
+  "games/sonic4/data/editor/ojz/act1/palette.bin": "feb11fad489279ed69104c3661bf9a54280836b0e10ffdf76ae09336913d78ed",
   "games/sonic4/data/editor/ojz/act1/section_0.coll.bin": "2bf1cd31563d21b8f592e2a74b65dee20d0bcea881db9b811ecf28a47ad9fd47",
   "games/sonic4/data/editor/ojz/act1/section_0.collattr.bin": "6d7caab5d67e840ddb3f39720d8d1f8d7e08cd6011606b44c02455155559a697",
   "games/sonic4/data/editor/ojz/act1/section_0.collattrb.bin": "e0d58e75985876ba990a19aadfa9d1352f2d14beceb630562eef1a0df94ab475",
@@ -115,7 +116,7 @@
   "games/sonic4/data/editor/ojz_bglib.json": "5658cc3c26c54be69c280f55139c5257277ba75b301e8e3a5c4becd01afa9d71",
   "games/sonic4/data/editor/ojz_tiles.bin": "4eaa426b28b295c7fb6aacf7d574228c0f8373b2d852fc3bbd841ab11ce6afe2",
   "games/sonic4/data/editor_bg_override.json": "9dbcbfcea5f092437da155c5dcaf32b0c779f1af73965b99d08eeb3171d59a78",
-  "project.json": "edf4a81bb8f5afe3b126ce1fc5b6db6aea1f22c73808e1620c3fb627e3fd1ef7"
+  "project.json": "eaa939cd731eab1b315dec81e70682cfa5b0a7fa3b87c46e815666e3aefa9fc1"
  },
  "game": "sonic4",
  "note": "The editor sources the committed generated tree was baked from. Commit it WITH that tree. A mismatch here is the staleness gate's deletion-visible arm \u2014 see the module docstring.",

@@ -38,6 +38,7 @@ import argparse, json, struct, os, sys
 # $8000-$BFFF region. Do not restate the number here — read it from the import.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_BASE_SLOT, BG_TILE_CAPACITY
+import ojz_common
 #: The bank-placement floor, DERIVED from the tool that owns it rather than restated.
 #: A literal `16 KiB` sat in the refusal below for two days after the 2026-09-04 raise
 #: to 0xC000, invisible to a line-based prose sweep because the figure and its bound
@@ -1358,25 +1359,53 @@ def main(act=None):
         f.write(blob)
     print(f'[inject_editor_bg] wrote zone_bg.bin ({len(nt)}B) + bg_tiles.bin ({len(tiles)} tiles)')
 
-    # optional: stamp a BG palette line. strip_gen copies ojz_palette.bin from
-    # sonic_hack every build, so a palette that matches the injected art must be
-    # written HERE (inject runs after strip_gen) or the colours revert.
     if 'palette' in data:
-        cram_line = int(data.get('palette_line', 2)) & 3
-        words = data['palette']
-        assert len(words) == 16, f'palette must be 16 CRAM words, got {len(words)}'
-        # ojz_palette.bin's 3 source lines load starting at CRAM line 1 (the
-        # scroll test / act loader put OJZ_Palette at Palette_Buffer+$20), so
-        # source line = cram_line - 1. The BG nametable references CRAM line 2.
-        file_line = cram_line - 1
-        assert file_line >= 0, 'BG palette maps to CRAM line >=1'
-        pal_path = os.path.join(out_dir, 'ojz_palette.bin')
-        pal = bytearray(open(pal_path, 'rb').read())
-        for i, w in enumerate(words):
-            struct.pack_into('>H', pal, file_line * 32 + i * 2, w & 0xFFFF)
-        with open(pal_path, 'wb') as f:
-            f.write(pal)
-        print(f'[inject_editor_bg] stamped CRAM line {cram_line} (file line {file_line}, {len(words)} colours)')
+        stamp_palette_line(out_dir, int(data.get('palette_line', 2)) & 3, data['palette'])
+
+
+def stamp_palette_line(out_dir, cram_line, words):
+    """Stamp 16 CRAM words as one line of the act palette, so a palette that
+    matches the injected art travels with it.
+
+    THIS WRITES THE AUTHORED FILE, NOT THE GENERATED ONE (unwound 2026-09-09).
+    It used to write `out_dir/ojz_palette.bin` directly, and its comment said why:
+    "strip_gen copies ojz_palette.bin from sonic_hack every build, so a palette
+    that matches the injected art must be written HERE (inject runs after
+    strip_gen) or the colours revert." That was not a feature -- it was a
+    WORKAROUND for the every-build donor copy, which is now gone (see
+    tools/ojz_common.py, "EXACTLY ONE WRITER"). Left as it was it would have
+    re-created the same defect at one-line scale: the authored palette would flow
+    to the generated file and then be stamped over here, so CRAM line 2 alone
+    stayed unauthorable and the owner's edits TO THAT LINE would still silently
+    vanish -- the same bug, shipped by its own fix. Writing the authored file and
+    re-mirroring keeps the generated palette a pure mirror with a single writer.
+
+    Lifted out of main() so tools/test_palette_authored_source.py can execute the
+    stamp on a shaped tmp tree and assert a following re-bake does NOT revert it.
+    That is the behaviour the old code got wrong; a source-spelling check would
+    not have caught it.
+    """
+    assert len(words) == 16, f'palette must be 16 CRAM words, got {len(words)}'
+    # ojz_palette.bin's 3 source lines load starting at CRAM line 1 (the scroll
+    # test / act loader put OJZ_Palette at Palette_Buffer+$20), so source line =
+    # cram_line - 1. The BG nametable references CRAM line 2.
+    file_line = cram_line - 1
+    assert file_line >= 0, 'BG palette maps to CRAM line >=1'
+    # Both paths derive from out_dir, so a test that redirects out_dir into a
+    # tmpdir redirects the authored file with it rather than stamping the
+    # committed tree.
+    authored = ojz_common.authored_palette_for(out_dir)
+    ojz_common.seed_authored_palette(authored)
+    pal = bytearray(open(authored, 'rb').read())
+    for i, w in enumerate(words):
+        struct.pack_into('>H', pal, file_line * 32 + i * 2, w & 0xFFFF)
+    with open(authored, 'wb') as f:
+        f.write(pal)
+    pal_path = os.path.join(out_dir, 'ojz_palette.bin')
+    ojz_common.sync_palette_to_generated(authored, pal_path)
+    print(f'[inject_editor_bg] stamped CRAM line {cram_line} (file line {file_line}, '
+          f'{len(words)} colours) into {authored} -> {pal_path}')
+
 
 def parse_args(argv=None):
     """`--zone`/`--act` as project.json INDICES — tools/effects_gen.py's signature.

@@ -579,7 +579,10 @@ generated/ojz/act1/              ← Baked by the generators (committed; verifie
     act_pool_page{N}.zx0 / ojz_act_pool.emp / ojz_act_pool_manifest.emp
     zone_bg.bin                  ← Plane B nametable
     bg_tiles.bin                 ← Shared BG tile blob
-    ojz_palette.bin              ← 128-byte palette
+    ojz_palette.bin              ← 96-byte palette (3 CRAM lines) — a MIRROR of the
+                                   authored data/editor/<zone>/<act>/palette.bin,
+                                   which is what project.json's zones[].palette names
+                                   and the only file the editor writes
 
 parallax/
     configs.emp                  ← All parallax configs + effect/scene constructors

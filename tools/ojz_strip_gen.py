@@ -12,7 +12,9 @@ Output: data/generated/ojz/act1/sec{N}_strips_a.bin for each OJZ section.
         data/generated/ojz/act1/act_pool_page{N}.bin (global deduped act art pool, paged).
         data/generated/ojz/act1/ojz_act_pool_manifest.emp (page count + per-page VRAM slot base).
         data/generated/ojz/act1/zone_bg.bin (zone-wide Plane B nametable, §2 A.5 T1).
-        data/generated/ojz/act1/ojz_palette.bin (copied from sonic_hack).
+        data/generated/ojz/act1/ojz_palette.bin (MIRROR of the authored
+            data/editor/ojz/act1/palette.bin; the sonic_hack donor only SEEDS that
+            file when it is absent -- see ojz_common's one-writer block).
 
 Each file contains ALL columns for section N concatenated sequentially:
 col 0 words, then col 1 words, ..., col W-1 words.
@@ -43,7 +45,6 @@ import sys
 import os
 import json
 import re
-import shutil
 
 # Allow running from the s4_engine root (where build.sh lives).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -70,6 +71,7 @@ from ojz_common import (
     load_bg_layout,
     skdisasm_root,
 )
+import ojz_common
 import collision_pipeline
 import donor_provenance
 
@@ -1205,7 +1207,15 @@ def test_full_pipeline_runs():
     global OUTPUT_DIR, COLLISION_DIR
     saved = OUTPUT_DIR
     saved_coll = COLLISION_DIR
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory() as root:
+        # SHAPED like the real tree, not a bare tmpdir. ojz_common's palette step
+        # derives the AUTHORED palette from the generated dir's own path (so a
+        # redirect like this one redirects the authored file with it) and REFUSES
+        # a dir that is not .../data/generated/<zone>/<act> rather than resolving
+        # to something outside the tree. A bare tmpdir here left the palette step
+        # the one part of generate() this smoke test could not run.
+        td = os.path.join(root, "games", "sonic4", "data", "generated", "ojz", "act1")
+        os.makedirs(td)
         OUTPUT_DIR = td
         COLLISION_DIR = os.path.join(td, "collision")
         try:
@@ -1219,6 +1229,18 @@ def test_full_pipeline_runs():
                 assert size % 32 == 0, f"{f} size {size} not a multiple of 32"
                 assert size <= ART_POOL_PAGE_TILES * 32, \
                     f"{f} exceeds one page ({ART_POOL_PAGE_TILES} tiles)"
+            # The palette: seeded into the AUTHORED slot of this tmp tree, then
+            # mirrored. Asserting the mirror EQUALS the authored file is what
+            # makes "the generated palette has one writer" a property this smoke
+            # test can lose, rather than prose.
+            authored = ojz_common.authored_palette_for(td)
+            assert os.path.exists(authored), \
+                f"palette step did not seed the authored palette at {authored}"
+            gen_pal = os.path.join(td, "ojz_palette.bin")
+            assert os.path.exists(gen_pal), "ojz_palette.bin not written"
+            assert open(authored, "rb").read() == open(gen_pal, "rb").read(), \
+                "the generated palette is not a mirror of the authored one"
+
             manifest_path = os.path.join(td, "ojz_act_pool_manifest.emp")
             assert os.path.exists(manifest_path), "ojz_act_pool_manifest.emp not written"
             assert os.path.exists(os.path.join(td, "ojz_act_pool_manifest.json")), \
@@ -1781,7 +1803,6 @@ def generate(stress_uniquify=0):
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 
-    src_dir = SONIC_HACK
     use_editor = editor_data_available()
 
     if use_editor:
@@ -2132,11 +2153,18 @@ def generate(stress_uniquify=0):
         f"({', '.join(str(len(p)) for p in pages)} tiles each)\n"
     )
 
-    # Copy palette file
-    pal_src  = os.path.join(src_dir, "art", "palettes", "OJZ.bin")
+    # Refresh the act palette from the AUTHORED file (data/editor/<zone>/<act>/
+    # palette.bin), seeding it from the sonic_hack donor only if it does not yet
+    # exist. This line used to `shutil.copy` the donor over the generated file on
+    # EVERY build, which silently discarded six months of the owner's palette
+    # edits — see ojz_common's "EXACTLY ONE WRITER" block for the full account and
+    # for why the authored file must live under data/editor/ specifically.
     pal_dest = os.path.join(out_dir, "ojz_palette.bin")
-    shutil.copy(pal_src, pal_dest)
-    print(f"Copied palette -> {pal_dest}")
+    seeded, _pal = ojz_common.refresh_act_palette(out_dir)
+    pal_authored = ojz_common.authored_palette_for(out_dir)
+    if seeded:
+        print(f"Seeded authored palette from donor -> {pal_authored} (first run only)")
+    print(f"Palette: {pal_authored} -> {pal_dest}")
 
     print(f"Done. {len(sec_ids_in_order)} sections, {total_strips} total strips written to {out_dir}")
 

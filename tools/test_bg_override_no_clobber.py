@@ -5,8 +5,9 @@ whole-file overwrite that never read it. `out` was built as a fresh dict
 ({"layout", "tiles"}, plus {"palette", "palette_line"} only when stamping), so
 an EXTRACT+stamp run followed by an ordinary lock-mode re-import silently threw
 the stamped BG palette away -- on a path that ships, because
-inject_editor_bg.py consumes `palette`/`palette_line` and stamps them into
-ojz_palette.bin. The same mechanism destroys `anims` (BgAnim bands), which
+inject_editor_bg.py consumes `palette`/`palette_line` and stamps them into the
+authored palette (data/editor/<zone>/<act>/palette.bin, mirrored to
+ojz_palette.bin). The same mechanism destroys `anims` (BgAnim bands), which
 inject_editor_bg.py also already consumes.
 
 Two obligations are tested here:
@@ -125,10 +126,17 @@ class BgOverrideNoClobber(unittest.TestCase):
     def test_palette_that_disagrees_with_gen_palette_is_refused(self):
         """Carrying a palette the art was not quantised against is refused.
 
-        Lock mode quantises to GEN_PALETTE, which ojz_strip_gen.py re-copies
-        from sonic_hack every build. Retaining a stale palette would restamp
-        colours the new art was never fitted to -- silently wrong, just in the
-        opposite direction from losing it.
+        Lock mode quantises to GEN_PALETTE. Retaining a stale palette would
+        restamp colours the new art was never fitted to -- silently wrong, just
+        in the opposite direction from losing it.
+
+        This docstring used to justify the drift from "ojz_strip_gen.py
+        re-copies GEN_PALETTE from sonic_hack every build". THAT PREMISE IS DEAD
+        (fixed 2026-09-09 -- see ojz_common's "EXACTLY ONE WRITER" block). The
+        live one is stronger: GEN_PALETTE now mirrors the authored palette the
+        OWNER edits, so a retained value goes stale the moment he picks a colour,
+        and inject_editor_bg.py would stamp it back over his edit. The assertion
+        below is unchanged; only the reason it is worth asserting moved.
         """
         stale = [(w ^ 0x0E0) & 0xFFFF for w in _PALETTE]
         self.assertNotEqual(stale, _PALETTE)

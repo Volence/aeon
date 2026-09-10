@@ -69,7 +69,7 @@ Input file: `games/sonic4/data/editor_bg_override.json` (path fixed at
 | `tiles` | `:61`, `:165`, `:185-199` | yes | list of 64-px tiles; `len(tiles) <= BG_TILE_CAPACITY` (376, imported from the vram_map mirror `:24`) — ⚠ **this number moves; see the note under this table** |
 | `anims` | `:70` | no | list of band objects (§1.2); absent/empty → the disabled stub (`band_count = 0`) |
 | `anim` | `:71-72` | no | LEGACY single-band form, wrapped to `[anim]` only when `anims` is absent. **Writers must not emit it** (read-side compatibility only) |
-| `palette` | `:206-221` | no | exactly 16 CRAM words, stamped into `ojz_palette.bin` |
+| `palette` | `:206-221` | no | exactly 16 CRAM words, stamped into the AUTHORED `data/editor/<zone>/<act>/palette.bin`, then mirrored to `ojz_palette.bin` (it stamped the generated file directly until 2026-09-09 — see `tools/ojz_common.py`, "EXACTLY ONE WRITER") |
 | `palette_line` | `:207` | no (default 2) | CRAM line 1..3 (`file_line = cram_line - 1` must be ≥ 0, `:213-214`) |
 
 No other top-level key is read. (Aurora already owns `layout`/`tiles` via the BG override

@@ -103,7 +103,7 @@ numbers are that file.
 | `tiles` | array of arrays of int | **yes** | `data['tiles']` — a `KeyError` if absent | `:1047` |
 | `anims` | array of band objects | no | absent → the injector emits the **disabled stub** (`BgAnim_Table: u16 = 0`), which is a complete, linkable module, not an error | `:1056` |
 | `anim` | a single band object | no | legacy single-band spelling; used **only** when `anims` is absent *and* `anim` is truthy, and is then wrapped as `[data['anim']]` | `:1057-1058` |
-| `palette` | array of exactly 16 int (CRAM words) | no | absent → `ojz_palette.bin` is left exactly as `ojz_strip_gen.py` copied it | `:1357-1359` |
+| `palette` | array of exactly 16 int (CRAM words) | no | absent → the authored `data/editor/<zone>/<act>/palette.bin` is left alone, and `ojz_palette.bin` mirrors it unchanged | `:1357-1359` |
 | `palette_line` | int | no | **`2`**, then masked `& 3` | `:1358` |
 
 **`layout`.** Either **2048** or **4096** words; nothing else. 2048 is the legacy 32-row
@@ -148,9 +148,14 @@ not 400.**
 > mirror says 400. Read the mirror.
 
 **`palette` / `palette_line`.** Present in the parser, **absent from the live file** (see
-§A1.7). When `palette` is present the injector stamps 16 CRAM words over
-`ojz_palette.bin` *after* `ojz_strip_gen.py` has copied that file, which is the only
-ordering in which a stamped palette survives a re-bake. The mapping is
+§A1.7). When `palette` is present the injector stamps 16 CRAM words into the **authored**
+palette `games/sonic4/data/editor/<zone>/<act>/palette.bin` and re-mirrors it to
+`ojz_palette.bin`. **It used to stamp the generated file directly**, because
+`ojz_strip_gen.py` re-copied that file from the sonic_hack donor on every build and a
+stamp written any earlier was reverted. That copy was a six-month defect (it discarded
+every palette the owner authored) and was removed on 2026-09-09; the stamp was moved to
+the authored file in the same change, so the generated palette keeps exactly one writer.
+See `tools/ojz_common.py`, "EXACTLY ONE WRITER". The mapping is
 `file_line = palette_line - 1`, because the three lines in `ojz_palette.bin` load starting
 at **CRAM line 1**; `palette_line` 0 is therefore refused by an assert. Exactly 16 words
 or a refusal.
@@ -454,7 +459,7 @@ carry**:
 
 * top level: `anim` (the legacy single-band spelling, superseded by `anims`), `palette`,
   `palette_line`. So **no palette is stamped from the override today**; `ojz_palette.bin`
-  is whatever `ojz_strip_gen.py` copied.
+  is a straight mirror of the authored `data/editor/ojz/act1/palette.bin`.
 * per band: `axis` (defaults to `"horizontal"`) and `slot_base` (defaults to the running
   cursor, which is `0` for the single band).
 
