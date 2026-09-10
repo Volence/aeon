@@ -16,7 +16,13 @@ FAST=1 DEBUG=1 ./build.sh   # ~1.3 s content-authoring loop — VERIFICATION LAN
 
 `FAST=1` runs only what produces the artifact (sound blob, compression vectors, the sigil
 build, and the level re-bake **if the editor tree is stale**) and skips every verification
-lane; it prints a loud banner at both ends and is refused on the `STRESS_*` shapes. The ROM
+lane **but one**: `effects_seam_gate.py --source-only` runs under FAST too, before the sigil
+build, at a measured 0.014 s (2026-09-02, walkthrough finding b4 — `build.sh`'s header carries
+the measurement and the reasoning). It is there because binding a raster preset to an unwired
+section is a canonical refusal FAST could not see at all, so the loop stayed green on a tree
+the real build rejects and the author found out at landing. It checks SPELLING AND BINDING
+ONLY — the reachability witnesses need this build's listing and still run on the canonical
+path alone. It prints a loud banner at both ends and is refused on the `STRESS_*` shapes. The ROM
 is byte-identical to the canonical one — but nothing checked that, so **re-run `./build.sh`
 before you land, merge, freeze, or quote a number.** Both paths now gate on level-data
 staleness (`tools/level_staleness.py`): canonical FAILS naming `tools/regenerate-level.sh`,

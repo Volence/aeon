@@ -32857,3 +32857,40 @@ is correct because `section-wiring.ts` builds the set with a RegExp over the liv
 prose is stale. **A peer's line number in a comment is the most perishable citation there is**
 (aurora's own formulation), and a `"Today:"` with nothing testing it is the same lapsed-condition
 defect this repo hit twice on 2026-09-10 in boot docs, now in a source comment.
+
+## ANTI-EXPIRY SWEEP 2026-09-10 — one live instance fixed, one residue NOT cleared
+
+Run on the hub's relay of the standing ruling (empyrean `514a707`): **a test that pins a
+sentence's WORDING is an ANTI-EXPIRY** — it goes green precisely while the sentence is false and
+would go RED on the correct repair.
+
+**(2) Dated EXPIRES lists — one in this tree, and it has NOT fired.** `DEFERRED_WORK.md`'s
+*"EXPIRES IF: `pins.rs` stops being generated, or `repin.toml` stops resolving by name"*. Tested
+rather than assumed, at sigil `origin/master`: `pins.rs` still opens `GENERATED FILE, DO NOT EDIT
+BY HAND` and `repin.toml` still resolves every entry by name against both aeon listings. Live.
+
+**⚠ THE LIVE INSTANCE WAS OURS, AND IT SAT IN THE FILE EVERY SESSION READS FIRST.** `CLAUDE.md`
+said `FAST=1` *"skips every verification lane"*. **False since 2026-09-02** — walkthrough finding
+b4 put `effects_seam_gate.py --source-only` under FAST for sonic4, unconditionally, at a measured
+0.014 s. Fixed 2026-09-10.
+**The mechanism is DISTRIBUTION, not authorship, and that is the reusable half:** `build.sh`'s own
+header block has carried the correction for eight days, in the sharpest possible words — *"'skip
+every lane' was costing the author the ENTIRE run"* — so the repo held one fact twice, once
+correct in the tool and once false in the boot doc, and **the two artifacts are never read in the
+same sitting.** Nobody was careless. The same shape as this repo's cross-repo distribution failure
+already booked: the doc right, the tool wrong, both live, for a week.
+**It reached a peer.** Aurora's own dated list carried the same false clause about OUR gate and it
+had fired unread for eight days, which is how the hub found it. A sentence about your gate living
+in someone else's tree cannot be tested by either of you.
+
+**(1) Tests pinning a shipped literal — 42 candidates, RESIDUE OPEN, DO NOT READ THIS AS CLEAR.**
+Enumerated mechanically: string literals of >= 28 chars asserted in `tools/test_*.py` that also
+appear verbatim in a non-test `tools/*.py`. **The overwhelming majority are a gate's own test
+asserting that gate's own message, which is the LEGITIMATE case** the shared protocol's bar 2
+actually asks for (match on wording unique to the rule under test). The anti-expiry subset is
+narrower and is not mechanically separable from it: it is the rows whose pinned sentence states a
+FACT ABOUT THE TREE'S CURRENT STATE ("only section 5 is wired") rather than a rule violation
+("the bank placement rule is broken"). **Twelve of the 42 were read and none was an anti-expiry;
+thirty were not read.** Booked as residue rather than closed, because "I checked the rest too" is
+exactly the completeness claim the protocol says to treat as unverified until the enumerating
+command has been run and shown.
