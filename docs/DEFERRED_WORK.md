@@ -32633,3 +32633,48 @@ not reproduce** — alias and `command grep` both return 1398 sites, and the ali
 subtree's 81 when asked. Every count in the audit was taken with the alias and is unaffected.
 Recorded as unreproduced rather than as a fact, given this file already carries one retracted
 grep-behaviour claim.
+
+## ⚠ CORRECTION — THE EXIT-CODE COLLAPSE'S "ELEVEN GATES" IS NONE OF THE THREE REAL POPULATIONS (2026-09-10, `parcel/gate-exit-code-triage`)
+
+The content-pinning audit's §THE EXIT-CODE COLLAPSE says **"eleven gates already implement the
+distinction carefully."** Measured over the 22 Python tools `build.sh` invokes under `if !`:
+**14** mention the token `UNMEASURABLE`, **13** carry a `return 2`-shaped token, and **13** can
+actually reach process exit 2 (+1 more, `dma_defer_headroom.py`, reaches unmeasurable via exit
+**3**). Three questions, three answers; the audit's eleven is none of them. Its own list
+**includes `dma_defer_headroom.py`, which cannot exit 2 at all**, and **omits
+`collision_consistency.py`, `effects_budget_check.py` and `art_rom_report.py`**.
+
+**The populations do not nest, which is why a grep census cannot get this right.**
+`collision_consistency.py` can exit 2 and never uses the token (it prints `COULD NOT MEASURE`).
+`effects_seam_gate.py` and `loop_crossover_gate.py` use the token and exit 1 **deliberately** —
+for them, being unable to discriminate is build-stopping.
+
+**AND THE AUDIT'S ITEM 1 IS WRONG AS WRITTEN.** It prescribes "exit 2 reports UNMEASURABLE and
+does not fail the build." **`tools/art_rom_report.py` means {0 ok/warn, 2 FAIL} and has no exit 1
+at all** (its docstring: *"Exit: 0 clean/warn, 2 over a hard ceiling"*), and `build.sh` invokes it
+without `--no-fail` in every canonical shape. That blanket rule would have **silently disarmed the
+art-pool hard ROM ceiling and the zero-pools liveness refusal.**
+
+**AND ITEM 1 DOES NOT UNBLOCK WHAT PROMPTED IT.** The audit says item 1 "resolves D3, D4 and D5
+outright". For **D3 it resolves the gate but not the wall**: `scene_registry.emp`'s
+`CAP_BAND_DRIFT` `ensure` (audit A3, plus A4's equality pin) runs inside `sigil build`, ~300 lines
+of `build.sh` BEFORE `band_drift_golden.py` is reached, so a dropped drift never gets to the gate.
+**Items 1 and 3 must land together to unblock that class of edit.** Item 1 was ranked first
+because it is cheap and general, not because it is what hurt anyone.
+
+**AND THE DISTINCTION HAS NEVER BEEN OBSERVED TO FIRE HERE.** Zero exit-2 firings across six
+clean canonical builds; no commit message records a build stopped by one. Both the audit and the
+dispatch were written as though it were being thrown away daily.
+
+**LANDED (call site only, zero gate behaviour changed):** `build.sh`'s 23 `if ! python3 tools/X.py`
+sites now go through a `gate <mode> <label> <cmd>` helper that reads the real exit status (the
+`FAST_REBAKE_BLOCK` shape, hoisted). **Every site is declared `strict`** — owner-lane ruling
+2026-09-10, which is this file's prior behaviour to the byte, on the reasoning above. What it buys
+without changing a byte: one auditable place per gate for what its exit codes mean, unknown codes
+failing *explicitly* with a sentence instead of incidentally, and the `art_rom_report` reason
+written where the next reader of that line will meet it. The twelve gates whose exit 2 genuinely
+means unmeasurable each keep that reading as a call-site comment, so flipping one to `triage` later
+is a one-word change argued from the gate's own meaning. `gate_summary`'s roll-up has **no live
+producer today, by construction** (nothing is `triage`) and says so at its definition.
+
+**Audit text left annotated, not rewritten.**

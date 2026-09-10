@@ -185,40 +185,71 @@ TOOLS="${TOOLS:-tools}"
 # them draw that distinction deliberately and at length, and the call site threw it away.
 # build.sh already knew this trap and solved it once, in FAST_REBAKE_BLOCK: `$?` inside
 # `if ! cmd` is the INVERSION's status, so the real code must be captured separately.
-# `gate` below is that same shape, hoisted so all 22 call sites share it.
+# `gate` below is that same shape, hoisted so all 23 call sites share it.
 #
-# ⚠ THE EXIT-2 VOCABULARY IS NOT UNIFORM ACROSS THIS REPO. Measured 2026-09-10 by
-# walking what can reach each tool's PROCESS EXIT STATUS (not by grepping for the token
-# UNMEASURABLE, which counts prose, and not by grepping `return 2`, which counts
-# unreachable helpers):
+# ⚠ THE EXIT-2 VOCABULARY IS NOT UNIFORM ACROSS THIS REPO, so the obvious fix — "exit 2
+# means unmeasurable, do not fail on it" — is WRONG AS A BLANKET RULE. Measured
+# 2026-09-10 by walking what can reach each tool's PROCESS EXIT STATUS (not by grepping
+# for the token UNMEASURABLE, which counts prose, and not by grepping `return 2`, which
+# counts unreachable helpers). Three different questions, three different answers:
 #
-#   * 12 gates mean {0 ok, 1 fail, 2 unmeasurable}.  Declared `triage` here.
-#     ONE WART INSIDE THAT TWELVE: tools/bganim_room.py also returns 2 for a USAGE
-#     error (an argv it does not recognise). So a typo in ITS flags on the line below
-#     now reports UNMEASURABLE and lets the build through, where before it stopped it.
-#     That is still loud — banner + end-of-build roll-up — and it is still true that
-#     nothing was measured, but it is a genuine weakening and it is here to be read,
-#     not buried. If it ever bites, the fix belongs in the gate (usage error is a 1).
+#   14  files under a call site below MENTION the token UNMEASURABLE
+#   13  carry a `return 2`-shaped token
+#   13  can actually REACH process exit 2 (+1 more reaches unmeasurable via exit 3)
+#
+#   The three populations DO NOT NEST. tools/collision_consistency.py can exit 2 and
+#   never uses the token (it prints "COULD NOT MEASURE"), so any grep-driven census
+#   misses it. tools/effects_seam_gate.py and tools/loop_crossover_gate.py use the word
+#   and exit 1 ON PURPOSE — being unable to discriminate is, for them, build-stopping.
+#
+# AND TWO GATES BREAK THE CONVENTION OUTRIGHT:
+#
 #   * tools/art_rom_report.py means {0 ok/warn, 2 FAIL} and HAS NO EXIT 1 AT ALL.
 #     Its own docstring says "Exit: 0 clean/warn, 2 over a hard ceiling". Its 2 is an
-#     act art pool breaching its HARD ROM ceiling, or the zero-pools liveness refusal.
-#     Treating that as benign would silently disarm the art-pool ROM budget.
+#     act art pool breaching its HARD ROM ceiling, or the zero-pools liveness refusal,
+#     and build.sh invokes it WITHOUT --no-fail in every canonical shape. A blanket
+#     "2 is benign" would have silently disarmed the art-pool ROM budget.
 #   * tools/dma_defer_headroom.py spells unmeasurable **3**, not 2, and documents it
 #     ("3 UNMEASURABLE -- an input could not be read at all. Never silent, never 0.").
-#     Its 3 therefore still fails the build here, exactly as it did before this change.
+#     A rule keyed on the number 2 would have done nothing for it.
 #
-# SO THE TRIAGE IS DECLARED PER CALL SITE, NOT INFERRED FROM THE NUMBER. `strict` is the
-# default and is today's behaviour to the byte: any non-zero status fails. A gate is only
-# read as {0,1,2} where the word `triage` appears at its call site, which is a claim
-# someone made after reading that gate. A NEW gate, or one whose vocabulary moves, gets
-# `strict` for free and keeps failing closed — the opposite mistake (a blanket "2 is
-# benign") would silently un-arm the next art_rom_report the moment it is written.
+# SO THE VOCABULARY IS DECLARED PER CALL SITE, NEVER INFERRED FROM THE NUMBER.
 #
-# UNKNOWN CODES FAIL. Anything that is not 0, 1 or the declared 2 fails the build. This
-# is the same fail-closed reasoning already written into the sigil-version arm above:
-# "I could not tell" must never produce the same exit code as "it is fine".
+# ⚠ TODAY EVERY CALL SITE IS `strict`, WHICH IS THIS FILE'S BEHAVIOUR BEFORE THIS
+# CHANGE, TO THE BYTE: any non-zero status fails the build. That is a RULING
+# (2026-09-10), not an oversight, and the reasoning is worth keeping because it is the
+# reason not to "finish the job" later without re-arguing it:
+#
+#     No gate has ever been OBSERVED to exit 2 here. Six clean canonical builds
+#     (plain x2, DEBUG, demo, demo DEBUG, control) produced zero. No commit message
+#     records a build stopped by an exit-2 path. And the frustration this parcel came
+#     out of — a decorative moving waterline the build would not let its author turn
+#     off — was NOT this: that edit is refused by a comptime `ensure` in
+#     games/sonic4/data/effects/scene_registry.emp, inside `sigil build` below, ~300
+#     lines BEFORE any gate here runs. Flipping gates to non-fatal would remove
+#     protection nobody has been slowed by, in exchange for nothing measurable.
+#
+# WHAT `strict` EVERYWHERE STILL BUYS, and why this is not a no-op refactor:
+#   1. one auditable place per gate for what its exit codes mean (the comment at each
+#      call site below says what THAT gate means by 2 — that reading is the durable
+#      half of this work, and it is what makes the policy question cheap to revisit);
+#   2. unknown codes fail EXPLICITLY, with a sentence naming the code, instead of
+#      failing incidentally because `if !` happened to be false;
+#   3. the art_rom_report reason is written where the next person to touch that line
+#      will read it, rather than in a report they will not have.
+#
+# TO CHANGE THE POLICY: flip a call site's `strict` to `triage` and that gate's exit 2
+# stops failing the build (loudly — see `gate` and `gate_summary`). Do it per gate,
+# on the strength of that gate's own comment, and NOT as a sweep: `strict` is the
+# fail-closed default precisely so a new gate, or one whose vocabulary moves, keeps
+# refusing until somebody has read it. The opposite default would silently un-arm the
+# next art_rom_report the moment it is written.
+#
+# UNKNOWN CODES FAIL. Anything that is not 0, 1 or a DECLARED 2 fails the build. Same
+# fail-closed reasoning already written into the sigil-version arm above: "I could not
+# tell" must never produce the same exit code as "it is fine".
 
-GATE_UNMEASURABLE=()          # "label<TAB>invocation" rows, replayed at the end
+GATE_UNMEASURABLE=()          # gate labels that exited 2 under `triage`, replayed at the end
 
 # gate <strict|triage> <label> <command...>
 #   returns 0  -> the build should CONTINUE (gate passed, or declared-unmeasurable)
@@ -237,9 +268,12 @@ gate() {
     fi
 
     if [[ "${_rc}" -eq 2 && "${_mode}" == "triage" ]]; then
-        # Loud HERE as well as in the end-of-build summary: an unmeasurable gate that is
-        # followed by a REAL failure never reaches the summary, and this is the only
-        # place that build's operator would otherwise see it.
+        # NO CALL SITE IS `triage` TODAY, so this arm is unreachable as shipped — see the
+        # ruling above. It is kept, and kept loud, because the policy question is open and
+        # the twelve gates that would use it are read and annotated below; flipping one
+        # word at one call site is the whole change. Loud HERE as well as in the summary:
+        # an unmeasurable gate followed by a REAL failure never reaches the summary, and
+        # this is the only place that build's operator would otherwise see it.
         echo "###########################################################################"
         echo "## UNMEASURABLE: ${_label} (exit 2) — it could not reach its subject."
         echo "##   Its own message is above; this wrapper knows nothing it does not."
@@ -262,9 +296,16 @@ gate() {
     return 1
 }
 
-# Replayed at the very end of the build (and idempotent, so it is safe to call twice).
-# A build with any unmeasurable gate must be obviously different at a glance from a
-# clean one — a single line 2,400 tests ago is how a gate stops being a gate.
+# The end-of-build unmeasurable roll-up, replayed once at the very end (idempotent).
+#
+# ⚠ IT HAS NO LIVE PRODUCER TODAY, AND THAT IS EXPECTED, NOT ROT. The only thing that
+# appends to GATE_UNMEASURABLE is `gate`'s `triage` arm, and no call site below is
+# declared `triage` (the 2026-09-10 ruling in the block above). So this prints nothing
+# on every build that can currently be run. What would give it a producer: changing one
+# call site's `strict` to `triage`. It is not an abandoned scaffold — it is the half of
+# a two-part mechanism whose other half is a policy decision, and the reason it exists
+# now is that "collect them and say so at the end" is the requirement that makes exit-2
+# triage safe at all: a single line 2,400 tests ago is how a gate stops being a gate.
 _gate_summary_printed=0
 gate_summary() {
     if [[ "${_gate_summary_printed}" == "1" ]]; then return 0; fi
@@ -697,7 +738,9 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # and fails with `unknown --game`. That is pre-existing arg-parsing behaviour, not
     # this gate's, but it is the first thing anyone reaching for the hatch will hit.
     echo "Checking the effects budget model..."
-    if ! gate triage "effects_budget_check.py" python3 "${TOOLS}/effects_budget_check.py"; then
+    # EXIT 2 HERE MEANS: the budget model's [symbols] table is absent, so nothing is
+    # gated. Its own words: "nothing is gated, which is not a pass".
+    if ! gate strict "effects_budget_check.py" python3 "${TOOLS}/effects_budget_check.py"; then
         echo "Budget-model drift — update tools/effects_budget_model.toml to match the code."
         exit 1
     fi
@@ -832,7 +875,10 @@ fi
 # sonic4 only: games/demo has no collision data, and running it there would be a
 # vacuous pass on another game's tree.
 if [[ "${GAME}" == "sonic4" ]]; then
-    if ! gate triage "collision_consistency.py" python3 "${TOOLS}/collision_consistency.py" \
+    # EXIT 2 HERE MEANS: GateError -- it could not read the section data it compares.
+    # It prints "COLLISION CONSISTENCY GATE: COULD NOT MEASURE" and never uses the word
+    # UNMEASURABLE, so every grep-driven census of this concept misses this gate.
+    if ! gate strict "collision_consistency.py" python3 "${TOOLS}/collision_consistency.py" \
              --baseline "${TOOLS}/collision_baseline.json"; then
         echo "Collision data is inconsistent — see above."
         echo "  Held repaint:  python3 tools/repaint_ojz_collision.py   (check mode)"
@@ -1113,7 +1159,10 @@ if [[ "$FAST" == "0" ]]; then
     # That is the shape this capability actually threatens demo in: BAND_REMAP_N is
     # ENGINE-WIDE, so demo's band record widened for it, and a gate that only looked at
     # sonic4 would be blind to a pointer leaking into the game that can never use one.
-    if ! gate triage "row_remap_gate.py" python3 "${TOOLS}/row_remap_gate.py" --lst "${ROM_NAME}.lst" \
+    # EXIT 2 HERE MEANS: EXIT_UNMEASURABLE -- a symbol, the curve geometry, or the
+    # generator module it agrees against is gone. This file DEFINES the {0,1,2} constants
+    # the golden/swap-gate family imports, so it is the family's reference spelling.
+    if ! gate strict "row_remap_gate.py" python3 "${TOOLS}/row_remap_gate.py" --lst "${ROM_NAME}.lst" \
             --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" --game "${GAME}"; then
         echo "Row remap ladder — see above (tools/row_remap_gate.py, the post-sigil gate)."
         exit 1
@@ -1132,7 +1181,9 @@ if [[ "$FAST" == "0" ]]; then
     # RUN FOR BOTH GAMES, for the reason above: the gather is ENGINE code and ships in every
     # game, so the undeclared path is not a skip — it asserts demo's image carries NO source
     # art AND a Waterline_Art_Update that is exactly `rts`.
-    if ! gate triage "waterline_art_gate.py" python3 "${TOOLS}/waterline_art_gate.py" --lst "${ROM_NAME}.lst" \
+    # EXIT 2 HERE MEANS: row_remap_gate's EXIT_UNMEASURABLE, imported -- an anchor or
+    # symbol the gather reads is absent, so the image/geometry comparison has no subject.
+    if ! gate strict "waterline_art_gate.py" python3 "${TOOLS}/waterline_art_gate.py" --lst "${ROM_NAME}.lst" \
             --rom "${ROM_NAME}.bin" --game "${GAME}"; then
         echo "Waterline art half — see above (tools/waterline_art_gate.py, the post-sigil gate)."
         exit 1
@@ -1165,7 +1216,10 @@ if [[ "$FAST" == "0" ]]; then
     # last valid index stays green and the first invalid one goes red at the same
     # byte. Six of the ten tables sit at margin ZERO, so the direction is the whole
     # check — `<=` would be green on a real overrun.
-    if ! gate triage "anim_frame_bound.py" python3 "${TOOLS}/anim_frame_bound.py" --lst "${ROM_NAME}.lst" \
+    # EXIT 2 HERE MEANS: Unmeasurable -- a symbol or parse anchor is gone. (It also
+    # returns 2 under --selftest when the shipped build is already red; build.sh never
+    # passes --selftest, so that path is not reachable from this line.)
+    if ! gate strict "anim_frame_bound.py" python3 "${TOOLS}/anim_frame_bound.py" --lst "${ROM_NAME}.lst" \
             --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" --game "${GAME}" --gate; then
         echo "Animation frame byte out of bounds — see above (tools/anim_frame_bound.py)."
         exit 1
@@ -1201,7 +1255,10 @@ if [[ "$FAST" == "0" ]]; then
         # `first_mismatch([<hand>], [<generated>]) == -1` guard is ALWAYS RED on correct
         # code — and flipping it to `== 0` to "fix" that makes it permanently vacuous in
         # one keystroke. Measured, docs/superpowers/probes/2026-09-02-item5-comptime-probe.md.
-        if ! gate triage "editor_palette_golden.py" python3 "${TOOLS}/editor_palette_golden.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: an input is absent -- ten distinct sites, all input-absence: a
+        # document that does not exist, an artifact older than this build (a PREVIOUS
+        # invocation's), or no preset document that loads.
+        if ! gate strict "editor_palette_golden.py" python3 "${TOOLS}/editor_palette_golden.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
             echo "Editor palette golden failed — see above (tools/editor_palette_golden.py)."
             exit 1
@@ -1220,7 +1277,12 @@ if [[ "$FAST" == "0" ]]; then
         # the ROM rather than asserting in `.emp` for a structural reason: the equivalence
         # witness's `band_eq()` runs through `.br_base` and is blind to every capability
         # tail by construction.
-        if ! gate triage "band_drift_golden.py" python3 "${TOOLS}/band_drift_golden.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: Unmeasurable -- including its CONTENT arm, where Scene_OJZ_Default
+        # authors no `drift: SceneDrift.Rate(..)` at all and the gate would "pass over an
+        # all-zero expectation and assert nothing". That arm is the content-pinning audit's D3;
+        # note that scene_registry.emp's CAP_BAND_DRIFT `ensure` refuses the same edit inside
+        # `sigil build`, ~300 lines above, so this exit is not what a dropped drift hits first.
+        if ! gate strict "band_drift_golden.py" python3 "${TOOLS}/band_drift_golden.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
             echo "Band-drift golden failed — see above (tools/band_drift_golden.py)."
             exit 1
@@ -1244,7 +1306,9 @@ if [[ "$FAST" == "0" ]]; then
         # unconditional program would be a dormant scaffold in the shipped ROM.
         BASE_SWAP_SHAPE="release"
         if [[ "${DEBUG:-0}" == "1" ]]; then BASE_SWAP_SHAPE="debug"; fi
-        if ! gate triage "plane_base_swap_gate.py" python3 "${TOOLS}/plane_base_swap_gate.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: Unmeasurable -- the raster band or the plane-base symbols it
+        # decodes are not in this listing, so there is no swap to check.
+        if ! gate strict "plane_base_swap_gate.py" python3 "${TOOLS}/plane_base_swap_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --shape "${BASE_SWAP_SHAPE}"; then
             echo "Mid-frame plane-base gate failed — see above (tools/plane_base_swap_gate.py)."
@@ -1274,7 +1338,9 @@ if [[ "$FAST" == "0" ]]; then
         # so an unconditional emission would be a dormant scaffold in the shipped ROM.
         REELS_SHAPE="release"
         if [[ "${DEBUG:-0}" == "1" ]]; then REELS_SHAPE="debug"; fi
-        if ! gate triage "reels_gate.py" python3 "${TOOLS}/reels_gate.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: Unmeasurable -- the reel source, the fill symbol, or a scene
+        # document's association table is not resolvable in this build.
+        if ! gate strict "reels_gate.py" python3 "${TOOLS}/reels_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --shape "${REELS_SHAPE}"; then
             echo "Reels gate failed — see above (tools/reels_gate.py)."
@@ -1292,7 +1358,9 @@ if [[ "$FAST" == "0" ]]; then
         # zero-byte arm to check. --shape is still passed, for messaging only.
         ROLE_SWAP_SHAPE="release"
         if [[ "${DEBUG:-0}" == "1" ]]; then ROLE_SWAP_SHAPE="debug"; fi
-        if ! gate triage "plane_role_swap_gate.py" python3 "${TOOLS}/plane_role_swap_gate.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: Unmeasurable -- Parallax_Set_Roles_Swapped or the register writes
+        # it decodes are not present to read.
+        if ! gate strict "plane_role_swap_gate.py" python3 "${TOOLS}/plane_role_swap_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --shape "${ROLE_SWAP_SHAPE}"; then
             echo "Plane-role-swap gate failed — see above (tools/plane_role_swap_gate.py)."
@@ -1324,7 +1392,11 @@ if [[ "$FAST" == "0" ]]; then
         # of a real listing, which nothing re-derives; every row of that cut must be
         # re-found here with the same lexical shape, so an emitter format change is a
         # named "fixture is stale" failure and not a unit test green against the past.
-        if ! gate triage "bganim_room.py" python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS TWO DIFFERENT THINGS, uniquely in this family: a missing --lst
+        # (genuinely unmeasurable) AND an argv it does not recognise (a USAGE error, i.e. a
+        # typo in the flags on the line below). Anyone flipping this site to `triage` inherits
+        # both; the right fix would be in the gate, where a usage error is an exit 1.
+        if ! gate strict "bganim_room.py" python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --fixture "${TOOLS}/fixtures/bganim_room_excerpt.lst" --gate; then
             echo "BG-animation section room — see above (tools/bganim_room.py, the post-sigil gate)."
@@ -1356,7 +1428,9 @@ if [[ "$FAST" == "0" ]]; then
         # second, named failure; a writer it cannot classify WIDENS the set and
         # says so, never narrows it.
         # Measured and reasoned in docs/2026-08-30-dplc-append-disturbance.md.
-        if ! gate triage "dplc_straddle.py" python3 "${TOOLS}/dplc_straddle.py" --lst "${ROM_NAME}.lst" \
+        # EXIT 2 HERE MEANS: Unmeasurable -- a DPLC symbol or the mappings it straddles is
+        # absent from this listing.
+        if ! gate strict "dplc_straddle.py" python3 "${TOOLS}/dplc_straddle.py" --lst "${ROM_NAME}.lst" \
                      --rom "${ROM_NAME}.bin" --gate; then
             echo "DPLC straddle gate failed — see above (tools/dplc_straddle.py)."
             exit 1
