@@ -31647,12 +31647,34 @@ frame is build-fatal under `@resumable`), so that gap is structural and needs it
 **A trap inside it: the two `raise_error` tokens in that file are COMMENTS explaining why one cannot
 be planted, so a bare occurrence count reads as "2 guards present" and is wrong.**
 
-**ONE COULD-NOT-BE-LOCATED — `C1b-2`.** No `detail` field and a rotted `where.line=521` pointing at a
+**~~ONE COULD-NOT-BE-LOCATED — `C1b-2`.~~ CLOSED 2026-09-10 — LOCATED AND FIXED.** The struck text
+below is kept because the *lesson* survives its own resolution, but the verdict does not: the subject
+is `RunObjects`'s **`.always_loop`** in `engine/objects/core.emp`, and it is now reordered to match
+its sibling (`fixed`, ledger row appended 2026-09-10, code at `f0e24053`).
+
+**The settling step written on the row is what closed it, and it cost one command.** Checking out
+`core.emp` at sweep sha `9cfebb72` shows line 521 is `// preservation contract at the source.` — a
+comment **inside `.always_loop` itself**, seven lines under the `moveq #OBJ_CODE_BANK, d0` the finding
+is about. So `where.line` was never wrong; it was **unreadable without checking out the sha it was
+measured against**, and reading it against today's file produced a confident "points at a stray brace".
+That is a sharper bar than the one recorded below: *a rotted coordinate is not a lost coordinate.*
+
+**And the enumeration that declared the trio absent was itself wrong.** The sift booked that all four
+loops "place setup before the test". At least two do not: `.culled_loop` puts the identical
+`moveq`/`swap` **after** every one of its guards, and `RunObjects_Frozen`'s `.frozen_fixed_loop` opens
+with a bare `tst.w (a0)`/`beq` and has no setup at all. `.always_loop` was the only member of the
+family doing work before its emptiness test — exactly the trio the title required. **A negative
+verdict built from an enumeration is only as good as the enumeration**, and a wrong one reads
+identically to a genuine absence.
+
+~~No `detail` field and a rotted `where.line=521` pointing at a
 stray brace today. Every loop in `engine/objects/core.emp` with a real runtime emptiness test was
 enumerated and all four place setup before the test, so the trio the title requires was not found.
 Left OPEN rather than refuted, with the settling step recorded on the row: read `core.emp` at sweep
-sha `9cfebb72` around line 521 and name the routine. **A ledger row with no detail is only as durable
-as its coordinate**, which is the coordinate-rot bar arriving inside our own instrument.
+sha `9cfebb72` around line 521 and name the routine.~~ **A ledger row with no detail is only as durable
+as its coordinate**, which is the coordinate-rot bar arriving inside our own instrument — and the
+standing fix, applied to the new row, is to carry a **symbol** coordinate (`RunObjects .always_loop`)
+beside the line, because the line moves and the symbol does not.
 
 **METHOD NOTE FOR THE NEXT SIFT.** Slice reports are at `docs/superpowers/notes/2026-09-09-ledger-sift-{A,B,C}.md`.
 Every ALREADY-FIXED verdict was re-derived by the controller before being banked, and one agent
