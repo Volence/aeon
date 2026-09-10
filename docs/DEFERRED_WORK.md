@@ -31647,6 +31647,53 @@ frame is build-fatal under `@resumable`), so that gap is structural and needs it
 **A trap inside it: the two `raise_error` tokens in that file are COMMENTS explaining why one cannot
 be planted, so a bare occurrence count reads as "2 guards present" and is wrong.**
 
+> **⚠ THE RESIDUAL IS SETTLED (2026-09-10) — AND THE PARAGRAPH ABOVE CONTAINS ONE WRONG INFERENCE.
+> Nothing above is rewritten; read this before acting on it.**
+>
+> **What held.** The build-fatality is real and was REPRODUCED rather than restated: a probe
+> `raise_error` at `ZX0R_Decompress`'s `.done`, built through `./build.sh`, is refused on all five
+> profiles sigil checks (sonic4 plain/debug, demo plain/debug, config_a) with three
+> `[resumable.stack-op]` errors at `zx0_resume.emp:188:9` — one each for `pea`, the `-(sp)` push and
+> `jsr`, the three sp-touching ops of the MD Debugger raise frame. The occurrence-count trap holds too.
+>
+> **What did not.** "That gap is structural" was read as "no net is reachable", and that does not
+> follow. `@resumable` constrains ONE PROC BODY, not the decode. Enumerated by what TOUCHES the
+> decode's state (not by what a file names), that body is one of **eight** touchers; the other seven
+> all have a stack and can raise:
+>
+> | # | site | file | what it touches |
+> |---|---|---|---|
+> | 1 | setup | `page_in.emp`, ZX0 arm of `PageIn_Process` | picks a0/a1/a3 + `PageIn_Cur_Bytes` |
+> | 2 | completion | `page_in.emp` `.after` | receives a0/a1 — ZX0R's declared `out` |
+> | 3 | slice-out | `PageIn_BankRegs` | banks d0-d2/a0-a3 + SR **mid-decode** |
+> | 4 | slice-in | `PageIn_Resume` | re-materialises the same set |
+> | 5 | bookmark | `vblank.emp` PC range check | the PC and `PageIn_InFlight`, not the stream |
+> | 6 | landing | `PageIn_EnqueueLanding` | consumes the decode's declared extent as a DMA length |
+> | 7 | selftest | `compression_selftest.emp` `.eq_page`/`.eq_resume` | drives BOTH decoders over every page |
+> | 8 | bake | `tools/ojz_strip_gen.py` | produces the wrapper + `pm_tiles` |
+>
+> **Four release-shape checks landed** at sites 1 (×2), 2 and 3, gated `DEBUG == 1 || CRASH_REPORT == 1`
+> and shaped after `s4lz.emp`'s: `.fault_ver` (wrapper version ≠ `ART_VER_ZX0`, promoted from a DEBUG
+> assert), `.fault_size` (declared bytes > `ART_STAGING_BUFFER_SIZE` — **the only true BOUND of the
+> four**, evaluated while an overrun is still preventable), `.fault_extent` (written extent ≠ declared),
+> and `.fault_bank` (dest cursor outside the staging buffer at a slice boundary). All four verified
+> present in the PLAIN listing and ROM; measured release-shape cost **102 bytes** (821103 → 821001 when
+> the predicate is narrowed to bare `DEBUG`). Build-time half: `tools/test_zx0r_resume_net.py`.
+>
+> **The specific wrong inference, recorded because it is the reusable part.** `zx0_resume.emp`'s header
+> point 2 says an output bound "needs a live limit register" and therefore a widening of the bookmark's
+> banked set in `vblank.emp` — the file the LS-17 ruling excluded. It does not. The limit is a comptime
+> constant, and `PageIn_BankRegs` compares the **already-banked** a1 against an immediate. The bound was
+> reachable the whole time; what made it look impossible was reasoning about where the VALUE lives
+> instead of about where the COMPARISON can be made. Nothing in `vblank.emp` moved.
+>
+> **Still open, and it is an owner call, not a task.** Nets 2 and 3 are bounds; nets 1 and 4 are
+> detectors, and net 4 has no DEBUG twin — an owner who wants the narrowest reading of the LS-17 ruling
+> can drop it as a single hunk, exactly as `s4lz`'s check 3 was framed. **And none of the four has been
+> shown to FIRE**: only an emulator can run them and the landing lane was forbidden one, so the
+> reachability argument is analytic (a single flipped bit in an elias run changes the output extent).
+> A foreground emulator confirmation is the one piece of evidence still missing.
+
 **ONE COULD-NOT-BE-LOCATED — `C1b-2`.** No `detail` field and a rotted `where.line=521` pointing at a
 stray brace today. Every loop in `engine/objects/core.emp` with a real runtime emptiness test was
 enumerated and all four place setup before the test, so the trio the title requires was not found.
