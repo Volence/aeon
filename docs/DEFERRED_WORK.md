@@ -32799,3 +32799,52 @@ is a one-word change argued from the gate's own meaning. `gate_summary`'s roll-u
 producer today, by construction** (nothing is `triage`) and says so at its definition.
 
 **Audit text left annotated, not rewritten.**
+
+## SECTION0-SPECIAL-CASE — aurora's question, RULED 2026-09-10 (aeon owns this)
+
+**Aurora asked:** is the missing `ojz_act1_sec_raster(sec: N)` threading for sections 0-4 a stable
+property (disable the control with a reason) or incidental (keep it enabled with the disclosure)?
+
+**The binary is the wrong shape — it is three-way, and only section 0 is a property.** Derived from
+`games/sonic4/data/effects/ojz_effects.emp` at the `preset()` declarations, not from any table:
+
+| sec | raster channel today | verdict |
+|---|---|---|
+| 0 | **`patched: OJZ_TwoChannel`** (no raster) | **STABLE PROPERTY — disable, with the reason below** |
+| 1 | `raster: OJZ_TestRaster` | incidental, but OCCUPIED — threading evicts the test raster |
+| 2 | `raster: OJZ_TestGradient` | incidental, but OCCUPIED — threading evicts the test gradient |
+| 3 | **`raster: Raster_Program_None`** | **incidental AND FREE — the cheapest next one** |
+| 4 | carries the d-15 showcase (`OJZ_DepthVSplit`) | incidental, but OCCUPIED — threading EVICTS the showcase |
+| 5, 6 | threaded (`:1665`, `:1723`) | done |
+
+**Why section 0 is structural and not a choice — three rules close the door together**, and the file
+already says so in its own words (*"THAT IS A STRUCTURAL GAP AND NOT A CHOICE"*): a document must
+carry `bands` (hub ruling Q1a) · `bands` lowers to a raster program · `tools/effects_seam_gate.py`
+requires every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)` · and
+`preset()`'s exclusivity `ensure` makes `ep_raster` and `ep_patched` a hard either/or. **Section 0 is
+the only section in the tree with live patch channels** (`OJZ_TwoChannel`'s two `patchable()` records
+plus `ParallaxConfig_OJZ_Underwater`'s anchor), so a raster binding there would have to take the
+patch channels out. That is a property of the mechanism, not of anyone's plan for section 0.
+
+**Why 1-4 are NOT the same answer.** None of them is barred by a rule; each is barred by *what is
+already in its raster channel*, which is a content call the owner can reverse. Section 4 is the
+sharpest case and is on record: it *"already owns its preset and would need no split"*, and the only
+thing stopping it is that binding a `rasterRef` would evict the d-15 showcase he asked to see.
+
+**Section 3 is the one worth knowing about:** it already owns its own preset AND its raster channel
+is `Raster_Program_None` — the exact pair of conditions that made section 5 the first candidate.
+Nothing structural or content-shaped stops it; it has simply never been threaded. If aurora wants a
+second enabled section to point at, that is it.
+
+**So the UI answer:** disable for section 0 with the structural reason; keep the enabled control plus
+today's disclosure for 1-4. A single disabled-or-enabled verdict for "0-4" would be wrong either way
+round — it would either hide four reversible content calls behind a structural-sounding refusal, or
+promise section 0 a binding the gate will refuse.
+
+**One booking against aurora's own comment, and nothing ships wrong from it:** their
+`raster-binding.ts` says the threaded set is *"Today: 5 alone (`ojz_effects.emp:1114`)"*. At aeon
+`origin/master` it is **5 and 6, at `:1665` and `:1723`** — count, line and path all moved. Behaviour
+is correct because `section-wiring.ts` builds the set with a RegExp over the live file; only the
+prose is stale. **A peer's line number in a comment is the most perishable citation there is**
+(aurora's own formulation), and a `"Today:"` with nothing testing it is the same lapsed-condition
+defect this repo hit twice on 2026-09-10 in boot docs, now in a source comment.
