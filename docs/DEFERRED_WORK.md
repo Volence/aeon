@@ -32713,6 +32713,17 @@ ships that ROM** — the landed shape binds the fold and is byte-identical on al
 Recorded because a zero-byte comptime construct silently changing emitted code deserves
 attention, and because the next person to add an `ensure` to a game manifest will meet it.
 
+**VERIFIED, four shapes, aggregate totals from each shape's own summary line:** all four exit
+0 at **2405 passed, 2 skipped, 14 deselected, 112 subtests**, and all four ROMs byte-identical
+to master (`s4.bin` 821103/`8fbe85e7`, `s4.debug.bin` 847367/`07343b59`, `demo.bin`
+97051/`f7fdf77d`, `demo.debug.bin` 103335/`ff11e22d`). The count moved 2398 -> 2405 and the +7
+is accounted for exactly: six rows pinning the new derivation and its four refusal paths, plus
+one cross-consumer row. **Baseline artefact, not caused here and reproduced on unmodified
+master:** the FIRST `./build.sh demo` in a fresh worktree fails
+`test_check_does_not_perturb_generated_sound_artifacts`, because a sound-OFF game populates
+nothing in `engine/sound/generated/` and the lane's own `--check` is then its first writer. It
+is green on every demo build that follows a sonic4 build.
+
 **STILL OPEN:** shortlist items 1-7 — the `build.sh` exit-code collapse (ranked 1, and the only
 one that also protects the future), the two `test_lab_index_lint.py == 1` pins, the
 `scene_registry.emp` A1-A4 family, the 8-px visibility floor enforced twice, `knuckles_data.emp`'s

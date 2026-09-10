@@ -751,6 +751,34 @@ scenes to 1, which is the realistic silent loss. The pin that can see that is th
 own length pin, and it is unchanged. That sentence is now in the source at A7's site, so a
 future reader meets it where the wrong inference would be made.
 
+### THE VERIFICATION, IN FULL
+
+Four shapes, each run to completion in the foreground, aggregate totals from each shape's
+own summary line (never a tail). sigil `49ecc532e0b133ab0eab9447e071805c` before and after
+every run.
+
+| shape | exit | pre-build pytest lane | ROM | crc |
+|---|---|---|---|---|
+| `./build.sh` | 0 | 2405 passed, 2 skipped, 14 deselected, 112 subtests | `s4.bin` 821103 B | `8fbe85e7` |
+| `DEBUG=1 ./build.sh` | 0 | 2405 passed, 2 skipped, 14 deselected, 112 subtests | `s4.debug.bin` 847367 B | `07343b59` |
+| `./build.sh demo` | 0 | 2405 passed, 2 skipped, 14 deselected, 112 subtests | `demo.bin` 97051 B | `f7fdf77d` |
+| `DEBUG=1 ./build.sh demo` | 0 | 2405 passed, 2 skipped, 14 deselected, 112 subtests | `demo.debug.bin` 103335 B | `ff11e22d` |
+
+**All four ROMs are byte-identical to master's**, lengths and crcs both — which is the second
+of the two independent readings that the computed mask equals the 0 that was asserted.
+
+**The test count moved 2398 -> 2405, and the +7 is accounted for exactly**: six rows pinning
+`caps_from_manifest`'s one derivation and its four refusal paths, plus one cross-consumer row.
+`2 skipped` and `14 deselected` are unchanged.
+
+**One baseline artefact worth recording so nobody re-discovers it as a defect.** The FIRST
+`./build.sh demo` in a fresh worktree fails
+`test_extern_guard_reachability.py::test_check_does_not_perturb_generated_sound_artifacts`:
+the demo is sound-OFF so nothing populates `engine/sound/generated/`, and the lane's own
+`--check` on the sonic4 shape is then the first writer, so its before/after digests differ. It
+is green on every demo build that follows a sonic4 build, and it reproduced on **unmodified
+master** before this parcel touched anything. Not caused here, and not fixed here.
+
 ### TWO SHIPPED CHECKS ASSUMED A HAND-WRITTEN MASK, AND FOUND IT THE MOMENT IT WAS NOT
 
 Worth recording because it is the audit's own thesis turning up in the parcel that fixes it.
