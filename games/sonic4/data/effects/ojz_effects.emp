@@ -1647,15 +1647,26 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // `SceneAnchor.At(0, ..)`. So the line is derived every frame and read by no one.
 //
 // THAT IS A STRUCTURAL GAP AND NOT A CHOICE, and it is worth stating because the obvious
-// fix is the wrong one. Section 0 is the only section in the tree with live patch channels
-// (OJZ_TwoChannel's two `patchable()` records plus ParallaxConfig_OJZ_Underwater's anchor),
-// and section 0 CANNOT bind an editor preset document: a document must carry `bands` (hub
+// fix is the wrong one. Section 0 has live patch channels (OJZ_TwoChannel's two `patchable()`
+// records plus ParallaxConfig_OJZ_Underwater's anchor), and section 0 CANNOT bind an editor
+// preset document: a document must carry `bands` (hub
 // ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` requires
 // every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)`, and
 // `preset()` makes `ep_raster` and `ep_patched` mutually exclusive. The three rules close
 // the door together. Section 5 was the only section a document could bind to at all — the
 // authoring path was proved end to end there — and giving it a raster CONSUMER (as
 // opposed to a raster BINDING) is a content decision left to the owner.
+//
+// ⚠ THIS BLOCK SAID "SECTION 0 IS THE ONLY SECTION IN THE TREE WITH LIVE PATCH CHANNELS"
+// UNTIL 2026-09-10, AND IT WAS FALSE FROM 2026-09-05 — five days, by OUR OWN commit
+// `9972ef1d`, whose subject reads "9c precondition: OJZ act 1 gets a SECOND section with live
+// patch channels". SECTION 7 is that second one (see `:1726` and `OJZ_Preset_Sec7`'s
+// `patched: OJZ_WorldWater`), so THE BARRED SET IS [0, 7]. The word deleted above is "only";
+// everything else in the paragraph was and is correct, which is exactly why nobody met the
+// contradiction. `docs/DEFERRED_WORK.md` had ALREADY STRUCK the same sentence — so the repo
+// held one fact three times: struck in one doc, live here, and re-derived wrong in a 09-10
+// ruling that quoted THIS line. Derive the barred set from the `preset()` declarations and
+// `preset.emp`'s `ensure(raster == 0 || patched == 0, ...)`; never from this prose.
 //
 // (STALE AS OF 2026-09-03: "the only section" stopped being true the moment `base_swap`
 // gave item 11a a second one — section 6, below. Both sections were Plain and neither

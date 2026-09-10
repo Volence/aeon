@@ -32811,6 +32811,7 @@ property (disable the control with a reason) or incidental (keep it enabled with
 | sec | raster channel today | verdict |
 |---|---|---|
 | 0 | **`patched: OJZ_TwoChannel`** (no raster) | **STABLE PROPERTY — disable, with the reason below** |
+| 7 | **`patched: OJZ_WorldWater`** (no raster) | **STABLE PROPERTY, same bar — MISSED IN THE FIRST CUT, see the correction below** |
 | 1 | `raster: OJZ_TestRaster` | incidental, but OCCUPIED — threading evicts the test raster |
 | 2 | `raster: OJZ_TestGradient` | incidental, but OCCUPIED — threading evicts the test gradient |
 | 3 | **`raster: Raster_Program_None`** | **incidental AND FREE — the cheapest next one** |
@@ -32821,10 +32822,31 @@ property (disable the control with a reason) or incidental (keep it enabled with
 already says so in its own words (*"THAT IS A STRUCTURAL GAP AND NOT A CHOICE"*): a document must
 carry `bands` (hub ruling Q1a) · `bands` lowers to a raster program · `tools/effects_seam_gate.py`
 requires every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)` · and
-`preset()`'s exclusivity `ensure` makes `ep_raster` and `ep_patched` a hard either/or. **Section 0 is
-the only section in the tree with live patch channels** (`OJZ_TwoChannel`'s two `patchable()` records
-plus `ParallaxConfig_OJZ_Underwater`'s anchor), so a raster binding there would have to take the
-patch channels out. That is a property of the mechanism, not of anyone's plan for section 0.
+`preset()`'s exclusivity `ensure` makes `ep_raster` and `ep_patched` a hard either/or. **Sections 0
+and 7 both hold live patch channels** — section 0 via `OJZ_TwoChannel`'s two `patchable()` records
+plus `ParallaxConfig_OJZ_Underwater`'s anchor, section 7 via `OJZ_WorldWater` — so a raster binding
+in either would have to take the patch channels out. That is a property of the mechanism, not of
+anyone's plan for those sections.
+
+> **⚠ CORRECTED 2026-09-10, WITHIN THE HOUR, AND THE ERROR WAS MINE.** The first cut of this ruling
+> said *"section 0 is the only section in the tree with live patch channels"* and gave the barred set
+> as `[0]`. **It is `[0, 7]`.** Verified at our own `origin/master`, not taken from the report that
+> raised it: `ojz_effects.emp:1726` reads *"SECTION 7 IS THE ACT'S SECOND SECTION WITH LIVE PATCH
+> CHANNELS (EFFECTS-W1 item 9c precondition, 2026-09-05)"*, `OJZ_Preset_Sec7` binds
+> `patched: OJZ_WorldWater` at `:1871`, and `git log -S` dates the line to **our own commit
+> `9972ef1d`, 2026-09-05**, whose subject is *"9c precondition: OJZ act 1 gets a SECOND section with
+> live patch channels"*. **False for five days, by our own hand, and the ruling was written five days
+> after the commit that falsified it.**
+> **THE MECHANISM, and it is the sharpest instance of this repo's standing lesson:** the TABLE above
+> was derived from the `preset()` declarations, which is why it was right about 0-6. The
+> **justifying sentence** was QUOTED from a 2026-09-03 prose block in `ojz_effects.emp` — and a
+> derivation carrying one quoted premise is only as good as the quote. **I instructed the peer
+> reading this to derive from the declarations rather than quote me, and then did not do it myself
+> for the one clause that mattered.** It surfaced only because they followed the instruction and
+> their derivation disagreed with the sentence that gave it.
+> **AND THE REPO HELD THE FACT THREE TIMES:** already STRUCK in this file (`:796`), still live in
+> `ojz_effects.emp:1650`, and re-derived wrong here. Three copies, no two ever read in one sitting,
+> every check green throughout. The source prose is now corrected and carries the whole story.
 
 **Why 1-4 are NOT the same answer.** None of them is barred by a rule; each is barred by *what is
 already in its raster channel*, which is a content call the owner can reverse. Section 4 is the
