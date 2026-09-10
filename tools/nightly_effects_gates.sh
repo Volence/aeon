@@ -13,8 +13,13 @@
 # COULD NOT RUN are both loud — a backstop that silently can't run is the
 # vacuous-gate pattern this exists to prevent.
 #
-# IT ALSO OWNS THE `needs_build` PYTEST LANE (LS-1b, 2026-09-06), and that is why
-# it builds THREE shapes rather than two. LS-1 moved the tests that read a build
+# IT ALSO RUNS THE `needs_build` PYTEST LANE (LS-1b, 2026-09-06), and that is why
+# it builds FOUR shapes rather than two — every shape build.sh can produce, which is
+# what makes the covering claim below structural instead of remembered (LS-1c,
+# 2026-09-10; it was THREE, and the drift cost three red nights). It no longer OWNS
+# that lane: tools/landing_build.sh runs the same lane over the same four shapes at merge
+# time, so a parcel is graded before it lands rather than the next morning. This stays
+# as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
 # artifact into a post-sigil lane inside build.sh; one of them —
 # test_segmented_parent_checks_the_row_set_it_aggregated — declares s4.debug.bin,
 # s4.debug.lst AND demo.debug.lst, and one build.sh invocation writes exactly one
@@ -102,6 +107,25 @@ fi
 # that ships, gets built nightly for the first time.
 if ! ./build.sh >> "$STATE/build.log" 2>&1; then
     note "COULD NOT RUN: release build failed at ${SHA:0:8} — see $STATE/build.log"
+    exit 2
+fi
+# Fourth fixture, and it is a REPAIR (LS-1c, 2026-09-10). The three shapes above were
+# chosen on 2026-09-06, when four tests carried @pytest.mark.needs_build and those three
+# covered every artifact they declared. On 2026-09-07 tools/test_deb2_appendix.py
+# parametrized the marker over all four build shapes, adding the PLAIN demo pair
+# (demo.bin / demo.lst) that no shape here built. From the next night the needs_build lane
+# below reported COULD NOT RUN — measured in this script's own state log, three nights
+# running (2026-09-08 4557b939, 2026-09-09 37e543c2, 2026-09-10 d3b01f07), each with
+# `...[demo.bin] (demo.bin (absent), demo.lst (absent))  1 deferred` — while the header
+# above still asserted that every declared artifact is built here. A hand-written shape
+# list drifts under a growing marker population and nothing could see it.
+# The list is no longer trusted: tools/test_landing_lane_shapes.py derives the declared set
+# from the markers actually in the tree, derives this script's shape set from the
+# invocations actually in this file, and fails in build.sh's PRE-build lane if the second
+# does not cover the first. With this build the four shapes here are the four build.sh can
+# produce, so the covering claim is now structural rather than remembered.
+if ! ./build.sh demo >> "$STATE/build.log" 2>&1; then
+    note "COULD NOT RUN: release demo build failed at ${SHA:0:8} — see $STATE/build.log"
     exit 2
 fi
 

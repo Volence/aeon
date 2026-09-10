@@ -44,6 +44,23 @@ That block is superseded. Everything below it moved here from the boot file on 2
   four shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f` all four
   up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
+- **The four-shape half IS `tools/landing_build.sh` — run the script, do not retype it.**
+  It does the temp-name-then-rename for all four shapes and then, since 2026-09-10 (LS-1c),
+  runs the `needs_build` pytest lane over the complete eight-artifact set it just built:
+  ```sh
+  export SIGIL_BUILD=<suite>/sigil/target/release/sigil
+  export SIGIL_EMIT=<suite>/sigil/target/release/emit_sound_blob
+  ./tools/landing_build.sh
+  ```
+  **Its exit set is now {0,1,2}, not {0,1}** — `2` is COULD NOT RUN, worst-wins with the lane,
+  matching `effects_gates.py`. Read the `finished=<n>` stamp: a completed run and a killed one
+  trail identically in a log. `FAST=1` and `NO_LINT=1` are **refused** (exit 2) rather than
+  honoured — both skip the lanes the script's whole claim rests on — and `DEBUG` is unset so an
+  exported one cannot turn the two plain shapes into debug ones while `run_shape`'s own
+  existence check passes on a STALE `s4.bin`. This is the only runner that grades
+  `test_segmented_parent_checks_the_row_set_it_aggregated` before a merge: it declares
+  `s4.debug.bin` + `s4.debug.lst` + `demo.debug.lst` at once and one `build.sh` invocation
+  writes one game's pair, so it DEFERS in every `build.sh` shape.
 - **TELL AURORA WHEN A `game.emp` CONTRACT FIELD CHANGES SHAPE — a standing commitment made
   2026-09-10, banked here because a commitment that lives only in mail does not survive a `/clear`.**
   Aurora reads two `games/*/config/game.emp` files at **`origin/master`** and parses them; a field
