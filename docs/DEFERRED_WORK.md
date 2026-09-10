@@ -46,6 +46,91 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## LOOP SPRITE PRIORITY SWAP — SHIPPED 2026-09-10 (`parcel/loops-p-sprite-priority`)
+
+**LOOPS-P Parcel 2, the one that was never built.** Parcel 1 (the tilt, 2026-08-28) and
+Parcel 3 (Route P, the painted crossover, 2026-09-02) both shipped and are gated. Parcel 2
+did not, **in either mechanism that could have carried it**, and nothing on any board said
+so — a recon pass found it on 2026-09-09 (`docs/2026-09-10-loops-p-and-section0-order.md`,
+branch `recon/loops-p-and-section0-order`).
+
+**Why it mattered more than its size suggests.** `docs/research/loops-and-sprite-rotation.md`
+§4.3 Gap 1 is emphatic: without the priority swap *"a loop reads as a flat painted circle —
+the player runs over the top of his own scenery."* Section 0 has had a real loop since
+2026-09-02. So for eight days the engine could ride a loop correctly — right collision, right
+direction rule, right step-over sweep — and render it flat, which an owner would report as
+**"the loop doesn't work"**, with every board row pointing away from the actual cause.
+
+**THE ORDER WAS INVERTED AND NO DOCUMENT SAID SO.** `docs/LOOP_CROSSOVER_ENCODING.md:384`
+read, and still reads under a strikethrough, *"This parcel sequences **after** the sprite
+priority swap (`loops-and-sprite-rotation.md` §6, Parcel 2)."* Parcel 3 landed eight days
+before Parcel 2. That sentence stood unamended through both landings. It now carries the
+correction at the point of the claim. **The transferable part is not "follow the order"** —
+building 3 first was technically necessary, since the derive reads `Sst.layer`, which is
+Parcel 3's own output. §6's ordering was about *visibility*, and what was lost was the line
+saying the order had been departed from, written at the moment of departure.
+
+**What was built, and it had no free parameter.** The anchor's §9 rules the mechanism:
+*"ship the 2-bit layer field, derive priority from the layer at the engine read site."* The
+polarity is then forced: `Player_Init` clears both `Sst.layer` (to `LAYER_PATH_A`) and
+`art_tile`'s VDP priority bit in the same routine, so a derive mapping path A to *set* would
+raise the bit for the whole game outside loops. Path A low, path B high is the only mapping
+that is a no-op until a mark fires.
+
+| site | what it does |
+|---|---|
+| `Player_LoopCrossover` `.fire` | `andi`/`tst`/`ori` on `art_tile(a0)` — S3K's clear-then-set. Below the direction gate, so an unmarked cell executes none of it |
+| `Player_DebugExit` | `Player_InitAssets` rewrites the whole art word and clears the bit while `Sst.layer` survives the debug flight; re-derives |
+| `InstaShield_Spawn` | copies the player's priority bit. S3K does; our file explicitly declined to, on the reasoning that *"the copy would be a no-op"* — **the premise this parcel expires** |
+
+**Cost, re-derived** (`tools/loop_crossover_cost.py`, which needed teaching MC68000UM Table
+8-5's immediate-to-memory timing because no form in either subject routine had one): steady
+state **unchanged at 106**; +56 / +38 on the two firing rows; and **+4 on every other probing
+row, which is not these instructions** — the 18 bytes pushed the walk's back branch past the
+byte-displacement reach (`6682` -> `6600ff72`), and a not-taken word `Bcc` costs 12 against a
+byte `Bcc`'s 8. Recorded rather than hidden. An out-of-line trampoline would have traded
+those 4 cycles for ~20 on every fire plus two branches in the file's most carefully-ordered
+routine; declined deliberately.
+
+**Gated** by `tools/loop_crossover_gate.py` family `priority` (36 rows), inside `build.sh`'s
+existing invocation. Proven red by four source mutations — and **one of the four was written
+wrong, came back GREEN, and is recorded as such** in that file's PROVEN RED block, because a
+green from an applied mutation is never a pass.
+
+### Still open after this parcel
+
+1. **[TAG-LOOK — needs a running frame] Which way round is right for THIS loop.** Plane B is
+   the RIGHT arc, so the player is now drawn in front of the loop art on the right arc and
+   behind on the left. Whether that reads correctly depends on which of the loop's tiles
+   carry the VDP priority bit — **a property of the paint, not of the engine**. The swap is
+   at least not a no-op: 2401 of section 0's 5775 non-empty plane-A nametable words carry
+   bit 15. Nobody has looked at a frame of it.
+2. **[TAG-LOOK] The player-attached effects that do NOT follow the bit.** `dust_puff.emp`,
+   `dust_spindash.emp`, `ring_sparkle.emp` and `tails_appendage.emp` all write a
+   low-priority art word and none copies the player's. Before this parcel that was
+   indistinguishable from copying; now it is a real behaviour on a loop. The insta-shield
+   was fixed because its own comment had reasoned explicitly about the copy and S3K answers
+   it; **these four have no such reference and the answer is a look call.** `tails_appendage`
+   is the one most likely to read as broken — a character behind the loop art with his tails
+   in front — and is also the one no shipped content can reach today.
+3. **`PATHSWAP_BIT_PRIO` stays reserved, and `PathSwap_Init` still `raise_error`s on it.**
+   Not an oversight. S3K's subtype bits 5 and 6 are the **decoupled** design — priority
+   painted independently of the layer — which anchor §9 declines until a crossover needs
+   "in front" to differ from "on plane B". `ObjDef_PathSwap` is also placed in no level data
+   and is parked for deletion. Implementing the bit would ship the declined design on a dead
+   object. **The raise is correct and must stay while the bit is unimplemented.**
+4. **Counts in this area go stale on the same clock they are written on.** Two were found
+   wrong on 2026-09-10 and both had gone stale in the flattering direction:
+   `tools/loop_crossover_gate.py`'s header still argued from *"every cell of every shipped
+   act holds XOVER_NONE"* and *"there is no loop geometry anywhere in OJZ act 1"*, and the
+   anchor's §11 still called the paint **two cells**. Re-derived in tree: **16 marks in
+   1,179,648 cells** — eight `XOVER_TO_B` on section 0's plane A and eight `XOVER_TO_A` on
+   plane B, two four-cell bars at column 143 (rows 52-55, the crown; rows 68-71, the floor),
+   and **three** marked `CrossoverTable` slots. Re-derive again at the next edit; do not
+   copy these.
+
+---
+
 ## SFX CHANNEL-VOLUME DOUBLE BAKE — FIXED 2026-09-09 (`parcel/sfx-double-bake`)
 
 **THIS IS NOT THE OWNER'S SPRING CLICK.** He reported that the SP-6 spring ($B1) "sounds like
@@ -6761,10 +6846,19 @@ objects), alongside the §3 SST field audit.
 > painted independently, so shared ground must be drawn twice. The research doc's §5.2
 > Route P proposes fixing it at the representation level (a "solid on both" state in the
 > cell word's already-unused bits 14/15). **Two further gaps that entry does not mention:**
-> `path_swap.emp`'s sprite-priority swap (subtype bit 5) is reserved and unimplemented — it
-> is what draws the player behind the loop art, and without it a loop reads flat — and there
-> is no horizontal-line orientation (S3K's subtype bit 2). Neither is collision *content*,
-> so this entry stays closed; they are tracked in the research doc's §4.3.
+> ~~`path_swap.emp`'s sprite-priority swap (subtype bit 5) is reserved and unimplemented — it
+> is what draws the player behind the loop art, and without it a loop reads flat~~ **— HALF
+> RESOLVED 2026-09-10 (`parcel/loops-p-sprite-priority`), and the resolution is not where
+> this sentence points.** The swap SHIPPED, but at the Route P read site
+> (`Player_LoopCrossover`, derived from `Sst.layer`), not in `path_swap.emp` — subtype bit 5
+> is still reserved and `PathSwap_Init` still raises on it, deliberately, because S3K's
+> bits 5/6 are the DECOUPLED design that `LOOP_CROSSOVER_ENCODING.md` §9 declines until a
+> crossover needs priority painted apart from layer. See the LOOP SPRITE PRIORITY SWAP entry
+> at the head of this file.
+>
+> The rest of the original sentence is UNCHANGED and still open: there is no horizontal-line
+> orientation (S3K's subtype bit 2). Neither that nor the swap is collision *content*, so
+> this entry stays closed; they are tracked in the research doc's §4.3.
 >
 > Older correction, kept for provenance:
 > **⚠ CORRECTED 2026-08-05 — this entry asked for two things and BOTH shipped.**
@@ -17182,9 +17276,16 @@ feature is authoring, exactly as research §7 decision 3 says.**
 
 ### Not widened into, on purpose
 
-- **The sprite priority swap** (Parcel 2). Without it a loop reads as a flat painted circle.
-  `PATHSWAP_BIT_PRIO` is still reserved and `PathSwap_Init` still raises on it.
-- **Route P** (Parcel 3), and the "solid on both planes" third state that should ride with it.
+- ~~**The sprite priority swap** (Parcel 2). Without it a loop reads as a flat painted circle.~~
+  **BUILT 2026-09-10** (`parcel/loops-p-sprite-priority`) — see the LOOP SPRITE PRIORITY SWAP
+  entry at the head of this file. It landed at the Route P read site and not here, so the
+  second half of this bullet still stands as written: `PATHSWAP_BIT_PRIO` is still reserved
+  and `PathSwap_Init` still raises on it, and that is now a deliberate refusal to ship the
+  decoupled design rather than a gap.
+- ~~**Route P** (Parcel 3), and the "solid on both planes" third state that should ride with it.~~
+  **Route P shipped 2026-09-02** — eight days BEFORE Parcel 2, inverting the order
+  `LOOP_CROSSOVER_ENCODING.md` §6 states. That inversion went unrecorded until 2026-09-10 and
+  is now annotated at the sentence that states the order.
 - **The full-360 tumble art** — 519 tiles at frames `$31`/`$3D`/`$49`, still referenced by
   nothing. It does **not** fall out of this selection: `Anim_Tumble` (`sonic3k.asm:24932`)
   picks it from a counter through a `divu.w #$16`, not from an octant of the ground angle, and
