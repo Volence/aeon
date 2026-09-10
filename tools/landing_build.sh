@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # landing_build.sh — the four-shape landing verification, as a COMMAND rather than a ritual.
 #
-# WHY THIS EXISTS. docs/OVERSEER.md's landing lane said "four shapes, ROMs deleted first,
+# WHY THIS EXISTS. The landing lane (docs/OVERSEER-REFERENCE.md since 2026-09-10) said "four shapes, ROMs deleted first,
 # so existence proves freshness". Every session implemented that by hand, and the natural
 # implementation -- delete all four, then build them one at a time -- left each ROM missing
 # for the whole of every OTHER shape's build as well as its own. The oracle lane measured

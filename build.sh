@@ -299,7 +299,7 @@ else
     # Currency check against the source dir the BINARY names — the right revision to
     # read here, because the question is "was this binary built from that tree's
     # current state", which only the tip can answer. (Contrast the recovery direction,
-    # where a pin is correct; see docs/OVERSEER.md.)
+    # where a pin is correct; see docs/OVERSEER-REFERENCE.md.)
     # FAIL CLOSED ON ALL THREE COUNTS (2026-08-27). Every arm below used to fall
     # through silently, so "I could not tell" and "it is fine" produced the same
     # exit code — and SIGIL_VERSION_STRICT=1 passed having compared nothing.
@@ -307,7 +307,7 @@ else
     #   (1) `-d "${SIGIL_SRC}/.git"` is FALSE in a linked git worktree, where .git
     #       is a FILE ("gitdir: ...") and not a directory. Found by the sigil lane,
     #       reproduced here. That skipped the whole revision check in exactly the
-    #       configuration our own OVERSEER.md prescribes for reference and landing
+    #       configuration our own OVERSEER-REFERENCE.md prescribes for reference and landing
     #       runs, i.e. the runs where you most want this alarm armed.
     #       `rev-parse --git-dir` resolves in both layouts, so ask git, not the
     #       filesystem.
@@ -1195,7 +1195,7 @@ if [[ "$FAST" == "0" ]]; then
         #
         # It runs HERE, after the build, because the answer only exists in the
         # listing: the frozen boundary table lists a SUBSET of labels, so a gap in it
-        # is an allotment and never proven free space (docs/OVERSEER.md — the bar
+        # is an allotment and never proven free space (docs/OVERSEER-REFERENCE.md — the bar
         # three parties broke in one afternoon). sonic4-only: `demo` places no
         # `ojz_bg_anim` section at all. The ROM room is the ONLY placement limit
         # since sigil b0363140 (derived layout): the former "placer room" arm is

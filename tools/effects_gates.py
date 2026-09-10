@@ -94,7 +94,7 @@ Five gates STAY on the legacy oracle_gui, for reasons that are not about this la
   * scene:* (4 segments, 8 gates) drive `ab_runner.py`, which lives in `oracle-old`. Porting
     it is oracle's call, not ours. At ~38 s each they are now 80% of the lane's wall clock.
   * cost_model drives `raster_cost_probe.py`, one of the three PROFILER probes held under
-    docs/OVERSEER.md's Instruments section. The Rust core's profiler exists and serves
+    docs/OVERSEER-REFERENCE.md's Instruments section. The Rust core's profiler exists and serves
     `interrupts.{hint,vint}.cyclesSelf`, but the `perFrame[]` rows still carry no self field
     for either bucket, which is the specific gap the hold names. Not ours to close.
 

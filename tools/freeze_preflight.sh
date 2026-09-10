@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # freeze_preflight — the WHOLE pre-flight before `refreeze --freeze`, as ONE command.
 #
-# WHY THIS IS A SCRIPT AND NOT TWO LINES IN OVERSEER.md. The pre-flight has always had two
+# WHY THIS IS A SCRIPT AND NOT TWO LINES IN OVERSEER-REFERENCE.md (the landing lane, moved
+# out of the boot read 2026-09-10). The pre-flight has always had two
 # steps, and on chain 187 this lane ran step 1, found exactly what step 1 exists to find, and
 # went straight to the freeze. The sigil lane's diagnosis is the reason this file exists, and
 # it is better than "someone skipped a check":
@@ -62,7 +63,7 @@ SIGIL="${SIGIL_DIR:-$(dirname "$(dirname "$HERE")")/sigil}"
 # `AEON_DIR` pointed at the landing tree, the panic was `src/pins.rs is STALE against the
 # live listings` — the exact string the grep below looks for, and the EXPECTED state for a
 # byte-mover. A true measurement of the wrong tree, carried forward as a false reason.
-# OVERSEER.md's clean-checkout rule already says the checkout must be threaded through ALL
+# OVERSEER-REFERENCE.md's clean-checkout rule already says the checkout must be threaded through ALL
 # THREE legs explicitly; the pre-flight is the suite leg, and it is the one nobody threaded.
 # So resolve it HERE, EXPORT it (both cargo runs inherit it — the thread cannot be half
 # done), and print it beside the sigil tree.
