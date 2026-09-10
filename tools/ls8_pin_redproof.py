@@ -28,7 +28,7 @@ Needs SIGIL_BUILD / SIGIL_EMIT / AEON_SKDISASM_DIR in the environment (no dotfil
 them). Uses FAST=1 DEBUG=1 deliberately: a RED proof only needs the sigil stage, and the
 skipped lanes are the ones that matter for a GREEN claim, never for this.
 """
-import os, re, subprocess, sys, shutil, json
+import os, subprocess, sys, shutil, json
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SC = os.environ.get("LS8_OUT", os.path.join(REPO, ".ls8-redproof"))
@@ -166,8 +166,14 @@ json.dump(results, open(f"{SC}/redproof_results.json", "w"), indent=1)
 print("\n\n===== SUMMARY =====")
 allfired = set()
 for n, r in results.items():
-    print(f"{n:26s} exit={r['exit']}  guards={len(r['fired'])}")
+    print(f"{n:36s} exit={r['exit']}  guards={len(r['fired'])}")
     allfired |= set(r["fired"])
-print(f"\nguards proven red: {len(allfired)}/{len(GUARDS)}")
+partial = len(names) < len(MUTATIONS)
+print(f"\nguards seen RED in THIS invocation: {len(allfired)}/{len(GUARDS)}"
+      + ("   (PARTIAL RUN -- a guard not listed below simply had no mutation here that\n"
+         "    could reach it. Only a run with NO mutation arguments covers all of them;\n"
+         "    do not read an unlisted guard as dead.)" if partial else ""))
 for k in sorted(GUARDS):
-    print(("  RED    " if k in allfired else "  NOT-RED ") + k)
+    print(("  RED      " if k in allfired else ("  not-hit  " if partial else "  NOT-RED  ")) + k)
+if not partial and len(allfired) != len(GUARDS):
+    sys.exit("FULL RUN LEFT A GUARD UNPROVEN -- that is a defect in the guard or in this harness, not a pass")
