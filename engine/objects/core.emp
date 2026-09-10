@@ -543,12 +543,40 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
         rts
 
     // Dispatch loop — no culling
+    //
+    // Emptiness test FIRST, bank setup only on the dispatch path — the shape
+    // .culled_loop below already had, and the reason this loop was reordered
+    // to match it (finding C1b-2). The always pool is sized for its worst
+    // frame, so most of its slots are empty on a typical one, and the two
+    // setup instructions used to be paid on every one of them.
+    //
+    // COSTS (sigil's table, crates/sigil-isa/src/m68k_cycles.rs, = MC68000UM
+    // tables 8-1/8-6): moveq 4 · swap 4 · move.w (a0),d0 8 · tst.w (a0) 8 ·
+    // movea.l d0,a1 4. The `beq` is the same instruction to the same target
+    // either way and cancels. So the empty path goes 16 -> 8 and the dispatch
+    // path 20 -> 28: an exact wash at half occupancy, and a win below it.
+    // The argument for taking it anyway is ASYMMETRY, not the break-even —
+    // 8 cycles is ~18% of an empty iteration's whole 44 (moveq 4 + swap 4 +
+    // move.w 8 + beq taken 10 + lea 8 + dbf 10) but well under 2% of a
+    // dispatching one, which carries a whole object routine.
+    //
+    // TWO CHEAPER FORMS WERE COSTED AND REJECTED, recorded so the next reader
+    // need not re-derive them. (a) Load to a scratch d1 and copy it into the
+    // assembled long (`move.w (a0),d1 / beq / moveq / swap / move.w d1,d0 /
+    // movea.l`) drops the dispatch path to 24 by avoiding the second read of
+    // (a0). (b) Hoisting moveq/swap to the .run_always preamble and
+    // re-establishing d0's high word after each jsr (object code may clobber
+    // d0) drops it to 20. Both are worth ~16-32 cycles a frame across the
+    // handful of occupied always slots, and both cost the thing this finding
+    // was actually about: the trio no longer reads alike, and (b) adds a
+    // cross-iteration register invariant a later edit could break silently.
     .run_always:
     .always_loop:
+        tst.w   (a0)
+        beq     .always_next
         moveq   #OBJ_CODE_BANK, d0
         swap    d0
         move.w  (a0), d0
-        beq     .always_next
         movea.l d0, a1
         jsr     (a1) as ObjRoutine
         // debug builds: catch object routines violating the a0/d7
