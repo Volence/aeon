@@ -17,7 +17,7 @@
 # it builds FOUR shapes rather than two — every shape build.sh can produce, which is
 # what makes the covering claim below structural instead of remembered (LS-1c,
 # 2026-09-10; it was THREE, and the drift cost three red nights). It no longer OWNS
-# that lane: tools/merge_lane.sh runs the same lane over the same four shapes at merge
+# that lane: tools/landing_build.sh runs the same lane over the same four shapes at merge
 # time, so a parcel is graded before it lands rather than the next morning. This stays
 # as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
 # artifact into a post-sigil lane inside build.sh; one of them —
@@ -119,7 +119,7 @@ fi
 # `...[demo.bin] (demo.bin (absent), demo.lst (absent))  1 deferred` — while the header
 # above still asserted that every declared artifact is built here. A hand-written shape
 # list drifts under a growing marker population and nothing could see it.
-# The list is no longer trusted: tools/test_merge_lane_shapes.py derives the declared set
+# The list is no longer trusted: tools/test_landing_lane_shapes.py derives the declared set
 # from the markers actually in the tree, derives this script's shape set from the
 # invocations actually in this file, and fails in build.sh's PRE-build lane if the second
 # does not cover the first. With this build the four shapes here are the four build.sh can

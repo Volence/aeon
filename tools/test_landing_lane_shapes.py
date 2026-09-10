@@ -31,6 +31,11 @@ actually contains, maps shape -> artifacts by build.sh's own rule, and asserts t
 covers the first. There is no expected count anywhere in it: a number copied from a
 neighbouring pin is exactly what went stale.
 
+THE RUNNERS IT GRADES are `tools/landing_build.sh` (the four-shape landing build every
+parcel runs before it merges, and now the merge-time home of the needs_build lane) and
+`tools/nightly_effects_gates.sh` (the once-a-day backstop). Both must build every shape the
+markers declare, and both now build all four -- which is every shape build.sh can produce.
+
 IT RUNS IN build.sh's PRE-BUILD LANE — `python3 -m pytest tools -q -m "not needs_build"`,
 build-fatal, in every shape of every parcel's build. It reads no build artifact and must
 never carry the marker itself; it asks a source question and answers it from source.
@@ -53,17 +58,17 @@ MARKER = "needs_build"
 
 #: The multi-shape runners: scripts that build more than one shape back to back and then
 #: grade the marked lane over the result. Each must cover every declared artifact.
-RUNNERS = ("merge_lane.sh", "nightly_effects_gates.sh")
+RUNNERS = ("landing_build.sh", "nightly_effects_gates.sh")
 
-#: A `[DEBUG=1 ]./build.sh[ <game>]` invocation. Anchored at the start of a statement so a
-#: mention inside a longer command is not mistaken for one, and applied only to lines that
-#: are not comments.
-_INVOKE = re.compile(
-    r"(?:^|[;&|]\s*|\bif\s+!\s+|\bif\s+|\bthen\s+|\belse\s+)"
-    r"(?P<env>(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)"
-    r"\./build\.sh"
-    r"(?P<args>(?:\s+[A-Za-z0-9_.-]+)*)"
-)
+#: A `./build.sh` invocation. Deliberately NOT anchored to the start of a statement: the two
+#: runners wrap it differently and an anchored pattern silently matched neither wrapper.
+#: `tools/landing_build.sh` writes `run_shape s4.debug  env DEBUG=1 ./build.sh` and
+#: `tools/nightly_effects_gates.sh` writes `if ! DEBUG=1 ./build.sh demo >> "$LOG" 2>&1; then`.
+#: So: find `./build.sh` on a non-comment line, read DEBUG out of the text BEFORE it, and read
+#: the game out of the first plain word AFTER it. Redirections and `;`/`then` terminate the
+#: argument scan, which is why `>> "$LOG"` does not become a game name.
+_INVOKE = re.compile(r"\./build\.sh(?P<rest>.*)$")
+_WORD = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _artifacts_for(game, debug):
@@ -96,10 +101,20 @@ def shapes_built_by(script_text):
         # the runners have none inside quotes, and a false trim can only LOSE an
         # invocation, i.e. fail closed.
         line = re.split(r"\s#", line, maxsplit=1)[0]
-        for m in _INVOKE.finditer(line):
-            debug = bool(re.search(r"\bDEBUG=1\b", m.group("env")))
-            args = [a for a in m.group("args").split() if not a.startswith("-")]
-            shapes.add((args[0] if args else "sonic4", debug))
+        m = _INVOKE.search(line)
+        if not m:
+            continue
+        before = line[:m.start()]
+        debug = bool(re.search(r"\bDEBUG=1\b", before))
+        game = "sonic4"
+        for tok in m.group("rest").split():
+            if not _WORD.match(tok):
+                break          # a redirection, a `;`, a quote: the argument list ended
+            if tok.startswith("-"):
+                continue       # an option, not the game selector
+            game = tok
+            break
+        shapes.add((game, debug))
     return shapes
 
 
