@@ -192,3 +192,8 @@ docs/research/external/
 # deliberately KEPT live under docs/witness/ and stay tracked.
 /*_witness.json
 .runlogs/
+
+# LS-8 pin red-first harness output (tools/ls8_pin_redproof.py default LS8_OUT).
+# Build logs + a results JSON for one inversion run; regenerated on demand, never evidence
+# on its own — the evidence is the guard messages quoted into the parcel report.
+/.ls8-redproof/
