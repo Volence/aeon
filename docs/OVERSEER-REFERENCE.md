@@ -852,6 +852,24 @@ path, for the same reason the protocol is read that way.
   violator need not be in the tree under test. Their earlier wording — do not commit while a gate
   reads the tree — was obeyed to the word by the lane that caused this, and would have sent this
   check looking at the wrong thing.*
+  **⚠ AND ORACLE BOUNDED IT FURTHER, WHICH WOULD HAVE SAVED THIS WHOLE SEARCH: "resolves a ref at
+  test time" is the SCREEN, not the finding. The finding is "the assertion can go FALSE as the ref
+  advances."** Oracle has a gate that resolves `origin/main` live — sigil's exposure on paper — and
+  it is safe, because it asserts a vendored pin is an ANCESTOR of the tip, and an ordinary push only
+  advances a tip, so an ancestor stays an ancestor. **The unsafe shape is `rev-parse == expected-sha`,
+  which is what sigil's was.** Screen by resolution, then rule by monotonicity.
+  **Applied here, and it CONFIRMS the negative while moving the residual.** `test_citation_form`'s
+  assertion is *"`git show <sha>:<path>` succeeds"*. A SHA that resolves keeps resolving as tips
+  advance — new commits never remove old objects — so **no ordinary push can flip it**. It can only
+  go false if an anchored commit is ORPHANED BY A HISTORY REWRITE and then gc'd. Both anchored
+  revisions are reachable from `origin/master` today, checked with `merge-base --is-ancestor`, so
+  they are gc-safe.
+  **The consequence is a SECOND CONSUMER for a rule this file already carries.** The existing bar
+  says: before rebasing anything whose SHAs a freeze or attest has recorded, do not rebase or record
+  the mapping. **Anchored citation SHAs are the other population that rule protects**, and nobody
+  points at it — a rebase that orphans an anchored commit reds this gate for a reason with nothing
+  to do with citations, which is the enumerate-by-what-TOUCHES-the-value bar arriving on a rule
+  instead of on a field.
 
 
 - **THE ILLEGAL VERSION OF A MISTAKE IS CAUGHT AND THE LEGAL VERSION OF THE SAME MISTAKE IS SILENT
@@ -873,6 +891,15 @@ path, for the same reason the protocol is read that way.
   **Operational form, and it is aurora's, adopted: retire and promote in ONE write, then re-read the
   file's `next` count before saving.** A landed row is DELETED from the queue in the same write that
   sets its successor `next`, or neither happens.
+  **⚠ AND THE COMMONEST EVENT IN THE SUITE IS THE ONE BOTH HALVES OF THAT RULE MISS — ORACLE'S,
+  banked on two lanes' evidence including this one's: THE WRITE THAT *STARTS* A ROW IS THE WRITE
+  THAT NAMES ITS SUCCESSOR.** Aurora's rule covers RETIRING a row; this lane's audit-both-directions
+  habit covers the file after the fact. **Neither covers promotion-by-starting**, which is what
+  actually empties the `next` slot: a lane sets its `next` row to `doing`, nothing is retired, no
+  audit fires, and the slot is simply gone. Measured against this lane's own file at `73dbf311` —
+  two `doing` rows, no rebuild, zero `next` — and oracle reached zero the same way, after the hub
+  had told them it was probably their queue trim and measured that to be false at three revisions.
+  **So the trigger is not "a row landed", it is "a row changed state at all."**
   **The general shape, which outlives this field: when a vocabulary cannot express a state its users
   need, they will improvise two ways, and your validator only knows about the improvisations someone
   anticipated.** A rule against `done` catches neither `closed` nor a rewritten title. **Ask what a
