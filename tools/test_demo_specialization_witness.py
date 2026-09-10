@@ -196,6 +196,19 @@ class TestDerivations(unittest.TestCase):
         with self.assertRaises(SystemExit):
             caps_from_manifest("pub implement Game {\n}\n", "x")
 
+    def test_every_consumer_reads_the_mask_through_the_same_parser(self):
+        """THREE tools need this number and each grew its own regex; two of them have now
+        misread the demo, for two DIFFERENT spellings, on two different dates —
+        `row_remap_gate.py`'s own docstring records the first ("two shapes silently not
+        gated") and the derived binding caused the second. This row is what makes
+        "one parser" a property rather than a tidy-up: it fails if any consumer starts
+        answering differently from `scene_spans`, which is the only shape the drift can
+        take. Both games, because a reader can be right about one and wrong about the
+        other — that is exactly how the 2026-09-03 miss survived."""
+        import row_remap_gate as RRG
+        for game in ("demo", "sonic4"):
+            self.assertEqual(RRG.game_caps(AEON, game), game_caps(game), game)
+
     def test_sonic4_declares_a_nonzero_mask(self):
         """Both fixtures matter: with sonic4 at zero the differential would compare
         two identical builds and pass on nothing."""

@@ -83,6 +83,10 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# The single SCANLINE_CAPS parser (see game_caps below for why there is only one now).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scene_spans  # noqa: E402
+
 EXIT_OK, EXIT_FAIL, EXIT_UNMEASURABLE = 0, 1, 2
 
 
@@ -111,21 +115,28 @@ def cap_bit(repo: str, name: str) -> int:
 
 
 def game_caps(repo: str, game: str) -> int:
-    """This game's declared mask. BOTH SPELLINGS ARE ACCEPTED because both ship: sonic4
-    writes `$07DE` and demo writes a bare `0`, and a regex that only knew the hex form
-    reported demo as UNMEASURABLE — which on a four-shape gate is two shapes silently not
-    gated. Measured 2026-09-03."""
+    """This game's mask, read through the ONE parser in tools/scene_spans.py.
+
+    IT USED TO HAVE ITS OWN, AND THE SAME BUG BIT IT TWICE. The first time (2026-09-03) the
+    regex knew only the hex spelling and reported demo — which writes a bare `0` — as
+    UNMEASURABLE, "which on a four-shape gate is two shapes silently not gated". The second
+    time (2026-09-10) demo's mask became DERIVED (`= DemoScenes_CapsFolded`) and this
+    hand-rolled reader reported UNMEASURABLE again, from a third private copy of the same
+    three lines. Three consumers with three parsers is three chances to miss a spelling, so
+    there is now one: `scene_spans.caps_from_manifest`, which follows a literal, follows a
+    name bound to a fold over a registry DECLARED `[Scene; 0]`, and refuses everything else.
+
+    Its refusals are `SystemExit`; here they are UNMEASURABLE, which is this gate's own
+    vocabulary for "I could not read my subject" — the distinction the gate draws carefully
+    and `build.sh` currently flattens (see the content-pinning audit's ranked-first item)."""
     p = os.path.join(repo, "games", game, "config", "game.emp")
     if not os.path.isfile(p):
         raise Unmeasurable(f"{p} does not exist — cannot read this game's SCANLINE_CAPS")
     text = open(p, encoding="utf-8").read()
-    m = re.search(r"const SCANLINE_CAPS = \$([0-9A-Fa-f]+)", text)
-    if m:
-        return int(m.group(1), 16)
-    m = re.search(r"const SCANLINE_CAPS = (\d+)", text)
-    if not m:
-        raise Unmeasurable(f"SCANLINE_CAPS is not declared in {p}")
-    return int(m.group(1))
+    try:
+        return scene_spans.caps_from_manifest(text, p)
+    except SystemExit as exc:
+        raise Unmeasurable(str(exc)) from exc
 
 
 def pcfg_offset(repo: str, want: str) -> int:
