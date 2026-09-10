@@ -149,14 +149,25 @@ whether or not anything else here is acted on.
 Built by **what touches the value**, not by identifier grep alone — the two are different
 questions and neither is a superset (this tree's standing finding).
 
-**Comptime consumers that GATE CODE EMISSION** (`if (Game.SCANLINE_CAPS & CAP_*) != 0`),
-22 sites:
+**Comptime consumers that GATE CODE EMISSION** (`if (Game.SCANLINE_CAPS & CAP_*) != 0`).
+Counted mechanically, comment lines excluded — **29 live sites**:
 
-| File | Sites | Bits |
-|---|---|---|
-| `engine/level/parallax.emp` | 17 | `ROLE_SWAP`x5, `TRANSITIONS`x3, `PER_COL_VSRAM`x3, `BAND_DRIFT`x3, `FACTOR_CURVE`x3, `ROW_REMAP`x3, `DEFORM`x2, `ANCHORS`, `MULTI_DEFORM_TABLE` |
-| `engine/effects/raster.emp` | 4 | `DENSE_TIER`, `ANCHORS`, `ANCHOR_MOTION`x2 |
-| `engine/level/bg_anim.emp` | 1 | `ROW_REMAP` (`:440`) |
+| File | Live sites |
+|---|---|
+| `engine/level/parallax.emp` | 24 |
+| `engine/effects/raster.emp` | 4 |
+| `engine/level/bg_anim.emp` | 1 (`:440`, `ROW_REMAP`) |
+| `engine/level/scene_dsl.emp` | 0 (its one occurrence is inside a comment) |
+
+Per bit, across `engine/` (30 occurrences including the one commented
+`CAP_ANCHORS` in `scene_dsl.emp:206`):
+
+`ROLE_SWAP` 5 · `ROW_REMAP` 4 · `TRANSITIONS` 3 · `PER_COL_VSRAM` 3 ·
+`FACTOR_CURVE` 3 · `BAND_DRIFT` 3 · `ANCHORS` 3 · `MULTI_DEFORM_TABLE` 2 ·
+`DEFORM` 2 · `ANCHOR_MOTION` 2 · `DENSE_TIER` 1.
+
+The `ROLE_SWAP` count of 5 independently matches `game.emp`'s own claim of "five sites",
+which is a small check that the counting method agrees with the tree's own record.
 
 **Comptime consumers that SIZE something — the critical class.** These do **not** read
 `Game.SCANLINE_CAPS` (they cannot, per B2); they are **pinned literal mirrors** held to it
