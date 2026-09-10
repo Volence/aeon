@@ -1009,7 +1009,7 @@ pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16
 // consume the shift rather than the size. Changing the block geometry without
 // moving both would divide by the wrong power of two everywhere at once.
 ensure(1 << BLOCK_TILE_SHIFT == BLOCK_TILE_SIZE,
-       "BLOCK_TILE_SHIFT and BLOCK_TILE_SIZE disagree — every `lsr #BLOCK_TILE_SHIFT` divides by the wrong power of two")
+       "BLOCK_TILE_SHIFT ({BLOCK_TILE_SHIFT}) and BLOCK_TILE_SIZE ({BLOCK_TILE_SIZE}) disagree — every `lsr #BLOCK_TILE_SHIFT` divides by the wrong power of two. WHAT SATISFYING THIS PIN DOES NOT COVER, said here because it was measured: bringing the shift back into step with the size builds GREEN while fifteen HAND-SPELLED block-tile literals in engine/level/tile_cache.emp still align on the old grid (lens-sweep row LS-8, controller run 2026-09-06). Those are pinned at the head of that file and fire alongside this one — a block-geometry change is that whole edit list, not this line")
 pub const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2   // 512 bytes
 pub const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                     // 8 collision rows per block
 pub const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                         // 16 collision cells per row
@@ -1047,7 +1047,7 @@ pub const BLOCKS_PER_SECTION_SHIFT = 4  // lsr #4 = / BLOCKS_PER_SECTION_AXIS
 // Blocks-per-section is a DIFFERENT quantity from tiles-per-block; they are both
 // 16 today, so a site that divides a block count by the wrong one is invisible.
 ensure(1 << BLOCKS_PER_SECTION_SHIFT == BLOCKS_PER_SECTION_AXIS,
-       "BLOCKS_PER_SECTION_SHIFT and BLOCKS_PER_SECTION_AXIS disagree — the world-block to section decompose divides by the wrong power of two")
+       "BLOCKS_PER_SECTION_SHIFT ({BLOCKS_PER_SECTION_SHIFT}) and BLOCKS_PER_SECTION_AXIS ({BLOCKS_PER_SECTION_AXIS}) disagree — the world-block to section decompose divides by the wrong power of two. WHAT SATISFYING THIS PIN DOES NOT COVER: twelve HAND-SPELLED `andi.w #$F` / `lsl.w #4` sites still decompose on a 16-block section — six in engine/level/tile_cache.emp (decompose_block, TileCache_FillAll) and six in engine/level/page_cache.emp (PageCache_Prefetch_Strips) — plus the ten `lsr.w #8` / `lsl.w #8` world-tile-to-section shifts across those two files and engine/level/section.emp. All are pinned in their own modules and fire alongside this one (lens-sweep row LS-8)")
 pub const BLOCK_INDEX_ENTRIES   = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  // 256
 pub const BLOCK_INDEX_SIZE      = BLOCK_INDEX_ENTRIES * 4                 // 1024 bytes (ROM)
 

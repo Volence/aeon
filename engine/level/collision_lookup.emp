@@ -25,7 +25,8 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 //           convention above — set it before every call).
 // -----------------------------------------------
 pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0: u8) {
-        ensure(TILE_CACHE_STRIDE == 80, "Collision_GetType multiplies by #80; keep TILE_CACHE_STRIDE=80 or the collision row stride is wrong")
+        ensure(TILE_CACHE_STRIDE == 80 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "Collision_GetType hand-spells `mul_const.w d1, #80, d2` and the stride is now TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} (= TILE_CACHE_COLS = {TILE_CACHE_COLS}). Derived: a collision plane is TILE_CACHE_COLS bytes per row (TILE_CACHE_COLL_SIZE = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS = {TILE_CACHE_COLL_SIZE}), so the collision row stride IS the column count. WHAT FIXING THIS ONE SITE DOES NOT FIX (this message used to say only `keep TILE_CACHE_STRIDE=80`, and satisfying it plus its twin in tile_cache.emp was measured to build GREEN with four further sites still striding 80 — lens-sweep row LS-8): the six other hand-spelled stride sites, now pinned at their own routines — engine/level/tile_cache.emp mul_cache_stride, TileCache_CopyBlockColumn (two `((x<<2)+x)<<4` chains carrying no literal 80) and TileCache_FillRow; engine/level/section.emp Section_RedrawPlanes; engine/level/plane_buffer.emp Draw_TileColumn and Draw_TileRow_FromCache. It also does not cover the `lsr.w #3` pixel-to-tile and `lsr.w #1` tile-row-to-cell shifts in this routine, which are COLL_CELL_W/COLL_CELL_H facts and unaffected by the column count")
         lsr.w   #3, d0                      // X pixels → world tile col
         move.w  Cache_Left_Col, d2          // read once: bounds compare + cache-relative
         cmp.w   d2, d0

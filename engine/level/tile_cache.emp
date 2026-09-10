@@ -10,7 +10,7 @@ use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
-use engine.constants.{BLOCKS_PER_SECTION_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
+use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM}
 use engine.constants.{STALL_WATCHDOG_FRAMES}
@@ -35,13 +35,34 @@ use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 // one for why the number is copied into the gate tools as well.)
 ensure(sizeof(Sec) == 34, "tile_cache's stride pin: sizeof(Sec) moved off 34. The walk spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the out-of-assembler readers of the Sec table carry their own copy of the layout (see engine/level/section.emp's twin of this pin), so a struct change is a gate-contract change, not just a stride change")
 
+// ---- LS-8 family pins: the hand-spelled geometry literals in THIS module ----
+// A `#$F` / `#$FFF0` / `lsl #5` / `lsl #4` / `lsr #8` typed into an instruction is a
+// COPY of a constant, and a copy nothing binds is invisible the day the constant
+// moves. Each pin below RE-DERIVES the literal from its authority and names every
+// routine in this module that hand-spells it, so a geometry change fails with the
+// whole edit list rather than one line of it. Sites were enumerated by what TOUCHES
+// the value (every mask, every scale shift, every decompose shift), not by grepping
+// one identifier — the two hand-rolled `((x<<2)+x)<<4` stride chains carry no `#80`
+// at all and a literal grep does not see them. (2026-09-10, lens-sweep row LS-8.)
+
+ensure(BLOCK_TILE_SIZE - 1 == $F && (~(BLOCK_TILE_SIZE - 1) & $FFFF) == $FFF0 && BLOCK_TILE_SIZE * 2 == 32,
+       "BLOCK-TILE GEOMETRY MOVED (BLOCK_TILE_SIZE = {BLOCK_TILE_SIZE}) AND THIS MODULE STILL HAND-SPELLS THE 16-TILE LITERALS. Derived from the authority: intra-block mask = BLOCK_TILE_SIZE-1 = {BLOCK_TILE_SIZE - 1}, block-base align mask = ~(BLOCK_TILE_SIZE-1) & $FFFF, staged-block nametable row stride = BLOCK_TILE_SIZE*2 = {BLOCK_TILE_SIZE * 2} bytes. RESPELL ALL FIFTEEN SITES: eight `andi.w #$FFF0` block-base aligns (TileCache_WarmupBelowRow x1, Tile_Cache_Fill x2, TileCache_FillColumn x2, TileCache_FillRow x3) -> `#~(BLOCK_TILE_SIZE-1)`, the derived form this same file already uses thirteen times; five `andi.w #$F` intra-block col/row extracts (TileCache_FillColumn x2, TileCache_FillRow x3) -> `#BLOCK_TILE_SIZE-1`; two `lsl.w #5` staged-row scales (TileCache_CopyBlockColumn, TileCache_FillRow) -> a shift of log2(BLOCK_TILE_SIZE*2). WHAT THIS PIN DOES NOT COVER: the `andi.w #$F` / `lsl.w #4` pairs in decompose_block and TileCache_FillAll, which are BLOCKS_PER_SECTION_AXIS and are pinned by the next guard; the `lsr.w #8` world-tile-to-section shifts, pinned by the guard after that; the ROW STRIDE literals (#80 / #160 / the two `((x<<2)+x)<<4` chains), pinned per-routine; the `lea BLOCK_TILE_SIZE(a0)` collision-row steps in TileCache_CopyBlockColumn, which SPELL BLOCK_TILE_SIZE but MEAN BLOCK_COLL_COLS (equal by derivation today, so they cannot drift, but the name is wrong); and every module other than this one")
+
+ensure(BLOCKS_PER_SECTION_AXIS - 1 == $F && (1 << BLOCKS_PER_SECTION_SHIFT) == BLOCKS_PER_SECTION_AXIS,
+       "BLOCKS-PER-SECTION MOVED (BLOCKS_PER_SECTION_AXIS = {BLOCKS_PER_SECTION_AXIS}) AND THIS MODULE STILL HAND-SPELLS THE 16-BLOCK LITERALS. Derived: intra-section block mask = BLOCKS_PER_SECTION_AXIS-1 = {BLOCKS_PER_SECTION_AXIS - 1}, and the block_index row scale = BLOCKS_PER_SECTION_AXIS = 1 << BLOCKS_PER_SECTION_SHIFT ({BLOCKS_PER_SECTION_SHIFT}). RESPELL SIX SITES: `andi.w #$F` x2 + `lsl.w #4` x1 in decompose_block, and the same trio in TileCache_FillAll -> `#BLOCKS_PER_SECTION_AXIS-1` and `#BLOCKS_PER_SECTION_SHIFT`. This quantity is 16 for the same reason BLOCK_TILE_SIZE is, and constants.emp says so at its declaration — a site that masks by the WRONG one of the two is invisible today. WHAT THIS PIN DOES NOT COVER: engine/level/page_cache.emp, which hand-spells the identical trio twice more and carries its own twin of this pin; the block-tile masks (previous guard); and the `lsr.w #8` section decompose (next guard)")
+
+ensure(BLOCK_TILE_SHIFT + BLOCKS_PER_SECTION_SHIFT == 8 && BLOCK_TILE_SHIFT + BLOCKS_PER_SECTION_SHIFT == SECTION_SIZE_SHIFT - 3,
+       "THE WORLD-TILE TO SECTION SHIFT MOVED OFF 8 AND THIS MODULE HAND-SPELLS `lsr.w #8`. Derived two independent ways, and BOTH must hold: a section is BLOCKS_PER_SECTION_AXIS blocks of BLOCK_TILE_SIZE tiles, so the shift is BLOCK_TILE_SHIFT + BLOCKS_PER_SECTION_SHIFT = {BLOCK_TILE_SHIFT} + {BLOCKS_PER_SECTION_SHIFT}; and a section is SECTION_SIZE px of 8 px tiles, so it is SECTION_SIZE_SHIFT - 3 = {SECTION_SIZE_SHIFT} - 3. If those two disagree the block grid and the pixel grid describe different sections and the pin says which side moved. RESPELL FIVE SITES: `lsr.w #8` x2 in decompose_block, x1 in TileCache_WarmupBelowRow, x2 in Tile_Cache_Fill. WHAT THIS PIN DOES NOT COVER: the `lsl.w #8` at TileCache_FindStagedBlock and TileCache_DecompressBlock, which pack a BYTE field into a key word and are 8 for a different reason entirely (bits per byte) — do NOT change those with this one; engine/level/section.emp's `lsl.w #8` act-width clamp and engine/level/page_cache.emp's four `lsr.w #8`, both pinned in their own files; and the act-grid dimension bytes, which are section counts and unaffected"
+)
+
 // coll_src_row_base — staged-block collision-row byte base from an intra-block
 // tile row (mirrors the AS `collSrcRowBase` macro). Parity-safe: halve the tile
 // row to the 16px collision cell, then scale by BLOCK_COLL_COLS. The ×16 shift
 // assumes BLOCK_COLL_COLS=16 — the comptime guard makes a drift unrepresentable
 // (the macro's `if BLOCK_COLL_COLS <> 16 / error`). File-local (single consumer).
 comptime fn coll_src_row_base(reg: Reg) -> Code {
-    ensure(BLOCK_COLL_COLS == 16, "coll_src_row_base assumes BLOCK_COLL_COLS=16 (lsl #4); update the shift")
+    ensure(BLOCK_COLL_COLS == 16 && (1 << 4) == BLOCK_COLL_COLS,
+           "coll_src_row_base hand-spells `lsl.w #4` for x BLOCK_COLL_COLS, which is now {BLOCK_COLL_COLS}. The shift must become log2(BLOCK_COLL_COLS). WHAT UPDATING THE SHIFT DOES NOT FIX (this message used to say only `update the shift`, and a reader who did exactly that got a GREEN build with the whole tile cache still on the old grid — lens-sweep row LS-8): BLOCK_COLL_COLS is DERIVED from BLOCK_TILE_SIZE, so if it moved because the block geometry moved, the fifteen hand-spelled block-tile literals in this module and the six blocks-per-section literals must move too. Those are pinned at the head of this file and will fire alongside this one — fix the whole set, not this line")
     return asm {
         lsr.w   #1, {reg}                       // tile row -> collision row (16px cell)
         lsl.w   #4, {reg}                        // * BLOCK_COLL_COLS (16 bytes per row)
@@ -108,7 +129,8 @@ comptime fn art_hold_edge_check(cam: Label, screen_tiles: int, hold_bit: int) ->
 // a stride drift unrepresentable.
 // dst ends = dst*stride; scratch is trashed.
 comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
-    ensure(TILE_CACHE_STRIDE == 80, "mul_cache_stride multiplies by #80; keep TILE_CACHE_STRIDE=80 or the row stride is wrong")
+    ensure(TILE_CACHE_STRIDE == 80 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+           "mul_cache_stride hand-spells `mul_const.w #80` and TILE_CACHE_STRIDE is now {TILE_CACHE_STRIDE} (= TILE_CACHE_COLS = {TILE_CACHE_COLS}). Respell the immediate as the new stride. WHAT FIXING THIS ONE SITE DOES NOT FIX (this message used to say only `keep TILE_CACHE_STRIDE=80`, and satisfying it was measured to build GREEN with four further sites still striding 80 — lens-sweep row LS-8): the SIX other hand-spelled stride sites, each now pinned at its own routine — TileCache_CopyBlockColumn (two `((x<<2)+x)<<4` chains that contain no literal 80 at all), TileCache_FillRow (`mul_const.w #80`), engine/level/collision_lookup.emp Collision_GetType (`#80`), engine/level/section.emp Section_RedrawPlanes (`#160`), and engine/level/plane_buffer.emp Draw_TileColumn (`#160`) + Draw_TileRow_FromCache (`#80`). It also does not cover TILE_CACHE_ROWS, whose literals are all spelled by name")
     return asm {
         mul_const.w {dst}, #80, {scratch}         // dst × 80 (= TILE_CACHE_STRIDE); scratch trashed
     }
@@ -543,6 +565,15 @@ data Blank_Local_Map (align: 2): [u16; 1] = comptime for i in 0..1 { 0 }
 //       logical row's parity and physical_row/2 = physical collision row.
 // -----------------------------------------------
 pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0/a2-a4) preserves(a1) {
+        // LS-8 stride pin. This routine multiplies a cache row by the row stride
+        // TWICE — the nametable dest at `d5 = phys_row * 80` and the collision dest
+        // at `d5 = collision_row * 80` — and BOTH are hand-rolled as
+        // ((x<<2)+x)<<4 (x*5*16) rather than `mul_const.w #80`, deliberately, because
+        // d2 is live afterwards and mul_const multiplies IN PLACE. That spelling
+        // contains NO literal 80: a grep for the immediate does not find these two
+        // sites, which is exactly how they survived the sweep that found the others.
+        ensure((((1 << 2) + 1) << 4) == TILE_CACHE_STRIDE && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "TileCache_CopyBlockColumn's two hand-rolled x{TILE_CACHE_STRIDE} chains encode ((x<<2)+x)<<4 = {((1 << 2) + 1) << 4}, but the cache row stride is now TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} (= TILE_CACHE_COLS = {TILE_CACHE_COLS}). The derivation is the shift-add decomposition itself: 80 = (4+1)*16, so a new stride needs a NEW decomposition (or `mul_const.w #TILE_CACHE_STRIDE` plus a spare register). Both chains are in this routine — the nametable dest and the collision dest — and BOTH must move. WHAT THIS PIN DOES NOT COVER: the other five stride sites (mul_cache_stride, TileCache_FillRow, Collision_GetType, Section_RedrawPlanes, Draw_TileColumn/Draw_TileRow_FromCache), each pinned at its own routine; the `lsl.w #5` staged-source scale in this same routine, which is BLOCK_TILE_SIZE*2 and is pinned at the head of this file; and the collision-plane displacement TILE_CACHE_COLL_SIZE, which is spelled by name and follows automatically")
         // wrap d1 (logical cache col) to physical column via circular origin
         add.w   Cache_Origin_Col, d1
         cmpi.w  #TILE_CACHE_COLS, d1
@@ -1855,6 +1886,13 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
 //       boundaries align with world block data.
 // -----------------------------------------------
 pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
+        // LS-8 stride pin. This routine spells the row stride TWICE two lines apart
+        // and only one of them was ever pinned: `mul_const.w d3, #80, d4` for the
+        // collision dest row is INLINE, while `mul_cache_stride(d2, d3)` for the
+        // nametable dest goes through the guarded helper. Same number, same routine,
+        // one guard.
+        ensure(TILE_CACHE_STRIDE == 80 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "TileCache_FillRow hand-spells `mul_const.w d3, #80, d4` for the collision dest row base and the stride is now TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} (= TILE_CACHE_COLS = {TILE_CACHE_COLS}). Derived: the collision planes are TILE_CACHE_COLS bytes per row (TILE_CACHE_COLL_SIZE = TILE_CACHE_COLS * TILE_CACHE_COLL_ROWS), so the collision row stride IS the column count, not half of it. Respell the immediate, or call mul_cache_stride as the nametable half of this same routine already does. WHAT THIS PIN DOES NOT COVER: the six other stride sites, each pinned at its own routine; the block-tile masks and the `lsl.w #5` staged-row scale in this routine, pinned at the head of this file; and TILE_CACHE_COLL_ROWS, whose literals are all spelled by name")
         // cache row offset (constant for all columns)
         move.w  d5, d2
         sub.w   Cache_Top_Row, d2

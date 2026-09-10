@@ -227,6 +227,12 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 //   split.
 // -----------------------------------------------
 pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7: u16) preserves(sr.mask) {
+        // LS-8 stride pin. The cache source pointer below is built with
+        // `mul_const.w d1, #160, d2` — origin_row x the row stride IN BYTES, i.e.
+        // TILE_CACHE_STRIDE * 2 for word-sized nametable entries. Hand-spelled, and
+        // unpinned until this parcel.
+        ensure(TILE_CACHE_STRIDE * 2 == 160 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+               "Section_RedrawPlanes hand-spells `mul_const.w d1, #160, d2` for the cache row base and the stride is now TILE_CACHE_STRIDE * 2 = {TILE_CACHE_STRIDE * 2} bytes (TILE_CACHE_STRIDE = {TILE_CACHE_STRIDE} = TILE_CACHE_COLS = {TILE_CACHE_COLS}). Derived: the nametable cache holds WORD entries, so the byte stride is twice the column count — the x2 is why this site reads 160 while its siblings read 80, and why a stride change has to be doubled here and not there. WHAT THIS PIN DOES NOT COVER: the six other hand-spelled stride sites, each pinned at its own routine (engine/level/tile_cache.emp mul_cache_stride / TileCache_CopyBlockColumn / TileCache_FillRow, engine/level/collision_lookup.emp Collision_GetType, engine/level/plane_buffer.emp Draw_TileColumn / Draw_TileRow_FromCache); the `andi.w #63` plane-ring masks in this file, which are PLANE_H_CELLS/PLANE_V_CELLS and are a separate unpinned family (lens-sweep B1-F2, still OPEN); and the `lsl.w #8` act-width clamp in Section_UpdateColumns, pinned there")
         lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine.vdp const; abs.l by the width rule
         lea     VDP_DATA, a6
         move.w  sr, -(sp)
@@ -580,6 +586,10 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
 // Clobbers: d0–d7, a0–a3, a5–a6 (a5/a6 only when Plane_Dirty triggers redraw)
 // -----------------------------------------------
 pub proc Section_UpdateColumns () clobbers(d0-d7/a0-a3/a5-a6) {
+        // LS-8 section-shift pin. The act-boundary clamp below spells
+        // `lsl.w #8, d0` to turn a grid_w SECTION count into a world TILE count.
+        ensure((1 << 8) == (1 << (SECTION_SIZE_SHIFT - 3)),
+               "Section_UpdateColumns hand-spells `lsl.w #8` to convert the act's grid_w section count into world tiles, but a section is now {1 << (SECTION_SIZE_SHIFT - 3)} tiles across, not 256. Derived: SECTION_SIZE = 1 << SECTION_SIZE_SHIFT ({SECTION_SIZE_SHIFT}) world pixels, a tile is 8 px, so tiles-per-section = 1 << (SECTION_SIZE_SHIFT - 3). Respell the shift as SECTION_SIZE_SHIFT - 3. WHAT THIS PIN DOES NOT COVER: the nine other world-tile-to-section shifts, which live in engine/level/tile_cache.emp (five) and engine/level/page_cache.emp (four) and carry their own twins of this pin — this one is the only WIDENING direction (sections to tiles) and would still be green if only the narrowing ones were fixed; the `lsr.w #3` pixel-to-tile shifts in this file, which are the tile size and unaffected; and the `andi.w #63` plane-ring masks (lens-sweep B1-F2, still OPEN)")
         // -- §4.2: full-plane redraw if dirty (level init + cache recovery only) --
         tst.b   Section_Plane_Dirty
         beq     .not_dirty
