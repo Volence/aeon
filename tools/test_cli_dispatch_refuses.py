@@ -62,6 +62,7 @@ picked up by that lane's directory sweep with no wiring. It is pure Python over 
 source, boots nothing, and costs well under a second.
 """
 
+import ast
 import importlib
 import os
 import subprocess
@@ -244,3 +245,143 @@ def test_sibling_ladder_still_refuses(tool, argv, codes, marker):
         "tools/%s %s exited %d but printed no %r marker; an exit status with no "
         "message is how ojz_block_gen's silent fall-through survived.\n%s"
         % (tool, " ".join(argv), p.returncode, marker, both[-2000:]))
+
+
+# ---------------------------------------------------------------------------
+# THE POPULATION ITSELF, RE-DERIVED ON EVERY RUN.
+# ---------------------------------------------------------------------------
+#
+# The rows above cover the ladders that exist TODAY, and that is exactly the shape of
+# hole this row exists to close. LS-15d's own defect was not in any tool -- it was in a
+# SENTENCE: "three sibling tools' dispatches were checked and are fine", written by
+# someone who had looked at three. A test that only knows the twelve ladders a 2026-09-10
+# census found is the same sentence with a shebang. So the census runs here, from source,
+# every time, and a hand-rolled CLI ladder that is not in the roster below is a FAILURE
+# that names the file and asks for a verdict.
+
+#: The detector's rule, spelled out because a population is only as trustworthy as the
+#: rule that built it. A file is in the population iff it has an `if __name__ ==` block
+#: AND EITHER
+#:   (1) compares an ARGV-DERIVED expression against a string literal somewhere in the
+#:       module (`==`, `!=`, `in`, `not in`) -- the hand-rolled ladder, or
+#:   (2) defines a module-level string-keyed dict named `MODES`/`*_MODE_TABLE` -- the
+#:       table form this parcel converted the destructive tools to.
+#: Argparse `choices=`/`add_subparsers` files are NOT excluded -- s4lz has both, and the
+#: hand-written half is the half that can fall through.
+#:
+#: CLAUSE (2) IS NOT DECORATION, and it was added because THIS ROW WENT RED THE FIRST
+#: TIME IT RAN. With only clause (1) the detector reported that ojz_strip_gen,
+#: ojz_entity_gen and ojz_block_gen had left the population -- true, and exactly wrong:
+#: converting them to dict dispatch is what removed their `if mode == "..."` chains, so
+#: a ladder-only detector goes BLIND on precisely the three files it most needs to
+#: watch, and it does so at the moment they are fixed. A population rule that loses
+#: members when they are repaired cannot notice them being un-repaired.
+_ARGV_SUBJECTS = ("mode", "cmd")
+
+
+def _argv_derived(src):
+    s = src.strip()
+    return (s.startswith("sys.argv") or s.startswith("argv") or s.startswith("args[")
+            or s in _ARGV_SUBJECTS
+            or s in ("args.command", "args.mode", "args.cmd", "args.subcommand"))
+
+
+def _is_mode_table(node):
+    """Clause (2): a module-level `MODES = {"name": handler, ...}` with string keys."""
+    if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+        return False
+    names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+    if not any(n == "MODES" or n.endswith("MODE_TABLE") for n in names):
+        return False
+    keys = node.value.keys
+    return bool(keys) and all(
+        isinstance(k, ast.Constant) and isinstance(k.value, str) for k in keys)
+
+
+def _dispatch_files():
+    found = set()
+    for fn in sorted(os.listdir(HERE)):
+        if not fn.endswith(".py"):
+            continue
+        src = open(os.path.join(HERE, fn), encoding="utf-8").read()
+        if "if __name__ ==" not in src:
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:  # pragma: no cover - a syntax error is another lane's job
+            continue
+        if any(_is_mode_table(n) for n in tree.body):
+            found.add(fn)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+                continue
+            op, left, right = node.ops[0], node.left, node.comparators[0]
+            lits = False
+            if isinstance(op, (ast.Eq, ast.NotEq)):
+                if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                    lits = True
+                elif isinstance(left, ast.Constant) and isinstance(left.value, str):
+                    lits, left = True, right
+            elif isinstance(op, (ast.In, ast.NotIn)) and isinstance(
+                    right, (ast.Tuple, ast.List, ast.Set)):
+                lits = any(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                           for e in right.elts)
+            if lits:
+                try:
+                    subject = ast.unparse(left)
+                except Exception:  # pragma: no cover
+                    continue
+                if _argv_derived(subject):
+                    found.add(fn)
+                    break
+    return found
+
+
+#: file -> the verdict a human reached, 2026-09-10. Adding a file here is a claim; the
+#: rows above are where a claim of "refuses" gets tested. The four that were WRONG are
+#: marked with what they used to do, because the next person to read this list should be
+#: able to see that the defect was common and not exotic.
+_ROSTER = {
+    "collision_pipeline.py": "refuses: usage + exit 1",
+    "decisions_conformance.py": "refuses: no mode SET -- a typo'd flag becomes a ledger path -> CANNOT MEASURE, exit 2",
+    "donor_provenance.py": "refuses: exact-match `args != ['--backfill']` -> usage + exit 1",
+    "dplc_layout.py": "refuses: unknown arg falls to argparse, which requires two positionals -> exit 2",
+    "effects_gen.py": "FIXED LS-15d (was: silent demote to the read-only shapes report, exit 0)",
+    "ojz_block_gen.py": "FIXED LS-15d (was: validated set, if/elif, no else -> silent exit 0)",
+    "ojz_entity_gen.py": "FIXED LS-15d (was: DESTRUCTIVE fall-through into generate())",
+    "ojz_strip_gen.py": "FIXED LS-15d (was: DESTRUCTIVE fall-through into generate() -- the incident)",
+    "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
+    "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
+    "state_ram.py": "refuses: no mode SET -- a typo'd `test` becomes a state path -> unhandled FileNotFoundError, exit 1",
+    "vgm_onsets.py": "TOLERANT BY DESIGN, not fixed: unknown --flags are skipped (`else: a += 1`). Read-only; writes only a path the caller names on the command line. Recorded, not repaired.",
+}
+
+
+def test_the_ladder_population_is_still_the_roster():
+    """A tools/*.py that dispatches on an argv string must have a recorded verdict.
+
+    THIS IS THE ROW THAT OUTLIVES THE OTHERS. The parametrized rows above test twelve
+    named files; this one tests that twelve is still the number, by rebuilding the list
+    from source. A new generator with a hand-rolled mode ladder -- which is how all four
+    of the broken ones got here -- lands red on THIS row with its filename in the
+    message, before it can quietly join the population.
+    """
+    found = _dispatch_files()
+    unrostered = sorted(found - set(_ROSTER))
+    assert not unrostered, (
+        "these tools/*.py dispatch on an argv string and have no recorded verdict: %s\n"
+        "Classify each one and add it to _ROSTER in this file. The question to answer "
+        "is NOT 'does it work' but: WHAT RUNS when the mode matches nothing? If the "
+        "answer is a branch that writes, it belongs in _FIXED with a MODES table and a "
+        "tripwire row -- never in a subprocess row, because on a regression that row's "
+        "failure IS the data loss (LS-15d)." % ", ".join(unrostered))
+    vanished = sorted(set(_ROSTER) - found)
+    assert not vanished, (
+        "these tools/*.py are in _ROSTER but the detector no longer finds a ladder in "
+        "them: %s. Either they were rewritten (drop the entry AND the rows above that "
+        "name them) or the detector has gone blind -- a silently-shrinking population "
+        "is the failure this row is built to prevent." % ", ".join(vanished))
+    assert len(found) == 12, (
+        "expected the 2026-09-10 census's 12 CLI string dispatches, found %d: %s"
+        % (len(found), sorted(found)))
