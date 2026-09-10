@@ -44,6 +44,23 @@ That block is superseded. Everything below it moved here from the boot file on 2
   four shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f` all four
   up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
+- **TELL AURORA WHEN A `game.emp` CONTRACT FIELD CHANGES SHAPE — a standing commitment made
+  2026-09-10, banked here because a commitment that lives only in mail does not survive a `/clear`.**
+  Aurora reads two `games/*/config/game.emp` files at **`origin/master`** and parses them; a field
+  that stops being a literal breaks their reader at the instant we push. **On this box these repos
+  are pushed to directly, so a sibling's `origin/master` advances with nobody fetching** — their gate
+  goes red inside a session that changed nothing and gets no notification. Measured instance: our
+  `25d88e38` changed `games/demo/config/game.emp:63` from `SCANLINE_CAPS = $0FDE` to
+  `const SCANLINE_CAPS = DemoScenes_CapsFolded` (verified firsthand at `origin/master`), and aurora's
+  `test/formats/aeon-vsram-mode-drift.test.ts` — which matches literals only — printed **"declares no
+  SCANLINE_CAPS"**, which is false: the file declares one, their reader cannot evaluate it. Aurora
+  called our refusal-to-evaluate the correct behaviour and took `25d88e38` as the precedent for their
+  own fix, so **this is a notification duty, not a design change on our side.**
+  **The trigger is the SHAPE of the field, not its value** — literal to name, name to fold, or a new
+  field appearing — and it fires at the moment of the push, not at the merge. **Aurora's timeline came
+  from our REFLOG, not from commit dates**, and the two disagree: only the reflog says when a change
+  reached this machine (committed 07:42Z/07:54Z, arrived 08:54:40Z/08:55:13Z). Use the reflog if you
+  ever have to reconstruct one of these.
 - **⚠ The paired-freeze recipe is DELETED, not annotated — do NOT reconstruct it.** `refreeze`
   and `provenance.toml` are sigil's, on sigil's clock. Owner *CUT THE CEREMONY* (1),
   2026-09-02T18:20:19Z — the standing ruling at the top of `docs/OVERSEER.md`. **The `--attest`/strict/pin blocks below are the same retired ritual,
