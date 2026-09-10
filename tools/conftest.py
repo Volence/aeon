@@ -58,9 +58,36 @@ So the DEFERRED arm is about what THIS INVOCATION PRODUCED, not about what happe
 to be on disk: with `--artifacts-built-after <epoch>` a declared artifact older than
 that instant is deferred as `stale`, exactly as absent ones are. This is the same
 `--built-after ${SIGIL_T0}` provenance rule every neighbouring post-sigil gate takes
-from build.sh (row_remap_gate, editor_palette_golden, band_drift_golden,
-sprite_tilt_gate), applied to the same axis rather than bolted beside it. WITHOUT
-the option nothing changes: existence alone, as before.
+from build.sh, applied to the same axis rather than bolted beside it. WITHOUT the
+option nothing changes: existence alone, as before.
+
+THE FAMILY IS FOURTEEN, NOT FOUR (corrected 2026-09-10, LS-1a). This paragraph used
+to name four gates — row_remap_gate, editor_palette_golden, band_drift_golden,
+sprite_tilt_gate — and the LS-1a row in docs/DEFERRED_WORK.md inherited that count
+and reasoned from it. Derived from build.sh rather than copied: ELEVEN gate
+invocations pass `--built-after "${SIGIL_T0}"` (row_remap_gate:1180,
+anim_frame_bound:1237, editor_palette_golden:1276, band_drift_golden:1300,
+plane_base_swap_gate:1326, reels_gate:1358, plane_role_swap_gate:1378,
+bganim_room:1414, sprite_tilt_gate:1518, instashield_gate:1547,
+loop_crossover_gate:1574), plus this file's `--artifacts-built-after` at :1120 and
+the `--built-after $T0` in tools/landing_build.sh and tools/nightly_effects_gates.sh.
+Each of the fourteen parses the flag and does the mtime comparison PRIVATELY, and
+they do not even agree on the verdict. Read out of each staleness path, not
+generalised from one — the first draft of this paragraph said three gates behaved
+like the third case below and that was FALSE:
+
+  (i)   eight raise Unmeasurable, i.e. EXIT 2 — row_remap_gate:578,
+        anim_frame_bound:835, editor_palette_golden, band_drift_golden,
+        plane_base_swap_gate, reels_gate, plane_role_swap_gate, bganim_room;
+  (ii)  two `return 1` unconditionally, i.e. a FAILURE rather than an unmeasurable —
+        instashield_gate.py:1231, loop_crossover_gate.py:1525;
+  (iii) sprite_tilt_gate.py:1004 returns `1 if args.gate else 0`, so a stale artifact
+        reads as SUCCESS to a caller that omits --gate. build.sh passes it (:1519),
+        so this is a latent footgun for the next caller, not a live hole today.
+
+That spread is why LS-1a is a family parcel and not a lane fix, and why the
+recommendation in its row is one shared provenance primitive rather than a fifteenth
+private comparison: the primitive is also what makes the verdict agree.
 
 WHAT THIS FILE STILL CANNOT DO. It cannot tell a stale artifact from a fresh one
 without being told when the build began — freshness here is a BUILD-TIME
