@@ -43,41 +43,52 @@ module engine.zx0_resume in zx0_resume
 // Clobbers: d0-d2, a2 (NOT movem-preserved — the resumable contract forbids the
 //      stack save; the caller owns these registers)
 //
-// WHY THIS DECODER CARRIES NO RELEASE-SHAPE FAULT CHECK (LS-17, 2026-09-09)
+// WHY THIS DECODER CARRIES NO CHECK, AND WHERE ITS NET ACTUALLY LIVES
+// (LS-17 2026-09-09; corrected and completed by V-7 2026-09-10)
 // -------------------------------------------------------------------------
-// The LS-17 ruling put engine/compression/ in scope and this file has neither an
-// `ensure` nor an `assert`, so the obvious reading is "give it one too". It got
-// none, and the reason is structural rather than a judgement call about cost:
+// ⚠ IF YOU CAME HERE COUNTING GUARDS: this file has zero, and that is correct.
+// The four release-shape checks that net this decoder are in
+// engine/level/page_in.emp — `.fault_ver`, `.fault_size`, `.fault_extent` in
+// PageIn_Process and `.fault_bank` in PageIn_BankRegs, all gated
+// `DEBUG == 1 || CRASH_REPORT == 1` and all in the shipped s4.bin. The
+// build-time half is tools/test_zx0r_resume_net.py.
 //
-//   1. A deliberate fault cannot be raised from inside this proc AT ALL. The
-//      crash path is `raise_error`, which lowers to the MD Debugger frame
-//      `pea *(pc)` + `move.w sr, -(sp)` + `jsr (MDDBG__ErrorHandler).l`. The
-//      first two touch sp, and `@resumable` makes any sp-touching op BUILD-FATAL
-//      here (that is the whole point of the attribute — an interrupt must be
-//      able to snapshot the live state from registers alone). Measured, not
-//      reasoned: a probe `raise_error` planted at this proc's `.done` fails the
-//      build with THREE `[resumable.stack-op]` errors, one per sp-touching op of
-//      the raise frame -- `pea`, the `-(sp)` push, and `jsr`. The rule was "if a
-//      check cannot reach the
-//      existing crash path, stop and report rather than inventing one" — there
-//      is no second failure mode to invent here, so it reports.
-//   2. The check worth having is an OUTPUT BOUND (this decoder writes into a
-//      fixed staging buffer and nothing stops a corrupt stream walking past it),
-//      and that needs a live limit register. There is none: the resumable
-//      contract pins the live set to exactly d0-d2/a0-a3, which is exactly what
-//      the VBlank bookmark banks (`PageIn_BankRegs`, engine/level/page_in.emp,
-//      driven by the PC-range hook in engine/system/vblank.emp). Widening it
-//      means editing vblank.emp — the file the LS-17 ruling explicitly excludes.
-//   3. What is left — a per-loop bound tested inside the elias/copy loops — is
-//      per-BYTE cost in the tightest loop in the engine, running in the gaps
-//      between frames. That is precisely the cost the ruling's rejected `full`
-//      option was priced on.
+// A deliberate fault cannot be raised from inside THIS PROC at all, and that
+// part is measured rather than reasoned. `raise_error` lowers to the MD Debugger
+// frame `pea *(pc)` + `move.w sr, -(sp)` + `jsr (MDDBG__ErrorHandler).l`; all
+// three touch sp, and `@resumable` makes any sp-touching op build-fatal here
+// (that is the whole point of the attribute — an interrupt must be able to
+// snapshot the live state from registers alone). A probe `raise_error` planted
+// at this proc's `.done` is refused on every profile sigil checks, verbatim:
 //
-// So the gap is real and stays open, and the follow-up is recorded in
-// docs/DEFERRED_WORK.md rather than closed here: it wants a dest-extent
-// parameter plus a bookmark widening, which is a design change, not a check.
-// The blocking sibling S4LZ (engine/compression/s4lz.emp) DID take its three
-// release-shape checks under the same ruling; see its header.
+//   [Error] [resumable.stack-op] in `ZX0R_Decompress`: `pea` pushes an address
+//   onto the stack, a `@resumable` proc must keep all live state in registers
+//   and touch the stack nowhere (it exits by `jmp (aN)`)
+//
+// plus the same for "a `-(sp)` push" and for "`jsr` pushes a return address".
+//
+// ⚠ THE INFERENCE THAT USED TO SIT HERE, AND WHY IT WAS WRONG — the correction
+// is left in place because it is the mistake this site invites. The earlier note
+// said the check worth having is an output bound, that a bound "needs a live
+// limit register", that the resumable contract pins the live set to d0-d2/a0-a3,
+// and therefore that a bound would require widening the VBlank bookmark in
+// engine/system/vblank.emp — the file the LS-17 ruling excluded. Every clause is
+// true and the conclusion does not follow. The limit is a COMPTIME CONSTANT, so
+// nothing has to be live to compare against it; and the comparison does not have
+// to happen inside this body at all. PageIn_BankRegs compares the ALREADY-BANKED
+// a1 against `#Art_Staging_Buffer` and `#(Art_Staging_Buffer +
+// ART_STAGING_BUFFER_SIZE)`, at the slice boundary, and vblank.emp was never
+// touched. The trap was reasoning about where the VALUE has to live instead of
+// about where the COMPARISON can be made.
+//
+// What genuinely stays rejected is only the third option: a per-loop bound tested
+// inside the elias/copy loops, which is per-BYTE cost in the tightest loop in the
+// engine. That is the cost the ruling's rejected `full` option was priced on. The
+// four checks in page_in.emp are per-call and per-slice instead, and they cost 102
+// bytes of ROM between them.
+//
+// The blocking sibling S4LZ (engine/compression/s4lz.emp) took its three
+// release-shape checks INSIDE itself under the same ruling; see its header.
 //
 // Algorithm from unzx0_68000.S (Emmanuel Marty), restructured for the resumable
 // contract.

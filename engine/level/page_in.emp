@@ -64,7 +64,7 @@
 module engine.page_in in page_in
 
 use engine.structs.{PageInReq, PageManifest, Act}
-use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
+use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, ART_STAGING_BUFFER_SIZE, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
 use engine.constants.{ART_POOL_PAGE_BYTES_SHIFT, ART_PAGE_FORM_ZX0, TILE_SIZE}
 use engine.constants.{PAGE_NOT_RESIDENT, PAGE_PREFETCH_MAX, PAGE_TABLE_MAX}
 
@@ -259,9 +259,24 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         bne     .raw
 
         // ZX0 form: slice-decode the wrapped stream into staging; land on .after.
-    if DEBUG == 1 {
-        move.b  ART_HDR_VERSION(a0), d2          // manifest says ZX0 -> the wrapper must agree
-        assert.b d2, eq, #ART_VER_ZX0
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // V-7 net 1 — the wrapper's version byte must agree with the manifest's
+        // form. RELEASE-SHAPE (was `assert.b d2, eq, #ART_VER_ZX0`, zero bytes
+        // outside DEBUG). Exactly the s4lz check-1 case one decoder over: if the
+        // version byte is not ART_VER_ZX0 the bytes behind it are not a ZX0
+        // bitstream at all, so ZX0R would parse arbitrary elias lengths from
+        // arbitrary offsets. Once per ZX0 page-in, 8 bytes.
+        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
+        bne     .fault_ver
+        // V-7 net 2 — the declared page must FIT the staging buffer. This is the
+        // only one of the four that is a BOUND rather than a detector: it is the
+        // last point before the fall-through at which anything still knows both
+        // the claimed extent and the buffer's, and a manifest claiming more than
+        // ART_STAGING_BUFFER_SIZE guarantees an overrun no later check can undo.
+        // pm_tiles is a u16 read straight out of ROM, so a corrupt one reaches
+        // here as up to 65535*32. Once per ZX0 page-in, 8 bytes.
+        cmpi.w  #ART_STAGING_BUFFER_SIZE, PageIn_Cur_Bytes
+        bhi     .fault_size
     }
         lea     ART_HDR_SIZE(a0), a0            // a0 = ZX0 stream past the 4-byte wrapper
         lea     Art_Staging_Buffer, a1         // a1 = staging dest
@@ -345,6 +360,31 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
 
     .after:                                     // ZX0R jmp (a3) lands here on completion
         clr.b   PageIn_InFlight
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // V-7 net 4 — the decode's written extent must equal the declared one.
+        // RELEASE-SHAPE, no DEBUG twin. a1 is ZX0R's declared `out` (past end of
+        // decompressed data) and this label is the decoder's own continuation, so
+        // this is the first instruction after the decode at which a stack exists
+        // and `raise_error` is legal at all (see the @resumable note in
+        // engine/compression/zx0_resume.emp).
+        // WHAT IT UNIQUELY CATCHES, and why it is not the selftest again: the
+        // DEBUG cold-boot CompressionSelfTest already proves every BAKED page
+        // decodes to pm_tiles*32 (engine/debug/compression_selftest.emp,
+        // `.eq_resume`). This one grades the RUNTIME decode of that same data --
+        // so it is the only net over the failure mode unique to this decoder, a
+        // bad SUSPEND/RESUME round trip (PageIn_BankRegs banks a register wrong,
+        // the manufactured rte frame restores a wrong PC/CCR, a stray write lands
+        // in PageIn_Saved_*). None of those corrupt the ROM the selftest reads.
+        // NOTE it is a detector, not a bound -- an overrun has already happened by
+        // the time it fires; net 2 is the bound. Same honest framing as s4lz's
+        // check 3. Once per completed ZX0 page, 16 bytes.
+        move.l  a1, d0                          // decoder's final dest cursor
+        sub.l   #Art_Staging_Buffer, d0         // d0.l = bytes actually written
+        moveq   #0, d1
+        move.w  PageIn_Cur_Bytes, d1            // d1.l = declared (0..ART_STAGING_BUFFER_SIZE)
+        cmp.l   d1, d0                          // full 32-bit: a wildly walked a1
+        bne     .fault_extent                   // cannot alias a correct low word
+    }
     .land:                                      // also re-entered from the top when Land_Pending
         clr.b   PageIn_Land_Pending
         move.l  #Art_Staging_Buffer, d1         // landing DMA source (RAM staging)
@@ -419,6 +459,31 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
     .dq_done:
         subq.b  #1, PageIn_Queue_Count
         rts
+
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // V-7 — the shared deliberate-fault tail for nets 1, 2 and 4. ONE raise
+        // site reached by a 4-byte dispatch from each check, for the same reason
+        // s4lz.emp gives at its own tail: three `raise_error`s would each carry
+        // their own ~20-byte frame plus their own message text. d0 is the code;
+        // the crash screen dumps the rest.
+        //   code 1  .fault_ver     wrapper version byte != ART_VER_ZX0
+        //   code 2  .fault_size    declared page bytes > ART_STAGING_BUFFER_SIZE
+        //   code 3  .fault_extent  written extent != declared page bytes
+        // Gated on `DEBUG || CRASH_REPORT`, not bare DEBUG, because what these
+        // depend on is the error_handler island, which rides that axis
+        // (CODING_CONVENTIONS §1.7). At CRASH_REPORT=0 there is no island to
+        // fault into and the checks correctly cost nothing.
+    .fault_ver:
+        moveq   #1, d0
+        jbra    .fault
+    .fault_size:
+        moveq   #2, d0
+        jbra    .fault
+    .fault_extent:
+        moveq   #3, d0
+    .fault:
+        raise_error "PageIn ZX0 stream fault %<.w d0>"
+    }
 }
 
 // -----------------------------------------------
@@ -449,7 +514,45 @@ pub proc PageIn_BankRegs () clobbers() {
         move.l  a2, PageIn_Saved_A2
         move.l  a3, PageIn_Saved_A3
         st.b    PageIn_Suspended                // banked context awaits PageIn_Process
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // V-7 net 3 — the decoder's dest cursor must still be INSIDE the staging
+        // buffer at the slice boundary. RELEASE-SHAPE. This is the boundary
+        // between slices, the one place a mid-flight ZX0R state is legible from
+        // outside the @resumable body, and it is what makes the net more than a
+        // post-mortem: nets 1/2/4 all sit at the ends of a decode, so a stream
+        // that never terminates (a corrupt elias run) reaches none of them, while
+        // this one fires at the next VBlank the decode is sliced on.
+        // PLACED AFTER the banking stores DELIBERATELY: every live decoder
+        // register is already in PageIn_Saved_* when this faults, so the crash
+        // screen's memory view holds the whole decode state (a0 source cursor, d1
+        // bit queue, a2 backref) even though the fault frame perturbs registers.
+        // Bound derivation: a1 starts at Art_Staging_Buffer and ZX0R only ever
+        // post-increments it, so [buffer, buffer+ART_STAGING_BUFFER_SIZE] is the
+        // whole legal range; `bhi`, not `bhs`, because a decode that filled the
+        // buffer exactly leaves the cursor ON the end. The LOW arm is not dead
+        // weight: a1 below the base cannot arise from decoding at all, only from
+        // a bad resume, which is this decoder's own distinctive failure mode.
+        // NOT checked here, and deliberately: a2 (the backref cursor) is stale
+        // between matches, so bounding it would false-fire; a0 has no runtime
+        // extent to bound against (the manifest carries no compressed size).
+        // At most once per frame, and only on a sliced decode. 16 bytes.
+        // CCR: safe by placement -- SR was captured by the FIRST instruction of
+        // this proc, and the banking stores above already clobber CCR, so the
+        // compares add nothing the resume path can see (the rte reloads CCR from
+        // PageIn_Saved_SR). No register is written, so `clobbers()` still holds.
+        cmpa.l  #Art_Staging_Buffer, a1
+        blo     .fault_bank
+        cmpa.l  #(Art_Staging_Buffer + ART_STAGING_BUFFER_SIZE), a1
+        bhi     .fault_bank
+    }
         rts                                     // SP at PageIn_Process depth -> returns into VSync_Wait
+
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+    .fault_bank:
+        // No code register and no format: writing one would break this proc's
+        // `clobbers()` contract for a value the crash screen already shows.
+        raise_error "ZX0R slice: dest cursor left the staging buffer"
+    }
 }
 
 // -----------------------------------------------
