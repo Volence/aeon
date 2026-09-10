@@ -30,10 +30,14 @@ section rather than the clamped camera centre, so T2 is a rewrite. Net cost revi
 
 ## 3. Cleanups and defects found, in priority order
 
-1. **Palette never reaches the ROM — aeon's half is unbooked.** `tools/ojz_strip_gen.py:2136-2138`
-   `shutil.copy`s the donor `art/palettes/OJZ.bin` over `ojz_palette.bin` on every bake. Aurora booked
-   its half (PALETTE-NEVER-REACHES-ROM); aeon has no row in lane-status, lane-log or DEFERRED_WORK.
-   A chip was left on the owner's console; if it is not taken, book and fix it here.
+1. **Palette never reaches the ROM — CORRECTED: aeon's half is delivered, not unbooked.** The audit
+   read the committed board; the lane's UNCOMMITTED board (on disk at the reboot) carries
+   `PALETTE-AUTHORED-SEED` (state `next`), and branch `parcel/palette-authored-seed` (`b4fe384a`,
+   3 commits: fix "the act palette gets one writer, and it is the editor", a smoke-test repair,
+   byte-level evidence with a control; `tools/test_palette_authored_source.py` +341) sits in a
+   worktree, 3 commits ahead of master. **What is owed is review and landing** (four shapes, then
+   the aurora half's file contract), not booking. The owner's chip for this was withdrawn. The
+   general lesson stands: a board that lives only on disk is invisible to every other session.
 2. **32 orphaned generated files in the main tree.** `games/sonic4/data/sound/sfx/sfx_*.asm` and
    `*_patches.asm` (untracked since 2026-09-08 00:46) are `tools/sfx_transcode.py` output in the format
    master deleted at `4b89ae24`; master tracks only the `.bin` twins. Delete or gitignore them.
