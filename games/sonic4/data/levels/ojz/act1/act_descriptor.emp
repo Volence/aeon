@@ -295,10 +295,26 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(sec: 5, blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
-            // SECTION 5 OWNS ITS PRESET (EFFECTS-W1 item 1 step 5). Identical to
-            // OJZ_Preset_Plain in every byte today; it exists so this section's raster
-            // channel can be bound from its sidecar's `rasterRef` without dragging
-            // sections 6-8 along. See ojz_effects.emp at OJZ_Preset_Sec5.
+            // SECTION 5 OWNS ITS PRESET (EFFECTS-W1 item 1 step 5). It exists so this
+            // section's raster channel can be bound from its sidecar's `rasterRef` without
+            // dragging sections 6-8 along. See ojz_effects.emp at OJZ_Preset_Sec5.
+            //
+            // ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). This note used to
+            // read "Identical to OJZ_Preset_Plain in every byte today". IT NO LONGER IS —
+            // quoted rather than deleted so a reader who remembers it meets the correction.
+            // Against OJZ_Preset_Plain (ojz_effects.emp at `OJZ_Preset_Plain`, which takes preset()'s
+            // defaults: parallax 0, all-PATCH_ANCHOR_NONE, all-ANCHOR_MOTION_NONE), the
+            // record at :1664-1684 differs in FOUR fields, all derived from source:
+            //   raster:            EditorRaster_OJZ_Act1_ojz_sec5_showcase, via the
+            //                      `if sec == 5` arm at effects_scenes.emp:399  (Plain: none)
+            //   parallax:          ParallaxConfig_OJZ_Underwater (:1675) — the d-53 LOAN, and
+            //                      the act's ONLY LIVE install of that record, because
+            //                      section 5 has no rung-1 arm while section 0 does
+            //   patch_world_ys[0]: 2272, via effects_scenes.emp:525    (Plain: PATCH_ANCHOR_NONE)
+            //   patch_motion[0]:   anchor_sweep(amp_shift: 4, period_shift: 1), via :536
+            //                                                        (Plain: ANCHOR_MOTION_NONE)
+            // Section 5 is where the act's row-remap waterline actually renders. That is an
+            // owner-facing content fact, not a tidy: see ojz_effects.emp at OJZ_Preset_Sec5.
             effects: OJZ_Preset_Sec5,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
@@ -344,11 +360,35 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // Channels 2 and 3 rather than 0 and 1 so the act-wide channel->band map the
             // effects tools build stays unambiguous; see OJZ_WorldWater's own note.
             //
-            // THE SCENE HALF IS UNBOUND ON PURPOSE. Section 7 has no `section_7.meta.json`,
-            // so `ojz_act1_sec_scene(sec: 7)` returns 0 and the act default stands. An
-            // anchored scene (`anchor: SceneAnchor.At(2, ..)`, and `rowRemap:` behind it) is
-            // authored by adding that sidecar — this call site already threads the chooser
-            // and needs no edit for it.
+            // ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). THE FIVE LINES
+            // THAT USED TO SIT HERE READ: "THE SCENE HALF IS UNBOUND ON PURPOSE. Section 7
+            // has no `section_7.meta.json`, so `ojz_act1_sec_scene(sec: 7)` returns 0 and
+            // the act default stands. An anchored scene is authored by adding that sidecar
+            // — this call site already threads the chooser and needs no edit for it." They
+            // are quoted rather than deleted because this exact sentence has already been
+            // COPIED FORWARD into a design document as a verified fact (see below), and a
+            // reader who remembers it must meet the correction rather than inherit a new
+            // value silently.
+            //
+            // THE SCENE HALF IS BOUND. `games/sonic4/data/editor/ojz/act1/section_7.meta.json`
+            // landed at c1d0a6be, 2026-09-05, reading `"sceneRef": "ojz_act1_sec7_worldwater"`.
+            // The generated chooser therefore carries `if sec == 7 { out =
+            // EditorSceneBinding_OJZ_Act1_Sec7 }` (effects_scenes.emp:346), and that binding
+            // is a real emitted `pub data` record (:168 = lower3(EditorScenes_OJZ_Act1[2])).
+            // `ojz_act1_sec_scene(sec: 7)` DOES NOT RETURN 0. Section 7 resolves at RUNG 1 to
+            // the editor scene `ojz_act1_sec7_worldwater` — 3 bands, v_factor 15, v_offset
+            // 288, no anchor (effects_scenes.emp:92-111) — and the act default does NOT stand.
+            // The anchored-scene authoring this note invited is what already happened.
+            //
+            // WHERE THE STALE SENTENCE TRAVELLED, recorded because it is the reason this
+            // correction is worth more than a comment fix:
+            // `docs/superpowers/designs/2026-09-09-regions-v1-design.md` §3.1 — a table headed
+            // "What act 1 looks like today, VERIFIED" — transcribed it as the row "returns 0,
+            // act default stands", and §4 step 1 proposes a 1:1 transcription of that table
+            // into the regions migration. That row is corrected in place in the design doc by
+            // this same parcel. Two more copies were corrected with it: ojz_effects.emp's
+            // OJZ_Preset_Sec7 banner, and games/sonic4/test/ojz_scroll_test.emp's parallax
+            // readout rationale.
             effects: OJZ_Preset_Sec7,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),

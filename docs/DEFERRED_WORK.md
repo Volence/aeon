@@ -708,7 +708,14 @@ that shut the door on section 0 are all still exactly right — only its STATUS 
 ~~**WHAT IS STILL OPEN, AND IT IS A CONTENT/CONTRACT DECISION RATHER THAN A READER ONE: NOTHING AT
 SECTION 5 CONSUMES THE CHANNEL IT SWEEPS.**~~ The generator's liveness refusal is a SUPERSET check —
 it sees that channel 0 has a consumer somewhere in the game, not that the binding section is one of
-them — and today it does not. The only section with live patch channels is section 0
+them — and today it does not. ~~The only section with live patch channels is section 0~~
+**(⚠ CORRECTED 2026-09-09, `parcel/section-effects-record-fix`: NOT the only one. Section 7
+has carried live patch channels since 2026-09-05 — `OJZ_Preset_Sec7` binds `patched:
+OJZ_WorldWater` on channels 2 and 3. The item-9 row of this file already records that as
+"9c UNBLOCKED 2026-09-05"; this paragraph was written before it and never caught up. The
+paragraph's CONCLUSION is unaffected — section 0 is still the section that structurally
+cannot bind an editor preset document, and that is what the three rules below close.)**
+Section 0's live channels are
 (`OJZ_TwoChannel`'s two `patchable()` records plus `ParallaxConfig_OJZ_Underwater`'s anchor), and
 **section 0 structurally cannot bind an editor preset document**: a document must carry `bands`
 (ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` refuses a sidecar
@@ -20670,9 +20677,16 @@ divergence between the two paths' installers, not the encoded word itself).
 **Left open:** whether a `bands`+`base_swap` combinator should ever exist (same open question
 `ramp`'s own artifact left for the dense tier); the empyrean schema CR itself, which this
 booking's shape note is written for the hub to file, not something this parcel can land;
-section 7/8 still share `OJZ_Preset_Plain` and are not document-bindable — opening either would
+~~section 7/8 still share `OJZ_Preset_Plain` and are not document-bindable — opening either would
 be the same one-time split paid again, undertaken only if a third document-bound section is
-wanted.
+wanted.~~ **⚠ CORRECTED 2026-09-09 (`parcel/section-effects-record-fix`), struck rather than
+deleted so a reader who acted on it can see what changed. SECTION 7 NO LONGER SHARES `Plain`
+AND IS NOT UNBOUND.** Since 2026-09-05 it binds its own `OJZ_Preset_Sec7`
+(`act_descriptor.emp:352`) carrying `patched: OJZ_WorldWater` on channels 2 and 3
+(`ojz_effects.emp`), **and** it carries `section_7.meta.json` (`c1d0a6be`) whose
+`"sceneRef": "ojz_act1_sec7_worldwater"` puts an `if sec == 7` arm in the generated chooser
+(`effects_scenes.emp:346`). So the split this note calls unpaid was paid, and section 7
+resolves at rung 1. Only **section 8** still binds `OJZ_Preset_Plain`.
 
 ## EFFECTS-W1 ITEM 10a — REELS: FIVE INDEPENDENT VERTICAL STRIPS ARE IN THE ROM; THE PICTURE IS UNRUN (2026-09-03, `parcel/item10a-reels`)
 
@@ -32183,3 +32197,127 @@ does not feel like an inference — it reads as transcription of a report's find
 that believes it is transcribing will not run a rule that requires suspecting itself.
 
 **EXPIRES IF:** `pins.rs` stops being generated, or `repin.toml` stops resolving by name.
+
+---
+
+## SECTION/EFFECTS RECORD FIX — SIX STALE STATEMENTS CORRECTED, ONE GLYPH LEFT DELIBERATELY WRONG (2026-09-09, `parcel/section-effects-record-fix`)
+
+Scheme A of `docs/2026-09-10-section-effects-inventory.md` (branch
+`recon/section-effects-inventory`, commits `2e8d7266` + `21d99cf7`) — "fix the record, move no
+bytes". **Prose only. Every edit in this parcel is a comment, docstring or markdown body; no
+symbol was renamed, reordered or deleted, and all four shapes are byte-identical to master
+`deb52a95`.** Schemes B and C were not attempted: B changes what is on screen in sections 1-3
+and is an owner call; C is blocked on the schema CR this file books under item 9c.
+
+**The one that mattered.** `docs/superpowers/designs/2026-09-09-regions-v1-design.md` §3.1 — a
+table headed "What act 1 looks like today, **verified**" — carried the row
+`ojz_act1_sec_scene(sec: 7)` **"returns 0, act default stands"**. It does not.
+`section_7.meta.json` (`c1d0a6be`, 2026-09-05) binds `"sceneRef": "ojz_act1_sec7_worldwater"`,
+the generated chooser carries `if sec == 7` (`effects_scenes.emp:346`), and that binding is a
+real emitted record (`:168`). **§4 step 1 of that design transcribes §3.1 1:1 into the regions
+table**, so the row would have become a wrong region inside a migration whose whole proof is
+byte-identical behaviour. Corrected in place with the old text struck through, plus a top-of-
+document banner, a §10.12 entry, and a verdict on all nine rows instead of two.
+
+**`c1d0a6be` is an ancestor of `944c5cc0`** — the SHA that design's §0 names as its grounding
+point — so the row was **wrong at the moment it was written "verified"**, not merely stale. It
+had been inherited from `act_descriptor.emp`'s comment, and re-derivation stopped at a comment
+rather than reaching the generated chooser. **A "re-derived from source" rule holds for numbers
+and fails at exactly the cells whose source is a generated file.**
+
+**The six statements corrected, each derived from source rather than from the report.**
+
+| file | said | is |
+|---|---|---|
+| `ojz_scenes.emp` (Scene_OJZ_Underwater layer 1) | section 0 is "the only section that binds this config and the only one with a live patch channel" | both false — **section 5 is the only LIVE install** (section 0's rung 1 overrides it); section 7 also has live patch channels |
+| `ojz_effects.emp` (OJZ_Preset_Sec7 banner) | "Section 7 has no sidecar at all today"; `OJZ_Preset_Sec0` "binds" Underwater | sidecar exists since 2026-09-05; Sec0 *names* Underwater but that naming is dead at rung 2 |
+| `act_descriptor.emp:347-350` | section 7 "has no `section_7.meta.json`, so `ojz_act1_sec_scene(sec: 7)` returns 0" | it has one; the chooser has an arm; it resolves at rung 1 |
+| `act_descriptor.emp:298` | section 5 "Identical to `OJZ_Preset_Plain` in every byte today" | differs in **four** fields: `raster:`, `parallax:`, `patch_world_ys[0]` (2272), `patch_motion[0]` (`anchor_sweep(4,1)`) |
+| `ojz_scroll_test.emp` (parallax readout rationale) | "SECTIONS 7 AND 8 SHARE ONE `EffectsPreset`… section 8 carries `sec_parallax_config` and section 7 does not" | both halves false; the **technique** it justifies is still right and now cites a live pair (sections 0 and 5) instead |
+| `tools/preset_lab_witness.py:30` | section 0 is "the act's only PATCHED preset" | section 7 is the second, since 2026-09-05 |
+
+**Two structural facts the file did not carry, now added at the head of `ojz_effects.emp`:**
+which of its thirteen programs reach a section (**six do**, plus `OJZ_GradientStream`
+indirectly through `OJZ_TestGradient`), and the four order-sensitive gates that make an
+unbound program un-deletable by its ADDRESS.
+
+### A finding this parcel made by tripping over it: 165 line citations point into one file
+
+`tools/test_citation_form.py::test_live_citations_resolve_to_something` caught this parcel's
+first draft, and the catch is worth booking because **the gate under-reports its own subject
+by an order of magnitude.**
+
+The first draft put the reachability table at the TOP of `ojz_effects.emp` — 95 lines, which
+shifted every line in the file. Measured across the tree at that moment: **162 of the 165
+`ojz_effects.emp:N` citations then pointed at different text.** The gate flagged **four**,
+because it asserts only that a cited line is non-empty ("a pointer has a referent"), not that
+it points at what it used to. The other 158 landed on some other non-empty line and passed.
+
+**That is not a gate defect — the gate is content-invariant by design and says so — but it
+means a green citation lane is NOT evidence that citations still resolve to their subject.**
+Anyone editing one of these files should assume silent re-pointing and measure it, which is a
+ten-line script diffing cited line content between the base revision and HEAD.
+
+**What the parcel did about it.** The table moved to the END of the file, where it shifts
+nothing, with a one-line pointer at the top that REPLACES an existing line rather than adding
+one (`git diff -U0` shows `@@ -8 +8 @@`, an equal-size swap). The remaining shift is only what
+an in-place comment correction inherently costs — you cannot fix a wrong sentence without
+moving what follows it. **Measured after the restructure: 44 citations re-point, down from
+191** (15 `ojz_effects.emp`, 19 `ojz_scenes.emp`, 6 `act_descriptor.emp`, 4
+`ojz_scroll_test.emp`). Every citation this parcel ADDED is by SYMBOL NAME, per the gate's own
+advice and `CODING_CONVENTIONS.md`'s "CITE BY NAME".
+
+**Not fixed here, and deliberately:** the 44, and the ~348 line citations into these four files
+generally. Re-pointing them is a mechanical sweep with real risk of silently "fixing" a
+citation to the wrong line, and it is a different parcel from this one. The durable fix is the
+convention the gate already states — cite the enclosing symbol, which survives every edit.
+
+### Still open
+
+- **⚠ `.lab_index` ROW 35's GLYPH STILL READS `BARE` AND THE COMMENT BESIDE IT NOW SAYS SO.**
+  `dc.b LAB_KIND_PRESET, 7, LTR_B, LTR_A, LTR_R, LTR_E` in `ojz_scroll_test.emp`. The
+  inventory listed this under Scheme A; **it is not byte-neutral** — these are emitted `dc.b`
+  bytes in a table the ROM carries, so changing them fails the four-shape md5 proof, correctly.
+  It is also not a free relabel: the glyph is four characters read off screen, so what section
+  7 should say instead is a readout-vocabulary decision. **The comment was corrected and the
+  glyph deliberately left contradicting it** — the loudest a record-only fix can be. Whoever
+  takes it should read that table's own note that under-reporting a live effect is the failure
+  this readout exists to prevent.
+- **`OJZ_Preset_*` and `EditorSceneBinding_OJZ_Act1_*`: REORDER FREE, RENAME COUPLED.** Reorder
+  is absorbed because `sigil/crates/sigil-harness/src/pins.rs` is a GENERATED file and
+  `repin_pins::pins_rs_is_current` fails loudly if it is not regenerated — safe when handled,
+  self-announcing when not. Rename breaks by-name resolution in `repin.toml:978-1017`, a
+  generated Rust identifier in `pins.rs:341-362` (a **compile error**, not a test failure), and
+  a bare string literal in `crates/sigil-cli/tests/act_descriptor_port.rs:117-146`, where
+  `EditorSceneBinding_OJZ_Act1_Sec0` additionally supplies the **end-label arithmetic** of the
+  pinned `SCENE_REGISTRY` region (`plain_base + plain_len`, `:132-136`). A fourth exposure: the
+  prefix sweep at `:268` decides membership by the name's prefix, so `OJZ_Preset_Depth` ->
+  `OJZ_Preset_Sec4` would move it from the pinned list into the swept set **and orphan its
+  `[[symbol]]` pin**. Two further sites: `section_align.rs:228`, `map_placement.rs:217`.
+  - **⚠ FOUR SHAPES AND FOUR MD5s CANNOT SEE EITHER HAZARD.** A `pub data` rename moves no ROM
+    byte, so a byte-neutrality proof — this parcel's own landing evidence — is structurally
+    blind to it. Never read a green build as clearance on a cross-seam name.
+  - **Rename is not forbidden, it is COORDINATED**: three mechanical edits on sigil's side,
+    cheap when expected. Route it; do not quietly narrow a cleanup to avoid the conversation.
+  - **Basis and expiry, because the bare fact is the half that rots:** verified firsthand at
+    sigil `master` `5498bdfb`, 2026-09-09, by two greps of that one repo. Nobody has swept the
+    family exhaustively — **treat the site list as a floor, not a total.** Expires if `pins.rs`
+    stops being generated or the manifest stops resolving by name.
+- **The inventory's finding 8 has one wrong member, found by re-deriving it.**
+  `OJZ_GradientStream` is listed as "defined but bound to no section (0 external refs)". It is
+  `OJZ_TestGradient`'s `stream:` argument in the **same file**, and `OJZ_TestGradient` is bound
+  to section 2 — so it reaches a section indirectly. The instrument (references *outside*
+  `ojz_effects.emp`) is blind to a same-file consumer, which is the same shape of error as the
+  cross-repo one above: **the population was enumerated by where the symbol is defined rather
+  than by what touches it.** Six of the thirteen programs reach no section, not seven.
+- **Three claims in the inventory still need a running ROM and were NOT attempted here** (no
+  emulator from a background lane). TAGGED for foreground: that section 0 installs the 5-band
+  editor scene; that the row remap is observable on section 5 and absent on section 0; and that
+  the `101` derivation still holds at section 5's anchor `2272` (= `2048 + 224`, section 0's
+  anchor translated one section row down, which is why it may well be unaffected).
+  `OJZ_SEC7_CAMERA_Y` is marked `// ASSUMED` in source and feeds two live anchors — same check.
+- **Owner calls, untouched and priced in the inventory's D4 table**: whether section 0's
+  waterline goes back on; whether section 5 keeps the Underwater loan (reverting it retires the
+  act's only row-remap surface and strands `CAP_ROW_REMAP` at `scene_registry.emp:488`);
+  whether the row-remap waterline belongs on 0 or 5; whether sections 1-3 keep visible gate
+  fixtures (Scheme B).
