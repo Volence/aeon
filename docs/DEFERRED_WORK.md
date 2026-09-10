@@ -32132,3 +32132,54 @@ were readers** — so the prose grep found 100% of the sites a byte-level sweep 
   `docs/ART_PIPELINE_CONTRACT.md:287` already said. Corrected in passing — worth noting that two docs
   disagreed for the file's whole life and neither had a gate.
 - `paletteRef` was deliberately not touched: the editor lane is striking it on their side.
+
+---
+
+## THE SECTION SYMBOL FAMILIES ARE CROSS-SEAM COUPLED — REORDER FREE, RENAME COUPLED (2026-09-10)
+
+**Binding on the section/effects cleanup (stage ii) and on the regions migration.** Verified
+firsthand at sigil `origin/master` on 2026-09-10, out of the blobs rather than from a peer's
+message.
+
+**REORDER IS FREE, and the reason is what makes it free rather than merely permitted.**
+`sigil/crates/sigil-harness/src/pins.rs` is a GENERATED file — its own header: *"GENERATED FILE,
+DO NOT EDIT BY HAND. Emitted by `cargo run -p sigil-harness --bin repin` from `repin.toml` +
+SIGIL'S OWN resolved layout … `tests/repin_pins.rs::pins_rs_is_current` guards staleness."* The
+addresses are DERIVED, not transcribed, so a reorder moves them and regeneration absorbs it; if
+nobody regenerates, that test goes **red loudly** rather than passing with a wrong number. Safe
+when handled, self-announcing when not.
+
+**RENAME IS COUPLED — three sites per member, seven `OJZ_Preset_*` members plus two
+`EditorSceneBinding_OJZ_Act1_*`:** (1) `repin.toml` resolves each `[[symbol]]` BY NAME
+(lines 978-1017); (2) `pins.rs`'s generated Rust identifier derives from that manifest name, so a
+rename is a **compile error** in sigil, not a test failure; (3) the name appears again as a bare
+string literal in `crates/sigil-cli/tests/act_descriptor_port.rs` (presets at 112-146).
+`EditorSceneBinding_OJZ_Act1_Sec0` additionally supplies a pinned region's **end-label
+arithmetic** (`SCENE_REGISTRY.plain_base + plain_len`), so renaming it moves a computed extent
+rather than merely dropping a row. A wanted rename is COORDINATED, not forbidden: sigil has
+offered three mechanical edits on their side, cheap when expected.
+
+**⚠ THIS LANE'S LANDING EVIDENCE IS STRUCTURALLY BLIND TO BOTH HAZARDS.** A `pub data` rename
+moves NO ROM BYTE: all four shapes build green and all four md5s match, while `*_port` tests in a
+repo this build never invokes break. Four-shapes-four-md5s is not evidence about cross-seam names.
+
+**SCOPE OF THE COUNT, stated because the count is the lesson.** Seven is what one file carries; it
+is a FLOOR, not a total. Nobody had swept either family until asked. The count reached its current
+value through four steps — declaration site 1 (aeon) → binding-family consumers 4 sites/3 files
+(sigil) → a windowed read 6 (hub) → the whole block 7+ (aeon) — and **every step returned a TRUE
+answer to a narrower question than the one that mattered.** There was never a false sentence to
+detect, only a scope nobody stated. The corrective is not more scepticism about answers but
+**stating the scope beside the count**: "one declaration site" and "seven in this file" are both
+true and neither is "the population". Same family as ENUMERATE BY WHAT TOUCHES THE DATA.
+
+**THE REASONING DEFECT THAT PRODUCED THE WORST STEP, banked because three lanes made it.** The
+premise everyone reasoned from was *"nothing DERIVES from their order or address"*. That is a
+claim about DERIVATION and says nothing about BY-NAME PINNING, yet it was turned into *"free to
+rename"* — including by this lane, in the same message where it was explaining that md5
+verification is blind to renames. **Mechanical form: when a premise names PROPERTIES (order,
+address) and a conclusion names OPERATIONS (rename, reorder), check that each operation is
+actually governed by one of the named properties.** It has to be mechanical because the widening
+does not feel like an inference — it reads as transcription of a report's finding, and a session
+that believes it is transcribing will not run a rule that requires suspecting itself.
+
+**EXPIRES IF:** `pins.rs` stops being generated, or `repin.toml` stops resolving by name.
