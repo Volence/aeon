@@ -819,6 +819,40 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **THE ILLEGAL VERSION OF A MISTAKE IS CAUGHT AND THE LEGAL VERSION OF THE SAME MISTAKE IS SILENT
+  — SO A VOCABULARY WITH NO WORD FOR A THING PRODUCES TWO FAILURES, AND ONLY ONE HAS A DETECTOR**
+  (added 2026-09-10; this lane's row, caught by the hub, who had committed the *other* half of the
+  same pair forty minutes earlier).
+  **The pair.** `lane-status.json`'s queue vocabulary is `doing` / `next` / `open` / `blocked` and
+  deliberately has **no `done`**: a landed row LEAVES the queue and its landing goes to
+  `docs/lane-log.jsonl`. A lane that finishes something therefore has no legal way to *say* so, and
+  reaches for one of two things. **The hub reached for an ILLEGAL state (`"done"`) and the console
+  caught it**, serving the teaching sentence Dominion wrote for exactly that case. **This lane
+  reached for a LEGAL state and rewrote the TITLE to say CLOSED — and nothing fired anywhere**: not
+  the console, not a local check, not the hub's reader. It surfaced only because a peer happened to
+  be reading titles.
+  **The consequence is worse in the silent direction, which is the whole reason it is a bar:** a
+  finished row parked in `open` reads to every reader — including your own successor at its next
+  boot — as **work available to pick**. Aurora's board reached 28 finished rows sitting `open` by
+  exactly this route.
+  **Operational form, and it is aurora's, adopted: retire and promote in ONE write, then re-read the
+  file's `next` count before saving.** A landed row is DELETED from the queue in the same write that
+  sets its successor `next`, or neither happens.
+  **The general shape, which outlives this field: when a vocabulary cannot express a state its users
+  need, they will improvise two ways, and your validator only knows about the improvisations someone
+  anticipated.** A rule against `done` catches neither `closed` nor a rewritten title. **Ask what a
+  user with no legal word would reach for, not what the enum forbids.**
+  *Sibling finding on the same file, same day: this lane had **zero** `next` rows while two agents
+  were out, and so did two other lanes simultaneously. Harmless while a lane is visibly busy and
+  dangerous the moment it rotates, since* **a missing `next` row looks exactly like a lane with
+  nothing to do** *— this repo's own sentence, from the `DEFERRED_WORK.md` entry about the same
+  field. Nothing counts `next` rows anywhere, so only a peer reading across lanes can see it.*
+  *And the trap underneath the fix: `blockedBy: null` is a claim about DECISIONS and not about
+  STARTABILITY. A row downstream of a card sitting on the owner's console is not waiting on a
+  decision — it is waiting on his answer to one — and promoting it to `next` is a lane overriding
+  his pause while looking tidier than before.*
+
+
 - **ONLY A CHECK YOU HAVE MADE FAIL ON DEMAND IS EVIDENCE OF ANYTHING — AND THE BLIND ONES ARE FOUND
   BY PLANTING A FAILURE, NEVER BY READING THE OUTPUT HARDER** (added 2026-09-10; four instances in
   four repos in one night, two of them this lane's, class named by the hub at empyrean `5d281fb`).
