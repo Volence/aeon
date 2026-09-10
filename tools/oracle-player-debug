@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Build Aeon's debug ROM, then open it in the Oracle player window with Aether on.
+#
+#   usage: oracle-player-debug [rom]
+#          AEON_BUILD=none       skip the ROM build entirely (old behaviour)
+#          AEON_BUILD=canonical  full build with every verification lane (slow)
+#          AEON_GAME=demo        build and run the demo game instead of sonic4
+#
+# WHY THIS BUILDS AT ALL. The version this replaces did not: it ran whatever
+# `s4.debug.bin` happened to be on disk and only complained if the file was missing.
+# On 2026-09-09 that silently served a ROM built 44 minutes before a content change
+# landed, and the owner spent an evening looking at behaviour that was no longer in
+# master, reasonably concluding the change had not worked. A launcher that shows you
+# yesterday's build looks exactly like a launcher that shows you today's.
+#
+# WHY `FAST=1` IS THE DEFAULT. It is aeon's content-authoring loop: roughly a second,
+# and the ROM it produces is byte-identical to the canonical one. What it skips is the
+# VERIFICATION, not the artifact — so it is right for "let me look at the game" and
+# wrong for "let me quote a number". It prints its own banner saying so at both ends.
+# Anything that will be cited, landed or frozen re-runs `./build.sh` canonically; that
+# is a rule about evidence, not about this script.
+set -uo pipefail
+
+AEON="$HOME/sonic_hacks/aeon"
+ORACLE="$HOME/sonic_hacks/oracle"
+GAME="${AEON_GAME:-sonic4}"
+MODE="${AEON_BUILD:-fast}"
+
+case "$GAME" in
+  sonic4) DEFAULT_ROM="$AEON/s4.debug.bin"; BUILD_ARG="" ;;
+  demo)   DEFAULT_ROM="$AEON/demo.debug.bin"; BUILD_ARG="demo" ;;
+  *) echo "AEON_GAME must be sonic4 or demo, got '$GAME'." >&2; exit 2 ;;
+esac
+ROM="${1:-$DEFAULT_ROM}"
+
+# ---- 1. the ROM -------------------------------------------------------------
+# Only build when the ROM we are about to run is the one this tree produces. A ROM
+# passed as an argument is somebody else's artifact and is never rebuilt under them.
+if [ "$MODE" != "none" ] && [ "$ROM" = "$DEFAULT_ROM" ]; then
+  # These are set by no dotfile on this machine, so a bare shell has neither.
+  export SIGIL_BUILD="${SIGIL_BUILD:-$HOME/sonic_hacks/sigil/target/release/sigil}"
+  export SIGIL_EMIT="${SIGIL_EMIT:-$HOME/sonic_hacks/sigil/target/release/emit_sound_blob}"
+  export AEON_SKDISASM_DIR="${AEON_SKDISASM_DIR:-$HOME/sonic_hacks/skdisasm}"
+  for tool in "$SIGIL_BUILD" "$SIGIL_EMIT"; do
+    [ -x "$tool" ] || { echo "No assembler at $tool — cannot build. Run the build by hand, or AEON_BUILD=none to play what is on disk." >&2; exit 1; }
+  done
+
+  before=""; [ -f "$ROM" ] && before=$(md5sum "$ROM" | cut -d' ' -f1)
+  echo "Building $(basename "$ROM") (${MODE})..." >&2
+  log=$(mktemp -t aeon-build-XXXXXX.log)
+  if [ "$MODE" = "canonical" ]; then
+    ( cd "$AEON" && DEBUG=1 ./build.sh $BUILD_ARG ) > "$log" 2>&1
+  else
+    ( cd "$AEON" && FAST=1 DEBUG=1 ./build.sh $BUILD_ARG ) > "$log" 2>&1
+  fi
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    # A failed build must never fall through to running the stale ROM silently — that
+    # is the exact confusion this script exists to end, wearing a different coat.
+    echo "BUILD FAILED (exit $rc). Last 20 lines of $log:" >&2
+    tail -20 "$log" >&2
+    if [ -n "$before" ]; then
+      echo >&2
+      echo "The ROM on disk is the OLD one (md5 $before). Not opening it — fix the build," >&2
+      echo "or run: AEON_BUILD=none $(basename "$0")   to play it deliberately." >&2
+    fi
+    exit $rc
+  fi
+  after=$(md5sum "$ROM" | cut -d' ' -f1)
+  if [ "$before" = "$after" ]; then
+    echo "ROM unchanged (md5 $after) — you are already current." >&2
+  else
+    echo "ROM rebuilt: ${before:-<none>} -> $after" >&2
+  fi
+fi
+
+[ -f "$ROM" ] || { echo "No ROM at $ROM." >&2; exit 1; }
+
+# ---- 2. the emulator --------------------------------------------------------
+# The sibling `oracle-player.desktop` entry rebuilds a binary older than its tracked
+# sources; this one used to rebuild only when the binary was ABSENT, so a stale one
+# ran forever. Staleness is measured against the newest mtime under oracle's own
+# sources rather than against a commit, because an uncommitted edit is exactly the
+# case a commit-based check cannot see.
+BIN="$ORACLE/target/release/oracle-player"
+if [ -x "$BIN" ] && [ -d "$ORACLE/crates" ]; then
+  newest=$(find "$ORACLE/crates" "$ORACLE/Cargo.toml" "$ORACLE/Cargo.lock" \
+             -newer "$BIN" -not -path '*/.claude/*' -not -path '*/target/*' \
+             -print -quit 2>/dev/null)
+  if [ -n "$newest" ]; then
+    echo "oracle-player is older than $newest — rebuilding it." >&2
+    ( cd "$ORACLE" && cargo build --release -p oracle-player ) >&2 || {
+      echo "oracle-player rebuild failed; running the existing binary." >&2; }
+  fi
+fi
+
+SOCK="${ORACLE_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/oracle.sock}"
+SYMS="${ROM%.bin}.lst"
+args=(--rom "$ROM" --aether)
+if [ -f "$SYMS" ]; then
+  args+=(--symbols "$SYMS")
+else
+  echo "note: no listing at $SYMS, so panels will show addresses without names." >&2
+fi
+
+# Both windows bind the same well-known socket by design, so whichever starts second is
+# REFUSED there (loudly, and it still runs). Say so up front rather than letting a tool
+# talk to the older window.
+if [ -S "$SOCK" ] && pgrep -x 'oracle-player|oracle-frontend' >/dev/null 2>&1; then
+  echo "An Oracle window already serves Aether at $SOCK; close it first, or this one will run without the bus." >&2
+fi
+
+if [ -x "$BIN" ]; then
+  exec "$BIN" "${args[@]}"
+else
+  echo "No built oracle-player at $BIN; building it (slow the first time)." >&2
+  cd "$ORACLE" && exec cargo run --release -p oracle-player -- "${args[@]}"
+fi
