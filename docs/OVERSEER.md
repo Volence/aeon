@@ -45,6 +45,27 @@ aeon+sigil freeze, puts a moratorium on new process bars and boot-doc growth, co
 to DoD items and the bug tier, and keeps "correct" meaning build + the lane's own tests + on
 screen or in a witness. **Read it at the artifact, do not trust this summary of it:**
 
+> **⚠ ITS CLAUSE (2) HAS LAPSED BY ITS OWN TERMS, AND NOTHING SAID SO UNTIL 2026-09-10.** The
+> moratorium on new process bars, new rulings about rules, and boot-doc growth is scoped
+> **"until EFFECTS-W1 ships"**, and `contract/projects.json` at empyrean `origin/main` reads
+> `EFFECTS-W1 state = done`. **Clauses (1), (3), (4) and (5) carry no such end condition and
+> STAND** — in particular (3), lanes work DoD items and the bug tier only, and (5), what
+> "correct" means.
+> **HOW THIS WAS FOUND IS THE PART WORTH KEEPING, because it is not a happy story.** This lane
+> spent an hour of 2026-09-10 adding four process bars and re-measuring a peer's numbers, went
+> to check the moratorium **only after a peer exchange made it salient**, and found it had
+> expired. **The rule was not honoured and it was not checked; it merely happened to be dead.**
+> That is the luck-is-not-a-method finding this file already carries twice, arriving on the one
+> ruling that outranks everything else in it.
+> **THE DURABLE DEFECT IS THAT A RULING'S EXPIRY LIVED NOWHERE.** This repo's standing lesson is
+> that a rule living only in a message is not in force for your successor. **Its inverse is
+> equally true and had no home: a rule whose END CONDITION is recorded only inside its own prose
+> keeps being obeyed — or in this case keeps being breachable — long after it has lapsed**, because
+> the condition is a fact about another repo's file that nobody re-reads. **Any conditional ruling
+> banked here from now on carries the command that tests its own condition**, so a boot can answer
+> "is this live?" instead of assuming. For this one:
+> `git -C ../empyrean show origin/main:contract/projects.json | grep -A2 EFFECTS-W1`
+
 ```sh
 git -C ../empyrean fetch -q origin && \
 git -C ../empyrean show origin/main:docs/OVERSEER.md | grep -n "18:20:19Z"
