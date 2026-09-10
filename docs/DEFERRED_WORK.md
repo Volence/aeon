@@ -32917,3 +32917,39 @@ FACT ABOUT THE TREE'S CURRENT STATE ("only section 5 is wired") rather than a ru
 thirty were not read.** Booked as residue rather than closed, because "I checked the rest too" is
 exactly the completeness claim the protocol says to treat as unverified until the enumerating
 command has been run and shown.
+
+## THE TWO STANDING OBLIGATIONS AEON OWES SIGIL — TESTED 2026-09-10, NOT WAITED FOR
+
+Sigil recorded two cross-session obligations at their `7e04ecd3`, both **trigger-based**, with
+the triggers living in THEIR repo and the note saying *"ping them, don't assume they are
+watching"*. **Nobody on this side had ever tested either trigger** — which is the receive-side
+face of the same defect this lane found twice today on its own board.
+
+**Obligation 2 — ALREADY DISCHARGED, and sigil's list is stale in the OTHER direction.**
+The ask was: when the alignment attribute lands, migrate the two
+`ensure(offsetof(Scene, …) % 2 == 0)` guards to it and retire them, since they are a workaround
+for a missing language feature rather than a fix for the class. **Done, at aeon `1c3dd0cf`** —
+subject: *"scene(align): the two bridges' parity is structural — `(align: 2)` replaces the
+offsetof ensures"*. Established by `git log -S`, not by the guards' absence: an empty grep is
+two-valued (migrated / moved / renamed) and the `-S` result is one-valued. Zero `offsetof(Scene`
+remain in `engine/`; the three hits at HEAD are prose in this file and in a handoff doc.
+**So their list asserts as OWED something that was DELIVERED.** This lane spent the morning on
+rows claiming a debt that was never incurred; this is the mirror — a row claiming a debt that
+was already paid. **Same field, opposite sign, and neither side can see it alone.**
+
+**Obligation 1 — trigger APPEARS to have fired, and confirming that is SIGIL'S to say, not
+ours to infer.** The ask: on the `game-defines` ship notice, re-run T8's three measured contexts
+(data-binding layout, struct harvest, RAM harvest) against a capability-derived define and
+confirm all three see it. At sigil `origin/master`, `emp_defines` now appears across four
+`crates/sigil-cli/tests/*` files and `0aa1e2bc` reads *"defines reach the listing: the
+game→engine -D values become .lst equate rows"*.
+**That is a commit SUBJECT and a symbol's PRESENCE, which is exactly the name-is-not-behaviour
+pair this suite has a bar about — it is not a ship notice.** Routed to sigil to confirm rather
+than asserted here. **If it has shipped, this confirmation is OURS and is un-run**, and the
+reason it is un-run is that a trigger in someone else's tree fires silently for the lane holding
+the obligation.
+
+**The reusable half:** an obligation whose TRIGGER lives in a peer's repo is untestable by the
+peer (they cannot see our un-run confirmation) and untested by us (nothing prompts a look). It
+does not need anyone to forget. **Test the trigger on a schedule you control, and never wait for
+the ping the note promises** — the ping is one message away from a `/clear`.
