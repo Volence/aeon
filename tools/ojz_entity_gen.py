@@ -564,16 +564,46 @@ def run_tests():
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("test", "generate"):
+#: THE MODE TABLE IS THE VALIDATOR — see tools/ojz_strip_gen.py's MODES for the full
+#: rationale and the incident it is written against (LS-15d).
+#:
+#: THIS FILE CARRIED THE IDENTICAL TRAP AND THE LS-15d ROW DID NOT KNOW IT. That row
+#: checked three siblings and cleared them; `ojz_entity_gen` was not in the three, and
+#: its `main` was a byte-for-byte instance of the defective shape — a `not in
+#: ("test", "generate")` guard, one `== "test"` branch, and `generate()` reached by
+#: FALLING OFF THE END. `generate()` rewrites the committed
+#: games/sonic4/data/generated/ojz/act1/entity_data.emp, so the fall-through here is
+#: the same severity as the one that actually fired: a typo or a mutation in the
+#: `"test"` literal silently regenerates committed level data.
+
+
+def _mode_test(rest):
+    if rest:
+        print(f"ERROR: unknown argument {rest[0]!r}")
+        sys.exit(1)
+    run_tests()
+
+
+def _mode_generate(rest):
+    if rest:
+        print(f"ERROR: unknown argument {rest[0]!r}")
+        sys.exit(1)
+    generate()
+
+
+MODES = {
+    "test": _mode_test,
+    "generate": _mode_generate,
+}
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    handler = MODES.get(args[0] if args else None)
+    if handler is None:
         print(f"Usage: {sys.argv[0]} test|generate")
         sys.exit(1)
-
-    if sys.argv[1] == "test":
-        run_tests()
-        return
-
-    generate()
+    handler(args[1:])
 
 
 if __name__ == "__main__":

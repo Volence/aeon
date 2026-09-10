@@ -2213,25 +2213,27 @@ def generate(stress_uniquify=0):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    args = sys.argv[1:]
-    mode = args[0] if args else None
-    if mode not in ("preflight", "test", "generate"):
-        print(f"Usage: {sys.argv[0]} preflight | test | generate [--stress-uniquify N]")
+USAGE = "Usage: {prog} preflight | test | generate [--stress-uniquify N]"
+
+
+def _mode_test(rest):
+    if rest:
+        print(f"ERROR: unknown argument {rest[0]!r}")
         sys.exit(1)
+    run_tests()
 
-    if mode == "test":
-        run_tests()
-        return
 
+def _mode_preflight(rest):
     # preflight — validate every precondition and WRITE NOTHING. regenerate-level.sh
     # runs this before its first destructive step (tools lens sweep D1).
-    if mode == "preflight":
-        preflight()
-        return
+    if rest:
+        print(f"ERROR: unknown argument {rest[0]!r}")
+        sys.exit(1)
+    preflight()
 
+
+def _mode_generate(rest):
     stress_uniquify = 0
-    rest = args[1:]
     i = 0
     while i < len(rest):
         if rest[i] == "--stress-uniquify":
@@ -2249,6 +2251,42 @@ def main():
             sys.exit(1)
 
     generate(stress_uniquify=stress_uniquify)
+
+
+#: THE MODE TABLE IS THE VALIDATOR (LS-15d, 2026-09-10). It used to be two things: a
+#: `mode not in (...)` guard listing the legal names, and a separate chain of
+#: `if mode == "...":` blocks doing the dispatch, with `generate` as the unguarded
+#: FALL-THROUGH at the bottom. Those two lists could disagree, and when a red-first
+#: mutation made them disagree -- `if mode == "test"` -> `"tset"` -- `test` passed the
+#: guard, missed every branch, and ran `generate`, which REWROTE COMMITTED LEVEL DATA
+#: (bg_tiles.bin 10242->6978 B, zone_bg.bin 8192->4096 B, DONOR_PROVENANCE.json) on a
+#: machine where that data is the owner's work.
+#:
+#: A defensive `else: usage; sys.exit(1)` would have stopped that particular run. This
+#: is the stronger fix and the reason to prefer it is structural, not stylistic: with
+#: one dict there is no second list to drift from, an unmatched mode CANNOT reach a
+#: handler because lookup is what selects the handler, and the destructive mode is no
+#: longer the syntactic default that control arrives at by falling off the end. Mutating
+#: a key here makes that mode unknown -> usage + exit 1; mutating a value is a NameError
+#: at import. Neither can silently generate.
+#:
+#: KEEP THIS SHAPE. Do not "simplify" it back into an if-chain with a validated set
+#: above it -- that is precisely the shape that cost this tree a data restore.
+MODES = {
+    "preflight": _mode_preflight,
+    "test": _mode_test,
+    "generate": _mode_generate,
+}
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    mode = args[0] if args else None
+    handler = MODES.get(mode)
+    if handler is None:
+        print(USAGE.format(prog=sys.argv[0]))
+        sys.exit(1)
+    handler(args[1:])
 
 
 if __name__ == "__main__":

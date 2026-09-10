@@ -4779,7 +4779,25 @@ def _atomic_write(path: str, text: str) -> None:
 if __name__ == "__main__":
     import sys
 
+    # THE UNRECOGNISED MODE IS REFUSED, NOT SILENTLY DEMOTED TO `shapes` (LS-15d,
+    # 2026-09-10). This ladder's `else` used to be the shapes report, which writes
+    # nothing and exits 0 — so `python3 tools/effects_gen.py chekc` printed a cheerful
+    # scene inventory and returned success, and build.sh:869 runs this tool as a STRICT
+    # gate (`gate strict "effects_gen.py" ... check`). A typo, a rename, or a mutation
+    # in the `"check"` literal would therefore have turned the drift gate vacuous while
+    # keeping the build green: the two committed artifacts it guards
+    # (effects_scenes.emp and the channel-band sidecar) would have gone ungated with no
+    # signal anywhere. Unlike its ojz_* siblings the fall-through here was read-only, so
+    # this is the "silent exit 0" class rather than the destructive one — but a gate
+    # that stops gating without saying so is the same defect wearing a quieter coat.
+    # `shapes` stays the NO-ARGUMENT default; it is only the *misspelled* mode that is
+    # now an error.
+    KNOWN_MODES = ("emit", "check", "shapes")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "shapes"
+    if cmd not in KNOWN_MODES:
+        print(f"effects_gen: unknown mode {cmd!r}")
+        print(f"Usage: {sys.argv[0]} [{' | '.join(KNOWN_MODES)}]   (default: shapes)")
+        sys.exit(1)
     try:
         if cmd == "emit":
             path, text = generate()
@@ -4833,7 +4851,7 @@ if __name__ == "__main__":
             print("effects_gen: OK — generated effects module matches its inputs")
             print(f"effects_gen: OK — channel-band sidecar matches the effects library "
                   f"({len(json.loads(band_text)['channels'])} banded channel(s))")
-        else:
+        elif cmd == "shapes":
             found = load_all_scenes()
             presets = load_all_presets()
             if not found and not presets:
@@ -4847,6 +4865,14 @@ if __name__ == "__main__":
                 what = (f"{len(preset['bands'])} band(s)" if "bands" in preset
                         else "1 ramp")
                 print(f"effects_gen: preset {pid} — {what}, shape OK")
+        else:
+            # UNREACHABLE while KNOWN_MODES and this chain agree — and that is the
+            # point of writing it out. The guard above and the branches here are two
+            # lists of the same names, which is the duplication LS-15d is about; this
+            # arm makes a disagreement a LOUD crash instead of a silent demotion to
+            # the shapes report.
+            raise AssertionError(
+                f"effects_gen: KNOWN_MODES accepts {cmd!r} but no branch implements it")
     except SceneShapeError as e:
         print(f"effects_gen: REFUSED — {e}")
         sys.exit(1)
