@@ -184,6 +184,15 @@ def main(argv=None):
     # marked test was deferred, which is precisely the state this lane exists to catch.
     print("\n  pytest exit %d — %d case(s) in the report: %d ran, %d deferred, %d failed"
           % (rc, len(cases), len(ran), len(deferred), len(failed)))
+    # EVERY CASE THAT RAN IS NAMED, not just the ones that went wrong (LS-1c, 2026-09-10).
+    # A green log and an absent run are the same artifact: "4 passed" cannot tell a reader
+    # WHICH four, and the whole reason this lane exists is one specific test —
+    # test_segmented_parent_checks_the_row_set_it_aggregated — that no build.sh shape can
+    # reach. A count is not evidence that it ran; its name in the log is. This is also what
+    # makes the marker-deletion case visible in practice: the decorator count and the case
+    # count fall together silently, but a name that stops appearing does not.
+    for label in ran:
+        print("  RAN       %s" % label)
     for label, msg in deferred:
         print("  DEFERRED  %s  — %s" % (label, msg))
     for label, msg in failed:

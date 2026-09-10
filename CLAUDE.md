@@ -138,6 +138,22 @@ When researching how to implement a system, check these in order:
   `pgrep -x oracle_gui`; multiple instances contend for the MCP socket and you end up debugging
   a stale binary). Other emulators: never auto-launch — user handles that
 - Use Oracle MCP tools to inspect VRAM, CRAM, registers, RAM directly
+- **Four-shape landing evidence — run `tools/merge_lane.sh` (LS-1c, 2026-09-10).** Every parcel
+  already has to build all four canonical shapes before it lands (sonic4 alone builds green over
+  a broken tree). That script IS those four builds — plain and `DEBUG=1`, sonic4 and `demo` — and
+  it then runs `python3 tools/needs_build_lane.py --built-after $T0` over the complete eight-artifact
+  set. Use it instead of four hand-typed `./build.sh` invocations, and paste its exit code into the
+  merge evidence. It is the ONLY thing that grades
+  `test_segmented_parent_checks_the_row_set_it_aggregated` before a merge: that test declares
+  `s4.debug.bin` + `s4.debug.lst` + `demo.debug.lst` at once, and one `build.sh` invocation writes
+  exactly one game's `.bin`/`.lst` pair, so it DEFERS in every `build.sh` shape.
+  ```bash
+  export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+  export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+  ./tools/merge_lane.sh     # 0 = green · 1 = a marked test failed · 2 = COULD NOT RUN
+  ```
+  `FAST=1` and `NO_LINT=1` are **refused** by it, not honoured: both skip the lanes it exists to
+  reach. The nightly keeps the same lane as a backstop for a parcel that skipped this.
 - **Effects gate ritual (owner ruling 2026-08-18):** any parcel touching `engine/effects/*`,
   `engine/level/bg_anim.emp`, or `engine/system/buffers.emp` must run
   `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` before merge and
