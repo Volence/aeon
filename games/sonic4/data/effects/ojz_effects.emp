@@ -5,7 +5,7 @@
 // parallax config records and this effects library). This file IS the
 // game-side effects library (design suite §6): the Phase-3 preset format and
 // the `raster_dsl` general constructors supersede the hand-laid programs
-// below, but the fixtures stay as the gate.
+// below, but the fixtures stay as the gate. ⚠ WHICH programs actually REACH a section: see the table at the END of this file (2026-09-09; it is at the end so it shifts no line number).
 module games.sonic4.ojz_effects in ojz_effects
 
 // The effects gate fixtures (below) are pinned against engine.vdp's comptime CRAM
@@ -1740,16 +1740,37 @@ pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
 // still true is section 0's; the conclusion is not, because `rowRemap` is a SCENE key and a
 // scene binds through `section_N.meta.json`'s `sceneRef` -> `Sec.sec_parallax_config` (rung 1
 // of Effects_ResolveParallax), which has NO interaction with `ep_raster`/`ep_patched`
-// exclusivity. Section 7 has no sidecar at all today, so its `sceneRef` is free, and
-// `ojz_sec()` in act_descriptor.emp already calls `ojz_act1_sec_scene(sec: 7)` for it. An
-// author wanting an anchored scene here therefore writes JSON and touches no `.emp`.
+// exclusivity.
 //
-// `parallax:` IS DELIBERATELY UNBOUND, unlike OJZ_Preset_Sec0 (which binds
-// ParallaxConfig_OJZ_Underwater) and unlike section 5's d-53 LOAN of the same record. Rung 1
-// beats rung 2, so a bound record here would be overwritten by the first `sceneRef` anyway
-// — and until one exists, an author looking at section 7 should see the act default and know
-// the scene half is theirs. Binding Underwater would have made section 7 a second copy of
-// section 0's look and hidden that. Reversible in one word if a stopgap is ever wanted.
+// ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). THIS PARAGRAPH USED TO
+// CONTINUE "Section 7 has no sidecar at all today, so its `sceneRef` is free", AND THE NEXT
+// ONE USED TO SAY OJZ_Preset_Sec0 "binds ParallaxConfig_OJZ_Underwater". Both sentences are
+// quoted here rather than deleted, because a reader who remembers them must meet the
+// correction rather than silently inherit a different answer.
+//   * SECTION 7 HAS A SIDECAR. `games/sonic4/data/editor/ojz/act1/section_7.meta.json`
+//     landed at c1d0a6be, 2026-09-05, reading `"sceneRef": "ojz_act1_sec7_worldwater"`. The
+//     generated chooser carries `if sec == 7 { out = EditorSceneBinding_OJZ_Act1_Sec7 }`
+//     (effects_scenes.emp:346) and that binding is a real emitted record (:168,
+//     `lower3(EditorScenes_OJZ_Act1[2])`). So `ojz_act1_sec_scene(sec: 7)` does NOT return
+//     0: section 7 installs the editor scene `ojz_act1_sec7_worldwater` — 3 bands,
+//     v_factor 15, v_offset 288, no anchor (effects_scenes.emp:92-111) — at rung 1.
+//     The anchored-scene work this paragraph pointed a future author at is DONE.
+//   * OJZ_Preset_Sec0 STILL NAMES ParallaxConfig_OJZ_Underwater (:1517), but that naming is
+//     DEAD: section 0's own rung 1 is non-zero (chooser arm `if sec == 0`), and
+//     Effects_ResolveParallax takes rung 1 outright. Section 5's d-53 loan (:1675) is the
+//     act's ONLY live install of that record. See the corrected banner on
+//     Scene_OJZ_Underwater's layer 1 in ojz_scenes.emp.
+//   * DO NOT "TIDY" :1517 AWAY. `tools/parallax_crossing_gate.py` needs section 0's three
+//     resolution rungs to hold three DIFFERENT pointers and raises a SETUP ERROR rather
+//     than passing if any two coincide (docs/DEFERRED_WORK.md, "PARALLAX CONFIG
+//     PRECEDENCE — CLOSED 2026-08-26"). That inert-looking line IS rung 2's distinct
+//     pointer. Deleting it collapses rung 2 onto rung 3 and breaks the gate.
+//
+// WHAT STANDS UNCHANGED FROM THE ORIGINAL PARAGRAPH, and it is the part worth keeping:
+// `parallax:` is deliberately unbound on THIS record, and rung 1 beats rung 2, so a record
+// bound here would be overwritten by the `sceneRef` that now exists anyway. Binding
+// Underwater would have made section 7 a second copy of section 0's intended look and
+// hidden that. The reasoning was right; only the tree it described has moved.
 //
 // THE CHOOSERS ARE NOT THREADED HERE, and that is a scope call rather than an oversight. A
 // `rasterRef` document could carry `boundary` (tools/effects_gen.py's `BOUNDARY_REQUIRED_KEYS`)
@@ -2395,3 +2416,109 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
         rts
     }
 }
+
+// ===========================================================================
+// WHICH PROGRAMS IN THIS FILE ACTUALLY REACH A SECTION — added 2026-09-09
+// (parcel/section-effects-record-fix), because nothing here said.
+// ===========================================================================
+//
+// WHY THIS TABLE EXISTS. This file defines thirteen raster / patched / cycle / gradient /
+// ramp programs, and a reader has no way to tell an act effect from an instrument: they
+// sit in one list, in one namespace, constructed the same way. Six of the thirteen render
+// in OJZ act 1. The rest are gate fixtures, a retired install, and two DEBUG-only demos.
+// EVERY ROW BELOW IS DERIVED FROM THE `preset()` CALLS IN THIS FILE plus the nine
+// `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp:239-361 —
+// a program "reaches a section" iff some preset names it AND that preset is bound there.
+//
+// ⚠ REFERENCE COUNTING IS THE WRONG INSTRUMENT HERE, and it is worth one line because it
+// already produced a wrong answer: the preset records live in THIS file, so a program can
+// have zero references outside it and still render (OJZ_DepthVSplit), and a table can be
+// consumed by a bound program in the same file (OJZ_GradientStream). Ask the bindings.
+//
+//   program              tier      reaches                 how
+//   -------------------  --------  ----------------------  ---------------------------
+//   OJZ_TwoChannel       patched   SECTION 0               OJZ_Preset_Sec0 `patched:`
+//   OJZ_TestRaster       raster    SECTION 1               OJZ_Preset_Sec1 `raster:`
+//   OJZ_TestGradient     raster    SECTION 2               OJZ_Preset_Sec2 `raster:`
+//   OJZ_GradientStream   data      SECTION 2 (indirect)    OJZ_TestGradient's `stream:`
+//   OJZ_ShimmerCycle     cycle     SECTION 3               OJZ_Preset_Sec3 `cycle:` (via
+//                                                          ojz_act1_sec_cycle's `hand:`;
+//                                                          the chooser has no sec-3 arm,
+//                                                          so the hand argument wins)
+//   OJZ_DepthVSplit      raster    SECTION 4               OJZ_Preset_Depth `raster:`
+//   OJZ_WorldWater       patched   SECTION 7               OJZ_Preset_Sec7 `patched:`
+//   -------------------  --------  ----------------------  ---------------------------
+//   OJZ_TestPal          palette   NO SECTION              ⚠ MUST NOT MOVE. See the
+//                                                          "`OJZ_TestPal` ITSELF IS
+//                                                          UNTOUCHED" note further down,
+//                                                          and tools/plane_base_swap_gate
+//                                                          .py:118-119, which derives
+//                                                          OJZ_BaseSwap's emitted size
+//                                                          from the gap to this symbol.
+//                                                          Unbound, but NOT free.
+//   OJZ_WaterRaster      raster    NO SECTION              its hand install was deleted in
+//                                                          P-b Task 6; the program was not
+//                                                          (ojz_scroll_test.emp:929)
+//   OJZ_TestVsram        raster    NO SECTION              gate fixture (the P3 VSRAM proof)
+//   OJZ_TestRamp         ramp      NO SECTION              gate fixture that never renders.
+//                                                          games/sonic4/config/game.emp:111
+//                                                          says so outright, and the
+//                                                          "SECTION 0 SURRENDERS
+//                                                          OJZ_TestRamp" banner below is
+//                                                          where it stopped rendering.
+//   OJZ_BandDemo         raster    NO SECTION, DEBUG ONLY  its `pub data` is
+//                                                          `if DEBUG == 1 { .. } else { [] }`
+//                                                          — emits nothing in release;
+//                                                          driven by the lab hotkey
+//   OJZ_BaseSwap         raster    NO SECTION, DEBUG ONLY  same `if DEBUG == 1` shape
+//
+// SECTIONS 5 AND 6 APPEAR IN NO ROW ABOVE, and that is correct rather than an omission:
+// their raster programs are EDITOR-AUTHORED and live in the generated tree
+// (EditorRaster_OJZ_Act1_ojz_sec5_showcase / _ojz_sec6_baseswap, reached through
+// `ojz_act1_sec_raster(sec: N)`). Section 8 binds OJZ_Preset_Plain and carries no raster
+// program at all. So act 1's nine sections are fed by TWO authoring mechanisms with
+// nothing in either file marking the split, and sections 1, 2 and 3 have no
+// `section_N.meta.json` — they cannot be reached from the editor at all.
+//
+// ⚠ "UNBOUND" DOES NOT MEAN "DELETABLE" ANYWHERE IN THIS FILE. Four order-sensitive gates
+// derive a size from the GAP between two symbols, so a program that renders nothing can
+// still be load-bearing by its ADDRESS, and reordering breaks them even though no value
+// moves: plane_base_swap_gate.py:118 (OJZ_BaseSwap -> OJZ_TestPal), band_drift_golden.py
+// :72-78 (ParallaxConfig_OJZ_Default -> _Underwater -> DeformTable_OJZ_Calm),
+// reels_gate.py:150-160 (OJZ_Reels_Fill -> ObjDef_Static, crossing into map.toml:128) and
+// waterline_tint_coverage.py:84 (OJZ_Preset_Sec7's name AND the first element of its
+// `variants:`). The first three are build-fatal. reels_gate.py:152-157 records that the
+// OJZ_Reels block was moved to the end of this file precisely to keep it from landing
+// between OJZ_BaseSwap and OJZ_TestPal — "measured red the first time this file was
+// drafted".
+//
+// ⚠ THE PRESET RECORDS' NAMES ARE FROZEN ACROSS A REPO SEAM: REORDER FREE, RENAME
+// COUPLED. Reorder is absorbed, because sigil/crates/sigil-harness/src/pins.rs is a
+// GENERATED file and `repin_pins::pins_rs_is_current` fails loudly if it is not
+// regenerated. Rename breaks three things on sigil's side: by-name resolution in
+// repin.toml (:978-1017), the generated Rust identifier in pins.rs (:341-362) — a COMPILE
+// ERROR, not a test failure — and a bare string literal in
+// crates/sigil-cli/tests/act_descriptor_port.rs (:117-146), where
+// `EditorSceneBinding_OJZ_Act1_Sec0` additionally supplies the END-LABEL ARITHMETIC of the
+// pinned SCENE_REGISTRY region (`plain_base + plain_len`, :132-136). A fourth exposure:
+// the prefix sweep at :268 decides membership by the NAME's prefix, so renaming
+// OJZ_Preset_Depth -> OJZ_Preset_Sec4 would move it from the pinned list into the swept
+// set and orphan its `[[symbol]]` pin.
+//   ⚠ A FOUR-SHAPE BYTE-IDENTITY PROOF CANNOT SEE ANY OF THIS. A `pub data` rename moves
+//   no ROM byte, so all four md5s match while sigil's standalone-scope tests break in a
+//   repo aeon's build.sh never invokes. Do not read a green build as clearance.
+//   RENAME IS NOT FORBIDDEN, IT IS COORDINATED — three mechanical edits on sigil's side,
+//   cheap when expected and a baffling compile error when not. Route it; do not quietly
+//   narrow a cleanup to avoid the conversation.
+//   BASIS AND EXPIRY, because the bare fact is the half that rots: verified firsthand at
+//   sigil master `5498bdfb`, 2026-09-09, by two greps of that one repo. Nobody has swept
+//   the family exhaustively — TREAT THE SITE LIST AS A FLOOR, NOT A TOTAL. Expires if
+//   pins.rs stops being generated or the manifest stops resolving by name.
+//   HOW THIS WAS MISSED BY THREE LANES, recorded because it transfers: everyone
+//   enumerated by the symbol's DECLARATION site and found one hit, because every consumer
+//   lives in another repo. ENUMERATE BY WHAT TOUCHES THE DATA, NOT BY WHAT DEFINES IT.
+//   And the premise that produced the wrong conclusion was "nothing DERIVES from their
+//   order or address" — a claim about derivation, silent about by-name pinning. If a
+//   premise names properties and a conclusion names operations, check each operation
+//   against a named property before relying on it.
+// ===========================================================================

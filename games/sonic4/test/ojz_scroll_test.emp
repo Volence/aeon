@@ -2327,8 +2327,31 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         dc.b    LAB_KIND_PRESET,   4,  LTR_D, LTR_P, LTR_T, LTR_H   // 32  sec 4 depth showcase
         dc.b    LAB_KIND_PRESET,   5,  LTR_S, LTR_R, LTR_E, LTR_F   // 33  sec 5 the sidecar rasterRef
         dc.b    LAB_KIND_PRESET,   6,  LTR_B, LTR_S, LTR_W, LTR_P   // 34  sec 6 nametable-base swap
-        dc.b    LAB_KIND_PRESET,   7,  LTR_B, LTR_A, LTR_R, LTR_E   // 35  sec 7 plain, nothing bound
+        // ⚠ ROW 35's GLYPH IS STALE AND IS DELIBERATELY LEFT STALE — see the block below.
+        dc.b    LAB_KIND_PRESET,   7,  LTR_B, LTR_A, LTR_R, LTR_E   // 35  sec 7: glyph reads BARE; the section is NOT bare (corrected 2026-09-09, see below)
         dc.b    LAB_KIND_PRESET,   8,  LTR_G, LTR_R, LTR_N, LTR_D   // 36  sec 8 plain + the floor
+        // ---- ROW 35: THE GLYPH IS WRONG, AND FIXING IT IS NOT THIS PARCEL'S TO MAKE ----
+        //
+        // `LTR_B, LTR_A, LTR_R, LTR_E` spells BARE — "sec 7 plain, nothing bound", which is
+        // what the trailing comment said until 2026-09-09. IT IS FALSE. Section 7 binds
+        // `OJZ_Preset_Sec7` with the PATCHED program `OJZ_WorldWater` on channels 2 and 3
+        // (ojz_effects.emp at `OJZ_Preset_Sec7`, act_descriptor.emp at `ojz_sec(sec: 7, ..)`),
+        // and since c1d0a6be (2026-09-05) it
+        // also carries `section_7.meta.json`, so `ojz_act1_sec_scene(sec: 7)` resolves at
+        // rung 1 to `EditorSceneBinding_OJZ_Act1_Sec7` (effects_scenes.emp:346). Two live
+        // channels and a scene: the most-bound section in the act after section 0.
+        //
+        // WHY THE FOUR BYTES WERE NOT CHANGED, stated so the next reader does not assume it
+        // was missed. These are EMITTED bytes — `dc.b` in a table the ROM carries — so
+        // editing them changes ROM bytes, and the parcel that wrote this correction was
+        // scoped to record-fixing that moves none (it proved byte-neutrality against four
+        // shape md5s, which a glyph change would have broken and correctly so). It is also
+        // not a free relabel: the glyph is four characters wide and read off screen, so
+        // choosing what section 7 should say instead is a readout-vocabulary decision, and
+        // this table's own note fifteen lines up records that under-reporting a live effect
+        // is the failure this readout exists to prevent. BOOKED, NOT DONE — the comment now
+        // contradicts the glyph on purpose, which is the loudest a record-only fix can be.
+        // See docs/DEFERRED_WORK.md, the 2026-09-09 section-effects record-fix entry.
         // APPENDED, and appended is the whole placement argument: every scene, raster and
         // preset row above keeps the index it had, so every note, gate and probe that
         // names a row by number still lands. The sub-index is 1 because `.scene_table`
@@ -2752,12 +2775,29 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 //
 // ---- HOW THE PARALLAX TRUTH IS DERIVED, AND WHY IT CANNOT BE THE PRESET RECORD ----
 //
-// SECTIONS 7 AND 8 SHARE ONE `EffectsPreset` — both bind `OJZ_Preset_Plain`
-// (games/sonic4/data/levels/ojz/act1/act_descriptor.emp), whose `ep_parallax` is 0. The
-// ONLY thing that differs is `Sec.sec_parallax_config`, which section 8 carries and
-// section 7 does not. So reading `ep_parallax` off `a3` — the obvious spelling, and the
-// one the other three channels use — gives BOTH sections the same answer and cannot tell
-// the floor from the control. The question has to be asked of the SECTION.
+// ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). THE WORKED EXAMPLE THAT USED
+// TO STAND HERE READ: "SECTIONS 7 AND 8 SHARE ONE `EffectsPreset` — both bind
+// `OJZ_Preset_Plain` …, whose `ep_parallax` is 0. The ONLY thing that differs is
+// `Sec.sec_parallax_config`, which section 8 carries and section 7 does not." BOTH HALVES
+// ARE NOW FALSE, and it is quoted rather than deleted because the technique it justifies is
+// still right — only its illustration rotted, and a reader who remembers the old pair must
+// meet the correction rather than inherit a new one silently.
+//   * They no longer share a record. Section 7 binds `OJZ_Preset_Sec7` (act_descriptor.emp
+//     :352, since 2026-09-05); only section 8 still binds `OJZ_Preset_Plain` (:358).
+//   * Section 7 DOES carry `Sec.sec_parallax_config`. `section_7.meta.json` landed at
+//     c1d0a6be (2026-09-05), so the generated chooser has `if sec == 7` and
+//     `ojz_act1_sec_scene(sec: 7)` yields `EditorSceneBinding_OJZ_Act1_Sec7`
+//     (effects_scenes.emp:346, :168). Both 7 and 8 now resolve at rung 1.
+//
+// THE ARGUMENT SURVIVES ITS EXAMPLE, and this is why the technique below was not changed:
+// reading `ep_parallax` off `a3` is wrong for a reason that never depended on 7 and 8 in
+// particular — `ep_parallax` is a PRESET field, so it gives every section sharing a record
+// the same answer, and it is rung 2, so it is silent about whatever rung 1 installed over
+// it. A LIVE PAIR EXISTS TODAY: sections 1 and 2 both resolve through rung 3 while binding
+// different presets, and sections 0 and 5 both name `ParallaxConfig_OJZ_Underwater` at rung
+// 2 while resolving to DIFFERENT configs — section 0 to its editor scene at rung 1, section
+// 5 to Underwater itself. Reading `ep_parallax` would call those two identical. The
+// question still has to be asked of the SECTION.
 //
 // It is asked through `Effects_ResolveParallax` — the engine's ONE three-way resolution
 // (Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config), the same proc

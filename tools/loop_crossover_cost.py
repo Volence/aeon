@@ -106,9 +106,17 @@ def _cycles(mnem_full, ops, taken):
     if base == "tst":
         return 4 + _ea(ops[0], size)
     if base in ("andi", "ori", "eori", "addi", "subi"):
-        if ops[1][0] != "d":
-            raise UnsupportedInstruction("%s to a non-Dn destination not timed" % base)
-        return 16 if size == "l" else 8
+        if ops[1][0] == "d":
+            return 16 if size == "l" else 8
+        # IMMEDIATE TO MEMORY, added 2026-09-10 for the priority swap's andi/ori pair
+        # on art_tile(a0). MC68000UM Table 8-5 gives these as 12(2/1)+ byte/word and
+        # 20(3/2)+ long, where the `+` is "add the effective address calculation time"
+        # — Table 8-1, which `_ea` already carries. Nothing in either subject routine
+        # had a memory-destination immediate before, which is why this raised rather
+        # than being wrong: the tool refuses what it has not been taught.
+        if ops[1][0] not in ("disp", "idx", "absw", "absl"):
+            raise UnsupportedInstruction("%s to %r not timed" % (base, ops[1][0]))
+        return (20 if size == "l" else 12) + _ea(ops[1], size)
     if base == "cmpi":
         if ops[1][0] != "d":
             raise UnsupportedInstruction("cmpi to a non-Dn destination not timed")

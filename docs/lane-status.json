@@ -1,12 +1,6 @@
 {
-  "focus": "The waterline is gone. That was my edit in your tree and it cost you hours.",
-  "inFlight": [
-    {
-      "what": "The loop's sprite priority swap - designed, never built, and it is why loops look flat",
-      "where": "branch parcel/loops-p-sprite-priority",
-      "agent": true
-    }
-  ],
+  "focus": "Loops now read as loops. Three things want your eyes on one ride, whenever you like.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "VRAM-FOR-OBJECTS",
@@ -19,21 +13,21 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the priority swap lands, or blocks on a look call that is yours.",
+  "nextBoundary": "Now - everything is pushed and nothing is half-applied.",
   "queue": [
+    {
+      "id": "LOOPS-P-LOOK",
+      "title": "One ride round the loop: front/behind on each arc, the apex, the insta-shield",
+      "state": "next",
+      "size": "S",
+      "blockedBy": "your eyes"
+    },
     {
       "id": "SECTION-EFFECTS-VISUAL",
       "title": "The visual half of the section/effects cleanup - three schemes priced, every pixel choice is yours",
       "state": "next",
       "size": "M",
       "blockedBy": "your call"
-    },
-    {
-      "id": "LOOPS-P-AEON",
-      "title": "The loop's sprite priority swap was never built - it is why a loop reads as a flat painted circle",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
     },
     {
       "id": "CONTENT-PINNING-FIX",
@@ -106,7 +100,7 @@
       "blockedBy": "owner"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-10T05:24:22Z"
+  "awaiting": "one ride round a loop to check the depth swap looks right; and the section/effects visual choices, which are yours",
+  "atBoundary": true,
+  "updatedAt": "2026-09-10T05:43:36Z"
 }

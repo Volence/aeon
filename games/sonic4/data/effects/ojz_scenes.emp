@@ -249,9 +249,29 @@ pub const Scene_OJZ_Underwater: Scene = scene(
     layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               // ---- EFFECTS-W1 item 9: THE WATERLINE'S ROW REMAP LANDS ON THIS LAYER ----
               //
+              // ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). The parenthesis
+              // below USED TO READ "the only section that binds this config and the only one
+              // with a live patch channel". BOTH HALVES ARE FALSE, quoted so a reader who
+              // remembers it meets the correction. Two presets name this record —
+              // OJZ_Preset_Sec0 and OJZ_Preset_Sec5 (the d-53 loan) — but SECTION 0's NAMING
+              // IS DEAD: its Sec.sec_parallax_config is non-zero (the `if sec == 0` arm of
+              // ojz_act1_sec_scene), and Effects_ResolveParallax takes rung 1 outright, so
+              // section 0 installs the editor scene `ojz_act1_start`. SECTION 5 — which has no
+              // such arm — IS THE ONLY LIVE INSTALL. Section 7 also has live patch channels
+              // (OJZ_WorldWater, ch 2/3) since 2026-09-05.
+              // ⚠ SO THE MEASUREMENT BELOW WAS TAKEN ON A SECTION THIS RECORD NO LONGER
+              // INSTALLS ON. The rowRemap landed 2026-09-03, nine days after section 0 was
+              // overridden, so this ladder was NEVER on section 0. Section 5's anchor 2272 is
+              // exactly 2048 + 224 — section 0's anchor one section row down — so the same
+              // in-section camera offset lands L in the same place and the 101 derivation may
+              // well still hold. THAT IS NOT ASSERTED: it is a static read of the binding
+              // graph with no frame behind it. TAGGED for a foreground emulator check (remap
+              // visible on 5, absent on 0, p >= 8 at rest). Full derivation and the four
+              // differing fields: docs/DEFERRED_WORK.md, the 2026-09-09 record-fix entry.
+              //
               // WHY LAYER 1 AND NOT ANOTHER, MEASURED RATHER THAN REASONED. On the shipped
-              // build in OJZ act 1 section 0 (the only section that binds this config and the
-              // only one with a live patch channel): Camera_Y 144, Parallax_Current_Vscroll_BG
+              // build in OJZ act 1 section 0 (see the correction above — measured there; the
+              // config now installs on section 5): Camera_Y 144, Parallax_Current_Vscroll_BG
               // 0, and Effects_Screen_L[0] sweeping 93 -> 75 unattended under the section's
               // `anchor_sweep`. This scene's four tops map to plane lines 0 / 64 / 320 / 384
               // (v_factor 3, v_center 512), so with Vscroll_BG 0 the on-screen bands are

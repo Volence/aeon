@@ -27,9 +27,22 @@ name}. The preset entries are the last BLOCK of that list, so this instrument no
     parallax config, and the `.preset` arm unconditionally re-does both on every press, so
     a crossed row of either kind cannot survive into a measurement. A crossed RASTER row
     is REFUSED, not tolerated;
-  * ends on section 0 for the reason it always did — it is the act's only PATCHED preset,
-    the only entry that exercises the verdict's world-anchor arm — and the wrap press is
-    also the proof that the cursor wraps at LAB_CYCLE_COUNT;
+  * ends on section 0, and the WRAP half of that is unchanged: the last press is the proof
+    that the cursor wraps at LAB_CYCLE_COUNT.
+
+    ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). The rest of this bullet used
+    to read "for the reason it always did — it is the act's only PATCHED preset, the only
+    entry that exercises the verdict's world-anchor arm". THAT REASON EXPIRED. It is quoted
+    rather than deleted so a reader who remembers it meets the correction. Section 7 is the
+    act's SECOND patched preset: `OJZ_Preset_Sec7` binds `patched: OJZ_WorldWater`
+    (games/sonic4/data/effects/ojz_effects.emp, at `OJZ_Preset_Sec7`) with world anchors on
+    channels 2 and 3,
+    landed 2026-09-05 — the same change that made claim 2 in the paragraph below stale, and
+    it was corrected there but not here. So section 0 is no longer the ONLY entry exercising
+    the world-anchor arm; ending on it is now a wrap proof plus a habit, not a coverage
+    argument. What still IS unique to section 0: it is the only patched section whose two
+    channels are 0 and 1 (section 7 uses 2 and 3), which is what the ch0/ch1 band-map arm of
+    tools/effects_gates.py measures there;
   * derives the preset rows' POSITIONS in the list rather than assuming them: the
     `.lab_index` table is read out of the running ROM at its own listing symbol, split by
     LAB_ENTRY_SIZE, and cross-checked against the listing's own
