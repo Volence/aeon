@@ -2,7 +2,7 @@
 
 `docs/decisions.jsonl` is append-only and committed (contract/DECISIONS.md rule 8). Thirty-one
 of its lines do not parse for Dominion's reader and the hub RULED they are not to be repaired
-(docs/OVERSEER.md, "THIRTY-ONE LEDGER LINES DO NOT PARSE FOR THE OWNER'S READER — DO NOT
+(docs/OVERSEER-REFERENCE.md, "THIRTY-ONE LEDGER LINES DO NOT PARSE FOR THE OWNER'S READER — DO NOT
 REPAIR THEM"). So the gate has two halves that pull in opposite directions and both matter:
 
   * nothing NEW may be rejected — the write site (tools/decisions_append.py) is how a line
@@ -130,7 +130,7 @@ def test_the_ruled_set_count_is_the_measured_one():
     f = _fixture()
     assert len(f["ruled_unrepaired"]) == 31, (
         f"the fixture holds {len(f['ruled_unrepaired'])} ruled lines; the hub ruled on 31 "
-        f"(docs/OVERSEER.md). If the ruling changed, update this pin in the same commit as the "
+        f"(docs/OVERSEER-REFERENCE.md). If the ruling changed, update this pin in the same commit as the "
         f"regenerated fixture and say which ruling.")
 
 

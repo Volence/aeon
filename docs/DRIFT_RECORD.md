@@ -115,7 +115,7 @@ Two entries, both `aeon-hand-measurement` — **this lane built these ROMs and C
 Neither is an observation of the drift job, and the job has still observed nothing.**
 
 1. **`ec6a4791` / sigil `ec4c368d`, `s4_debug` only.** The relink datum of 2026-08-30
-   (`docs/OVERSEER.md`): the sigil lane relinked the shared assembler across 41 commits
+   (`docs/OVERSEER-REFERENCE.md`): the sigil lane relinked the shared assembler across 41 commits
    while this lane sat at a boundary, and a rebuild at the same engine revision produced
    `s4.debug.bin 6516fc68/736315` — byte-identical. **A case-2 shape by hand, arrived at
    by accident**, and the population ordinary activity almost never produces.

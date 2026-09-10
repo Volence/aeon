@@ -14,7 +14,7 @@ The table lists a SUBSET of labels, so content between two listed labels is invi
 in it by construction. The only instruments that can answer occupancy are the sigil
 `.lst` symbol listing and a scan of the ROM image. This module reads exactly those,
 plus `games/sonic4/map.toml` for the hardware anchor, and NOTHING else. See
-`docs/OVERSEER.md` (the repo bar) and decisions d-8 / d-9.
+`docs/OVERSEER-REFERENCE.md` (the repo bar) and decisions d-8 / d-9.
 
 WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
 --------------------------------------------------
@@ -261,7 +261,7 @@ def lst_labels(lst_path):
             f"no listing at {lst_path}. NOTHING WAS MEASURED: the room derivation reads "
             f"label LMAs out of the sigil `.lst`, and there is no substitute — the frozen "
             f"boundary table lists a SUBSET of labels, so a gap in it is an allotment and "
-            f"not free space (docs/OVERSEER.md). The runner is build.sh's POST-sigil gate, "
+            f"not free space (docs/OVERSEER-REFERENCE.md). The runner is build.sh's POST-sigil gate, "
             f"on the listing `sigil build --emit-lst` just wrote in the same invocation — "
             f"a missing listing there is a BUILD BUG (the emit failed or the path moved), "
             f"not a fresh-tree condition. Do not convert this to a skip.")

@@ -7,7 +7,7 @@
 > running — check `ListAgents`; coordinate if present, proceed solo if not.
 
 The role, delegation discipline, review bars, and peer protocol live in the shared
-protocol doc. This file is what's aeon-specific.
+protocol doc. This file and `docs/OVERSEER-REFERENCE.md` are what's aeon-specific.
 <!-- SPLIT-NOTE -->
 **THIS FILE IS THE BOOT READ, AND IT IS CUT BY *WHEN A RULE IS READ* — never by size and never by
 what is "movable"** (owner, 2026-09-04T15:38:47Z, hub card 7, his words to the hub's recommendation
@@ -38,7 +38,7 @@ as of this cut (2026-09-10) — the growth ratchet it carried while card 7 was o
 per that file's own instruction. Narrative: `docs/OVERSEER-LOG.md`, search `BOOT-READ BOUND`.
 <!-- /SPLIT-NOTE -->
 
-## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR BELOW — read before the bars
+## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR IN `docs/OVERSEER-REFERENCE.md` — read it before those bars
 
 **2026-09-02T18:20:19Z — CUT THE CEREMONY (the owner's own ruling).** It ends the paired
 aeon+sigil freeze, puts a moratorium on new process bars and boot-doc growth, confines lanes
@@ -55,7 +55,7 @@ git -C ../empyrean show origin/main:docs/OVERSEER.md | grep -n "18:20:19Z"
 
 Banked here 2026-09-03 because it was being applied **from mail only** — a `git grep` over
 this repo's `docs/` for it returned nothing, so a rotated aeon would have booted without the
-one ruling that outranks the rest of this file. The same gap was found at oracle and sigil
+one ruling that outranks the rest of this file and every bar in `docs/OVERSEER-REFERENCE.md`. The same gap was found at oracle and sigil
 the same night. That is the failure this repo keeps re-finding in other forms: **a rule that
 lives only in a message is not in force for your successor.**
 

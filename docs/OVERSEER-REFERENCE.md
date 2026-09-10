@@ -46,7 +46,7 @@ That block is superseded. Everything below it moved here from the boot file on 2
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
 - **⚠ The paired-freeze recipe is DELETED, not annotated — do NOT reconstruct it.** `refreeze`
   and `provenance.toml` are sigil's, on sigil's clock. Owner *CUT THE CEREMONY* (1),
-  2026-09-02T18:20:19Z. **The `--attest`/strict/pin blocks below are the same retired ritual,
+  2026-09-02T18:20:19Z — the standing ruling at the top of `docs/OVERSEER.md`. **The `--attest`/strict/pin blocks below are the same retired ritual,
   sigil's not ours.** Why: DEFERRED_WORK, *THERE WAS NO FREEZE DEBT*.
 
   **⚠ THE MANUAL STRICT SUITE IS SUPERSEDED — RUN THE TOOL (2026-08-27).** Where this file

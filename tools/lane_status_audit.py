@@ -59,7 +59,7 @@ OWNER_RE = re.compile("|".join(OWNER_PHRASES), re.I)
 # 2026-08-30 by the hub as "do not repair" — rule 8 forbids rewriting, Dominion builds
 # owner-facing cards only from `blockedOnOwner` joined by id so these reach him nowhere,
 # and the first-class `answered` field supersedes the whole question. Full write-up in
-# docs/OVERSEER.md, section "SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE".
+# docs/OVERSEER-REFERENCE.md, section "SEVEN LEDGER ENTRIES ARE CLOSED OUT OF SHAPE".
 #
 # They are EXEMPTED FROM CHECK 2 AND REPORTED ANYWAY, never silently skipped: an audit that
 # hides what it forgave is an audit nobody can review. Adding an id here requires a RULING,

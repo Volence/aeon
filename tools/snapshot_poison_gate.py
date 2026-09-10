@@ -67,7 +67,7 @@ class SetupError(Exception):
 # (`capabilities.breakpoints: false`) and no `wait_for_break`", which was true when written
 # and is FALSE now: the oracle lane read `capabilities.breakpoints: true` and a served
 # `wait_for_break` out of a LIVE `initialize` on 2026-09-03, and this repo's own
-# docs/OVERSEER.md has recorded breakpoints as served since 2026-08-27. The stale sentence
+# docs/OVERSEER-REFERENCE.md has recorded breakpoints as served since 2026-08-27. The stale sentence
 # survived because a comment about ANOTHER repo's capabilities has no gate: neither tree can
 # tell you its claim about the other has gone stale, and "verified firsthand at a committed
 # revision" does not save it — the oracle lane hit the mirror-image of this the same night,
