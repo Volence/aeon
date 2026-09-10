@@ -142,7 +142,17 @@ the work to do before asking.
 > under the standing instruction: the band goes on SECTION 5** (the 38-byte split that evicts
 > nothing; section 4 was rejected because it evicts the d-15 showcase he asked to see). What the
 > band LOOKS like stays his: a legible default ships with a parked capture naming the section,
-> and he moves or recolours it in aurora once `assign_section_preset` lands. Carrying commit
+> and he moves or recolours it in aurora once `assign_section_preset` lands. **⚠ THAT CONDITION IS
+> SPENT: `assign_section_preset` HAS LANDED** — 17 files carry it at aurora `origin/master`
+> `ce2959b0`, read 2026-09-10 at their committed tip and not through their working tree. **So the
+> recolour is available to him NOW and this sentence has been telling every boot otherwise.**
+> Test it rather than trust either reading:
+> `git -C ../aurora fetch -q origin && git -C ../aurora grep -c assign_section_preset origin/master`
+> *Found by aurora's method, applied to this file: grep the boot read for the SHAPE of a lapsed
+> condition (`until X ships`, `once Y lands`, `while Z is open`) rather than for the one clause you
+> have just been shown wrong. This is the sharpest form of it — **a hold whose condition lives in
+> ANOTHER REPO cannot be tested by the lane holding it**, so it never gets tested, and it sits in the
+> resume brief a fresh session reads first.* Carrying commit
 > empyrean `e874427decc99c3717892a68a583f5a9bafc6dcc`, `docs/OVERSEER.md`, found with
 > `git log -1 -S 'SECTION 5, look parked' -- docs/OVERSEER.md`. **Reachable from `origin/main`,
 > re-verified here at 10:03Z after the hub pushed on this lane's catch.**
