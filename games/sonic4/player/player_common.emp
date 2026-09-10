@@ -1054,11 +1054,12 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 //     step that has not happened yet.
 //
 //     WHERE THE TEST SITS, and it is deliberately NOT hoisted above the walk. x_vel
-//     is frame-constant here — this routine writes only Sst.layer and the two
-//     PlayerBlock cell fields, so nothing in the walk can change it — which makes a
+//     is frame-constant here — this routine's whole write set is Sst.layer, the two
+//     PlayerBlock cell fields, and (since (5c), 2026-09-10) Sst.art_tile, so nothing
+//     in the walk can change it — which makes a
 //     per-cell re-read semantically identical to a hoist. Given that, the cheaper
 //     placement wins, and it is the one BELOW the `beq .unmarked`: an unmarked cell
-//     is every cell but two in the shipped table, so the walk's hot path does not
+//     is every cell but eight in the shipped table, so the walk's hot path does not
 //     execute one byte of the gate and the "no mark" cost rows below are unchanged
 //     from the pre-gate routine. A true hoist would have paid ~22 cycles on EVERY
 //     frame that changed cell — the common case for a running player — to save ~12 on
@@ -1200,8 +1201,9 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // mark is unchanged, because the whole gate lives below the `beq .unmarked`. The cost
 // lands only where a mark is actually met — +54 cycles on a rightward fire, +46 on a
 // leftward one, and +34/+36 where the gate REFUSES a mark (which also skips the
-// 12-cycle layer write, so a refusal is cheaper than a fire). Two marked slots exist in
-// the whole shipped table, so this is a cost on the loop and on nothing else.
+// 12-cycle layer write, so a refusal is cheaper than a fire). THREE marked slots exist in
+// the whole shipped table (re-derived 2026-09-10; it said two), so this is a cost on the
+// loop and on nothing else.
 //
 // WHAT THE SWEEP COST AND WHAT IT DID NOT. The steady state is 106 — the same figure,
 // instruction for instruction, as before the sweep: the `beq` on the cell id still
@@ -1250,7 +1252,9 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // for every act.
 //
 // In:  a0 = player SST, a4 = this slot's PlayerBlock
-// Out: none
+// Out: none in a register. THE WRITE SET, because "none" was read as "nothing moves"
+//      once already: Sst.layer and Sst.art_tile's priority bit on a firing cell (5)/(5c),
+//      and PlayerBlock's xover cell + cursor longs on any frame that changed cell.
 // Clobbers: d0-d3, a1 (d1-d3/a0 via Collision_GetType — a0 is saved across it here,
 //           exactly as probe_core does). a4 and d4-d7 are untouched: Player_Main holds
 //           the block in a4 and the frame's press bits in d6 across this call.
@@ -1380,8 +1384,9 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
                                                 // bits dirty (only its air path moveq's)
         lea     CrossoverTable, a1
         move.b  (a1, d1.w), d0
-        beq     .unmarked                       // XOVER_NONE — all but two slots of the
-                                                // shipped table, today
+        beq     .unmarked                       // XOVER_NONE — all but THREE slots of
+                                                // the shipped table, today (2026-09-10;
+                                                // it was two, and the paint moved)
         subq.b  #XOVER_LAYER_BIAS, d0           // d0 = the plane this mark LEADS ONTO
 
         // --- THE DIRECTION GATE (5b). A mark fires only when the player's
