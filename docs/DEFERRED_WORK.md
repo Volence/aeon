@@ -32633,3 +32633,88 @@ not reproduce** — alias and `command grep` both return 1398 sites, and the ali
 subtree's 81 when asked. Every count in the audit was taken with the alias and is unaffected.
 Recorded as unreproduced rather than as a fact, given this file already carries one retracted
 grep-behaviour claim.
+
+### ✅ ITEM 0 (A6 + A7) CLOSED 2026-09-10 — the empty registry folds to 0, and the demo's mask is derived
+
+**Nothing above is rewritten** (this file's MAINTENANCE PROTOCOL: keep the original text
+beneath). Branch `parcel/foldcaps-empty-registry`, base `8f1f8aad`, sigil
+`49ecc532e0b133ab0eab9447e071805c`. **Full evidence: the `⚠ ANNOTATION 2026-09-10` section
+appended to `docs/superpowers/notes/2026-09-09-content-pinning-audit.md`.**
+
+`engine/level/scene_dsl.emp`'s two `ensure(scenes.len >= 1, …)` sites — `fold_caps()` (A6) and
+`scene_budget_enforce()` (A7) — are **gone**, replaced by the derivation of why 0 is the answer,
+written at each site. `games/demo/config/game.emp` now declares `DEMO_SCENES: [Scene; 0] = []`
+and binds `const SCANLINE_CAPS = fold_caps(DEMO_SCENES)`; the comment the audit quoted
+("Nothing to derive and nothing to verify: `fold_caps()` REFUSES an empty registry…") is gone
+with the refusal that caused it.
+
+**THE COST WAS MEASURED, NOT INFERRED — and that RED run is the item's load-bearing evidence.**
+With the demo binding applied and the fold not yet changed, the demo build failed at
+`scene_dsl.emp:2456:5` with the guard's own message. That settles, for this site, the audit's
+own biggest stated blind spot ("WHICH `ensure` SITES ARE ACTUALLY ELABORATED"): `scene_dsl.emp`
+is already inside the **demo's** `use` closure via `parallax.emp`/`raster.emp`'s `CAP_*`
+imports, so the guard was live in the very shape it was blocking.
+
+**THE VALUE IS UNCHANGED AND THAT IS READ TWO WAYS:** a probe asserting the fold against a
+wrong number printed `DemoScenes_CapsFolded is 0`, and **all four ROMs are byte-identical**
+(`s4.bin 821103/8fbe85e7`, `s4.debug.bin 847367/07343b59`, `demo.bin 97051/f7fdf77d`,
+`demo.debug.bin 103335/ff11e22d`). What moved is that the mask is now **computed**: the day the
+demo authors a scene, it follows the scene. **The win is the mechanism being reachable at all,
+not the arithmetic** — a zero-scene fold is trivially 0 today.
+
+**⚠ ONE CORRECTION TO THE ENTRY ABOVE, against this parcel's own interest.** It says the demo's
+mask is hand-asserted "where every other game's is derived and checked". The second half is
+right; the first is not. `games/sonic4/config/game.emp` writes `SCANLINE_CAPS = $0FDE` by hand
+too — **no game derived its mask**. The demo's distinction was being **unchecked**, because the
+mechanism that does the checking refused to run on it. That strengthens the audit's core claim
+and narrows this parcel's: the demo is now the only game whose mask is derived, and sonic4's is
+still declared-and-checked. **Whether sonic4 should bind `fold_caps(SCENES)` directly is a
+separate decision and was NOT taken here** — `scene_registry.emp` argues against it in terms
+(it "would make the test `x == x`"), and that argument deserves an answer, not a step-over.
+
+**WHAT THE REMOVED GUARD ALSO HAPPENED TO CATCH, and why nothing replaces it:** a caller whose
+registry NAME resolved to nothing. Measured — `fold_caps(NO_SUCH_REGISTRY)` yields three hard
+errors (an unresolved name in argument position becomes a **label**, refused at the call, at the
+`for` and at the `.len`), so the `EMP_PITFALLS.md` §2 silent-degradation shape does not apply to
+an `array` parameter.
+
+**TWO SHIPPED CHECKS ASSUMED A HAND-WRITTEN MASK AND FOUND IT THE MOMENT IT WAS NOT** — the
+audit's own thesis, in the parcel that fixes it. `./build.sh` went **2 failed, 2396 passed**.
+`tools/scene_spans.py:game_caps()` text-scrapes a LITERAL and refuses otherwise ("guessing
+zero here would silently assert the maximal elision" — a correct refusal, kept); it now
+follows exactly one derivation it can PROVE from source, a name bound to
+`fold_caps(<registry>)` whose registry is declared `[Scene; 0]`, and still refuses everything
+else including a registry with scenes in it (naming the count) and an untyped `= []`.
+`test_emp_helper_closure.py::test_real_implement_block_bindings_are_not_module_items`
+asserted `comptime_items(game.emp) == set()`, a **fixture-shape pin** that was also the
+weaker assertion; it now reads the contract members out of `game_contract.emp` and asserts
+none leaks into the exported set, and `games/demo` is the first fixture that can tell a
+depth-aware scanner from a blind one. Both proven red-first against the real subject.
+
+**A THIRD PRIVATE PARSER, AND THE AUDIT'S RANKED-FIRST ITEM BITING IN PASSING.**
+`./build.sh demo` then failed at a POST-SIGIL gate: `row_remap_gate: UNMEASURABLE —
+SCANLINE_CAPS is not declared in games/demo/config/game.emp`. That tool carried a third
+private regex for the mask (and `waterline_art_gate.py` imports it), and **its own docstring
+already recorded this failing once** — hex-only regex, demo's bare `0` read as UNMEASURABLE,
+"two shapes silently not gated", 2026-09-03. One parser now, pinned by a cross-consumer row
+that checks every consumer against `scene_spans` for BOTH games. **And note how it failed:**
+the gate said "I could not measure this" (its own exit 2) and `if ! python3 ...; then exit 1`
+turned that into a failed build — **this audit's ranked-FIRST item, observed rather than
+derived**, in the parcel that fixes its ranked-zeroth.
+
+**⚠ A SIGIL FINDING TRIPPED OVER AND NOT CHASED — FOR THE OWNER.** A comptime-only `ensure`
+in `games/demo/config/game.emp` **changes the demo ROM**: `ensure(1 == 1, "x")` at module
+level in the manifest carrying `implement Game` gives `crc e63260f9` instead of `f7fdf77d` at
+the same 97051 B length, and the listing shows `VSync_Wait`'s tail 2 bytes shorter
+(`HBlank_Install` `$BC8` vs `$BCA`) — a branch-relaxation flip. Message text is irrelevant; a
+`pub const` at the same position is byte-neutral; the same `ensure` in
+`games/demo/config/constants.emp` is byte-neutral. Deterministic. **Nothing in this parcel
+ships that ROM** — the landed shape binds the fold and is byte-identical on all four images.
+Recorded because a zero-byte comptime construct silently changing emitted code deserves
+attention, and because the next person to add an `ensure` to a game manifest will meet it.
+
+**STILL OPEN:** shortlist items 1-7 — the `build.sh` exit-code collapse (ranked 1, and the only
+one that also protects the future), the two `test_lab_index_lint.py == 1` pins, the
+`scene_registry.emp` A1-A4 family, the 8-px visibility floor enforced twice, `knuckles_data.emp`'s
+pin-that-requires-a-bug, and the rest. **No `*_port` test moved and the sigil repo was not
+touched.**
