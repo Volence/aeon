@@ -7,15 +7,29 @@ painted mark travel into `crossover.bin` and reading the value back out of the R
 the listing's address. That proves the byte is READABLE. It does not prove anything
 reads it, and the anchor says so in those words (§5 row 13: "a painted crossover moves
 ROM bytes and does not move a player"). The read half's claim is the other one — that
-the byte in `CrossoverTable` DECIDES a player's collision plane — and nothing in the
-shipped tree can demonstrate it:
+the byte in `CrossoverTable` DECIDES a player's collision plane — which the shipped tree
+can now barely demonstrate, and the emphasis is on BARELY:
 
-  * every cell of every shipped act holds XOVER_NONE (anchor §2.1: all 18 plane files,
-    all 65,536 cells each), so a correct read site and a deleted one produce the same
-    ROM, the same CRC, and the same recorded play. A gate over content is vacuous here
-    BY CONSTRUCTION, which is the whole subject of the anchor's §8.1;
-  * there is no loop geometry anywhere in OJZ act 1 (anchor §0), so there is nothing to
-    run a player through even by hand.
+  * ⚠ CORRECTED 2026-09-10 (`parcel/loops-p-sprite-priority`), because both premises
+    that used to stand here had gone false and the argument they support had not. They
+    read: "every cell of every shipped act holds XOVER_NONE (anchor §2.1: all 18 plane
+    files, all 65,536 cells each)" and "there is no loop geometry anywhere in OJZ act 1
+    (anchor §0)". Section 0 has carried a loop and painted marks since 2026-09-02, so
+    this file argued from an empty tree while standing on a painted one.
+  * THE COUNT, RE-DERIVED IN THIS TREE rather than re-typed from the correction that
+    found it stale — the same instruction the booking gave, and it matters, because the
+    figure moved between the two: over all 18 shipped plane files (`games/sonic4/data/
+    editor/ojz/act*/section_*.collattr{,b}.bin`, 65,536 cells each = 1,179,648), exactly
+    **16 cells carry a mark** — 8 `XOVER_TO_B` on section 0's plane A and 8 `XOVER_TO_A`
+    on its plane B, all at column 143, in two four-cell vertical bars (rows 52-55, the
+    crown, and rows 68-71, the floor). The anchor's §11 still describes that paint as
+    TWO cells; it is eight. The other 1,179,632 cells hold XOVER_NONE. Re-derive again
+    at the moment of the next edit — a literal written here goes stale on the identical
+    clock, which is exactly what happened to the two sentences above.
+  * SO A CONTENT-SIDE GATE IS NO LONGER VACUOUS, but 16 marked cells out of 1.18 M is
+    not a population either: a recorded play that never reaches column 143 of section 0
+    still cannot tell a correct read site from a deleted one. The argument for grading
+    the ROUTINE therefore survives its premises' correction, and is not weakened by it.
 
 So the subject is the ROUTINE, taken from the build as bytes:
 
@@ -138,6 +152,9 @@ NEED_SYMS = (READ_SITE, LOOKUP, "CrossoverTable", "SolidityTable",
 NEED_EQUS = ("XOVER_NONE", "XOVER_TO_A", "XOVER_TO_B", "XOVER_LAYER_BIAS",
              "LAYER_PATH_A", "LAYER_PATH_B", "COLL_CELL_W", "COLL_CELL_H",
              "CTYPE_AIR", "SST_x_pos", "SST_y_pos", "SST_layer", "SST_x_vel",
+             # the art word, whose bit 15 the priority family grades — taken from the
+             # build's own struct rather than from the $14 every reader knows it is
+             "SST_art_tile",
              "TILE_CACHE_COLS", "TILE_CACHE_ROWS", "TILE_CACHE_COLL_SIZE",
              # the two per-frame displacement caps. The step-over family derives its
              # WHOLE sweep from these rather than from a number written here, so a cap
@@ -416,6 +433,13 @@ def execute(cpu, prog, entry, extents, trace, limit=600):
             r = {"andi": a & b, "and": a & b, "ori": a | b, "or": a | b,
                  "eori": a ^ b, "eor": a ^ b}[base]
             cpu.logic_flags(r, size)
+            # A memory destination is a WRITE and has to reach the trace, exactly as
+            # `move` and `addi`/`subi` above already do. It did not until 2026-09-10,
+            # because until the priority swap no form in either subject routine had one
+            # — and `priority`'s "art_tile is not written on an unmarked frame" leg
+            # would have passed vacuously, on a run where it WAS written.
+            if ops[1][0] in ("disp", "idx", "absw", "absl"):
+                trace.writes.append((cpu.ea_addr(ops[1]), size))
             cpu.dst_write(ops[1], r, size)
         elif base in ("addi", "addq", "add", "subi", "subq", "sub"):
             b, a = cpu.src(ops[0], size), cpu.src(ops[1], size)
@@ -519,6 +543,24 @@ class World:
         self.cpu.write(SST + self.k["SST_x_pos"], (x & 0xFFFF) << 16, "l")
         self.cpu.write(SST + self.k["SST_y_pos"], (y & 0xFFFF) << 16, "l")
         self.cpu.wb(SST + self.k["SST_layer"], layer & 0xFF)
+
+    def set_art_tile(self, word):
+        """The player's whole VDP art word, seeded rather than assumed zero: the
+        priority family runs every case from BOTH seeds of the priority bit, so a
+        routine that only ever raises it (no unconditional clear) is separable from one
+        that derives it."""
+        self.cpu.write(SST + self.k["SST_art_tile"], word & 0xFFFF, "w")
+
+    def art_tile(self):
+        return (self.cpu.rb(SST + self.k["SST_art_tile"]) << 8) | \
+               self.cpu.rb(SST + self.k["SST_art_tile"] + 1)
+
+    def art_tile_writes(self, trace):
+        """Writes that landed anywhere in the art word — either byte, either size. The
+        priority family asserts on the ABSENCE of these as well as their effect, which
+        is what separates a fire-site derive from an unconditional per-frame one."""
+        lo = SST + self.k["SST_art_tile"]
+        return [w for w in trace.writes if lo <= w[0] < lo + 2]
 
     def set_x_vel(self, v):
         """The frame's screen-space horizontal velocity, 8.8 signed, as the routine's
@@ -1085,6 +1127,139 @@ def sweep_direction(rom, prog, extents, syms, equs, fails, notes):
     return total
 
 
+def sweep_priority(rom, prog, extents, syms, equs, fails, notes):
+    """THE SPRITE PRIORITY SWAP — LOOPS-P Parcel 2, the (5c) block on the read site.
+
+    `docs/LOOP_CROSSOVER_ENCODING.md` §9 rules it: "ship the 2-bit layer field, DERIVE
+    PRIORITY FROM THE LAYER AT THE ENGINE READ SITE". `loops-and-sprite-rotation.md`
+    §4.3 Gap 1 says what its absence looks like — "a loop reads as a flat painted
+    circle ... the player runs over the top of his own scenery" — which is a rendering
+    defect no layer byte can show, so it needs its own family.
+
+    THE SAME EXPERIMENT AS `sweep_consumption`, one field further on: everything held
+    fixed, ONE byte of the ROM's CrossoverTable varied, and now the claim is that
+    art_tile's priority bit follows the LAYER that byte produces. That chain — ROM byte
+    -> layer -> priority bit — is the whole parcel, and grading the last link against
+    the model rather than against the routine is what stops this passing on a routine
+    that sets the bit for some other reason.
+
+    WHAT IS DERIVED AND WHAT IS NOT, said plainly because half of it is hardware.
+    WHICH bit is the priority bit is not ours to derive: bit 15 of a VDP sprite
+    attribute word is the priority bit, full stop, and no `pub const` under
+    games/sonic4/player/ reaches this build's `.lst` EQU block for us to read it from
+    (measured: BUTTON_JUMP_MASK, INSTASHIELD_LAST_FRAME and KNUX_ABILITY_RADIUS are all
+    absent). What binds OUR packer to that bit is a build-fatal `ensure` beside the
+    constants in player_common.emp, not this file. What this file grades instead is the
+    half that is ours and that a wrong mask would break:
+
+      * the priority bit ends up SET exactly when the layer the frame produced is
+        LAYER_PATH_B, and CLEAR exactly when it is LAYER_PATH_A — from BOTH seeds of
+        the bit, so an implementation with no unconditional clear (raises on the way
+        onto path B, never lowers) fails the seeded-high path-A rows;
+      * EVERY OTHER BIT OF art_tile SURVIVES. The seed is a word with a real tile index
+        and a real palette in it, so a clear mask that took the palette with it, or an
+        `ori` of the wrong width, is a finding rather than a coincidence;
+      * art_tile is NOT WRITTEN AT ALL on a frame that does not fire. That is the cost
+        claim in the routine's own comment ("does not execute one byte of them"), and
+        it is also what separates this design from an unconditional per-frame derive,
+        which would pass every other assertion here.
+
+    NON-VACUITY. The rows must split: some must end high and some low, and some must
+    write art_tile and some must not. Both counts are asserted and both are derived
+    from the model, so a routine that stopped firing altogether cannot pass by making
+    every row agree with an unchanged seed."""
+    PRIO = 0x8000                    # VDP sprite attribute word, bit 15 — hardware
+    SEED_BASE = 0x0780               # a real tile index (not 0), so a bad mask shows
+    total = highs = writes = 0
+    for layer in (equs["LAYER_PATH_A"], equs["LAYER_PATH_B"]):
+        for value in (equs["XOVER_NONE"], equs["XOVER_TO_A"], equs["XOVER_TO_B"]):
+            for vel in (RIGHT, LEFT, STILL):
+                for seed_prio in (0, PRIO):
+                    seed = SEED_BASE | seed_prio
+                    w = World(rom, prog, extents, syms, equs)
+                    w.fill_plane(0, ATTR_A)
+                    w.fill_plane(1, ATTR_A)
+                    if value != equs["XOVER_NONE"]:
+                        w.set_crossover(ATTR_A, value)
+                    w.place(IN_CELL[0], IN_CELL[1], layer)
+                    w.set_art_tile(seed)
+                    w.set_x_vel(vel)
+                    trace = w.frame()
+                    want_layer = model(layer, value, equs, vel)
+                    # FIRING IS NOT "THE LAYER CHANGED", and getting that wrong is what
+                    # this line is for: the routine reaches `.fire` whenever the mark
+                    # passes the direction gate, INCLUDING when it leads onto the plane
+                    # the player is already on. That case is R2's illegal self-mark, so
+                    # no shipped content can produce it — but this gate authors the
+                    # CrossoverTable itself and does produce it, and it writes the layer
+                    # (to its own value) and runs the derive. Deriving `fired` from the
+                    # layer moving would have made those six rows expect an untouched
+                    # word and mis-grade a routine that is behaving correctly.
+                    fired = (value != equs["XOVER_NONE"]
+                             and mark_target(value, equs) == travel_plane(vel, equs))
+                    # The model, stated once: a fire derives the bit from the layer it
+                    # produced; anything else leaves the word exactly as it was found.
+                    want_art = ((SEED_BASE | PRIO) if want_layer == equs["LAYER_PATH_B"]
+                                else SEED_BASE) if fired else seed
+                    got = w.art_tile()
+                    total += 1
+                    if want_art & PRIO:
+                        highs += 1
+                    row = ("layer=%d CrossoverTable[$%02X]=%d x_vel=%d seed=$%04X"
+                           % (layer, ATTR_A, value, vel, seed))
+                    if got != want_art:
+                        why = ""
+                        if (got & ~PRIO & 0xFFFF) != (want_art & ~PRIO & 0xFFFF):
+                            why = ("  AND IT IS NOT THE PRIORITY BIT: the tile/palette "
+                                   "half of the word changed too, so the mask is wrong, "
+                                   "not just the polarity.")
+                        elif fired and want_layer == equs["LAYER_PATH_B"]:
+                            why = ("  THIS IS GAP 1 ITSELF: a player handed the path-B "
+                                   "arc is still drawn at low priority, which is the "
+                                   "'flat painted circle' the research doc names.")
+                        elif fired:
+                            why = ("  The unconditional clear is missing: a player "
+                                   "returned to path A kept the bit the previous "
+                                   "crossing raised.")
+                        fails.append(("priority",
+                                      "%s: art_tile became $%04X, the model says $%04X."
+                                      "%s" % (row, got, want_art, why)))
+                    aw = w.art_tile_writes(trace)
+                    if fired and not aw:
+                        fails.append(("priority",
+                                      "%s: the layer moved to %d and art_tile was never "
+                                      "written — the priority derive did not run on a "
+                                      "firing frame" % (row, want_layer)))
+                    if not fired and aw:
+                        fails.append(("priority",
+                                      "%s: no mark fired, yet art_tile was written %d "
+                                      "time(s). The derive belongs on the firing path — "
+                                      "the routine's cost note claims an unmarked cell "
+                                      "'does not execute one byte' of it"
+                                      % (row, len(aw))))
+                    if aw:
+                        writes += 1
+                    if not w.cells_probed(trace):
+                        fails.append(("priority",
+                                      "%s: graded on a frame that never probed a cell"
+                                      % row))
+    if highs == 0 or highs == total:
+        fails.append(("priority",
+                      "UNMEASURABLE: the model wants the priority bit SET on %d of %d "
+                      "rows. The family only discriminates while some rows end high and "
+                      "some end low; at 0 or all, a routine that always set the bit and "
+                      "one that never touched it would both pass." % (highs, total)))
+    if writes == 0 or writes == total:
+        fails.append(("priority",
+                      "UNMEASURABLE: %d of %d rows wrote art_tile. The 'costs an "
+                      "unmarked cell nothing' half needs both kinds of row present."
+                      % (writes, total)))
+    notes.append("priority swap: %d rows (both planes x every legal mark x three travel "
+                 "directions x both seeds of the priority bit); the model ends %d of "
+                 "them high and writes art_tile on %d" % (total, highs, writes))
+    return total
+
+
 def sweep_off_cache(rom, prog, extents, syms, equs, fails):
     """A position outside the tile cache window returns CTYPE_AIR, which indexes
     CrossoverTable[0]. Index 0 is the attr set's reserved AIR entry
@@ -1282,15 +1457,16 @@ def run_all(rom, prog, extents, syms, equs):
     n5 = sweep_step_over(rom, prog, extents, syms, equs, fails, notes)
     n6 = sweep_step_over_marks(rom, prog, extents, syms, equs, fails, notes)
     n7 = sweep_direction(rom, prog, extents, syms, equs, fails, notes)
+    n8 = sweep_priority(rom, prog, extents, syms, equs, fails, notes)
     if moved == 0:
         fails.append(("consumption", "NOT ONE execution changed the layer because of a "
                                      "ROM byte this gate authored. Either the read site "
                                      "never fires, or this gate is not varying what it "
                                      "thinks it is — an all-green run with moved=0 is "
                                      "the vacuous result this file exists to refuse."))
-    return {"executions": n1 + n2 + n3 + n4 + n5 + n6 + n7, "consumption": n1,
+    return {"executions": n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8, "consumption": n1,
             "plane": n2, "edge": n3, "off_cache": n4, "step_over": n5,
-            "step_over_marks": n6, "direction": n7,
+            "step_over_marks": n6, "direction": n7, "priority": n8,
             "moved_by_rom": moved, "marked": marked, "fails": fails, "notes": notes}
 
 
@@ -1346,9 +1522,11 @@ def main():
     for n in r["notes"]:
         print("  %s" % n)
     print("  %d executions: %d consumption, %d plane-select, %d edge-trigger, "
-          "%d off-cache, %d step-over, %d step-over write-order, %d direction"
+          "%d off-cache, %d step-over, %d step-over write-order, %d direction, "
+          "%d priority"
           % (r["executions"], r["consumption"], r["plane"], r["edge"],
-             r["off_cache"], r["step_over"], r["step_over_marks"], r["direction"]))
+             r["off_cache"], r["step_over"], r["step_over_marks"], r["direction"],
+             r["priority"]))
     print("  %d of them changed Sst.layer BECAUSE a byte of CrossoverTable in the ROM "
           "image was changed and nothing else was — that is the consumption claim, and "
           "the unmodified table is its control" % r["moved_by_rom"])

@@ -490,12 +490,31 @@ vars InstaV: Sst.sst_custom {
 // world coordinates, like the player's.
 const INSTA_SHIELD_RENDER_FLAGS = EFFECT_INSTA_SHIELD_BAND << RF_PRIORITY_SHIFT
 
-// Palette 0, low priority — vram_art(tile,0,0) == tile. S3K writes
-// make_art_tile(ArtTile_Shield,0,0) and then copies the player's high-priority bit;
-// our player's art_tile is vram_art(cd_vrambase,0,0) with that bit CLEAR, so the copy
-// would be a no-op and is not reproduced. The palette line is Sonic's own (line 0),
-// which the census above proves the art belongs on.
+// Palette 0, low priority — vram_art(tile,0,0) == tile. The palette line is Sonic's
+// own (line 0), which the census above proves the art belongs on.
+//
+// ⚠ THE COPY IS NOW REPRODUCED, and the sentence that used to stand here is why this
+// note is long. It read: "S3K writes make_art_tile(ArtTile_Shield,0,0) and then copies
+// the player's high-priority bit; our player's art_tile is vram_art(cd_vrambase,0,0)
+// with that bit CLEAR, so the copy would be a no-op and is not reproduced." Every
+// clause of that was true when written and its PREMISE expired on 2026-09-10: LOOPS-P
+// Parcel 2 (Player_LoopCrossover's (5c) block) derives the player's priority bit from
+// his collision layer, so on a loop's right arc the bit is SET and the copy is no
+// longer a no-op. Without it the flash would draw in front of the loop art on the
+// frames the character behind it is drawn behind — a shield detaching from its owner
+// for the length of an arc. S3K's answer is the copy, so we copy.
 const INSTA_SHIELD_ART_ATTR = vram_art(VRAM_INSTA_SHIELD, 0, 0)
+
+// The VDP high-priority bit of an art word, kept LOCAL rather than imported from
+// player_common (which exports the same value as ART_TILE_PRIO). Two reasons, and the
+// first is the real one: a shared spelling would be this module's first reference to
+// that name, and a new cross-module name is a `*_port` change this repo's build cannot
+// see. The second is that it costs nothing to be safe — both spellings are BOUND to
+// `vram_art`, the single authority on where `pri` lands, so they cannot drift apart
+// without one of the two ensures going red.
+const INSTA_SHIELD_PRIO = $8000
+ensure(vram_art(0, 0, 1) - vram_art(0, 0, 0) == INSTA_SHIELD_PRIO,
+       "vram_art no longer packs `pri` at INSTA_SHIELD_PRIO ($8000) — InstaShield_Spawn's andi would mask the wrong bit out of the player's art word")
 
 // -----------------------------------------------
 // InstaShield_Spawn — drop the flash on the player.
@@ -530,7 +549,11 @@ pub proc InstaShield_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
         move.l  Sst.y_pos(a0), Sst.y_pos(a1)    //   sweep may render this slot before
                                                 //   its first Main runs
         move.l  #Map_InstaShield, Sst.mappings(a1)
-        move.w  #INSTA_SHIELD_ART_ATTR, Sst.art_tile(a1)
+        move.w  Sst.art_tile(a0), d0            // the player's art word ...
+        andi.w  #INSTA_SHIELD_PRIO, d0          // ... just its VDP priority bit, which
+                                                //     the loop crossover now moves
+        ori.w   #INSTA_SHIELD_ART_ATTR, d0      //     (see the const's note above)
+        move.w  d0, Sst.art_tile(a1)
         move.l  #Ani_InstaShield, Sst.anim_table(a1)
         move.b  #$FF, Sst.prev_anim(a1)
         move.b  #$FF, Sst.prev_frame(a1)

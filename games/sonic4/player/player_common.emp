@@ -636,6 +636,34 @@ ensure(XOVER_TO_B == XOVER_TO_A + 1,
 ensure(TILE_CACHE_COLL_PLANES == 2,
        "there are no longer exactly two collision planes — Collision_GetType's tst.b/beq plane select and the crossover's two-value encoding both assume 2")
 
+// THE SPRITE PRIORITY BIT — the VDP high-priority bit of an art word, named because
+// Player_LoopCrossover now derives it from the layer (LOOPS-P Parcel 2, see the (5c)
+// block on that routine). `vram_art(tile, pal, pri)` (engine/objects/objdef.emp) is
+// the sole authority on where `pri` lands, so both constants are BOUND to it below
+// rather than asserted: the pair is a spelling of `vram_art`'s bit 15, not a second
+// opinion about it. Same shape as SPRING_PAL_BIT's ensure in objects/test_solid.emp.
+//
+// Both are LOCAL, and the alternative was measured rather than assumed: a `pub const`
+// here does NOT reach the build's `.lst` EQU block (no `pub const` under
+// games/sonic4/player/ does — BUTTON_JUMP_MASK, INSTASHIELD_LAST_FRAME and
+// KNUX_ABILITY_RADIUS are all absent from it), so exporting the name would have bought
+// tools/loop_crossover_gate.py nothing and cost a `pub` symbol with no consumer. The
+// gate takes bit 15 as what it is — the VDP sprite attribute word's priority bit, a
+// hardware fact — and grades the half that is ours: that no OTHER bit of art_tile
+// moves. The ensure below is what binds our packer to that bit, build-fatally.
+const ART_TILE_PRIO       = $8000     // the bit itself
+const ART_TILE_PRIO_CLEAR = $7FFF     // ... and every other bit of the word
+ensure(vram_art(0, 0, 1) - vram_art(0, 0, 0) == ART_TILE_PRIO,
+       "vram_art no longer packs `pri` at ART_TILE_PRIO ($8000) — the crossover's priority derive is an andi/ori pair on that immediate, so it would now clear or set the wrong bit of art_tile")
+ensure(ART_TILE_PRIO + ART_TILE_PRIO_CLEAR == $FFFF,
+       "ART_TILE_PRIO_CLEAR is not the complement of ART_TILE_PRIO within a word — the unconditional clear would drop art bits, or leave the priority bit standing")
+// The derive is a `tst.b` on the layer byte followed by `beq` = keep low. That reads
+// the encoding, so pin it: path A must be the ZERO one, and path B the other.
+ensure(LAYER_PATH_A == 0,
+       "LAYER_PATH_A is {LAYER_PATH_A}, not 0 — the priority derive's `tst.b`/`beq` treats zero as path A, so a non-zero LAYER_PATH_A would draw a path-A player in FRONT of the level art everywhere")
+ensure(LAYER_PATH_B != 0,
+       "LAYER_PATH_B is 0, the same value the priority derive's `beq` reads as path A — the swap could never raise the priority bit")
+
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes, taken from the
 // ACTIVE CHARACTER's record. cd_stand_wh / cd_roll_wh are packed W<<8|H exactly
@@ -1055,6 +1083,75 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 //     past the exit foot. Reported to the owner 2026-09-05; see
 //     docs/DEFERRED_WORK.md.
 //
+// (5c) THE SPRITE PRIORITY SWAP — LOOPS-P Parcel 2, built 2026-09-10, and it is what
+//     makes a loop read as a loop instead of as a circle painted on a wall.
+//
+//     THE MECHANISM, and it is a VDP one. The Mega Drive composites in six layers:
+//     high-priority sprites, high-priority plane A, high-priority plane B, then
+//     low-priority sprites, low-priority plane A, low-priority plane B. Our level art
+//     puts ground and terrain on HIGH priority and sky on low (tools/ojz_strip_gen.py
+//     `generate_collision_bytes`, and measured: 2401 of section 0's 5775 non-empty
+//     plane-A nametable words carry bit 15). The player's own art word is
+//     `vram_art(cd_vrambase, 0, 0)` — priority CLEAR (characters.emp Player_InitAssets:
+//     "the player draws at palette 0 / low priority"). So a low-priority player is
+//     drawn BEHIND terrain wherever he overlaps it, and a high-priority one in front.
+//     On flat ground he never overlaps, which is why nobody has noticed; inside a loop
+//     he overlaps for the whole circuit, and both halves would hide him.
+//
+//     WHAT DECIDES THE BIT: the layer, and nothing else. That is the anchor's ruling
+//     verbatim (docs/LOOP_CROSSOVER_ENCODING.md §9): "ship the 2-bit layer field,
+//     DERIVE PRIORITY FROM THE LAYER AT THE ENGINE READ SITE, and treat the first case
+//     that needs them decoupled as the trigger to revisit." S3K instead carries two
+//     further independent subtype bits on Obj_PathSwap (5 and 6, one per crossing
+//     direction, sonic3k.asm:39702) — that is the DECOUPLED design, and §9 declines it
+//     until a painted crossover actually needs "in front" to differ from "on plane B".
+//     `PATHSWAP_BIT_PRIO` therefore stays reserved and still raises; see
+//     games/sonic4/objects/path_swap.emp.
+//
+//     WHICH WAY ROUND, and it is FORCED rather than chosen — the parcel had no free
+//     parameter here and this comment exists so nobody re-opens it as a taste
+//     question. The player's layer starts at LAYER_PATH_A (Player_Init `clr.b
+//     layer(a0)`) and his art word starts with the priority bit CLEAR, in the same
+//     routine. Any derive mapping path A to "set" would therefore raise the priority
+//     bit for the ENTIRE GAME outside loops — a whole-game rendering change wearing a
+//     loop parcel's clothes. So path A keeps the bit clear and path B raises it, which
+//     is the only mapping that is a no-op everywhere a crossover has never fired.
+//
+//     WHAT THAT LOOKS LIKE, stated as the falsifiable claim it is: plane B carries the
+//     RIGHT arc and plane A the LEFT one (the same fact (5b)'s direction rule turns
+//     on), so the player is drawn IN FRONT of the loop art while on the right arc and
+//     BEHIND it while on the left. Whether that is the right way round for a GIVEN
+//     loop is a property of the paint — which of its tiles carry the VDP priority bit —
+//     and therefore a content question, not this routine's. Nothing here can see a
+//     frame; TAGGED for a look.
+//
+//     THE IDIOM IS S3K'S, and the unconditional clear is the load-bearing half: every
+//     firing path in Obj_PathSwap does `andi.w #drawing_mask,art_tile(a1)` and only
+//     then re-sets the bit. A conditional set with no clear would raise the bit on the
+//     way onto the right arc and never lower it. Both halves are word operations on
+//     immediates the `ensure` block above binds to `vram_art`.
+//
+//     IT COSTS THE STEADY STATE NOTHING, and that is by placement, not by luck: these
+//     three instructions sit BELOW `.fire`, which is below the `beq .unmarked` and the
+//     direction gate. An unmarked cell — every cell but eight in the shipped act — does
+//     not execute one byte of them, so every "no mark" row of the cost table below is
+//     unchanged. Only a firing crossing pays, and there are eight marked cells in the
+//     whole shipped tree.
+//
+//     THE INVARIANT IT CREATES: art_tile's bit 15 agrees with Sst.layer. Two other
+//     sites write one of the pair and are made consistent with it — Player_Init writes
+//     both (InitAssets clears the bit, `clr.b layer` clears the layer) and needs
+//     nothing; Player_DebugExit re-runs InitAssets, which clears the bit while the
+//     layer survives, and carries the same derive at its tail for that reason.
+//     `games/sonic4/objects/path_swap.emp` writes the layer and does NOT follow — it
+//     is placed in no level data today and is PARKED for deletion, and giving it a
+//     derive would be building the decoupled design §9 declined. Booked, not built.
+//
+//     GRADED BY tools/loop_crossover_gate.py family `priority`, which varies the same
+//     one byte of CrossoverTable the consumption family does and requires art_tile's
+//     bit 15 to follow the layer it produces — and requires art_tile to be written on
+//     NO frame that does not fire.
+//
 // Value 3 is not tested for. The bake refuses it (rule R1, tools/collision_pipeline.py
 // bake_plane_cell raises), so it cannot reach CrossoverTable; adding a silent runtime
 // clamp here would give the illegal value a quiet meaning, which is the exact thing
@@ -1072,18 +1169,23 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // includes the caller's `bsr.w` (18), and none of them model the bus contention a real
 // Mega Drive imposes on the 68000 — every row is a FLOOR for the CPU's own work.
 //
-//   same cell (the whole steady state)                                        106
-//   cell changed, position off the tile cache (GetType's air exit, 58)        580
-//   cell changed, one cell of X, no mark (plane A / plane B)              794 / 800
-//   cell changed, one cell DIAGONALLY, no mark (plane A)                      830
-//   cell changed, one cell, FIRES rightward (TO_B on plane A)                 862
-//   cell changed, one cell, FIRES leftward (TO_A on plane B)                  852
-//   cell changed, one cell, REFUSED by direction (TO_A going right)           848
-//   cell changed, one cell, REFUSED by direction (TO_B going left)            836
-//   cell changed, one cell, REFUSED by direction (x_vel == 0)                 818
-//   a discontinuity — teleport/respawn/act start — snapped to one probe       750
-//   TWO cells of X in one frame (>8 px/frame: the step-over the sweep exists
-//     for), no mark / marked field firing on both                     1348 / 1490
+//   (RE-RUN 2026-09-10 after the priority swap; the previous column is kept beside it
+//    because the difference is the whole subject of the paragraph two below)
+//                                                                     now  (was)
+//   same cell (the whole steady state)                                106   (106)
+//   cell changed, position off the tile cache (GetType's air exit, 58) 584   (580)
+//   cell changed, one cell of X, no mark (plane A)                    798   (794)
+//   cell changed, one cell of X, no mark (plane B)                    804   (800)
+//   cell changed, one cell DIAGONALLY, no mark (plane A)              834   (830)
+//   cell changed, one cell, FIRES rightward (TO_B on plane A)         918   (862)
+//   cell changed, one cell, FIRES leftward (TO_A on plane B)          890   (852)
+//   cell changed, one cell, REFUSED by direction (TO_A going right)   852   (848)
+//   cell changed, one cell, REFUSED by direction (TO_B going left)    840   (836)
+//   cell changed, one cell, REFUSED by direction (x_vel == 0)         822   (818)
+//   a discontinuity — teleport/respawn/act start — snapped to one probe 754  (750)
+//   TWO cells of X in one frame (>8 px/frame: the step-over the sweep
+//     exists for), no mark                                           1352  (1348)
+//   ... same, marked field firing on both                            1598  (1490)
 //
 // HOW MUCH OF THAT IS TRUSTWORTHY, and the answer is checkable rather than asserted.
 // The summer reproduces three figures the previous note derived independently and by a
@@ -1108,20 +1210,44 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // rather than turning a corner: an ordinary frame on a slope moves one cell on each
 // axis and still costs ONE probe (830), where an L-shaped path would have cost two.
 //
+// WHAT THE PRIORITY SWAP COST, and the interesting half is NOT the three instructions.
+// On the two firing rows it is +56 and +38 cycles — the andi/ori pair is 20 each
+// (MC68000UM Table 8-5, 12 for an immediate-to-memory word plus 8 for the (d16,An)
+// effective address) plus the `tst.b`/`beq`, with the leftward row paying less because
+// it takes the `beq` and never reaches the `ori`. Those land on eight painted cells in
+// the whole shipped tree.
+//
+// THE +4 ON EVERY OTHER PROBING ROW IS NOT THE SWAP'S INSTRUCTIONS — it is the
+// routine's SIZE, and it is worth knowing because nothing about the source says so.
+// The 18 bytes pushed the walk's back branch past the byte-displacement reach:
+// `bne .walk` was `6682` (bne.b, -126) and is now `6600ff72` (bne.w). Taken, both cost
+// 10; NOT taken — which happens exactly once per frame that entered the walk — a word
+// Bcc costs 12 against a byte Bcc's 8. Hence +4 on every row that probes at all and +0
+// on the steady state, which is the pattern in the table above and the reason it is not
+// evidence of a mistake. It is 4 cycles against ~800, it does not compound (the reach
+// is crossed once, not per byte), and it comes straight back if the routine ever loses
+// 18 bytes. The alternative was an out-of-line trampoline for the derive, which trades
+// those 4 cycles for ~20 on every fire plus a label and two branches in the file's most
+// carefully-ordered routine; that trade was declined deliberately, not overlooked.
+//
 // Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
-// 1.24% on a frame where both changed cell, 2.11% in the two-cell case that only
+// 1.25% on a frame where both changed cell, 2.12% in the two-cell case that only
 // happens above 8 px/frame. A player running at speed changes cell most frames, so
-// 1.24% is the honest running figure. 204 bytes of code (was 182), measured from the
-// listing.
+// 1.25% is the honest running figure. 222 bytes of code (was 204, and 182 before the
+// sweep), measured from the listing.
 //
 // The cheap gate that is NOT here, named so it is a decision and not an oversight:
 // a per-act "this act has crossovers" flag would collapse the whole per-frame cost to
 // about 12 cycles for any act that has none — but that flag does not exist, it is a
 // bake-side field, and adding one here would be a second encoding shipped ahead of its
 // first user. Booked in docs/DEFERRED_WORK.md instead. NOTE that the premise this
-// paragraph used to rest on has expired: the shipped CrossoverTable now holds TWO
-// marked slots (the section-0 loop), so the cost is no longer buying nothing, and the
-// flag is a saving for OTHER acts rather than for every act.
+// paragraph used to rest on has expired: the shipped CrossoverTable now holds THREE
+// marked slots and section 0 carries SIXTEEN painted marks — eight XOVER_TO_B cells on
+// plane A and eight XOVER_TO_A on plane B, two four-cell bars at column 143 (rows
+// 52-55 and 68-71), re-derived from the plane files 2026-09-10 and up from the "two
+// marked slots / two cells" this paragraph and the anchor's §11 both still said. So the
+// cost is no longer buying nothing, and the flag is a saving for OTHER acts rather than
+// for every act.
 //
 // In:  a0 = player SST, a4 = this slot's PlayerBlock
 // Out: none
@@ -1278,6 +1404,16 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
         bne     .unmarked                       // onto the LEFT arc may fire
     .fire:
         move.b  d0, layer(a0)
+        // --- (5c) THE SPRITE PRIORITY SWAP. Clear-then-set, S3K's shape, on the
+        // VDP high-priority bit of the player's own art word: path A draws behind
+        // the high-priority terrain, path B in front. The clear is unconditional
+        // because the ONLY other way back down is another crossing. Path A is the
+        // `beq` case because it is also the default (Player_Init clears both the
+        // layer and this bit), so the derive is a no-op until a mark fires.
+        andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
+        tst.b   d0                              // the plane the mark led onto
+        beq     .unmarked                       // LAYER_PATH_A -> stay low
+        ori.w   #ART_TILE_PRIO, art_tile(a0)    // LAYER_PATH_B -> draw in front
     .unmarked:
         move.l  PBLK_XOVERCURSOR(a4), d0
         cmp.l   PBLK_XOVERCELL(a4), d0
@@ -2744,6 +2880,17 @@ pub proc Player_DebugEnter (a0: *Sst) clobbers(d2/a1) {
 pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
         jbsr    Player_InitAssets
+        // ... which rewrites the WHOLE art word from the record, so it has just
+        // cleared the crossover's priority bit while Sst.layer survived the debug
+        // flight untouched. Re-derive rather than assume: fly into a loop's right
+        // arc, toggle out, and the player would otherwise be drawn behind art he
+        // is standing in front of. Same mapping as Player_LoopCrossover's (5c) —
+        // path A low, path B high — and the same two immediates.
+        andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
+        tst.b   layer(a0)
+        beq     .prio_low
+        ori.w   #ART_TILE_PRIO, art_tile(a0)
+    .prio_low:
         // standing radii until the AIR frame lands and hooks take over
         movea.l Player_Chardef, a1
         set_standing_size(a0, a1)
