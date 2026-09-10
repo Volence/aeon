@@ -314,8 +314,9 @@ def test_required_fields_are_present_and_usable():
                 if line_hash(raw_line) not in EXEMPT_LINES:
                     bad.append("line %d: %s" % (lineno, defect))
     assert not bad, (
-        "docs/lane-log.jsonl carries %d line(s) the console rejects outright for a "
-        "required field.\n  %s" % (len(bad), "\n  ".join(bad)))
+        "docs/lane-log.jsonl carries %d line(s) whose WHOLE NOTE the console drops for a "
+        "missing required field. The FILE still renders and still reads `ok`; it is the "
+        "ENTRY that is gone, silently, which is why this gate exists.\n  %s" % (len(bad), "\n  ".join(bad)))
 
 
 def test_at_carries_the_exact_shape_rule_6_names():
@@ -328,7 +329,8 @@ def test_at_carries_the_exact_shape_rule_6_names():
                 if line_hash(raw_line) not in EXEMPT_LINES:
                     bad.append("line %d: %s" % (lineno, defect))
     assert not bad, (
-        "docs/lane-log.jsonl carries %d timestamp(s) rule 6 rejects. Get them from "
+        "docs/lane-log.jsonl carries %d timestamp(s) whose ENTRY rule 6 drops whole (the "
+        "file is unaffected and still reads `ok`). Get them from "
         "`date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ` verbatim; a rejected line does not "
         "partially land.\n  %s" % (len(bad), "\n  ".join(bad)))
 
