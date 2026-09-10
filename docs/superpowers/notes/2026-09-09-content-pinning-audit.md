@@ -489,6 +489,39 @@ it (C10, the good part, unchanged); if none does, require **zero** WLINE rows. K
 failure C10 catches; refuses nothing the owner is entitled to decide. **Cheapest fix, largest
 share of tonight's blast radius.**
 
+**⚠ ITEMS 1 AND 3 WERE BOTH MEASURED ON 2026-09-10 AND BOTH RANKINGS ARE WRONG. Read this before
+either.** Full workings: `docs/superpowers/notes/2026-09-10-scanline-caps-derivation.md` and the
+`parcel/gate-exit-code-triage` measurement.
+
+* **Item 1's blanket premise is REFUTED.** "Exit 2 means unmeasurable" is not a repo-wide contract,
+  it is a convention 12 of 14 gates happen to follow. **`tools/art_rom_report.py` uses exit 2 to
+  mean FAIL and has no exit 1 at all**, and `build.sh` invokes it without `--no-fail` in every
+  canonical shape — so the proposed change would have silently disarmed the act art pool's HARD ROM
+  ceiling and its zero-pools liveness refusal. `dma_defer_headroom.py` spells unmeasurable `3`.
+  The audit's count of eleven is none of the three measurable populations: it includes one gate that
+  cannot exit 2 and misses three that can. **And exit 2 has never been observed to fire in any
+  build here**, so item 1 was a fix for a hypothetical.
+* **Item 3's REMEDY is refuted and its DIAGNOSIS is confirmed.** Softening these four guards to
+  "decline and announce" is wrong: an experiment that created the half-done state was caught in
+  **nine independent places**, each naming a different concrete consequence, and
+  `effects_seam_gate`'s own refusal states the principle — *"a check that cannot run must not
+  pass."* Softening lets all nine through.
+* **Deriving the cap mask instead — this lane's own proposal — is ALSO refuted, and measured.**
+  `declared & ~fold = $0700`: three bits no scene can raise, one of which three live `ensure`s
+  REQUIRE, so a derived mask fails the build. Deriving only the sizing constants was already tried
+  and is documented at `engine/level/parallax.emp` under its own banner (*"WHY BAND_EXT_N IS A
+  PINNED LITERAL"*, rejected twenty times with `unknown name Game.SCANLINE_CAPS`).
+* **WHAT ACTUALLY COSTS HIM, priced: turning that waterline off today is 5 files / 7 edits** —
+  including `ojz_scenes.emp`, a **fifth** file the `:489` guard's own "THREE-file retreat" message
+  does not name. The cap-mask derivation would make it 4/6 and cost a gate. **Sigil's already-booked
+  `emp_defines` row gets it to 3 files / 4 edits by killing `BAND_REMAP_N`/`BAND_REMAP_BYTES`.**
+  **So the SIZING CONSTANTS, not the cap mask and not the exit codes, are the thing to fix**, and
+  the fix is a sigil capability this repo already has a booking for.
+* **Held open honestly:** the domain gap is contingent, not a theorem — `scene_caps()` lacks arms
+  for those three bits because nobody wrote them. And the spelling trilemma is a property of one
+  sigil revision whose comptime semantics changed twice this month. **Not reachable today; not
+  impossible in principle.**
+
 **3. `scene_registry.emp` A1/A2/A3/A4 — the "THREE-file retreat" family and the equality pin.**
 The comptime half of tonight's refusal. They refuse over **waste, not breakage** — 272 ROM bytes
 and 26 cycles/band/frame is a thing to *warn* about, loudly, not to refuse on. The repo already

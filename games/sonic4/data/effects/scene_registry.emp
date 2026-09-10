@@ -432,6 +432,22 @@ ensure(SCENE_CYCLE_COUNT == SCENES.len,
 // one-sided test was built for was consumed as the twenty landed; it stays one-sided
 // because a declared subset would be a wrong picture on hardware and a declared superset
 // only forgoes a P2 specialisation.
+//
+// ⚠ THE PARAGRAPH ABOVE WAS TRUE WHEN WRITTEN AND IS STALE TWICE OVER (measured
+// 2026-09-10). Both sides moved after it: the declaration grew to $0FDE and the fold
+// grew past the four bits enumerated here. Measured by the compiler itself, not by
+// reading: registry fold $08DE (seven bits), editor fold $0058, and
+// `declared & ~fold = $0700` — CAP_ANCHOR_MOTION | CAP_DENSE_TIER | CAP_ROLE_SWAP,
+// three bits NO SCENE CAN RAISE because scene_caps() has no arm for them.
+// **SO "ZERO SLACK" IS NOW FALSE AND THE SLACK IS STRUCTURAL, NOT SURPLUS.** Read it
+// as a dated observation; the one-sided argument in it still holds and is the reason
+// the test stays one-sided.
+// WHY THIS SENTENCE MATTERS MORE THAN AN ORDINARY STALE COMMENT: it states that
+// declared EQUALS folded, so a reader concludes the declaration is derivable and the
+// guards below are redundant bookkeeping. That is exactly the premise this lane argued
+// itself into on 2026-09-10 before measuring, and $0700 is what refutes it — a derived
+// mask FAILS the build, because three live `ensure`s require CAP_DENSE_TIER.
+// Full workings: docs/superpowers/notes/2026-09-10-scanline-caps-derivation.md.
 // =====================================================================
 // ---------------------------------------------------------------------
 // THE RECORD-SHAPE PIN (P3 Task 8) — the capability is the authority, this holds the
