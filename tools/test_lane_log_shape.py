@@ -115,28 +115,17 @@ AT_SHAPE = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 # It is still not performed by this gate, for two separate reasons: this parcel does not
 # own the log (its repair is held by the controlling lane), and a gate that repairs what
 # it grades can never report the defect it just erased.
-EXEMPT_LINES = {
-    # docs/lane-log.jsonl line 218 as of 2026-09-10: a well-written entry wrapped in a
-    # single-element array, so the owner's console skipped it. Content is fine; only the
-    # wrapper is wrong.
-    "fb7da0dff12fc61cbbd6d4e82e9fb48b82679b4d009c069136c0210e536cc18e": {
-        "dated": "2026-09-10",
-        "reason": (
-            "Array-wrapped entry from 2026-09-09. Repair is an unwrap, ruled the third "
-            "legal edit by the hub on 2026-09-10 (empyrean e923e7d) but not this "
-            "parcel's to perform. Inert the moment the unwrap lands."
-        ),
-    },
-    # docs/lane-log.jsonl line 220 as of 2026-09-10: same defect, same day, same repair.
-    "d5a28e1ab8a5e1f2ace469629e1c5e7b0901c1ca6bc7abceb68816fda06e0612": {
-        "dated": "2026-09-10",
-        "reason": (
-            "Array-wrapped entry from 2026-09-09. Repair is an unwrap, ruled the third "
-            "legal edit by the hub on 2026-09-10 (empyrean e923e7d) but not this "
-            "parcel's to perform. Inert the moment the unwrap lands."
-        ),
-    },
-}
+# EXEMPT_LINES — DELETED 2026-09-10, THE SAME NIGHT IT WAS WRITTEN, AND THE DELETION IS
+# THE POINT. It carried the two array-wrapped entries (log lines 218 and 220) that the
+# owner's console had been skipping since 2026-09-09, keyed by the sha256 of each line's
+# exact bytes. Deliberately shaped so that repairing those lines made the entries match
+# NOTHING rather than making this gate red: an assertion that a known-bad line is STILL
+# BROKEN is a pin that requires a bug to stay, which this repo has booked once already.
+# The unwrap landed at aeon 02faa896 (permitted by the hub's Unwrap clause, empyrean
+# e923e7d), both hashes then matched zero lines, and the suite stayed green with the
+# block present -- measured before removing it. So the exemption is gone rather than
+# sitting inert forever, which is how a stale exemption becomes the next reader's puzzle.
+EXEMPT_LINES = {}
 
 
 # --------------------------------------------------------------------------------------
