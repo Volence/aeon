@@ -803,14 +803,38 @@ def run_tests():
     print("All tests passed.")
 
 
-if __name__ == "__main__":
-    argv = sys.argv[1:]
+#: THE MODE TABLE IS THE VALIDATOR — see tools/ojz_strip_gen.py's MODES for the full
+#: rationale and the incident it is written against (LS-15d, 2026-09-10).
+#:
+#: WHAT WAS WRONG HERE, AND WHY "it was caught anyway" IS NOT A DEFENCE. The old shape
+#: was a `not in ("test", "generate")` guard followed by `if`/`elif` with NO `else`, so
+#: a mode that passed the guard and matched neither branch ran nothing and exited 0.
+#: The LS-15d row recorded that as "fine" because the row that runs this tool
+#: (tools/test_tool_selftests.py::test_ojz_block_gen_selftests) asserts the
+#: `All tests passed` MARKER on stdout as well as the exit status, and the marker is
+#: what went missing. That is a property of the caller, not of this dispatch: a silent
+#: exit 0 on an unrecognised mode is the same fall-through defect as ojz_strip_gen's,
+#: only quieter, and any caller that checked `$?` alone would have read it as a pass.
+#: Dict lookup removes the unmatched case entirely.
+MODES = {
+    "test": lambda no_cache: run_tests(),
+    "generate": lambda no_cache: generate_all(use_cache=not no_cache),
+}
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     no_cache = "--no-cache" in argv
     argv = [a for a in argv if a != "--no-cache"]
-    if len(argv) < 1 or argv[0] not in ("test", "generate"):
+    handler = MODES.get(argv[0] if argv else None)
+    if handler is None:
         print("Usage: python3 tools/ojz_block_gen.py [--no-cache] test|generate")
         sys.exit(1)
-    if argv[0] == "test":
-        run_tests()
-    elif argv[0] == "generate":
-        generate_all(use_cache=not no_cache)
+    if len(argv) > 1:
+        print(f"ERROR: unknown argument {argv[1]!r}")
+        sys.exit(1)
+    handler(no_cache)
+
+
+if __name__ == "__main__":
+    main()
