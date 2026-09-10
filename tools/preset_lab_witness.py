@@ -35,7 +35,8 @@ name}. The preset entries are the last BLOCK of that list, so this instrument no
     entry that exercises the verdict's world-anchor arm". THAT REASON EXPIRED. It is quoted
     rather than deleted so a reader who remembers it meets the correction. Section 7 is the
     act's SECOND patched preset: `OJZ_Preset_Sec7` binds `patched: OJZ_WorldWater`
-    (games/sonic4/data/effects/ojz_effects.emp:1850) with world anchors on channels 2 and 3,
+    (games/sonic4/data/effects/ojz_effects.emp, at `OJZ_Preset_Sec7`) with world anchors on
+    channels 2 and 3,
     landed 2026-09-05 — the same change that made claim 2 in the paragraph below stale, and
     it was corrected there but not here. So section 0 is no longer the ONLY entry exercising
     the world-anchor arm; ending on it is now a wrap proof plus a habit, not a coverage

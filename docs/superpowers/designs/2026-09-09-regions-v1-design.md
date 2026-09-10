@@ -521,7 +521,8 @@ the rewritten rows above now state per row.
 **Section 5 is the one row where 0 does not mean "act default"**, and the migration must not
 read it that way: with rung 1 at 0, `Effects_ResolveParallax` (`engine/effects/preset.emp:228-245`)
 falls to rung 2 and finds `OJZ_Preset_Sec5`'s own
-`parallax: ParallaxConfig_OJZ_Underwater` (`ojz_effects.emp:1675`, the d-53 loan). Section 5
+`parallax: ParallaxConfig_OJZ_Underwater` (`ojz_effects.emp` at `OJZ_Preset_Sec5`, the d-53
+loan). Section 5
 is the act's **only live install** of that record — section 0 names it too (`:1517`) but its
 rung 1 overrides it. A transcription that copies `sec_parallax_config` alone would give
 section 5 the act default and change what is on screen.

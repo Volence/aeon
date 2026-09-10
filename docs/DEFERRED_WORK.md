@@ -32188,6 +32188,37 @@ which of its thirteen programs reach a section (**six do**, plus `OJZ_GradientSt
 indirectly through `OJZ_TestGradient`), and the four order-sensitive gates that make an
 unbound program un-deletable by its ADDRESS.
 
+### A finding this parcel made by tripping over it: 165 line citations point into one file
+
+`tools/test_citation_form.py::test_live_citations_resolve_to_something` caught this parcel's
+first draft, and the catch is worth booking because **the gate under-reports its own subject
+by an order of magnitude.**
+
+The first draft put the reachability table at the TOP of `ojz_effects.emp` — 95 lines, which
+shifted every line in the file. Measured across the tree at that moment: **162 of the 165
+`ojz_effects.emp:N` citations then pointed at different text.** The gate flagged **four**,
+because it asserts only that a cited line is non-empty ("a pointer has a referent"), not that
+it points at what it used to. The other 158 landed on some other non-empty line and passed.
+
+**That is not a gate defect — the gate is content-invariant by design and says so — but it
+means a green citation lane is NOT evidence that citations still resolve to their subject.**
+Anyone editing one of these files should assume silent re-pointing and measure it, which is a
+ten-line script diffing cited line content between the base revision and HEAD.
+
+**What the parcel did about it.** The table moved to the END of the file, where it shifts
+nothing, with a one-line pointer at the top that REPLACES an existing line rather than adding
+one (`git diff -U0` shows `@@ -8 +8 @@`, an equal-size swap). The remaining shift is only what
+an in-place comment correction inherently costs — you cannot fix a wrong sentence without
+moving what follows it. **Measured after the restructure: 44 citations re-point, down from
+191** (15 `ojz_effects.emp`, 19 `ojz_scenes.emp`, 6 `act_descriptor.emp`, 4
+`ojz_scroll_test.emp`). Every citation this parcel ADDED is by SYMBOL NAME, per the gate's own
+advice and `CODING_CONVENTIONS.md`'s "CITE BY NAME".
+
+**Not fixed here, and deliberately:** the 44, and the ~348 line citations into these four files
+generally. Re-pointing them is a mechanical sweep with real risk of silently "fixing" a
+citation to the wrong line, and it is a different parcel from this one. The durable fix is the
+convention the gate already states — cite the enclosing symbol, which survives every edit.
+
 ### Still open
 
 - **⚠ `.lab_index` ROW 35's GLYPH STILL READS `BARE` AND THE COMMENT BESIDE IT NOW SAYS SO.**

@@ -302,7 +302,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // ⚠ CORRECTED 2026-09-09 (parcel/section-effects-record-fix). This note used to
             // read "Identical to OJZ_Preset_Plain in every byte today". IT NO LONGER IS —
             // quoted rather than deleted so a reader who remembers it meets the correction.
-            // Against OJZ_Preset_Plain (ojz_effects.emp:1578, which takes preset()'s
+            // Against OJZ_Preset_Plain (ojz_effects.emp at `OJZ_Preset_Plain`, which takes preset()'s
             // defaults: parallax 0, all-PATCH_ANCHOR_NONE, all-ANCHOR_MOTION_NONE), the
             // record at :1664-1684 differs in FOUR fields, all derived from source:
             //   raster:            EditorRaster_OJZ_Act1_ojz_sec5_showcase, via the

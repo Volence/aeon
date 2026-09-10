@@ -2335,7 +2335,8 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // `LTR_B, LTR_A, LTR_R, LTR_E` spells BARE — "sec 7 plain, nothing bound", which is
         // what the trailing comment said until 2026-09-09. IT IS FALSE. Section 7 binds
         // `OJZ_Preset_Sec7` with the PATCHED program `OJZ_WorldWater` on channels 2 and 3
-        // (ojz_effects.emp:1850, act_descriptor.emp:352), and since c1d0a6be (2026-09-05) it
+        // (ojz_effects.emp at `OJZ_Preset_Sec7`, act_descriptor.emp at `ojz_sec(sec: 7, ..)`),
+        // and since c1d0a6be (2026-09-05) it
         // also carries `section_7.meta.json`, so `ojz_act1_sec_scene(sec: 7)` resolves at
         // rung 1 to `EditorSceneBinding_OJZ_Act1_Sec7` (effects_scenes.emp:346). Two live
         // channels and a scene: the most-bound section in the act after section 0.
