@@ -23,6 +23,16 @@ THE RULING, read at a committed revision and never through the sibling path:
 BYTES ONLY. Per that warning the line half is reported as a RESIDUAL and is never
 asserted: a correct fix can raise it. Anything that gates on lines punishes the fix.
 
+THE RATCHET IS RETIRED, 2026-09-10. Card 7 was answered by the owner on
+2026-09-04T15:38:47Z ("7. Sounds fine") with a cut axis rather than a raised bound: the
+boot read is SPLIT BY WHEN A RULE IS READ. aeon made that cut the same way the other five
+lanes did — `docs/OVERSEER.md` keeps only what a fresh session needs TO ACT AT BOOT, and
+everything read at a later, specific moment (the landing lane, the instruments, the
+worktree quirks, the review bars) is in `docs/OVERSEER-REFERENCE.md`. 114,267 B -> 11,347 B,
+proved lossless by oracle's `tools/prove_doc_split.py`. So this file now does what its own
+instruction said to do on the day the card was answered: RATCHET_BYTES is deleted and the
+gate asserts BOOT_READ_BOUND_BYTES directly. There is no second constant to keep in step.
+
 The bound is stated in the protocol as prose, so it cannot be computed from an artifact.
 It is written ONCE below, with its citation, and every expectation in this file —
 the failure text, the fixtures, both directions of the two-directional test — is derived
@@ -70,14 +80,18 @@ def _verdict(path: Path, size_bytes: int, lines: int) -> str:
         f"  The bound is empyrean docs/OVERSEER-PROTOCOL.md, section 'The boot read is "
         f"bounded'. Read it at a committed revision:\n"
         f"    git -C ../empyrean show origin/main:docs/OVERSEER-PROTOCOL.md\n"
-        f"  The fix is that section's split procedure, in its order: move the dated tail\n"
-        f"  whole to docs/OVERSEER-LOG.md; MEASURE before pointer-ising any bar (only\n"
-        f"  lines a grep finds verbatim in the protocol qualify); move closed history\n"
-        f"  around a live rule verbatim, keeping the rule. Live repo-specific rulings\n"
-        f"  interleaved with narrative are the OWNER'S parcel — report the residual\n"
-        f"  rather than trimming a ruling to hit this number.\n"
-        f"  Prove any split lossless by set-difference against the committed file before\n"
-        f"  committing. JUDGE BY BYTES: unwrapping a one-line bullet raises the line\n"
+        f"  THE AXIS IS *WHEN A RULE IS READ*, never size and never what is 'movable'\n"
+        f"  (owner, 2026-09-04T15:38:47Z, card 7). This file keeps only what a fresh\n"
+        f"  session needs TO ACT AT BOOT: scope, the queue, any resume brief, and the\n"
+        f"  standing rulings that change what a session does FIRST. Anything read at a\n"
+        f"  later, specific moment — how to land, how to dispatch, the review bars —\n"
+        f"  belongs in docs/OVERSEER-REFERENCE.md, named from here by path. Dated\n"
+        f"  precedent narratives belong in docs/OVERSEER-LOG.md.\n"
+        f"  DO NOT TRIM A RULING TO HIT THIS NUMBER — every rule survives the cut\n"
+        f"  somewhere; the only choice is which file it lives in.\n"
+        f"  Prove any split lossless with oracle/tools/prove_doc_split.py, run from THIS\n"
+        f"  repo by absolute path, and prove it at a unit BELOW the one you cut at.\n"
+        f"  JUDGE BY BYTES: unwrapping a one-line bullet raises the line\n"
         f"  count while cutting bytes, so the line figure above can move the wrong way\n"
         f"  under a correct fix and is reported, never asserted."
     )
@@ -99,66 +113,28 @@ def test_the_boot_read_exists_and_is_measurable():
     assert size_bytes > 0, f"{BOOT_READ} is empty — that is a broken boot read, not a small one."
 
 
-# THE RATCHET, in force until the owner answers the suite-wide card 7 (split the rules
-# into a second boot file, or raise the bound — one call for all six lanes).
-#
-# WHY THIS IS NOT THE RULED BOUND YET, and why it is NOT report-only either. The file is
-# over the ruled 100,000 B and the residual is 14,320 B of LIVE RULINGS interleaved with
-# narrative, which the protocol names as the owner's parcel: the bound exists to make the
-# boot read cheap, not to make rulings disappear. So this gate cannot assert the ruled
-# bound today without failing the build for every lane on a question only he can answer.
-#
-# The hub's first ruling was to merge it REPORT-ONLY. That was declined and the deviation
-# ratified, on this ground: a check that cannot fail is green by construction, so its
-# presence and its absence read the same — which is exactly the property that let the
-# MISSING gate go unnoticed here for days. Replacing an absent gate with an unfailable one
-# changes what a reader sees and not what is true.
-#
-# So the ratchet pins the MEASURED residual. It is failable today, by growth, which is the
-# live risk while the question is open: fifteen lines were added to this file on 2026-09-04
-# by someone who did not know it was over, and nothing stopped them. The distance to the
-# ruled bound prints beside the verdict on every run, pass or fail.
-#
-# THE DAY CARD 7 IS ANSWERED: delete RATCHET_BYTES and point this at
-# BOOT_READ_BOUND_BYTES. One constant. The ratchet's whole job is to guarantee the file has
-# not drifted further in the meantime.
-RATCHET_BYTES = 114_320
+def test_overseer_md_is_within_the_ruled_boot_read_bound():
+    """THE GATE. The boot read is held to the SUITE-RULED bound, with no second constant.
 
+    This was a growth ratchet (RATCHET_BYTES = 114_320) from 2026-09-03 until the cut of
+    2026-09-10, because the file was over the bound on a question only the owner could
+    answer. He answered it on 2026-09-04 with an axis rather than a number, the cut was
+    made, and this file's own instruction was then followed to the letter: the ratchet
+    constant is DELETED and the assertion points at BOOT_READ_BOUND_BYTES.
 
-def test_overseer_md_does_not_grow_while_the_bound_question_is_open():
-    """THE GATE, in its ratchet form. The boot read may not GROW past the measured
-    residual, and the distance to the ruled bound is reported either way."""
+    Why deleting it was right rather than merely tidy: a ratchet pinned ABOVE the bound
+    silently permits regrowth back into breach, so once the file is compliant the looser
+    of the two constants is the one that decides — which is a gate that reads as green
+    while guarding nothing.
+    """
     size_bytes, lines = measure(BOOT_READ)
-    residual = size_bytes - BOOT_READ_BOUND_BYTES
+    headroom = BOOT_READ_BOUND_BYTES - size_bytes
     report = (
         f"\n{BOOT_READ} is {size_bytes:,} bytes ({lines:,} lines, reported not gated).\n"
-        f"  ruled bound   {BOOT_READ_BOUND_BYTES:,} — residual {residual:,} OVER, "
-        f"owner's card 7.\n"
-        f"  ratchet       {RATCHET_BYTES:,} — this gate fails only on GROWTH past it.\n"
+        f"  ruled bound   {BOOT_READ_BOUND_BYTES:,} — headroom {headroom:,} bytes.\n"
     )
     print(report)
-    assert size_bytes <= RATCHET_BYTES, (
-        report
-        + f"\nGREW by {size_bytes - RATCHET_BYTES:,} bytes past the ratchet.\n"
-        "The boot read is already over the suite-ruled bound and is waiting on the owner. "
-        "Do not add to it: move the content to docs/OVERSEER-LOG.md, or lower RATCHET_BYTES "
-        "if you SHRANK the file and want the new floor held."
-    )
-
-
-def test_the_ratchet_is_never_looser_than_the_ruled_bound_once_it_is_met():
-    """The ratchet must not outlive its purpose. If the file ever reaches the ruled bound,
-    a ratchet ABOVE that bound would silently permit regrowth back into breach — so this
-    fails the moment the ratchet becomes the weaker of the two, which is the day someone
-    should be deleting it."""
-    size_bytes, _ = measure(BOOT_READ)
-    if size_bytes <= BOOT_READ_BOUND_BYTES:
-        assert RATCHET_BYTES <= BOOT_READ_BOUND_BYTES, (
-            f"{BOOT_READ} is now {size_bytes:,} bytes, within the ruled "
-            f"{BOOT_READ_BOUND_BYTES:,} — but RATCHET_BYTES is {RATCHET_BYTES:,}, which is "
-            "LOOSER than the bound and would permit regrowth into breach. The residual is "
-            "settled: delete RATCHET_BYTES and assert BOOT_READ_BOUND_BYTES directly."
-        )
+    assert not over_bound(size_bytes), report + "\n" + _verdict(BOOT_READ, size_bytes, lines)
 
 
 def test_the_bound_check_is_two_directional(tmp_path):
