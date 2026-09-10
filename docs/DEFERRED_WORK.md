@@ -26919,9 +26919,28 @@ against (a)).** Their queue ended with **ZERO rows in state `next`**, where the 
 exactly one — completed rows removed without anything promoted, so a fresh session resuming
 that lane would have had nine parked rows and **no starting point at all**.
 
-**⚠ AND THE CONSOLE SAID `ok` THROUGH ALL OF IT.** It validates the state enum but does **not**
-check the exactly-one-`next` rule, so this is a class of error **the tooling will not catch
-for any lane**. **A missing `next` row looks exactly like a lane with nothing to do.**
+**⚠ AND THE CONSOLE SAID `ok` THROUGH ALL OF IT.** It does **not** check the exactly-one-`next`
+rule, so this is a class of error **the tooling will not catch for any lane**. **A missing `next`
+row looks exactly like a lane with nothing to do.**
+
+**⚠ CORRECTION 2026-09-10 — "it validates the state enum" STOOD HERE AND IS TOO STRONG; the
+conclusion above survives untouched.** An unknown `state` does not reject anything: `parseQueue`
+keeps the row, sets `state: 'unreadable'` with a `stateProblem` sentence, and **the file still
+reads `ok`**. So a reader taking "validates" at face value expects a dark card and gets a green
+one with a warning buried inside it — which is a worse failure than the one this entry is about,
+because it looks like a pass. Reported by the hub, who hit it from the other side the same night
+(a row of theirs reading `"done"` rendered `ok` while being unreadable); contract corrected at
+empyrean `84f93b0`, reader behaviour at dominion `ff0ddd3` `server/src/laneStatus.ts`. **The
+`next` half was and is true**, and aurora has a live positive control for it: a zero-`next` file
+rendering `ok` while their own local check went red, both in the same minute.
+**WHY THE WORD WAS EASY TO GET WRONG, which is the part worth carrying: `projects.ts` rejects a
+bad project `state` OUTRIGHT, whole file, while `laneStatus.ts` fails a bad queue `state` SOFT.
+Same word, opposite behaviour, two different readers** — so "validates" is true of one and false
+of the other, and nothing at either call site says which you are looking at.
+**Swept here before correcting: this is the ONLY site in 837 tracked `.md`/`.py` files carrying
+that vocabulary.** Stating the population because the hub's own first pass at this grepped three
+paths per lane and reported "aeon makes no such claims", which is a three-file result phrased as
+a repo-wide one — the same overstatement one level up.
 
 **Same cause both ways — reconstructing a document from what you currently hold in mind. Edit
 the field; do not rebuild the document. And if you must rebuild, audit for BOTH directions:
