@@ -193,6 +193,12 @@ TOOLS="${TOOLS:-tools}"
 # unreachable helpers):
 #
 #   * 12 gates mean {0 ok, 1 fail, 2 unmeasurable}.  Declared `triage` here.
+#     ONE WART INSIDE THAT TWELVE: tools/bganim_room.py also returns 2 for a USAGE
+#     error (an argv it does not recognise). So a typo in ITS flags on the line below
+#     now reports UNMEASURABLE and lets the build through, where before it stopped it.
+#     That is still loud — banner + end-of-build roll-up — and it is still true that
+#     nothing was measured, but it is a genuine weakening and it is here to be read,
+#     not buried. If it ever bites, the fix belongs in the gate (usage error is a 1).
 #   * tools/art_rom_report.py means {0 ok/warn, 2 FAIL} and HAS NO EXIT 1 AT ALL.
 #     Its own docstring says "Exit: 0 clean/warn, 2 over a hard ceiling". Its 2 is an
 #     act art pool breaching its HARD ROM ceiling, or the zero-pools liveness refusal.
