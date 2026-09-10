@@ -22,20 +22,25 @@ use engine.level.scene_dsl.*
 // added here without moving the `0` is a type error, and the fold cannot be handed
 // something that is not a scene list. It emits no bytes — a `const` is comptime, and this
 // module still emits nothing.
+//
+// THE TYPE IS ALSO WHAT LETS A TEXT TOOL READ THIS. tools/scene_spans.py derives the
+// demo's expected ZERO capability spans from this manifest, cannot evaluate comptime, and
+// refuses to guess (a wrong zero there asserts the maximal elision). It follows the
+// `SCANLINE_CAPS = <name>` binding below to `fold_caps(DEMO_SCENES)` and accepts `[Scene; 0]`
+// as the proof the registry is empty — a declared length, checked by sigil, not this tool
+// reading `[]`. Give this registry a scene and that tool REFUSES by design, naming the count.
 pub const DEMO_SCENES: [Scene; 0] = []
 
-// The capability mask, FOLDED from the registry above rather than asserted.
+// THE FOLD — what the registry above actually demands, computed.
 //
-// UNTIL 2026-09-10 THIS COULD NOT BE WRITTEN, and the binding below was a hand-written 0
-// with a comment saying exactly why: `fold_caps()` opened with `ensure(scenes.len >= 1)`
-// and refused an empty registry, so the demo — alone among the games — had a `SCANLINE_CAPS`
-// that nothing derived and nothing checked. That guard is gone (content-pinning audit
-// item 0 / A6; the derivation that 0 is the OR-fold's identity is written at fold_caps()
-// in engine/level/scene_dsl.emp). The value is unchanged — MEASURED at 0, by asserting it
-// against a wrong number under a probe and reading the fold back out of the diagnostic,
-// and independently by demo.bin coming out byte-identical (crc f7fdf77d, 97051 B) across
-// the change. What moved is that it is now a COMPUTED 0: the day this demo authors a
-// scene, its mask follows the scene instead of waiting for someone to remember.
+// UNTIL 2026-09-10 THIS LINE COULD NOT BE WRITTEN AT ALL. `fold_caps()` opened with
+// `ensure(scenes.len >= 1, ..)` and refused an empty registry, so this game — alone among
+// the games — had a `SCANLINE_CAPS` that no check could see, and the file said so in those
+// words: "Nothing to derive and nothing to verify: fold_caps() REFUSES an empty registry
+// rather than folding it to 0, so the demo deliberately has no scene registry to check this
+// against." That guard is gone (content-pinning audit item 0 / A6; the derivation that 0 is
+// the OR-fold's identity is written at fold_caps() in engine/level/scene_dsl.emp), and the
+// route-around goes with it.
 pub const DemoScenes_CapsFolded = fold_caps(DEMO_SCENES)
 
 pub implement Game {
@@ -43,10 +48,18 @@ pub implement Game {
     // deadzone-follow arm.
     const CAMERA_JUMP_LOCK = false
 
-    // No authored scenes, so the fold over DEMO_SCENES above is 0 — both the honest value
-    // and the maximal specialisation (P2 may drop every scanline service here). This is a
-    // DERIVED binding, not a statement: see the banner on DemoScenes_CapsFolded for what
-    // it replaced and why it could not be written before 2026-09-10.
+    // No authored scenes, so the fold above is 0 — both the honest value and the maximal
+    // specialisation (P2 may drop every scanline service here).
+    //
+    // DERIVED, not declared, and that makes this game the FIRST whose mask is. Read
+    // engine/system/game_contract.emp's banner for this member and note the gap it
+    // describes: "Derived-and-verified, never hand-maintained-unchecked … an ensure there
+    // proves the fold is a SUBSET of this declaration." games/sonic4 satisfies the SECOND
+    // half — it writes `SCANLINE_CAPS = $0FDE` by hand and its registry checks the fold
+    // against it. Nobody satisfied the first half, and the demo satisfied neither, because
+    // the mechanism refused to run on an empty registry at all. Binding the fold itself is
+    // the stronger of the two shapes: a subset test can be passed by a declaration that is
+    // merely wide enough, while this cannot be wrong.
     const SCANLINE_CAPS = DemoScenes_CapsFolded
 
     // Boot enters the demo's GameState_Demo_Init.

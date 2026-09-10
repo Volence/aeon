@@ -21,7 +21,8 @@ import unittest
 import pytest
 
 import demo_specialization_witness as W
-from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
+from scene_spans import (AEON, capability_bits, caps_from_manifest,
+                         expected_spans, game_caps,
                          lst_proc_sizes, lst_spans, span_capability,
                          vma_phased_symbol_names)
 
@@ -147,6 +148,53 @@ class TestDerivations(unittest.TestCase):
 
     def test_demo_declares_the_zero_mask_the_witness_rests_on(self):
         self.assertEqual(game_caps("demo"), 0)
+
+    # ---- the DERIVED binding form (2026-09-10) -----------------------------------
+    # games/demo binds SCANLINE_CAPS to `fold_caps(DEMO_SCENES)` rather than to a
+    # literal, so `game_caps` grew one — exactly one — derivation it will follow. These
+    # rows pin the SHAPE of that: what it follows, and the four things it still refuses.
+    # Expectations are derived from `caps_from_manifest`'s own stated rule ("only an
+    # EMPTY registry has a fold this tool can derive"), not copied from the demo.
+
+    def test_a_literal_binding_is_still_read_directly(self):
+        self.assertEqual(caps_from_manifest(
+            "pub implement Game {\n    const SCANLINE_CAPS = $0FDE\n}\n", "x"), 0x0FDE)
+
+    def test_a_name_bound_to_a_fold_over_an_empty_registry_resolves_to_zero(self):
+        src = ("pub const REG: [Scene; 0] = []\n"
+               "pub const FOLDED = fold_caps(REG)\n"
+               "pub implement Game {\n    const SCANLINE_CAPS = FOLDED\n}\n")
+        self.assertEqual(caps_from_manifest(src, "x"), 0)
+
+    def test_a_fold_over_a_NON_empty_registry_refuses_rather_than_guessing(self):
+        """The one that matters. A registry with scenes in it has a fold only sigil can
+        compute, and a wrong zero here asserts the MAXIMAL elision — the strongest claim
+        the witness makes. The refusal must name the count so the reader knows why."""
+        src = ("pub const REG: [Scene; 3] = [A, B, C]\n"
+               "pub const FOLDED = fold_caps(REG)\n"
+               "pub implement Game {\n    const SCANLINE_CAPS = FOLDED\n}\n")
+        with self.assertRaises(SystemExit) as cm:
+            caps_from_manifest(src, "x")
+        self.assertIn("3 scene(s)", str(cm.exception))
+
+    def test_an_untyped_registry_refuses_because_the_TYPE_is_the_proof(self):
+        """`= []` is this tool reading a literal; `[Scene; 0]` is the type checker
+        agreeing. Only the second is accepted as proof that a registry is empty."""
+        src = ("pub const REG = []\n"
+               "pub const FOLDED = fold_caps(REG)\n"
+               "pub implement Game {\n    const SCANLINE_CAPS = FOLDED\n}\n")
+        with self.assertRaises(SystemExit):
+            caps_from_manifest(src, "x")
+
+    def test_a_name_bound_to_something_other_than_a_fold_refuses(self):
+        src = ("pub const FOLDED = some_other_call(REG)\n"
+               "pub implement Game {\n    const SCANLINE_CAPS = FOLDED\n}\n")
+        with self.assertRaises(SystemExit):
+            caps_from_manifest(src, "x")
+
+    def test_no_binding_at_all_still_refuses(self):
+        with self.assertRaises(SystemExit):
+            caps_from_manifest("pub implement Game {\n}\n", "x")
 
     def test_sonic4_declares_a_nonzero_mask(self):
         """Both fixtures matter: with sonic4 at zero the differential would compare

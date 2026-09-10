@@ -2,6 +2,7 @@
 """Tests for emp_helper_closure — the COMPTIME_HELPERS name-collision gate."""
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -187,14 +188,42 @@ class TestRealHelperForms(unittest.TestCase):
              "TEMPLATE_COPY_SHIFT", "set_priority_band"},
         )
 
+    # The contract members every game's `implement Game { ... }` binds at depth 1.
+    # Read from the interface rather than listed here, so a member added to the
+    # contract joins this test without anyone remembering to.
+    def _contract_members(self):
+        path = os.path.join(AEON, "engine", "system", "game_contract.emp")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        names = set(re.findall(
+            r"^\s*(?:const|proc|hook)\s+([A-Za-z_][A-Za-z0-9_]*)", src, re.M))
+        self.assertTrue(names, f"{path}: no interface members found — this test would "
+                               f"then assert nothing about brace depth")
+        return names
+
     def test_real_implement_block_bindings_are_not_module_items(self):
         """games/*/config/game.emp bind contract values with depth-1 `const` lines.
         `Item::Implement` is not `Item::Section`, so sigil does not recurse into it
-        and these names are NOT in any consumer's ambient scope. Both files export
-        nothing at all, so a scanner blind to brace depth reads them backwards."""
+        and these names are NOT in any consumer's ambient scope. A scanner blind to
+        brace depth reads them backwards.
+
+        AMENDED 2026-09-10. This asserted `comptime_items(path) == set()` for both
+        games, which held only while neither manifest had any module-level item at all
+        — a fixture-shape pin, and games/demo broke it by acquiring a real scene
+        registry (`DEMO_SCENES`) and its fold. That equality was ALSO the weaker
+        assertion: an empty result is equally consistent with a scanner that finds
+        nothing anywhere. Asserting that the CONTRACT MEMBERS specifically are absent
+        is the property this test is named for, and games/demo — which now carries
+        depth-0 items AND depth-1 members in one file — is the first fixture that can
+        tell the two apart."""
+        members = self._contract_members()
         for game in ("demo", "sonic4"):
             path = os.path.join(AEON, "games", game, "config", "game.emp")
-            self.assertEqual(comptime_items(path), set(), path)
+            leaked = comptime_items(path) & members
+            self.assertEqual(leaked, set(),
+                             f"{path}: depth-1 `implement Game` binding(s) {sorted(leaked)} "
+                             f"surfaced as module items; sigil does not recurse into "
+                             f"Item::Implement, so a consumer's `use ...*` never sees them")
 
     def test_every_helper_module_parses_and_exports_something(self):
         ids = helper_ids_from_native(SIGIL_NATIVE)
