@@ -555,6 +555,10 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
     // movea.l d0,a1 4. The `beq` is the same instruction to the same target
     // either way and cancels. So the empty path goes 16 -> 8 and the dispatch
     // path 20 -> 28: an exact wash at half occupancy, and a win below it.
+    // HALF OF WHAT IS SHAPE-DEPENDENT — do not quote 26. This proc sweeps
+    // NUM_PLAYERS 2 + NUM_EFFECTS 16 = 18 slots in a RELEASE shape; only in
+    // DEBUG does the NUM_SYSTEM 8 block above make it 26. Break-even is
+    // therefore 9 of 18 in the shipped ROM, 13 of 26 in the debug one.
     // The argument for taking it anyway is ASYMMETRY, not the break-even —
     // 8 cycles is ~18% of an empty iteration's whole 44 (moveq 4 + swap 4 +
     // move.w 8 + beq taken 10 + lea 8 + dbf 10) but well under 2% of a
