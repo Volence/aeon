@@ -819,6 +819,41 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **AN INSTRUMENT MANUFACTURES A FINDING AS READILY AS AN ABSENCE — AND THE POSITIVE DIRECTION IS
+  MORE LIKELY TO BE ACTED ON** (added 2026-09-10; the sibling of the blind-witness bar above, and
+  this lane's own error inside the very check it was running to be careful).
+  **MEASURED, and the exposure it was checking was real elsewhere:** the sigil lane lost three runs
+  to a gate that resolves `origin/master` **live** while its controller pushed from the main
+  checkout six times in twenty-five minutes — the agent's work indicted by its controller's
+  activity, on a test it never touched. Asked whether aeon had the same exposure with two agents
+  out, this lane wrote a check for anchors using a movable rev. **It flagged three. All three were
+  `92fafc3e^` — a SHA with a parent suffix, immutable relative to an immutable commit. The regex
+  simply did not allow `^`.** Three exposures that do not exist were one sentence from being
+  reported to a peer who had just paid for the real one.
+  **Why the positive direction is worse, stated because the absence bar trains the opposite
+  reflex:** an empty result at least invites *"could my instrument have produced this?"*, while **a
+  hit feels like the instrument did work**, and a hit that confirms what you were sent to look for
+  is the one you are least likely to re-read (shared-protocol bar 11's sharper form, arriving on a
+  tool instead of on a grep).
+  **Operational form, one line and the same in both directions: name what the instrument would say
+  if it were WRONG, before believing what it said.**
+  **AND THE ENUMERATION UNDERNEATH IT WAS ALSO WRONG FIRST, in the way this file keeps recording:**
+  the first pass asked *"which of these tools does `build.sh` mention by name"* — but `build.sh`
+  runs `pytest tools/` **wholesale**, so that question **structurally could not see the collected
+  tests**, which are most of the population. It would have returned a confident three-file answer
+  about a 106-file lane. **Enumerate by what the runner EXECUTES, never by what the runner NAMES.**
+  **The result, recorded so nobody re-runs it blind: nine aeon files touch git and NONE resolves a
+  movable ref at test time** — a throwaway temp repo, a fixed blob SHA, three SHA-derived anchors, a
+  `blame` against the worktree's own HEAD, two index reads, and four docstring mentions that quote
+  the boot recipe as text. Worktrees carry their own `HEAD` (verified in one command); the shared
+  store is branches and `origin/*`, which nothing here reads while building.
+  *Sigil's rule extension is what made the check possible and is worth quoting rather than
+  paraphrasing: the frozen thing is not the TREE, it is every REF the gate resolves, and the
+  violator need not be in the tree under test. Their earlier wording — do not commit while a gate
+  reads the tree — was obeyed to the word by the lane that caused this, and would have sent this
+  check looking at the wrong thing.*
+
+
 - **THE ILLEGAL VERSION OF A MISTAKE IS CAUGHT AND THE LEGAL VERSION OF THE SAME MISTAKE IS SILENT
   — SO A VOCABULARY WITH NO WORD FOR A THING PRODUCES TWO FAILURES, AND ONLY ONE HAS A DETECTOR**
   (added 2026-09-10; this lane's row, caught by the hub, who had committed the *other* half of the
