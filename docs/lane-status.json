@@ -1,148 +1,117 @@
 {
-  "focus": "Writing the art-pipeline contract you asked for -- one document an outside tool can work from without seeing the repo.",
+  "focus": "Landing the palette fix so your colour picks reach the ROM, and finding out which water effect you mean.",
   "inFlight": [
     {
-      "what": "docs/ART_PIPELINE_CONTRACT.md: backgrounds, tiles, palettes, sprites, terrain, build, the parallax/raster system, and the traps. Every number derived from source with its file named, because the reader cannot check anything -- and our own docs were measurably wrong on eight figures in tonight's sweep alone.",
-      "where": "agent worktree, branch parcel/art-pipeline-contract",
+      "what": "The palette fix - merged and building all four shapes before it goes to master",
+      "where": "worktree .aeon-land-palette, merge d9e4061d",
+      "agent": false
+    },
+    {
+      "what": "Finding out which water effect your screenshot shows and what it costs to put it at the start",
+      "where": "branch recon/waterline-first-view",
       "agent": true
     }
   ],
   "blockedOnOwner": [
     {
-      "id": "LS-17",
-      "what": "Whether a shipped game should spend a little ROM so a corrupt compressed stream crashes legibly instead of running off into memory. Taste, not correctness.",
-      "since": "2026-09-06"
+      "id": "VRAM-FOR-OBJECTS",
+      "what": "How far to go on getting video memory back for objects. Three levers, measured, and they add up rather than compete. My recommendation gets you about 384 tiles back - objects from 152 to roughly 536 - and the work that unlocks it is the same background streamer the region plan already needs. The option I recommend AGAINST would get you 512 but quietly kills two effects items you asked for.",
+      "since": "2026-09-09"
     },
     {
-      "id": "LS-13",
-      "what": "Whether you can actually hear a 60 Hz artefact on the drums. If you can, the controller read gets split so no pause exceeds one sample; if not, only the comments get fixed.",
-      "since": "2026-09-06"
+      "id": "SPRING-PAL-IDX9",
+      "what": "The last 184 pixels of the red spring still shift colour under Knuckles - the coil's mid-tone. Every palette slot is spoken for on both sides so it cannot be relabelled away. Cheap option: the spring drops its fifth grey onto a neighbouring shade (that slot is one Sonic uses for three pixels in his whole sheet). The alternative changes Knuckles himself across about 646 of his 4092 tiles, which I would avoid.",
+      "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the document is pushed. Back to the hold after that.",
+  "nextBoundary": "When the palette fix is pushed and the water recon comes back.",
   "queue": [
     {
-      "id": "ENGINE-SEAM-AUDIT",
-      "project": "ENGINE-SEAM",
-      "title": "Audit engine/ for Sonic-specific mechanisms that should sit game-side -- his question was about rings, and his follow-up was 'what else is'. One booked row per leak: what is MECHANISM (stays) versus GAME MEANING (moves behind the Game interface, a define, or a hook), a price, whether it can be byte-neutral, and the consumers. Reading only: no byte-moving reseam without his word. The hub's five candidates are a GREP, not the finding list -- the split rule in ENGINE_ARCHITECTURE.md 'Engine/game contract' is ours to apply, and a population handed to an auditor is the shape that gets confirmed rather than tested. CONSUMER PRICING, oracle's own reading (banked empyrean origin/main 7e22001, sourced oracle-e7; oracle main bd61812): the ring surface is ONE file, crates/oracle-frontend/src/rings.rs -- four RAM labels plus 18 equates by listing spelling; the object half is separate. THE ASYMMETRY IS THE POINT, not the cost: a RENAME costs them one line per name and their reader names every missing symbol in one sentence, so it fails loudly and cheaply -- but a symbol RE-HOMED WITH ITS NAME KEPT is UNDETECTABLE there, so for that shape the PING AT LANDING is the load-bearing act and the edit is not. Aurora's surface (the per-section rings.json it writes) is UNMEASURED and aurora is stopped: carry it as UNKNOWN in the row, never as assumed-small.",
-      "state": "next",
+      "id": "PALETTE-AUTHORED-SEED",
+      "title": "The palette fix: merged in a landing worktree, four shapes building, not yet pushed",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "WATERLINE-FIRST-VIEW",
+      "title": "Make the first thing on screen be the water surface effect from his screenshot",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "CONTENT-PINNING-FIX",
+      "title": "Thirty checks require particular content to exist; the worst leaves the demo game shipping an unverified declaration",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
     {
-      "id": "LS-19a",
-      "title": "79 prose citations left pointing past their subject by tonight's edits -- all prose, no functional citation broke",
+      "id": "LENS-LEDGER-RULE",
+      "title": "Review ledger: rule in force and the sift is DONE (2 findings were open only on paper). Residual: V-7's structural gap and C1b-2's rotted coordinate",
       "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
-      "id": "LS-16a-check",
-      "title": "Supersede the per-commit demo assemble with sigil's cheaper --check, once a shared assembler carrying it is installed",
-      "state": "open",
-      "size": "S",
-      "blockedBy": "sigil's second refresh; d90a297c is not in the installed pair"
-    },
-    {
-      "id": "LS-16c",
-      "title": "The 135 extern guards become poisonable once sigil's renderer fix is in the installed assembler; not before",
-      "state": "open",
+      "id": "SP-6",
+      "title": "Mid-stream instrument change: DONE and measured at -1 byte; waits on your ear for the spring's sound and on a one-line sigil pin",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil's second refresh; 82838687 is not in the installed pair"
+      "blockedBy": "owner"
     },
     {
-      "id": "LS-22a-resid",
-      "title": "One appendix move that the letter-frequency mechanism does not explain -- a second channel exists and is uncharacterised",
+      "id": "VRAM-NEIGHBOURHOOD",
+      "title": "Re-cut the video memory map so objects have room -- now an OUTPUT of the region plan rather than a question in front of it",
       "state": "open",
-      "size": "S",
+      "size": "L",
       "blockedBy": null
     },
     {
-      "id": "LS-15b-resid",
-      "title": "The straddle harness's sibling writes its own baseline, so a re-cut launders an error already present",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
+      "id": "REGIONS-PLAN",
+      "title": "Region plan: the v1 spec is written and landed; building it now waits on your call, and the background half waits on video memory",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": "owner"
+    },
+    {
+      "id": "ENGINE-SEAM-AUDIT",
+      "title": "Audit the engine for Sonic-specific mechanisms that should sit on the game side; reading only, no moving",
+      "state": "blocked",
+      "size": "L",
+      "blockedBy": "owner"
     },
     {
       "id": "LS-13b",
-      "title": "Boot's hand-spelled bus hold has no pairing proof; sigil's bus net cannot see a register-indirect destination",
+      "title": "Boot's hand-spelled bus hold has no pairing proof; the assembler's bus net cannot see a register-indirect destination",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "a sigil language question"
-    },
-    {
-      "id": "LS-13c",
-      "title": "No interrupt-mask lattice exists, so 'entered masked' is not expressible as a build-time check",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "sigil-side"
+      "blockedBy": "sigil"
     },
     {
       "id": "LS-10a",
       "title": "Runtime confirmation that the eight skipped object slots stay empty -- the one route static analysis cannot close",
       "state": "blocked",
       "size": "S",
-      "blockedBy": "needs a foreground emulator pass on his desktop"
-    },
-    {
-      "id": "BAND-LIVE-BUILD",
-      "title": "BUG TIER, aurora's measurement with a one-key control: delete default_off from the act and the PLAIN build fails",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "BUILD-MANIFEST",
-      "title": "Oracle's ask: build.sh emits a manifest with a content hash per artifact including the listings",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "the hub PARKED it: it blocks nothing until the owner says go on oracle's FIXTURE-REPIN (his card item 13)"
+      "blockedBy": "oracle"
     },
     {
       "id": "F09-SHIP",
-      "title": "The $09 art repair: 19 destroyed tiles rebuilt as S3K shapes under our palette",
+      "title": "The level-art repair: 19 destroyed tiles rebuilt as Sonic 3 shapes under our palette",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "his decision on his own custom sheet: a coherent slightly off-style frame, or the frame absent"
+      "blockedBy": "owner"
     },
     {
       "id": "FLOOR-FAN",
-      "title": "Floor: mechanism reopened -- he watched planks change ANGLE, which painted art cannot do",
+      "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "PARKED by his word -- revisit another time; nothing further spent"
-    },
-    {
-      "id": "ORACLE-RELAUNCH",
-      "title": "Relaunch his Sonic window ONCE on a debugger build carrying both the symbol cap and the picker dock",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "his word: only whether to relaunch his live window, which resets his layout"
-    },
-    {
-      "id": "ICON",
-      "title": "Wayland icon: install-desktop.sh writes into his home and OVERWRITES one file -- needs his word",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "his explicit say-so"
-    },
-    {
-      "id": "CR-Q-REVIEW",
-      "title": "Review oracle's machineReplaced event -- deferred by ruling, needs a keyed load only he can make",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "deferred to ten seconds of his time arranged through the hub"
-    },
-    {
-      "id": "ROWREMAP-HSHIFT-RUNGS",
-      "title": "A second row-remap ladder rung, if one is ever wanted",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "nothing wants it yet; it returns by schema amendment when a second ladder is worth its bytes"
+      "blockedBy": "owner"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-07T22:37:06Z"
+  "updatedAt": "2026-09-10T02:41:49Z"
 }
