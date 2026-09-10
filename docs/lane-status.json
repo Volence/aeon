@@ -1,14 +1,9 @@
 {
-  "focus": "Landing the palette fix so your colour picks reach the ROM, and finding out which water effect you mean.",
+  "focus": "The waterline is gone. That was my edit in your tree and it cost you hours.",
   "inFlight": [
     {
-      "what": "The palette fix - merged and building all four shapes before it goes to master",
-      "where": "worktree .aeon-land-palette, merge d9e4061d",
-      "agent": false
-    },
-    {
-      "what": "Finding out which water effect your screenshot shows and what it costs to put it at the start",
-      "where": "branch recon/waterline-first-view",
+      "what": "The loop's sprite priority swap - designed, never built, and it is why loops look flat",
+      "where": "branch parcel/loops-p-sprite-priority",
       "agent": true
     }
   ],
@@ -24,18 +19,18 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the palette fix is pushed and the water recon comes back.",
+  "nextBoundary": "When the priority swap lands, or blocks on a look call that is yours.",
   "queue": [
     {
-      "id": "PALETTE-AUTHORED-SEED",
-      "title": "The palette fix: merged in a landing worktree, four shapes building, not yet pushed",
-      "state": "doing",
+      "id": "SECTION-EFFECTS-VISUAL",
+      "title": "The visual half of the section/effects cleanup - three schemes priced, every pixel choice is yours",
+      "state": "next",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "your call"
     },
     {
-      "id": "WATERLINE-FIRST-VIEW",
-      "title": "Make the first thing on screen be the water surface effect from his screenshot",
+      "id": "LOOPS-P-AEON",
+      "title": "The loop's sprite priority swap was never built - it is why a loop reads as a flat painted circle",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -113,5 +108,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-10T02:41:49Z"
+  "updatedAt": "2026-09-10T05:24:22Z"
 }
