@@ -1,0 +1,56 @@
+<!-- SPLIT-NOTE -->
+**THIS FILE IS THE BOOT READ, AND IT IS CUT BY *WHEN A RULE IS READ* — never by size and never by
+what is "movable"** (owner, 2026-09-04T15:38:47Z, hub card 7, his words to the hub's recommendation
+being *"7. Sounds fine"*; empyrean `origin/main` `docs/OVERSEER-PROTOCOL.md`, section
+"The boot read is bounded", read at a committed revision and never through the sibling path).
+What is here is what a fresh session must know **to act at boot**: scope, the queue, any resume
+brief, and the standing rulings that change what a session does *first*.
+
+**Everything read at a LATER, SPECIFIC MOMENT is in `docs/OVERSEER-REFERENCE.md`** — named here by
+path so you can reach it at that moment, and not read at boot:
+
+- **the landing lane** — before you merge, build the four shapes, freeze, or append to the ledger;
+- **recovering a vintage artifact** — before ANY toolchain-archaeology parcel;
+- **instruments (which oracle for what)** — before you measure anything;
+- **there is no auto-commit daemon** — before you defer to an owner of a tree you have not
+  confirmed exists (`games/sonic4/data/editor/**` is staged like any other work);
+- **worktree quirks** — before you dispatch, freeze, or remove a tree;
+- **changed-parameter moves** — a pointer into sigil, when you need bar 19;
+- **the aeon-specific review bars** — when you judge returned work.
+
+**Dated precedent narratives live in `docs/OVERSEER-LOG.md`** (append-only, newest last, read by
+`tail`/`grep`, never at boot). A ruling that must survive a rotation is written HERE as well as
+there, never only into the log.
+
+**DO NOT TRIM A RULING TO HIT THE BOUND.** Every rule survives a cut somewhere; the only choice is
+which file it lives in. `tools/test_overseer_bound.py` asserts the ruled 100,000 B bound directly
+as of this cut (2026-09-10) — the growth ratchet it carried while card 7 was open is retired,
+per that file's own instruction. Narrative: `docs/OVERSEER-LOG.md`, search `BOOT-READ BOUND`.
+<!-- /SPLIT-NOTE -->
+# Aeon Overseer — Reference
+
+**NOT THE BOOT READ.** `docs/OVERSEER.md` is what a fresh session reads whole at boot. This file is
+everything that matters only at a **later, specific moment** — how to land, how to recover a vintage
+artifact, which instrument answers which question, the worktree quirks, and the aeon-specific review
+bars. Read the section you are about to need, at the moment you need it.
+
+**The cut axis is WHEN A RULE IS READ, never size and never what is "movable"** (owner,
+2026-09-04T15:38:47Z, hub card 7, *"7. Sounds fine"*; empyrean `origin/main`
+`docs/OVERSEER-PROTOCOL.md`, section "The boot read is bounded"). **Nothing here was trimmed to hit
+a number** — every line below stood in `docs/OVERSEER.md` before 2026-09-10 and stands here
+unchanged, proved lossless by `oracle/tools/prove_doc_split.py`.
+
+**On any disagreement the shared protocol governs**, read at a committed revision:
+`git -C ../empyrean fetch -q origin && git -C ../empyrean show origin/main:docs/OVERSEER-PROTOCOL.md`.
+Dated precedent narratives are in `docs/OVERSEER-LOG.md`.
+
+## Superseded — the boot file's 2026-09-02 split note
+
+**Kept verbatim, and it is WRONG about this repo as of 2026-09-10. Do not act on it.** It describes
+the earlier measure-then-move procedure, and it says the residual is the owner's parcel and that the
+bars, the landing lane and the quirks stay in the boot file. The 2026-09-04 ruling replaced that
+axis with the read-time one, under which all of them move — and this file is where they moved to.
+It is preserved rather than deleted because every sentence of the boot read survives its cut
+somewhere.
+
+That block is superseded. Everything below it moved here from the boot file on 2026-09-10, unchanged.
