@@ -14,7 +14,25 @@
 //   bits 0-3 = half-height in 32px units (0 = default 64px)
 //   bit 4    = direction-sense invert
 //              (normal: crossing rightward -> layer 1, leftward -> layer 0)
-//   bit 5    = reserved: render-priority swap (future)
+//   bit 5    = reserved: render-priority swap — STILL RESERVED, and as of
+//              2026-09-10 that is a decision rather than a gap. LOOPS-P
+//              Parcel 2 (the sprite priority swap) SHIPPED that day, but at
+//              the Route P read site: Player_LoopCrossover derives art_tile's
+//              VDP priority bit from Sst.layer, per the anchor's ruling
+//              (docs/LOOP_CROSSOVER_ENCODING.md §9, "derive priority from the
+//              layer at the engine read site"). S3K's bits 5 and 6 are the
+//              DECOUPLED design — priority painted per crossing direction,
+//              INDEPENDENTLY of which path you land on — which §9 explicitly
+//              declines until a painted crossover needs the two apart. So
+//              implementing this bit would ship a declined design, on an
+//              object that is placed in no level data and is parked for
+//              deletion. The raise below is correct; leave it.
+//
+//              NOTE also that this object writes Sst.layer and does NOT carry
+//              the derive, so if it were ever re-placed its crossings would
+//              move the layer without moving the priority bit. That is booked
+//              rather than papered over — see docs/DEFERRED_WORK.md, "LOOP
+//              SPRITE PRIORITY SWAP".
 //   bit 6    = grounded-only (skip the write while ST_IN_AIR — classic
 //              swappers use this on lines a player may legitimately jump
 //              across without changing path)

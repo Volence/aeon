@@ -12,8 +12,11 @@ player per frame and writes `Sst.layer`. Rules R1-R6 are all built.
 
 **ALL FOUR CLAIMS ARE NOW TRUE — AMENDED 2026-09-04.** This paragraph used to say the
 opposite, and the sentence it turned on ("all 256 slots of the shipped `CrossoverTable` hold
-`XOVER_NONE`") has expired: the table now holds **two** marked slots, section 0 carries loop
-geometry with four painted marks (see §11 and §12), and a player has been driven through one.
+`XOVER_NONE`") has expired: the table now holds **three** marked slots, section 0 carries loop
+geometry with **sixteen** painted marks (see §11 and §12), and a player has been driven through
+one. *(Those two counts were "two" and "four" when written on 2026-09-04 and were re-derived
+from the shipped plane files on 2026-09-10 — the paint grew under them. Re-derive again rather
+than copying these; the instruction is the durable part, the numbers are not.)*
 **Four claims, and say which one you mean: the bytes reach the FILE · they reach the ROM ·
 the engine READS them · a player MOVES.** The first three are proved by EXECUTING the built
 ROM's own bytes (`tools/loop_crossover_gate.py` varies one byte of `CrossoverTable` in the
@@ -39,7 +42,9 @@ painted crossover. See §3.4 and §7 R4.
 **Measured against:** aeon `fde35b2f` (`data(ojz): repaint the collision cells that made
 Knuckles fall through the floor`), worktree clean for
 `games/sonic4/data/editor/**` and `games/sonic4/data/collision/**`. Every number in this
-document was taken at that commit. See §10 for what that invalidates in older documents.
+document was taken at that commit **unless it carries its own later date** — the paint has
+moved twice since, and the counts corrected on 2026-09-10 say so at the point of use rather
+than here. See §10 for what that invalidates in older documents.
 
 **Supersedes:** `docs/decisions.jsonl` `d-39` (withdrawn by `d-39-corrected`). This document
 is the corrected answer `d-39-corrected` promised. Nothing in `d-39`'s three options
@@ -47,9 +52,9 @@ survives unmodified.
 
 **Provenance limit, LIFTED 2026-09-04.** This used to read *"no loop geometry exists anywhere
 in OJZ act 1 ... this encoding has therefore not been validated against real geometry and
-cannot be until a throwaway test loop is painted."* Section 0 now has a loop and four painted
-marks (§12 gives their world coordinates), and the encoding has been driven end to end on a
-real ROM. Claims below that were derived from source and from non-loop content are still
+cannot be until a throwaway test loop is painted."* Section 0 now has a loop and sixteen
+painted marks across eight cells (§11 gives their world coordinates, re-derived 2026-09-10;
+it said "four" until then), and the encoding has been driven end to end on a real ROM. Claims below that were derived from source and from non-loop content are still
 labelled as such — read each section's own status line, not this one.
 
 ---
@@ -381,8 +386,31 @@ One requirement here was NOT satisfied as written, and it is flagged where it ap
 names two places that are not the same place ("the shared per-frame player tail" and
 "alongside the quadrant derive"). It landed at the quadrant derive.
 
-This parcel sequences **after** the sprite priority swap
-(`loops-and-sprite-rotation.md` §6, Parcel 2).
+~~This parcel sequences **after** the sprite priority swap
+(`loops-and-sprite-rotation.md` §6, Parcel 2).~~
+
+> **⚠ IT DID NOT. THE TWO WERE BUILT IN THE OPPOSITE ORDER, and until 2026-09-10 no
+> document said so.** Parcel 3 — this parcel — landed `8a4313b5` / `602170f7` on
+> 2026-09-02. **Parcel 2, the sprite priority swap, landed 2026-09-10**
+> (`parcel/loops-p-sprite-priority`), eight days *after* the parcel that was supposed to
+> follow it. The sentence above stood unamended through both landings.
+>
+> **What the inversion cost, stated so the record is not just an apology.** For those
+> eight days the engine could ride a loop correctly and render it flat — the exact
+> failure `loops-and-sprite-rotation.md` §4.3 Gap 1 predicts, *"the player runs over the
+> top of his own scenery"* — and there was no row on any board that would have explained
+> it. An owner reporting that would have reported *"the loop doesn't work"*, and the
+> loop's collision, its direction rule and its step-over sweep were all fine.
+>
+> **What it did NOT cost, because that matters for judging the ordering rule itself.**
+> Nothing in Parcel 3 depended on Parcel 2 technically: the priority derive reads
+> `Sst.layer`, which is Parcel 3's own output, so building 3 first was implementable and
+> is in fact the only order in which the derive has something to derive *from*. §6's
+> "sequences after" was a **visibility** ordering — see the recommendation's closing
+> paragraph in `loops-and-sprite-rotation.md` §6, which is explicit that the parcels were
+> ordered by what could be *seen to work* — and the visibility argument is what got lost.
+> The lesson is not "follow the order"; it is that a stated order which is departed from
+> needs a line saying so at the moment of departure, in the document that states it.
 
 **(0) Constant hygiene, `tools/collision_pipeline.py`.** Add `PLANE_SOL_SHIFT = 12` and
 `XOVER_SHIFT = 14` documented as *the per-plane word only*, and re-comment
@@ -626,6 +654,46 @@ the layer at the engine read site, and treat the first case that needs them deco
 trigger to revisit.** Value 3 being reserved means that revisit is a deliberate ruling and
 not a silent widening — which is the point of reserving it.
 
+> **✅ BUILT 2026-09-10 — the derive, exactly as this paragraph rules it**
+> (`parcel/loops-p-sprite-priority`). `Player_LoopCrossover`'s `.fire` path now carries an
+> `andi`/`tst`/`ori` triple on `art_tile(a0)` — S3K's clear-then-set shape — and the
+> routine's `(5c)` commentary block is the long form of everything below. **The field
+> stayed at 2 bits and no bit was spent**, which is what this section said would happen if
+> priority turned out to be a function of the layer.
+>
+> **The polarity was FORCED, not chosen, and that is worth recording because a reader will
+> otherwise re-open it as a taste question.** `Player_Init` clears both `Sst.layer` (to
+> `LAYER_PATH_A`) and `art_tile`'s priority bit, in the same routine
+> (`games/sonic4/player/characters.emp` `Player_InitAssets`: *"the player draws at palette 0
+> / low priority"*). A derive mapping path A to *set* would therefore raise the priority bit
+> for the whole game outside loops — a whole-game rendering change wearing a loop parcel's
+> clothes. **Path A low, path B high is the only mapping that is a no-op until a mark
+> fires**, so there was no free parameter left for the engine lane to pick.
+>
+> **What is NOT settled, and it is not the engine's to settle.** Plane B carries the RIGHT
+> arc, so the player is now drawn **in front** of the loop art on the right arc and
+> **behind** it on the left. Whether that reads correctly for a *given* loop depends on
+> which of that loop's tiles carry the VDP priority bit — a property of the paint. **That is
+> a content question and it needs a look at a running frame**, which is why it is tagged
+> rather than answered here. The measurement that says the swap is visible at all rather
+> than a no-op: 2401 of section 0's 5775 non-empty plane-A nametable words carry bit 15
+> (`tools/ojz_strip_gen.py` puts ground and terrain on high priority, sky on low), so a
+> low-priority player really is drawn behind terrain wherever he overlaps it.
+>
+> **The revisit trigger this paragraph names is UNCHANGED and still armed.** Nothing about
+> the derive makes the decoupled case easier or harder; the first painted crossover that
+> needs "in front" to differ from "on plane B" is still the trigger, and S3K's own answer
+> (`Obj_PathSwap` subtype bits 5 and 6, two independent per-direction priority bits) is
+> still the shape to reach for. `PATHSWAP_BIT_PRIO` stays **reserved** and `PathSwap_Init`
+> still `raise_error`s on it, deliberately: implementing it would be building the decoupled
+> design this section declined, on an object that is placed in no level data and is parked
+> for deletion.
+>
+> **Graded by** `tools/loop_crossover_gate.py` family `priority` (36 rows, in `build.sh`'s
+> existing invocation of that gate), proven red by four source mutations — see that file's
+> PROVEN RED block, including the one that was written wrong, came back green, and is
+> recorded as such.
+
 Growth room, if it is ever needed, is **not** bits 15:14. It is bits 9:8 of the same word:
 the shape index is 10 bits but the imported S&K base bank is 256 shapes
 (`games/sonic4/data/collision/base/heightmaps.bin` is 4096 B = 256 × 16), so bits 9:8 have
@@ -683,9 +751,15 @@ run. Three items are tagged for the controller, none of which gate Aurora:
 - **[TAG-RUNTIME] — CLOSED 2026-09-04, and it found a defect on the way.** The named check
   was: paint a crossover pair, build, and watch the byte at `Player_1 + $2D` (`Sst.layer`) in
   the emulator; it must change on the frame the player ENTERS the marked cell and must NOT
-  change again while he stays in it. The paint now exists (two cells at section-0 column 143,
-  world x 1144..1151, rows y 432..447 and y 544..559, each marked `XOVER_TO_B` on plane A and
-  `XOVER_TO_A` on plane B — §3.3's pair, twice), and `tools/loop_step_over_witness.py` drives
+  change again while he stays in it. The paint now exists — **EIGHT cells**, not the two this
+  paragraph described when it was written; re-derived from
+  `games/sonic4/data/editor/ojz/act1/section_0.collattr{,b}.bin` on 2026-09-10 and it is the
+  only marked content in all 18 shipped plane files (16 marks in 1,179,648 cells). All at
+  section-0 **column 143** (world x 1144..1151), in two four-cell vertical bars: rows 52-55
+  (world y 416..447, the crown) and rows 68-71 (world y 544..575, the floor). Every one is
+  `XOVER_TO_B` on plane A and `XOVER_TO_A` on plane B — §3.3's pair, eight times. The
+  original text named the middle two cells of each bar, which is what the bars were then.
+  `tools/loop_step_over_witness.py` drives
   a real player over the lower one on a real ROM. Both halves hold: the layer goes 0 -> 1 on
   the frame he reaches column 143 and stays 1 for the rest of the run.
 

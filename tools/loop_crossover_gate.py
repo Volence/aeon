@@ -106,6 +106,39 @@ the swapped `d0` made the walk never terminate, so it was red by hanging, not by
 property. It is recorded because a red for the wrong reason is the failure mode this
 list exists to rule out.
 
+PROVEN RED AGAIN, 2026-09-10, for the `priority` family, on
+`parcel/loops-p-sprite-priority`. Same discipline: each mutation applied to
+`games/sonic4/player/player_common.emp` on disk, rebuilt (`FAST=1 DEBUG=1 ./build.sh`),
+re-run through THIS file, and restored with `git checkout HEAD -- <file>` from the
+commit that carries the parcel — never from a dirty tree.
+
+  P1  the conditional `ori` deleted, so a path-B fire never raises the bit
+      -> 4 findings, all of them the family's named case: "THIS IS GAP 1 ITSELF: a
+         player handed the path-B arc is still drawn at low priority"
+  P2  the unconditional `andi` deleted, so a return to path A keeps the bit the
+      previous crossing raised — S3K's clear-then-set with the clear removed
+      -> 6 findings across both legs: two "the unconditional clear is missing" and
+         four "the derive did not run on a firing frame"
+  P3  the clear mask widened to $7F7F, taking a tile bit with the priority bit
+      -> 8 findings, every one of them the mask leg: "AND IT IS NOT THE PRIORITY BIT:
+         the tile/palette half of the word changed too". The polarity legs stay green,
+         which is the point of separating them
+  P4  the clear HOISTED above the `beq .unmarked`, so the derive runs on every walked
+      cell instead of on the firing path — i.e. the unconditional per-frame design
+      -> 43 findings, and the leg that catches it is "no mark fired, yet art_tile was
+         written". THIS IS ALSO THE PROOF THAT THE WRITE TRACING IS LIVE: that leg is
+         only reachable because the executor's `andi`/`ori` arm now records a memory
+         destination (see the `execute` loop), which it did not before this parcel
+
+  P4 WAS FIRST WRITTEN WRONG AND IS RECORDED THAT WAY ON PURPOSE. The first attempt
+  inserted the clear immediately above the `.fire:` label — which the rightward path
+  reaches by `bra .fire`, jumping straight over it, and which the leftward path already
+  fell through. It was therefore semantically identical for every row the family grades
+  and came back GREEN. A green from an applied mutation is not a pass; it is either a
+  runner that is not executing what was patched or a mutation that did not change the
+  subject, and here it was the second. The anchor was moved to the `lea CrossoverTable`
+  two instructions above the `beq`, and the same intent then went red 43 times.
+
 Usage (the post-sigil gate; see build.sh):
 
     loop_crossover_gate.py --lst s4.debug.lst --rom s4.debug.bin \
