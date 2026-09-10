@@ -819,6 +819,49 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **ONLY A CHECK YOU HAVE MADE FAIL ON DEMAND IS EVIDENCE OF ANYTHING — AND THE BLIND ONES ARE FOUND
+  BY PLANTING A FAILURE, NEVER BY READING THE OUTPUT HARDER** (added 2026-09-10; four instances in
+  four repos in one night, two of them this lane's, class named by the hub at empyrean `5d281fb`).
+  **The four, because the spread is the argument:** aurora's harness logged `sel=[null,null]` at every
+  phase, where *"the selection is gone"* and *"this instrument cannot see selections"* are the same
+  artifact (Chromium exposes no selection API on `input[type=number]`); the hub's `hub_check.py`
+  parsed a timestamp, formatted it, stored it, and **never compared it to anything**, producing
+  nothing, which reads as a quiet suite; this lane reported a file absent from sigil's tree having
+  rooted **both** of its instruments at a directory that does not exist, so they could only ever
+  return empty; and this lane's own boot witness **reported a halted machine as clean**, because the
+  crash handler exists in the listing only as an `EQU` line the symbol parser cannot see.
+  **THE ORDERING IS THE LESSON AND IT IS EASY TO MISS: the poison found the defect in the WITNESS,
+  not in the code under test.** The first green was worthless in a way nothing in it could announce,
+  and the parcel it was grading was release-shape code that bricks the game if it false-fires — so a
+  blind witness there does not mislead a session, it ships.
+  **Operational form, and it is one line: before quoting a check as evidence, make it fail on
+  purpose.** Three of the four were found that way (a planted arm, five doctored inputs, one
+  corrupted byte of level art) and the fourth by re-reading the preparation, not the result. **Not
+  one was found by looking at the output more carefully**, which is why this is a bar and not advice
+  about attention.
+  *Sibling of the existing absence-class bars, and distinct from them: those govern reading an empty
+  result as a finding. This one governs reading a POSITIVE result — a green, a clean pc, a passing
+  suite — from an instrument that had no way to say otherwise.*
+
+- **A CORROBORATING PATTERN THAT IS EQUALLY THE SIGNATURE OF A BENIGN CAUSE IS NOT CORROBORATION**
+  (added 2026-09-10; this lane's error, caught by the sigil lane within the hour).
+  Lived: a `0x4E` offset between sigil's pinned `CORE.plain_base` and this tree's measured value was
+  reported to them as **drift that predates our parcels**. It is the distance to a corpus pinned 280
+  commits back — a gap, not a fault. **What made it look like drift is exactly what makes it a pin:
+  uniform across two regions with the region's own LENGTH matching to the digit.** That shape was
+  cited here as corroboration and it is the signature of the benign cause.
+  **The discriminating fact was in hand and unasked for**: a region-local pin fault cannot flip sign
+  between shapes for the same region, and the debug base is `-0x66` where plain is `+0x4E` — opposite
+  signs, which only accumulated unrelated change ahead of the region can produce. Neither lane
+  consulted the debug shape; both argued from the plain shape's uniformity, which is one enumeration
+  parameter looked at twice (bar 19, failing quietly).
+  **Operational form: before offering a pattern as corroboration, name the benign cause that would
+  produce the same pattern, and find the observation that separates them.** If you cannot name one,
+  you have not tested the agreement.
+  *Practical rider for whoever advances the corpus pin: `debug_base` moves DOWN. A repin sanity check
+  written to expect forward motion reads a legitimate `-0x66` as a fault.*
+
+
 - **WHEN A MECHANISM IS REFUTED, RE-DERIVE THE ARITHMETIC IT PRODUCED — NUMBERS DO NOT INHERIT
   SOUNDNESS FROM HAVING BEEN COMPUTED BEFORE THE STORY WAS WRONG** (added 2026-09-02, chain 198;
   this lane's defect, generalised with the sigil lane, who banked the same row against themselves
