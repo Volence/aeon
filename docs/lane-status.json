@@ -1,17 +1,6 @@
 {
-  "focus": "Landing the palette fix so your colour picks reach the ROM, and finding out which water effect you mean.",
-  "inFlight": [
-    {
-      "what": "The palette fix - merged and building all four shapes before it goes to master",
-      "where": "worktree .aeon-land-palette, merge d9e4061d",
-      "agent": false
-    },
-    {
-      "what": "Finding out which water effect your screenshot shows and what it costs to put it at the start",
-      "where": "branch recon/waterline-first-view",
-      "agent": true
-    }
-  ],
+  "focus": "Landed the record fix, so the regions work will not inherit a false 'verified' table.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "VRAM-FOR-OBJECTS",
@@ -24,21 +13,28 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the palette fix is pushed and the water recon comes back.",
+  "nextBoundary": "Now - everything is pushed and nothing is half-applied.",
   "queue": [
     {
-      "id": "PALETTE-AUTHORED-SEED",
-      "title": "The palette fix: merged in a landing worktree, four shapes building, not yet pushed",
-      "state": "doing",
+      "id": "SECTION-EFFECTS-VISUAL",
+      "title": "The visual half of the section/effects cleanup - three schemes priced, every pixel choice is yours",
+      "state": "next",
+      "size": "M",
+      "blockedBy": "your call"
+    },
+    {
+      "id": "LOOPS-P-AEON",
+      "title": "The loop's sprite priority swap was never built - it is why a loop reads as a flat painted circle",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "WATERLINE-FIRST-VIEW",
-      "title": "Make the first thing on screen be the water surface effect from his screenshot",
-      "state": "doing",
+      "title": "The water effect is rebuilt into his tree and byte-identical to his screenshot; waiting on his eye before landing",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "his look"
     },
     {
       "id": "CONTENT-PINNING-FIX",
@@ -111,7 +107,7 @@
       "blockedBy": "owner"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-10T02:41:49Z"
+  "awaiting": "whether to keep the water at the start (aurora holds that card), and whether you want the regions rows booked as planning-only",
+  "atBoundary": true,
+  "updatedAt": "2026-09-10T04:28:06Z"
 }
