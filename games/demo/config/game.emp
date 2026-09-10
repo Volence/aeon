@@ -5,19 +5,49 @@
 module games.demo.game
 
 use games.demo.constants.{GS_DEMO}
+// GLOB, and it is a REQUIREMENT rather than a style choice: `fold_caps()` calls
+// `scene_caps()` by name, and a comptime fn's free names resolve at the CALL SITE
+// (docs/EMP_PITFALLS.md §2), so every helper the fold reaches has to be visible HERE.
+// A selective `use ...{fold_caps}` fails loudly with `unknown function scene_caps` —
+// scene_dsl.emp's own call-site-resolution banner states the same requirement for scene
+// authors ("a scene module must `use engine.level.scene_dsl.*`, never a selective use").
+use engine.level.scene_dsl.*
+
+// DEMO_SCENES — the demo's scene registry, and it is EMPTY ON PURPOSE. The demo has no
+// parallax and must not acquire a dependency on it: it is the permanent
+// engine-is-game-agnostic proof. An empty registry is a legitimate registry, not a
+// missing one, and declaring it is what lets the mask below be DERIVED.
+//
+// TYPED `[Scene; 0]` rather than a bare `[]`, and the type is the length pin: a scene
+// added here without moving the `0` is a type error, and the fold cannot be handed
+// something that is not a scene list. It emits no bytes — a `const` is comptime, and this
+// module still emits nothing.
+pub const DEMO_SCENES: [Scene; 0] = []
+
+// The capability mask, FOLDED from the registry above rather than asserted.
+//
+// UNTIL 2026-09-10 THIS COULD NOT BE WRITTEN, and the binding below was a hand-written 0
+// with a comment saying exactly why: `fold_caps()` opened with `ensure(scenes.len >= 1)`
+// and refused an empty registry, so the demo — alone among the games — had a `SCANLINE_CAPS`
+// that nothing derived and nothing checked. That guard is gone (content-pinning audit
+// item 0 / A6; the derivation that 0 is the OR-fold's identity is written at fold_caps()
+// in engine/level/scene_dsl.emp). The value is unchanged — MEASURED at 0, by asserting it
+// against a wrong number under a probe and reading the fold back out of the diagnostic,
+// and independently by demo.bin coming out byte-identical (crc f7fdf77d, 97051 B) across
+// the change. What moved is that it is now a COMPUTED 0: the day this demo authors a
+// scene, its mask follows the scene instead of waiting for someone to remember.
+pub const DemoScenes_CapsFolded = fold_caps(DEMO_SCENES)
 
 pub implement Game {
     // No player/camera jump-lock system in the demo — the camera's inert
     // deadzone-follow arm.
     const CAMERA_JUMP_LOCK = false
 
-    // No authored scenes: the demo has no parallax and must not acquire a dependency on
-    // it — it is the permanent engine-is-game-agnostic proof. Zero is both the honest
-    // value and the maximal specialisation (P2 may drop every scanline service here).
-    // Nothing to derive and nothing to verify: fold_caps() REFUSES an empty registry
-    // rather than folding it to 0, so the demo deliberately has no scene registry to
-    // check this against, and this binding is the whole statement.
-    const SCANLINE_CAPS = 0
+    // No authored scenes, so the fold over DEMO_SCENES above is 0 — both the honest value
+    // and the maximal specialisation (P2 may drop every scanline service here). This is a
+    // DERIVED binding, not a statement: see the banner on DemoScenes_CapsFolded for what
+    // it replaced and why it could not be written before 2026-09-10.
+    const SCANLINE_CAPS = DemoScenes_CapsFolded
 
     // Boot enters the demo's GameState_Demo_Init.
     const ENTRY_ID = GS_DEMO
