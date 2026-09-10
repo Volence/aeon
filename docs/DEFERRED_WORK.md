@@ -32422,3 +32422,126 @@ convention the gate already states — cite the enclosing symbol, which survives
   act's only row-remap surface and strands `CAP_ROW_REMAP` at `scene_registry.emp:488`);
   whether the row-remap waterline belongs on 0 or 5; whether sections 1-3 keep visible gate
   fixtures (Scheme B).
+## CONTENT-PINNING CHECKS — 30 SITES AUDITED, AND THE DEFECT IS A DIRECTION (2026-09-09)
+
+**Full audit: `docs/superpowers/notes/2026-09-09-content-pinning-audit.md`.** Read-and-report;
+nothing was fixed and no test was changed.
+
+**The owner's criterion, verbatim, after the build refused him turning off a decorative moving
+waterline in one level section:** *"a check may require that authored content is CORRECT; it may
+not require that particular content EXISTS, unless something real breaks without it."*
+
+**THE DISCRIMINATOR, which sorts almost the whole population mechanically.** Write the
+implication as **`authored ⇒ declared`** ("you authored a curve, so declare the capability") and
+removing the content removes the check with it. Write it as **`declared ⇒ authored`** ("you
+declare the capability, so some scene must author it") and it **fires on a legitimate removal**.
+**Every defect found is the second direction; every safe sibling is the first.**
+`scene_registry.emp`'s subset arm is deliberately one-sided for exactly this reason and its own
+banner says so — and three arms were later added that reinstate the other side.
+
+**COUNT, with unit: 19 PINS-CONTENT check sites** (4 comptime `ensure`, 9 pytest assertions,
+5 gate sites), **14 AMBIGUOUS**, across **9 pytest files, 3 gate scripts and 1 `.emp` file** —
+against populations of 1,398 `ensure` sites, 2,217 test functions and 157 tool scripts. **18 of
+the 19 are build-fatal** (the exception is a standalone witness `build.sh` never calls). The
+concentration is the good news: this is a small, tractable defect, not a verdict on the test
+culture.
+
+**TONIGHT'S BLAST RADIUS, derived from source and NOT measured (no build was run):** deleting one
+argument in `ojz_scenes.emp:327` trips **five** build-fatal refusals across three enforcement
+mechanisms — two comptime `ensure`s (`scene_registry.emp:488`, `:567`), two pytest assertions in
+the pre-build lane (`test_lab_index_lint.py:502`, `:530`), and one post-sigil gate
+(`row_remap_gate.py:621`) — and the retreat the first message *prescribes* spans **seven source
+files**. **The highest-value follow-up is the one-key control run, not more reading**; BGANIM
+teaches that a sixth wall may sit behind these.
+
+**THE STRUCTURAL FINDING, worth more than any single site: `build.sh` erases the
+FAIL / UNMEASURABLE distinction.** Eleven of the twenty-one build-fatal gates carefully separate
+**exit 1 = the bytes are wrong** from **exit 2 = I cannot measure this**. Every one is invoked as
+`if ! python3 …; then exit 1; fi`. Only `level_staleness.py` and the pytest lane inspect an exit
+code. **So a gate saying "you removed the content, so there is nothing here to measure" fails the
+build identically to "the emitted bytes disagree with the model."** One `case` per gate de-fangs
+a whole class, including cases not yet written. **This is the ranked-first fix.**
+
+**THIS ALREADY HAPPENED THREE DAYS AGO AND WAS SELF-DIAGNOSED.** `a621a69f` (2026-09-06):
+*"fix(bganim): the gate I added pinned the shipped document"* — its body: *"the moment an author
+removed `default_off` — **the exact correct run this parcel exists to keep building** — the build
+failed on a TOOL TEST instead of a link error. **A gate pinning the shipped document's CONTENT is
+the failure being fixed wearing a different hat.**"* That was the tail of **BGANIM-DECOUPLE**
+(`docs/DEFERRED_WORK.md:29335`), where turning off a decorative moving background animation hit
+**three** separate walls on one content edit. **Its fix is the template for the repairs above:
+the condition survives unchanged and stops being able to veto what the act ships; declining is
+ANNOUNCED in two places instead of refusing.**
+
+**QUESTION 2 — "so much of our dev time goes into working around tests": PARTLY SUPPORTED, and
+the honest version is more useful than the flattering one.** Method: 1,233 commits since
+2026-09-01, partitioned by path into check files (`tools/test_*.py`, `*_gate.py`, `*_witness.py`)
+and subject files (non-test `engine/**`, `games/**`). **64 of 1,233 (5.2%) co-edit both.** Of a
+sample of 12 read in full: **4 CHECK WAS WRONG, 8 CONTRACT MOVED, 0 WORKED AROUND.** The 5.2% is
+a **floor** — it cannot see `ensure` edits inside `.emp`, checks corrected in a later separate
+session (the dominant real pattern), prose-only corrections, or work abandoned before a commit.
+**The evidence does NOT support "we game the tests to get things through"** — not one instance of
+a check quietly loosened without being shown wrong. **It supports something narrower and more
+fixable: the check suite's content-shape assumptions are narrow enough that an ordinary content
+edit routinely surfaces two or three previously-unmodelled cases before it can land, which costs
+real hours even when every individual fix is legitimate.**
+
+**AND THE REPO ALREADY HOLDS THE BAR IT IS BREAKING** (`docs/OVERSEER-LOG.md:1131-1136`): *"a
+refusal that fires on correct work trains a route-around … and the route-around is permanent
+while the memory of why is not. So a gate that over-refuses does not merely annoy; it **converts
+itself into a disabled gate** by a path nobody records."* **That is the mechanism by which "ease
+up on the tests" becomes the rational response — the owner's instinct is the bar this file
+already wrote.**
+
+### ⚠ CORRECTION, SAME DAY — THE COUNT WAS 19 AND IS 30, AND THE WORST HIT IS ENGINE-SIDE
+
+**The entry above was written before a dedicated `ensure` sweep of all 1,317 non-poison comptime
+sites finished. It undercounted the comptime layer by eleven sites (4 -> 15).** Revised totals:
+**30 PINS-CONTENT check sites** (15 comptime, 10 pytest, 5 gate), **29 AMBIGUOUS**, across
+**8 `.emp` files, 9 pytest files and 3 gate scripts**; **29 of the 30 are build-fatal**.
+
+**The error was not arithmetic — I declared a population closed on the strength of an operator
+census.** The census was right about where the *mass* sits (offsets, sizes, range bounds) and
+structurally incapable of finding a hit, **because a census of operators cannot see what an
+operand MEANS.** It also happened to be the flattering answer: it made the comptime layer look
+clean and pushed the whole problem onto Python. Both halves of that were wrong.
+
+**THREE SEAMS I HAD NOT LOOKED IN:** engine-side DSL population guards
+(`scene_dsl.emp:2456`, `:3131`); donor-fidelity animation and palette pins in character data
+(`knuckles_data.emp`, `ring_sparkle.emp`, `player_instashield.emp`, `knuckles.emp`); and
+degenerate-input guards in the effects DSLs (`raster_dsl.emp`, `palette_dsl.emp`) that duplicate
+safety nets the runtime already carries. Also a **direct correction to the audit's own D2**: the
+8-px perceptual visibility floor is enforced **twice** — post-sigil in `row_remap_gate.py:727`
+*and* at comptime in `ojz_scenes.emp:372`, pinned to `Scene_OJZ_Underwater` by name. Repairing
+only the gate leaves the comptime wall standing.
+
+**THE NEW TOP-RANKED FIX, PROMOTED ABOVE THE EXIT-CODE COLLAPSE, because it is the only hit with
+a cost already demonstrably paid.** `engine/level/scene_dsl.emp:2456` refuses `scenes.len == 0`,
+though folding an empty array is a correct no-op returning 0. `games/demo/config/game.emp:15-20`
+says, verbatim: *"Nothing to derive and nothing to verify: **`fold_caps()` REFUSES an empty
+registry rather than folding it to 0, so the demo deliberately has no scene registry to check
+this against**, and this binding is the whole statement."* **The demo game — the permanent proof
+the engine is game-agnostic — has a hand-asserted, unverified `SCANLINE_CAPS` because a guard
+refuses the legitimate zero case.** Fixing it *restores a verification the project does not
+currently have*, rather than merely removing an annoyance.
+
+**AND IT MOVES THE QUESTION-2 VERDICT TOWARD THE OWNER.** The entry above reports "0 WORKED
+AROUND" from a commit sample, and that stands **for commits**. This is a route-around no
+commit-diff instrument could see, **because it is a permanent state rather than an edit**: a
+whole game's capability declaration is unverified today as the direct result of an over-strict
+check. **The 5.2% figure is blind to that entire category**, and this instance was findable only
+because someone wrote down why. The commit record understates his impression.
+
+**ALSO UPGRADED:** `games/sonic4/test/scene_equiv_proof.emp` moves from "friction, not over-reach"
+to **AMBIGUOUS**. My original reasoning — deleting a scene yields an unresolved-name compile
+error, not a false assertion — holds for **deletion** and misses **tuning**: its 93
+`ensure(EQ_… == -1)` sites hold 20 live scenes against a hand-transcribed snapshot in the same
+file, which the file's own banner declares **PERMANENT**. Changing any authored number on any of
+those 20 scenes requires hand-updating the witness in the same commit, forever, for a proof whose
+stated job was a one-time migration.
+
+**ONE REPORTED TRAP BOOKED AS UNREPRODUCED:** the sweep reported that this shell's `grep` alias
+silently under-recurses and drops `games/sonic4/test/poison/` from whole-tree searches. **It does
+not reproduce** — alias and `command grep` both return 1398 sites, and the alias returns the
+subtree's 81 when asked. Every count in the audit was taken with the alias and is unaffected.
+Recorded as unreproduced rather than as a fact, given this file already carries one retracted
+grep-behaviour claim.
