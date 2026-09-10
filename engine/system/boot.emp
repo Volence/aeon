@@ -148,6 +148,20 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         dbf     d1, .load_z80
 
         // Z80 reset with YM2612-safe delay
+        // KEEP `.ym_delay` A LOCAL LABEL — never `export` it. This delay sits
+        // INSIDE the hand-spelled bus hold, and sigil's `[context.entry-skip]`
+        // rule reads the TARGET SYMBOL rather than the CFG: an exported label
+        // inside a bracketed region is reachable from any proc, which the proc's
+        // own item list cannot see, so the check fires — correctly. The backward
+        // `dbf` edge itself is fine and always was (the region property is
+        // reachability, and the rule's own text names `bne .wait_z80` above as
+        // the correct case). Verified at sigil origin/master
+        // crates/sigil-frontend-emp/src/context.rs, the `check_contexts` doc
+        // comment, 2026-09-10; if that rule has since moved, THIS COMMENT IS THE
+        // STALE ONE — re-read the rule, do not trust this line. Why it matters
+        // here: this hold is hand-spelled and gets none of the bracket proofs
+        // today (LS-13b), and the fix under discussion is a bracket that WOULD
+        // cover it, at which point this label's linkage starts being load-bearing.
         move.w  d0, (a2)                    // assert reset
         moveq   #25, d2
     .ym_delay:
