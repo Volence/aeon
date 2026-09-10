@@ -2452,8 +2452,42 @@ pub comptime fn scene_caps(s: Scene) -> int {
 // two scenes, so a game with one scene never crosses one no matter what its sc_transition
 // byte says. This is the P1 ruling as written; a later phase that learns which section
 // pairs are actually adjacent can tighten it, and the tightening is a strict subset.
+//
+// THE EMPTY REGISTRY FOLDS TO 0, AND THAT IS THE ARITHMETIC, NOT A CONCESSION
+// (2026-09-10, content-pinning audit item 0 / A6). This fn used to open with
+// `ensure(scenes.len >= 1, "… a game with no scenes should not be declaring a cap mask")`.
+// The fold below is a bitwise OR over the scene list, and 0 is the identity of OR — check
+// it against the body rather than against the name: `caps` starts at 0, every iteration
+// only ever ORs bits IN (`caps = caps | scene_caps(s)`, never a clear or a mask-off), and
+// the one bit no scene raises is added under `scenes.len > 1`, which an empty list fails
+// for the same reason a one-scene game does. So an empty registry demands no scanline
+// service and crosses no transition: 0 is the answer, and it is the only answer consistent
+// with the two arms below.
+//
+// WHAT THE REFUSAL COST, stated because it is the reason this changed. `games/demo` — the
+// permanent engine-is-game-agnostic proof — could not use this mechanism at all, so its
+// `SCANLINE_CAPS` was a hand-written 0 that nothing checked, and its own source said so:
+// "Nothing to derive and nothing to verify: fold_caps() REFUSES an empty registry rather
+// than folding it to 0, so the demo deliberately has no scene registry to check this
+// against". A guard that fires on a correct input does not prevent the bug; it trains a
+// route-around (docs/OVERSEER-LOG.md:1131), and here the route-around was a verification
+// replaced by an assertion. The demo now folds `DEMO_SCENES` (empty, typed `[Scene; 0]`)
+// through this fn and binds the RESULT, so its mask follows the day it authors a scene.
+//
+// WHAT IS NOT GUARDED HERE ANY MORE, and where the duty went. `scenes.len >= 1` also
+// happened to catch a caller whose registry NAME resolved to nothing. It is not needed for
+// that, and the reason is measured rather than assumed: an unresolved name in argument
+// position becomes a LABEL, not an empty array, and a label is refused three times over.
+// Measured 2026-09-10, `fold_caps(NO_SUCH_REGISTRY)` from games/demo/config/game.emp —
+// three errors, one at the call site and two here:
+//   [at the call]  a label is not a valid `array` argument, only a `Label` parameter …
+//   [at the `for`] for expects a range or array, got label
+//   [at `.len`]    `len` is not a field or `.len` of label
+// So the silent-degradation shape docs/EMP_PITFALLS.md §2 warns about does NOT apply to an
+// array parameter — it is loud on all three of the sites the old ensure sat in front of.
+// Both shipped callers additionally pin their own length: scene_registry.emp's
+// `SCENE_CYCLE_COUNT == SCENES.len`, and the demo's `[Scene; 0]` declared type.
 pub comptime fn fold_caps(scenes: array) -> int {
-    ensure(scenes.len >= 1, "fold_caps(): an empty scene registry has no capabilities to fold — a game with no scenes should not be declaring a cap mask")
     comptime var caps = 0
     for s in scenes {
         caps = caps | scene_caps(s)
@@ -3126,9 +3160,25 @@ pub comptime fn scene_axis5_table_slots(s: Scene) -> int {
 // Returns the number of scenes it checked, so the caller can reference the result — an
 // unreferenced top-level `const X = f(...)` is comptime-INERT and proves nothing
 // (docs/EMP_PITFALLS.md §3), the same reason assert_act_relative_tagged() returns a count.
+//
+// AN EMPTY REGISTRY CHECKS 0 SCENES AND RETURNS 0 (2026-09-10, audit item 0 / A7 — the
+// twin of fold_caps()'s A6, removed in the same parcel and for the same reason). This fn
+// used to open with `ensure(scenes.len >= 1, "… a game with no scenes should not be
+// reaching the budget fold")`. The body below is a per-scene walk: every ensure it
+// evaluates is INSIDE the loop, charged against one scene's own axes, and there is no
+// cross-scene sum to be wrong (the banner under the loop says why — max, never sum, since
+// one scene is live at a time). A game with no scenes therefore spends nothing on any of
+// the five axes, and the honest count of scenes checked is 0. The RETURNED count is what
+// keeps the call non-inert, and a returned 0 is still a reference; what makes the call
+// meaningful is the caller's own registry, not a floor asserted here.
+//
+// THE ANTI-VACUITY READING IS THE ONE TO BE CAREFUL WITH, so it is stated rather than
+// left implied: a 0 here is NOT evidence that a budget was enforced. It never was — the
+// refusal it replaces would not have caught a registry that shrank from 20 scenes to 1,
+// which is the realistic silent loss. The pin that can see that is the caller's own length
+// pin (scene_registry.emp's `SCENE_CYCLE_COUNT == SCENES.len`), and it is unchanged.
 // =====================================================================
 pub comptime fn scene_budget_enforce(scenes: array) -> int {
-    ensure(scenes.len >= 1, "scene_budget_enforce(): an empty scene registry has no budget to check — a game with no scenes should not be reaching the budget fold")
     comptime var checked = 0
     for s in scenes {
         // AXIS 1 — main-loop cycles.

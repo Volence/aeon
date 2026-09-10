@@ -42,6 +42,19 @@ LABEL_RE = re.compile(r"^\s*\.cap_([a-z0-9_]+)_(begin|end):", re.M)
 # `    const SCANLINE_CAPS = $001F` inside a game's `implement Game { ... }`.
 GAME_CAPS_RE = re.compile(r"^\s*const\s+SCANLINE_CAPS\s*=\s*(\$[0-9A-Fa-f]+|\d+)\s*$", re.M)
 
+# `    const SCANLINE_CAPS = DemoScenes_CapsFolded` — the DERIVED form (2026-09-10). A game
+# may bind the member to a module-level const instead of a literal, and one does.
+GAME_CAPS_NAME_RE = re.compile(
+    r"^\s*const\s+SCANLINE_CAPS\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.M)
+
+# `pub const DemoScenes_CapsFolded = fold_caps(DEMO_SCENES)` — the only derivation this
+# tool will follow, and it follows it by NAME, never by evaluating anything.
+FOLD_BINDING_RE = r"^\s*(?:pub\s+)?const\s+%s\s*=\s*fold_caps\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*$"
+
+# `pub const DEMO_SCENES: [Scene; 0] = []` — the DECLARED length is the proof. A registry
+# typed `[Scene; 0]` is empty by the type checker, not by this tool's reading of `[]`.
+REGISTRY_LEN_RE = r"^\s*(?:pub\s+)?const\s+%s\s*:\s*\[\s*Scene\s*;\s*(\d+)\s*\]\s*="
+
 # A listing line naming a mangled local: `(0) 1039/76EE :   $engine.parallax$Proc$cap_x_begin:`
 LST_SPAN_RE = re.compile(r"\$cap_([a-z0-9_]+)_(begin|end)\b")
 
@@ -82,17 +95,74 @@ def retired_capability_bits():
 
 
 def game_caps(game):
-    """A game's declared SCANLINE_CAPS, read from its own manifest."""
+    """A game's SCANLINE_CAPS, read from its own manifest.
+
+    TWO BINDING FORMS, AND THE SECOND IS FOLLOWED ONLY WHERE IT CAN BE PROVED.
+
+    A literal (`= $0FDE`, games/sonic4) is read directly. A NAME
+    (`= DemoScenes_CapsFolded`, games/demo since 2026-09-10) is resolved through
+    exactly one derivation and no other: `const <name> = fold_caps(<registry>)`, where
+    `<registry>` is declared `[Scene; 0]`. An empty registry folds to 0 — that is the
+    identity of the OR-fold, derived at `fold_caps()` in engine/level/scene_dsl.emp —
+    and the DECLARED TYPE is what proves the registry empty, so this is a proof read
+    out of the source rather than an evaluation this tool is not equipped to do.
+
+    EVERYTHING ELSE STILL REFUSES, LOUDLY, and that is the point of the shape. A
+    registry with any scene in it, a name bound to something other than `fold_caps`,
+    or no binding at all: SystemExit. This tool cannot evaluate a real fold, and the
+    day a game needs it to, it must say so rather than return a number that happens to
+    be zero — a wrong zero here silently asserts the MAXIMAL elision, which is the
+    strongest claim the witness makes.
+    """
     path = os.path.join(AEON, "games", game, "config", "game.emp")
     with open(path, encoding="utf-8") as f:
-        m = GAME_CAPS_RE.search(f.read())
-    if not m:
+        src = f.read()
+    return caps_from_manifest(src, path)
+
+
+def caps_from_manifest(src, path):
+    """`game_caps` over source text — split out so its five refusal paths are reachable
+    from a test without a real game tree. `path` appears only in the messages."""
+    m = GAME_CAPS_RE.search(src)
+    if m:
+        v = m.group(1)
+        return int(v[1:], 16) if v.startswith("$") else int(v)
+
+    named = GAME_CAPS_NAME_RE.search(src)
+    if not named:
         raise SystemExit(
             "scene_spans: no `const SCANLINE_CAPS` binding in %s — a game that does "
             "not declare the member cannot be specialised, and guessing zero here "
             "would silently assert the maximal elision." % path)
-    v = m.group(1)
-    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+    name = named.group(1)
+    fold = re.search(FOLD_BINDING_RE % re.escape(name), src, re.M)
+    if not fold:
+        raise SystemExit(
+            "scene_spans: %s binds SCANLINE_CAPS to `%s`, and this tool can follow that "
+            "name only to a `const %s = fold_caps(<registry>)` in the same file. It found "
+            "no such binding. Refusing rather than guessing: this tool does not evaluate "
+            "comptime, and a wrong zero here would silently assert the maximal elision."
+            % (path, name, name))
+
+    registry = fold.group(1)
+    decl = re.search(REGISTRY_LEN_RE % re.escape(registry), src, re.M)
+    if not decl:
+        raise SystemExit(
+            "scene_spans: %s folds `%s`, whose declared type this tool could not read. It "
+            "needs `const %s: [Scene; N] = ...` — the DECLARED LENGTH is the only proof it "
+            "accepts that a registry is empty. Refusing rather than guessing."
+            % (path, registry, registry))
+
+    n = int(decl.group(1))
+    if n != 0:
+        raise SystemExit(
+            "scene_spans: %s folds `%s`, which declares %d scene(s). Only an EMPTY registry "
+            "has a fold this tool can derive (0, the OR-fold's identity); a real fold needs "
+            "sigil. Either publish the mask where this tool can read it, or teach this "
+            "function to read it out of the listing — do not make it guess."
+            % (path, registry, n))
+    return 0
 
 
 def span_capability(span, bits):
