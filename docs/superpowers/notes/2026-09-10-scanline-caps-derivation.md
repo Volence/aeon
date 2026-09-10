@@ -183,3 +183,93 @@ the registry's `ensure` is the whole guard on that word.
 `tools/row_remap_gate.py`, `tools/waterline_art_gate.py`,
 `tools/demo_specialization_witness.py`, `tools/effects_gates.py`,
 `tools/test_effects_gen.py`, `tools/test_scene_span_labels.py`.
+
+## E. THE EXPERIMENT — the derivation was made, and it was refused twice
+
+Not settled by reasoning. A throwaway edit put the derivation in and built it. Tree
+restored from the committed baseline afterwards (`git checkout -- games/sonic4/config/game.emp`,
+verified clean, `:145` back to `$0FDE`).
+
+**Control, established first:** `FAST=1 DEBUG=1 ./build.sh` on the unmodified branch —
+**EXIT=0**.
+
+**The edit (E1):**
+
+```emp
+use engine.level.scene_dsl.*
+use games.sonic4.scene_registry.{SCENES}
+...
+    const SCANLINE_CAPS = fold_caps(SCENES)      // was $0FDE
+```
+
+### E1a — refused at the TOOL layer, before sigil ever ran
+
+`FAST=1 DEBUG=1 ./build.sh` — **EXIT=1**, and the build never reached the assembler:
+
+```
+effects_seam_gate: FAIL — a preset document does not load, so this gate cannot tell which
+chooser each bound section owes — the arm is the document's own property:
+.../games/sonic4/config/game.emp: no `const SCANLINE_CAPS = <literal>` declaration. Every
+game declares the scanline services it wants lowered; without it the capability check on
+`patch_motion` cannot run, and a check that cannot run must not pass.
+
+ERROR: the editor-scene binding seam is broken in the SOURCE — see above.
+```
+
+That is B4 firing first, with its own message. Note its last clause — *"a check that
+cannot run must not pass"* — which is precisely the disposition the audit's
+"decline and announce" would reverse.
+
+### E1b — sigil's own refusal, obtained by invoking it directly
+
+Bypassing the gate (`sigil build --aeon . --native --game sonic4`) gave **EXIT=1, 30
+errors**. Two distinct failures, and the first is a `.emp` pitfall:
+
+**(i) `EMP_PITFALLS.md` §2 — a comptime fn's free names resolve at the CALL SITE.**
+Twenty-one of the thirty errors:
+
+```
+./games/sonic4/data/effects/scene_registry.emp:345:5: [Error] unknown name `Scene_OJZ_Default`
+./games/sonic4/data/effects/scene_registry.emp:346:5: [Error] unknown name `Scene_OJZ_Underwater`
+... 21 of these, one per scene ...
+```
+
+`SCENES`' elements are barewords for `Scene_*` consts that `scene_registry.emp` pulls in
+with `use games.sonic4.ojz_scenes.*` (`:332`). Importing `SCENES` moves the array; **the
+element names do not travel.** The fold therefore evaluated over twenty-one unresolved
+names. Note the blame site: `scene_registry.emp:345-368` — the **innocent file**. The
+author of `game.emp` supplied none of those lines. This is §2 and §8's signature.
+
+**(ii) The mask silently collapsed to `$0010`.** Every downstream message reports
+`Game.SCANLINE_CAPS = 16` — only `CAP_TRANSITIONS`, the one bit `fold_caps` adds from
+`scenes.len > 1` regardless of content. The remaining nine errors are the whole guard
+lattice firing at once, each with its own text:
+
+```
+scene_registry.emp:470  BAND_CURVE_N is 1 but this game does NOT declare CAP_FACTOR_CURVE (Game.SCANLINE_CAPS = 16)
+scene_registry.emp:484  BAND_REMAP_N is 1 but this game does NOT declare CAP_ROW_REMAP (= 16)
+scene_registry.emp:491  BAND_DRIFT_N is 1 but this game does NOT declare CAP_BAND_DRIFT (= 16)
+scene_registry.emp:613  the folded capability mask 2270 is NOT a subset of Game.SCANLINE_CAPS 16
+ojz_effects.emp:1252    OJZ_TestRamp: ... does not declare CAP_DENSE_TIER
+effects_scenes.emp:162  editor scenes: the folded capability mask 88 is NOT a subset of ... 16
+effects_scenes.emp:232  EditorRaster_OJZ_Act1_aurora_ramp_witness: ... does not declare CAP_DENSE_TIER
+effects_scenes.emp:265  EditorRaster_OJZ_Act1_ramp_probe: ... does not declare CAP_DENSE_TIER
+scene_equiv_proof.emp:355  ... the lowered band record is 32 bytes against the legacy entry's 10
+```
+
+### E1c — the compiler independently confirmed B1's arithmetic
+
+`:613` and `:162` print the folds computed **where the names do resolve**:
+
+| quantity | measured | hex |
+|---|---|---|
+| `SceneRegistry_CapsFolded` | 2270 | **`$08DE`** |
+| `EditorScenes_OJZ_Act1_CapsFolded` | 88 | **`$0058`** |
+| declared `SCANLINE_CAPS` | 4062 | **`$0FDE`** |
+
+`declared & ~(registry fold) = $0700`; `(registry fold) & ~declared = $0`.
+
+So the true union of every folded population is `$08DE`, the declared mask is `$0FDE`,
+and the difference is **exactly** the `$0700` predicted in B1 from reading `scene_caps()`
+— `CAP_ANCHOR_MOTION | CAP_DENSE_TIER | CAP_ROLE_SWAP`. This is the compiler's own
+number, not my reading of the source. **B1 is measured, not argued.**
