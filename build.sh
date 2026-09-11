@@ -760,11 +760,11 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     fi
 
     # The tool-suite unit tests. WIRED 2026-08-16, because they were the tree's largest
-    # run-by-nothing gate: 18 files, ~984 assertions, no pytest.ini, no conftest, no
-    # caller. When finally run, one was red — and the red one was MASKING a real 30-byte
-    # drift in RASTER_STATE_SIZE (it threw before reaching its own assertion, so the
-    # stale literal underneath was never evaluated). That is the exact failure mode this
-    # tree keeps rediscovering: a gate nobody runs is documentation with a shebang.
+    # run-by-nothing gate: on THAT date 18 files, ~984 assertions, no pytest.ini, no conftest,
+    # no caller. That count is history; today's extent is pytest's own line, printed below. When
+    # first run, one was red, and the red one was MASKING a real 30-byte drift in RASTER_STATE_SIZE
+    # (it threw before reaching its own assertion, so the stale literal was never evaluated). The
+    # failure mode this tree keeps rediscovering: a gate nobody runs is documentation with a shebang.
     #
     # It belongs in build.sh and not in effects_gates.py because it boots no emulator and
     # costs ~2 s; the emulator-backed gates cannot go here for precisely the opposite
@@ -778,8 +778,8 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # ever named on a green run. A file that silently stopped being collected — renamed,
     # moved, or shadowed by an import error in a sibling — is indistinguishable from one
     # that ran and passed. Collection here is a DIRECTORY SWEEP, so the cheap honest
-    # check is the sweep's extent: the count below is computed by the same rule pytest
-    # collects by, and a file dropping out of the lane moves it.
+    # check is the sweep's extent, and pytest itself prints it (tools/conftest.py, from the
+    # items it collected): a file that drops out of the lane, or yields no test, moves it.
     #
     # THIS IS THE **PRE-BUILD** HALF OF A SPLIT LANE (LS-1, 2026-09-06). It deselects
     # `-m "not needs_build"`; the tests that read a build artifact out of the working
@@ -797,7 +797,7 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # this lane unable to reach the build that clears it. The ordering IS the fix.
     if python3 -c "import pytest" 2>/dev/null; then
         echo "Running the tool-suite unit tests (pre-build lane)..."
-        echo "  sweeping $(find "${TOOLS}" -maxdepth 1 -name 'test_*.py' | wc -l) test file(s) under ${TOOLS}"
+        echo "  the file count is pytest's own (its first line below), not a find(1) of ${TOOLS}"
         echo "  deselecting -m needs_build; those run in the POST-SIGIL lane below"
         if ! python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider \
                 -m "not needs_build"; then

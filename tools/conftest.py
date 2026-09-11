@@ -270,3 +270,42 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_line(
         "  %d deferred. These are NOT passes: each needs a build shape this run did "
         "not produce." % len(_deferred))
+
+
+# ---------------------------------------------------------------------------------------
+# The lane's EXTENT, counted by pytest's own collection (lens finding V-5, 2026-09-11).
+# ---------------------------------------------------------------------------------------
+#
+# build.sh used to print `sweeping N test file(s)` from `find tools -maxdepth 1 -name
+# 'test_*.py'`, beside prose saying the count was "computed by the same rule pytest
+# collects by". It was not that rule. pytest recurses into subdirectories and also collects
+# `*_test.py`; and a find(1) count cannot see a file that is on disk but yields no test (its
+# functions renamed, an import that now defines nothing, every item deselected). The count
+# is build.sh's answer to BAR 25, "does a file that stopped being collected move
+# anything?", so it has to come from the collection itself. It is taken here, from the items
+# pytest actually collected, and pytest prints it once per run in every lane that runs this
+# directory. Nothing else restates the number, so it cannot drift from what ran.
+
+#: Every file that had an item deselected by -m / -k, from pytest's own pytest_deselected
+#: hook: with the kept items, this is the full set of files pytest collected.
+_deselected_paths = set()
+
+
+def pytest_sessionstart(session):
+    _deselected_paths.clear()
+
+
+def pytest_deselected(items):
+    _deselected_paths.update(str(item.path) for item in items)
+
+
+def pytest_report_collectionfinish(config, start_path, items):
+    kept = {str(item.path) for item in items}
+    swept = kept | _deselected_paths
+    where = " ".join(str(a) for a in config.args) or str(start_path)
+    if not swept:
+        return ["  pytest collected NO test file under %s: this lane measured nothing"
+                % where]
+    return ["  pytest swept %d test file(s) under %s by its own collection rule; %d of "
+            "them contribute the %d test(s) left after deselection"
+            % (len(swept), where, len(kept), len(items))]
