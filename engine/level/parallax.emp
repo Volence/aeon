@@ -1928,12 +1928,41 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // frame's .snap_b is then a no-op (current already equals target) — no
         // end-of-transition pop. d4 is dead here (it is rewritten with current_b
         // at .write_b), so it carries the divisor.
-        // Divisor invariant: the divide path is reached only past the
-        // `tst.b Transition_Frames / beq .snap_b` above, so frames_remaining is
-        // 1..PARALLAX_TRANS_DEFAULT here — never 0. Divide-by-zero is structurally
-        // unreachable. The gap is ext.l'd to a 32-bit dividend; |quotient| =
-        // |gap|/frames_remaining ≤ |gap| ≤ $7FFF fits a word, so divs never
-        // overflows.
+        // §2.1's FOUR POINTS for the divs.w below (restated 2026-09-11, lens item
+        // B1-5: points 1 and 2 were here, 3 and 4 were not):
+        //   1. DIVISOR NON-ZERO, STRUCTURALLY. The divide path is reached only past
+        //      the `tst.b Transition_Frames / beq .snap_b` above, and nothing between
+        //      that test and the `move.b` load writes the byte: no call sits between
+        //      them, and its only writers (Parallax_StartTransition's arms and Step 1's
+        //      decrement at the top of this proc) are main-loop code that no interrupt
+        //      handler reaches. Step 1 decremented it before this loop and promoted
+        //      Target when it hit 0, so frames_remaining is 1..PARALLAX_TRANS_DEFAULT - 1
+        //      here, never 0 (this said 1..PARALLAX_TRANS_DEFAULT until 2026-09-11).
+        //   2. THE QUOTIENT CANNOT OVERFLOW. The gap is a word difference, so a signed
+        //      word in -$8000..$7FFF, ext.l'd to a well-formed 32-bit dividend. With the
+        //      divisor >= 1, |quotient| <= |gap|, so the quotient stays in that range and
+        //      fits the word divs returns (a gap of -$8000 over one frame gives -$8000,
+        //      representable; this said "|gap| <= $7FFF" until 2026-09-11).
+        //   3. THE ALTERNATIVE, AND WHY IT LOST. A fixed-shift lerp (current +=
+        //      gap >> k) is divide-free but converges only asymptotically, so it never
+        //      lands exactly on the last window frame: that is the end-of-transition pop
+        //      this ramp exists to remove. The strongest reply is a reciprocal table
+        //      indexed by frames_remaining, step = (gap * R[f]) >> 16. It is not free: it
+        //      trades this divs for a muls.w that needs its own argument, needs special
+        //      cases where 65536/f does not fit a signed word (f = 1 and 2), and its
+        //      steps differ from the exact quotient by rounding. By a rough count (the
+        //      special-case test, an index scale, a PC-indexed muls.w <= 80, a swap) it
+        //      costs about 100 cycles or more against ext.l + divs.w's 162, so it saves
+        //      at most about 60 cycles per enabled band, on transition frames only. Not
+        //      taken at that price; if a transition frame is ever the worst frame, this
+        //      is the lever.
+        //   4. COST AND COUNT. <= 158 cycles (divs.w, register source, sigil's table),
+        //      once per ENABLED band per Parallax_Update call, only on transition frames
+        //      without a pending snap: at most pcfg_band_count <= MAX_PARALLAX_BANDS (16)
+        //      divides, <= 2,528 cycles, on at most PARALLAX_TRANS_DEFAULT - 1 frames per
+        //      section crossing. sonic4 calls Parallax_Update once a frame
+        //      (GameState_OJZScroll_Update); a DEBUG warp frame adds a call, but with
+        //      Parallax_Snap_Pending set, which takes `.snap_b` and skips this divide.
         move.w  (a3), d1                            // d1 = current_b
         sub.w   d1, d2                              // d2.w = target − current (gap)
         ext.l   d2                                  // sign-extend gap → 32-bit dividend
@@ -2187,9 +2216,27 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //     band is a state Step 4a REACHES (two tops both clamped to 224), which is why
         //     the test is a real branch and not an assertion.
         //   * THE QUOTIENT CANNOT OVERFLOW. The dividend is a WORD spread sign-extended to
-        //     32 bits, so |quotient| = |spread| / span <= |spread| <= $7FFF and fits the
-        //     word divs.w must return. Widening the dividend — the 8.8 step this design
-        //     rejected — is exactly what would break that argument.
+        //     32 bits, so |quotient| = |spread| / span <= |spread|, and the quotient stays
+        //     in the word range -$8000..$7FFF that divs.w must return (a spread of -$8000
+        //     is the one magnitude-$8000 case, and -$8000 / span is representable; this
+        //     said "|spread| <= $7FFF" until 2026-09-11). Widening the dividend (the 8.8
+        //     step this design rejected) is exactly what would break that argument.
+        //   * THE ALTERNATIVE, AND WHY IT LOST (added 2026-09-11, lens item B1-5). A
+        //     reciprocal table over span 1..224 would give the quotient by a muls.w, but
+        //     the line loop's Bresenham correction needs the exact REMAINDER too, and
+        //     divs.w delivers both in one instruction (quotient low, remainder high). The
+        //     reciprocal form needs a second multiply to recover the remainder
+        //     (spread - q * span) and a +-1 correction for the reciprocal's rounding: two
+        //     muls.w ceilings are already 140-150 cycles before the index scale, the
+        //     subtract and the correction, so it lands at or above divs.w's 158, for a
+        //     448-byte table. The 8.8 step is still a divide, and unboundable (banner).
+        //   * COST AND COUNT. <= 158 cycles (divs.w, register source, sigil's table),
+        //     once per frame per shadow band that is curve-active with a positive span:
+        //     at most pcfg_band_count <= MAX_PARALLAX_BANDS (16) divides, <= 2,528 cycles,
+        //     on every frame such a layer is installed, not only in transitions. Step 4
+        //     runs once per Parallax_Update call (twice on a frame that consumes a DEBUG
+        //     warp). A game that authors no curve elides the whole hoist
+        //     (CAP_FACTOR_CURVE).
         ext.l   d2                                  // sign-extend spread -> 32-bit dividend
         divs.w  d4, d2                              // d2.w = quotient, d2 high = remainder
         move.w  d2, d1                              // d1 = quotient, TRUNCATED toward zero
@@ -3441,9 +3488,24 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 //     the same zero-remainder guard `.fl_tail` documents: `subq #1` on 0 gives $FFFF and
 //     sprays ~2 MB forward out of Hscroll_Buffer.
 //
-// `.lp_both` above is deliberately NOT converted: two sampled channels need two walk
-// pointers and there is no second free address register. Leaving it also fixes the
-// walker model's `line_both` term as an unchanged regression control.
+// `.lp_both` above is deliberately NOT converted, and the reason is NOT a register
+// shortage. This paragraph used to say "two sampled channels need two walk pointers and
+// there is no second free address register" (corrected 2026-09-11, lens item C1a-2). The
+// count was right and the conclusion was not. a0 is the one address register `.lp_both`
+// leaves dead (a1-a3 are the cross-loop contract above, a4 the output cursor, a5/a6 the
+// curve bases), but the curve bases can walk THEMSELVES: each base is needed only at its
+// own channel's 256-byte wrap, and at that instant the walker is exactly base + 256, so
+// `suba.w #256` recovers it with no register at all. A converted loop would owe two
+// things the single-channel ones do not. The two channels' phases differ, so their wraps
+// fall on different lines and a band splits into up to THREE runs, not two. And a5/a6
+// must be back on their bases at band exit, because the cross-loop contract says they
+// leave untouched. Whether that is worth doing is cycles times frequency, and the
+// frequency is an authoring fact (which sections bind a layer with both deform channels
+// live), not one this file may pin. The 2026-09-06 lens sweep put the saving at about 44
+// cycles a line, about 9,900 a frame if such a layer covers all 224 lines, measured zero
+// such lines on the act it read, and recommended correcting this note, not the code.
+// Leaving it also keeps the walker model's `line_both` term as an unchanged regression
+// control.
 //
 // REGISTER NOTE: a0 is the walk pointer. It is the caller's config pointer, dead after
 // the two table loads at the top of this proc, and restored by the exit `movem` — which

@@ -129,7 +129,9 @@ const TILE_BYTES_SHIFT          = 5 // log2(32 bytes per 8x8 tile)
 
 // -----------------------------------------------
 // BgAnim_Init — force a bank DMA on each band's first Update.
-// In: none. Clobbers: d0
+// In: none. Clobbers: d0/a0, declared in BOTH shapes. Only the DEBUG shape writes a0
+// (the table-selector seed below); the plain shape writes d0 alone. This line said
+// "Clobbers: d0" until 2026-09-11 (lens item A2-5).
 // -----------------------------------------------
 pub proc BgAnim_Init () clobbers(d0/a0) {
         // DEBUG only: seed the table selector with the act's own table, so a shape that

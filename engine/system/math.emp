@@ -77,20 +77,36 @@ pub data Sine_Table: [u8; $280] = embed("engine/data/sine.bin")
 // does NOT make this division-free. Only the octant 0 <= |a|/|b| <= 1 is
 // tabulated; the other seven are reached by the fold and the sign fixups.
 //
-// ON THE `divu.w` (conventions §2.1 forbids divides on per-frame paths — this
-// is a deliberate, bounded exception in the same shape parallax.emp's per-frame
-// `divs.w` documents its own):
-//   * NEVER DIVIDES BY ZERO. The both-zero case exits at `.zero` before either
-//     divide. Past that, the divisor is max(|x|, |y|) and at least one of the
-//     two is non-zero, so the divisor is >= 1.
-//   * NEVER OVERFLOWS. `cmp/bcc` sends each case down the branch whose
-//     dividend is the SMALLER magnitude, so the quotient (dividend<<8)/divisor
-//     is always < $100 and cannot exceed the word `divu` returns. The
-//     `moveq #0` pair above is what makes the `lsl.l #8` a clean 32-bit
-//     dividend rather than shifting garbage out of a dirty high word.
-//   * COSTS ~140 CYCLES, once, on a path that is not a loop. Exactness is the
-//     reason it is here: the alternative octant approximation lands on a
-//     visibly different frame than the reference.
+// ON THE `divu.w`, conventions §2.1's four points. The two divides sit on mutually
+// exclusive branches, so every call executes exactly one of them. (This block opened
+// "conventions §2.1 forbids divides on per-frame paths" until 2026-09-11; §2.1 has
+// not said that since it dropped the per-frame/once axis.)
+//   1. NEVER DIVIDES BY ZERO. The both-zero case exits at `.zero` before either
+//      divide. Past that, the divisor is max(|x|, |y|) and at least one of the
+//      two is non-zero, so the divisor is >= 1.
+//   2. NEVER OVERFLOWS. `cmp/bcc` sends each case down the branch whose dividend
+//      is the smaller magnitude or the equal one, so the quotient
+//      (dividend<<8)/divisor is at most $100: strictly below it on the direct
+//      branch (|y| < |x|), and exactly $100 on the diagonal |x| == |y|, which
+//      `bcc` sends to `.fold`. That is why ArcTan_Table carries 257 entries, and
+//      $100 fits the word `divu` returns. (This point said "always < $100" until
+//      2026-09-11; the diagonal is the counterexample.) Magnitudes are unsigned
+//      throughout, so a component of -$8000 negates to $8000 and still compares
+//      and divides correctly. The `moveq #0` pair above is what makes the
+//      `lsl.l #8` a clean 32-bit dividend rather than shifting garbage out of a
+//      dirty high word.
+//   3. THE ALTERNATIVE, AND WHY IT LOST. The divide-free octant approximation
+//      lands on a visibly different frame than the reference; exactness is the
+//      reason the divide is here. A lookup does not remove it: the table is
+//      indexed by the RATIO (see above).
+//   4. COST AND COUNT. <= 140 cycles for the divu.w (register source, sigil's
+//      table ceiling), once per call, not in a loop. Calls per frame: one per
+//      Tails appendage whose parent is in its roll animation (TailsAppendage_Main
+//      is the only caller). TailsAppendage_Refresh gives a player at most one
+//      appendage, and its only caller today is the DEBUG-only
+//      Debug_CharacterHotkey, on Player_1, so this is at most one call a frame in
+//      DEBUG and none in a release shape as the tree stands. A real character
+//      select would raise that to at most one per player slot (NUM_PLAYERS).
 // Ported from S3K (skdisasm/s3.asm:3174) instruction-for-instruction.
 // -----------------------------------------------
 pub proc GetArcTan (d1: i16, d2: i16) clobbers() preserves(d3-d4) out(d0: Angle) {

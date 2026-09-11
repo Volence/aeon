@@ -557,8 +557,12 @@ data Blank_Local_Map (align: 2): [u16; 1] = comptime for i in 0..1 { 0 }
 //      a1   = staged block base (nametable; collision at +BLOCK_NT_SIZE)
 //      a5   = Tile_Cache_Nametable base (H6 hoist — caller-set, loop-invariant)
 //      a6   = Tile_Cache_Collision base (H6 hoist — caller-set, loop-invariant)
-// Out: none; a1/a5/a6 preserved
-// Clobbers: d0-d3, d5, a0, a2-a3
+// Out: none; a1/a5/a6 preserved (a1 is saved at entry and restored at the single exit)
+// Clobbers: d0-d3, d5, a0, a2-a4 (as declared; this line said a2-a3 until 2026-09-11,
+//       lens item A2-2). a4 is written here: it mirrors the staged base for the
+//       collision copy (`movea.l a1, a4` below). a3 is declared but written by
+//       nothing: not by this body, and PageCache_PatchRun_Col, its only callee,
+//       preserves d1-d7/a2-a6. A caller may still rely only on the declared set.
 // Note: d2/d3/d4 even is guaranteed because Cache_Top_Row is kept even and
 //       block tops are multiples of 16 — collision halving stays exact.
 //       Cache_Origin_Row is also kept even, so the physical row keeps the
