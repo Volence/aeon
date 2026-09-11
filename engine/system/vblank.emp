@@ -379,6 +379,27 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // the Ptr-gated plane buffer dangerous. The plane drain defers to the
             // next complete frame (VInt_Level, VBlank_Ready=1).
             //
+            // Vscroll_Write, at the bottom of this bracket after Process_DMA_Critical,
+            // is the consumer on this path the list above left out (added 2026-09-11,
+            // lens item C3b-4), and it is not flag-gated either. It is safe by the
+            // HScroll mechanism in a stronger form, because it never touches the DMA
+            // queue: it points the VDP at VSRAM address 0 with an IMMEDIATE command
+            // word, then CPU-writes either one longword (Vscroll_Factor) or twenty
+            // (Parallax_Vscroll_Column_Buf), the count fixed by which branch runs. So
+            // destination and length both come from code, never from RAM the main loop
+            // may be half-way through, and twenty longwords is 80 bytes, all of VSRAM,
+            // so neither arm can write past it. What a lag frame CAN tear is the
+            // values. Vscroll_Factor is stored by one `move.l` (Parallax_Step5_Vscroll),
+            // so an interrupt sees it whole, this frame's or last frame's. The column
+            // buffer is filled a word at a time (Parallax_Step5_Vscroll's column loop
+            // and column-19 borrow store, then OJZ_Reels_Fill's rebuild, all main-loop
+            // code), so a lag VBlank can ship a mix of this frame's and last frame's
+            // column words: one frame of mixed V-scroll offsets, rewritten in full by
+            // the next complete frame's VInt_Level. The branch choice reads
+            // Parallax_Active_Config, whose publish order (LS-5, the `.instant` banner
+            // in parallax.emp) keeps it off the NULL pair mid-transition; even a NULL
+            // would only select the one-longword arm, again a values-only outcome.
+            //
             // NO autoinc re-assert here — the blanket flush IS one. There used to
             // be a `move.w #$8F02, VDP_CTRL` on this line (NEW-1, 2026-08-05),
             // buying back the ambient "every $8F80 writer restores before
