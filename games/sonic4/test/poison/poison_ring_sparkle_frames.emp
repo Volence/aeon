@@ -1,7 +1,7 @@
 // games/sonic4/test/poison/poison_ring_sparkle_frames.emp — POISON (see README).
 //
 // TARGETS: the ring sparkle's S3K-derived display-frame gate — script_display_frames()
-// in games/sonic4/objects/ring_sparkle.emp, the fn the shipped ensure folds
+// in engine/objects/animate.emp, the fn ring_sparkle.emp's shipped ensure folds
 // RING_SPARKLE_SCRIPT through.
 // EXPECTED FRAGMENT: "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames"
 //
@@ -21,10 +21,11 @@
 module games.sonic4.test.poison.poison_ring_sparkle_frames
 
 use engine.constants.{AF_DELETE, AF_SET_FIELD}
-use games.sonic4.ring_sparkle.{script_display_frames, S3K_SPARKLE_FRAMES, S3K_SPARKLE_DURATION}
+use engine.objects.animate.{script_display_frames}
+use games.sonic4.ring_sparkle.{S3K_SPARKLE_FRAMES, S3K_SPARKLE_DURATION}
 
 // One frame short: the hold is S3K's, the frame list is not.
 const POISON_SCRIPT: [u8; 6] = [S3K_SPARKLE_DURATION, 0, 1, 2, AF_DELETE, AF_DELETE]
 
-ensure(script_display_frames(POISON_SCRIPT) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
-       "RING_SPARKLE_POISON: a 3-frame script shows {script_display_frames(POISON_SCRIPT)} display frames, not the reference {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)}")
+ensure(script_display_frames(POISON_SCRIPT, 6) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
+       "RING_SPARKLE_POISON: a 3-frame script shows {script_display_frames(POISON_SCRIPT, 6)} display frames, not the reference {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)}")

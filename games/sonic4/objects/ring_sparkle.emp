@@ -26,6 +26,10 @@ module games.sonic4.ring_sparkle in ring_sparkle
 use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art}
 use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
+use engine.objects.dplc.{art_nibbles_outside}
+use engine.objects.animate.{script_display_frames}
+// AF_SET_FIELD is named INSIDE script_display_frames, whose free names resolve at
+// this call site (docs/EMP_PITFALLS.md §2), so the import is load-bearing.
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       RING_ENTRY_X_OFFSET, RING_ENTRY_Y_OFFSET}
 use engine.coords.{pixels_to_coord}
@@ -76,29 +80,14 @@ ensure(_art_sparkle.len == RING_SPARKLE_ART_LEN,
 // Palette census — the claim "draws on the ring's CRAM line 1 with no remap" pinned to
 // the bytes: every nibble must be 0 (transparent) or one of the ring's four line-1
 // entries {5 outline, 6 white, $C bright gold, $D dark gold}. A blob regenerated from
-// the WRONG donor (skdisasm's Ring.bin uses {1,5,6,$F}) fails here by name. Flat
-// accumulators over statement-ifs, never a nested if-expression (EMP_PITFALLS §1).
-comptime fn ring_index_ok(v: int) -> int {
-    comptime var ok = 0
-    if v == 0   { ok = 1 }
-    if v == 5   { ok = 1 }
-    if v == 6   { ok = 1 }
-    if v == $C  { ok = 1 }
-    if v == $D  { ok = 1 }
-    return ok
-}
+// the WRONG donor (skdisasm's Ring.bin uses {1,5,6,$F}) fails here by name. The walk
+// is engine.objects.dplc's art_nibbles_outside, shared with the insta-shield; the
+// index SET is the ring's, as a bit set (bit n = palette index n). The walk covers
+// the whole blob; the blob's LENGTH is the ensure above.
+const RING_INDEX_SET = (1 << 0) | (1 << 5) | (1 << 6) | (1 << $C) | (1 << $D)
 
-comptime fn count_bad_nibbles(blob: [u8; 128]) -> int {
-    comptime var bad = 0
-    for i in 0..128 {
-        if ring_index_ok(blob[i] >> 4) == 0  { bad = bad + 1 }
-        if ring_index_ok(blob[i] & $F) == 0  { bad = bad + 1 }
-    }
-    return bad
-}
-
-ensure(count_bad_nibbles(_art_sparkle) == 0,
-       "ring_sparkle_art.bin has {count_bad_nibbles(_art_sparkle)} pixels outside the ring's line-1 index set (0,5,6,$C,$D) — regenerated from the wrong donor?")
+ensure(art_nibbles_outside(_art_sparkle, _art_sparkle.len, RING_INDEX_SET) == 0,
+       "ring_sparkle_art.bin has {art_nibbles_outside(_art_sparkle, _art_sparkle.len, RING_INDEX_SET)} pixels outside the ring's line-1 index set (0,5,6,$C,$D) — regenerated from the wrong donor?")
 
 // -----------------------------------------------
 // Script — S3K's Ani_RingSparkle, derived and pinned.
@@ -117,19 +106,12 @@ pub const S3K_SPARKLE_FRAMES   = 4      // mapping frames 4,5,6,7
 
 const RING_SPARKLE_SCRIPT: [u8; 6] = [S3K_SPARKLE_DURATION, 0, 1, 2, 3, AF_DELETE]
 
-// How many display frames a script shows before its terminator: the count of frame
-// bytes (anything below the AF_SET_FIELD control threshold, after byte 0) times the
-// per-frame hold.
-pub comptime fn script_display_frames(script: [u8; 6]) -> int {
-    comptime var frames = 0
-    for i in 1..6 {
-        if script[i] < AF_SET_FIELD { frames = frames + 1 }
-    }
-    return frames * (script[0] + 1)
-}
-
-ensure(script_display_frames(RING_SPARKLE_SCRIPT) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
-       "the ring sparkle shows {script_display_frames(RING_SPARKLE_SCRIPT)} display frames; S3K's Ani_RingSparkle shows {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)} (4 frames x (5+1)) — re-derive the script, do not retune the reference")
+// How many display frames the script shows before its terminator: the frame bytes
+// after byte 0 up to the FIRST control byte, times the per-frame hold. The walker is
+// engine.objects.animate's script_display_frames, the one the insta-shield's guards
+// use too; see its banner for why it stops at the control byte rather than filtering.
+ensure(script_display_frames(RING_SPARKLE_SCRIPT, 6) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
+       "the ring sparkle shows {script_display_frames(RING_SPARKLE_SCRIPT, 6)} display frames; S3K's Ani_RingSparkle shows {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)} (4 frames x (5+1)) — re-derive the script, do not retune the reference")
 ensure(RING_SPARKLE_SCRIPT[5] == AF_DELETE,
        "the ring sparkle script must end in AF_DELETE — the script owns the effect's lifetime")
 
