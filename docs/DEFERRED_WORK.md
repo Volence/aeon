@@ -30229,6 +30229,26 @@ Both can be true at different revisions; the comment now states a placement mech
 ROM re-layout. Re-derive what actually places sections today and correct the comment. It is a code comment, which is
 the worst home for a perishable claim.
 
+**LS-1a NEXT STEP, booked 2026-09-11 (sigil's half LANDED):** sigil merged the Source Digest at their `13ca9425`
+(verified here as an ancestor of sigil origin/master; tip `2c5b3608` at the time). Every `.lst` a newer sigil writes opens with
+`DIGEST-*` rows (format in sigil `docs/superpowers/notes/2026-09-11-aeon-source-digest-ask.md`, three amendments). **Our
+binary does not write it yet:** `SIGIL_BUILD` was built from the pin worktree `.sigil-pin-af35fa56` (its compiled-in
+CARGO_MANIFEST_DIR, read out of the binary 2026-09-11). Order: (1) move that pin past `13ca9425`. That relinks a binary
+EVERY lane builds with, so announce it to every lane, do it at a quiet point, and record the binary md5 before and after.
+(2) One shared provenance primitive that finds the section by `^DIGEST-` (never by position; a missing `DIGEST-END` means
+truncated) and calls a (.bin, .lst) pair fresh only when `DIGEST-ROM` matches the .bin by crc, size and path, every
+`DIGEST-READ` row matches its file, and `DIGEST-SCAN` reproduces. It reports `tree=` but does not gate on it. (3) Move the
+14 `--built-after` consumers onto it, which also unifies their three disagreeing stale verdicts (exit 2 / exit 1 /
+`sprite_tilt_gate`'s exit 0 without `--gate`).
+
+**`tools/ojz_strip_gen.py` names the zone tileset wrongly, naming only (booked 2026-09-11; lead from an aurora agent,
+confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrings (`_project_tileset_path`,
+`load_editor_section_nametable`, `load_editor_tile_art`) say `chunks_tiles.bin`, but the path is resolved from
+`project.json` `zones[0].tileset`, which is `games/sonic4/data/editor/ojz_tiles.bin` (29408 B). The tracked
+`games/sonic4/data/editor/ojz/chunks_tiles.bin` is 0 bytes and this bake never opens it. The tool already refuses a
+zero-byte tileset. Zero-byte fix: rename the variable and repoint the prose. Leave the empty file alone; aurora's chunk-library
+loader references it.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
