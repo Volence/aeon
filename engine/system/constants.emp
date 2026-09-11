@@ -1198,3 +1198,19 @@ pub const OBJ_ENTRY_SIZE   = 6
 // single injector. This named immediate is the `.emp`-side value the flush code
 // reads; a wrong value changes the emitted `moveq`, so byte-identity checks it.
 pub const VDP_Shadow_len = 19
+
+// VDP reg $10, the plane size, as engine/system/boot_data.emp's BootData_VDPRegs writes it.
+// The HARDWARE half of the plane-wrap family (lens-sweep B1-2 / LS-8a). The engine-side pins
+// in engine/level/section.emp and engine/level/plane_buffer.emp hold the hand-spelled sites to
+// PLANE_H_CELLS / PLANE_V_CELLS, but it is this byte that makes the VDP wrap there, and an
+// ensure over the two constants alone cannot see it. A named literal (the VDP_REG_0C_BOOT
+// shape) pinned to the encoding of the two constants: VSZ in bits 5:4, HSZ in bits 1:0, each
+// 0 = 32 cells, 1 = 64, 3 = 128 (n/64 + n/128 over those three sizes).
+// Declared HERE rather than in boot_data.emp, and at the END of this file, on measurement:
+// the same const and ensure appended to the end of boot_data.emp (after their `dc.b` use)
+// made the sonic4 DEBUG placement overlap two unrelated sections (ojz_scroll_test against
+// replay_fixture, 6 bytes), mechanism not established (2026-09-11, parcel/lens-pins-0911);
+// declaring it above the use instead would have moved lines that live prose cites by number.
+pub const VDP_REG_PLANE_SIZE = $11
+ensure((PLANE_H_CELLS == 32 || PLANE_H_CELLS == 64 || PLANE_H_CELLS == 128) && (PLANE_V_CELLS == 32 || PLANE_V_CELLS == 64 || PLANE_V_CELLS == 128) && VDP_REG_PLANE_SIZE == (((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)),
+       "BootData_VDPRegs writes reg $10 = VDP_REG_PLANE_SIZE = {VDP_REG_PLANE_SIZE}, but engine.constants says the planes are PLANE_H_CELLS x PLANE_V_CELLS = {PLANE_H_CELLS} x {PLANE_V_CELLS}, which encodes as {((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)} (VSZ bits 5:4, HSZ bits 1:0; 0 = 32, 1 = 64, 3 = 128; each size must be one of those three). If they disagree the VDP wraps the nametable at one size while the engine masks, strides and clamps at the other. WHAT THIS PIN DOES NOT COVER: the VDP's own limit on the product of the two sizes (the combinations above 64 x 64 of area are not all legal, and nothing here checks which); the VRAM span a larger plane occupies (Plane A at VRAM_PLANE_A and Plane B at VRAM_PLANE_B must not overlap each other, the window, the SAT or the HScroll table, and no pin checks that); and the 33 hand-spelled engine sites, pinned per axis in engine/level/section.emp and engine/level/plane_buffer.emp, plus engine/level/bg.emp, which is NOT pinned")

@@ -34,12 +34,11 @@
 
 module engine.boot_data
 
-use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT}
+use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT, VDP_REG_PLANE_SIZE}
 // The VRAM bases the five base registers below are DERIVED from — named here so
 // the register table has one authority instead of a transcribed literal each.
 use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B, VRAM_PLANE_B_BYTES, VRAM_WINDOW}
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE}
-use engine.constants.{PLANE_H_CELLS, PLANE_V_CELLS}
 use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt, vdp_base_reg, VdpBase}
 use engine.sound_constants.{SND_STATE_BASE}
 
@@ -138,16 +137,6 @@ const VDP_REG_HSCROLL  = vdp_base_reg(VdpBase.HScroll,     VRAM_HSCROLL_TABLE)
 ensure(VRAM_PLANE_B == VRAM_PLANE_B_BYTES,
        "engine.constants disagrees with itself about Plane B: VRAM_PLANE_B is {VRAM_PLANE_B} and VRAM_PLANE_B_BYTES is {VRAM_PLANE_B_BYTES}. Reg $04 is derived from the first and bg/plane_buffer/section address the plane through the second, so a split makes the VDP fetch the nametable from one address while the engine writes it to another.")
 
-// Reg $10, the plane size: the HARDWARE half of the plane-wrap family (lens-sweep B1-2 /
-// LS-8a). The LS-8 method pins the engine's hand-spelled sites to PLANE_H_CELLS /
-// PLANE_V_CELLS, but it is this byte that makes the VDP wrap there; an ensure over the
-// constants alone cannot see it. Kept as a named literal (the VDP_REG_0C_BOOT shape) and
-// pinned to the encoding of the two constants: VSZ in bits 5:4, HSZ in bits 1:0, each
-// 0 = 32 cells, 1 = 64, 3 = 128 (n/64 + n/128 over those three sizes).
-const VDP_REG_PLANE_SIZE = $11
-ensure((PLANE_H_CELLS == 32 || PLANE_H_CELLS == 64 || PLANE_H_CELLS == 128) && (PLANE_V_CELLS == 32 || PLANE_V_CELLS == 64 || PLANE_V_CELLS == 128) && VDP_REG_PLANE_SIZE == (((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)),
-       "BootData_VDPRegs writes reg $10 = VDP_REG_PLANE_SIZE = {VDP_REG_PLANE_SIZE}, but engine.constants says the planes are PLANE_H_CELLS x PLANE_V_CELLS = {PLANE_H_CELLS} x {PLANE_V_CELLS}, which encodes as {((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)} (VSZ bits 5:4, HSZ bits 1:0; 0 = 32, 1 = 64, 3 = 128; each size must be one of those three). If they disagree the VDP wraps the nametable at one size while the engine masks, strides and clamps at the other. WHAT THIS PIN DOES NOT COVER: the VDP's own limit on the product of the two sizes (the combinations above 64 x 64 of area are not all legal, and nothing here checks which); the VRAM span a larger plane occupies (Plane A at VRAM_PLANE_A and Plane B at VRAM_PLANE_B must not overlap each other, the window, the SAT or the HScroll table, and no pin checks that); and the 33 hand-spelled engine sites, pinned per axis in engine/level/section.emp and engine/level/plane_buffer.emp, plus engine/level/bg.emp, which is NOT pinned")
-
 // -----------------------------------------------
 // boot_head — the movem-preload head (26 B) + the 24 VDP register bytes + the
 // VRAM DMA-fill command (4 B) = 54 B, then the resident sound blob (sound-on) or
@@ -194,7 +183,7 @@ section boot_head (cpu: m68000) {
         dc.b    VDP_REG_HSCROLL             // $0D: HScroll table ($BC00)
         dc.b    $00                         // $0E: unused
         dc.b    $02                         // $0F: auto-increment = 2 (normal word access)
-        dc.b    VDP_REG_PLANE_SIZE          // $10: 64x64 scroll planes ($11, pinned to PLANE_H/V_CELLS above)
+        dc.b    VDP_REG_PLANE_SIZE          // $10: 64x64 scroll planes ($11, pinned in engine/system/constants.emp)
         dc.b    $00                         // $11: window H disabled
         dc.b    $00                         // $12: window V disabled
         dc.b    $FF                         // $13: DMA length low = $FF
