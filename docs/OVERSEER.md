@@ -127,7 +127,10 @@ automating them, and clear yourself if you're able to"* (heard directly by the h
 **What it asks of this lane:** when this session judges it should be cleared, it reaches a LANDING BOUNDARY WITHOUT
 dispatching the next wave, commits a handoff file (the resume anchor is a committed file, never a summary), sets
 `lane-status.json` `atBoundary: true` with `inFlight: []`, tells the hub it is clearable with its context size, and ends
-its turn. **The ~200k threshold is the HUB's figure, not his** (the anchor says so; the hub's relay called it his).
+its turn. **The ~200k threshold is now HIS**: the hub proposed it at 23:19Z (the anchor above calls it the hub's), and
+he took it at 23:20:23Z, verbatim *"every half hour is fine but I agree with the rest of your #3"*, the 200k figure being
+in that #3 (`git -C ../empyrean show origin/main:docs/OVERSEER.md | grep -an '23:20:23Z'`; corrected 2026-09-11 on the
+hub's word, read at empyrean `7f4ddbb`).
 **There is no hub-callable clear and a session cannot clear itself**: the owner presses Clear+Reboot, or sleep mode's
 rotate does it. **Reporting changed with it** (owner, 23:20:23Z, answering the hub's #3): message the hub only when this
 lane STOPS or NEEDS something; landings go in `docs/lane-log.jsonl`, which his changelog reads.
