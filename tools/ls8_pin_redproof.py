@@ -67,8 +67,11 @@ GUARDS = {
  "P4  dma_queue   Important span":              "DMA_Important no longer starts at DMA_Critical_End",
  "P5  dma_queue   Deferrable span":             "DMA_Deferrable no longer starts at DMA_Important_End",
  "P6  dma_queue   whole queue":                 "DMA_Queue .. DMA_Queue_End in engine/ram.emp is no longer",
- "P7  pytest      YM mirror value":             "out of step with its authority",
- "P8  pytest      YM mirror not a literal":     "not an integer literal. In a seam-1 resident module",
+ # P7/P8 key on text that exists ONLY after interpolation: pytest echoes the failing test's
+ # SOURCE in its traceback, and the first version of these keys matched that echo, so P8
+ # "fired" on mutations that contain no non-literal at all.
+ "P7  pytest      YM mirror value":             "the authority engine/sound/sound_fm.emp:",
+ "P8  pytest      YM mirror not a literal":     "', not an integer literal. In a seam-1 resident module",
  "P9  section     plane H family":              "but engine/level/section.emp hand-spells a 64-column plane",
  "P10 section     plane V family":              "but engine/level/section.emp hand-spells a 64-row plane",
  "P11 plane_buf   plane H family":              "but engine/level/plane_buffer.emp hand-spells a 64-column plane",
@@ -139,6 +142,10 @@ MUTATIONS = {
    ("engine/ram.emp", "    DMA_Critical:           [u8; DMA_CRITICAL_SLOTS * sizeof(DMAEntry)],\n    mark DMA_Critical_End,",
                       "    DMA_Critical:           [u8; DMA_CRITICAL_SLOTS * sizeof(DMAEntry)],\n    pad(2),\n    mark DMA_Critical_End,"),
  ],
+ "M21_field_between_critical_and_important": [
+   ("engine/ram.emp", "    mark DMA_Critical_End,\n    DMA_Important:",
+                      "    mark DMA_Critical_End,\n    pad(2),\n    DMA_Important:"),
+ ],
  "M13_field_between_important_and_deferrable": [
    ("engine/ram.emp", "    mark DMA_Important_End,\n    DMA_Deferrable:",
                       "    mark DMA_Important_End,\n    pad(2),\n    DMA_Deferrable:"),
@@ -167,7 +174,7 @@ MUTATIONS = {
    ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
  ],
  "M20_reg10_byte_alone": [
-   ("engine/system/boot_data.emp", "const VDP_REG_PLANE_SIZE = $11", "const VDP_REG_PLANE_SIZE = $01"),
+   ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
  ],
 }
 
@@ -216,9 +223,14 @@ for name in names:
     for path, old, new in edits:
         disk = open(path).read()
         assert new in disk and old not in disk, "MUTATION NOT ON DISK"
-        for i, line in enumerate(disk.split("\n"), 1):
-            if new.strip() and new in line:
-                print(f"    {path}:{i}: {line}", flush=True)
+        # Print every disk line the new text spans, located by position rather than by
+        # `new in line`: a multi-line or newline-terminated mutation never matches a single
+        # line, and the first version of this loop silently printed nothing for those.
+        pos = disk.index(new) + (len(new) - len(new.lstrip("\n")))
+        first = disk.count("\n", 0, pos) + 1
+        lines = disk.split("\n")
+        for i in range(first, first + new.strip("\n").count("\n") + 1):
+            print(f"    {path}:{i}: {lines[i - 1]}", flush=True)
     print(sh("git diff --stat").stdout.strip() or "    (no diff -- control run)", flush=True)
 
     log = f"{SC}/red_{name}.log"
