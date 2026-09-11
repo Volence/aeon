@@ -331,9 +331,11 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
 // drain (VInt_DrawLevel) is deliberately NOT run here — on a lag frame the main
 // loop is still mid-fill (VBlank_Ready=0) and the buffer is half-written; it
 // drains on the next complete frame (VInt_Level). See note below.
-// Clobbers: the union of the lag-path callees (Flush_VDP_Shadow d0-d3/a0-a1 ·
-//   Enqueue_Dirty_Buffers d0/a1-a2 · Process_DMA_Critical a1/a5 ·
-//   Vscroll_Write d0/a0/a5 · Read_Controllers d0-d4/a0)
+// Clobbers: the union of the lag-path callees (Raster_VBlank d0-d4/a0-a2 ·
+//   Flush_VDP_Shadow d0-d1/a0-a1 · Enqueue_Dirty_Buffers d0/a1-a2 ·
+//   Process_DMA_Critical a1/a5 · Vscroll_Write d0/a0/a5 · Read_Controllers d0-d4/a0),
+//   which is d0-d4/a0-a2/a5 as declared. Corrected 2026-09-11 against each callee's
+//   own clobbers(): the list omitted Raster_VBlank and gave Flush_VDP_Shadow d0-d3.
 // (d4 enters the union with the 6-button burst — Read_Controllers widened, input parcel 2026-08-02)
 // -----------------------------------------------
 proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
