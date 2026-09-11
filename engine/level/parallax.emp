@@ -3441,9 +3441,24 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 //     the same zero-remainder guard `.fl_tail` documents: `subq #1` on 0 gives $FFFF and
 //     sprays ~2 MB forward out of Hscroll_Buffer.
 //
-// `.lp_both` above is deliberately NOT converted: two sampled channels need two walk
-// pointers and there is no second free address register. Leaving it also fixes the
-// walker model's `line_both` term as an unchanged regression control.
+// `.lp_both` above is deliberately NOT converted, and the reason is NOT a register
+// shortage. This paragraph used to say "two sampled channels need two walk pointers and
+// there is no second free address register" (corrected 2026-09-11, lens item C1a-2). The
+// count was right and the conclusion was not. a0 is the one address register `.lp_both`
+// leaves dead (a1-a3 are the cross-loop contract above, a4 the output cursor, a5/a6 the
+// curve bases), but the curve bases can walk THEMSELVES: each base is needed only at its
+// own channel's 256-byte wrap, and at that instant the walker is exactly base + 256, so
+// `suba.w #256` recovers it with no register at all. A converted loop would owe two
+// things the single-channel ones do not. The two channels' phases differ, so their wraps
+// fall on different lines and a band splits into up to THREE runs, not two. And a5/a6
+// must be back on their bases at band exit, because the cross-loop contract says they
+// leave untouched. Whether that is worth doing is cycles times frequency, and the
+// frequency is an authoring fact (which sections bind a layer with both deform channels
+// live), not one this file may pin. The 2026-09-06 lens sweep put the saving at about 44
+// cycles a line, about 9,900 a frame if such a layer covers all 224 lines, measured zero
+// such lines on the act it read, and recommended correcting this note, not the code.
+// Leaving it also keeps the walker model's `line_both` term as an unchanged regression
+// control.
 //
 // REGISTER NOTE: a0 is the walk pointer. It is the caller's config pointer, dead after
 // the two table loads at the top of this proc, and restored by the exit `movem` — which
