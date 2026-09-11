@@ -1645,3 +1645,29 @@ handler side cleanly with almost no overlap.
 **One error was mine:** seat C3b's brief asserted a feature that landed *after* the pin. It checked,
 contradicted me, and was right. Recorded above under C3b rather than quietly corrected.
 
+---
+
+## Amendment 2026-09-11: Seat B2a's section and Seat B2b's items 6 and 7 were never written
+
+Added by `parcel/lens-comments-0911` to close ledger id CTRL-10. Nothing above this heading was
+edited.
+
+This packet has no `## Seat B2a` section, and Seat B2b's body goes from `### B2b-5` straight to
+`### B2b-8`. They were never written into this file, not removed from it: the controller's
+2026-09-09 check ran `git show <sha>:<this file> | grep -c '^## Seat B2a'` at every commit that
+touched the file and got 0 each time. They are NOT reconstructed here. A reconstruction written
+now would be the controller's reading of the ledger, not the seat's return, and it would sit in a
+document whose authority is that it records what the seats said.
+
+For a reader who arrives here from `docs/lens-findings.jsonl`:
+
+- **B2a-1 to B2a-4** name this file as their `sweep.packet`, and it holds none of their evidence.
+  Each row's own `title`, `detail` and `where` are the only record of what Seat B2a returned.
+- **Ledger B2b-6 is this body's `### B2b-8`** (the dead `.asm` citations), renumbered when the
+  ledger was enrolled. Seat B2b's own items 6 and 7 are recorded nowhere: on 2026-09-11 a
+  `git grep` for `B2b-7` over the ledger, `docs/superpowers/notes/` and `docs/DEFERRED_WORK.md`
+  returned nothing.
+- The summary above still counts "B2a+B2b (twinned)" among the 14 seats, and controller run 3
+  still cites "the two guarded sites B2a named". Both are left as written: the seat ran, and only
+  its write-up is missing.
+
