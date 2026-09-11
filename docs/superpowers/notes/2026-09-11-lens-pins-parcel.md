@@ -241,7 +241,41 @@ that listing.
 
 ## Landing build
 
-@@LANDING@@
+`nohup bash -c './tools/landing_build.sh .runlogs/landing.log; echo "REAL_EXIT=$?"' > .runlogs/outer.log`,
+launched at 1789155357 on code identical to `87c289f6` (the only later commit is this note, a
+docs/superpowers file the citation gate treats as a RECORD). The `[logfile]` argument produced no
+file; the complete output is in `.runlogs/outer.log`. Result: **`finished=0`, `REAL_EXIT=0`.**
+
+```
+EXIT_s4=0 size=821103
+EXIT_s4.debug=0 size=847367
+EXIT_demo=0 size=97051
+EXIT_demo.debug=0 size=103335
+EXIT_needs_build=0
+finished=0
+```
+
+Every pytest summary line, in order (aggregate totals, none elided):
+
+| lane | s4 | s4.debug | demo | demo.debug |
+|---|---|---|---|---|
+| pre-build (`-m "not needs_build"`) | 2428 passed, 2 skipped, 14 deselected, 5 warnings, 112 subtests passed | same | same | same |
+| post-sigil (`-m needs_build`, per shape) | 5 passed, 9 skipped, 2430 deselected | 6 passed, 8 skipped, 2430 deselected | 1 passed, 13 skipped, 2430 deselected | 1 passed, 13 skipped, 2430 deselected |
+
+The per-shape skips are deferrals the lane itself labels "NOT passes": each needs a shape that build
+did not write. The final needs_build lane over all eight artifacts graded them: `14 passed, 2430
+deselected`, "14 case(s) in the report: 14 ran, 0 deferred, 0 failed". For contrast, before
+`cae58661` every canonical pre-build lane failed on `tools/test_citation_form.py` ("broke" item 1).
+
+**Zero bytes, byte-identical rather than byte-count-neutral.** The four ROMs this run wrote (mtimes
+1789155546 to 1789156306, all after launch) against the base, built before the first edit:
+
+| ROM | base `cd075f2d` | tip | equal |
+|---|---|---|---|
+| s4.bin | 3393750122 821103 | 3393750122 821103 | yes |
+| s4.debug.bin | 4112900988 847367 | 4112900988 847367 | yes |
+| demo.bin | 755353563 97051 | 755353563 97051 | yes |
+| demo.debug.bin | 4271321717 103335 | 4271321717 103335 | yes |
 
 ## Proposed ledger lines (the controller appends at landing; `fixedAt` is the merge)
 
