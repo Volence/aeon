@@ -30257,6 +30257,16 @@ Why they are long is not established: `.offscreen` may simply be out of short re
 move the target or accept the cost in a comment. Note also: C1a-3's per-entry figure (36 cycles against 22) was
 confirmed by the same read; its per-frame count was not re-derived.
 
+**Side findings of the 2026-09-11 lens-tools parcel (merge `e1d79b2e`), booked, not fixed:**
+(a) The ensure message in `engine/objects/entity_window.emp` (about `MAX_LIST_ENTRIES`) now wrongly says no build
+step compares the generator's copy; `tools/test_ojz_entity_list_cap.py` does now. Suggested rewording is in
+`docs/superpowers/notes/2026-09-11-lens-tools-parcel.md`. Engine file, so a comments batch.
+(b) `tools/landing_build.sh` exits 1 with NO `finished=` stamp when `SIGIL_BUILD` or `SIGIL_EMIT` is unset (the `:?`
+expansions). Predates the parcel. A run that dies there trails like a killed one; give it the stamp.
+(c) HAZARD, measured by the parcel: any test in build.sh's tools pytest lane that calls `build.sh` against the REAL repo
+recurses (the build's own pytest lane collects the test and launches it again, about once a minute). The shipped
+`tools/test_landing_build_logfile.py` runs a COPY of the script beside a stub `build.sh`; copy that pattern.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
