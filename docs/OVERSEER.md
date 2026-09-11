@@ -118,6 +118,20 @@ session about to stop, it is the one artifact its successor cannot verify, and i
 message where no reader can meet the contradiction. If that file does not exist yet, writing it IS
 the work to do before asking.
 
+## ⚠ STANDING RULE — A LANE SAYS WHEN IT CAN BE CLEARED (owner, 2026-09-11T23:19:31Z)
+
+*"the overseer should say when theyy can be cleared, I think theyy should tell you then you just clear them if yyou're
+automating them, and clear yourself if you're able to"* (heard directly by the hub; read it at the anchor, not here:
+`git -C ../empyrean show 9911fd6:docs/OVERSEER.md | grep -an "A LANE SAYS WHEN IT CAN BE CLEARED"`).
+
+**What it asks of this lane:** when this session judges it should be cleared, it reaches a LANDING BOUNDARY WITHOUT
+dispatching the next wave, commits a handoff file (the resume anchor is a committed file, never a summary), sets
+`lane-status.json` `atBoundary: true` with `inFlight: []`, tells the hub it is clearable with its context size, and ends
+its turn. **The ~200k threshold is the HUB's figure, not his** (the anchor says so; the hub's relay called it his).
+**There is no hub-callable clear and a session cannot clear itself**: the owner presses Clear+Reboot, or sleep mode's
+rotate does it. **Reporting changed with it** (owner, 23:20:23Z, answering the hub's #3): message the hub only when this
+lane STOPS or NEEDS something; landings go in `docs/lane-log.jsonl`, which his changelog reads.
+
 ## The queue
 
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
