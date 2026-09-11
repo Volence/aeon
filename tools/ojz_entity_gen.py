@@ -446,7 +446,7 @@ def test_ring_sort_and_validation():
     assert len(errors) == 1 and "outside" in errors[0]
 
     errors = []
-    validate_and_sort_rings([{"x": 1, "y": 1}] * 129, 0, errors)
+    validate_and_sort_rings([{"x": 1, "y": 1}] * (MAX_LIST_ENTRIES + 1), 0, errors)
     assert len(errors) == 1 and "MAX_LIST_ENTRIES" in errors[0]
     print("  test_ring_sort_and_validation OK")
 
