@@ -33,7 +33,7 @@
 // THE ORACLE IS A TRANSCRIPTION, AND THAT IS THE ONE THING TO KNOW BEFORE TRUSTING IT.
 // Every `hdr(...)` / `cfg_band(...)` call below is a HAND COPY of the corresponding call
 // in configs.emp, with that file's own line number cited beside it. The CONSTRUCTORS are
-// the shipped ones (moved, not re-typed), but the ARGUMENTS are typed here. So this module
+// the shipped ones (moved, not re-typed, except cfg_band's field decode: B2a-3), but the ARGUMENTS are typed here. So this module
 // proves "scene model == the shipped parameters as transcribed here"; the remaining link,
 // "as transcribed here == what configs.emp actually held", is what Task 10's byte
 // identity closes — and that link is now the ONLY reason configs.emp's parameters are still
@@ -168,22 +168,22 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 // lands on exactly the plane line the shipped cell row named. An oracle that imported
 // scene_plane_line() would agree with the lowering by construction and prove nothing.
 pub comptime fn cfg_band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0) -> band_entry {
-    // FLAT ACCUMULATOR over statement ifs for the packed op byte (EMP_PITFALLS §1), and
-    // an INDEPENDENT spelling of the packing — bits 0/1 written as literals here, not
-    // imported from parallax — for the same reason `cell` survives above.
+    // FLAT ACCUMULATOR over statement ifs (EMP_PITFALLS §1). The five packed fields are decoded by DIVISION and
+    // REMAINDER and the op byte is SUMMED, never scene_dsl.emp scene_band()'s shift, mask and OR (lens B2a-3), so a
+    // wrong decode cannot be copied across. Equal to it for any non-negative value; packed() only makes 0..$1FF.
     comptime var ops = 0
-    if ((fa >> 8) & 1) != 0 {
-        ops = ops | 1
+    if ((fa / 256) % 2) != 0 {
+        ops = ops + 1
     }
-    if ((fb >> 8) & 1) != 0 {
-        ops = ops | 2
+    if ((fb / 256) % 2) != 0 {
+        ops = ops + 2
     }
     return band_entry{
         band_top_plane:      cell * 8,
-        band_factor_a_s1:    fa & 15,
-        band_factor_a_s2:    (fa >> 4) & 15,
-        band_factor_b_s1:    fb & 15,
-        band_factor_b_s2:    (fb >> 4) & 15,
+        band_factor_a_s1:    fa % 16,
+        band_factor_a_s2:    (fa / 16) % 16,
+        band_factor_b_s1:    fb % 16,
+        band_factor_b_s2:    (fb / 16) % 16,
         band_factor_ops:     ops,
         band_deform_shift_a: dsa,
         band_deform_shift_b: dsb,
