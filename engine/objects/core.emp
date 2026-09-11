@@ -468,15 +468,29 @@ proc DrainDynamicPending () clobbers(d0-d2/a0-a1) {
 
 // -----------------------------------------------
 // RunObjects — dispatch all active object slots
-// Per-pool loops: players/system/effects always execute,
-// dynamic pool is culled by distance from camera.
+// Per-pool loops: players and effects always execute (system too, in the DEBUG
+// shape only: see the System block below); the dynamic pool is culled by distance
+// from camera and walked through its live list.
 // Objects that want to die call DeleteObject directly.
 //
-// Convention: object routines receive a0 = self SST pointer.
-// Object routines MUST preserve a0 and d7.
+// TWO CONTRACTS, and they point in opposite directions. Until 2026-09-11 this
+// header put the first one on the caller's line, where it read as "RunObjects
+// preserves d7" (lens item A2-1).
+//   CALLEE (every object routine; the ObjRoutine type at the top of this file
+//     declares `preserves(a0, d7.w)`): receives a0 = self SST pointer and MUST
+//     return with a0 and d7.w intact, because a0 is this routine's slot cursor and
+//     d7 its dbf counter. Every other register is the object's to clobber: a2, the
+//     live-list cursor, is saved across the dispatch for exactly that reason. In
+//     DEBUG, Debug_AssertObjLoop range-checks a0 and d7 after every dispatch.
+//   CALLER (whoever calls RunObjects): NOTHING survives. d7 and a0 are this
+//     routine's own loop state, loaded before the first dispatch (a paused frame
+//     tail-branches to RunObjects_Frozen, which loads them the same way); the
+//     dispatched routines may write d0-d6, a1-a6 and d7's high word; and the
+//     frame-end reconcile (CompactDynamicLive d0-d1/a0-a2, DrainDynamicPending
+//     d0-d2/a0-a1) runs after the walks.
 // In:  none
 // Out: none
-// Clobbers: d0-d6, a0-a6 (object code may clobber freely except a0/d7)
+// Clobbers: d0-d7, a0-a6 (as declared)
 // -----------------------------------------------
 pub proc RunObjects () clobbers(d0-d7/a0-a6) {
         tst.b   Game_Paused
@@ -674,12 +688,17 @@ pub proc Debug_AssertObjLoop (a0: *Sst, d7: u16) clobbers() {
 
 // -----------------------------------------------
 // RunObjects_Frozen — render-only pass (player death, pause)
-// Calls Draw_Sprite for each occupied slot, skips object logic. Player + system
-// + effect keep small fixed sweeps (26 slots); the dynamic segment walks the
+// Calls Draw_Sprite for each occupied slot, skips object logic. Player + effect
+// (+ system, DEBUG shape only) keep small fixed sweeps: 2 + 16 = 18 slots in a
+// release shape, 26 in DEBUG with the 8 System slots. The dynamic segment walks the
 // spawn-order live list, so paused frames skip the ~37 empty dynamic slots too.
 // In:  none
 // Out: none
-// Clobbers: d0-d6, a0-a6
+// Clobbers: d0-d7, a0-a6 (as declared; this line said d0-d6 until 2026-09-11, lens
+//   item A2-1). d7 is NOT preserved: it is the dbf counter of all three sweeps. The
+//   body writes d0, d7, a0 and a2, and Draw_Sprite adds d0-d3/a1, so the set
+//   actually written today is d0-d3/d7/a0-a2; a caller may rely only on the declared
+//   set, which is also RunObjects' (its paused path tail-branches here).
 // -----------------------------------------------
 pub proc RunObjects_Frozen () clobbers(d0-d7/a0-a6) {
         // Players (fixed sweep, 2 slots)
