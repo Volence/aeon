@@ -30206,6 +30206,14 @@ on master, 20 not, 2 with uncommitted tracked changes: `agent-a829735ff752bd30b`
 worktrees. A prune is its own parcel: HEAD-on-master and clean-tracked does NOT rule out unique gitignored files, and
 the two dirty trees may hold the only copy of their work.
 
+**C3b-3 RUNTIME TAG (controller, emulator), booked 2026-09-11 with merge `b29a53ae`:** the fix landed on analysis plus
+four green shapes and is NOT runtime-witnessed. Invariant: at every `PageIn_Process` entry, `PageIn_Staging_Busy != 0` must
+imply `DMA_Important_Slot != DMA_Important`. The race is rare; force it with a probe build that spins on `VBlank_Flag` in
+`.land` between `bcs .land_full` and the `st.b`. Build it without and with the fix, and read `Frame_Counter` at
+`Level_LoadArt`'s `clr.b PageIn_Bulk_Drain`. Predicted (the parcel's, not measured): without the fix, about one frame later
+per ZX0-form page; with it, no invariant violations. Full method: `docs/superpowers/notes/2026-09-11-c3b3-pagein.md`. Batch
+it with LS-10a, the other emulator row that is the controller's.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
