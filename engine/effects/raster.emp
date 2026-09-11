@@ -972,13 +972,13 @@ pub proc Raster_Install (a0: u32) clobbers() {
 // -----------------------------------------------
 pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Pending, d0
-        beq.s   .no_install
+        beq     .no_install
         clr.l   Raster_Pending
         // AN EMPTY PROGRAM UNINSTALLS THE HANDLER — it does not arm one that parks.
         //
         // This is EFX-7's close, and it closes it by making the teardown arm REACHABLE rather
         // than by deleting it. The arm used to be entered on `Raster_Pending == 0`, which the
-        // `beq.s` two lines up had already filtered as "nothing pending": the documented
+        // `beq` two lines up had already filtered as "nothing pending": the documented
         // "0 = clear" convention could never fire, HBlank_Uninstall had no live caller, and IE1
         // was never dropped for the life of the ROM.
         //
@@ -1003,7 +1003,7 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // pal_dirty_mask is 0, so the frame-top re-assert this path skips had nothing to assert.
         movea.l d0, a1
         cmpi.w  #RASTER_OPS_END, 4(a1)          // word 2 = first record's op_count
-        bne.s   .copy_program
+        bne     .copy_program
         clr.l   Raster_Program
         // The patch table dies WITH the program. Raster_BuildSchedule's only liveness test is
         // Raster_Patch_Tab != 0 (Active_Buf is untouched on this path — that is the whole
@@ -1048,7 +1048,7 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // no patched effect pays one move.l/beq.
         jbsr    Raster_BuildSchedule
         move.l  Raster_Program, d0
-        beq.s   .done                   // no program armed: one tst per frame
+        beq     .done                   // no program armed: one tst per frame
         movea.l Raster_Active_Buf, a1
         // --- header ---
         move.w  (a1)+, d1               // pal_dirty_mask
@@ -1087,7 +1087,7 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         lea     Raster_HInt(pc), a0
         // TAIL CALL (§10). HBlank_Install clobbers(d1), inside clobbers(d0-d4/a0-a2); no stack
         // frame, and nothing runs after the install on this arm. The `rts` below is KEPT — it
-        // is `.done`, the target of the `beq.s` on the no-program arm above, so folding it into
+        // is `.done`, the target of the `beq` on the no-program arm above, so folding it into
         // the branch would orphan that path. Zero bytes move here as a result: `bsr.w` becomes
         // `bra.w`, same width, and the retained `rts` is the one the other arm still needs.
         jbra    HBlank_Install
