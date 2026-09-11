@@ -43,7 +43,9 @@ That block is superseded. Everything below it moved here from the boot file on 2
   parcel's content is present** (a failed merge is silent and rebuilds master's numbers) →
   four shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f` all four
   up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
-  if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → push. Totals, never a tail.
+  if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → the Z80 clobbers gate (only if
+  one of its seven inputs moved; the bullet below: it runs in sigil's tree but asks their lane for
+  nothing) → push. Totals, never a tail.
 - **The four-shape half IS `tools/landing_build.sh` — run the script, do not retype it.**
   It does the temp-name-then-rename for all four shapes and then, since 2026-09-10 (LS-1c),
   runs the `needs_build` pytest lane over the complete eight-artifact set it just built:
@@ -60,7 +62,40 @@ That block is superseded. Everything below it moved here from the boot file on 2
   existence check passes on a STALE `s4.bin`. This is the only runner that grades
   `test_segmented_parent_checks_the_row_set_it_aggregated` before a merge: it declares
   `s4.debug.bin` + `s4.debug.lst` + `demo.debug.lst` at once and one `build.sh` invocation
-  writes one game's pair, so it DEFERS in every `build.sh` shape.
+  writes one game's pair, so it DEFERS in every `build.sh` shape. It takes one optional
+  argument, a logfile: `./tools/landing_build.sh .runlogs/landing.log` tees the whole run there
+  with `finished=<n>` last in both (since 2026-09-11; before that `$1` was silently ignored).
+- **THE Z80 CLOBBERS GATE IS A LANDING STEP, AND IT LIVES IN SIGIL'S TREE (lens C2b-4, named
+  2026-09-11).** A Z80 proc that under-declares its transitive clobbers builds GREEN here: aeon's
+  build has no Z80 clobber census (CTRL-1 would add one). The check is sigil's
+  `crates/sigil-cli/tests/z80_clobbers_incomplete.rs`, and it reads OUR sound sources. **Run it
+  when the parcel touches any of its seven inputs** (the list is that file's `sound_tree()`):
+  `engine/sound/{z80_sound_driver,sound_sequencer,sound_sfx,sound_fm,sound_psg,sound_constants}.emp`
+  and `engine/system/constants.emp`. From a sigil checkout whose `git status --porcelain
+  --untracked-files=no` prints nothing, quoting its `git rev-parse --short HEAD` beside the result:
+  ```sh
+  CARGO_TARGET_DIR=<suite>/.aeon-landing-sigil-target SIGIL_STRICT_GATE=1 AEON_DIR=<absolute path of the merged aeon tree> cargo test --release --locked -p sigil-cli --test z80_clobbers_incomplete -- --nocapture
+  ```
+  Green is `test result: ok.` with `passed` equal to that file's `#[test]` count (derive it with
+  `git grep -c '#\[test\]' -- crates/sigil-cli/tests/z80_clobbers_incomplete.rs`; 5 on
+  2026-09-11), a `reference-tree:` line naming YOUR tree, and no `skip:` line. **Without
+  `SIGIL_STRICT_GATE=1` a missing reference SKIPS every test and still prints `ok`**
+  (`reference_tree` in `crates/sigil-harness/src/test_support.rs`), which is why the flag is
+  inside the command above and must never be split out of it.
+  **`CARGO_TARGET_DIR` is not optional either.** `sigil-cli`'s `[[bin]]` is `sigil`, so a
+  `cargo test --release -p sigil-cli` in sigil's own `target/` re-links `target/release/sigil`,
+  the binary every aeon build runs as `SIGIL_BUILD`, from whatever that checkout holds; and two
+  checkouts sharing one target dir can swap test binaries silently. A private dir outside every
+  repo root, kept between landings, avoids both. Do not borrow the sigil nightly's
+  (`.sigil-source-gates-target`). `--locked` keeps cargo from rewriting their `Cargo.lock`.
+  **Cost:** the test body ran in 0.06 s in sigil's nightly of 2026-09-11; the compile is the cost.
+  A warm incremental release build took 9.12 s in that nightly's target. The FIRST run in a fresh
+  private target is a cold release build of sigil's workspace, not measured (the parcel that wrote
+  this ran no cargo). **Not in `tools/landing_build.sh`:** it needs cargo in another repo's tree.
+  **Post-merge backstop, already live:** sigil's `scripts/nightly_source_gates.sh` runs this gate
+  with `SIGIL_STRICT_GATE=1` against a detached aeon master every morning (~05:19; OK at aeon
+  `8d99deeb` on 2026-09-11, `z80_clobbers_incomplete` 5 passed). So a skipped landing step is
+  caught the next day, after the merge; this step moves the catch before it.
 - **TELL AURORA WHEN A `game.emp` CONTRACT FIELD CHANGES SHAPE — a standing commitment made
   2026-09-10, banked here because a commitment that lives only in mail does not survive a `/clear`.**
   Aurora reads two `games/*/config/game.emp` files at **`origin/master`** and parses them; a field

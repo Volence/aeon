@@ -21,6 +21,10 @@ So this suite is built the other way round:
   * Poison cases are MUTATIONS of the real fixture — delete the header, break a
     row, contradict the trailer — each asserting the parser fails LOUDLY. The
     D7 failure was silence, so silence is what the poisons hunt.
+  * The cuts are FORMAT SAMPLES of one build, never today's layout. Their addresses
+    are that build's (which one: fixtures/make_listing_excerpt.py), and every literal
+    below that names one (EndOfRom, the budget cursor, Game_RAM_End, a buffer gap) is
+    derived from those rows and moves with a re-cut, in the same commit.
 
 The one thing this suite must never allow back: an unreadable listing rendering
 as a number. `test_the_D7_string_is_unreachable` is that assertion, by name.
@@ -114,10 +118,10 @@ class TestRealListing(unittest.TestCase):
         by = self.listing.by_name
         self.assertEqual(by["Vectors"], 0x0)
         self.assertEqual(by["EntryPoint"], 0x200)
-        self.assertEqual(by["DeformTable_Zero"], 0x11984)
-        self.assertEqual(by["EndOfRom"], 0xA11C0)
+        self.assertEqual(by["DeformTable_Zero"], 0x12B1A)
+        self.assertEqual(by["EndOfRom"], 0xBDDA0)
         self.assertEqual(by["Tile_Cache_Nametable"], 0xFFFF0000)
-        self.assertEqual(by["Game_RAM_End"], 0xFFFFBC02)
+        self.assertEqual(by["Game_RAM_End"], 0xFFFFBF02)
 
     def test_rom_and_ram_split_exhaust_the_symbol_set(self):
         """No symbol may fall between the buckets and vanish silently.
@@ -198,19 +202,19 @@ class TestPoison(unittest.TestCase):
 
     def test_a_row_the_parser_cannot_read_is_refused(self):
         """One unreadable row must fail the file, not shrink the model by one."""
-        poisoned = [l.replace(" EndOfRom : A11C0 C |", " EndOfRom = A11C0 C |")
+        poisoned = [l.replace(" EndOfRom : BDDA0 C |", " EndOfRom = BDDA0 C |")
                     for l in self.lines]
         self._expect_error(poisoned, "incomplete")
 
     def test_a_dropped_source_row_is_refused(self):
         """The two halves are one table; losing a row from either is a defect."""
         poisoned = [l for l in self.lines
-                    if not l.startswith("(0) 1897/A11C0 :")]
+                    if not l.startswith("(0) 2216/BDDA0 :")]
         self._expect_error(poisoned, "source-listing parse is incomplete")
 
     def test_halves_that_disagree_on_a_value_are_refused(self):
         """Same symbol, two addresses — one of the two regexes is misreading."""
-        poisoned = [l.replace(" EndOfRom : A11C0 C |", " EndOfRom : B11C0 C |")
+        poisoned = [l.replace(" EndOfRom : BDDA0 C |", " EndOfRom : CDDA0 C |")
                     for l in self.lines]
         self._expect_error(poisoned, "disagree")
 
@@ -238,25 +242,25 @@ class TestRAM(unittest.TestCase):
         """Derived from the fixture's own addresses, not from a pin.
 
         Tile_Cache_Nametable $FFFF0000 -> Tile_Cache_Collision $FFFF2580 is
-        $2580 = 9600 bytes; Block_Stage_Buffers $FFFF3842 -> Page_Table $FFFF6842
-        is $3000 = 12288.
+        $2580 = 9600 bytes; Block_Stage_Buffers $FFFF3842 -> Page_Table $FFFF699C
+        is $315A = 12634.
         """
         sizes = {e.name: e.size for e in self.layout.lower}
         self.assertEqual(sizes["Tile_Cache_Nametable"],
                          self.ram["Tile_Cache_Collision"] - self.ram["Tile_Cache_Nametable"])
         self.assertEqual(sizes["Tile_Cache_Nametable"], 9600)
-        self.assertEqual(sizes["Block_Stage_Buffers"], 0x3000)
+        self.assertEqual(sizes["Block_Stage_Buffers"], 0x315A)
         # The last lower entry runs to the $FFFF8000 boundary, not to the stack.
         self.assertEqual(sizes["Lower_RAM_End"], 0xFFFF8000 - self.ram["Lower_RAM_End"])
 
     def test_span_and_free_are_measured_against_the_top_allocation(self):
         top = max(self.ram.values())
-        self.assertEqual(top, 0xFFFFBC02)                    # Game_RAM_End
+        self.assertEqual(top, 0xFFFFBF02)                    # Game_RAM_End
         self.assertEqual(self.layout.span_used, top - 0xFFFF0000)
         self.assertEqual(self.layout.free_before_stack, 0xFFFFFF00 - top)
 
     def test_two_labels_at_one_address_do_not_become_a_buffer(self):
-        """Cheat_Flags and Engine_RAM_End share $FFFFB836 in the real build."""
+        """Cheat_Flags and Engine_RAM_End share $FFFFBB8C in the real build."""
         self.assertEqual(self.ram["Cheat_Flags"], self.ram["Engine_RAM_End"])
         self.assertNotIn("Cheat_Flags", {e.name for e in self.layout.upper})
 
@@ -293,9 +297,9 @@ class TestBudgets(unittest.TestCase):
         rows, unresolved = resolve_budgets(model, listing)
         self.assertEqual(unresolved, [])
         row = next(r for r in rows if r.region == "object_bank")
-        # Derived: cursor $11984 - base $10000 = $1984; limit $20000 - $10000.
+        # Derived: cursor $12B1A - base $10000 = $2B1A; limit $20000 - $10000.
         self.assertEqual(row.used, listing.by_name["DeformTable_Zero"] - 0x10000)
-        self.assertEqual(row.used, 0x1984)
+        self.assertEqual(row.used, 0x2B1A)
         self.assertEqual(row.limit, 0x10000)
         self.assertFalse(row.breached)
 
@@ -362,7 +366,7 @@ class TestVRAM(unittest.TestCase):
 
 class TestCLI(unittest.TestCase):
     def test_summary_on_real_inputs_measures_every_axis(self):
-        with temp_rom(0xA11C0) as rom:
+        with temp_rom(FIXTURE_ENDOFROM) as rom:
             code, out, err = run_main([S4_LST, rom, "--map", S4_MAP, "--summary"])
         self.assertEqual(code, 0, err)
         self.assertEqual(out, "")
@@ -376,7 +380,7 @@ class TestCLI(unittest.TestCase):
         Neither a real build nor a broken listing may produce a zero-valued axis:
         the real one carries a number, the broken one stops the tool.
         """
-        with temp_rom(0xA11C0) as rom:
+        with temp_rom(FIXTURE_ENDOFROM) as rom:
             _c, _o, err = run_main([S4_LST, rom, "--map", S4_MAP, "--summary"])
         self.assertNotIn("0KB/64KB", err)
         self.assertNotIn("(0%)", err)
@@ -393,7 +397,7 @@ class TestCLI(unittest.TestCase):
         self.assertNotIn(" | ", err)
 
     def test_no_map_says_UNMEASURED_and_still_reports_the_real_axes(self):
-        with temp_rom(0xA11C0) as rom:
+        with temp_rom(FIXTURE_ENDOFROM) as rom:
             code, _o, err = run_main([S4_LST, rom, "--summary"])
         self.assertEqual(code, 0)
         self.assertIn("budgets: UNMEASURED", err)
@@ -410,10 +414,10 @@ class TestCLI(unittest.TestCase):
         """Ceiling lowered under the real cursor; everything else untouched."""
         with open(S4_MAP) as f:
             doc = f.read()
-        # $11000 sits below the fixture's real cursor at $11984.
+        # $11000 sits below the fixture's real cursor at $12B1A.
         breach_map = doc.replace("ceiling = 0x20000", "ceiling = 0x11000")
         self.assertNotEqual(breach_map, doc)
-        with temp_text(breach_map, ".toml") as mp, temp_rom(0xA11C0) as rom:
+        with temp_text(breach_map, ".toml") as mp, temp_rom(FIXTURE_ENDOFROM) as rom:
             code, _o, err = run_main([S4_LST, rom, "--map", mp, "--summary"])
         self.assertEqual(code, 1)
         self.assertIn("BUDGET EXCEEDED", err)
@@ -434,14 +438,14 @@ class TestCLI(unittest.TestCase):
         sigil gates the map's ROM ceilings at pack time; nothing gates RAM growing
         into the stack. Built by moving one real symbol in the real fixture.
         """
-        poisoned = open(S4_LST).read().replace("FFFFBC02", "FFFFFFF8")
-        with temp_text(poisoned) as lst, temp_rom(0xA11C0) as rom:
+        poisoned = open(S4_LST).read().replace("FFFFBF02", "FFFFFFF8")
+        with temp_text(poisoned) as lst, temp_rom(FIXTURE_ENDOFROM) as rom:
             code, _o, err = run_main([lst, rom, "--map", S4_MAP, "--summary"])
         self.assertEqual(code, 1)
         self.assertIn("reached the stack", err)
 
     def test_full_report_and_json_carry_the_same_measurements(self):
-        with temp_rom(0xA11C0) as rom:
+        with temp_rom(FIXTURE_ENDOFROM) as rom:
             code, text, _e = run_main([S4_LST, rom, "--map", S4_MAP])
             self.assertEqual(code, 0)
             code, js, _e = run_main([S4_LST, rom, "--map", S4_MAP, "--json"])
@@ -449,8 +453,8 @@ class TestCLI(unittest.TestCase):
         for heading in ("=== ROM Budget ===", "=== RAM Budget ===", "=== VRAM Budget ==="):
             self.assertIn(heading, text)
         data = json.loads(js)
-        self.assertEqual(data["rom"]["budgets"][0]["used"], 0x1984)
-        self.assertEqual(data["ram"]["span_used"], 0xBC02)
+        self.assertEqual(data["rom"]["budgets"][0]["used"], 0x2B1A)
+        self.assertEqual(data["ram"]["span_used"], 0xBF02)
         self.assertEqual(data["vram"]["occupied_tiles"] + data["vram"]["free_tiles"], 2048)
         self.assertEqual(data["listing"]["symbols"], len(parse_listing(read(S4_LST)).symbols))
 
@@ -492,13 +496,13 @@ class TestSummaryFormatting(unittest.TestCase):
 # build does not ask for.
 # ---------------------------------------------------------------------------
 
-FIXTURE_ENDOFROM = 0xA11C0          # `EndOfRom : A11C0 C |` in S4_LST itself
+FIXTURE_ENDOFROM = 0xBDDA0          # `EndOfRom : BDDA0 C |` in S4_LST itself
 
 
 @contextlib.contextmanager
 def rom_of(size, tail=b""):
     """A ROM file `size` bytes long, then `tail`. Written sparsely: the fixture's
-    EndOfRom is 660 KB in and the tests care only about the last few bytes."""
+    EndOfRom is 778 KB in and the tests care only about the last few bytes."""
     fd, path = tempfile.mkstemp(suffix=".bin")
     with os.fdopen(fd, "wb") as f:
         if size:
@@ -639,7 +643,7 @@ class TestBudgetCursorProxy(unittest.TestCase):
         self.assertIn(f"{0x200 - 0x10000:,} bytes", err)
 
     def test_a_cursor_past_the_region_end_fails_as_a_proxy_and_not_only_as_a_breach(self):
-        """`EndOfRom` is $A11C0, far outside the $10000..$20000 window. The
+        """`EndOfRom` is $BDDA0, far outside the $10000..$20000 window. The
         ceiling arm fires too; the point is that the PROXY arm names the distinct
         defect — `used` counting bytes that are not in the region at all."""
         with map_with([('cursor = "DeformTable_Zero"', 'cursor = "EndOfRom"')]) as m:
@@ -649,7 +653,7 @@ class TestBudgetCursorProxy(unittest.TestCase):
 
     def test_a_cursor_that_is_not_a_declared_section_head_fails(self):
         """Isolated arm: the cursor keeps its address (in-region, under the
-        ceiling, `used` unchanged at $1984) and only stops being a row of the
+        ceiling, `used` unchanged at $2B1A) and only stops being a row of the
         map's own `order`. Nothing about the NUMBER changes — which is exactly
         why nothing caught it."""
         with map_with([('  "DeformTable_Zero",\n', "")]) as m:

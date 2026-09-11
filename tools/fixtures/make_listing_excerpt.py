@@ -22,6 +22,19 @@ Symbols are selected by NAME so the fixture keeps its meaning across rebuilds:
 the ROM landmarks the budget axis needs (EndOfRom, the object-bank cursor) and a
 spread of RAM buffers across both halves of work RAM.
 
+THE CUTS ARE FORMAT SAMPLES, NEVER TODAY'S LAYOUT. Every address in them is the
+address of the build they were cut from, and ROM and RAM move under every
+byte-moving parcel. Do not validate a layout model against one: lens finding C5-7
+(2026-09-06 sweep) did exactly that, saw an exact match, and called it luck (its
+record says the fixture was 512 B off; this re-cut did not re-derive that figure).
+Measured at the re-cut instead: the first cut (a4ebf2d1, 2026-08-18) had
+Game_RAM_End $FFFFBC02 against a real $FFFFBF02, EndOfRom $A11C0 against $BDDA0,
+and the object-bank cursor $11984 against $12B1A. For today's layout read the
+`.lst` the current tree just built. The budget and demo cuts were last taken on
+2026-09-11 from the plain `s4.lst` and `demo.lst` of aeon 3492ce3a. tools/test_s4budget.py's
+hard-coded expectations are derived from these rows, so a re-cut updates them in
+the same commit.
+
 A second cut serves tools/bganim_room.py's unit tests (tools/test_bg_emit.py):
 
     DEBUG=1 ./build.sh              # produces s4.debug.lst
