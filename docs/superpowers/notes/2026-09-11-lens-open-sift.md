@@ -256,3 +256,27 @@ and the generated files it produces are files sigil reads, so they fall inside t
 **One addition aeon asked for:** the built ROM's CRC32 and size in the same section. `bganim_room.py`'s
 PROVENANCE note says "the sigil listing carries no ROM identity", and every gate reads the `.bin` beside
 the `.lst`; without it the section proves the listing fresh but cannot tie the ROM to it.
+
+**Sigil amendment, accepted (2026-09-11T19:09:23Z):** the ROM identity in that section is the FULL SHIPPED FILE as
+written to `-o` (deb2 appendix included where the shape carries one), the same value sigil's
+"built: ... crc=" line prints and its provenance goldens pin, so it matches what our gates hash. Not
+circular: the listing is not inside the ROM, and deb2 is built from the in-memory listing. Consequence
+on their side: the native build moves its `.lst` write to after the ROM is final, proved byte-neutral
+by their four-shape gates at landing. Banked by sigil as an amendment to their
+`docs/superpowers/notes/2026-09-11-aeon-source-digest-ask.md` (their word, not read here).
+
+### PENDING BOOKING, held with DEFERRED_WORK.md (2026-09-11T19:09:23Z)
+
+The hub relayed an owner-approved request (empyrean `2341c6f`,
+`docs/research/2026-09-11-sound-driver-scout.md`, "For aeon's driver"; owner, verbatim via the hub:
+*"Sure write this up and check out those other ones you listed, might as well see what we can find
+out."*) to book the scout's seven driver ideas as ONE deferred ideas entry for AFTER REGIONS, not a
+queue row: (1) game-driven branching and live track mute (GEMS); (2) echo loop / echo macro;
+(3) reverb by release and FM3 slot detune; (4) first/second-ending loops, delayed vibrato,
+proportional note-off, grace notes; (5) a background-SFX layer between music and effects;
+(6) SSG-EG as a first-class patch parameter; (7) per-track tempo (measure first). **It goes in
+DEFERRED_WORK.md's unbuilt-ideas section in the same commit that clears that file's hold.** Checked
+here first, at `cd075f2d`: aeon has neither (1) half as a GAME-controlled feature. The only mutes are
+the pause's whole-chip mute and the SFX override's internal per-channel mute (`engine/sound/sound_sfx.emp`,
+the `Sfx_Restore` un-mute path), and no sequencer command reads a game-written value. That per-channel
+override is the building block a live track mute would reuse, and the entry should say so.
