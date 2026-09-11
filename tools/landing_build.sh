@@ -22,8 +22,37 @@
 # rule is now this file.
 #
 # Usage:  tools/landing_build.sh [logfile]
+#   With a logfile, the WHOLE output (stdout and stderr, refusals included) also goes to that
+#   file, truncated first, and `finished=<n>` is its last line exactly as it is stdout's. A
+#   relative path is relative to the CALLER's directory. Without one: stdout only.
 # Reads:  SIGIL_BUILD, SIGIL_EMIT (required; set by no dotfile on this machine)
 set -u
+
+# ---- [logfile] (2026-09-11) ----------------------------------------------------------
+# The usage line above advertised this for the script's whole life and nothing read $1: every
+# run's evidence went to stdout only (measured twice on 2026-09-11). It works by RE-RUNNING
+# this script with no argument and teeing that, so every path below (the refusals, the four
+# shapes, the lane, the stamp) reaches the log by ONE mechanism, and the no-argument run is
+# exactly what it was. The exit code is the child's (PIPESTATUS[0]), never tee's. The path is
+# resolved BEFORE the `cd` below, or a relative one would land at the repo root. A log that
+# cannot be written is COULD NOT RUN before anything is built: a landing whose evidence goes
+# nowhere is the absence family, not a pass. tools/test_landing_build_logfile.py grades all of
+# this in a sandbox with stub shapes.
+if [ $# -gt 1 ] || { [ $# -eq 1 ] && [ "${1#-}" != "$1" ]; }; then
+    echo "landing_build: COULD NOT RUN: usage: tools/landing_build.sh [logfile]"
+    echo "finished=2"
+    exit 2
+fi
+if [ $# -eq 1 ]; then
+    case "$1" in /*) log="$1" ;; *) log="$PWD/$1" ;; esac
+    if ! : 2>/dev/null > "$log"; then
+        echo "landing_build: COULD NOT RUN: cannot write the logfile $log"
+        echo "finished=2"
+        exit 2
+    fi
+    "${BASH:-bash}" "$0" 2>&1 | tee "$log"
+    exit "${PIPESTATUS[0]}"
+fi
 
 cd "$(dirname "$0")/.." || { echo "cannot reach the repo root"; exit 2; }
 
