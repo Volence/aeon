@@ -165,13 +165,25 @@ MUTATIONS = {
  "M17_ym_mirror_extern": [
    ("engine/sound/sound_sequencer.emp", "const YM_ADDR_TO_DATA_MIN_T = 8\n", "const YM_ADDR_TO_DATA_MIN_T = extern(\"YM_ADDR_TO_DATA_MIN_T\")\n"),
  ],
- # M18-M20: B1-2 / LS-8a. Each axis alone must fire only its own axis's pins (plus reg $10);
+ # M18-M20: B1-2 / LS-8a. The reg $10 pin (P13) lives in engine/system/constants.emp and is
+ # evaluated in the RAM-harvest pass, which STOPS the build before section.emp and
+ # plane_buffer.emp are reached, so M18 and M19 show P13 ALONE (measured, and the first full
+ # run of this harness reported P9-P12 NOT-RED because of it). M22/M23 are the M11-style replay:
+ # do exactly what P13 says (re-encode the byte) and the axis's own two family pins must fire.
  # M20 moves the register byte alone.
  "M18_plane_h_cells": [
    ("engine/system/constants.emp", "pub const PLANE_H_CELLS     = 64", "pub const PLANE_H_CELLS     = 128"),
  ],
  "M19_plane_v_cells": [
    ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
+ ],
+ "M22_h_cells_plus_the_p13_fix": [
+   ("engine/system/constants.emp", "pub const PLANE_H_CELLS     = 64", "pub const PLANE_H_CELLS     = 128"),
+   ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $13"),
+ ],
+ "M23_v_cells_plus_the_p13_fix": [
+   ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
+   ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
  ],
  "M20_reg10_byte_alone": [
    ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
