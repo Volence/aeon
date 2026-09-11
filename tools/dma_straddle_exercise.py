@@ -66,7 +66,7 @@ WHAT IS POLLED (six cells, four subject + two adjacent):
                                      EITHER `.full` OR `.split_reject`, and measuring only
                                      one of the two drop paths would answer a narrower
                                      question than the one asked. Split out of each other
-                                     when the straddle instrument landed (dma_queue.emp:170).
+                                     when the straddle instrument landed (engine/system/dma_queue.emp, `.full` vs `.split_reject` in the shared `.transfer` core).
     Dbg_DMA_Enq_Capped      $FFF8F7A ADJACENT: enqueues rejected by DMA_ENQ_BYTE_CAP, the
                                      third drop path, "0 in normal play" per engine/ram.emp, Dbg_DMA_Enq_Capped.
 
