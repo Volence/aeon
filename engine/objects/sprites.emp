@@ -154,6 +154,10 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         bhs   .cascade
 
     .band_has_room:
+        // Increment band count FIRST, while a1 still holds Sprite_Band_Counts: both
+        // entries arrive with it (the lea above; .cascade reads a1, never writes it),
+        // so no reload. d1 keeps the pre-increment count, the slot index below.
+        addq.b  #1, (a1,d0.w)
         // Compute slot index in Sprite_Bands:
         // offset = band * SPRITES_PER_BAND * 2 + count * 2
         move.w  d0, d2
@@ -161,14 +165,10 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         move.w  d1, d3
         add.w   d3, d3                 // d3 = count * 2
         add.w   d3, d2                 // d2 = byte offset into Sprite_Bands
-
-        // Store object address in band list
+        // Store object address in band list. Storing after the count bump is safe:
+        // only Render_Sprites (main loop, after RunObjects) reads either array.
         lea     Sprite_Bands, a1
         move.w  a0, (a1,d2.w)         // store SST address (RAM = .w addressable)
-
-        // Increment band count
-        lea     Sprite_Band_Counts, a1
-        addq.b  #1, (a1,d0.w)
 
     .all_bands_full:
         rts
