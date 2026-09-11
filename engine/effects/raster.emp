@@ -1414,14 +1414,14 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // main loop was considered and rejected: on a lag frame the main loop does not reach the
         // clear before line 0, which turns the guard into a whole frame of lost effect.)
         //
-        // WHY IT IS HERE AND NOT IN THE PROLOGUE, WHICH IS THE WHOLE POINT. In the prologue this
-        // costs every fire ~28 cycles AND moves the op-walk origin, which is the origin every
-        // blanking spin is solved against — re-deriving RASTER_FIRE_BASE_CYC, HBLANK_END_CYC and
-        // the spin word of every stream op in every program image. On this arm it costs the two
-        // priming fires and NOTHING ELSE: a record with ops never reaches it, so no op-carrying
-        // fire gains a cycle, the op-walk origin does not move, and not one solved spin changes.
-        // And it is sufficient, because a stale fire ALWAYS lands on priming record 0 — that is
-        // where the rewind put the cursor, and the rewind is the thing being interlocked.
+        // WHY IT IS HERE AND NOT IN THE PROLOGUE: there it costs every fire ~28 cycles AND moves the
+        // op-walk origin every blanking spin is solved against (RASTER_FIRE_BASE_CYC, HBLANK_END_CYC,
+        // each stream op's spin word). On this arm it costs the two priming fires and NOTHING ELSE.
+        // SUFFICIENT FOR THE REWIND PROVENANCE ONLY: a fire deferred past Raster_VBlank lands on priming
+        // record 0 because that is where the rewind put the cursor. It says nothing about the MASK-LEFT
+        // CURSOR: Section_RedrawPlanes (engine/level/section.emp) holds SR at $2700 across its poke storm,
+        // so no fire and no rewind runs inside it, and at its SR restore the cursor is where the last
+        // pre-mask fire left it (lens C3a-4: read from the code, not measured; the next rewind heals it).
         //
         // IT ALSO CANNOT RETIRE REAL WORK, and that is a property of the AUTHORING surface
         // rather than a hope: `raster_dsl.fire` refuses a fire with no ops, so the only zero-op
