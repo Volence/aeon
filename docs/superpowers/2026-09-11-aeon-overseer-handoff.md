@@ -61,7 +61,7 @@ all day; check it before trusting any landing.
 - Adding a cross-module name can red sigil's *_port tests while all four aeon shapes build green: ask sigil for a
   base-vs-tip strict differential before landing such a parcel (they did it for Z3).
 
-## IN FLIGHT AT THE TIME OF WRITING (2026-09-11T23:18:28Z); re-check each, never trust this list
+## HELD / NEXT AT THE TIME OF WRITING (2026-09-11T23:18:28Z); re-check each, never trust this list
 - **Z3, `parcel/lens-z3-0911`, tip `79e78980`** (B2a-4, CTRL-1, B1-4, C3a-4; zero bytes; agent worktree
   `.claude/worktrees/agent-a6f8379ae7e779611`, untouched). HELD for sigil's base-vs-tip strict differential, because it
   adds cross-module names in animate.emp and dplc.emp. Sigil's first attempt died at the 21:45Z usage stop and was
@@ -69,10 +69,14 @@ all day; check it before trusting any landing.
   read, and plants a canary. When sigil sends a clean canary-backed result: `zmerge.sh`-style merge in the landing
   checkout, landing_build, effects gates (raster.emp touched), then land with ledger rows B2a-4, CTRL-1, B1-4, C3a-4.
   If it reds, send the names back to a fresh agent; do not land.
-- **Owner cards draft, `cards/lens-owner-bin-0911`**: an agent drafting cards for CTRL-3, V-8, EFX-2, B1-6, CHAR-10 (drafts
-  only, `--check-only`). The first attempt died at the usage stop with nothing committed; re-dispatched 23:14Z with a
-  commit-early instruction. A fresh session cannot receive its report: check the branch for a committed
-  `docs/superpowers/notes/2026-09-11-lens-owner-cards-draft.md`, review each card, and file it through
-  `tools/decisions_append.py`. If the branch has nothing, re-dispatch.
+- **Owner cards: DRAFTED, NOT FILED (2026-09-11T23:28:03Z).** Four cards for five lens rows are in
+  `docs/superpowers/notes/2026-09-11-lens-owner-cards-draft.md` (merged to master; see that file's top for the rulings).
+  CTRL-3 and V-8 are ONE card (id CTRL-3: ritual / gate / hosted, recommends `gate`); EFX-2 recommends `show`; B1-6
+  recommends `per_group` (arguably a lane call, not his); CHAR-10 is AEON's card (oracle has none; the format and recorder
+  are aeon's, oracle owns only the headless player), recommends `both`. All four passed `decisions_append.py --check-only`.
+  **To file:** review each card first (costs he can picture, a real recommendation, no identifiers in question/options/
+  recommend), then file from the MAIN checkout, not a worktree (in a worktree the tool's automatic hub check prints
+  COULD NOT CHECK), one at a time, adding each to `lane-status.json` `blockedOnOwner` with its id. Corrections the draft
+  found in the sift: nine preset sites, not ten; LS-2/LS-14 are narrower precedents than the sift said.
 - Landing scripts used today lived in the session scratchpad and do not survive it; the method above is enough to
   rebuild them. The landing checkout is `.aeon-ls8-land` (kept; reuse it).
