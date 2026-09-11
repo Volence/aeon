@@ -131,7 +131,14 @@ const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 // added there is invisible to the resident modules — verified: "unknown name
 // `YM_ADDR_TO_DATA_MIN_T`"), and a `use` clause imports procs, not consts.
 // z80_sound_driver.emp and sound_sequencer.emp carry the same declaration with
-// a pointer back here.
+// a pointer back here. THIS is the authority; the two copies are held equal to it
+// by tools/test_ym_floor_single_authority.py, which build.sh's pre-build pytest
+// lane runs build-fatally (lens-sweep B2b-4; it does not run under FAST=1 or
+// NO_LINT=1). Both halves of the sentence above were re-measured 2026-09-11 on
+// cd075f2d: a `use engine.sound_fm.{YM_ADDR_TO_DATA_MIN_T}` in the driver is
+// `unknown name` at every consumer. Do NOT respell a copy as `extern(...)`: in a
+// resident module that builds green even for a symbol that exists nowhere, and
+// every guard reading it then passes unconditionally (measured the same day).
 pub const YM_ADDR_TO_DATA_MIN_T = 8     // after an address-port write
 
 // The scratch defs must all fit inside SND_FM_SCRATCH_LEN (the ensure below

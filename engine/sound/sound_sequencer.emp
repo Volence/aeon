@@ -78,7 +78,11 @@ module engine.sound_sequencer (cpu: z80)
 // sound_fm.emp's YM_ADDR_TO_DATA_MIN_T, where the derivation and the
 // measurement convention are documented. Re-declared per module because seam-1
 // injects only a FIXED authority list of constants from sound_constants.emp and
-// a `use` clause imports procs, not consts.
+// a `use` clause imports procs, not consts. Held equal to the authority by
+// tools/test_ym_floor_single_authority.py (build.sh's pre-build pytest lane,
+// build-fatal; skipped by FAST=1). Keep it a plain literal: an `extern(...)` in a
+// resident module builds green and makes every guard reading it pass
+// unconditionally (measured 2026-09-11, lens-sweep B2b-4).
 const YM_ADDR_TO_DATA_MIN_T = 8
 
 // --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
