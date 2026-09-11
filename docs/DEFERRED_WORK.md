@@ -12292,6 +12292,11 @@ Merged from `review/{sound,system,tools}-lens-sweep`, where they had been invisi
 days. **Landing them made them discoverable; NOTHING in them is fixed.** Review SHA
 `ffe05158`, 15 seats each, overseer-verified.
 
+> **CORRECTED 2026-09-11 (lens S0-2), and scoped on purpose:** "NOTHING in them is fixed" is FALSE for the
+> TOOLS packet, which was fully worked the same day it landed; see "THE TOOLS PACKET IS NOW FULLY WORKED"
+> further down this section (D1 through D10 closed 2026-08-18). This note does NOT re-check the sound or
+> system packets; do not read it as saying anything about them. The original sentence is kept above.
+
 - `docs/superpowers/notes/2026-08-13-sound-lens-sweep.md`
 - `docs/superpowers/notes/2026-08-13-system-lens-sweep.md`
 - `docs/superpowers/notes/2026-08-13-tools-lens-sweep.md`
