@@ -847,13 +847,41 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         moveq   #0, d0
         move.b  angle(a0), d0 as Angle          // GetSineCosine takes d0: Angle
         jbsr    GetSineCosine                   // d0 = sin·$100, d1 = cos·$100
-        // variable×variable product — no table/shift form exists; one
-        // player, slope frames only (flat fast path above), classic does
-        // exactly this in Traction
-        muls.w  d2, d1                          // lint: disable=E002
+        // §2.1's four points for the two muls.w below (point 1 is moot: a multiply
+        // has no divisor and no trap). Until 2026-09-11 this said only "no
+        // table/shift form exists" and carried E002 suppression pragmas naming a
+        // lint LS-14 deleted (lens item B1-5).
+        //   2. THE NARROWING CANNOT OVERFLOW. The 32-bit product cannot; the step
+        //      that could is the word store after `asr.l #8`. Every word of
+        //      engine/data/sine.bin lies in -$100..$100 (measured over all 320;
+        //      SINE_AMPLITUDE = $100 is held to the blob's peak by
+        //      tools/test_vertical_bob.py), so |sin|, |cos| <= 1.0 in 8.8 and
+        //      (trig * d2) >> 8 lies in [-|d2|, |d2|], asr's floor included. d2 is
+        //      the gsp clamped to +-PHYS_GSP_CAP ($1000) at `.cap_pos_ok` /
+        //      `.cap_neg_ok` above, so both velocities land within +-$1000.
+        //   3. NO CHEAPER FORM. Both operands are runtime variables (angle and
+        //      speed), so there is no constant to decompose into shift-adds, and
+        //      mul_const / mul_bounded do not apply (mul_bounded's repeated-add loop
+        //      is priced for a small multiplier; here it reaches $100). A product
+        //      table would be indexed by angle AND speed. The quarter-square form,
+        //      a*b = ((a+b)^2 - (a-b)^2) / 4, is exact, but by a rough count (two
+        //      abs folds, two index scalings, two PC-indexed long reads) it costs
+        //      about 90 cycles against muls.w's 70 ceiling, and its squares table
+        //      for |a|+|b| up to $1100 is about 17 KB of ROM. S3K spends the same
+        //      muls.w/asr.l #8 here (Traction).
+        //   4. COST AND COUNT. <= 70 cycles per muls.w (sigil's table ceiling) plus
+        //      24 per asr.l #8: <= 188 for the pair. Slope frames only (the angle-0
+        //      fast path above skips both). At most once per player per frame:
+        //      Player_Main dispatches one state body, and PState_Ground (through
+        //      Ground_Move) and PState_Roll (also PState_Spindash's release, which
+        //      jumps into it) reach this proc once, and only after a jump check
+        //      that did not leave for Player_Jump, which does not return. So this
+        //      pair and Player_Jump's never run for one player in the same frame,
+        //      and the two sites together cost at most NUM_PLAYERS (2) pairs a frame.
+        muls.w  d2, d1                          // x_vel = cos * gsp (8.8), argued above
         asr.l   #8, d1
         move.w  d1, x_vel(a0)
-        muls.w  d2, d0                          // lint: disable=E002
+        muls.w  d2, d0                          // y_vel = sin * gsp (8.8), argued above
         asr.l   #8, d0
         move.w  d0, y_vel(a0)
 
@@ -1036,12 +1064,40 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    GetSineCosine                   // d0 sin·$100, d1 cos·$100
                                                 // (d2 survives — clobbers
                                                 // nothing else)
-        // variable×variable product — one-shot event, classic Sonic_Jump
-        // does exactly this
-        muls.w  d2, d1                          // lint: disable=E002
+        // §2.1's four points for the two muls.w below (point 1 is moot: a
+        // multiply has no divisor). Until 2026-09-11 this said only "one-shot
+        // event, classic Sonic_Jump does exactly this", which §2.1's "what does
+        // not count" list rejects on both counts (lens item B1-5).
+        //   2. THE NARROWING CANNOT OVERFLOW. The product is a long; the step
+        //      that could overflow is reading the `asr.l #8` result as a word.
+        //      With |sin|, |cos| <= $100 (see Ground_Move_Cap) the shifted
+        //      product lies in [-|d2|, |d2|], which fits a word for every d2 but
+        //      -$8000. d2 is this slot's jump_force, which Player_RefreshPhysics
+        //      block-copies from the active character's physics row and nothing
+        //      in the tree stores to by name: PHYS_JUMP_FORCE ($680) for Sonic
+        //      and Tails, KNUX_JUMP_FORCE ($600, ensured below PHYS_JUMP_FORCE)
+        //      for Knuckles. So each impulse is within +-$680. The add.w into
+        //      x_vel/y_vel that follows is ordinary velocity arithmetic, outside
+        //      this argument.
+        //   3. THE ALTERNATIVE, AND WHY IT LOST. jump_force takes two values
+        //      today, so a per-force impulse table (the 640-byte sine table
+        //      pre-scaled by each force) is a real multiply-free form: two
+        //      indexed reads instead of two muls/asr pairs, roughly 150 cycles
+        //      saved per jump. Rejected because jump_force lives in the slot's
+        //      RAM PlayerBlock, the path PState_Roll reads friction through "so
+        //      future water/shoes modifiers compose", and a ROM table would pin
+        //      today's two values; all for a saving paid at most once per player
+        //      per frame, and only on a jump press. Shift-adds and mul_const
+        //      need a constant multiplier, which an angle-dependent sin/cos is not.
+        //   4. COST AND COUNT. <= 2 x (70 + 24) = 188 cycles (muls.w ceiling plus
+        //      asr.l #8, sigil's table), once per launch and only off flat ground
+        //      (`.flat` skips both). At most once per player per frame, and never
+        //      in the same frame as Ground_Move_Cap's pair for that player (see
+        //      there).
+        muls.w  d2, d1                          // x impulse = cos(normal) * force, argued above
         asr.l   #8, d1
         add.w   d1, x_vel(a0)
-        muls.w  d2, d0                          // lint: disable=E002
+        muls.w  d2, d0                          // y impulse = sin(normal) * force, argued above
         asr.l   #8, d0
         add.w   d0, y_vel(a0)
         jbra    .launched

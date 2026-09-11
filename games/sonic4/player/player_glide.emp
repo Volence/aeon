@@ -215,15 +215,30 @@ proc Glide_Move (a0: *Sst) clobbers(d0-d7/a1-a2) {
 
         jbsr    Glide_Turn                      // step glide_angle toward the held direction
 
-        // --- x_vel = cos(glide_angle) · gsp >> 8. The muls idiom with the established
-        // pragma (Ground_Move_Cap .project_slope): cos and gsp are both full-range
-        // variables so no shift-add decomposition exists, one player, one product per
-        // glide frame, and S3K spends the same muls.w/asr.l #8 (:31681-31682). ---
+        // --- x_vel = cos(glide_angle) · gsp >> 8, the muls idiom of Ground_Move_Cap's
+        // .project_slope. §2.1's four points (point 1 is moot: a multiply has no
+        // divisor). Until 2026-09-11 this carried an E002 suppression pragma naming a
+        // lint LS-14 deleted, and no overflow bound or cycle figure (lens item B1-5).
+        //   2. THE NARROWING CANNOT OVERFLOW. |cos| <= $100, so (cos * gsp) >> 8 lies in
+        //      [-|gsp|, |gsp|] and fits a word for every gsp but -$8000. The glide's own
+        //      writers keep gsp in 0..$1803: Ability_KnuxGlide enters at
+        //      GLIDE_START_SPEED ($400); the accel above adds GLIDE_ACCEL_HIGH (4) only
+        //      while gsp < GLIDE_SPEED_CAP, so it tops out at $17FF + 4 = $1803; the
+        //      level-top cut below halves it; PState_GlideFall and PState_Slide clear it.
+        //   3. NO CHEAPER FORM. cos and gsp are both runtime variables, so there is no
+        //      constant for a shift-add or mul_const, and the quarter-square table costs
+        //      more than the muls.w it would replace (Ground_Move_Cap has the count).
+        //      S3K spends the same muls.w/asr.l #8 (:31681-31682).
+        //   4. COST AND COUNT. <= 70 (muls.w ceiling) + 24 (asr.l #8) = 94 cycles, once
+        //      per glide frame per gliding player: PState_Glide is Glide_Move's only
+        //      caller and Player_Main dispatches one state body per player per frame,
+        //      so at most NUM_PLAYERS a frame, never alongside the ground pairs for the
+        //      same player. ---
         move.w  PlayerV.ground_speed(a0), d2    // gsp — survives GetSineCosine (clobbers d0/d1)
         moveq   #0, d0
         move.b  PlayerV.glide_angle(a0), d0 as Angle
         jbsr    GetSineCosine                   // d0 = sin·$100, d1 = cos·$100
-        muls.w  d2, d1                          // lint: disable=E002
+        muls.w  d2, d1                          // x_vel = cos * gsp (8.8), argued above
         asr.l   #8, d1
         move.w  d1, x_vel(a0)
 
