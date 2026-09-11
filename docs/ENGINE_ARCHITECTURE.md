@@ -5248,8 +5248,8 @@ attribute; the three invariants every shipped bookmark traces to):
    a known, characterized residual, not a defect.
 
 Additionally: no VDP, no Z80, no shared-RAM writes from inside the range — decode targets
-a private staging buffer; publication is the dispatcher's single aligned write + DMA
-enqueue after completion (atomic wrt interrupts, no critical sections).
+a private staging buffer; publication after completion is the DMA enqueue, then the raise
+of `PageIn_Staging_Busy` plus one re-test of its release (C3b-3); no critical sections.
 
 **Admission & gating (per-tier priority disciplines).** Requests queue in a small
 two-priority FIFO: demand (a fill is stalled) ahead of prefetch (leading-edge
