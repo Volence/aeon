@@ -89,9 +89,9 @@ That block is superseded. Everything below it moved here from the boot file on 2
   repo root, kept between landings, avoids both. Do not borrow the sigil nightly's
   (`.sigil-source-gates-target`). `--locked` keeps cargo from rewriting their `Cargo.lock`.
   **Cost:** the test body ran in 0.06 s in sigil's nightly of 2026-09-11; the compile is the cost.
-  A warm incremental release build took 9.12 s in that nightly's target. The FIRST run in a fresh
-  private target is a cold release build of sigil's workspace, not measured (the parcel that wrote
-  this ran no cargo). **Not in `tools/landing_build.sh`:** it needs cargo in another repo's tree.
+  A warm incremental release build took 9.12 s in that nightly's target. The FIRST run in a fresh private target was MEASURED 2026-09-11 at pin `af35fa56` (`--no-run`, private
+  `.aeon-landing-sigil-target`): 76 s wall clock, cargo's last line `Finished ... in 16.57s`; the shared binary's md5
+  was unchanged. **Not in `tools/landing_build.sh`:** it needs cargo in another repo's tree.
   **Post-merge backstop, already live:** sigil's `scripts/nightly_source_gates.sh` runs this gate
   with `SIGIL_STRICT_GATE=1` against a detached aeon master every morning (~05:19; OK at aeon
   `8d99deeb` on 2026-09-11, `z80_clobbers_incomplete` 5 passed). So a skipped landing step is

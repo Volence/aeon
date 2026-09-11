@@ -30194,13 +30194,13 @@ parcel). Either tee to `$1` or drop it from the usage line. (b) `TileCache_CopyB
 Over-declaration is safe and LS-2 left it deliberately unguarded; recorded so nobody re-derives it.
 
 **Side findings of the 2026-09-11 lens-pins parcel (merge `f1b3fae6`), booked, not fixed:**
-(a) Three live citations already pointed at the WRONG text before that parcel: `boot_data.emp:140` (cited by
+(a) ~~Three live citations already pointed at the WRONG text before that parcel:~~ **CLOSED 2026-09-11 by the lens-comments parcel (merge `7e173ac9`): respelled by name (`VDP_REG_0C_BOOT` in `BootData_VDPRegs`; `.full` vs `.split_reject`).** Original text kept: `boot_data.emp:140` (cited by
 `docs/EFFECTS_AUTHORING.md` and `engine/effects/raster_dsl.emp`; it is a rule line, the citers mean the reg `$0C` byte
 `$8C81` in `BootData_VDPRegs`) and `dma_queue.emp:170` (cited by `tools/dma_straddle_exercise.py`; the citer means the
 straddle-reject split). Respell by NAME; it touches `raster_dsl.emp`, so it carries the effects-gate ritual.
 (b) `tools/ojz_entity_gen.py` carries its own `MAX_LIST_ENTRIES = 128` that nothing compares with the engine constant.
-(c) `engine/level/bg.emp` hand-spells the plane geometry the LS-8a pins cover in `section.emp` / `plane_buffer.emp`,
-and is unpinned.
+(c) ~~`engine/level/bg.emp` hand-spells the plane geometry the LS-8a pins cover in `section.emp` / `plane_buffer.emp`,
+and is unpinned.~~ **CLOSED 2026-09-11 by the lens-comments parcel (merge `7e173ac9`): three family pins (horizontal, vertical, `BG_LAYOUT_SIZE`), red-proven by harness M24-M26.**
 (d) Reported to sigil 2026-09-11, measurements only: `extern()` in a RESIDENT Z80 module is vacuous (a name that
 exists nowhere builds green), and a zero-byte const move to the end of `boot_data.emp` produced a 6-byte placement
 overlap between two untouched sections (`ojz_scroll_test` / `replay_fixture`). Aeon's own exposure to (d)'s first half
