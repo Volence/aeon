@@ -204,3 +204,24 @@ enqueue; one reorder in `PageIn_Process`).
   sift found C2a-4 the same way).
 - Five `// lint: disable=E002` suppressions (`player_ground.emp:853,856,1041,1044`,
   `player_glide.emp:226`) name a lint that LS-14 deleted.
+
+## Controller rulings on this sift (aeon overseer, 2026-09-11T18:44:04Z)
+
+- **Bin E states appended to `docs/lens-findings.jsonl`:** CTRL-8 `decided`, C5-5 `parked`,
+  V-7 `decided`. The V-7 call is the controller's, taken on the evidence above: LS-17
+  (`docs/decisions.jsonl:130`) offered the owner the broad option (a net in every file that has
+  none) and he chose `crash`, the narrow one, on 2026-09-09. That is the question V-7's
+  2026-09-10 line said was unfiled. If the owner reads his answer as "not yet" rather than "no",
+  V-7 reopens as an owner card carrying that line's question verbatim.
+- **CTRL-6 / LS-1a, the ask to sigil, is SENT with this commit** (it had never been sent). The
+  ask: stamp a digest of the linked source set into the `.lst` sigil emits, so the 14
+  `--built-after` consumers can check content rather than mtime; aeon then builds the one shared
+  provenance primitive on top. The recommendation and the family count are LS-1a's own
+  (`docs/DEFERRED_WORK.md`, row LS-1a). Recorded here, in the sending repo, before the send.
+- **`docs/DEFERRED_WORK.md` is deliberately NOT edited in this pass**, including the LS-1d strike
+  the side findings name: the main checkout holds an uncommitted owner-pending edit to that file,
+  and a pushed edit to it would block the main tree from fast-forwarding. Reconcile once the
+  owner has answered on that edit.
+- **Dispatched from bin B:** a zero-byte guard-pins parcel (B2b-5, C2a-5, B2b-4, B1-2 as LS-8a);
+  a zero-byte comment-contracts parcel (A2-1, A2-2, A2-5, C3b-4, C1a-2, B1-5); and the one
+  byte-mover, C3b-3, alone.
