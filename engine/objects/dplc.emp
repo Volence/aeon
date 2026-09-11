@@ -387,3 +387,32 @@ pub proc Perform_DPLC (a0: *Sst, a2: *u8, a3: *u8, d1: u16) clobbers(d0-d4/a1-a2
 pub proc Perform_DPLC_Deferrable (a0: *Sst, a2: *u8, a3: *u8, d1: u16) clobbers(d0-d4/a1-a2) {
         perform_dplc(QueueDMA_Deferrable)
 }
+
+// -----------------------------------------------
+// art_nibbles_outside — COMPTIME: pixels of a 4bpp art blob whose palette index is
+// NOT in `allowed`, a 16-bit set where bit n stands for index n. An asset that
+// claims to draw on a CRAM line with no remap states the claim as
+// `art_nibbles_outside(_art, len, SET) == 0`, so a blob regenerated from the wrong
+// donor fails by name instead of rendering in another asset's colours.
+//
+// WHY HERE, when it reads art and not a DPLC: this module is where the engine keeps
+// its comptime parsers of sprite-asset blobs (the LS-9 banner above), and one `use`
+// line reaches them. The ring sparkle, which has no DPLC, imports this alone.
+//
+// THE SET IS PER ASSET AND THE WALK IS NOT (lens finding B2a-4). The insta-shield and
+// the ring sparkle each carried a private `count_bad_nibbles` with its own index
+// predicate; the predicates differ on purpose (each asset draws on its own palette
+// line), the walks did not, and two copies of a walk is how one of them gets fixed
+// and the other does not. The set is now each asset's ARGUMENT.
+//
+// Self-contained: no free names and no calls (docs/EMP_PITFALLS.md §2); flat
+// statement ifs (§1).
+// -----------------------------------------------
+pub comptime fn art_nibbles_outside(blob: Data, len: int, allowed: int) -> int {
+    comptime var bad = 0
+    for i in 0..len {
+        if ((allowed >> (blob[i] >> 4)) & 1) == 0  { bad = bad + 1 }
+        if ((allowed >> (blob[i] & $F)) & 1) == 0  { bad = bad + 1 }
+    }
+    return bad
+}

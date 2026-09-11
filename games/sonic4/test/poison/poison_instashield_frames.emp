@@ -1,8 +1,9 @@
 // games/sonic4/test/poison/poison_instashield_frames.emp — POISON (see README).
 //
 // TARGETS: the insta-shield's S3K-derived animation gate — script_display_frames()
-// in games/sonic4/player/player_instashield.emp, the fn both shipped ensures fold
-// their scripts through.
+// in engine/objects/animate.emp, the fn both of player_instashield.emp's shipped
+// ensures fold their scripts through (and ring_sparkle.emp's guard too, since
+// lens finding B2a-4 merged its filtering copy into this stopping walker).
 // EXPECTED FRAGMENT: "INSTASHIELD_POISON: a 3-frame script shows 3 display frames"
 //
 // The shipped guard compares OUR script's fold to the DONOR script's fold, so the
@@ -27,7 +28,7 @@
 module games.sonic4.test.poison.poison_instashield_frames
 
 use engine.constants.{AF_CHANGE, AF_SET_FIELD}
-use games.sonic4.player_instashield.{script_display_frames}
+use engine.objects.animate.{script_display_frames}
 
 // Three frames at S3K's hold of 0, then S3K's own `$FD, 0` terminator.
 const POISON_SCRIPT: [u8; 6] = [0, 0, 1, 2, AF_CHANGE, 0]

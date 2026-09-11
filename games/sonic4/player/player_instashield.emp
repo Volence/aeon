@@ -108,7 +108,11 @@ use engine.objects.sst.{Sst}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
                          DPLC_ADDRESSABLE_TILES, offset_table_frames,
-                         map_frame_pieces, empty_frame_mismatches}
+                         map_frame_pieces, empty_frame_mismatches,
+                         art_nibbles_outside}
+use engine.objects.animate.{script_display_frames, script_last_frame}
+// AF_SET_FIELD is also named INSIDE the two animate walkers above, whose free names
+// resolve at this call site (docs/EMP_PITFALLS.md §2) — the import is load-bearing.
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       ST_XFLIP, DMA_DEFERRABLE_SLOTS}
 use games.sonic4.player_common.{PlayerV}
@@ -320,28 +324,13 @@ ensure((_map_insta.len & 1) == 0 && (_dplc_insta.len & 1) == 0 && (_art_insta.le
 // differ) using {0, 1, $C, $D}; on our palette those are black and the two REDS, so
 // a rebuild from the wrong donor would silently render the flash in Sonic's shoe
 // colours. This is the check that catches it by name.
-// Flat accumulators over statement ifs, never a nested if-expression (EMP_PITFALLS §1).
+// The walk is engine.objects.dplc's art_nibbles_outside, shared with the ring sparkle;
+// the index SET is this asset's, as a bit set (bit n = palette index n).
 // -----------------------------------------------
-comptime fn insta_index_ok(v: int) -> int {
-    comptime var ok = 0
-    if v == 0 { ok = 1 }
-    if v == 6 { ok = 1 }
-    if v == 7 { ok = 1 }
-    if v == 8 { ok = 1 }
-    return ok
-}
+const INSTA_INDEX_SET = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 8)
 
-comptime fn count_bad_nibbles(blob: Data, len: int) -> int {
-    comptime var bad = 0
-    for i in 0..len {
-        if insta_index_ok(blob[i] >> 4) == 0  { bad = bad + 1 }
-        if insta_index_ok(blob[i] & $F) == 0  { bad = bad + 1 }
-    }
-    return bad
-}
-
-ensure(count_bad_nibbles(_art_insta, INSTA_ART_TILES * TILE_SIZE) == 0,
-       "insta_shield.bin has {count_bad_nibbles(_art_insta, INSTA_ART_TILES * TILE_SIZE)} pixels outside the donor's index set (0,6,7,8) — regenerated from skdisasm's blob ({{0,1,$C,$D}}) instead of sonic_hack's?")
+ensure(art_nibbles_outside(_art_insta, INSTA_ART_TILES * TILE_SIZE, INSTA_INDEX_SET) == 0,
+       "insta_shield.bin has {art_nibbles_outside(_art_insta, INSTA_ART_TILES * TILE_SIZE, INSTA_INDEX_SET)} pixels outside the donor's index set (0,6,7,8) — regenerated from skdisasm's blob ({{0,1,$C,$D}}) instead of sonic_hack's?")
 
 // -----------------------------------------------
 // THE SCRIPT — S3K's Ani_InstaShield animation 1, and every number in the gates
@@ -369,32 +358,13 @@ const INSTA_SCRIPT: [u8; 16] = [0,                                  // duration
                                 6, 6, 6, 6, 6, 6, 6, 7,             // the invisible tail
                                 AF_DELETE]
 
-// Display frames a script shows before its terminator, in either dialect: the frame
-// bytes are everything up to the first control byte, each held (duration + 1) times.
-// The AF_SET_FIELD floor ($F7) is BELOW S3K's control floor ($FC), so one walker
-// serves both — and stopping at the control byte is what keeps S3K's `$FD` ARGUMENT
-// (a 0, which is a legal frame index) from counting as a fifteenth frame.
-pub comptime fn script_display_frames(script: Data, len: int) -> int {
-    comptime var frames = 0
-    comptime var stop = 0
-    for i in 1..len {
-        if script[i] >= AF_SET_FIELD { stop = 1 }
-        if stop == 0 { frames = frames + 1 }
-    }
-    return frames * (script[0] + 1)
-}
-
-// The last frame index a script reaches — S3K's `cmpi.b #7,mapping_frame`, read out
-// of the reference instead of copied off it.
-pub comptime fn script_last_frame(script: Data, len: int) -> int {
-    comptime var last = 0
-    comptime var stop = 0
-    for i in 1..len {
-        if script[i] >= AF_SET_FIELD { stop = 1 }
-        if stop == 0 { last = script[i] }
-    }
-    return last
-}
+// Both scripts are read by engine.objects.animate's script_display_frames and
+// script_last_frame, which walk either dialect: the frame bytes are everything up to
+// the first control byte, each held (duration + 1) times. The AF_SET_FIELD floor
+// ($F7) is BELOW S3K's control floor ($FC), so one walker serves both, and stopping
+// at the control byte is what keeps S3K's `$FD` ARGUMENT (a 0, which is a legal frame
+// index) from counting as a fifteenth frame. script_last_frame is S3K's
+// `cmpi.b #7,mapping_frame`, read out of the reference instead of copied off it.
 
 // INSTASHIELD_LAST_FRAME is a PURE LITERAL, deliberately, and the ensure below is
 // what keeps it honest. It appears in an INSTRUCTION operand (InstaShield_Main's

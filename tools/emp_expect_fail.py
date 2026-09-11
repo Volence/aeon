@@ -547,7 +547,7 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_bob_range.emp", "BOB bob_period",
      f"bob_period {BOB_POISON_PERIOD} outside 0 .. {BOB_PERIOD_SHIFT_MAX}", 2),
     # ---- Ring sparkle (2026-08-26): the S3K-derived display-frame gate ----
-    # One case: script_display_frames() (games/sonic4/objects/ring_sparkle.emp) fed a script
+    # One case: script_display_frames() (engine/objects/animate.emp, ring_sparkle's walker) fed a script
     # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
     # quotes the interpolated 18, so a fn that stopped counting frame bytes cannot match.
     (f"{POISON}/poison_ring_sparkle_frames.emp", "ring sparkle frames", "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames", 1),
@@ -576,7 +576,7 @@ CASES: list[tuple[str, str, str, int]] = [
     # build (0 errors). That last direction is the one nothing else in this tree can see —
     # the parallax_dsl TriPin guards would all silently pass — which is why this case is kept.
     (f"{POISON}/poison_tail_if_unit_fold.emp",   "eq.cross-type unit vs int", "[eq.cross-type] `==` not defined for unit and int", 1),
-    # One case: script_display_frames() (games/sonic4/player/player_instashield.emp) fed a
+    # One case: script_display_frames() (engine/objects/animate.emp, both assets' walker) fed a
     # 3-frame script that ends in S3K's own two-byte `$FD, 0` terminator — the shape whose
     # ARGUMENT is a legal frame index. The fragment quotes the folded 3, so a walker that
     # counted that argument (printing 4) fails the case rather than passing it.

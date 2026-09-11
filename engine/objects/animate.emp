@@ -299,3 +299,48 @@ pub proc RefreshSpritePieceCount (a0: *Sst) clobbers(d2, a1) {
         refresh_piece_count(a0, a1, d2)
         rts
 }
+
+// -----------------------------------------------
+// SCRIPT WALKERS — COMPTIME readers of the script format at the top of this file,
+// for the guards an asset states about its OWN script at build time ("our script
+// shows as many display frames as the donor's", "it ends on the donor's frame").
+// Every such guard in the tree folds through these two, so they live beside the
+// format they read and not in any one asset.
+//
+// ONE WALKER, AND IT STOPS. The frame bytes are everything after byte 0 up to the
+// FIRST control byte ($F7+). A walker that instead filters `byte < AF_SET_FIELD`
+// over the whole script agrees with this one on every script whose first control
+// byte is its last byte, and disagrees on any script with an ARGUMENT after a
+// control code: S3K's `$FD, 0` terminator ends in a 0, a legal frame index, and a
+// filtering walker counts it as one more frame. The ring sparkle carried exactly
+// that filtering copy under this name until the two were merged (lens finding
+// B2a-4); games/sonic4/test/poison/poison_instashield_frames.emp is the fixture
+// that tells the two bodies apart, and it grades the one both assets now use.
+//
+// AF_SET_FIELD in the bodies is a FREE NAME, and a comptime fn's free names resolve
+// at its CALL SITE (docs/EMP_PITFALLS.md §2): every caller imports it, and must.
+// Flat accumulators over statement ifs, never a nested if-expression (§1).
+// -----------------------------------------------
+
+// Display frames a script shows before its terminator: each frame byte is held
+// (duration + 1) display frames, the `subq.b / bpl` hold AnimateSprite applies.
+pub comptime fn script_display_frames(script: Data, len: int) -> int {
+    comptime var frames = 0
+    comptime var stop = 0
+    for i in 1..len {
+        if script[i] >= AF_SET_FIELD { stop = 1 }
+        if stop == 0 { frames = frames + 1 }
+    }
+    return frames * (script[0] + 1)
+}
+
+// The last frame index a script reaches before its first control byte.
+pub comptime fn script_last_frame(script: Data, len: int) -> int {
+    comptime var last = 0
+    comptime var stop = 0
+    for i in 1..len {
+        if script[i] >= AF_SET_FIELD { stop = 1 }
+        if stop == 0 { last = script[i] }
+    }
+    return last
+}
