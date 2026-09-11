@@ -34,7 +34,7 @@
 
 module engine.boot_data
 
-use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT}
+use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT, VDP_REG_PLANE_SIZE}
 // The VRAM bases the five base registers below are DERIVED from — named here so
 // the register table has one authority instead of a transcribed literal each.
 use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B, VRAM_PLANE_B_BYTES, VRAM_WINDOW}
@@ -183,7 +183,7 @@ section boot_head (cpu: m68000) {
         dc.b    VDP_REG_HSCROLL             // $0D: HScroll table ($BC00)
         dc.b    $00                         // $0E: unused
         dc.b    $02                         // $0F: auto-increment = 2 (normal word access)
-        dc.b    $11                         // $10: 64x64 scroll planes
+        dc.b    VDP_REG_PLANE_SIZE          // $10: 64x64 scroll planes ($11, pinned in engine/system/constants.emp)
         dc.b    $00                         // $11: window H disabled
         dc.b    $00                         // $12: window V disabled
         dc.b    $FF                         // $13: DMA length low = $FF

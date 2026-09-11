@@ -7,7 +7,7 @@
 module engine.dma_queue in dma_queue
 
 use engine.structs.{DMAEntry}
-use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL, DMA_ENQ_BYTE_CAP}
+use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL, DMA_ENQ_BYTE_CAP, DMA_IMPORTANT_SLOTS, DMA_DEFERRABLE_SLOTS}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 use engine.irq.{vblank}
 
@@ -491,3 +491,30 @@ proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5
     .no_drain:
         rts
 }
+
+// THE QUEUE'S RAM GEOMETRY (lens-sweep C2a-5, 2026-09-06). engine/ram.emp lays the
+// three sub-queues out between the DMA_Queue / DMA_Queue_End marks, and four routines
+// in two files read that layout as a fact: Init_DMA_Queue pre-fills the VDP register
+// numbers of DMA_TOTAL_SLOTS slots at a fixed stride from DMA_Queue; QueueDMA_* and
+// buffers.emp's queue_static_dma test "full" by EQUALITY of the slot cursor with a
+// sub-queue's _End mark; Process_DMA_Critical's jump table indexes by the cursor's byte
+// offset from DMA_Critical. None of them checks it at runtime. These are link-time
+// guards on the settled addresses (the extern() marks, the raster.emp precedent), so a
+// field inserted anywhere in that span fails HERE instead of shifting slots off their
+// pre-filled markers and draining lengths and addresses into the wrong VDP registers.
+// ONE WHAT-THIS-DOES-NOT-COVER LIST FOR ALL FOUR, stated once here and cited by each:
+// (a) the DMAEntry layout INSIDE a slot: only its size is pinned (sizeof == 14, above);
+// (b) the sign-extended `.w` spellings of the queue addresses (`move.w #DMA_*_End`,
+// `cmpa.w`), which hold only because upper_ram is declared w_addressable in
+// engine/ram.emp, not because of these pins; (c) the Static_* DMAEntry copies elsewhere
+// in engine/ram.emp, which buffers.emp's own sizeof pin covers; (d) the Critical slot
+// COUNT the jump table is spelled for (the DMA_CRITICAL_SLOTS == 8 pin above); and (e)
+// runtime occupancy, which is the .full / .split_reject paths' job.
+ensure(extern("DMA_Critical") == extern("DMA_Queue") && (extern("DMA_Critical_End") - extern("DMA_Critical")) == DMA_CRITICAL_SLOTS * sizeof(DMAEntry),
+       "DMA_Critical is no longer the first thing at DMA_Queue, or its span in engine/ram.emp is no longer DMA_CRITICAL_SLOTS * sizeof(DMAEntry) = {DMA_CRITICAL_SLOTS} * {sizeof(DMAEntry)} = {DMA_CRITICAL_SLOTS * sizeof(DMAEntry)} bytes. Init_DMA_Queue pre-fills register numbers from DMA_Queue, the full test compares the cursor with DMA_Critical_End for EQUALITY, and Process_DMA_Critical's jump table indexes by the byte offset from DMA_Critical, so a field inside this span moves real slots off their markers and the drain programs the wrong VDP registers. Move the field outside DMA_Queue .. DMA_Queue_End. WHAT THIS PIN DOES NOT COVER: items (a)-(e) in the comment block above these pins in engine/system/dma_queue.emp")
+ensure(extern("DMA_Important") == extern("DMA_Critical_End") && (extern("DMA_Important_End") - extern("DMA_Important")) == DMA_IMPORTANT_SLOTS * sizeof(DMAEntry),
+       "DMA_Important no longer starts at DMA_Critical_End, or its span in engine/ram.emp is no longer DMA_IMPORTANT_SLOTS * sizeof(DMAEntry) = {DMA_IMPORTANT_SLOTS} * {sizeof(DMAEntry)} = {DMA_IMPORTANT_SLOTS * sizeof(DMAEntry)} bytes. Init_DMA_Queue pre-fills all DMA_TOTAL_SLOTS slots as ONE run from DMA_Queue, so a gap before this queue puts its slots off the markers, and QueueDMA_Important's full test compares the cursor with DMA_Important_End for EQUALITY, so a span that is not a whole number of entries is never full and overruns. Move the field outside DMA_Queue .. DMA_Queue_End. WHAT THIS PIN DOES NOT COVER: items (a)-(e) in the comment block above these pins in engine/system/dma_queue.emp")
+ensure(extern("DMA_Deferrable") == extern("DMA_Important_End") && (extern("DMA_Deferrable_End") - extern("DMA_Deferrable")) == DMA_DEFERRABLE_SLOTS * sizeof(DMAEntry),
+       "DMA_Deferrable no longer starts at DMA_Important_End, or its span in engine/ram.emp is no longer DMA_DEFERRABLE_SLOTS * sizeof(DMAEntry) = {DMA_DEFERRABLE_SLOTS} * {sizeof(DMAEntry)} = {DMA_DEFERRABLE_SLOTS * sizeof(DMAEntry)} bytes. Init_DMA_Queue pre-fills all DMA_TOTAL_SLOTS slots as ONE run from DMA_Queue, so a gap before this queue puts its slots off the markers, and QueueDMA_Deferrable's full test compares the cursor with DMA_Deferrable_End for EQUALITY, so a span that is not a whole number of entries is never full and overruns. Move the field outside DMA_Queue .. DMA_Queue_End. WHAT THIS PIN DOES NOT COVER: items (a)-(e) in the comment block above these pins in engine/system/dma_queue.emp")
+ensure((extern("DMA_Queue_End") - extern("DMA_Queue")) == DMA_TOTAL_SLOTS * sizeof(DMAEntry),
+       "DMA_Queue .. DMA_Queue_End in engine/ram.emp is no longer DMA_TOTAL_SLOTS * sizeof(DMAEntry) = {DMA_TOTAL_SLOTS} * {sizeof(DMAEntry)} = {DMA_TOTAL_SLOTS * sizeof(DMAEntry)} bytes, the run Init_DMA_Queue pre-fills with VDP register numbers in one unrolled pass (fill_slot_markers(DMA_TOTAL_SLOTS)). With the three sub-queue pins above green, this fires on a field between DMA_Deferrable_End and DMA_Queue_End. Move the field outside the marks. WHAT THIS PIN DOES NOT COVER: items (a)-(e) in the comment block above these pins in engine/system/dma_queue.emp")

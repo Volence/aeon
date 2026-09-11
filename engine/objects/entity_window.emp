@@ -93,6 +93,12 @@ ensure(COLLECTED_WINDOW_SLOTS <= 9, "COLLECTED_WINDOW_SLOTS exceeds the 3x3 (=9)
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
 ensure(ENTITY_LOADED_SLOT_SIZE == 32, "EntityLoaded primitives assume 32-byte slots (lsl #5)")
 ensure(ENTITY_LOADED_OBJ_OFFSET*8 == MAX_LIST_ENTRIES, "Loaded-mask half-slot does not cover MAX_LIST_ENTRIES bits")
+// The same fact for the ROLLING COLLECTED/KILLED slot, which had no pin (lens-sweep
+// B2b-5, 2026-09-06). Its two masks are laid out by engine.constants as offsets, and
+// their width is only ever the DIFFERENCE of two offsets, so nothing ties it to the
+// list size the index is bounded by.
+ensure(COLLECTED_MASK_BYTES * 8 == MAX_LIST_ENTRIES,
+       "the ring-collected and object-killed bitmasks are COLLECTED_MASK_BYTES = {COLLECTED_MASK_BYTES} bytes each (KILLED_BITMASK_OFFSET {KILLED_BITMASK_OFFSET} - COLLECTED_BITMASK_OFFSET {COLLECTED_BITMASK_OFFSET}), which is {COLLECTED_MASK_BYTES * 8} bits, but a section's ring or object list holds MAX_LIST_ENTRIES = {MAX_LIST_ENTRIES} entries. Derived: one bit per list entry, so each mask is MAX_LIST_ENTRIES / 8 = {MAX_LIST_ENTRIES / 8} bytes. Collected_MarkRing / Collected_CheckRing / Killed_MarkObject / Killed_CheckObject address byte (index >> 3) off the mask base with no bound in release, and the DEBUG `assert.w ..., lo, #MAX_LIST_ENTRIES` beside each one bounds the index by the list size, which is the number that is out of step here, so it cannot see this. A ring mask narrower than the list lets a collected ring set a bit inside the KILLED mask, and that object stays dead for the rest of the act; a killed mask narrower than the list runs off the end of the slot into the next slot's tag. Move KILLED_BITMASK_OFFSET (COLLECTED_MASK_BYTES and COLLECTED_SLOT_SIZE derive from it). WHAT THIS PIN DOES NOT COVER: the two hand-unrolled four-longword sites in this file (clear_slot_bitmasks and Collected_ParkSlot's emptiness test), which assume a 16-byte mask and carry their own pin at clear_slot_bitmasks, so satisfying this pin is not the whole edit; the loaded-mask half-slot (ENTITY_LOADED_OBJ_OFFSET), pinned on the line above; and tools/ojz_entity_gen.py's own MAX_LIST_ENTRIES = 128, which no build step compares with this constant, so lowering MAX_LIST_ENTRIES without it lets the generator emit lists the engine cannot index")
 
 // Section-size power-of-two invariant (SECTION_SIZE_SHIFT = log2 SECTION_SIZE).
 ensure(SECTION_SIZE == 1 << SECTION_SIZE_SHIFT, "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE")
@@ -106,6 +112,12 @@ ensure(ENTITY_LOAD_BUFFER_Y >= ENTITY_RESCAN_ROW_SIZE, "ENTITY_LOAD_BUFFER_Y < c
 // clear_slot_bitmasks — zero a collected-window slot's pad byte + both 16-byte
 // bitmasks (ring collected + object killed); a0 = slot pointer, preserved.
 // The tag byte at (a0) is stamped by the caller.
+//
+// This template and Collected_ParkSlot's emptiness test are hand-unrolled for a
+// 16-byte mask (four longwords), and a `.l` access at an odd offset is an address
+// error, so both mask offsets and the slot stride must stay word-even.
+ensure(COLLECTED_MASK_BYTES == 4 * 4 && (COLLECTED_BITMASK_OFFSET & 1) == 0 && (KILLED_BITMASK_OFFSET & 1) == 0 && (COLLECTED_SLOT_SIZE & 1) == 0,
+       "clear_slot_bitmasks (four `clr.l` per mask) and Collected_ParkSlot's emptiness test (one `move.l` and three `or.l` per mask) are hand-unrolled for 4 * 4 = 16-byte masks at word-even offsets, and the geometry is now COLLECTED_MASK_BYTES = {COLLECTED_MASK_BYTES}, COLLECTED_BITMASK_OFFSET = {COLLECTED_BITMASK_OFFSET}, KILLED_BITMASK_OFFSET = {KILLED_BITMASK_OFFSET}, slot stride COLLECTED_SLOT_SIZE = {COLLECTED_SLOT_SIZE}. A wider mask leaves every byte past the sixteenth uncleared when a slot is reused (kills inherited from whichever section owned it before) and invisible to the park test (a slot holding only those bits is dropped as pristine and its kills are lost); an odd offset or stride is an address error on the first `.l`. Re-roll both sites, or turn them into loops on COLLECTED_MASK_BYTES the way Collected_ParkSlot's and Collected_UnparkSlot's copies already are. WHAT THIS PIN DOES NOT COVER: the width-against-entry-count pin beside the loaded-mask asserts above (COLLECTED_MASK_BYTES * 8 == MAX_LIST_ENTRIES), which is the other half of any mask-width change; and the park/unpark byte copies, which loop on COLLECTED_MASK_BYTES and need no edit")
 comptime fn clear_slot_bitmasks() -> Code {
     return asm {
         clr.b   1(a0)

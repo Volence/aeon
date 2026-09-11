@@ -109,7 +109,11 @@ module engine.z80_sound_driver (cpu: z80)
 // measurement convention are documented. It is re-declared per module rather
 // than shared because seam-1 injects only a FIXED authority list of constants
 // from sound_constants.emp (a new name added there is invisible to the resident
-// modules), and a `use` clause imports procs, not consts.
+// modules), and a `use` clause imports procs, not consts. Held equal to the
+// authority by tools/test_ym_floor_single_authority.py (build.sh's pre-build
+// pytest lane, build-fatal; skipped by FAST=1). Keep it a plain literal: an
+// `extern(...)` here builds green and makes this module's eight cycle guards
+// pass unconditionally (measured 2026-09-11, lens-sweep B2b-4).
 const YM_ADDR_TO_DATA_MIN_T = 8
 
 // --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
