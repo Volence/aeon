@@ -175,4 +175,31 @@ tools/test_ojz_entity_list_cap.py pins ojz_entity_gen.py's MAX_LIST_ENTRIES to c
 
 ## Final landing run (tip)
 
-PENDING: filled in by the commit after the run.
+`./tools/landing_build.sh .runlogs/landing.log` at `7ffc34c8` (the parent of the commit that
+added this section, which touches only this file), detached, `finished=0`, `REAL_EXIT=0`.
+The `[logfile]` copy is byte-identical to the run's stdout (1353 lines, `cmp` against the
+outer log minus its `REAL_EXIT` line) and ends in `finished=0`: a live witness of item 3.
+
+| ROM | cksum | size | md5 |
+|---|---|---|---|
+| s4.bin | 3697579482 | 821103 | 5cbafe417ad3fd7e440562dd690c78b3 |
+| s4.debug.bin | 394963879 | 847367 | 50981e597809db4730c5032403a813f8 |
+| demo.bin | 755353563 | 97051 | 0540d930d18eb9f489cef7a057595b6e |
+| demo.debug.bin | 4271321717 | 103335 | 908dc94ac6171a2dbafd3f008cdd24aa |
+
+Assembler `sigil 0.1.0 (af35fa56)`. **Zero bytes, proved: all four cksums and md5s equal base.**
+
+Every pytest summary line of the run:
+
+- pre-build lane, all four shapes: `2436 passed, 2 skipped, 14 deselected, 5 warnings, 112
+  subtests passed` (base 2428; +7 `test_landing_build_logfile.py`, +1
+  `test_ojz_entity_list_cap.py`), each preceded by `pytest swept 111 test file(s) under tools
+  by its own collection rule; 111 of them contribute the 2438 test(s) left after deselection`;
+- post-sigil lane: s4 `5 passed, 9 skipped, 2438 deselected` (9 deferred); s4.debug `6 passed,
+  8 skipped, 2438 deselected` (8 deferred); demo `1 passed, 13 skipped, 2438 deselected` (13
+  deferred); demo.debug the same (13 deferred). Passed and deferred counts equal base. The
+  extent line there reads `111 ... 8 of them contribute the 14 test(s)`;
+- needs_build lane: `14 passed, 2438 deselected`; its verdict: 14 ran, 0 deferred, 0 failed;
+  `EXIT_needs_build=0`;
+- `EXIT_s4=0 size=821103`, `EXIT_s4.debug=0 size=847367`, `EXIT_demo=0 size=97051`,
+  `EXIT_demo.debug=0 size=103335`, `finished=0`.
