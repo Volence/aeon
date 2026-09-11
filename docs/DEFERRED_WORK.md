@@ -30249,6 +30249,14 @@ confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrin
 zero-byte tileset. Zero-byte fix: rename the variable and repoint the prose. Leave the empty file alone; aurora's chunk-library
 loader references it.
 
+**`Draw_Sprite` pays for two long-form entry branches (new, found by the C1a-1 parcel, merge `f41d7ca4`; booked, not fixed):**
+`bne .offscreen` (the multisprite-parent check) and `beq .offscreen` (the null-mappings check) are emitted in the long
+form. A not-taken long branch costs 12 cycles instead of 8, so the null-mappings test adds 4 cycles to EVERY call: about
+232 per frame in release and 264 in DEBUG at the all-slots ceiling (the parcel's arithmetic, from the disassembled ROM).
+Why they are long is not established: `.offscreen` may simply be out of short reach. Check that first, then either
+move the target or accept the cost in a comment. Note also: C1a-3's per-entry figure (36 cycles against 22) was
+confirmed by the same read; its per-frame count was not re-derived.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
