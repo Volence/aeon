@@ -30219,6 +30219,16 @@ imply `DMA_Important_Slot != DMA_Important`. The race is rare; force it with a p
 per ZX0-form page; with it, no invariant violations. Full method: `docs/superpowers/notes/2026-09-11-c3b3-pagein.md`. Batch
 it with LS-10a, the other emulator row that is the controller's.
 
+**`games/sonic4/map.toml`'s placement-authority claim needs RE-DERIVING (booked 2026-09-11, from sigil's measurement):**
+the file's header block (`MEASURED 2026-09-04 in sigil's source and then at the build`) says the frozen tables
+(`golden/offcanonical_sizes/<shape>.txt`, read at run time by `load_frozen_table`) PLACE every ROM section. Sigil
+re-probed it on 2026-09-11 at their parcel/lst-source-digest (their measurement, relayed, not re-run here): the read is
+real and gates whether a build SUCCEEDS (zeroing every row fails the build), but six edits that still built (a comment
+byte, +2 on a row, +2 on EndOfRom, a deleted row, +0x10000 on a row, two swapped rows) left the s4 ROM byte-identical.
+Both can be true at different revisions; the comment now states a placement mechanism nobody has re-measured since the
+ROM re-layout. Re-derive what actually places sections today and correct the comment. It is a code comment, which is
+the worst home for a perishable claim.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
