@@ -159,12 +159,12 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         // so no reload. d1 keeps the pre-increment count, the slot index below.
         addq.b  #1, (a1,d0.w)
         // Compute slot index in Sprite_Bands:
-        // offset = band * SPRITES_PER_BAND * 2 + count * 2
+        // offset = (band * SPRITES_PER_BAND + count) * 2, the same value as
+        // band*64 + count*2 with one shift step and no copy of d1 (d3 is now unused).
         move.w  d0, d2
-        lsl.w   #6, d2                 // d2 = band * 64 (SPRITES_PER_BAND=32, *2 bytes)
-        move.w  d1, d3
-        add.w   d3, d3                 // d3 = count * 2
-        add.w   d3, d2                 // d2 = byte offset into Sprite_Bands
+        lsl.w   #5, d2                 // d2 = band * 32 (SPRITES_PER_BAND=32)
+        add.w   d1, d2                 // + count (d1 word-clean: moveq #0, then move.b)
+        add.w   d2, d2                 // d2 = byte offset into Sprite_Bands
         // Store object address in band list. Storing after the count bump is safe:
         // only Render_Sprites (main loop, after RunObjects) reads either array.
         lea     Sprite_Bands, a1
