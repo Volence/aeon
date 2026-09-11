@@ -398,7 +398,7 @@ section sound_psg (cpu: z80) {
     // ------------------------------------------------------------------
     // Psg_ApplyMod — one frame of PSG pitch modulation (spec §5). The PSG analogue
     // of Mod_ApplyVibrato: both call the SHARED Mod_Advance triangle core
-    // (sound_sequencer.asm). The only difference is the WRITE TARGET: Mod_Advance
+    // (sound_sequencer.emp). The only difference is the WRITE TARGET: Mod_Advance
     // returns the modulated 16-bit word = sc_base_freq + sc_mod_accum, and here that
     // word is the PSG DIVISOR (10 bits used), re-latched WITHOUT re-keying.
     // Tone routes AND the rate-3 noise route: Psg_EmitDivisor (which this falls into)

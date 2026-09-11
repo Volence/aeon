@@ -238,7 +238,7 @@ section sound_sfx (cpu: z80) {
     // Mirrors Sequencer_Frame's .chan_loop: per ACTIVE slot, ModUpdate (render) then
     // the tempo-gated Sequencer_Channel (advance the SFX cursor — the SHARED interp).
     // On a slot's stream End, Sequencer_Channel's MEV_END handler clears SCF_ACTIVE
-    // (verified in sound_sequencer.asm Seq_Op_End) — detect that and hand the voice
+    // (Seq_Op_End in sound_sequencer.emp, re-read 2026-09-11); detect that and hand the voice
     // back via Sfx_Restore (un-mute the override, re-upload the music voice, re-key the
     // held note iff it's keyed, and deactivate the slot).
     // In: nothing. Reloads ix as the channel cursor, so it CLOBBERS ix (no
@@ -574,7 +574,7 @@ section sound_sfx (cpu: z80) {
     // Sfx_MusicKeyOffKeepKeyed — silence the music voice on the chip during a steal
     // WITHOUT corrupting its logical SCF_KEYED. That bit is the sequencer's LIVE
     // note-state tracking: the note/rest handlers set/clear it BEFORE the SFX-override
-    // gate (sound_sequencer.asm note path sets it, .rest clears it), so it keeps
+    // gate (Sequencer_NextOpcode's .note sets it and its .rest clears it, sound_sequencer.emp), so it keeps
     // tracking the song even while overridden. Sfx_Restore reads it to decide whether
     // to re-key the held note on SFX end. Fm_NoteOff / Psg_NoteOff do `res SCF_KEYED`
     // as a side effect of their hardware key-off — so a naive steal would clear it and,
@@ -1879,10 +1879,10 @@ section sound_sfx (cpu: z80) {
     }
 
     // SfxBlobWinTab (id -> blob $8000-window ptr) lives OUT of this resident phase-0
-    // blob in the Moving Trucks / SFX bank (main.asm `phase 08000h` block, file
-    // engine/sfx_blob_win_tab.asm); it is read through the $8000 window — the two
+    // blob in the Moving Trucks / SFX bank's engine-table head (soundbankhead.emp; the
+    // table is games/sonic4/data/sound/sfx_blob_win_tab.emp); it is read through the $8000 window: the two
     // readers here (SfxDispatch, Sfx_BeginSound) SetBank(SFX_BLOB_BANK) BEFORE the
-    // lookup. The sfx_winptr()/SFX_WIN_* build-time helpers stay in the `.asm` twin
-    // (they serve that moved-out table, not this resident window — no emitted bytes
-    // here, so out of the port's scope).
+    // lookup. Its window pointers are the SFX_WIN_* equates, winptr(Sfx_NN) folded at
+    // link in games/sonic4/data/sound/sfx/sfx_bank.emp (the deleted `.asm` twin's
+    // sfx_winptr() helper went with it); nothing in this module emits bytes for them.
 }

@@ -49,7 +49,7 @@ pub const SONG_HCZ2 : SongId = 3
 // SONG_COUNT — number of songs in SongTable (id 1..SONG_COUNT; id 0 = stop). A
 // bound, not a song id (stays a raw count). Shape-dependent: DEBUG adds DrumTest
 // + HCZ2. sound_api's DEBUG song-id bounds assert reads it cross-seam (via the
-// harvest EquSym) on BOTH the .asm-residual and .emp sides; mt_bank sizes
+// harvest EquSym; no .asm residual reads it any more); mt_bank sizes
 // SongTable/SongPatchTable by it.
 pub const SONG_COUNT         = if DEBUG == 1 { 3 } else { 1 }   // MovingTrucks (+ DrumTest + HCZ2 in DEBUG)
 ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")

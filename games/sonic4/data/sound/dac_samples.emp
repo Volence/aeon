@@ -5,7 +5,7 @@
 // copies. Raw 8-bit unsigned PCM (centered $80): the Z80 streams each
 // blob through its $8000-$FFFF window, selected by the 9-bit bank latch at $6000.
 //
-// In the .asm the Z80-window banking invariant is hand-maintained with three
+// In the deleted .asm the Z80-window banking invariant was hand-maintained with three
 // pieces of ceremony; here each collapses into the language:
 //
 //   1. `align $8000` before each bank — replaced by the section `bank: $8000`
@@ -90,7 +90,7 @@ const S3kLowTomBlob = embed("dac/s3k_lowtom.pcm")// 5558
 const S3kFloorTomBlob = embed("dac/s3k_floortom.pcm") // 6422
 
 
-// --- length guards (the .asm's `0 < len < $8000` invariant, one per blob, as
+// --- length guards (the deleted .asm's `0 < len < $8000` invariant, one per blob, as
 // first-class comptime `ensure`s: the lengths are comptime ints, so these check
 // at COMPILE time — exactly as the `fatal`s did, without the hand-rolled `if`).
 // The 1:1 FILL reads ONE byte/pass and exhausts at len==0 for ANY length (odd or

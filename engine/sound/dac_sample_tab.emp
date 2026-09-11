@@ -2,7 +2,7 @@
 // engine/sound/dac_sample_tab.emp — the DAC sample descriptor table
 // (1-based id → 12-byte DacSample descriptor).
 // ===========================================================================
-// The .emp port of dac_sample_tab.asm (this directory). 10 descriptors: ids
+// The .emp port of the deleted AS dac_sample_tab.asm. 10 descriptors: ids
 // 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums (5=s3k_kick ..
 // 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP).
 //
@@ -44,7 +44,7 @@
 //
 // PLACEMENT CONSTRAINT — this table must be readable under the SONG bank, NOT a
 // DAC sample bank: the descriptor fields are read by Snd_StartSample
-// (z80_sound_driver.asm), whose $E2 call context runs MID-Sequencer_Frame where
+// (engine/sound/z80_sound_driver.emp), whose $E2 call context runs MID-Sequencer_Frame where
 // the window holds SND_SONG_BANK and MUST stay there (a switch corrupts the rest
 // of that frame's song-stream reads — the B2 stash-only rule). The DAC samples
 // themselves span TWO banks (blip bank != drums bank), so there is no single
@@ -53,7 +53,7 @@
 //
 // BANK GUARANTEES at the read sites (both == THIS bank today):
 //   * $E2 (Seq_HookDac → Snd_StartSample): window = SND_SONG_BANK (B1), and
-//     every song lives in this bank (song_table.asm asserts).
+//     every song lives in this bank (games/sonic4/data/sound/mt_bank.emp's bankid ensures).
 //   * mailbox SND_REQ_SAMPLE (SndDrv_PollMailbox → Snd_StartSample): the sample
 //     block does an explicit SetBank(SND_ENGINE_TABLE_BANK) before the lookup
 //     (this path has no ambient guarantee — streaming ticks leave the sample

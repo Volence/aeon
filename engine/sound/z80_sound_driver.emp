@@ -43,8 +43,8 @@
 //   * RESIDENT-CODE / BANKED-DATA discipline: only DATA tables live in the banked
 //     $8000 window; all in-frame CODE stays RAM-resident (banked in-frame code would
 //     fetch opcodes through a bus-contended window — the corpus resident-code rule,
-//     stated in sound_sequencer.emp, not a driver-.asm claim). The .asm-BACKED half
-//     is the DacSampleTable BANK CONTRACT: the driver's one banked reader is
+//     stated in sound_sequencer.emp, not a claim of this driver). The half this driver
+//     DOES carry is the DacSampleTable BANK CONTRACT: the driver's one banked reader is
 //     Snd_StartSample's 5-byte descriptor read, valid only while the caller holds the
 //     engine-table bank in the window; the ring-lead budget absorbs its latency.
 //
@@ -203,7 +203,7 @@ section z80_sound_driver (cpu: z80) {
         im      1                       // VBlank /INT -> RST 38h -> $0038
         ld      sp, SND_STACK_TOP       // stack top $1FFE (z80-ram-map spec)
 
-        // BOOT-WINDOW GARBAGE (B1). boot.asm loads this blob INSTEAD of the
+        // BOOT-WINDOW GARBAGE (B1). boot.emp's EntryPoint (.load_z80) loads this blob INSTEAD of the
         // RAM-clearing idle program, so the SfxChannel array, the two duck bytes
         // and the SeqChannels are POWER-ON GARBAGE until the first Snd_LoadSong.
         // Sequencer_Frame falls through to .run_sfx even with SND_SEQ_ACTIVE=0, so

@@ -2,13 +2,13 @@
 // engine/sound/seq_opcode_tab.emp — the sequencer coordination-opcode jump
 // table ($E0..$FF, 32 entries; index = opcode - MEV_VOL).
 // ===========================================================================
-// The .emp port of seq_opcode_tab.asm (this directory). A banked data table:
+// The .emp port of the deleted AS seq_opcode_tab.asm. A banked data table:
 // 32 little-endian words, each the RESIDENT phase-0 Z80 address of a `Seq_Op_*`
 // handler; reserved opcodes point at `Seq_BadOpcode`. Read by Sequencer_Channel's
-// `.coord` dispatch (sound_sequencer.asm) as a plain indexed table.
+// `.coord` dispatch (the `.coord` label of Sequencer_NextOpcode, which Sequencer_Channel falls into, sound_sequencer.emp) as a plain indexed table.
 //
-// BANKED at the engine-table head of the song/SFX bank (main.asm's
-// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// BANKED at the engine-table head of the song/SFX bank (games/<game>/map.toml's `sound_bank`
+// anchor + soundbankhead.emp's vma $8000 phase-bank section), so it costs ZERO against the resident
 // Z80-code ceiling. The table label equals its $8000-window pointer; the reader
 // needs no code change (indexed read, no self-modification).
 //
@@ -22,12 +22,12 @@
 // BANK GUARANTEES at the read site (both == THIS bank today):
 //   * music frame: Sequencer_Channel runs under SetBank(SND_SONG_BANK)
 //     (Run_SeqFrame_OnSongBank), and every song lives in this bank
-//     (song_table.asm no-straddle asserts anchor at MovingTrucks_Bank_Start).
+//     (games/sonic4/data/sound/mt_bank.emp: its `bank: $8000` no-straddle rule and bankid ensures anchor at MovingTrucks_Bank_Start).
 //   * SFX frame: Sfx_Frame's entry SetBank(SFX_BLOB_BANK) — the SFX blobs are
-//     asserted co-located with this bank in main.asm.
+//     asserted co-located with this bank by games/sonic4/data/sound/sfx/sfx_bank.emp's co-residency ensure.
 // A future song/SFX bank that diverges must carry an identical-layout
-// engine-table head (this table included) — the replicate-per-bank rule at the
-// main.asm phase block.
+// engine-table head (this table included). That replicate-per-bank rule was stated at the deleted
+// main.asm phase block; no live module restates it, so this comment is now its only statement.
 //
 // The 32-entry count is load-bearing: a short table sends high opcodes into the
 // neighbouring table's bytes as a bogus "handler". A comptime table-span guard
