@@ -301,7 +301,7 @@ pub proc RefreshSpritePieceCount (a0: *Sst) clobbers(d2, a1) {
 }
 
 // -----------------------------------------------
-// SCRIPT WALKERS — COMPTIME readers of the script format at the top of this file,
+// SCRIPT WALKERS: COMPTIME readers of the script format at the top of this file,
 // for the guards an asset states about its OWN script at build time ("our script
 // shows as many display frames as the donor's", "it ends on the donor's frame").
 // Every such guard in the tree folds through these two, so they live beside the

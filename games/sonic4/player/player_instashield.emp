@@ -112,7 +112,7 @@ use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE,
                          art_nibbles_outside}
 use engine.objects.animate.{script_display_frames, script_last_frame}
 // AF_SET_FIELD is also named INSIDE the two animate walkers above, whose free names
-// resolve at this call site (docs/EMP_PITFALLS.md §2) — the import is load-bearing.
+// resolve at this call site (docs/EMP_PITFALLS.md §2), so the import is load-bearing.
 use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
                       ST_XFLIP, DMA_DEFERRABLE_SLOTS}
 use games.sonic4.player_common.{PlayerV}

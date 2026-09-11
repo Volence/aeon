@@ -101,7 +101,7 @@ KNOWN_UNDER_DECLARED: dict[tuple[str, str], frozenset[str]] = {
 
 # Z80 procs that declare NO contract attribute, each with its in-source reason. Exact set,
 # derived by this file's scanner at e4b4f38f.
-#   Z80_IdleProgram — the Z80's own reset-time program, `@noreturn`, never called; its
+#   Z80_IdleProgram: the Z80's own reset-time program, `@noreturn`, never called; its
 #   header says omitting the clause is the honest spelling ("An empty `clobbers()` would
 #   falsely claim it touches nothing; omitting the clause declares no contract").
 KNOWN_ATTRIBUTE_LESS: frozenset[tuple[str, str]] = frozenset({

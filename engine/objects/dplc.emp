@@ -389,7 +389,7 @@ pub proc Perform_DPLC_Deferrable (a0: *Sst, a2: *u8, a3: *u8, d1: u16) clobbers(
 }
 
 // -----------------------------------------------
-// art_nibbles_outside — COMPTIME: pixels of a 4bpp art blob whose palette index is
+// art_nibbles_outside, COMPTIME: pixels of a 4bpp art blob whose palette index is
 // NOT in `allowed`, a 16-bit set where bit n stands for index n. An asset that
 // claims to draw on a CRAM line with no remap states the claim as
 // `art_nibbles_outside(_art, len, SET) == 0`, so a blob regenerated from the wrong
