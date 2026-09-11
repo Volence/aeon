@@ -86,6 +86,7 @@ GUARDS = {
  # ---- 2026-09-11 lens-comments parcel ----
  "P14 bg          plane H family":              "but engine/level/bg.emp hand-spells a 64-column plane",
  "P15 bg          plane V family":              "but engine/level/bg.emp hand-spells a 64-row plane",
+ "P16 bg          BG_LAYOUT_SIZE":              "engine/level/bg.emp's BG_LAYOUT_SIZE no longer matches the plane",
 }
 
 # Mutations whose guard is a pytest in build.sh's pre-build lane: FAST skips that lane,
@@ -212,8 +213,12 @@ MUTATIONS = {
    ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
    ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
  ],
- # M26: the layout contract alone moves (a half-height blob). Both bg.emp pins carry the
- # BG_LAYOUT_SIZE term, so both must fire, and no plane-wrap pin elsewhere may.
+ # Expected: M24 -> P9 P11 P14 P16; M25 -> P10 P12 P15 P16 (P16 fires beside the moved axis,
+ # because BG_LAYOUT_SIZE depends on both). M26: the layout size alone moves (a half-height
+ # blob). ONLY P16 may fire, plus act_assets.emp's embed refusing the 8192-byte blob
+ # (`[emit.size-mismatch] data OJZ_Act1_BG_Layout: declared type is 4096 byte(s), initializer
+ # produced 8192`, measured). The first version of the bg pins folded BG_LAYOUT_SIZE into both
+ # axis pins, and M25/M26 then fired the HORIZONTAL message with PLANE_H_CELLS unmoved.
  "M26_bg_layout_size_alone_canonical": [
    ("engine/level/bg.emp", "pub const BG_LAYOUT_SIZE  = 64*64*2", "pub const BG_LAYOUT_SIZE  = 64*32*2"),
  ],
