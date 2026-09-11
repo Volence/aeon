@@ -9180,6 +9180,30 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
   break sync so only the common loop streams. Genuinely novel — no classic or reference
   disasm does this; flag before designing (leapfrog-provenance rule).
 
+## Sound-driver ideas for AFTER REGIONS — idea capture 2026-09-11 (the driver scout)
+
+**Not a queue row; after REGIONS, per the owner's order of work.** Source: empyrean `2341c6f`,
+`docs/research/2026-09-11-sound-driver-scout.md`, "Ideas, ranked, with who would own each" -> "For
+aeon's driver". Owner, verbatim via the hub: *"Sure write this up and check out those other ones you
+listed, might as well see what we can find out."* Ranked as the scout ranked them:
+
+1. **Game-driven branching and live track mute (GEMS).** Adaptive music for bosses, danger, water.
+   Checked at aeon `cd075f2d`: neither half exists as a game-controlled feature; no sequencer command
+   reads a game-written value, and the only mutes are the pause's whole-chip mute and the SFX
+   override's internal per-channel mute (`engine/sound/sound_sfx.emp`, the `Sfx_Restore` un-mute
+   path). **That per-channel override is the building block a live track mute would reuse.**
+2. The echo loop (Konami) or echo macro (Mucom): echo for almost no data.
+3. Reverb by release (Mucom), and FM3 slot detune (Mucom).
+4. First/second-ending loops (Cube, Konami), delayed vibrato (Cube), proportional note-off and grace
+   notes (Konami).
+5. A background-SFX layer between music and effects (SMPS-Dusted).
+6. SSG-EG as a first-class patch parameter.
+7. Per-track tempo (Konami). Costs more than it looks; measure first.
+
+Already built, per the scout: vibrato, glide, jingle-resume-under-fade. **License note from the scout:
+MUCOM88 is CC BY-NC-SA 4.0 and SMPS-Dusted has no license. Take ideas, never code** (and this repo's
+own rule is no ported code in any case).
+
 ## Release-shape error handler / MDDBG strip — EXECUTED 2026-08-05, then **SUPERSEDED BY OWNER RULING** (corrected 2026-08-05)
 
 > # ⚠ THIS ENTRY DESCRIBED THE OPPOSITE OF WHAT SHIPS

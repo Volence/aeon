@@ -1377,3 +1377,11 @@ Section 7 resolves at rung 1.
 
 **Scope.** That parcel corrected this row, the eight rows around it, and the upstream
 `.emp` comments the row was copied from. It re-verified **nothing else** in this document.
+
+## 11. Planning inputs filed with this project
+
+- **Intra-section block dedup (the owner's idea, 2026-09-11):**
+  `docs/superpowers/designs/2026-09-11-regions-input-block-dedup.md`. Filed here on his instruction. It
+  is independent of v1's identity-by-rectangle (it touches block identity and the block stream, which
+  v1 does not), and its own first task is a falsifier: hash each section's raw blocks and count
+  distinct content before pricing anything.

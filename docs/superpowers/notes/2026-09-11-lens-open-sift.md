@@ -280,3 +280,8 @@ here first, at `cd075f2d`: aeon has neither (1) half as a GAME-controlled featur
 the pause's whole-chip mute and the SFX override's internal per-channel mute (`engine/sound/sound_sfx.emp`,
 the `Sfx_Restore` un-mute path), and no sequencer command reads a game-written value. That per-channel
 override is the building block a live track mute would reuse, and the entry should say so.
+
+**PENDING BOOKING CLOSED (2026-09-11T19:13:04Z):** the owner answered on the held edit (his; file it with REGIONS). In
+one commit: his note moved verbatim to `docs/superpowers/designs/2026-09-11-regions-input-block-dedup.md`
+with a pointer in the regions v1 design, and the sound-scout entry added to `DEFERRED_WORK.md`'s ideas
+section. The LS-1d strike named above is still owed, and is a separate edit.
