@@ -35,6 +35,12 @@ landed, P1..P12 below: B2b-5 (collected/killed mask width), C2a-5 (DMA queue RAM
 B2b-4 (the YM floor mirrors, a pytest, hence CANONICAL) and B1-2 / LS-8a (the plane-wrap
 family per axis, plus the reg $10 byte). Same method, same rules; each fired guard's first
 log line is now printed, because a count says a message appeared and not what it said.
+
+EXTENDED AGAIN 2026-09-11 (parcel/lens-comments-0911) with P14/P15, engine/level/bg.emp's
+plane-geometry pair, proved by M24..M26. Those three are in CANONICAL on purpose: the brief
+asked for the red proof through the same `DEBUG=1 ./build.sh` a landing runs, not FAST.
+Run with LS8_OUT pointed OUTSIDE the tree unless .ls8-redproof is ignored: the default output
+directory is untracked, and clean_check() would refuse the second mutation because of it.
 """
 import os, subprocess, sys, shutil, json
 
@@ -77,11 +83,17 @@ GUARDS = {
  "P11 plane_buf   plane H family":              "but engine/level/plane_buffer.emp hand-spells a 64-column plane",
  "P12 plane_buf   plane V family":              "but engine/level/plane_buffer.emp hand-spells a 64-row plane",
  "P13 boot_data   reg $10 byte":                "BootData_VDPRegs writes reg $10 = VDP_REG_PLANE_SIZE",
+ # ---- 2026-09-11 lens-comments parcel ----
+ "P14 bg          plane H family":              "but engine/level/bg.emp hand-spells a 64-column plane",
+ "P15 bg          plane V family":              "but engine/level/bg.emp hand-spells a 64-row plane",
+ "P16 bg          BG_LAYOUT_SIZE":              "engine/level/bg.emp's BG_LAYOUT_SIZE no longer matches the plane",
 }
 
 # Mutations whose guard is a pytest in build.sh's pre-build lane: FAST skips that lane,
 # so these build canonically (DEBUG=1, no FAST).
-CANONICAL = {"M15_ym_authority_raised", "M16_ym_mirror_low", "M17_ym_mirror_extern"}
+CANONICAL = {"M15_ym_authority_raised", "M16_ym_mirror_low", "M17_ym_mirror_extern",
+             "M24_bg_h_cells_plus_p13_fix_canonical", "M25_bg_v_cells_plus_p13_fix_canonical",
+             "M26_bg_layout_size_alone_canonical"}
 
 MUTATIONS = {
  "M1_block_tile_size": [
@@ -187,6 +199,28 @@ MUTATIONS = {
  ],
  "M20_reg10_byte_alone": [
    ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
+ ],
+ # ---- 2026-09-11 lens-comments parcel: engine/level/bg.emp's plane-geometry pair (P14/P15) ----
+ # M24/M25 are M22/M23 run through a CANONICAL `DEBUG=1 ./build.sh` (listed in CANONICAL), so
+ # the bg.emp pins are proved red by the same build a landing runs, not by the FAST shape. The
+ # authority constant moves, the reg $10 byte is re-encoded as P13 instructs, and each axis's
+ # bg.emp pin must fire beside that axis's section.emp and plane_buffer.emp pins.
+ "M24_bg_h_cells_plus_p13_fix_canonical": [
+   ("engine/system/constants.emp", "pub const PLANE_H_CELLS     = 64", "pub const PLANE_H_CELLS     = 128"),
+   ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $13"),
+ ],
+ "M25_bg_v_cells_plus_p13_fix_canonical": [
+   ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
+   ("engine/system/constants.emp", "pub const VDP_REG_PLANE_SIZE = $11", "pub const VDP_REG_PLANE_SIZE = $01"),
+ ],
+ # Expected: M24 -> P9 P11 P14 P16; M25 -> P10 P12 P15 P16 (P16 fires beside the moved axis,
+ # because BG_LAYOUT_SIZE depends on both). M26: the layout size alone moves (a half-height
+ # blob). ONLY P16 may fire, plus act_assets.emp's embed refusing the 8192-byte blob
+ # (`[emit.size-mismatch] data OJZ_Act1_BG_Layout: declared type is 4096 byte(s), initializer
+ # produced 8192`, measured). The first version of the bg pins folded BG_LAYOUT_SIZE into both
+ # axis pins, and M25/M26 then fired the HORIZONTAL message with PLANE_H_CELLS unmoved.
+ "M26_bg_layout_size_alone_canonical": [
+   ("engine/level/bg.emp", "pub const BG_LAYOUT_SIZE  = 64*64*2", "pub const BG_LAYOUT_SIZE  = 64*32*2"),
  ],
 }
 

@@ -117,8 +117,8 @@ pub proc PopulateSpawnedPieceCount (a2: *Sst) clobbers(d0) preserves(a0) {
         // bytes are load-bearing — the plain-shape `jbsr` from
         // CreateChild_Normal back to this proc sits near the end of its 8-bit
         // displacement window, so growing this proc pushes that call out of
-        // reach. The .emp side re-selects the width automatically; the .asm
-        // twin's frozen `.s` would silently diverge instead of erroring. Do not
+        // reach. The .emp side re-selects the width automatically; the deleted .asm
+        // twin's frozen `.s` would have silently diverged instead of erroring. Do not
         // "tidy" this back to movem.
         move.l  a0, -(sp)               // a1 is never touched here (the template
                                         // works in a0/d0) and d0 is dead at

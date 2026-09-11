@@ -88,7 +88,7 @@ const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 
 // ---- Parallax band-entry ROM struct (§4.6) — parallax-private (only parallax
 // reads it). This module is the sole author of the band_entry layout; the build
-// harvests `band_entry_len` for ram.asm's shadow-band reservation.
+// harvests `band_entry_len` for engine/ram.emp's BAND_ENTRY_LEN mirror pin, which sizes Parallax_Shadow_Bands.
 // parallax_config lives in engine.structs (shared with engine.buffers, which
 // keys the HScroll DMA length off the deform-table fields). ----
 
@@ -510,7 +510,7 @@ pub const BAND_OP_BIT_B = 1
 // The peek-ahead form exists because the .field-in-disp sugar does not compose in
 // displacement arithmetic (row 1068), so the neighbour offset must be a named const.
 // Parallax_State clear span in longwords — a NAMED comptime mirror for the
-// Init loop counter, drift-locked to the ram.asm layout. (The counter was a
+// Init loop counter, drift-locked to engine/ram.emp's Parallax_State span. (The counter was a
 // `moveq` until the 2026-08-27 ceiling raise made the count exceed a signed
 // byte; see the note below. moveq link-deferral exists — the ImmSigned8 fixup
 // — but the named count + drift-lock reads better than inline extern
@@ -589,7 +589,7 @@ ensure(extern("Parallax_Curve_Carry") - extern("Parallax_Drift_Acc") == 4 * BAND
 // the two symbols coincide, which is what makes this ensure true rather than vacuous.
 ensure(extern("Parallax_Drift_Acc") - extern("Parallax_Remap_State") == 8 * BAND_REMAP_N,
        "the row-remap frame mark reserves {extern(\"Parallax_Drift_Acc\") - extern(\"Parallax_Remap_State\")} bytes, not the {8 * BAND_REMAP_N} this capability needs (a record pointer long plus a top/end word pair) — set BAND_REMAP_BYTES in engine/ram.emp (REMAP_STATE_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Fill_PerLine's mark write the band pointer over the drift accumulators, which moves every drifting layer by a ROM address every frame")
-ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
+ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from engine/ram.emp's Parallax_State .. Parallax_State_End span: expected {PARALLAX_STATE_LONGS} longs")
 
 // The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is
 // one whole record away, extension included.

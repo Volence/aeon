@@ -227,7 +227,7 @@ ensure((VDP_REG_0C_BOOT & RASTER_SH_BIT) == 0,
 
 // reg_sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
 // the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
-// $8C81 (engine/system/boot_data.emp:140) unless a section deliberately changed it via
+// $8C81 (reg $0C = VDP_REG_0C_BOOT, the `$0C` row of BootData_VDPRegs in engine/system/boot_data.emp) unless a section deliberately changed it via
 // Set_VDP_Reg. $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30
 // quirk ruling in the raster survey.
 pub comptime fn reg_sh_on() -> RasterOp {

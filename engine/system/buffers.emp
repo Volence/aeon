@@ -67,7 +67,7 @@ comptime fn queue_static_dma(entry: Label) -> Code {
 }
 // The template's 3×move.l + move.w copy is spelled for 14-byte entries — pin
 // it to the struct so a DMAEntry layout change cannot silently truncate the
-// copy (the engine.structs wall pins .emp == .asm, not this copy's width).
+// copy (nothing else pins this copy's width: the engine.structs .emp == .asm wall left with engine/structs.asm).
 ensure(sizeof(DMAEntry) == 14, "queue_static_dma's 3L+1W entry copy assumes sizeof(DMAEntry) == 14 — re-derive the copy")
 
 // -----------------------------------------------

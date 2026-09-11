@@ -39,7 +39,7 @@
 
 module engine.bg in bg
 
-use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
 use engine.structs.{Act}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
@@ -210,3 +210,21 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 // coordinates, plane mapping (mod 64) and scroll (mod 512) are all invariant
 // under the $1000px shift, so a redraw would write byte-identical content
 // (docs/research/teleport-rebase.md).
+
+// ---- THE PLANE GEOMETRY FAMILY, pinned across ALL its members in this file (2026-09-11) ----
+// The LS-8a plane-wrap pins at the end of engine/level/section.emp and plane_buffer.emp named
+// this file as hand-spelling the same PLANE_H_CELLS x PLANE_V_CELLS geometry, unpinned. The
+// sites were enumerated by what TOUCHES the plane size (every constant and instruction whose
+// value must move if the plane does, read over the whole file), not by grepping a literal:
+// BG_LAYOUT_SIZE (both axes); BG_Init's nametable blit `move.w #$8F80` and `cmpi.w #64`
+// (horizontal) and `moveq #32-1` (vertical). 4 sites. Pinned per axis for the LS-8 reason:
+// both axes are 64 today, so a site written against the wrong one is invisible until one moves.
+// BG_LAYOUT_SIZE has its OWN pin because it depends on both axes: the first version folded it
+// into both axis pins, and then a vertical-only move (and a layout-only move) fired the
+// HORIZONTAL message too, which blamed an axis that had not moved (measured 2026-09-11, M25/M26).
+ensure(PLANE_H_CELLS == 64 && PLANE_H_CELLS * 2 == $80,
+       "PLANE GEOMETRY, HORIZONTAL AXIS (engine/level/bg.emp, 2026-09-11). PLANE_H_CELLS is now {PLANE_H_CELLS}, but engine/level/bg.emp hand-spells a 64-column plane at 2 sites in BG_Init's nametable blit. Derived: the plane is PLANE_H_CELLS = {PLANE_H_CELLS} columns, and one nametable ROW is PLANE_H_CELLS*2 = {PLANE_H_CELLS * 2} bytes, the autoincrement a column-major blit steps down by. THE SITES: BG_Init `move.w #$8F80` (the blit's autoincrement, one row) and `cmpi.w #64` (.nt_col column count). WHAT THIS PIN DOES NOT COVER: BG_LAYOUT_SIZE, the whole-layout size, which has its own pin below and fires beside this one; this file's vertical site (the PLANE_V_CELLS pin); BG_Init's `add.w d0, d0` column offset, which is the 2-byte cell and not the plane size; the sites in engine/level/section.emp and engine/level/plane_buffer.emp that read the same layout (Section_RedrawPlanes' plane-B blit, Draw_BG_TileColumn), pinned per axis at the end of those files; VDP register $10, pinned at the end of engine/system/constants.emp, which is evaluated in the RAM-harvest pass and so is the first and only message after a plane-size change, this pin appearing once that byte is re-encoded; the out-of-assembler writers of the layout blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see; this file's header prose, which states 64 x 64 in words; and the VRAM span a larger Plane B would occupy, which no pin checks")
+ensure(PLANE_V_CELLS == 64 && PLANE_V_CELLS / 2 - 1 == 32 - 1,
+       "PLANE GEOMETRY, VERTICAL AXIS (engine/level/bg.emp, 2026-09-11). PLANE_V_CELLS is now {PLANE_V_CELLS}, but engine/level/bg.emp hand-spells a 64-row plane at 1 site in BG_Init's nametable blit. Derived: a Plane B column is PLANE_V_CELLS = {PLANE_V_CELLS} cells = PLANE_V_CELLS/2 = {PLANE_V_CELLS / 2} longwords, and the layout blob is column-major, so one layout column is PLANE_V_CELLS*2 = {PLANE_V_CELLS * 2} contiguous bytes. THE SITE: BG_Init `moveq #32-1` (.nt_row longwords per column, which is also what steps the source pointer one layout column). WHAT THIS PIN DOES NOT COVER: BG_LAYOUT_SIZE, which has its own pin below and fires beside this one; this file's 2 horizontal sites (the PLANE_H_CELLS pin); the sites in engine/level/section.emp and engine/level/plane_buffer.emp that read the same layout, pinned per axis at the end of those files; VDP register $10, pinned at the end of engine/system/constants.emp and seen first after a plane-size change; the out-of-assembler writers of the layout blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see; this file's header prose; and VSRAM or vertical-scroll arithmetic that assumes a 512-px plane, which this enumeration did not walk")
+ensure(BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS * 2,
+       "BG LAYOUT SIZE (engine/level/bg.emp, 2026-09-11). engine/level/bg.emp's BG_LAYOUT_SIZE no longer matches the plane: it is {BG_LAYOUT_SIZE} bytes, and a full Plane B nametable is PLANE_H_CELLS x PLANE_V_CELLS x 2 = {PLANE_H_CELLS} x {PLANE_V_CELLS} x 2 = {PLANE_H_CELLS * PLANE_V_CELLS * 2}. THE SITE: `pub const BG_LAYOUT_SIZE = 64*64*2`, which BG_Init's nametable blit drains whole, Section_RedrawPlanes' plane-B blit and Draw_BG_TileColumn read column by column, and games/sonic4/data/levels/ojz/act1/act_assets.emp uses as the embed type of OJZ_Act1_BG_Layout. WHAT THIS PIN DOES NOT COVER: the per-axis literals in BG_Init (the PLANE_H_CELLS and PLANE_V_CELLS pins above, one of which fires beside this one whenever a plane size moves); the layout's column-major ORDER, which no size can express; and the out-of-assembler writers of the blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see")

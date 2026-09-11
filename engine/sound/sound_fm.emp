@@ -31,7 +31,7 @@
 // The DAC streaming loop holds `de` = $4001 while it streams, and the addr port
 // stays PARKED on reg $2A — parked ONCE at init and re-parked only at the Timer-A
 // tick / stop / sample-start (the streaming FILL loop does NOT re-select $2A per
-// sample; z80_sound_driver.asm). fm runs FROM that Timer-A tick, which spills +
+// sample; z80_sound_driver.emp). fm runs FROM that Timer-A tick, which spills +
 // reloads `de` around Sequencer_Frame. fm uses `de` freely as scratch, but every
 // YM port write here uses ABSOLUTE addressing (`ld ($4000),a` style) and NEVER
 // LEAVES a port address in `de`, so the tick's reload restores de=$4001 cleanly
@@ -76,7 +76,7 @@
 // oracle. The full register contract is machine-checked: `out(<reg>)` names each
 // result register, `clobbers(...)` the destroyed scratch (the `af` split — `a`
 // the result, `f` the flag scratch), `preserves(...)` the save/restored or
-// untouched set. Several `.asm` `Clobbers` headers OVER-CLAIM `de` — de survives
+// untouched set. Several of the deleted `.asm` twin's `Clobbers` headers OVER-CLAIMED `de`; de survives
 // by construction (never loaded with a port address; bracketed by push/pop across
 // the callees that all preserve it) — the checker verifies the honest set. The
 // cross-module callee Mod_ReArm resolves by import, so the oracle credits its
@@ -1121,7 +1121,7 @@ section sound_fm (cpu: z80) {
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc. preserves de, hl (Fm_ChSel/Fm_YmWrite/Snd_ParkDac
     // all preserve de/hl; de is never loaded with a port address) (+ ix inherited).
-    // NOTE: the `.asm` `Clobbers af,bc,de` header OVER-CLAIMS de — de survives.
+    // NOTE: the deleted `.asm` twin's `Clobbers af,bc,de` header OVER-CLAIMED de; de survives.
     pub proc Fm_NoteOff () clobbers(af, bc) preserves(de, hl) {
         call    Fm_ChSel                 // a = chsel = (part<<2)|ch
         ld      c, a                     // data = $28 byte = chsel (op_mask 0 -> key off)
@@ -1144,8 +1144,8 @@ section sound_fm (cpu: z80) {
     // Contract: clobbers af, bc. preserves de, hl (de is never loaded with a port
     // address — absolute YM addressing — and both callees preserve it; hl is never
     // written and the callees Fm_RoutePart/Fm_YmWrite/Snd_ParkDac all preserve it)
-    // (+ ix inherited). NOTE: the `.asm` `Clobbers af,bc,de,hl` header OVER-CLAIMS
-    // BOTH de and hl — both survive.
+    // (+ ix inherited). NOTE: the deleted `.asm` twin's `Clobbers af,bc,de,hl` header
+    // OVER-CLAIMED BOTH de and hl; both survive.
     //
     // NO Fm_Scratch* ROUND-TRIP: part/ch-in-part are produced in `bc` by
     // Fm_RoutePart and CONSUMED IN `bc`, because Fm_YmWrite is declared
