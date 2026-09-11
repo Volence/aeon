@@ -26,7 +26,15 @@ half-moved. If either goes green again, the LS-8 pins have regressed.
 
 Needs SIGIL_BUILD / SIGIL_EMIT / AEON_SKDISASM_DIR in the environment (no dotfile sets
 them). Uses FAST=1 DEBUG=1 deliberately: a RED proof only needs the sigil stage, and the
-skipped lanes are the ones that matter for a GREEN claim, never for this.
+skipped lanes are the ones that matter for a GREEN claim, never for this. The exception is
+a mutation listed in CANONICAL, whose guard lives in build.sh's pre-build pytest lane, which
+FAST skips: those run a canonical `DEBUG=1 ./build.sh`.
+
+EXTENDED 2026-09-11 (parcel/lens-pins-0911) with the four lens-sweep pins that parcel
+landed, P1..P12 below: B2b-5 (collected/killed mask width), C2a-5 (DMA queue RAM spans),
+B2b-4 (the YM floor mirrors, a pytest, hence CANONICAL) and B1-2 / LS-8a (the plane-wrap
+family per axis, plus the reg $10 byte). Same method, same rules; each fired guard's first
+log line is now printed, because a count says a message appeared and not what it said.
 """
 import os, subprocess, sys, shutil, json
 
@@ -52,7 +60,25 @@ GUARDS = {
  "E3  tile_cache  coll_src_row_base lsl #4":    "coll_src_row_base hand-spells",
  "E4  constants   BLOCK_TILE_SHIFT vs SIZE":    "divides by the wrong power of two. WHAT SATISFYING THIS PIN DOES NOT COVER, said here because it was measured",
  "E5  constants   BPS_SHIFT vs BPS_AXIS":       "the world-block to section decompose divides by the wrong power of two",
+ # ---- 2026-09-11 lens-pins parcel ----
+ "P1  entity_win  mask width vs list size":     "the ring-collected and object-killed bitmasks are COLLECTED_MASK_BYTES",
+ "P2  entity_win  16-byte unrolled sites":      "are hand-unrolled for 4 * 4 = 16-byte masks",
+ "P3  dma_queue   Critical span":               "DMA_Critical is no longer the first thing at DMA_Queue",
+ "P4  dma_queue   Important span":              "DMA_Important no longer starts at DMA_Critical_End",
+ "P5  dma_queue   Deferrable span":             "DMA_Deferrable no longer starts at DMA_Important_End",
+ "P6  dma_queue   whole queue":                 "DMA_Queue .. DMA_Queue_End in engine/ram.emp is no longer",
+ "P7  pytest      YM mirror value":             "out of step with its authority",
+ "P8  pytest      YM mirror not a literal":     "not an integer literal. In a seam-1 resident module",
+ "P9  section     plane H family":              "but engine/level/section.emp hand-spells a 64-column plane",
+ "P10 section     plane V family":              "but engine/level/section.emp hand-spells a 64-row plane",
+ "P11 plane_buf   plane H family":              "but engine/level/plane_buffer.emp hand-spells a 64-column plane",
+ "P12 plane_buf   plane V family":              "but engine/level/plane_buffer.emp hand-spells a 64-row plane",
+ "P13 boot_data   reg $10 byte":                "BootData_VDPRegs writes reg $10 = VDP_REG_PLANE_SIZE",
 }
+
+# Mutations whose guard is a pytest in build.sh's pre-build lane: FAST skips that lane,
+# so these build canonically (DEBUG=1, no FAST).
+CANONICAL = {"M15_ym_authority_raised", "M16_ym_mirror_low", "M17_ym_mirror_extern"}
 
 MUTATIONS = {
  "M1_block_tile_size": [
@@ -91,6 +117,57 @@ MUTATIONS = {
    ("engine/level/tile_cache.emp", "        mul_const.w {dst}, #80, {scratch}", "        mul_const.w {dst}, #84, {scratch}"),
    ("engine/level/collision_lookup.emp", "        ensure(TILE_CACHE_STRIDE == 80 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,", "        ensure(TILE_CACHE_STRIDE == 84 && TILE_CACHE_STRIDE == TILE_CACHE_COLS,"),
    ("engine/level/collision_lookup.emp", "        mul_const.w d1, #80, d2", "        mul_const.w d1, #84, d2"),
+ ],
+ # ---- 2026-09-11 lens-pins parcel ----
+ # M9 is B2b-5's OWN scenario: lower the killed offset, and the ring mask is 8 bytes for a
+ # 128-entry list. Expect P1 and P2.
+ "M9_killed_offset_lowered": [
+   ("engine/system/constants.emp", "pub const KILLED_BITMASK_OFFSET   = 18", "pub const KILLED_BITMASK_OFFSET   = 10"),
+ ],
+ # M10: raise the list size alone. Expect P1 (and the loaded-mask twin, which is not in GUARDS).
+ "M10_max_list_entries_raised": [
+   ("engine/system/constants.emp", "pub const MAX_LIST_ENTRIES        = 128", "pub const MAX_LIST_ENTRIES        = 256"),
+ ],
+ # M11 does exactly what P1's message instructs (move KILLED_BITMASK_OFFSET with the list).
+ # P1 must go quiet and P2 must stay RED: the unrolled sites are the rest of the edit.
+ "M11_list_raised_plus_p1_fix": [
+   ("engine/system/constants.emp", "pub const MAX_LIST_ENTRIES        = 128", "pub const MAX_LIST_ENTRIES        = 256"),
+   ("engine/system/constants.emp", "pub const KILLED_BITMASK_OFFSET   = 18", "pub const KILLED_BITMASK_OFFSET   = 34"),
+ ],
+ # M12-M14: C2a-5's own scenario, a field inserted into the queue run at three places.
+ "M12_field_inside_critical": [
+   ("engine/ram.emp", "    DMA_Critical:           [u8; DMA_CRITICAL_SLOTS * sizeof(DMAEntry)],\n    mark DMA_Critical_End,",
+                      "    DMA_Critical:           [u8; DMA_CRITICAL_SLOTS * sizeof(DMAEntry)],\n    pad(2),\n    mark DMA_Critical_End,"),
+ ],
+ "M13_field_between_important_and_deferrable": [
+   ("engine/ram.emp", "    mark DMA_Important_End,\n    DMA_Deferrable:",
+                      "    mark DMA_Important_End,\n    pad(2),\n    DMA_Deferrable:"),
+ ],
+ "M14_field_before_queue_end": [
+   ("engine/ram.emp", "    mark DMA_Deferrable_End,\n    mark DMA_Queue_End,",
+                      "    mark DMA_Deferrable_End,\n    pad(2),\n    mark DMA_Queue_End,"),
+ ],
+ # M15-M17: B2b-4. Raise the authority (the mirrors are now LOW), lower one mirror, and
+ # the tempting extern() respelling that sigil itself builds green (probe T2/T3a).
+ "M15_ym_authority_raised": [
+   ("engine/sound/sound_fm.emp", "pub const YM_ADDR_TO_DATA_MIN_T = 8 ", "pub const YM_ADDR_TO_DATA_MIN_T = 12 "),
+ ],
+ "M16_ym_mirror_low": [
+   ("engine/sound/z80_sound_driver.emp", "const YM_ADDR_TO_DATA_MIN_T = 8\n", "const YM_ADDR_TO_DATA_MIN_T = 4\n"),
+ ],
+ "M17_ym_mirror_extern": [
+   ("engine/sound/sound_sequencer.emp", "const YM_ADDR_TO_DATA_MIN_T = 8\n", "const YM_ADDR_TO_DATA_MIN_T = extern(\"YM_ADDR_TO_DATA_MIN_T\")\n"),
+ ],
+ # M18-M20: B1-2 / LS-8a. Each axis alone must fire only its own axis's pins (plus reg $10);
+ # M20 moves the register byte alone.
+ "M18_plane_h_cells": [
+   ("engine/system/constants.emp", "pub const PLANE_H_CELLS     = 64", "pub const PLANE_H_CELLS     = 128"),
+ ],
+ "M19_plane_v_cells": [
+   ("engine/system/constants.emp", "pub const PLANE_V_CELLS    = 64", "pub const PLANE_V_CELLS    = 32"),
+ ],
+ "M20_reg10_byte_alone": [
+   ("engine/system/boot_data.emp", "const VDP_REG_PLANE_SIZE = $11", "const VDP_REG_PLANE_SIZE = $01"),
  ],
 }
 
@@ -145,14 +222,20 @@ for name in names:
     print(sh("git diff --stat").stdout.strip() or "    (no diff -- control run)", flush=True)
 
     log = f"{SC}/red_{name}.log"
+    run_env = dict(env)
+    if name in CANONICAL:
+        run_env.pop("FAST", None)
+    print(f"--- building: {'CANONICAL DEBUG=1 ./build.sh' if name in CANONICAL else 'FAST=1 DEBUG=1 ./build.sh'} ---", flush=True)
     with open(log, "w") as fh:
-        rc = subprocess.run(["./build.sh"], stdout=fh, stderr=subprocess.STDOUT, env=env).returncode
+        rc = subprocess.run(["./build.sh"], stdout=fh, stderr=subprocess.STDOUT, env=run_env).returncode
     text = open(log, errors="replace").read()
     fired = {k: text.count(v) for k, v in GUARDS.items() if v in text}
     results[name] = {"exit": rc, "fired": fired, "log": log}
     print(f"--- build exit={rc}   guards fired: {len(fired)} ---", flush=True)
     for k in sorted(fired):
         print(f"    RED  {k}   (message seen {fired[k]}x)", flush=True)
+        first = next(l for l in text.split("\n") if GUARDS[k] in l)
+        print(f"         first line: {first.strip()[:420]}", flush=True)
     if "<?>" in text:
         print("    !! '<?>' present in log -- an interpolation failed to resolve", flush=True)
 
