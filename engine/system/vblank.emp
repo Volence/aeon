@@ -271,7 +271,7 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // Art-streaming P2a: a published page's staging->VRAM DMA rides the
             // Important queue. Once it has fully drained (the Important queue is
             // empty again), release the staging slot so PageIn_Process can start
-            // the next decode. Slot == base means empty (Init_DMA_Queue idiom).
+            // the next decode. Slot == base = empty; PageIn_Process .land re-tests this.
             tst.b   PageIn_Staging_Busy
             beq     .staging_idle
             move.w  DMA_Important_Slot, d0
