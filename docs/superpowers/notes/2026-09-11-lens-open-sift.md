@@ -225,3 +225,34 @@ enqueue; one reorder in `PageIn_Process`).
 - **Dispatched from bin B:** a zero-byte guard-pins parcel (B2b-5, C2a-5, B2b-4, B1-2 as LS-8a);
   a zero-byte comment-contracts parcel (A2-1, A2-2, A2-5, C3b-4, C1a-2, B1-5); and the one
   byte-mover, C3b-3, alone.
+
+### LS-1a: sigil ACCEPTED, with a counter-shape aeon adopts (2026-09-11T18:49:58Z)
+
+Sigil's answer (their commitment is banked at sigil `docs/superpowers/notes/2026-09-11-aeon-source-digest-ask.md`,
+pushed to their origin/master per their message; not yet read here): **yes, queued behind their three
+parcels of 2026-09-11**, spelling sent to aeon for review BEFORE it lands.
+
+- **Where:** a new section of the `.lst`, never the deb2 trailer (deb2 is ROM bytes in every shape, so a
+  digest there would move every CRC on every source edit). ROM-neutrality to be PROVED by sigil's
+  four-shape byte gates at landing, not asserted.
+- **Shape:** the section NAMES the set: format version, assembler revision, build config (game, debug,
+  target shape, defines), one row per file the build READ (crc32, size, path relative to the aeon root,
+  sorted by path bytes; generated files marked), and an aggregate CRC32 over the rows. A lone digest
+  cannot be re-checked, which is why aeon adopts this over its own one-line ask.
+- **Hash:** CRC32 plus size, aimed at accidental staleness, not adversaries. Aeon accepts.
+- **Sigil's risk, stated by them:** a file the build reads that the section omits makes stale read as
+  fresh; they derive the set from what the build actually opens, with a planted-unlisted-read control.
+
+**Aeon's answer to their one question** (does any consumer need freshness of files sigil does NOT read?),
+read out of the tree at `cd075f2d`, not from memory: **no.** All eleven `--built-after` gates stat
+exactly the (`.lst`, `.bin`) pair (the `for p in (lst, rom)` loop beside each `getmtime`/`st_mtime`
+comparison in row_remap_gate, anim_frame_bound, editor_palette_golden, band_drift_golden,
+plane_base_swap_gate, reels_gate, plane_role_swap_gate, bganim_room, sprite_tilt_gate, instashield_gate,
+loop_crossover_gate), and `tools/conftest.py`'s needs_build markers declare only `.lst`/`.bin`
+artifacts. Their other inputs are committed fixtures (git-versioned, compared as content). The
+editor-to-generated chain is guarded before the build by `tools/level_staleness.py` (content-stamped),
+and the generated files it produces are files sigil reads, so they fall inside the section.
+
+**One addition aeon asked for:** the built ROM's CRC32 and size in the same section. `bganim_room.py`'s
+PROVENANCE note says "the sigil listing carries no ROM identity", and every gate reads the `.bin` beside
+the `.lst`; without it the section proves the listing fresh but cannot tie the ROM to it.
