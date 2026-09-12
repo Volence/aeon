@@ -940,17 +940,11 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 //      not fill it hands the caller's value straight back, which is a meaningful
 //      exit value (sigil's inout facet: pass-through is contract-valid), whereas
 //      out() demands a production on every return path.
-// Clobbers: d0-d2
-//   d6/d7, a1-a3, a5 and a6 are untouched; a4 is the inout slot cache above.
-// Preserves: a0, d3, d4 — the one `movem.l d3-d4/a0` save window restores all three
-//   on every path that can write them; the two out-of-band exits return before the
-//   save and never touch them. a0 is the ROM ring entry, and ALL THREE callers
-//   (ScanRingsRight, PopulateSectionRings, RescanRings) advance it with
-//   `addq.w #…, a0` straight after the call, so they rely on it. Until 2026-09-12 a0
-//   sat in clobbers() under a header saying no caller relied on it (parcel/
-//   clobber-decls-0912). Declared preserved, a path that leaves a0 changed fails the
-//   build as [proc.clobber-undeclared]. Nothing watches the callers' side: under the
-//   old declaration an a0 left advanced on every path built green.
+// Clobbers: d0-d2 (d6/d7, a1-a3, a5, a6 untouched; a4 is the inout slot cache above)
+// Preserves: a0, d3, d4 — one `movem.l d3-d4/a0` window restores all three on every path that
+//   writes them; the out-of-band exits return before it. ALL THREE callers (ScanRingsRight,
+//   PopulateSectionRings, RescanRings) advance a0 by `addq` right after the call. It sat in
+//   clobbers() until 2026-09-12; preserved, an a0-changing path fails [proc.clobber-undeclared].
 //   d5.w — the DEBUG no-dup scan writes d5 and brackets it with a
 //   `move.w d5` save/restore that round-trips only its LOW word (all a caller reads
 //   it as, a byte mask); the upper word is unspecified (the `.w` facet licenses
