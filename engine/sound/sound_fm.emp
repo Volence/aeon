@@ -95,8 +95,15 @@ use engine.sound_sequencer.{Mod_ReArm}
 // byte-identical copy (Fm_ReparkDac); it does not any more.
 use engine.z80_sound_driver.{Snd_ParkDac}
 
-// FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
-// Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at
+// FM writer scratch (Z80 RAM in the free sequencer block). A static scratch is safe
+// because no two FM-writer calls can overlap, NOT because only one caller exists:
+// Sequencer_Frame reaches the writer, and so does the mailbox service (an unpause
+// through Snd_CtrlCommand -> Snd_ResumeMusic -> Sfx_UnpauseRestore -> Fm_PatchLoad /
+// Fm_SetVolume). They never interleave: the Timer-A tick services the mailbox only
+// AFTER its Sequencer_Frame pass returns, and SndDrv_ISR can only be accepted in
+// SndDrv_Idle's `ei` window, where no writer is mid-call (every other path runs
+// under `di`). (Corrected 2026-09-12, gap lens sweep A2-10: this said "only
+// Sequencer_Frame reaches the FM writer".) Placed at
 // SND_FM_SCRATCH; each cell folds to its absolute address.
 const Fm_ScratchPart = SND_FM_SCRATCH + 0    // current part (0/1)
 const Fm_ScratchCh   = SND_FM_SCRATCH + 1    // current ch-in-part (0..2)
@@ -169,8 +176,10 @@ section sound_fm (cpu: z80) {
     //
     // --- YM WRITE-SPACING: MACHINE-CHECKED HERE (Task 9.2) -------------------
     // The 2026-07-16 review audited every YM write path by hand against the two
-    // hardware floors (YM_ADDR_TO_DATA_MIN_T / YM_DATA_TO_ADDR_MIN_T,
-    // sound_constants.emp) and marked it PASS. The ADDRESS->DATA half of that
+    // hardware floors (~8 T address->data, YM_ADDR_TO_DATA_MIN_T in THIS file; ~39 T
+    // data->next-address, deliberately not declared, see the floors block above)
+    // and marked it PASS. (This named a YM_DATA_TO_ADDR_MIN_T in sound_constants.emp;
+    // neither exists there — gap lens sweep A2-17, 2026-09-12.) The ADDRESS->DATA half of that
     // audit is now structural: the two `ensure(cycles(...))` at the bottom of
     // this proc re-measure both straight-line halves at every build. Because
     // this proc is the single funnel for every FM register write, covering it
@@ -1165,17 +1174,34 @@ section sound_fm (cpu: z80) {
     // What a build now CHECKS, and what is still only a hand audit. Read this
     // before trusting "the spacing is asserted".
     //
-    // CHECKED — address->data, 9 sites, every one a straight-line span:
-    //   Fm_YmWrite part I / part II            21 T each  (the FM funnel: these
-    //                                                      two cover the
-    //                                                      address->data gap of
-    //                                                      EVERY FM write path)
-    //   Snd_TimerA_ProgramFixed $24/$25/$27    20 T each
-    //   Snd_StartSample $28 / $2B              20 T each
-    //   SndDrv_Sample .stop $2B / $28          17 T / 20 T
-    //   Sequencer_StopAll $28 key-off          24 T
-    // The last seven are DIRECT YM writes that bypass Fm_YmWrite, so the review's
+    // CHECKED — address->data, 19 sites, every one a straight-line span inside one
+    // proc. The T figures are hand-derived; each ensure pins >= the floor, not the
+    // value. Re-derived 2026-09-12 by enumerating every write to $4000/$4002 (gap
+    // lens sweep A2-7): this listed 10 rows under a "9 sites" heading, left out
+    // three guarded sites, and presented as full coverage while six direct pairs
+    // had no guard (Snd_LoadSong x2 and Rearm, named by the sweep; SndDrv_Init x3,
+    // which write through (hl)/(de) and so never spell the port symbol). All six
+    // are guarded now.
+    //   Fm_YmWrite part I / part II              21 T each  (the FM funnel: these two
+    //                                                        cover the address->data
+    //                                                        gap of EVERY FM write path)
+    //   SndDrv_Init $22 / $2B / $2A              17 T each
+    //   SndDrv_Sample .stop $2B / $28            17 T / 20 T
+    //   Snd_ResumeMusic $B6                      24 T
+    //   Snd_StartSample $28 / $2B                20 T each
+    //   Snd_TimerA_ProgramFixed $24/$25/$27      20 T each
+    //   Snd_TimerA_Rearm $27                     20 T
+    //   Snd_LoadSong $2B / $B6                   17 T / 24 T
+    //   Seq_SilenceMusicVoices $28 / $B4 I / $B4 II   24 T / 21 T / 21 T
+    //                                            (Sequencer_StopAll reaches these)
+    // The last seventeen are DIRECT YM writes that bypass Fm_YmWrite, so the review's
     // "every YM write funnels through Fm_YmWrite" premise did not reach them.
+    //
+    // NOT CHECKED — address->data pairs split across procs: Snd_ParkDac writes the
+    // $2A address and its caller writes the data, SndDrv_Idle's and .stop's $80
+    // (13 + ret 10 + `ld a,$80` 7 = ~30 T, hand-derived). Same blocker 1 as below.
+    // Every other re-park is followed only by the streaming loop's next consumer
+    // write, which is further away still.
     //
     // NOT CHECKED — data->next-address, at any site. Two independent blockers,
     // both verified by probe rather than assumed:
@@ -1190,13 +1216,16 @@ section sound_fm (cpu: z80) {
     //      `z80_cycles::instr_cost`'s demand subset, so any span containing them
     //      bails `[cycles.unknown-op]` (probed: "`pop` is not in the timed-region
     //      T-state table"). Adding them is a sigil-side change, out of scope for
-    //      this parcel.
+    //      this parcel. MAY BE STALE: sigil's z80_cycles.rs at fbe380b9 prices
+    //      `call nn`, `ret`, `push`/`pop`, `bit` and `add a,n`; this build's binary
+    //      reports 6884bfba and was NOT re-probed (booked, gap lens sweep A2-7,
+    //      2026-09-12). Blocker 1 stands either way.
     // Splitting the requirement across the pieces was rejected: it would need a
     // hand-derived constant for the callee's prologue and tail, which is the very
     // hand audit this task exists to retire. A partial mechanical check plus this
     // note is worth more than a proof shaped around a hardcoded number.
     //
-    // The ~63 T figure below, and Fm_PatchLoad's ~66 T $B0->$B4 gap, therefore
+    // The ~63 T figure above, and Fm_PatchLoad's ~66 T $B0->$B4 gap, therefore
     // remain HAND-DERIVED. Both are well over the ~39 T floor.
     pub proc Fm_WriteFreq () clobbers(af, bc) preserves(de, hl) {
         call    Fm_RoutePart             // b = part, c = ch-in-part

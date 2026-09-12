@@ -167,8 +167,11 @@ ensure(SND_TIMERA_CTRL_REARM == $15, "SND_TIMERA_CTRL_REARM must be $15 (LOAD:A|
 // YM Timer A is a 10-bit value N (0..1023): reg $24 = N>>2, reg $25 = N&3. The
 // counter COUNTS UP and overflows past 1024, so the overflow PERIOD =
 // 18.773us * (1024 - N) on NTSC. tempo byte maps to N = tempo<<2. These
-// build-time helpers document the live mapping Snd_TimerA_Program implements;
-// they are uncalled in the shipping build (comptime fns emit no bytes).
+// build-time helpers document that LEGACY per-song mapping. The routine that
+// implemented it (Snd_TimerA_Program) is deleted: the driver now programs one
+// FIXED N (SND_TIMERA_N below, via Snd_TimerA_ProgramFixed), and SH_TEMPO is
+// cached for visibility only. Nothing calls these (comptime fns emit no bytes).
+// (Gap lens sweep A2-17, 2026-09-12: this called the deleted routine "live".)
 pub comptime fn ym_timerA_n_from_tempo(tb: int) -> int { return (tb) << 2 }                                          // N = tempo<<2
 pub comptime fn ym_timerA_period_ns(tb: int) -> int { return (1024 - ym_timerA_n_from_tempo(tb)) * 18773 }
 pub comptime fn ym_timerA_hz(tb: int) -> int { return 1000000000 / ym_timerA_period_ns(tb) }                        // ticks/sec (int div)
@@ -254,8 +257,14 @@ pub const SND_Z80_BANKREG         = $6000
 
 // --- SN76489 PSG port (as seen from the Z80) ---
 // Mapped at $7F11. Writes are single bytes with NO inter-byte delay and NO bus
-// contention guard (PSG writes never touch $4000-$4003 or `de`, so the DAC loop's
-// de=$4001 invariant is untouched).
+// contention guard. PSG writes never touch the YM ports ($4000-$4003), so they
+// never disturb the parked $2A latch, but the PSG writer DOES clobber `de`:
+// Psg_NoteOn loads the divisor-table base into it and declares clobbers(de), as do
+// Psg_Noise, Psg_ApplyMod and Psg_EmitNoiseClock. The DAC loop's de=$4001
+// invariant is re-established by the callers (the Timer-A tick reloads de, the
+// ISR pops it), not by PSG code, as sound_psg.emp's header says. (Corrected
+// 2026-09-12, gap lens sweep A2-5: this said PSG writes never touch `de`; it is the
+// twin of the F4 PSG-header item fixed 2026-08-10.)
 pub const SND_Z80_PSG             = $7F11                  // PSG write port (Z80 view of the VDP PSG port)
 // PSG command-byte bases. Latch byte D7=1 selects a register: D6-D5 = channel,
 // D4 = type (0 = tone/freq-low, 1 = vol/noise-ctrl).
@@ -432,6 +441,19 @@ ensure(MEV_REGWRITE >= MEV_VOL && MEV_REGWRITE <= MEV_END, "MEV_REGWRITE ({MEV_R
 ensure(MEV_REGWRITE == $F8, "MEV_REGWRITE ({MEV_REGWRITE}) must be $F8 (the fixed music-expr slot)")
 ensure(MEV_REGWRITE != MEV_VOL && MEV_REGWRITE != MEV_PATCH && MEV_REGWRITE != MEV_DAC && MEV_REGWRITE != MEV_NOTE_DUR && MEV_REGWRITE != MEV_PAN && MEV_REGWRITE != MEV_REPEAT_START && MEV_REGWRITE != MEV_REPEAT_END && MEV_REGWRITE != MEV_NOTE_RAW && MEV_REGWRITE != MEV_PITCHENV && MEV_REGWRITE != MEV_OPBIAS && MEV_REGWRITE != MEV_REGDELTA && MEV_REGWRITE != MEV_PSGENV && MEV_REGWRITE != MEV_MODSET && MEV_REGWRITE != MEV_NOTEFILL && MEV_REGWRITE != MEV_LOOP_POINT && MEV_REGWRITE != MEV_JUMP && MEV_REGWRITE != MEV_SPINREV && MEV_REGWRITE != MEV_SPINREV_RESET && MEV_REGWRITE != MEV_PSGNOISE && MEV_REGWRITE != MEV_END && MEV_REGWRITE != MEV_FMENV && MEV_REGWRITE != MEV_MACRO,
        "MEV_REGWRITE ({MEV_REGWRITE}) collides with an allocated $E0-$FF opcode")
+
+// MEV_EXT ($FA) — the extension prefix. sound_sequencer.emp carries a module-local
+// mirror `const MEV_EXT = $FA` (the seam-1 const list is fixed, so this name is
+// invisible there) and says it is pinned here. These are that pin: the block bound
+// is MEV_VOL..MEV_END, the value pin names the mirror to update, and the collision
+// wall lists every allocated opcode. (Added 2026-09-12, gap lens sweep A2-6 / 09-06
+// B2b-4: until then the sequencer's comment named a guard that did not exist.)
+ensure(MEV_EXT > MEV_NOTE_MAX && MEV_EXT >= MEV_VOL && MEV_EXT <= MEV_END,
+       "MEV_EXT ({MEV_EXT}) must be inside the $E0-$FF coordination block (MEV_VOL {MEV_VOL} .. MEV_END {MEV_END})")
+ensure(MEV_EXT == $FA,
+       "MEV_EXT ({MEV_EXT}) moved off $FA — update sound_sequencer.emp's module-local MEV_EXT mirror and its Seq_Op_Ext intercept")
+ensure(MEV_EXT != MEV_VOL && MEV_EXT != MEV_PATCH && MEV_EXT != MEV_DAC && MEV_EXT != MEV_NOTE_DUR && MEV_EXT != MEV_PAN && MEV_EXT != MEV_REPEAT_START && MEV_EXT != MEV_REPEAT_END && MEV_EXT != MEV_NOTE_RAW && MEV_EXT != MEV_PITCHENV && MEV_EXT != MEV_OPBIAS && MEV_EXT != MEV_REGDELTA && MEV_EXT != MEV_PSGENV && MEV_EXT != MEV_MODSET && MEV_EXT != MEV_NOTEFILL && MEV_EXT != MEV_LOOP_POINT && MEV_EXT != MEV_JUMP && MEV_EXT != MEV_SPINREV && MEV_EXT != MEV_SPINREV_RESET && MEV_EXT != MEV_PSGNOISE && MEV_EXT != MEV_TEMPO && MEV_EXT != MEV_LFO && MEV_EXT != MEV_PORTA && MEV_EXT != MEV_DETUNE && MEV_EXT != MEV_FMENV && MEV_EXT != MEV_REGWRITE && MEV_EXT != MEV_MACRO && MEV_EXT != MEV_END,
+       "MEV_EXT ({MEV_EXT}) collides with an allocated $E0-$FF opcode")
 
 // --- Phase 3: per-song fnum (pitch) table layout ---
 // TWO PARALLEL PAGES: the A4 page (PITCHTAB_COUNT $A4 values) first, then the A0
@@ -782,11 +804,17 @@ ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr
 ensure(offsetof(SfxChannel, sc_last_pan) == offsetof(SeqChannel, sc_last_pan), "SfxChannel.sc_last_pan diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_master), "SfxChannel.sc_fill_master diverges from SeqChannel")
 
-// --- SFX B4: the two POST-DIVERGENCE ALIASES, asserted rather than commented ----
+// --- SFX B4: the POST-DIVERGENCE ALIASES, two asserted, one not -----------------
 // Past +56 the structs deliberately disagree, and the SHARED interpreter still
-// walks both. So the two overlaps below are load-bearing aliases, not accidents:
+// walks both. So the overlaps below are load-bearing aliases, not accidents:
 //   +57  SfxChannel.sx_priority  ==  SeqChannel.sc_noise_mode
 //   +58  SfxChannel.sx_pad       ==  SeqChannel.sc_detune
+//   +59  SfxChannel.sx_patch_base (low byte)  ==  SeqChannel.sc_pad, which the
+//        sequencer uses as sc_macro_active: Seq_Op_Macro ($F9) writes it through ix.
+// The THIRD is not pinned below and nothing refuses it: sfx_transcode.py never
+// emits MEV_MACRO for an SFX, but _validate_no_aliasing_ops refuses only
+// PSGNOISE and DETUNE, so it rests on that convention (booked, gap lens sweep
+// A2-12, 2026-09-12; this block used to name only the first two).
 // The shared code reaches these offsets through ix. On an SfxChannel that means a
 // music opcode writing sc_noise_mode would corrupt the running SFX's PRIORITY, and
 // one writing sc_detune would set sx_pad non-zero — and sx_pad MUST stay 0, because
@@ -795,9 +823,12 @@ ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_mast
 // transcoder never emits those ops" plus the full-struct wipe on allocation.
 // These ensures pin the alias itself, so a future field insertion that slides one
 // side relative to the other fails the build at the exact pair that moved instead
-// of silently re-pointing a music write at an SFX control byte. The behavioural
-// half of the guarantee (that no SFX stream CONTAINS MEV_PSGNOISE/MEV_DETUNE) is
-// enforced build-side in tools/sfx_transcode.py — this is the layout half.
+// of silently re-pointing a music write at an SFX control byte. This is the
+// layout half. The behavioural half is NOT "no SFX stream contains
+// MEV_PSGNOISE/MEV_DETUNE" any more: since B5 (2026-08-26) tools/sfx_transcode.py
+// lets MEV_PSGNOISE through on route CHROUTE_PSGN, and it is Seq_Op_PsgNoise's
+// Snd_ChanClass branch that skips the sc_noise_mode store on an SFX slot.
+// MEV_DETUNE is still refused on every route (corrected 2026-09-12, A2-12).
 ensure(offsetof(SfxChannel, sx_priority) == offsetof(SeqChannel, sc_noise_mode),
        "sx_priority (+{offsetof(SfxChannel, sx_priority)}) no longer aliases sc_noise_mode (+{offsetof(SeqChannel, sc_noise_mode)}) — the shared interpreter's post-divergence overlap moved")
 ensure(offsetof(SfxChannel, sx_pad) == offsetof(SeqChannel, sc_detune),

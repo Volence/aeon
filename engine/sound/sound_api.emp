@@ -183,8 +183,10 @@ pub proc Sound_PlaySample (d0: u16) clobbers(a0) preserves(sr.mask) {
 // address) and the song's FM-patch-bank window ptr (from the parallel
 // SongPatchTable), then posts the SND_MUSIC_PARAM block AND the SND_REQ_MUSIC
 // trigger under ONE Z80 bus hold (param FIRST, trigger LAST) so the Z80 can't read
-// a half-updated param block. The Z80's SND_REQ_MUSIC handler (in the VBlank ISR,
-// DAC paused) banks the song in, streams it from ROM through the banked $8000
+// a half-updated param block. The Z80's SND_REQ_MUSIC handler (Snd_LoadSong, run
+// from the mailbox service in the VBlank ISR OR the Timer-A tick, so it can land
+// with a DAC sample in flight; gap lens sweep A2-8, 2026-09-12 — this said "in the
+// VBlank ISR, DAC paused") banks the song in, streams it from ROM through the banked $8000
 // window (every song streams — the copy path was deleted, budget A.1), and arms
 // the sequencer. The flags are forwarded because the Z80 loader reads the
 // adaptive-FM6 bit (SH_F_FM6_ADAPTIVE) from the param block during the header
@@ -451,10 +453,12 @@ pub proc Sound_StopMusic () clobbers(d0, a0) preserves(sr.mask) {
 
 // ----------------------------------------------------------------------
 // Sound_SetTempo — ramp the global music speed to a target. d0.b = target tempo mod
-// (S3K TempoWait units: raw per-frame accumulator addend; 0 = full speed / tick
-// every frame, BIGGER = SLOWER — each accumulator carry skips one event-tick;
-// rate = (256-mod)/256), or SND_TEMPO_RESTORE ($FF) to return to the song's
-// authored header tempo. The CALLER supplies d0.b (this does NOT set it, like
+// 1..$FE (S3K TempoWait units: raw per-frame accumulator addend, BIGGER = SLOWER —
+// each accumulator carry skips one event-tick; rate = (256-mod)/256), or
+// SND_TEMPO_RESTORE ($FF) to return to the song's authored header tempo. NOT 0:
+// 0 is the tempo slot's idle value, so the Z80 never acts on a posted 0 (a silent
+// no-op), and mod 0, full speed, cannot be requested through this call. (Gap lens
+// sweep A2-4, 2026-09-12: this offered 0 as "full speed".) The CALLER supplies d0.b (this does NOT set it, like
 // Sound_Ping / Sound_PlaySample); d0 preserved. SR restored.
 // ----------------------------------------------------------------------
 pub proc Sound_SetTempo (d0: u16) clobbers(a0) preserves(sr.mask) {
@@ -577,8 +581,15 @@ pub proc Sound_ReadStat (a0: *u8) out(d0: u8) clobbers() preserves(sr.mask) {
 // Game-feel status readers (pkg 1 §8) — thin entries over Sound_ReadStat.
 // Each RETURNS its byte in d0.b (declared a clobber, not an out: the write
 // happens in the tail callee, which the out-credit cannot follow).
-// Mirrors are refreshed by the Z80 once per frame (Sequencer_Frame), so a
-// value read here is at most one driver frame (~17 ms) old.
+// The bytes are NOT all equally fresh (corrected 2026-09-12, gap lens sweep
+// A2-11; this said every value "is at most one driver frame (~17 ms) old"):
+// Sequencer_Frame rewrites SND_STAT_SEQ_ACTIVE and SND_STAT_JINGLE every frame,
+// before any gate. SND_STAT_COMM is written only by the score's MEV_EXT COMM
+// event and zeroed by a song load. SND_STAT_FADE_BUSY is written only by
+// Fade_Ramp, which runs only while a song is active, unpaused and has channels,
+// and nothing on the StopMusic path clears it, so after a stop (or during a pause)
+// it holds its last value. Whether a caller can observe a stale 1 that way (e.g.
+// Sound_IsFading after a mid-fade Sound_StopMusic) is UNMEASURED: RUNTIME-TAG.
 // ----------------------------------------------------------------------
 pub proc Sound_IsMusicPlaying () clobbers(d0, a0) preserves(sr.mask) { // RESULT d0.b: nonzero = playing
         lea     STAT_SEQ_ACTIVE, a0
