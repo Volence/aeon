@@ -67,7 +67,7 @@ That block is superseded. Everything below it moved here from the boot file on 2
   with `finished=<n>` last in both (since 2026-09-11; before that `$1` was silently ignored).
 - **THE Z80 CLOBBERS GATE IS A LANDING STEP, AND IT LIVES IN SIGIL'S TREE (lens C2b-4, named
   2026-09-11).** A Z80 proc that under-declares its transitive clobbers builds GREEN here: aeon's
-  build has no Z80 clobber census (CTRL-1 would add one). The check is sigil's
+  build has a Z80 clobber census for LEAF procs only (`tools/test_z80_clobbers_census.py`, since `ad707b83`, zero-firing and no allow-list since the CTRL-1 follow-up), so a proc containing a `call` is still unchecked here. The check is sigil's
   `crates/sigil-cli/tests/z80_clobbers_incomplete.rs`, and it reads OUR sound sources. **Run it
   when the parcel touches any of its seven inputs** (the list is that file's `sound_tree()`):
   `engine/sound/{z80_sound_driver,sound_sequencer,sound_sfx,sound_fm,sound_psg,sound_constants}.emp`
