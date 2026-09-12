@@ -134,6 +134,7 @@ from pathlib import Path
 
 # Run as a script, sys.path[0] is tools/ already; imported by pytest it is not.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import artifact_provenance                                                   # noqa: E402
 
 from dplc_straddle import (                                          # noqa: E402
     AEON,
@@ -829,15 +830,12 @@ def main(argv=None):
     rom = a.rom or re.sub(r'\.lst$', '.bin', a.lst)
     try:
         if a.built_after is not None:
-            for p in (a.lst, rom):
-                if not os.path.isfile(p):
-                    raise Unmeasurable(f"{p} does not exist")
-                if os.path.getmtime(p) < a.built_after:
-                    raise Unmeasurable(
-                        f"{p} predates this build ({os.path.getmtime(p):.0f} < "
-                        f"{a.built_after:.0f}) — it is a PREVIOUS invocation's artifact and "
-                        f"bounding this build's scripts against it would be measuring the "
-                        f"wrong ROM")
+            # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py):
+            # written after this build began AND the listing's Source Digest reproduces.
+            rc = artifact_provenance.gate_check("anim_frame_bound", rom, a.lst, a.built_after,
+                                                expect_game=a.game)
+            if rc:
+                return rc
         if a.selftest:
             return selftest(a.lst, rom)
         return report(a.lst, rom, a.game, a.gate)

@@ -89,6 +89,15 @@ That spread is why LS-1a is a family parcel and not a lane fix, and why the
 recommendation in its row is one shared provenance primitive rather than a fifteenth
 private comparison: the primitive is also what makes the verdict agree.
 
+THE PRIMITIVE EXISTS NOW (LS-1a steps 2+3, 2026-09-12): tools/artifact_provenance.py.
+Every one of the eleven gates calls it, and so does `_unusable` below. And the list
+above was itself one short on exit 1: bganim_room's `main` maps EVERY Unmeasurable,
+provenance included, to exit 1, so (i) was seven and (ii) three. All eleven now exit 2
+on a stale pair, with or without --gate, in one wording. And "stale" is no longer
+time alone: a pair is fresh only when it was written after the threshold AND its
+listing's Source Digest (every `.lst` sigil writes since 13ca9425) reproduces the ROM
+it names, every file the build read, the module scan, and the assembler.
+
 WHAT THIS FILE STILL CANNOT DO. It cannot tell a stale artifact from a fresh one
 without being told when the build began — freshness here is a BUILD-TIME
 comparison, and `pytest tools` run by hand passes no threshold and therefore grades
@@ -97,6 +106,7 @@ a lane, which is why build.sh's post-sigil lane passes `${SIGIL_T0}`.
 """
 
 import os
+import sys
 
 import pytest
 
@@ -141,6 +151,7 @@ def pytest_configure(config):
         "every artifact the test needs — they decide whether a skip is DEFERRED or "
         "a failure." % MARKER)
     _deferred.clear()
+    _pair_verdicts.clear()
 
 
 def _declared(item):
@@ -151,21 +162,52 @@ def _declared(item):
     return names
 
 
+#: One provenance verdict per (.bin, .lst) pair per session: both halves of a pair, and
+#: both hooks that ask (collection and report), get the same answer from one computation.
+_pair_verdicts = {}
+
+
+def _pair_problems(name):
+    """Every reason the pair `name` belongs to is not this build's, from the ONE shared
+    primitive (tools/artifact_provenance.py). A declared .bin is only as fresh as the
+    listing that vouches for it, so either half asks about the pair.
+
+    Imported from this file's OWN directory, so the copy tools/test_needs_build_lane.py
+    places beside a copied conftest is the primitive that runs there too."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import artifact_provenance
+    rom, lst = artifact_provenance.pair_of(os.path.join(AEON, name))
+    if rom not in _pair_verdicts:
+        _pair_verdicts[rom] = artifact_provenance.check_pair(
+            rom, lst, built_after=_built_after, root=AEON).problems
+    return _pair_verdicts[rom]
+
+
 def _unusable(names):
     """The declared artifacts this invocation did not produce, each with its reason.
 
     ABSENT and STALE are one state on purpose. Both mean "the build shape that writes
     this file did not run", and both must defer rather than grade: a test run against
     either is answering about a build nobody made.
+
+    STALE IS CONTENT AS WELL AS TIME since LS-1a (2026-09-12). With a threshold, a
+    declared artifact is usable only when tools/artifact_provenance.py calls its pair
+    FRESH: written at or after the threshold AND its listing's Source Digest reproduces
+    (the ROM it names, every file the build read, the module scan, the assembler). The
+    first problem is quoted in the reason; the pair's verdict lists them all.
     """
     out = []
     for n in names:
         p = os.path.join(AEON, n)
         if not os.path.isfile(p):
             out.append("%s (absent)" % n)
-        elif _built_after is not None and int(os.path.getmtime(p)) < _built_after:
-            out.append("%s (stale — written %d, this build began %d)"
-                       % (n, int(os.path.getmtime(p)), _built_after))
+        elif _built_after is not None:
+            problems = _pair_problems(n)
+            if problems:
+                more = "; and %d more" % (len(problems) - 1) if len(problems) > 1 else ""
+                out.append("%s (stale — %s%s)" % (n, problems[0], more))
     return out
 
 

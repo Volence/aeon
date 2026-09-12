@@ -63,6 +63,9 @@ Exit 0 = the mechanism is in the ROM and correct. 1 = a real failure. 2 = UNMEAS
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import artifact_provenance  # noqa: E402
+
 REPO = os.path.dirname(os.path.abspath(__file__))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
@@ -181,12 +184,13 @@ def main():
                 t0 = float(built_after)
             except ValueError:
                 raise Unmeasurable(f"--built-after {built_after!r} is not a number of seconds")
-            for p in (lst_path, rom_path):
-                if os.path.getmtime(p) < t0:
-                    raise Unmeasurable(
-                        f"{os.path.basename(p)} predates this invocation's sigil run; "
-                        f"it is a PREVIOUS build's artifact and reading it would "
-                        f"measure the past")
+            # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py):
+            # written after this build began AND the listing's Source Digest reproduces,
+            # including DIGEST-SHAPE debug= against --shape.
+            rc = artifact_provenance.gate_check("plane_role_swap_gate", rom_path, lst_path, t0,
+                                                expect_debug=(shape == "debug"))
+            if rc:
+                return rc
 
         plane_a = emp_const(CONSTANTS, "VRAM_PLANE_A")
         plane_b = emp_const(CONSTANTS, "VRAM_PLANE_B")

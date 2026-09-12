@@ -30293,6 +30293,75 @@ Keep `.sigil-pin-6884bfba` (the installed binary reads that tree at run time), a
 keeps the outgoing pair as a restore path. **Still open: steps (2) and (3),** the shared provenance primitive and moving the
 14 `--built-after` consumers onto it.
 
+**LS-1a steps (2) and (3) DONE, 2026-09-12 (`parcel/ls1a-provenance-primitive`, base `8061d1dd`, commits `efa867de` step 2,
+`846e1112` step 3):** the shared primitive is `tools/artifact_provenance.py`, and every consumer of the `--built-after` rule
+now asks it. **The rule:** a (.bin, .lst) pair is FRESH (exit 0) only when both exist; the listing carries exactly one
+contiguous `DIGEST-` section, found by `^DIGEST-` and never by position, closed by `DIGEST-END` (else TRUNCATED), format 1,
+its AGGREGATE reproducing from its READ rows; `DIGEST-ROM` names the .bin by resolved path AND matches its crc32 and size;
+every `DIGEST-READ` row, generated and tool rows included, matches its file on disk; the `*.emp` walk re-run today
+reproduces `DIGEST-SCAN`; `DIGEST-ASSEMBLER revision=` equals the running `$SIGIL_BUILD --version`; `DIGEST-SHAPE`
+game/debug equals the caller's expectation (explicit from `--shape`/`--game`, else derived from a canonical artifact name,
+else reported as unchecked); and, with a threshold, both files were written at or after it. Anything else is NOT FRESH,
+**exit 2** (COULD NOT RUN, matching `tools/needs_build_lane.py`), every problem named by its row, in one wording
+(`Verdict.render`). `tree=` is reported and never gated; an unknown word fails closed. **Decisions:** (a) revision and
+shape ARE checked, because content equality passes a listing an older assembler built from identical sources (the
+shared pair swapped under every lane this morning); with no `SIGIL_BUILD` a pair is NOT FRESH. (b) `--built-after`
+SURVIVES as an extra condition: the sigil binary is not a READ row, so two binaries at one revision (a `dirty` rebuild, a
+relink in place) write listings the digest cannot tell apart, and only "this run wrote it" separates them; it also keeps
+build.sh's post-sigil lane deferring what the current shape did not write. (c) a listing with no section is never green,
+at any mtime. In build.sh every consumer runs after the sigil build, which writes the `.lst` last (after the ROM is
+final), so on a fresh clone the listing always carries a section. **Scope stated, not changed:** a gate run WITHOUT the
+flag still grades whatever is on disk (the hand-run contract). **Population, re-derived by what reads an mtime or the
+flag** (`grep st_mtime|getmtime|built_after|built-after` over build.sh and tools/): build.sh's eleven `--built-after
+"${SIGIL_T0}"` gates (row_remap_gate, anim_frame_bound, editor_palette_golden, band_drift_golden, plane_base_swap_gate,
+reels_gate, plane_role_swap_gate, bganim_room, sprite_tilt_gate, instashield_gate, loop_crossover_gate), `tools/conftest.py`
+(`--artifacts-built-after`), `tools/needs_build_lane.py` (forwards it), and `tools/landing_build.sh` and
+`tools/nightly_effects_gates.sh` (`--built-after $T0` into the lane): 14, as booked. Excluded, with the reason:
+`tools/level_staleness.py` (editor-tree mtimes, not a build pair). **The booked verdict census was one short on exit 1:**
+`bganim_room.main` maps EVERY Unmeasurable to 1 ("FAIL (unmeasurable)"), provenance included, so it was seven exit 2,
+three exit 1 (instashield_gate, loop_crossover_gate, bganim_room) and sprite_tilt_gate's 1-or-0. All eleven exit 2 now,
+with or without `--gate`, and sprite_tilt_gate's missing-artifact path (the same 0-without-`--gate` footgun) is 2 too.
+**Proof, in build.sh's pre-build lane:** `tools/test_artifact_provenance.py` (19 rows), `tools/test_provenance_consumers.py`
+(35 rows: every gate by fresh / mispaired ROM / section-less listing, with and without `--gate`, plus the gate table
+asserted equal to build.sh's `--built-after` call sites), `tools/test_needs_build_lane.py` (+1 content-stale lane arm), and
+`tools/test_bg_emit.py` (provenance test rewritten). Every fixture is a real plain-demo build by the installed assembler
+(`tools/provenance_fixtures.py`), never a hand-typed DIGEST line. **Red-first, 11 mutations, each quoted from disk, run with
+a cleared `__pycache__` and a unique `PYTHONPYCACHEPREFIX`, restored from the committed baseline and checked identical, each
+red:** primitive M1 READ-row check skipped, M2 `DIGEST-END` not required, M3 ROM path compare dropped, M4 a section-less
+listing returned fresh, M5 revision compare dropped, M6 scan compare dropped; consumers C1 sprite_tilt_gate back to `1 if
+args.gate else 0`, C2 instashield_gate back to `return 1`, C3 row_remap_gate not asking, C4 bganim_room mapping Stale to 1,
+C5 conftest back to mtime-only (under which the content-stale lane test RAN and passed: the LS-1a hole, measured). Landing
+evidence: the next block.
+
+**Booked from the LS-1a steps (2)+(3) parcel, 2026-09-12 (open):** (i) **Five post-sigil gates read the pair and ask NO
+provenance question:** `s4budget.py`, `waterline_art_gate.py`, `effects_seam_gate.py`, `dplc_straddle.py`,
+`dma_defer_headroom.py` (build.sh passes them no `--built-after`). In build.sh they read the listing that invocation just
+wrote, so it is not a live hole, but they sit outside the one verdict; moving each is one `gate_check` call. Not done
+there: it widens what those gates gate. (ii) **Sigil's own `parse_source_digest` contradicts the note's parsing rule.**
+The note (`2026-09-11-lst-source-digest.md` section 1) says fields "are found by key, never by position, so adding a field
+later breaks no parser that follows that rule"; `crates/sigil-link/src/listing.rs` `digest_fields` requires EXACTLY the
+listed keys, in order. Aeon's parser follows the note (by key, extra fields tolerated, `DIGEST-FORMAT` gates the grammar).
+Sigil's to reconcile; to be relayed, not fixed here. (iii) **The note says DIGEST-SCAN paths are "rendered as in the READ
+rows"; the code keeps the walk's own spelling** (`read_set.rs` `record_scan`: "Members are kept as the walk spelled them"),
+which for a symlinked `.emp` differs from a READ row's canonical path. The primitive follows the code; no module in the
+tree is a symlink today. (iv) **In a worktree where build.sh has never run, `pytest tools -m "not needs_build"` fails four
+`tools/test_extern_guard_reachability.py` rows** because `engine/debug/generated/*` and `engine/sound/generated/*` are absent;
+build.sh writes both before its pre-build lane, so the lane is green there. Seen during this parcel, not caused by it and
+not touched.
+
+**LS-1a steps (2)+(3) landing evidence, 2026-09-12:** `tools/landing_build.sh` at `29ff3771` (this branch, all code
+commits in), run detached under a run-unique copy with its own end stamp, 06:21:42 to 06:37:45 (load 1.1 rising to 6.5):
+`finished=0`, real exit 0; `EXIT_s4=0`, `EXIT_s4.debug=0`, `EXIT_demo=0`, `EXIT_demo.debug=0`, `EXIT_needs_build=0`. Pre-build
+lane in each of the four shapes: 2524 passed, 0 failed, 2 skipped (so the four `test_extern_guard_reachability` rows of
+item (iv) are green once build.sh has generated its inputs). Post-sigil lane: s4 5 passed / 9 deferred, s4.debug 6 / 8,
+demo 1 / 13, demo.debug 1 / 13. needs_build lane: 14 ran, 0 deferred, 0 failed, every case named. Gates through the
+primitive during the run: 26 `provenance FRESH` lines, 0 `NOT FRESH`. ROMs byte-neutral: s4 `7a552cde`/821155, s4.debug
+`b93a889f`/847533, demo `dd589fe7`/97109, demo.debug `c3eda757`/103501 (assembler `6884bfba`). **Written during the run,
+not left over:** all eight artifacts' mtimes are 1789208812 to 1789209450 against the run's start 1789208502, and
+`tools/artifact_provenance.py --built-after 1789208502` calls all four pairs FRESH (330 / 337 / 210 / 215 READ rows, the
+203-module scan). Shared pair md5 before and after: sigil `2e7c25920b95cec2c462ea51b4f078b5`, emitter
+`d258341604bbf735a8af8438c2b8d642`.
+
 **The nightly backstop tests the MAIN checkout's LOCAL `master`, which can sit far behind origin (found 2026-09-12, not fixed).**
 `aeon-effects-gates.service` fired at 2026-09-12T08:17:07Z and `tools/nightly_effects_gates.sh` checked out `a38ce7c9`, the
 main checkout's `master`, 34 commits behind origin/master because the owner's uncommitted edit to a generated file blocks the

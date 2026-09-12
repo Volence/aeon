@@ -22,6 +22,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 TOOL = TOOLS / "needs_build_lane.py"
 CONFTEST = TOOLS / "conftest.py"
+PRIMITIVE = TOOLS / "artifact_provenance.py"
 
 
 def make_lane(tmp_path, body, artifacts=(), extra_files=None):
@@ -35,6 +36,9 @@ def make_lane(tmp_path, body, artifacts=(), extra_files=None):
     lane = tmp_path / "lane"
     lane.mkdir()
     shutil.copy(CONFTEST, lane / "conftest.py")
+    # The provenance primitive the conftest asks under a threshold, copied for the same
+    # reason: the verdict under test is the one that ships (LS-1a, 2026-09-12).
+    shutil.copy(PRIMITIVE, lane / "artifact_provenance.py")
     (lane / "test_marked.py").write_text(body, encoding="utf-8")
     for name in artifacts:
         (tmp_path / name).write_bytes(b"x")
@@ -102,19 +106,66 @@ def test_an_absent_artifact_defers_and_is_exit_2_not_a_pass(tmp_path):
 
 
 def test_a_stale_artifact_defers_under_the_provenance_threshold(tmp_path):
-    """Present but older than the caller's build start is the same state as absent."""
+    """Present but older than the caller's build start is the same state as absent.
+
+    Since LS-1a (2026-09-12) a threshold asks tools/artifact_provenance.py, so these
+    one-byte stand-ins, which carry no Source Digest, can never read fresh under one:
+    BOTH marked tests defer, the old one naming its mtime and the new one naming the
+    missing section (a listing with no section is never green). Before the primitive the
+    s4.debug pair here read fresh on its mtime alone and its test RAN. Both halves of
+    each pair are present, so the first problem named is the one each arm is about
+    (an absent half would be named first, and is its own state)."""
     lane = make_lane(tmp_path, TWO_PASSING,
-                     artifacts=("s4.debug.bin", "s4.debug.lst", "demo.debug.lst"))
+                     artifacts=("s4.debug.bin", "s4.debug.lst", "demo.debug.lst",
+                                "demo.debug.bin"))
     stale = tmp_path / "demo.debug.lst"
     os.utime(stale, (1_600_000_000, 1_600_000_000))
     p = run_lane(lane, "--built-after", "1700000000")
     assert p.returncode == 2, p.stdout + p.stderr
-    assert "demo.debug.lst (stale" in p.stdout
-    assert "1 marked test(s) DEFERRED" in p.stdout
+    assert "demo.debug.lst (stale" in p.stdout and "before this build began" in p.stdout
+    assert "s4.debug.lst (stale" in p.stdout and "NO `DIGEST-` section" in p.stdout
+    assert "2 marked test(s) DEFERRED" in p.stdout
     # And WITHOUT the threshold the same tree grades it — that is the hand-run default, and
     # the control that shows the deferral above came from the threshold and not from the file.
     q = run_lane(lane)
     assert q.returncode == 0, q.stdout + q.stderr
+
+
+def test_a_content_stale_artifact_with_a_fresh_mtime_defers(tmp_path):
+    """LS-1a through the lane (2026-09-12). A REAL digest-bearing pair, written after the
+    threshold, whose listing no longer matches a file its build read: under the old
+    mtime-only rule it read fresh and the test RAN; it must DEFER (exit 2), naming the
+    file. The control is the same lane before the edit, which runs the test (exit 0).
+
+    The pair is built by the installed assembler straight into the lane's artifact root,
+    and every file its build read is mirrored there, so the copied conftest's root is a
+    tree the listing is fresh against until the one edit."""
+    import time
+    import pytest
+    sys.path.insert(0, str(TOOLS))
+    import provenance_fixtures as pf
+    t0 = int(time.time())
+    try:
+        pf.build_demo(str(tmp_path))
+    except pf.NoAssembler as e:
+        pytest.fail(str(e))
+    rows = pf.mirror(str(tmp_path / "demo.lst"), str(tmp_path))
+    lane = make_lane(tmp_path, (
+        "import pytest\n\n"
+        "@pytest.mark.needs_build(\"demo.bin\", \"demo.lst\")\n"
+        "def test_reads_demo():\n    assert True\n"))
+    ok = run_lane(lane, "--built-after", str(t0))
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert "1 ran, 0 deferred" in ok.stdout, ok.stdout
+
+    victim = next(r for r in rows if r.endswith(".emp"))
+    with open(tmp_path / victim, "ab") as f:
+        f.write(b"\n// edited after the build\n")
+    assert os.stat(tmp_path / "demo.lst").st_mtime >= t0, "mtime must still read fresh"
+    p = run_lane(lane, "--built-after", str(t0))
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "demo.lst (stale — DIGEST-READ path=%s" % victim in p.stdout, p.stdout
+    assert "1 marked test(s) DEFERRED" in p.stdout
 
 
 def test_an_empty_lane_is_exit_2_not_a_pass(tmp_path):

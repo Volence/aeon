@@ -63,6 +63,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import effects_gen  # noqa: E402
+import artifact_provenance  # noqa: E402
 
 REPO = effects_gen.REPO
 PALETTE = os.path.join(REPO, "engine", "effects", "palette.emp")
@@ -219,21 +220,18 @@ def main() -> int:
             print(f"editor_palette_golden: UNMEASURABLE — {p} does not exist")
             return 2
     if built_after is not None:
-        # Temporal provenance, bganim_room's rule: a listing carries no ROM identity of
-        # its own, so "it post-dates the instant this invocation started sigil" is the
-        # check it supports — and it excludes a previous build's listing by construction.
+        # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py):
+        # written after this build began AND the listing's Source Digest reproduces
+        # (the ROM it names, every file the build read, the scan, the assembler).
         try:
             t0 = float(built_after)
         except ValueError:
             print(f"editor_palette_golden: UNMEASURABLE — --built-after {built_after!r} "
                   f"is not a number of seconds")
             return 2
-        for p in (lst_path, rom_path):
-            if os.path.getmtime(p) < t0:
-                print(f"editor_palette_golden: UNMEASURABLE — {os.path.basename(p)} "
-                      f"predates this invocation's sigil run; it is a PREVIOUS build's "
-                      f"artifact and reading it would measure the past")
-                return 2
+        rc = artifact_provenance.gate_check("editor_palette_golden", rom_path, lst_path, t0)
+        if rc:
+            return rc
 
     try:
         pal_src = _read(PALETTE)

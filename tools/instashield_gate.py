@@ -217,6 +217,7 @@ def parse_lst(path):
 import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
+import artifact_provenance                          # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1046,18 +1047,6 @@ def check_cap_displacement(prog, cap_off):
 
 # --------------------------------------------------------------------------
 
-def _staleness_ok(args):
-    if args.built_after is None:
-        return True
-    for p in (pathlib.Path(args.rom), pathlib.Path(args.lst)):
-        age = int(p.stat().st_mtime) - args.built_after
-        if age < 0:
-            print("instashield_gate: %s is OLDER than this build started (%ds) — "
-                  "refusing to grade a stale artifact" % (p, -age))
-            return False
-    return True
-
-
 def _fixture_verdict(rom, start, end, syms, fixture, lst, gate, routine=ROUTINE):
     """(ok, hard_fail). Shared by both passes."""
     if pathlib.Path(fixture).exists():
@@ -1227,8 +1216,14 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    if not _staleness_ok(args):
-        return 1
+    # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py). A stale
+    # pair used to be `return 1` here, a FAILURE; it is UNMEASURABLE (2), like every other
+    # consumer's: the gate did not measure the artifact it was asked about.
+    if args.built_after is not None:
+        rc = artifact_provenance.gate_check("instashield_gate", args.rom, args.lst,
+                                            args.built_after)
+        if rc:
+            return rc
 
     rom = pathlib.Path(args.rom).read_bytes()
     syms, equs = parse_lst(args.lst)
