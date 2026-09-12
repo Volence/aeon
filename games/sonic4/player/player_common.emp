@@ -1201,7 +1201,7 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // inference and is flagged as one. The three anchors are the measurement. (They are the
 // 2026-09-05 figures. Since C1b-3 the in-cache body is 280, i.e. 292 - 12. The 12 was
 // derived twice: by hand, per instruction, in
-// docs/superpowers/notes/2026-09-11-c1b3-and-landing-stamp.md, and by this tool's row
+// docs/superpowers/notes/2026-09-12-c1b3-and-landing-stamp.md, and by this tool's row
 // deltas. 106 and 58 are unchanged.)
 //
 // WHAT THE DIRECTION GATE COST. Nothing at all on the two rows that matter most: the
