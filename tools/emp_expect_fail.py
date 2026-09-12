@@ -241,6 +241,17 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_band_buried_tint.emp",     "P1 OWN-1 bury",  "would bury", 2),
     (f"{POISON}/poison_patchable_band_fire.emp",  "8b rule6 half1", "must be static", 1),
     (f"{POISON}/poison_patchable_partner.emp",    "8b rule6 half2", "must be static — a patchable partner", 1),
+    # GUARD 2, check_intervals — the first negative fixture it has ever had (lens C3b-2,
+    # 2026-09-11). The sweep wrote "nothing enforces that overlapping bands are refused" about
+    # the per-frame Effects_Screen_L latch; this guard is what does, for every program, and
+    # it had no row here, so relaxing it would have left every build green. COUNT 2, both
+    # derived from the fixture's two bands (40..120 over 100..180): check_intervals refuses
+    # the overlap (the fragment), and check_density independently refuses the -20-scanline
+    # worst-case gap the same overlap implies. The fragment names check_intervals' wording
+    # because it is the guard whose argument — no negative gap byte, so no $FF park — the
+    # latch tear relies on; density is a second lock, not a substitute. A drop to 1 with the
+    # fragment missing means check_intervals stopped firing.
+    (f"{POISON}/poison_patchable_overlap.emp",    "GUARD 2 overlap", "can collide with the previous record", 2),
     (f"{POISON}/poison_setreg_on_restore.emp",    "8c D-B",     "carries the restore ONLY", 1),
     # ---- band ENTRY OWNERSHIP, parcel P1 (design 2026-08-28 §3, rules OWN-1/2/3) ----
     # These five replace guard C-A's coverage and extend it. C-A inferred a band's pairing
