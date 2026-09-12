@@ -30258,6 +30258,29 @@ truncated) and calls a (.bin, .lst) pair fresh only when `DIGEST-ROM` matches th
 14 `--built-after` consumers onto it, which also unifies their three disagreeing stale verdicts (exit 2 / exit 1 /
 `sprite_tilt_gate`'s exit 0 without `--gate`).
 
+**LS-1a step (1) IN PROGRESS, 2026-09-12 (aeon overseer):** sigil named the pin as `6884bfba64452322dc2e106feb67e3d22e535b1d`
+(the landing tip of their placement fix; verified here as an ancestor of sigil origin/master with `13ca9425` digest, `78b084c3`
+ensure fix and `af35fa56` all its ancestors). Not current master and not the fix commit alone: the installed binary reads
+`golden/offcanonical_sizes/` from its BUILD TREE at run time, so the pin must carry the fix and its refrozen tables together.
+New pair built `--locked` in the durable clean worktree `/home/volence/sonic_hacks/.sigil-pin-6884bfba` with a private target
+`.sigil-pin-6884bfba-target`: sigil `2e7c25920b95cec2c462ea51b4f078b5` (reports `6884bfba`), emit_sound_blob
+`d258341604bbf735a8af8438c2b8d642`. **Keep `.sigil-pin-af35fa56` until the swap is done, and keep `.sigil-pin-6884bfba` after it:**
+both are the build trees their binaries read. **The hub's window conditions (empyrean hub, by message, 2026-09-12 ~08:30Z):**
+(1) nothing swaps before the hub sends OPEN; (2) aeon's four-shape PREVIEW under the private pair must match sigil's stated
+deltas (sections +2 to +22 B, EndOfRom unchanged, the sonic4 pair -20 B from the deb2 appendix, all gates green, DIGEST rows
+present) or aeon stops and reports; (3) installed md5s after the swap equal the two above; (4) the DECIDER is aeon's four-shape
+re-check under the installed pair, CRC-identical to the preview, else sigil restores its set-aside pair; (5) the hub announces
+the instant and identity to every lane. Sigil performs the swap in its own tree, copying the pair in and then renaming it
+into place (the build outputs are hard-linked into cargo's `deps/`, so a straight rename would share that inode). One swap at
+`6884bfba`; sigil's in-flight macro-diagnostics parcel (error text only) does not gate it.
+
+**The nightly backstop tests the MAIN checkout's LOCAL `master`, which can sit far behind origin (found 2026-09-12, not fixed).**
+`aeon-effects-gates.service` fired at 2026-09-12T08:17:07Z and `tools/nightly_effects_gates.sh` checked out `a38ce7c9`, the
+main checkout's `master`, 34 commits behind origin/master because the owner's uncommitted edit to a generated file blocks the
+fast-forward there. So that night's backstop graded none of that day's landings, and nothing in its log says so: it names
+the SHA it tested and not what it should have tested. Candidate fix: resolve `origin/master` after a `git fetch` (or refuse
+when local master is behind origin), and print both. Found while clearing the shared-sigil path for the LS-1a window.
+
 **`tools/ojz_strip_gen.py` names the zone tileset wrongly, naming only (booked 2026-09-11; lead from an aurora agent,
 confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrings (`_project_tileset_path`,
 `load_editor_section_nametable`, `load_editor_tile_art`) say `chunks_tiles.bin`, but the path is resolved from
