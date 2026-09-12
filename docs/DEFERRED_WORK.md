@@ -30342,9 +30342,16 @@ pure 40-line comment block above the proc: `effects_gen.py check` exits 1 ("a `p
 guarded. Parsed leaf diff of the sidecar: 27 leaves, 0 added, 0 removed, 2 changed, both `edges.*.engine`. A second consumer
 found by what touches the value rather than by key name: `tools/test_cli_dispatch_refuses.py` runs `check` as a subprocess
 and asserts exit 0 (it tripped on a one-line probe edit before the fix). Aurora re-vendors once more. Not fixed, out of
-scope: `check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
-`Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale (its
-raster.emp self-cites were repointed by name in the next commit).
+scope: ~~`check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
+`Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale~~ (its
+raster.emp self-cites were repointed by name in the next commit). **BOTH CLOSED 2026-09-12, `parcel/tools-followups-0912`:**
+the DRIFT message now names four causes: a band moved, either `#<declaration>` anchor moved (`channels.*.source`, the const
+around a `patchable(`; `edges.*.engine`, the raster.emp proc around an edge marker) by a rename or by the site landing in a
+different declaration, or a hand edit. `channels.*.source` is the same class as the edge anchor and trips the gate too, so
+it is named as well. The two banner cites were recovered at `d593070a`, the commit that wrote them, and are now cited by
+name with no line numbers: `Parallax_Step4_Fill`'s anchor overlay (the hi test, then `.anchor_hi_ok`), and `OJZ_TC_PROG`
+in `ojz_effects.emp` with the "LO WAS 40" note above it. The comment edits replace lines one for one (5 out, 5 in), and
+`effects_gen.py check` still exits 0. Zero ROM bytes.
 **The shared `emit_sound_blob` is not the installed pair's copy, and build.sh records nothing about it (booked 2026-09-12,
 sigil's SHARED-PAIR-SPLIT-EMITTER, reported by the sigil lane and consistent with our own measurement).** `SIGIL_EMIT`
 (`sigil/target/release/emit_sound_blob`) was relinked 2026-09-09T03:04:49Z from sigil's main checkout, so its md5
