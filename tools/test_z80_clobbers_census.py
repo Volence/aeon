@@ -29,13 +29,36 @@ declared `cpu: z80`) that declares a contract must declare, in its `clobbers(...
 half in:
 
   (1) its OWN writes, recognised from CODE only (comments and string literals are stripped
-      first), in these explicit forms:
+      first). Every Z80 mnemonic is modelled from the instruction set (Zilog UM0080's
+      per-instruction register and flag effects), not from what the tree happens to use,
+      in `z80_writes`. `f` is the flag register: an instruction that changes ANY flag
+      writes it. A memory destination (`(hl)`, `(ix+d)`, `(nn)`) writes no register.
 
-        ld   R, ...        R a register (a..l, i, r, sp, bc/de/hl, ix/iy, their halves)
-        inc R / dec R      R a register, not a memory operand
-        pop  RR            unless it is a RESTORE (below)
-        ex   de, hl        writes both
-        add/adc/sbc HL|IX|IY, ...
+        ld   R, ...            R (a register destination); `ld a,i`/`ld a,r` also f
+        pop  RR                RR, unless it is a RESTORE (below)
+        add/adc/sub/sbc/and/or/xor (8-bit)                        a, f
+        add/adc/sbc HL|IX|IY, rr                                  the pair, f
+        cp                                                        f
+        inc/dec r (8-bit)      r, f     inc/dec (mem)  f     inc/dec rr (16-bit)  rr
+        daa cpl neg rlca rla rrca rra rld rrd                     a, f
+        rlc rl rrc rr sla sra sll srl  r, f on a register; f on memory; r, f for the
+                               undocumented `op (ix+d), r` copy form
+        bit                    f          set/res  their register target (none on memory)
+        scf ccf                f          djnz     b
+        ldi ldd ldir lddr      bc, de, hl, f
+        cpi cpd cpir cpdr      bc, hl, f  (never a: the accumulator is the search key)
+        ini ind inir indr outi outd otir otdr   b, hl, f  (never c: it holds the port)
+        exx                    bc, de, hl (the swap reads as a clobber of the main bank)
+        ex de,hl               de, hl     ex af,af'  af     ex (sp),HL|IX|IY  the pair
+        in r,(c)               r, f       in a,(n)   a      in (c) / in f,(c)  f
+        out nop halt di ei im jp jr call ret reti retn rst push   nothing
+
+      A statement the model cannot read FAILS the run instead of reading as "writes
+      nothing": an unknown mnemonic, an operand shape the mnemonic does not take, a
+      template or comptime call, or an instruction on the same line as an `if {` brace.
+      Non-instruction lines are recognised by form: labels, `if`/`else` brace lines,
+      `dc.b`/`dc.w`/`dc.l` data, and `ensure(...)`/`pad_to_cycles(...)`, including their
+      continuation lines.
 
   (2) its CALLEES' DECLARED effects: for every `call [cc,] Target` and for the proc's own
       `falls_into Target`, the halves of Target's `clobbers(...)` plus its `out(...)`. The
@@ -72,7 +95,7 @@ UNMEASURABLE CASES FAIL, they are never skipped: a call target that resolves to 
 proc, a callee with no `clobbers(...)` clause (its write set is undeclared, and inferring it
 is exactly what this file refuses to do), a `call` operand it cannot parse, an `rst` (no
 named target), and a proc name defined twice. An attribute token this file does not
-recognise also fails the run.
+recognise also fails the run, and so does a statement it cannot model (above).
 
 THE CONVENTION FOR THE STREAM POINTER. The sequencer's opcode handlers advance `hl`, the
 stream pointer, past their operands and hand it to Sequencer_NextOpcode.fetch, and they
@@ -90,17 +113,16 @@ WHAT IT DOES NOT COVER, each a real hole:
     What it would add comes only from the handlers' `jp Sequencer_NextOpcode.fetch`, the
     re-entry into the computed dispatch that sigil also declines to bound. (Seq_Op_Ext is
     entered by a `jp z` from Sequencer_NextOpcode, whose own declaration covers `hl`.)
-  * IMPLICIT WRITERS. ALU results into `a` (add/sub/and/or/xor/neg/cpl/daa and the
-    accumulator rotates), flag-only writes (cp, bit, scf/ccf), `djnz` (b), the block ops
-    (ldi/ldir/ldd/lddr/cpi/cpir: bc/de/hl), `exx`, `ex af,af'`, `ex (sp),hl`, `in r,(c)`,
-    and shifts, rotates or set/res on a register. Not widened yet: each new form owes its
-    own fixture control. The lens-z3 note measured a wider parser adding ZERO hits over
-    the leaves; docs/DEFERRED_WORK.md LS-2a item (b) books it.
+  * THE SHADOW BANK. `exx` and `ex af,af'` are charged as writes of the MAIN registers
+    they swap out (conservative, so they can only make the census fire). A write made
+    while the shadow bank is swapped in lands in bc'/de'/hl'/af', which no contract
+    token names, so no declaration can be checked for it.
   * SHAPES. The scan reads source, not a shape: a DEBUG-only write or `call` (inside
     `if DEBUG == 1 { }`) counts in every shape. That is the right direction for one
     declaration shared by both shapes.
   * TEMPLATES. A comptime fn or `asm {}` template expanded inside a proc body writes
-    registers no text scan can see.
+    registers no text scan can see. Such a line is an unmodelled statement, so it FAILS
+    the run rather than passing unseen; none is in the Z80 tree today.
   * PROCS WITH NO CONTRACT ATTRIBUTE AT ALL. Nothing is declared, so nothing can be
     under-declared. They are pinned as an exact, named set instead
     (test_attribute_less_z80_procs_are_the_known_set), so a new one fails.
@@ -137,13 +159,17 @@ KNOWN_ATTRIBUTE_LESS: frozenset[tuple[str, str]] = frozenset({
 # `cpu:` spelling, a call parser that stopped matching); it is not a census, and deleting
 # procs legitimately means lowering it. Files, procs and leaves derived at e4b4f38f (172 Z80
 # procs, 97 of them leaves, in 11 files); the call-containing procs and the two edge counts
-# derived at 808141f7 (75 procs, 227 `call` sites, 11 `falls_into` edges).
+# derived at 808141f7 (75 procs, 227 `call` sites, 11 `falls_into` edges). The flag
+# writers derived at d5ee8633, the base of the implicit-writer widening (LS-2a item (b)):
+# 108 procs write `f`, where the explicit-form parser saw 3 (the `pop af` sites). A write
+# model that stopped reading the implicit forms would fall back toward 3.
 MIN_Z80_FILES = 11
 MIN_Z80_PROCS = 172
 MIN_LEAF_PROCS = 97
 MIN_CALL_PROCS = 75
 MIN_CALL_EDGES = 227
 MIN_FALLS_INTO_EDGES = 11
+MIN_FLAG_WRITERS = 108
 
 # ---------------------------------------------------------------------------------------
 # The scanner.
@@ -157,14 +183,16 @@ RE_LABEL_PREFIX = re.compile(r"^\s*\.?\w+\s*:(?!\s*=)\s*")
 RE_NORETURN = re.compile(r"^@noreturn\b")
 RE_FALLS_INTO = re.compile(r"\bfalls_into\s+(\w+)")
 
-_REG = r"(ixh|ixl|iyh|iyl|ix|iy|af|bc|de|hl|sp|a|b|c|d|e|h|l|i|r)"
-RE_LD = re.compile(r"^ld\s+" + _REG + r"\s*,", re.I)
-RE_INCDEC = re.compile(r"^(?:inc|dec)\s+" + _REG + r"\s*$", re.I)
 RE_PUSH = re.compile(r"^push\s+(af|bc|de|hl|ix|iy)\s*$", re.I)
 RE_POP = re.compile(r"^pop\s+(af|bc|de|hl|ix|iy)\s*$", re.I)
-RE_EX_DE_HL = re.compile(r"^ex\s+de\s*,\s*hl\s*$", re.I)
-RE_ADD16 = re.compile(r"^(?:add|adc|sbc)\s+(hl|ix|iy)\s*,", re.I)
 RE_CALL = re.compile(r"^(?:call|rst)\b", re.I)
+# A line that is only block structure: `{`, `}`, `if <cond> {`, `} else {`, `} else if … {`.
+# An instruction sharing a line with the brace does NOT match, so it cannot be skipped.
+RE_BLOCK_LINE = re.compile(r"(?:\}\s*)?(?:else\b\s*)?(?:if\b[^{}]*)?\{?")
+RE_DATA = re.compile(r"^dc\.[bwl]\b", re.I)
+# Build-time statements that emit no instruction; their argument list may span lines.
+RE_COMPTIME_STMT = re.compile(r"^(?:ensure|pad_to_cycles)\s*\(")
+RE_EXPORT_LABEL = re.compile(r"^export\s+\.\w+\s*:\s*")
 RE_CALL_TARGET = re.compile(
     r"^call\s+(?:(?:nz|z|nc|c|po|pe|p|m)\s*,\s*)?([A-Za-z_]\w*(?:\.\w+)?)\s*$", re.I)
 RE_RST = re.compile(r"^rst\b", re.I)
@@ -223,16 +251,186 @@ def attr(sig: str, keyword: str) -> str | None:
 
 
 def _instr(line: str) -> str:
-    return RE_LABEL_PREFIX.sub("", line, count=1).strip() if ":" in line else line.strip()
+    s = line.strip()
+    m = RE_EXPORT_LABEL.match(s)
+    if m:
+        return s[m.end():].strip()
+    return RE_LABEL_PREFIX.sub("", s, count=1).strip() if ":" in s else s
 
 
-def writes_in(body: list[tuple[int, str]], noreturn: bool = False) -> dict[str, int]:
-    """Register halves the proc's OWN code writes by the explicit forms, each mapped to the
-    first line writing it. Applies the RESTORE POP and NORETURN SP rules (module doc)."""
+# ---------------------------------------------------------------------------------------
+# The Z80 write model: which register halves one instruction writes. Modelled from the
+# instruction set (Zilog UM0080), mnemonic by mnemonic; the module doc carries the table.
+# ---------------------------------------------------------------------------------------
+class Unmodelled(ValueError):
+    """A statement the write model cannot read. It FAILS the run: reading it as `writes
+    nothing` would be the silent hole this file exists to close."""
+
+
+R8 = frozenset({"a", "b", "c", "d", "e", "h", "l", "ixh", "ixl", "iyh", "iyl"})
+R16 = frozenset({"bc", "de", "hl", "ix", "iy", "sp"})
+FLAGS = frozenset({"f"})
+ALU8 = frozenset({"add", "adc", "sub", "sbc", "and", "or", "xor"})
+ACCUMULATOR_OPS = frozenset({"daa", "cpl", "neg", "rlca", "rla", "rrca", "rra", "rld", "rrd"})
+CB_SHIFTS = frozenset({"rlc", "rl", "rrc", "rr", "sla", "sra", "sll", "srl"})
+BLOCK_LD = frozenset({"ldi", "ldd", "ldir", "lddr"})
+BLOCK_CP = frozenset({"cpi", "cpd", "cpir", "cpdr"})
+BLOCK_IO = frozenset({"ini", "ind", "inir", "indr", "outi", "outd", "otir", "otdr"})
+WRITES_NOTHING = frozenset({"out", "nop", "halt", "di", "ei", "im", "jp", "jr", "call", "ret",
+                            "reti", "retn", "rst"})
+
+
+def _operands(text: str) -> list[str]:
+    """Split an operand list on its top-level commas. Register tokens are lower-cased;
+    anything else (an expression, a memory operand) is kept as written."""
+    out: list[str] = []
+    depth, cur = 0, ""
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return [re.sub(r"\s+", "", o.lower()) if re.fullmatch(r"\(?\s*[A-Za-z']+\s*\)?", o) else o
+            for o in out]
+
+
+def _mem(op: str) -> bool:
+    return op.startswith("(") and op.endswith(")")
+
+
+def _reg(op: str) -> set[str] | None:
+    """The halves a register operand names, or None when it names no register."""
+    return halves(op) if op in R8 or op in R16 or op in ("i", "r") else None
+
+
+def z80_writes(stmt: str) -> set[str]:
+    """The register halves (and `f`) one Z80 instruction writes. Raises Unmodelled for
+    a mnemonic or operand shape the model does not know."""
+    parts = stmt.split(None, 1)
+    mn = parts[0].lower()
+    ops = _operands(parts[1]) if len(parts) > 1 else []
+    n = len(ops)
+
+    def bad() -> Unmodelled:
+        return Unmodelled(f"operand shape not modelled for `{mn}`")
+
+    if mn == "ld":
+        if n != 2:
+            raise bad()
+        dst = _reg(ops[0])
+        if dst is not None:
+            # `ld a,i` / `ld a,r` copy IFF2 into P/V and set S/Z: the only flag-writing ld.
+            return dst | (FLAGS if ops[0] == "a" and ops[1] in ("i", "r") else set())
+        if _mem(ops[0]):
+            return set()
+        raise bad()
+    if mn in ("add", "adc", "sbc") and n == 2 and ops[0] in ("hl", "ix", "iy"):
+        return halves(ops[0]) | FLAGS                    # 16-bit: the pair, H/N/C (+S/Z/V)
+    if mn in ALU8 or mn == "cp":
+        if not (n == 1 or (n == 2 and ops[0] == "a")):
+            raise bad()
+        return set(FLAGS) if mn == "cp" else {"a"} | FLAGS   # cp: flags only
+    if mn in ("inc", "dec"):
+        if n != 1:
+            raise bad()
+        if ops[0] in R16:
+            return halves(ops[0])                        # 16-bit inc/dec: no flags
+        if ops[0] in R8:
+            return halves(ops[0]) | FLAGS
+        if _mem(ops[0]):
+            return set(FLAGS)
+        raise bad()
+    if mn in ACCUMULATOR_OPS:
+        if n:
+            raise bad()
+        return {"a"} | FLAGS
+    if mn in CB_SHIFTS:
+        if n == 1 and ops[0] in R8:
+            return halves(ops[0]) | FLAGS
+        if n == 1 and _mem(ops[0]):
+            return set(FLAGS)
+        if n == 2 and _mem(ops[0]) and ops[1] in R8:     # undocumented: result copied to r
+            return halves(ops[1]) | FLAGS
+        raise bad()
+    if mn == "bit":
+        if n != 2 or not (ops[1] in R8 or _mem(ops[1])):
+            raise bad()
+        return set(FLAGS)
+    if mn in ("set", "res"):                             # flags untouched
+        if n == 2 and ops[1] in R8:
+            return halves(ops[1])
+        if n == 2 and _mem(ops[1]):
+            return set()
+        if n == 3 and _mem(ops[1]) and ops[2] in R8:     # undocumented: result copied to r
+            return halves(ops[2])
+        raise bad()
+    if mn in ("scf", "ccf"):
+        if n:
+            raise bad()
+        return set(FLAGS)
+    if mn == "djnz":
+        if n != 1:
+            raise bad()
+        return {"b"}                                     # b--, flags untouched
+    if mn in BLOCK_LD:
+        return halves("bc") | halves("de") | halves("hl") | FLAGS
+    if mn in BLOCK_CP:
+        return halves("bc") | halves("hl") | FLAGS
+    if mn in BLOCK_IO:
+        return {"b"} | halves("hl") | FLAGS
+    if mn == "exx":
+        if n:
+            raise bad()
+        return halves("bc") | halves("de") | halves("hl")
+    if mn == "ex":
+        if ops == ["de", "hl"]:
+            return halves("de") | halves("hl")
+        if ops == ["af", "af'"]:
+            return halves("af")
+        if n == 2 and ops[0] == "(sp)" and ops[1] in ("hl", "ix", "iy"):
+            return halves(ops[1])
+        raise bad()
+    if mn == "in":
+        if n == 1 and ops[0] == "(c)":
+            return set(FLAGS)                            # undocumented `in (c)`
+        if n == 2 and ops[1] == "(c)" and ops[0] == "f":
+            return set(FLAGS)
+        if n == 2 and ops[1] == "(c)" and ops[0] in R8:
+            return halves(ops[0]) | FLAGS
+        if n == 2 and ops[0] == "a" and _mem(ops[1]):
+            return {"a"}                                 # `in a,(n)`: flags untouched
+        raise bad()
+    if mn in WRITES_NOTHING:
+        return set()
+    raise Unmodelled(f"unknown mnemonic `{mn}`")
+
+
+def writes_in(body: list[tuple[int, str]], noreturn: bool = False
+              ) -> tuple[dict[str, int], list[tuple[int, str]]]:
+    """(register halves the proc's OWN code writes, each mapped to the first line writing
+    it; the statements the model could not read, as (line, text)). Applies the RESTORE POP
+    and NORETURN SP rules (module doc)."""
     found: dict[str, int] = {}
+    unmodelled: list[tuple[int, str]] = []
     stack: list[str] = []
+    cont = 0
     for n, line in body:
+        if cont > 0:                          # continuation of a multi-line build statement
+            cont += line.count("(") - line.count(")")
+            continue
         s = _instr(line)
+        if not s or RE_BLOCK_LINE.fullmatch(s) or RE_DATA.match(s):
+            continue
+        if RE_COMPTIME_STMT.match(s):
+            cont = s.count("(") - s.count(")")
+            continue
         m = RE_PUSH.match(s)
         if m:
             stack.append(m.group(1).lower())
@@ -246,19 +444,16 @@ def writes_in(body: list[tuple[int, str]], noreturn: bool = False) -> dict[str, 
             for h in halves(pair):            # move idiom, or nothing above it: a write
                 found.setdefault(h, n)
             continue
-        regs: list[str] = []
-        for rx in (RE_LD, RE_INCDEC, RE_ADD16):
-            m = rx.match(s)
-            if m:
-                regs.append(m.group(1))
-        if RE_EX_DE_HL.match(s):
-            regs += ["de", "hl"]
-        for r in regs:
-            for h in halves(r):
-                if h == "sp" and noreturn:
-                    continue                  # NORETURN SP
-                found.setdefault(h, n)
-    return found
+        try:
+            written = z80_writes(s)
+        except Unmodelled as exc:
+            unmodelled.append((n, f"`{s}`: {exc}"))
+            continue
+        for h in sorted(written):
+            if h == "sp" and noreturn:
+                continue                      # NORETURN SP
+            found.setdefault(h, n)
+    return found, unmodelled
 
 
 def calls_in(body: list[tuple[int, str]]) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
@@ -344,6 +539,7 @@ def scan_text(text: str, rel: str) -> list[dict]:
         declared = (declared_halves(clob, where) | declared_halves(pres, where)
                     | declared_halves(outs, where) | module_preserves)
         edges, unmeasurable = calls_in(body)
+        writes, unmodelled = writes_in(body, noreturn)
         fi = RE_FALLS_INTO.search(sig)
         out.append({
             "file": rel, "proc": name, "line": start, "cpus": cpus,
@@ -354,10 +550,11 @@ def scan_text(text: str, rel: str) -> list[dict]:
             # when it declares no clobbers() clause: its write set is then undeclared.
             "effect": (None if clob is None
                        else declared_halves(clob, where) | declared_halves(outs, where)),
-            "writes": writes_in(body, noreturn),
+            "writes": writes,
             "calls": edges,
             "falls_into": None if fi is None else (start, fi.group(1)),
             "unmeasurable": unmeasurable,
+            "unmodelled": unmodelled,
             "under": {}, "errors": [],
             "body": body,
         })
@@ -378,6 +575,8 @@ def check(procs: list[dict]) -> list[dict]:
         errors: list[str] = [f"proc name {p['proc']!r} is defined more than once, so a call "
                              f"to it is ambiguous"] if p["proc"] in dupes else []
         errors += [f":{ln} `{s}` has no named target to charge" for ln, s in p["unmeasurable"]]
+        errors += [f":{ln} statement the write model cannot read: {why}"
+                   for ln, why in p["unmodelled"]]
         required: dict[str, str] = {h: f"written at :{ln}" for h, ln in p["writes"].items()}
         edges = [(ln, t, "call") for ln, t in p["calls"]]
         if p["falls_into"] is not None:
@@ -439,9 +638,11 @@ def test_the_scan_reaches_the_z80_tree():
     callers = [p for p in procs if not p["leaf"]]
     n_calls = sum(len(p["calls"]) for p in procs)
     n_falls = sum(1 for p in procs if p["falls_into"] is not None)
+    n_flag = sum(1 for p in procs if "f" in p["writes"])
     print(f"Z80 files: {len(files)}; procs: {len(procs)} ({len(leaves)} leaves, "
           f"{len(callers)} with a call, all checked); call edges: {n_calls}; "
-          f"falls_into edges: {n_falls}")
+          f"falls_into edges: {n_falls}; procs writing f: {n_flag}; own-write facts: "
+          f"{sum(len(p['writes']) for p in procs)}")
     assert SEQ in files, (
         f"the Z80 sweep of {ROOTS} did not reach {SEQ}, the sequencer and home of the opcode "
         f"handlers. It found {len(files)} file(s): {files}. The `cpu: z80` match is broken."
@@ -454,6 +655,9 @@ def test_the_scan_reaches_the_z80_tree():
     assert n_calls >= MIN_CALL_EDGES, f"only {n_calls} call edge(s), floor {MIN_CALL_EDGES}"
     assert n_falls >= MIN_FALLS_INTO_EDGES, (
         f"only {n_falls} falls_into edge(s), floor {MIN_FALLS_INTO_EDGES}")
+    assert n_flag >= MIN_FLAG_WRITERS, (
+        f"only {n_flag} proc(s) write f, floor {MIN_FLAG_WRITERS}: the write model has stopped "
+        f"reading the implicit writers (cp, bit, the ALU, the rotates)")
 
 
 def test_no_file_mixes_z80_procs_with_68k_sections():
@@ -715,6 +919,144 @@ def test_scanner_controls():
         raise AssertionError("an unrecognised contract token was accepted instead of refused")
 
 
+# One fixture control per implicit-writer form (LS-2a item (b)): the statement, and the
+# EXACT set it writes per the Z80 instruction set. Each row becomes two fixture procs: an
+# under-declaring `clobbers()` twin the census must name with exactly this set, and an
+# honest twin declaring exactly this set that must pass. Exact equality is the point: it
+# pins what a form does NOT write as hard as what it does (cpi never writes a or de, djnz
+# and the 16-bit inc never write f, set/res never write f, `in a,(n)` never writes f).
+# A row whose set is empty is a write-nothing form: its one proc must pass `clobbers()`.
+FORM_CASES: tuple[tuple[str, str], ...] = (
+    # 8-bit ALU into the accumulator, and the flag-only compare
+    ("add a, b", "a, f"), ("adc a, 1", "a, f"), ("sub 3", "a, f"), ("sbc a, a", "a, f"),
+    ("and 7", "a, f"), ("or a", "a, f"), ("xor (hl)", "a, f"),
+    ("cp 3", "f"), ("cp (ix+2)", "f"),
+    # 16-bit arithmetic: the pair AND the flags (the explicit parser counted only the pair)
+    ("add hl, bc", "hl, f"), ("adc hl, de", "hl, f"), ("sbc hl, de", "hl, f"),
+    ("add ix, bc", "ix, f"), ("add iy, de", "iy, f"),
+    # inc/dec: 8-bit register and memory forms write flags, the 16-bit forms do not
+    ("inc b", "b, f"), ("dec a", "a, f"), ("inc ixh", "ixh, f"),
+    ("inc (hl)", "f"), ("dec (ix+1)", "f"), ("inc hl", "hl"), ("dec de", "de"), ("inc ix", "ix"),
+    # accumulator-only operations
+    ("daa", "a, f"), ("cpl", "a, f"), ("neg", "a, f"),
+    ("rlca", "a, f"), ("rla", "a, f"), ("rrca", "a, f"), ("rra", "a, f"),
+    ("rld", "a, f"), ("rrd", "a, f"),
+    # CB shifts and rotates: register, memory, and the undocumented copy-to-register form
+    ("rlc c", "c, f"), ("rl d", "d, f"), ("rrc e", "e, f"), ("rr l", "l, f"),
+    ("sla h", "h, f"), ("sra b", "b, f"), ("sll a", "a, f"), ("srl a", "a, f"),
+    ("rl (hl)", "f"), ("srl (ix+3)", "f"), ("rlc (ix+3), b", "b, f"),
+    # bit tests and bit writes
+    ("bit 7, h", "f"), ("bit 0, (ix+1)", "f"),
+    ("set 3, b", "b"), ("res 0, a", "a"), ("set 1, (hl)", ""), ("res 2, (ix+4)", ""),
+    ("set 1, (ix+4), c", "c"),
+    ("scf", "f"), ("ccf", "f"),
+    ("djnz .x", "b"),
+    # block operations
+    ("ldi", "bc, de, hl, f"), ("ldir", "bc, de, hl, f"),
+    ("ldd", "bc, de, hl, f"), ("lddr", "bc, de, hl, f"),
+    ("cpi", "bc, hl, f"), ("cpir", "bc, hl, f"), ("cpd", "bc, hl, f"), ("cpdr", "bc, hl, f"),
+    ("ini", "b, hl, f"), ("inir", "b, hl, f"), ("ind", "b, hl, f"), ("indr", "b, hl, f"),
+    ("outi", "b, hl, f"), ("otir", "b, hl, f"), ("outd", "b, hl, f"), ("otdr", "b, hl, f"),
+    # exchanges
+    ("exx", "bc, de, hl"), ("ex af, af'", "af"), ("ex de, hl", "de, hl"),
+    ("ex (sp), hl", "hl"), ("ex (sp), ix", "ix"), ("ex (sp), iy", "iy"),
+    # port input
+    ("in a, (c)", "a, f"), ("in b, (c)", "b, f"), ("in a, ($10)", "a"),
+    ("in (c)", "f"), ("in f, (c)", "f"),
+    # loads, including the two flag-writing forms
+    ("ld a, i", "a, f"), ("ld a, r", "a, f"), ("ld i, a", "i"), ("ld r, a", "r"),
+    ("ld b, (hl)", "b"), ("ld hl, ($1234)", "hl"), ("ld ix, 0", "ix"), ("ld ixl, a", "ixl"),
+    ("ld (hl), b", ""), ("ld (ix+2), 5", ""), ("ld ($1234), hl", ""),
+    # write-nothing forms
+    ("out (c), a", ""), ("out ($10), a", ""), ("nop", ""), ("halt", ""), ("di", ""),
+    ("ei", ""), ("im 1", ""), ("push bc", ""), ("ret nz", ""), ("reti", ""), ("retn", ""),
+    ("jr .x", ""), ("jp c, .x", ""),
+)
+
+
+def _form_fixture() -> str:
+    lines = ["module forms.z80 (cpu: z80)", "section forms (cpu: z80) {"]
+    for i, (stmt, want) in enumerate(FORM_CASES):
+        twins = [(f"Form{i}_Under", "")] + ([(f"Form{i}_Ok", want)] if want else [])
+        for name, decl in twins:
+            lines += [f"    pub proc {name} () clobbers({decl}) {{", "    .x:",
+                      f"        {stmt}", "        ret", "    }"]
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+FIXTURE_STATEMENTS = (
+    "module fake3.z80 (cpu: z80)\n"
+    "section fake3 (cpu: z80) {\n"
+    "    pub proc Statements_Ok () clobbers() {\n"
+    "        ensure(cycles(.a, .b) >= 1,\n"
+    '            "ld b, a")\n'
+    "        pad_to_cycles(4, cycles(.a, .b),\n"
+    "            dense: true)\n"
+    "        dc.b    1, 2\n"
+    "        dc.w    Statements_Ok\n"
+    "        if DEBUG == 1 {\n"
+    "            nop\n"
+    "        } else {\n"
+    "            nop\n"
+    "        }\n"
+    "    export .a:\n"
+    "    .b: nop\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Unknown_Mnemonic () clobbers(af) {\n"
+    "        frob    a\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Template_Call () clobbers(af) {\n"
+    "        ym_write(SND_REG_KEY, 0)\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Brace_Line () clobbers(af) {\n"
+    "        if DEBUG == 1 { ld b, 1 }\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Bad_Operand () clobbers(af) {\n"
+    "        ld      Foo_Bar, a\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Bad_Alu () clobbers(af) {\n"
+    "        add     b, c\n"
+    "        ret\n"
+    "    }\n"
+    "}\n"
+)
+
+
+def test_write_model_controls():
+    """The implicit writers, one fixture control per form (FORM_CASES), and the refusal of
+    every statement the model cannot read."""
+    procs = {p["proc"]: p for p in check(scan_text(_form_fixture(), "forms.emp"))}
+    wrong = []
+    for i, (stmt, want) in enumerate(FORM_CASES):
+        want_set = declared_halves(want, stmt)
+        under, ok = procs[f"Form{i}_Under"], procs.get(f"Form{i}_Ok")
+        if under["errors"] or set(under["under"]) != want_set:
+            wrong.append(f"`{stmt}`: named {_fmt(under['under']) or 'nothing'} under "
+                         f"clobbers(), want exactly {_fmt(want_set) or 'nothing'} "
+                         f"{under['errors'] or ''}")
+        if ok is not None and (ok["errors"] or ok["under"]):
+            wrong.append(f"`{stmt}`: the honest twin clobbers({want}) was named "
+                         f"{_fmt(ok['under'])} {ok['errors'] or ''}")
+    assert not wrong, "Z80 write model disagrees with the instruction set:\n  " + "\n  ".join(wrong)
+
+    st = {p["proc"]: p for p in check(scan_text(FIXTURE_STATEMENTS, "fake3.emp"))}
+    assert st["Statements_Ok"]["errors"] == [] and st["Statements_Ok"]["under"] == {}, (
+        "labels, brace lines, data, and multi-line ensure/pad_to_cycles are not instructions "
+        f"(the string literal's `ld b, a` included): {st['Statements_Ok']['errors']} "
+        f"{st['Statements_Ok']['under']}")
+    for name in ("Unknown_Mnemonic", "Template_Call", "Brace_Line", "Bad_Operand", "Bad_Alu"):
+        errs = st[name]["errors"]
+        assert len(errs) == 1 and "cannot read" in errs[0], (
+            f"{name}: an unreadable statement must FAIL the run, not read as `writes "
+            f"nothing`. Got {errs}")
+
+
 if __name__ == "__main__":
     test_the_scan_reaches_the_z80_tree()
     test_no_file_mixes_z80_procs_with_68k_sections()
@@ -722,4 +1064,5 @@ if __name__ == "__main__":
     test_every_z80_call_edge_is_measurable()
     test_no_z80_proc_under_declares_its_clobbers()
     test_scanner_controls()
+    test_write_model_controls()
     print("OK")
