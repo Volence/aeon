@@ -160,6 +160,28 @@ Both emulator witnesses carry a `--poison` mode and both fire:
 
 Every leg count is asserted (7, 6, 6). `Unmeasurable` is never reported as a pass.
 
+## Four-shape evidence
+
+This parcel touches `tools/` and `docs/` only — no `.emp`, no `games/` data — but
+`tools/landing_build.sh` was run anyway, because the Leg-2 witness temporarily PATCHES a tracked
+`.emp` and restores it, and "the restore verified" is worth more with four green shapes behind it.
+
+| run | tree | `finished` | shapes |
+|---|---|---|---|
+| 1 | after the three witness commits | `0` | `EXIT_s4=0 size=821155`, `EXIT_s4.debug=0 size=847533`, `EXIT_demo=0 size=97109`, `EXIT_demo.debug=0 size=103501`, `EXIT_needs_build=0` |
+| 2 | after the cart check + seam correction | `0` | the same five, same sizes |
+| 3 | the final tree, `c59e7287` | `0` | the same five, the same sizes |
+
+Pre-build lane: 2553 passed / 2 skipped per shape in runs 1 and 2, and **2559** in run 3 — exactly
+the +6 rows `tools/test_cart_identity.py` now contributes, which is the whole point of splitting it
+(before the split it was a `test_*` file pytest collected nothing from, and the lane reported the
+same 2553 with and without it). Every run's `s4.debug.bin` is the same 847533 / `9ce1c2ff` the leg-3
+witness measured, so the Leg-2 probe patch and restore left no trace in any shape.
+
+Run 3 started 20:39:26Z and finished 20:55:50Z (16 m 24 s) at `uptime` load 9.82 rising to 14.37 and
+back to 6.57 — other lanes were building throughout, so that wall time is not a clean benchmark of
+anything.
+
 ## What these witnesses are NOT
 
 They are measurement witnesses, not gates, and they are wired into no runner. Two of the three
