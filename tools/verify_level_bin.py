@@ -367,6 +367,106 @@ def verify_block_blobs():
                       f"block blobs: sec{n}_blocks.bin is {sz}B < index({BLOCK_INDEX_BYTES}) + dict({dlen[n]})")
 
 
+def verify_block_decode():
+    """Every block of every section's ROM-consumed block blob must DECODE to the block
+    its strips define.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep F6). Nothing in the ROM embeds
+    sec{N}_strips_a.bin; the ROM embeds sec{N}_blocks.bin, and verify_local_maps read
+    only its raw dictionary region. The seat copied sec5_blocks.bin over sec0_blocks.bin
+    (both with a 768-byte dictionary): this gate said OK while 67 of section 0's 256
+    blocks decoded to the wrong content. Every content check above certifies the strips;
+    this is the link from the strips to the bytes the engine actually decompresses.
+
+    A block, as ojz_block_gen.extract_block defines it: 16x16 nametable words row-major,
+    then collision plane A (16 columns x 8 rows, row-major), then plane B -- 768 bytes.
+    The blob's index entry is 0 for an all-zero block, bit 31 set for a raw block inside
+    the dictionary region, else the offset of an S4LZ stream decoded against that region.
+    Decoded with tools/s4lz.py, the format's reference decoder (the engine's agreement
+    with it is compression_selftest's question, not this file's). A section whose blob
+    is content-deduplicated is decoded through the blob the ROM gives it.
+    """
+    import s4lz
+    n_sec = _section_count()
+    strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+    pad = _strip_gen_int("STRIP_COLLISION_PAD")
+    if n_sec is None or strip_rows is None or pad is None:
+        return
+    blobs_emp = os.path.join(GEN, "sec_block_blobs.emp")
+    dicts_emp = os.path.join(GEN, "sec_block_dicts.emp")
+    if not (os.path.isfile(blobs_emp) and os.path.isfile(dicts_emp)):
+        check(False, "block decode: sec_block_blobs.emp / sec_block_dicts.emp missing")
+        return
+    btxt = open(blobs_emp).read()
+    embed = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*embed\("[^"]*/(sec\d+_blocks\.bin)"\)', btxt))
+    alias = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*extern\("OJZ_Sec(\d+)_Blocks"\)', btxt))
+    dlen = {int(k): int(v) for k, v in re.findall(
+        r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", open(dicts_emp).read())}
+
+    coll_rows = strip_rows // 2
+    stride = strip_rows * 2 + 2 * coll_rows + pad
+    off_a, off_b = strip_rows * 2, strip_rows * 2 + coll_rows
+    bsz = 16                                   # a block is 16x16 tiles
+    blocks_per_axis = strip_rows // bsz
+    brows = bsz // 2                           # 16-px collision rows per block
+    raw_size = bsz * bsz * 2 + 2 * bsz * brows
+    index_bytes = blocks_per_axis * blocks_per_axis * 4
+
+    blocks_checked = 0
+    for n in range(n_sec):
+        owner, seen = str(n), set()
+        while owner in alias and owner not in seen:   # the blob the ROM hands section n
+            seen.add(owner)
+            owner = alias[owner]
+        rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        if owner not in embed or n not in dlen or not os.path.isfile(rem_path):
+            check(False, f"block decode: sec{n} has no resolvable blob, dict length or "
+                         f"strips -- cannot decode what the ROM carries for it")
+            continue
+        blob_path = os.path.join(GEN, embed[owner])
+        if not os.path.isfile(blob_path):
+            check(False, f"block decode: {embed[owner]} (the blob sec{n} uses) is missing")
+            continue
+        blob = read(blob_path)
+        rem = read(rem_path)
+        if len(rem) != strip_rows * stride or len(blob) < index_bytes + dlen[n]:
+            check(False, f"block decode: sec{n} strips {len(rem)} B / blob {len(blob)} B "
+                         f"are the wrong shape to decode")
+            continue
+        cols = [rem[c * stride:(c + 1) * stride] for c in range(strip_rows)]
+        dictionary = blob[index_bytes:index_bytes + dlen[n]]
+        bad = []
+        for by in range(blocks_per_axis):
+            for bx in range(blocks_per_axis):
+                cs = cols[bx * bsz:(bx + 1) * bsz]
+                t0 = by * bsz * 2
+                want = (b"".join(col[t0 + 2 * r:t0 + 2 * r + 2] for r in range(bsz) for col in cs)
+                        + bytes(col[off_a + by * brows + r] for r in range(brows) for col in cs)
+                        + bytes(col[off_b + by * brows + r] for r in range(brows) for col in cs))
+                i = by * blocks_per_axis + bx
+                entry = struct.unpack_from(">I", blob, i * 4)[0]
+                if entry == 0:
+                    got = bytes(raw_size)
+                elif entry & 0x80000000:
+                    off = entry & 0x7FFFFFFF
+                    ok_range = index_bytes <= off and off + raw_size <= index_bytes + dlen[n]
+                    got = blob[off:off + raw_size] if ok_range else None
+                else:
+                    try:
+                        got = s4lz.decompress(blob[entry:], dictionary=dictionary)
+                    except Exception:           # a malformed stream is a wrong block
+                        got = None
+                if got != want:
+                    bad.append(i)
+                blocks_checked += 1
+        check(not bad,
+              f"block decode: sec{n}: {len(bad)} of {blocks_per_axis ** 2} blocks in "
+              f"{embed[owner]} do NOT decode to the block its strips define (first: block "
+              f"{bad[0] if bad else '-'}) -- the ROM would stream different level data "
+              f"than every other check certified")
+    check(blocks_checked > 0, "block decode: zero blocks decoded -- measured nothing")
+
+
 def verify_bininclude_targets():
     """Every BINCLUDE / embed() in the committed generated heads resolves to a
     present file (catches a renamed/removed blob a hand-edit left dangling)."""
@@ -940,6 +1040,7 @@ def main():
     verify_act_pool()
     verify_local_maps()
     verify_block_blobs()
+    verify_block_decode()
     verify_bininclude_targets()
     verify_collision_is_interned()
     verify_editor_bake_fidelity()
@@ -947,7 +1048,7 @@ def main():
     verify_section_set()
     verify_no_orphans()
     checks_run = ("act-pool+content+sidecar / local-maps+table / block-blobs / "
-                  "bininclude-targets / collision-interned / editor-bake / "
+                  "block-decode / bininclude-targets / collision-interned / editor-bake / "
                   "editor-collision / section-set / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)

@@ -548,6 +548,42 @@ def _run_rebake(repo, tmp_path, fail_at):
     return p, snap_root
 
 
+# ---------------------------------------------------------------------------
+# F6 -- the gate decodes the ROM-consumed block blobs, not only their dictionaries
+# ---------------------------------------------------------------------------
+
+def _blocks_tree(tmp_path):
+    import act_grid
+    n = act_grid.section_count()
+    files = ["sec_block_blobs.emp", "sec_block_dicts.emp"]
+    for i in range(n):
+        files += [f"sec{i}_strips_a.bin", f"sec{i}_blocks.bin"]
+    return _gen_tree(tmp_path, files), n
+
+
+def test_f6_gate_decodes_the_committed_blobs_to_their_strips(tmp_path, monkeypatch):
+    root, _n = _blocks_tree(tmp_path)
+    assert _run_gate(monkeypatch, root, vlb.verify_block_decode) == []
+
+
+def test_f6_gate_fails_a_blob_that_encodes_another_section(tmp_path, monkeypatch):
+    """The sweep's fixture B: a well-formed blob for the WRONG section. It passes the
+    dictionary-region check whenever the two dictionaries are the same length, so the
+    donor section is picked by that property (derived from sec_block_dicts.emp), and
+    it must hold different blocks, or the swap would prove nothing."""
+    import re as _re
+    root, n = _blocks_tree(tmp_path)
+    gen = root / REL_GEN
+    dl = {int(a): int(b) for a, b in _re.findall(
+        r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", (gen / "sec_block_dicts.emp").read_text())}
+    donors = [i for i in range(1, n) if dl.get(i) == dl.get(0)
+              and (gen / f"sec{i}_blocks.bin").read_bytes() != (gen / "sec0_blocks.bin").read_bytes()]
+    assert donors, "no section shares sec0's dictionary length with different content"
+    shutil.copy(gen / f"sec{donors[0]}_blocks.bin", gen / "sec0_blocks.bin")
+    fails = _run_gate(monkeypatch, root, vlb.verify_block_decode)
+    assert any(f.startswith("block decode: sec0:") for f in fails), fails
+
+
 @pytest.mark.parametrize("fail_at", ["generate", "verify"])
 def test_f5_a_refusal_after_the_first_write_leaves_the_tree_as_it_was(tmp_path, fail_at):
     """`generate`: a refusal inside the bake (e.g. an R2 self-mark) after
