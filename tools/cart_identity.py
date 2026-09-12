@@ -75,7 +75,24 @@ async def assert_cart_matches_disk(b, rom_path, out=None, full=True):
         got += step
     back = b"".join(chunks)
     if back != raw[:n]:
-        bad = next(i for i, (x, y) in enumerate(zip(back, raw)) if x != y)
+        # The readback can differ in two ways, and the SHORT case has to be handled
+        # explicitly: `next(...)` over the differing positions raises StopIteration
+        # when `back` is merely a PREFIX of the file, and a bare StopIteration inside
+        # a coroutine surfaces as an unrelated `RuntimeError: generator raised
+        # StopIteration` — a confusing crash in the one code path whose whole job is
+        # to say clearly what went wrong. Found by this file's own red-first run
+        # (tools/test_cart_identity.py), which neuters the length branch and so
+        # reaches here with a short readback.
+        if len(back) != n:
+            raise CartMismatch(
+                f"the bus returned {len(back)} of the {n} cart bytes requested for "
+                f"{rom_path} — a SHORT readback, so the cart cannot be compared at all")
+        bad = next((i for i, (x, y) in enumerate(zip(back, raw)) if x != y), None)
+        if bad is None:
+            raise CartMismatch(
+                f"the cart read back from the bus is not equal to {rom_path} yet no "
+                f"byte in the first {n} differs — the comparison itself is broken and "
+                f"no number from this run is attributable")
         raise CartMismatch(
             f"the cart read back from the bus differs from {rom_path} at offset "
             f"${bad:06X} (disk ${raw[bad]:02X}, machine ${back[bad]:02X}); the lengths "
