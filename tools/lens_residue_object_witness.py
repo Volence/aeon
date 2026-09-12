@@ -463,6 +463,41 @@ async def reaches(rig: Rig, addr: int, max_frames: int) -> dict:
     return await rig.run_to(addr, max_frames)
 
 
+async def render_pass(rig: Rig, watch: list, before=None) -> dict:
+    """Run exactly ONE Render_Sprites call with execution breakpoints armed at `watch`.
+
+    WHY A COUNTED PASS and not "not reached within N frames": this scene lags once the player
+    is in physics (one logic tick can span two frames; measured), so a frame budget does not
+    say how many renders it contained, and a "not reached" over a budget that held no render
+    is vacuous. Here the pass is bracketed by the proc's own entry and its own return
+    address (read off the stack at entry), so a pass that completes is one whole render.
+
+    The detector is a breakpoint, and oracle halts any run on an armed breakpoint before the
+    target (oracle crates/oracle-aether/src/breakpoints.rs). Every witness that uses this has
+    a SUBJECT that must trip the same breakpoint its control must not, in the same process,
+    so a detector that does not fire cannot pass a witness.
+    `before(rig)` runs at the entry, before arming (a mid-frame poke)."""
+    f = rig.f
+    r = await rig.run_to(f.Render_Sprites, 6)
+    if not r.get("reached"):
+        raise CouldNotRun("Render_Sprites was not entered within 6 frames")
+    entry_frame = r.get("frame")
+    ret = await rig.rl((await rig.regs())["a7"])
+    if before is not None:
+        await before(rig)
+    handles = []
+    try:
+        for a in watch:
+            handles.append((await rig.call("emulator/breakpoint_add", {"addr": hex(a)}))["breakpoint"])
+        r2 = await rig.run_to(ret, 6)
+    finally:
+        for h in handles:
+            await rig.call("emulator/breakpoint_clear", {"breakpoint": h})
+    pc = int(r2["pc"], 16)
+    return dict(entry_frame=entry_frame, ret=ret, returned=bool(r2.get("reached")),
+                hit=pc if pc in watch else None, stop_frame=r2.get("frame"), pc=pc)
+
+
 async def collect_ring0(rig: Rig, out: list, collect: bool = True) -> dict:
     """From the fly checkpoint: place Player_1 on section-0 ring list index 0 (or, for the
     control, 40 px below it), press B once. Returns the before/after record.
@@ -565,75 +600,72 @@ async def w_c2a6(rig: Rig, boot: str, out: list) -> tuple[str, str]:
         raise CouldNotRun("the cache is already inconsistent at boot; a 'wrong' value means nothing")
     W = (F + 2) & 0xFFFF
     p1w = P & 0xFFFF
+    watch = [f.net_raise, f.MDDBG__ErrorHandler]
+    PASSES = 2                        # counted Render_Sprites calls per control
 
-    # baseline: no poke -> no raise, and Player_1 owns SAT entries this frame
+    def fmt(p):
+        return (f"entry f{p['entry_frame']} -> {'returned' if p['returned'] else 'STOPPED'} "
+                f"f{p['stop_frame']} at ${p['pc']:X}")
+
+    # baseline: no poke -> both passes return, and Player_1 owns SAT entries
     await rig.restore(boot)
-    r = await stop_at_entry(rig, f.Render_Sprites, 2, "Render_Sprites")
-    ret = await rig.rl((await rig.regs())["a7"])
-    await stop_at_entry(rig, ret, 1, "Render_Sprites' return")
+    base = [await render_pass(rig, watch) for _ in range(PASSES)]
     base_own = (await rig.sprite_owner()).count(p1w)
-    await rig.restore(boot)
-    base_raise = await reaches(rig, f.net_raise, 3)
-    out.append(f"  baseline (no poke): Player_1 owns {base_own} SAT entries; staleness-net raise "
-               f"reached in 3 frames: {bool(base_raise.get('reached'))}")
+    out.append(f"  baseline (no poke), {PASSES} passes: " + "; ".join(fmt(p) for p in base)
+               + f"; Player_1 owns {base_own} SAT entries")
 
-    # SUBJECT: count $FF + wrong frame_off
+    # SUBJECT: count $FF + wrong frame_off, poked at the boot checkpoint (mid-tick, before
+    # this tick's Render_Sprites; in fly nothing refreshes the cache in between)
+    async def subject_poke(rig):
+        await rig.wb(P + o["sprite_piece_count"], 0xFF)
+        await rig.ww(P + o["frame_off"], W)
     await rig.restore(boot)
-    await rig.wb(P + o["sprite_piece_count"], 0xFF)
-    await rig.ww(P + o["frame_off"], W)
-    r = await reaches(rig, f.net_raise, 3)
-    subj = dict(reached=bool(r.get("reached")), frame=r.get("frame"))
-    if subj["reached"]:
+    await subject_poke(rig)
+    sp = await render_pass(rig, watch)
+    subj = dict(hit=sp["hit"], frame=sp["stop_frame"])
+    if sp["hit"] == f.net_raise:
         rg = await rig.regs()
-        subj.update(a0=rg["a0"] & 0xFFFFFF, d0=rg["d0"] & 0xFFFF, d1=rg["d1"] & 0xFFFF,
-                    fo=await rig.rw(P + o["frame_off"]))
+        subj.update(a0=rg["a0"] & 0xFFFFFF, d0=rg["d0"] & 0xFFFF, d1=rg["d1"] & 0xFFFF)
         r2 = await reaches(rig, f.MDDBG__ErrorHandler, 1)
         subj["handler"] = bool(r2.get("reached"))
-    out.append(f"  SUBJECT (count $FF, frame_off ${F:04X} -> ${W:04X}): raise rail ${f.net_raise:X} "
-               f"reached={subj['reached']} at frame {subj.get('frame')}; a0=${subj.get('a0', 0):06X} "
+    out.append(f"  SUBJECT (count $FF, frame_off ${F:04X} -> ${W:04X}): {fmt(sp)}; raise rail "
+               f"${f.net_raise:X} hit={sp['hit'] == f.net_raise}; a0=${subj.get('a0', 0):06X} "
                f"d1(cached)=${subj.get('d1', 0):04X} d0(live)=${subj.get('d0', 0):04X}; "
-               f"MDDBG__ErrorHandler ${f.MDDBG__ErrorHandler:X} entered={subj.get('handler')}")
+               f"then MDDBG__ErrorHandler ${f.MDDBG__ErrorHandler:X} entered={subj.get('handler')}")
 
     # CONTROL A: count $FF only
     await rig.restore(boot)
     await rig.wb(P + o["sprite_piece_count"], 0xFF)
-    a_raise = bool((await reaches(rig, f.net_raise, 3)).get("reached"))
-    await rig.restore(boot)
-    await rig.wb(P + o["sprite_piece_count"], 0xFF)
-    a_handler = bool((await reaches(rig, f.MDDBG__ErrorHandler, 3)).get("reached"))
-    await rig.restore(boot)
-    await rig.wb(P + o["sprite_piece_count"], 0xFF)
-    await stop_at_entry(rig, f.Render_Sprites, 2, "Render_Sprites")
-    ret = await rig.rl((await rig.regs())["a7"])
-    await stop_at_entry(rig, ret, 1, "Render_Sprites' return")
-    a_own = (await rig.sprite_owner()).count(p1w)
-    out.append(f"  CONTROL A (count $FF only): raise reached in 3 frames={a_raise}, "
-               f"ErrorHandler reached in 3 frames={a_handler}; Player_1 owns {a_own} SAT entries "
-               f"(baseline {base_own})")
+    ca = [await render_pass(rig, watch)]
+    a_own = (await rig.sprite_owner()).count(p1w)       # stamps of the first poked pass
+    ca.append(await render_pass(rig, watch))
+    out.append(f"  CONTROL A (count $FF only), {PASSES} passes: " + "; ".join(fmt(p) for p in ca)
+               + f"; Player_1 owns {a_own} SAT entries in the first (baseline {base_own})")
 
     # CONTROL B: the subject's two pokes plus mappings = 0, on a slot already in a band
-    async def control_b(target, frames):
-        await rig.restore(boot)
-        await stop_at_entry(rig, f.Render_Sprites, 2, "Render_Sprites")
+    b_band = []
+
+    async def control_b_poke(rig):
         counts = await rig.rd(f.Sprite_Band_Counts, 8)
         bands = await rig.rd(f.Sprite_Bands, 8 * 64)
-        in_band = [(bd, i) for bd in range(8) for i in range(counts[bd])
-                   if int.from_bytes(bands[bd * 64 + 2 * i:bd * 64 + 2 * i + 2], "big") == p1w]
+        b_band.extend((bd, i) for bd in range(8) for i in range(counts[bd])
+                      if int.from_bytes(bands[bd * 64 + 2 * i:bd * 64 + 2 * i + 2], "big") == p1w)
         await rig.wl(P + o["mappings"], 0)
-        await rig.wb(P + o["sprite_piece_count"], 0xFF)
-        await rig.ww(P + o["frame_off"], W)
-        return in_band, bool((await reaches(rig, target, frames)).get("reached"))
-    b_band, b_raise = await control_b(f.net_raise, 3)
-    _, b_handler = await control_b(f.MDDBG__ErrorHandler, 3)
-    out.append(f"  CONTROL B (at Render_Sprites entry, Player_1 in band list at {b_band}; "
-               f"mappings=0 + count $FF + frame_off ${W:04X}): raise reached in 3 frames="
-               f"{b_raise}, ErrorHandler reached in 3 frames={b_handler}")
+        await subject_poke(rig)
+    await rig.restore(boot)
+    cb = [await render_pass(rig, watch, before=control_b_poke)]
+    cb.append(await render_pass(rig, watch))
+    out.append(f"  CONTROL B (at Render_Sprites entry Player_1 is in band list at {b_band}; "
+               f"mappings=0 + count $FF + frame_off ${W:04X}), {PASSES} passes: "
+               + "; ".join(fmt(p) for p in cb))
 
-    ok_subject = (subj["reached"] and subj.get("a0") == P and subj.get("d1") == W
+    def clean(ps):
+        return all(p["returned"] and p["hit"] is None for p in ps)
+    ok_subject = (subj["hit"] == f.net_raise and subj.get("a0") == P and subj.get("d1") == W
                   and subj.get("d0") == F and subj.get("handler"))
-    ok_a = (not a_raise) and (not a_handler) and a_own == 0 and base_own > 0
-    ok_b = bool(b_band) and (not b_raise) and (not b_handler)
-    ok_base = not base_raise.get("reached")
+    ok_a = clean(ca) and a_own == 0 and base_own > 0
+    ok_b = bool(b_band) and clean(cb)
+    ok_base = clean(base)
     if ok_subject and ok_a and ok_b and ok_base:
         return "WITNESSED", (f"raise at ${f.net_raise:X} with a0=Player_1, cached ${W:04X} vs live "
                              f"${F:04X}, handler entered; A: no raise, 0 SAT entries (baseline "
@@ -730,12 +762,13 @@ async def w_multisprite(rig: Rig, boot: str, out: list) -> tuple[str, str]:
     try:
         # A: each child's Draw_Sprite
         paths = await draw_paths(rig, set(kids))
-        # B: Render_Sprites' multi_sprite with a0 = the parent
-        r = await rig.run_to(f.rs_multi, 2)
-        multi_a0 = ((await rig.regs())["a0"] & 0xFFFFFF) if r.get("reached") else None
-        r = await rig.run_to(f.Render_Sprites, 2)            # next frame's render entry:
-        owners = await rig.sprite_owner()                    # Sprite_Owner still holds the last
-        own = {k: owners.count(k & 0xFFFF) for k in [parent] + kids}   # render's stamps
+        # B: one counted Render_Sprites pass with a breakpoint at .multi_sprite
+        bp = await render_pass(rig, [f.rs_multi])
+        multi_a0 = ((await rig.regs())["a0"] & 0xFFFFFF) if bp["hit"] == f.rs_multi else None
+        if bp["hit"] == f.rs_multi:
+            await stop_at_entry(rig, bp["ret"], 2, "Render_Sprites' return")   # finish the pass
+        owners = await rig.sprite_owner()                    # this pass's SAT ownership stamps
+        own = {k: owners.count(k & 0xFFFF) for k in [parent] + kids}
         kids_rf = [await rig.rb(k + o["render_flags"]) for k in kids]
         cam1 = await rig.camera()
         alive = await rig.rw(parent)
@@ -751,11 +784,16 @@ async def w_multisprite(rig: Rig, boot: str, out: list) -> tuple[str, str]:
         await rig.restore(settled)
         await rig.wb(parent + o["render_flags"], prf & ~(1 << f.RF_MULTISPRITE))
         cpaths = await draw_paths(rig, set(kids))
-        cr = await rig.run_to(f.rs_multi, 2)
+        cps = [await render_pass(rig, [f.rs_multi]) for _ in range(2)]
+        cowners = await rig.sprite_owner()
+        cown = {k: cowners.count(k & 0xFFFF) for k in [parent] + kids}
         out.append(f"  CONTROL (parent RF_MULTISPRITE cleared): " + "; ".join(
             f"${k & 0xFFFF:04X} no_parent={p['no_parent']} offscreen={p['offscreen']} "
             f"RF_ONSCREEN={p['onscreen']}" for k, p in cpaths.items())
-            + f"; .multi_sprite reached in 2 frames={bool(cr.get('reached'))}")
+            + "; 2 counted Render_Sprites passes: " + "; ".join(
+                f"{'returned' if p['returned'] else 'STOPPED'} at ${p['pc']:X}"
+                f"{' (.multi_sprite HIT)' if p['hit'] else ''}" for p in cps)
+            + f"; SAT entries owned: " + ", ".join(f"${k & 0xFFFF:04X}={n}" for k, n in cown.items()))
     finally:
         await rig.drop(settled)
 
@@ -765,7 +803,7 @@ async def w_multisprite(rig: Rig, boot: str, out: list) -> tuple[str, str]:
     ok_b = multi_a0 == parent and all(own[k] > 0 for k in [parent] + kids)
     ok_c = (len(cpaths) == len(kids) and all(p["no_parent"] and p["onscreen"]
                                              for p in cpaths.values())
-            and not cr.get("reached"))
+            and all(p["returned"] and p["hit"] is None for p in cps))
     still = cam0 == cam1 and alive != 0
     if ok_a and ok_b and ok_c and still:
         return "WITNESSED", (f"{len(kids)}/{len(kids)} children took the batching exit "
