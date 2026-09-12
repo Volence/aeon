@@ -476,6 +476,11 @@ pub struct RasterGradientProgram {
     rgp_lines:      u16,
     rgp_stream:     *u8,    // rgp_lines * RASTER_DENSE_WORDS_PER_LINE colour words
     rgp_end_arm:    u16, rgp_end_ops: u16,  // terminator
+    // ZERO PAD TO THE INSTALL BUFFER (EFX-4b): Raster_VBlank copies a fixed
+    // RASTER_BUF_SIZE bytes from a staged static program, so the image is exactly that
+    // long and the copy never reads past it. 30 bytes of program plus 98 of pad; the
+    // sizeof ensure below RasterRampProgram holds the sum to RASTER_BUF_SIZE.
+    rgp_pad:        [u16; 49],
 }
 
 // raster_gradient_program — build the schedule above. `cmd` is the CRAM write command
@@ -559,6 +564,9 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
            "raster_gradient_program: the run writes CRAM line 0, the CHARACTER's palette line — a dense run re-asserts its line every frame, so this would fight the player's palette for the whole section")
     ensure(stream_words == lines * RASTER_DENSE_WORDS_PER_LINE,
            "raster_gradient_program: stream is {stream_words} words but the run needs lines * RASTER_DENSE_WORDS_PER_LINE = {lines * RASTER_DENSE_WORDS_PER_LINE}. A short stream is read past its end into whatever ROM follows, for the rest of the run, every frame.")
+    // The install-buffer pad (EFX-4b). A literal count, not a name: see the sizeof ensure
+    // below RasterRampProgram, which is what holds 49 to the buffer.
+    let pad = comptime for i in 0..49 { 0 }
     return RasterGradientProgram{
         rgp_mask:       1 << (addr >> 5),
         rgp_arm0:       raster_arm(1, top - 1),
@@ -573,6 +581,7 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
         rgp_stream:     stream,
         rgp_end_arm:    RASTER_ARM_PARK,
         rgp_end_ops:    RASTER_OPS_END,
+        rgp_pad:        pad,
     }
 }
 
@@ -633,7 +642,31 @@ pub struct RasterRampProgram {
                             // body. u32-carrying-a-signed-image is the tree's precedent, not a
                             // preference: engine/level/parallax.emp's bd_rate_1616 banner.
     rrp_end_arm:    u16, rrp_end_ops: u16,  // terminator
+    // ZERO PAD TO THE INSTALL BUFFER (EFX-4b), for RasterGradientProgram's reason above.
+    // 34 bytes of program plus 94 of pad.
+    rrp_pad:        [u16; 47],
 }
+
+// BOTH DENSE WIRE STRUCTS ARE EXACTLY THE INSTALL BUFFER (EFX-4b, 2026-09-11). They are the
+// struct half of the static-program family whose array half is raster_dsl's static_program():
+// Raster_VBlank's `.copy_program` arm copies a FIXED RASTER_BUF_SIZE bytes out of whichever
+// one is staged, and until this pad the 30- and 34-byte programs dragged the next ROM
+// section into Raster_Buf_A behind their terminators.
+//
+// The pad lengths are LITERALS in the struct and in both constructors on purpose. A struct's
+// array lengths are re-elaborated in every module that imports it (docs/EMP_PITFALLS.md §8),
+// and a constructor body's free names resolve at its call site (§2), so a named constant
+// there would have to be imported by ojz_effects.emp, the generated effects module and every
+// future caller. This ensure is what ties the literals to the constant instead: grow the
+// program, shrink the buffer, or miscount the pad, and the build stops here naming the size.
+//
+// NOT a `(size: N)` annotation on the struct, which is where this would otherwise go:
+// tools/test_raster_wire_pin.py, tools/ramp_boundary_probe.py and tools/ramp_authored_witness.py
+// find these declarations by matching `pub struct <Name> {`, and an annotation between the
+// name and the brace hides the struct from all three. They read the program's fields by
+// name and skip the array-typed pad, so the prefix they decode is unchanged.
+ensure(sizeof(RasterGradientProgram) == RASTER_BUF_SIZE && sizeof(RasterRampProgram) == RASTER_BUF_SIZE,
+       "the dense-tier wire structs are RasterGradientProgram {sizeof(RasterGradientProgram)} bytes and RasterRampProgram {sizeof(RasterRampProgram)} bytes, but Raster_VBlank's static install copy reads exactly RASTER_BUF_SIZE ({RASTER_BUF_SIZE}) bytes from a staged program. Re-size the trailing rgp_pad / rrp_pad array (and the matching zero fill in raster_gradient_program / raster_ramp_program) so each struct is exactly the buffer — shorter drags the next ROM section into Raster_Buf_A (EFX-4b), longer is ROM the copy never reads.")
 
 // raster_ramp_program — a dense run whose per-line value is COMPUTED from a 16.16
 // accumulator instead of streamed from ROM, which is what makes it parameterisable at
@@ -875,6 +908,8 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     if start_img < 0 { start_img = start_img + $100000000 }
     comptime var step_img = step
     if step_img < 0 { step_img = step_img + $100000000 }
+    // The install-buffer pad (EFX-4b), a literal for the gradient constructor's reason.
+    let pad = comptime for i in 0..47 { 0 }
     return RasterRampProgram{
         rrp_mask:       mask,
         rrp_arm0:       raster_arm(1, top - 1),
@@ -890,6 +925,7 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
         rrp_step:       step_img,
         rrp_end_arm:    RASTER_ARM_PARK,
         rrp_end_ops:    RASTER_OPS_END,
+        rrp_pad:        pad,
     }
 }
 
@@ -1033,6 +1069,13 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         clr.l   Effects_Offscreen_Entry
         lea     Raster_Buf_A, a2
         move.l  a2, Raster_Active_Buf
+        // A FIXED RASTER_BUF_SIZE bytes, and every static image the language emits is exactly
+        // that long (EFX-4b, 2026-09-11): the array family through raster_dsl's static_program(),
+        // the two dense-tier structs through their own pad fields, pinned by a sizeof ensure.
+        // The length word, the bounded copy and walking the ROM program in place were each
+        // costed and rejected — static_program's banner says why. A RAM twin a witness stages
+        // through Raster_Pending is outside the language and still reads whatever follows it;
+        // the walker stops at RASTER_OPS_END either way.
         move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
     .copy:
         move.w  (a1)+, (a2)+

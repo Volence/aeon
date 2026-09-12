@@ -1447,10 +1447,14 @@ comptime fn fire_body_words(f: RasterFire) -> array {
 // op_size — the SAME fact by an independent path from op_words. The cross-check that
 // actually runs is raster_program's own `ensure(out.len == raster_words(fires))` at the
 // bottom of this module: it fires on EVERY call, and it is what catches header/record
-// FRAMING drift. The `data X: [u16; raster_words(P)] = raster_program(P)` annotation adds
-// one narrower thing on top — it catches `[u16; raster_words(A)] = raster_program(B)`,
-// an annotation naming a DIFFERENT program, which is a realistic copy-paste between two
-// adjacent fixtures — and it pins the declared ROM footprint at the linker seam. Writing
+// FRAMING drift. The old `data X: [u16; raster_words(P)] = raster_program(P)` annotation
+// added one narrower thing on top — it caught `[u16; raster_words(A)] = raster_program(B)`,
+// an annotation naming a DIFFERENT program. That spelling is RETIRED for installable
+// programs (EFX-4b, 2026-09-11: see static_program below — an installed image is padded to
+// the buffer, so its length no longer depends on which program it is and the A/B check has
+// nothing left to compare); `raster_words(P) == HAND.len` pins carry the per-program
+// length now, beside every hand twin. The annotation still pins the declared ROM footprint
+// at the linker seam. Writing
 // `[u16; P.len] = P` instead would be tautological and is forbidden. A wrong word VALUE
 // inside a correctly-sized body is caught by neither; that is the hand-word twins' job,
 // with the goldens behind them.
@@ -2732,11 +2736,14 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
 
 // ---- the two public entry points --------------------------------------------
 
-// raster_words — the word count, computed from op_size. Use it as the length
-// annotation on the `pub data`:
-//     pub data P: [u16; raster_words(PROG)] = raster_program(PROG)
-// NOT `[u16; PROG.len] = PROG`, which is tautological. Note the guard only bites on a
-// `data` declaration — `const` does not enforce its declared array length.
+// raster_words — the word count of the program BODY, computed from op_size. It is what the
+// hand-twin pins compare against (`raster_words(PROG) == HAND.len`) and what the band-cap
+// fixtures count in. It is NOT the length of an installed image any more: a static program
+// is emitted through static_program() below, padded to the buffer,
+//     pub data P: [u16; static_words()] = static_program(PROG)
+// and tools/test_static_program_padding.py refuses the old
+// `[u16; raster_words(PROG)] = raster_program(PROG)` declaration (EFX-4b). Note a length
+// annotation only bites on a `data` declaration — `const` does not enforce it.
 pub comptime fn raster_words(fires: array) -> int {
     comptime var n = 1 + 4 + 2            // mask, two priming records, terminator
     for f in fires {
@@ -3316,9 +3323,11 @@ pub comptime fn raster_program(fires: array) {
     // Raster_VBlank's static-program path copies a FIXED RASTER_BUF_SIZE bytes into Buf_A, and
     // Raster_BuildSchedule re-records a patched program into the same fixed-size buffer every
     // VBlank, so a program longer than the buffer would be truncated live on either path.
-    // (The converse over-read of a short template is pre-existing and harmless — the
-    // walker never reaches past the terminator. Booked as EFX-4 in docs/BUGS.md; the
-    // ensure below closes that entry's overflow half and the over-read half stays open.)
+    // The ensure below closes that overflow half of the old EFX-4. The converse — the
+    // install copy over-reading a SHORT program into whatever ROM follows it (EFX-4b) — is
+    // closed by padding every installed image to the buffer: static_program() for a static
+    // program, patched_program() for a patched one. This function stays the unpadded BODY,
+    // and this ensure is what keeps both pads from ever going negative.
     ensure(out.len * 2 <= 128,
            "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_BuildSchedule both copy into a fixed 128-byte buffer")
     ensure(out.len == raster_words(fires),
@@ -3585,6 +3594,69 @@ pub comptime fn patched_program(fires: array) -> array {
     out = out ++ ship_trailer(fires)
     ensure(out.len == patched_words(fires),
            "patched_program: emitted {out.len} words but patched_words counted {patched_words(fires)} — the emitter and the length annotation disagree")
+    return out
+}
+
+// ---- the static program, as it must sit in ROM (EFX-4b, 2026-09-11) --------------------
+//
+// static_words / static_program — a STATIC program padded to the RASTER_BUF_WORDS-word
+// working buffer, the static twin of patched_words / patched_program above. This is the
+// spelling every INSTALLABLE static program is emitted with:
+//
+//     pub data P: [u16; static_words()] = static_program(PROG)
+//
+// WHY IT EXISTS. Raster_VBlank's `.copy_program` arm copies a FIXED RASTER_BUF_SIZE bytes
+// from whatever static program was staged into Raster_Buf_A. Static programs used to be
+// declared `[u16; raster_words(P)] = raster_program(P)`, sized to their content, so every
+// short one dragged the ROM after it into the buffer past its terminator (lens EFX-4b; the
+// archived EFX-4 named Raster_Program_None, which Raster_VBlank's semantic empty test now
+// diverts to HBlank_Uninstall before any copy — the live subject was short NON-empty
+// programs such as OJZ_TestRaster). Harmless to the walker, which stops at RASTER_OPS_END,
+// but it made Buf_A's tail a function of the LINKER, whatever section happened to follow,
+// and every tool that captures the buffer read that.
+//
+// WHY PADDING AND NOT THE OTHER CANDIDATES — all four were costed on this tree:
+//   * A LENGTH WORD in the header: moves arm0 off word 1. "The header is ONE word" is what
+//     lets patch_table pre-resolve rec_off, what makes Raster_BuildSchedule's 5-word
+//     prologue a constant, and what every hand twin and every tool decoder reads. Rejected.
+//   * A BOUNDED COPY: the runtime cannot know the length. Records are [arm][op_count][ops]
+//     with a per-opcode payload (and a variable one for OP_CRAM), so bounding by the record
+//     walk is a SECOND decoder of the wire format in VBlank, beside Raster_HInt's and
+//     op_size's. Scanning for the [$8AFF][$FFFF] terminator is UNSOUND: a ramp whose start
+//     image's low word is $8AFF and whose step is a small negative (high word $FFFF) spells
+//     it inside the record and would truncate the copy mid-ramp. (fp16() never produces
+//     that low word, but raster_ramp_program bounds a raw start's VALUE, not its spelling,
+//     so the pair is legal.)
+//   * WALKING THE ROM PROGRAM IN PLACE (docs/DEFERRED_WORK.md's "new angle on EFX-4b"):
+//     the cleanest runtime of all, but it makes Raster_Active_Buf a ROM pointer, and
+//     tools/effects_scene_assert.py refuses exactly that ("points at X, which is neither
+//     captured buffer") on the dense scene, whose program is the static OJZ_TestGradient.
+//     It would also stop snapshotting the RAM twins the ramp and base-swap witnesses stage
+//     through Raster_Pending. A mechanism change behind emulator-only gates, not this parcel.
+//   * PADDING (this): data only — zero runtime bytes, zero cycles — and the install copy's
+//     fixed read becomes defined for every program the language can emit. The static and
+//     patched families now share one rule: an installable image is exactly the buffer,
+//     zero-filled past its terminator. The price is ROM.
+//
+// raster_program STAYS the unpadded BODY: the hand-twin pins, the band-cap fixtures and
+// patched_program() all read it, and its own `out.len * 2 <= 128` ensure is what keeps
+// the pad below from going negative. That spelling still COMPILES as a `pub data`
+// initializer, so tools/test_static_program_padding.py refuses one.
+//
+// static_words TAKES NO PROGRAM, on purpose: the padded length is the buffer's for every
+// program, so a parameter would read as though the length depended on it.
+//
+// The dense-tier programs are STRUCTS (they carry a link-time stream pointer a [u16]
+// literal cannot hold) and pad themselves: RasterGradientProgram and RasterRampProgram in
+// engine/effects/raster.emp each end in a pad field and are pinned to RASTER_BUF_SIZE there.
+pub comptime fn static_words() -> int {
+    return RASTER_BUF_WORDS
+}
+
+pub comptime fn static_program(fires: array) -> array {
+    comptime var out = raster_program(fires)     // every guard runs here, the fit check included
+    comptime var pad = RASTER_BUF_WORDS - out.len
+    for i in 0..pad { out = out ++ [0] }
     return out
 }
 

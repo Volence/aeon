@@ -582,8 +582,14 @@ def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
 # WHAT IT LOWERS TO, and where each half's guards live:
 #
 #     const EditorRasterSrc_OJZ_Act1_x = compose([ band(top: .., bot: .., on: .., sh: ..) ])
-#     pub data EditorRaster_OJZ_Act1_x: [u16; raster_words(EditorRasterSrc_OJZ_Act1_x)]
-#                                     = raster_program(EditorRasterSrc_OJZ_Act1_x)
+#     pub data EditorRaster_OJZ_Act1_x: [u16; static_words()]
+#                                     = static_program(EditorRasterSrc_OJZ_Act1_x)
+#
+# `static_program`, not `raster_program`: the same words padded to the install buffer, because
+# Raster_VBlank copies a fixed-size block out of a static program and a short image drags the
+# next ROM section into its working buffer (lens EFX-4b, 2026-09-11; the banner above
+# `static_program` in raster_dsl.emp). `static_program` calls `raster_program`, so every guard
+# named below still runs on the authored numbers.
 #
 # The `pub data` is what puts words in the ROM, and it is also what makes every guard in
 # `engine/effects/raster_dsl.emp` a REAL error surface for authored content: a data item
@@ -2916,8 +2922,10 @@ def render_preset(path: str, preset: dict, names) -> str:
     The `const` half is REFERENCED TWICE below and that is load-bearing: an unreferenced
     top-level `const X = f(..)` is comptime-INERT and would fold nothing
     (docs/EMP_PITFALLS.md §3, the same trap `scene_budget_enforce`'s reference exists for).
-    Here `raster_words()` and `raster_program()` both name it, so both folds run and every
-    guard inside them fires on the authored numbers.
+    Here `static_program()` names it (it pads `raster_program()`'s words to the install
+    buffer, EFX-4b), so the fold runs and every guard inside `raster_program()` fires on the
+    authored numbers. One reference is enough to make a const fold; the declaration's length
+    is `static_words()`, which is the buffer's for every program and names none.
     """
     pid = preset["id"]
     if "ramp" in preset:
@@ -2931,7 +2939,7 @@ def render_preset(path: str, preset: dict, names) -> str:
              for i, b in enumerate(preset["bands"])]
     return (f"const {src} = compose([\n    "
             + ",\n    ".join(bands) + ",\n])\n"
-            + f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
+            + f"pub data {label}: [u16; static_words()] = static_program({src})")
 
 
 def render_fp16(path: str, value: dict, where: str) -> str:
@@ -3067,7 +3075,7 @@ def render_base_swap_preset(path: str, preset: dict, names) -> str:
             fires.append(f"fire({restore_line}, [reg_set(vdp_reg({reg}, "
                          f"vdp_base_reg(VdpBase.{plane}, {home})))])")
     return (f"const {src} = [" + ",\n                    ".join(fires) + "]\n"
-            f"pub data {label}: [u16; raster_words({src})] = raster_program({src})")
+            f"pub data {label}: [u16; static_words()] = static_program({src})")
 
 
 def render_boundary_preset(path: str, preset: dict, names) -> str:
