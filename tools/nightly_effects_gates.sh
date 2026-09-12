@@ -146,9 +146,10 @@ cd "$NIGHTLY"
 # The provenance instant for the needs_build lane below: every artifact it grades must
 # have been written AFTER this, i.e. by one of the three builds that follow. Taken from
 # `date +%s` for the reason build.sh's SIGIL_T0 is — whole seconds truncate DOWN, so a
-# file written in the same second still counts as fresh. It is a PROVENANCE claim ("this
-# run wrote the file") and not a content one ("the file matches the source"); nothing
-# here checks the second, and the tests themselves are what ask about content.
+# file written in the same second still counts as fresh. Since LS-1a (2026-09-12) the
+# lane's conftest asks tools/artifact_provenance.py, so it is both claims: written after
+# this instant ("this run wrote the file") AND the listing's Source Digest reproduces
+# ("the file matches the sources it was built from").
 BUILD_T0=$(date +%s)
 if ! DEBUG=1 ./build.sh > "$STATE/build.log" 2>&1; then
     note "COULD NOT RUN: DEBUG build failed at $AT — see $STATE/build.log"

@@ -86,6 +86,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The single SCANLINE_CAPS parser (see game_caps below for why there is only one now).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scene_spans  # noqa: E402
+import artifact_provenance  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_UNMEASURABLE = 0, 1, 2
 
@@ -572,14 +573,12 @@ def main() -> int:
 
     try:
         if a.built_after is not None:
-            for p in (a.lst, a.rom):
-                if not os.path.isfile(p):
-                    raise Unmeasurable(f"{p} does not exist")
-                if os.path.getmtime(p) < a.built_after:
-                    raise Unmeasurable(
-                        f"{p} predates this build ({os.path.getmtime(p):.0f} < {a.built_after:.0f}) "
-                        f"— it is a PREVIOUS invocation's artifact and gating on it would be "
-                        f"measuring the wrong ROM")
+            # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py):
+            # written after this build began AND the listing's Source Digest reproduces.
+            rc = artifact_provenance.gate_check("row_remap_gate", a.rom, a.lst, a.built_after,
+                                                expect_game=a.game)
+            if rc:
+                return rc
         syms = parse_lst(a.lst)
         rom = open(a.rom, "rb").read()
         tail_off, stride, remap_n = record_geometry(a.repo)

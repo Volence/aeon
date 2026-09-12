@@ -126,10 +126,11 @@ run_shape() {
 # The provenance instant for the needs_build lane at the bottom: every artifact it grades
 # must post-date this, i.e. must have been written by one of the four shapes below. Taken
 # from `date +%s` for the reason build.sh's SIGIL_T0 is -- whole seconds truncate DOWN, so
-# a file written in the same second still counts as fresh. It is a PROVENANCE claim ("this
-# run wrote the file") and NOT a content one ("the file matches the source it was built
-# from"); nothing here checks the second, and that gap is LS-1a, open across all fourteen
-# consumers of this rule and deliberately not narrowed here.
+# a file written in the same second still counts as fresh. Since LS-1a (2026-09-12) it is
+# BOTH claims: the lane's conftest asks tools/artifact_provenance.py, which calls a pair
+# fresh only when it was written after T0 ("this run wrote the file") AND its listing's
+# Source Digest reproduces ("the file matches the sources it was built from"). A pair that
+# fails either is DEFERRED, which this lane reports as exit 2.
 T0=$(date +%s)
 
 {

@@ -105,6 +105,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import artifact_provenance  # noqa: E402
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CONSTANTS = os.path.join(REPO, "engine", "system", "constants.emp")
@@ -443,19 +446,18 @@ def main():
             if not os.path.isfile(p):
                 raise Unmeasurable(f"{p} does not exist")
         if built_after is not None:
-            # Temporal provenance, band_drift_golden's rule: a sigil listing carries no ROM
-            # identity of its own, so "both post-date the instant this invocation started
-            # sigil" is the check it supports, and it excludes a previous build by
-            # construction.
+            # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py):
+            # written after this build began AND the listing's Source Digest reproduces,
+            # including DIGEST-SHAPE debug= against --shape (this gate asserts opposite
+            # things per shape, so a mis-shaped pair must not reach it).
             try:
                 t0 = float(built_after)
             except ValueError:
                 raise Unmeasurable(f"--built-after {built_after!r} is not a number of seconds")
-            for p in (lst_path, rom_path):
-                if os.path.getmtime(p) < t0:
-                    raise Unmeasurable(
-                        f"{os.path.basename(p)} predates this invocation's sigil run; it is "
-                        f"a PREVIOUS build's artifact and reading it would measure the past")
+            rc = artifact_provenance.gate_check("plane_base_swap_gate", rom_path, lst_path, t0,
+                                                expect_debug=(shape == "debug"))
+            if rc:
+                return rc
 
         # ---- the expectation, out of SIX sources the fixture does not author ------
         plane_a = emp_const(CONSTANTS, "VRAM_PLANE_A")

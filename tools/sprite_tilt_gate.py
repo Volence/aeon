@@ -172,6 +172,7 @@ def parse_lst(path):
 import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
+import artifact_provenance                          # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -990,18 +991,21 @@ def main():
     args = ap.parse_args()
 
     lst, rom_path = pathlib.Path(args.lst), pathlib.Path(args.rom)
+    # LS-1a (2026-09-12): a missing or stale artifact is UNMEASURABLE, exit 2, WITH OR
+    # WITHOUT --gate. Both paths used to return `1 if args.gate else 0`, so a caller that
+    # omitted --gate read "the artifact is missing / a previous build's" as SUCCESS.
     for p in (lst, rom_path):
         if not p.exists():
-            print("sprite_tilt_gate: %s is missing" % p, file=sys.stderr)
-            return 1 if args.gate else 0
+            print("sprite_tilt_gate: UNMEASURABLE — %s is missing" % p, file=sys.stderr)
+            return artifact_provenance.UNMEASURABLE
 
     if args.built_after is not None:
-        for p in (lst, rom_path):
-            age = int(p.stat().st_mtime) - args.built_after
-            if age < 0:
-                print("sprite_tilt_gate: %s predates this build by %ds — the gate would "
-                      "measure a PREVIOUS artifact" % (p, -age), file=sys.stderr)
-                return 1 if args.gate else 0
+        # The ONE freshness verdict (tools/artifact_provenance.py): written after this
+        # build began AND the listing's Source Digest reproduces. Not a private rule.
+        rc = artifact_provenance.gate_check("sprite_tilt_gate", args.rom, args.lst,
+                                            args.built_after)
+        if rc:
+            return rc
 
     rom = rom_path.read_bytes()
     syms = parse_lst(lst)

@@ -40,15 +40,17 @@ lane that reports success because its subject did not run. `pytest` cannot expre
 this: its exit status is 0 when every test was skipped, which is why the decision is
 made here from the JUnit report rather than from a return code.
 
-WHAT `--built-after` CLAIMS, AND WHAT IT DOES NOT. It is a PROVENANCE test: the
-declared artifact's mtime is at or after the instant the caller began building. It
-says the caller's own build wrote the file. It does NOT say the file matches the
-source it was built from, and nothing here checks that — content is the gates' and
-the tests' question, not the lane's. Whole seconds truncate DOWN, so a file written in
-the same second as the threshold counts as fresh; that is the rule the sibling
-`--built-after` gates in `build.sh` already use, taken deliberately rather than
-reinvented. Passing nothing grades whatever is on disk, which is right for a hand run
-and wrong for a lane.
+WHAT `--built-after` CLAIMS (since LS-1a, 2026-09-12). It is forwarded to
+tools/conftest.py as `--artifacts-built-after`, where a declared artifact is usable
+only when tools/artifact_provenance.py calls its (.bin, .lst) pair FRESH: both written
+at or after the threshold (the caller's own build wrote them) AND the listing's Source
+Digest reproduces (the ROM it names, every file the build read, the module scan, the
+assembler). Until then this paragraph said the lane checked time only and that content
+was nobody's question here; a `touch`ed or content-stale artifact read as fresh. This
+file still does no comparison of its own: the verdict is the primitive's, the same one
+every build.sh gate uses. The threshold is a whole second, and `date +%s` truncates
+DOWN, so a file written in the same second counts as written after it. Passing nothing
+grades whatever is on disk, which is right for a hand run and wrong for a lane.
 
 THE POPULATION CHECK IS DIRECTIONAL ON PURPOSE. The count of `@pytest.mark.needs_build`
 decorators in the tests directory is a source-derived floor on how many test cases the

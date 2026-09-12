@@ -139,12 +139,15 @@ WHO RUNS THE GATE, AND ON WHICH LISTING (2026-08-26)
   was absent on a fresh tree, so the first canonical build could not pass its own
   pre-build lane. A listing from a prior build is never a valid subject.
 
-  PROVENANCE (`--rom`, `--built-after`): the sigil listing carries no ROM identity
-  or CRC of its own (it is label rows and a symbol table), so the check the listing
-  actually supports is TEMPORAL: both the listing and the ROM must have been written
-  at or after the moment build.sh started the sigil invocation. A stale listing, a
-  listing another profile left behind, or a listing that outlived its ROM all fail
-  this by construction — nothing else wrote either file after that instant.
+  PROVENANCE (`--rom`, `--built-after`): since LS-1a (2026-09-12) this is the ONE
+  shared verdict, tools/artifact_provenance.py, not a private mtime compare. The sigil
+  listing now opens with a Source Digest naming the ROM it belongs to (crc, size,
+  path) and every file the build read, so the pair is FRESH only when both files were
+  written at or after the moment build.sh started the sigil invocation AND the digest
+  reproduces. A stale listing, another profile's, one that outlived its ROM, or one
+  whose sources were edited after the build all fail it. A stale pair exits 2 (the
+  shared code: the artifact was not measured); it used to exit 1 here, because `main`
+  maps every other Unmeasurable to 1, which it still does.
 
   FIXTURE FRESHNESS (`--fixture`): the pytest half of this tool tests the derivation
   over a COMMITTED cut of a real listing (tools/fixtures/bganim_room_excerpt.lst).
@@ -169,6 +172,9 @@ it did not derive. A MISSING listing is a build bug (sigil was asked for
 import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import artifact_provenance  # noqa: E402
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -252,6 +258,12 @@ def rule_anchor(packed_end):
 
 class Unmeasurable(Exception):
     """An instrument could not be read. NEVER caught to produce a zero or a green."""
+
+
+class Stale(Unmeasurable):
+    """tools/artifact_provenance.py called the (.bin, .lst) pair NOT FRESH. `main` exits
+    2 on it, the one stale code every provenance consumer shares; every other
+    Unmeasurable keeps this tool's historical exit 1."""
 
 
 def lst_labels(lst_path):
@@ -848,31 +860,16 @@ def ceiling_for_listing(lst_path):
 
 
 def check_provenance(lst_path, rom_path, built_after):
-    """The listing and the ROM must both post-date the sigil invocation's start.
-
-    This is the provenance check the sigil listing SUPPORTS: it carries no ROM name,
-    no CRC, no build id — only label rows and a symbol table — so identity cannot be
-    read out of it. What CAN be asserted is that nothing but the invocation that
-    started at `built_after` wrote either file after that instant. Returns the two
-    mtimes; raises Unmeasurable naming the stale file.
+    """The pair's freshness, by the ONE shared verdict (tools/artifact_provenance.py):
+    both files written at or after `built_after` AND the listing's Source Digest
+    reproduces (the ROM it names by path, crc and size; every file the build read; the
+    module scan; the assembler; the shape a canonical name implies). Returns the two
+    mtimes; raises Stale carrying the verdict, which names every problem.
     """
-    built_after = float(built_after)
-    out = {}
-    for what, path in (("listing", lst_path), ("ROM", rom_path)):
-        if not os.path.exists(path):
-            raise Unmeasurable(
-                f"provenance: the {what} {path} does not exist, so the listing cannot be "
-                f"tied to a ROM built by this invocation. The runner is build.sh's "
-                f"post-sigil gate; this is a build bug, not a bootstrap condition.")
-        mtime = os.path.getmtime(path)
-        if mtime < built_after:
-            raise Unmeasurable(
-                f"provenance: {path} (mtime {mtime:.3f}) predates this build's sigil "
-                f"invocation (started {built_after:.3f}) — it is a PRIOR build's {what}, "
-                f"possibly another profile's, and is not the subject under test. The "
-                f"gate reads only the listing the current invocation emitted.")
-        out[what] = mtime
-    return out
+    v = artifact_provenance.check_pair(rom_path, lst_path, built_after=float(built_after))
+    if not v.fresh:
+        raise Stale(v.render("bganim_room"))
+    return {"listing": os.path.getmtime(lst_path), "ROM": os.path.getmtime(rom_path)}
 
 
 #: The label row, in GROUPS, for the fixture-freshness check: everything that is not
@@ -945,17 +942,20 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
-    shape, ceiling = ceiling_for_listing(lst_path)
-    print(f"bganim_room [{shape}]:", file=out)
+    # Provenance FIRST (LS-1a): nothing is read out of a listing, not even its shape,
+    # before the pair is known to be this build's.
     if built_after is not None:
         if rom_path is None:
             raise Unmeasurable("--built-after needs --rom: provenance ties the listing "
                                "to the ROM the same invocation wrote")
         times = check_provenance(lst_path, rom_path, built_after)
-        print(f"  provenance: {os.path.basename(lst_path)} and "
-              f"{os.path.basename(rom_path)} both written after this build started "
+        print(f"  provenance FRESH — {os.path.basename(lst_path)} and "
+              f"{os.path.basename(rom_path)}: both written after this build started "
               f"(+{times['listing'] - float(built_after):.1f} s / "
-              f"+{times['ROM'] - float(built_after):.1f} s)", file=out)
+              f"+{times['ROM'] - float(built_after):.1f} s) and their Source Digest "
+              f"reproduces", file=out)
+    shape, ceiling = ceiling_for_listing(lst_path)
+    print(f"bganim_room [{shape}]:", file=out)
     if fixture_path is not None:
         labels = fixture_freshness(lst_path, fixture_path)
         print(f"  fixture: {os.path.relpath(fixture_path, aeon)} — {len(labels)} label "
@@ -1129,6 +1129,9 @@ def main(argv=None):
     try:
         return report(lst, gate=gate, rom_path=rom, built_after=built_after,
                       fixture_path=fixture)
+    except Stale as e:
+        print(str(e), file=sys.stderr)
+        return artifact_provenance.UNMEASURABLE
     except Unmeasurable as e:
         print(f"bganim_room: FAIL (unmeasurable) — {e}", file=sys.stderr)
         return 1

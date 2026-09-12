@@ -2336,39 +2336,53 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("FAIL (unmeasurable)", err.getvalue())
 
-    def test_provenance_is_temporal_and_rejects_a_prior_builds_listing(self):
-        """The listing carries no ROM identity, so the check the tool makes is that
-        the listing AND the ROM post-date the sigil invocation."""
+    def test_provenance_is_the_shared_primitive_and_a_stale_pair_exits_2(self):
+        """LS-1a (2026-09-12): provenance is tools/artifact_provenance.py's verdict, not
+        a private mtime compare. This class's hermetic listing is sigil-SHAPED but carries
+        no Source Digest, so it is NOT FRESH at ANY threshold (a listing with no section
+        is never green), and the tool exits 2 on it, the one stale code every provenance
+        consumer shares; it used to exit 1 here. A REAL digest-bearing pair, built by the
+        installed assembler, is fresh at its build's start and not after it."""
+        import contextlib
+        import io
+        import shutil
+        import time
         import bganim_room
+        import provenance_fixtures as pf
         tree, lst = self._tree()
-        # A REAL-SHAPED image, not a 1-byte stub: since 2026-09-06 `report` hands the
-        # ROM to the terminus check's image half, and a stub that stops below the
-        # packed terminus is (correctly) refused there before provenance is reached.
         rom = self._rom(tree)
         t = os.path.getmtime(lst)
-        self.assertEqual(sorted(bganim_room.check_provenance(lst, rom, t - 1)),
+        for threshold in (t - 1, t + 1):
+            with self.assertRaises(bganim_room.Stale) as cm:
+                bganim_room.check_provenance(lst, rom, threshold)
+            self.assertIn("NO `DIGEST-` section", str(cm.exception))
+        # The report checks provenance FIRST: before any room, or even the shape.
+        with self.assertRaises(bganim_room.Stale):
+            self._report(tree, lst, rom_path=rom, built_after=t - 1)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = bganim_room.main(["--lst", lst, "--rom", rom, "--built-after", str(t - 1),
+                                   "--gate"])
+        self.assertEqual(rc, 2, err.getvalue())
+        self.assertIn("provenance NOT FRESH", err.getvalue())
+        # A real pair: fresh at its build's start, stale after it, an absent ROM named.
+        d = tempfile.mkdtemp(prefix="bganim_prov_")
+        self.addCleanup(shutil.rmtree, d)
+        t0 = int(time.time())
+        try:
+            real_rom, real_lst = pf.build_demo(d)
+        except pf.NoAssembler as e:
+            self.fail(str(e))
+        self.assertEqual(sorted(bganim_room.check_provenance(real_lst, real_rom, t0)),
                          ["ROM", "listing"])
-        with self.assertRaises(bganim_room.Unmeasurable) as cm:
-            bganim_room.check_provenance(lst, rom, t + 1)
-        self.assertIn("PRIOR build's listing", str(cm.exception))
-        os.utime(rom, (t - 10, t - 10))
-        with self.assertRaises(bganim_room.Unmeasurable) as cm:
-            bganim_room.check_provenance(lst, rom, t - 1)
-        self.assertIn("PRIOR build's ROM", str(cm.exception))
-        os.remove(rom)
-        with self.assertRaises(bganim_room.Unmeasurable) as cm:
-            bganim_room.check_provenance(lst, rom, t - 1)
+        with self.assertRaises(bganim_room.Stale) as cm:
+            bganim_room.check_provenance(real_lst, real_rom, time.time() + 3600)
+        self.assertIn("before this build began", str(cm.exception))
+        os.remove(real_rom)
+        with self.assertRaises(bganim_room.Stale) as cm:
+            bganim_room.check_provenance(real_lst, real_rom, t0)
         self.assertIn("does not exist", str(cm.exception))
-        # The report wires it: a prior listing fails BEFORE any room is printed.
-        rom = self._rom(tree)
-        with self.assertRaises(bganim_room.Unmeasurable):
-            self._report(tree, lst, rom_path=rom, built_after=t + 1)
-        rc, text = self._report(tree, lst, rom_path=rom, built_after=t - 1)
-        self.assertEqual(rc, 0, text)
-        self.assertIn("provenance: s4.debug.lst and s4.debug.bin both written after", text)
         # --built-after without --rom is a usage error, not a pass.
-        import io
-        import contextlib
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(bganim_room.main(["--lst", lst, "--built-after", "1"]), 2)
 

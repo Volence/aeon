@@ -1035,6 +1035,10 @@ echo "Building ${MAIN_ASM} (sigil)..."
 # The instant the subject is born: the post-sigil listing gates below assert that
 # the listing AND the ROM post-date this (bganim_room --built-after). Whole seconds
 # from `date +%s` truncate DOWN, so a file written in the same second still passes.
+# Since LS-1a (2026-09-12) every `--built-after`/`--artifacts-built-after` consumer
+# asks ONE primitive, tools/artifact_provenance.py, which also requires the listing's
+# Source Digest to reproduce (the ROM it names, every file the build read, the scan,
+# the assembler). A stale pair is exit 2 at every one of them.
 SIGIL_T0=$(date +%s)
 "${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} \
     -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"

@@ -250,6 +250,7 @@ def parse_lst(path):
 import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
+import artifact_provenance                          # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1516,13 +1517,14 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
+    # LS-1a (2026-09-12): the ONE freshness verdict (tools/artifact_provenance.py). A stale
+    # pair used to be `return 1` here, a FAILURE; it is UNMEASURABLE (2), like every other
+    # consumer's: the gate did not measure the artifact it was asked about.
     if args.built_after is not None:
-        for p in (pathlib.Path(args.rom), pathlib.Path(args.lst)):
-            age = int(p.stat().st_mtime) - args.built_after
-            if age < 0:
-                print("loop_crossover_gate: %s is OLDER than this build started (%ds) "
-                      "— refusing to grade a stale artifact" % (p, -age))
-                return 1
+        rc = artifact_provenance.gate_check("loop_crossover_gate", args.rom, args.lst,
+                                            args.built_after)
+        if rc:
+            return rc
 
     rom = pathlib.Path(args.rom).read_bytes()
     syms, equs = parse_lst(args.lst)
