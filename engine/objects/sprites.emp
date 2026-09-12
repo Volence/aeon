@@ -303,6 +303,38 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         move.w  a0, d0
         beq   .next_object
 
+        // --- H1 staleness net (DEBUG only): FIRST, ahead of every filter that
+        // reads the cache it checks (C2a-6, lens sweep 2026-09-06) ---
+        // sprite_piece_count and frame_off are ONE cache, written together by
+        // refresh_piece_count, so a writer that moves mapping_frame/mappings
+        // and skips the refresh leaves BOTH stale. The overflow pre-check below
+        // filters on that same stale count: while this net sat after it, an
+        // object whose stale count was large enough to trip `bhi .next_object`
+        // was skipped before its own check ran, and the detector was
+        // unreachable in exactly its most damaging sub-case. Here it runs for
+        // every non-null band entry with live mappings, before anything the
+        // stale cache can steer.
+        // Self-contained: it loads its own mapping base, and it skips a slot
+        // zeroed mid-frame (null mappings) as the release guard below does,
+        // since there is no table to live-resolve against. a3/d0/d1 are all
+        // dead here: the pre-check reloads d0, the guard reloads a3, and d1's
+        // next reads load it fresh (.budget_ok, the sibling walk).
+        // RELEASE: nothing here emits in a non-DEBUG shape (the whole block is
+        // wrapped, and the assert self-gates), so s4.bin is byte-identical to
+        // the tree where the net sat downstream.
+        if DEBUG == 1 {
+        move.l  Sst.mappings(a0), d0
+        beq     .stale_net_done         // deleted mid-frame: the guard below skips it
+        movea.l d0, a3
+        moveq   #0, d0                  // live-resolve and compare against the cache
+        move.b  Sst.mapping_frame(a0), d0
+        add.w   d0, d0
+        move.w  (a3,d0.w), d0
+        move.w  Sst.frame_off(a0), d1
+        assert.w d1, eq, d0
+    .stale_net_done:
+        }
+
         // --- Total-piece overflow pre-check (§1.2) ---
         // Skip whole object if its cached piece count would push us past
         // the 80-piece SAT cap. For uncached objects (sprite_piece_count=0),
@@ -319,16 +351,8 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         move.l  a3, d0
         beq   .next_object
 
-        // Get frame offset from the H1 cache (d0/d1 both dead here: next reads
-        // load them fresh at .budget_ok / the flip mask below)
-        if DEBUG == 1 {
-        moveq   #0, d0                  // H1 staleness net: live-resolve and
-        move.b  Sst.mapping_frame(a0), d0   // compare against the cache
-        add.w   d0, d0
-        move.w  (a3,d0.w), d0
-        move.w  Sst.frame_off(a0), d1
-        assert.w d1, eq, d0
-        }
+        // Get frame offset from the H1 cache (the DEBUG staleness net above
+        // has already live-resolved and compared it)
         adda.w  Sst.frame_off(a0), a3      // a3 = frame data (bbox at +0) — H1 cache
 
         // Piece count is at FRAME_PIECE_COUNT (+4), pieces start at FRAME_PIECES (+6)
