@@ -30316,6 +30316,20 @@ should. Restored from commit `80a1765a`, 6 passed. The existing readers of the s
 assembler swap), and the fetch has not run under the systemd unit, whose environment has no `SSH_AUTH_SOCK`. An agent-less,
 BatchMode `git ls-remote` of origin did succeed from a shell. If the first night logs COULD NOT RUN on the fetch, suspect
 that environment first. Zero ROM bytes.
+**REOPENED IN EFFECT 2026-09-12 (aeon overseer, measured): the fix is merged and is NOT the script that runs.**
+`systemctl --user cat aeon-effects-gates.service` reads `ExecStart=/home/volence/sonic_hacks/aeon/tools/nightly_effects_gates.sh`,
+the MAIN checkout's working copy, and that checkout is on `master` at `a38ce7c9` (63 behind origin, held there by the owner's
+uncommitted edit to a generated file). `git diff --stat master origin/master -- tools/nightly_effects_gates.sh` is 84
+insertions and 20 deletions: the running copy is the pre-fix one, which still checks out local `master`. So the next firing
+(2026-09-13 04:17 EDT) grades `a38ce7c9` again, exactly the failure the CLOSED note above says is gone, and the fix's
+`test_nightly_target.py` could not see it because it drives the script from the tree under test, never from where the
+unit points. Carrying is not running (protocol bar 16). **Two routes, and every repo-side fix waits on one of them:**
+(1) the main checkout takes origin/master (owner card `WORKING-COPY-CATCHUP`, filed with this booking), which also fixes it;
+(2) the unit stops executing a script out of a working tree the owner edits, e.g. a launcher that runs the script as of
+origin/master from a run-unique copy (bash reads a script by byte offset, so never run it from `.aeon-nightly`, which the
+script itself force-resets). Route (2) changes the owner's user systemd unit, so it waits on his answer to the card; it
+is the durable one either way, since the main checkout will fall behind again. The `target:` line the fix added would
+have named the lag, but only the fixed script prints it, so the old one's `OK at a38ce7c9` lines say nothing.
 
 **`tools/ojz_strip_gen.py` names the zone tileset wrongly, naming only (booked 2026-09-11; lead from an aurora agent,
 confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrings (`_project_tileset_path`,
