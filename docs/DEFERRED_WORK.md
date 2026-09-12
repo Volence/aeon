@@ -30267,6 +30267,10 @@ expansions). Predates the parcel. A run that dies there trails like a killed one
 recurses (the build's own pytest lane collects the test and launches it again, about once a minute). The shipped
 `tools/test_landing_build_logfile.py` runs a COPY of the script beside a stub `build.sh`; copy that pattern.
 
+**Side findings of sigil's lens-Z3 port check (sigil `39179705`, `docs/superpowers/notes/2026-09-11-aeon-lensz3-portcheck.md`), booked 2026-09-12, not fixed:**
+(a) `build.sh` sets `NO_LINT=0` unconditionally before parsing flags (`build.sh:355`, verified here), so an EXPORTED `NO_LINT=1` is ignored and only `-nl`/`--no-lint` (and FAST) skip the lint lanes. It fails safe (the lanes run), but any doc or tool that names `NO_LINT=1` as an environment knob describes a knob `build.sh` does not honour; decide whether to honour the env var or drop it from the docs.
+(b) sigil's defect, booked in sigil: a `use` naming an item that does not exist builds green when nothing calls it, so our new cross-module `use` lines are checked only through the calls behind them. Nothing owed here.
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
