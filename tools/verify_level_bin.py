@@ -21,10 +21,12 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import act_grid  # noqa: E402  stdlib-only: the ONE reader of the act's section count
+
+ROOT =os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
 SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
-NUM_SECTIONS = 9            # 3x3 grid (project.json); sections 0..8
 ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
 TILE_SIZE = 32
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
@@ -33,6 +35,9 @@ PROJECT_JSON = os.path.join(ROOT, "project.json")
 STRIP_GEN_SRC = os.path.join(ROOT, "tools", "ojz_strip_gen.py")
 NAMETABLE_TILE_MASK = 0x07FF   # bits 0-10 of a VDP nametable word
 NAMETABLE_ATTR_MASK = 0xE000   # priority + palette line (flip bits are NOT here)
+# The ROM-consumed collision tables and the S&K base bank the bake resolves against.
+COLLISION_DIR = os.path.join(ROOT, "games", "sonic4", "data", "collision")
+PROFILE_LEN = 16               # one height byte per 16-px column of a collision cell
 
 _fail = []
 
@@ -45,6 +50,21 @@ def check(cond, msg):
 def read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+def _section_count():
+    """The act's section count, from tools/act_grid.py (project.json, required to
+    agree with the engine's act descriptor), or None with a recorded failure.
+
+    This file used to carry its own literal `NUM_SECTIONS = 9` (2026-09-12 gap lens
+    sweep F2): a count the gate checks itself against cannot notice the section set
+    shrinking under it.
+    """
+    try:
+        return act_grid.section_count(PROJECT_JSON)
+    except (OSError, ValueError, KeyError) as exc:
+        check(False, f"act grid: cannot derive the section count -- {exc}")
+        return None
 
 
 def zx0_decode(payload):
@@ -176,6 +196,65 @@ def verify_act_pool():
               f"act pool: page{k} pm_flags pinned bit {flags & 1} != sidecar pinned {p['pinned']}")
 
 
+def verify_local_map_table(n_sec):
+    """OJZ_Sec_LocalMaps must hold exactly one entry per grid section, in flat-id order.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep F2). With section_8.tiles.bin
+    missing, the strip baker emitted `OJZ_Sec_LocalMaps: [*u8; 8]` for a 3x3 act and
+    this gate passed it: it checked each per-section map FILE, and the stale
+    sec8_local_map.bin was still on disk. The engine indexes the table by flat id over
+    the act's grid, so entry 8 was the first long of whatever the linker placed next.
+    """
+    path = os.path.join(GEN, "sec_local_maps.emp")
+    if not os.path.isfile(path):
+        check(False, "local maps: sec_local_maps.emp missing")
+        return
+    txt = open(path).read()
+    m = re.search(r"OJZ_Sec_LocalMaps:\s*\[\*u8;\s*(\d+)\]\s*=\s*\[([^\]]*)\]", txt)
+    if not m:
+        check(False, "local maps: no `OJZ_Sec_LocalMaps: [*u8; N] = [...]` table in "
+                     "sec_local_maps.emp -- the emitter's shape moved; re-derive this check")
+        return
+    length = int(m.group(1))
+    ptrs = [int(i) for i in re.findall(r'extern\("OJZ_Sec(\d+)_LocalMap"\)', m.group(2))]
+    check(length == n_sec and ptrs == list(range(n_sec)),
+          f"local maps: OJZ_Sec_LocalMaps is [*u8; {length}] pointing at sections {ptrs}, "
+          f"but the act grid has {n_sec} sections. The engine indexes this table by flat "
+          f"id over the grid, so a short table hands it the NEXT table's first long as a "
+          f"section's local map")
+    defined = {int(i) for i in
+               re.findall(r"OJZ_Sec(\d+)_LocalMap\s*=\s*(?:embed|extern)\(", txt)}
+    undefined = [i for i in range(n_sec) if i not in defined]
+    check(not undefined,
+          f"local maps: sec_local_maps.emp defines no OJZ_Sec{{N}}_LocalMap for sections "
+          f"{undefined}")
+
+
+def verify_section_set():
+    """No per-section artifact for a section OUTSIDE the act grid.
+
+    Why a failure and not a deletion (2026-09-12 gap lens sweep F2). After that fix no
+    baker reads a section outside the grid, so a leftover secN_* is inert -- but the
+    only way to get one is a grid that SHRANK, and a shrink is exactly when a person
+    should look: a mistyped grid would otherwise have the bakers quietly delete the
+    sections it dropped. So the bakers never delete committed files by glob, and this
+    names what is left over. verify_no_orphans cannot see these: it matches a file's
+    name with its leading index stripped, and "_strips_a.bin" is referenced for every
+    section.
+    """
+    n_sec = _section_count()
+    if n_sec is None or not os.path.isdir(GEN):
+        return
+    extra = sorted(fn for fn in os.listdir(GEN)
+                   if (m := re.match(r"sec(\d+)_", fn)) and int(m.group(1)) >= n_sec)
+    check(not extra,
+          f"section set: {len(extra)} per-section artifact(s) for sections outside the "
+          f"{n_sec}-section act grid: {', '.join(extra)}. Nothing reads them; they are a "
+          f"larger grid's leftovers, or project.json's grid shrank by mistake. If the "
+          f"shrink was intended, delete them (the bakers deliberately never delete "
+          f"committed files).")
+
+
 def verify_local_maps():
     """Per-section local->global map consistency (P2b): each committed
     secN_local_map.bin must be well-formed (u16 BE entries, count <= 2048), and
@@ -200,7 +279,11 @@ def verify_local_maps():
     if os.path.isfile(pool):
         pool_tiles = sum(int(t) for t in
                          re.findall(r"pm_tiles:\s*(\d+)", open(pool).read()))
-    for n in range(NUM_SECTIONS):
+    n_sec = _section_count()
+    if n_sec is None:
+        return
+    verify_local_map_table(n_sec)
+    for n in range(n_sec):
         mpath = os.path.join(GEN, f"sec{n}_local_map.bin")
         bpath = os.path.join(GEN, f"sec{n}_blocks.bin")
         if not os.path.isfile(mpath):
@@ -261,7 +344,10 @@ def verify_block_blobs():
     dtxt = open(dicts).read()
     dlen = {int(n): int(v) for n, v in
             re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", dtxt)}
-    for n in range(NUM_SECTIONS):
+    n_sec = _section_count()
+    if n_sec is None:
+        return
+    for n in range(n_sec):
         s = str(n)
         check(s in binc or s in alias,
               f"block blobs: OJZ_Sec{n}_Blocks neither BINCLUDE'd nor aliased")
@@ -279,6 +365,106 @@ def verify_block_blobs():
                       f"block dicts: sec{n} dict len {dlen[n]} not a multiple of {BLOCK_RAW_SIZE}")
                 check(sz >= BLOCK_INDEX_BYTES + dlen[n],
                       f"block blobs: sec{n}_blocks.bin is {sz}B < index({BLOCK_INDEX_BYTES}) + dict({dlen[n]})")
+
+
+def verify_block_decode():
+    """Every block of every section's ROM-consumed block blob must DECODE to the block
+    its strips define.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep F6). Nothing in the ROM embeds
+    sec{N}_strips_a.bin; the ROM embeds sec{N}_blocks.bin, and verify_local_maps read
+    only its raw dictionary region. The seat copied sec5_blocks.bin over sec0_blocks.bin
+    (both with a 768-byte dictionary): this gate said OK while 67 of section 0's 256
+    blocks decoded to the wrong content. Every content check above certifies the strips;
+    this is the link from the strips to the bytes the engine actually decompresses.
+
+    A block, as ojz_block_gen.extract_block defines it: 16x16 nametable words row-major,
+    then collision plane A (16 columns x 8 rows, row-major), then plane B -- 768 bytes.
+    The blob's index entry is 0 for an all-zero block, bit 31 set for a raw block inside
+    the dictionary region, else the offset of an S4LZ stream decoded against that region.
+    Decoded with tools/s4lz.py, the format's reference decoder (the engine's agreement
+    with it is compression_selftest's question, not this file's). A section whose blob
+    is content-deduplicated is decoded through the blob the ROM gives it.
+    """
+    import s4lz
+    n_sec = _section_count()
+    strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+    pad = _strip_gen_int("STRIP_COLLISION_PAD")
+    if n_sec is None or strip_rows is None or pad is None:
+        return
+    blobs_emp = os.path.join(GEN, "sec_block_blobs.emp")
+    dicts_emp = os.path.join(GEN, "sec_block_dicts.emp")
+    if not (os.path.isfile(blobs_emp) and os.path.isfile(dicts_emp)):
+        check(False, "block decode: sec_block_blobs.emp / sec_block_dicts.emp missing")
+        return
+    btxt = open(blobs_emp).read()
+    embed = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*embed\("[^"]*/(sec\d+_blocks\.bin)"\)', btxt))
+    alias = dict(re.findall(r'OJZ_Sec(\d+)_Blocks\s*=\s*extern\("OJZ_Sec(\d+)_Blocks"\)', btxt))
+    dlen = {int(k): int(v) for k, v in re.findall(
+        r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", open(dicts_emp).read())}
+
+    coll_rows = strip_rows // 2
+    stride = strip_rows * 2 + 2 * coll_rows + pad
+    off_a, off_b = strip_rows * 2, strip_rows * 2 + coll_rows
+    bsz = 16                                   # a block is 16x16 tiles
+    blocks_per_axis = strip_rows // bsz
+    brows = bsz // 2                           # 16-px collision rows per block
+    raw_size = bsz * bsz * 2 + 2 * bsz * brows
+    index_bytes = blocks_per_axis * blocks_per_axis * 4
+
+    blocks_checked = 0
+    for n in range(n_sec):
+        owner, seen = str(n), set()
+        while owner in alias and owner not in seen:   # the blob the ROM hands section n
+            seen.add(owner)
+            owner = alias[owner]
+        rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        if owner not in embed or n not in dlen or not os.path.isfile(rem_path):
+            check(False, f"block decode: sec{n} has no resolvable blob, dict length or "
+                         f"strips -- cannot decode what the ROM carries for it")
+            continue
+        blob_path = os.path.join(GEN, embed[owner])
+        if not os.path.isfile(blob_path):
+            check(False, f"block decode: {embed[owner]} (the blob sec{n} uses) is missing")
+            continue
+        blob = read(blob_path)
+        rem = read(rem_path)
+        if len(rem) != strip_rows * stride or len(blob) < index_bytes + dlen[n]:
+            check(False, f"block decode: sec{n} strips {len(rem)} B / blob {len(blob)} B "
+                         f"are the wrong shape to decode")
+            continue
+        cols = [rem[c * stride:(c + 1) * stride] for c in range(strip_rows)]
+        dictionary = blob[index_bytes:index_bytes + dlen[n]]
+        bad = []
+        for by in range(blocks_per_axis):
+            for bx in range(blocks_per_axis):
+                cs = cols[bx * bsz:(bx + 1) * bsz]
+                t0 = by * bsz * 2
+                want = (b"".join(col[t0 + 2 * r:t0 + 2 * r + 2] for r in range(bsz) for col in cs)
+                        + bytes(col[off_a + by * brows + r] for r in range(brows) for col in cs)
+                        + bytes(col[off_b + by * brows + r] for r in range(brows) for col in cs))
+                i = by * blocks_per_axis + bx
+                entry = struct.unpack_from(">I", blob, i * 4)[0]
+                if entry == 0:
+                    got = bytes(raw_size)
+                elif entry & 0x80000000:
+                    off = entry & 0x7FFFFFFF
+                    ok_range = index_bytes <= off and off + raw_size <= index_bytes + dlen[n]
+                    got = blob[off:off + raw_size] if ok_range else None
+                else:
+                    try:
+                        got = s4lz.decompress(blob[entry:], dictionary=dictionary)
+                    except Exception:           # a malformed stream is a wrong block
+                        got = None
+                if got != want:
+                    bad.append(i)
+                blocks_checked += 1
+        check(not bad,
+              f"block decode: sec{n}: {len(bad)} of {blocks_per_axis ** 2} blocks in "
+              f"{embed[owner]} do NOT decode to the block its strips define (first: block "
+              f"{bad[0] if bad else '-'}) -- the ROM would stream different level data "
+              f"than every other check certified")
+    check(blocks_checked > 0, "block decode: zero blocks decoded -- measured nothing")
 
 
 def verify_bininclude_targets():
@@ -445,15 +631,19 @@ def _strip_gen_int(name):
 
 
 def _tile_pixels(blob, idx, hflip, vflip):
-    """The 32 bytes of tile `idx` in `blob`, with the VDP flips applied.
+    """The 32 bytes of tile `idx` in `blob`, with the VDP flips applied, or None when
+    the blob does not reach that tile.
 
-    Out-of-range indices resolve to the zero tile, matching what the generator's
-    collect_referenced_tiles substitutes -- so an out-of-range source reference
-    is still CHECKED (against blank) rather than skipped.
+    None, NOT the zero tile (2026-09-12 gap lens sweep F3). This used to return
+    bytes(TILE_SIZE) "matching what the generator's collect_referenced_tiles
+    substitutes", which made the fidelity proof reproduce the generator's fallback:
+    a tileset cut to 700 tiles baked 12,164 words blank, and this check compared the
+    blank it expected against the blank the bake held, and passed. The 09-06 tools
+    packet's T1-2 shape. A tile that does not exist is a failure the caller counts.
     """
     base = idx * TILE_SIZE
     if base + TILE_SIZE > len(blob):
-        return bytes(TILE_SIZE)
+        return None
     rows = [blob[base + i * 4: base + i * 4 + 4] for i in range(8)]
     if hflip:
         rows = [bytes((((b & 0x0F) << 4) | (b >> 4)) for b in reversed(r))
@@ -509,10 +699,9 @@ def verify_editor_bake_fidelity():
     act = zone["acts"][0]
     tileset_path = os.path.join(ROOT, zone["tileset"])
     data_path = os.path.join(ROOT, act["dataPath"])
-    declared = act["gridWidth"] * act["gridHeight"]
-    check(declared == NUM_SECTIONS,
-          f"editor bake: project.json declares {declared} sections but this file "
-          f"is written against {NUM_SECTIONS} -- update NUM_SECTIONS")
+    declared = _section_count()
+    if declared is None:
+        return
 
     if not os.path.isfile(tileset_path):
         check(False, f"editor bake: editor tileset {tileset_path} missing")
@@ -538,13 +727,18 @@ def verify_editor_bake_fidelity():
 
     sections_checked = 0
     words_checked = 0
-    for n in range(min(declared, NUM_SECTIONS)):
+    for n in range(declared):
         ed_path = os.path.join(data_path, f"section_{n}.tiles.bin")
         src_path = os.path.join(GEN, f"sec{n}_strips_source.bin")
         rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
         map_path = os.path.join(GEN, f"sec{n}_local_map.bin")
         if not os.path.isfile(ed_path):
-            continue         # generate() skips sections with no editor tiles
+            # This used to be a silent `continue` ("generate() skips sections with no
+            # editor tiles"), so a missing section was checked by nothing (gap lens
+            # sweep F2). ojz_strip_gen now refuses to bake without one.
+            check(False, f"editor bake: section_{n}.tiles.bin is missing -- every one of "
+                         f"the act grid's {declared} sections needs editor tiles")
+            continue
         missing = [p for p in (src_path, rem_path, map_path) if not os.path.isfile(p)]
         if missing:
             check(False, f"editor bake: sec{n} has editor tiles but is missing "
@@ -569,7 +763,8 @@ def verify_editor_bake_fidelity():
         lm_raw = read(map_path)
         local_map = struct.unpack(f">{len(lm_raw) // 2}H", lm_raw)
 
-        nt_bad = attr_bad = art_bad = range_bad = 0
+        nt_bad = attr_bad = art_bad = range_bad = src_oob = 0
+        src_oob_max = -1
         first = None
         seen = set()
         for c in range(grid):
@@ -602,11 +797,23 @@ def verify_editor_bake_fidelity():
                     continue
                 want = _tile_pixels(art, sw & NAMETABLE_TILE_MASK,
                                     (sw >> 11) & 1, (sw >> 12) & 1)
+                if want is None:
+                    src_oob += 1
+                    src_oob_max = max(src_oob_max, sw & NAMETABLE_TILE_MASK)
+                    continue
                 got = _tile_pixels(pool, g, (rw >> 11) & 1, (rw >> 12) & 1)
+                if got is None:
+                    range_bad += 1
+                    continue
                 if want != got:
                     art_bad += 1
             words_checked += grid
 
+        check(src_oob == 0,
+              f"editor bake: sec{n} has {src_oob} distinct word shape(s) naming a tile "
+              f"past the end of the {len(art) // TILE_SIZE}-tile editor tileset (highest "
+              f"index {src_oob_max}) -- that art does not exist, so no bake can have "
+              f"carried it (this check used to resolve both sides to a blank tile and pass)")
         check(nt_bad == 0,
               f"editor bake: sec{n} strips_source disagrees with the editor "
               f"nametable in {nt_bad} word(s) -- the generated tree does NOT carry "
@@ -635,16 +842,214 @@ def verify_editor_bake_fidelity():
               f"({sections_checked} section(s), {words_checked} nametable words)")
 
 
+def _expected_collision_entry(word, base_hm, base_an):
+    """What one editor collision cell word must bake to, derived from the word itself
+    and the committed base bank. Returns:
+      None                               -- AIR: the baked attr byte must be 0
+      (heights, angle, solidity, xover)  -- the ROM tables' entry at the baked byte
+      str                                -- the word cannot be baked at all (why)
+
+    RE-DERIVED FROM THE ENCODING, NOT IMPORTED FROM THE BAKER. The per-plane cell word
+    is Aurora's (bits 9:0 base-bank shape, bit 10 xflip, bit 11 yflip, 13:12 this
+    plane's solidity, 15:14 the loop crossover mark), resolved xflip-then-yflip
+    against the base bank as collision_pipeline.bake_plane_cell documents. Importing
+    that function would make this gate agree with the baker by construction, which is
+    the T1-2 shape (a proof that reproduces the generator instead of checking it).
+    A second statement of five bit fields is the price of a check that can disagree.
+    """
+    xover = (word >> 14) & 3
+    if xover == 3:
+        return f"XOVER == 3, which docs/LOOP_CROSSOVER_ENCODING.md reserves as illegal"
+    shape = word & 0x03FF
+    solidity = (word >> 12) & 3
+    if solidity == 0 or shape == 0:
+        # No geometry. Unmarked is plain air; a marked cell still interns a non-zero
+        # attr whose entry is all-zero heights, angle 0, solidity 0, and the mark.
+        return None if xover == 0 else (bytes(PROFILE_LEN), 0, 0, xover)
+    if (shape + 1) * PROFILE_LEN > len(base_hm) or shape >= len(base_an):
+        return (f"shape {shape} lies outside the {len(base_hm) // PROFILE_LEN}-shape "
+                f"base bank")
+    heights = base_hm[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
+    angle = base_an[shape]
+    if word & 0x0400:                       # xflip: mirror columns, negate the angle
+        heights = heights[::-1]
+        angle = (-angle) & 0xFF
+    if word & 0x0800:                       # yflip: hang from the top, reflect the angle
+        heights = bytes(h if h in (0, 16) else (256 - h) & 0xFF for h in heights)
+        angle = (-angle - 0x80) & 0xFF
+    return (bytes(heights), angle, solidity, xover)
+
+
+def verify_editor_collision_fidelity():
+    """The baked collision must carry the EDITOR's authored collision, cell for cell,
+    through the attr bytes in sec{N}_strips_a.bin into the ROM-consumed tables.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep, F1). A section_0.collattr.bin cut
+    by two bytes made ojz_strip_gen's overlay warn and return the all-air baseline:
+    section 0's plane A went from 1038 non-air cells to 0, all five ROM tables changed,
+    and this gate said OK. Nothing in it compared collision to what the editor
+    authored, and verify_collision_is_interned only asks "not the raw base bank",
+    which an all-air table also satisfies.
+
+    WHAT "FIDELITY" MEANS, derived from ojz_strip_gen.apply_editor_collision_overlay:
+      * a section WITH section_N.collattr.bin: every 16-px cell (tile column `col`,
+        collision row `cr`) bakes from the word at tile row 2*cr, column col (the
+        cell's top tile row). Plane A reads collattr.bin; plane B reads collattrb.bin,
+        or plane A's word when collattrb.bin is ABSENT (a wrong-sized file is a failure
+        here, not a mirror). The baked byte is an index into the ROM tables, and the
+        entry it names must equal what the word resolves to against the base bank --
+        or the byte must be 0 when the word is air.
+      * a section with NO collattr.bin: the overlay keeps the air baseline, so every
+        collision byte in its strips must be 0.
+    heightmaps_rot.bin is not compared: it is a pure function of heightmaps.bin
+    (rotate_profile), not of anything the editor authored.
+    """
+    fails_before = len(_fail)
+    strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+    pad = _strip_gen_int("STRIP_COLLISION_PAD")
+    if strip_rows is None or pad is None:
+        return
+    W = strip_rows                       # the editor grid: W x W tiles per section
+    coll_rows = strip_rows // 2          # 16-px collision rows per strip column
+    stride = strip_rows * 2 + 2 * coll_rows + pad
+    off_a = strip_rows * 2               # plane A follows the nametable words
+    off_b = off_a + coll_rows            # plane B follows plane A
+    cell_file_bytes = W * W * 2
+
+    if not os.path.isfile(PROJECT_JSON):
+        check(False, "editor collision: project.json missing -- cannot locate the editor tree")
+        return
+    with open(PROJECT_JSON) as f:
+        act = json.load(f)["zones"][0]["acts"][0]
+    data_path = os.path.join(ROOT, act["dataPath"])
+    declared = _section_count()
+    if declared is None:
+        return
+
+    names = ("heightmaps.bin", "angles.bin", "solidity.bin", "crossover.bin")
+    need = [os.path.join(COLLISION_DIR, "base", "heightmaps.bin"),
+            os.path.join(COLLISION_DIR, "base", "angles.bin")]
+    need += [os.path.join(COLLISION_DIR, n) for n in names]
+    missing = [p for p in need if not os.path.isfile(p)]
+    if missing:
+        check(False, f"editor collision: cannot check -- missing "
+                     f"{', '.join(os.path.relpath(p, ROOT) for p in missing)}")
+        return
+    base_hm = read(need[0])
+    base_an = read(need[1])
+    hm, an, sol, xo = (read(os.path.join(COLLISION_DIR, n)) for n in names)
+    entries = len(hm) // PROFILE_LEN
+    if not (len(hm) % PROFILE_LEN == 0 and entries and len(an) == len(sol) == len(xo) == entries):
+        check(False, f"editor collision: ROM table sizes disagree (heightmaps {len(hm)} B, "
+                     f"angles {len(an)}, solidity {len(sol)}, crossover {len(xo)}) -- "
+                     f"they are one table indexed by the same attr byte")
+        return
+    check(not any(hm[:PROFILE_LEN]) and sol[0] == 0 and xo[0] == 0,
+          "editor collision: ROM attr index 0 is not air -- every air cell bakes to "
+          "byte 0, so a non-air entry 0 makes the whole act solid where it is empty")
+
+    def rom_entry(idx):
+        return (hm[idx * PROFILE_LEN:(idx + 1) * PROFILE_LEN], an[idx], sol[idx], xo[idx])
+
+    cells_checked = 0
+    authored_nonair = 0
+    for n in range(declared):
+        rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        if not os.path.isfile(rem_path):
+            check(False, f"editor collision: sec{n}_strips_a.bin missing")
+            continue
+        rem = read(rem_path)
+        if len(rem) != W * stride:
+            check(False, f"editor collision: sec{n}_strips_a.bin is {len(rem)} bytes, "
+                         f"expected {W} columns x {stride}")
+            continue
+        path_a = os.path.join(data_path, f"section_{n}.collattr.bin")
+        path_b = os.path.join(data_path, f"section_{n}.collattrb.bin")
+        if not os.path.isfile(path_a):
+            solid = sum(1 for c in range(W) for o in (off_a, off_b)
+                        for x in rem[c * stride + o: c * stride + o + coll_rows] if x)
+            check(solid == 0,
+                  f"editor collision: sec{n} has no section_{n}.collattr.bin (the bake keeps "
+                  f"the air baseline) but its strips carry {solid} non-air collision bytes")
+            cells_checked += W * coll_rows * 2
+            continue
+        planes = {}
+        bad_size = False
+        for label, p in (("A", path_a), ("B", path_b)):
+            if not os.path.isfile(p):
+                continue
+            blob = read(p)
+            if len(blob) != cell_file_bytes:
+                check(False, f"editor collision: {os.path.relpath(p, ROOT)} is {len(blob)} "
+                             f"bytes, expected {cell_file_bytes} ({W}x{W} 16-bit cell "
+                             f"words) -- the bake cannot have carried it faithfully")
+                bad_size = True
+                continue
+            planes[label] = struct.unpack(f">{W * W}H", blob)
+        if bad_size:
+            continue
+        planes.setdefault("B", planes["A"])     # absent collattrb.bin: plane B mirrors A
+
+        for label, off in (("A", off_a), ("B", off_b)):
+            words = planes[label]
+            pairs = {}
+            baked_nonair = 0
+            for c in range(W):
+                col_bytes = rem[c * stride + off: c * stride + off + coll_rows]
+                baked_nonair += sum(1 for x in col_bytes if x)
+                # words[c::2W] = rows 0, 2, 4 ... of column c: each cell's top tile row
+                for pair in zip(words[c::2 * W], col_bytes):
+                    pairs[pair] = pairs.get(pair, 0) + 1
+            want_nonair = 0
+            bad = 0
+            first = None
+            for (word, idx), count in pairs.items():
+                exp = _expected_collision_entry(word, base_hm, base_an)
+                if exp is not None and not isinstance(exp, str):
+                    want_nonair += count
+                if isinstance(exp, str):
+                    ok, why = False, exp
+                elif exp is None:
+                    ok, why = idx == 0, "air (attr byte 0)"
+                else:
+                    ok = 0 < idx < entries and rom_entry(idx) == exp
+                    why = (f"heights {list(exp[0])} angle ${exp[1]:02X} solidity "
+                           f"{exp[2]} xover {exp[3]}")
+                if not ok:
+                    bad += count
+                    if first is None:
+                        first = (word, idx, why)
+            authored_nonair += want_nonair
+            cells_checked += W * coll_rows
+            check(bad == 0,
+                  f"editor collision: sec{n} plane {label}: {bad} of {W * coll_rows} "
+                  f"cells do NOT carry what the editor authored (editor has "
+                  f"{want_nonair} non-air cells, the bake has {baked_nonair}; first: "
+                  f"editor word ${first[0]:04X} baked to attr {first[1]}, expected "
+                  f"{first[2]})" if first else f"editor collision: sec{n} plane {label}")
+
+    check(cells_checked > 0,
+          "editor collision: zero cells checked -- this gate measured nothing, which is "
+          "not a pass")
+    if cells_checked and len(_fail) == fails_before:
+        print(f"verify_level_bin: editor collision fidelity OK ({declared} section(s), "
+              f"{cells_checked} cells, {authored_nonair} authored non-air)")
+
+
 def main():
     verify_act_pool()
     verify_local_maps()
     verify_block_blobs()
+    verify_block_decode()
     verify_bininclude_targets()
     verify_collision_is_interned()
     verify_editor_bake_fidelity()
+    verify_editor_collision_fidelity()
+    verify_section_set()
     verify_no_orphans()
-    checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
-                  "bininclude-targets / collision-interned / editor-bake / orphans")
+    checks_run = ("act-pool+content+sidecar / local-maps+table / block-blobs / "
+                  "block-decode / bininclude-targets / collision-interned / editor-bake / "
+                  "editor-collision / section-set / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:

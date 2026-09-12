@@ -33517,3 +33517,23 @@ the obligation.
 peer (they cannot see our un-run confirmation) and untested by us (nothing prompts a look). It
 does not need anyone to forget. **Test the trigger on a schedule you control, and never wait for
 the ping the note promises** — the ping is one message away from a `/clear`.
+
+## GAP-SWEEP-0912 BAKERS F1-F6 — the OJZ bakers' silent failure paths (found 2026-09-12, branch `fix/baker-refusals-0912`)
+
+Found by the 2026-09-12 gap lens sweep's T1 seat (`docs/superpowers/notes/2026-09-12-aeon-gap-lens-sweep.md`
+on `review/gap-lens-sweep-0912`, pin `9fe9ee91`): a malformed editor input produced a green re-bake, a green
+`verify_level_bin`, and wrong level data. Status of each row on this branch; every FIXED row was proven
+red-first on the seat's fixture, and its commit message carries the pre-fix green and post-fix red.
+
+| row | status |
+|---|---|
+| **F1** a wrong-sized `section_N.collattr.bin` baked the section ALL AIR | **FIXED** `3ed8627e`: the overlay refuses it by name; `verify_level_bin.verify_editor_collision_fidelity` checks every baked collision cell against the editor word resolved on the base bank |
+| **F2** a missing LAST `section_N.tiles.bin` shipped `OJZ_Sec_LocalMaps: [*u8; 8]` for a 3x3 act | **FIXED** `8a9ecdd9`: `tools/act_grid.py` is the one reader of the grid (and requires the act descriptor to agree); a missing section is refused; the gate checks the table's length and names out-of-grid leftovers (the bakers deliberately never delete them) |
+| **F3** an index past the tileset baked a blank tile, and the gate zero-filled identically | **FIXED** `4afb4ad7`: refused in `collect_referenced_tiles` and `emit_bg_tile_blob`; the gate's `_tile_pixels` returns None and the check counts it as a failure |
+| **F4** `page_cache` `.pw_new_blank` clears attribute bits the baker preserves | **OPEN, not in this parcel**: LIVE bytes and an engine-or-authoring choice; the shadow/highlight consequence is RUNTIME-TAG, so the sweep's emulator measurement (priority on a blank cell in section 1 below line 120) comes before deciding which side changes |
+| **F5** refusals fired after `import_sk_collision.py`'s write; a wrong-sized `collattrb.bin` became a mirror of plane A | **FIXED** `8802e581`: `ojz_strip_gen.validate_editor_inputs` runs in the preflight before the first write; a bad `collattrb` is refused; `regenerate-level.sh` restores `data/collision` + `data/generated` on any failure after the write |
+| **F6** the gate checked only the block blobs' dictionary region | **FIXED** `b6011430`: `verify_level_bin.verify_block_decode` decodes all 2,304 blocks against the strips (0.095 s) |
+
+Byte-neutral on the committed inputs, as measured: a `tools/regenerate-level.sh --no-cache` re-bake on the branch
+changed only `DONOR_PROVENANCE.json`'s generator record (its `head` and `modified_tracked`), which every re-bake at a
+new commit does.

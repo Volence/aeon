@@ -70,8 +70,56 @@ fi
 #
 # The preflight writes nothing. Keep it FIRST, and keep every new precondition
 # in it rather than at the point of use, or this defect comes straight back.
+#
+# WHAT KEEPS THAT PROMISE TRUE (2026-09-12 gap lens sweep F5). It used to hold for
+# donors only: generate()'s refusals of a malformed EDITOR file (a wrong-sized
+# collattr/collattrb, a missing section file, a tile index past the tileset) all fired
+# AFTER import_sk_collision.py had rewritten the tables. Two mechanisms now:
+#   1. Every editor-input refusal is decided by ojz_strip_gen.validate_editor_inputs,
+#      which the preflight runs, before the first write.
+#   2. The refusals that depend on the BAKE rather than on one input file (R1/R2
+#      crossover marks, attr-set overflow, the 11-bit local palette, the page-table
+#      cap, BG capacity, and the drift gate at the end) cannot move up here without
+#      running the bake twice. For those, the snapshot below: every tool-owned output
+#      directory is copied before the first write and put back if this script exits
+#      non-zero, so a failed re-bake leaves the ROM-consumed collision tables and the
+#      generated tree exactly as it found them.
+# data/editor/ is deliberately NOT snapshotted, although a bake can write one file
+# there (the authored palette.bin, which ojz_common seeds when it is absent and
+# inject_editor_bg.py stamps its BG lines into): that is the owner's authoring tree,
+# and a restore racing an editor save would throw the save away.
 echo "Preflight: checking donors + editor data before anything is written..."
 python3 "${TOOLS}/ojz_strip_gen.py" preflight
+
+# RESTORE-ON-FAILURE (mechanism 2 above). Taken AFTER the preflight, which writes
+# nothing, and BEFORE the first write. REBAKE_OUTPUTS is every directory outside tools/
+# that the steps below write (tools/.cache is pure memoization and needs no restore).
+REBAKE_OUTPUTS=(games/sonic4/data/collision games/sonic4/data/generated)
+REBAKE_SNAP="$(mktemp -d "${TMPDIR:-/tmp}/regenerate-level.XXXXXX")"
+for out in "${REBAKE_OUTPUTS[@]}"; do
+    mkdir -p "${REBAKE_SNAP}/$(dirname "${out}")"
+    cp -a "${out}" "${REBAKE_SNAP}/${out}"
+done
+REBAKE_COMPLETE=0
+restore_rebake_outputs() {
+    local rc=$?
+    if [[ "${REBAKE_COMPLETE}" != 1 ]]; then
+        echo "regenerate-level.sh: FAILED (exit ${rc}); restoring ${REBAKE_OUTPUTS[*]} to their state before this run" >&2
+        for out in "${REBAKE_OUTPUTS[@]}"; do
+            if [[ ! -d "${REBAKE_SNAP}/${out}" ]]; then
+                echo "regenerate-level.sh: NO SNAPSHOT of ${out}; NOT restored, check it by hand" >&2
+                continue
+            fi
+            rm -rf -- "${out}"
+            cp -a "${REBAKE_SNAP}/${out}" "${out}"
+        done
+        echo "regenerate-level.sh: restored; the failed bake's outputs were discarded" >&2
+        (( rc == 0 )) && rc=1
+    fi
+    rm -rf -- "${REBAKE_SNAP}"
+    exit "${rc}"
+}
+trap restore_rebake_outputs EXIT
 
 echo "Importing Sonic & Knuckles collision shape set (fixed 252-shape vocabulary)..."
 python3 "${TOOLS}/import_sk_collision.py"
@@ -229,6 +277,8 @@ python3 "${TOOLS}/verify_level_bin.py"
 # manifest cannot be fooled that way. See tools/level_staleness.py's docstring.
 echo "Stamping the editor sources this bake read..."
 python3 "${TOOLS}/level_staleness.py" --stamp sonic4
+# Every writing step has succeeded: the restore trap above must now keep this bake.
+REBAKE_COMPLETE=1
 
 echo "Re-bake complete. Next: ./build.sh both shapes."
 echo "The committed level tree should be byte-identical unless the editor data or"
