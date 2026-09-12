@@ -20,11 +20,22 @@ because a length match is not an identity: a rebuild that changes content withou
 changing size passes the length check, and for this tree that is the common case —
 the four canonical shapes have held their sizes across many landings.
 
-Cost, RE-MEASURED 2026-09-12 in this parcel's own run rather than inherited: the full
-readback of `s4.debug.bin` (847,364 bytes, 207 chunks of 4 KiB) costs **0.121 s** wall,
-against a spawn+handshake of ~0.09 s and witness runs of tens of seconds to minutes.
-It is paid once per spawn. There is no reason to prefer the weaker check, and the
-weaker one is the one that cannot see a stale cart of the right size.
+Cost, RE-MEASURED 2026-09-12 rather than inherited, and it is an order of magnitude
+smaller than the figure this module shipped with. Method: spawn twice and subtract —
+`cart_check="length"` pays everything except the readback, so full-minus-length IS the
+readback (`python3 tools/aether_instance.py --smoke` prints both operands, because a
+difference without them is not a measurement).
+
+  s4.debug.bin, 846,601 bytes, 207 chunks of 4 KiB, 4 runs, load average 6.4-6.6 (a
+  four-shape build was running alongside):
+
+    spawn + handshake + LENGTH check   0.061 - 0.062 s
+    spawn + handshake + FULL   check   0.097 - 0.100 s
+    -> THE READBACK COSTS  +0.035 to +0.038 s
+
+Against witness runs of tens of seconds to minutes, and paid once per spawn. There is
+no reason to prefer the weaker check, and the weaker one is the one that cannot see a
+stale cart of the right size.
 
     from cart_identity import assert_cart_matches_disk
     await assert_cart_matches_disk(bus, rom_path, out)     # appends one line to `out`

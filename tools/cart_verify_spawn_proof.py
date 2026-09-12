@@ -20,16 +20,19 @@ racy, exactly the failure in the field. This is the same move
 `aether_instance.py --poison-legacy` makes against the SERVER assertion: spawn the
 thing the check is supposed to refuse and require the refusal.
 
-FOUR LEGS, and the leg count is checked, because an unrun leg is not a pass:
+FIVE LEGS, and the leg count is checked, because an unrun leg is not a pass:
 
   1 CONTROL   clean ROM, `full` -> the spawn must SUCCEED. Without this leg a check
               that refused everything would score perfectly.
   2 POISON    same-size different-content cart, `full` -> must raise `CartMismatch`
               and NAME the differing offset.
+  3a CONTROL  the SAME witness command, UNPOISONED, must exit ZERO and mention no
+              cart at all. Run FIRST. Without it, leg 3's non-zero exit is not
+              evidence: a witness that is simply broken reads identically.
   3 WITNESS   a real witness tool (default `tools/raster_off_gate.py`), run as a
-              SUBPROCESS under the same poison, must exit NON-ZERO and say
-              CartMismatch. Legs 1-2 prove the seam; this one proves a tool that
-              never heard of `cart_identity` now inherits it.
+              SUBPROCESS under the poison, must exit NON-ZERO and say CartMismatch.
+              Legs 1-2 prove the seam; this one proves a tool that never heard of
+              `cart_identity` now inherits it.
   4 WEAKNESS  the same poison with `cart_check="length"` -> must PASS, and must have
               printed WEAKER on stderr. This pins what the opt-down cannot see. It is
               not a complaint about the flag; it is the reason the flag is not the
@@ -38,7 +41,7 @@ FOUR LEGS, and the leg count is checked, because an unrun leg is not a pass:
     python3 tools/cart_verify_spawn_proof.py [--rom s4.debug.bin] [--lst s4.debug.lst]
     python3 tools/cart_verify_spawn_proof.py --witness tools/band_witness.py
 
-Exit 0 = all four legs ran and behaved. 1 = a leg misbehaved. 2 = could not run.
+Exit 0 = all five legs ran and behaved. 1 = a leg misbehaved. 2 = could not run.
 NEVER exits 0 on a leg it could not run.
 """
 from __future__ import annotations
@@ -159,17 +162,47 @@ def main() -> int:
             inst.reap()
         legs.append("2 POISON")
 
-        # ---- leg 3: a REAL WITNESS under the same poison --------------------------
+        # ---- leg 3a: THE WITNESS CONTROL, and it runs BEFORE the poisoned one -----
+        #
+        # "exited non-zero naming the cart" is only evidence if the SAME command exits
+        # ZERO without the poison. Otherwise a witness that is simply broken today, or
+        # that always fails on this ROM, reads as the check firing. Establishing the
+        # control first is what makes the poisoned run mean something; establishing it
+        # afterwards is how you find out you have been reading a constant.
+        base_cmd = [sys.executable, a.witness, "--rom", good, "--lst", lst]
+        t0 = time.monotonic()
+        try:
+            r0 = subprocess.run(base_cmd, capture_output=True, text=True,
+                                timeout=a.witness_timeout, cwd=str(aeon))
+        except subprocess.TimeoutExpired:
+            r0 = None
+        if r0 is None:
+            fails.append(f"LEG 3a CONTROL: {Path(a.witness).name} did not finish within "
+                         f"{a.witness_timeout:.0f}s UNPOISONED — this leg DID NOT RUN")
+        elif r0.returncode != 0:
+            fails.append(
+                f"LEG 3a CONTROL: {Path(a.witness).name} exited {r0.returncode} on a CLEAN "
+                f"cart. A witness that already fails cannot testify about the poison — "
+                f"leg 3's non-zero exit would prove nothing. tail:\n"
+                + "\n".join(((r0.stdout or "") + (r0.stderr or "")).strip().splitlines()[-6:]))
+        elif "CartMismatch" in (r0.stdout or "") + (r0.stderr or ""):
+            fails.append(f"LEG 3a CONTROL: {Path(a.witness).name} named a CartMismatch on a "
+                         f"CLEAN cart — the discriminator is not a discriminator")
+        else:
+            print(f"  LEG 3a CONTROL : {Path(a.witness).name} exited 0 in "
+                  f"{time.monotonic() - t0:.1f}s unpoisoned, with no cart complaint")
+        legs.append("3a WITNESS CONTROL")
+
+        # ---- leg 3: the same command, poisoned -----------------------------------
         sc = Path(tmp) / "sitecustomize.py"
         sc.write_text(SITECUSTOMIZE.format(env=POISON_ENV, tools=tools))
         env = dict(os.environ)
         env["PYTHONPATH"] = tmp + (os.pathsep + env["PYTHONPATH"]
                                    if env.get("PYTHONPATH") else "")
         env[POISON_ENV] = evil
-        cmd = [sys.executable, a.witness, "--rom", good, "--lst", lst]
         t0 = time.monotonic()
         try:
-            r = subprocess.run(cmd, env=env, capture_output=True, text=True,
+            r = subprocess.run(base_cmd, env=env, capture_output=True, text=True,
                                timeout=a.witness_timeout, cwd=str(aeon))
         except subprocess.TimeoutExpired:
             fails.append(f"LEG 3 WITNESS: {Path(a.witness).name} did not finish within "
@@ -217,8 +250,8 @@ def main() -> int:
 
     print()
     print(f"LEGS RUN: {len(legs)} — " + ", ".join(legs))
-    if len(legs) != 4:
-        fails.append(f"only {len(legs)} of 4 legs ran — an unrun leg is not a pass")
+    if len(legs) != 5:
+        fails.append(f"only {len(legs)} of 5 legs ran — an unrun leg is not a pass")
     if fails:
         print("RESULT: FAIL")
         for f in fails:
