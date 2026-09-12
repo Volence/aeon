@@ -65,7 +65,14 @@ def parse_sound_ids():
 def parse_bank_rows():
     """-> (key_lo, key_hi, {id: blob_filename}) from sfx_bank.emp's `table`."""
     src = _read(SFX_BANK_EMP)
-    m = re.search(r"table SfxTable \(cell:.*?key:\s*(\$\w+)\.\.=(\$\w+)", src)
+    # The attribute list before `key:` is NOT anchored on `cell:` — parcel F3
+    # (2026-09-12) deleted `cell: *u8, hole: 0, body: before` to stop emitting the
+    # 548 B of dead id->blob cells, leaving a record-list table that still declares
+    # `key: $33..=$BB`. The key range is what every gate here derives from, and it
+    # survived; matching on `cell:` would have turned these three tests into an
+    # ERROR ("could not find the SfxTable key range") rather than a pass or a
+    # failure about the win table.
+    m = re.search(r"table SfxTable \((?:[^)]*?,\s*)?key:\s*(\$\w+)\.\.=(\$\w+)", src)
     assert m, "sfx_bank.emp: could not find the SfxTable key range"
     lo, hi = _emp_int(m.group(1)), _emp_int(m.group(2))
     rows = {}
