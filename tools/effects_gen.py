@@ -1419,12 +1419,12 @@ def _check_fp16(path: str, value, where: str) -> None:
     for required in FP16_KEYS:
         if required not in value:
             _refuse(path, f"{where} has no `{required}`. fp16 requires both `whole` and "
-                          f"`frac256`, no default on either (raster.emp:684).")
+                          f"`frac256`, no default on either (raster.emp, `fp16`).")
     whole, frac256 = value["whole"], value["frac256"]
     if isinstance(whole, bool) or not isinstance(whole, int):
         _refuse(path, f"{where}.whole must be an integer, got {type(whole).__name__} "
                       f"{whole!r}. Whether it is IN RANGE (-512..511) is fp16's own "
-                      f"ensure (raster.emp:686), not this file's.")
+                      f"ensure (raster.emp, `fp16`), not this file's.")
     if isinstance(frac256, bool) or not isinstance(frac256, int):
         _refuse(path, f"{where}.frac256 must be an integer, got "
                       f"{type(frac256).__name__} {frac256!r}. Whether it is IN RANGE "

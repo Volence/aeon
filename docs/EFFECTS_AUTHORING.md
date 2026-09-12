@@ -933,7 +933,7 @@ therefore schedules `gap(i+1 -> i+2)`. The full argument is at `raster.emp:24-40
 **For a single-event program at screen line M this reduces to `$8A00 | (M - 3)`** — exactly what
 `arm_at` produces for that case (`raster_dsl.emp:429-435`), which is what lets `OJZ_WaterRaster` come
 out byte-identical and what `Raster_PatchWaterLine` (`raster.emp:645-646`) is the runtime twin of. Both
-spell `RASTER_MIN_FIRE_LINE` (`raster.emp:586`) rather than a hand-synced 3.
+spell `RASTER_MIN_FIRE_LINE` (`raster.emp`, its `pub const`) rather than a hand-synced 3.
 
 The sparse authorities in the tree are `raster_dsl`'s `fire` (`raster_dsl.emp:203-249`), which enforces
 the 3..223 screen-line range, and `fire_lines` / `arm_at` (`:413-424`, `:429-435`), which own the `-1`
