@@ -30351,15 +30351,20 @@ an outside target dir, and that tree is left clean because our landing lane runs
 `sigil` stays `49ecc532`. The swap happens in a window the HUB opens once every building lane is clear. aeon's side: nothing
 builds between our CHANNEL-BANDS landing push and the hub's swap announcement, and the first build under the new pair is a
 four-shape re-check against master's ROMs (byte-identical expected; if not, the four CRCs go to sigil as the finding).
-**FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
-`md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.
+~~**FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
+`md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.~~
+**CLOSED 2026-09-12, `parcel/tools-followups-0912`:** every shape now prints an `Emitter:` line straight after the
+assembler provenance block: md5 and path on sound-ON shapes, `NOT FOUND` when `SIGIL_EMIT` is unset or missing, `not used
+by this shape` on demo. emit_sound_blob has no `--version`, so the md5 is its identity. Graded by
+`tools/test_build_env_knobs.py` (lifts the marked block and runs it; the md5 comes from hashlib). It was red first: with the
+md5 dropped from the echo, 1 of its 3 rows failed. Zero ROM bytes, all four shapes md5-identical to the base.
 **Outcome, 2026-09-12:** the swap happened at 06:25:12Z inside a hub-opened window. `emit_sound_blob` is now
 `36ef302cbf5eeca693ecbf981ce8a53a`, rebuilt at `af35fa56` in `.sigil-pin-af35fa56`, and `sigil` is unchanged at
 `49ecc532e0b133ab0eab9447e071805c`. aeon's four-shape re-check at `808141f7` under the new pair came out byte-identical to
 master's pre-swap ROMs (s4 `eee9f4e2`, s4.debug `f5660a6f`, demo `5e299109`, demo.debug `1473caa9`), so the swap stays.
 That shows the relinked `8d80a578` and the new `36ef302c` agree on four ROMs; it says nothing about the original
 `b1569c67`. Sigil KEEPS the `8d80a578` copy at `~/sonic_hacks/.sigil-outgoing-8d80a578/`, because it is the tool that built
-every aeon ROM from 09-09 to 09-12. The build.sh banner follow-up above is still open.
+every aeon ROM from 09-09 to 09-12. ~~The build.sh banner follow-up above is still open.~~ Closed, see above.
 
 **A top-level `ensure` placed after a file's last `section {}` can make sigil measure a call 2 bytes short (booked
 2026-09-12; the sigil lane's finding, relayed, NOT verified on our installed `af35fa56`, so assume it applies).** Sigil's

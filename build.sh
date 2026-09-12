@@ -551,6 +551,28 @@ else
         fi
     fi
 fi
+
+# --- EMITTER IDENTITY (2026-09-12) ---
+# The provenance block above names the ASSEMBLER and nothing named the EMITTER, so the
+# 2026-09-09..12 split pair (the shared emit_sound_blob relinked from a different tree than
+# the sigil beside it) was found by a peer, not by any build's own output. emit_sound_blob
+# accepts --aeon and --out-dir and nothing else (no --version), so its md5 IS its identity.
+# Printed on every shape, sound-ON or not, so a log that lacks this line was not this build.
+# Informational only: the sound preflight below is still what refuses a missing emitter.
+# tools/test_build_env_knobs.py lifts the block between these markers and runs it, so the
+# markers are load-bearing.
+# >>> EMITTER_IDENTITY
+if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
+    if [[ -n "${SIGIL_EMIT:-}" && -f "${SIGIL_EMIT}" ]]; then
+        _emit_md5="$(md5sum "${SIGIL_EMIT}" 2>/dev/null | cut -d' ' -f1 || true)"
+        echo "Emitter:   emit_sound_blob md5 ${_emit_md5:-<unreadable>} (${SIGIL_EMIT})"
+    else
+        echo "Emitter:   emit_sound_blob NOT FOUND at '${SIGIL_EMIT:-<SIGIL_EMIT unset>}'"
+    fi
+else
+    echo "Emitter:   not used by this shape (SOUND_DRIVER_ENABLED=0); SIGIL_EMIT not read"
+fi
+# <<< EMITTER_IDENTITY
 export SIGIL_REV
 
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
