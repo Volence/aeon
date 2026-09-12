@@ -33563,3 +33563,51 @@ red-first on the seat's fixture, and its commit message carries the pre-fix gree
 Byte-neutral on the committed inputs, as measured: a `tools/regenerate-level.sh --no-cache` re-bake on the branch
 changed only `DONOR_PROVENANCE.json`'s generator record (its `head` and `modified_tracked`), which every re-bake at a
 new commit does.
+
+## CART-VERIFY-COVERAGE — 40 of our 54 emulator-backed tools never check which ROM they measured (found 2026-09-12)
+
+**Found by reciprocation, not by audit.** Aeon flagged a live staleness hazard to sigil (nine per-session
+`oracle-aether` shims all preloading the main checkout's 41-hour-old `s4.debug.bin`; the
+`WORKING-COPY-CATCHUP` card's third consequence). Sigil checked **their** side and found
+`crates/sigil-harness/golden/ab/AB_PROTOCOL.md` hashes RAM, VRAM, CRAM and the visible plane and
+**never the cart** — so a stale ROM does not make their A/B fail, it makes both arms **AGREE**: identical
+program, every region hash matching, a clean verdict having compared nothing (sigil `457853d6`). Asking
+the same question here is what produced this row.
+
+**THE HOUSE PATTERN EXISTS AND IS GOOD — this is a coverage gap, not a missing idea.**
+`tools/fg_left_edge_gate.py:409-412` is the model:
+
+```python
+st = await c.call("emulator/status", {})
+if st["romBytes"] != len(blob):
+    raise SystemExit(f"UNMEASURABLE: server serves {st['romBytes']} bytes, {rom} is "
+                     f"{len(blob)} — refusing to gate a different ROM")
+```
+
+It refuses loudly, and `UNMEASURABLE` is the right verdict class: not a pass, not a failure of the subject.
+
+**MEASURED at `origin/master`, with a positive AND a negative control on the loop (see the caveat below
+for why that is stated rather than assumed):** of **54** tools importing `aether_emulator`/`aether_instance`,
+**14 read `romBytes`**, **5 use a hash of any kind**, and **40 never look at the cart at all.**
+`tools/aether_instance.py` — the spawner every one of the 54 goes through — does **not** verify it, so
+nothing is inherited.
+
+**PROPOSED, and the leverage is obvious: put the check in the spawner.** `aether_instance.py` knows the
+ROM path it was handed; comparing the served `romBytes` against that file's length there would cover all 54
+at once and let the 14 hand-rolled copies collapse into it. **Length is weaker than a hash** — two builds of
+equal size would pass — so a hash is the better form where it is affordable; length alone would nonetheless
+have caught today's case (847367 against 847533). **Prove it red-first by pointing a witness at a different
+ROM and requiring `UNMEASURABLE`.**
+
+> **⚠ THE MEASUREMENT BELOW WAS WRONG TWICE BEFORE IT WAS RIGHT, AND THAT IS THE PART TO KEEP.**
+> First pass reported **0 of 54** — a shell loop over an unquoted variable that silently matched nothing;
+> caught only because a **positive control** (a pattern that must hit all 54) came back 0 too. Second pass
+> reported **31 of 54** — the alternation included `rom_bytes`, which matches **`int.from_bytes(...)`**, a
+> construct unrelated to carts and present in most of these files. Caught only by trying to *show* the
+> matching lines, which came back empty for a file the loop had just named.
+> **Both wrong numbers were alarming and quotable**, and the first was about to be sent to a peer and to
+> the owner as "none of our 54 tools verify the cart". This is the suite's own bar arriving on the lane
+> that wrote it the same afternoon: **a uniqueness grep over the corpus does not make the MATCHER unique**,
+> and when a result comes back clean, suspect the matcher before the subject. **Every count in this row was
+> re-derived with a positive control (must hit 54) and a negative control (must hit 0) run in the same
+> loop shape as the real question** — that pairing is what any re-measurement of this row should reuse.
