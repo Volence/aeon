@@ -49,12 +49,18 @@ pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0:
         cmp.w   Cache_Bottom_Row, d1
         bgt     .cgt_air
 
-        // row in range → cache-relative physical collision row (circular)
+        // row in range → cache-relative physical collision row (circular).
+        // Origin is added BEFORE the halving, so the origin is read straight from
+        // RAM and never halved per query (lens row C1b-3): the old form was
+        // lsr L / move O / lsr O / add = floor(L/2) + O/2, this is
+        // floor((L + O)/2), and the two are EQUAL for every L because
+        // Cache_Origin_Row is kept even — the same invariant the old form leaned
+        // on. The range is unchanged too (both are one value), so the single
+        // subtract below still wraps. It is also literally "physical tile row / 2
+        // = physical collision row", as docs/ENGINE_ARCHITECTURE.md §4.7 words it.
         sub.w   d2, d1                       // row - Cache_Top_Row (d2 free after)
-        lsr.w   #1, d1                        // tile rows → collision rows
-        move.w  Cache_Origin_Row, d2
-        lsr.w   #1, d2                        // origin even → exact collision origin
-        add.w   d2, d1
+        add.w   Cache_Origin_Row, d1         // → physical tile row, before the wrap
+        lsr.w   #1, d1                        // tile rows → collision rows (origin even: exact)
         cmpi.w  #TILE_CACHE_COLL_ROWS, d1
         blt     .row_nowrap
         subi.w  #TILE_CACHE_COLL_ROWS, d1

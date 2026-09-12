@@ -1170,23 +1170,27 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // includes the caller's `bsr.w` (18), and none of them model the bus contention a real
 // Mega Drive imposes on the 68000 — every row is a FLOOR for the CPU's own work.
 //
-//   (RE-RUN 2026-09-10 after the priority swap; the previous column is kept beside it
-//    because the difference is the whole subject of the paragraph two below)
-//                                                                     now  (was)
-//   same cell (the whole steady state)                                106   (106)
-//   cell changed, position off the tile cache (GetType's air exit, 58) 584   (580)
-//   cell changed, one cell of X, no mark (plane A)                    798   (794)
-//   cell changed, one cell of X, no mark (plane B)                    804   (800)
-//   cell changed, one cell DIAGONALLY, no mark (plane A)              834   (830)
-//   cell changed, one cell, FIRES rightward (TO_B on plane A)         918   (862)
-//   cell changed, one cell, FIRES leftward (TO_A on plane B)          890   (852)
-//   cell changed, one cell, REFUSED by direction (TO_A going right)   852   (848)
-//   cell changed, one cell, REFUSED by direction (TO_B going left)    840   (836)
-//   cell changed, one cell, REFUSED by direction (x_vel == 0)         822   (818)
-//   a discontinuity — teleport/respawn/act start — snapped to one probe 754  (750)
+//   (RE-RUN 2026-09-11 after lens row C1b-3, which took 12 cycles out of every
+//    Collision_GetType call that reaches the cache: -12 on each one-probe row, -24 on
+//    the two-probe rows, and nothing on the steady state or the off-cache exit, which
+//    never reach the changed lines. The 09-10 column is the priority-swap re-run; the
+//    last column is from before the swap, kept because that difference is the whole
+//    subject of the paragraph two below)
+//                                                                     now  09-10  (pre-swap)
+//   same cell (the whole steady state)                                106   106   (106)
+//   cell changed, position off the tile cache (GetType's air exit, 58) 584   584   (580)
+//   cell changed, one cell of X, no mark (plane A)                    786   798   (794)
+//   cell changed, one cell of X, no mark (plane B)                    792   804   (800)
+//   cell changed, one cell DIAGONALLY, no mark (plane A)              822   834   (830)
+//   cell changed, one cell, FIRES rightward (TO_B on plane A)         906   918   (862)
+//   cell changed, one cell, FIRES leftward (TO_A on plane B)          878   890   (852)
+//   cell changed, one cell, REFUSED by direction (TO_A going right)   840   852   (848)
+//   cell changed, one cell, REFUSED by direction (TO_B going left)    828   840   (836)
+//   cell changed, one cell, REFUSED by direction (x_vel == 0)         810   822   (818)
+//   a discontinuity — teleport/respawn/act start — snapped to one probe 742  754  (750)
 //   TWO cells of X in one frame (>8 px/frame: the step-over the sweep
-//     exists for), no mark                                           1352  (1348)
-//   ... same, marked field firing on both                            1598  (1490)
+//     exists for), no mark                                           1328  1352  (1348)
+//   ... same, marked field firing on both                            1574  1598  (1490)
 //
 // HOW MUCH OF THAT IS TRUSTWORTHY, and the answer is checkable rather than asserted.
 // The summer reproduces three figures the previous note derived independently and by a
@@ -1194,7 +1198,11 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // (292), and its early air exit (58). The composite rows differ from the previous
 // note's by -16..+50 — those were scenario differences, not timing ones, and the old
 // scenarios were not recorded closely enough to reconcile, so that attribution is an
-// inference and is flagged as one. The three anchors are the measurement.
+// inference and is flagged as one. The three anchors are the measurement. (They are the
+// 2026-09-05 figures. Since C1b-3 the in-cache body is 280, i.e. 292 - 12. The 12 was
+// derived twice: by hand, per instruction, in
+// docs/superpowers/notes/2026-09-11-c1b3-and-landing-stamp.md, and by this tool's row
+// deltas. 106 and 58 are unchanged.)
 //
 // WHAT THE DIRECTION GATE COST. Nothing at all on the two rows that matter most: the
 // steady state is unchanged at 106, and a frame that changes cell WITHOUT meeting a
@@ -1210,7 +1218,8 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // leaves before a byte of the walk is reached, so a standing or sub-cell-moving player
 // pays nothing at all. The diagonal case is why the walk advances both axes together
 // rather than turning a corner: an ordinary frame on a slope moves one cell on each
-// axis and still costs ONE probe (830), where an L-shaped path would have cost two.
+// axis and still costs ONE probe (830 then, 822 today), where an L-shaped path would
+// have cost two.
 //
 // WHAT THE PRIORITY SWAP COST, and the interesting half is NOT the three instructions.
 // On the two firing rows it is +56 and +38 cycles — the andi/ori pair is 20 each
@@ -1233,9 +1242,9 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 // carefully-ordered routine; that trade was declined deliberately, not overlooked.
 //
 // Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
-// 1.25% on a frame where both changed cell, 2.12% in the two-cell case that only
-// happens above 8 px/frame. A player running at speed changes cell most frames, so
-// 1.25% is the honest running figure. 222 bytes of code (was 204, and 182 before the
+// 1.23% on a frame where both changed cell, 2.08% in the two-cell case that only
+// happens above 8 px/frame (1.25% and 2.12% before C1b-3). A player running at speed
+// changes cell most frames, so 1.23% is the honest running figure. 222 bytes of code (was 204, and 182 before the
 // sweep), measured from the listing.
 //
 // The cheap gate that is NOT here, named so it is a decision and not an oversight:
