@@ -33634,3 +33634,13 @@ ROM and requiring `UNMEASURABLE`.**
 > suite's own bar landing repeatedly on the lane that restated it the same afternoon: **a uniqueness grep
 > over the corpus does not make the matcher unique, and a clean result should make you suspect the
 > instrument before the subject.** Re-derive with BOTH controls, and state which population you took.
+>
+> **AND YET THE ROW IS ACTIONABLE, FOR A REASON THAT IS NOT "the last number is probably right".**
+> *(Sigil's formulation, on their own parallel case: they published three populations — truncated by
+> `head`, then the wrong vocabulary, then an over-broad token inside an over-narrow scope — and their
+> answer was **zero** every time.)* **The numerator never moved.** Ours behaves the same way in the other
+> direction: `40 of 54` and `49 of 65` are different numbers and the **same finding**, because what
+> changed was the denominator and what mattered was that roughly three quarters of it is uncovered.
+> **A conclusion invariant across independent wrong framings is the one worth acting on** — that
+> invariance is evidence in a way no single count here has earned. So: act on the row, and do not quote
+> any number in it without re-deriving it.
