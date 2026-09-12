@@ -30295,6 +30295,34 @@ recurses (the build's own pytest lane collects the test and launches it again, a
 (a) `build.sh` sets `NO_LINT=0` unconditionally before parsing flags (`build.sh:355`, verified here), so an EXPORTED `NO_LINT=1` is ignored and only `-nl`/`--no-lint` (and FAST) skip the lint lanes. It fails safe (the lanes run), but any doc or tool that names `NO_LINT=1` as an environment knob describes a knob `build.sh` does not honour; decide whether to honour the env var or drop it from the docs.
 (b) sigil's defect, booked in sigil: a `use` naming an item that does not exist builds green when nothing calls it, so our new cross-module `use` lines are checked only through the calls behind them. Nothing owed here.
 
+**Side findings of the 2026-09-12 entity-window C4a parcel (merges `f64f26b3` + `21a2887a` for C4a-3, `b4a1e4ba` for C4a-4, `62fb300f` for C4a-2; full record `docs/superpowers/notes/2026-09-12-entity-window-c4a-parcel.md`), booked, not fixed:**
+(a) **`Killed_MarkObject` has no caller** in `engine/` or `games/` (the parcel's finding, re-verified by the controller on the
+merged tree with `git grep -w`: one definition, two comments and one ensure message, no call site). So the killed
+mask is never set and the killed gate always answers "alive": a destroyed badnik can respawn when its section slides back
+in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path.
+(b) **`Parallax_CheckBoundary` reads `d2` after `Section_GetSecPtrXY`, whose declaration says it clobbers `d2`.** It stores
+`d2`/`d3` right after the call and works only because the body happens not to touch `d2` (C4a-4 kept it off `d2` and says so
+in the header). The contract closure does not flag a read of a declared-clobbered register, so a future body change would
+silently break the parallax crossing detector. Either narrow the declaration to what is really written, or save `d2` at the caller.
+(c) **Same class in the ring walkers:** `EntityWindow_TrySpawnRing` declares `a0` clobbered and its header says no caller
+relies on it, but all three ring walkers advance `a0` after the call (`addq.w #RING_LIST_ENTRY_SIZE, a0`). The body restores
+it, so it works; the declaration and the header are what is wrong.
+(d) **A third copy of the flat-id product** sits in `engine/level/tile_cache.emp` (`mul_bounded.w d3, d1, #MAX_ACT_SECTIONS`);
+C4a-4 made `Section_GetSecPtrXY` return the flat id, so this one could reuse it too. Outside that parcel's scope.
+
+**The channel-bands sidecar's `edges.*.engine` fields still publish raster.emp LINE NUMBERS (booked 2026-09-12, reported by
+aurora via the hub; verified here at origin/master):** `games/sonic4/data/generated/effects_channel_bands.json` carries
+`edges.hi.engine = engine/effects/raster.emp:2023` and `edges.lo.engine = engine/effects/raster.emp:2026`, written by
+`_edge_behaviour` in `tools/effects_gen.py` (`f"engine/effects/raster.emp:{hits[0]}"`). So aurora's channel-bands currency
+row goes red every time raster.emp grows above those lines with no band moving: it did on EFX-4b (`38c63452`), and aurora
+re-vendored at their `7e8af032` (on aurora origin/master, checked here). Same defect `17a6c6d4` fixed for `channels.*.source`;
+same fix: anchor to the enclosing declaration (`engine/effects/raster.emp#<decl>`, `#<declaration-not-resolved>` when it
+cannot resolve), regenerate the sidecar in the same commit, zero ROM bytes, and tell aurora it re-vendors once more. The
+raster.emp line citations inside effects_gen.py's own messages and comments are a separate, non-published matter.
+**Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
+on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
+rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).
+
 ## Tier 3 — prose that decayed, zero-byte fixes
 
 | id | row |
