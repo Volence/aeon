@@ -1437,11 +1437,26 @@ def _apply_s3k_modset_load_points(events, sfx_id, chanid):
 # SFX blob packer (mirrors pack_song but emits SfxHeader + per-channel records)
 # ---------------------------------------------------------------------------
 
+# The music opcodes whose STORE lands on an SfxChannel control byte, and what each
+# one hits. Keyed by the song_packer event class NAME, not by an imported class:
+# sfx_transcode imports none of Detune/Macro and has no code path that builds either,
+# so this is a BACKSTOP against a future emission path, not a filter on something the
+# transcoder emits today. (PsgNoise it does build, and the B5 carve-out below is why.)
+# The field offsets quoted here are pinned by paired `ensure`s in
+# engine/sound/sound_constants.emp — see the docstring.
+_ALIASING_OPS = {
+    'PsgNoise': 'MEV_PSGNOISE ($F2), which aliases sx_priority',
+    'Detune': 'MEV_DETUNE ($F6), which aliases the must-stay-zero sx_pad',
+    'Macro': ('MEV_MACRO ($F9), whose unconditional `ld (ix+sc_macro_active), a` '
+              'aliases the LOW BYTE of sx_patch_base (+59)'),
+}
+
+
 def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
-    """SFX B4 — reject the two music opcodes that ALIAS SfxChannel control bytes.
+    """SFX B4 — reject the music opcodes that ALIAS SfxChannel control bytes.
 
     Past offset +56 SfxChannel and SeqChannel deliberately disagree, but the
-    interpreter is SHARED and reaches those offsets through ix. Two overlaps are
+    interpreter is SHARED and reaches those offsets through ix. Three overlaps are
     therefore live hazards on an SFX channel:
 
       MEV_PSGNOISE ($F2) writes sc_noise_mode == SfxChannel.sx_priority (+57)
@@ -1449,6 +1464,35 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
       MEV_DETUNE   ($F6) writes sc_detune     == SfxChannel.sx_pad      (+58)
           -> sx_pad MUST stay 0; the FM/PSG note paths fold (ix+sc_detune)
              unconditionally, so a non-zero byte there detunes every SFX note.
+      MEV_MACRO    ($F9) writes sc_macro_active == the LOW BYTE of
+                         SfxChannel.sx_patch_base (+59)
+          -> Seq_Op_Macro stores 1 there, which corrupts the SFX's own FmPatch
+             window pointer. Fm_PatchPtr returns sx_patch_base for an SFX channel
+             and Sfx_Steal/Sfx_Restore load the voice through it, so the next patch
+             load reads its operator bytes from base+1 (or base+257).
+
+    ADDED 2026-09-12 (gap lens sweep A2-12's behavioural half, booked by the A2
+    parcel). Two reasons it is ABSOLUTE, with no route carve-out of the MEV_PSGNOISE
+    kind:
+      * Seq_Op_Macro does NOT branch on Snd_ChanClass. Seq_Op_PsgNoise earned its
+        carve-out by skipping the store on the SFX arm; Seq_Op_Macro's store is
+        unconditional, so every route corrupts +59. (On a PSG SFX channel
+        Sfx_Steal sets sx_patch_base to base+0 and never calls Fm_PatchLoad, so the
+        corrupted value is inert there TODAY — an inert corruption is not a reason to
+        let it through, and it stops being inert the moment anything reads the field.)
+      * the rebase is against the wrong blob anyway: Seq_Op_Macro computes
+        Snd_SongBase + offset, the SONG's base, so a macro offset authored in an SFX
+        blob would arm sc_mod_ptr inside the current song.
+    song_packer's own Macro.validate refuses non-FM routes, but it never runs here:
+    pack_sfx encodes events directly and never calls Event.validate (the same reason
+    the D7 repeat backstop exists).
+
+    This was previously guaranteed only by the CONVENTION that the transcoder
+    happens not to emit either op, recorded in a comment. Since SFX sources are
+    S3K SMPS data that we do not control, "we never emit it" is a property worth
+    checking rather than asserting. Zero Z80 bytes: a stream that cannot contain
+    the opcode needs no runtime guard. The layout half of the invariant (that the
+    three fields really do still alias) is pinned by ensures in sound_constants.emp.
 
     This was previously guaranteed only by the CONVENTION that the transcoder
     happens not to emit either op, recorded in a comment. Since SFX sources are
@@ -1457,7 +1501,8 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
     the opcode needs no runtime guard. The layout half of the invariant (that the
     two fields really do still alias) is pinned by ensures in sound_constants.emp.
 
-    ONE CARVE-OUT (B5, 2026-08-26) — MEV_PSGNOISE on route CHROUTE_PSGN only.
+    ONE CARVE-OUT (B5, 2026-08-26), and it is MEV_PSGNOISE's alone — on route
+    CHROUTE_PSGN only.
     The alias hazard is not the opcode, it is the STORE: `ld (ix+sc_noise_mode), a`
     through an SFX slot's ix. Seq_Op_PsgNoise now branches on Snd_ChanClass and does
     that store on the MUSIC arm only, so on an SFX channel the opcode writes the chip
@@ -1466,15 +1511,14 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
     is the only one where the opcode means anything: on an SFX PSG1/PSG2/PSG3 or FM
     channel it would reset the LFSR and silence tone-3 behind whatever owns them, so
     those stay refused. MEV_DETUNE has no carve-out — sx_pad must stay 0 on every route.
+    MEV_MACRO has none either, for the two reasons above.
     """
     for ev in events:
         name = type(ev).__name__
         if name == 'PsgNoise' and route == CHROUTE_PSGN:
             continue                    # B5 carve-out (see docstring)
-        if name in ('PsgNoise', 'Detune'):
-            which = ('MEV_PSGNOISE ($F2), which aliases sx_priority'
-                     if name == 'PsgNoise'
-                     else 'MEV_DETUNE ($F6), which aliases the must-stay-zero sx_pad')
+        if name in _ALIASING_OPS:
+            which = _ALIASING_OPS[name]
             raise TranscodeError(
                 f"SFX ${sfx_id:02X} (route {route}) emits {which}. The shared "
                 f"interpreter would write an SfxChannel CONTROL byte through that "
