@@ -940,19 +940,25 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 //      not fill it hands the caller's value straight back, which is a meaningful
 //      exit value (sigil's inout facet: pass-through is contract-valid), whereas
 //      out() demands a production on every return path.
-// Clobbers: d0-d2, a0
-//   d3/d4 are saved internally and contractually preserved; d6/d7 and a1-a6 are
-//   untouched. a0 is restored by the same internal movem but stays DECLARED
-//   clobbered — no caller relies on it, and the wider declaration is the safe
-//   polarity.
-// Preserves: d3, d4, d5.w — the DEBUG no-dup scan writes d5 and brackets it with a
+// Clobbers: d0-d2
+//   d6/d7, a1-a3, a5 and a6 are untouched; a4 is the inout slot cache above.
+// Preserves: a0, d3, d4 — the one `movem.l d3-d4/a0` save window restores all three
+//   on every path that can write them; the two out-of-band exits return before the
+//   save and never touch them. a0 is the ROM ring entry, and ALL THREE callers
+//   (ScanRingsRight, PopulateSectionRings, RescanRings) advance it with
+//   `addq.w #…, a0` straight after the call, so they rely on it. Until 2026-09-12 a0
+//   sat in clobbers() under a header saying no caller relied on it (parcel/
+//   clobber-decls-0912). Declared preserved, a path that leaves a0 changed fails the
+//   build as [proc.clobber-undeclared]. Nothing watches the callers' side: under the
+//   old declaration an a0 left advanced on every path built green.
+//   d5.w — the DEBUG no-dup scan writes d5 and brackets it with a
 //   `move.w d5` save/restore that round-trips only its LOW word (all a caller reads
 //   it as, a byte mask); the upper word is unspecified (the `.w` facet licenses
 //   clobbering it). The three callers (ScanRingsRight/RescanRings/Populate) clobber
 //   d5 transitively through this call — a `.w`-preserving callee is a full clobber
 //   to them — so they keep `clobbers(d5)`.
 // -----------------------------------------------
-proc EntityWindow_TrySpawnRing (a4: u32) clobbers(d0-d2, a0) inout(a4: u32) preserves(d3, d4, d5.w) {
+proc EntityWindow_TrySpawnRing (a4: u32) clobbers(d0-d2) inout(a4: u32) preserves(a0, d3, d4, d5.w) {
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
         add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
