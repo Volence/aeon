@@ -75,6 +75,9 @@ SETTLE_STILL_FRAMES = 30     # a landing counts as "at rest" after this many unc
 SETTLE_MAX_FRAMES = 400
 LOOKUP_CAPTURE_FRAMES = 2    # Collision_GetType calls are captured over this many frames
 LOOKUP_CAPTURE_CAP = 240
+LATCH_TIMING_SAMPLES = 240   # C3b-2 context: ticks sampled for where the latch runs
+MCLK_PER_FRAME = 896040      # NTSC; oracle-aether's handshake timingBasis, checked at run time
+LINES_PER_FRAME = 262
 
 _SYM = re.compile(r"^ ([A-Za-z_$][\w$.]*) : ([0-9A-Fa-f]+) [A-Z] \|")
 _EQU = re.compile(r"^EQU ([A-Za-z_]\w*) = \$([0-9A-Fa-f]+)\s*$")
@@ -215,8 +218,18 @@ class Machine:
             await self.b.call("emulator/hold", {"buttons": list(names), "down": True})
 
     async def run_to(self, addr: int, max_frames: int) -> bool:
-        r = await self.b.call("emulator/run_to", {"addr": hex(addr), "maxFrames": max_frames})
-        return bool(r.get("reached"))
+        return bool((await self.run_to_reply(addr, max_frames)).get("reached"))
+
+    async def run_to_reply(self, addr: int, max_frames: int) -> dict:
+        return await self.b.call("emulator/run_to", {"addr": hex(addr), "maxFrames": max_frames})
+
+    async def mclk(self, reply: dict | None = None) -> int:
+        if reply and "mclk" in reply:
+            return int(reply["mclk"])
+        st = await self.b.call("emulator/status", {})
+        if "mclk" not in st:
+            raise CouldNotRun(f"neither run_to nor status reports mclk; status keys {sorted(st)}")
+        return int(st["mclk"])
 
     async def step(self, n: int = 1):
         await self.b.call("emulator/step", {"count": n})
@@ -934,10 +947,43 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
                 await m.buttons(*leg)
                 st["legs"] += 1
             await m.step(1)
-        await m.buttons()
-        await m.frames(1)
         st["lag_delta"] = await m.u32(k.s("Lag_Frame_Count")) - lag0
         st["frames"] = await m.frame() - st["frames0"]
+
+        # CONTEXT, not the verdict: WHERE in its tick the latch runs, on the same flight. A tick
+        # starts when a VBlank with VBlank_Ready = 1 releases VSync_Wait; a lag VBlank can only
+        # tear the latch if it lands between that start and the latch's stores. So: stop at
+        # such a VBlank, then at the latch, and measure the gap, and whether Lag_Frame_Count
+        # rose inside it (i.e. the pre-latch work of that tick overran a frame).
+        vbh, ready = k.s("VBlank_Handler"), k.s("VBlank_Ready")
+        gaps, lag_between = [], 0
+        while len(gaps) < LATCH_TIMING_SAMPLES:
+            rv = await m.run_to_reply(vbh, 3)
+            if not rv.get("reached"):
+                raise CouldNotRun("no VBlank_Handler entry in 3 frames during the latch timing")
+            if await m.u8(ready) == 0:
+                await m.step(1)
+                continue
+            mv = await m.mclk(rv)
+            lag_a = await m.u32(k.s("Lag_Frame_Count"))
+            await m.step(1)
+            rl = await m.run_to_reply(w["proc"][0], 8)
+            if not rl.get("reached"):
+                raise CouldNotRun("Effects_LatchWorldLines not reached within 8 frames of a tick start")
+            gaps.append(await m.mclk(rl) - mv)
+            if await m.u32(k.s("Lag_Frame_Count")) != lag_a:
+                lag_between += 1
+            px = await m.s16(p1 + px_off)
+            py = await m.s16(p1 + py_off)
+            if leg == ("down", "right") and (px > sec - 400 or py > sec - 400):
+                leg = ("up", "left")
+                await m.buttons(*leg)
+            elif leg == ("up", "left") and (px < 320 or py < 320):
+                leg = ("down", "right")
+                await m.buttons(*leg)
+            await m.step(1)
+        st["gaps"], st["lag_between"] = gaps, lag_between
+        await m.buttons()
         return st
 
     t0 = time.monotonic()
@@ -958,6 +1004,13 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
     out.append(f"  interrupted routine (nearest preceding symbol), top 8: " +
                ", ".join(f"{n} {c}" for n, c in top))
     out.append(f"  stops inside Effects_LatchWorldLines at all: {st['in_proc']}")
+    line_mclk = MCLK_PER_FRAME / LINES_PER_FRAME
+    g = sorted(x / line_mclk for x in st["gaps"])
+    if g:
+        out.append(f"  CONTEXT latch timing, {len(g)} ticks of the same flight: Effects_LatchWorldLines "
+                   f"entered {g[0]:.1f} .. {g[-1]:.1f} scanlines (median {g[len(g) // 2]:.1f}) after "
+                   f"the VBlank that started its tick (a frame is {LINES_PER_FRAME} lines); ticks with a "
+                   f"lag VBlank between tick start and the latch: {st['lag_between']}")
     out.append(f"  TEAR HITS (channel 0 stored, channel 1 not): {len(st['hits'])}")
     for h in st["hits"][:10]:
         out.append(f"    stop {h['stop']}: PC ${h['pc']:06X} d0.w {h['d0']} ({h['loop']}); Screen_L "
