@@ -29,32 +29,31 @@ Pairs are compared by HALF (`hl` is `h` + `l`), because declarations in this tre
 spellings (`clobbers(af, b, hl)`, `clobbers(a, b, de, f)`); `out(carry: …)` declares `f`.
 An attribute token this file does not recognise FAILS the run rather than being skipped.
 
-THE ALLOW-LIST, and why it is not a fix. The census finds the seven `Seq_Op_*` opcode
-handlers LS-2a counted, each writing `hl` via `inc hl` while declaring only
-`clobbers(af…)`. They are carried in KNOWN_UNDER_DECLARED below, derived by this file's own
-scanner, and printed on every run. It is a RATCHET in both directions: a new
-under-declaration fails, an allow-listed proc that grows a SECOND undeclared register fails,
-and a row that stops firing fails too (so correcting an attribute must delete its row). The
-list's safety premise is also checked, not remembered: no `call` instruction names any
-allow-listed proc (test_allow_listed_procs_have_no_call_site). Correcting the attributes
-instead is the better end state and moves zero bytes by LS-2's measurement; it was not done
-in the parcel that wrote this file because engine/sound/ was owned by another parcel that
-day. See docs/superpowers/notes/2026-09-11-lens-z3-parcel.md.
+NO ALLOW-LIST. The census is zero-firing: any Z80 leaf that writes a register it does not
+declare fails the build, and the fix is the ATTRIBUTE. The sequencer's opcode handlers that
+advance the stream pointer spell that effect `clobbers(..., hl)` (Seq_Op_Macro,
+Seq_Op_RegDelta and every leaf handler): `hl` leaves the handler advanced past its operands
+and Sequencer_NextOpcode.fetch consumes it. `out()` is not the spelling for it: in this
+driver `out()` names a value returned to a `call` site, and no `Seq_Op_*` handler is called.
+Records: docs/superpowers/notes/2026-09-11-lens-z3-parcel.md (the allow-list this file
+carried) and docs/superpowers/notes/2026-09-12-ctrl1-seqop-clobbers.md (its removal).
 
 WHAT IT DOES NOT COVER, each a real hole:
   * PROCS WITH A `call` OR `rst`. Their callees' effects are not modelled, so they are
     skipped whole, including their own direct writes. The skipped count is derived and
     printed on every run. A DEBUG-only `call` (inside `if DEBUG == 1 { }`) skips the proc
-    in every shape, because this file reads source, not a shape.
+    in every shape, because this file reads source, not a shape. That population holds
+    live under-declarations of this exact class (a direct `inc hl` or `ld e, a` the
+    proc's own attribute omits); docs/DEFERRED_WORK.md LS-2a enumerates them.
   * TAIL JUMPS. A `jp`/`jr` into another proc hands the caller that proc's writes too;
     nothing here follows a jump. (Seq_Op_Ext is entered by a `jp z` from
     Sequencer_NextOpcode, whose own declaration already covers `hl`.)
   * IMPLICIT WRITERS. ALU results into `a` (add/sub/and/or/xor/neg/cpl/daa and the
     accumulator rotates), flag-only writes (cp, bit, scf/ccf), `djnz` (b), the block ops
     (ldi/ldir/ldd/lddr/cpi/cpir: bc/de/hl), `exx`, `ex af,af'`, `ex (sp),hl`, `in r,(c)`,
-    and shifts, rotates or set/res on a register. Widening to these is deliberately NOT
-    done while the allow-list is non-empty: a wider parser would enlarge the list rather
-    than the protection, and the seven have to be resolved first.
+    and shifts, rotates or set/res on a register. Not widened yet: each new form owes its
+    own fixture control. The lens-z3 note measured a wider parser adding ZERO hits over
+    the leaves, so widening costs no allow-list; docs/DEFERRED_WORK.md LS-2a books it.
   * TEMPLATES. A comptime fn or `asm {}` template expanded inside a proc body writes
     registers no text scan can see.
   * PROCS WITH NO CONTRACT ATTRIBUTE AT ALL. Nothing is declared, so nothing can be
@@ -76,28 +75,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 ROOTS = ("engine", "games")
 
-# ---------------------------------------------------------------------------------------
-# The allow-list. DERIVED 2026-09-11 by this file's scanner at aeon e4b4f38f, and equal
-# to LS-2a's hand count (7 procs, all `hl`). Each value is the exact set of undeclared
-# register HALVES the proc writes. The list is printed on every run.
-#
-# Why each is safe TODAY, and why that is not the same as correct: every one is an opcode
-# handler reached through the sequencer's computed trampoline (engine/sound/
-# seq_opcode_tab.emp's `dc.w` rows), never `call`ed, and each ends by `jp`-ing back to
-# Sequencer_NextOpcode.fetch with `hl` advanced past its operand, which is the handler's
-# intended effect. No caller can be broken by the omission. What is missing is only the
-# declaration, and the declaration is what a future `call` would trust.
-# ---------------------------------------------------------------------------------------
+# The module the reach control requires the sweep to find: the sequencer, home of the
+# opcode handlers.
 SEQ = "engine/sound/sound_sequencer.emp"
-KNOWN_UNDER_DECLARED: dict[tuple[str, str], frozenset[str]] = {
-    (SEQ, "Seq_Op_NoteFill"): frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_PsgEnv"):   frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_Detune"):   frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_Ext"):      frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_Porta"):    frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_ModSet"):   frozenset({"h", "l"}),
-    (SEQ, "Seq_Op_OpBias"):   frozenset({"h", "l"}),
-}
 
 # Z80 procs that declare NO contract attribute, each with its in-source reason. Exact set,
 # derived by this file's scanner at e4b4f38f.
@@ -312,8 +292,8 @@ def test_the_scan_reaches_the_z80_tree():
     print(f"Z80 files: {len(files)}; procs: {len(procs)}; leaves checked: {len(leaves)}; "
           f"skipped for a call/rst: {len(procs) - len(leaves)}")
     assert SEQ in files, (
-        f"the Z80 sweep of {ROOTS} did not reach {SEQ}, the module this census's allow-list "
-        f"lives in. It found {len(files)} file(s): {files}. The `cpu: z80` match is broken."
+        f"the Z80 sweep of {ROOTS} did not reach {SEQ}, the sequencer and home of the opcode "
+        f"handlers. It found {len(files)} file(s): {files}. The `cpu: z80` match is broken."
     )
     assert len(files) >= MIN_Z80_FILES, f"only {len(files)} Z80 file(s), floor {MIN_Z80_FILES}"
     assert len(procs) >= MIN_Z80_PROCS, f"only {len(procs)} Z80 proc(s), floor {MIN_Z80_PROCS}"
@@ -343,52 +323,22 @@ def test_attribute_less_z80_procs_are_the_known_set():
 
 
 def test_no_z80_leaf_under_declares_its_clobbers():
+    """Zero-firing: no allow-list. Every problem line names the proc, the register halves
+    it writes undeclared with the first line writing each, and what it does declare."""
     procs = scan_tree()
-    actual = {(p["file"], p["proc"]): frozenset(p["under"]) for p in procs if p["under"]}
-    lines = {(p["file"], p["proc"]): p for p in procs}
-
-    print(f"KNOWN_UNDER_DECLARED allow-list ({len(KNOWN_UNDER_DECLARED)} row(s)):")
-    for (f, name), regs in sorted(KNOWN_UNDER_DECLARED.items()):
-        print(f"  {f} {name}: writes {_fmt(regs)} undeclared")
-
+    under = [p for p in procs if p["under"]]
+    print(f"Z80 leaves under-declaring: {len(under)} of {sum(1 for p in procs if p['leaf'])} "
+          f"checked")
     problems = []
-    for key, regs in sorted(actual.items()):
-        rec = lines[key]
-        detail = ", ".join(f"{r} (first written at :{ln})" for r, ln in sorted(rec["under"].items()))
-        if key not in KNOWN_UNDER_DECLARED:
-            problems.append(f"NEW  {key[0]}:{rec['line']} {key[1]} writes {detail}, declared "
-                            f"{_fmt(rec['declared']) or 'nothing'}")
-        elif regs != KNOWN_UNDER_DECLARED[key]:
-            problems.append(f"GREW {key[0]}:{rec['line']} {key[1]} now writes {detail}; the "
-                            f"allow-list carries only {_fmt(KNOWN_UNDER_DECLARED[key])}")
-    for key in sorted(set(KNOWN_UNDER_DECLARED) - set(actual)):
-        problems.append(f"STALE {key[0]} {key[1]} no longer under-declares "
-                        f"{_fmt(KNOWN_UNDER_DECLARED[key])} (fixed, renamed, or no longer a "
-                        f"leaf): delete its row so the list only shrinks on purpose")
-
+    for p in under:
+        detail = ", ".join(f"{r} (first written at :{ln})" for r, ln in sorted(p["under"].items()))
+        problems.append(f"{p['file']}:{p['line']} {p['proc']} writes {detail}, declared "
+                        f"{_fmt(p['declared']) or 'nothing'}")
     assert not problems, (
-        "Z80 clobbers() under-declaration census (CTRL-1 / LS-2a) is not at its allow-list:\n  "
+        "Z80 clobbers() under-declaration census (CTRL-1 / LS-2a):\n  "
         + "\n  ".join(problems)
         + "\nA Z80 proc must declare every register it writes in clobbers(), preserves() or "
-          "out(). Fix the ATTRIBUTE; do not widen the allow-list for a new proc."
-    )
-
-
-def test_allow_listed_procs_have_no_call_site():
-    """The allow-list's safety premise, checked rather than remembered: an under-declared
-    proc is harmless only while nothing `call`s it and trusts the contract."""
-    names = {name for _, name in KNOWN_UNDER_DECLARED}
-    hits = []
-    for p in z80_files():
-        for n, raw in enumerate(p.read_text(errors="replace").splitlines(), start=1):
-            s = _strip(raw).strip()
-            m = re.match(r"^(?:call)\s+(?:\w+\s*,\s*)?(\w+)\b", s, re.I)
-            if m and m.group(1) in names:
-                hits.append(f"{p.relative_to(REPO).as_posix()}:{n} {s}")
-    print(f"call sites of allow-listed procs: {len(hits)}")
-    assert not hits, (
-        "an allow-listed under-declaring proc is now CALLED, so a caller trusts a contract "
-        "that omits registers it writes. Correct its clobbers() first:\n  " + "\n  ".join(hits)
+          "out(). Fix the ATTRIBUTE: this census carries no allow-list."
     )
 
 
@@ -414,6 +364,18 @@ def test_scanner_controls():
         "        pop     de\n"
         "        ret\n"
         "    }\n"
+        "    pub proc Handler_Under () clobbers(af) {\n"
+        "        ld      a, (hl)\n"
+        "        inc     hl\n"
+        "        ld      (ix+5), a\n"
+        "        jp      Loop.fetch\n"
+        "    }\n"
+        "    pub proc Handler_Ok () clobbers(af, hl) {\n"
+        "        ld      a, (hl)\n"
+        "        inc     hl\n"
+        "        ld      (ix+5), a\n"
+        "        jp      Loop.fetch\n"
+        "    }\n"
         "    pub proc Caller () clobbers() {\n"
         "        ld      b, 1\n"
         "        call    Leaf_Ok\n"
@@ -422,7 +384,15 @@ def test_scanner_controls():
         "}\n"
     )
     procs = {p["proc"]: p for p in scan_text(src, "fake.emp")}
-    assert set(procs) == {"Leaf_Under", "Leaf_Ok", "Caller"}, sorted(procs)
+    assert set(procs) == {"Leaf_Under", "Leaf_Ok", "Handler_Under", "Handler_Ok", "Caller"}, (
+        sorted(procs))
+    assert set(procs["Handler_Under"]["under"]) == {"h", "l"}, (
+        "the opcode-handler shape (`inc hl` advancing the stream, a tail `jp` into the loop) "
+        f"must fire h,l when hl is undeclared. Got {procs['Handler_Under']['under']}"
+    )
+    assert procs["Handler_Ok"]["leaf"] and procs["Handler_Ok"]["under"] == {}, (
+        f"`clobbers(af, hl)` must cover the handler shape: {procs['Handler_Ok']['under']}"
+    )
     assert set(procs["Leaf_Under"]["under"]) == {"b"}, (
         "the label-prefixed `ld b, (hl)` must be the ONE undeclared write; prose, the string "
         f"literal and the memory destinations must not count. Got {procs['Leaf_Under']['under']}"
@@ -446,6 +416,5 @@ if __name__ == "__main__":
     test_no_file_mixes_z80_procs_with_68k_sections()
     test_attribute_less_z80_procs_are_the_known_set()
     test_no_z80_leaf_under_declares_its_clobbers()
-    test_allow_listed_procs_have_no_call_site()
     test_scanner_controls()
     print("OK")
