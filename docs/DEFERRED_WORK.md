@@ -12028,6 +12028,13 @@ includes its own exception entry; the model is entry-inclusive.
 
 **New angle on booked EFX-4b:** static programs may need no RAM copy at all — walk the ROM
 template directly, dissolving the over-read rather than patching it.
+*Answered 2026-09-11 (branch `parcel/efx4b-bounded-copy`): EFX-4b closed by PADDING instead.*
+Walking in place makes `Raster_Active_Buf` a ROM pointer, which `tools/effects_scene_assert.py`
+refuses on the dense scene (its program is the static `OJZ_TestGradient`), and it would stop
+snapshotting the RAM twins the ramp and base-swap witnesses stage through `Raster_Pending`, so
+it is a mechanism change behind emulator-only gates. Still the cleanest runtime (no copy, no
+ROM pad); revive it together with those two tools if the ~1 KB of pad ever matters. The full
+comparison is in `static_program`'s banner, `engine/effects/raster_dsl.emp`.
 
 ### Substrate item 3 CLOSED 2026-08-19 — the hazard is real, the diagnosis was wrong, and the booked fix was impossible
 

@@ -23,7 +23,8 @@ prose and can.
 
 One JSON document per raster program, at
 `games/sonic4/data/editor/effects/presets/<preset_id>.json`. `tools/effects_gen.py` lowers
-it to `compose([band(...)]) → raster_program(...)` and emits it as
+it to `compose([band(...)]) → static_program(...)` (`raster_program`'s words padded to the
+install buffer, EFX-4b) and emits it as
 `pub data EditorRaster_OJZ_Act1_<preset_id>` in
 `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`. Its ROM placement is already
 declared by a section-NAME row in `games/sonic4/map.toml`, so **a new preset needs no
@@ -418,7 +419,7 @@ const EditorRasterSrc_OJZ_Act1_authored_probe = compose([
     band(top: 112, bot: 156, on: stream_cram(addr: 74, colours: [14]), sh: 0),
     band(top: 172, bot: 216, on: stream_cram(addr: 74, colours: [3584]), sh: 0),
 ])
-pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSrc_OJZ_Act1_authored_probe)] = raster_program(EditorRasterSrc_OJZ_Act1_authored_probe)
+pub data EditorRaster_OJZ_Act1_authored_probe: [u16; static_words()] = static_program(EditorRasterSrc_OJZ_Act1_authored_probe)
 ```
 
 Every `ensure` in `band()` / `stream_cram()` / `fire()` / `compose()` / `raster_program()`
