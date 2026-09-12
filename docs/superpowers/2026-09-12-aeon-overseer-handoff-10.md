@@ -28,7 +28,7 @@ the newest, `at` 2026-09-12T19:44:47Z).
 | what | merge | evidence |
 |---|---|---|
 | **A2 follow-ups** (MEV_EXT mirror pin, MEV_MACRO refusal + the +59 alias pin, the stale `engine.inc` name) | `794beef8` | `7e33cd19` — four shapes `finished=0`, zero bytes, Z80 clobbers gate 5/5 |
-| **F3 dead ROM** (`SfxTable`'s dead cells + ALL SIXTEEN `_Patches` embeds) | `0e05e2c0` | `7d6809b4` — **−932 B**, every size predicted before measured |
+| **F3 dead ROM** (`SfxTable`'s dead cells + ALL SIXTEEN `_Patches` embeds) | `c0d1b816` | `7d6809b4` — **−932 B**, every size predicted before measured |
 | **owed runtime witnesses** (A2-9b, A2-11b, A2-17b all measured) + `tools/cart_identity.py` | `ddd67c6b` | ⚠ see the note below this table |
 | the `carry:` convention **RULED** and written into `CODING_CONVENTIONS.md` §2.8 | `454682fe`, `538c6d57`, `f4471190`, `9608fde8` | — |
 | sigil's two answers banked; both of our findings were malformed | `9ef66936` | — |
@@ -53,6 +53,19 @@ the newest, `at` 2026-09-12T19:44:47Z).
 > of its seven inputs moved) and the effects ritual does not apply.
 > **The parcel's own work is safe either way**: branch `witness/owed-runtime-0912c`, tip `973c24c2`, reachable in
 > the shared `.git`.
+
+> **⚠ A SHA IN THIS FILE WAS WRONG, AND THE WAY IT WAS WRONG IS THE POINT.** The F3 row above first read
+> `0e05e2c0`, which **is not a valid object in this repository at all** — I typed it from memory into this
+> handoff and into the `land(0912 s10b)` commit message, both of which are now durable. The real F3 merge is
+> **`c0d1b816`**, found with `git log origin/master --format='%h %s' | grep 'merge(F3)'`. Caught only because
+> the landing's own `merge-base --is-ancestor` sweep over every SHA in this file returned *"fatal: Not a valid
+> object name"* rather than a clean NOT LANDED — **a failing lookup and a true negative would otherwise have
+> been the same output.** The protocol's rule is explicit and I broke it: **never type a hash into a message
+> or a document — emit it from `git rev-parse` / `git log` in the same tool call that produces the surrounding
+> text.** Its precedent is a lane that did this twice in an hour while actively watching for it, which is why
+> the corrective is a mechanism and not care. `land(0912 s10b)`'s message still carries the bad SHA; it is an
+> immutable commit, and this note is the correction. Audit every other SHA in this file the same way before
+> relying on one.
 
 ## Next, in order
 
