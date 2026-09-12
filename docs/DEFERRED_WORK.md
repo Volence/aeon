@@ -30310,7 +30310,7 @@ it, so it works; the declaration and the header are what is wrong.
 (d) **A third copy of the flat-id product** sits in `engine/level/tile_cache.emp` (`mul_bounded.w d3, d1, #MAX_ACT_SECTIONS`);
 C4a-4 made `Section_GetSecPtrXY` return the flat id, so this one could reuse it too. Outside that parcel's scope.
 
-**The channel-bands sidecar's `edges.*.engine` fields still publish raster.emp LINE NUMBERS (booked 2026-09-12, reported by
+~~**The channel-bands sidecar's `edges.*.engine` fields still publish raster.emp LINE NUMBERS (booked 2026-09-12, reported by
 aurora via the hub; verified here at origin/master):** `games/sonic4/data/generated/effects_channel_bands.json` carries
 `edges.hi.engine = engine/effects/raster.emp:2023` and `edges.lo.engine = engine/effects/raster.emp:2026`, written by
 `_edge_behaviour` in `tools/effects_gen.py` (`f"engine/effects/raster.emp:{hits[0]}"`). So aurora's channel-bands currency
@@ -30318,7 +30318,26 @@ row goes red every time raster.emp grows above those lines with no band moving: 
 re-vendored at their `7e8af032` (on aurora origin/master, checked here). Same defect `17a6c6d4` fixed for `channels.*.source`;
 same fix: anchor to the enclosing declaration (`engine/effects/raster.emp#<decl>`, `#<declaration-not-resolved>` when it
 cannot resolve), regenerate the sidecar in the same commit, zero ROM bytes, and tell aurora it re-vendors once more. The
-raster.emp line citations inside effects_gen.py's own messages and comments are a separate, non-published matter.
+raster.emp line citations inside effects_gen.py's own messages and comments are a separate, non-published matter.~~
+**CLOSED 2026-09-12, `parcel/channel-bands-edge-anchor`.** Both edges now publish `engine/effects/raster.emp#Raster_BuildSchedule`:
+the nearest `proc`/`pub proc` at or above each marker hit, derived and never hardcoded, `#<declaration-not-resolved>` when none
+encloses it. Markers, notes and the refusal are unchanged. **RULING (coordinator): the shared proc anchor, over a per-edge
+label.** Both markers sit in one proc under one local label (`.entry`); hi's drop has `.suppress` but lo's clamp has no label,
+and adding one is NOT zero bytes: measured, one `.clamp_up:` line plus the regenerated sidecar built `s4.bin`
+`bc61e05a7880cb696ee26f8caf70fa69` against baseline `8577e186506ae9a997d6c571fa434996`, because sigil demangles locals into
+the deb2 appendix. A ROM-moving engine label whose only reader is a generated file is a bolted-on byte-mover for a pointer.
+The anchor is a LOCATION, NOT AN IDENTIFIER: the `hi`/`lo` key plus `behaviour` identify the edge, and the markers still
+refuse unless exactly one line matches. **PROVEN,** every mutation shown on disk and restored with `git checkout` from the
+step commit `36d02857` (raster.emp is blob `8a874727` at `49401df7`, at that step, and here): CONTROL, unmodified tree, a
+pure 40-line comment block above the proc: `effects_gen.py check` exits 1 ("a `patchable(` band moved", when none had).
+(a) the same insertion after the fix: exit 0. (b) the proc renamed, no regeneration: exit 1, DRIFT, so the anchor is live.
+(c) the lo marker's `// clamp UP` text changed: exit 1, REFUSED naming the `lo` edge, so behaviour detection is still
+guarded. Parsed leaf diff of the sidecar: 27 leaves, 0 added, 0 removed, 2 changed, both `edges.*.engine`. A second consumer
+found by what touches the value rather than by key name: `tools/test_cli_dispatch_refuses.py` runs `check` as a subprocess
+and asserts exit 0 (it tripped on a one-line probe edit before the fix). Aurora re-vendors once more. Not fixed, out of
+scope: `check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
+`Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale (its
+raster.emp self-cites were repointed by name in the next commit).
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
 rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).

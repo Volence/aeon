@@ -29,12 +29,12 @@
   "edges": {
     "hi": {
       "behaviour": "drop",
-      "engine": "engine/effects/raster.emp:2023",
+      "engine": "engine/effects/raster.emp#Raster_BuildSchedule",
       "note": "Past hi the record is NOT EMITTED this frame: no boundary is drawn anywhere and the band vanishes until the latched line re-enters [lo, hi]. It does NOT pin to hi."
     },
     "lo": {
       "behaviour": "clamp_up",
-      "engine": "engine/effects/raster.emp:2026",
+      "engine": "engine/effects/raster.emp#Raster_BuildSchedule",
       "note": "Below lo the record IS still emitted, clamped UP to lo, so the boundary pins at the top of the band and stays visible. The frame-top ship covers what is above it."
     }
   },

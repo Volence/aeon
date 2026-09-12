@@ -2113,12 +2113,13 @@ def walk_patch_sites(game: str = "sonic4", repo: str = REPO) -> list:
 # `lo` the record is still emitted, CLAMPED UP to the floor, because the frame-top ship
 # covers the rows above. Deliberate, and asymmetric.
 #
-# THESE LINE NUMBERS ARE DERIVED, NOT WRITTEN DOWN. `Raster_GetChannelBand`'s own banner
+# THESE LOCATIONS ARE DERIVED, NOT WRITTEN DOWN. `Raster_GetChannelBand`'s own banner
 # spent months citing :895-901 for this clamp and calling it symmetric (both corrected
 # 2026-09-04); a sidecar that hardcoded the same two facts would rot the same way and
 # take an editor's warning with it. So each edge is located by matching the INSTRUCTION
 # in engine/effects/raster.emp, and a marker that stops matching — or matches twice — is
-# a refusal, not a stale number quietly published to aurora.
+# a refusal, not a stale pointer quietly published to aurora. What is PUBLISHED is the
+# proc enclosing that instruction, not its line number; see _edge_behaviour.
 _EDGE_MARKERS = (
     ("hi", "drop", r"^[ \t]*bgt[ \t]+\.suppress\b",
      "Past hi the record is NOT EMITTED this frame: no boundary is drawn anywhere and "
@@ -2130,7 +2131,7 @@ _EDGE_MARKERS = (
 
 
 def _edge_behaviour(repo: str = REPO) -> dict:
-    """Each band edge's behaviour, with the engine line that implements it, located now."""
+    """Each band edge's behaviour, with the engine proc that implements it, located now."""
     path = os.path.join(repo, "engine", "effects", "raster.emp")
     with open(path, "r") as f:
         lines = f.read().splitlines()
@@ -2146,8 +2147,23 @@ def _edge_behaviour(repo: str = REPO) -> dict:
                           f"changed, fix the marker AND re-read the asymmetry: the hi edge "
                           f"is a DROP and the lo edge is a CLAMP, and an editor that is "
                           f"told they are the same warns in the wrong direction.")
+        # THE ENCLOSING PROC, which is what `engine` publishes instead of the hit's line
+        # number. The line number churned on every edit ABOVE the site: aurora's currency
+        # row went red on raster.emp growth with no edge moving (EFX-4b, 38c63452), the same
+        # defect 17a6c6d4 fixed for `channels.*.source`. It is a LOCATION, NOT AN IDENTIFIER:
+        # both edges live in one proc today and share its anchor BY DESIGN, and the `hi`/`lo`
+        # key plus `behaviour` are what identify the edge. The marker above still pins the
+        # exact site (it refuses unless exactly one line matches), so nothing is lost by the
+        # anchor being coarser. Derived from the hit, never hardcoded, and published as
+        # `#<declaration-not-resolved>` rather than a bare filename when no proc encloses it.
+        decl = None
+        for ln in lines[:hits[0]]:            # every line at or above the hit
+            m = re.match(r"^(?:pub\s+)?proc\s+([A-Za-z_][A-Za-z0-9_]*)", ln)
+            if m:
+                decl = m.group(1)
         edges[edge] = {"behaviour": behaviour, "note": note,
-                       "engine": f"engine/effects/raster.emp:{hits[0]}"}
+                       "engine": (f"engine/effects/raster.emp"
+                                  f"#{decl or '<declaration-not-resolved>'}")}
     return edges
 
 

@@ -2076,12 +2076,12 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 // -----------------------------------------------
 // Raster_GetChannelBand — report the fire-line band the LIVE patched program declares for
 // a world-anchor channel, so a SECOND consumer of that anchor lands exactly where
-// Raster_BuildSchedule puts the fire (:1979-1983).
+// Raster_BuildSchedule puts the fire (its `bgt .suppress` and `clamp UP` band checks).
 //
 // ⚠ THE TWO EDGES DO DIFFERENT THINGS, AND A CONSUMER THAT TREATS THEM ALIKE IS WRONG.
 // This banner said "clamps at BOTH edges" and cited :895-901 until 2026-09-04; both were
-// stale (:895-901 is raster_ramp_program's sign pin, and the hi edge was never a clamp).
-// What Raster_BuildSchedule actually does, at :1979-1983:
+// stale (that range was raster_ramp_program's sign pin, and the hi edge was never a clamp).
+// What Raster_BuildSchedule actually does, at its `bgt .suppress` and `clamp UP` checks:
 //   * PAST band_hi — `cmp.w 2(a0), d2 / bgt .suppress` — the record is DROPPED. Not pinned
 //     to hi: not emitted at all this frame, so there is no boundary on screen anywhere and
 //     the band VANISHES until the latched line comes back inside [lo, hi].
@@ -2113,7 +2113,8 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 //
 //   d0.w = channel
 // Out: d0 = 0 -> no band; the caller must NOT clamp (see below). d0 = 1 -> d1.w = lo,
-//      d2.w = hi, both FIRE lines (screen line - 1, :894's coordinate system).
+//      d2.w = hi, both FIRE lines (fire line = screen line - 1, the convention
+//      engine.effects.raster_dsl owns; see the comptime authoring helpers note above raster_arm).
 //
 // A ZERO RESULT IS A SEMANTIC ANSWER, NOT A FAILURE. Raster_Patch_Tab == 0 means no patched
 // program is live — the anchored-parallax-without-a-patched-program case W0 legitimised — so
