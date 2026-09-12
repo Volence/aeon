@@ -30217,7 +30217,7 @@ imply `DMA_Important_Slot != DMA_Important`. The race is rare; force it with a p
 `.land` between `bcs .land_full` and the `st.b`. Build it without and with the fix, and read `Frame_Counter` at
 `Level_LoadArt`'s `clr.b PageIn_Bulk_Drain`. Predicted (the parcel's, not measured): without the fix, about one frame later
 per ZX0-form page; with it, no invariant violations. Full method: `docs/superpowers/notes/2026-09-11-c3b3-pagein.md`. Batch
-it with LS-10a, the other emulator row that is the controller's.
+it with LS-10a, the other emulator row that is the controller's. **CLOSED 2026-09-12, RUNTIME-WITNESSED by the controller:** forced-race probes (unfixed on `3492ce3a`, fixed-control on `b29a53ae`, same addresses, the fix's four files the only diff), `Frame_Counter` at `$90C2` 60 vs 50; ten forced races, ten frames recovered; the unfixed flag is cleared only by next frame's VInt_Level release, the fixed one by the re-test in the same frame. `docs/superpowers/notes/2026-09-12-c3b3-runtime.md`.
 
 **`games/sonic4/map.toml`'s placement-authority claim needs RE-DERIVING (booked 2026-09-11, from sigil's measurement):**
 the file's header block (`MEASURED 2026-09-04 in sigil's source and then at the build`) says the frozen tables
