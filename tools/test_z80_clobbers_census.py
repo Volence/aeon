@@ -75,6 +75,11 @@ half in:
       declaration over-covers it. A transfer to a `.label` of the proc itself, or to its own
       name, is a jump inside the proc and charges nothing. A tail into an `@noreturn` proc is
       charged too (it never returns, so this over-covers; it can only make the census fire).
+      DISPATCH, FORWARD: a DISPATCH dispatcher (below) is charged the declared effect of
+      EVERY cell of its jump table, because its `ex (sp), hl` / `ret` runs whichever
+      handler the stream names inside its own invocation. This is the edge sigil declines
+      to bound; it is what makes the DISPATCH RE-ENTRY exclusion sound, since the handlers'
+      effects reach the dispatcher's callers through the dispatcher's own declaration.
 
 THREE RULES, each derived from source: two for writes that are not clobbers, and one for
 an edge that is not a transfer to new work. There is no allow-list; the census is
@@ -116,7 +121,10 @@ zero-firing.
   transfer. The class is DISPATCH below, one row, validated from source on every run: the
   dispatcher must perform the `ex (sp), hl` dispatch, load the named table with `ld hl`,
   and export the named label, and every table cell must be a Z80 proc. Sigil excludes the
-  same sub-machine from its own check (`is_opcode_dispatch_proc`) for the same reason.
+  same sub-machine from its own check (`is_opcode_dispatch_proc`) for the same reason. The
+  loop's cost is charged in the other direction instead: the dispatcher is charged every
+  cell's declaration (DISPATCH, FORWARD, above), which is what the dispatcher's callers
+  actually see.
 
 UNMEASURABLE CASES FAIL, they are never skipped: a call or jump target that resolves to no
 Z80 proc, a callee with no `clobbers(...)` clause (its write set is undeclared, and inferring
@@ -137,11 +145,6 @@ docs/superpowers/notes/2026-09-12-ctrl1-seqop-clobbers.md (its removal) and
 docs/DEFERRED_WORK.md LS-2a (the call-containing procs, 2026-09-12).
 
 WHAT IT DOES NOT COVER, each a real hole:
-  * THE COMPUTED DISPATCH, FORWARD. The `ex (sp), hl` / `ret` into a table cell is not an
-    edge here: Sequencer_NextOpcode is not charged the declarations of the handlers it
-    dispatches to, so a handler that honestly declared a register the dispatcher does not
-    would leave the dispatcher (and Sequencer_Channel, which falls into it) under-declared
-    with nothing to say so. Sigil declines to bound that edge too.
   * THE SHADOW BANK. `exx` and `ex af,af'` are charged as writes of the MAIN registers
     they swap out (conservative, so they can only make the census fire). A write made
     while the shadow bank is swapped in lands in bc'/de'/hl'/af', which no contract
@@ -205,6 +208,9 @@ MIN_FLAG_WRITERS = 108
 # plus Seq_ContinueFetch, all into Sequencer_NextOpcode.fetch).
 MIN_TAIL_EDGES = 66
 MIN_REENTRY_EDGES = 20
+# DISPATCH, FORWARD: one charged edge per SeqOpcodeTable cell (32 cells, 26 distinct
+# handlers), derived at d5ee8633.
+MIN_DISPATCH_EDGES = 32
 
 # The one computed dispatch this file knows: dispatcher proc -> (its jump table, the label
 # its dispatched handlers jump back into). See DISPATCH RE-ENTRY in the module doc; every
@@ -770,6 +776,11 @@ def check(procs: list[dict], dispatch: dict[str, tuple[str, str]] | None = None,
         edges = [(ln, t, "call") for ln, t in p["calls"]]
         if p["falls_into"] is not None:
             edges.append((p["falls_into"][0], p["falls_into"][1], "falls_into"))
+        if p["proc"] in dispatch:                     # DISPATCH, FORWARD: every table cell
+            table = dispatch[p["proc"]][0]
+            for cln, cell in (index[table]["cells"] if table in index else []):
+                if cell in index:
+                    edges.append((cln, cell, f"dispatch through {table} cell"))
         p["tails"], p["reentries"] = [], []
         for r in p["resolved"]:
             if r["kind"] == "self":
@@ -854,6 +865,12 @@ def test_the_scan_reaches_the_z80_tree():
         f"stopped matching `jp`/`jr`/`djnz` into another proc")
     assert n_reentries >= MIN_REENTRY_EDGES, (
         f"only {n_reentries} DISPATCH RE-ENTRY edge(s), floor {MIN_REENTRY_EDGES}")
+    index = {p["proc"]: p for p in procs}
+    n_dispatch = sum(len(index[table]["cells"]) for table, _ in DISPATCH.values()
+                     if table in index)
+    print(f"DISPATCH, FORWARD edges charged to the dispatcher(s): {n_dispatch}")
+    assert n_dispatch >= MIN_DISPATCH_EDGES, (
+        f"only {n_dispatch} DISPATCH table cell(s), floor {MIN_DISPATCH_EDGES}")
     assert SEQ in files, (
         f"the Z80 sweep of {ROOTS} did not reach {SEQ}, the sequencer and home of the opcode "
         f"handlers. It found {len(files)} file(s): {files}. The `cpu: z80` match is broken."
@@ -1469,6 +1486,27 @@ def test_tail_controls():
         raise AssertionError("a DISPATCH row naming no proc was accepted instead of refused")
 
 
+def test_dispatch_forward_controls():
+    """DISPATCH, FORWARD: the dispatcher is charged every table cell's declaration. The
+    FIXTURE_TAILS dispatcher covers its two cells (af, hl) and passes; a cell that declares
+    ix names the DISPATCHER (not the cell, whose own declaration is honest), and the edge
+    is gone for a population with no DISPATCH row."""
+    procs = {p["proc"]: p for p in check(scan_text(FIXTURE_TAILS, "fake4.emp"),
+                                         FIXTURE_TAILS_DISPATCH)}
+    assert procs["Disp"]["under"] == {} and procs["Disp"]["errors"] == [], procs["Disp"]
+    wide_text = FIXTURE_TAILS.replace("    pub proc Handler_B () clobbers(af, hl) {",
+                                      "    pub proc Handler_B () clobbers(af, hl, ix) {")
+    assert wide_text != FIXTURE_TAILS
+    wide = {p["proc"]: p for p in check(scan_text(wide_text, "fake4.emp"), FIXTURE_TAILS_DISPATCH)}
+    assert set(wide["Disp"]["under"]) == {"ixh", "ixl"} and \
+        wide["Disp"]["under"]["ixh"].startswith("via dispatch through DispTable cell Handler_B"), (
+        f"a table cell declaring ix must name its dispatcher: {wide['Disp']['under']}")
+    assert wide["Handler_B"]["under"] == {}, wide["Handler_B"]["under"]
+    bare = {p["proc"]: p for p in check(scan_text(wide_text, "fake4.emp"))}
+    assert bare["Disp"]["under"] == {}, (
+        f"with no DISPATCH row there is no forward edge to charge: {bare['Disp']['under']}")
+
+
 if __name__ == "__main__":
     test_the_scan_reaches_the_z80_tree()
     test_no_file_mixes_z80_procs_with_68k_sections()
@@ -1479,4 +1517,5 @@ if __name__ == "__main__":
     test_scanner_controls()
     test_write_model_controls()
     test_tail_controls()
+    test_dispatch_forward_controls()
     print("OK")
