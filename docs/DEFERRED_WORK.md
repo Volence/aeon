@@ -30506,7 +30506,9 @@ equal this proc's word compares. Past the range check `sec_y ≤ grid_h − 1` a
 product is at most 48 − grid_w and the flat id at most 47. `mul_bounded` elects `mulu.w` in both routines, in every shape
 (ceiling 70 against the repeated-add loop's 24 + 14·M at M up to 48). Its real cost is 38 + 2n, n being the set bits of the
 SOURCE: here that is `sec_y` (38..40 on OJZ), in the callee it is `grid_w` (42 on OJZ). That is where the popcount term in
-the table comes from.
+the table comes from. Verified at `872de60e` with `tools/landing_build.sh`: exit 0, `finished=0`. All four ROMs are
+cmp-identical to the `c5dd8c20` baseline: `s4.bin` `7a552cde` / 821155 B, `s4.debug.bin` `b93a889f` / 847533 B, `demo.bin`
+`dd589fe7` / 97109 B, `demo.debug.bin` `c3eda757` / 103501 B.
 
 ~~**The channel-bands sidecar's `edges.*.engine` fields still publish raster.emp LINE NUMBERS (booked 2026-09-12, reported by
 aurora via the hub; verified here at origin/master):** `games/sonic4/data/generated/effects_channel_bands.json` carries
