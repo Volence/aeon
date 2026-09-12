@@ -30274,6 +30274,25 @@ the instant and identity to every lane. Sigil performs the swap in its own tree,
 into place (the build outputs are hard-linked into cargo's `deps/`, so a straight rename would share that inode). One swap at
 `6884bfba`; sigil's in-flight macro-diagnostics parcel (error text only) does not gate it.
 
+**LS-1a step (1) DONE, 2026-09-12 (aeon overseer):** sigil swapped the shared pair to `6884bfba` at 2026-09-12T08:57:35Z on
+the hub's OPEN (copy then rename, link count 1; the outgoing pair, sigil `49ecc532` and emitter `36ef302c`, is kept at
+`/home/volence/sonic_hacks/.sigil-outgoing-49ecc532/`). **Condition (2)'s one miss is explained:** the sonic4 pair's expected
+-20 B did not appear here because it belonged to the `ec640bcf` tree only. Sigil's note (sigil origin/master `dd6e9f1b`,
+`docs/superpowers/notes/2026-09-12-deb2-minus-20-bytes.md`): one deb2 record was lost when a 68000 label slid onto `0x8000`,
+where the listing already files the Z80-space label `SoundTablesZ80_Head`, and the table keeps one record per address.
+Verified here against our own listings: both sonic4 listings carry exactly ONE symbol at `8000` (`SoundTablesZ80_Head`)
+under the old and the new pair, so nothing collides at aeon master. The one-command check for any future tree is
+`grep -E ' : 8000 [A-Z] \|' <shape>.lst`; more than one hit predicts a 20 B smaller appendix. **Condition (3):** installed
+md5s sigil `2e7c25920b95cec2c462ea51b4f078b5`, emitter `d258341604bbf735a8af8438c2b8d642`, measured here after the swap.
+**Condition (4), the decider:** `tools/landing_build.sh` at aeon `57528c22` under the installed pair, `finished=0`, real exit 0,
+2459 passed and 0 failed per shape, needs_build 14 ran and 0 deferred; the four CRCs equal the preview's, each ROM written
+during the run: s4 `7a552cde`/821155, s4.debug `b93a889f`/847533, demo `dd589fe7`/97109, demo.debug `c3eda757`/103501
+(assembler `6884bfba`). **These are master's CRCs from this revision on. The chband refuse-unless base
+(`.aeon-probes/chband-land/base/`) was built by the old assembler and is STALE: rebuild it before using it as a baseline.**
+Keep `.sigil-pin-6884bfba` (the installed binary reads that tree at run time), and keep `.sigil-pin-af35fa56` while sigil
+keeps the outgoing pair as a restore path. **Still open: steps (2) and (3),** the shared provenance primitive and moving the
+14 `--built-after` consumers onto it.
+
 **The nightly backstop tests the MAIN checkout's LOCAL `master`, which can sit far behind origin (found 2026-09-12, not fixed).**
 `aeon-effects-gates.service` fired at 2026-09-12T08:17:07Z and `tools/nightly_effects_gates.sh` checked out `a38ce7c9`, the
 main checkout's `master`, 34 commits behind origin/master because the owner's uncommitted edit to a generated file blocks the
