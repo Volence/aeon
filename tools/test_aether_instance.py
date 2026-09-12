@@ -130,3 +130,189 @@ def test_reap_is_idempotent_and_removes_the_dir():
     inst.reap()
     inst.reap()
     assert not d.exists()
+
+
+# --- the spawn-time CART check (CART-VERIFY-COVERAGE, 2026-09-12) -------------------------
+#
+# Same bar as `assert_rust_server` above and for the same reason: a precondition that
+# cannot fire is worse than none. These drive `AetherInstance._verify_cart` against the
+# fake bus from `test_cart_identity`, so they need no emulator and run in the build's
+# pytest lane. The REAL-cart proof — pointing a live server at a DIFFERENT ROM of the
+# SAME SIZE and requiring a refusal — is `python3 tools/cart_verify_spawn_proof.py`,
+# kept out of pytest because it boots a server, exactly as --poison-legacy is.
+
+import asyncio  # noqa: E402
+import zlib  # noqa: E402
+
+from aether_instance import (CART_CHECK_FULL, CART_CHECK_LENGTH, CART_CHECKS,  # noqa: E402
+                             CartMismatch, aether_emulator)
+from test_cart_identity import CART, FakeBus  # noqa: E402
+
+
+def _inst(tmp_path, data, **kw):
+    """An AetherInstance that has NOT spawned, pointed at a real file on disk."""
+    rom = tmp_path / "rom.bin"
+    rom.write_bytes(data)
+    return AetherInstance(str(rom), **kw)
+
+
+def test_byte_primitives_are_still_importable_from_aether_instance():
+    """The re-export pin. ~30 tools say `from aether_instance import read_bytes, ...`.
+
+    `unprefix`/`read_bytes`/`write_bytes` MOVED to `aether_bytes` to break the import
+    cycle the spawn-time cart check creates. If the re-export ever stops being one, those
+    tools break at IMPORT time — in whichever lane happens to run them first, which is
+    not this one. So it is pinned here, where it is cheap.
+    """
+    import aether_bytes
+    import aether_instance
+    for name in ("unprefix", "read_bytes", "write_bytes"):
+        assert getattr(aether_instance, name) is getattr(aether_bytes, name), name
+
+
+def test_the_two_modules_import_in_either_order():
+    """The cycle is resolved, not merely dodged by one lucky import order.
+
+    A function-local import inside `start()` would pass a test that imports
+    `aether_instance` first and fail nothing when a caller imports `cart_identity`
+    first. Both orders are driven in fresh interpreters.
+    """
+    import subprocess
+    here = str(Path(__file__).resolve().parent)
+    for first, second in (("aether_instance", "cart_identity"),
+                          ("cart_identity", "aether_instance")):
+        r = subprocess.run(
+            [sys.executable, "-c",
+             f"import sys; sys.path.insert(0, {here!r}); import {first}; import {second}; "
+             f"print('ok')"],
+            capture_output=True, text=True)
+        assert r.returncode == 0, f"{first} then {second} failed:\n{r.stderr}"
+
+
+def test_an_unknown_cart_check_mode_is_refused_at_construction(tmp_path):
+    """Not at spawn — at construction, where the typo is still cheap to see."""
+    with pytest.raises(ValueError) as e:
+        _inst(tmp_path, CART, cart_check="off")
+    assert "full" in str(e.value) and "length" in str(e.value)
+    assert CART_CHECKS == {CART_CHECK_FULL, CART_CHECK_LENGTH}, \
+        "an 'off' mode would make the whole inherited check optional and silent"
+
+
+def test_verify_cart_passes_a_matching_cart_and_records_its_crc(tmp_path):
+    """The negative control. Without it an unconditional refusal would look perfect."""
+    inst = _inst(tmp_path, CART)
+    try:
+        asyncio.run(inst._verify_cart(FakeBus(CART)))
+        assert inst.cart_crc == zlib.crc32(CART) & 0xFFFFFFFF
+        assert inst.cart_note and "byte-identical" in inst.cart_note
+    finally:
+        inst.reap()
+
+
+def test_verify_cart_raises_on_a_same_length_content_difference(tmp_path):
+    """THE discriminating case: right size, wrong bytes — the stale cart.
+
+    A length-only check passes this. That is why `full` is the default and why this
+    test asserts on the FULL mode specifically.
+    """
+    bad = bytearray(CART)
+    bad[len(CART) // 3] ^= 0xFF
+    inst = _inst(tmp_path, bytes(bad))
+    try:
+        with pytest.raises(CartMismatch) as e:
+            asyncio.run(inst._verify_cart(FakeBus(CART)))
+        assert "CONTENT" in str(e.value)
+    finally:
+        inst.reap()
+
+
+def test_verify_cart_raises_on_a_length_difference(tmp_path):
+    """The truncated / mid-write ROM."""
+    inst = _inst(tmp_path, CART + b"\x00" * 16)
+    try:
+        with pytest.raises(CartMismatch):
+            asyncio.run(inst._verify_cart(FakeBus(CART)))
+    finally:
+        inst.reap()
+
+
+def test_length_mode_announces_itself_as_weaker_on_stderr(tmp_path, capsys):
+    """The opt-down must never be silent.
+
+    A weaker check that prints the same reassuring line as the strong one is the exact
+    artifact this parcel exists to remove, so the WORD 'WEAKER' is asserted, not just
+    that something was printed.
+    """
+    bad = bytearray(CART)
+    bad[7] ^= 0xFF                      # same length, different content
+    inst = _inst(tmp_path, bytes(bad), cart_check=CART_CHECK_LENGTH)
+    try:
+        asyncio.run(inst._verify_cart(FakeBus(CART)))     # passes: length-only cannot see it
+        err = capsys.readouterr().err
+        assert "WEAKER" in err and "LENGTH ONLY" in err, err
+        assert inst.cart_note and "length only" in inst.cart_note
+    finally:
+        inst.reap()
+
+
+def test_aether_emulator_threads_cart_check_through_and_defaults_to_full():
+    """The context manager is how 40+ tools spawn; the default is what they inherit."""
+    import inspect
+    sig = inspect.signature(aether_emulator)
+    assert sig.parameters["cart_check"].default == CART_CHECK_FULL
+    assert inspect.signature(AetherInstance.__init__).parameters["cart_check"].default \
+        == CART_CHECK_FULL
+
+
+def test_probe_asserts_the_server_before_it_reads_the_cart(tmp_path):
+    """Order is load-bearing: refuse the wrong server BEFORE asking it about carts.
+
+    On the legacy server `romBytes` and the `read_memory` reply shape are a different
+    vocabulary, so a cart readback through it fails confusingly or — worse — does not
+    fail. This drives `_probe` with a bus whose handshake is the LEGACY recording and a
+    cart that would ALSO mismatch, and requires the SERVER error, not the cart one.
+    """
+    import aether_instance
+
+    reads = []
+
+    class RecordingBus(FakeBus):
+        """Answers the handshake with the LEGACY recording and counts cart traffic."""
+
+        def __init__(self, cart, handshake):
+            FakeBus.__init__(self, cart)
+            self.handshake = handshake
+
+        def __call__(self, *a, **kw):       # stands in for the BusClient CONSTRUCTOR
+            return self
+
+        async def connect(self):
+            return self.handshake
+
+        async def close(self):
+            pass
+
+        async def call(self, method, params):
+            reads.append(method)
+            return await FakeBus.call(self, method, params)
+
+    # The real `_probe`, not a re-implementation of it: the only thing swapped is the
+    # BusClient class the module reaches for. A test that retyped `_probe`'s body would
+    # keep passing after `_probe` reordered, which is the one thing it is checking.
+    inst = _inst(tmp_path, CART + b"\x00")      # the cart would ALSO mismatch
+    saved = aether_instance.BusClient
+    try:
+        aether_instance.BusClient = RecordingBus(CART, LEGACY_HANDSHAKE)
+        with pytest.raises(WrongServerError):
+            asyncio.run(inst._probe())
+        assert reads == [], f"the cart was read off a REFUSED server: {reads}"
+        # ...and the positive half: with the Rust handshake the same bus DOES get asked
+        # about the cart, so the emptiness above is an ordering fact, not a dead path.
+        reads.clear()
+        aether_instance.BusClient = RecordingBus(CART, RUST_HANDSHAKE)
+        with pytest.raises(CartMismatch):
+            asyncio.run(inst._probe())
+        assert "emulator/status" in reads, reads
+    finally:
+        aether_instance.BusClient = saved
+        inst.reap()

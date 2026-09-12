@@ -33649,7 +33649,7 @@ Byte-neutral on the committed inputs, as measured: a `tools/regenerate-level.sh 
 changed only `DONOR_PROVENANCE.json`'s generator record (its `head` and `modified_tracked`), which every re-bake at a
 new commit does.
 
-## CART-VERIFY-COVERAGE — 40 of our 54 emulator-backed tools never check which ROM they measured (found 2026-09-12)
+## CART-VERIFY-COVERAGE — PARTLY CLOSED 2026-09-12: the spawner now proves the cart (defended 17 of 67 -> 48 of 68); 21 tools still reach a bus without it and 20 of those are undefended (found 2026-09-12)
 
 **Found by reciprocation, not by audit.** Aeon flagged a live staleness hazard to sigil (nine per-session
 `oracle-aether` shims all preloading the main checkout's 41-hour-old `s4.debug.bin`; the
@@ -33700,6 +33700,96 @@ at once and let the 14 hand-rolled copies collapse into it. **Length is weaker t
 equal size would pass — so a hash is the better form where it is affordable; length alone would nonetheless
 have caught today's case (847367 against 847533). **Prove it red-first by pointing a witness at a different
 ROM and requiring `UNMEASURABLE`.**
+
+---
+
+### DONE 2026-09-12 (`parcel/cart-verify-spawner`) — the spawner verifies, and every count above was re-derived
+
+**THE PROPOSAL WAS TAKEN AND STRENGTHENED.** `AetherInstance._probe` now runs
+`assert_cart_matches_disk` on the one connection it already opens for the handshake, after
+`assert_rust_server` and before the caller's first call, while the machine is still STOPPED AT FRAME 0.
+It is the FULL readback, not the length comparison this row proposed: length cannot see a stale cart of
+the right size, and for this tree that is the common case because the four canonical shapes have held
+their sizes across landings. `cart_check="length"` is an argued-for opt-down that prints
+`CART CHECK IS LENGTH ONLY, WEAKER` on stderr every time. There is deliberately no `off` and no
+environment variable — an env knob lets a whole run be weakened from outside the source by someone who
+is not the tool's author, which is the same hazard class as the stale preload.
+
+`cart_identity.reload_rom_verified` closes the second hole in the same change: **`reload_rom` says
+*load this* and nothing in its reply confirms the machine now holds it.** `tools/evict_witness.py`, the
+one tool that reloads, is rewired to it.
+
+Supporting modules: `tools/aether_bytes.py` (a leaf holding `unprefix`/`read_bytes`/`write_bytes`, which
+breaks the `cart_identity` <-> `aether_instance` cycle by moving the primitives DOWN rather than by a
+function-local import; `aether_instance` re-exports all three so ~30 tools need no edit) and
+`tools/cart_coverage_census.py`, which re-derives every number below on demand with both controls and
+exits 1 if a control misbehaves.
+
+**RE-DERIVED, ONE INSTRUMENT, BOTH TREES** (`cart_coverage_census.py --check`, the BEFORE run pointed at
+a `git archive origin/master tools` checkout with `--dir`, so the spawner-verifies flag is read out of
+the tree being measured rather than from the running copy):
+
+| | origin/master 3b6a7b4a | this parcel |
+|---|---:|---:|
+| population (bus-reaching `tools/*.py`, minus `test_*` and the helpers) | **67** | **68** |
+| CONSTRUCT the spawner -> inherit the check | 46 | 47 |
+| reach a bus WITHOUT the spawner | **21** | **21** |
+| spawner verifies the cart | False | True |
+| ask in their own source (`cart_identity`, a `romBytes` COMPARISON, or `memory_hash`) | 17 | 17 |
+| **DEFENDED, either way** | **17 of 67** | **48 of 68** |
+| **UNDEFENDED** | **50 of 67** | **20 of 68** |
+
+**THE ROW'S POPULATION OF 65 WAS RIGHT IN METHOD AND IS NOW 67; THE 54/46 SPLIT IS WHERE IT IS WRONG.**
+This row enumerates a tool as spawner-reachable if it IMPORTS `aether_instance`. Five files import
+`assert_rust_server` from it and then spawn `oracle-aether` with their own `subprocess.Popen`
+(`curve_desc_probe`, `sec7_waterline_probe`, `vsplit_landing_gate`, `warp_mailbox_gate`, and
+`depth_onset_probe` which borrows `curve_desc_probe`'s `Server`). They import the spawner module and
+never use the spawner, so a check inside `AetherInstance` does not reach them. Classification is
+therefore by CALL SITE, and the residual is **21, not 16**.
+
+**RESIDUAL EXPOSURE — 21 tools reach a bus without the spawner, 20 of them undefended. STILL OPEN, and
+deliberately not half-done here**; they split by how each gets its bus, because the fixes differ:
+
+* **11 through the legacy `launcher.headless_emulator`** — `curve_probe`, `deform_own_cost_probe`,
+  `engine_baseline_probe`, `pagecache_audit_poison`, `parallax_cost_probe`,
+  `parallax_hscroll_identity`, `parallax_hscroll_probe`, `raster_cost_probe`,
+  `raster_frame_epoch_probe`, `staging_index_poison`, `streaming_choke_probe`. These are on the C++
+  server the owner ruled FALLBACK ONLY; the right fix is the migration to `aether_emulator` that is
+  already the house direction, after which they inherit this for free. Patching the legacy launcher
+  would be work with a known expiry.
+* **7 with a hand-rolled `subprocess.Popen`** — `curve_desc_probe`, `hblank_window_sweep`,
+  `sec7_waterline_probe`, `sh_probe`, `tick_variance_probe`, `vsplit_landing_gate`,
+  `warp_mailbox_gate`. Each carries its own `Server` class, several for reasons (per-PID socket
+  names for parallel lanes) that `AetherInstance` already handles. Converting them is mechanical but
+  it is seven witnesses whose outputs are graded elsewhere, and this parcel did not read them.
+* **1 borrowing a sibling's `Server`** — `depth_onset_probe`, which is covered the moment
+  `curve_desc_probe` is.
+* **2 attaching to an already-running socket** — `evict_witness` (DEFENDED: it reloads through
+  `reload_rom_verified`) and `sfx_audition` (undefended; it dials a fixed socket it did not start, so
+  there is no spawn to hang a check on and the check would have to be a call it makes by hand).
+
+**AND A CORRECTION TO THIS ROW.** It says `evict_witness.py` "never reads the cart back". It did not read
+bytes back, but it DID compare a server-side `emulator/memory_hash` crc32 over the whole cart against the
+file's crc32, which catches a stale or truncated cart as well as a readback does. The row understates what
+was already there. What `reload_rom_verified` actually adds is smaller and worth having anyway: `romBytes`
+is compared FIRST so a length difference reports as a length difference instead of as an unexplained crc
+mismatch, and a mismatch raises `CartMismatch` — UNMEASURABLE, not a FAIL of the eviction subject.
+
+**NOT COLLAPSED, AND WHY.** The three tools that already call `assert_cart_matches_disk`
+(`fade_busy_stale_witness`, `poke_storm_sound_cost_witness`, `song_load_mid_drum_witness`) keep their own
+call. It is no longer strictly necessary, but it is not dead either: each appends a cart-provenance line to
+its own report, and `fade_busy_stale_witness` uses the RETURNED crc for a second assertion the spawner
+cannot make — it compares the loaded cart against the crc of the probe ROM that run BUILT. The duplicate
+readback costs ~0.12 s in witnesses that run for tens of seconds. Removing it would be editing three
+witnesses whose output format is graded elsewhere, for no measured benefit.
+
+**PROVEN RED-FIRST — `python3 tools/cart_verify_spawn_proof.py`**, four legs on a real `oracle-aether`,
+and the different ROM is the SAME SIZE, which is the discriminating case: a truncated file is caught by
+every length check already in the tree. The poison is deterministic rather than a rebuild race —
+`AetherInstance.argv()` is patched to launch cart B while `self.rom` still says A, the same move
+`aether_instance.py --poison-legacy` makes against the server assertion. Leg 3 runs a REAL witness
+(`tools/raster_off_gate.py`) as a subprocess under the same poison and requires a non-zero exit that names
+the cart. Leg 4 pins what `cart_check="length"` CANNOT see.
 
 > **⚠ THIS ROW'S COUNT WAS WRONG THREE TIMES. THE SEQUENCE IS THE POINT, NOT THE FINAL NUMBER.**
 > **(1) "0 of 54"** — a shell loop over an unquoted variable that silently matched nothing. Caught only

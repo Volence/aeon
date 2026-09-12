@@ -46,7 +46,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from suite_paths import add_client_path  # noqa: E402
 add_client_path()
-from cart_identity import CartMismatch, assert_cart_matches_disk  # noqa: E402
+from cart_identity import (CartMismatch, assert_cart_matches_disk,  # noqa: E402
+                           reload_rom_verified)
 
 CART = bytes((i * 37 + 11) & 0xFF for i in range(0x2000))
 
@@ -177,6 +178,61 @@ def test_length_only_mode_cannot_see_a_content_change(tmp_path):
     crc = asyncio.run(assert_cart_matches_disk(FakeBus(CART), rom, out, full=False))
     assert crc == zlib.crc32(bytes(bad)) & 0xFFFFFFFF
     assert "length only" in out[0]
+
+
+# --- reload_rom_verified: the SECOND hole ------------------------------------------------
+#
+# `reload_rom` says *load this*; nothing in its reply confirms the emulator now holds it.
+# A load that silently did not take produces the same log as one that worked, so the only
+# evidence is reading the cart back — which is what these two legs pin.
+
+
+class ReloadBus(FakeBus):
+    """A bus whose `reload_rom` can be told to DO NOTHING, which is the failure."""
+
+    def __init__(self, cart, takes=True):
+        FakeBus.__init__(self, cart)
+        self.takes, self.reloads = takes, []
+
+    async def call(self, method, params):
+        if method == "emulator/reload_rom":
+            self.reloads.append(params["path"])
+            if self.takes:
+                self.cart = Path(params["path"]).read_bytes()
+            return {"ok": True, "symbolsDropped": False}
+        return await FakeBus.call(self, method, params)
+
+
+def test_reload_that_took_passes_and_resolves_the_path(tmp_path):
+    """Negative control, and it also pins that the path sent is ABSOLUTE.
+
+    A relative path is resolved against the SERVER's cwd, not the caller's, and a server
+    started from elsewhere would load a different file or nothing at all.
+    """
+    other = bytes(b ^ 0x5A for b in CART)          # same length, different content
+    rom = _rom(tmp_path, other)
+    bus = ReloadBus(CART, takes=True)
+    out = []
+    crc = asyncio.run(reload_rom_verified(bus, rom, out))
+    assert crc == zlib.crc32(other) & 0xFFFFFFFF
+    assert bus.reloads == [str(Path(rom).resolve())]
+    assert out and "byte-identical" in out[0]
+
+
+def test_a_reload_that_silently_did_not_take_is_caught(tmp_path):
+    """THE case. `reload_rom` returned a dict, changed nothing, and said `symbolsDropped:
+    false` on the way out — which reads as reassurance. Same length, so only the readback
+    can see it."""
+    other = bytes(b ^ 0x5A for b in CART)          # len(other) == len(CART)
+    rom = _rom(tmp_path, other)
+    bus = ReloadBus(CART, takes=False)
+    try:
+        asyncio.run(reload_rom_verified(bus, rom, []))
+    except CartMismatch as e:
+        assert "CONTENT" in str(e), str(e)
+        return
+    raise AssertionError("a reload that changed NOTHING passed — `reload_rom` returning a "
+                         "dict was taken as proof the cart changed, which is the whole hole")
 
 
 # ------------------------------------------------------------------ the emulator half

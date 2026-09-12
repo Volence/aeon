@@ -20,22 +20,48 @@ because a length match is not an identity: a rebuild that changes content withou
 changing size passes the length check, and for this tree that is the common case —
 the four canonical shapes have held their sizes across many landings.
 
-Cost, measured 2026-09-12: 847,885 bytes read back in 4 KiB chunks over the Unix
-socket is well under a second, against witness runs of minutes. There is no reason
-to prefer the weaker check.
+Cost, RE-MEASURED 2026-09-12 rather than inherited. What this module shipped with was
+"847,885 bytes ... well under a second" — a BOUND, not a figure, and the measurement
+below is inside it, so nothing here corrects it. Two things did need re-deriving: the
+byte count (the ROM has changed size since) and how far inside that bound the answer
+actually is, because "under a second" is the kind of headroom that decides whether a
+check can be unconditional. Method: spawn twice and subtract —
+`cart_check="length"` pays everything except the readback, so full-minus-length IS the
+readback (`python3 tools/aether_instance.py --smoke` prints both operands, because a
+difference without them is not a measurement).
+
+  s4.debug.bin, 846,601 bytes, 207 chunks of 4 KiB, 4 runs, load average 6.4-6.6 (a
+  four-shape build was running alongside):
+
+    spawn + handshake + LENGTH check   0.061 - 0.062 s
+    spawn + handshake + FULL   check   0.097 - 0.100 s
+    -> THE READBACK COSTS  +0.035 to +0.038 s
+
+Against witness runs of tens of seconds to minutes, and paid once per spawn. There is
+no reason to prefer the weaker check, and the weaker one is the one that cannot see a
+stale cart of the right size.
 
     from cart_identity import assert_cart_matches_disk
     await assert_cart_matches_disk(bus, rom_path, out)     # appends one line to `out`
 
 Raises `CartMismatch`. A caller must let that propagate, or convert it to its own
 "could not ask the question" exit — never to a zero or a green.
+
+SINCE 2026-09-12 MOST CALLERS DO NOT CALL THIS AT ALL: `aether_instance.AetherInstance`
+runs it on every spawn, so any tool that goes through `aether_emulator(...)` /
+`AetherInstance(...)` inherits it. Call it by hand only when you reach a bus another
+way, or after something that can CHANGE the cart under a live server — which is what
+`reload_rom_verified` below is for.
 """
 from __future__ import annotations
 
 import zlib
 from pathlib import Path
 
-from aether_instance import read_bytes, unprefix
+# Imported from the LEAF, not from `aether_instance`. `aether_instance` imports THIS
+# module now, so taking the primitives from it would be a cycle; see aether_bytes.py's
+# docstring for the three ways out and why the primitives moved down.
+from aether_bytes import read_bytes, unprefix
 
 CHUNK = 0x1000
 # The 68000 cartridge window. A cart larger than this is banked and the tail is not
@@ -104,3 +130,27 @@ async def assert_cart_matches_disk(b, rom_path, out=None, full=True):
                       f" (readback capped at the ${CART_WINDOW:06X} cart window; "
                       f"{len(raw) - n} banked bytes not compared)"))
     return crc
+
+
+async def reload_rom_verified(b, rom_path, out=None, full=True):
+    """`emulator/reload_rom` AND then prove the machine actually holds that file.
+
+    THE SECOND HOLE, and it is a different one from the stale preload. Sigil's framing,
+    which applies here unchanged: **`reload_rom` says *load this*; nothing confirms the
+    emulator now holds it.** A spawn-time check defends the cart the server booted with
+    and says nothing about the cart after a reload — so a load that silently did not
+    take is undefended even in a tool that reloads BECAUSE it reloads. The reply is not
+    the evidence: a method that returned a dict and changed nothing produces exactly the
+    same log as one that worked.
+
+    There is a measured near-miss in this tree already. `tools/evict_witness.py` reloads
+    and then hashes the cart — good — but `emulator/reload_rom` re-binds the symbol table
+    it already holds rather than re-reading the `.lst`, and REPORTS `symbolsDropped:
+    false`, which reads as reassurance (oracle's own finding, 2026-09-04). A reply field
+    that says nothing while looking like it says something is the whole hazard class.
+
+    Uses the same comparison as the spawn-time check, so a reload is defended exactly as
+    well as a boot, and raises the same `CartMismatch`.
+    """
+    await b.call("emulator/reload_rom", {"path": str(Path(rom_path).resolve())})
+    return await assert_cart_matches_disk(b, rom_path, out, full=full)
