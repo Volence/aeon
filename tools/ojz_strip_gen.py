@@ -347,13 +347,19 @@ def emit_bg_tile_blob(
             referenced.add(word & tile_dedupe.NAMETABLE_TILE_MASK)
     sorted_indices = sorted(referenced)
 
-    raw_tiles: list[bytes] = []
-    for idx in sorted_indices:
-        base = idx * tile_dedupe.TILE_SIZE
-        if base + tile_dedupe.TILE_SIZE <= len(full_blob):
-            raw_tiles.append(full_blob[base : base + tile_dedupe.TILE_SIZE])
-        else:
-            raw_tiles.append(bytes(tile_dedupe.TILE_SIZE))
+    # An index past the art is REFUSED, not baked as a zero tile (2026-09-12 gap lens
+    # sweep F3; the same substitution collect_referenced_tiles made for the FG).
+    n_tiles = len(full_blob) // tile_dedupe.TILE_SIZE
+    oob = [i for i in sorted_indices if i >= n_tiles]
+    if oob:
+        raise ValueError(
+            f"BG nametable references {len(oob)} tile index(es) past the {n_tiles}-tile "
+            f"BG art blob (highest {max(oob)}: {oob[:8]}{' ...' if len(oob) > 8 else ''}). "
+            f"Refusing: each used to be baked as a blank tile with no diagnostic.")
+    raw_tiles: list[bytes] = [
+        full_blob[idx * tile_dedupe.TILE_SIZE:(idx + 1) * tile_dedupe.TILE_SIZE]
+        for idx in sorted_indices
+    ]
 
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
     src_to_canon: dict[int, tuple[int, int]] = {
@@ -652,13 +658,20 @@ def decompress_full_ojz_art(path: str) -> bytes:
 def collect_referenced_tiles(
     all_section_strips: dict,  # sec_id → list[list[int]]
     full_tile_blob: bytes,
+    source: str = "the tile blob",
 ) -> tuple[list[int], list[bytes]]:
     """Walk every nametable word across all sections.
 
     Returns (sorted_indices, raw_tiles):
       sorted_indices = sorted list of unique source tile indices referenced
       raw_tiles[i]   = the 32 bytes of source tile sorted_indices[i]
-                       (zero-tile if the source blob doesn't reach that index)
+
+    An index the blob does not reach is REFUSED (2026-09-12 gap lens sweep F3). This
+    used to append a zero tile ("missing -> zero tile"), so a tileset cut from 919 to
+    700 tiles baked 12,164 words (30 distinct tiles) blank with exit 0 — and
+    verify_level_bin's fidelity proof zero-filled the same way, comparing padding to
+    padding. The same shape as the 09-06 tools packet's T1-2 in dedup_art.py. Art that
+    does not exist is a broken working tree, not a blank tile.
     """
     referenced: set[int] = set()
     for strips in all_section_strips.values():
@@ -666,13 +679,26 @@ def collect_referenced_tiles(
             for word in col:
                 referenced.add(word & tile_dedupe.NAMETABLE_TILE_MASK)
     sorted_indices = sorted(referenced)
-    raw_tiles: list[bytes] = []
-    for idx in sorted_indices:
-        base = idx * tile_dedupe.TILE_SIZE
-        if base + tile_dedupe.TILE_SIZE <= len(full_tile_blob):
-            raw_tiles.append(full_tile_blob[base : base + tile_dedupe.TILE_SIZE])
-        else:
-            raw_tiles.append(bytes(tile_dedupe.TILE_SIZE))  # missing → zero tile
+    n_tiles = len(full_tile_blob) // tile_dedupe.TILE_SIZE
+    oob = [i for i in sorted_indices if i >= n_tiles]
+    if oob:
+        per_sec = {}
+        for sec_id, strips in all_section_strips.items():
+            k = sum(1 for col in strips for w in col
+                    if (w & tile_dedupe.NAMETABLE_TILE_MASK) >= n_tiles)
+            if k:
+                per_sec[sec_id] = k
+        raise ValueError(
+            f"the editor nametables reference {len(oob)} distinct tile index(es) past the "
+            f"end of {source} ({len(full_tile_blob)} bytes = {n_tiles} whole tiles; "
+            f"highest index {max(oob)}), in {sum(per_sec.values())} word(s) — per section "
+            f"{per_sec}. Refusing: each used to be baked as a BLANK tile with no "
+            f"diagnostic. Restore the tileset, or repaint the cells that name tiles it "
+            f"no longer has.")
+    raw_tiles: list[bytes] = [
+        full_tile_blob[idx * tile_dedupe.TILE_SIZE:(idx + 1) * tile_dedupe.TILE_SIZE]
+        for idx in sorted_indices
+    ]
     return sorted_indices, raw_tiles
 
 
@@ -1954,7 +1980,9 @@ def generate(stress_uniquify=0):
         print(f"Collision: {len(per_section_coll)} sections (air baseline, no editor data)")
 
     # ---- Pass 2: dedupe across all sections ----
-    sorted_indices, raw_tiles = collect_referenced_tiles(per_section_strips, full_blob)
+    sorted_indices, raw_tiles = collect_referenced_tiles(
+        per_section_strips, full_blob,
+        source=ZONE_TILESET_PATH if use_editor else OJZ_ART_PATH)
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
 
     # src_idx → canonical_idx + flip_bits

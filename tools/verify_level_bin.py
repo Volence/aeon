@@ -531,15 +531,19 @@ def _strip_gen_int(name):
 
 
 def _tile_pixels(blob, idx, hflip, vflip):
-    """The 32 bytes of tile `idx` in `blob`, with the VDP flips applied.
+    """The 32 bytes of tile `idx` in `blob`, with the VDP flips applied, or None when
+    the blob does not reach that tile.
 
-    Out-of-range indices resolve to the zero tile, matching what the generator's
-    collect_referenced_tiles substitutes -- so an out-of-range source reference
-    is still CHECKED (against blank) rather than skipped.
+    None, NOT the zero tile (2026-09-12 gap lens sweep F3). This used to return
+    bytes(TILE_SIZE) "matching what the generator's collect_referenced_tiles
+    substitutes", which made the fidelity proof reproduce the generator's fallback:
+    a tileset cut to 700 tiles baked 12,164 words blank, and this check compared the
+    blank it expected against the blank the bake held, and passed. The 09-06 tools
+    packet's T1-2 shape. A tile that does not exist is a failure the caller counts.
     """
     base = idx * TILE_SIZE
     if base + TILE_SIZE > len(blob):
-        return bytes(TILE_SIZE)
+        return None
     rows = [blob[base + i * 4: base + i * 4 + 4] for i in range(8)]
     if hflip:
         rows = [bytes((((b & 0x0F) << 4) | (b >> 4)) for b in reversed(r))
@@ -659,7 +663,8 @@ def verify_editor_bake_fidelity():
         lm_raw = read(map_path)
         local_map = struct.unpack(f">{len(lm_raw) // 2}H", lm_raw)
 
-        nt_bad = attr_bad = art_bad = range_bad = 0
+        nt_bad = attr_bad = art_bad = range_bad = src_oob = 0
+        src_oob_max = -1
         first = None
         seen = set()
         for c in range(grid):
@@ -692,11 +697,23 @@ def verify_editor_bake_fidelity():
                     continue
                 want = _tile_pixels(art, sw & NAMETABLE_TILE_MASK,
                                     (sw >> 11) & 1, (sw >> 12) & 1)
+                if want is None:
+                    src_oob += 1
+                    src_oob_max = max(src_oob_max, sw & NAMETABLE_TILE_MASK)
+                    continue
                 got = _tile_pixels(pool, g, (rw >> 11) & 1, (rw >> 12) & 1)
+                if got is None:
+                    range_bad += 1
+                    continue
                 if want != got:
                     art_bad += 1
             words_checked += grid
 
+        check(src_oob == 0,
+              f"editor bake: sec{n} has {src_oob} distinct word shape(s) naming a tile "
+              f"past the end of the {len(art) // TILE_SIZE}-tile editor tileset (highest "
+              f"index {src_oob_max}) -- that art does not exist, so no bake can have "
+              f"carried it (this check used to resolve both sides to a blank tile and pass)")
         check(nt_bad == 0,
               f"editor bake: sec{n} strips_source disagrees with the editor "
               f"nametable in {nt_bad} word(s) -- the generated tree does NOT carry "

@@ -319,3 +319,80 @@ def test_f2_block_gen_refuses_a_grid_section_without_strips(tmp_path, monkeypatc
     (tmp_path / f"sec{n - 1}_strips_a.bin").write_bytes(b"")
     with pytest.raises(_PastTheRefusal):
         bg.generate_all(use_cache=False)
+
+
+# ---------------------------------------------------------------------------
+# F3 -- an index past the tileset baked a blank tile, and the gate zero-filled too
+# ---------------------------------------------------------------------------
+
+def test_f3_an_index_past_the_tileset_is_refused():
+    osg = _strip_gen()
+    blob = bytes(range(32)) + bytes(range(32, 64))        # exactly two tiles
+    with pytest.raises(ValueError) as exc:
+        osg.collect_referenced_tiles({"0": [[0x0000, 0x0001, 0x0002]]}, blob,
+                                     source="fixture blob")
+    msg = str(exc.value)
+    assert "fixture blob" in msg and "highest index 2" in msg, msg
+    # converse control: in-range references return the real bytes, not padding
+    idx, raw = osg.collect_referenced_tiles({"0": [[0x0000, 0x0001]]}, blob)
+    assert idx == [0, 1] and raw == [blob[:32], blob[32:]]
+
+
+def test_f3_the_bg_blob_refuses_an_index_past_its_art(tmp_path):
+    osg = _strip_gen()
+    blob = bytes(32) + bytes([0x11] * 32)                 # blank + a solid tile
+    with pytest.raises(ValueError) as exc:
+        osg.emit_bg_tile_blob([0x0000, 0x0001, 0x0003], blob, str(tmp_path / "bg.bin"))
+    assert "highest 3" in str(exc.value), str(exc.value)
+    _map, count = osg.emit_bg_tile_blob([0x0000, 0x0001], blob, str(tmp_path / "bg.bin"))
+    assert count == 2
+
+
+def test_f3_the_gate_does_not_invent_a_blank_tile():
+    assert vlb._tile_pixels(bytes(64), 2, 0, 0) is None, (
+        "a tile past the blob must be reported, not resolved to blank")
+    assert vlb._tile_pixels(bytes(64), 1, 0, 0) == bytes(32)
+
+
+def _bake_tree(tmp_path):
+    """A scratch tree holding what verify_editor_bake_fidelity reads, copied from the
+    committed tree: project.json, the editor tileset and section nametables, and the
+    generated strips, local maps and pool pages."""
+    with open(os.path.join(REPO, "project.json")) as f:
+        zone = json.load(f)["zones"][0]
+    act = zone["acts"][0]
+    n = act["gridWidth"] * act["gridHeight"]
+    root = tmp_path / "tree"
+    root.mkdir()
+    shutil.copy(os.path.join(REPO, "project.json"), root / "project.json")
+    ts = root / zone["tileset"]
+    ts.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(os.path.join(REPO, zone["tileset"]), ts)
+    ed = root / act["dataPath"]
+    ed.mkdir(parents=True, exist_ok=True)
+    gen = root / REL_GEN
+    gen.mkdir(parents=True)
+    for i in range(n):
+        shutil.copy(os.path.join(REPO, act["dataPath"], f"section_{i}.tiles.bin"), ed)
+        for stem in ("strips_source", "strips_a"):
+            shutil.copy(os.path.join(REAL_GEN, f"sec{i}_{stem}.bin"), gen)
+        shutil.copy(os.path.join(REAL_GEN, f"sec{i}_local_map.bin"), gen)
+    for fn in os.listdir(REAL_GEN):
+        if fn.startswith("act_pool_page") and fn.endswith(".bin"):
+            shutil.copy(os.path.join(REAL_GEN, fn), gen)
+    return root, ts, ed, n
+
+
+def test_f3_gate_fails_a_tileset_shorter_than_the_editor_references(tmp_path, monkeypatch):
+    """The sweep's fixture A at the artifact: the tileset loses tiles the editor still
+    names. The cut point is DERIVED from the editor files (the highest index they
+    reference), never a pinned count."""
+    root, ts, ed, n = _bake_tree(tmp_path)
+    assert _run_gate(monkeypatch, root, vlb.verify_editor_bake_fidelity) == []
+    highest = max(max(w & 0x07FF for w in struct.unpack(
+        f">{W * W}H", (ed / f"section_{i}.tiles.bin").read_bytes())) for i in range(n))
+    assert highest > 0, "the fixture needs a referenced tile to cut away"
+    ts.write_bytes(ts.read_bytes()[:highest * 32])        # tiles 0..highest-1 survive
+    fails = _run_gate(monkeypatch, root, vlb.verify_editor_bake_fidelity)
+    assert any("past the end of the" in f and f"highest index {highest}" in f
+               for f in fails), fails
