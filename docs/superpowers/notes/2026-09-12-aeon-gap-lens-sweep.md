@@ -92,6 +92,23 @@ still affects shadowing is the seat's reading of the hardware, not a measurement
 blank cell in section 1 below line 120 and compare pixels against the cleared case. If it matters, the fix is either the
 engine keeping attributes on blank or the baker stripping them, and which is an authoring question.
 
+**MEASURED 2026-09-12 (branch `measure/blank-priority-0912`, `tools/blank_priority_probe.py`, note
+`2026-09-12-blank-priority-measurement.md`; ROM `9ce1c2ff`, headless oracle-rs): CONSEQUENCE, in section 1 ONLY.**
+The 116 re-derived independently (masks from `engine/system/constants.emp`), same 20/19/10/15/10/11/14/7/10 split.
+VDP reg `$0C` read at every line in all nine sections: shadow/highlight is on in **section 1, lines 121-223, and nowhere
+else**. **F4 was wrong about section 7:** its water band is a palette swap (`sh: 0` since 2026-09-05). Premise test on a
+section-1 blank cell: `$0000` → `$8000` changed 25 px, every one an exact shadow-to-normal step; `$7800` (palette + flips,
+no priority) changed 0 px; the same toggle above line 120 changed 0 px; two unmodified captures differed by 0 px.
+In place, six authored section-1 words restored to `$C000` changed 75 px; 15 section-0/7 words restored changed 0 px.
+**So 19 of the 116 words are visible, all in section 1, whose shadow/highlight comes from `OJZ_TestRaster`, the Effects P1
+gate fixture, not authored content.** If the owner's `SECTION-EFFECTS-VISUAL` card goes the recommended way (test effects
+out of sections 1 and 2), F4 has no visible consequence in shipped content today; it stays a latent authoring hazard
+for the first authored shadow band. **Instrument limit, stated so it is not over-read:** oracle's own S/H rule
+(`sh_state` in its `render.rs`) already builds in "a transparent cell keeps its tile's priority", so this measures the
+engine's bytes under that rule, not the hardware. Side observation, the measuring agent's reading and not a measurement:
+section 0 binds `OJZ_TwoChannel` ch0 with `sh: 1`, yet S/H never switched on there at three cameras; its latched line read
+`$7FFF − Camera_Y`, which lands far below the screen. Booked as a question, not a defect.
+
 ### F5 — MEDIUM, loud: the preflight's "nothing is written before it can fail" does not hold for generate()'s refusals
 `regenerate-level.sh` runs `ojz_strip_gen.py preflight`, then `import_sk_collision.py` (which overwrites the ROM-consumed
 collision tables), and only then `generate()`, whose refusals all fire after that write. Fixture D2
