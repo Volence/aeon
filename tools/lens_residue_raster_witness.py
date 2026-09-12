@@ -14,7 +14,12 @@ one fresh instance per witness, and reaps each one on the way out.
     c3b2    C3b-2: the lag-frame residue. Every VInt_Lag in a bounded diagonal flight is
             stopped, and its interrupted PC is classified against Effects_LatchWorldLines'
             two per-channel store loops.
-    all     the three, in that order.
+    c3b2s7  C3b-2 in SECTION 7, the one place in OJZ act 1 with two live, moving patch records
+            (channels 2 and 3, a sweep on 2, so the .mch loop runs). The flight is warped into
+            the section through the warp mailbox and bounces inside the camera band where both
+            records are live and unclamped; every VInt_Lag is classified for channel 2 stored,
+            channel 3 not. Also measures where the latch runs in its tick, in that section.
+    all     efx4b, c1b3 and c3b2, in that order (c3b2s7 is run by name).
 
 Verdicts: WITNESSED / NOT WITNESSED / NOT OBSERVED / COULD NOT RUN. Exit status: 1 if any
 witness is NOT WITNESSED; otherwise 2 if any COULD NOT RUN; otherwise 0. C3b-2's NOT
@@ -834,15 +839,42 @@ def latch_windows(build: Build, max_patch: int) -> dict:
     return res
 
 
-def classify(pc: int, d0w: int, w: dict, max_patch: int):
-    """'plain'/'mch' when a VBlank taken at `pc` sees channel 0 stored and channel 1 not."""
+def classify(pc: int, d0w: int, w: dict, max_patch: int, lo_ch: int = 0):
+    """'plain'/'mch' when a VBlank taken at `pc` sees channel `lo_ch` stored and channel
+    `lo_ch + 1` not. The loop counts d0 DOWN from max_patch - 1, so channel c runs with
+    d0 = max_patch - 1 - c (section 0's pair 0/1: d0 3 then 2; section 7's pair 2/3: 1 then 0)."""
     for name in ("plain", "mch"):
         L = w[name]
-        if pc == L["dbra"] and d0w == max_patch - 1:
-            return name           # iteration 0's store retired, its dbra not yet
-        if L["head"] <= pc <= L["store"] and d0w == max_patch - 2:
-            return name           # iteration 1, before its store retires
+        if pc == L["dbra"] and d0w == max_patch - 1 - lo_ch:
+            return name           # channel lo_ch's store retired, its dbra not yet
+        if L["head"] <= pc <= L["store"] and d0w == max_patch - 2 - lo_ch:
+            return name           # channel lo_ch + 1's iteration, before its store retires
     return None
+
+
+def band_table(build: Build, tab: int, max_patch: int) -> dict:
+    """Raster_BuildSchedule's table, read out of the ROM at `tab`: [count], then per record
+    [line_src][lo_fl][hi_fl][rec_off][rec_len]. {channel: (lo_fl, hi_fl)} for the records whose
+    line_src has the high (latched) bit set; the band words are in FIRE-LINE space."""
+    n = build.rom_u16(tab)
+    ents = {}
+    for i in range(n):
+        e = [build.rom_u16(tab + 2 + 10 * i + 2 * j) for j in range(5)]
+        if e[0] & 0x8000:
+            ents[e[0] & (max_patch - 1)] = (e[1] - (0x10000 if e[1] & 0x8000 else 0),
+                                            e[2] - (0x10000 if e[2] & 0x8000 else 0))
+    return ents
+
+
+def record_state(screen_l: int, band) -> str:
+    """Raster_BuildSchedule's rule for one latched record: fire line = screen - 1; past band_hi
+    the record is dropped for the frame, below band_lo it is clamped up to band_lo."""
+    if band is None:
+        return "no record"
+    fl = screen_l - 1
+    if fl > band[1]:
+        return "suppressed"
+    return "live (clamped up)" if fl < band[0] else "live"
 
 
 def run_c3b2(build: Build, out: list, budget: int) -> str:
@@ -868,25 +900,6 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
     def nearest(pc):
         i = bisect.bisect_right(code_addrs, pc) - 1
         return code_syms[i][1] if i >= 0 else "?"
-
-    def band_table(tab):
-        """Raster_BuildSchedule's table: [count], then [line_src][lo_fl][hi_fl][rec_off][rec_len]."""
-        n = k.rom_u16(tab)
-        ents = {}
-        for i in range(n):
-            e = [k.rom_u16(tab + 2 + 10 * i + 2 * j) for j in range(5)]
-            if e[0] & 0x8000:
-                ents[e[0] & (max_patch - 1)] = (e[1] - (0x10000 if e[1] & 0x8000 else 0),
-                                                e[2] - (0x10000 if e[2] & 0x8000 else 0))
-        return ents
-
-    def live(screen_l, band):
-        if band is None:
-            return "no record"
-        fl = screen_l - 1                      # Raster_BuildSchedule: fire line = screen - 1
-        if fl > band[1]:
-            return "suppressed"
-        return "live (clamped up)" if fl < band[0] else "live"
 
     async def body(m: Machine):
         await m.frames(BOOT_FRAMES)
@@ -930,8 +943,8 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
             st["motion"].add(await m.u16(k.s("Effects_Motion_Any")))
             scr = [int.from_bytes(x, "big", signed=True) for x in
                    (lambda b: [b[0:2], b[2:4]])(await m.rd(k.s("Effects_Screen_L"), 4))]
-            bands = band_table(tab) if tab else {}
-            key = tuple(live(scr[c], bands.get(c)) for c in (0, 1))
+            bands = band_table(k, tab, max_patch) if tab else {}
+            key = tuple(record_state(scr[c], bands.get(c)) for c in (0, 1))
             st["ch_status"][key] = st["ch_status"].get(key, 0) + 1
             which = classify(pc, d0w, w, max_patch)
             if which:
@@ -1039,6 +1052,355 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
     return verdict_block(out, "C3b-2", NOT_OBSERVED, fails)
 
 
+# =========================================================================== C3b-2, section 7
+
+OJZ_EFFECTS = "games/sonic4/data/effects/ojz_effects.emp"
+OJZ_ACT1 = "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
+S7_STEER_MARGIN = 8          # px inside the both-live camera band, half a tick of fly motion
+S7_NO_LAG_FRAMES = 2400      # a flight this long with no VInt_Lag stopped producing them
+
+
+def _strip_comments(text: str) -> str:
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _top_split(s: str) -> list:
+    """Split on the commas that are not inside () or []."""
+    out, depth, cur = [], 0, ""
+    for ch in s:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def section_preset(build: Build, sec: int) -> tuple:
+    """(GRID_W, the EffectsPreset section `sec` binds), from OJZ act 1's act descriptor."""
+    text = _strip_comments(build.source(OJZ_ACT1).decode("utf-8", "replace"))
+    gw = re.search(r"^\s*const\s+GRID_W\s*=\s*(\d+)", text, re.M)
+    i = text.find(f"ojz_sec(sec: {sec},")
+    if not gw or i < 0:
+        raise CouldNotRun(f"{OJZ_ACT1}: no GRID_W, or no `ojz_sec(sec: {sec}, ..)` row")
+    j = text.find("ojz_sec(sec:", i + 1)
+    m = re.search(r"\beffects:\s*(\w+)", text[i:j if j > 0 else len(text)])
+    if not m:
+        raise CouldNotRun(f"{OJZ_ACT1}: section {sec}'s row binds no `effects:`")
+    return int(gw.group(1)), m.group(1)
+
+
+def preset_fields(build: Build, preset: str) -> dict:
+    """The named fields of one `pub data <preset>: EffectsPreset = preset(..)`, as source text."""
+    text = _strip_comments(build.source(OJZ_EFFECTS).decode("utf-8", "replace"))
+    i = text.find(f"pub data {preset}:")
+    if i < 0:
+        raise CouldNotRun(f"{OJZ_EFFECTS}: no `pub data {preset}:`")
+    k = text.index("preset(", i) + len("preset")
+    depth, p = 0, k
+    for p in range(k, len(text)):
+        if text[p] == "(":
+            depth += 1
+        elif text[p] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    fields = {}
+    for part in _top_split(text[k + 1:p]):
+        name, _, val = part.partition(":")
+        fields[name.strip()] = val.strip()
+    return fields
+
+
+def run_c3b2s7(build: Build, out: list, budget: int, sec: int = 7) -> str:
+    """C3b-2 where it CAN show: two live, moving patch records on adjacent channels.
+
+    Section 0 cannot show the residue (its channel 0 is anchor-NONE and always suppressed, and
+    it authors no motion, so the .plain loop runs). Everything section-specific here is derived
+    from source, not typed in: which preset the section binds, its patched program, which
+    channels carry a world anchor and which a sweep, and the camera-Y band in which BOTH records
+    are live and unclamped (from the ROM's own band table and the runtime anchor bank). The
+    flight bounces diagonally inside that band and inside the section, and every VInt_Lag is
+    stopped and classified exactly as section 0's were, for the channel pair (lo, lo + 1)."""
+    k = build
+    max_patch = k.src_const("engine/effects/raster_dsl.emp", "RASTER_MAX_PATCH")
+    buf_size = k.src_const("engine/effects/raster.emp", "RASTER_BUF_SIZE")
+    w = latch_windows(k, max_patch)
+    grid_w, preset = section_preset(k, sec)
+    fields = preset_fields(k, preset)
+    program = fields.get("patched")
+    if not program:
+        raise CouldNotRun(f"{preset} binds no `patched:` program, so nothing is latched there")
+    world = _top_split(fields.get("patch_world_ys", "[]").strip()[1:-1])
+    motion = _top_split(fields.get("patch_motion", "[]").strip()[1:-1])
+    if len(world) != max_patch or len(motion) != max_patch:
+        raise CouldNotRun(f"{preset}: patch_world_ys / patch_motion are not {max_patch} entries")
+    anchored = [c for c, v in enumerate(world) if v != "PATCH_ANCHOR_NONE"]
+    sweep = {}
+    for c, v in enumerate(motion):
+        if v == "ANCHOR_MOTION_NONE":
+            continue
+        mm = re.fullmatch(r"anchor_sweep\(\s*amp_shift:\s*(\d+)\s*,\s*period_shift:\s*(\d+)\s*\)", v)
+        if not mm:
+            raise CouldNotRun(f"{preset} channel {c}: motion {v!r} is not an anchor_sweep this tool models")
+        sweep[c] = int(mm.group(1))
+    pair = [c for c in anchored if c + 1 in anchored]
+    if len(anchored) != 2 or not pair:
+        raise CouldNotRun(f"{preset}: anchored channels {anchored}, not one adjacent pair")
+    lo_ch, hi_ch = pair[0], pair[0] + 1
+    if not sweep:
+        raise CouldNotRun(f"{preset} authors no motion, so the .mch loop would not run here either")
+    sine_amp = k.equ.get("SINE_AMPLITUDE") or k.src_const("engine/system/constants.emp", "SINE_AMPLITUDE")
+    amp = {c: (sine_amp >> sweep[c]) if c in sweep else 0 for c in (lo_ch, hi_ch)}
+    tab_want = k.s(program) + buf_size
+    sec_size = k.e("SECTION_SIZE")
+    sx0, sy0 = (sec % grid_w) * sec_size, (sec // grid_w) * sec_size
+    scr_w = k.e("SCREEN_WIDTH")
+    out.append(f"  derived from source: section {sec} is grid ({sec % grid_w},{sec // grid_w}) of GRID_W {grid_w}, "
+               f"world x {sx0}..{sx0 + sec_size - 1} y {sy0}..{sy0 + sec_size - 1}; it binds {preset}, "
+               f"patched: {program} (patch table expected at ${tab_want:06X} = {program} + RASTER_BUF_SIZE "
+               f"{buf_size}); anchored channels {anchored}; sweep channels "
+               f"{ {c: f'amp_shift {s}' for c, s in sweep.items()} } (SINE_AMPLITUDE {sine_amp} >> shift = "
+               f"+/-{ {c: a for c, a in amp.items()} } px)")
+    out.append(f"  channel pair {lo_ch}/{hi_ch}: RASTER_MAX_PATCH {max_patch}, so channel {lo_ch} runs with d0 = "
+               f"{max_patch - 1 - lo_ch} and channel {hi_ch} with d0 = {max_patch - 1 - hi_ch}")
+    for n in ("plain", "mch"):
+        L = w[n]
+        out.append(f"  {n:5} loop: head ${L['head']:06X}, store ${L['store']:06X}, dbra ${L['dbra']:06X}. Tear = "
+                   f"stacked PC ${L['dbra']:06X} with d0.w {max_patch - 1 - lo_ch}, or ${L['head']:06X}.."
+                   f"${L['store']:06X} with d0.w {max_patch - 1 - hi_ch}")
+    lag_entry = k.s("VInt_Lag")
+    lag_ret = k.s("$engine.vblank$VBlank_Handler$done")
+    code_syms = sorted((a, n) for n, a in k.sym.items()
+                       if not n.startswith("$") and a < len(k.rom) and n not in phased_names())
+    code_addrs = [a for a, _ in code_syms]
+
+    def nearest(pc):
+        i = bisect.bisect_right(code_addrs, pc) - 1
+        return code_syms[i][1] if i >= 0 else "?"
+
+    bands = band_table(k, tab_want, max_patch)
+    if lo_ch not in bands or hi_ch not in bands:
+        raise CouldNotRun(f"the ROM's band table at ${tab_want:06X} has records for channels "
+                          f"{sorted(bands)}, not {lo_ch} and {hi_ch}")
+    cam_x, cam_y = k.s("Camera_X"), k.s("Camera_Y")
+
+    async def words(m, addr):
+        raw = await m.rd(addr, 2 * max_patch)
+        return [int.from_bytes(raw[i:i + 2], "big", signed=True) for i in range(0, 2 * max_patch, 2)]
+
+    async def body(m: Machine):
+        pv = PlayerView(k)
+        await m.frames(BOOT_FRAMES)
+        s_boot = await pv.read(m)
+        if not s_boot["fly"]:
+            raise CouldNotRun(f"boot state is not the debug-fly player: {fmt_state(s_boot)}")
+        # THE WARP MAILBOX (the c1b3 control's mechanism): its consumer re-seeds every streaming
+        # latch and forces a section crossing, so the section's preset installs through the one
+        # path a walked crossing takes. It leaves debug fly on (measured below, not assumed).
+        wx, wy = sx0 + sec_size // 2, sy0 + 256
+        await m.wr(k.s("Warp_Req_X"), wx.to_bytes(2, "big") + wy.to_bytes(2, "big"))
+        await m.wr(k.s("Warp_Req_Flag"), b"\x01")
+        for _ in range(120):
+            await m.frames(1)
+            if await m.u8(k.s("Warp_Req_Flag")) == 0:
+                break
+        else:
+            raise CouldNotRun("the warp mailbox never acknowledged within 120 frames")
+        await m.frames(4)
+        s_warp = await pv.read(m)
+        tab0 = await m.u32(k.s("Raster_Patch_Tab")) & 0xFFFFFF
+        many0 = await m.u16(k.s("Effects_Motion_Any"))
+        wy_rt = await words(m, k.s("Effects_World_Y"))
+        out.append(f"  after the warp to ({wx},{wy}): {fmt_state(s_warp)}; Raster_Patch_Tab ${tab0:06X}, "
+                   f"Effects_Motion_Any ${many0:04X}, Effects_World_Y {wy_rt}")
+        if not s_warp["fly"]:
+            raise CouldNotRun("the warp left debug fly, so the flight below cannot be steered")
+        if tab0 != tab_want:
+            raise CouldNotRun(f"after the warp Raster_Patch_Tab is ${tab0:06X}, not {program}'s ${tab_want:06X}")
+        if many0 == 0:
+            raise CouldNotRun("Effects_Motion_Any is 0 in the section, so the .mch loop does not run")
+        # The camera band in which BOTH records are live and unclamped, for every sweep phase:
+        # lo_fl <= W + s - Cy - 1 <= hi_fl for all |s| <= amp.
+        span = {}
+        for c in (lo_ch, hi_ch):
+            lo_fl, hi_fl = bands[c]
+            span[c] = (wy_rt[c] + amp[c] - 1 - hi_fl, wy_rt[c] - amp[c] - 1 - lo_fl)
+        box = (max(span[lo_ch][0], span[hi_ch][0]), min(span[lo_ch][1], span[hi_ch][1]))
+        if box[1] - box[0] < 2 * S7_STEER_MARGIN + 16:
+            raise CouldNotRun(f"the both-live camera band {box} is too narrow to steer inside")
+        y_lo, y_hi = box[0] + S7_STEER_MARGIN, box[1] - S7_STEER_MARGIN
+        x_lo = sx0 - scr_w // 2 + 64                    # camera centre stays inside the section
+        x_hi = sx0 + sec_size - scr_w // 2 - 96
+        out.append(f"  band table (ROM, fire-line space): channel {lo_ch} {bands[lo_ch]}, channel {hi_ch} "
+                   f"{bands[hi_ch]}. Camera_Y ranges with the record live and unclamped at every sweep "
+                   f"phase: channel {lo_ch} {span[lo_ch]}, channel {hi_ch} {span[hi_ch]}; both: {box}. "
+                   f"Steering: Camera_Y bounces in {y_lo}..{y_hi}, Camera_X in {x_lo}..{x_hi}, diagonally")
+        st = dict(stops=0, hits=[], in_proc=0, hist={}, missed=0, frames0=await m.frame(), tabs={},
+                  motion=set(), ch_status={}, legs=0, off_section=0, camy_min=1 << 30, camy_max=-(1 << 30))
+        steer_st = {"h": None, "v": None}
+
+        async def steer():
+            cx, cy = await m.s16(cam_x), await m.s16(cam_y)
+            h = steer_st["h"] or "right"
+            v = steer_st["v"] or ("down" if cy < y_lo else "up")
+            if h == "right" and cx >= x_hi:
+                h = "left"
+            elif h == "left" and cx <= x_lo:
+                h = "right"
+            if v == "down" and cy >= y_hi:
+                v = "up"
+            elif v == "up" and cy <= y_lo:
+                v = "down"
+            if (h, v) != (steer_st["h"], steer_st["v"]):
+                await m.buttons(h, v)
+                steer_st.update(h=h, v=v)
+                st["legs"] += 1
+
+        # settle into the band before counting anything
+        for _ in range(240):
+            await steer()
+            await m.frames(1)
+            if y_lo <= await m.s16(cam_y) <= y_hi:
+                break
+        else:
+            raise CouldNotRun("the camera never reached the both-live band within 240 frames")
+        lag0 = await m.u32(k.s("Lag_Frame_Count"))
+        st["frames0"] = await m.frame()
+        ceiling = st["frames0"] + budget * 60
+        last = st["frames0"]
+        while st["stops"] < budget:
+            fr = await m.frame()
+            if fr > ceiling or fr - last > S7_NO_LAG_FRAMES:
+                raise CouldNotRun(f"{st['stops']} lag frames by frame {fr}: the flight stopped "
+                                  f"producing lag frames")
+            r = await m.run_to_reply(lag_entry, 1)
+            if r.get("reached"):
+                regs = await m.regs()
+                if regs["pc"] & 0xFFFFFF != lag_entry:
+                    raise CouldNotRun(f"run_to VInt_Lag stopped at ${regs['pc'] & 0xFFFFFF:06X}")
+                sp = regs["sp"] & 0xFFFFFF
+                frame = await m.rd(sp, 4 + 60 + 6)
+                ret = int.from_bytes(frame[0:4], "big") & 0xFFFFFF
+                if ret != lag_ret:
+                    raise CouldNotRun(f"VInt_Lag's return address is ${ret:06X}, not VBlank_Handler.done "
+                                      f"${lag_ret:06X}: the stacked-frame layout this reads is wrong")
+                d0w = int.from_bytes(frame[4:8], "big") & 0xFFFF
+                pc = int.from_bytes(frame[4 + 60 + 2:4 + 60 + 6], "big") & 0xFFFFFF
+                if await m.u32(k.s("Lag_Frame_Count")) != lag0 + st["stops"]:
+                    st["missed"] += 1
+                st["stops"] += 1
+                name = nearest(pc)
+                st["hist"][name] = st["hist"].get(name, 0) + 1
+                if w["proc"][0] <= pc < w["proc"][1]:
+                    st["in_proc"] += 1
+                tab = await m.u32(k.s("Raster_Patch_Tab")) & 0xFFFFFF
+                st["tabs"][tab] = st["tabs"].get(tab, 0) + 1
+                if tab != tab_want:
+                    st["off_section"] += 1
+                st["motion"].add(await m.u16(k.s("Effects_Motion_Any")))
+                scr = await words(m, k.s("Effects_Screen_L"))
+                tb = band_table(k, tab, max_patch) if tab else {}
+                key = tuple(record_state(scr[c], tb.get(c)) for c in (lo_ch, hi_ch))
+                st["ch_status"][key] = st["ch_status"].get(key, 0) + 1
+                cy = await m.s16(cam_y)
+                st["camy_min"], st["camy_max"] = min(st["camy_min"], cy), max(st["camy_max"], cy)
+                which = classify(pc, d0w, w, max_patch, lo_ch)
+                if which:
+                    wyv = await words(m, k.s("Effects_World_Y"))
+                    st["hits"].append(dict(pc=pc, d0=d0w, loop=which, screen=scr, world=wyv, camy=cy,
+                                           states=key, hi_bank=scr[hi_ch],
+                                           hi_new=(wyv[hi_ch] - cy) if hi_ch not in sweep else None,
+                                           stop=st["stops"]))
+                last = await m.frame()
+                await m.step(1)
+            await steer()
+        st["lag_delta"] = await m.u32(k.s("Lag_Frame_Count")) - lag0
+        st["frames"] = await m.frame() - st["frames0"]
+
+        # CONTEXT: where in its tick the latch runs, IN THIS SECTION, on the same flight (the
+        # section-0 method: a tick starts at a VBlank with VBlank_Ready = 1).
+        vbh, ready = k.s("VBlank_Handler"), k.s("VBlank_Ready")
+        gaps, lag_between = [], 0
+        while len(gaps) < LATCH_TIMING_SAMPLES:
+            rv = await m.run_to_reply(vbh, 3)
+            if not rv.get("reached"):
+                raise CouldNotRun("no VBlank_Handler entry in 3 frames during the latch timing")
+            if await m.u8(ready) == 0:
+                await m.step(1)
+                continue
+            mv = await m.mclk(rv)
+            lag_a = await m.u32(k.s("Lag_Frame_Count"))
+            await m.step(1)
+            rl = await m.run_to_reply(w["proc"][0], 8)
+            if not rl.get("reached"):
+                raise CouldNotRun("Effects_LatchWorldLines not reached within 8 frames of a tick start")
+            gaps.append(await m.mclk(rl) - mv)
+            if await m.u32(k.s("Lag_Frame_Count")) != lag_a:
+                lag_between += 1
+            if await m.u32(k.s("Raster_Patch_Tab")) & 0xFFFFFF != tab_want:
+                st["off_section"] += 1
+            await steer()
+            await m.step(1)
+        st["gaps"], st["lag_between"] = gaps, lag_between
+        await m.buttons()
+        return st
+
+    t0 = time.monotonic()
+    started = utc()
+    st = boot_session(build, body)
+    secs = time.monotonic() - t0
+    out.append(f"  ran {started} .. {utc()} ({secs:.1f} s wall): {st['stops']} VInt_Lag stops over "
+               f"{st['frames']} frames, {st['legs']} steering changes; Lag_Frame_Count rose by "
+               f"{st['lag_delta']} (the last stop's own increment lands after it), stops that found a "
+               f"count out of step: {st['missed']}")
+    out.append(f"  Raster_Patch_Tab at the stops: " + ", ".join(f"${t:06X} x{n}" for t, n in sorted(st["tabs"].items()))
+               + f"; stops or timing samples outside {program}'s install: {st['off_section']}; "
+               f"Effects_Motion_Any at the stops: {sorted('$%04X' % v for v in st['motion'])} "
+               f"({'the .mch loop runs' if 0 not in st['motion'] else 'the .plain loop ran on some'}); "
+               f"Camera_Y at the stops {st['camy_min']}..{st['camy_max']}")
+    out.append(f"  channel {lo_ch} / channel {hi_ch} record state at the stops: " +
+               "; ".join(f"{a} / {b}: {n}" for (a, b), n in sorted(st["ch_status"].items(), key=lambda t: -t[1])))
+    top = sorted(st["hist"].items(), key=lambda t: -t[1])[:8]
+    out.append(f"  interrupted routine (nearest preceding symbol), top 8: " + ", ".join(f"{n} {c}" for n, c in top))
+    out.append(f"  stops inside Effects_LatchWorldLines at all: {st['in_proc']}")
+    line_mclk = MCLK_PER_FRAME / LINES_PER_FRAME
+    g = sorted(x / line_mclk for x in st["gaps"])
+    if g:
+        out.append(f"  CONTEXT latch timing in section {sec}, {len(g)} ticks of the same flight: "
+                   f"Effects_LatchWorldLines entered {g[0]:.1f} .. {g[-1]:.1f} scanlines (median "
+                   f"{g[len(g) // 2]:.1f}) after the VBlank that started its tick (a frame is "
+                   f"{LINES_PER_FRAME} lines); ticks with a lag VBlank between tick start and the latch: "
+                   f"{st['lag_between']}")
+    out.append(f"  TEAR HITS (channel {lo_ch} stored, channel {hi_ch} not): {len(st['hits'])}")
+    for h in st["hits"][:10]:
+        out.append(f"    stop {h['stop']}: PC ${h['pc']:06X} d0.w {h['d0']} ({h['loop']}); Screen_L {h['screen']} "
+                   f"world {h['world']} Camera_Y {h['camy']}; channel {hi_ch} holds {h['hi_bank']}, this "
+                   f"frame's line would be {h['hi_new']}; states {h['states']}")
+    if st["stops"] < budget:
+        return verdict_block(out, "C3b-2 s7", COULD_NOT_RUN, [f"only {st['stops']} of {budget} lag frames"])
+    if st["missed"]:
+        return verdict_block(out, "C3b-2 s7", COULD_NOT_RUN,
+                             [f"{st['missed']} stop(s) found Lag_Frame_Count out of step"])
+    if st["off_section"]:
+        return verdict_block(out, "C3b-2 s7", COULD_NOT_RUN,
+                             [f"{st['off_section']} stop(s) or samples were not in {program}'s install"])
+    if st["hits"]:
+        return verdict_block(out, "C3b-2 s7", WITNESSED, [])
+    n = st["stops"]
+    bound = 1 - 0.05 ** (1 / n)
+    out.append(f"  RATE BOUND: 0 hits in {n} lag frames in section {sec}. 95% upper bound on the per-lag-frame "
+               f"tear probability: {bound:.5f} (about 1 in {int(1 / bound)}; rule of three 3/n = {3 / n:.5f}). "
+               f"NOT a clean result: it bounds the rate, it does not show the window closed.")
+    return verdict_block(out, "C3b-2 s7", NOT_OBSERVED, [])
+
+
 # =========================================================================== driver
 
 def verdict_block(out: list, name: str, verdict: str, reasons: list) -> str:
@@ -1050,7 +1412,7 @@ def verdict_block(out: list, name: str, verdict: str, reasons: list) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("witness", choices=("efx4b", "c1b3", "c3b2", "all"))
+    ap.add_argument("witness", choices=("efx4b", "c1b3", "c3b2", "c3b2s7", "all"))
     ap.add_argument("--rom", default=str(ROOT / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(ROOT / "s4.debug.lst"))
     ap.add_argument("--expect-crc", help="refuse (COULD NOT RUN) unless the ROM's crc32 is this")
@@ -1087,6 +1449,8 @@ def main() -> int:
                 v = run_efx4b(build, out)
             elif w == "c1b3":
                 v = run_c1b3(build, out, a.c1b3_fly_frames)
+            elif w == "c3b2s7":
+                v = run_c3b2s7(build, out, a.lag_budget)
             else:
                 v = run_c3b2(build, out, a.lag_budget)
         except CouldNotRun as e:
