@@ -106,13 +106,16 @@ pub proc Section_FillInitial () clobbers(d0) {
 // In:  d2 = sec_x, d3 = sec_y (GridY), a2 = Act ptr
 // Out: d0 = sec_y * grid_w + sec_x (SectionId)
 // Clobbers: d1     (d2/d3/a2 preserved)
-// NOTE: d2 (sec_x) is left u8, NOT GridX. At the 3×3-window build site
-// (EntityWindow_BuildEntries) this is called immediately after
-// Section_GetSecPtrXY, whose body no longer touches d2 at all but whose
-// contract still DECLARES d2 clobbered — so a typed GridX in d2 still cannot be
-// proven to survive that call. The GridY axis DOES survive (GetSecPtrXY
-// preserves d3), so d3 carries the axis-split swap guard here; typing d2 GridX
-// is BANKED until GetSecPtrXY's declaration narrows to match its body.
+// Callers, enumerated by call site 2026-09-11: EntityWindow_Init and
+// EntityWindow_Slide (the collected window's camera-centre section, once per init
+// and once per slide) and GameState_OJZScroll_Update (games/sonic4/test/
+// ojz_scroll_test.emp, the per-frame flat id). EntityWindow_BuildEntries no
+// longer calls it: Section_GetSecPtrXY returns the same product in d0.
+// NOTE: d2 (sec_x) is left u8, NOT GridX. The reason it was banked was the
+// BuildEntries call right after Section_GetSecPtrXY, whose DECLARED d2 clobber
+// meant a typed GridX could not be proven to survive into this call. That call
+// is gone, so typing d2 GridX now needs only the three callers above to bless
+// their sec_x `as GridX`. The GridY axis already carries the swap guard (d3).
 // -----------------------------------------------
 pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: SectionId) {
         moveq   #0, d0
@@ -120,6 +123,34 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
         move.b  d3, d1                          // d1 = sec_y
         subq.w  #1, d1
         bmi     .fxy_add_x
+        // THE BOUND. CODING_CONVENTIONS §2.1 polices the multiply this loop
+        // stands in for and not the loop, so the same four points are written
+        // here. The loop adds grid_w sec_y times; the proc costs 54 cycles at
+        // sec_y = 0 and 56 + 22·sec_y after (add.w d16(An),Dn 12 + dbf 10 per
+        // row, 14 on the exit).
+        //  * Structural bound. Every caller derives sec_y from the camera centre,
+        //    (Camera_Y + SCREEN_HEIGHT/2) >> SECTION_SIZE_SHIFT, and Camera_Y is
+        //    held in 0 .. (grid_h << SECTION_SIZE_SHIFT) - SCREEN_HEIGHT by
+        //    Camera_Init's seed clamp (before Section_Init reaches
+        //    EntityWindow_Init), Camera_Update's per-frame clamp (before a slide
+        //    or the per-frame caller), and center_camera_on's clamp on the DEBUG
+        //    warp path's Section_Init. So sec_y <= grid_h - 1, and the act
+        //    descriptor's own `(GRID_H << SECTION_SIZE_SHIFT) <= $8000` ensure
+        //    caps grid_h at 16: at most 15 rows, 386 cycles.
+        //  * What breaks it: a caller handing in a sec_y it did not derive from a
+        //    clamped camera. The loop then runs up to 255 times (~5.7K cycles)
+        //    AND returns an id outside the grid: there is no range check here,
+        //    unlike Section_GetSecPtrXY, which callers with an unclamped
+        //    coordinate must use instead.
+        //  * Alternative, named and not taken: the sibling's
+        //    `mul_bounded.w d0, d1, #MAX_ACT_SECTIONS`, which elects mulu.w. On
+        //    the shipped 3x3 grid that form costs 90 (mulu 38+2n at grid_w = 3)
+        //    against this loop's 54 / 78 / 100 on rows 0 / 1 / 2, so the loop is
+        //    cheaper on two rows of three, and its ceiling (386) is under 0.3% of
+        //    a frame. Revisit when an act raises grid_h (the mega-act goal): from
+        //    sec_y = 2 the mulu form wins, and it is flat in grid_h.
+        //  * Executions: once per frame (GameState_OJZScroll_Update), plus once
+        //    per entity-window slide and once at init. Never inside a loop.
     .fxy_mul:
         add.w   Act.grid_w(a2), d0
         dbf     d1, .fxy_mul
@@ -133,14 +164,28 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
 // -----------------------------------------------
 // Section_GetSecPtrXY — Sec ptr lookup by grid coordinates (§4.2).
 // In:  d2 = sec_x (GridX), d3 = sec_y (GridY), a2 = Act ptr
-// Out: a0 = Sec ptr; d0 = found flag (Z clear if found, Z set if out of range,
-//      a0 = 0) — a boolean, NOT a SectionId, so d0 is untyped here.
-// Clobbers: d1, d2     (the body preserves d2 — sec_x rides through it and the
-//      bounded multiply needs no loop counter — but the declared contract keeps
-//      d2 clobbered so a caller cannot carry a typed GridX in d2 across this
-//      call; the declaration stays uniform with Section_FlatIDXY's d2.)
+// Out: found     — Z clear, a0 = Sec ptr, d0 = the flat section id
+//                  (sec_y * grid_w + sec_x, exactly what Section_FlatIDXY returns)
+//      not found — Z set, a0 = 0, d0 = 0. Test Z, never d0: flat id 0 is real.
+//      (Until 2026-09-11 d0 was a 1/0 found flag. The body computed the flat id,
+//      overwrote it, and EntityWindow_BuildEntries recomputed it with
+//      Section_FlatIDXY on the very next line: lens row C4a-4. Every caller was
+//      enumerated by call site before the change and none reads d0 as a flag —
+//      Section_RedrawPlanes, Parallax_CheckBoundary and GameState_OJZScroll_Init
+//      test only Z; BuildEntries takes the id.)
+// Clobbers: d1, d2, d4
+//      d2 — the BODY preserves d2 (sec_x rides through it and the bounded
+//      multiply needs no loop counter), but the declared contract keeps d2
+//      clobbered so a caller cannot carry a typed GridX in d2 across this call.
+//      KEEP THE BODY OFF d2 ANYWAY: Parallax_CheckBoundary (engine/level/
+//      parallax.emp) stores d2 and d3 into Parallax_Prev_Sec_X/Y right after
+//      this call, relying on the body rather than the declaration, so a body that
+//      used d2 as scratch would silently corrupt the crossing detector.
+//      d4 — the Sec-stride multiply's scratch, since d0 now carries the id and d1
+//      the product. Every caller's own declaration already covers d4, and none
+//      holds anything in d4 across the call.
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) out(d0, a0, zero: none) {
+pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2, d4) out(d0: SectionId, a0, zero: none) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3
@@ -160,17 +205,16 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = sec_y * grid_w
         moveq   #0, d1
         move.b  d2, d1                          // d1 = sec_x (d2 = sec_x input, preserved)
-        add.w   d1, d0                          // d0 = flat section index
+        add.w   d1, d0                          // d0 = flat section index, RETURNED (lens row C4a-4)
 
         movea.l Act.sec_grid_ptr(a2), a0
-        mul_const.w d0, #sizeof(Sec), d1         // d0 = flat × the Sec stride (d1 = multiply scratch)
-        adda.w  d0, a0                          // sign-extends d0 → ≤496 sections (module ensure guards it)
+        move.w  d0, d1                          // the id stays in d0; the stride product builds in d1
+        mul_const.w d1, #sizeof(Sec), d4         // d1 = flat × the Sec stride (d4 = multiply scratch; never d2, see the header)
+        adda.w  d1, a0                          // sign-extends d1: act_descriptor's MAX_ACT_SECTIONS × sizeof(Sec) <= $7FFF ensure keeps it positive
 
         tst.l   (a0)
         beq     .out_of_range
-
-        moveq   #1, d0                          // Z clear (success)
-        rts
+        rts                                     // Z clear from the tst.l of a live Sec = found; d0 = flat id
     .out_of_range:
         suba.l  a0, a0                          // a0 = 0
         moveq   #0, d0                          // Z set (not found)
