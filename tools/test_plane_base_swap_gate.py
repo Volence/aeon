@@ -449,3 +449,28 @@ def test_an_unrecognised_gap_is_not_classified():
     # CORRECT) and never as "emitted".
     assert G.classify_gap(22, 46) is None
     assert G.classify_gap(30, 46) is None
+
+
+def test_the_UNPADDED_program_is_not_the_image_any_more():
+    """EFX-4b (2026-09-11): the symbol now spans the whole RASTER_BUF_SIZE install buffer,
+    because static_program() zero-pads every static program to it. The program's own 46
+    bytes are the length a tree that lost the pad (the old `raster_program(P)` spelling)
+    would emit, and against the padded image it must be UNMEASURABLE, not "emitted". The
+    buffer size is read from the engine, as the gate reads it."""
+    buf = G.emp_const(G.RASTER, "RASTER_BUF_SIZE")
+    assert G.classify_gap(buf, buf) == "emitted"
+    assert G.classify_gap(46, buf) is None
+
+
+def test_a_zero_pad_is_clean():
+    assert G.pad_nonzero(bytes(82)) == []
+
+
+def test_a_nonzero_pad_byte_is_reported():
+    """The pad is part of the asserted image: the copy reads it, so anything but zero there
+    is the EFX-4b over-read coming back. Every nonzero offset is reported, not just the
+    first, so a pad full of the next section's bytes reads as what it is."""
+    tail = bytearray(82)
+    tail[0] = 0x8A
+    tail[81] = 0x01
+    assert G.pad_nonzero(bytes(tail)) == [0, 81]

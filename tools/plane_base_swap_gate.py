@@ -77,7 +77,9 @@ shape, so an unconditionally-emitted program would be a dormant scaffold in the 
 owner ships — the defect `OJZ_BandDemo`'s own gate note in ojz_effects.emp records being
 made the wrong way round first. So:
 
-    --shape debug     the 15 words are present and exactly the derived image
+    --shape debug     the derived program's words are present, followed by a ZERO pad to
+                      RASTER_BUF_SIZE — the image static_program() emits since EFX-4b
+                      (2026-09-11), so the symbol spans the whole install buffer
     --shape release   the symbol emits ZERO bytes (its label collapses onto its
                       neighbour's address, exactly as OJZ_BandDemo's does)
 
@@ -355,6 +357,18 @@ def expected_words(top_line, top_end, bot_line, bot_end,
     ]
 
 
+def pad_nonzero(tail):
+    """Offsets of every NONZERO byte in the image's pad (the bytes past the program).
+
+    EFX-4b (2026-09-11): a static program is emitted through `static_program()`, i.e. its
+    words zero-padded to the RASTER_BUF_SIZE-byte buffer Raster_VBlank's install copy reads.
+    The pad is part of the image this gate asserts, and its whole claim is that the copy
+    reads NOTHING but the program — so a nonzero pad byte is a failure, not noise. Pure, and
+    split out so tools/test_plane_base_swap_gate.py can exercise it without a build.
+    """
+    return [i for i, b in enumerate(tail) if b != 0]
+
+
 def classify_gap(gap, image_bytes):
     """'emitted' / 'absent' / None, from the distance between the two labels.
 
@@ -471,7 +485,20 @@ def main():
         want = expected_words(top_line, top_end, bot_line, bot_end,
                               plane_a, plane_b, shift_a, shift_b, reg_a, reg_b,
                               op_set_reg, park, ops_end)
-        image_bytes = 2 * len(want)
+        # THE IMAGE IS THE PADDED ONE (EFX-4b, 2026-09-11). The program is `want`; the symbol
+        # occupies the whole install buffer, because static_program() zero-pads every static
+        # program to RASTER_BUF_SIZE — the fixed length Raster_VBlank copies. Read from the
+        # engine's own declaration, never typed: a buffer that changed size must move this
+        # gate with it, and a program that outgrew the buffer is a question this gate cannot
+        # answer rather than a byte mismatch.
+        buf_bytes = emp_const(RASTER, "RASTER_BUF_SIZE")
+        prog_bytes = 2 * len(want)
+        if prog_bytes > buf_bytes:
+            raise Unmeasurable(
+                f"the derived program is {prog_bytes} bytes, past the {buf_bytes}-byte "
+                f"RASTER_BUF_SIZE install buffer — raster_program would refuse to emit it, so "
+                f"the fixture and this gate's derivation have parted")
+        image_bytes = buf_bytes
 
         labels = lst_labels(lst_path)
         addr = at(labels, SYM, lst_path)
@@ -594,8 +621,19 @@ def main():
                   f"Every framing word above holds just as well for that program, which is "
                   f"why this is said separately.")
 
-        if bad:
-            print(f"plane_base_swap_gate: FAIL — {bad} of {len(want)} word(s) differ")
+        pad = pad_nonzero(rom[addr + prog_bytes:addr + image_bytes])
+        print(f"  pad    ${addr + prog_bytes:06X}..${addr + image_bytes - 1:06X}  "
+              f"{image_bytes - prog_bytes} byte(s) past the program, "
+              f"{'all zero' if not pad else f'{len(pad)} NONZERO'}")
+        if pad:
+            print(f"        the install buffer pad is not zero at byte offset(s) "
+                  f"{', '.join(str(prog_bytes + i) for i in pad[:8])}"
+                  f"{' ...' if len(pad) > 8 else ''} of the image. Raster_VBlank copies all "
+                  f"{image_bytes} bytes, so whatever sits there reaches Raster_Buf_A — the "
+                  f"EFX-4b over-read this padding exists to close.")
+        if bad or pad:
+            print(f"plane_base_swap_gate: FAIL — {bad} of {len(want)} word(s) differ, "
+                  f"{len(pad)} pad byte(s) nonzero")
             return 1
         print(f"plane_base_swap_gate: OK — TWO mid-frame base bands are in this ROM, on TWO "
               f"registers. Screen lines {top_line}..{top_end}: OP_SET_REG ${got[8]:04X} "
