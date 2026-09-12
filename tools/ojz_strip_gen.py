@@ -74,6 +74,7 @@ from ojz_common import (
 import ojz_common
 import collision_pipeline
 import donor_provenance
+import act_grid
 
 # ---------------------------------------------------------------------------
 # Paths (editor / strip-gen specific — shared ones come from ojz_common)
@@ -170,7 +171,8 @@ def enumerate_collision_layouts() -> list[tuple[str, str]]:
 
     Editor mode (editor_data_available()): editor section indices
     0..gridWidth*gridHeight-1 from project.json, skipping sections without a
-    section_{N}.tiles.bin (generate() skips those entirely) and sections
+    section_{N}.tiles.bin (generate() REFUSES those since the 2026-09-12 gap lens
+    sweep F2, so a re-bake never reaches the skip) and sections
     without a sonic_hack layout file (they bake to air anyway).
 
     Mapping (verified 2026-06-12): editor section index N ↔
@@ -191,17 +193,15 @@ def enumerate_collision_layouts() -> list[tuple[str, str]]:
     """
     pairs: list[tuple[str, str]] = []
     if editor_data_available():
-        with open(PROJECT_JSON, "r") as pf:
-            proj = json.load(pf)
-        ojz_act1 = proj["zones"][0]["acts"][0]
-        num_sections = ojz_act1["gridWidth"] * ojz_act1["gridHeight"]
+        _zone, ojz_act1 = act_grid.project_act(PROJECT_JSON)
+        num_sections = act_grid.section_count(PROJECT_JSON)
         data_path = os.path.join(
             os.path.dirname(PROJECT_JSON), ojz_act1["dataPath"]
         )
         for sec_idx in range(num_sections):
             tiles_path = os.path.join(data_path, f"section_{sec_idx}.tiles.bin")
             if not os.path.isfile(tiles_path):
-                continue   # generate() skips sections without editor tiles
+                continue   # unreachable from a re-bake: generate() refuses it first
             layout_path = os.path.join(LAYOUT_DIR, f"OJZ_1_sec{sec_idx}.bin")
             if os.path.isfile(layout_path):
                 pairs.append((str(sec_idx), layout_path))
@@ -826,7 +826,7 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
 GEN_REL_DIR = "games/sonic4/data/generated/ojz/act1"
 
 
-def emit_section_local_maps(section_local_maps, out_dir) -> None:
+def emit_section_local_maps(section_local_maps, out_dir, expected_sections) -> None:
     """Emit each section's local→global table as a u16-BE binary + a generated
     `.emp` section (Parcel-K3 style): per-section `embed()`s + OJZ_Sec_LocalMaps,
     a [*u8; N] pointer table indexed by FLAT section id (sec_y*grid_w + sec_x —
@@ -863,12 +863,17 @@ def emit_section_local_maps(section_local_maps, out_dir) -> None:
             f.write(payload)
         by_id[int(sec_id)] = sec_id
         payloads[int(sec_id)] = payload
-    n = (max(by_id) + 1) if by_id else 0
+    # The table's length is the GRID's, passed in, not max(id)+1 of whatever was
+    # baked. max+1 caught a hole in the middle and waved a missing LAST section
+    # through as a shorter table (2026-09-12 gap lens sweep F2).
+    n = expected_sections
     missing = [i for i in range(n) if i not in by_id]
-    if missing:
+    extra = sorted(i for i in by_id if not 0 <= i < n)
+    if missing or extra:
         raise RuntimeError(
-            f"sec_local_maps: non-contiguous section ids {sorted(by_id)}; the "
-            f"flat-id table needs 0..{n-1} (missing {missing})")
+            f"sec_local_maps: baked section ids {sorted(by_id)} but the act grid has "
+            f"{n} sections; the flat-id table the engine indexes needs exactly 0..{n-1} "
+            f"(missing {missing}, outside the grid {extra})")
 
     # Content dedup, in FLAT-ID order so the owner is always the lowest-numbered
     # section carrying that content (deterministic output; a re-run cannot swap
@@ -1803,6 +1808,35 @@ def require_donor():
             "~131 KB wrong level tree. Nothing has been written.")
 
 
+def require_editor_sections(data_path: str, num_sections: int) -> list[str]:
+    """Every grid section's section_N.tiles.bin, in flat-id order — or a refusal.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep F2). generate() used to print
+    `WARNING ... not found, skipping` and bake the remaining sections. A missing LAST
+    section is not a hole in the flat ids, so emit_section_local_maps accepted the
+    short set and wrote `OJZ_Sec_LocalMaps: [*u8; 8]` for a 3x3 act; the engine,
+    indexing by flat id over its own 9-section grid, read the next table's first long
+    as section 8's local map, and ojz_block_gen re-baked section 8 from the previous
+    bake's strips still on disk. Exit 0, verify_level_bin OK.
+
+    A section with nothing painted is still a section: its file is 131072 zero bytes,
+    not an absent file. Absent means a broken working tree, and the fix is the file or
+    a grid change made in project.json AND the act descriptor together.
+    """
+    paths = [os.path.join(data_path, f"section_{i}.tiles.bin") for i in range(num_sections)]
+    missing = [p for p in paths if not os.path.isfile(p)]
+    if missing:
+        raise SystemExit(
+            f"ojz_strip_gen: the act grid has {num_sections} sections (project.json, "
+            f"checked against the act descriptor) but {len(missing)} editor section "
+            f"file(s) are missing: {', '.join(os.path.normpath(p) for p in missing)}. "
+            f"Refusing: skipping a section ships a local-map table shorter than the "
+            f"grid the engine indexes. Restore the file (an empty section is 131072 "
+            f"zero bytes), or change the grid in project.json and the act descriptor "
+            f"together. Nothing has been written by this step.")
+    return paths
+
+
 def generate(stress_uniquify=0):
     """Generate strip data for all OJZ sections.
 
@@ -1819,26 +1853,20 @@ def generate(stress_uniquify=0):
 
     if use_editor:
         print("=== Using level editor data ===")
-        # Read grid dimensions from project.json
-        with open(PROJECT_JSON, "r") as pf:
-            proj = json.load(pf)
-        ojz_act1 = proj["zones"][0]["acts"][0]
-        editor_grid_w = ojz_act1["gridWidth"]
-        editor_grid_h = ojz_act1["gridHeight"]
-        editor_num_sections = editor_grid_w * editor_grid_h
+        # The act grid comes from ONE reader (tools/act_grid.py), which also requires
+        # the engine's act descriptor to declare the same GRID_W x GRID_H.
+        _zone, ojz_act1 = act_grid.project_act(PROJECT_JSON)
+        editor_num_sections = act_grid.section_count(PROJECT_JSON)
         editor_data_path = os.path.join(
             os.path.dirname(__file__), "..", ojz_act1["dataPath"]
         )
+        section_paths = require_editor_sections(editor_data_path, editor_num_sections)
 
         full_blob = load_editor_tile_art(ZONE_TILESET_PATH)
         print(f"  Tile art: {ZONE_TILESET_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
 
         per_section_strips: dict[str, list[list[int]]] = {}
-        for sec_idx in range(editor_num_sections):
-            sec_path = os.path.join(editor_data_path, f"section_{sec_idx}.tiles.bin")
-            if not os.path.isfile(sec_path):
-                print(f"  WARNING: {sec_path} not found, skipping")
-                continue
+        for sec_idx, sec_path in enumerate(section_paths):
             nametable = load_editor_section_nametable(sec_path)
             strips = build_strips_from_nametable(nametable, STRIP_TILE_HEIGHT)
             per_section_strips[str(sec_idx)] = strips
@@ -2059,7 +2087,9 @@ def generate(stress_uniquify=0):
         total_strips += len(remapped_strips)
 
     # ---- Pass 5b: emit per-section local→global tables (.bin + generated .emp) ----
-    emit_section_local_maps(section_local_maps, out_dir)
+    emit_section_local_maps(
+        section_local_maps, out_dir,
+        editor_num_sections if use_editor else len(sec_ids_in_order))
 
     # ---- Pass 6: emit the single act art pool as independently-decodable pages ----
     for page_idx, page in enumerate(pages):

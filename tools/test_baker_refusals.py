@@ -195,3 +195,127 @@ def test_f1_gate_fails_a_wrong_sized_collattr(tmp_path, monkeypatch):
     p.write_bytes(p.read_bytes()[:-2])
     fails = _run_collision_gate(monkeypatch, root)
     assert any("section_0.collattr.bin" in f and str(CELL_FILE_BYTES - 2) in f for f in fails), fails
+
+
+# ---------------------------------------------------------------------------
+# F2 -- a missing LAST section file used to ship a short local-map table
+# ---------------------------------------------------------------------------
+
+def test_f2_the_grid_has_one_source_and_the_engine_must_agree(tmp_path):
+    import act_grid
+    w, h = act_grid.section_grid()
+    assert (w, h) == act_grid.descriptor_grid()
+    proj = json.load(open(os.path.join(REPO, "project.json")))
+    proj["zones"][0]["acts"][0]["gridHeight"] = h + 1
+    p = tmp_path / "project.json"
+    p.write_text(json.dumps(proj))
+    with pytest.raises(act_grid.ActGridError) as exc:
+        act_grid.section_grid(str(p))
+    assert "act descriptor" in str(exc.value), str(exc.value)
+
+
+def test_f2_a_descriptor_that_stops_declaring_the_grid_is_refused(tmp_path):
+    import act_grid
+    d = tmp_path / "act_descriptor.emp"
+    d.write_text("module games.sonic4.ojz_act1_descriptor\n")
+    with pytest.raises(act_grid.ActGridError):
+        act_grid.descriptor_grid(str(d))
+
+
+def test_f2_a_missing_last_section_file_is_refused(tmp_path):
+    import act_grid
+    osg = _strip_gen()
+    n = act_grid.section_count()
+    for i in range(n - 1):
+        (tmp_path / f"section_{i}.tiles.bin").write_bytes(bytes(CELL_FILE_BYTES))
+    with pytest.raises(SystemExit) as exc:
+        osg.require_editor_sections(str(tmp_path), n)
+    assert f"section_{n - 1}.tiles.bin" in str(exc.value), str(exc.value)
+    # converse control: the full set passes, in flat-id order
+    (tmp_path / f"section_{n - 1}.tiles.bin").write_bytes(bytes(CELL_FILE_BYTES))
+    got = osg.require_editor_sections(str(tmp_path), n)
+    assert [os.path.basename(p) for p in got] == [f"section_{i}.tiles.bin" for i in range(n)]
+
+
+def test_f2_the_local_map_table_must_cover_the_whole_grid(tmp_path):
+    import act_grid
+    osg = _strip_gen()
+    n = act_grid.section_count()
+    maps = [(str(i), [0, i + 1]) for i in range(n - 1)]
+    with pytest.raises(RuntimeError) as exc:
+        osg.emit_section_local_maps(maps, str(tmp_path), n)
+    assert f"missing [{n - 1}]" in str(exc.value), str(exc.value)
+    maps.append((str(n - 1), [0, n]))
+    osg.emit_section_local_maps(maps, str(tmp_path), n)
+    assert f"[*u8; {n}]" in (tmp_path / "sec_local_maps.emp").read_text()
+
+
+def _run_gate(monkeypatch, root, fn, *args):
+    monkeypatch.setattr(vlb, "ROOT", str(root))
+    monkeypatch.setattr(vlb, "GEN", str(root / REL_GEN))
+    monkeypatch.setattr(vlb, "PROJECT_JSON", str(root / "project.json"))
+    monkeypatch.setattr(vlb, "COLLISION_DIR", str(root / REL_COLLISION))
+    monkeypatch.setattr(vlb, "_fail", [])
+    fn(*args)
+    return list(vlb._fail)
+
+
+def _gen_tree(tmp_path, files):
+    root = tmp_path / "tree"
+    (root / REL_GEN).mkdir(parents=True)
+    shutil.copy(os.path.join(REPO, "project.json"), root / "project.json")
+    for fn in files:
+        shutil.copy(os.path.join(REAL_GEN, fn), root / REL_GEN / fn)
+    return root
+
+
+def test_f2_gate_fails_a_local_map_table_short_of_the_grid(tmp_path, monkeypatch):
+    import act_grid
+    n = act_grid.section_count()
+    root = _gen_tree(tmp_path, ["sec_local_maps.emp"])
+    assert _run_gate(monkeypatch, root, vlb.verify_local_map_table, n) == []
+    p = root / REL_GEN / "sec_local_maps.emp"
+    txt = p.read_text()
+    last = f', extern("OJZ_Sec{n - 1}_LocalMap")'
+    assert f"[*u8; {n}]" in txt and last in txt, "the emitter's table shape moved"
+    p.write_text(txt.replace(f"[*u8; {n}]", f"[*u8; {n - 1}]").replace(last, ""))
+    fails = _run_gate(monkeypatch, root, vlb.verify_local_map_table, n)
+    assert any(f"[*u8; {n - 1}]" in f for f in fails), fails
+
+
+def test_f2_gate_fails_a_leftover_section_outside_the_grid(tmp_path, monkeypatch):
+    import act_grid
+    n = act_grid.section_count()
+    root = _gen_tree(tmp_path, ["sec0_local_map.bin"])
+    assert _run_gate(monkeypatch, root, vlb.verify_section_set) == []
+    shutil.copy(os.path.join(REAL_GEN, "sec0_local_map.bin"),
+                root / REL_GEN / f"sec{n}_local_map.bin")
+    fails = _run_gate(monkeypatch, root, vlb.verify_section_set)
+    assert any(f"sec{n}_local_map.bin" in f for f in fails), fails
+
+
+class _PastTheRefusal(Exception):
+    pass
+
+
+def test_f2_block_gen_refuses_a_grid_section_without_strips(tmp_path, monkeypatch):
+    """The block baker used to iterate a literal 9 and bake whatever strips were on
+    disk. Converse control: with every strip present it gets past the refusal to the
+    pool -- stubbed with a sentinel, so no compression runs and nothing is written."""
+    import act_grid
+    import ojz_block_gen as bg
+
+    def boom(*_a, **_k):
+        raise _PastTheRefusal()
+
+    monkeypatch.setattr(bg, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(bg.multiprocessing, "Pool", boom)
+    n = act_grid.section_count()
+    for i in range(n - 1):
+        (tmp_path / f"sec{i}_strips_a.bin").write_bytes(b"")
+    with pytest.raises(SystemExit) as exc:
+        bg.generate_all(use_cache=False)
+    assert f"[{n - 1}]" in str(exc.value), str(exc.value)
+    (tmp_path / f"sec{n - 1}_strips_a.bin").write_bytes(b"")
+    with pytest.raises(_PastTheRefusal):
+        bg.generate_all(use_cache=False)

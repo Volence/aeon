@@ -83,8 +83,12 @@ OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "..", "games", "sonic4", "data", "generated", "ojz", "act1"
 )
 
-NUM_SECTIONS = 9
-SECTION_IDS = list(range(NUM_SECTIONS))
+# The section count is NOT stated here. It was a literal 9 until the 2026-09-12 gap
+# lens sweep (F2) showed it outliving the section set: with section_8.tiles.bin
+# missing, the strip baker baked 8 sections and this file re-baked section 8 from the
+# previous bake's strips still on disk. It now comes from tools/act_grid.py, the one
+# reader of the act grid, and generate_all refuses a grid section with no strips.
+import act_grid  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Content-addressed caches (pure memoization — NEVER changes output bytes)
@@ -549,6 +553,16 @@ def generate_section_blocks(section_idx, use_cache=True):
 def generate_all(use_cache=True):
     """Generate block data for all OJZ sections."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    num_sections = act_grid.section_count()
+    section_ids = list(range(num_sections))
+    missing = [i for i in section_ids
+               if not os.path.isfile(os.path.join(OUTPUT_DIR, f"sec{i}_strips_a.bin"))]
+    if missing:
+        raise SystemExit(
+            f"ojz_block_gen: the act grid has {num_sections} sections but "
+            f"sec{{N}}_strips_a.bin is missing for {missing} in {OUTPUT_DIR}. Run "
+            f"ojz_strip_gen.py generate first (tools/regenerate-level.sh does); a block "
+            f"blob baked without its strips would be a previous bake's, or nothing.")
 
     total_non_empty = 0
     total_blocks = 0
@@ -559,13 +573,13 @@ def generate_all(use_cache=True):
 
     # Compress all sections in parallel — generate_section_blocks is pure and
     # independent per section. Pool.map preserves order, so the downstream dedup
-    # and .asm emission see results in SECTION_IDS order exactly as a serial run.
-    print(f"Compressing {NUM_SECTIONS} sections "
+    # and .asm emission see results in section_ids order exactly as a serial run.
+    print(f"Compressing {num_sections} sections "
           f"({multiprocessing.cpu_count()} workers"
           + ("" if use_cache else ", CACHE DISABLED") + ")...", flush=True)
     with multiprocessing.Pool() as pool:
         results = pool.starmap(generate_section_blocks,
-                               [(i, use_cache) for i in SECTION_IDS])
+                               [(i, use_cache) for i in section_ids])
 
     sections_cached = 0
     sections_rebuilt = 0
@@ -573,7 +587,7 @@ def generate_all(use_cache=True):
     memo_misses = 0
     memo_rejected = 0
 
-    for sec_idx, (output, dict_len, stats) in zip(SECTION_IDS, results):
+    for sec_idx, (output, dict_len, stats) in zip(section_ids, results):
         print(f"Section {sec_idx}...", end=" ", flush=True)
         dict_lens.append(dict_len)
         if stats.get("cached"):
@@ -626,7 +640,7 @@ def generate_all(use_cache=True):
         f.write("// 768-byte blocks at sec{N}_blocks.bin + BLOCK_INDEX_SIZE; 0 = none.\n")
         f.write("// Consumed at comptime by act_descriptor.emp; emits ZERO ROM bytes.\n")
         f.write("module games.sonic4.ojz_block_dicts_act1\n\n")
-        for sec_idx, dlen in zip(SECTION_IDS, dict_lens):
+        for sec_idx, dlen in zip(section_ids, dict_lens):
             f.write(f"pub const OJZ_SEC{sec_idx}_BLOCK_DICT_LEN = {dlen}\n")
 
     # Block blob embeds with dedup aliases — a natively-placed `.emp` section
@@ -643,10 +657,10 @@ def generate_all(use_cache=True):
         f.write("\n".join(blob_lines) + "\n")
 
     print(f"\nDone. {total_non_empty}/{total_blocks} total non-empty blocks "
-          f"across {NUM_SECTIONS} sections; blob dedup saved "
+          f"across {num_sections} sections; blob dedup saved "
           f"{dedup_saved} ROM bytes.")
     if use_cache:
-        print(f"Cache: {sections_cached}/{NUM_SECTIONS} sections served whole, "
+        print(f"Cache: {sections_cached}/{num_sections} sections served whole, "
               f"{sections_rebuilt} rebuilt; block compressions "
               f"{memo_hits} hit / {memo_misses} recomputed"
               + (f"; {memo_rejected} CACHE ENTRIES REJECTED by the decode check"

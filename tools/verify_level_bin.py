@@ -21,10 +21,12 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import act_grid  # noqa: E402  stdlib-only: the ONE reader of the act's section count
+
+ROOT =os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
 SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
-NUM_SECTIONS = 9            # 3x3 grid (project.json); sections 0..8
 ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
 TILE_SIZE = 32
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
@@ -48,6 +50,21 @@ def check(cond, msg):
 def read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+def _section_count():
+    """The act's section count, from tools/act_grid.py (project.json, required to
+    agree with the engine's act descriptor), or None with a recorded failure.
+
+    This file used to carry its own literal `NUM_SECTIONS = 9` (2026-09-12 gap lens
+    sweep F2): a count the gate checks itself against cannot notice the section set
+    shrinking under it.
+    """
+    try:
+        return act_grid.section_count(PROJECT_JSON)
+    except (OSError, ValueError, KeyError) as exc:
+        check(False, f"act grid: cannot derive the section count -- {exc}")
+        return None
 
 
 def zx0_decode(payload):
@@ -179,6 +196,65 @@ def verify_act_pool():
               f"act pool: page{k} pm_flags pinned bit {flags & 1} != sidecar pinned {p['pinned']}")
 
 
+def verify_local_map_table(n_sec):
+    """OJZ_Sec_LocalMaps must hold exactly one entry per grid section, in flat-id order.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep F2). With section_8.tiles.bin
+    missing, the strip baker emitted `OJZ_Sec_LocalMaps: [*u8; 8]` for a 3x3 act and
+    this gate passed it: it checked each per-section map FILE, and the stale
+    sec8_local_map.bin was still on disk. The engine indexes the table by flat id over
+    the act's grid, so entry 8 was the first long of whatever the linker placed next.
+    """
+    path = os.path.join(GEN, "sec_local_maps.emp")
+    if not os.path.isfile(path):
+        check(False, "local maps: sec_local_maps.emp missing")
+        return
+    txt = open(path).read()
+    m = re.search(r"OJZ_Sec_LocalMaps:\s*\[\*u8;\s*(\d+)\]\s*=\s*\[([^\]]*)\]", txt)
+    if not m:
+        check(False, "local maps: no `OJZ_Sec_LocalMaps: [*u8; N] = [...]` table in "
+                     "sec_local_maps.emp -- the emitter's shape moved; re-derive this check")
+        return
+    length = int(m.group(1))
+    ptrs = [int(i) for i in re.findall(r'extern\("OJZ_Sec(\d+)_LocalMap"\)', m.group(2))]
+    check(length == n_sec and ptrs == list(range(n_sec)),
+          f"local maps: OJZ_Sec_LocalMaps is [*u8; {length}] pointing at sections {ptrs}, "
+          f"but the act grid has {n_sec} sections. The engine indexes this table by flat "
+          f"id over the grid, so a short table hands it the NEXT table's first long as a "
+          f"section's local map")
+    defined = {int(i) for i in
+               re.findall(r"OJZ_Sec(\d+)_LocalMap\s*=\s*(?:embed|extern)\(", txt)}
+    undefined = [i for i in range(n_sec) if i not in defined]
+    check(not undefined,
+          f"local maps: sec_local_maps.emp defines no OJZ_Sec{{N}}_LocalMap for sections "
+          f"{undefined}")
+
+
+def verify_section_set():
+    """No per-section artifact for a section OUTSIDE the act grid.
+
+    Why a failure and not a deletion (2026-09-12 gap lens sweep F2). After that fix no
+    baker reads a section outside the grid, so a leftover secN_* is inert -- but the
+    only way to get one is a grid that SHRANK, and a shrink is exactly when a person
+    should look: a mistyped grid would otherwise have the bakers quietly delete the
+    sections it dropped. So the bakers never delete committed files by glob, and this
+    names what is left over. verify_no_orphans cannot see these: it matches a file's
+    name with its leading index stripped, and "_strips_a.bin" is referenced for every
+    section.
+    """
+    n_sec = _section_count()
+    if n_sec is None or not os.path.isdir(GEN):
+        return
+    extra = sorted(fn for fn in os.listdir(GEN)
+                   if (m := re.match(r"sec(\d+)_", fn)) and int(m.group(1)) >= n_sec)
+    check(not extra,
+          f"section set: {len(extra)} per-section artifact(s) for sections outside the "
+          f"{n_sec}-section act grid: {', '.join(extra)}. Nothing reads them; they are a "
+          f"larger grid's leftovers, or project.json's grid shrank by mistake. If the "
+          f"shrink was intended, delete them (the bakers deliberately never delete "
+          f"committed files).")
+
+
 def verify_local_maps():
     """Per-section local->global map consistency (P2b): each committed
     secN_local_map.bin must be well-formed (u16 BE entries, count <= 2048), and
@@ -203,7 +279,11 @@ def verify_local_maps():
     if os.path.isfile(pool):
         pool_tiles = sum(int(t) for t in
                          re.findall(r"pm_tiles:\s*(\d+)", open(pool).read()))
-    for n in range(NUM_SECTIONS):
+    n_sec = _section_count()
+    if n_sec is None:
+        return
+    verify_local_map_table(n_sec)
+    for n in range(n_sec):
         mpath = os.path.join(GEN, f"sec{n}_local_map.bin")
         bpath = os.path.join(GEN, f"sec{n}_blocks.bin")
         if not os.path.isfile(mpath):
@@ -264,7 +344,10 @@ def verify_block_blobs():
     dtxt = open(dicts).read()
     dlen = {int(n): int(v) for n, v in
             re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", dtxt)}
-    for n in range(NUM_SECTIONS):
+    n_sec = _section_count()
+    if n_sec is None:
+        return
+    for n in range(n_sec):
         s = str(n)
         check(s in binc or s in alias,
               f"block blobs: OJZ_Sec{n}_Blocks neither BINCLUDE'd nor aliased")
@@ -512,10 +595,9 @@ def verify_editor_bake_fidelity():
     act = zone["acts"][0]
     tileset_path = os.path.join(ROOT, zone["tileset"])
     data_path = os.path.join(ROOT, act["dataPath"])
-    declared = act["gridWidth"] * act["gridHeight"]
-    check(declared == NUM_SECTIONS,
-          f"editor bake: project.json declares {declared} sections but this file "
-          f"is written against {NUM_SECTIONS} -- update NUM_SECTIONS")
+    declared = _section_count()
+    if declared is None:
+        return
 
     if not os.path.isfile(tileset_path):
         check(False, f"editor bake: editor tileset {tileset_path} missing")
@@ -541,13 +623,18 @@ def verify_editor_bake_fidelity():
 
     sections_checked = 0
     words_checked = 0
-    for n in range(min(declared, NUM_SECTIONS)):
+    for n in range(declared):
         ed_path = os.path.join(data_path, f"section_{n}.tiles.bin")
         src_path = os.path.join(GEN, f"sec{n}_strips_source.bin")
         rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
         map_path = os.path.join(GEN, f"sec{n}_local_map.bin")
         if not os.path.isfile(ed_path):
-            continue         # generate() skips sections with no editor tiles
+            # This used to be a silent `continue` ("generate() skips sections with no
+            # editor tiles"), so a missing section was checked by nothing (gap lens
+            # sweep F2). ojz_strip_gen now refuses to bake without one.
+            check(False, f"editor bake: section_{n}.tiles.bin is missing -- every one of "
+                         f"the act grid's {declared} sections needs editor tiles")
+            continue
         missing = [p for p in (src_path, rem_path, map_path) if not os.path.isfile(p)]
         if missing:
             check(False, f"editor bake: sec{n} has editor tiles but is missing "
@@ -718,7 +805,9 @@ def verify_editor_collision_fidelity():
     with open(PROJECT_JSON) as f:
         act = json.load(f)["zones"][0]["acts"][0]
     data_path = os.path.join(ROOT, act["dataPath"])
-    declared = act["gridWidth"] * act["gridHeight"]
+    declared = _section_count()
+    if declared is None:
+        return
 
     names = ("heightmaps.bin", "angles.bin", "solidity.bin", "crossover.bin")
     need = [os.path.join(COLLISION_DIR, "base", "heightmaps.bin"),
@@ -838,10 +927,11 @@ def main():
     verify_collision_is_interned()
     verify_editor_bake_fidelity()
     verify_editor_collision_fidelity()
+    verify_section_set()
     verify_no_orphans()
-    checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
+    checks_run = ("act-pool+content+sidecar / local-maps+table / block-blobs / "
                   "bininclude-targets / collision-interned / editor-bake / "
-                  "editor-collision / orphans")
+                  "editor-collision / section-set / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:
