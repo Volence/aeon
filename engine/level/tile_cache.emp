@@ -450,6 +450,21 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         // 24 + 14*sec_y from sec_y = 4 up. A small sec_y still runs cheaper as a
         // loop; worst-case cost is what the construct budgets, and this is a
         // cold path, so the ceiling is the number that matters.
+        //
+        // WHY THIS DOES NOT CALL Section_GetSecPtrXY (measured 2026-09-12, not taken;
+        // docs/DEFERRED_WORK.md, C4a side finding (d)). That routine returns this same
+        // flat id in d0 and the Sec pointer in a0, and the block below is an inline copy
+        // of its whole body: the range check, this product, the x sizeof(Sec) stride, and
+        // its null test (`tst.l (a0)` reads Sec.sec_block_index at $00, the field tested
+        // here). So calling it would not reuse a computed value, it would outline one. It
+        // saves 24 bytes (28 in DEBUG) and costs +82 + 2*(popcount(grid_w) -
+        // popcount(sec_y)) cycles per in-grid stage in release (+84..+86 on OJZ's 3x3
+        // grid; +74 + the same term in DEBUG). It adds 90: bsr/rts 34, the callee's two
+        // byte zero-extends 16, three register moves 12, the callee's `tst.l (a0)` 12, a
+        // second `beq` 8, `movea.l a0, a1` 4, the callee's `move.w d0, d1` 4. It saves 8:
+        // this `move.w d3, d5` and the `move.l a2, d3` below. Out-of-grid stages cost +56.
+        // This proc runs up to BLOCK_DECOMP_BUDGET times a frame on the streaming path, so
+        // the cost lands on exactly the frames that already spend the whole budget.
         move.w  Act.grid_w(a0), d3             // d3 = grid_w
         mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id

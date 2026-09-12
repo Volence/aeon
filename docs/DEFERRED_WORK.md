@@ -30471,8 +30471,42 @@ All four ROMs cmp-identical to the `d5ee8633` baseline. **Booked, sigil's, not f
 row at any walker in either run, though each reads `a0` by `addq` straight after the call; the D1c rows the red run added named
 `d3` instead. So a caller's read-modify-write read of a clobbered register looks unwatched by D1c. That is a measurement, not a
 reading of sigil's code.
-(d) **A third copy of the flat-id product** sits in `engine/level/tile_cache.emp` (`mul_bounded.w d3, d1, #MAX_ACT_SECTIONS`);
-C4a-4 made `Section_GetSecPtrXY` return the flat id, so this one could reuse it too. Outside that parcel's scope.
+(d) ~~**A third copy of the flat-id product** sits in `engine/level/tile_cache.emp` (`mul_bounded.w d3, d1, #MAX_ACT_SECTIONS`);
+C4a-4 made `Section_GetSecPtrXY` return the flat id, so this one could reuse it too. Outside that parcel's scope.~~
+**CLOSED 2026-09-12, parcel/tile-cache-flat-id-reuse.** Measured, not taken; zero ROM bytes (the site gained a comment
+saying why). **The premise was half wrong:** in C4a-4 `EntityWindow_BuildEntries` already called `Section_GetSecPtrXY`
+and recomputed its result on the next line, so there was a value to reuse. `TileCache_DecompressBlock` makes no such call.
+It inlines the callee's whole body: the range check, this product, the `x sizeof(Sec)` stride, and the null test (the
+callee's `tst.l (a0)` reads `Sec.sec_block_index` at `$00`, the same field this proc tests). Calling it would outline that
+code, not reuse a value. Priced on the emitted bytes of all four shapes (capstone over the ROMs; the four are the same
+sequence, release `bcc.b`/`beq.b` and DEBUG `bcc.w`/`beq.w`). Derived from the 68000 timing tables, with the lowest-cost
+variant written out (block index parked in `d5`, which the callee preserves, then `move.w d0,d2` / `move.w d1,d3` and
+`jbsr`), measured from the shared `movea.l Current_Act_Ptr` onward:
+
+| path | now | outlined | delta |
+|---|---|---|---|
+| in grid, live Sec (every real stage) | 168 + 2·pop(sec_y) | 250 + 2·pop(grid_w) | **+82 + 2·(pop(grid_w) − pop(sec_y))**: +84..+86 on OJZ's 3x3, +72..+92 at any legal grid |
+| sec_x ≥ grid_w | 34 | 90 | +56 |
+| sec_y ≥ grid_h | 54 | 110 | +56 |
+| in grid, null `sec_block_index` | 254 + 2·pop(sec_y) | 250 + 2·pop(grid_w) | −4 + 2·(…), but unreachable on shipped content: all nine OJZ rows pass a real `blocks:` label |
+
+The table is release. In DEBUG the two range branches and the null `beq` are `.w` (12 not taken, not 8), so the in-grid
+delta is +74 + 2·(…), +76..+78 on OJZ; the out-of-grid deltas are the same. Bytes: −24 release, −28 DEBUG. Where the +82
+comes from: the call adds 90 cycles (`bsr.w`/`rts` 34, the callee's two byte zero-extends 16, three register moves 12, the
+callee's `tst.l (a0)` 12, a second `beq` 8, `movea.l a0,a1` 4, the callee's `move.w d0,d1` 4) and saves 8 (`move.w d3,d5`
+and `move.l a2,d3`). Everything else pairs one-for-one at equal cost. **Frequency, by call site:** seven `jbsr` sites. Five are in play
+and every one tests or spends `Cache_Fill_Budget` first (`.pfx_stage`, `.cs_stage`, corner, `TileCache_FillColumn`,
+`TileCache_FillRow`). `Tile_Cache_Fill` resets that budget to `BLOCK_DECOMP_BUDGET` = 6 once per frame, so the worst streaming
+frame would pay up to +516 cycles (6 × 86), on exactly the frames that already spend the whole budget. The other two
+(`TileCache_FillAll`, `TileCache_WarmupBelowRow`) run only from `Tile_Cache_Init`, at act init and on warp, with the display
+off. **Semantics would have been unchanged** (this is recorded for whoever revisits it): `sec_x`/`sec_y` reach this proc from
+`lsr.w #8` of a 16-bit tile coordinate (`decompose_block`), or from `lsr.w #4` of a block coordinate that is itself tile >> 4
+(`TileCache_FillAll`), so their high bytes are zero. The callee's byte compares against `Act_grid_w_lo`/`_h_lo` therefore
+equal this proc's word compares. Past the range check `sec_y ≤ grid_h − 1` and `grid_w·grid_h ≤ MAX_ACT_SECTIONS = 48`, so the
+product is at most 48 − grid_w and the flat id at most 47. `mul_bounded` elects `mulu.w` in both routines, in every shape
+(ceiling 70 against the repeated-add loop's 24 + 14·M at M up to 48). Its real cost is 38 + 2n, n being the set bits of the
+SOURCE: here that is `sec_y` (38..40 on OJZ), in the callee it is `grid_w` (42 on OJZ). That is where the popcount term in
+the table comes from.
 
 ~~**The channel-bands sidecar's `edges.*.engine` fields still publish raster.emp LINE NUMBERS (booked 2026-09-12, reported by
 aurora via the hub; verified here at origin/master):** `games/sonic4/data/generated/effects_channel_bands.json` carries
