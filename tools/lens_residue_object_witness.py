@@ -72,12 +72,22 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 AEON = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
-from suite_paths import add_client_path  # noqa: E402
+from suite_paths import add_client_path, require_suite_path  # noqa: E402
 add_client_path()
 from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance, read_bytes, write_bytes  # noqa: E402
 
-DEFAULT_ROM = "/home/volence/sonic_hacks/.aeon-ls8-land/s4.debug.bin"
+# The booked ROM lives in the landing checkout beside aeon under the suite root. Resolved
+# through tools/suite_paths.py when it is about to be opened, never spelled as an absolute
+# path. A missing ROM fails there by name. The CRC check below still decides whether it is
+# the ROM these witnesses are booked against.
+DEFAULT_ROM_PARTS = (".aeon-ls8-land", "s4.debug.bin")
+
+
+def default_rom() -> str:
+    return str(require_suite_path(*DEFAULT_ROM_PARTS, what="the booked s4.debug.bin (pass --rom)"))
+
+
 EXPECT_CRC = 0x9CE1C2FF          # master 9fe9ee91, s4.debug.bin
 EXPECT_LEN = 847533
 
@@ -1133,12 +1143,19 @@ async def drive(sock: str, f: Facts, which: list) -> list:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("witness", choices=WITNESSES + ("all",))
-    ap.add_argument("--rom", default=DEFAULT_ROM)
+    ap.add_argument("--rom", default=None,
+                    help="default: <suite root>/" + "/".join(DEFAULT_ROM_PARTS))
     ap.add_argument("--lst", default=None, help="default: the .lst beside the ROM")
     a = ap.parse_args()
-    lst = a.lst or str(Path(a.rom).with_suffix(".lst"))
     which = list(WITNESSES) if a.witness == "all" else [a.witness]
     print(f"lens_residue_object_witness  {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
+    try:
+        if a.rom is None:
+            a.rom = default_rom()
+    except Exception as e:                  # suite_paths refuses by name; not a verdict
+        print(f"COULD NOT RUN (setup): {e}")
+        return 2
+    lst = a.lst or str(Path(a.rom).with_suffix(".lst"))
     try:
         f = Facts(a.rom, lst)
     except CouldNotRun as e:
