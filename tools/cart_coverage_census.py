@@ -18,8 +18,11 @@ across them:
   ENUMERATION (who is in the population at all) — by what a file IMPORTS, parsed with
   `ast`, not grepped. Grep is what matched `int.from_bytes(...)` for `rom_bytes` and
   what missed the tools that reach the bus through a bare `from aether import
-  BusClient`. Controls: a bogus module name must hit 0; "every parsed file" must hit
-  all of them.
+  BusClient`. Controls: a bogus module name must hit 0, and three CANARIES -- one per
+  matcher arm that uniquely reaches any file -- must all still be in the population.
+  The run also prints how many files each arm reaches ALONE, because an arm reaching 0
+  files alone is an arm no control can cover, and a green canary set must not be read
+  as proof that such an arm works.
 
   CLASSIFICATION (who INHERITS the spawner's check) — by CALL SITES, not by imports.
   This is a correction to the row's own framing and it moves the number: five files
@@ -48,20 +51,30 @@ TOOLS_DIR = Path(__file__).resolve().parent
 # numbers move; that is the point of making them flags rather than silent constants.
 HELPER_MODULES = {"aether_instance.py", "cart_identity.py", "aether_bytes.py"}
 
-# POSITIVE CONTROL for the enumeration loop, and it has to be non-vacuous. "every parsed
-# file imports something" is not: it is nearly true by accident, it comes back 287 of 289
-# here (two tools/*.py import nothing at all), and a threshold on it invites a fudge.
-# These four are hand-verified members of the population reached by FOUR DIFFERENT
-# routes, so losing any one of them means a specific arm of `reaches_bus` stopped
-# working rather than "the number moved":
-#   fg_left_edge_gate.py   `from aether_instance import AetherInstance`  (the row's model)
-#   band_witness.py        `from aether_instance import aether_emulator`
-#   evict_witness.py       bare `from aether import BusClient`, no spawner import at all
-#   warp_mailbox_gate.py   imports `assert_rust_server` only, and spawns by hand
-# The last is the one that matters most: it is IN the population and NOT covered by the
-# spawner, which is the distinction the classification loop exists to draw.
-CANARIES = {"fg_left_edge_gate.py", "band_witness.py", "evict_witness.py",
-            "warp_mailbox_gate.py"}
+# POSITIVE CONTROL for the enumeration loop, and getting it right took two goes. The
+# first version was four "obviously different" members — fg_left_edge_gate (imports
+# AetherInstance), band_witness (imports aether_emulator), evict_witness (bare BusClient),
+# warp_mailbox_gate (imports assert_rust_server and spawns by hand). It looked like four
+# routes. IT WAS NOT: breaking the `mod == "aether_instance"` arm outright left all four
+# canaries in the population and the census exited 0. Every one of those four is reached
+# by MORE THAN ONE arm, so no single-arm break can drop any of them.
+#
+# MEASURED ARM CONTRIBUTION (printed live on every run, so it cannot go stale silently):
+#   mod-only  (`from aether_instance import <anything>` and nothing else)   1 file
+#   name-only (`aether_emulator` / `AetherInstance` by name and nothing else)  0 files
+#   bus-only  (bare `from aether import BusClient`)                        17 files
+#
+# So the NAME arm is currently REDUNDANT — it is kept for files that may arrive later,
+# and a canary cannot cover it because no file needs it. Saying that out loud is the
+# point: otherwise a green canary set reads as proof all three arms work.
+#
+# The canaries are therefore the two files that ARE uniquely reachable, one per
+# load-bearing arm, plus one ordinary member as a shape check.
+CANARIES = {
+    "depth_onset_probe.py":  "the ONLY file reached solely by the `aether_instance` arm",
+    "evict_witness.py":      "reached solely by the bare `from aether import BusClient` arm",
+    "fg_left_edge_gate.py":  "an ordinary member (the row's own model tool)",
+}
 
 
 def imports_of(path: Path):
@@ -81,20 +94,32 @@ def imports_of(path: Path):
     return out
 
 
-def reaches_bus(imps) -> bool:
-    """The enumeration parameter: what a file IMPORTS.
+def arm_mod(imps) -> bool:
+    """Arm 1: imports anything out of the spawner module, by any spelling."""
+    return any(m == "aether_instance" or m.endswith(".aether_instance") for m, _ in imps)
 
-    Either arm of the row's definition — the spawner module by any spelling, or a
-    direct `from aether import BusClient`.
+
+def arm_name(imps) -> bool:
+    """Arm 2: names the spawner itself. Measured REDUNDANT today — 0 files need it."""
+    return any(n in ("aether_emulator", "AetherInstance") for _, n in imps)
+
+
+def arm_bus(imps) -> bool:
+    """Arm 3: a bare `from aether import BusClient`, naming no helper at all."""
+    return any(m == "aether" and n == "BusClient" for m, n in imps)
+
+
+ARMS = (("mod", arm_mod), ("name", arm_name), ("bus", arm_bus))
+
+
+def reaches_bus(imps) -> bool:
+    """The enumeration parameter: what a file IMPORTS. Any arm.
+
+    Split into named arms rather than written as one `or` chain so the run can report
+    which of them are actually load-bearing. That report is what caught the
+    canary set being unable to fail: see CANARIES.
     """
-    for mod, name in imps:
-        if mod == "aether_instance" or mod.endswith(".aether_instance"):
-            return True
-        if name in ("aether_emulator", "AetherInstance"):
-            return True
-        if mod == "aether" and name == "BusClient":
-            return True
-    return False
+    return any(fn(imps) for _, fn in ARMS)
 
 
 def calls_spawner(src: str) -> bool:
@@ -173,13 +198,31 @@ def main() -> int:
           + (f"   UNPARSED: {c['unparsed']}" if c["unparsed"] else ""))
     print(f"  CONTROL-  bogus module import    : {len(neg)}   (must be 0)")
     print(f"  CONTROL+  canaries in population : {len(CANARIES) - len(missing_canaries)}"
-          f" of {len(CANARIES)}   (must be all; see CANARIES)")
+          f" of {len(CANARIES)}   (must be all)")
+    for name, why in sorted(CANARIES.items()):
+        print(f"      {'MISSING  ' if name in missing_canaries else 'present  '}"
+              f"{name:26s} {why}")
     print(f"  (informational) import anything  : {len(posn)} of {len(parsed)}"
           f"   zero-import files: {noimp}")
     if neg:
         bad.append("enumeration negative control matched something")
     if missing_canaries:
         bad.append(f"enumeration positive control LOST known members: {missing_canaries}")
+
+    # WHICH ARMS ARE LOAD-BEARING. A file reached by two arms cannot fall out when one
+    # breaks, so an arm with 0 unique files is an arm no control can cover — and a
+    # canary set that does not say so reads as proof of coverage it does not have.
+    print("  arm contribution (files reached by THIS ARM ALONE):")
+    for label, fn in ARMS:
+        others = [f for lbl, f in ARMS if lbl != label]
+        uniq = sorted(p.name for p, i in parsed.items()
+                      if fn(i) and not any(o(i) for o in others))
+        note = "  <- REDUNDANT: no control can cover this arm" if not uniq else ""
+        print(f"      {label:5s}: {len(uniq):3d}{note}"
+              + ("   " + ", ".join(uniq) if 0 < len(uniq) <= 3 else ""))
+        if uniq and not any(n in CANARIES for n in uniq):
+            bad.append(f"arm {label!r} uniquely reaches {len(uniq)} file(s) and NO canary "
+                       f"covers it — a break in it would pass silently")
     print(f"  reach a bus (spawner OR direct)  : {len(c['bus'])}")
     print(f"    minus test_*                   : -{len(c['dropped_tests'])}")
     print(f"    minus helper modules           : -{len(c['dropped_help'])} "
@@ -216,13 +259,46 @@ def main() -> int:
     print()
 
     print("=== WHO ASKS THE CART QUESTION IN THEIR OWN SOURCE ===")
-    for label, tok in (("import cart_identity", "cart_identity"),
-                       ("mention romBytes", "romBytes"),
-                       ("hash via memory_hash", "memory_hash"),
-                       ("call reload_rom", "reload_rom")):
-        names = sorted(p.name for p in pop if tok in src[p])
+
+    def compares_rombytes(s: str) -> bool:
+        """`romBytes` MENTIONED is not `romBytes` CHECKED.
+
+        The row's own second wrong count came from a matcher that counted mentions. A
+        mention is a read; what defends a run is a COMPARISON that raises. So require
+        `romBytes` and a comparison operator on the SAME line — crude, but it is a
+        different question from "contains the word", and the two numbers are printed
+        side by side so the gap between them is visible rather than assumed.
+        """
+        return any("romBytes" in ln and ("!=" in ln or "==" in ln) for ln in s.splitlines())
+
+    checks = [("import cart_identity", lambda s: "cart_identity" in s),
+              ("mention romBytes", lambda s: "romBytes" in s),
+              ("COMPARE romBytes", compares_rombytes),
+              ("hash via memory_hash", lambda s: "memory_hash" in s),
+              ("call reload_rom", lambda s: "reload_rom" in s)]
+    verified = set()
+    for label, fn in checks:
+        names = sorted(p.name for p in pop if fn(src[p]))
+        if label in ("import cart_identity", "COMPARE romBytes", "hash via memory_hash"):
+            verified.update(names)
         print(f"  {label:24s}: {len(names):3d} of {len(pop)}"
               + ("   " + ", ".join(names) if len(names) <= 8 else ""))
+    # The headline: a tool is DEFENDED if it inherits the spawner check or asks in its
+    # own source. Both halves are counted, because a hand-rolled check is still a check.
+    #
+    # WHETHER THE SPAWNER CHECKS IS READ OUT OF THE TREE BEING MEASURED, not assumed.
+    # That is what lets `--dir` be pointed at a checkout of an older commit and produce a
+    # BEFORE number from the same instrument as the AFTER number — which is the only way
+    # the two are comparable at all.
+    spawner_src = (Path(a.dir).resolve() / "aether_instance.py")
+    spawner_checks = (spawner_src.is_file()
+                      and "assert_cart_matches_disk" in spawner_src.read_text(errors="replace"))
+    print(f"  spawner verifies the cart: {spawner_checks}"
+          f"   ({spawner_src})")
+    inherit_names = {p.name for p in c["inherits"]} if spawner_checks else set()
+    defended = inherit_names | verified
+    print(f"  {'DEFENDED (either way)':24s}: {len(defended):3d} of {len(pop)}")
+    print(f"  {'UNDEFENDED':24s}: {len(pop) - len(defended):3d} of {len(pop)}")
 
     if bad:
         print()
