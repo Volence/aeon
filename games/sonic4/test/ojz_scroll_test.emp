@@ -2321,8 +2321,22 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         dc.b    LAB_KIND_RASTER,   5,  LTR_R, LTR_A, LTR_M, LTR_P   // 26  ramp_probe
         dc.b    LAB_KIND_RASTER,   6,  LTR_N, LTR_O, LTR_N, LTR_E   // 27  bands OFF (LAB_RASTER_OFF)
         dc.b    LAB_KIND_PRESET,   0,  LTR_W, LTR_A, LTR_T, LTR_R   // 28  sec 0 patched water
-        dc.b    LAB_KIND_PRESET,   1,  LTR_S, LTR_P, LTR_L, LTR_T   // 29  sec 1 sparse raster split
-        dc.b    LAB_KIND_PRESET,   2,  LTR_D, LTR_E, LTR_N, LTR_S   // 30  sec 2 dense gradient ramp
+        // ⚠ ROWS 29 AND 30: THEIR GLYPHS ARE STALE AS OF 2026-09-12 AND ARE DELIBERATELY
+        // LEFT STALE, for exactly the reason row 35's are — see the block below, which
+        // states the whole argument once. SPLT and DENS name effects sections 1 and 2 no
+        // longer carry: the owner took `OJZ_TestRaster` and `OJZ_TestGradient` off the
+        // playable map ("keep them in the engine to inject anywhere wwe may want"), so both
+        // presets now bind `Raster_Program_None` and both sections paint the readout's NONE
+        // verdict. The programs are alive, unmoved and injectable; only the BINDINGS went.
+        // These four bytes are EMITTED, the parcel that made the change is byte-count
+        // neutral and moves no symbol, and picking two new four-letter words is a readout
+        // vocabulary decision rather than a mechanical rename. BOOKED, NOT DONE —
+        // docs/DEFERRED_WORK.md, the 2026-09-12 section 1/2 effects-unbind entry. Nothing
+        // lints these words (tools/test_lab_index_lint.py grades the KIND byte, the
+        // sub index and the RASTER rows' names against `.rtag_names`; it has no arm for a
+        // PRESET row's glyph), so this comment is the only thing that can contradict them.
+        dc.b    LAB_KIND_PRESET,   1,  LTR_S, LTR_P, LTR_L, LTR_T   // 29  sec 1: glyph reads SPLT; the section binds NO raster since 2026-09-12
+        dc.b    LAB_KIND_PRESET,   2,  LTR_D, LTR_E, LTR_N, LTR_S   // 30  sec 2: glyph reads DENS; the section binds NO raster since 2026-09-12
         dc.b    LAB_KIND_PRESET,   3,  LTR_C, LTR_Y, LTR_C, LTR_L   // 31  sec 3 palette-cycling band
         dc.b    LAB_KIND_PRESET,   4,  LTR_D, LTR_P, LTR_T, LTR_H   // 32  sec 4 depth showcase
         dc.b    LAB_KIND_PRESET,   5,  LTR_S, LTR_R, LTR_E, LTR_F   // 33  sec 5 the sidecar rasterRef

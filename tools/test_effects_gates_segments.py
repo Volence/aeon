@@ -350,17 +350,78 @@ def test_every_committed_scene_carries_the_placeholder_not_a_listing():
             assert "symbol" in region and "addr" not in region, region
 
 
+def _symbol_valued_pokes(sc) -> dict[int, str]:
+    """{step index: label name} for every poke whose VALUE is `{"symbol": NAME}`.
+
+    A poke like that is an INJECTION — the scene stages the ADDRESS of a ROM label into a
+    RAM cell. ab_runner passes a poke's `value` straight to `emulator/write_memory`, so the
+    address has to be substituted at resolve time from the listing under test; spelling it
+    as a literal would be the stale-capture defect the `symbols` placeholder exists to stop.
+    """
+    return {i: step["poke"]["value"]["symbol"]
+            for i, step in enumerate(sc.get("steps", []))
+            if isinstance(step.get("poke"), dict)
+            and isinstance(step["poke"].get("value"), dict)}
+
+
 def test_resolve_scene_substitutes_the_listing_under_test(tmp_path):
+    """Resolution changes the `symbols` key and symbol-valued poke VALUES, and nothing else.
+
+    The "and nothing else" half is the guard; the symbol-valued half was added 2026-09-12
+    when `effects_raster_dense` stopped reaching `OJZ_TestGradient` through section 2's
+    preset (owner ruling — see `resolve_scene`'s docstring) and started INJECTING it through
+    `Raster_Pending` instead. The guard is not weakened: the substitution is enumerated and
+    each resolved value is checked to be the listing's own address, then normalised back
+    before the whole-document comparison.
+    """
     lst = tmp_path / "some.debug.lst"
-    lst.write_text("(0) 1/FFFF0000 :        Whatever:\n")
+    lst.write_text("(0) 1/FFFF0000 :        Whatever:\n"
+                   "(0) 2/0015270 :        OJZ_TestGradient:\n")
     out = tmp_path / "run"
+    injections = 0
     for name in _all_scene_names():
         resolved = eg.resolve_scene(name, str(lst), out / name)
         sc = json.loads(resolved.read_text())
         assert sc["symbols"] == str(lst.resolve())
         committed = json.loads(eg.scene_path(name).read_text())
         committed["symbols"] = sc["symbols"]
-        assert sc == committed, "resolution changed something other than `symbols`"
+        for i, want in _symbol_valued_pokes(committed).items():
+            got = sc["steps"][i]["poke"]["value"]
+            assert got == eg.lst_symbols(str(lst))[want], (
+                f"{name} step {i}: `{want}` resolved to {got!r}, not the listing's address")
+            sc["steps"][i]["poke"]["value"] = {"symbol": want}   # normalise, then compare
+            injections += 1
+        assert sc == committed, ("resolution changed something other than `symbols` and the "
+                                 "enumerated symbol-valued pokes")
+    assert injections, ("no committed scene carries a symbol-valued poke, so the resolution "
+                       "arm above asserted nothing. If the last injecting scene was retired "
+                       "on purpose, retire this assertion with it; otherwise a scene lost "
+                       "the poke that puts its subject live and would now measure whatever "
+                       "the section it happens to sit on already had.")
+
+
+def test_resolve_scene_refuses_a_symbol_valued_poke_it_cannot_resolve(tmp_path, monkeypatch):
+    """RED-FIRST. A name absent from the listing must be a hard error, never a poke of 0:
+    `Raster_VBlank` reads a pending 0 as 'keep whatever is live', so the gate would go on
+    measuring the live program and report it as the injected fixture — a silent green."""
+    sc = json.loads(eg.scene_path(eg.DENSE_SCENE).read_text())
+    # The stub listing must carry every name the REAL scene already injects, or the refusal
+    # below fires on one of THOSE and this test passes without ever reaching the bogus row
+    # it is named for. Read off the committed scene BEFORE the bogus row is appended and
+    # before scene_path is monkeypatched — doing it after put `NoSuchLabel` in the listing
+    # and the first draft of this test measured nothing (caught red, 2026-09-12).
+    real = sorted(set(_symbol_valued_pokes(sc).values()))
+    sc["steps"].append({"poke": {"symbol": "Raster_Pending",
+                                 "value": {"symbol": "NoSuchLabel"}, "width": 4}})
+    src = tmp_path / "effects_raster_bogus.json"
+    src.write_text(json.dumps(sc))
+    monkeypatch.setattr(eg, "scene_path", lambda name: src)
+    lst = tmp_path / "x.lst"
+    lst.write_text("(0) 1/FFFF0000 :        Whatever:\n" + "".join(
+        f"(0) {i + 2}/0015270 :        {n}:\n" for i, n in enumerate(real)))
+    assert "NoSuchLabel" not in lst.read_text()
+    with pytest.raises(ValueError, match="NoSuchLabel"):
+        eg.resolve_scene("bogus", str(lst), tmp_path / "o")
 
 
 def test_resolve_scene_refuses_a_hardcoded_listing_and_a_missing_one(tmp_path, monkeypatch):

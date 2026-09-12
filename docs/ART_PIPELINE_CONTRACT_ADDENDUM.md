@@ -922,8 +922,8 @@ per-section palette in this act.
 | Sec | Preset | Raster / patched | Cycle | Variants | Parallax scene |
 |---|---|---|---|---|---|
 | 0 | `OJZ_Preset_Sec0` | patched `OJZ_TwoChannel`; anchors at world Y 224 and 314; channel 0 swept (`amp_shift: 4, period_shift: 1`) | none | `Variant_Water_Deep` | `ParallaxConfig_OJZ_Underwater` + editor `ojz_act1_start` |
-| 1 | `OJZ_Preset_Sec1` | raster `OJZ_TestRaster` (S/H + backdrop split below line 120) | none | `Variant_Water_Deep` | act default |
-| 2 | `OJZ_Preset_Sec2` | raster `OJZ_TestGradient` | none | `Variant_Water_Deep` | act default |
+| 1 | `OJZ_Preset_Sec1` | none (was raster `OJZ_TestRaster` until 2026-09-12 — see below) | none | `Variant_Water_Deep` | act default |
+| 2 | `OJZ_Preset_Sec2` | none (was raster `OJZ_TestGradient` until 2026-09-12 — see below) | none | `Variant_Water_Deep` | act default |
 | 3 | `OJZ_Preset_Sec3` | none | `OJZ_ShimmerCycle` (editor-overridable) | editor-overridable, `Variant_Water_Deep` fallback | act default |
 | 4 | `OJZ_Preset_Depth` | raster `OJZ_DepthVSplit` | none | `Variant_Water_Deep` | editor `ojz_act1_depth` |
 | 5 | `OJZ_Preset_Sec5` | editor `rasterRef: ojz_sec5_showcase` | none | `Variant_Water_Deep` | `ParallaxConfig_OJZ_Underwater` (a deliberate loan, owner d-53) |
@@ -932,6 +932,17 @@ per-section palette in this act.
 | 8 | `OJZ_Preset_Plain` | none | none | `Variant_Water_Deep` | editor `ojz_act1_floor` |
 
 Section 0 is the one on screen at spawn.
+
+**Sections 1 and 2 gave up their test effects on 2026-09-12** (owner: *"Take them out of the
+map but keep them in the engine to inject anywhere wwe may want."*). `OJZ_TestRaster` and
+`OJZ_TestGradient` are unbound, not deleted — same names, same addresses, same emitted bytes,
+and re-binding either is one word in the `preset()` call. What this table now shows is that
+**four** of the act's nine sections carry an effect on the raster/patched channel (0, 4, 5, 6)
+plus section 7's patched program, and that **no section binds a dense-tier program at all**:
+the dense tier is exercised only by injection, from `tools/scenes/effects_raster_dense.json`.
+The 832 bytes the two programs occupy did NOT go away — they are `pub data` in a module the
+act reaches for its other presets, and sigil eliminates whole unused MODULES only. See
+`docs/research/2026-09-12-unused-engine-code-and-the-section-1-2-cleanup.md`.
 
 Both palette variants in use, from `games/sonic4/data/effects/ojz_effects.emp`:
 
@@ -991,7 +1002,12 @@ they belong to the repository owner. They are listed so they can be asked, not a
    binds the same `OJZ_Palette`, and §A3 shows the tileset is act-wide too. Whether that
    is the intended end state for the showcase, or a limit to lift, is the owner's.
 
-5. **Which effects the first scene should use.** The act today is substantially a *test
+5. **Which effects the first scene should use.** *(PARTLY ANSWERED 2026-09-12: the owner
+   ruled the two named test effects out of the playable map — "take them out of the map but
+   keep them in the engine to inject anywhere wwe may want". Sections 1 and 2 are now bare
+   raster channels. WHAT SHOULD GO THERE INSTEAD IS STILL OPEN, and section 5's loan is
+   explicitly NOT covered by that ruling — he said nothing about it.)* The act today is
+   substantially a *test
    bed*: two of the nine sections carry presets named `OJZ_TestRaster` and
    `OJZ_TestGradient`, and section 5's parallax is annotated in source as a deliberate
    temporary loan (*"This LOANS section 5 a look it does not otherwise have; deleting this

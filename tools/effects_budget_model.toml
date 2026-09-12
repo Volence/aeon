@@ -936,6 +936,21 @@ hint_total_states = "idle AND max-diagonal, both OJZ act1 section 0 — identica
 # (Debug_Scene_Freeze=1, Camera_Y=144, Camera_X=4960 — tools/scenes/effects_raster_dense.json's
 # state), OJZ_TestGradient live, 96 lines. THIS is axis 4b's real worst case on shipped
 # content and it is 17x the sparse figure.
+#
+# ⚠ ITS REFERENT MOVED ON 2026-09-12 AND THE NUMBER DID NOT. `OJZ_TestGradient` no longer
+# binds to section 2 — the owner took both test effects off the playable map (see
+# games/sonic4/data/effects/ojz_effects.emp, the banner above `OJZ_Preset_Sec1`) — and the
+# camera state quoted above no longer reaches a dense program at all, because the scene now
+# INJECTS through `Raster_Pending` instead of navigating. So read this row as "what a
+# 96-line dense gradient costs", which is what it always measured, and NOT as "what OJZ act
+# 1 costs today": no section of the shipped act binds a dense-tier program any more, so the
+# act's real worst case is now the sparse row above. The measurement is untouched and no
+# re-measurement is owed — a poked/injected 96-line run is the same run it always was. What
+# is NOT true any more is the sentence "axis 4b's real worst case on SHIPPED content"; it is
+# the worst case of the dense tier, which the shipped act does not currently exercise.
+# Nothing in tools/ reads either dense key (`grep -rn hint_total_dense_cycles_per_frame\|
+# dense_run_cycles_per_frame tools/` returns only this file), so this is a record correction
+# with no gate behind it — which is exactly why it is written here rather than assumed.
 hint_total_dense_cycles_per_frame_PRE_A2 = 32758   # 2026-08-13..19, before the -4(a2) stream writes
 hint_total_dense_cycles_per_frame = 31665   # re-measured 2026-08-19 — shipped OJZ_TestGradient, 100 fires
 hint_total_dense_frame_pct        = 24.7

@@ -626,6 +626,29 @@ def scene_path(name: str) -> Path:
     return AEON / "tools" / "scenes" / f"effects_raster_{name}.json"
 
 
+def lst_symbols(lst: str) -> dict[str, int]:
+    """Symbol -> 24-bit address out of a sigil listing (`(0) <idx>/<hex> :        Name:`).
+
+    A LOCAL re-derivation on purpose. raster_cost_probe.parse_lst does the same job, but
+    importing it here would drag that module's Aether client import into every listing-only
+    segment, and this file's whole discipline is that a gate's expectation and the thing it
+    grades are not the same object.
+    """
+    out: dict[str, int] = {}
+    for line in Path(lst).read_text(errors="replace").splitlines():
+        if not line.startswith("(0) "):
+            continue
+        try:
+            addrpart, namepart = line[4:].split(" :", 1)
+            addr = int(addrpart.split("/", 1)[1], 16)
+        except (ValueError, IndexError):
+            continue
+        nm = namepart.strip().rstrip(":")
+        if nm and "$" not in nm and nm not in out:
+            out[nm] = addr & 0xFFFFFF
+    return out
+
+
 def resolve_scene(name: str, lst: str, out_dir: Path) -> Path:
     """Materialise the committed scene `name` against the listing `lst` under test.
 
@@ -633,6 +656,28 @@ def resolve_scene(name: str, lst: str, out_dir: Path) -> Path:
     a committed scene that hardcodes a listing (the defect this exists to remove) or has
     no `symbols` key; raises FileNotFoundError if `lst` is not a file — an ab_runner fed a
     missing listing answers every symbol poke against blank RAM and reports ALL EQUAL.
+
+    IT ALSO RESOLVES SYMBOL-VALUED POKES — `{"poke": {"symbol": CELL, "value": {"symbol":
+    NAME}, "width": 4}}` — into the address `NAME` has in the listing under test. ab_runner
+    passes a poke's `value` straight through to `emulator/write_memory`, so a scene cannot
+    express "write the ADDRESS of a label" on its own, and a hardcoded address would be the
+    exact stale-capture defect the `symbols` placeholder above exists to prevent.
+
+    WHY A SCENE NEEDS TO WRITE AN ADDRESS AT ALL, added 2026-09-12. `effects_raster_dense`
+    reached `OJZ_TestGradient` by poking `Camera_X` past the section-2 boundary and letting
+    `Parallax_CheckBoundary` install `OJZ_Preset_Sec2`. That binding is gone (owner ruling —
+    games/sonic4/data/effects/ojz_effects.emp, the banner above `OJZ_Preset_Sec1`), and a
+    gate whose subject has been taken off the map is the silent-green failure this tree keeps
+    paying for. So the scene now INJECTS the program instead: it stages the address into
+    `Raster_Pending` and `Raster_VBlank` installs it at the next frame top — the same
+    mechanism tools/raster_off_gate.py has always used to reach `OJZ_TestVsram`, a program
+    that reaches no section either. The gate's assertions are unchanged; only how the program
+    gets live is. Proven by running the re-pointed scene against the PRE-change ROM, where
+    the binding still existed and the injection had to carry the measurement on its own.
+
+    An unresolvable name is a hard ValueError. A missing symbol silently poked as 0 would
+    install nothing — `Raster_VBlank` reads a pending 0 as "keep whatever is live" — and the
+    gate would then measure the section's own program while claiming to measure the fixture.
     """
     src = scene_path(name)
     sc = json.loads(src.read_text())
@@ -649,6 +694,25 @@ def resolve_scene(name: str, lst: str, out_dir: Path) -> Path:
             f"scene {name}: listing under test not found: {lst} — build the shape first; "
             f"a scene run without symbols pokes nothing and still reports ALL EQUAL")
     sc["symbols"] = str(lst_path.resolve())
+    syms: dict[str, int] | None = None
+    for i, step in enumerate(sc.get("steps", [])):
+        poke = step.get("poke") if isinstance(step, dict) else None
+        if not isinstance(poke, dict) or not isinstance(poke.get("value"), dict):
+            continue
+        want = poke["value"].get("symbol")
+        if not isinstance(want, str) or set(poke["value"]) != {"symbol"}:
+            raise ValueError(
+                f"{src}: step {i}'s poke value is {poke['value']!r}. A dict value means "
+                f"'the address of a label' and must be exactly {{'symbol': NAME}}.")
+        if syms is None:
+            syms = lst_symbols(str(lst_path))
+        if want not in syms:
+            raise ValueError(
+                f"scene {name}: step {i} pokes `{poke.get('symbol')}` with the address of "
+                f"`{want}`, which is not in {lst_path}. Refusing to run: a poke of 0 into a "
+                f"staging cell is read as 'keep what is live', so the gate would measure "
+                f"whatever the section already had and report it as the fixture.")
+        poke["value"] = syms[want]
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / "scene.json"
     dst.write_text(json.dumps(sc, indent=2) + "\n")
