@@ -167,7 +167,8 @@ When researching how to implement a system, check these in order:
   `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` before merge and
   paste the gate totals + exit code into the merge evidence (the lane boots a headless
   emulator per gate, so it cannot live in build.sh). Backstop: the `aeon-effects-gates.timer`
-  systemd user timer runs `tools/nightly_effects_gates.sh` against master nightly and raises
+  systemd user timer runs `tools/nightly_effects_gates.sh` against a freshly fetched
+  `origin/master` nightly (not the main checkout's local master; a failed fetch is COULD NOT RUN) and raises
   a desktop notification on failure or on a lane that could not run
 
 ## What This Engine Is
