@@ -30236,7 +30236,7 @@ imply `DMA_Important_Slot != DMA_Important`. The race is rare; force it with a p
 per ZX0-form page; with it, no invariant violations. Full method: `docs/superpowers/notes/2026-09-11-c3b3-pagein.md`. Batch
 it with LS-10a, the other emulator row that is the controller's. **CLOSED 2026-09-12, RUNTIME-WITNESSED by the controller:** forced-race probes (unfixed on `3492ce3a`, fixed-control on `b29a53ae`, same addresses, the fix's four files the only diff), `Frame_Counter` at `$90C2` 60 vs 50; ten forced races, ten frames recovered; the unfixed flag is cleared only by next frame's VInt_Level release, the fixed one by the re-test in the same frame. `docs/superpowers/notes/2026-09-12-c3b3-runtime.md`.
 
-**`games/sonic4/map.toml`'s placement-authority claim needs RE-DERIVING (booked 2026-09-11, from sigil's measurement):**
+~~**`games/sonic4/map.toml`'s placement-authority claim needs RE-DERIVING (booked 2026-09-11, from sigil's measurement):**
 the file's header block (`MEASURED 2026-09-04 in sigil's source and then at the build`) says the frozen tables
 (`golden/offcanonical_sizes/<shape>.txt`, read at run time by `load_frozen_table`) PLACE every ROM section. Sigil
 re-probed it on 2026-09-11 at their parcel/lst-source-digest (their measurement, relayed, not re-run here): the read is
@@ -30244,7 +30244,30 @@ real and gates whether a build SUCCEEDS (zeroing every row fails the build), but
 byte, +2 on a row, +2 on EndOfRom, a deleted row, +0x10000 on a row, two swapped rows) left the s4 ROM byte-identical.
 Both can be true at different revisions; the comment now states a placement mechanism nobody has re-measured since the
 ROM re-layout. Re-derive what actually places sections today and correct the comment. It is a code comment, which is
-the worst home for a perishable claim.
+the worst home for a perishable claim.~~
+**CLOSED 2026-09-12, parcel/zero-byte-residue-0912 (`5bc21fa3`), zero ROM bytes. BOTH READINGS WERE TRUE, OF DIFFERENT
+SECTIONS.** Read in sigil's source at `6884bfba`, the revision the installed `sigil` reports, never through a working tree:
+the frozen table places only the ISLANDS. A section is held at its frozen provisional base when it opens the run, when it
+is a phase bank (`soundbankhead`), or when that base EQUALS a declared `[[anchor]]` (`ObjCodeBase`, `Dac_Temp_Blip`);
+`validate_placement` then requires inferred islands == declared anchors both ways. Every other section is packed from
+LIVE-MEASURED lengths, in `map.toml`'s `order` (K5 has landed), at the alignment sigil's `section_align` declares; its
+frozen row is only the first measurement round's pin and the `[layout.provisional-drift]` threshold. That explains both
+halves: sigil's six surviving edits all hit non-island rows, and zeroing every row un-matches the anchors and parks the
+phase bank at 0, so the build fails. Sigil's record, cited at a committed revision: their
+`docs/superpowers/notes/2026-09-11-lst-source-digest.md` at `97aa2689`, which is an ancestor of their origin/master (checked
+with `merge-base --is-ancestor`); their earlier `ccbc171e` records the read's call sites. **Not re-probed here, a reach
+limit, not a choice:** `load_frozen_table` opens `<CARGO_MANIFEST_DIR>/golden/offcanonical_sizes/<shape>.txt`, a path
+fixed at COMPILE time (the pin worktree), and neither `sigil build` nor the loader has a flag or env var that points it
+at a copy (`derive_offcanon` has an override, but it is a separate binary, not the build). A probe would mean editing
+`.sigil-pin-6884bfba` or building a second binary. **What survives:** moving `dac_banks`/`sound_bank` still needs the
+`Dac_Temp_Blip`/`SoundTablesZ80_Head` rows moved by sigil. The 09-04 sentences are STRUCK in `map.toml`, not deleted.
+The header's "the order-derivation sorts" is struck too. `tools/bganim_room.py`'s docstring, which repeated the claim, is
+corrected. **Open, not proven either way:** that no row edit can ever move a byte. The first-round pins could in principle
+steer a branch-relaxation fixpoint, and nobody has measured that. **Residue found, booked, not fixed:**
+`engine/system/boot.emp`'s boot_tail re-anchor comment says the chainer aligns that section "to the largest power of two
+in {16,8,4,2} dividing its frozen provisional pin (sigil native.rs::packed_align_of)". At `6884bfba` no crate code
+defines `packed_align_of`; it appears only in `golden/provenance.toml`. Alignment now comes from the `section_align`
+declaration through `packed_chained_base`. The cursor walk the comment justifies was not re-derived here.
 
 **LS-1a NEXT STEP, booked 2026-09-11 (sigil's half LANDED):** sigil merged the Source Digest at their `13ca9425`
 (verified here as an ancestor of sigil origin/master; tip `2c5b3608` at the time). Every `.lst` a newer sigil writes opens with
@@ -30544,8 +30567,21 @@ zero-byte) reproduces exactly by appending `ensure(1 == 1, "zbm")` to a pristine
 zero-byte section, which reorders sigil's scratch slots; one slot aliases to an `abs.w` address, so a call into it is
 measured 2 bytes short. Fixed on a sigil branch, not landed. When it lands and our pin moves past it, all four shapes move
 (sections +2 to +22 B, EndOfRom unchanged, per sigil). **Until then, the rule for every aeon parcel:** a top-level `ensure`
-goes ABOVE its file's last `section {}` block, or in a constants file, never at the end of a file. The booked
-`ensure(TILE_CACHE_ROWS % 2 == 0)` follow-up is exactly this shape.
+goes ABOVE its file's last `section {}` block, or in a constants file, never at the end of a file. ~~The booked
+`ensure(TILE_CACHE_ROWS % 2 == 0)` follow-up is exactly this shape.~~ **CLOSED 2026-09-12, parcel/zero-byte-residue-0912
+(`0e5e63d3`), zero ROM bytes.** The ensure is in `engine/system/constants.emp`, a constants file with no `section {}`,
+right after `TILE_CACHE_COLL_ROWS = TILE_CACHE_ROWS / 2` (the floor division that already assumes an even count). Its
+premise was re-derived by what touches the value, not inherited: `Cache_Origin_Row`'s only stores are the boot 64 KB clear
+(0), `Tile_Cache_Init`'s `clr.w` (0), `TileCache_VSlide` (+2, wrap -ROWS) and `TileCache_VSlideUp` (-2, wrap +ROWS). Each
+has exactly one call site, both in `Tile_Cache_Fill`, both `moveq #2`. No `mark`-bounded range spans the field, no `.l` or
+block write reaches it from a neighbour, and the canopy record only reads it. **Not redundant, measured first:** with
+`TILE_CACHE_ROWS = 59` and no new ensure, all four shapes built GREEN (FAST control: s4 `1f27d80c`, s4.debug `ae59a808`,
+demo `af4d61a9`, demo.debug `ea3669fb`); the only other ROWS ensure is the reach bound (>= 46). **Red-first:** the same
+mutation, quoted from disk as `pub const TILE_CACHE_ROWS    = 59` with `git diff --stat` = constants.emp 1+/1-. With the
+ensure it failed ALL FOUR shapes (exit 1 each), and each failure was `ram harvest build_program: 1 error(s); first: ...
+"TILE_CACHE_ROWS (59) must be EVEN..."`, this ensure's own message, alone. Restored with `git checkout 0e5e63d3 --`.
+**What it does not cover:** the `moveq #2` eviction step itself, a literal no ensure can see. An odd step would break the
+same premise with an even row count; the message says so.
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
 rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).
