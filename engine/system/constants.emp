@@ -888,6 +888,17 @@ pub const TILE_CACHE_COLL_PLANES = 2                                      // pat
 pub const TILE_CACHE_MARGIN_H    = 20                                     // horizontal margin (columns each side)
 pub const TILE_CACHE_MARGIN_V    = 16                                     // vertical margin (rows each side)
 
+// THE ROW COUNT MUST BE EVEN (2026-09-12, the C1b-3 follow-up). Placed here, beside the
+// one declaration that already assumes it (`TILE_CACHE_ROWS / 2` above is a floor
+// division), and in a constants file because this module has no `section {}` for a
+// top-level ensure to trail. Cache_Origin_Row stays even only by parity preservation:
+// every store to it, enumerated by address and not by name, is the boot Work-RAM clear
+// (0), Tile_Cache_Init (`clr.w`, 0), TileCache_VSlide (+ the step, wrap - ROWS) and
+// TileCache_VSlideUp (- the step, wrap + ROWS), and both VSlide calls pass `moveq #2`.
+// Without this pin, 59 rows built GREEN in all four shapes (measured 2026-09-12).
+ensure(TILE_CACHE_ROWS % 2 == 0,
+       "TILE_CACHE_ROWS ({TILE_CACHE_ROWS}) must be EVEN. Cache_Origin_Row is kept even only because every writer preserves parity: the boot Work-RAM clear and Tile_Cache_Init store 0, and TileCache_VSlide / TileCache_VSlideUp step it by the 2 their only call sites pass (`moveq #2` in Tile_Cache_Fill) and wrap it by TILE_CACHE_ROWS. With an odd row count the first wrap leaves the origin ODD, and then (1) engine/level/collision_lookup.emp Collision_GetType, which adds the origin BEFORE halving (lens row C1b-3: floor((L+O)/2) in place of floor(L/2)+O/2, equal only for an even O), returns the neighbouring collision cell for half the rows; (2) TileCache_CopyBlockColumn's physical row no longer keeps the logical row's parity, so its collision halving writes the wrong cell; (3) TILE_CACHE_COLL_ROWS = TILE_CACHE_ROWS / 2 floors, so the last tile row has no collision row. WHAT THIS PIN DOES NOT COVER: the `moveq #2` eviction step itself, a hand-spelled literal no ensure can see; an odd step breaks the same premise with an even row count")
+
 // -----------------------------------------------
 // STREAMING REACH — the fill window's far edge, and the guards that hold it
 // against the viewport. Added 2026-08-27 by the fg-left-edge derivation (see
