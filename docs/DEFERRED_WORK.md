@@ -30349,6 +30349,19 @@ tree is a symlink today. (iv) **In a worktree where build.sh has never run, `pyt
 build.sh writes both before its pre-build lane, so the lane is green there. Seen during this parcel, not caused by it and
 not touched.
 
+**LS-1a steps (2)+(3) landing evidence, 2026-09-12:** `tools/landing_build.sh` at `29ff3771` (this branch, all code
+commits in), run detached under a run-unique copy with its own end stamp, 06:21:42 to 06:37:45 (load 1.1 rising to 6.5):
+`finished=0`, real exit 0; `EXIT_s4=0`, `EXIT_s4.debug=0`, `EXIT_demo=0`, `EXIT_demo.debug=0`, `EXIT_needs_build=0`. Pre-build
+lane in each of the four shapes: 2524 passed, 0 failed, 2 skipped (so the four `test_extern_guard_reachability` rows of
+item (iv) are green once build.sh has generated its inputs). Post-sigil lane: s4 5 passed / 9 deferred, s4.debug 6 / 8,
+demo 1 / 13, demo.debug 1 / 13. needs_build lane: 14 ran, 0 deferred, 0 failed, every case named. Gates through the
+primitive during the run: 26 `provenance FRESH` lines, 0 `NOT FRESH`. ROMs byte-neutral: s4 `7a552cde`/821155, s4.debug
+`b93a889f`/847533, demo `dd589fe7`/97109, demo.debug `c3eda757`/103501 (assembler `6884bfba`). **Written during the run,
+not left over:** all eight artifacts' mtimes are 1789208812 to 1789209450 against the run's start 1789208502, and
+`tools/artifact_provenance.py --built-after 1789208502` calls all four pairs FRESH (330 / 337 / 210 / 215 READ rows, the
+203-module scan). Shared pair md5 before and after: sigil `2e7c25920b95cec2c462ea51b4f078b5`, emitter
+`d258341604bbf735a8af8438c2b8d642`.
+
 **The nightly backstop tests the MAIN checkout's LOCAL `master`, which can sit far behind origin (found 2026-09-12, not fixed).**
 `aeon-effects-gates.service` fired at 2026-09-12T08:17:07Z and `tools/nightly_effects_gates.sh` checked out `a38ce7c9`, the
 main checkout's `master`, 34 commits behind origin/master because the owner's uncommitted edit to a generated file blocks the
