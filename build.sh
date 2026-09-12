@@ -352,12 +352,43 @@ fi
 
 # Parse flags. -pe (asl print-errors-only) is now a no-op — the native build always
 # streams errors — but stays accepted for CLI compatibility.
-NO_LINT=0
+#
+# NO_LINT: an EXPORTED NO_LINT is honoured (2026-09-12). Until then this block set
+# NO_LINT=0 unconditionally, so `NO_LINT=1 ./build.sh` ran every lint lane while
+# tools/landing_build.sh already refused an exported NO_LINT and CLAUDE.md and
+# docs/OVERSEER-REFERENCE.md described it as an environment knob. Unset or empty means 0.
+# Anything but 0 or 1 is REFUSED: reading `yes` or `true` would be guessing whether a gate
+# runs. The skip is LOUD on both routes (env and flag): a banner here and a closing one at
+# the end of the build. The -nl route used to print nothing at all.
+# NO_LINT_FROM records who asked. FAST sets NO_LINT=1 on its own further down and prints
+# its own two banners, so it leaves NO_LINT_FROM alone.
+# tools/test_build_env_knobs.py lifts the block between these markers and runs it, so the
+# markers are load-bearing.
+# >>> NO_LINT_KNOB
+NO_LINT="${NO_LINT:-0}"
+case "${NO_LINT}" in
+    0) NO_LINT_FROM="" ;;
+    1) NO_LINT_FROM="NO_LINT=1 in the environment" ;;
+    *) echo "ERROR: NO_LINT=${NO_LINT}: build.sh takes NO_LINT=0 or NO_LINT=1 (or -nl / --no-lint)."
+       echo "  Refused rather than guessed at: the value decides whether the lint lanes run."
+       exit 1 ;;
+esac
 for arg in "$@"; do
     case "$arg" in
-        -nl|--no-lint) NO_LINT=1 ;;
+        -nl|--no-lint) NO_LINT=1
+                       NO_LINT_FROM="${NO_LINT_FROM:+${NO_LINT_FROM} and }the ${arg} flag" ;;
     esac
 done
+if [[ -n "${NO_LINT_FROM}" ]]; then
+    echo "################################################################################"
+    echo "## LINT LANES SKIPPED (${NO_LINT_FROM}). NOT a merge/ship artifact."
+    echo "##   skipped: effects_budget_check · emp_expect_fail · pytest tools, BOTH halves"
+    echo "##            (the pre-build lane and the post-sigil -m needs_build lane)"
+    echo "##   Re-run with NO_LINT unset and no -nl before you land, merge, freeze, or"
+    echo "##   quote a number. tools/landing_build.sh refuses NO_LINT for this reason."
+    echo "################################################################################"
+fi
+# <<< NO_LINT_KNOB
 
 # The canonical shapes (the frozen goldens) are what build.sh ships: plain + debug,
 # both games. The NON-canonical sonic4 sound shapes (silent / hotkeys / mirror) are
@@ -551,6 +582,28 @@ else
         fi
     fi
 fi
+
+# --- EMITTER IDENTITY (2026-09-12) ---
+# The provenance block above names the ASSEMBLER and nothing named the EMITTER, so the
+# 2026-09-09..12 split pair (the shared emit_sound_blob relinked from a different tree than
+# the sigil beside it) was found by a peer, not by any build's own output. emit_sound_blob
+# accepts --aeon and --out-dir and nothing else (no --version), so its md5 IS its identity.
+# Printed on every shape, sound-ON or not, so a log that lacks this line was not this build.
+# Informational only: the sound preflight below is still what refuses a missing emitter.
+# tools/test_build_env_knobs.py lifts the block between these markers and runs it, so the
+# markers are load-bearing.
+# >>> EMITTER_IDENTITY
+if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
+    if [[ -n "${SIGIL_EMIT:-}" && -f "${SIGIL_EMIT}" ]]; then
+        _emit_md5="$(md5sum "${SIGIL_EMIT}" 2>/dev/null | cut -d' ' -f1 || true)"
+        echo "Emitter:   emit_sound_blob md5 ${_emit_md5:-<unreadable>} (${SIGIL_EMIT})"
+    else
+        echo "Emitter:   emit_sound_blob NOT FOUND at '${SIGIL_EMIT:-<SIGIL_EMIT unset>}'"
+    fi
+else
+    echo "Emitter:   not used by this shape (SOUND_DRIVER_ENABLED=0); SIGIL_EMIT not read"
+fi
+# <<< EMITTER_IDENTITY
 export SIGIL_REV
 
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
@@ -747,7 +800,8 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     #
     # It reads .emp constants and compares them to tools/effects_budget_model.toml, so it
     # depends on source only and is cheap. It sits under the same NO_LINT guard as the
-    # other source gates, so the escape hatch is `./build.sh <game> --no-lint` — note the
+    # other source gates, so the escape hatch is `NO_LINT=1 ./build.sh` (an exported NO_LINT
+    # is honoured since 2026-09-12) or `./build.sh <game> --no-lint` — note the
     # GAME IS POSITIONAL ($1), so `./build.sh --no-lint` parses --no-lint as the game name
     # and fails with `unknown --game`. That is pre-existing arg-parsing behaviour, not
     # this gate's, but it is the first thing anyone reaching for the hatch will hit.
@@ -1608,6 +1662,19 @@ if [[ "$FAST" == "1" ]]; then
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"
 fi
+
+# The closing half of the NO_LINT banner (see NO_LINT_KNOB): the end of the log is what
+# gets read, so a skip announced only at the top is announced to nobody. Keyed on
+# NO_LINT_FROM, not NO_LINT, so a FAST build (which sets NO_LINT itself) does not print it.
+# >>> NO_LINT_CLOSING
+if [[ -n "${NO_LINT_FROM}" ]]; then
+    echo "################################################################################"
+    echo "## LINT LANES SKIPPED (${NO_LINT_FROM}): effects_budget_check · emp_expect_fail"
+    echo "##   · pytest tools (both halves). This build's ROM was NOT checked by them."
+    echo "##   Re-run with NO_LINT unset and no -nl before you land it."
+    echo "################################################################################"
+fi
+# <<< NO_LINT_CLOSING
 
 # The end-of-build unmeasurable roll-up. See the GATE EXIT-CODE TRIAGE block near the top:
 # exit 2 from a `triage` call site does not fail the build, so this is the ONLY place a

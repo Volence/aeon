@@ -2088,8 +2088,8 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 //   * BELOW band_lo — `cmp.w (a0), d2 / bge / move.w (a0), d2` — the record IS still
 //     emitted, CLAMPED UP to the floor. Asymmetric on purpose: the frame-top ship covers
 //     the rows above, so clamping up hides nothing, while clamping DOWN would paint rows
-//     the world says are dry. `engine/level/parallax.emp:2124-2143` is the consumer that
-//     gets this right and says so; it is the shape to copy.
+//     the world says are dry. `engine/level/parallax.emp` `Parallax_Step4_Fill` (its anchor
+//     overlay: the hi test, then `.anchor_hi_ok`) gets this right and says so; copy it.
 //
 // WHY THIS EXISTS AT ALL. Raster_BuildSchedule pins a patchable fire to its record's authored
 // band, and that pin is load-bearing rather than cosmetic: a negative inter-record gap
@@ -2098,9 +2098,9 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 // place a scroll boundary. If it landed anywhere else, then outside the record's band the
 // palette boundary would pin while the scroll boundary kept following the camera — the two
 // separating, which is the exact defect that parcel exists to remove. Not hypothetical:
-// OJZ channel 0 is authored with band 3..220 (`ojz_effects.emp:1557`) and reaches the lo
-// edge on the ordinary scroll path — the band was 40..120 until the lo clamp was seen
-// pinning the boundary 40 lines down; see the note at that `patchable` call. The 2026-08-18
+// OJZ channel 0 is authored with band 3..220 (`OJZ_TC_PROG` in `ojz_effects.emp`) and reaches
+// the lo edge on the ordinary scroll path — the band was 40..120 until the lo clamp was seen
+// pinning the boundary 40 lines down; see the "LO WAS 40" note above `OJZ_TC_PROG`. The 2026-08-18
 // re-band bought the hi edge most of the screen, which is what makes the DROP rare rather
 // than absent — rare is not never, and the drop is the case a consumer forgets.
 //

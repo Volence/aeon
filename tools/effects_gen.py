@@ -4866,9 +4866,17 @@ if __name__ == "__main__":
             with open(band_path, "r") as f:
                 have_bands = f.read()
             if have_bands != band_text:
+                # FOUR causes, not two. The sidecar publishes two `#<declaration>` anchors
+                # (`channels.*.source` and `edges.*.engine`), so a rename or a move that
+                # changes which declaration encloses a site trips this gate with no band
+                # moving. Naming only a band move sent authors hunting for one that wasn't.
                 print(f"effects_gen: DRIFT — {os.path.relpath(band_path, REPO)} is not "
-                      f"what the current effects library declares. A `patchable(` band "
-                      f"moved, or the sidecar was hand-edited.")
+                      f"what the current effects library declares. Either a `patchable(` "
+                      f"band moved; or an ANCHOR moved: the declaration enclosing a "
+                      f"`patchable(` call (`channels.*.source`) or the raster.emp proc "
+                      f"enclosing an edge marker (`edges.*.engine`) was renamed, or the "
+                      f"call or marker now sits "
+                      f"inside a different one; or the sidecar was hand-edited.")
                 print("  Run tools/regenerate-level.sh (or `python3 "
                       "tools/effects_gen.py emit`) and commit the result.")
                 sys.exit(1)

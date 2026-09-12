@@ -30264,7 +30264,14 @@ confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrin
 `project.json` `zones[0].tileset`, which is `games/sonic4/data/editor/ojz_tiles.bin` (29408 B). The tracked
 `games/sonic4/data/editor/ojz/chunks_tiles.bin` is 0 bytes and this bake never opens it. The tool already refuses a
 zero-byte tileset. Zero-byte fix: rename the variable and repoint the prose. Leave the empty file alone; aurora's chunk-library
-loader references it.
+loader references it. **CLOSED 2026-09-12, `parcel/tools-followups-0912`:** `CHUNKS_TILES_PATH` is now `ZONE_TILESET_PATH`
+(all 9 uses) and the three docstrings name the zone tileset, with `_project_tileset_path`'s saying outright that the bake
+never opens `chunks_tiles.bin`. Consumers were searched by value as well as by name: `git grep` over the whole tree,
+importers of `ojz_strip_gen`, every `setattr`/monkeypatch on it (exactly two: `EDITOR_DIR` and the CLI handlers), the
+tests that resolve `zones[0].tileset` independently (`tools/test_editor_inputs.py`, via `project.json`), and aurora's source.
+No other consumer names the variable. The only other copies are aurora's scratchpad snapshots of this file, which are aurora's
+and left alone. The 0-byte file is untouched. Checked with `preflight` (resolves `ojz_tiles.bin`, 29408 B) and
+`ojz_strip_gen.py test` (all pass). Zero ROM bytes.
 
 **`Draw_Sprite` pays for two long-form entry branches (new, found by the C1a-1 parcel, merge `f41d7ca4`; booked, not fixed):**
 `bne .offscreen` (the multisprite-parent check) and `beq .offscreen` (the null-mappings check) are emitted in the long
@@ -30292,7 +30299,7 @@ recurses (the build's own pytest lane collects the test and launches it again, a
 `tools/test_landing_build_logfile.py` runs a COPY of the script beside a stub `build.sh`; copy that pattern.
 
 **Side findings of sigil's lens-Z3 port check (sigil `39179705`, `docs/superpowers/notes/2026-09-11-aeon-lensz3-portcheck.md`), booked 2026-09-12, not fixed:**
-(a) `build.sh` sets `NO_LINT=0` unconditionally before parsing flags (`build.sh:355`, verified here), so an EXPORTED `NO_LINT=1` is ignored and only `-nl`/`--no-lint` (and FAST) skip the lint lanes. It fails safe (the lanes run), but any doc or tool that names `NO_LINT=1` as an environment knob describes a knob `build.sh` does not honour; decide whether to honour the env var or drop it from the docs.
+(a) ~~`build.sh` sets `NO_LINT=0` unconditionally before parsing flags (`build.sh:355`, verified here), so an EXPORTED `NO_LINT=1` is ignored and only `-nl`/`--no-lint` (and FAST) skip the lint lanes. It fails safe (the lanes run), but any doc or tool that names `NO_LINT=1` as an environment knob describes a knob `build.sh` does not honour; decide whether to honour the env var or drop it from the docs.~~ **CLOSED 2026-09-12, `parcel/tools-followups-0912`, ruling: HONOUR it.** An exported `NO_LINT` is read (unset or empty = 0), a value other than 0 or 1 is refused, and both routes (env and `-nl`) now print a banner at the top of the build and a closing one at the end, naming who asked and the lanes skipped. The `-nl` route used to print nothing. Every doc and tool naming `NO_LINT` was grepped; honouring it makes them true and contradicts none. Graded by `tools/test_build_env_knobs.py`'s NO_LINT rows, which lift the marked blocks and run them. They were red first: with the old unconditional `NO_LINT=0` put back, 3 of their 9 rows failed (the exported `NO_LINT=1` read as 0, `NO_LINT=yes` accepted, no closing banner). Zero ROM bytes.
 (b) sigil's defect, booked in sigil: a `use` naming an item that does not exist builds green when nothing calls it, so our new cross-module `use` lines are checked only through the calls behind them. Nothing owed here.
 
 **Side findings of the 2026-09-12 entity-window C4a parcel (merges `f64f26b3` + `21a2887a` for C4a-3, `b4a1e4ba` for C4a-4, `62fb300f` for C4a-2; full record `docs/superpowers/notes/2026-09-12-entity-window-c4a-parcel.md`), booked, not fixed:**
@@ -30335,9 +30342,16 @@ pure 40-line comment block above the proc: `effects_gen.py check` exits 1 ("a `p
 guarded. Parsed leaf diff of the sidecar: 27 leaves, 0 added, 0 removed, 2 changed, both `edges.*.engine`. A second consumer
 found by what touches the value rather than by key name: `tools/test_cli_dispatch_refuses.py` runs `check` as a subprocess
 and asserts exit 0 (it tripped on a one-line probe edit before the fix). Aurora re-vendors once more. Not fixed, out of
-scope: `check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
-`Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale (its
-raster.emp self-cites were repointed by name in the next commit).
+scope: ~~`check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
+`Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale~~ (its
+raster.emp self-cites were repointed by name in the next commit). **BOTH CLOSED 2026-09-12, `parcel/tools-followups-0912`:**
+the DRIFT message now names four causes: a band moved, either `#<declaration>` anchor moved (`channels.*.source`, the const
+around a `patchable(`; `edges.*.engine`, the raster.emp proc around an edge marker) by a rename or by the site landing in a
+different declaration, or a hand edit. `channels.*.source` is the same class as the edge anchor and trips the gate too, so
+it is named as well. The two banner cites were recovered at `d593070a`, the commit that wrote them, and are now cited by
+name with no line numbers: `Parallax_Step4_Fill`'s anchor overlay (the hi test, then `.anchor_hi_ok`), and `OJZ_TC_PROG`
+in `ojz_effects.emp` with the "LO WAS 40" note above it. The comment edits replace lines one for one (5 out, 5 in), and
+`effects_gen.py check` still exits 0. Zero ROM bytes.
 **The shared `emit_sound_blob` is not the installed pair's copy, and build.sh records nothing about it (booked 2026-09-12,
 sigil's SHARED-PAIR-SPLIT-EMITTER, reported by the sigil lane and consistent with our own measurement).** `SIGIL_EMIT`
 (`sigil/target/release/emit_sound_blob`) was relinked 2026-09-09T03:04:49Z from sigil's main checkout, so its md5
@@ -30351,15 +30365,20 @@ an outside target dir, and that tree is left clean because our landing lane runs
 `sigil` stays `49ecc532`. The swap happens in a window the HUB opens once every building lane is clear. aeon's side: nothing
 builds between our CHANNEL-BANDS landing push and the hub's swap announcement, and the first build under the new pair is a
 four-shape re-check against master's ROMs (byte-identical expected; if not, the four CRCs go to sigil as the finding).
-**FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
-`md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.
+~~**FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
+`md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.~~
+**CLOSED 2026-09-12, `parcel/tools-followups-0912`:** every shape now prints an `Emitter:` line straight after the
+assembler provenance block: md5 and path on sound-ON shapes, `NOT FOUND` when `SIGIL_EMIT` is unset or missing, `not used
+by this shape` on demo. emit_sound_blob has no `--version`, so the md5 is its identity. Graded by
+`tools/test_build_env_knobs.py` (lifts the marked block and runs it; the md5 comes from hashlib). It was red first: with the
+md5 dropped from the echo, 1 of its 3 rows failed. Zero ROM bytes, all four shapes md5-identical to the base.
 **Outcome, 2026-09-12:** the swap happened at 06:25:12Z inside a hub-opened window. `emit_sound_blob` is now
 `36ef302cbf5eeca693ecbf981ce8a53a`, rebuilt at `af35fa56` in `.sigil-pin-af35fa56`, and `sigil` is unchanged at
 `49ecc532e0b133ab0eab9447e071805c`. aeon's four-shape re-check at `808141f7` under the new pair came out byte-identical to
 master's pre-swap ROMs (s4 `eee9f4e2`, s4.debug `f5660a6f`, demo `5e299109`, demo.debug `1473caa9`), so the swap stays.
 That shows the relinked `8d80a578` and the new `36ef302c` agree on four ROMs; it says nothing about the original
 `b1569c67`. Sigil KEEPS the `8d80a578` copy at `~/sonic_hacks/.sigil-outgoing-8d80a578/`, because it is the tool that built
-every aeon ROM from 09-09 to 09-12. The build.sh banner follow-up above is still open.
+every aeon ROM from 09-09 to 09-12. ~~The build.sh banner follow-up above is still open.~~ Closed, see above.
 
 **A top-level `ensure` placed after a file's last `section {}` can make sigil measure a call 2 bytes short (booked
 2026-09-12; the sigil lane's finding, relayed, NOT verified on our installed `af35fa56`, so assume it applies).** Sigil's
