@@ -30338,6 +30338,21 @@ and asserts exit 0 (it tripped on a one-line probe edit before the fix). Aurora 
 scope: `check`'s DRIFT message still names only a band move or a hand edit, and a moved anchor now trips it too; and the
 `Raster_GetChannelBand` banner's cross-file cites `parallax.emp:2124-2143` and `ojz_effects.emp:1557` are stale (its
 raster.emp self-cites were repointed by name in the next commit).
+**The shared `emit_sound_blob` is not the installed pair's copy, and build.sh records nothing about it (booked 2026-09-12,
+sigil's SHARED-PAIR-SPLIT-EMITTER, reported by the sigil lane and consistent with our own measurement).** `SIGIL_EMIT`
+(`sigil/target/release/emit_sound_blob`) was relinked 2026-09-09T03:04:49Z from sigil's main checkout, so its md5
+`8d80a57809979d43fe8d7c3a0a9ded13` is not the pair sigil recorded at install (`b1569c67…`, per sigil's own reference doc;
+not re-read here). `SIGIL_BUILD` is unchanged (`49ecc532e0b133ab0eab9447e071805c`, banner `af35fa56`). Our own record
+agrees: the CHANNEL-BANDS-EDGE-ANCHOR agent logged both md5s before and after each build that night, emitter
+`8d80a578…` throughout. **Whether the relinked emitter's OUTPUT differs from the original is not established and cannot be
+now**: `b1569c67` exists nowhere on disk. Every aeon build since 09-09 ran on an emitter no artifact names. **COMMITMENT
+(aeon to sigil and the hub, 2026-09-12):** only the emitter gets rebuilt, at `af35fa56`, inside `.sigil-pin-af35fa56` with
+an outside target dir, and that tree is left clean because our landing lane runs sigil's `z80_clobbers_incomplete` from it.
+`sigil` stays `49ecc532`. The swap happens in a window the HUB opens once every building lane is clear. aeon's side: nothing
+builds between our CHANNEL-BANDS landing push and the hub's swap announcement, and the first build under the new pair is a
+four-shape re-check against master's ROMs (byte-identical expected; if not, the four CRCs go to sigil as the finding).
+**FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
+`md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
 rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).
