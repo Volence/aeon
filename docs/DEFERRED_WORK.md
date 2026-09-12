@@ -30415,13 +30415,34 @@ No other consumer names the variable. The only other copies are aurora's scratch
 and left alone. The 0-byte file is untouched. Checked with `preflight` (resolves `ojz_tiles.bin`, 29408 B) and
 `ojz_strip_gen.py test` (all pass). Zero ROM bytes.
 
-**`Draw_Sprite` pays for two long-form entry branches (new, found by the C1a-1 parcel, merge `f41d7ca4`; booked, not fixed):**
+~~**`Draw_Sprite` pays for two long-form entry branches (new, found by the C1a-1 parcel, merge `f41d7ca4`; booked, not fixed):**
 `bne .offscreen` (the multisprite-parent check) and `beq .offscreen` (the null-mappings check) are emitted in the long
 form. A not-taken long branch costs 12 cycles instead of 8, so the null-mappings test adds 4 cycles to EVERY call: about
 232 per frame in release and 264 in DEBUG at the all-slots ceiling (the parcel's arithmetic, from the disassembled ROM).
 Why they are long is not established: `.offscreen` may simply be out of short reach. Check that first, then either
-move the target or accept the cost in a comment. Note also: C1a-3's per-entry figure (36 cycles against 22) was
-confirmed by the same read; its per-frame count was not re-derived.
+move the target or accept the cost in a comment.~~ **CLOSED 2026-09-12, `parcel/draw-sprite-short-entry`.** The cause was
+reach, and it was the same in all four shapes (capstone over each built ROM, labels from its own listing, master
+`c5dd8c20`): the proc is 184 bytes with no DEBUG code in it, and `.offscreen` sat at its end, +160 and +150 bytes from
+the two tests against a short branch's +127 reach. The four cull exits were already short. Fix: the `.offscreen` block
+(`bclr`, `rts`) now sits between the parent test and `.no_parent`, and the parent test is inverted (`beq .no_parent`) so
+a batching parent falls into it. Every branch in the proc is now short in all four shapes (null-mappings test -16, cull
+exits -48 to -98), and the proc is 180 bytes. Entry-branch cycles before -> after (68000 Bcc: `.s` 10 taken / 8 not,
+`.w` 10 / 12): no parent with mappings 22 -> 18 (-4); parent not batching 32 -> 26 (-6); batching parent, i.e. a child,
+18 -> 16 (-2); null mappings 20 -> 20 without a parent and 30 -> 28 with one. Nothing else on any path changed; the
+table is also written at the branches. Per frame, re-derived from source: the ceiling is 58 calls in release (2 players
++ 40 dynamic + 16 effect; the 8 System slots dispatch nothing in release, LS-10) and 66 in DEBUG, one call per
+dispatched slot (every call site is a tail `jbra`, the player tails included, and `RunObjects_Frozen` sweeps the same
+pools). At -4 a call that gives the booking's 232 and 264, but only for a frame of parentless objects with mappings; by
+path mix the saving runs from 0 to 348 in release and 0 to 396 in DEBUG. "Adds 4 cycles to EVERY call" was wrong: a
+batching child leaves before the null-mappings test, and a null-mappings call takes it (10 cycles either way). The
+booking also missed that the parent test cost parented objects 4 more. Costed and not taken: (a) both entry tests
+falling through (16 on the first row) needs a branch target outside the proc; (b) inverting the `blo .band_has_room`
+that every registration takes would save 2 a call but add 12 to every sprite that cascades past a full band, which
+makes the worst frame worse. Verified: `tools/landing_build.sh` exit 0, `finished=0`; CRC32 before -> after
+`s4.bin` `7a552cde` -> `9cdeb9b1`, `s4.debug.bin` `b93a889f` -> `9ce1c2ff`, `demo.bin` `dd589fe7` -> `3170d31e`,
+`demo.debug.bin` `c3eda757` -> `3cf4f104`, all four sizes unchanged (821155 / 847533 / 97109 / 103501; the padding
+absorbs the 4 bytes). Not yet looked at at runtime. **Still open, not this parcel's:** C1a-3's per-entry figure (36
+cycles against 22) was confirmed by the same read; its per-frame count was not re-derived.
 
 **Side findings of the 2026-09-11 lens-tools parcel (merge `e1d79b2e`), booked, not fixed:**
 (a) ~~The ensure message in `engine/objects/entity_window.emp` (about `MAX_LIST_ENTRIES`) now wrongly says no build

@@ -70,13 +70,37 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         beq   .no_parent
         movea.w d0, a1
         btst    #RF_MULTISPRITE, Sst.render_flags(a1)
-        bne   .offscreen              // parent batches — clear ONSCREEN, don't register
+        beq   .no_parent              // parent does not batch — register normally
+        // Parent batches: fall into .offscreen — clear ONSCREEN, don't register.
         // NOTE (B2): a multisprite CHILD lands at .offscreen here and keeps
         // RF_ONSCREEN CLEAR even though it IS rendered (via the parent's
         // sibling walk in Render_Sprites). Nothing may key culling or logic on
         // a child's RF_ONSCREEN — for children the flag is meaningless.
-    .no_parent:
 
+        // LAYOUT — .offscreen sits HERE, between the two entry tests, not at the
+        // end of the proc (DEFERRED_WORK "Draw_Sprite pays for two long-form entry
+        // branches", closed 2026-09-12). At the end it was +160 and +150 bytes from
+        // the two entry tests, past a short branch's +127 reach, so sigil emitted
+        // both as bcc.w, in all four shapes. 68000 Bcc: .s = 10 taken / 8 not
+        // taken, .w = 10 taken / 12 not taken, and the null-mappings test is NOT
+        // taken on every drawable call. From here every branch to .offscreen is
+        // short: -16 from the null-mappings test, -48 to -98 from the four cull
+        // exits (short forward before, short backward now). The second test is
+        // inverted (bne .offscreen -> beq .no_parent) so a batching parent falls
+        // in. Entry-branch cycles per path, before -> after:
+        //   no parent, mappings set ........ 10+12   -> 10+8    (-4)
+        //   parent not batching, mappings .. 8+12+12 -> 8+10+8  (-6)
+        //   parent batches (a child) ....... 8+10    -> 8+8     (-2)
+        //   no parent, null mappings ....... 10+10   -> 10+10   (0)
+        //   parent not batching, null ...... 8+12+10 -> 8+10+10 (-2)
+        // Nothing else on any path changed. Both entry tests falling through
+        // (16 on the first row) needs a branch target the hot path never runs
+        // within 127 bytes, which only code outside this proc could give.
+    .offscreen:
+        bclr    #RF_ONSCREEN, Sst.render_flags(a0)
+        rts
+
+    .no_parent:
         // Check if object has mappings — skip if null (must guard before frame resolution)
         movea.l Sst.mappings(a0), a1
         move.l  a1, d0
@@ -171,10 +195,6 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         move.w  a0, (a1,d2.w)         // store SST address (RAM = .w addressable)
 
     .all_bands_full:
-        rts
-
-    .offscreen:
-        bclr    #RF_ONSCREEN, Sst.render_flags(a0)
         rts
 }
 
