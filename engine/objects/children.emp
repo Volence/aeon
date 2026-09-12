@@ -7,15 +7,17 @@
 //   * A parent may not itself be a linked child. An object that is already in
 //     someone's chain has its own `sibling_ptr` spoken for; letting it spawn
 //     children overwrites that link and orphans every sibling behind it.
-//     ONE LEVEL of nesting only. ASSERT COVERAGE IS DELIBERATELY PARTIAL:
-//     the DEBUG rail rides CreateChild_Normal (the only chaining creator with
-//     call sites) and CreateChild_Linked (whose splice would otherwise thread
-//     a run into the grandparent's chain); Complex and FlipAware carry the constraint in their
-//     headers ONLY. Chosen, not overlooked — an assert on a zero-caller proc
-//     can never fire, while its message blob costs debug bytes that are not
-//     free at the system level (past a threshold they push engine symbols
-//     across $8000 and relocate the whole debug object bank). When either
-//     creator gains a caller, it gains the assert in the same change.
+//     ONE LEVEL of nesting only. ASSERT COVERAGE IS COMPLETE (B2a-2, lens
+//     sweep 2026-09-06): all four chaining creators (Normal, Complex,
+//     FlipAware, Linked) rail it in DEBUG, the three @scaffolding ones
+//     included. A first consumer copies whichever creator it finds, so an
+//     unguarded scaffold ships the hole with its first call, and "it gains
+//     the assert when it gains a caller" was a rule to remember, not a check.
+//     This replaces a chosen partial rail (t24) that spared two of the three
+//     zero-caller procs to save debug bytes before a $8000 threshold. Its premise was
+//     measured stale before it was retired (the numbers are in this change's
+//     commit message): @scaffolding does not strip a proc, so both were
+//     emitted in every shape anyway, and both debug images already cross $8000.
 //   * The cascade is MECHANISM, not caller discipline (C1b, 2026-08-05):
 //     DeleteObject itself front-guards on `parent_ptr`/`sibling_ptr` and runs
 //     DeleteChildren on a dying parent, so no delete path can strand children
@@ -267,6 +269,12 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
 // -----------------------------------------------
 @scaffolding("engine API awaiting its consumer — zero call sites today; kept deliberately. At the post-asl module split these four move out of children.emp into their own unit so the live path (CreateChild_Normal / CreateEffect_Normal / DeleteChildren) carries no unreferenced code.")
 pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
+        if DEBUG == 1 {
+        move.w  Sst.parent_ptr(a0), d0
+        assert.w d0, eq, #0             // chain contract: a parent may not itself
+                                        // be a linked child (its sibling_ptr is
+                                        // the grandparent's link)
+        }
         move.b  Sst.render_flags(a0), d1  // hoisted: inherited flags, ready to or
         andi.b  #CHILD_INHERITED_FLAGS, d1
         move.w  Sst.sibling_ptr(a0), d3
@@ -339,6 +347,12 @@ pub proc CreateChild_Complex (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
 // -----------------------------------------------
 @scaffolding("engine API awaiting its consumer — zero call sites today; kept deliberately. At the post-asl module split these four move out of children.emp into their own unit so the live path (CreateChild_Normal / CreateEffect_Normal / DeleteChildren) carries no unreferenced code.")
 pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
+        if DEBUG == 1 {
+        move.w  Sst.parent_ptr(a0), d0
+        assert.w d0, eq, #0             // chain contract: a parent may not itself
+                                        // be a linked child (its sibling_ptr is
+                                        // the grandparent's link)
+        }
         // d4 is a 0 / -1 MASK, not a 0/1 flag: `eor.w d4,dN` + `sub.w d4,dN`
         // is a branchless negate — (x ^ -1) - (-1) = ~x + 1 = -x, and
         // (x ^ 0) - 0 = x — so the two offset negates below need no test and

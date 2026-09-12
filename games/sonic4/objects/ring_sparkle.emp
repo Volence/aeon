@@ -137,7 +137,7 @@ const ATTR_VFLIP = $1000
 // In:  a3 = the ring's buffer entry: X.w at +0, Y.w at +2 (engine-space centre
 //           pixels; the layout engine/objects/rings.emp owns)
 // Out: a sparkle allocated, or NOTHING if the effect pool is exhausted — the silent
-//      skip every creator uses (children.emp:604, dust_puff.emp). The ring is still
+//      skip every creator uses (children.emp .alloc_fail, dust_puff.emp). The ring is still
 //      collected; a burst of more rings than free slots loses its tail sparkles and
 //      nothing waits or retries (design note §2.2 bounds a single player at 12).
 // Clobbers: d0-d2, a1 — the hook's declared bound. The coords are loaded and

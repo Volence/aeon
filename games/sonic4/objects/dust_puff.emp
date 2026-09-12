@@ -50,7 +50,7 @@ equ ANI_DUST_PUFF = extern("Ani_DustPuff")
 //
 // In:  d0.l = x_pos (16.16), d1.l = y_pos (16.16)
 // Out: a puff allocated, or NOTHING if the effect pool is exhausted — the
-//      silent skip every creator uses (children.emp:604). Dropping the NEW
+//      silent skip every creator uses (children.emp, each creator's .alloc_fail). Dropping the NEW
 //      spawn is the right policy for a cosmetic and is unanimous across the
 //      reference corpus; do not add eviction.
 // Clobbers: d0, d2, a1 — d0 falls to AllocEffect's exhaustive license (its
