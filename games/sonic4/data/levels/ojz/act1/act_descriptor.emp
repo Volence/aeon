@@ -255,8 +255,14 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(sec: 1, blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
-            // Effects P1 gate: section 1 carries the raster program (S/H + backdrop
-            // split below screen line 120). Scroll right from spawn to reach it.
+            // SECTION 1 CARRIES NO RASTER PROGRAM since 2026-09-12. It used to carry the
+            // Effects P1 fixture `OJZ_TestRaster` (S/H + backdrop split below screen line
+            // 120) — owner ruling: "Take them out of the map but keep them in the engine to
+            // inject anywhere wwe may want." The program is unbound, not deleted; the
+            // ruling, what moved and what did not, and the two ways to inject it again are
+            // in the banner above `OJZ_Preset_Sec1` (games/sonic4/data/effects/
+            // ojz_effects.emp). `OJZ_Preset_Sec1` still exists and is still section 1's
+            // alone, so re-binding is one word in one place.
             effects: OJZ_Preset_Sec1,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
@@ -271,6 +277,16 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // 96-line ramp on screen lines 96-191). Sited here, adjacent to the P1
             // raster section, so ONE sustained right-hold walks sparse -> dense and the
             // sparse tier is proven un-regressed on the same run.
+            //
+            // ⚠ THAT PARAGRAPH EXPIRED ON 2026-09-12 and is quoted rather than deleted.
+            // Section 2 no longer carries `OJZ_TestGradient` — same owner ruling as section
+            // 1 above. With it goes the "one sustained right-hold walks sparse -> dense"
+            // property: NO section of this act binds a dense-tier program any more, so the
+            // dense tier is now proven by INJECTION only (tools/scenes/
+            // effects_raster_dense.json stages `Raster_Pending`, which is how
+            // tools/raster_off_gate.py has always reached the equally unbound
+            // `OJZ_TestVsram`). If a dense effect is ever wanted on the map again, binding
+            // it is one word in `OJZ_Preset_Sec2`.
             effects: OJZ_Preset_Sec2,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),

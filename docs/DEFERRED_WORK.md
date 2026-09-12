@@ -33729,3 +33729,53 @@ ROM and requiring `UNMEASURABLE`.**
 > **A conclusion invariant across independent wrong framings is the one worth acting on** — that
 > invariance is evidence in a way no single count here has earned. So: act on the row, and do not quote
 > any number in it without re-deriving it.
+
+---
+
+## 2026-09-12 — section 1/2 effects unbind: what was left behind on purpose
+
+*(Parcel `parcel/sec12-effects-unbind`. Owner ruling: "Take them out of the map but keep them
+in the engine to inject anywhere wwe may want." `OJZ_Preset_Sec1` and `OJZ_Preset_Sec2` now
+bind `Raster_Program_None`; `OJZ_TestRaster`, `OJZ_TestGradient` and `OJZ_GradientStream` are
+unchanged, unmoved and injectable. Priced in
+`docs/research/2026-09-12-unused-engine-code-and-the-section-1-2-cleanup.md`, whose Option 1
+this parcel is.)*
+
+Four things are deliberately NOT done, each with its reason:
+
+1. **The 832 bytes are still in the ROM.** Unbinding saves nothing: all three symbols are
+   `pub data` in `ojz_effects.emp`, a module the act unavoidably reaches for its other seven
+   presets, and sigil has no dead-symbol elimination below module granularity. Getting them
+   back is the research document's **Option 2** (wrap the three `pub data` in
+   `if DEBUG == 1 { .. } else { [] }`, the shape `OJZ_BandDemo`/`OJZ_BaseSwap` already use —
+   ~1-2 days, release-only, makes them injectable in DEBUG only) or **Option 3** (their own
+   module — cross-repo, and `OJZ_TestRaster` is the `ojz_effects` section's head label, so
+   moving it touches `map.toml` and five files in the sigil repo). **Decide Option 2 on its
+   own merits as a "do we want 832 bytes back in release" question**, not as map cleanup.
+
+2. **Lab rows 29 and 30 still read `SPLT` and `DENS`** (`games/sonic4/test/ojz_scroll_test.emp`).
+   Those glyphs name effects the two sections no longer carry. They are EMITTED `dc.b` bytes
+   and this parcel is byte-count-neutral with no symbol moved; choosing two new four-letter
+   words is a readout-vocabulary decision, not a mechanical rename. Same treatment row 35's
+   `BARE` already has: the comment contradicts the glyph on purpose. Nothing lints a PRESET
+   row's glyph — `test_lab_index_lint.py` grades the kind byte, the sub-index and the RASTER
+   rows' names, and has no arm for this — so the comment is the only warning that exists.
+
+3. **Section 5's borrowed underwater background is untouched.** The owner's ruling names the
+   two test effects and nothing else; the d-53 parallax loan is annotated in source as
+   deliberate and temporary, and silence is not an answer. Still open, still his.
+
+4. **No visual confirmation.** This parcel ran no emulator against the owner's window: the
+   evidence is the four shapes, the effects-gate lane, the preset-lab witness and a
+   before/after on the dense scene. What sections 1 and 2 now LOOK like (a plain OJZ palette
+   with no band and no ramp) is asserted from the engine's own state, not from a screen.
+   **Tagged for foreground follow-up if a visual is wanted.**
+
+*What DID move, so the next reader does not go looking:* `tools/scenes/effects_raster_dense.json`
+stopped navigating to section 2 and now injects `OJZ_TestGradient` through `Raster_Pending`
+(`resolve_scene()` gained symbol-valued pokes), which is how `tools/raster_off_gate.py` has
+always reached the equally unbound `OJZ_TestVsram`. `tools/raster_cost_probe.py`,
+`tools/raster_frame_epoch_probe.py`, `tools/reels_gate.py`, `tools/plane_base_swap_gate.py` and
+`tools/preset_lab_witness.py` needed no code change — the first two build their own program and
+use only `OJZ_GradientStream`'s ADDRESS, the next two derive sizes from symbol GAPS that this
+parcel does not move, and the last derives every expectation from the presets' own fields.

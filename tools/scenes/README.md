@@ -82,16 +82,35 @@ no scene, no gate and no cost row until this parcel, while costing about 27% of 
 shipped content. Three prior sessions established that gap; this scene closes half of it (the other
 half is `raster_cost_probe`'s FD1/FD2 pair and `RASTER_DENSE_LINE_GRAD_CYC`).
 
-**How it reaches the dense program.** `OJZ_TestGradient` lives on OJZ act 1 SECTION 2, so the scene
-has to get the camera there. It does not navigate: it pokes `Camera_X` past the section boundary and
-lets `Parallax_CheckBoundary` — which is edge-triggered on the section under the camera centre and
-runs OUTSIDE the `Debug_Scene_Freeze` gate — install `OJZ_Preset_Sec2` itself.
+**How it reaches the dense program — REWRITTEN 2026-09-12, and the old route is quoted below
+because the reason it went away is the more useful half.**
+
+It used to get the camera to the program: `OJZ_TestGradient` lived on OJZ act 1 SECTION 2, so the
+scene poked `Camera_X = 4960` past the section boundary and let `Parallax_CheckBoundary` — edge
+triggered on the section under the camera centre, and running OUTSIDE the `Debug_Scene_Freeze`
+gate — install `OJZ_Preset_Sec2` itself.
+
+That binding is gone. The owner took both section 1's and section 2's test effects off the playable
+map (`games/sonic4/data/effects/ojz_effects.emp`, the banner above `OJZ_Preset_Sec1`), keeping the
+programs themselves intact and injectable. A scene that still drove the camera to section 2 would
+have found `Raster_Program_None` there and measured the dense tier not running — and the gate's
+`--expect-region` rows would have gone red for a reason that has nothing to do with the dense body.
+
+**So the scene INJECTS the program instead of navigating to it.** It stages the program's address
+into `Raster_Pending`, and `Raster_VBlank` installs it at the next frame top. That is not new
+machinery: `tools/raster_off_gate.py` has always reached `OJZ_TestVsram` this way, and
+`tools/base_swap_witness.py` reaches `OJZ_BaseSwap` — both programs that bind to no section at all.
+The address is resolved from the listing under test by `resolve_scene()` (a poke whose `value` is
+`{"symbol": NAME}`); a name the listing does not carry is a hard refusal, because a poke of 0 into
+`Raster_Pending` means *keep whatever is live* and the gate would then measure the section's own
+program while claiming to measure the fixture.
 
 | poke | why |
 |---|---|
-| `Debug_Scene_Freeze = 1` | as above: `Camera_Update` is skipped so the written camera stays put |
+| `Debug_Scene_Freeze = 1` | `Camera_Update` is skipped, so nothing crosses a section boundary and re-installs a preset over the injected program |
+| `Effects_Motion_Any = 0` | disarms the anchor mover (see the sparse-scene note above) |
 | `Camera_Y = 144` | `(144 + 112) >> SECTION_SIZE_SHIFT` = section row 0 |
-| `Camera_X = 4960` | `(4960 + 160) >> 11` = section column 2, and `GRID_W` is 3, so flat section 2 |
+| `Raster_Pending = &OJZ_TestGradient` | THE INJECTION. Resolved from the listing under test, never spelled as an address |
 
 `run_frames: 12` after the poke. **The settle is measured, not guessed:** at 3 frames
 `Raster_Program` already points at `OJZ_TestGradient` but `Raster_Dense_Cmd` is still zero — the
@@ -99,6 +118,13 @@ program is installed a frame or two before the handler has walked its setup reco
 would have captured a live program that had never run. 12 leaves margin. A settle that is too short
 cannot pass vacuously here, because the gate asserts the run's END STATE and an unrun program fails
 it loudly.
+
+**The re-point was proved before it was relied on, on the ROM where the old route still worked.**
+Run against the PRE-change `s4.debug.bin` — section 2 still binding `OJZ_TestGradient` — the
+re-pointed scene passed with all 10 assertions, and the camera never left section 0, so only the
+injection could have put the program live. The control that makes that a measurement rather than a
+coincidence: deleting the `Raster_Pending` poke from the same scene on the same ROM failed at
+`dense_state+6:4: expected 0xc0480000, got 0x00000000` — nothing had installed a dense program.
 
 **What it asserts, and why the cursor is the one that counts.** The program half checks the words
 `raster_gradient_program` emitted (the two priming arms, the setup record's arm, the opcode, the

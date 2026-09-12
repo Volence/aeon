@@ -1520,7 +1520,38 @@ pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE,
                                                                    ANCHOR_MOTION_NONE])
-pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+// SECTION 1 NO LONGER CARRIES `OJZ_TestRaster`, and section 2 no longer carries
+// `OJZ_TestGradient` (owner ruling 2026-09-12: *"Take them out of the map but keep them in
+// the engine to inject anywhere wwe may want."*). Both were P1/P2 acceptance FIXTURES sited
+// in the playable map; the map is not where a fixture belongs once the tier it proves has
+// gates of its own.
+//
+// WHAT THIS IS AND IS NOT. It is an ARGUMENT change — two `raster:` values become
+// `Raster_Program_None`, the documented off sentinel (preset.emp:62, and :282/:434 for why 0
+// means KEEP and never OFF). It is NOT a deletion: `OJZ_TestRaster`, `OJZ_TestGradient` and
+// `OJZ_GradientStream` keep their declarations, their names, their addresses and their
+// emitted bytes, and re-binding either to any section is the one word that was just taken
+// out. `EffectsPreset` is a fixed 46-byte record, so the two preset rows do not shrink and
+// nothing downstream moves — the whole edit is byte-count-neutral and moves no symbol, which
+// the four gap-derived gates in this file's closing ledger require.
+//
+// IT SAVES ZERO BYTES, deliberately, and that is not an oversight — it is the whole cost of
+// the cheap option. The three data symbols are `pub data` in THIS module, which the act
+// unavoidably reaches for its other seven presets, and sigil has no dead-symbol elimination
+// below module granularity (docs/research/2026-09-12-unused-engine-code-and-the-section-1-2-
+// cleanup.md, measured). 832 bytes stay in the ROM doing nothing until someone takes
+// that document's Option 2 (a `if DEBUG == 1 { .. } else { [] }` wrapper, the shape
+// `OJZ_BandDemo` and `OJZ_BaseSwap` already use) or Option 3 (their own module). Booked.
+//
+// INJECTION, WHICH IS THE HALF THE RULING REQUIRES TO STAY TRUE, has two spellings and
+// BOTH are live today with nothing to build on the sigil side:
+//   * SOURCE — name the program in any `preset()`'s `raster:`. One word.
+//   * RUNTIME — stage its address into `Raster_Pending`; `Raster_VBlank` installs it at the
+//     next frame top. `tools/raster_off_gate.py` does exactly this with `OJZ_TestVsram`, a
+//     program that reaches NO section, and `tools/base_swap_witness.py` with `OJZ_BaseSwap`.
+//     `tools/scenes/effects_raster_dense.json` now does it with `OJZ_TestGradient`, which is
+//     what keeps the dense-tier gate measuring the dense tier after this change.
+pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 // SECTION 2 NO LONGER CARRIES OJZ_TestPal, and the reason is measured rather than
 // aesthetic (owner ruling 2026-09-03: "For 2 just get rid of the blue hiding the effect").
 // This preset installed a 96-line CRAM ramp AND a synthetic palette that floods the screen
@@ -1550,7 +1581,11 @@ pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // `OJZ_TestPal` ITSELF IS UNTOUCHED and must stay where it is: tools/plane_base_swap_gate.py
 // derives OJZ_BaseSwap's emitted size from the gap to `NEXT_SYM = "OJZ_TestPal"`, so the
 // SYMBOL's position immediately after it is load-bearing even though this binding was not.
-pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+//
+// AND SINCE 2026-09-12 IT CARRIES NO RASTER PROGRAM EITHER — see the banner above
+// OJZ_Preset_Sec1 for the ruling, what was and was not changed, and the two injection
+// spellings that keep `OJZ_TestGradient` reachable from anywhere.
+pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 // SECTION 3 THREADS THE PALETTE CHOOSERS (EFFECTS-W1 item 5). `hand:` is what this section
 // carries today — `OJZ_ShimmerCycle` on the cycle channel, `Variant_Water_Deep` in variant
 // slot 0 and nothing in slot 1 — so with no sidecar naming a document both choosers return
@@ -1588,6 +1623,14 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // any of them would evict an instrument the effects gate lane measures. Section 4 is the
 // first section whose raster channel was Raster_Program_None, i.e. the first one where the
 // showcase can take the channel without taking it from something.
+//
+// ⚠ THAT REASONING EXPIRED ON 2026-09-12 AND IS QUOTED RATHER THAN DELETED, so a reader who
+// remembers it meets the correction. Sections 1 and 2 gave their fixtures up by owner ruling
+// (see the banner above OJZ_Preset_Sec1), so the sentence "sections 0-3 each bind a gate
+// FIXTURE" now describes 0 and 3 only, and sections 1 and 2 are ALSO free raster channels a
+// future showcase could take. The DECISION it explains is unaffected — section 4 already
+// holds the split and moving it would change bytes for nothing — so this is a record fix,
+// not a reopened question.
 pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_DepthVSplit,     cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 // SECTION 5 IS THE SPLIT (EFFECTS-W1 item 1 step 5). It is OJZ_Preset_Plain in every
 // respect that a byte can see today — same palette, same variant, no cycle, and a raster
@@ -2435,8 +2478,12 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 //
 // WHY THIS TABLE EXISTS. This file defines thirteen raster / patched / cycle / gradient /
 // ramp programs, and a reader has no way to tell an act effect from an instrument: they
-// sit in one list, in one namespace, constructed the same way. Six of the thirteen render
-// in OJZ act 1. The rest are gate fixtures, a retired install, and two DEBUG-only demos.
+// sit in one list, in one namespace, constructed the same way. FOUR of the thirteen render
+// in OJZ act 1 — it was six until 2026-09-12, when `OJZ_TestRaster` and `OJZ_TestGradient`
+// left the map by owner ruling (the banner above `OJZ_Preset_Sec1`). Count it off the rows
+// below rather than from this sentence: a "reaches" row that is not `NO SECTION` is a
+// renderer, and `OJZ_GradientStream` is data and was never one of the six.
+// The rest are gate fixtures, a retired install, and two DEBUG-only demos.
 // EVERY ROW BELOW IS DERIVED FROM THE `preset()` CALLS IN THIS FILE plus the nine
 // `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp:239-361 —
 // a program "reaches a section" iff some preset names it AND that preset is bound there.
@@ -2449,9 +2496,6 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 //   program              tier      reaches                 how
 //   -------------------  --------  ----------------------  ---------------------------
 //   OJZ_TwoChannel       patched   SECTION 0               OJZ_Preset_Sec0 `patched:`
-//   OJZ_TestRaster       raster    SECTION 1               OJZ_Preset_Sec1 `raster:`
-//   OJZ_TestGradient     raster    SECTION 2               OJZ_Preset_Sec2 `raster:`
-//   OJZ_GradientStream   data      SECTION 2 (indirect)    OJZ_TestGradient's `stream:`
 //   OJZ_ShimmerCycle     cycle     SECTION 3               OJZ_Preset_Sec3 `cycle:` (via
 //                                                          ojz_act1_sec_cycle's `hand:`;
 //                                                          the chooser has no sec-3 arm,
@@ -2459,6 +2503,36 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 //   OJZ_DepthVSplit      raster    SECTION 4               OJZ_Preset_Depth `raster:`
 //   OJZ_WorldWater       patched   SECTION 7               OJZ_Preset_Sec7 `patched:`
 //   -------------------  --------  ----------------------  ---------------------------
+//   OJZ_TestRaster       raster    NO SECTION              was SECTION 1 until 2026-09-12.
+//                                                          Owner: "Take them out of the map
+//                                                          but keep them in the engine to
+//                                                          inject anywhere wwe may want."
+//                                                          UNBOUND, NOT DELETED, and NOT
+//                                                          FREE: it is still `pub data` in
+//                                                          this module, and it is the HEAD
+//                                                          LABEL of the whole `ojz_effects`
+//                                                          section (games/sonic4/map.toml
+//                                                          :132, read by tools/reels_gate.py
+//                                                          :162). Moving it is a cross-repo
+//                                                          parcel; unbinding it was two
+//                                                          words.
+//   OJZ_TestGradient     raster    NO SECTION              was SECTION 2 until 2026-09-12,
+//                                                          same ruling. The DENSE-tier gate
+//                                                          reached it through that binding
+//                                                          and now INJECTS it instead
+//                                                          (tools/scenes/effects_raster_
+//                                                          dense.json stages Raster_Pending)
+//                                                          — the gate measures the same
+//                                                          thing, through the capability
+//                                                          the ruling kept.
+//   OJZ_GradientStream   data      NO SECTION (indirect)   OJZ_TestGradient's `stream:`.
+//                                                          Still read by the injected run,
+//                                                          and its ADDRESS is what
+//                                                          raster_cost_probe's FD1/FD2 and
+//                                                          raster_frame_epoch_probe stream
+//                                                          from — both build their own
+//                                                          program and never went through a
+//                                                          section binding at all.
 //   OJZ_TestPal          palette   NO SECTION              ⚠ MUST NOT MOVE. See the
 //                                                          "`OJZ_TestPal` ITSELF IS
 //                                                          UNTOUCHED" note further down,

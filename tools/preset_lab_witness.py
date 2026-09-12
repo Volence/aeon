@@ -68,6 +68,21 @@ WHAT IT MEASURES.
      Raster_Program_None", is stale: section 7's preset is PATCHED now, and that is what
      puts a BLIND on the readout below. The list is gone anyway — every binding is derived
      at runtime, so hand-copying them could only ever go wrong, and one of four did.)
+
+     ⚠ AND NOW TWO OF THE THREE ARE STALE TOO — 2026-09-12, which is the third time this
+     one parenthesis has gone wrong and the reason it is quoted instead of corrected in
+     place. Sections 1 and 2 no longer bind ANY raster program: the owner took both test
+     effects off the playable map (games/sonic4/data/effects/ojz_effects.emp, the banner
+     above `OJZ_Preset_Sec1`). This file needed no code change for it — `want_prog` is
+     `0 if raster == none_prog else raster`, read out of each preset's own `ep_raster`, so
+     both sections now expect `Raster_Program == 0` and the verdict glyph follows the same
+     derivation. WHAT IT COSTS, stated because a passing run will not say it: sections 1
+     and 2 move OFF the "a real static program was installed" arm. That arm is still
+     covered — sections 4, 5 and 6 install static programs ($015420 / $014C38 / $014CB8 on
+     the 2026-09-12 build) — so this is a narrowing, not a hole. WHAT IT BUYS: `V_NONE`
+     ("no raster, no patched program, no palette cycle, and the act's own default
+     background") had NEVER been exercised by any of the nine sections, and now two
+     sections exercise it. The measured before/after is in the parcel that made the change.
   3. The READOUT is on screen and correct, byte for byte: VRAM tile
      VRAM_DEBUG_PRESET_READOUT+0 equals the digit sheet's row for the section, and tile +1
      equals the verdict sheet's row for the state the preset is actually in. (Both cells
