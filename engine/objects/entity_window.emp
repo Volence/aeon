@@ -761,10 +761,12 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
         lsr.w   #1, d1                  // d1 = row offset (entry >> 1)
         add.b   d1, d3 as GridY         // d3 = sec_y0 + (entry >> 1)
         movea.l Current_Act_Ptr, a2
-        jbsr    Section_GetSecPtrXY     // a0 = Sec ptr, Z set = out of grid
+        jbsr    Section_GetSecPtrXY     // a0 = Sec ptr, d0.w = flat id; Z set = out of grid
         beq     .void_entry             // (unsigned check voids "negative" bytes too)
 
-        jbsr    Section_FlatIDXY        // d0.w = flat id (d2/d3/a2 preserved)
+        // d0 is the flat id GetSecPtrXY already computed. This used to call
+        // Section_FlatIDXY here, on the same registers, to recompute the same
+        // product with a repeated-add loop (lens row C4a-4, 2026-09-11).
         move.w  d0, d1                  // d1.b = section_id
 
         // origins: column/row base + (entry bit) × SECTION_SIZE

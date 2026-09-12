@@ -2347,11 +2347,11 @@ sec 2 : world px 4096 .. 6143   ...
 ```
 sec_x   = world_px_x >> SECTION_SIZE_SHIFT      ; SECTION_SIZE_SHIFT = 11
 sec_y   = world_px_y >> SECTION_SIZE_SHIFT
-flat_id = sec_y × grid_w + sec_x                ; Section_FlatIDXY
+flat_id = sec_y × grid_w + sec_x                ; Section_FlatIDXY, and Section_GetSecPtrXY's d0
 sec_ptr = base + flat_id × Sec_len              ; Section_GetSecPtrXY
 ```
 
-`Section_FlatIDXY` / `Section_GetSecPtrXY` are grid-agnostic and unchanged — only the *source* of `sec_x/sec_y` changed (from the deleted slot map to a 2-shift derive off the world camera).
+`Section_FlatIDXY` / `Section_GetSecPtrXY` are grid-agnostic and unchanged — only the *source* of `sec_x/sec_y` changed (from the deleted slot map to a 2-shift derive off the world camera). `Section_GetSecPtrXY` returns the flat id it computes in `d0` beside the Sec pointer (since 2026-09-11, lens row C4a-4; `d0` was a 1/0 found flag before, and the found/not-found answer is the Z flag), so a caller that needs both — `EntityWindow_BuildEntries` — makes one call instead of following it with `Section_FlatIDXY` on the same registers. `Section_FlatIDXY` remains for the callers that want only the id of the camera-centre section (`EntityWindow_Init`, `EntityWindow_Slide`, `GameState_OJZScroll_Update`); its repeated-add loop carries its bound argument at the loop.
 
 **Section addressing:** `section(X, Y)` where X is always ≥ 0 (0 = level start) and Y indexes grid rows downward (0 = starting band; the grid can extend above the start row for sky/canopy and below for caves/lakes). The vertical Y=0 ceiling of classic Sonic is removed.
 
