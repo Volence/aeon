@@ -807,9 +807,15 @@ def latch_windows(build: Build, max_patch: int) -> dict:
     k = build
     md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
     start = k.s("Effects_LatchWorldLines")
-    later = sorted(a for n, a in k.sym.items() if a > start and not n.startswith("$")
-                   and a < len(k.rom) and n not in phased_names())
-    end = later[0]
+    # The extent comes from the tree's ONE head-to-next-head implementation,
+    # scene_spans.lst_proc_sizes, which drops phased names before the address sort (see
+    # tools/test_routine_extent_phased.py: a sixth opinion on "where a routine ends" is the
+    # class that test exists to stop). Its head rows are unmangled top-level labels only.
+    from scene_spans import lst_proc_sizes
+    size = lst_proc_sizes(str(k.lst_path)).get("Effects_LatchWorldLines")
+    if not size:
+        raise CouldNotRun("scene_spans.lst_proc_sizes has no size for Effects_LatchWorldLines")
+    end = start + size
     insns = list(md.disasm(k.rom[start:end], start))
     if not insns or insns[-1].address + insns[-1].size > end:
         raise CouldNotRun("could not decode Effects_LatchWorldLines")
