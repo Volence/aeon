@@ -93,7 +93,7 @@
 // The player pointer lives in the flash's OWN sst_custom overlay rather than in
 // `parent_ptr`, following dust_spindash.emp for its three reasons: a non-zero
 // parent_ptr makes Draw_Sprite dereference the parent every frame to test
-// RF_MULTISPRITE (children.emp:630-635); parent_ptr carries a documented invariant
+// RF_MULTISPRITE (children.emp CreateEffect_Normal); parent_ptr carries a documented invariant
 // that its writer also links the object into the parent's sibling chain, and the
 // Tails appendage uses `sibling_ptr != 0` as its sole presence test — a second child
 // kind on a player slot would make a live flash look like a live pair of tails; and
@@ -503,7 +503,7 @@ ensure(vram_art(0, 0, 1) - vram_art(0, 0, 0) == INSTA_SHIELD_PRIO,
 //
 // In:  a0 = player SST
 // Out: the flash allocated, or NOTHING if the effect pool is exhausted — the silent
-//      skip every creator uses (children.emp:604). THE ATTACK STILL HAPPENS: the flag
+//      skip every creator uses (children.emp .alloc_fail). THE ATTACK STILL HAPPENS: the flag
 //      was written before this call, so a flash lost to a full pool costs the visual
 //      and nothing else. Dropping the new cosmetic is the unanimous policy here; do
 //      not add eviction.

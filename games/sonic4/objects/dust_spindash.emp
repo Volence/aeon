@@ -130,7 +130,7 @@ pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
 
 // The follower's own sst_custom overlay — just the player it tracks.
 //
-// NOT parent_ptr, deliberately: children.emp:630-635 records that a non-zero
+// NOT parent_ptr, deliberately: children.emp CreateEffect_Normal records that a non-zero
 // parent_ptr makes Draw_Sprite dereference the parent every frame to test
 // RF_MULTISPRITE, and that an effect spawned by a multisprite parent was then
 // skipped as batch-rendered while absent from the sibling chain — i.e. never
