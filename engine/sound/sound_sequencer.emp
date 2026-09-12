@@ -1124,7 +1124,7 @@ section sound_sequencer (cpu: z80) {
     // ======================================================================
 
     // $E0 MEV_VOL  + vv : set channel volume (linear 0..127), zero tick
-    pub proc Seq_Op_Vol () clobbers(af, bc, de) {
+    pub proc Seq_Op_Vol () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand
         ld      (ix+sc_volume), a
@@ -1200,7 +1200,7 @@ section sound_sequencer (cpu: z80) {
     // The SFX arm also skips the SCF_SFX_OVERRIDE gate, which is meaningless on an SFX
     // slot (that bit marks a MUSIC channel an SFX has stolen).
     // Snd_ChanClass returns ix in hl, so hl — the live stream pointer — is bracketed.
-    pub proc Seq_Op_PsgNoise () clobbers(af) {
+    pub proc Seq_Op_PsgNoise () clobbers(af, hl) {
         push    hl                      // Snd_ChanClass returns ix in hl; save the stream ptr
         call    Snd_ChanClass           // CARRY set => ix below the SFX page => MUSIC
         pop     hl
@@ -1227,7 +1227,7 @@ section sound_sequencer (cpu: z80) {
     // Snd_ParkDac re-selects $2A here (the $22-specific case; not the generally-redundant
     // repark). Fm_YmWrite (part I) + Snd_ParkDac both preserve hl (the live stream ptr).
     // Zero-tick.
-    pub proc Seq_Op_Lfo () clobbers(af, bc) {
+    pub proc Seq_Op_Lfo () clobbers(af, bc, hl) {
         ld      c, (hl)                 // c = operand ($22 value: enable|rate)
         inc     hl                      // consume operand
         ld      a, SND_REG_LFO          // $22
@@ -1276,7 +1276,7 @@ section sound_sequencer (cpu: z80) {
     // $F3 MEV_TEMPO + dd : set the GLOBAL tempo mod (S3K TempoWait units; 0 = full
     // speed, BIGGER = SLOWER). Snaps base+cur+target and writes through to every
     // channel's sc_tempo_mod. Zero-tick; Tempo_WriteChanMods preserves hl.
-    pub proc Seq_Op_Tempo () clobbers(af, bc, de) {
+    pub proc Seq_Op_Tempo () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand (mod value)
         ld      (SND_TEMPO_BASE), a     // authored base (restore reference)
@@ -1346,7 +1346,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $E1 MEV_PATCH + pp : set FM patch index, zero tick
-    pub proc Seq_Op_Patch () clobbers(af, bc, de) {
+    pub proc Seq_Op_Patch () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl
         ld      (ix+sc_patch), a
@@ -1364,7 +1364,7 @@ section sound_sequencer (cpu: z80) {
 
     // $E2 MEV_DAC  + ss : DAC trigger (sample id in operand), zero tick. It fires the
     // DAC trigger hook and continues the fetch loop; a following SetDur/Rest paces it.
-    pub proc Seq_Op_Dac () clobbers(af, bc, de) {
+    pub proc Seq_Op_Dac () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl
         ld      (ix+sc_note), a         // stash trigger id (debug/visibility)
@@ -1381,7 +1381,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
-    pub proc Seq_Op_NoteDur () clobbers(af, de) {
+    pub proc Seq_Op_NoteDur () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = pitch operand (bit 7 = no-attack flag)
         ld      d, a                    // save raw operand for the no-attack test below
@@ -1407,7 +1407,7 @@ section sound_sequencer (cpu: z80) {
     // $E7 MEV_NOTE_RAW + a4 a0 dd : key an FM note at a RAW frequency word (the exact
     // $A4/$A0 bytes) for duration dd, bypassing FmPitchTableZ. FM-only: a non-FM route
     // still consumes the 3 operands and advances time. Advances time (like NOTE_DUR).
-    pub proc Seq_Op_NoteRaw () clobbers(af, de) {
+    pub proc Seq_Op_NoteRaw () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = $A4 value (block|fnumHi)
         ld      d, a                    // d = $A4 (Fm_NoteOnFreq input)
@@ -1446,9 +1446,9 @@ section sound_sequencer (cpu: z80) {
     // sc_points[]; sc_pt_cursor=0; set SCF_KEYED + SCF_REKEY; reload sc_dur_default and
     // ADVANCE TIME. count==1: key IN THIS TICK via Seq_RekeySingle (the boundary-dropout
     // fix). count>=2: leave the arm for ModUpdate's per-frame trill/arp renderer. FM-only
-    // by packer guarantee. Clobbers af,bc,de. Commits hl -> sc_stream_ptr then ret.
+    // by packer guarantee. Clobbers af,bc,de,hl. Commits hl -> sc_stream_ptr then ret.
     // `count` is trusted from the stream (packer guarantees 1..5).
-    pub proc Seq_Op_PitchEnv () clobbers(af, bc, de) {
+    pub proc Seq_Op_PitchEnv () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = count (1..5); hl past the count byte
         ld      (ix+sc_pt_count), a
@@ -1496,8 +1496,8 @@ section sound_sequencer (cpu: z80) {
     // $E4 MEV_PAN + b4 : set the channel's pan/AMS/FMS state (the raw YM $B4 byte).
     // Coordination SETTER (ZERO TICK): stores the operand into sc_pan and continues.
     // Does NOT write the YM here — ModUpdate renders sc_pan to $B4+chan write-on-change.
-    // Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
-    pub proc Seq_Op_Pan () clobbers(af) {
+    // Clobbers: af, hl (advanced past the operand, kept live). Uses ix.
+    pub proc Seq_Op_Pan () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume the $B4 operand byte
         ld      (ix+sc_pan), a          // store pan state (rendered by ModUpdate)
@@ -1579,8 +1579,8 @@ section sound_sequencer (cpu: z80) {
     // EXPLICIT part (0/1), IMMEDIATELY. Zero command-tick. GUARD: reg==$2A/$2B (DAC
     // data/enable) and reg $24-$27 (the timer block) are SKIPPED so a song can never
     // clobber the DAC stream or stop Timer A. After the write, Snd_ParkDac re-selects
-    // $2A. Clobbers: af, bc. Manipulates: hl (kept live). Uses ix.
-    pub proc Seq_Op_RegWrite () clobbers(af, bc) {
+    // $2A. Clobbers: af, bc, e (the reg), hl (advanced past the operands, kept live). Uses ix.
+    pub proc Seq_Op_RegWrite () clobbers(af, bc, e, hl) {
         ld      a, (hl)
         inc     hl                      // a = part (0/1); hl past part byte
         and     1                       // mask to part bit (Fm_YmWrite tests bit 0)
@@ -1640,8 +1640,8 @@ section sound_sequencer (cpu: z80) {
     // $E6 MEV_REPEAT_END + nn : end of a repeatable body. sc_repeat_count is the "reps
     // remaining" state machine (0 = fresh-OR-done): fresh -> set count = nn; dec count;
     // >0 -> reload hl from sc_repeat_ptr (jump to body start); ==0 -> fall through past
-    // the operand. Zero tick, calls NO writer hook. Clobbers: af, b.
-    pub proc Seq_Op_RepeatEnd () clobbers(af, b) {
+    // the operand. Zero tick, calls NO writer hook. Clobbers: af, b, hl.
+    pub proc Seq_Op_RepeatEnd () clobbers(af, b, hl) {
         ld      a, (hl)
         inc     hl                      // a = nn (operand); hl now PAST the operand
         ld      b, a                    // b = nn (preserve across the fresh test)
@@ -1698,7 +1698,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $EF MEV_JUMP : jump to the saved loop point
-    pub proc Seq_Op_Jump () clobbers(af) {
+    pub proc Seq_Op_Jump () clobbers(af, hl) {
         // Stage C: a continuous SFX slot that ran out of pings (sx_extend == 0FFh) ENDS
         // here instead of re-looping. Guard on SFX class FIRST — music channels have no
         // sx_extend.
