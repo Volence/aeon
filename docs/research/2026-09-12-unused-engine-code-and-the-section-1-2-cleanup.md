@@ -145,6 +145,11 @@ than claiming it.** Arm A is the proven cheap path: adding data to an *existing*
 
 Everything above was reverted; the tree was rebuilt and confirmed byte-identical to baseline.
 
+**Landing evidence for this (docs-only) branch.** `./tools/landing_build.sh` — all four canonical shapes
+plus the needs-build lane — `finished=0`, exit 0. Four shapes at **2569 passed, 0 failed** each
+(125 subtests, 2 skipped, 14 deselected); needs-build lane **14 ran, 0 deferred, 0 failed**.
+Wall clock 22:29:31Z→22:45:39Z, uptime load avg 5.95 (several other lanes active on this box).
+
 ---
 
 ## 4. The concrete case: section 1's red band and section 2's ramp
@@ -182,7 +187,16 @@ section.** If "section 2's ramp" means the thing actually rendering on section 2
 | `OJZ_Preset_Sec1` | `0x154CE`→`0x154FC` | 46 |
 | `OJZ_Preset_Sec2` | `0x154FC`→`0x1552A` | 46 |
 
-None of the three data symbols is `DEBUG`-gated, so release pays the same 832.
+None of the three data symbols is `DEBUG`-gated. **Re-derived independently from `s4.lst` (release
+shape):** `OJZ_TestRaster` `0x14528`→`0x145A8` = 128; `OJZ_GradientStream` `0x14690`→`0x148D0` = 576;
+`OJZ_TestGradient` `0x148D0`→`0x14950` = 128 — **the same 832**, and `OJZ_Preset_Sec1`/`Sec2` are 46 each
+(`0x14B2E`/`0x14B5C`/`0x14B8A`). Release pays exactly what debug pays.
+
+**And the release listing independently proves Option 2 works.** In `s4.lst`, `OJZ_BandDemo`,
+`OJZ_BaseSwap` and `OJZ_TestPal` all sit at the *same* address `0x145A8` — i.e. the two
+`if DEBUG == 1 { .. } else { [] }` programs occupy **zero bytes** in release, while still existing as
+named, injectable programs in the debug shape. That is not a claim about a mechanism; it is the
+mechanism already working in the shipped ROM.
 
 ### What the cleanup costs or saves
 
@@ -278,8 +292,8 @@ one. Arm B proves the mechanism works; the cost is entirely in where these parti
 - **Whether a zero-toolchain-edit injection path exists.** Two attempts failed (§3, Arm C). It may well
   be possible and I simply did not find the right spelling; a sigil-side answer would settle it in
   minutes. **Tagged for follow-up.**
-- **Release-shape sizes** are asserted equal to debug on the grounds that none of the three symbols is
-  `DEBUG`-gated. I derived the 832 from `s4.debug.lst`; I did not separately re-derive it from `s4.lst`.
+- ~~Release-shape sizes were asserted rather than derived.~~ **Closed** — re-derived from `s4.lst`
+  in §4; the release total is the same 832.
 - **Nothing here was confirmed in motion.** No emulator was run (this parcel's standing constraint).
   Claims about what renders on sections 1 and 2 come from source and from the existing gates, not from
   a screen. **Tagged for foreground follow-up if a visual confirmation is wanted.**
