@@ -20,8 +20,12 @@ because a length match is not an identity: a rebuild that changes content withou
 changing size passes the length check, and for this tree that is the common case —
 the four canonical shapes have held their sizes across many landings.
 
-Cost, RE-MEASURED 2026-09-12 rather than inherited, and it is an order of magnitude
-smaller than the figure this module shipped with. Method: spawn twice and subtract —
+Cost, RE-MEASURED 2026-09-12 rather than inherited. What this module shipped with was
+"847,885 bytes ... well under a second" — a BOUND, not a figure, and the measurement
+below is inside it, so nothing here corrects it. Two things did need re-deriving: the
+byte count (the ROM has changed size since) and how far inside that bound the answer
+actually is, because "under a second" is the kind of headroom that decides whether a
+check can be unconditional. Method: spawn twice and subtract —
 `cart_check="length"` pays everything except the readback, so full-minus-length IS the
 readback (`python3 tools/aether_instance.py --smoke` prints both operands, because a
 difference without them is not a measurement).
