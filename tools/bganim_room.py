@@ -89,11 +89,14 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   ⚠ MOVING THE ANCHORS IS NOT SOMETHING AEON CAN DO ALONE, and that is a mechanism
   rather than the retired ceremony. The owner ended the paired aeon+sigil freeze on
   2026-09-02 ("CUT THE CEREMONY", empyrean docs/OVERSEER.md 2026-09-02T18:20:19Z),
-  so a sigil refreeze no longer GATES an ordinary aeon landing. But a `[[anchor]]`
-  in map.toml places nothing: sigil derives every section's provisional base from
-  its frozen table (`load_frozen_table` -> `true_bases_by_index`) and uses the map's
-  anchors only as an address set that AUTHORIZES a section to stay where the table
-  already puts it. Measured both ways on 2026-09-04 — moving the anchors alone gives
+  so a sigil refreeze no longer GATES an ordinary aeon landing. But an island's
+  address is written twice, in map.toml's `[[anchor]]` and in sigil's frozen table,
+  and the build requires the two to agree: read at sigil 6884bfba, a section is held
+  at its frozen provisional base only when that base equals a declared anchor (the
+  Z80 phase bank is held by its frozen row and the anchor validates it), and every
+  other section is packed from live-measured lengths in map.toml's `order`, which no
+  frozen row moves (2026-09-12 re-derivation; the 09-04 wording "an anchor places
+  nothing" over-generalised). Measured both ways on 2026-09-04 — moving the anchors alone gives
   `[map.undeclared-island] ROM section at 0x90000`, and declaring a spare anchor at
   0xA8000 with the tables unchanged gives `[map.anchor-absent] ... at 0xA8000 is not
   an inferred island`. So an anchor move must be HANDED to the sigil lane with the
