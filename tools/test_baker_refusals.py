@@ -396,3 +396,181 @@ def test_f3_gate_fails_a_tileset_shorter_than_the_editor_references(tmp_path, mo
     fails = _run_gate(monkeypatch, root, vlb.verify_editor_bake_fidelity)
     assert any("past the end of the" in f and f"highest index {highest}" in f
                for f in fails), fails
+
+
+# ---------------------------------------------------------------------------
+# F5 -- refusals must come before the first write, or the write must be undone
+# ---------------------------------------------------------------------------
+
+def test_f5_a_wrong_sized_collattrb_is_refused_not_mirrored(tmp_path, monkeypatch):
+    osg = _strip_gen()
+    painted = _plane({(20, 10): (SOL_ALL << 12) | SHAPE_WITH_GEOMETRY})
+    ed = _one_section_editor(tmp_path, painted, collattrb=bytes(CELL_FILE_BYTES - 2))
+    with pytest.raises(ValueError) as exc:
+        _overlay(osg, monkeypatch, ed)
+    msg = str(exc.value)
+    assert "section_0.collattrb.bin" in msg and str(CELL_FILE_BYTES - 2) in msg, msg
+
+
+def test_f5_converse_an_absent_collattrb_still_mirrors_plane_a(tmp_path, monkeypatch):
+    osg = _strip_gen()
+    painted = _plane({(20, 10): (SOL_ALL << 12) | SHAPE_WITH_GEOMETRY})
+    out_a, out_b = _overlay(osg, monkeypatch, _one_section_editor(tmp_path, painted))
+    assert out_a[10][10] != 0 and out_b[10][10] == out_a[10][10]
+
+
+def _editor_inputs(tmp_path, n, tiles=4):
+    ed = tmp_path / "ed"
+    ed.mkdir()
+    for i in range(n):
+        (ed / f"section_{i}.tiles.bin").write_bytes(bytes(CELL_FILE_BYTES))
+        (ed / f"section_{i}.collattr.bin").write_bytes(bytes(CELL_FILE_BYTES))
+        (ed / f"section_{i}.collattrb.bin").write_bytes(bytes(CELL_FILE_BYTES))
+    ts = tmp_path / "tiles.bin"
+    ts.write_bytes(bytes(32 * tiles))
+    return ed, ts
+
+
+@pytest.mark.parametrize("defect", [
+    "collattr_short", "collattrb_short", "tiles_short", "missing_last_section",
+    "index_past_tileset", "partial_tile",
+])
+def test_f5_every_editor_input_refusal_is_decided_before_the_first_write(tmp_path, defect):
+    """validate_editor_inputs is what preflight() runs before regenerate-level.sh's
+    first write. Each row is one defect the bake used to meet only after that write."""
+    import act_grid
+    osg = _strip_gen()
+    n = act_grid.section_count()
+    ed, ts = _editor_inputs(tmp_path, n)
+    osg.validate_editor_inputs(str(ed), str(ts), n)      # converse control: valid inputs pass
+    if defect == "collattr_short":
+        (ed / "section_0.collattr.bin").write_bytes(bytes(CELL_FILE_BYTES - 2))
+        want = "section_0.collattr.bin is"
+    elif defect == "collattrb_short":
+        (ed / "section_1.collattrb.bin").write_bytes(bytes(CELL_FILE_BYTES - 2))
+        want = "section_1.collattrb.bin is"
+    elif defect == "tiles_short":
+        (ed / "section_0.tiles.bin").write_bytes(bytes(CELL_FILE_BYTES - 2))
+        want = "section_0.tiles.bin is"
+    elif defect == "missing_last_section":
+        (ed / f"section_{n - 1}.tiles.bin").unlink()
+        want = f"section_{n - 1}.tiles.bin is MISSING"
+    elif defect == "index_past_tileset":
+        buf = bytearray(CELL_FILE_BYTES)
+        struct.pack_into(">H", buf, 0, 0x0004)            # tile 4 of a 4-tile set
+        (ed / "section_2.tiles.bin").write_bytes(bytes(buf))
+        want = "highest index 4"
+    else:
+        ts.write_bytes(bytes(32 * 4 + 2))
+        want = "not a non-empty whole number"
+    with pytest.raises(SystemExit) as exc:
+        osg.validate_editor_inputs(str(ed), str(ts), n)
+    assert want in str(exc.value), str(exc.value)
+
+
+# The restore half, run for real: tools/regenerate-level.sh copied into a scratch git
+# repository and driven with STUB tools (TOOLS=stubs), so no donor and no real bake are
+# needed and nothing outside tmp_path can be touched.
+
+_STUB_WRITER = r'''
+import os, sys
+os.makedirs("games/sonic4/data/generated/ojz/act1", exist_ok=True)
+FAIL_AT = os.environ.get("STUB_FAIL_AT", "")
+def fail_here(step):
+    if FAIL_AT == step:
+        print(f"stub {step}: refusing on purpose", file=sys.stderr)
+        sys.exit(1)
+'''
+
+
+def _stub_repo(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    shutil.copy(os.path.join(HERE, "regenerate-level.sh"), repo / "tools" / "regenerate-level.sh")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    stubs = repo / "stubs"
+    (stubs / "bin").mkdir(parents=True)
+    salv = stubs / "bin" / "salvador"
+    salv.write_text("#!/bin/sh\ncp \"$1\" \"$2\"\n")
+    salv.chmod(0o755)
+    bodies = {
+        "ojz_strip_gen.py": _STUB_WRITER + r'''
+if sys.argv[1] == "preflight":
+    sys.exit(0)
+open("games/sonic4/data/collision/heightmaps.bin", "wb").write(b"BAKED")
+open("games/sonic4/data/generated/ojz/act1/keep.bin", "wb").write(b"BAKED")
+open("games/sonic4/data/generated/ojz/act1/new.bin", "wb").write(b"NEW")
+open("games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.emp", "w").write(
+    "pub const OJZ_ACT_POOL_PAGES = 0\n")
+open("games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.json", "w").write(
+    '{"pages": []}\n')
+fail_here("generate")
+''',
+        "import_sk_collision.py": _STUB_WRITER + r'''
+open("games/sonic4/data/collision/angles.bin", "wb").write(b"RAW BASE BANK")
+''',
+        "effects_gen.py": _STUB_WRITER,
+        "ojz_block_gen.py": _STUB_WRITER,
+        "verify_level_bin.py": _STUB_WRITER + 'fail_here("verify")\n',
+        "level_staleness.py": _STUB_WRITER,
+    }
+    for name, body in bodies.items():
+        (stubs / name).write_text(body)
+    coll = repo / "games" / "sonic4" / "data" / "collision"
+    gen = repo / "games" / "sonic4" / "data" / "generated" / "ojz" / "act1"
+    coll.mkdir(parents=True)
+    gen.mkdir(parents=True)
+    (coll / "heightmaps.bin").write_bytes(b"INTERNED heightmaps")
+    (coll / "angles.bin").write_bytes(b"INTERNED angles")
+    (gen / "keep.bin").write_bytes(b"COMMITTED")
+    return repo
+
+
+def _tree_bytes(repo):
+    out = {}
+    for sub in ("collision", "generated"):
+        base = repo / "games" / "sonic4" / "data" / sub
+        for dp, _d, fns in os.walk(base):
+            for fn in fns:
+                p = os.path.join(dp, fn)
+                out[os.path.relpath(p, repo)] = open(p, "rb").read()
+    return out
+
+
+def _run_rebake(repo, tmp_path, fail_at):
+    import subprocess
+    snap_root = tmp_path / "tmpdir"
+    snap_root.mkdir(exist_ok=True)
+    env = dict(os.environ, TOOLS="stubs", STUB_FAIL_AT=fail_at, TMPDIR=str(snap_root))
+    p = subprocess.run(["bash", "tools/regenerate-level.sh"], cwd=repo, env=env,
+                       capture_output=True, text=True)
+    return p, snap_root
+
+
+@pytest.mark.parametrize("fail_at", ["generate", "verify"])
+def test_f5_a_refusal_after_the_first_write_leaves_the_tree_as_it_was(tmp_path, fail_at):
+    """`generate`: a refusal inside the bake (e.g. an R2 self-mark) after
+    import_sk_collision.py has rewritten the tables. `verify`: the drift gate failing
+    at the very end, after every output was rewritten."""
+    repo = _stub_repo(tmp_path)
+    before = _tree_bytes(repo)
+    p, snaps = _run_rebake(repo, tmp_path, fail_at)
+    assert p.returncode != 0, p.stdout + p.stderr
+    assert "restored" in p.stderr, p.stderr
+    assert _tree_bytes(repo) == before, (
+        "a failed re-bake must leave collision/ and generated/ byte-identical to "
+        "before it ran -- incl. deleting what it added")
+    assert list(snaps.iterdir()) == [], "the snapshot must be removed afterwards"
+
+
+def test_f5_converse_a_successful_rebake_keeps_its_outputs(tmp_path):
+    """Without this, a trap that restored unconditionally would pass the test above."""
+    repo = _stub_repo(tmp_path)
+    p, snaps = _run_rebake(repo, tmp_path, "")
+    assert p.returncode == 0, p.stdout + p.stderr
+    after = _tree_bytes(repo)
+    assert after["games/sonic4/data/collision/heightmaps.bin"] == b"BAKED"
+    assert after["games/sonic4/data/generated/ojz/act1/new.bin"] == b"NEW"
+    assert "restored" not in p.stderr, p.stderr
+    assert list(snaps.iterdir()) == []

@@ -498,6 +498,90 @@ def editor_data_available() -> bool:
     return True
 
 
+EDITOR_CELL_FILE_BYTES = STRIP_TILE_HEIGHT * STRIP_TILE_HEIGHT * 2   # 256x256 16-bit words
+
+
+def validate_editor_inputs(data_path: str | None = None,
+                           tileset_path: str | None = None,
+                           num_sections: int | None = None) -> None:
+    """Every EDITOR-INPUT refusal the bake makes, decided up front and WRITE-FREE.
+
+    WHY IT EXISTS (2026-09-12 gap lens sweep F5). tools/regenerate-level.sh runs
+    import_sk_collision.py — which overwrites the ROM-consumed collision tables —
+    before generate(), and generate()'s refusals of a bad editor input all fired
+    AFTER that write. The preflight's "nothing is written before it can fail" held
+    only for donors. Every refusal a malformed editor file can trigger is decided
+    here instead, so preflight() refuses it before the first write; generate() calls
+    this too, so a standalone `ojz_strip_gen.py generate` refuses before ITS first
+    write. The point-of-use refusals (require_editor_sections,
+    apply_editor_collision_overlay, collect_referenced_tiles) stay as well: a caller
+    that reaches them some other way must still not get a silent fallback.
+
+    Checks (each reported, then one refusal listing them all):
+      * the act grid (tools/act_grid.py: project.json, agreeing with the act descriptor)
+      * every grid section's section_N.tiles.bin present and 256x256 words     [F2]
+      * each section_N.collattr.bin / .collattrb.bin, WHEN PRESENT, 256x256    [F1, F5]
+      * the tileset a whole number of 32-byte tiles, non-empty
+      * no nametable word names a tile past the tileset's end                   [F3]
+    Refusals that depend on the BAKE rather than one file (R1/R2 crossover marks,
+    attr-set overflow, the 11-bit local palette, the page-table cap, BG capacity) are
+    not here; regenerate-level.sh's restore-on-failure trap covers those.
+    """
+    if num_sections is None:
+        num_sections = act_grid.section_count(PROJECT_JSON)
+    if data_path is None:
+        _zone, act = act_grid.project_act(PROJECT_JSON)
+        data_path = os.path.join(os.path.dirname(PROJECT_JSON), act["dataPath"])
+    if tileset_path is None:
+        tileset_path = ZONE_TILESET_PATH
+
+    problems: list[str] = []
+    tile_bytes = tile_dedupe.TILE_SIZE
+    art_len = os.path.getsize(tileset_path) if os.path.isfile(tileset_path) else -1
+    if art_len <= 0 or art_len % tile_bytes:
+        problems.append(
+            f"tileset {tileset_path} is {art_len if art_len >= 0 else 'MISSING'} bytes — "
+            f"not a non-empty whole number of {tile_bytes}-byte tiles")
+    n_tiles = max(art_len, 0) // tile_bytes
+
+    oob_words = 0
+    oob_max = -1
+    oob_secs: dict[int, int] = {}
+    for i in range(num_sections):
+        tp = os.path.join(data_path, f"section_{i}.tiles.bin")
+        if not os.path.isfile(tp):
+            problems.append(f"{tp} is MISSING (every grid section needs one; an empty "
+                            f"section is {EDITOR_CELL_FILE_BYTES} zero bytes)")
+        else:
+            data = open(tp, "rb").read()
+            if len(data) != EDITOR_CELL_FILE_BYTES:
+                problems.append(f"{tp} is {len(data)} bytes, expected "
+                                f"{EDITOR_CELL_FILE_BYTES}")
+            elif n_tiles:
+                idx = [w & TILE_INDEX_MASK for w in
+                       struct.unpack(f">{EDITOR_CELL_FILE_BYTES // 2}H", data)]
+                bad = [x for x in idx if x >= n_tiles]
+                if bad:
+                    oob_words += len(bad)
+                    oob_max = max(oob_max, max(bad))
+                    oob_secs[i] = len(bad)
+        for suffix in ("collattr", "collattrb"):
+            cp_ = os.path.join(data_path, f"section_{i}.{suffix}.bin")
+            if os.path.isfile(cp_) and os.path.getsize(cp_) != EDITOR_CELL_FILE_BYTES:
+                problems.append(f"{cp_} is {os.path.getsize(cp_)} bytes, expected "
+                                f"{EDITOR_CELL_FILE_BYTES}")
+    if oob_words:
+        problems.append(
+            f"{oob_words} nametable word(s) name a tile past the end of the "
+            f"{n_tiles}-tile tileset (highest index {oob_max}; per section {oob_secs})")
+    if problems:
+        raise SystemExit(
+            "ojz_strip_gen: editor inputs refused BEFORE anything is written:\n  - "
+            + "\n  - ".join(problems)
+            + "\nEach of these used to bake silently (an all-air section, a mirrored "
+              "plane B, a short local-map table, blank tiles). Fix the files named.")
+
+
 def preflight() -> None:
     """Validate every precondition a re-bake needs, WITHOUT writing anything.
 
@@ -507,8 +591,12 @@ def preflight() -> None:
     it aborted having already destroyed the interned collision/strip pairing. The
     script now calls this FIRST. Keep it write-free: that property is the whole
     point, and it is what makes the destructive step unreachable on a bad tree.
+
+    Since the 2026-09-12 gap lens sweep (F5) it also runs validate_editor_inputs, so a
+    malformed EDITOR file is refused here too, not only a missing donor.
     """
     require_donor()
+    validate_editor_inputs()
     # The skdisasm donor is import_sk_collision.py's input, not ours — but it is
     # the FIRST thing regenerate-level.sh runs and the only destructive one, so
     # its precondition has to be checked here, before that write. The resolution
@@ -1696,8 +1784,9 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     nothing, which is the whole failure class this parcel exists to close.
 
     ⚠ THE PLANE-B MIRROR IS SUBJECT TO R2, deliberately. When `section_N.collattrb.bin`
-    is absent or malformed, plane B is baked from plane A's words (`wb = wa`
-    below), so a plane-A TO_B mark really does become a plane-B self-mark in the
+    is ABSENT, plane B is baked from plane A's words (`wb = wa` below; a wrong-sized
+    one is refused, not mirrored, since the 2026-09-12 gap lens sweep F5), so a
+    plane-A TO_B mark really does become a plane-B self-mark in the
     baked artifact and really is refused. That is the correct report: a crossover
     is a per-plane pair (§3.3) and cannot be authored on a mirrored plane."""
     coll_a, coll_b = grids
@@ -1724,7 +1813,17 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     path_b = os.path.join(base, f"section_{sec_id}.collattrb.bin")
     b = open(path_b, "rb").read() if os.path.isfile(path_b) else None
     if b is not None and len(b) != expect:
-        b = None                                # malformed path B → mirror A
+        # A REFUSAL, not a mirror (2026-09-12 gap lens sweep F5). A malformed plane-B
+        # file used to be replaced by plane A's words (`b = None`), silently: section 0
+        # was refused only because its crossover marks tripped R2 on the mirrored plane,
+        # and on a section without marks nothing said anything. An ABSENT file still
+        # mirrors (that is a section authored on one plane); a PRESENT one is authored
+        # plane-B collision, and baking plane A in its place discards it.
+        raise ValueError(
+            f"{path_b} is {len(b)} bytes, expected {expect} (a {W}x{W} grid of 16-bit "
+            f"cell words). Refusing to bake sec {sec_id}: the old fallback replaced a "
+            f"wrong-sized plane-B file with a MIRROR of plane A. Re-save it from Aurora, "
+            f"or delete it if plane B should mirror plane A.")
 
     def word(buf, o):                           # big-endian (Aurora serializeCollAttr)
         return (buf[2 * o] << 8) | buf[2 * o + 1]
@@ -1872,6 +1971,7 @@ def generate(stress_uniquify=0):
     by the STRESS_ART build shape; the real committed tree is generated with 0.
     """
     require_donor()
+    validate_editor_inputs()          # write-free; before this function's first write
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
 
