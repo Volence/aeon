@@ -30265,9 +30265,13 @@ move the target or accept the cost in a comment. Note also: C1a-3's per-entry fi
 confirmed by the same read; its per-frame count was not re-derived.
 
 **Side findings of the 2026-09-11 lens-tools parcel (merge `e1d79b2e`), booked, not fixed:**
-(a) The ensure message in `engine/objects/entity_window.emp` (about `MAX_LIST_ENTRIES`) now wrongly says no build
+(a) ~~The ensure message in `engine/objects/entity_window.emp` (about `MAX_LIST_ENTRIES`) now wrongly says no build
 step compares the generator's copy; `tools/test_ojz_entity_list_cap.py` does now. Suggested rewording is in
-`docs/superpowers/notes/2026-09-11-lens-tools-parcel.md`. Engine file, so a comments batch.
+`docs/superpowers/notes/2026-09-11-lens-tools-parcel.md`. Engine file, so a comments batch.~~ **FIXED 2026-09-11,
+`parcel/ew-ensure-msg-0912`.** The `COLLECTED_MASK_BYTES * 8 == MAX_LIST_ENTRIES` message now names the test and its
+lane (build.sh's pre-build pytest lane, skipped under FAST=1 and NO_LINT=1), and says the generator can still drift
+in the builds that skip that lane. Zero bytes: all four shapes byte-identical to the base. The `ls8_pin_redproof.py`
+P1 fragment is the message's opening words, which did not change.
 (b) ~~`tools/landing_build.sh` exits 1 with NO `finished=` stamp when `SIGIL_BUILD` or `SIGIL_EMIT` is unset (the `:?`
 expansions). Predates the parcel. A run that dies there trails like a killed one; give it the stamp.~~ **CLOSED 2026-09-11
 by `parcel/landing-build-env-stamp`:** an unset or EMPTY `SIGIL_BUILD`/`SIGIL_EMIT` is now COULD NOT RUN, exit 2 with
