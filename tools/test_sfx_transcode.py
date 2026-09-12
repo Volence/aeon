@@ -1586,6 +1586,163 @@ class TestAliasingCarveOut(unittest.TestCase):
                 _validate_no_aliasing_ops([Vol(80), Detune(3), End()], 0x99, route)
 
 
+class TestMacroRefusedOnSfx(unittest.TestCase):
+    """A2-12's behavioural half (2026-09-12). MEV_MACRO ($F9) is the THIRD aliasing
+    op: Seq_Op_Macro stores 1 into sc_macro_active, which is the LOW BYTE of
+    SfxChannel.sx_patch_base (+59) — the SFX's own FmPatch window pointer, which
+    Fm_PatchPtr returns and Sfx_Steal/Sfx_Restore load the voice through.
+
+    Until this parcel nothing refused it. The +59 alias rested entirely on the
+    transcoder never emitting MEV_MACRO, and song_packer's own Macro.validate (which
+    refuses non-FM routes) never runs on this path because pack_sfx encodes events
+    directly and never calls Event.validate.
+
+    ABSOLUTE, with no route carve-out of the MEV_PSGNOISE kind: Seq_Op_PsgNoise earned
+    its carve-out by branching on Snd_ChanClass and skipping the store on the SFX arm,
+    and Seq_Op_Macro's store is unconditional."""
+
+    MACRO_RULE = r"MEV_MACRO \(\$F9\).*sc_macro_active.*sx_patch_base"
+
+    def test_macro_refused_on_every_route(self):
+        from song_packer import Macro
+        for route in (CHROUTE_FM1, CHROUTE_FM3, CHROUTE_FM5, CHROUTE_FM6,
+                      CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
+                      CHROUTE_DAC):
+            with self.subTest(route=route):
+                with self.assertRaisesRegex(TranscodeError, self.MACRO_RULE):
+                    _validate_no_aliasing_ops([Vol(80), Macro(), End()], 0x99, route)
+
+    def test_macro_refused_with_no_route_at_all(self):
+        # route=None is the default; a caller that forgets to pass one must not slip
+        # past the check the way the CHROUTE_PSGN carve-out legitimately does.
+        from song_packer import Macro
+        with self.assertRaisesRegex(TranscodeError, self.MACRO_RULE):
+            _validate_no_aliasing_ops([Vol(80), Macro(), End()], 0x99)
+
+    def test_the_macro_matcher_does_not_match_the_other_two_refusals(self):
+        """POISON on the MATCHER, not on the guard. All three refusals share one
+        message tail, so a matcher like `"sx_patch_base" in msg` or a bare
+        "MEV_" would pass for MEV_PSGNOISE and MEV_DETUNE too and this class would
+        be green without MEV_MACRO ever being refused. These two must NOT match."""
+        from song_packer import PsgNoise, Detune
+        for ev in (PsgNoise(0xE7), Detune(3)):
+            with self.subTest(ev=type(ev).__name__):
+                with self.assertRaises(TranscodeError) as ctx:
+                    _validate_no_aliasing_ops([Vol(80), ev, End()], 0x99, CHROUTE_FM5)
+                self.assertNotRegex(str(ctx.exception), self.MACRO_RULE)
+
+    def test_a_clean_sfx_stream_still_passes(self):
+        # the negative control: the guard refuses the three ops, not every stream.
+        _validate_no_aliasing_ops([Vol(80), NoteDur(0x20, 4), End()], 0x99, CHROUTE_FM5)
+
+
+class TestAliasPlusFiftyNineDerivedFromTheStructs(unittest.TestCase):
+    """A2-12's LAYOUT half. The refusal above is only worth anything while +59 really
+    is shared, so this derives both offsets from engine/sound/sound_constants.emp's
+    struct declarations by summing field widths — no offset is typed as a literal.
+
+    The authoritative pin is the `ensure` beside those structs (build-fatal in all
+    four shapes: engine/system/vblank.emp does `use engine.sound_constants.*`, so the
+    module is in every target's use closure). This is the transcoder-side witness that
+    the refusal's PREMISE holds, and it survives the ensure being deleted.
+
+    Not covered: nothing here checks that the Z80 code actually writes +59 — that is
+    Seq_Op_Macro's `ld (ix+sc_macro_active), a`, read by hand."""
+
+    SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       'engine', 'sound', 'sound_constants.emp')
+    FIELD = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^,]+?)\s*,\s*(//.*)?$")
+    ARRAY = re.compile(r"^\[\s*(u8|i8)\s*;\s*([0-9]+)\s*\]$")
+    LEN_ENSURE = re.compile(r"^\s*ensure\(\s*(\w+)_len\s*==\s*([0-9]+)\s*,")
+
+    @classmethod
+    def _width(cls, t):
+        flat = {'u8': 1, 'i8': 1, 'u16': 2, 'i16': 2, 'u32': 4, 'i32': 4}
+        if t in flat:
+            return flat[t]
+        m = cls.ARRAY.match(t)
+        if m:
+            return int(m.group(2))
+        raise AssertionError(
+            "test_sfx_transcode cannot size the field type %r in sound_constants.emp. "
+            "Teach _width about it rather than letting this test skip the field, which "
+            "would silently shift every offset after it." % t)
+
+    @classmethod
+    def _layout(cls, name):
+        """(field -> offset, total size) for a struct, by summing declared widths."""
+        with open(cls.SRC, encoding='utf-8') as fh:
+            lines = fh.read().splitlines()
+        start = next((i for i, ln in enumerate(lines)
+                      if re.match(r"^\s*(pub\s+)?struct\s+" + name + r"\s*\{", ln)), None)
+        assert start is not None, "no `struct %s` in %s" % (name, cls.SRC)
+        off, out = 0, {}
+        for ln in lines[start + 1:]:
+            if ln.strip().startswith('}'):
+                return out, off
+            if not ln.strip() or ln.lstrip().startswith('//'):
+                continue
+            m = cls.FIELD.match(ln)
+            assert m, "unparsed line inside struct %s: %r" % (name, ln)
+            out[m.group(1)] = off
+            off += cls._width(m.group(2))
+        raise AssertionError("struct %s is never closed" % name)
+
+    @classmethod
+    def _declared_len(cls, name):
+        with open(cls.SRC, encoding='utf-8') as fh:
+            for ln in fh:
+                m = cls.LEN_ENSURE.match(ln)
+                if m and m.group(1) == name:
+                    return int(m.group(2))
+        return None
+
+    def test_the_parser_reproduces_both_declared_struct_lengths(self):
+        """INSTRUMENT CHECK, first: a parser that silently dropped or mis-sized a
+        field would compute matching-but-wrong offsets below. Both totals are already
+        pinned by the file's own `ensure(<name>_len == N)`, so those N are the
+        independent expectation — read from the file, not typed here."""
+        for name in ('SfxChannel', 'SeqChannel'):
+            with self.subTest(struct=name):
+                want = self._declared_len(name)
+                self.assertIsNotNone(
+                    want, "sound_constants.emp no longer pins %s_len; this test's "
+                          "instrument check has lost its expectation" % name)
+                self.assertEqual(self._layout(name)[1], want)
+
+    def test_sx_patch_base_aliases_sc_pad_which_is_sc_macro_active(self):
+        sfx, _ = self._layout('SfxChannel')
+        seq, _ = self._layout('SeqChannel')
+        self.assertIn('sx_patch_base', sfx)
+        self.assertIn('sc_pad', seq)
+        self.assertEqual(
+            sfx['sx_patch_base'], seq['sc_pad'],
+            "the +59 alias MEV_MACRO is refused to protect has MOVED: "
+            "SfxChannel.sx_patch_base is +%d and SeqChannel.sc_pad is +%d"
+            % (sfx['sx_patch_base'], seq['sc_pad']))
+
+    def test_sc_macro_active_is_declared_as_sc_pads_offset(self):
+        """The chain the refusal rests on: Seq_Op_Macro writes sc_macro_active, and
+        sc_macro_active is sc_pad's offset. If that declaration were re-pointed at
+        another field, the test above would still pass while the hazard moved."""
+        with open(self.SRC, encoding='utf-8') as fh:
+            text = fh.read()
+        self.assertRegex(
+            text,
+            re.compile(r"^pub const sc_macro_active\s*=\s*offsetof\(SeqChannel,\s*sc_pad\)\s*$",
+                       re.MULTILINE),
+            msg="sc_macro_active is no longer declared as offsetof(SeqChannel, sc_pad)")
+
+    def test_the_other_two_aliases_are_derived_the_same_way(self):
+        """Control on the method: the two aliases that were ALREADY pinned in
+        sound_constants.emp must come out equal under this same parser. If they did
+        not, the +59 result above would be an artifact of the parser."""
+        sfx, _ = self._layout('SfxChannel')
+        seq, _ = self._layout('SeqChannel')
+        self.assertEqual(sfx['sx_priority'], seq['sc_noise_mode'])
+        self.assertEqual(sfx['sx_pad'], seq['sc_detune'])
+
+
 class TestUnknownVoiceMacro(unittest.TestCase):
     def test_unknown_smpsvc_submacro_raises(self):
         # Unknown smpsVc* sub-macros must raise (mirroring the coord-flag

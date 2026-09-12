@@ -191,10 +191,19 @@ pub proc ErrorTrap () clobbers() {
 // dc.l verbatim, bytes untouchable. Reached only via `jsr (MDDBG__ErrorHandler).l`
 // (the stubs) and internal computed transfers; never falls through (its own
 // rts/jmp encodings live inside the data), and it ends the ROM.
-// Named ErrorHandlerBlob (not ErrorHandler): in the mixed build the AS side owns
-// the numeric `ErrorHandler` equ (engine.inc gate-ON arm) that the MDDBG__ table
-// derives off; a same-named .emp export would collide at link. The blob is
-// reached only via the AS-resolved MDDBG__ErrorHandler equ (= this address).
+// Named ErrorHandlerBlob (not ErrorHandler) so the label never collides with a bare
+// `ErrorHandler` name at link — the naming rule is stated once at the head of this
+// file. The MDDBG__ table derives off THIS label: every entry, MDDBG__ErrorHandler
+// included, is a `pub equ ... = extern("ErrorHandlerBlob") + off` above, folded by the
+// sigil link per shape and per game. debugger.asm on the AS side CONSUMES those equs
+// and defines none of them. PLACEMENT is a separate question with a separate answer:
+// the `order` list in each game's map.toml, enforced by sigil's append_deb2_appendix
+// — see the WARNING block at the head of this file.
+// (Corrected 2026-09-12, gap lens sweep A2-17c. This line used to say the AS side
+// owned a numeric `ErrorHandler` equ on `engine.inc`'s gate-ON arm and that the
+// MDDBG__ table derived off it, calling MDDBG__ErrorHandler "AS-resolved". engine.inc
+// was deleted in the sigil flip; no symbol spelled `ErrorHandler` exists anywhere in
+// this tree, in any file type, so the clause named a counterparty that is gone.)
 @noreturn
 pub proc ErrorHandlerBlob () clobbers() {
     dc.l    $46FC2700, $4FEFFFF0, $48E7FFFE, $4EBA0242, $49EF004C, $4E682F08, $47EF0040, $4EBA0124

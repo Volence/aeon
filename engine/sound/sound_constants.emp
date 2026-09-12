@@ -811,10 +811,11 @@ ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_mast
 //   +58  SfxChannel.sx_pad       ==  SeqChannel.sc_detune
 //   +59  SfxChannel.sx_patch_base (low byte)  ==  SeqChannel.sc_pad, which the
 //        sequencer uses as sc_macro_active: Seq_Op_Macro ($F9) writes it through ix.
-// The THIRD is not pinned below and nothing refuses it: sfx_transcode.py never
-// emits MEV_MACRO for an SFX, but _validate_no_aliasing_ops refuses only
-// PSGNOISE and DETUNE, so it rests on that convention (booked, gap lens sweep
-// A2-12, 2026-09-12; this block used to name only the first two).
+// All THREE are pinned below, and all three are refused by
+// sfx_transcode.py's _validate_no_aliasing_ops. The third pair was the A2-12
+// booking (gap lens sweep, 2026-09-12): until then this block named only the first
+// two, nothing pinned +59, and MEV_MACRO on an SFX rested on the convention that
+// the transcoder never emits it. Both halves closed 2026-09-12.
 // The shared code reaches these offsets through ix. On an SfxChannel that means a
 // music opcode writing sc_noise_mode would corrupt the running SFX's PRIORITY, and
 // one writing sc_detune would set sx_pad non-zero — and sx_pad MUST stay 0, because
@@ -829,10 +830,20 @@ ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_mast
 // lets MEV_PSGNOISE through on route CHROUTE_PSGN, and it is Seq_Op_PsgNoise's
 // Snd_ChanClass branch that skips the sc_noise_mode store on an SFX slot.
 // MEV_DETUNE is still refused on every route (corrected 2026-09-12, A2-12).
+// MEV_MACRO is refused on every route too, and ABSOLUTELY: unlike Seq_Op_PsgNoise,
+// Seq_Op_Macro does not branch on Snd_ChanClass — its `ld (ix+sc_macro_active), a`
+// is unconditional, so there is no arm on which the +59 store does not happen.
 ensure(offsetof(SfxChannel, sx_priority) == offsetof(SeqChannel, sc_noise_mode),
        "sx_priority (+{offsetof(SfxChannel, sx_priority)}) no longer aliases sc_noise_mode (+{offsetof(SeqChannel, sc_noise_mode)}) — the shared interpreter's post-divergence overlap moved")
 ensure(offsetof(SfxChannel, sx_pad) == offsetof(SeqChannel, sc_detune),
        "sx_pad (+{offsetof(SfxChannel, sx_pad)}) no longer aliases sc_detune (+{offsetof(SeqChannel, sc_detune)}) — the MUST-STAY-ZERO pad and the detune byte have separated")
+// The THIRD pair (A2-12's layout half, added 2026-09-12). sc_macro_active IS
+// offsetof(SeqChannel, sc_pad) — see its declaration below — so this pins the alias
+// the music-side writer actually reaches, not a restated number. sx_patch_base is a
+// u16 and sc_pad a u8, so what overlaps is sx_patch_base's LOW byte; the guard
+// compares the two field bases, which is exactly where that overlap begins.
+ensure(offsetof(SfxChannel, sx_patch_base) == offsetof(SeqChannel, sc_pad),
+       "sx_patch_base (+{offsetof(SfxChannel, sx_patch_base)}) no longer aliases sc_pad/sc_macro_active (+{offsetof(SeqChannel, sc_pad)}) — Seq_Op_Macro's unconditional store would now land on a DIFFERENT SfxChannel byte than the one sfx_transcode.py refuses MEV_MACRO to protect")
 ensure(offsetof(SfxChannel, sc_fill_count) == offsetof(SeqChannel, sc_fill_count), "SfxChannel.sc_fill_count diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv) == offsetof(SeqChannel, sc_psgenv), "SfxChannel.sc_psgenv diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv_cur) == offsetof(SeqChannel, sc_psgenv_cur), "SfxChannel.sc_psgenv_cur diverges from SeqChannel")
