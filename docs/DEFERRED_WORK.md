@@ -30693,10 +30693,39 @@ The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`doc
   - The ledger's "figure below", which is above.
 
 **A2 BOOKED, not done in that parcel:**
-- RUNTIME-TAGs for the controller:
-  - A2-9: capture the YM writes across a mid-drum `Sound_PlayMusic`.
-  - A2-11: `Sound_IsFading` after a mid-fade `Sound_StopMusic`.
-  - A2-17's `section.emp` poke storm: the seat estimates ~50 ms against a ~10.9 ms ring lead.
+- ~~RUNTIME-TAGs for the controller~~ — **ALL THREE MEASURED 2026-09-12**
+  (`docs/superpowers/notes/2026-09-12-owed-runtime-witnesses-c.md`; rows `GAP12-A2-9b`, `-11b`, `-17b`
+  now `holds`; headless `oracle-aether` only, no emulator MCP tool):
+  - **A2-9b — SPLIT.** (i) HOLDS: with Moving Trucks loaded over a running drum the streaming loop
+    emits **1067 more `$2A` bytes = 58.1 ms of sample** with the DAC enable bit OFF, ending on
+    `.stop`'s own `$2A <- $80`; the no-load control streams its whole 1509-byte / 82.2 ms remainder
+    with the DAC **enabled**. (ii) **NOT REPRODUCED** with any song this ROM ships: the re-key is
+    real (the control keys `$28 <- $F6`), but `.stop`'s epilogue wrote nothing after every load —
+    Moving Trucks and HCZ2 load with `SND_FM6_ADAPTIVE = 0`, and the one adaptive song is the
+    drum-test song itself, where `.seq_clr` has just wiped `SCF_KEYED`. A race the loader's own wipe
+    wins, not an impossibility. **Third behaviour, newly booked:** when the new song has DAC drums of
+    its own, its first `Snd_StartSample` re-primes the streaming registers **over** the in-flight
+    sample (`SND_ROM_LEN` jumps UP), so the remainder is abandoned rather than drained to `.stop`.
+    `tools/song_load_mid_drum_witness.py`, 7 legs.
+  - **A2-11b — HOLDS, BOUNDED, and not a live bug.** `SND_STAT_FADE_BUSY` stays 1 for the whole
+    5.0 s watch after a mid-fade `Sound_StopMusic` (`SEQ_ACTIVE = 0`, so `Fade_Ramp` is gated off),
+    but the next `Sound_PlayMusic` clears it in **2 frames (33 ms)** — "forever" is too strong. The
+    control (same fade, no stop) clears it by itself after 127 frames (2.12 s). Zero callers of the
+    fade API or `Sound_IsFading` anywhere in `engine/` or `games/`, verified.
+    `tools/fade_busy_stale_witness.py`, 6 legs, on a purpose-built off-canonical probe ROM.
+  - **A2-17b — "costs no sound" is FALSE about the mechanism.** Derived: ring lead
+    `200 / (3579545/195 = 18356 Hz)` = **10.90 ms**, so the seat's ~10.9 ms is exactly right.
+    Measured: the storm's bracket is **38.17 ms**, not ~50 — 31% high, and every conclusion the
+    estimate supported survives. 3.50x the ring lead (dry after 10.90 ms, then 27.27 ms of held DC
+    from the R1 underrun guard) and 2.29x the 16.65 ms Timer-A period (2 dropped sequencer frames).
+    Control: the per-frame `VInt_*` bracket on the same flag is 0.918 ms median.
+    `tools/poke_storm_sound_cost_witness.py`, 6 legs.
+- **NEW from that work, still open:** `GAP12-A2-9d` — Moving Trucks loads with a real FM6 music
+  channel (`SND_FM6_CHAN_PTR = $1B34`) but `SND_FM6_ADAPTIVE = 0`, so a DAC sample ending while it
+  plays gets neither the `$2B <- $00` hand-back nor the FM6 re-key. Song flag or gate width: open.
+- **Still unmeasured, named so it is not mistaken for settled:** whether a song loaded over a
+  half-completed fade inherits the faded-down master volume. `SND_MASTER_FADE` is outside the
+  `Sound_Dbg_Mirror` window; the YM TL (`$4x`) write stream would settle it.
 - A2-12's behavioural half: `sfx_transcode.py` does not refuse `MEV_MACRO` ($F9) on an SFX, so the +59 `sc_macro_active` / `sx_patch_base` alias rests on the transcoder never emitting it. Neither the refusal nor a layout pin for +59 exists.
 - The sequencer's `const MEV_EXT = $FA` mirror is not itself checked. The A2-6 pin catches a move of the authority, not an edit of the mirror.
 - `sound_fm.emp` ledger, blocker 2 ("OP COVERAGE") may be stale. Sigil's source at `fbe380b9` prices call/ret/push/pop/bit/add a,n; the binary `6884bfba` was not re-probed. Sigil's to confirm.
