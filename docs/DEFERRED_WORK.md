@@ -30353,6 +30353,23 @@ builds between our CHANNEL-BANDS landing push and the hub's swap announcement, a
 four-shape re-check against master's ROMs (byte-identical expected; if not, the four CRCs go to sigil as the finding).
 **FOLLOW-UP, ours, open:** build.sh's banner names the sigil binary and records nothing about `SIGIL_EMIT`. Record
 `md5(SIGIL_EMIT)` beside it, so a split pair is visible in every build's own output rather than found by a peer.
+**Outcome, 2026-09-12:** the swap happened at 06:25:12Z inside a hub-opened window. `emit_sound_blob` is now
+`36ef302cbf5eeca693ecbf981ce8a53a`, rebuilt at `af35fa56` in `.sigil-pin-af35fa56`, and `sigil` is unchanged at
+`49ecc532e0b133ab0eab9447e071805c`. aeon's four-shape re-check at `808141f7` under the new pair came out byte-identical to
+master's pre-swap ROMs (s4 `eee9f4e2`, s4.debug `f5660a6f`, demo `5e299109`, demo.debug `1473caa9`), so the swap stays.
+That shows the relinked `8d80a578` and the new `36ef302c` agree on four ROMs; it says nothing about the original
+`b1569c67`. Sigil KEEPS the `8d80a578` copy at `~/sonic_hacks/.sigil-outgoing-8d80a578/`, because it is the tool that built
+every aeon ROM from 09-09 to 09-12. The build.sh banner follow-up above is still open.
+
+**A top-level `ensure` placed after a file's last `section {}` can make sigil measure a call 2 bytes short (booked
+2026-09-12; the sigil lane's finding, relayed, NOT verified on our installed `af35fa56`, so assume it applies).** Sigil's
+account: the overlap an aeon session reported earlier (`ojz_scroll_test` against `replay_fixture`, from a move meant to be
+zero-byte) reproduces exactly by appending `ensure(1 == 1, "zbm")` to a pristine `boot_data.emp`. The ensure opens a
+zero-byte section, which reorders sigil's scratch slots; one slot aliases to an `abs.w` address, so a call into it is
+measured 2 bytes short. Fixed on a sigil branch, not landed. When it lands and our pin moves past it, all four shapes move
+(sections +2 to +22 B, EndOfRom unchanged, per sigil). **Until then, the rule for every aeon parcel:** a top-level `ensure`
+goes ABOVE its file's last `section {}` block, or in a constants file, never at the end of a file. The booked
+`ensure(TILE_CACHE_ROWS % 2 == 0)` follow-up is exactly this shape.
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
 rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).
