@@ -125,7 +125,7 @@ ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line
 //
 //   effect dust (DustPuff / DustSpindash)     0, 4, 6, 7          authored gray
 //   insta-shield (Art_InstaShield)            0, 6, 7, 8
-//   spring (Art_Spring, test_solid.emp)       0, 1, 6, 7, 8, 9, 12, 13
+//   spring (Art_Spring, test_solid.emp)       0, 1, 6, 7, 8, 12, 13
 //
 // THE FIX, and it is S3K's own: stock S3K's Pal_SonicTails and Pal_Knuckles are identical
 // at 13 of 16 slots and differ only at 2/3/4 — which is why S3K can draw its spring with
@@ -141,12 +141,13 @@ ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line
 // dust's three slots pinned to their AUTHORED gray values (not merely to each other).
 // idx N = CRAM word at bytes 2N..2N+1 (big-endian).
 //
-// ⚠ SLOT 9 IS THE KNOWN HOLE, and it is why the spring is not fully fixed. Our line 0
-// carries $0444 there; Knuckles has no $0444, so his leftover colour ($0080, green) lands
-// there by elimination — the destination is FORCED, since the other three free slots are
-// pinned by Sonic's own colours through the derived S3K->Aeon table. The spring's 184
-// index-9 pixels (coil mid-tone) still recolour under him. Closing it costs a colour from
-// one side or the other, i.e. a LOOK decision: docs/DEFERRED_WORK.md "Spring index 9".
+// SLOT 9 IS CHARACTER-SPECIFIC BY FORCE, not by design. Our line 0 carries $0444 there;
+// Knuckles has no $0444, so his leftover colour ($0080, green) lands there by elimination —
+// the destination is FORCED, since the other three free slots are pinned by Sonic's own
+// colours through the derived S3K->Aeon table. The spring's coil mid-tone used to draw
+// through it (184 pixels, recoloured under him); the owner ruled 2026-09-11 that the spring
+// gives that grey up (docs/decisions.jsonl SPRING-PAL-IDX9, lighter shade), so
+// gen_spring.py now moves it onto 8 and no shared line-0 sprite draws through 9.
 // -----------------------------------------------
 
 // The slots the two shipped character lines are RULED to differ at. Not "the slots they
@@ -166,13 +167,18 @@ comptime fn line0_mismatches(a: Data, b: Data) -> int {
     return n
 }
 
-// Four: 2/3/5 (Sonic's blues vs Knuckles' reds) and 9 (the forced hole above). More than
-// four means a slot left the agreeing set; fewer means the hole closed and this comment,
-// the DEFERRED_WORK entry and the spring's own guard are all stale.
+// Four: 2/3/5 (Sonic's blues vs Knuckles' reds) and 9 (the forced $0444/$0080 slot above).
+// More than four means a slot left the agreeing set; fewer means one closed and the ruled
+// set (here, gen_characters.py, ENGINE_ARCHITECTURE.md's shared line-0 slots) is stale.
+//
+// There used to be a second ensure here requiring slot 9 to still DIFFER, so that closing
+// the hole would force the spring's index-9 caveat to be deleted. The spring left index 9
+// by the owner's ruling (SPRING-PAL-IDX9), so there is no caveat left for it to guard, and
+// it had been flagged as pinning a colour bug in place (docs/superpowers/notes/
+// 2026-09-09-content-pinning-audit.md, A9). Deleted. A shared sprite drawing through ANY
+// disagreeing slot is refused by that sprite's own guard (test_solid.emp for the spring).
 ensure(line0_mismatches(_pal_sonic_tails, _pal_knux) == 4,
        "Pal_SonicTails and Pal_Knuckles differ at {line0_mismatches(_pal_sonic_tails, _pal_knux)} line-0 slots, not the ruled 4 (2/3/5 character hues + 9, the forced $0444/$0080 hole). Line 0 is the per-character line, so the AGREEING slots are what make shared line-0 art (effect dust, insta-shield, spring) render the same under either character — a slot leaving that set is the 2026-08-12 red-dust / 2026-09-09 red-spring bug returning. Regenerate with games/sonic4/data/characters_staging/gen_characters.py, which rules the permutation. DOES NOT COVER: WHICH slots differ (a swap of two disagreements holds the count), nor whether any shared art actually draws through them — the spring states its own per-index guard in games/sonic4/objects/test_solid.emp")
-ensure(((_pal_sonic_tails[18] << 8) | _pal_sonic_tails[19]) != ((_pal_knux[18] << 8) | _pal_knux[19]),
-       "slot 9 now AGREES between the two character lines — the forced $0444/$0080 hole is closed, so the spring's index-9 caveat above, its guard in test_solid.emp and the docs/DEFERRED_WORK.md 'Spring index 9' entry are all stale. Delete them and tighten the mismatch count to 3.")
 
 // PINNED TO THE AUTHORED GRAYS, not merely to each other. These used to assert
 // only that Pal_Knuckles AGREED with Pal_SonicTails at 4/6/7 — which is not the

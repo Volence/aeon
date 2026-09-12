@@ -32034,7 +32034,7 @@ also has no reproduction to hand them, so the ask would be "watch for something 
 profiler surfaces and can measure a frame-time spike against a known trigger — so the moment there is
 a trigger, the ask is cheap and specific. Until then this row is the whole action.
 
-## THE RED SPRING'S BASE WAS KNUCKLES' PALETTE, NOT THE SPRING'S ART — AND ONE INDEX IS STILL OPEN (2026-09-09)
+## THE RED SPRING'S BASE WAS KNUCKLES' PALETTE, NOT THE SPRING'S ART — AND ONE INDEX IS STILL OPEN (2026-09-09; index 9 CLOSED 2026-09-11, see below)
 
 Owner report: "the palette for red springs base is messed up when knuckles is in (but yellow
 spring is fine)". Branch `parcel/spring-palette-knuckles`.
@@ -32078,7 +32078,31 @@ the insta-shield is bound to `CharDef_Sonic.cd_ability` (`player_instashield.emp
 ever fires it and index 8 was never actually rendered under Knuckles' line. It was one ability
 binding away from being one — which is the reason to state it, not to claim it was breaking.
 
-### ⚠ OPEN — "Spring index 9". A LOOK DECISION, FOR THE OWNER
+### ~~⚠ OPEN — "Spring index 9". A LOOK DECISION, FOR THE OWNER~~ — CLOSED 2026-09-11, owner picked (a) at index 8
+
+**CLOSED, branch `parcel/spring-coil-idx8`.** The owner chose **(a) drop-grey** (`docs/decisions.jsonl`
+`SPRING-PAL-IDX9`, answered 2026-09-11T19:44:45Z) and, asked for the shade, **"I guess lighter" =
+index 8** (`$0866`; heard by the hub, empyrean `docs/OVERSEER-LOG.md`, "OWNER ANSWERED aeon
+SPRING-IDX9 shade"). **It was not one line**, and the entry below undersold it:
+
+* `gen_spring.py` gained `INDEX_REMAP = {9: 8}` plus the relabel that applies it to BOTH sheets (the
+  side spring's coil carries the same grey — the 184 is **92 vertical + 92 horizontal**, a census of
+  the 24-tile blob, not what one frame shows: Idle/IdleH draw 36 of them, Extend/ExtendH 56,
+  Squash/SquashH none). Regenerated `games/sonic4/data/generated/spring/art_spring.bin`: measured
+  from the art, exactly 184 nibbles changed, every one 9→8, all others identical; 9 now has 0 pixels,
+  8 went 110→294. Control: the generator with an empty remap reproduces the old blob byte-for-byte.
+* `test_solid.emp`: the `SPRING_LINE0_EXEMPT` literal and the `== 184` pin are gone; the line-0
+  guard now refuses a spring pixel on ANY slot the two palettes disagree about, 9 included.
+* `knuckles_data.emp`: the ensure requiring slot 9 to still DIFFER is deleted — its only job was to
+  force the spring caveat's deletion, and the content-pinning audit (A9) had flagged it as pinning a
+  colour bug in place. The mismatch count (4: 2/3/5/9) stays; the palettes did not change.
+* `tools/test_gen_spring.py` derives the blob's vocabulary from `INDEX_REMAP` and asserts no pixel
+  on a remapped-away index; `tools/spring_line0_gate.py` lost its index-9 exemption.
+* Index 8 is `$0866` in both `SonicAndTails.bin` (Sonic, Tails) and `knuckles.bin` — not one of the
+  four character-specific slots 2/3/5/9, read from the files.
+
+Cost, as the owner accepted it: the coil mid-tone reads a little lighter and flatter under **every**
+character. The historical entry follows unedited.
 
 Our line 0 carries `$0444` (mid grey) at index 9; Knuckles has no `$0444`, so his leftover colour
 `$0080` (green) lands there by elimination. **184 of the spring's coil-midtone pixels still recolour
@@ -32102,11 +32126,14 @@ because it changes what the sprite looks like for everyone.
 
 ### What now guards it
 
-* `knuckles_data.emp` — counts the line-0 mismatches (ruled 4) and separately asserts slot 9 still
-  DIFFERS, so closing the hole makes the stale caveat fail loudly instead of rotting.
-* `test_solid.emp` — holds `Art_Spring` to the indices the fix secured, with slot 9 a named literal
-  exemption and its 184-pixel cost pinned so re-cutting the sprite cannot silently resize the open
-  decision.
+(Updated 2026-09-11 at the index-9 closure above; the as-written 2026-09-09 guards were a slot-9
+DIFFERS ensure and an index-9 exemption pinned at 184 pixels, both since removed.)
+
+* `knuckles_data.emp` — counts the line-0 mismatches (ruled 4: 2/3/5/9).
+* `test_solid.emp` — holds `Art_Spring` off every slot the two character palettes disagree about,
+  with no exemption.
+* `tools/test_gen_spring.py` — holds the committed blob to the donor vocabulary pushed through
+  `gen_spring.py`'s `INDEX_REMAP`, and refuses a pixel on a remapped-away index.
 * `gen_characters.py` — refuses to ship a Knuckles palette that differs anywhere but 2/3/5/9.
 * `tools/spring_line0_gate.py` — reads CRAM out of a running headless build under each character and
   compares at the spring's own indices; index set derived from the art histogram, expectations from
@@ -32128,7 +32155,7 @@ of each blob's own indices — not by name:
 | the player itself (`VRAM_TEST_SONIC`, `cd_vrambase`) | all 16 | by definition fine — it IS the line |
 | effect dust — `DustPuff` / `DustSpindash` (`art_dust.bin`) | 0, 4, 6, 7 | fixed 2026-08-12; still agrees |
 | insta-shield (`Art_InstaShield`) | 0, 6, 7, 8 | index 8 was in the gap, but the ability is `CharDef_Sonic`-only so it never rendered on his line — structural exposure, not a live bug; closed here |
-| spring (`Art_Spring`) | 0, 1, 6, 7, 8, 9, 12, 13 | fixed except index 9 (above) |
+| spring (`Art_Spring`) | 0, 1, 6, 7, 8, 12, 13 | fixed; index 9 moved onto 8 on the owner's 2026-09-11 ruling (above) |
 | `VRAM_TEST_OBJ` / `VRAM_DEMO_OBJ` test placeholders | synthesised, not character art | not shipped content |
 
 Not on line 0 and therefore not exposed: rings and the ring sparkle (`vram_art(…, 1, 1)`), the player

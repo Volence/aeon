@@ -18,12 +18,21 @@ too. skdisasm's Vertical Spring.bin uses {0,1,5,6,7,8,9,C,D,E,F}; against OUR li
 0 the extra indices are blue ($5) and orange ($E/$F), so it would need a lossy
 re-index. Same reasoning as compose_ring.py's donor choice.
 
+THE OUTPUT DRAWS {0,1,6,7,8,C,D} — the donor's index 9 is moved onto 8 (INDEX_REMAP
+below). Line 0 is the PER-CHARACTER line, and 9 is one of its four character-specific
+slots: $0444 grey under Sonic and Tails, $0080 green under Knuckles. So the donor's
+index-9 coil mid-tone recoloured on a character swap. The owner ruled the spring gives
+that grey up (docs/decisions.jsonl SPRING-PAL-IDX9, `drop-grey`) and picked the
+LIGHTER neighbour, index 8 ($0866, identical under every character), over the darker
+index 1 ($0222). The coil therefore reads a little lighter and flatter than S2's.
+
 WHAT THIS SCRIPT DOES: repacks 20 donor tiles down to 12 by dropping the 8 that
-are entirely blank. S2's mappings declare padded pieces (a 4x2 plate whose top
+are entirely blank, then applies INDEX_REMAP to every pixel of both sheets. S2's mappings declare padded pieces (a 4x2 plate whose top
 tile row is empty, a 2x2 base whose bottom row is empty, a 2x4 coil whose bottom
 row is empty); re-cutting each piece to its occupied rows costs nothing visually
 and hands 8 tiles back to the VRAM map. The 12 that remain are the same 12 S3K's
-own mappings reference — the sprite is identical, only the padding differs.
+own mappings reference — the shape is identical, only the padding differs (and the
+coil's one grey, per INDEX_REMAP).
 
 OUTPUT ORDER is VDP column-major within each piece, which is what the engine's
 mapping DSL and the SAT both expect (a piece reads consecutive tiles from its
@@ -36,7 +45,7 @@ base, down each column then across):
     new 16..17   HBASE  1 wide x 2 tall   Horizontal donor 4..5
     new 18..23   HCOIL  3 wide x 2 tall   Horizontal donor 6..11
 
-Deterministic: same donor in, same 384 bytes out. Do not hand-edit the output.
+Deterministic: same donor in, same 768 bytes out. Do not hand-edit the output.
 
 Usage:  python3 games/sonic4/data/spring_staging/gen_spring.py [--out PATH]
 """
@@ -85,6 +94,27 @@ HORIZ_TILES = 12
 # piece's OFFSETS as well as its tiles (y_term/x_term `neg` then subtract the
 # piece's own extent), so a flipped multi-piece frame lands where it should.
 
+# --- the owner's look ruling: the coil mid-tone leaves line-0 index 9 -------
+# Donor index -> output index, applied to every pixel of BOTH sheets (the side
+# spring's coil uses the same grey). 9 is character-specific on line 0 ($0444 as
+# Sonic/Tails, $0080 as Knuckles — games/sonic4/data/characters/knuckles_data.emp
+# rules the set 2/3/5/9), so drawing through it recoloured the coil on a swap.
+# docs/decisions.jsonl SPRING-PAL-IDX9: `drop-grey`, and the shade is the LIGHTER
+# neighbour, 8 ($0866), chosen by the owner over the darker 1 ($0222). Changing the
+# 8 is changing how the spring looks for every character — an eye call, not ours.
+# games/sonic4/objects/test_solid.emp refuses at build time any spring pixel on a
+# slot the character palettes disagree about, so this cannot drift back onto 9.
+INDEX_REMAP = {9: 8}
+
+
+def remap_indices(blob: bytes, remap: dict) -> bytes:
+    """Relabel 4bpp pixel indices (2 px/byte, both nibbles) through `remap`."""
+    if set(remap) & set(remap.values()):
+        sys.exit(f"gen_spring: INDEX_REMAP {remap} maps onto an index it also moves — "
+                 f"the result would depend on application order")
+    lut = [remap.get(i, i) for i in range(16)]
+    return bytes((lut[b >> 4] << 4) | lut[b & 0x0F] for b in blob)
+
 
 def decompress(donor: str, nemdec: str) -> bytes:
     for p, what in ((donor, "donor art"), (nemdec, "nemdec decompressor")):
@@ -120,7 +150,12 @@ def build(art: bytes, art_h: bytes) -> bytes:
         if art_h[t * TILE:(t + 1) * TILE] == b"\0" * TILE:
             sys.exit(f"gen_spring: horizontal donor tile {t} is blank; frames 3/4/5 "
                      f"reference all {HORIZ_TILES}, so a blank one means the donor changed")
-    return b"".join(art[t * TILE:(t + 1) * TILE] for t in REPACK) + art_h
+    blob = remap_indices(b"".join(art[t * TILE:(t + 1) * TILE] for t in REPACK) + art_h,
+                         INDEX_REMAP)
+    left = sorted({n for b in blob for n in (b >> 4, b & 0x0F)} & set(INDEX_REMAP))
+    if left:
+        sys.exit(f"gen_spring: output still draws remapped-away index(es) {left}")
+    return blob
 
 
 def main():
@@ -132,7 +167,7 @@ def main():
     open(a.out, "wb").write(blob)
     print(f"gen_spring: {a.out} — {len(blob)} bytes = {len(blob)//TILE} tiles "
           f"= {len(REPACK)} vertical (from {DONOR_TILES}, {len(DROPPED)} blank dropped) "
-          f"+ {HORIZ_TILES} horizontal (verbatim)")
+          f"+ {HORIZ_TILES} horizontal (verbatim), indices remapped {INDEX_REMAP}")
 
 
 if __name__ == "__main__":

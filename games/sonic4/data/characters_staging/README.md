@@ -127,8 +127,9 @@ time, which a follower / 2P mode needs.
 same table with `5 -> 9` for Knuckles, who does — 9 being the single Aeon slot the
 derived table leaves free, so the destination is forced rather than picked. His palette
 moves with his art, so the relabel stays lossless; the cost is that our `$0444` and his
-`$0080` now share slot 9 and shared line-0 art drawn through index 9 still recolours on
-a swap. See the Knuckles paragraph below and `docs/DEFERRED_WORK.md` "Spring index 9".
+`$0080` now share slot 9, so shared line-0 art must not draw through index 9. The spring
+did (its coil mid-tone) until 2026-09-11, when the owner ruled it gives that grey up
+(`docs/decisions.jsonl` SPRING-PAL-IDX9): `gen_spring.py` now moves it onto 8.
 
 Genesis art is 4bpp, 2 pixels/byte, high nibble first; both nibbles of every byte
 are permuted. Output length equals input length, so there is **no ROM-size or
@@ -163,8 +164,9 @@ at **13 of 16** slots for exactly this reason. Ours agreed at only 7 and produce
 user-reported bugs (red effect dust 2026-08-12, the red spring's base red/orange as
 Knuckles 2026-09-09) plus a latent one (the insta-shield at index 8). After the
 re-index the two lines agree at **12 of 16**, differing only at the character-specific
-slots **2/3/5/9**. ⚠ Slot **9** is a known hole — see `docs/DEFERRED_WORK.md`
-"Spring index 9", an open look decision.
+slots **2/3/5/9**. Slot **9** is character-specific by force rather than by design
+(Knuckles' leftover `$0080`); the spring stopped drawing through it on the owner's
+2026-09-11 ruling, so no shared line-0 sprite uses any of the four.
 
 **Sonic is not produced here at all** — his art is already in our order and is
 untouched by any of this.
