@@ -8430,8 +8430,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   resident-code budget remains the binding sound constraint; data-banking remains the recovery lever
   (code may NOT be banked).
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
-- **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
-  `sfx_NN_patches` banks ~208 B; ~~dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715)~~. Purge.
+- **~~F3~~ CLOSED 2026-09-12, `parcel/f3-dead-sfx-rom` (commits `d3ee3b5f` + `cb6e8aff`). 932 B of dead ROM
+  gone from both sonic4 shapes, measured per commit over all four canonical shapes.** ~~Dead ROM: `dc.l SfxTable`
+  540 B unused (engine uses its own Z80 `dw` window table); duplicate
+  `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.~~
   > **⚠ ONE THIRD OF THIS IS WRONG — corrected 2026-08-05.** There is no dead
   > `Snd_TimerA_Program`. The only symbol of that name in the tree is
   > **`Snd_TimerA_ProgramFixed`**, and it is **LIVE — called twice**, at
@@ -8449,7 +8451,61 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   > 137 cells, **548 B** (540 was at 135 cells), with no reader in `engine/` or `games/`: the Z80 reads `SfxBlobWinTab`.
   > That the bytes are emitted still needs the listing. The duplicate `sfx_NN_patches` banks are **96 B, not ~208**: by
   > md5, $33 = $34 = $B9 and $BA = $BB, 32 B each, so three redundant copies ($36, $42, $62, $7E are zero-length).
-  > STILL OPEN; byte-changing, so its own parcel(s).
+  > ~~STILL OPEN; byte-changing, so its own parcel(s).~~
+  > **CLOSED 2026-09-12, `parcel/f3-dead-sfx-rom`. THE EMISSION GAP IS CLOSED, ONE SIZE WAS RIGHT, AND THE OTHER WAS
+  > AN UNDERCOUNT BY A FACTOR OF FOUR.** Two independent byte-moving commits, each measured on all four canonical
+  > shapes against a control built at `origin/master` `47bc76d4` (`tools/landing_build.sh`, `finished=0`, exit 0 for
+  > the control and both commits):
+  > * **The emission gap, closed FIRST, from the control's own listing and ROM.** `s4.lst`: `Sfx_33` @ `$BBB18`, next
+  >   emitted symbol `GameState_OJZScroll_Init` @ `$BC500`, so the block spanned `0x9E8` = **2536 B**, byte-identical
+  >   to the emitted `engine/sound/generated/sfx_bank.bin`. Its last 548 B, **`$BC2DC..$BC4FF`**, were the 137 `dc.l`
+  >   cells — 16 non-zero, each a real in-block `Sfx_NN` address, 121 holes. **The dead bytes were in the shipped
+  >   RELEASE ROM**, not only the debug one. NOTE the block is NOT visible as `SfxTable` in the main listing at all:
+  >   `sfx_bank.emp` is assembled by `emit_sound_blob` (seam 2) and reaches the ROM as one opaque `embed` in
+  >   `sfx_bank_blob.emp`, so the only repo-side symbol is `Sfx_33`. That is why the gap existed.
+  > * **`SfxTable`'s 548 B — `d3ee3b5f`. Size confirmed exactly. The fix was the ATTRIBUTE LIST, not a rewrite.**
+  >   Dropping `cell: *u8, hole: 0, body: before` puts the table in sigil's **record-list mode**: payload only, no
+  >   cells. `key: $33..=$BB` stays, so `SFX_ID_BASE`/`SFX_COUNT`/`SFX_TABLE_LEN` are untouched — sigil reads
+  >   `.len`/`.min_key`/`.max_key` from `attrs.key` and `.count` from `rows.len()`, and the in-domain/ascending/
+  >   no-duplicate row checks come from `key:` alone. The surviving 1988 B are byte-identical to the old block's
+  >   first 1988 B and `sfx_blob_win_tab.bin` is byte-identical. **s4.bin −548, s4.debug.bin −548, demo unmoved.**
+  > * **The patch banks — `cb6e8aff`. 384 B, NOT 96.** The md5 comparison above is between the SEPARATE EMBEDS and
+  >   is true, but it is not the redundancy that matters: `pack_sfx` (`tools/sfx_transcode.py`) appends each SFX's
+  >   FM-patch bank **inside the blob** and writes every channel's `voice_ptr` as a 16-bit offset **from the blob
+  >   start** into that inline copy; the Z80 computes `sx_patch_base = blob base + voice offset`
+  >   (`engine/sound/sound_sfx.emp`). So **all twelve** non-empty `Sfx_NN_Patches` embeds were second copies of bytes
+  >   the blob already carried — verified byte-identical against the inline copy at all twelve addresses in the
+  >   control `s4.bin`, with every decoded `voice_ptr` strictly inside its own blob. **s4.bin −384, s4.debug.bin
+  >   −384, demo unmoved.**
+  > * **One prediction missed by a byte, and the cause is worth keeping:** the block goes 1988 → **1603**, not 1604.
+  >   `item_align: 2` pads after every emitted part, but the pad after the **last** part is elided. Before this the
+  >   last part was a 32 B patch bank on an even offset, so no trailing pad was ever due and the behaviour was
+  >   invisible. The ROM still moved by exactly −384, because the chainer re-pads one `$00` at `$BC15B` to even-align
+  >   the successor. Post-change cross-check: all 16 blobs byte-identical in the ROM, and every `SFX_WIN_NN` in the
+  >   live `SfxBlobWinTab` equals `winptr(its blob)` at the new addresses.
+  > * **Totals: −932 B on `s4.bin` (821155 → 820223) and on `s4.debug.bin` (847533 → 846601); `demo.bin` and
+  >   `demo.debug.bin` md5-IDENTICAL throughout** (demo is sound-off, the correct control).
+  > * **`tools/test_sfx_bank_wiring.py`'s key-range parser was anchored on `cell:`** and would have raised "could not
+  >   find the SfxTable key range" — an ERROR, not a verdict on the win table. Its regex now accepts any attribute
+  >   list declaring `key:`; proved still load-bearing red-first by mutating the range to `$33..=$BC` on disk (the
+  >   failure quotes the mutated range) and restored from the committed baseline.
+  > **WHAT THIS PARCEL DID NOT DO, and why — two riders, both byte-neutral:**
+  > * **The `sfx_NN_patches.bin` / `.asm` files are now written by nothing but the transcoder and read by nothing.**
+  >   `tools/sfx_transcode.py` still emits both (`emit_sfx_patches_asm` + the `--emit-bin` twin) and `.gitignore`
+  >   still allow-lists the 11 committed `.bin`s. Retiring that write is a tool-side change with its own regen
+  >   contract; left for a separate parcel rather than smuggled into a byte-mover.
+  > * **`tools/sfx_transcode.py` still has a whole `emit_sfx_table_asm` path** (`SfxTable:` + `dc.l` + a
+  >   `SfxTable_End-SfxTable` length check), reachable only behind the opt-in `--emit-table` flag, whose own warning
+  >   calls its target "HAND-OWNED" — and `sfx_table.asm` **exists nowhere in the tree**; the AS build that consumed
+  >   it is gone. `tools/test_sfx_transcode.py::TestSfxTableComplete` gates the generator's output string, so the
+  >   gate outlives its subject. Dead generator + its gate; same reason, separate parcel.
+  > **STALE PROSE FOUND BESIDE IT, not this parcel's to fix** (all measured): `sfx_bank_blob.emp`'s header says the
+  > block is "0x748 B" and holds "9 FM/PSG SFX blobs" (it was 16 blobs / `0x9E8` before this parcel, `0x643` after),
+  > and both it and `sfx_bank.emp`/`sfx_blob_win_tab.emp` give the per-shape base as `$5BB10`/`$5D560` where the
+  > built ROM has `$BBB18`/`$BD568` (the ROM re-layout moved it). `sigil`'s `crates/sigil-harness/src/seam2.rs`
+  > carries the same two stale numbers, and `pins.rs`'s `SFX_BANK_BLOB` (`plain_len: 0x8EC`) and `ASSEMBLED_LEN`
+  > (`0xBDC92`) were **already stale against today's aeon master before this parcel** — so no sigil pin was a live
+  > gate on this block's length. Flagged, not touched.
 - **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
