@@ -1678,9 +1678,18 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     expect = W * W * 2                          # 16-bit words: 2 bytes per cell
     a = open(path_a, "rb").read()
     if len(a) != expect:
-        print(f"  WARNING: {path_a} is {len(a)}B, expected {expect}; "
-              f"ignoring editor collision for sec {sec_id}")
-        return grids
+        # A REFUSAL, not a warning (2026-09-12 gap lens sweep F1). This used to print
+        # a WARNING and return `grids` — the all-air baseline — so a file cut by two
+        # bytes deleted section 0's floor (1038 -> 0 plane-A cells) with the re-bake
+        # at exit 0 and verify_level_bin OK. Air is not a safe default for a file
+        # that exists: the author painted it, and a truncated or wrong-shape save is
+        # a broken working tree to stop on, not a section to bake empty.
+        raise ValueError(
+            f"{path_a} is {len(a)} bytes, expected {expect} (a {W}x{W} grid of "
+            f"16-bit cell words). Refusing to bake sec {sec_id}: the old fallback "
+            f"treated a wrong-sized collision file as 'no editor collision' and "
+            f"shipped the section as ALL AIR. Re-save it from Aurora, or delete it "
+            f"if the section really has no authored collision.")
     path_b = os.path.join(base, f"section_{sec_id}.collattrb.bin")
     b = open(path_b, "rb").read() if os.path.isfile(path_b) else None
     if b is not None and len(b) != expect:

@@ -33,6 +33,9 @@ PROJECT_JSON = os.path.join(ROOT, "project.json")
 STRIP_GEN_SRC = os.path.join(ROOT, "tools", "ojz_strip_gen.py")
 NAMETABLE_TILE_MASK = 0x07FF   # bits 0-10 of a VDP nametable word
 NAMETABLE_ATTR_MASK = 0xE000   # priority + palette line (flip bits are NOT here)
+# The ROM-consumed collision tables and the S&K base bank the bake resolves against.
+COLLISION_DIR = os.path.join(ROOT, "games", "sonic4", "data", "collision")
+PROFILE_LEN = 16               # one height byte per 16-px column of a collision cell
 
 _fail = []
 
@@ -635,6 +638,198 @@ def verify_editor_bake_fidelity():
               f"({sections_checked} section(s), {words_checked} nametable words)")
 
 
+def _expected_collision_entry(word, base_hm, base_an):
+    """What one editor collision cell word must bake to, derived from the word itself
+    and the committed base bank. Returns:
+      None                               -- AIR: the baked attr byte must be 0
+      (heights, angle, solidity, xover)  -- the ROM tables' entry at the baked byte
+      str                                -- the word cannot be baked at all (why)
+
+    RE-DERIVED FROM THE ENCODING, NOT IMPORTED FROM THE BAKER. The per-plane cell word
+    is Aurora's (bits 9:0 base-bank shape, bit 10 xflip, bit 11 yflip, 13:12 this
+    plane's solidity, 15:14 the loop crossover mark), resolved xflip-then-yflip
+    against the base bank as collision_pipeline.bake_plane_cell documents. Importing
+    that function would make this gate agree with the baker by construction, which is
+    the T1-2 shape (a proof that reproduces the generator instead of checking it).
+    A second statement of five bit fields is the price of a check that can disagree.
+    """
+    xover = (word >> 14) & 3
+    if xover == 3:
+        return f"XOVER == 3, which docs/LOOP_CROSSOVER_ENCODING.md reserves as illegal"
+    shape = word & 0x03FF
+    solidity = (word >> 12) & 3
+    if solidity == 0 or shape == 0:
+        # No geometry. Unmarked is plain air; a marked cell still interns a non-zero
+        # attr whose entry is all-zero heights, angle 0, solidity 0, and the mark.
+        return None if xover == 0 else (bytes(PROFILE_LEN), 0, 0, xover)
+    if (shape + 1) * PROFILE_LEN > len(base_hm) or shape >= len(base_an):
+        return (f"shape {shape} lies outside the {len(base_hm) // PROFILE_LEN}-shape "
+                f"base bank")
+    heights = base_hm[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
+    angle = base_an[shape]
+    if word & 0x0400:                       # xflip: mirror columns, negate the angle
+        heights = heights[::-1]
+        angle = (-angle) & 0xFF
+    if word & 0x0800:                       # yflip: hang from the top, reflect the angle
+        heights = bytes(h if h in (0, 16) else (256 - h) & 0xFF for h in heights)
+        angle = (-angle - 0x80) & 0xFF
+    return (bytes(heights), angle, solidity, xover)
+
+
+def verify_editor_collision_fidelity():
+    """The baked collision must carry the EDITOR's authored collision, cell for cell,
+    through the attr bytes in sec{N}_strips_a.bin into the ROM-consumed tables.
+
+    THE GAP THIS CLOSES (2026-09-12 gap lens sweep, F1). A section_0.collattr.bin cut
+    by two bytes made ojz_strip_gen's overlay warn and return the all-air baseline:
+    section 0's plane A went from 1038 non-air cells to 0, all five ROM tables changed,
+    and this gate said OK. Nothing in it compared collision to what the editor
+    authored, and verify_collision_is_interned only asks "not the raw base bank",
+    which an all-air table also satisfies.
+
+    WHAT "FIDELITY" MEANS, derived from ojz_strip_gen.apply_editor_collision_overlay:
+      * a section WITH section_N.collattr.bin: every 16-px cell (tile column `col`,
+        collision row `cr`) bakes from the word at tile row 2*cr, column col (the
+        cell's top tile row). Plane A reads collattr.bin; plane B reads collattrb.bin,
+        or plane A's word when collattrb.bin is ABSENT (a wrong-sized file is a failure
+        here, not a mirror). The baked byte is an index into the ROM tables, and the
+        entry it names must equal what the word resolves to against the base bank --
+        or the byte must be 0 when the word is air.
+      * a section with NO collattr.bin: the overlay keeps the air baseline, so every
+        collision byte in its strips must be 0.
+    heightmaps_rot.bin is not compared: it is a pure function of heightmaps.bin
+    (rotate_profile), not of anything the editor authored.
+    """
+    fails_before = len(_fail)
+    strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+    pad = _strip_gen_int("STRIP_COLLISION_PAD")
+    if strip_rows is None or pad is None:
+        return
+    W = strip_rows                       # the editor grid: W x W tiles per section
+    coll_rows = strip_rows // 2          # 16-px collision rows per strip column
+    stride = strip_rows * 2 + 2 * coll_rows + pad
+    off_a = strip_rows * 2               # plane A follows the nametable words
+    off_b = off_a + coll_rows            # plane B follows plane A
+    cell_file_bytes = W * W * 2
+
+    if not os.path.isfile(PROJECT_JSON):
+        check(False, "editor collision: project.json missing -- cannot locate the editor tree")
+        return
+    with open(PROJECT_JSON) as f:
+        act = json.load(f)["zones"][0]["acts"][0]
+    data_path = os.path.join(ROOT, act["dataPath"])
+    declared = act["gridWidth"] * act["gridHeight"]
+
+    names = ("heightmaps.bin", "angles.bin", "solidity.bin", "crossover.bin")
+    need = [os.path.join(COLLISION_DIR, "base", "heightmaps.bin"),
+            os.path.join(COLLISION_DIR, "base", "angles.bin")]
+    need += [os.path.join(COLLISION_DIR, n) for n in names]
+    missing = [p for p in need if not os.path.isfile(p)]
+    if missing:
+        check(False, f"editor collision: cannot check -- missing "
+                     f"{', '.join(os.path.relpath(p, ROOT) for p in missing)}")
+        return
+    base_hm = read(need[0])
+    base_an = read(need[1])
+    hm, an, sol, xo = (read(os.path.join(COLLISION_DIR, n)) for n in names)
+    entries = len(hm) // PROFILE_LEN
+    if not (len(hm) % PROFILE_LEN == 0 and entries and len(an) == len(sol) == len(xo) == entries):
+        check(False, f"editor collision: ROM table sizes disagree (heightmaps {len(hm)} B, "
+                     f"angles {len(an)}, solidity {len(sol)}, crossover {len(xo)}) -- "
+                     f"they are one table indexed by the same attr byte")
+        return
+    check(not any(hm[:PROFILE_LEN]) and sol[0] == 0 and xo[0] == 0,
+          "editor collision: ROM attr index 0 is not air -- every air cell bakes to "
+          "byte 0, so a non-air entry 0 makes the whole act solid where it is empty")
+
+    def rom_entry(idx):
+        return (hm[idx * PROFILE_LEN:(idx + 1) * PROFILE_LEN], an[idx], sol[idx], xo[idx])
+
+    cells_checked = 0
+    authored_nonair = 0
+    for n in range(declared):
+        rem_path = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        if not os.path.isfile(rem_path):
+            check(False, f"editor collision: sec{n}_strips_a.bin missing")
+            continue
+        rem = read(rem_path)
+        if len(rem) != W * stride:
+            check(False, f"editor collision: sec{n}_strips_a.bin is {len(rem)} bytes, "
+                         f"expected {W} columns x {stride}")
+            continue
+        path_a = os.path.join(data_path, f"section_{n}.collattr.bin")
+        path_b = os.path.join(data_path, f"section_{n}.collattrb.bin")
+        if not os.path.isfile(path_a):
+            solid = sum(1 for c in range(W) for o in (off_a, off_b)
+                        for x in rem[c * stride + o: c * stride + o + coll_rows] if x)
+            check(solid == 0,
+                  f"editor collision: sec{n} has no section_{n}.collattr.bin (the bake keeps "
+                  f"the air baseline) but its strips carry {solid} non-air collision bytes")
+            cells_checked += W * coll_rows * 2
+            continue
+        planes = {}
+        bad_size = False
+        for label, p in (("A", path_a), ("B", path_b)):
+            if not os.path.isfile(p):
+                continue
+            blob = read(p)
+            if len(blob) != cell_file_bytes:
+                check(False, f"editor collision: {os.path.relpath(p, ROOT)} is {len(blob)} "
+                             f"bytes, expected {cell_file_bytes} ({W}x{W} 16-bit cell "
+                             f"words) -- the bake cannot have carried it faithfully")
+                bad_size = True
+                continue
+            planes[label] = struct.unpack(f">{W * W}H", blob)
+        if bad_size:
+            continue
+        planes.setdefault("B", planes["A"])     # absent collattrb.bin: plane B mirrors A
+
+        for label, off in (("A", off_a), ("B", off_b)):
+            words = planes[label]
+            pairs = {}
+            baked_nonair = 0
+            for c in range(W):
+                col_bytes = rem[c * stride + off: c * stride + off + coll_rows]
+                baked_nonair += sum(1 for x in col_bytes if x)
+                # words[c::2W] = rows 0, 2, 4 ... of column c: each cell's top tile row
+                for pair in zip(words[c::2 * W], col_bytes):
+                    pairs[pair] = pairs.get(pair, 0) + 1
+            want_nonair = 0
+            bad = 0
+            first = None
+            for (word, idx), count in pairs.items():
+                exp = _expected_collision_entry(word, base_hm, base_an)
+                if exp is not None and not isinstance(exp, str):
+                    want_nonair += count
+                if isinstance(exp, str):
+                    ok, why = False, exp
+                elif exp is None:
+                    ok, why = idx == 0, "air (attr byte 0)"
+                else:
+                    ok = 0 < idx < entries and rom_entry(idx) == exp
+                    why = (f"heights {list(exp[0])} angle ${exp[1]:02X} solidity "
+                           f"{exp[2]} xover {exp[3]}")
+                if not ok:
+                    bad += count
+                    if first is None:
+                        first = (word, idx, why)
+            authored_nonair += want_nonair
+            cells_checked += W * coll_rows
+            check(bad == 0,
+                  f"editor collision: sec{n} plane {label}: {bad} of {W * coll_rows} "
+                  f"cells do NOT carry what the editor authored (editor has "
+                  f"{want_nonair} non-air cells, the bake has {baked_nonair}; first: "
+                  f"editor word ${first[0]:04X} baked to attr {first[1]}, expected "
+                  f"{first[2]})" if first else f"editor collision: sec{n} plane {label}")
+
+    check(cells_checked > 0,
+          "editor collision: zero cells checked -- this gate measured nothing, which is "
+          "not a pass")
+    if cells_checked and len(_fail) == fails_before:
+        print(f"verify_level_bin: editor collision fidelity OK ({declared} section(s), "
+              f"{cells_checked} cells, {authored_nonair} authored non-air)")
+
+
 def main():
     verify_act_pool()
     verify_local_maps()
@@ -642,9 +837,11 @@ def main():
     verify_bininclude_targets()
     verify_collision_is_interned()
     verify_editor_bake_fidelity()
+    verify_editor_collision_fidelity()
     verify_no_orphans()
     checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
-                  "bininclude-targets / collision-interned / editor-bake / orphans")
+                  "bininclude-targets / collision-interned / editor-bake / "
+                  "editor-collision / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:
