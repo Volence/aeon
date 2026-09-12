@@ -78,6 +78,7 @@ from suite_paths import add_client_path  # noqa: E402
 add_client_path()
 from aether import BusClient  # noqa: E402
 from aether_instance import aether_emulator, read_bytes, unprefix  # noqa: E402
+from cart_identity import CartMismatch, assert_cart_matches_disk  # noqa: E402
 from emp_consts import emp_consts  # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -211,7 +212,7 @@ async def wait_busy(b, base, off, want, frames):
     return None, trace
 
 
-async def main_async(sock, lst, probe_crc, plain_crc, out):
+async def main_async(sock, rom, lst, probe_crc, plain_crc, out):
     c = emp_consts(SOUND_CONSTANTS)
     for n in ("SND_STAT_FADE_BUSY", "SND_REQ_BASE", "SND_STAT_SEQ_ACTIVE"):
         if n not in c:
@@ -223,6 +224,14 @@ async def main_async(sock, lst, probe_crc, plain_crc, out):
 
     b = BusClient(socket_path=sock, client_id="fadebusy", client_name="fade_busy_stale")
     await b.connect()
+    # Before any number: the cart in the machine must BE the probe ROM this run built.
+    # The crc it returns is compared against the build's own below, so an L0 that
+    # passed on the build's crc cannot be undone by a different cart being loaded.
+    loaded = await assert_cart_matches_disk(b, rom, out)
+    if loaded != probe_crc:
+        raise CartMismatch(
+            f"the loaded cart's crc is {loaded:08x} but this run BUILT {probe_crc:08x} — "
+            f"the machine is not holding the probe ROM")
     syms = parse_syms(lst)
     if "Sound_Dbg_Mirror" not in syms:
         raise Unmeasurable("Sound_Dbg_Mirror is not in the probe listing — without the "
@@ -357,12 +366,12 @@ def main():
         out.append(f"  {TARGET} restored from HEAD and verified byte-identical")
         with aether_emulator(probe_bin, symbols=probe_lst) as sock:
             fails, ran, want = asyncio.run(
-                main_async(sock, probe_lst, probe_crc, plain_crc, out))
+                main_async(sock, probe_bin, probe_lst, probe_crc, plain_crc, out))
     except Blocked as e:
         print("\n".join(out))
         print(f"\nBLOCKED: {e}")
         return 3
-    except Unmeasurable as e:
+    except (Unmeasurable, CartMismatch) as e:
         print("\n".join(out))
         print(f"\nUNMEASURABLE: {e}")
         return 2

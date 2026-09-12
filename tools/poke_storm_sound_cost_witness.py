@@ -59,6 +59,7 @@ from suite_paths import add_client_path  # noqa: E402
 add_client_path()
 from aether import BusClient  # noqa: E402
 from aether_instance import aether_emulator  # noqa: E402
+from cart_identity import CartMismatch, assert_cart_matches_disk  # noqa: E402
 from emp_consts import emp_consts  # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -193,6 +194,10 @@ async def main_async(sock, rom, lst_path, poison, out):
     rate, lead_ms, prime_ms, ta_ms = derive(out)
     b = BusClient(socket_path=sock, client_id="pokestorm", client_name="poke_storm_cost")
     await b.connect()
+    # Before any number: the cart in the machine must BE the file named. `s4.debug.bin`
+    # in particular is rewritten by every build in this tree, so a witness holding it
+    # open across someone else's build is the realistic way to measure a stale cart.
+    await assert_cart_matches_disk(b, rom, out)
     await b.call("emulator/load_symbols", {"path": lst_path})
     syms, equs = parse_syms(lst_path)
     if "SND_DMA_ACTIVE_SLOT" not in equs:
@@ -342,7 +347,7 @@ def main():
     try:
         with aether_emulator(a.rom, symbols=a.lst) as sock:
             fails, ran, want, _ = asyncio.run(main_async(sock, a.rom, a.lst, a.poison, out))
-    except Unmeasurable as e:
+    except (Unmeasurable, CartMismatch) as e:
         print("\n".join(out))
         print(f"\nUNMEASURABLE: {e}")
         return 2

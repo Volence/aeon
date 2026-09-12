@@ -86,6 +86,7 @@ from suite_paths import add_client_path  # noqa: E402
 add_client_path()
 from aether import BusClient  # noqa: E402
 from aether_instance import aether_emulator, read_bytes, unprefix  # noqa: E402
+from cart_identity import CartMismatch, assert_cart_matches_disk  # noqa: E402
 from emp_consts import emp_consts  # noqa: E402
 
 # The sound contract's single authority. The Z80-side constants this file needs are
@@ -467,6 +468,9 @@ async def mid_drum_load(b, base, lst_path, button, rate, out, tag):
 async def main_async(sock, rom, lst_path, poison, out):
     b = BusClient(socket_path=sock, client_id="songload", client_name="song_load_mid_drum")
     await b.connect()
+    # Before any number: the cart in the machine must BE the file named. A truncated
+    # or stale cart produces a full run with a clean leg count and wrong numbers.
+    await assert_cart_matches_disk(b, rom, out)
     syms, equs = parse_syms(lst_path)
     # NOTE: `Snd_LoadSong` is deliberately NOT required. The Z80 driver is assembled
     # into its own blob (SIGIL_EMIT / emit_sound_blob) and NONE of its labels reach
@@ -671,7 +675,7 @@ def main():
     try:
         with aether_emulator(a.rom, symbols=a.lst) as sock:
             fails, ran, want = asyncio.run(main_async(sock, a.rom, a.lst, a.poison, out))
-    except Unmeasurable as e:
+    except (Unmeasurable, CartMismatch) as e:
         print("\n".join(out))
         print(f"\nUNMEASURABLE: {e}")
         return 2

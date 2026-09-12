@@ -57,10 +57,14 @@ WR — a held DC level for the remaining **27.27 ms**. Separately the tick's DMA
 `floor(38.17 / 16.65) = 2` Timer-A overflows, i.e. drops 2 sequencer frames per storm.
 
 **What "costs no sound" would have to mean to be true.** Only this: *no sound is playing across
-the storm*. In the canonical shapes that happens to be the case — they cannot play music by
-design, and the one storm in 900 frames is the initial level redraw, before anything streams. The
-comment is a claim about the mechanism, and as a claim about the mechanism it is false: the
-bracket is 3.5 ring leads long and the driver has no absorber past one.
+the storm*. The comment is a claim about the mechanism, and as a claim about the mechanism it is
+false — the bracket is 3.5 ring leads long and the driver has no absorber past one.
+
+Whether the weaker reading is true **in the canonical shapes was NOT established by this run**, and
+is stated that way rather than assumed: those shapes cannot play music by design, but a DAC sample
+from an SFX or `Sound_PlaySample` is reachable in principle, and the canonical shape carries no
+`Sound_Dbg_Mirror`, so `SND_STAT_DAC_ACTIVE` cannot be read there at all. What was measured is the
+bracket, not the absence of a stream across it.
 
 ## Instruments, and the two that do not exist
 
@@ -162,6 +166,64 @@ They are measurement witnesses, not gates, and they are wired into no runner. Tw
 need an off-canonical ROM, which `build.sh` refuses to produce, so they cannot live in it. They
 fail only when they could not ask their question — never on the engine's behaviour, which is the
 thing being reported.
+
+## The 19:25Z `pkill -f "sigil.*--native"` window — checked, and clean
+
+The controller reported that another lane ran `pkill -f "sigil.*--native"` at roughly 19:25Z, a
+pattern that matches this parcel's `--config-a` invocations. Checked both ways it can bite:
+
+| what | when (UTC) | in the window? | evidence it completed |
+|---|---|---|---|
+| `DEBUG=1 ./build.sh` | 19:25:23 -> 19:29:21 | **YES, it started inside it** | `finished=0`; the ROM's own `DIGEST-ROM` row reads `crc=9ce1c2ff size=847533`, which is the value the previous batch recorded for this same tree, and its md5 `06e50f02` is the control the `0912 s9` landing recorded for untouched `f512e228` |
+| config-A build (legs 1-2) | 19:29:30 -> 19:29:36 | no, it ran after | `finished=0` and `built: config_a native ROM, crc=df4539a3 len=847885` — the controller's own independently measured value for this tree at 19:22Z |
+| leg 1 runs | 19:36 -> 19:50 | no | 7/7 legs, every run |
+| leg 3 runs | 19:53 -> 19:54 | no | 6/6 legs |
+| leg 2 run (incl. both probe builds) | 19:56 -> 19:58 | no | 6/6 legs; `finished`-equivalent `EXIT=0` |
+
+**Not one build in this parcel failed, at any point.** Every `sigil` and `build.sh` invocation
+returned 0 on its first attempt, so there is no failure anywhere from which a conclusion could have
+been drawn — which is the amendment's sharper hazard (a killed `sigil` looks exactly like a
+legitimate refusal). The one "instrument unavailable" conclusion in this parcel — no VGM, no audio
+— comes from a LIVE server's handshake and its served-method list, not from a build outcome, and
+was re-measured afterwards.
+
+**Cart identity, verified rather than assumed.** The controller's check is `romBytes` against the
+file length; this parcel went further and read the WHOLE cart back through the bus:
+
+```
+cfga.bin        file len=847885 crc32=df4539a3   server romBytes=847885  readback identical: True
+s4.debug.bin    file len=847533 crc32=9ce1c2ff   server romBytes=847533  readback identical: True
+```
+
+`s4.debug.bin` had by then been REWRITTEN by a later `tools/landing_build.sh` run and still came
+back `9ce1c2ff`, so the leg-3 ROM is reproducible as well as intact. `tools/cart_identity.py` now
+carries that check and all three witnesses call it.
+
+## A stale measured table in the instrument seam
+
+`tools/aether_instance.py`'s docstring carries a handshake table measured 2026-08-26, and three of
+its rows are now false. Measured here at 20:05Z against
+`/home/volence/sonic_hacks/oracle/target/release/oracle-aether` (built 2026-09-12 14:46):
+
+| field | the docstring says | measured today |
+|---|---|---|
+| `implementation` | ABSENT ("not yet on the wire") | `"oracle-rs"` |
+| `serverBuild` | ABSENT | `{source: vcs, id: 781e9e08...+profile=release, dirty: false}` |
+| `len(methods)` | 41 | **61** |
+| `capabilities.breakpoints` | `false` (present) | **`true`** |
+| `capabilities.watchpoints` | not mentioned | `{supported: true, maxWatches: 32, ringCap: 4096, spaces: [bus, vram, cram, vsram]}` |
+| `capabilities.vgm` | not mentioned | `false` — and `vgm_start` / `audio_spectrum` are genuinely NOT in the 61 |
+
+Two consequences, both live:
+
+* The docstring states flatly that *"`breakpoint_add` / `wait_for_break` do not exist"* and to use
+  `run_to` instead. Both ARE served now, and so is the whole watchpoint surface — which is the
+  instrument all three witnesses in this parcel depend on. A lane reading that paragraph would not
+  try a watchpoint at all.
+* The same docstring says to delete rung 2 of `assert_rust_server` once oracle's release binaries
+  carry `implementation`. **They now do.** Deleting it is a code change with its own test
+  (`tools/test_aether_instance.py` drives both rungs) and is left for a parcel that owns it; the
+  docstring is corrected to say the condition has been met rather than to keep predicting it.
 
 ## Open, deliberately not guessed
 
