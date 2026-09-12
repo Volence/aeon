@@ -2,7 +2,12 @@
 // Oracle MCP. Zero bytes in BOTH canonical shapes (the triple gate
 // __DEBUG__ + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR; SOUND_DBG_MIRROR defaults
 // 0 in build.sh). Placed only at the MIRROR shape (DEBUG=1 SOUND_DBG_MIRROR=1);
-// the canonical shapes prove emptiness. Gate: SIGIL_EMP_SOUND_DEBUG (engine.inc).
+// the canonical shapes prove emptiness. Gate: the call site's
+// `if DEBUG == 1 && SOUND_DRIVER_ENABLED == 1 && SOUND_DBG_MIRROR == 1`
+// (engine/system/vblank.emp) plus placement by the off-canonical config_a profile
+// (`sigil build --native --config-a`). (This read "SIGIL_EMP_SOUND_DEBUG
+// (engine.inc)"; engine.inc is deleted and that name exists nowhere in the tree —
+// gap lens sweep A2-17, 2026-09-12.)
 //
 // Sound_DebugMirror copies the Z80 mailbox+status ($A01F00..$A01F3F) plus the
 // playback/sequencer state and trace ring into Sound_Dbg_Mirror (68k RAM) so the

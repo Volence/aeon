@@ -95,8 +95,15 @@ use engine.sound_sequencer.{Mod_ReArm}
 // byte-identical copy (Fm_ReparkDac); it does not any more.
 use engine.z80_sound_driver.{Snd_ParkDac}
 
-// FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
-// Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at
+// FM writer scratch (Z80 RAM in the free sequencer block). A static scratch is safe
+// because no two FM-writer calls can overlap, NOT because only one caller exists:
+// Sequencer_Frame reaches the writer, and so does the mailbox service (an unpause
+// through Snd_CtrlCommand -> Snd_ResumeMusic -> Sfx_UnpauseRestore -> Fm_PatchLoad /
+// Fm_SetVolume). They never interleave: the Timer-A tick services the mailbox only
+// AFTER its Sequencer_Frame pass returns, and SndDrv_ISR can only be accepted in
+// SndDrv_Idle's `ei` window, where no writer is mid-call (every other path runs
+// under `di`). (Corrected 2026-09-12, gap lens sweep A2-10: this said "only
+// Sequencer_Frame reaches the FM writer".) Placed at
 // SND_FM_SCRATCH; each cell folds to its absolute address.
 const Fm_ScratchPart = SND_FM_SCRATCH + 0    // current part (0/1)
 const Fm_ScratchCh   = SND_FM_SCRATCH + 1    // current ch-in-part (0..2)
@@ -169,8 +176,10 @@ section sound_fm (cpu: z80) {
     //
     // --- YM WRITE-SPACING: MACHINE-CHECKED HERE (Task 9.2) -------------------
     // The 2026-07-16 review audited every YM write path by hand against the two
-    // hardware floors (YM_ADDR_TO_DATA_MIN_T / YM_DATA_TO_ADDR_MIN_T,
-    // sound_constants.emp) and marked it PASS. The ADDRESS->DATA half of that
+    // hardware floors (~8 T address->data, YM_ADDR_TO_DATA_MIN_T in THIS file; ~39 T
+    // data->next-address, deliberately not declared, see the floors block above)
+    // and marked it PASS. (This named a YM_DATA_TO_ADDR_MIN_T in sound_constants.emp;
+    // neither exists there — gap lens sweep A2-17, 2026-09-12.) The ADDRESS->DATA half of that
     // audit is now structural: the two `ensure(cycles(...))` at the bottom of
     // this proc re-measure both straight-line halves at every build. Because
     // this proc is the single funnel for every FM register write, covering it

@@ -14,10 +14,13 @@
 // --- SHAPE VARIANCE: same SIZE both shapes, but NOT byte-identical -----------
 // The driver has ZERO internal __DEBUG__ content, so its own code is
 // shape-invariant in SIZE and POSITION ($0000, the origin) in BOTH shapes. But it
-// is NOT byte-identical across shapes: five `call` sites target callees that
-// live AFTER the sequencer's +$7E debug growth (Sequencer_StopAll / Sfx_StopAll /
-// SfxDispatch all shift +$7E in the debug shape), so those call operands differ
-// plain vs debug. Sequencer_Frame (immediately after the driver) is the one
+// is NOT byte-identical across shapes: nine transfer sites (six `call`, three
+// `jp`) target five callees that live AFTER the sequencer's +$82 (130-byte) debug
+// growth (Sequencer_StopAll, Seq_SilenceMusicVoices, Sfx_StopAll, SfxDispatch and
+// Sfx_UnpauseRestore all shift +$82 in the debug shape), so those operands differ
+// plain vs debug. (Re-derived 2026-09-12, gap lens sweep A2-15/A2-17: this read
+// "five `call` sites" and "+$7E"; z80_sound_blob.bin is 6176 B and the debug blob
+// 6306 B, and s4.lst / s4.debug.lst give Z80_SOUND_SIZE $1820 / $18A2.) Sequencer_Frame (immediately after the driver) is the one
 // shape-INVARIANT external target. seam-1 therefore links each shape at its own
 // per-shape addresses and gates BOTH shapes (the two blobs are NOT equal bytes).
 //
@@ -91,9 +94,10 @@
 // DRAINING only the buffered tail) -> ACCEPTED, not fixed.
 //
 // --- INBOUND CALLEES THIS DRIVER DEFINES -----------------------------------
-// Four symbols the sibling sound modules `use`-import from this driver:
-// SndDrv_SetBank + Snd_RouteClassFlags (sound_sfx) and Snd_StartSample +
-// Snd_DacLookup (sound_sequencer). The importer's credit is DERIVED from the def
+// Seven symbols the sibling sound modules `use`-import from this driver:
+// SndDrv_SetBank + Snd_RouteClassFlags + Snd_JingleResume (sound_sfx);
+// Snd_StartSample + Snd_DacLookup + Snd_ParkDac + Snd_PauseMusic
+// (sound_sequencer); and Snd_ParkDac again (sound_fm). The importer's credit is DERIVED from the def
 // below (its declared clauses, clobbers-complemented), so there is no separate
 // caller-side decl to drift from the definition.
 // ===========================================================================
@@ -101,9 +105,14 @@
 module engine.z80_sound_driver (cpu: z80)
 
 // The cross-file resident callees this driver calls, resolved by import.
-// Sequencer_Frame is the only shape-invariant target; the other three
-// shift +$7E in the debug shape. SndDrv_IdleTick relies on Sequencer_Frame
-// preserving iy (its definition clobbers af/bc/de/hl/ix — iy untouched).
+// Sequencer_Frame is the only shape-invariant target; the other five shift
+// +$82 in the debug shape (see the file header). Sequencer_Frame does NOT
+// preserve iy: its contract is clobbers(af, bc, de, hl, ix, iy), because its
+// `jp Sfx_Frame` tail destroys iy. Nothing in this driver holds iy across it —
+// SndDrv_IdleTick, Run_SeqFrame_OnSongBank and SndDrv_TimerATick all declare iy
+// clobbered. (Corrected 2026-09-12, gap lens sweep A2-2: this line used to say
+// SndDrv_IdleTick RELIES on Sequencer_Frame preserving iy, which would license a
+// live iy across the tick.)
 // The YM2612 address->data spacing floor in Z80 T-states. MUST equal
 // sound_fm.emp's YM_ADDR_TO_DATA_MIN_T, where the derivation and the
 // measurement convention are documented. It is re-declared per module rather
@@ -565,11 +574,14 @@ section z80_sound_driver (cpu: z80) {
     .drain_pad:                         // cut label: guard|pad boundary for the derived pad
         // DERIVED timing pad -> DRAIN = 195 (== FILL). measured non-pad cost =
         // prefix cycles(.loop,.fill_body)=109 + this body pre-pad
-        // cycles(.drain,.drain_pad)=32 + trailing jp .loop=10 = 151;
-        // pad = 195-151 = 44 T (the lead is recovered at the tick). DENSE:
-        // 44/12 = 3 unconditional `jr` (12 T in 2 B each) + 44%12/4 = 2 nops -> 8 B
-        // instead of 11 nops. Same T-total; the `.drain_end` ensure below re-measures
-        // it. Reg-safe like the nop pad (a `jr` writes no register and no flag).
+        // cycles(.drain,.drain_pad)=24 (the R1 guard: six 4 T ops) + trailing
+        // jp .loop=10 = 143; pad = 195-143 = 52 T (the lead is recovered at the
+        // tick). DENSE: 52/12 = 4 unconditional `jr` (12 T in 2 B each) +
+        // 52%12/4 = 1 nop -> 9 B instead of 13 nops. Both shapes' blobs carry
+        // `18 00` x4 + `00` here (read 2026-09-12; this said 32/151/44 T and 8 B
+        // until the gap lens sweep, A2-17 — the pre-R1 figures). Same T-total; the
+        // `.drain_end` ensure below re-measures it. Reg-safe like the nop pad (a
+        // `jr` writes no register and no flag).
         pad_to_cycles(195, cycles(.loop, .fill_body) + cycles(.drain, .drain_pad) + 10, dense: true)
         jp      .loop
     .drain_end:                         // cycles() span cut label (zero bytes)
@@ -770,7 +782,8 @@ section z80_sound_driver (cpu: z80) {
     //   Snd_AckSlot — in: hl = the request slot to clear. Falls into Snd_AckBump.
     //   Snd_AckBump — no input; bumps the ack count only (Snd_LoadSong's tail,
     //                 where the slot was already cleared early by the H-1 repost gate).
-    // `hl` is DEAD at all six clear-sites (each is immediately followed by an
+    // `hl` is DEAD at all eight clear-sites (seven `call`s plus the sample path's
+    // tail `jp`; each is immediately followed by an
     // absolute-addressed `ld a,(SND_REQ_*)` or a return) and at Snd_LoadSong's
     // tail; `a` is likewise dead at every site, so leaving the bumped count in it
     // costs nothing. RESIDENT + RAM-only, so it is bank-safe from the ISR and the
@@ -804,12 +817,15 @@ section z80_sound_driver (cpu: z80) {
     // the steady-state consumer write is a bare `ld (de),a` with de = $4001, so
     // reg $2A must be the selected address at all times. Every path that writes a
     // NON-$2A register to $4000 must therefore re-park before returning to the
-    // consumer — nine such paths exist (idle tick, .stop, .stop_repark, both
-    // Snd_StartSample re-asserts, the Timer-A tick's .reparkDac, ProgramFixed,
-    // Rearm, Snd_LoadSong), and each spelled the same two instructions inline.
+    // consumer — nine such paths exist IN THIS DRIVER (idle tick, .stop,
+    // .stop_repark, both Snd_StartSample re-asserts, the Timer-A tick's .reparkDac,
+    // ProgramFixed, Rearm, Snd_LoadSong), and each spelled the same two instructions
+    // inline. sound_fm (eight tail-calls) and sound_sequencer (three calls) import
+    // it too; Seq_SilenceMusicVoices still re-parks inline. (Scope added 2026-09-12,
+    // gap lens sweep A2-17: "nine" read as the whole population.)
     // Callers that had this as their LAST act tail-call it (`jp`, its ret is
-    // theirs); the rest `call` it. `a` is dead at all nine sites — every one either
-    // reloads `a` immediately or returns — so leaving $2A in it is free.
+    // theirs); the rest `call` it. `a` is dead at all nine driver sites — every one
+    // either reloads `a` immediately or returns — so leaving $2A in it is free.
     // NOT in any cycles() span: `.stop` is the END label of the DRAINING span, so
     // its body (and .stop_repark below it) is excluded by construction; the
     // remaining sites are in other procs entirely. The hot streaming loop
@@ -824,7 +840,9 @@ section z80_sound_driver (cpu: z80) {
     }
 
     // --- Snd_TempoCommand — a = $FF (restore authored base) or a target tempo mod
-    // (1..$FE; S3K TempoWait units — bigger = slower, 0 = full speed). Sets
+    // (1..$FE; S3K TempoWait units — bigger = slower). Mod 0 (full speed) cannot
+    // arrive here: 0 is SND_REQ_TEMPO's idle value, so SndDrv_PollMailbox skips a
+    // posted 0 (gap lens sweep A2-4; this read "0 = full speed"). Sets
     // SND_TEMPO_TARGET; Tempo_Ramp glides cur toward it. RESIDENT: reached from the
     // mailbox/streaming context (SAMPLE bank in the window); touches only RAM, so
     // it must NOT live in the $8000 song-bank window. Clobbers af.
@@ -1058,9 +1076,15 @@ section z80_sound_driver (cpu: z80) {
     // Reads bank/ptr/len from the 12-byte descriptor (ds_bank +0, ds_ptr +3,
     // ds_length +5), re-asserts DAC mode WITHOUT toggling the $2B edge (no click),
     // resets the ring RD=0 + re-primes the $80 lead + WR=LEAD_PRIME, and sets
-    // SND_STAT_DAC_ACTIVE=1. TWO CALL CONTEXTS: (a) mailbox SND_REQ_SAMPLE (VBlank
-    // ISR, DAC paused, de saved); (b) sequencer $E2 (SndDrv_TimerATick, inside the
-    // loop's `di` window, between samples). BANK CONTRACT: the descriptor lives in
+    // SND_STAT_DAC_ACTIVE=1. FOUR CALL CONTEXTS, all with interrupts off: the
+    // mailbox's SND_REQ_SAMPLE (SndDrv_PollMailbox via Snd_PollMailbox_Banked) from
+    // (a) SndDrv_ISR — DAC idle, since the ISR can only land in SndDrv_Idle's `ei`
+    // window; de saved by the ISR — or (b) SndDrv_TimerATick, between two streaming
+    // passes with a sample in flight (a retrigger; the tick reloads the streaming
+    // registers after); and the sequencer's $E2 handler inside Sequencer_Frame, from
+    // (c) SndDrv_TimerATick, also mid-sample, or (d) SndDrv_IdleTick, DAC idle.
+    // (Corrected 2026-09-12, gap lens sweep A2-8: this read "TWO CALL CONTEXTS" and
+    // called the mailbox one "VBlank ISR, DAC paused".) BANK CONTRACT: the descriptor lives in
     // the BANKED DacSampleTable, so this routine's only ROM reads are the 5
     // descriptor bytes through the $8000 window — the CALLER must have that bank in.
     // This routine NEVER SetBanks (B2: stash-only) and reads no sample payload. It
@@ -1411,16 +1435,28 @@ section z80_sound_driver (cpu: z80) {
 
     // --- Snd_LoadSong — load + arm the song the 68k posted. Reached from
     // SndDrv_PollMailbox, which runs from BOTH the VBlank ISR (idle context) AND
-    // the Timer-A tick mid-sample (`:959`, via Snd_PollMailbox_Banked). So a song
-    // load CAN land with a DAC sample in flight: the loader does not stop the DAC,
-    // the ring keeps draining, and the lead absorbs the work here. What protects
-    // the in-flight FILL is the explicit .keep_sample_bank guard below, which
-    // declines to reseed SND_ROM_BANK while SND_STAT_DAC_ACTIVE is set — not any
-    // guarantee that streaming is stopped.
-    // (This header used to claim "REACHED ONLY from ... the VBlank ISR, so the DAC
-    // streaming loop is PAUSED". False since the Timer-A tick began servicing the
-    // mailbox, and flatly contradicted by .keep_sample_bank's own comment further
-    // down. Corrected in the Task 9.4 truth pass — no code change.)
+    // the Timer-A tick mid-sample (SndDrv_TimerATick's Snd_PollMailbox_Banked
+    // call). So a song load CAN land with a DAC sample in flight. What the loader
+    // does to that sample, read off the body below:
+    //   * step (1) writes YM $2B = $00 (DAC mode OFF) and clears
+    //     SND_STAT_DAC_ACTIVE UNCONDITIONALLY, sample in flight or not;
+    //   * it does NOT stop the streaming LOOP: SndDrv_TimerATick reloads the
+    //     streaming registers and rejoins .afterPoll, and the loop never reads
+    //     SND_STAT_DAC_ACTIVE, so it keeps consuming the ring and FILLing from ROM
+    //     until the sample's own .stop, with $2B off unless a later
+    //     Snd_StartSample re-enables it;
+    //   * that .stop then tests SND_FM6_ADAPTIVE / SND_FM6_CHAN_PTR, which this
+    //     loader has already re-derived for the NEW song.
+    // What that SOUNDS like (the review seat's reading: the rest of the drum is
+    // silent until the new song's first $E2, and FM6 may be re-keyed mid-note) is
+    // UNMEASURED — RUNTIME-TAG: capture the YM writes across a mid-drum
+    // Sound_PlayMusic before relying on either reading. The one protection the
+    // in-flight FILL does get is .keep_sample_bank below, which declines to reseed
+    // SND_ROM_BANK while SND_STAT_DAC_ACTIVE is still set (it runs before step 1).
+    // (Corrected 2026-09-12, gap lens sweep A2-9, no code change: this said "the
+    // loader does not stop the DAC, the ring keeps draining". The version before
+    // that claimed "REACHED ONLY from ... the VBlank ISR, so the DAC streaming loop
+    // is PAUSED", removed in the Task 9.4 truth pass.)
     // EVERY song STREAMS from ROM (SH_F_STREAM is
     // always set): the sequencer reads the song's streams + patch bank DIRECTLY
     // through the banked $8000 window. Steps: (1) $2B=$00 (DAC OFF, re-park $2A) +
@@ -1440,7 +1476,14 @@ section z80_sound_driver (cpu: z80) {
         // A PlayMusic-while-an-SFX-runs switch reaches here with an SfxChannel still
         // ACTIVE, owning a physical voice the new song will fight over. Sfx_StopAll
         // deactivates all 7 SfxChannels, drops priority, drains the queue, resets the
-        // duck — cancelling any in-flight SFX. Touches only RAM (preserves de=$4001).
+        // duck — cancelling any in-flight SFX. Touches only RAM, but does NOT
+        // preserve de: its contract is clobbers(af, bc, de, hl, ix), and it returns
+        // de = SfxChannel_len (68), the stride it walked the arrays with. Harmless
+        // HERE only because the ldir wipe below reloads de before any use, and both
+        // return paths re-establish de = $4001 (SndDrv_ISR pops it, SndDrv_TimerATick
+        // reloads it). SndDrv_Init's B1 note shows what the same call does when de
+        // IS live. (Corrected 2026-09-12, gap lens sweep A2-1: this said "preserves
+        // de=$4001".)
         call    Sfx_StopAll             // cancel in-flight SFX so the new song starts clean
 
         // Clear the sequencer header + channel block FIRST (before the load setup
@@ -1449,8 +1492,9 @@ section z80_sound_driver (cpu: z80) {
         // remaining N-1 bytes. Same region, same value, one byte smaller than the
         // hand-rolled `dec bc / ld a,b / or c / jr nz` loop it replaces — and about
         // HALF the cycles (~27.7k -> ~13.9k for this ~660-byte block, 21 T/byte vs
-        // 42). Those cycles are not free perf: this runs inside the VBlank ISR's
-        // mailbox service, and the 68k's Sound_PlayMusic spins on MUSIC_SLOT == 0
+        // 42). Those cycles are not free perf: this runs inside the mailbox service
+        // (the VBlank ISR's or the Timer-A tick's, see the header), and the 68k's
+        // Sound_PlayMusic spins on MUSIC_SLOT == 0
         // waiting for it, so halving the wipe directly shortens that await_slot spin.
         // de is clobbered here (it was not before) — already inside this proc's
         // declared clobbers, and de = $4001 is re-established by both return paths
@@ -1463,7 +1507,9 @@ section z80_sound_driver (cpu: z80) {
 
         // B1/B2 banking: record this song's bank for the per-frame bracket. Seed the
         // sample bank to it too — but ONLY when no DAC sample is in flight. A music
-        // change can land mid-drum (the loader does NOT stop the DAC); clobbering
+        // change can land mid-drum, and the streaming loop keeps FILLing the dying
+        // sample until its own .stop (step 1 below only turns $2B off, see the
+        // header); clobbering
         // SND_ROM_BANK then would yank the window to the new bank while the dying
         // sample still FILLs from its own bank. Leaving it lets the in-flight sample
         // finish on its real bank; the next $E2 re-stashes it.

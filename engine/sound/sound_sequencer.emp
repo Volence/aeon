@@ -20,9 +20,14 @@
 // The base is identical in BOTH shapes (only the driver precedes it, and the
 // driver is shape-invariant). Unlike psg/fm (shape-invariant bodies, only the
 // base shifts), the sequencer's OWN body is shape-VARIANT: the debug shape
-// carries 16 `if DEBUG == 1` blocks (the Seq_Trace body + 15 scattered
-// `call Seq_Trace` sites in the handlers), for +$7E = 126 bytes. That internal
+// carries 17 `if DEBUG == 1` blocks (the Seq_Trace body, 14 scattered
+// `call Seq_Trace` sites in the handlers, the D7 MEV_REPEAT_END-0 trap, and
+// Seq_BadOpcode's SND_SEQ_BADOP marker), for +$82 = 130 bytes. That internal
 // growth is what pushes sfx/fm/psg to higher bases in the debug shape.
+// (Re-derived 2026-09-12, gap lens sweep A2-15: this said 16 blocks / +$7E = 126.
+// z80_sound_blob.bin is 6176 B, z80_sound_blob_debug.bin 6306 B, and s4.lst /
+// s4.debug.lst give Z80_SOUND_SIZE $1820 / $18A2; no other resident module has
+// an internal DEBUG block.)
 // Bases themselves are DERIVED by seam-1 from a running cursor over the
 // preceding modules' emitted spans — no section here declares a `vma:`, and no
 // base address is written down in either repo.
@@ -115,8 +120,12 @@ const SND_Z80_YM_A3        = SND_Z80_YM_A0 + 3        // $4003: data part II
 // $B4 (L/R|AMS|FMS) is not in this module's seam list either — a hardware-
 // fixed YM register number, mirrored as a literal (authority: SND_REG_LR_AMS_FMS).
 const SND_REG_LR_AMS_FMS   = $B4
-// The MEV_EXT prefix opcode (authority: sound_constants.emp, where it is
-// pinned inside the $E0-$FF coordination block; sub-op 0 = COMM).
+// The MEV_EXT prefix opcode, a literal mirror (authority: sound_constants.emp,
+// whose ensures pin MEV_EXT == $FA inside the $E0-$FF coordination block, so an
+// authority move fails THERE, loudly). Those ensures were added 2026-09-12 (gap lens
+// sweep A2-6); before that this comment claimed a pin that did not exist. They do
+// not see THIS literal: editing the mirror alone is still uncaught. Sub-op 0 = COMM
+// (Seq_Op_Ext tests it with `or a`).
 const MEV_EXT              = $FA
 
 use engine.sound_sfx.{Sfx_Frame}
