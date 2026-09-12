@@ -102,8 +102,11 @@ PROJECT_JSON = os.path.join(
 def _project_tileset_path() -> str:
     """Resolve the zone tile-art blob path from project.json (source of truth).
 
-    project.json's zones[0].tileset points at the editor chunk-library tile
-    blob (data/editor/<zone>/chunks_tiles.bin), relative to the repo root.
+    project.json's zones[0].tileset names the zone tileset, relative to the repo
+    root (games/sonic4/data/editor/ojz_tiles.bin on 2026-09-12). It is NOT the
+    editor chunk library's data/editor/<zone>/chunks_tiles.bin: that file is a
+    separate, tracked, zero-byte blob aurora's chunk-library loader reads, and
+    this bake never opens it.
     """
     with open(PROJECT_JSON, "r") as f:
         proj = json.load(f)
@@ -112,7 +115,7 @@ def _project_tileset_path() -> str:
     )
 
 
-CHUNKS_TILES_PATH = _project_tileset_path()
+ZONE_TILESET_PATH = _project_tileset_path()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -442,7 +445,7 @@ def load_editor_section_nametable(path: str) -> list[list[int]]:
     """Load a section_*.tiles.bin from the level editor.
 
     The file is a 256×256 grid of big-endian 16-bit VDP nametable words.
-    Tile indices reference entries in chunks_tiles.bin.
+    Tile indices reference entries in the zone tileset (ZONE_TILESET_PATH).
     Returns all rows as a list-of-rows nametable.
     """
     data = open(path, "rb").read()
@@ -460,7 +463,7 @@ def load_editor_section_nametable(path: str) -> list[list[int]]:
 
 
 def load_editor_tile_art(path: str) -> bytes:
-    """Load raw tile art from the editor's chunks_tiles.bin."""
+    """Load raw tile art from the zone tileset (ZONE_TILESET_PATH, from project.json)."""
     return open(path, "rb").read()
 
 
@@ -483,7 +486,7 @@ def editor_data_available() -> bool:
     broken working tree. Refuse it here, where the diagnosis is still cheap.
     """
     sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
-    for p in (sec0, CHUNKS_TILES_PATH):
+    for p in (sec0, ZONE_TILESET_PATH):
         if not os.path.isfile(p) or os.path.getsize(p) == 0:
             return False
     return True
@@ -520,8 +523,8 @@ def preflight() -> None:
             f"height, angle and solidity class.")
     print(f"preflight OK — sonic_hack = {SONIC_HACK}")
     print(f"               skdisasm   = {sk}")
-    print(f"               tileset    = {CHUNKS_TILES_PATH} "
-          f"({os.path.getsize(CHUNKS_TILES_PATH)} bytes)")
+    print(f"               tileset    = {ZONE_TILESET_PATH} "
+          f"({os.path.getsize(ZONE_TILESET_PATH)} bytes)")
 
 
 def write_strips_to_file(
@@ -1774,7 +1777,7 @@ def require_donor():
         # to bake a blank level silently (tools lens sweep D3).
         sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
         why = []
-        for label, p in (("section_0.tiles.bin", sec0), ("zone tileset", CHUNKS_TILES_PATH)):
+        for label, p in (("section_0.tiles.bin", sec0), ("zone tileset", ZONE_TILESET_PATH)):
             if not os.path.isfile(p):
                 why.append(f"{label} MISSING at {p}")
             elif os.path.getsize(p) == 0:
@@ -1818,8 +1821,8 @@ def generate(stress_uniquify=0):
             os.path.dirname(__file__), "..", ojz_act1["dataPath"]
         )
 
-        full_blob = load_editor_tile_art(CHUNKS_TILES_PATH)
-        print(f"  Tile art: {CHUNKS_TILES_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
+        full_blob = load_editor_tile_art(ZONE_TILESET_PATH)
+        print(f"  Tile art: {ZONE_TILESET_PATH} ({len(full_blob)} bytes, {len(full_blob)//32} tiles)")
 
         per_section_strips: dict[str, list[list[int]]] = {}
         for sec_idx in range(editor_num_sections):

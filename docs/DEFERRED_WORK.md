@@ -30264,7 +30264,14 @@ confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrin
 `project.json` `zones[0].tileset`, which is `games/sonic4/data/editor/ojz_tiles.bin` (29408 B). The tracked
 `games/sonic4/data/editor/ojz/chunks_tiles.bin` is 0 bytes and this bake never opens it. The tool already refuses a
 zero-byte tileset. Zero-byte fix: rename the variable and repoint the prose. Leave the empty file alone; aurora's chunk-library
-loader references it.
+loader references it. **CLOSED 2026-09-12, `parcel/tools-followups-0912`:** `CHUNKS_TILES_PATH` is now `ZONE_TILESET_PATH`
+(all 9 uses) and the three docstrings name the zone tileset, with `_project_tileset_path`'s saying outright that the bake
+never opens `chunks_tiles.bin`. Consumers were searched by value as well as by name: `git grep` over the whole tree,
+importers of `ojz_strip_gen`, every `setattr`/monkeypatch on it (exactly two: `EDITOR_DIR` and the CLI handlers), the
+tests that resolve `zones[0].tileset` independently (`tools/test_editor_inputs.py`, via `project.json`), and aurora's source.
+No other consumer names the variable. The only other copies are aurora's scratchpad snapshots of this file, which are aurora's
+and left alone. The 0-byte file is untouched. Checked with `preflight` (resolves `ojz_tiles.bin`, 29408 B) and
+`ojz_strip_gen.py test` (all pass). Zero ROM bytes.
 
 **`Draw_Sprite` pays for two long-form entry branches (new, found by the C1a-1 parcel, merge `f41d7ca4`; booked, not fixed):**
 `bne .offscreen` (the multisprite-parent check) and `beq .offscreen` (the null-mappings check) are emitted in the long
