@@ -1,4 +1,5 @@
-"""tools/landing_build.sh writes its whole output to the [logfile] its usage line advertises.
+"""tools/landing_build.sh writes its whole output to the [logfile] its usage line advertises,
+and every way it can stop ends in a `finished=` stamp.
 
 WHY THIS FILE EXISTS. The script's header has said `Usage: tools/landing_build.sh
 [logfile]` since it was written, and until 2026-09-11 it never read `$1`: no log file was
@@ -26,6 +27,11 @@ WHAT IS ASSERTED:
   * a FAILED shape: `finished=1` last in both, exit 1, and the lane is reported skipped;
   * a lane that COULD NOT RUN (stub exits 2): `finished=2` last in both, exit 2;
   * the FAST=1 and NO_LINT=1 refusals: `finished=2` last in both, exit 2;
+  * an unset or EMPTY SIGIL_BUILD or SIGIL_EMIT: COULD NOT RUN, `finished=2` last in both,
+    exit 2, naming the variable, before any shape is built, with and without a logfile.
+    Until 2026-09-11 these were `${VAR:?}` expansions, which exit 1 with NO stamp: a run
+    that died there trailed like a killed one, under the code that means a shape FAILED
+    (docs/DEFERRED_WORK.md, side findings of the 2026-09-11 lens-tools parcel, item (b));
   * a RELATIVE logfile path is relative to the CALLER's directory, not the repo root the
     script `cd`s to;
   * a logfile that cannot be written is COULD NOT RUN (exit 2, `finished=2`) BEFORE any
@@ -84,11 +90,15 @@ def _env(**extra):
     env = dict(os.environ)
     for k in ("FAST", "NO_LINT", "DEBUG", "STUB_FAIL_SHAPE", "STUB_LANE_RC"):
         env.pop(k, None)
-    # Set, because the script's ${VAR:?} checks come first; /bin/false, because the only
+    # Set, because the script's assembler checks come first; /bin/false, because the only
     # use is `$SIGIL_BUILD --version` after the stubs, and it must never be a real assembler.
     env["SIGIL_BUILD"] = "/bin/false"
     env["SIGIL_EMIT"] = "/bin/false"
     env.update(extra)
+    # A value of None REMOVES the variable: that is how the unset-assembler rows ask for
+    # it, and it is the only way to take one out after the two defaults above.
+    for k in [k for k, v in env.items() if v is None]:
+        del env[k]
     return env
 
 
@@ -152,6 +162,32 @@ def test_the_refusals_are_logged_and_end_finished_2():
         with tempfile.TemporaryDirectory() as d:
             _assert_logged(d, None, 2, **{knob: "1"})
             assert not os.path.exists(os.path.join(d, "stub-build-ran")), knob
+
+
+def test_an_unset_or_empty_assembler_variable_is_could_not_run_with_the_stamp():
+    """Each of the two variables, unset and set-but-empty (the old `:?` form refused both),
+    through the logfile path: exit 2, `finished=2` last in stdout AND in the log, the
+    variable named, nothing built."""
+    for var in ("SIGIL_BUILD", "SIGIL_EMIT"):
+        for value in (None, ""):
+            with tempfile.TemporaryDirectory() as d:
+                out = _assert_logged(d, None, 2, **{var: value})
+                assert "COULD NOT RUN" in out and var in out, (var, value, out)
+                assert not os.path.exists(os.path.join(d, "stub-build-ran")), \
+                    "%s=%r: a shape was built with no assembler named" % (var, value)
+
+
+def test_an_unset_assembler_variable_without_a_logfile_still_ends_finished_2():
+    """The same refusal on the no-argument path, the one a detached landing run uses:
+    the stamp has to be stdout's last line there too, not only the log's."""
+    for var in ("SIGIL_BUILD", "SIGIL_EMIT"):
+        with tempfile.TemporaryDirectory() as d:
+            script = _sandbox(d)
+            rc, out, err = _run(script, [], d, **{var: None})
+            assert rc == 2, (var, rc, out, err)
+            assert _last_line(out) == "finished=2", (var, out, err)
+            assert var in out, (var, out)
+            assert not os.path.exists(os.path.join(d, "stub-build-ran")), var
 
 
 def test_a_relative_logfile_is_relative_to_the_caller_not_the_repo_root():

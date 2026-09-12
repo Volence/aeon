@@ -30261,8 +30261,11 @@ confirmed by the same read; its per-frame count was not re-derived.
 (a) The ensure message in `engine/objects/entity_window.emp` (about `MAX_LIST_ENTRIES`) now wrongly says no build
 step compares the generator's copy; `tools/test_ojz_entity_list_cap.py` does now. Suggested rewording is in
 `docs/superpowers/notes/2026-09-11-lens-tools-parcel.md`. Engine file, so a comments batch.
-(b) `tools/landing_build.sh` exits 1 with NO `finished=` stamp when `SIGIL_BUILD` or `SIGIL_EMIT` is unset (the `:?`
-expansions). Predates the parcel. A run that dies there trails like a killed one; give it the stamp.
+(b) ~~`tools/landing_build.sh` exits 1 with NO `finished=` stamp when `SIGIL_BUILD` or `SIGIL_EMIT` is unset (the `:?`
+expansions). Predates the parcel. A run that dies there trails like a killed one; give it the stamp.~~ **CLOSED 2026-09-11
+by `parcel/landing-build-env-stamp`:** an unset or EMPTY `SIGIL_BUILD`/`SIGIL_EMIT` is now COULD NOT RUN, exit 2 with
+`finished=2`, the same as the script's other refusals. `tools/test_landing_build_logfile.py` grades both variables, unset
+and empty, with and without a logfile, in its sandbox. It was red first on the unfixed script: exit 1 and no stamp.
 (c) HAZARD, measured by the parcel: any test in build.sh's tools pytest lane that calls `build.sh` against the REAL repo
 recurses (the build's own pytest lane collects the test and launches it again, about once a minute). The shipped
 `tools/test_landing_build_logfile.py` runs a COPY of the script beside a stub `build.sh`; copy that pattern.
