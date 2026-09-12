@@ -1460,13 +1460,36 @@ proc EntityWindow_RescanObjects () clobbers(d0-d4, a0-a3) {
 // or not — must sit inside the Y despawn band or it goes. The Y band
 // uses ENTITY_DESPAWN_BUFFER_Y (wider than load = hysteresis: a ring
 // between the bands neither loads nor despawns, so no churn).
-// Iterates backward for safe swap-with-last removal.
+//
+// Iterates backward for safe swap-with-last removal, with a ROLLING entry
+// pointer (a2, stepped down one RING_BUFFER_ENTRY_SIZE per iteration) rather
+// than rebuilding &Ring_Buffer[index] from the index every pass. That is
+// RingCollision's walk (engine/objects/rings.emp), and its safety argument holds
+// here for the same reason, checked against this loop rather than assumed:
+// RingBuffer_Remove(d5) copies the LAST entry — index Ring_Count-1 after its own
+// decrement, never below d5 — into slot d5, and does nothing when d5 IS the last.
+// So a removal rewrites only the slot under the cursor, from an index this
+// backward walk has already visited; entries below the cursor never move, and
+// a2 - RING_BUFFER_ENTRY_SIZE is the next entry to test whether or not this one
+// went. The removed slot's new occupant (visited, and kept) is not re-tested —
+// exactly as in the index form, where dbf stepped d5 past it too.
+// a2 survives the remove path by the callees' declared contracts:
+// EntityWindow_EntryForSection d1/a0, EntityLoaded_Clear d0/d2/a0,
+// RingBuffer_Remove d1-d2/a0-a1. The one caller (EntityWindow_Scan's tail)
+// declares a0-a4 and tail-jumps into EntityWindow_DespawnObjects, which loads
+// its own a2, so charging a2 here costs nobody a live register.
 // -----------------------------------------------
-proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
+proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a2) {
         moveq   #0, d5
         move.b  Ring_Count, d5
         beq     .done
         subq.w  #1, d5
+
+        // a2 = &Ring_Buffer[Ring_Count - 1], the rolling entry pointer
+        move.w  d5, d0
+        mul_const.w d0, #RING_BUFFER_ENTRY_SIZE, d1     // d0 = last index × entry size (d1 scratch)
+        lea     Ring_Buffer, a2
+        adda.w  d0, a2
 
         move.w  Camera_X, d6
         move.w  d6, d7
@@ -1474,13 +1497,7 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         addi.w  #SCREEN_WIDTH+ENTITY_DESPAWN_BUFFER, d7
 
     .loop:
-        // Compute entry address
-        move.w  d5, d0
-        add.w   d0, d0
-        add.w   d5, d0
-        add.w   d0, d0                  // d0 = index × 6
-        lea     Ring_Buffer, a0
-        move.w  (a0, d0.w), d1          // engine_X
+        move.w  (a2), d1                // engine_X
 
         cmp.w   d6, d1
         blt     .check_active
@@ -1488,7 +1505,7 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         ble     .check_y                // X in window → still Y-gated
 
     .check_active:
-        move.b  4(a0, d0.w), d1
+        move.b  4(a2), d1
         cmp.b   Entity_Scan_State+offsetof(EntityScanState, ess_section_id), d1
         beq     .check_y
         cmp.b   Entity_Scan_State+(sizeof(EntityScanState)*1+offsetof(EntityScanState, ess_section_id)), d1
@@ -1500,7 +1517,7 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
 
     .check_y:
         // Y despawn band: camY-DESPAWN_Y .. camY+SCREEN_HEIGHT+DESPAWN_Y
-        move.w  2(a0, d0.w), d1         // engine_Y
+        move.w  2(a2), d1               // engine_Y
         move.w  Camera_Y, d2
         subi.w  #ENTITY_DESPAWN_BUFFER_Y, d2
         cmp.w   d2, d1
@@ -1513,10 +1530,10 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
     .remove:
         // clear the loaded bit before removal (no-op when section
         // untracked; Y despawn makes this live for active sections too)
-        // clearLoadedRing a0,d0 (macro inline-expanded)
+        // clearLoadedRing a2 (macro inline-expanded)
         moveq   #0, d3
-        move.b  5(a0, d0.w), d3         // list_index
-        move.b  4(a0, d0.w), d0         // section_id
+        move.b  5(a2), d3               // list_index
+        move.b  4(a2), d0               // section_id
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
         bmi     .clr_ring_skip          // section untracked — no loaded bits
@@ -1525,13 +1542,14 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         moveq   #0, d2                  // ring bits
         jbsr    EntityLoaded_Clear
     .clr_ring_skip:
-        // RingBuffer_Remove preserves d5,d6,d7 (clobbers d1-d2/a0-a1) and the
-        // span writes only d0 (d5 stays the dbf loop counter below), so nothing
-        // here needs saving across the call.
+        // RingBuffer_Remove preserves d5,d6,d7 and a2 (clobbers d1-d2/a0-a1)
+        // and the span writes only d0 (d5 stays the dbf loop counter below,
+        // a2 the entry cursor), so nothing here needs saving across the call.
         move.w  d5, d0
         jbsr    RingBuffer_Remove
 
     .next:
+        subq.w  #RING_BUFFER_ENTRY_SIZE, a2     // next entry down (see the header: nothing below moved)
         dbf     d5, .loop
 
     .done:
