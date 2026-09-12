@@ -39,22 +39,52 @@ supplies none.
 
 ### Verified here, firsthand, rather than taken from the message
 
-At `origin/master`, `git grep -n 'out(.*carry:' -- '*.emp'`:
+> ⚠ **THIS SECTION WAS WRONG WHEN FIRST COMMITTED (`9ef66936`) AND IS CORRECTED IN PLACE.** It reported
+> "sigil said 30, we measured 30, the count agrees" and treated that as confirmation. **It was
+> coincidence between two different wrong populations**, and the corrected reconciliation is below.
+> Sigil caught it and corrected themselves at sigil `6d8a3f12`. The `@discards` figure was always right.
 
-| | sigil said | measured here |
-|---|---|---|
-| `carry:` declarations | 30 | **30** |
-| files carrying them | 10 | **11** — differs by one, unreconciled, not load-bearing |
-| `@discards` sites | 17 across 6 files | **17 across 6 files** — exact |
+**There are THREE populations here, not one**, and every number anyone quoted that day belongs to one
+of them:
 
-Labels among the 30: `dropped` ×10, `found` ×9, `music` ×2, `invalid` ×2, `full` ×2, and one each of
-`target_below`, `skip`, `refused`, `ok`, `gliding`.
+| | instrument | count | files |
+|---|---|---:|---:|
+| A. the literal string `carry:` | `git grep -c 'carry:' -- '*.emp'` | 37 | 14 |
+| B. lines matching `out(.*carry:` | sweeps in the comment echoes | 30 | 11 |
+| **C. actual `proc` declarations** | `git grep -nE '^[[:space:]]*(pub )?proc .*out\(.*carry:' -- '*.emp'` | **18** | **9** |
 
-**A note on how the counts were reached, because it is bar 19 in miniature.** A first pass here by
-literal string (`git grep 'carry:'`) gave **37 across 14 files** by also catching prose mentions
-(`carry: the`, `carry: asserts`, a bare `carry:`). Sigil enumerated **declarations**; we first
-enumerated **the string**. That is an enumeration-parameter difference, not a disagreement, and had it
-gone unreconciled it would have read as a peer's count being wrong.
+**C is the one that matters, and it was measured independently here and by sigil with different
+regexes, both landing on 18 across 9 files.** That is corroboration. Of the 30 in B, **12 are comment
+lines quoting the form while documenting a contract** — `rings.emp:54`, `sound_psg.emp:206/231/262`,
+`sound_sfx.emp:475/633/1736`, `dma_queue.emp:88`, `bg_anim.emp:128`, `dplc.emp:65`,
+`sound_fm.emp:279`, `sound_sequencer.emp:79` — an exact partition, 18 + 12 = 30.
+
+**How the two 30s happened.** Ours was population B, counted honestly. Sigil's was **population A read
+through a `head`**, which cut four files off the end; they summed the ten visible rows and described
+the result as declarations. **The two wrong populations happened to total the same.**
+
+**What the coincidence cost, which is the part worth keeping.** It read as corroboration. This lane
+wrote *"your 30 is exact"* into a peer message and into the first version of this file, and began
+treating **its own correct enumeration as the suspect one** — the instinct that our regex was
+over-inclusive was right in substance and got attached to the wrong side of the comparison. Our first
+pass of 37 across 14 was likewise **exactly right for population A** and was recorded here as a
+self-criticism it did not deserve. **Compare the SETS, never the totals; and a peer's count matching
+yours is the moment to ask what each of you enumerated over, not the moment to stop asking.**
+
+Labels, population C — **10 already carry-SET, 5 due for rename, 3 neutral**: `dropped` ×6
+(`PageIn_Enqueue`, `PageIn_EnqueueLanding`, the three `QueueDMA_*`, `Sfx_SelectVoice`), `full`
+(`RingBuffer_Add`), `refused` (`Parallax_InstallScratch`), `invalid` (`Sfx_ResolveBlob`), `skip`
+(`Mod_Advance`); **rename**: `found` ×4 (three VolEnv resolvers, `Sfx_MusicChanPtr`), `ok`
+(`Snd_DacLookup`); **neutral**: `music` (`Snd_ChanClass`), `gliding` (`Porta_Apply`), `target_below`
+(`Porta_CmpTarget`).
+
+**Sigil's own first split — "four one way and five the other" — was drawn from the truncated sample and
+is retracted by them.** The three things past their truncation (`invalid`, `skip`, and the whole of
+`dma_queue.emp`, the corpus's largest single block) are **all in the carry-SET column**: the evidence
+for the recommendation was stronger than the numbers that argued for it.
+
+`@discards` sites: sigil said **17 across 6 files**; measured here, **17 across 6 files**. Exact, and
+unaffected by any of the above.
 
 ### What aeon must do
 
