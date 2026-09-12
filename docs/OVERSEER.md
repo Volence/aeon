@@ -135,6 +135,66 @@ hub's word, read at empyrean `7f4ddbb`).
 rotate does it. **Reporting changed with it** (owner, 23:20:23Z, answering the hub's #3): message the hub only when this
 lane STOPS or NEEDS something; landings go in `docs/lane-log.jsonl`, which his changelog reads.
 
+## ⚠ STANDING RULING — THE LAST CLEANUP BEFORE REGIONS, AND THE VIDEO-MEMORY RECUT (owner, 2026-09-12T22:16:45Z)
+
+Relayed by the hub, **read firsthand here at the artifact and not from the relay**:
+
+```sh
+git -C ../empyrean fetch -q origin && \
+git -C ../empyrean show origin/main:docs/OVERSEER.md | command grep -n -A2 'LAST cleanup before regions'
+```
+
+Verbatim: *"Take them out of the map but keep them in the engine to inject anywhere wwe may want. We discussed
+this where we can have code that doesn't reach anything like this but it doesn't get bundled in at compile
+right?"*
+
+**(1) SECTION-EFFECTS-VISUAL is answered, with HIS OWN option, and it is NARROWER than the three offered.**
+Section 1's red band and section 2's ramp leave the **playable map**; the mechanisms **stay in the engine and
+stay injectable anywhere**. This is not the `tests_out` option, which kept them in the cartridge for our own
+checks. **Section 5's borrowed underwater background is UNANSWERED** — he said nothing about it, and silence
+is not "keep". Do not bundle it into the cleanup; ask it separately if it becomes load-bearing.
+
+**(2) HIS TRAILING QUESTION — THE ASSEMBLER HALF IS ANSWERED, THE ENGINE HALF IS OURS AND STILL OPEN.**
+
+Sigil answered their half from source: **unused code IS free, at MODULE granularity.** A module nothing in the
+game's profile `use`s is never resolved, never lowered, and emits zero bytes. **Inclusion is decided by the
+profile's `use` closure — not by directory membership and not by section placement in `map.toml`.** Their
+strongest evidence is the `--extra-entry` flag rather than any comment: it exists to evaluate a module nothing
+`use`s so its module-level `ensure`s run, and it **refuses by name a module that would emit** — a capability
+built to reach unbuilt modules without emitting is evidence that unbuilt is the default. Read it at the
+artifact, not here: sigil `0f2c3a42`, `docs/superpowers/notes/2026-09-12-unused-engine-code-ships.md`
+(verified reachable from their `origin/master` by this lane, 2026-09-12).
+
+**Where it stops, and this is the crux for us: there is NO finer elimination.** Once a module is in the
+closure, everything it emits ships whether called or not, and **import is all-or-nothing** — there is no way
+to import part of a module. **A trap sigil names:** the asl-style listing prints `Symbol Table (* = unused):`,
+so **a symbol can read "unused" and still be in the ROM.** Never read that marker as evidence of elimination.
+
+**OUR HALF, unanswered:** do section 1's red band and section 2's ramp live in modules the game imports? If
+not, his instruction costs **nothing** and injecting one later is a single `use` line. If they sit inside an
+imported module, making them free is an aeon-side **FILE SPLIT**, and its size goes on a card **before**
+anything is built — he has not been told there might be a cost and currently believes he asked a yes-or-no
+question. Dispatched 2026-09-12 as `research/dead-code-shipping`.
+
+⚠ **A HYPOTHESIS THIS LANE PUT IN A DISPATCH BRIEF WAS FLATLY WRONG**, and it is recorded because the brief is
+what saved it. I briefed the agent that `map.toml`'s declared `order` list meant placement was declared rather
+than reachability-derived, i.e. that unreferenced code ships. Sigil's answer refutes it. The brief carried
+*"treat that as my hypothesis to test, not a finding to confirm"* and *"I would rather be corrected than
+agreed with"*, and the correction was relayed to the running agent within minutes. **Also suspect, and sent
+back for re-derivation rather than left standing:** my reading that `PER-GAME-BAND-DEFINES` is evidence unused
+features are not free. With module-granularity elimination proven, that row is more likely about sizing
+constants or RAM/VRAM reservations than code bytes. **A controller's confident premise reaches an agent as
+fact; the contradict-me clause is the only thing in the loop that can refuse it.**
+
+**(3) VRAM-FOR-OBJECTS is ANSWERED and the card is CLOSED.** He selected the recommended two-lever plan —
+foreground art cache 12 → 10 pages plus the background streamer the region plan already needs, about 384 tiles,
+objects 152 → ~536 — and **scoped it INSIDE the regions project**: *"The video memory recut will be in the
+regions project"*. So **`VRAM-NEIGHBOURHOOD` is an OUTPUT of regions, not a gate ahead of it.** A session that
+treats it as a prerequisite has the order backwards.
+
+**Sequencing he is working to:** the section/effects cleanup as newly defined, then regions. **He is deciding
+to start regions on the strength of that cleanup being the last thing**, so do not grow it.
+
 ## The queue
 
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
