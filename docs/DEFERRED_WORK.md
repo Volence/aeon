@@ -30492,7 +30492,7 @@ recurses (the build's own pytest lane collects the test and launches it again, a
 (a) **`Killed_MarkObject` has no caller** in `engine/` or `games/` (the parcel's finding, re-verified by the controller on the
 merged tree with `git grep -w`: one definition, two comments and one ensure message, no call site). So the killed
 mask is never set and the killed gate always answers "alive": a destroyed badnik can respawn when its section slides back
-in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path.
+in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path. **RE-BOOKED 2026-09-12 (seventh session, controller): the emulator look is UNREACHABLE BY CONSTRUCTION, so the respawn hazard cannot occur today.** `Touch_Enemy` is an `rts` stub (`engine/objects/collision.emp`, the `falls_into` stub chain), and OJZ act 1 places no enemy (solids, springs, one static). Nothing can be destroyed, so an unset killed mask is the correct state. Every spawned SST already carries both inputs (`Sst.entity_section_id` `$2B`, `Sst.entity_list_index` `$2C`). **The call belongs in the parcel that gives `Touch_Enemy` a defeat**, not in a standalone fix. Witness: `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`.
 (b) ~~**`Parallax_CheckBoundary` reads `d2` after `Section_GetSecPtrXY`, whose declaration says it clobbers `d2`.** It stores
 `d2`/`d3` right after the call and works only because the body happens not to touch `d2` (C4a-4 kept it off `d2` and says so
 in the header). The contract closure does not flag a read of a declared-clobbered register, so a future body change would
@@ -30605,7 +30605,7 @@ ensure it failed ALL FOUR shapes (exit 1 each), and each failure was `ram harves
 same premise with an even row count; the message says so.
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
-rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2).
+rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2). **Status 2026-09-12 (seventh session, `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`):** C4a-4 WITNESSED (every tracked entry's id equals the flat id derived from its own origin, after horizontal and vertical slides, grid rows 0-2). C4a-2 SPAWN HALF witnessed (the same seven section-0 rings after a slide away and back); its collected half and the cycle counts NOT, because the boot scene (the OJZ scroll test) has no player physics. C1b-3's premise witnessed (289 `Cache_Origin_Row` writes, 0 odd). C4a-3 not run.
 
 ## Tier 3 — prose that decayed, zero-byte fixes
 
