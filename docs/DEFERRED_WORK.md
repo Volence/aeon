@@ -30330,13 +30330,28 @@ recurses (the build's own pytest lane collects the test and launches it again, a
 merged tree with `git grep -w`: one definition, two comments and one ensure message, no call site). So the killed
 mask is never set and the killed gate always answers "alive": a destroyed badnik can respawn when its section slides back
 in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path.
-(b) **`Parallax_CheckBoundary` reads `d2` after `Section_GetSecPtrXY`, whose declaration says it clobbers `d2`.** It stores
+(b) ~~**`Parallax_CheckBoundary` reads `d2` after `Section_GetSecPtrXY`, whose declaration says it clobbers `d2`.** It stores
 `d2`/`d3` right after the call and works only because the body happens not to touch `d2` (C4a-4 kept it off `d2` and says so
 in the header). The contract closure does not flag a read of a declared-clobbered register, so a future body change would
-silently break the parallax crossing detector. Either narrow the declaration to what is really written, or save `d2` at the caller.
-(c) **Same class in the ring walkers:** `EntityWindow_TrySpawnRing` declares `a0` clobbered and its header says no caller
+silently break the parallax crossing detector. Either narrow the declaration to what is really written, or save `d2` at the caller.~~
+**CLOSED 2026-09-12, `parcel/clobber-decls-0912` (`641dcdb3`), zero ROM bytes.** Narrowed to `clobbers(d1, d4)`: no path writes
+`d2`, read at source and on the emitted bytes of all four shapes. Four callers by call site; only this one reads `d2` after the
+call. **The premise was half wrong:** under the OLD declaration a planted `moveq #0, d2` in `.out_of_range` already failed the
+build on D1c (`Parallax_CheckBoundary @ Section_GetSecPtrXY :: d2`), which reads the callee's effective set, so the break
+would not have been silent. Under the new declaration the same plant fails on `[proc.clobber-undeclared]` (1 firing) as well.
+Sigil prints that family's COUNT and not its names, even under `SIGIL_WARNINGS=full`; the attribution is the control, the same
+tree without the plant building green. All four ROMs cmp-identical to the `d5ee8633` baseline.
+(c) ~~**Same class in the ring walkers:** `EntityWindow_TrySpawnRing` declares `a0` clobbered and its header says no caller
 relies on it, but all three ring walkers advance `a0` after the call (`addq.w #RING_LIST_ENTRY_SIZE, a0`). The body restores
-it, so it works; the declaration and the header are what is wrong.
+it, so it works; the declaration and the header are what is wrong.~~
+**CLOSED 2026-09-12, `parcel/clobber-decls-0912` (`e4ed25fc`), zero ROM bytes.** Now `clobbers(d0-d2) preserves(a0, d3, d4,
+d5.w)`: every returning path restores `a0` through the one `movem.l d3-d4/a0` window, in all four shapes' bytes. **This premise
+held:** under the OLD declaration an `a0` left advanced on every path built GREEN (exit 0, ROM changed). Under the new one the
+same plant fails the closure gate on `[proc.clobber-undeclared]` (3 firings, count only, attributed by the same control as (b)).
+All four ROMs cmp-identical to the `d5ee8633` baseline. **Booked, sigil's, not fixed:** D1c named no `a0`
+row at any walker in either run, though each reads `a0` by `addq` straight after the call; the D1c rows the red run added named
+`d3` instead. So a caller's read-modify-write read of a clobbered register looks unwatched by D1c. That is a measurement, not a
+reading of sigil's code.
 (d) **A third copy of the flat-id product** sits in `engine/level/tile_cache.emp` (`mul_bounded.w d3, d1, #MAX_ACT_SECTIONS`);
 C4a-4 made `Section_GetSecPtrXY` return the flat id, so this one could reuse it too. Outside that parcel's scope.
 
