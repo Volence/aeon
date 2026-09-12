@@ -22,6 +22,17 @@ silently end up on the legacy server — which is the exact failure this module 
 impossible, and the failure that would make every timing and stop-PC claim downstream of it
 wrong without anything going red.
 
+SO IS THE SECOND ONE, ADDED 2026-09-12 (CART-VERIFY-COVERAGE). Right server, WRONG CART is
+the same shape of failure and was undefended: of the 67 bus-reaching tools in `tools/`, 3
+asked what cart they were measuring. Now `assert_cart_matches_disk` runs on every spawn too,
+between the handshake and the caller's first call, so the 46 that construct this class inherit
+it instead of hand-rolling it. It compares `emulator/status`'s `romBytes` against the file AND
+reads the whole cart back off the bus, because these four ROM shapes hold their sizes across
+landings and a length match is therefore not an identity. Measured cost of the readback on
+`s4.debug.bin`: see `cart_identity`'s docstring — it is small enough that `cart_check="length"`
+exists only for a caller that can argue it cannot afford even that, and says LENGTH ONLY,
+WEAKER on stderr when used. `tools/cart_coverage_census.py` re-derives the coverage.
+
     MEASURED HANDSHAKES, 2026-08-26, both binaries AS SHIPPED on this machine:
 
       field                     oracle-aether (Rust)      oracle_gui (legacy C++)
@@ -131,6 +142,13 @@ from suite_paths import add_client_path, harness_path, suite_path  # noqa: E402
 add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
 
+# The layering that makes the cart check inheritable: aether_bytes (leaf, no suite imports)
+# <- cart_identity <- this module. `unprefix` / `read_bytes` / `write_bytes` used to live
+# HERE and are re-exported below, unchanged, so the ~30 tools that import them from
+# `aether_instance` need no edit. See aether_bytes.py for why they moved.
+from aether_bytes import read_bytes, unprefix, write_bytes  # noqa: E402,F401
+from cart_identity import CartMismatch, assert_cart_matches_disk  # noqa: E402,F401
+
 # `oracle-next` is a SYMLINK to `oracle` on this machine, so the three already-aether gates
 # that spell the path the other way run the same binary. Spelled the owner-ruled way here.
 SERVER = suite_path("oracle", "target", "release", "oracle-aether")
@@ -142,6 +160,22 @@ REAP_TERM_TIMEOUT_S = 3.0
 # The two rungs of the identity assertion. See the module docstring for how they were measured.
 WANT_IMPLEMENTATION = "oracle-rs"
 WANT_SERVER_NAME = "oracle-next"
+
+# --- the cart check's strength knob -----------------------------------------------------
+# FULL reads the whole cart back off the bus and compares bytes. LENGTH compares only
+# `romBytes` against the file's size, which CANNOT see a stale cart of the right length —
+# and for this tree that is the common case, because the four canonical ROM shapes have held
+# their sizes across many landings. So FULL is the default and LENGTH is an argued-for
+# opt-down that ANNOUNCES ITSELF ON stderr every time, never a silent setting.
+#
+# THERE IS DELIBERATELY NO "off" AND NO ENVIRONMENT VARIABLE. An env knob would let a whole
+# run be weakened from outside the source, invisibly, by something that is not the tool's
+# author — which is the same class of failure as the stale preload this check exists to
+# catch. A caller that genuinely cannot afford the readback says so in its own source, in
+# its own diff, where a reviewer sees it.
+CART_CHECK_FULL = "full"
+CART_CHECK_LENGTH = "length"
+CART_CHECKS = {CART_CHECK_FULL, CART_CHECK_LENGTH}
 
 
 class WrongServerError(RuntimeError):
@@ -202,16 +236,24 @@ class AetherInstance:
     """
 
     def __init__(self, rom: str, symbols: str | None = None, no_pace: bool = True,
-                 binary: str | os.PathLike = SERVER):
+                 binary: str | os.PathLike = SERVER, cart_check: str = CART_CHECK_FULL):
         self.rom = str(Path(rom).resolve())
         self.symbols = str(Path(symbols).resolve()) if symbols else None
         self.no_pace = no_pace
         self.binary = str(binary)
+        if cart_check not in CART_CHECKS:
+            raise ValueError(f"cart_check must be one of {sorted(CART_CHECKS)}, "
+                             f"not {cart_check!r}")
+        self.cart_check = cart_check
         self.dir = tempfile.mkdtemp(prefix="aeon-gate-")
         self.socket_path = os.path.join(self.dir, "oracle.sock")
         self.log_path = os.path.join(self.dir, "server.log")
         self.proc: subprocess.Popen | None = None
         self.handshake: dict = {}
+        # What the cart check found, as one line, for a caller that wants to print its
+        # provenance. Stays None until `start()` runs it.
+        self.cart_note: str | None = None
+        self.cart_crc: int | None = None
 
     @property
     def pid(self) -> int | None:
@@ -277,17 +319,58 @@ class AetherInstance:
                 raise SpawnError(f"oracle-aether did not open {self.socket_path} within "
                                  f"{READY_TIMEOUT_S:.0f}s. Server output:\n{tail}")
             time.sleep(READY_POLL_S)
-        self.handshake = asyncio.run(self._handshake())
-        assert_rust_server(self.handshake)       # <- the anti-vacuity check
+        self.handshake = asyncio.run(self._probe())
         return self.socket_path
 
-    async def _handshake(self) -> dict:
+    async def _probe(self) -> dict:
+        """Connect once, then ask BOTH identity questions on that one connection.
+
+        WHY HERE AND NOT IN A SECOND PASS. The cart check needs a live bus, and this is
+        the only point in the lifecycle where this class holds one: after `start()` returns,
+        the socket belongs to the caller and a check bolted on afterwards would be a
+        check the caller could forget. Firing here also means the cart is compared while
+        the machine is still STOPPED AT FRAME 0 and no caller code has run, so nothing
+        the caller did can be blamed for a mismatch and nothing the caller measures
+        precedes the check.
+
+        ORDER IS LOAD-BEARING: `assert_rust_server` FIRST. It is the cheap, pure question,
+        and if the answer is the legacy server then `emulator/status`'s `romBytes` and the
+        `read_memory` reply shape are both a different server's vocabulary — reading a cart
+        back through it would fail confusingly, or worse, not fail. Refuse the wrong server
+        before asking it anything about carts.
+
+        `_handshake` was this method's name while it only did the first half. It was
+        renamed rather than extended silently so that a reader who greps for the handshake
+        does not find a method that also reads 847 KB off the bus.
+        """
         b = BusClient(socket_path=self.socket_path, client_id="aeon-gate-probe",
                       client_name="aether_instance")
         try:
-            return await b.connect()
+            info = await b.connect()
+            assert_rust_server(info)             # <- the anti-vacuity check
+            await self._verify_cart(b)           # <- right server, right CART
+            return info
         finally:
             await b.close()
+
+    async def _verify_cart(self, b) -> None:
+        """Prove the loaded cart IS `self.rom`. Raises `CartMismatch`; never returns false.
+
+        `CartMismatch` is not caught here and must not be caught to continue anyway. It is
+        an UNMEASURABLE verdict — not a pass, and not a failure of whatever the caller came
+        to measure — and converting it to a zero or a green is the precise thing this check
+        exists to prevent.
+        """
+        note: list[str] = []
+        full = self.cart_check == CART_CHECK_FULL
+        if not full:
+            # Loud, every time, on the stream a gate's own output does not own. A weaker
+            # check that does not say it is weaker is worse than no check: it produces the
+            # same reassuring line as the strong one.
+            print(f"aether_instance: CART CHECK IS LENGTH ONLY, WEAKER — a stale cart of "
+                  f"the right size passes. {self.rom}", file=sys.stderr)
+        self.cart_crc = await assert_cart_matches_disk(b, self.rom, note, full=full)
+        self.cart_note = note[0] if note else None
 
     def reap(self) -> None:
         """SIGTERM, bounded wait, SIGKILL, then remove the dir. Idempotent.
@@ -310,50 +393,29 @@ class AetherInstance:
 
 
 @contextlib.contextmanager
-def aether_emulator(rom: str, symbols: str | None = None, no_pace: bool = True):
+def aether_emulator(rom: str, symbols: str | None = None, no_pace: bool = True,
+                    cart_check: str = CART_CHECK_FULL):
     """Yield the bus socket of a freshly-booted, PAUSED oracle-aether. Reaps on the way out.
 
     Drop-in for `launcher.headless_emulator(rom)` with two differences a caller must know:
     the machine is STOPPED at frame 0 (no boot_wait, nothing to pause), and `emulator/reset`
     takes no params.
+
+    Raises `CartMismatch` before yielding if the server's cart is not `rom` — see
+    `AetherInstance._verify_cart`. `cart_check="length"` opts down to the weaker comparison
+    and says so on stderr; there is no way to opt out.
     """
-    inst = AetherInstance(rom, symbols=symbols, no_pace=no_pace)
+    inst = AetherInstance(rom, symbols=symbols, no_pace=no_pace, cart_check=cart_check)
     try:
         yield inst.start()
     finally:
         inst.reap()
 
 
-def unprefix(hexstr: str) -> str:
-    """Strip the `0x` / `$` the Rust core puts on every hex byte string it returns.
-
-    ⚠ THE QUIET TRAP OF THIS WHOLE CUTOVER. The legacy server answered `read_memory` with
-    BARE hex ("0100000700000000"); the Rust core answers "0x0100000700000000". Callers that
-    do `int(bytes, 16)` are unaffected — but callers that SLICE the string positionally
-    (`raw[i*4:i*4+4]`, and several gates here do) read two characters off and get a
-    plausible, entirely wrong answer with nothing raised. Measured 2026-08-26.
-
-    In the other direction the core is strict rather than quiet: a `bytes` param WITHOUT the
-    prefix is refused with -32602 (`bytes` must start with "0x" or "$"), which is how the
-    palette_variant conversion announced itself.
-    """
-    s = hexstr[2:] if hexstr[:2].lower() == "0x" else (hexstr[1:] if hexstr[:1] == "$" else hexstr)
-    return s
-
-
-async def read_bytes(b: BusClient, addr: int, length: int) -> str:
-    """`read_memory` returning BARE hex — the shape the legacy-era gate bodies expect.
-
-    Use this instead of indexing the raw reply whenever the result is sliced.
-    """
-    return unprefix((await b.call("emulator/read_memory",
-                                  {"addr": hex(addr), "len": length}))["bytes"])
-
-
-async def write_bytes(b: BusClient, addr: int, hexstr: str) -> dict:
-    """`write_memory` from a bare-or-prefixed hex string; the prefix is added if missing."""
-    return await b.call("emulator/write_memory",
-                        {"addr": hex(addr), "bytes": "0x" + unprefix(hexstr)})
+# `unprefix`, `read_bytes` and `write_bytes` are re-exported from `aether_bytes` at the top
+# of this module. They are still `from aether_instance import ...`-able and always will be;
+# `tools/test_aether_instance.py` pins that, because a re-export that quietly stopped being
+# one would break ~30 tools at IMPORT time in a lane nobody runs first.
 
 
 async def run_to_addr(b: BusClient, addr: int, what: str, max_frames: int = 600) -> dict:
@@ -373,10 +435,33 @@ async def run_to_addr(b: BusClient, addr: int, what: str, max_frames: int = 600)
 # --------------------------------------------------------------------------- self-test / poison
 
 def _smoke(rom: str, lst: str) -> int:
+    # Spawn TWICE and subtract, so the readback's cost is a measurement and not a guess:
+    # the length-only spawn pays everything except the readback, so full-minus-length IS
+    # the readback. Both numbers are printed, because a difference without its two
+    # operands is not a measurement.
+    t0 = time.monotonic()
+    lean = AetherInstance(rom, symbols=lst, cart_check=CART_CHECK_LENGTH)
+    try:
+        lean.start()
+        t_len = time.monotonic() - t0
+    finally:
+        lean.reap()
+    t0 = time.monotonic()
+    inst = AetherInstance(rom, symbols=lst)
+    try:
+        inst.start()
+        t_full = time.monotonic() - t0
+        n = Path(rom).stat().st_size
+        print(f"  spawn+handshake+cart(length) {t_len:.3f}s · +cart(full) {t_full:.3f}s "
+              f"-> readback of {n} bytes costs {t_full - t_len:+.3f}s")
+        print(f"  {inst.cart_note}")
+    finally:
+        inst.reap()
+
     t0 = time.monotonic()
     with aether_emulator(rom, symbols=lst) as sock:
         ready = time.monotonic() - t0
-        print(f"  socket ready + handshake in {ready:.3f}s at {sock}")
+        print(f"  socket ready + handshake + cart check in {ready:.3f}s at {sock}")
 
         async def go():
             b = BusClient(socket_path=sock, client_id="smoke", client_name="smoke")

@@ -40,13 +40,13 @@ import argparse
 import asyncio
 import sys
 import time
-import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_paths
 from suite_paths import add_client_path  # noqa: E402
 add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
+from cart_identity import reload_rom_verified  # noqa: E402
 
 SOCK = "/run/user/1000/oracle.sock"
 OJZ_POOL_PAGES = 10
@@ -73,7 +73,6 @@ async def main():
     args = ap.parse_args()
     rom_path = Path(args.rom).resolve()
     lst_path = Path(args.lst).resolve()
-    rom_bytes = rom_path.read_bytes()
 
     b = BusClient(socket_path=SOCK, client_id="evictw", client_name="evict-witness")
     await b.connect()
@@ -99,15 +98,23 @@ async def main():
     # a decision taken for an UNRELATED reason, which is indistinguishable from a design that
     # prevents the bug right up until someone reorders it with a good argument.
     await b.call("emulator/breakpoint_add", {"addr": hex(a_init)})
-    await b.call("emulator/reload_rom", {"path": str(rom_path)})
 
-    # Stale-binary guard: the loaded cart must be the file we were pointed at.
-    h = await b.call("emulator/memory_hash", {"addr": "0x0", "len": len(rom_bytes)})
-    want = zlib.crc32(rom_bytes) & 0xFFFFFFFF
-    got = int(h["crc32"], 16)
-    if want != got:
-        print(f"FAIL: loaded ROM crc {got:#010x} != file {want:#010x} (stale build?)")
-        return 1
+    # Stale-binary guard, and the reload is INSIDE it: `reload_rom` says *load this* and
+    # nothing in its reply confirms the machine now holds it, so the load and the proof
+    # are one call. See `cart_identity.reload_rom_verified`.
+    #
+    # THIS REPLACED A HAND-ROLLED `memory_hash` CRC COMPARISON, 2026-09-12. That check was
+    # NOT weak — a server-side crc32 over the whole cart catches a stale or truncated cart
+    # as well as a readback does, and the CART-VERIFY-COVERAGE row's line that this tool
+    # "never reads the cart back" understates what it was already doing. Two things the
+    # shared helper adds: it compares `romBytes` FIRST, so a length difference is reported
+    # as a length difference instead of as an unexplained crc mismatch; and a mismatch
+    # raises `CartMismatch` — UNMEASURABLE, not a FAIL of the eviction subject, which is
+    # the verdict class a stale cart deserves.
+    cart_note = []
+    await reload_rom_verified(b, rom_path, cart_note)
+    for line in cart_note:
+        print(line)
 
     # SEND-SIDE SPELLING IS PINNED TO THE SERVER WE ACTUALLY TALK TO. The legacy server
     # takes `timeout_ms`; oracle's Rust core takes `timeoutMs` and REFUSES an unknown key
