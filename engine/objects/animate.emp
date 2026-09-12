@@ -87,7 +87,7 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // (1 and 2, engine/system/constants.emp), so `RF_XFLIP|RF_YFLIP` is 3 and
         // `~(RF_XFLIP|RF_YFLIP)` is $FC — not the $06/$F9 the code needs and the old
         // comments claimed. The shifted form below is the blessed spelling used at
-        // load_object.emp:64 and sprites.emp:390/462, and it cannot decay: sigil
+        // load_object.emp:64 and Render_Sprites' two flip masks, and it cannot decay: sigil
         // folds it, so renumbering the RF bits moves the emitted byte instead of
         // leaving a stale one behind a correct-looking name.
         andi.b  #~((1 << RF_XFLIP) | (1 << RF_YFLIP)), Sst.render_flags(a0)

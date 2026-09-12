@@ -237,8 +237,8 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
     .done:
         // Parent points at the newest child — ONE write per call, not one per
         // child. Safe because the only reader of a PARENT's chain head outside
-        // this file is Render_Sprites' multi-sprite walk (sprites.emp:354; its
-        // second read at :404 walks a CHILD's next-sibling, not a head), and
+        // this file is Render_Sprites' multi-sprite walk (its .multi_sprite; its
+        // second read at .sibling_advance walks a CHILD's next-sibling, not a head), and
         // Render_Sprites runs in the game state's main loop AFTER RunObjects
         // returns — the creators cannot be preempted by it. No interrupt path
         // reads the field either: VInt_Level only DMAs the sprite buffer that

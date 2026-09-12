@@ -249,7 +249,7 @@ In a plane nametable cell / sprite tile attribute word:
 | 11 | H flip |
 | 10–0 | tile index |
 
-Flip bit values verified from `engine/objects/sprites.emp:646-668`: X flip toggles
+Flip bit values verified from `engine/objects/sprites.emp` `tile_term`: X flip toggles
 `$0800`, Y flip toggles `$1000`, both `$1800`. The packing helper is
 `vram_art(tile, pal, pri) = (pri << 15) | (pal << 13) | tile`
 (`engine/objects/objdef.emp`), with compile-time refinements `pal: 0..3`,
@@ -735,7 +735,7 @@ Engine-side, from `engine/system/constants.emp`:
 | `SCANLINE_SPRITE_LIMIT` | 24 | max sprite **pieces** charged per 32-line band |
 
 `SCANLINE_SPRITE_LIMIT` is **a soft heuristic that undercounts by design**
-(`engine/objects/sprites.emp:363-386`, stated there): the early-out skips the commit too,
+(`engine/objects/sprites.emp` `Render_Sprites`, its scanline band budget check, stated there): the early-out skips the commit too,
 so the first 24 sprites in a frame are never charged, and multi-sprite children bypass the
 budget entirely. That comment is explicit that the VDP drops excess per-line sprites in
 hardware regardless — the budget only shapes *which* sprites drop.

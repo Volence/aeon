@@ -33,7 +33,7 @@ pub struct MapFrame1 {
 // A centered single-piece frame: bbox = (-half, +half) each axis, the piece
 // offset to center (y_off/x_off = -half). w/h are cell counts (8px); tile is the
 // base tile index. The size byte is the VDP packing: (w-1) in bits 3:2,
-// (h-1) in bits 1:0 (sprites.emp:468 and hardware agree).
+// (h-1) in bits 1:0 (sprites.emp size_link and hardware agree).
 pub comptime fn centered(half: int, w: int where 1..4, h: int where 1..4, tile: int) -> MapFrame1 {
     return MapFrame1{
         x_min: -half,
@@ -74,7 +74,7 @@ pub comptime fn piece(x: int, y: int, w: int where 1..4, h: int where 1..4, tile
 // A two-piece frame. Byte-for-byte a MapFrame1 with a second MapPiece appended,
 // which is exactly what the render loop expects: it reads the count at
 // FRAME_PIECE_COUNT (+4) and walks `count` consecutive MapPiece records from
-// FRAME_PIECES (+6) (sprites.emp:335-337). Nothing in the loop is arity-aware —
+// FRAME_PIECES (+6) (sprites.emp Render_Sprites). Nothing in the loop is arity-aware —
 // this struct exists so the COUNT and the number of pieces cannot disagree,
 // because a MapFrame1 with `piece_count: 2` would have the SAT writer read six
 // bytes of whatever the placer put after the frame and draw it as a sprite.
