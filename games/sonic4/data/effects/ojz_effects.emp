@@ -262,7 +262,7 @@ ensure(raster_words(OJZ_TEST_PROG) == OJZ_TEST_HAND.len,
 ensure(first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND) == -1,
        "OJZ_TestRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND)}")
 
-pub data OJZ_TestRaster: [u16; raster_words(OJZ_TEST_PROG)] = raster_program(OJZ_TEST_PROG)
+pub data OJZ_TestRaster: [u16; static_words()] = static_program(OJZ_TEST_PROG)
 
 // ===========================================================================
 // OJZ_BandDemo — THE FIRST PALETTE BAND IN THIS TREE.
@@ -508,8 +508,8 @@ ensure(ojz_band_demo_effect_lines()[5] == OJZ_BAND_3_BOT, "OJZ_BandDemo: band 3 
 // stays declared in both shapes and only the COUNT collapses to zero. The symbol still
 // exists in release, emits no bytes, and its label collapses onto its neighbour's address
 // exactly as the four zero-byte debug procs do.
-const OJZ_BAND_DEMO_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BAND_DEMO_PROG) } else { 0 }
-pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { raster_program(OJZ_BAND_DEMO_PROG) } else { [] }
+const OJZ_BAND_DEMO_EMIT_WORDS = if DEBUG == 1 { static_words() } else { 0 }
+pub data OJZ_BandDemo: [u16; OJZ_BAND_DEMO_EMIT_WORDS] = if DEBUG == 1 { static_program(OJZ_BAND_DEMO_PROG) } else { [] }
 
 // ===========================================================================
 // OJZ_BaseSwap — EFFECTS-W1 DoD ITEM 11a: THE MID-FRAME NAMETABLE-BASE CHANGE.
@@ -791,8 +791,8 @@ ensure(raster_program(OJZ_BASE_SWAP_PROG)[0] == 0,
 // guard stack run on this program in EVERY shape, on EVERY build.
 // Only the BYTES are shape-dependent, and `tools/plane_base_swap_gate.py` asserts BOTH
 // directions — the words in the DEBUG ROM, and their ABSENCE from the release one.
-const OJZ_BASE_SWAP_EMIT_WORDS = if DEBUG == 1 { raster_words(OJZ_BASE_SWAP_PROG) } else { 0 }
-pub data OJZ_BaseSwap: [u16; OJZ_BASE_SWAP_EMIT_WORDS] = if DEBUG == 1 { raster_program(OJZ_BASE_SWAP_PROG) } else { [] }
+const OJZ_BASE_SWAP_EMIT_WORDS = if DEBUG == 1 { static_words() } else { 0 }
+pub data OJZ_BaseSwap: [u16; OJZ_BASE_SWAP_EMIT_WORDS] = if DEBUG == 1 { static_program(OJZ_BASE_SWAP_PROG) } else { [] }
 
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or
@@ -935,7 +935,7 @@ ensure(raster_words(OJZ_WATER_PROG) == OJZ_WATER_HAND.len,
 ensure(first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND) == -1,
        "OJZ_WaterRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND)}")
 
-pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(OJZ_WATER_PROG)
+pub data OJZ_WaterRaster: [u16; static_words()] = static_program(OJZ_WATER_PROG)
 
 // ---------------------------------------------------------------------------
 // OJZ_TestGradient — the DENSE-tier gate (Task 5 Step 4). A 96-line ramp across
@@ -1133,7 +1133,7 @@ ensure(first_mismatch(raster_program(OJZ_VSRAM_PROG), OJZ_VSRAM_HAND) == -1,
 ensure(raster_program(OJZ_VSRAM_PROG)[0] == 0,
        "OJZ_TestVsram: pal_dirty_mask is {raster_program(OJZ_VSRAM_PROG)[0]}, not 0 — a VSRAM op must dirty no palette line")
 
-pub data OJZ_TestVsram: [u16; raster_words(OJZ_VSRAM_PROG)] = raster_program(OJZ_VSRAM_PROG)
+pub data OJZ_TestVsram: [u16; static_words()] = static_program(OJZ_VSRAM_PROG)
 
 // COMPOSITION EQUIVALENCE PROOF (Parcel C1). The preset path must reproduce the
 // hand-authored program EXACTLY before anything is built on top of it — the same
@@ -1363,7 +1363,7 @@ ensure(raster_program(OJZ_DEPTH_VSPLIT_PROG)[0] == 0,
 // So it is derived now, and the comment is true. Adding a fourth needs no edit here.
 ensure(OJZ_DEPTH_VSPLIT_PROG.len == scene_vsplit_count(Scene_Editor_ojz_act1_depth),
        "OJZ_DepthVSplit: scene_vsplit_fires() built {OJZ_DEPTH_VSPLIT_PROG.len} fire(s) from Scene_Editor_ojz_act1_depth, but {scene_vsplit_count(Scene_Editor_ojz_act1_depth)} of its layers author a `vsplit: At(..)` — a fire was lost between the scene and the fold, which is the attachment bug this line exists to catch")
-pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_program(OJZ_DEPTH_VSPLIT_PROG)
+pub data OJZ_DepthVSplit: [u16; static_words()] = static_program(OJZ_DEPTH_VSPLIT_PROG)
 
 // ===========================================================================
 // PARCEL C2 TASK 12 — OJZ act 1 total-binding presets.

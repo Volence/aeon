@@ -242,25 +242,25 @@ const EditorRasterSrc_OJZ_Act1_authored_probe = compose([
     band(top: 112, bot: 156, on: stream_cram(addr: 74, colours: [14]), sh: 0),
     band(top: 172, bot: 216, on: stream_cram(addr: 74, colours: [3584]), sh: 0),
 ])
-pub data EditorRaster_OJZ_Act1_authored_probe: [u16; raster_words(EditorRasterSrc_OJZ_Act1_authored_probe)] = raster_program(EditorRasterSrc_OJZ_Act1_authored_probe)
+pub data EditorRaster_OJZ_Act1_authored_probe: [u16; static_words()] = static_program(EditorRasterSrc_OJZ_Act1_authored_probe)
 
 const EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer = compose([
     band(top: 120, bot: 148, on: stream_pal_region(addr: 72, slot: 0, pal_line: 2, entry: 4, count: 3), sh: 0),
 ])
-pub data EditorRaster_OJZ_Act1_ojz_sec3_shimmer: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)
+pub data EditorRaster_OJZ_Act1_ojz_sec3_shimmer: [u16; static_words()] = static_program(EditorRasterSrc_OJZ_Act1_ojz_sec3_shimmer)
 
 const EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase = compose([
     band(top: 32, bot: 80, on: stream_pal_region(addr: 70, slot: 0, pal_line: 2, entry: 3, count: 3), sh: 0),
     band(top: 34, bot: 82, on: stream_pal_region(addr: 80, slot: 0, pal_line: 2, entry: 8, count: 3), sh: 0),
     band(top: 36, bot: 84, on: stream_pal_region(addr: 88, slot: 0, pal_line: 2, entry: 12, count: 3), sh: 0),
 ])
-pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
+pub data EditorRaster_OJZ_Act1_ojz_sec5_showcase: [u16; static_words()] = static_program(EditorRasterSrc_OJZ_Act1_ojz_sec5_showcase)
 
 const EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap = [fire(3, [reg_set(vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, 49152)))]),
                     fire(64, [reg_set(vdp_reg(VDP_PLANE_B_OFF, vdp_base_reg(VdpBase.PlaneB, VRAM_PLANE_B)))]),
                     fire(159, [reg_set(vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, 57344)))]),
                     fire(220, [reg_set(vdp_reg(VDP_PLANE_A_OFF, vdp_base_reg(VdpBase.PlaneA, VRAM_PLANE_A)))])]
-pub data EditorRaster_OJZ_Act1_ojz_sec6_baseswap: [u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)] = raster_program(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)
+pub data EditorRaster_OJZ_Act1_ojz_sec6_baseswap: [u16; static_words()] = static_program(EditorRasterSrc_OJZ_Act1_ojz_sec6_baseswap)
 
 ensure((Game.SCANLINE_CAPS & CAP_DENSE_TIER) != 0,
        "EditorRaster_OJZ_Act1_ramp_probe: this game's Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) does not declare CAP_DENSE_TIER — EFFECTS-W1 item 6 gates construction of a dense-tier RAMP program on that bit (engine/level/scene_dsl.emp), so a game must declare intent to spend the dense tier's ramp axis before it may author one. Add CAP_DENSE_TIER to this game's SCANLINE_CAPS in its config/game.emp")

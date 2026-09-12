@@ -300,7 +300,7 @@ def test_every_vsplit_authoring_scene_has_a_consumer():
         "real, fold the scene and bind the program the way "
         "games/sonic4/data/effects/ojz_effects.emp does for Scene_Editor_ojz_act1_depth:\n"
         "    const X_PROG = scene_vsplit_fires(<Scene>)\n"
-        "    pub data X: [u16; raster_words(X_PROG)] = raster_program(X_PROG)\n"
+        "    pub data X: [u16; static_words()] = static_program(X_PROG)\n"
         "  then give X to a section's preset(raster: X, ..).\n"
         "Or remove the `vsplit:` from the authoring document if the effect is not wanted. "
         "Do NOT add the scene to KNOWN_UNBOUND to silence this -- that list is a "
@@ -335,7 +335,7 @@ def test_every_fold_result_is_referenced():
         "comptime-INERT (docs/EMP_PITFALLS.md section 3) -- the call does not run, no "
         "program is built, and the scene's vsplit still reaches no ROM byte:\n  "
         + "\n  ".join(f"{c} = scene_vsplit_fires({s}) at {p}" for c, p, s in inert)
-        + "\nReference the const from a `pub data` (raster_program(..)) so the program is "
+        + "\nReference the const from a `pub data` (static_program(..)) so the program is "
         "actually emitted, or delete the fold."
     )
 

@@ -1795,16 +1795,20 @@ class TestBandLowering(PresetShapeBase):
         self.assertIn("band(top: 120, bot: 148, "
                       "on: stream_cram(addr: 74, colours: [548]), sh: 0)", out)
         self.assertIn("const EditorRasterSrc_OJZ_Act1_ojz_ground_wash = compose([", out)
+        # static_program, not raster_program: the image is padded to the install buffer
+        # (lens EFX-4b; tools/test_static_program_padding.py refuses the unpadded spelling).
         self.assertIn("pub data EditorRaster_OJZ_Act1_ojz_ground_wash: "
-                      "[u16; raster_words(EditorRasterSrc_OJZ_Act1_ojz_ground_wash)] = "
-                      "raster_program(EditorRasterSrc_OJZ_Act1_ojz_ground_wash)", out)
+                      "[u16; static_words()] = "
+                      "static_program(EditorRasterSrc_OJZ_Act1_ojz_ground_wash)", out)
 
-    def test_the_src_const_is_referenced_TWICE_so_the_fold_is_not_inert(self):
+    def test_the_src_const_is_referenced_so_the_fold_is_not_inert(self):
         """docs/EMP_PITFALLS.md §3: an unreferenced top-level `const X = f(..)` is
-        comptime-INERT. Both `raster_words` and `raster_program` must name it, or every
-        guard inside `band()` would be declared and never run."""
+        comptime-INERT. `static_program` must name it, or every guard inside `band()` would
+        be declared and never run. Two occurrences: the declaration and that one reference
+        (until EFX-4b it was three, `raster_words` naming it as well — `static_words()`
+        names no program, because the padded length is the buffer's for every one)."""
         out = self.render(_preset())
-        self.assertEqual(out.count("EditorRasterSrc_OJZ_Act1_ojz_ground_wash"), 3)
+        self.assertEqual(out.count("EditorRasterSrc_OJZ_Act1_ojz_ground_wash"), 2)
 
     def test_sh_true_lowers_to_1_and_false_to_0(self):
         """The writer spells a JSON boolean; `band()` takes an int. Forwarding the JSON
@@ -2462,7 +2466,7 @@ class TestPresetsInTheGeneratedModule(AssignmentBase):
         self.write_preset("ojz_ground_wash")
         out = self.render()
         self.assertIn("pub data EditorRaster_OJZ_Act1_ojz_ground_wash:", out)
-        self.assertIn("raster_program(", out)
+        self.assertIn("static_program(", out)
 
     def test_a_preset_needs_NO_scene_and_NO_assignment_to_emit(self):
         """A raster program is an EffectsPreset channel; a scene is a parallax_config.
@@ -2519,8 +2523,8 @@ class TestPresetConverseControl(AssignmentBase):
         self.write_sidecar(0, {"sceneRef": "ojz_bg"})
         out = self.render_without_presets()
         for token in ("EditorRasterSrc_", "pub data EditorRaster_", "raster_program(",
-                      "raster_words(", "compose(", "band(top:",
-                      "AURORA-AUTHORED RASTER BANDS"):
+                      "raster_words(", "static_program(", "static_words(", "compose(",
+                      "band(top:", "AURORA-AUTHORED RASTER BANDS"):
             self.assertNotIn(token, out)
 
     def test_no_presets_is_TEXT_IDENTICAL_to_the_pre_arm_renderer(self):

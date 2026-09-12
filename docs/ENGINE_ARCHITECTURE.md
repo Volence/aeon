@@ -4591,9 +4591,13 @@ the template's two priming records verbatim (a fixed 5-word prologue: the header
 `[arm][op_count]` pairs) and then walks the table, so nothing about the body's *actual* length is
 assumed past the priming records — every subsequent byte the builder reads comes from `rec_off`/
 `rec_len`, not from a fixed-size sweep. The 64-word pad still exists and still matters: it is what
-makes the table's `+128` address defined regardless of how short the authored program is, and it
-is what the static-program path (§8's "runtime half" below, EFX-4b) still copies a fixed
-`RASTER_BUF_SIZE` bytes from.
+makes the table's `+128` address defined regardless of how short the authored program is. The
+static-program path (`Raster_VBlank`'s `.copy_program`, which copies a fixed `RASTER_BUF_SIZE`
+bytes) now gets the same treatment: since 2026-09-11 (EFX-4b) every installable static image is
+padded to the buffer too — `static_program()` for the array family, a trailing pad field (pinned
+by a `sizeof` ensure) for the two dense-tier structs — so the copy never reads past what the
+program owns. Walking static programs in place from ROM was costed and rejected for now: see
+`static_program`'s banner in `raster_dsl.emp`.
 
 **After the table sits the OFF-SCREEN SHIP TRAILER** (2026-08-15, unaffected by the local-removal
 parcel), at `128 + 2 + 10*records` — ten bytes per entry now that entries are five words, not

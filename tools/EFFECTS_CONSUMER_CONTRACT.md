@@ -858,8 +858,8 @@ band(top: 120, bot: 148, on: stream_cram(addr: 74, colours: [548]), sh: 0)
         |  wrapped, per document, into one program
         v
 const EditorRasterSrc_OJZ_Act1_<id> = compose([ <band>, ... ])
-pub data EditorRaster_OJZ_Act1_<id>: [u16; raster_words(EditorRasterSrc_OJZ_Act1_<id>)]
-                                   = raster_program(EditorRasterSrc_OJZ_Act1_<id>)
+pub data EditorRaster_OJZ_Act1_<id>: [u16; static_words()]
+                                   = static_program(EditorRasterSrc_OJZ_Act1_<id>)
         |
         v
 words in `games/sonic4/data/generated/ojz/act1/effects_scenes.emp`, section

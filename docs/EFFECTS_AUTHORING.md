@@ -63,8 +63,14 @@ Two declarations. A variable-length value cannot be a struct field, so the progr
 const WATER_PROG = [ region_boundary(line: 120, addr: $48, slot: 0, pal_line: 2,
                                      entry: 4, count: 3, sh: 1) ]
 
-pub data Water_Prog: [u16; raster_words(WATER_PROG)] = raster_program(WATER_PROG)
+pub data Water_Prog: [u16; static_words()] = static_program(WATER_PROG)
 ```
+
+`static_program`, not `raster_program`: the same words zero-padded to the 128-byte install buffer,
+because `Raster_VBlank` copies a fixed `RASTER_BUF_SIZE` bytes out of a staged static program and a
+short image would drag the next ROM section into `Raster_Buf_A` (lens EFX-4b, closed 2026-09-11).
+`raster_program` is still the unpadded body every pin compares against, and
+`tools/test_static_program_padding.py` refuses a `pub data` that calls it directly.
 
 The length annotation must sit on the `data`. **`const` does not enforce its declared array length; only
 `data` does** — probed and measured on this tree, `docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md`
@@ -90,6 +96,7 @@ Signatures and bounds below are read from `engine/effects/raster_dsl.emp` at `91
 | `region_boundary(line, addr, slot, pal_line, entry, count, sh)` (`:264-271`) | thin composite. **`sh` is required — deliberately no default**, see below | `fire(line, [reg_sh_on(), stream_pal_region(…)])` when `sh == 1`, else the region alone | as above |
 | `raster_words(fires)` (`:477-487`) | descriptor array | the word count, computed from `op_size` — **independently of** `raster_program`'s concatenation | — |
 | `raster_program(fires)` (`:491-519`) | descriptor array | the flat `[u16]` | — |
+| `static_program(fires)` / `static_words()` | descriptor array | `raster_program`'s words zero-padded to the 64-word install buffer — the spelling every installable static program's `pub data` uses (EFX-4b) | 64 |
 
 `cmd` is `vdp_comm(addr, VdpTarget.Cram, VdpOp.Write)` — or `VdpTarget.Vsram` for `stream_vsram`. `vdp_comm` is
 a `COMPTIME_HELPERS` member and is therefore glob-injected at every call site, so naming it inside a
@@ -190,7 +197,7 @@ const DUSK_PROG = [
     fire(96, [ stream_pal_region(addr: $30, slot: 1, pal_line: 1, entry: 8, count: 3) ]),
 ]
 
-pub data OJZ_DuskBand: [u16; raster_words(DUSK_PROG)] = raster_program(DUSK_PROG)
+pub data OJZ_DuskBand: [u16; static_words()] = static_program(DUSK_PROG)
 ```
 
 No `use` line is needed — `raster_dsl` is ambient (see "Reaching the ROM"). Nothing else is typed: the
@@ -269,7 +276,7 @@ const OJZ_DUSK = compose([
     fx_sh_below(96),
     fx_vscroll_split(140, $0043),
 ])
-pub data OJZ_Dusk: [u16; raster_words(OJZ_DUSK)] = raster_program(OJZ_DUSK)
+pub data OJZ_Dusk: [u16; static_words()] = static_program(OJZ_DUSK)
 ```
 
 It walks screen lines in ascending order rather than sorting, which gets three things for free:
@@ -694,7 +701,7 @@ covered.
 | Guard | Catches | Does **not** catch |
 |---|---|---|
 | `ensure(out.len == raster_words(fires))` **inside** `raster_program` (`raster_dsl.emp:516-517`) | header/record **framing** drift between the two independent computations (`op_size` path vs `op_words` concatenation path) — this is the instance that fires first on genuine framing drift | a wrong word *value* inside a correctly-sized body |
-| `data X: [u16; raster_words(P)] = raster_program(P)` | that the declared length was computed by the size path over **the same** descriptor list the body was built from — i.e. an annotation naming a different program, or a hand-typed literal length going stale. `data` hard-checks element count (probe-measured) | a wrong word value; and note it re-checks a fact `raster_program` already asserted internally, so it is a second lock on the same door rather than a wholly independent one |
+| `data X: [u16; static_words()] = static_program(P)` (was `[u16; raster_words(P)] = raster_program(P)` until EFX-4b, 2026-09-11) | that the emitted image is exactly the 64-word install buffer the copy reads. `data` hard-checks element count (probe-measured) | an annotation naming a different program — the old spelling caught that and this cannot, because a padded length is the same for every program; the per-program length now lives only in the `raster_words(P) == HAND.len` pin beside each hand twin. And a wrong word value |
 | The same annotation on a `const` | **nothing** — measured vacuous on this tree (probe note, Step 6). Put length guards on `data`, or assert with an explicit `ensure` on `.len` | everything |
 | The retained hand-word twin + its `first_mismatch` ensure (`configs.emp`, beside `OJZ_TEST_HAND` and `OJZ_WATER_HAND`) | any word-value drift in the two shipped fixtures, reported as "DSL output diverges at index *n*" rather than "golden ROM differs" | a fixture the twin does not cover; a **length** difference unless the paired `.len` ensure is also present (see below); and it pins the DSL to the *hand words*, so a shared misunderstanding of the hardware would satisfy it |
 | Seven golden ROMs | every emitted byte, everywhere | nothing — **this is the parcel's real bar** |
@@ -762,12 +769,16 @@ Stated plainly rather than left for someone to discover on hardware:
   repaints the active character.
 - **`raster_program`**: `words * 2 <= RASTER_BUF_SIZE` (spec §10 rider 4, `raster_dsl.emp:514-515`).
   `Raster_VBlank` (`raster.emp:336`) and `Raster_InstallWater` (`:602`) both copy a **fixed 128 bytes**,
-  so a longer program would be truncated live. The converse over-read of a *short* template is
-  pre-existing and harmless — the walker never reaches past the terminator — and is now booked as
-  **`EFX-4b`** in `docs/lens-findings.jsonl` (`EFX-4` itself closed when `Raster_InstallWater` was
-  deleted). The archived reasoning is in `docs/2026-09-09-BUGS-archived.md` under its `EFX-4` /
-  `EFX-4b` headings; the `docs/BUGS.md:79` cite this line used to carry pointed at `TOOL-01`, not
-  `EFX-4`, which is why it is now a heading and not a coordinate.
+  so a longer program would be truncated live. The converse over-read of a *short* program, booked
+  as **`EFX-4b`** in `docs/lens-findings.jsonl` (`EFX-4` itself closed when `Raster_InstallWater` was
+  deleted), was harmless — the walker never reaches past the terminator — and is **closed
+  2026-09-11 by padding**: every installable static image is exactly the buffer, the array family
+  through `static_program()` and the two dense-tier structs through their own pad fields (pinned
+  by `ensure(sizeof(..) == RASTER_BUF_SIZE)` in `raster.emp`). `static_program`'s banner in
+  `raster_dsl.emp` records the three rejected alternatives. The archived reasoning is in
+  `docs/2026-09-09-BUGS-archived.md` under its `EFX-4` / `EFX-4b` headings; the `docs/BUGS.md:79`
+  cite this line used to carry pointed at `TOOL-01`, not `EFX-4`, which is why it is now a heading
+  and not a coordinate.
 - **Three per-fire ceilings, and they are counts rather than cycles.** `fire` (`raster_dsl.emp:207-247`)
   enforces exactly three things:
 
@@ -922,7 +933,7 @@ therefore schedules `gap(i+1 -> i+2)`. The full argument is at `raster.emp:24-40
 **For a single-event program at screen line M this reduces to `$8A00 | (M - 3)`** — exactly what
 `arm_at` produces for that case (`raster_dsl.emp:429-435`), which is what lets `OJZ_WaterRaster` come
 out byte-identical and what `Raster_PatchWaterLine` (`raster.emp:645-646`) is the runtime twin of. Both
-spell `RASTER_MIN_FIRE_LINE` (`raster.emp:586`) rather than a hand-synced 3.
+spell `RASTER_MIN_FIRE_LINE` (`raster.emp`, its `pub const`) rather than a hand-synced 3.
 
 The sparse authorities in the tree are `raster_dsl`'s `fire` (`raster_dsl.emp:203-249`), which enforces
 the 3..223 screen-line range, and `fire_lines` / `arm_at` (`:413-424`, `:429-435`), which own the `-1`
