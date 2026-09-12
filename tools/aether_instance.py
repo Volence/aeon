@@ -32,21 +32,50 @@ wrong without anything going red.
       capabilities.breakpoints  false (present)           ABSENT
       len(methods)              41                        53
 
-    ⚠ `implementation` / `serverBuild` are NOT YET on the wire. Oracle committed them
+    ⚠⚠ RE-MEASURED 2026-09-12 AGAINST THE SHIPPED `oracle-aether` (built that day 14:46),
+    AND THE RUST COLUMN ABOVE IS NOW WRONG IN FOUR PLACES. The table is left standing as
+    the record of what rung 2 was built for; this block is what is TRUE today:
+
+      field                     2026-08-26 (above)        2026-09-12 (measured)
+      implementation            ABSENT                    "oracle-rs"
+      serverBuild               ABSENT                    {source: "vcs",
+                                                           id: "781e9e08...+profile=release",
+                                                           dirty: false}
+      len(methods)              41                        61
+      capabilities.breakpoints  false                     TRUE
+      capabilities.watchpoints  not present               {supported: true, maxWatches: 32,
+                                                           ringCap: 4096,
+                                                           spaces: [bus, vram, cram, vsram]}
+      capabilities.vgm          not present               false  (and `vgm_start` /
+                                                           `audio_spectrum` are genuinely
+                                                           NOT among the 61 — there is no
+                                                           audio instrument on this bus)
+
+    SO THE "DO NOT EXIST" PARAGRAPH BELOW IS OUT OF DATE, and that matters more than the
+    numbers: `breakpoint_add`, `wait_for_break` AND the whole watchpoint surface are served
+    now. Three witnesses in this tree depend on them — `tools/song_load_mid_drum_witness.py`
+    reads the Z80's own YM writes through a `bus`-space write watch over $4000-$4003, and
+    `tools/poke_storm_sound_cost_witness.py` times the sound driver's DMA-window bracket the
+    same way. A reader who took that paragraph at its word would not try a watchpoint at all.
+
+    ⚠ `implementation` / `serverBuild` WERE NOT on the wire in August. Oracle committed them
     (`bc2cddd`, "the handshake says which implementation answered", merged 2026-08-26) but
-    the RELEASE BINARIES here predate it — both were built 2026-08-25 21:03. So an assertion
-    written only against `implementation == "oracle-rs"` would refuse the correct server
-    today and block the whole lane. Hence TWO RUNGS, in this order:
+    the RELEASE BINARIES then predated it — both were built 2026-08-25 21:03. So an assertion
+    written only against `implementation == "oracle-rs"` would have refused the correct server
+    and blocked the whole lane. Hence TWO RUNGS, in this order:
 
       1. `implementation` present  -> it MUST equal "oracle-rs". Nothing else passes.
-         (Forward-compatible: the day oracle's binaries are rebuilt, this is the live rung
-         and rung 2 stops being consulted.)
+         (As of 2026-09-12 this is the LIVE rung: the shipped binary answers "oracle-rs",
+         so rung 2 is no longer consulted on this machine.)
       2. `implementation` absent   -> `serverName` MUST equal "oracle-next", the measured
          structural discriminator above. The legacy server answers "oracle" and is refused.
 
-    Rung 2 is a fallback for a STALE BINARY, not a permanent second answer. When oracle's
-    release binaries carry `implementation`, delete rung 2 and its test — and until then, do
-    not weaken rung 1 to match it.
+    Rung 2 is a fallback for a STALE BINARY, not a permanent second answer. Its stated
+    retirement condition — "when oracle's release binaries carry `implementation`" — IS NOW
+    MET (measured 2026-09-12). Deleting it is a code change with its own test
+    (`tools/test_aether_instance.py` drives both rungs off recorded handshakes) and belongs
+    to a parcel that owns that test; it is recorded here rather than done in passing. Until
+    then, do not weaken rung 1 to match rung 2.
 
     Proof it fires: `tools/test_aether_instance.py` drives both rungs off the recorded
     handshakes above, and `python3 tools/aether_instance.py --poison-legacy` spawns a REAL
@@ -59,9 +88,14 @@ WHAT DIFFERS FROM THE LEGACY SEAM — every one of these is measured, not read:
     server resets to a STOPPED machine, which is what those two params were asking for.
   * The bus is 24 BITS. `0xFFFF0000` is refused with -32004; `0xFF0000` is the same byte.
     `parse_lst` already yields 24-bit addresses, so converted gates needed no change.
-  * `capabilities.breakpoints` is FALSE — `breakpoint_add` / `wait_for_break` do not exist.
-    Use `emulator/run_to {"addr"|"symbol", "maxFrames"}`, which is synchronous and reports
-    `reached` (see `run_to_addr` below).
+  * `capabilities.breakpoints` WAS false on 2026-08-26 — `breakpoint_add` / `wait_for_break`
+    did not exist, and `emulator/run_to {"addr"|"symbol", "maxFrames"}` was the replacement
+    (synchronous, reports `reached`; see `run_to_addr` below). **That is no longer true: as of
+    2026-09-12 the shipped binary answers `breakpoints: true`, serves both methods, and serves
+    the four-space watchpoint surface as well — see the RE-MEASURED block above.** `run_to`
+    remains the right tool for "run until this PC" because it is bounded and synchronous;
+    reach for a breakpoint only when you need halt-on-an-unscheduled-hit, which `run_to`
+    cannot express, and for a watchpoint when the question is "who wrote this, and when".
   * `limits.maxRunFrames` is 3600 here, so a 180-frame settle is one call.
   * There is no `deterministic=` knob and none is needed: the Rust core has no threaded
     device schedule to opt out of, and `run_to` stops on the exact instruction — which is
