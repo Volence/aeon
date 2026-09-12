@@ -56,8 +56,24 @@ fi
 
 cd "$(dirname "$0")/.." || { echo "cannot reach the repo root"; exit 2; }
 
-: "${SIGIL_BUILD:?SIGIL_BUILD is unset -- that is a BLOCKED report, not a workaround hunt}"
-: "${SIGIL_EMIT:?SIGIL_EMIT is unset -- required for any sound-ON game, i.e. every sonic4 build}"
+# ---- the two assembler variables (2026-09-11) --------------------------------------------
+# These were `: "${SIGIL_BUILD:?...}"` expansions. A failed `:?` makes a non-interactive bash
+# exit 1 with NO `finished=` stamp, so a run that died here trailed exactly like a killed one
+# (the stamp at the bottom is the only thing that tells the two apart), and 1 is this
+# script's "a shape FAILED" code although nothing had been built. An unset or EMPTY value
+# (`:?` refused both, so this does too) is COULD NOT RUN: exit 2 with the stamp, like every
+# other refusal in this file. Booked as item (b) of the side findings of the 2026-09-11
+# lens-tools parcel in docs/DEFERRED_WORK.md; tools/test_landing_build_logfile.py grades it.
+if [ -z "${SIGIL_BUILD:-}" ]; then
+    echo "landing_build: COULD NOT RUN: SIGIL_BUILD is unset -- that is a BLOCKED report, not a workaround hunt"
+    echo "finished=2"
+    exit 2
+fi
+if [ -z "${SIGIL_EMIT:-}" ]; then
+    echo "landing_build: COULD NOT RUN: SIGIL_EMIT is unset -- required for any sound-ON game, i.e. every sonic4 build"
+    echo "finished=2"
+    exit 2
+fi
 
 # FAST=1 skips every verification lane inside build.sh and NO_LINT=1 skips BOTH halves of
 # the split pytest lane -- including the post-sigil half, and the needs_build lane at the
