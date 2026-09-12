@@ -45,8 +45,8 @@ INSTRUMENT FACTS it relies on (read from oracle's source, 2026-09-12):
     priority". So the instrument IMPLEMENTS F4's premise. This probe measures whether the
     as-built engine's pixels change under that model. It cannot testify for real hardware.
 
-RECORDED RUN, 2026-09-12 14:28:15-14:28:24 UTC (8.6 s, load avg 13.85), ROM
-/home/volence/sonic_hacks/.aeon-ls8-land/s4.debug.bin crc32 9ce1c2ff (tree 9fe9ee91), exit 0.
+RECORDED RUN, 2026-09-12 14:28:15-14:28:24 UTC (8.6 s, load avg 13.85), ROM the landing
+tree's s4.debug.bin, crc32 9ce1c2ff (tree 9fe9ee91), exit 0.
 Full notes: docs/superpowers/notes/2026-09-12-blank-priority-measurement.md.
   population      116 blank-priority words, 20/19/10/15/10/11/14/7/10 over sections 0-8
   S/H measured    ONLY section 1, lines 121..223 (reg $0C $89). Sections 0, 2-8: never on,
