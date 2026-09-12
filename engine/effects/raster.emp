@@ -2241,6 +2241,34 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
 // "never test".
 //
 // A GAME THAT DECLARES THE BIT AND AUTHORS NOTHING RUNS THE OLD LOOP UNCHANGED, plus the 12.
+//
+// THE STORES ARE NOT BRACKETED, AND A VBLANK CAN LAND BETWEEN THEM (lens C3b-2, 2026-09-11).
+// The main-loop call site runs with interrupts open, so on a lag frame Raster_VBlank (from
+// VInt_Level or VInt_Lag) can read Effects_Screen_L with some channels on this frame's camera
+// and the rest still on last frame's. What that tear can and cannot do, so nobody brackets
+// this on the strength of the wrong one:
+//   * IT CANNOT PARK THE FRAME. The feared worst case is two records clamped onto one fire
+//     line, storing gap -1 = $FF = RASTER_ARM_PARK and killing every later fire. Unreachable
+//     for any program sigil will build: each word here is ONE move.w, so a reader sees a
+//     channel's old line or its new one and never half of either; GUARD 11 in raster_program
+//     gives each channel at most one record; Raster_BuildSchedule clamps every record into
+//     its OWN band or drops it; and check_intervals (raster_dsl GUARD 2) refuses any program
+//     whose bands are not strictly ascending and disjoint. So the emitted lines ascend under
+//     ANY mix of cameras and the gap byte is never negative. check_density measures between
+//     band EDGES too, so a tear cannot overrun a line either. The refusal is proven red by
+//     games/sonic4/test/poison/poison_patchable_overlap.emp in the expect-fail lane.
+//   * IT CAN put two channels' boundaries one frame of camera motion apart, for one lag
+//     frame. Cosmetic, and not this window's alone: a VBlank landing anywhere between here and
+//     the end of Parallax_Update already pairs this frame's raster with last frame's hscroll.
+// WHY NOT EFFECTS_INSTALLPRESET'S PROTECTION. That call site clears Raster_Patch_Tab and
+// Effects_Offscreen_Entry before calling here, but as a one-way teardown of the OUTGOING
+// program, which the incoming install then republishes. Per frame it would have to be a
+// save / clear / restore, and the restore races Raster_VBlank, which clears Raster_Patch_Tab
+// itself when a staged static program lands: restoring after that VBlank would resurrect a
+// dead program's table over the new program's buffer. And clearing the ship pointer would
+// drop a frame-top ship. If the cosmetic residue ever matters, publish all four words in ONE
+// instruction (compute them into registers, one movem.l store): the 68000 takes interrupts
+// only between instructions.
 pub proc Effects_LatchWorldLines () clobbers(d0-d4/a0-a2) {
         move.w  Camera_Y, d1                // 16.16 -> the integer word
         lea     Effects_World_Y, a0

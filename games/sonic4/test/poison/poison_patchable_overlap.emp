@@ -1,0 +1,49 @@
+// games/sonic4/test/poison/poison_patchable_overlap.emp — POISON (see README).
+//
+// TARGETS: GUARD 2, check_intervals (engine/effects/raster_dsl.emp) — two PATCHABLE records
+//          whose bands overlap in fire-line space.
+// EXPECTED FRAGMENT: "can collide with the previous record"
+// EXPECTED COUNT: 2 — check_intervals AND check_density, see below.
+//
+// WHY THIS ROW EXISTS (lens C3b-2, 2026-09-11). The 2026-09-06 sweep's seat C3b read
+// Effects_LatchWorldLines (engine/effects/raster.emp) writing Effects_Screen_L one channel at a
+// time with no ints_off, so a VBlank landing between two stores gives Raster_BuildSchedule one
+// channel on this frame's camera and another on last frame's. It then reasoned that two
+// overlapping bands could clamp two records onto the same fire line, store gap -1 = $FF = the
+// PARK word, and drop every remaining fire in the frame — and wrote "nothing enforces that;
+// overlapping bands are authorable today". That last sentence is false, and this fixture is the
+// standing proof: check_intervals refuses ANY program whose records' reachable fire-line
+// intervals are not strictly ascending and disjoint, and every program reaches it (raster_program
+// calls it unconditionally; patched_program calls raster_program first). Because
+// Raster_BuildSchedule clamps each record into its OWN band (or drops it), disjoint bands keep the
+// emitted lines strictly ascending under ANY per-channel camera — torn or not — so the gap byte is
+// never negative. The tear cannot reach the park word; it was never content that held that shut.
+//
+// Until this row the refusal had no negative fixture at all (the only poison that mentions
+// check_intervals, poison_patchable_partner, is one it must ADMIT). A guard with no poison can be
+// relaxed "just this once" and every build stays green; this row makes that loud.
+//
+// THE COUNT IS 2 AND BOTH HALVES ARE THE ASSERTION. Band 40..120 and band 100..180 overlap by
+// twenty lines, so:
+//   * check_intervals: the second record's lowest fire line (99) is not above the first
+//     record's highest (119)                                        -> the fragment above
+//   * check_density:   the worst-case gap between them is 99 - 119 = -20 scanlines, and no
+//     fire costs a negative number of cycles                         -> a second [Error]
+// A drop to 1 means one of the two stopped firing, and the FRAGMENT says which one must not:
+// check_intervals is the guard whose argument (the park byte) the latch tear depends on;
+// check_density is a second lock on the same door, not a substitute for it.
+//
+// Everything else about the program is deliberately dull: one cheap reg_set per fire (no
+// stream op, so check_landings has nothing to refuse), authored lines 60 and 150 inside their
+// own bands and in ascending order (so neither `patchable`'s own-band ensure nor fire_lines'
+// ordering ensure fires), two different channels (so GUARD 11 stays quiet), no offscreen_ship.
+//
+// NO IMPORTS — see poison_four_bands.emp's note.
+module games.sonic4.test.poison.poison_patchable_overlap
+
+const POISON_OVL_CH0 = patchable([ fire(60,  [reg_set($8C81)]) ], ch: 0, lo: 40,  hi: 120)
+const POISON_OVL_CH1 = patchable([ fire(150, [reg_set($8C81)]) ], ch: 1, lo: 100, hi: 180)
+const POISON_PATCHABLE_OVERLAP = POISON_OVL_CH0 ++ POISON_OVL_CH1
+
+ensure(raster_program(POISON_PATCHABLE_OVERLAP).len > 0,
+       "poison_patchable_overlap: raster_program returned nothing — this poison no longer reaches the guard it targets")
