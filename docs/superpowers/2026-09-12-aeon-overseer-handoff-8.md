@@ -94,11 +94,15 @@ this file in the log.
 ## Housekeeping
 
 After the push, removed only where the tip was an ancestor of origin/master and nothing held the tree (by PID, cmdline and cwd):
-the seven helper worktrees and their feature branches (`survey/physics-scene-0912`, `witness/objects-0912`,
-`witness/raster-collision-0912`, `measure/blank-priority-0912`, `fix/baker-refusals-0912`,
+six of the seven helper worktrees and their feature branches (`survey/physics-scene-0912`, `witness/objects-0912`,
+`witness/raster-collision-0912`, `measure/blank-priority-0912`,
 `docs/booking-corrections-0912`, `review/gap-lens-sweep-0912` with `.aeon-review-gaps`), plus this session's eight
 `worktree-agent-*` harness branches, all at `9fe9ee91`. **The ~300 other `worktree-agent-*` branches predate this session
 and were NOT touched.**
+- **KEPT, git-LOCKED:** worktree `agent-afa80be4f676542e1` on `fix/baker-refusals-0912` (tip `5f985665`, an
+  ancestor of origin/master, so nothing is at risk), locked by pid 510088, the long-lived claude process that survives
+  `/clear` (the same holder as handoff-7's two locked trees). Re-check that pid before `git worktree remove -f -f`, then
+  `git branch -D fix/baker-refusals-0912`.
 - KEEP: `.aeon-ls8-land` (landing tree), `.sigil-pin-6884bfba`, `.aeon-landing-sigil-target`.
 - `.aeon-review-gaps` (the packet's worktree) and the agent worktrees are removed after the landing.
 - The oracle MCP own-instance (pid 510366) holds `.aeon-ls8-land/s4.debug.bin` `9ce1c2ff` with this session's checkpoint.
