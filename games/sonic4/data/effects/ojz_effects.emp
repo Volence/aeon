@@ -1527,7 +1527,7 @@ pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
 // gates of its own.
 //
 // WHAT THIS IS AND IS NOT. It is an ARGUMENT change — two `raster:` values become
-// `Raster_Program_None`, the documented off sentinel (preset.emp:62, and :282/:434 for why 0
+// `Raster_Program_None`, the documented off sentinel (preset.emp:62, and :281/:434 for why 0
 // means KEEP and never OFF). It is NOT a deletion: `OJZ_TestRaster`, `OJZ_TestGradient` and
 // `OJZ_GradientStream` keep their declarations, their names, their addresses and their
 // emitted bytes, and re-binding either to any section is the one word that was just taken
