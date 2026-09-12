@@ -249,19 +249,25 @@ section z80_sound_driver (cpu: z80) {
         // YM's GLOBAL low-freq oscillator drives every channel's AMS/FMS depth
         // bits (each patch's $B4); without this master switch those bits are inert.
         // Written BEFORE the addr port parks on $2A below.
+    .lfo_addr:                          // cycles() span cut label (zero bytes)
         ld      (hl), SND_REG_LFO       // $4000 = $22 (select LFO reg)
         ld      a, $08                  // LFO enable (bit3) + freq 0 (= 3.82 Hz)
+    .lfo_data:                          // cycles() span cut label (zero bytes)
         ld      (de), a                 // $4001 = $08
 
         // DAC ENABLE ONCE: $2B = $80 (DAC mode on), then SELECT $2A once, then
         // PRIME the $2A latch to $80 (DC center). After this the addr port stays
         // parked on $2A forever, so every `ld (de),a` writes DAC data. $2B is
         // NEVER toggled again (no per-play enable edge -> no click).
+    .dacen_addr:                        // cycles() span cut label (zero bytes)
         ld      (hl), SND_REG_DAC_ENABLE // $4000 = $2B (select DAC-enable reg)
         ld      a, $80
+    .dacen_data:                        // cycles() span cut label (zero bytes)
         ld      (de), a                 // $4001 = $80 -> DAC mode ON
+    .dacprime_addr:                     // cycles() span cut label (zero bytes)
         ld      (hl), SND_REG_DAC_DATA  // $4000 = $2A (select DAC DATA reg — parked here)
         ld      a, $80
+    .dacprime_data:                     // cycles() span cut label (zero bytes)
         ld      (de), a                 // $4001 = $80 -> prime latch to DC center
 
         // Clear the driver's RAM contract regions — four rolled Snd_ZeroBlock
@@ -322,6 +328,18 @@ section z80_sound_driver (cpu: z80) {
 
         ei                              // state consistent -> allow the VBlank IRQ
         // falls into the IDLE loop
+
+        // YM address->data spacing, machine-checked (gap lens sweep A2-7,
+        // 2026-09-12). These three pairs write the YM DIRECTLY through (hl)/(de),
+        // not through Fm_YmWrite, and had no guard: the sweep's list named the
+        // Snd_LoadSong / Rearm pairs but not these, because they never spell the
+        // port symbol at the write. Straight-line spans before the `ei`.
+        ensure(cycles(.lfo_addr, .lfo_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "SndDrv_Init $22 LFO enable: address->data gap is under the YM2612 floor")
+        ensure(cycles(.dacen_addr, .dacen_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "SndDrv_Init $2B DAC enable: address->data gap is under the YM2612 floor")
+        ensure(cycles(.dacprime_addr, .dacprime_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "SndDrv_Init $2A DAC prime: address->data gap is under the YM2612 floor")
     }
 
     // --- IDLE loop -------------------------------------------------------
@@ -1427,10 +1445,17 @@ section z80_sound_driver (cpu: z80) {
     // addressing (preserve de); re-parks reg $2A on $4000. Clobbers af.
     pub proc Snd_TimerA_Rearm () clobbers(af) preserves(bc, de, hl, ix, iy) {
         ld      a, SND_REG_TIMER_CTRL   // $27
+    .rearm_addr:                        // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A0), a      // select $27 on $4000
         ld      a, SND_TIMERA_CTRL_REARM // $15 = LOAD:A | ENBL:A | RST:A (clear overflow flag)
+    .rearm_data:                        // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A1), a      // $4001 = re-arm Timer A
         jp      Snd_ParkDac             // re-park addr port on DAC DATA (tail-call)
+
+        // YM address->data spacing, machine-checked (gap lens sweep A2-7,
+        // 2026-09-12: this direct pair was the one Timer-A write with no guard).
+        ensure(cycles(.rearm_addr, .rearm_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_TimerA_Rearm $27: address->data gap is under the YM2612 floor")
     }
 
     // --- Snd_LoadSong — load + arm the song the 68k posted. Reached from
@@ -1528,8 +1553,10 @@ section z80_sound_driver (cpu: z80) {
         //    re-park $2A. The idle loop's per-pass $2A writes are harmless once the
         //    DAC is disabled. (One write; no per-loop toggle.)
         ld      a, SND_REG_DAC_ENABLE   // $2B
+    .ls_dacoff_addr:                    // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A0), a      // select $2B on $4000
         xor     a
+    .ls_dacoff_data:                    // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A1), a      // $4001 = $00 -> DAC mode OFF
         call    Snd_ParkDac             // re-park addr port on DAC data
         xor     a
@@ -1568,9 +1595,11 @@ section z80_sound_driver (cpu: z80) {
         // $2A park is undisturbed. ADAPTIVE skips — FM6's music patch owns $B6.
         jr      nz, .fm6_pan_owned      // adaptive -> Fm_PatchLoad sets the real $B6
         ld      a, SND_REG_LR_AMS_FMS+2 // $B6 (ch6 L/R/AMS/FMS), part II
+    .ls_b6_addr:                        // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A2), a      // $4002 = reg select (part II)
         nop                             // inter-write delay (no busy-poll), as Fm_YmWrite
         ld      a, $C0                  // L+R on, AMS=FMS=0 -> centered default
+    .ls_b6_data:                        // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A3), a      // $4003 = data
     .fm6_pan_owned:
         // H-1 (sound repost gate): the 6-byte param block is FULLY CONSUMED by now
@@ -1742,6 +1771,14 @@ section z80_sound_driver (cpu: z80) {
         // ack count here (the bump-only helper entry). Clearing at THIS point would
         // wipe a repost that landed during the load tail.
         jp      Snd_AckBump             // bump ACK_COUNT (tail-call; its ret is ours)
+
+        // YM address->data spacing, machine-checked (gap lens sweep A2-7,
+        // 2026-09-12: both direct pairs here were unguarded while sound_fm.emp's
+        // ledger read as full coverage).
+        ensure(cycles(.ls_dacoff_addr, .ls_dacoff_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_LoadSong $2B DAC off: address->data gap is under the YM2612 floor")
+        ensure(cycles(.ls_b6_addr, .ls_b6_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_LoadSong $B6 dedicate pan: address->data gap is under the YM2612 floor")
     }
 
     // --- Snd_RouteClassFlags — map a route byte (in `a`) to its sc_flags init value:
