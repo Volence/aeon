@@ -67,7 +67,7 @@ That block is superseded. Everything below it moved here from the boot file on 2
   with `finished=<n>` last in both (since 2026-09-11; before that `$1` was silently ignored).
 - **THE Z80 CLOBBERS GATE IS A LANDING STEP, AND IT LIVES IN SIGIL'S TREE (lens C2b-4, named
   2026-09-11).** A Z80 proc that under-declares its transitive clobbers CAN build GREEN here: aeon's
-  build has a Z80 clobber census (`tools/test_z80_clobbers_census.py`, since `ad707b83`; zero-firing and no allow-list since the CTRL-1 follow-up; procs containing a `call` checked since LS-2a, 2026-09-12, charged each callee's DECLARED clobbers), but it does not follow a tail `jp`/`jr`, it does not see implicit writers, and it trusts every callee's declaration. The transitive check is sigil's
+  build has a Z80 clobber census (`tools/test_z80_clobbers_census.py`, since `ad707b83`; zero-firing and no allow-list since the CTRL-1 follow-up; procs containing a `call` checked since LS-2a, 2026-09-12, charged each callee's DECLARED clobbers), but it trusts every callee's declaration (tail `jp`/`jr`/`djnz` are followed since LS-2a item (c) and implicit writers modelled since item (b); the sequencer handlers' jump back into `Sequencer_NextOpcode.fetch` is a named, printed DISPATCH RE-ENTRY class, and the dispatcher is charged every `SeqOpcodeTable` cell instead). The transitive check is sigil's
   `crates/sigil-cli/tests/z80_clobbers_incomplete.rs`, and it reads OUR sound sources. **Run it
   when the parcel touches any of its seven inputs** (the list is that file's `sound_tree()`):
   `engine/sound/{z80_sound_driver,sound_sequencer,sound_sfx,sound_fm,sound_psg,sound_constants}.emp`
