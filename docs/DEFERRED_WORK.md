@@ -33586,11 +33586,28 @@ if st["romBytes"] != len(blob):
 
 It refuses loudly, and `UNMEASURABLE` is the right verdict class: not a pass, not a failure of the subject.
 
-**MEASURED at `origin/master`, with a positive AND a negative control on the loop (see the caveat below
-for why that is stated rather than assumed):** of **54** tools importing `aether_emulator`/`aether_instance`,
-**14 read `romBytes`**, **5 use a hash of any kind**, and **40 never look at the cart at all.**
-`tools/aether_instance.py` — the spawner every one of the 54 goes through — does **not** verify it, so
-nothing is inherited.
+**MEASURED at `origin/master` — AND THE FIRST PUBLISHED VERSION OF THESE FIGURES ("40 of 54") WAS THE
+THIRD WRONG COUNT IN A ROW; see the caveat.** Population: **65** tools that actually open a bus
+connection, enumerated by **what a file IMPORTS** (`aether_emulator`/`aether_instance`, *or* a direct
+`from aether import BusClient`), excluding `test_*` files and the two helper modules themselves — that
+exclusion is a choice and is recorded here so a re-count can vary it. Both controls run in the same loop
+shape as the real question: a bogus pattern hits 0, and a must-hit pattern hits all 65.
+
+| behaviour | count of 65 |
+|---|---:|
+| reads `romBytes` back from the server | 16 |
+| **actually COMPARES it** against the file it loaded | **12** |
+| hashes anything at all | 6 |
+| calls `reload_rom` | 1 |
+| **never looks at the cart in any way** | **49** |
+
+`tools/aether_instance.py` — the spawner — does **not** verify it, so nothing is inherited.
+
+**Sigil's sharper framing of the gap, which applies here too:** `reload_rom` says *load this*; **nothing
+confirms the emulator now holds it.** The defended case is a stale PRELOAD; a load that silently did not
+take is undefended even in tools that reload. Here that is `tools/evict_witness.py` — the only tool that
+reloads, and it never reads the cart back. Same shape as a green log and an absent run being the same
+artifact.
 
 **PROPOSED, and the leverage is obvious: put the check in the spawner.** `aether_instance.py` knows the
 ROM path it was handed; comparing the served `romBytes` against that file's length there would cover all 54
@@ -33599,15 +33616,21 @@ equal size would pass — so a hash is the better form where it is affordable; l
 have caught today's case (847367 against 847533). **Prove it red-first by pointing a witness at a different
 ROM and requiring `UNMEASURABLE`.**
 
-> **⚠ THE MEASUREMENT BELOW WAS WRONG TWICE BEFORE IT WAS RIGHT, AND THAT IS THE PART TO KEEP.**
-> First pass reported **0 of 54** — a shell loop over an unquoted variable that silently matched nothing;
-> caught only because a **positive control** (a pattern that must hit all 54) came back 0 too. Second pass
-> reported **31 of 54** — the alternation included `rom_bytes`, which matches **`int.from_bytes(...)`**, a
+> **⚠ THIS ROW'S COUNT WAS WRONG THREE TIMES. THE SEQUENCE IS THE POINT, NOT THE FINAL NUMBER.**
+> **(1) "0 of 54"** — a shell loop over an unquoted variable that silently matched nothing. Caught only
+> because a **positive control** (a pattern that had to hit every file) also came back 0. This was minutes
+> from being sent to a peer and to the owner as *"none of our tools verify the cart"*.
+> **(2) "31 of 54"** — the matcher included `rom_bytes`, which matches **`int.from_bytes(...)`**, a
 > construct unrelated to carts and present in most of these files. Caught only by trying to *show* the
 > matching lines, which came back empty for a file the loop had just named.
-> **Both wrong numbers were alarming and quotable**, and the first was about to be sent to a peer and to
-> the owner as "none of our 54 tools verify the cart". This is the suite's own bar arriving on the lane
-> that wrote it the same afternoon: **a uniqueness grep over the corpus does not make the MATCHER unique**,
-> and when a result comes back clean, suspect the matcher before the subject. **Every count in this row was
-> re-derived with a positive control (must hit 54) and a negative control (must hit 0) run in the same
-> loop shape as the real question** — that pairing is what any re-measurement of this row should reuse.
+> **(3) "40 of 54" — the version first committed here, and the denominator was wrong.** The population had
+> been enumerated by **what a file MENTIONS** (`aether_instance`), which misses the **17** tools that reach
+> the bus through `from aether import BusClient` and never name the helper. Caught only because sigil hit
+> the identical defect in their own tree, from the opposite direction, and said so: *the right enumeration
+> parameter is what a file IMPORTS, not what it mentions.*
+> **All three wrong numbers were plausible, quotable, and in the same direction of alarm.** Errors (1) and
+> (2) were about the numerator and (3) about the denominator, so **fixing the matcher did not protect the
+> population** — a corrected count over a wrong population still reads as a corrected count. This is the
+> suite's own bar landing repeatedly on the lane that restated it the same afternoon: **a uniqueness grep
+> over the corpus does not make the matcher unique, and a clean result should make you suspect the
+> instrument before the subject.** Re-derive with BOTH controls, and state which population you took.
