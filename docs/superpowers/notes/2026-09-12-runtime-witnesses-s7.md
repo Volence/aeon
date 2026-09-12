@@ -1,5 +1,10 @@
 # Runtime witnesses, 2026-09-12 seventh aeon session (controller, emulator)
 
+> **SUPERSEDED IN PART 2026-09-12. The body below is unchanged.** "No player physics" (in the header, the C4a-2 collected-half line, the C1b-3 LIMIT and the "Not run" list) is wrong about the scene: the debug build boots in the fly cheat, and one B press hands the player to real physics.
+> EFX-4b's "PARTIAL" read section 0's PATCHED builder's buffer, not the static copy.
+> See `docs/superpowers/notes/2026-09-12-physics-scene-survey.md`, `docs/superpowers/notes/2026-09-12-object-witnesses.md`
+> and `docs/superpowers/notes/2026-09-12-raster-collision-witnesses.md`.
+
 ROM: /home/volence/sonic_hacks/.aeon-ls8-land/s4.debug.bin at c5dd8c20 (847533 B, crc32 b93a889f), symbols s4.debug.lst
 from the same tree (binding "match"). Oracle own-instance server pid 510366 (was holding .aeon-probes/c3b3; reloaded).
 Boot lands in GameState_OJZScroll_Update (the OJZ scroll test: input free-scrolls, 16 px/frame, no player physics).

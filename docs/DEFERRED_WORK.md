@@ -8444,6 +8444,12 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   > LIVE". That is consistent with the 2026-08-05 correction only for the `Snd_TimerA_Program` third; the
   > `dc.l SfxTable` / duplicate-patch-bank thirds remain UNCONFIRMED and package 4 did **no** work on them.
   > Do not treat F3 as closed.
+  > **RE-VERIFIED 2026-09-12 (gap lens sweep A2, Step 0; `docs/superpowers/notes/2026-09-12-aeon-gap-lens-sweep.md`):
+  > both remaining thirds CONFIRMED, with corrected sizes.** `SfxTable` (`sfx_bank.emp`, a `cpu: m68000` section) is
+  > 137 cells, **548 B** (540 was at 135 cells), with no reader in `engine/` or `games/`: the Z80 reads `SfxBlobWinTab`.
+  > That the bytes are emitted still needs the listing. The duplicate `sfx_NN_patches` banks are **96 B, not ~208**: by
+  > md5, $33 = $34 = $B9 and $BA = $BB, 32 B each, so three redundant copies ($36, $42, $62, $7E are zero-length).
+  > STILL OPEN; byte-changing, so its own parcel(s).
 - **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
@@ -8463,6 +8469,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   >   an **API-ergonomics** choice (uniform preserve-a0 costs a push/pop or a scratch register per call
   >   site), which belongs with the command-API work, not in a stale-comment sweep. **Reduce F4 to that one
   >   ergonomics item.**
+  > **RE-VERIFIED 2026-09-12 (gap lens sweep A2, Step 0):** the a0 quarter is STILL OPEN and **ergonomics only**.
+  > Every contract is TRUE: `Sound_Ping`/`Sound_PlaySample`/`Sound_StopMusic` `lea` their slot into a0 and declare
+  > `clobbers(a0)`; `Sound_PlayRing` is `preserves(a0)` via `Sound_PlaySFX`'s `movem.l d1/a0`; eleven more `Sound_*`
+  > procs clobber a0, also truthfully.
 - ~~**F5** Z80 blob space TIGHT: ~118 B code headroom… Plan a space recovery (bank FmPitchTableZ/LogVolumeLut/
   MovingTrucks_PitchTable into a $8000-window read)~~ **DONE (music-expr Task 0 banking, 2026-06-24):** the engine
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
@@ -9007,8 +9017,10 @@ elimination (T8) already removed the dominant cost. Revisit with any tick-cost r
   `sc_base_freq` latch (`Seq_HookNoteOn` ret nz), so a note change DURING a steal
   restores the pre-steal pitch; NOTE_RAW's pre-gate latch is the model fix. The
   comment at `sound_sfx.asm:1013-1017` oversells the current behavior.
-- **Stale comment:** `z80_sound_driver.asm:1290-1292` "once the gates are removed
-  (later task)" — the gates were removed in music-expr Phase 1.
+- ~~**Stale comment:** `z80_sound_driver.asm:1290-1292` "once the gates are removed
+  (later task)" — the gates were removed in music-expr Phase 1.~~ **CLOSED 2026-09-12: the booking is STALE** (gap
+  lens sweep A2, Step 0). `git log -S` puts the phrase's last change at `85ae87cf`, the commit that deleted the `.asm`
+  twins, and it has no surviving form in the Z80 corpus. Nothing to fix.
 
 ### FM env attack seam (T8 residual — by-ear pending)
 FM key-on resets the `sc_env_out` shadow to 0 without a TL emit; an FM env body with
@@ -12045,6 +12057,13 @@ snapshotting the RAM twins the ramp and base-swap witnesses stage through `Raste
 it is a mechanism change behind emulator-only gates. Still the cleanest runtime (no copy, no
 ROM pad); revive it together with those two tools if the ~1 KB of pad ever matters. The full
 comparison is in `static_program`'s banner, `engine/effects/raster_dsl.emp`.
+**RUNTIME-WITNESSED 2026-09-12 on the longer→shorter static re-install**, ROM crc `9ce1c2ff`
+(`docs/superpowers/notes/2026-09-12-raster-collision-witnesses.md`, `tools/lens_residue_raster_witness.py`). Lab row 21
+(`OJZ_BandDemo`, 110 B), then row 22 (`OJZ_BaseSwap`, 46 B), through the real hotkey: after the shorter install
+`Raster_Buf_A[46..128)` holds 0 non-zero bytes and `[0..46)` equals the ROM image. Control: after the longer install, 35
+of the 64 bytes in `[46..110)` were non-zero, so the zero tail was overwritten, not never written. This supersedes the
+seventh session's "EFX-4b PARTIAL" (`docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`): its frame-400 read was
+section 0's PATCHED builder's buffer (`Raster_Program` = `Raster_Buf_B`), not the static copy the padding is for.
 
 ### Substrate item 3 CLOSED 2026-08-19 — the hazard is real, the diagnosis was wrong, and the booked fix was impossible
 
@@ -30464,7 +30483,13 @@ that every registration takes would save 2 a call but add 12 to every sprite tha
 makes the worst frame worse. Verified: `tools/landing_build.sh` exit 0, `finished=0`; CRC32 before -> after
 `s4.bin` `7a552cde` -> `9cdeb9b1`, `s4.debug.bin` `b93a889f` -> `9ce1c2ff`, `demo.bin` `dd589fe7` -> `3170d31e`,
 `demo.debug.bin` `c3eda757` -> `3cf4f104`, all four sizes unchanged (821155 / 847533 / 97109 / 103501; the padding
-absorbs the 4 bytes). Not yet looked at at runtime. **Still open, not this parcel's:** C1a-3's per-entry figure (36
+absorbs the 4 bytes). ~~Not yet looked at at runtime.~~ **RUNTIME-WITNESSED 2026-09-12 on ROM crc `9ce1c2ff`**
+(`docs/superpowers/notes/2026-09-12-object-witnesses.md`, `tools/lens_residue_object_witness.py`; the registered and
+culled paths were already witnessed in `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`). Multisprite parent:
+each of the 3 children reaches `.offscreen` with RF_ONSCREEN clear, and `.multi_sprite` is hit with a0 = the parent
+(control, parent's RF_MULTISPRITE cleared: 3/3 children via `.no_parent`). Null mappings, natural path: a ring sparkle's
+zeroed slot goes `.no_parent` → `.offscreen` at frame 427, after its 24 live visits (derived 24) fell through the null
+test. **Still open, not this parcel's:** C1a-3's per-entry figure (36
 cycles against 22) was confirmed by the same read; its per-frame count was not re-derived.
 
 **Side findings of the 2026-09-11 lens-tools parcel (merge `e1d79b2e`), booked, not fixed:**
@@ -30492,7 +30517,7 @@ recurses (the build's own pytest lane collects the test and launches it again, a
 (a) **`Killed_MarkObject` has no caller** in `engine/` or `games/` (the parcel's finding, re-verified by the controller on the
 merged tree with `git grep -w`: one definition, two comments and one ensure message, no call site). So the killed
 mask is never set and the killed gate always answers "alive": a destroyed badnik can respawn when its section slides back
-in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path. **RE-BOOKED 2026-09-12 (seventh session, controller): the emulator look is UNREACHABLE BY CONSTRUCTION, so the respawn hazard cannot occur today.** `Touch_Enemy` is an `rts` stub (`engine/objects/collision.emp`, the `falls_into` stub chain), and OJZ act 1 places no enemy (solids, springs, one static). Nothing can be destroyed, so an unset killed mask is the correct state. Every spawned SST already carries both inputs (`Sst.entity_section_id` `$2B`, `Sst.entity_list_index` `$2C`). **The call belongs in the parcel that gives `Touch_Enemy` a defeat**, not in a standalone fix. Witness: `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`.
+in. Needs an emulator look first (kill one, slide away and back), then the call from the badnik death path. **RE-BOOKED 2026-09-12 (seventh session, controller): the emulator look is UNREACHABLE BY CONSTRUCTION, so the respawn hazard cannot occur today.** `Touch_Enemy` is an `rts` stub (`engine/objects/collision.emp`, the `falls_into` stub chain), and OJZ act 1 places no enemy (solids, springs, one static). Nothing can be destroyed, so an unset killed mask is the correct state. Every spawned SST already carries both inputs (`Sst.entity_section_id` `$2B`, `Sst.entity_list_index` `$2C`). **The call belongs in the parcel that gives `Touch_Enemy` a defeat**, not in a standalone fix. Witness: `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`. **CONFIRMED AND STRENGTHENED 2026-09-12** (`docs/superpowers/notes/2026-09-12-physics-scene-survey.md` §3h): no archetype in the tree uses `COLLISION_ENEMY` (only its constant and the handler-table comment name it). The one enemy archetype, the DEBUG-only `ObjDef_Enemy`, is `COLLISION_HURT`, and `Touch_Hurt` is also an `rts` stub, so even `GameState_ObjectTest`'s 10 enemies cannot be killed. The re-booking stands.
 (b) ~~**`Parallax_CheckBoundary` reads `d2` after `Section_GetSecPtrXY`, whose declaration says it clobbers `d2`.** It stores
 `d2`/`d3` right after the call and works only because the body happens not to touch `d2` (C4a-4 kept it off `d2` and says so
 in the header). The contract closure does not flag a read of a declared-clobbered register, so a future body change would
@@ -30641,7 +30666,33 @@ ensure it failed ALL FOUR shapes (exit 1 each), and each failure was `ram harves
 same premise with an even row count; the message says so.
 **Runtime TAGs (controller, emulator):** profile `EntityWindow_DespawnRings` with a full ring buffer (C4a-3); across a slide
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
-rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2). **Status 2026-09-12 (seventh session, `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`):** C4a-4 WITNESSED (every tracked entry's id equals the flat id derived from its own origin, after horizontal and vertical slides, grid rows 0-2). C4a-2 SPAWN HALF witnessed (the same seven section-0 rings after a slide away and back); its collected half and the cycle counts NOT, because the boot scene (the OJZ scroll test) has no player physics. C1b-3's premise witnessed (289 `Cache_Origin_Row` writes, 0 odd). C4a-3 not run.
+rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2). **Status 2026-09-12 (seventh session, `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`):** C4a-4 WITNESSED (every tracked entry's id equals the flat id derived from its own origin, after horizontal and vertical slides, grid rows 0-2). C4a-2 SPAWN HALF witnessed (the same seven section-0 rings after a slide away and back; a retained-slot run, because that trip reached Camera_X 3232 and section 0 is parked only by the slide at 4608); ~~its collected half and the cycle counts NOT, because the boot scene (the OJZ scroll test) has no player physics~~. C1b-3's premise witnessed (289 `Cache_Origin_Row` writes, 0 odd). C4a-3 not run. **CORRECTED 2026-09-12: the boot scene HAS player physics.** The debug build boots in the fly cheat, and one B press hands `Player_1` to the real state machine (`docs/superpowers/notes/2026-09-12-physics-scene-survey.md`, headline). **Update 2026-09-12, ROM crc `9ce1c2ff`:** C4a-2's collected half WITNESSED (`docs/superpowers/notes/2026-09-12-object-witnesses.md`, `tools/lens_residue_object_witness.py`): after a collect, the 1→2 slide (measured at Camera_X 4616) parks section 0 with ring mask `01 00…`; back home, section 0 holds indices [1..6], its slot mask is `01 00…` and the park entry is freed (control, no collect: the park never holds section 0, home [0..6]). C4a-3 at a full buffer WITNESSED (same note and tool): keep-all **15224** cycles, remove-all **65400**, 0 interrupts, both equal to the hand-derived model. C1b-3 WITNESSED WITH PHYSICS (`docs/superpowers/notes/2026-09-12-raster-collision-witnesses.md`, `tools/lens_residue_raster_witness.py`): at `Cache_Origin_Row` 34 the player rests at y 573 = committed floor 592 − 19, and 12/12 `Collision_GetType` returns match the committed cells, 6 of them discriminating; the control, at a warp-re-seeded origin 0, rests at 573 with 12/12. Limit: the old form `floor(L/2) + O/2` equals the shipped `floor((L+O)/2)` at every even origin, so this cannot tell them apart; it shows the shipped lookup is right. **Still OWED:** C4a-3's before/after on the ROM built from the parent of merge `f64f26b3`, and C4a-2's `PopulateSectionRings`/`RescanY` before/after cycle counts (parent of `62fb300f`).
+
+**Gap lens sweep 2026-09-12 (packet `docs/superpowers/notes/2026-09-12-aeon-gap-lens-sweep.md`, review pin aeon `9fe9ee91`), booked, NOT STARTED.**
+The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`docs/superpowers/notes/2026-09-06-aeon-lens-sweep.md`) had already swept `engine/**/*.emp` and `games/**/*.emp`, sound and `engine/system/` included, and `docs/superpowers/notes/2026-09-06-aeon-tools-lens-sweep.md` gave `tools/` its first review. The row came from a 2026-08-13 coverage map that predates both. This sweep chartered only the two holes those packets name: the Z80 comment surface (seat A2) and the OJZ level bakers (seat T1). It blesses nothing else; the packet lists what is still UNEXAMINED.
+**A2: OPEN, not started, the next session's comment parcel.** There are six load-bearing wrong comments, each re-read by the controller at the pin:
+- A2-1: `Snd_LoadSong`, "preserves de" across `Sfx_StopAll`.
+- A2-2: the driver's import header, "Sequencer_Frame preserving iy".
+- A2-3: `sound_sfx.emp`, "opening FM6 to SFX is a one-byte table edit".
+- A2-5: `sound_constants.emp`, "PSG writes never touch `de`".
+- A2-6: `sound_sequencer.emp`, `MEV_EXT` "pinned" by a guard that does not exist.
+- A2-9: `Snd_LoadSong`'s header, "the loader does not stop the DAC". RUNTIME-TAG.
+
+Wrong but inert (the seat's, not re-verified): A2-4, A2-7, A2-8, A2-10 to A2-16, and the A2-17 stale-count tail. The packet's triage:
+- A byte-neutral comment parcel: A2-1, 2, 3, 5, 8, 10, 12's comment half, 13, 14, 15, 16, the A2-17 tail, and A2-4's doc line.
+- A zero-byte guard with red-first proof for A2-6. A2-7's three unguarded pairs could join the ledger's guard the same way.
+- Runtime first: A2-9, A2-11 and A2-17's poke-storm item.
+- A sigil question: the `carry:` label polarity.
+
+The Z80 standing findings from A2's Step 0 are updated in place at their own rows: the F3 and F4 items under "Sound Engine Deep Audit (2026-06-21)", and the "once the gates are removed" stale comment, now closed.
+**T1's F4, MEASURED** (`docs/superpowers/notes/2026-09-12-blank-priority-measurement.md`, `tools/blank_priority_probe.py`, ROM crc `9ce1c2ff`, oracle-rs):
+- A blank cell's priority bit has a visible consequence only in section 1, lines 121-223. That section's Shadow/Highlight comes from `OJZ_TestRaster`, the Effects P1 gate fixture, not authored content. 19 of the 116 blank-priority words can show there.
+- F4 was wrong about section 7. Its water band is a palette swap (`sh: 0` since 2026-09-05), and restoring its words changed 0 px.
+- Limit: oracle's S/H rule already builds in "a transparent cell keeps its tile's priority", so this measures the engine's bytes under that rule, not hardware.
+- Which side changes stays an authoring question, tied to the owner's `SECTION-EFFECTS-VISUAL` card: the engine keeping attributes on blank cells, or the baker stripping them.
+
+**Side question, not a defect:** section 0's `OJZ_TwoChannel` channel 0 is `sh: 1`, yet S/H never switched on at three cameras. Its anchor is `PATCH_ANCHOR_NONE`, so its latched line is `$7FFF − Camera_Y` and the record never fires; the raster-collision witness saw it suppressed at all 3,000 stops. Whether that tint band was meant to show is open.
+T1's F1, F2, F3, F5 and F6 are deliberately not booked here: a parallel helper is fixing them and adds its own row.
 
 ## Tier 3 — prose that decayed, zero-byte fixes
 
