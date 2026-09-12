@@ -30280,6 +30280,23 @@ main checkout's `master`, 34 commits behind origin/master because the owner's un
 fast-forward there. So that night's backstop graded none of that day's landings, and nothing in its log says so: it names
 the SHA it tested and not what it should have tested. Candidate fix: resolve `origin/master` after a `git fetch` (or refuse
 when local master is behind origin), and print both. Found while clearing the shared-sigil path for the LS-1a window.
+**CLOSED 2026-09-12, `parcel/nightly-origin-master`:** the script now runs `git -C "$MAIN" fetch origin
++refs/heads/master:refs/remotes/origin/master` (no prompt, 300 s timeout) and uses `refs/remotes/origin/master^{commit}` for
+BOTH the worktree add and the checkout; the bare name `master` is gone. A failed fetch is COULD NOT RUN (exit 2, naming the
+remote), with no fallback to the tracking ref already on disk, which is as stale as the last fetch that worked. A `target:`
+log line names both full SHAs and says whether local master is at, behind, or ahead of origin (unpushed), or absent; every
+OK / FAILED / COULD NOT RUN verdict line now reads `at origin/master <tested> (local master <local>)`. A new `--checkout-only`
+runs that same block plus the worktree cut/checkout and exits before any build. `tools/test_nightly_target.py` (6 rows,
+build.sh's pre-build lane) drives the real script with it in a throwaway suite whose bare origin is AHEAD of local master
+(the local tracking ref deliberately stale), with every SHA read back by `git rev-parse`. Red-first: with the old resolution
+put back on disk (no fetch, `SHA=$(git -C "$MAIN" rev-parse master)`, `worktree add ... master`) it went 4 failed, 2 passed:
+the four resolution rows were red, and the local-equals-origin control and the verdict-line source row stayed green, as they
+should. Restored from commit `80a1765a`, 6 passed. The existing readers of the script (`test_landing_lane_shapes.py`,
+`test_no_baked_home_paths.py`, `test_needs_build_lane.py`, `test_effects_gates_segments.py`) are green, and the four
+`./build.sh` lines are byte-identical. NOT verified: a real night. No build ran (the shared sigil binary is held for the
+assembler swap), and the fetch has not run under the systemd unit, whose environment has no `SSH_AUTH_SOCK`. An agent-less,
+BatchMode `git ls-remote` of origin did succeed from a shell. If the first night logs COULD NOT RUN on the fetch, suspect
+that environment first. Zero ROM bytes.
 
 **`tools/ojz_strip_gen.py` names the zone tileset wrongly, naming only (booked 2026-09-11; lead from an aurora agent,
 confirmed at source here):** the variable `CHUNKS_TILES_PATH` and three docstrings (`_project_tileset_path`,

@@ -3,7 +3,9 @@
 # 2026-08-18: ritual + nightly). The ritual half lives in CLAUDE.md's Testing
 # section; this is the half that fires when the ritual gets skipped.
 #
-# Runs against current aeon master in a DETACHED checkout at
+# Runs against aeon's origin/master, fetched at the start of every run (what "landed"
+# means here: every landing is pushed), never the main checkout's local master, which
+# can sit far behind it. See the resolution block below. It runs in a DETACHED checkout at
 # <suite root>/.aeon-nightly so it never races an overnight session or the
 # auto-commit daemon in the main tree, and never appears inside the main
 # repo directory (a worktree under the repo root double-counts every module
@@ -40,8 +42,8 @@ set -uo pipefail
 # Every path below is DERIVED from this script's own location, never baked to one
 # machine's $HOME (SUITE-HOME-PATHS, 2026-08-30). MAIN is resolved through
 # --git-common-dir rather than `dirname $0`/..: this file may be running from a
-# worktree copy, and the whole point of NIGHTLY is that it is cut from the MAIN
-# checkout's master.
+# worktree copy, and NIGHTLY is a worktree of the MAIN checkout (whose object store the
+# origin/master fetch below fills).
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAIN="$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir)")" \
     || { echo "nightly: $HERE is not inside a git checkout"; exit 2; }
@@ -62,6 +64,10 @@ if [[ ${1:-} == --selftest-fail ]]; then
     note "SELFTEST: the failure-notification path works"
     exit 1
 fi
+CHECKOUT_ONLY=0
+if [[ ${1:-} == --checkout-only ]]; then
+    CHECKOUT_ONLY=1
+fi
 
 # A derived path that resolves to nothing must say so HERE, naming the file. Without
 # this the nightly reports "DEBUG build failed", which is loud but points at the ROM.
@@ -69,14 +75,72 @@ for b in "$SIGIL_BUILD" "$SIGIL_EMIT"; do
     [ -x "$b" ] || { note "COULD NOT RUN: no sigil binary at $b (suite root $SUITE)"; exit 2; }
 done
 
+# ---- what to test: origin/master, fetched now -------------------------------
+# Every landing in this repo is PUSHED, so origin/master is what "landed" means. Until
+# 2026-09-12 this resolved the main checkout's LOCAL `master`, which the owner's working
+# copy can hold far behind origin (an uncommitted edit blocks its fast-forward). On
+# 2026-09-12T08:17Z that tested a38ce7c9, 34 commits behind origin/master, printed three
+# OK lines, and graded none of that day's landings; the log named the SHA it tested and
+# not the one it should have (docs/DEFERRED_WORK.md, "The nightly backstop tests the MAIN
+# checkout's LOCAL `master`").
+#
+# The fetch runs in MAIN because every worktree shares its object store and refs, so the
+# fetched commit is checkable in NIGHTLY with no second fetch. The refspec is explicit so
+# the ref read below is the one this fetch wrote, whatever the remote's configured refspec.
+#
+# A FAILED FETCH IS COULD NOT RUN (exit 2). There is deliberately no fallback to the
+# origin/master ref already on disk: that ref is exactly as stale as the last successful
+# fetch, and grading it under an OK line is the defect this block exists to remove.
+# GIT_TERMINAL_PROMPT=0 and the timeout keep a credential prompt from hanging a unit that
+# has no terminal; either way the fetch fails loud rather than waiting.
+#
+# The local master is resolved too, for the LOG ONLY. Behind is not a failure: it is the
+# owner's working copy, and the nightly tests origin regardless. Ahead means unpushed
+# commits, which by definition have not landed and are not graded here. An absent local
+# master is fine; nothing below needs one.
+#
+# --checkout-only runs THIS block and the worktree cut/checkout below it, prints the SHA it
+# checked out, and exits 0 before any build. It exists so tools/test_nightly_target.py
+# can grade the resolution the real run uses (it is the same code, not a copy) in a
+# throwaway suite, without a build or an emulator.
+if ! GIT_TERMINAL_PROMPT=0 timeout 300 git -C "$MAIN" fetch --quiet origin \
+        "+refs/heads/master:refs/remotes/origin/master" >> "$LOG" 2>&1; then
+    note "COULD NOT RUN: git fetch of origin master failed in $MAIN (remote: $(git -C "$MAIN" remote get-url origin 2>/dev/null || echo 'no origin')); refusing to grade a possibly-stale ref -- see $LOG"
+    exit 2
+fi
+SHA=$(git -C "$MAIN" rev-parse --verify --quiet "refs/remotes/origin/master^{commit}") \
+    || { note "COULD NOT RUN: origin/master does not resolve in $MAIN after the fetch"; exit 2; }
+LOCAL=$(git -C "$MAIN" rev-parse --verify --quiet "refs/heads/master^{commit}") || LOCAL=""
+if [[ -z "$LOCAL" ]]; then
+    LOCAL_SHORT="none"
+    RELATION="the main checkout has no local master"
+elif [[ "$LOCAL" == "$SHA" ]]; then
+    LOCAL_SHORT="${LOCAL:0:8}"
+    RELATION="local master is AT origin/master"
+else
+    LOCAL_SHORT="${LOCAL:0:8}"
+    # "<local-only> <origin-only>": ahead = unpushed local commits, behind = landings the
+    # main checkout has not pulled.
+    read -r AHEAD BEHIND < <(git -C "$MAIN" rev-list --left-right --count "$LOCAL...$SHA")
+    RELATION="local master DIFFERS from origin/master: ${BEHIND:-?} behind, ${AHEAD:-?} ahead (unpushed); the nightly tests origin regardless"
+fi
+# Every verdict line below carries this, so a log reader sees what was TESTED beside what
+# the main checkout held.
+AT="origin/master ${SHA:0:8} (local master $LOCAL_SHORT)"
+echo "$(date -Is) target: origin/master $SHA, fetched; local master ${LOCAL:-none}; $RELATION" >> "$LOG"
+
 if [[ ! -d "$NIGHTLY" ]]; then
-    git -C "$MAIN" worktree add --detach "$NIGHTLY" master >> "$LOG" 2>&1 \
-        || { note "COULD NOT RUN: nightly worktree creation failed"; exit 2; }
+    git -C "$MAIN" worktree add --detach "$NIGHTLY" "$SHA" >> "$LOG" 2>&1 \
+        || { note "COULD NOT RUN: nightly worktree creation at $AT failed"; exit 2; }
 fi
 
-SHA=$(git -C "$MAIN" rev-parse master)
 git -C "$NIGHTLY" checkout --force --detach "$SHA" >> "$LOG" 2>&1 \
-    || { note "COULD NOT RUN: checkout of master ($SHA) failed"; exit 2; }
+    || { note "COULD NOT RUN: checkout of $AT failed"; exit 2; }
+
+if [[ $CHECKOUT_ONLY == 1 ]]; then
+    echo "$SHA"
+    exit 0
+fi
 
 cd "$NIGHTLY"
 # The provenance instant for the needs_build lane below: every artifact it grades must
@@ -87,14 +151,14 @@ cd "$NIGHTLY"
 # here checks the second, and the tests themselves are what ask about content.
 BUILD_T0=$(date +%s)
 if ! DEBUG=1 ./build.sh > "$STATE/build.log" 2>&1; then
-    note "COULD NOT RUN: DEBUG build failed at ${SHA:0:8} — see $STATE/build.log"
+    note "COULD NOT RUN: DEBUG build failed at $AT — see $STATE/build.log"
     exit 2
 fi
 # Second fixture: the P2 Phase 1 span/witness gates are two-fixture differentials
 # (sonic4 vs demo) and hard-error without demo.debug.lst — a one-fixture run is
 # not the gate. First bit the nightly 2026-08-19, the night Phase 1 landed.
 if ! DEBUG=1 ./build.sh demo >> "$STATE/build.log" 2>&1; then
-    note "COULD NOT RUN: DEBUG demo build failed at ${SHA:0:8} — see $STATE/build.log"
+    note "COULD NOT RUN: DEBUG demo build failed at $AT — see $STATE/build.log"
     exit 2
 fi
 # Third fixture, and it is NOT for the emulator gates — they run against s4.debug.*.
@@ -106,7 +170,7 @@ fi
 # a label, which is the thing LS-1 was about. It also means the RELEASE shape, the one
 # that ships, gets built nightly for the first time.
 if ! ./build.sh >> "$STATE/build.log" 2>&1; then
-    note "COULD NOT RUN: release build failed at ${SHA:0:8} — see $STATE/build.log"
+    note "COULD NOT RUN: release build failed at $AT — see $STATE/build.log"
     exit 2
 fi
 # Fourth fixture, and it is a REPAIR (LS-1c, 2026-09-10). The three shapes above were
@@ -125,7 +189,7 @@ fi
 # does not cover the first. With this build the four shapes here are the four build.sh can
 # produce, so the covering claim is now structural rather than remembered.
 if ! ./build.sh demo >> "$STATE/build.log" 2>&1; then
-    note "COULD NOT RUN: release demo build failed at ${SHA:0:8} — see $STATE/build.log"
+    note "COULD NOT RUN: release demo build failed at $AT — see $STATE/build.log"
     exit 2
 fi
 
@@ -133,9 +197,9 @@ python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst \
     > "$STATE/gates.log" 2>&1
 rc=$?
 case $rc in
-    0) echo "$(date -Is) OK at ${SHA:0:8} (all gates pass)" >> "$LOG" ;;
-    1) note "EFFECTS GATES FAILED at ${SHA:0:8} — see $STATE/gates.log" ;;
-    *) note "COULD NOT RUN: gate setup problem (exit $rc) at ${SHA:0:8} — see $STATE/gates.log" ;;
+    0) echo "$(date -Is) OK at $AT (all gates pass)" >> "$LOG" ;;
+    1) note "EFFECTS GATES FAILED at $AT — see $STATE/gates.log" ;;
+    *) note "COULD NOT RUN: gate setup problem (exit $rc) at $AT — see $STATE/gates.log" ;;
 esac
 
 # ---- second lane: the effects LAB itself -------------------------------------
@@ -156,9 +220,9 @@ python3 tools/preset_lab_witness.py --rom s4.debug.bin --lst s4.debug.lst \
     > "$STATE/preset_lab.log" 2>&1
 rc_lab=$?
 case $rc_lab in
-    0) echo "$(date -Is) OK at ${SHA:0:8} (preset lab witness)" >> "$LOG" ;;
-    1) note "PRESET LAB WITNESS FAILED at ${SHA:0:8} — see $STATE/preset_lab.log" ;;
-    *) note "COULD NOT RUN: preset lab witness (exit $rc_lab) at ${SHA:0:8} — see $STATE/preset_lab.log" ;;
+    0) echo "$(date -Is) OK at $AT (preset lab witness)" >> "$LOG" ;;
+    1) note "PRESET LAB WITNESS FAILED at $AT — see $STATE/preset_lab.log" ;;
+    *) note "COULD NOT RUN: preset lab witness (exit $rc_lab) at $AT — see $STATE/preset_lab.log" ;;
 esac
 
 # ---- third lane: the needs_build pytest lane (LS-1b) --------------------------
@@ -179,9 +243,9 @@ python3 tools/needs_build_lane.py --built-after "$BUILD_T0" \
     > "$STATE/needs_build.log" 2>&1
 rc_nb=$?
 case $rc_nb in
-    0) echo "$(date -Is) OK at ${SHA:0:8} (needs_build lane)" >> "$LOG" ;;
-    1) note "NEEDS_BUILD TESTS FAILED at ${SHA:0:8} — see $STATE/needs_build.log" ;;
-    *) note "COULD NOT RUN: needs_build lane (exit $rc_nb) at ${SHA:0:8} — see $STATE/needs_build.log" ;;
+    0) echo "$(date -Is) OK at $AT (needs_build lane)" >> "$LOG" ;;
+    1) note "NEEDS_BUILD TESTS FAILED at $AT — see $STATE/needs_build.log" ;;
+    *) note "COULD NOT RUN: needs_build lane (exit $rc_nb) at $AT — see $STATE/needs_build.log" ;;
 esac
 
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
