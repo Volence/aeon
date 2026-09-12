@@ -114,8 +114,9 @@ pub proc Section_FillInitial () clobbers(d0) {
 // NOTE: d2 (sec_x) is left u8, NOT GridX. The reason it was banked was the
 // BuildEntries call right after Section_GetSecPtrXY, whose DECLARED d2 clobber
 // meant a typed GridX could not be proven to survive into this call. That call
-// is gone, so typing d2 GridX now needs only the three callers above to bless
-// their sec_x `as GridX`. The GridY axis already carries the swap guard (d3).
+// is gone (and since 2026-09-12 Section_GetSecPtrXY no longer declares d2
+// clobbered either), so typing d2 GridX now needs only the three callers above
+// to bless their sec_x `as GridX`. The GridY axis already carries the swap guard (d3).
 // -----------------------------------------------
 pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: SectionId) {
         moveq   #0, d0
@@ -173,19 +174,26 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
 //      enumerated by call site before the change and none reads d0 as a flag —
 //      Section_RedrawPlanes, Parallax_CheckBoundary and GameState_OJZScroll_Init
 //      test only Z; BuildEntries takes the id.)
-// Clobbers: d1, d2, d4
-//      d2 — the BODY preserves d2 (sec_x rides through it and the bounded
-//      multiply needs no loop counter), but the declared contract keeps d2
-//      clobbered so a caller cannot carry a typed GridX in d2 across this call.
-//      KEEP THE BODY OFF d2 ANYWAY: Parallax_CheckBoundary (engine/level/
-//      parallax.emp) stores d2 and d3 into Parallax_Prev_Sec_X/Y right after
-//      this call, relying on the body rather than the declaration, so a body that
-//      used d2 as scratch would silently corrupt the crossing detector.
+// Clobbers: d1, d4
+//      d2 (sec_x) and d3 (sec_y) come back unchanged on every path, and the
+//      declaration says so (2026-09-12, parcel/clobber-decls-0912; until then it
+//      named d2 clobbered although no path wrote it). The range checks only
+//      compare, sec_x reaches the flat id through `move.b d2, d1`, the bounded
+//      multiply lowers to `mulu.w d1, d0` and the stride multiply to d1/d4, and
+//      `.out_of_range` writes a0 and d0 only (read off the emitted bytes of all
+//      four canonical shapes). Parallax_CheckBoundary (engine/level/parallax.emp)
+//      stores d2 and d3 into Parallax_Prev_Sec_X/Y straight after this call and
+//      relies on it. Dropping d2 from clobbers() only shrinks what a caller must
+//      assume lost, so it cannot harm the other three callers (Section_RedrawPlanes,
+//      GameState_OJZScroll_Init, EntityWindow_BuildEntries; every `jbsr` site).
+//      KEEP THE BODY OFF d2 AND d3: a write to d2 here now fails the build twice,
+//      as [proc.clobber-undeclared] on this proc and as [call.live-clobbered]
+//      (D1c) at the Parallax_CheckBoundary call site.
 //      d4 — the Sec-stride multiply's scratch, since d0 now carries the id and d1
 //      the product. Every caller's own declaration already covers d4, and none
 //      holds anything in d4 across the call.
 // -----------------------------------------------
-pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2, d4) out(d0: SectionId, a0, zero: none) {
+pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1, d4) out(d0: SectionId, a0, zero: none) {
         cmp.b   Act_grid_w_lo(a2), d2
         bcc     .out_of_range                   // sec_x >= grid_w (unsigned)
         cmp.b   Act_grid_h_lo(a2), d3

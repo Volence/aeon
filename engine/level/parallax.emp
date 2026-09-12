@@ -1183,7 +1183,9 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         jbsr    Section_GetSecPtrXY                 // a0 = Sec ptr (Z set = out of grid)
         beq     .no_crossing                        // out of grid — keep current config
 
-        // commit the new section coords only once we have a valid section
+        // commit the new section coords only once we have a valid section.
+        // d2/d3 survive the call by Section_GetSecPtrXY's DECLARATION,
+        // clobbers(d1, d4), not merely by what its body happens to do.
         move.b  d2, Parallax_Prev_Sec_X             // (Parallax_Prev_Sec_X).w
         move.b  d3, Parallax_Prev_Sec_Y             // (Parallax_Prev_Sec_Y).w
 
