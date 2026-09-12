@@ -2950,11 +2950,16 @@ For each ACTIVE entry (Entity_Window_Active bit set):
      - If world X > camera right load edge: stop (X-sorted early exit)
      - Skip if outside the camera Y band (below)
      - Check the entry's loaded-ring bit: skip if already loaded. This gate
-       runs FIRST: it is one btst behind a call (138c on the shipped release
-       bytes) against Collected_CheckRing's 9-slot linear tag scan (222-494c),
-       and it is the gate that hits on the RescanY path. Both are pure
-       predicates that skip and do nothing else, so the order is cost only.
-     - Check Collected_CheckRing bitmask: skip if already collected
+       runs FIRST: it is one btst behind a call (138c on the release bytes of
+       2026-09-06) against the collected gate's 9-slot linear tag scan
+       (222-494c then), and it is the gate that hits on the RescanY path. Both
+       are pure predicates that skip and do nothing else, so the order is cost
+       only.
+     - Check the collected bit: skip if already collected. The section's
+       collected/killed slot is looked up (Collected_FindSlot) at most ONCE PER
+       WALK: the first candidate that reaches this gate fills the walker's a4,
+       and every later one is a btst against it (lens row C4a-2, 2026-09-11).
+       Safe because nothing a walk reaches claims, evicts or moves a slot.
      - Add to unified Ring_Buffer via RingBuffer_Add
   2. ScanObjectsRight: same shape for 6-byte object entries
      - OEF_ANY_Y entries bypass the Y band test
@@ -3053,7 +3058,8 @@ Ring_Collected_Window: 9 slots × 34 bytes = 306 bytes
 
 Collected_ClaimSlot(section_id): claim empty slot, clear bitmask
 Collected_MarkRing(section_id, list_index): set bit in section's bitmask
-Collected_CheckRing(section_id, list_index): test bit (Z set = uncollected)
+Collected_FindSlot(section_id): slot pointer (Z set = no slot); the spawn gates
+    call it once per walk and btst the ring/killed bit against it
 Collected_UpdateCenter(center_id, grid_w): evict slots outside 3×3 grid range
 ```
 
