@@ -9,7 +9,10 @@ provenance test established):
     census. A stray index here means the art was regenerated from the WRONG donor --
     skdisasm's Vertical Spring.bin carries {5,E,F} on top of this set, which against
     CRAM line 0 (art/palettes/SonicAndTails.bin) are blue and orange rather than the
-    reds and greys this sprite is drawn in.
+    reds and greys this sprite is drawn in -- or WITHOUT the generator's INDEX_REMAP,
+    which moves the donor's coil grey off the character-specific slot 9 onto 8 (the
+    owner's ruling, SPRING-PAL-IDX9). The expected vocabulary is derived from the
+    generator's own INDEX_REMAP, not restated here.
   * regeneration (needs the donor + nemdec): run the generator into tmp and compare
     byte-for-byte against the committed file. Skips LOUDLY, naming the missing piece,
     when the donor tree or the decompressor is absent -- a skip is visible in the
@@ -17,6 +20,7 @@ provenance test established):
 
 NEVER write into the repo from here (tools/test_import_sk_collision.py:14 records why).
 """
+import importlib.util
 import os
 import subprocess
 import sys
@@ -42,9 +46,19 @@ TILE = 32
 SPRING_VERT_TILES = 12
 SPRING_HORIZ_TILES = 12
 SPRING_TILES = SPRING_VERT_TILES + SPRING_HORIZ_TILES
-# The donor's line-0 vocabulary: 0 transparent, 1 near-black outline, 6 white,
-# 7 light grey, 8 grey-blue, 9 grey, $C bright red, $D dark red.
-SPRING_INDICES = {0, 1, 6, 7, 8, 9, 0xC, 0xD}
+# The DONOR's line-0 vocabulary (a fact about sonic_hack's sheet): 0 transparent,
+# 1 near-black outline, 6 white, 7 light grey, 8 grey-blue, 9 grey, $C bright red,
+# $D dark red.
+DONOR_INDICES = {0, 1, 6, 7, 8, 9, 0xC, 0xD}
+
+# The generator's own remap, loaded from the generator (importing it runs no
+# generation — main() is guarded). The committed blob's vocabulary is the donor's
+# pushed through it, so changing the ruling in one place moves this expectation.
+_spec = importlib.util.spec_from_file_location("gen_spring", GEN)
+_gen = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_gen)
+INDEX_REMAP = _gen.INDEX_REMAP
+SPRING_INDICES = {INDEX_REMAP.get(i, i) for i in DONOR_INDICES}
 
 
 def _indices(blob: bytes) -> set:
@@ -66,7 +80,23 @@ def test_blob_uses_only_the_line_0_vocabulary():
     assert got <= SPRING_INDICES, (
         f"the spring blob carries pixel indices {sorted(got - SPRING_INDICES)} that are "
         f"not in CRAM line 0's spring vocabulary — regenerated from the wrong donor? "
-        f"skdisasm's sheet adds $5 (blue) and $E/$F (orange).")
+        f"skdisasm's sheet adds $5 (blue) and $E/$F (orange); or regenerated without "
+        f"gen_spring.py's INDEX_REMAP {INDEX_REMAP}.")
+
+
+def test_blob_draws_no_remapped_away_index():
+    """The owner's SPRING-PAL-IDX9 ruling, read from the ART: no pixel on an index the
+    generator moves away. Index 9 is character-specific on CRAM line 0 ($0444 as
+    Sonic/Tails, $0080 as Knuckles), so any pixel left there recolours on a swap."""
+    assert INDEX_REMAP, "gen_spring.INDEX_REMAP is empty — this test measures nothing"
+    blob = open(BLOB, "rb").read()
+    left = {src: sum((b >> 4) == src for b in blob) + sum((b & 0xF) == src for b in blob)
+            for src in INDEX_REMAP}
+    left = {src: n for src, n in left.items() if n}
+    assert not left, (
+        f"the committed spring blob still draws {left} pixel(s) on remapped-away "
+        f"index(es) (index: pixels) — gen_spring.py's INDEX_REMAP {INDEX_REMAP} was not "
+        f"applied. Regenerate with the generator; do not hand-edit the blob.")
 
 
 def test_no_tile_is_blank():

@@ -806,10 +806,12 @@ pub proc Spring_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
 // screen sit on DIFFERENT animation frames, so every frame must be live at once.
 //
 // THE PALETTE COSTS NOTHING, and that is why this donor was chosen over
-// skdisasm's. The blob's pixel indices are {0,1,6,7,8,9,C,D}; against CRAM line 0
+// skdisasm's. The blob's pixel indices are {0,1,6,7,8,C,D}; against CRAM line 0
 // (art/palettes/SonicAndTails.bin, already loaded for the player and the
 // backdrop) those are transparent / near-black outline / white / light grey /
-// grey-blue / grey / BRIGHT RED / dark red. The donor object agrees from the
+// grey-blue / BRIGHT RED / dark red. (The donor also draws its coil mid-tone
+// through 9, grey; gen_spring.py moves that onto 8 — see the line-0 guard
+// below for why.) The donor object agrees from the
 // other side: sonic_hack's Spring__UpData declares `vram_art(VRAM_VrtclSprng,0,0)`
 // — S2 draws its spring on the player line too. skdisasm's sheet adds $5 (blue)
 // and $E/$F (orange), which our line 0 would render wrong. Full provenance in
@@ -915,11 +917,14 @@ ensure(SPRING_ART_LEN == VRAM_SPRING_TILES * TILE_SIZE,
 // actually secured, so re-cutting the sprite onto a character-specific slot fails here
 // rather than shipping a spring that only looks right as Sonic.
 //
-// SLOT 9 IS EXEMPT AND STILL BROKEN — our line 0 carries $0444 there and Knuckles has no
-// $0444, so his leftover colour lands there by elimination. 184 coil pixels still recolour
-// under him. Closing it costs a colour from the spring's ramp or from Knuckles, i.e. a
-// LOOK decision that is the owner's: docs/DEFERRED_WORK.md "Spring index 9". The exemption
-// is a literal here so removing it is a one-token change once he rules.
+// NO SLOT IS EXEMPT. Slot 9 was, until 2026-09-11: our line 0 carries $0444 there and
+// Knuckles has no $0444, so his leftover colour lands there by elimination, and the palette
+// fix cannot close it. The spring's coil mid-tone drew through it (184 pixels across both
+// sheets) and recoloured under him. The owner ruled the SPRING gives that grey up
+// (docs/decisions.jsonl SPRING-PAL-IDX9, `drop-grey`) and picked the lighter neighbour:
+// gen_spring.py's INDEX_REMAP moves those pixels onto 8 ($0866, the same under every
+// character). So the guard below holds the art to EVERY slot the palettes disagree about,
+// 9 included, and a regeneration that lands on 9 again fails the build.
 //
 // The two palettes are comptime-only embeds — `const` without a `pub data`, so they emit
 // no bytes (knuckles_data.emp owns the shipped copies). Both helpers are SELF-CONTAINED:
@@ -928,7 +933,6 @@ ensure(SPRING_ART_LEN == VRAM_SPRING_TILES * TILE_SIZE,
 // -----------------------------------------------
 const _spring_pal_sonic = embed("art/palettes/SonicAndTails.bin")
 const _spring_pal_knux  = embed("art/palettes/knuckles.bin")
-const SPRING_LINE0_EXEMPT = 1 << 9      // the forced $0444/$0080 hole — owner's call
 
 comptime fn line0_mismatch_mask(a: Data, b: Data) -> int {
     comptime var m = 0
@@ -951,17 +955,12 @@ comptime fn art_pixels_in_mask(art: Data, mask: int) -> int {
     return n
 }
 
-// The mask of line-0 slots the two characters disagree about, MINUS the exemption. An
-// argument list cannot span lines, so this is a const rather than an inline expression.
-const SPRING_LINE0_BAD = line0_mismatch_mask(_spring_pal_sonic, _spring_pal_knux) & ($FFFF - SPRING_LINE0_EXEMPT)
+// The mask of line-0 slots the two characters disagree about — all of them, no exemption.
+// An argument list cannot span lines, so this is a const rather than an inline expression.
+const SPRING_LINE0_BAD = line0_mismatch_mask(_spring_pal_sonic, _spring_pal_knux)
 
 ensure(art_pixels_in_mask(_art_spring, SPRING_LINE0_BAD) == 0,
-       "Art_Spring draws {art_pixels_in_mask(_art_spring, SPRING_LINE0_BAD)} pixel(s) through a CRAM line-0 index the two character palettes DISAGREE about. Line 0 is the per-character line, so those pixels change colour when the player switches character — the 2026-09-09 red-spring bug. Fix the PALETTES (games/sonic4/data/characters_staging/gen_characters.py rules the index order, knuckles_data.emp counts the result), not this guard. DOES NOT COVER: index 9, exempted above and still broken by design; nor a third character's palette, which is not read here — knuckles_data.emp's mismatch count is the roster-wide statement")
-
-// The exemption's cost, pinned so it cannot drift while the caveat above stays written.
-// 184 coil-midtone pixels: what the owner is deciding about.
-ensure(art_pixels_in_mask(_art_spring, SPRING_LINE0_EXEMPT) == 184,
-       "the spring draws {art_pixels_in_mask(_art_spring, SPRING_LINE0_EXEMPT)} pixels through exempt index 9, not the 184 the caveat above and docs/DEFERRED_WORK.md 'Spring index 9' both quote. Re-cutting the sprite changed the size of the open look decision — re-state it before regenerating.")
+       "Art_Spring draws {art_pixels_in_mask(_art_spring, SPRING_LINE0_BAD)} pixel(s) through a CRAM line-0 index the two character palettes DISAGREE about. Line 0 is the per-character line, so those pixels change colour when the player switches character — the 2026-09-09 red-spring bug. If it is index 9, the art regressed: games/sonic4/data/spring_staging/gen_spring.py's INDEX_REMAP moves the donor's 9 onto 8 by the owner's ruling (SPRING-PAL-IDX9) — regenerate with it. Any other index: fix the PALETTES (games/sonic4/data/characters_staging/gen_characters.py rules the index order, knuckles_data.emp counts the result), not this guard. DOES NOT COVER: a third character's palette, which is not read here — knuckles_data.emp's mismatch count is the roster-wide statement")
 
 // -----------------------------------------------
 // Animation scripts.

@@ -132,7 +132,7 @@ S3K_UNMAPPABLE_INDEX = 5
 # WE LOST IT, and the spring paid: our Sonic line 0 is sonic_hack's index order
 # and our Knuckles line 0 was S3K's, so the two agreed at only 7 slots. The spring
 # art (games/sonic4/data/generated/spring/art_spring.bin, drawn on line 0 at
-# indices 0/1/6/7/8/9/12/13) rendered its coil outline BRIGHT RED and its plate
+# indices 0/1/6/7/8/12/13 — and 9 until 2026-09-11) rendered its coil outline BRIGHT RED and its plate
 # MAROON as Knuckles — user-reported 2026-09-09, "red spring's base is messed up".
 #
 # THE FIX: re-index Knuckles into OUR order with the same derived S3K->Aeon table
@@ -149,9 +149,10 @@ S3K_UNMAPPABLE_INDEX = 5
 # our line 0 carries $0444 there and Knuckles has no $0444, so his leftover colour
 # ($0080) lands there by elimination — the destination is FORCED, not chosen, since
 # the other three free slots are pinned by Sonic's own colours through the derived
-# table. The spring's 184 index-9 pixels (coil mid-tone) still recolour under him.
-# Closing it costs a colour from one side or the other, i.e. a look decision — see
-# docs/DEFERRED_WORK.md "Spring index 9".
+# table. The spring's 184 index-9 pixels (coil mid-tone) recoloured under him until
+# the owner ruled the spring gives that grey up (docs/decisions.jsonl SPRING-PAL-IDX9,
+# 2026-09-11): games/sonic4/data/spring_staging/gen_spring.py moves them onto 8.
+# Slot 9 itself stays character-specific; nothing shared draws through it now.
 def _knuckles_to_aeon():
     leftover = sorted(set(range(16)) - set(PALETTE_REMAP_EXPECTED.values()))
     if len(leftover) != 1:

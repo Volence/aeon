@@ -6,9 +6,10 @@ THE CLAIM UNDER TEST, and it is a runtime one. `Art_Spring` is drawn with palett
 (`vram_art(VRAM_SPRING)` in games/sonic4/objects/test_solid.emp), and CRAM line 0 is the
 PER-CHARACTER line: Player_RefreshPhysics copies the active CharacterDef.cd_palette into
 `Palette_Buffer` and sets `Palette_Dirty` bit 0, and the VBlank buffer ship carries it to
-CRAM. So the spring's eight indices — 0, 1, 6, 7, 8, 9, 12, 13 — render through whichever
+CRAM. So the spring's seven indices — 0, 1, 6, 7, 8, 12, 13 — render through whichever
 character's line is loaded. The 2026-09-09 bug was four of them disagreeing between
-Pal_SonicTails and Pal_Knuckles.
+Pal_SonicTails and Pal_Knuckles; the fourth, index 9, left the art on the owner's ruling
+(SPRING-PAL-IDX9: gen_spring.py moves it onto 8), so there is no exemption left.
 
 WHAT THIS READS: the VDP's own CRAM, out of a running headless build, once as Sonic and
 once as Knuckles, and it compares the two AT THE SPRING'S INDICES.
@@ -48,7 +49,7 @@ insta-shield are the other two — knuckles_data.emp enumerates them); and the t
 character, Tails, who shares Sonic's palette file by construction and so cannot differ.
 
 Usage:  python3 tools/spring_line0_gate.py [--rom s4.debug.bin] [--lst s4.debug.lst]
-Exit 0 = every non-exempt spring index resolves identically under both characters.
+Exit 0 = every spring index resolves identically under both characters.
 """
 import argparse
 import asyncio
@@ -67,13 +68,6 @@ from raster_cost_probe import parse_lst                     # noqa: E402
 PAL_SONIC = "art/palettes/SonicAndTails.bin"
 PAL_KNUX = "art/palettes/knuckles.bin"
 SPRING_ART = "games/sonic4/data/generated/spring/art_spring.bin"
-
-# The one index the palette fix could NOT close: our line 0 carries $0444 there and
-# Knuckles has no $0444, so his leftover colour lands there by elimination. 184 coil
-# pixels. Closing it is a LOOK decision — docs/DEFERRED_WORK.md "Spring index 9". This is
-# the ONLY hand-written index in the file, and it is a documented exemption rather than an
-# expectation, so it is reported and not counted as a failure.
-EXEMPT_INDEX = 9
 
 # CRAM entry 0 is the VDP's transparent/backdrop slot; the engine holds a colour there that
 # is not the palette file's entry 0, identically under both characters (see the header). No
@@ -228,8 +222,6 @@ def main():
             verdict = "VDP backdrop / transparent — not rendered, excluded"
         elif s == k:
             verdict = "SAME"
-        elif i == EXEMPT_INDEX:
-            verdict = "DIFFERS — KNOWN, EXEMPT (owner's look call, DEFERRED_WORK)"
         else:
             verdict = "DIFFERS — FAIL"
             bad.append(i)
@@ -239,9 +231,7 @@ def main():
     if bad:
         print(f"FAIL: {len(bad)} spring index(es) recolour on a character swap: {bad}")
         return 1
-    print(f"PASS: every spring index resolves identically under both characters, "
-          f"except the documented exemption at index {EXEMPT_INDEX} "
-          f"({used.get(EXEMPT_INDEX, 0)} px).")
+    print("PASS: every spring index resolves identically under both characters.")
     return 0
 
 
