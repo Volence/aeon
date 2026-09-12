@@ -98,7 +98,7 @@ ensure(ENTITY_LOADED_OBJ_OFFSET*8 == MAX_LIST_ENTRIES, "Loaded-mask half-slot do
 // their width is only ever the DIFFERENCE of two offsets, so nothing ties it to the
 // list size the index is bounded by.
 ensure(COLLECTED_MASK_BYTES * 8 == MAX_LIST_ENTRIES,
-       "the ring-collected and object-killed bitmasks are COLLECTED_MASK_BYTES = {COLLECTED_MASK_BYTES} bytes each (KILLED_BITMASK_OFFSET {KILLED_BITMASK_OFFSET} - COLLECTED_BITMASK_OFFSET {COLLECTED_BITMASK_OFFSET}), which is {COLLECTED_MASK_BYTES * 8} bits, but a section's ring or object list holds MAX_LIST_ENTRIES = {MAX_LIST_ENTRIES} entries. Derived: one bit per list entry, so each mask is MAX_LIST_ENTRIES / 8 = {MAX_LIST_ENTRIES / 8} bytes. Collected_MarkRing / Collected_CheckRing / Killed_MarkObject / Killed_CheckObject address byte (index >> 3) off the mask base with no bound in release, and the DEBUG `assert.w ..., lo, #MAX_LIST_ENTRIES` beside each one bounds the index by the list size, which is the number that is out of step here, so it cannot see this. A ring mask narrower than the list lets a collected ring set a bit inside the KILLED mask, and that object stays dead for the rest of the act; a killed mask narrower than the list runs off the end of the slot into the next slot's tag. Move KILLED_BITMASK_OFFSET (COLLECTED_MASK_BYTES and COLLECTED_SLOT_SIZE derive from it). WHAT THIS PIN DOES NOT COVER: the two hand-unrolled four-longword sites in this file (clear_slot_bitmasks and Collected_ParkSlot's emptiness test), which assume a 16-byte mask and carry their own pin at clear_slot_bitmasks, so satisfying this pin is not the whole edit; the loaded-mask half-slot (ENTITY_LOADED_OBJ_OFFSET), pinned on the line above; and tools/ojz_entity_gen.py's own MAX_LIST_ENTRIES copy, which tools/test_ojz_entity_list_cap.py compares with this constant in build.sh's pre-build pytest lane (not under FAST=1 or NO_LINT=1, which skip that lane), so a FAST or NO_LINT build that lowers MAX_LIST_ENTRIES without the generator's copy still lets the generator emit lists the engine cannot index")
+       "the ring-collected and object-killed bitmasks are COLLECTED_MASK_BYTES = {COLLECTED_MASK_BYTES} bytes each (KILLED_BITMASK_OFFSET {KILLED_BITMASK_OFFSET} - COLLECTED_BITMASK_OFFSET {COLLECTED_BITMASK_OFFSET}), which is {COLLECTED_MASK_BYTES * 8} bits, but a section's ring or object list holds MAX_LIST_ENTRIES = {MAX_LIST_ENTRIES} entries. Derived: one bit per list entry, so each mask is MAX_LIST_ENTRIES / 8 = {MAX_LIST_ENTRIES / 8} bytes. Collected_MarkRing / Killed_MarkObject and the collected and killed gates in EntityWindow_TrySpawnRing / EntityWindow_TrySpawnObject address byte (index >> 3) off the mask base with no bound in release, and the DEBUG `assert.w ..., lo, #MAX_LIST_ENTRIES` beside each one bounds the index by the list size, which is the number that is out of step here, so it cannot see this. A ring mask narrower than the list lets a collected ring set a bit inside the KILLED mask, and that object stays dead for the rest of the act; a killed mask narrower than the list runs off the end of the slot into the next slot's tag. Move KILLED_BITMASK_OFFSET (COLLECTED_MASK_BYTES and COLLECTED_SLOT_SIZE derive from it). WHAT THIS PIN DOES NOT COVER: the two hand-unrolled four-longword sites in this file (clear_slot_bitmasks and Collected_ParkSlot's emptiness test), which assume a 16-byte mask and carry their own pin at clear_slot_bitmasks, so satisfying this pin is not the whole edit; the loaded-mask half-slot (ENTITY_LOADED_OBJ_OFFSET), pinned on the line above; and tools/ojz_entity_gen.py's own MAX_LIST_ENTRIES copy, which tools/test_ojz_entity_list_cap.py compares with this constant in build.sh's pre-build pytest lane (not under FAST=1 or NO_LINT=1, which skip that lane), so a FAST or NO_LINT build that lowers MAX_LIST_ENTRIES without the generator's copy still lets the generator emit lists the engine cannot index")
 
 // Section-size power-of-two invariant (SECTION_SIZE_SHIFT = log2 SECTION_SIZE).
 ensure(SECTION_SIZE == 1 << SECTION_SIZE_SHIFT, "SECTION_SIZE_SHIFT out of sync with SECTION_SIZE")
@@ -182,30 +182,12 @@ proc Collected_FindSlot () clobbers(d1) out(a0) {
         rts
 }
 
-// -----------------------------------------------
-// Collected_CheckRing — test if ring was previously collected
-//
-// In:  d0.b = section_id
-//      d1.w = list_index (0-based)
-// Out: Z clear = collected (skip), Z set = uncollected (spawn)
-// Clobbers: d2, a0
-// -----------------------------------------------
-proc Collected_CheckRing () clobbers(d2, a0) preserves(d1) {
-        movem.l d1, -(sp)                       // Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
-        jbsr    Collected_FindSlot
-        movem.l (sp)+, d1
-        beq     .uncollected
-
-        assert.w d1, lo, #MAX_LIST_ENTRIES
-        move.w  d1, d2
-        lsr.w   #3, d2
-        btst    d1, COLLECTED_BITMASK_OFFSET(a0, d2.w)
-        rts
-
-    .uncollected:
-        moveq   #0, d2                  // Z set
-        rts
-}
+// (No Collected_CheckRing / Killed_CheckObject. Those wrappers ran the 9-slot
+// Collected_FindSlot scan for EVERY candidate a spawn walk offered, though the
+// answer is fixed for the whole walk. Since 2026-09-11 (lens row C4a-2) the
+// spawn gates in EntityWindow_TrySpawnRing / EntityWindow_TrySpawnObject look
+// the slot up once per walk and btst the bit against it; TrySpawnRing's header
+// states the contract and why the cached slot cannot go stale.)
 
 // -----------------------------------------------
 // Collected_MarkRing — mark ring as collected in bitmask
@@ -226,31 +208,6 @@ pub proc Collected_MarkRing () clobbers(d0-d1, a0) {
         lsr.w   #3, d0
         bset    d1, COLLECTED_BITMASK_OFFSET(a0, d0.w)
     .done:
-        rts
-}
-
-// -----------------------------------------------
-// Killed_CheckObject — test if object was previously killed
-//
-// In:  d0.b = section_id
-//      d1.w = list_index (0-based)
-// Out: Z clear = killed (skip), Z set = alive (spawn)
-// Clobbers: d2, a0
-// -----------------------------------------------
-proc Killed_CheckObject () clobbers(d2, a0) preserves(d1) {
-        movem.l d1, -(sp)                       // Collected_FindSlot clobbers d1 — saved to honor preserves(d1); d0 it preserves
-        jbsr    Collected_FindSlot
-        movem.l (sp)+, d1
-        beq     .alive
-
-        assert.w d1, lo, #MAX_LIST_ENTRIES
-        move.w  d1, d2
-        lsr.w   #3, d2
-        btst    d1, KILLED_BITMASK_OFFSET(a0, d2.w)
-        rts
-
-    .alive:
-        moveq   #0, d2
         rts
 }
 
@@ -961,7 +918,28 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 // In:  a0 = ROM ring entry (dc.w local X, dc.w local Y)
 //      a1 = EntityScanState pointer
 //      d4.w = list index
-// Out: none
+//      a4 = this WALK's collected/killed slot for a1's section, or 0 = not looked
+//           up yet (or: the section owns no slot). The walker zeroes a4 before its
+//           first call; this proc fills it at the first candidate that reaches the
+//           collected gate and hands it back, so Collected_FindSlot's 9-slot tag
+//           scan runs at most once per walk instead of once per candidate (lens
+//           row C4a-2, 2026-09-11). TrySpawnObject shares the contract and uses
+//           the killed half of the same slot.
+//      WHY THE CACHE CANNOT GO STALE MID-WALK, enumerated by writer: the slot
+//           table (Ring_Collected_Window) is written by Collected_Init,
+//           Collected_ClaimSlot (and its Collected_UnparkSlot), Collected_UpdateCenter
+//           and clear_slot_bitmasks inside them, and by the bit setters
+//           Collected_MarkRing / Killed_MarkObject. The first group runs only from
+//           EntityWindow_Init, EntityWindow_BuildEntries and EntityWindow_Slide,
+//           each of which finishes before any walk it starts; nothing a walk calls
+//           (EntityLoaded_*, Collected_FindSlot, RingBuffer_Add, Load_Object,
+//           AllocDynamic) reaches any of them. The bit setters change bits inside a
+//           slot, never which slot holds a section. And a1, so the section, is
+//           fixed for the whole walk.
+// Out: a4 = the slot cache, as above. Declared inout, not out: a call that does
+//      not fill it hands the caller's value straight back, which is a meaningful
+//      exit value (sigil's inout facet: pass-through is contract-valid), whereas
+//      out() demands a production on every return path.
 // Clobbers: d0-d2, a0
 //   d3/d4 are saved internally and contractually preserved; d6/d7 and a1-a6 are
 //   untouched. a0 is restored by the same internal movem but stays DECLARED
@@ -974,7 +952,7 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 //   d5 transitively through this call — a `.w`-preserving callee is a full clobber
 //   to them — so they keep `clobbers(d5)`.
 // -----------------------------------------------
-proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
+proc EntityWindow_TrySpawnRing (a4: u32) clobbers(d0-d2, a0) inout(a4: u32) preserves(d3, d4, d5.w) {
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
         add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
@@ -993,15 +971,15 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
         // FIRST because it is the cheap gate AND the one that hits on the hot
         // path: EntityWindow_RescanY re-offers every already-spawned entity up
         // to the X ratchet, and each of those exits here. Both gates are PURE
-        // predicates (Collected_CheckRing/Collected_FindSlot/EntityLoaded_Test
-        // read only; the only writes are the balanced d1 save/restore inside
-        // Collected_CheckRing) and both branch to the same do-nothing .gated,
-        // so the order is a pure cost choice, not a semantic one. Measured off
-        // the shipped release bytes: this gate is 138c end to end vs 222-494c
-        // for the collected scan (9-slot linear tag scan, cost set by which
-        // window slot owns the section). The one case that pays for this is a
-        // candidate that IS collected and NOT loaded — it now runs this gate
-        // first, +138c. Loaded-hits vastly outnumber those on the rescan path.
+        // predicates (Collected_FindSlot/EntityLoaded_Test read only; the
+        // collected gate's one write is the walk's slot cache a4, an idempotent
+        // fill of an answer fixed for the whole walk) and both branch to the
+        // same do-nothing .gated, so the order is a pure cost choice, not a
+        // semantic one. Measured off the release bytes of 2026-09-06 (LS-6):
+        // this gate is 138c end to end vs 222-494c for the collected scan it was
+        // then ordered ahead of. Since lens row C4a-2 that scan runs at most once
+        // per walk and every later candidate reaching the collected gate pays one
+        // btst, so a collected-but-not-loaded candidate no longer pays the scan.
         moveq   #0, d0
         move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
@@ -1010,13 +988,22 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
         jbsr    EntityLoaded_Test       // clobbers d0, d2, a0
         bne     .gated                  // loaded → skip (unsized: .w in DEBUG, .s in plain)
 
-        // collected on a previous visit?
+        // collected on a previous visit? The slot is looked up once per walk
+        // (a4, see the header); after that each candidate is one btst.
+        move.l  a4, d0                  // Z set = not looked up yet this walk
+        bne     .have_slot
         move.b  EntityScanState.ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  // list_index
-        jbsr    Collected_CheckRing     // clobbers d2, a0
-        bne     .gated                  // Z clear = collected (unsized, see above)
+        jbsr    Collected_FindSlot      // a0 = slot, Z set = the section owns no slot; clobbers d1
+        beq     .spawn                  // no slot: nothing here was ever collected (a4 stays 0)
+        movea.l a0, a4                  // keep it for the rest of this walk
+    .have_slot:
+        assert.w d4, lo, #MAX_LIST_ENTRIES
+        move.w  d4, d1
+        lsr.w   #3, d1                  // byte offset; btst Dn,mem uses bit# mod 8
+        btst    d4, COLLECTED_BITMASK_OFFSET(a4, d1.w)
+        bne     .gated                  // collected (unsized, see above)
 
+    .spawn:
         // spawn ring into buffer
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
         move.w  (a0), d0
@@ -1082,15 +1069,17 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4, d5.w) {
 // In:  a1 = EntityScanState pointer
 //      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 // Out: none
-// Clobbers: d0-d5, a0 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
+// Clobbers: d0-d5, a0, a4 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
 //   preserves only d5's low word (`preserves(d5.w)`), and a word-preserving callee
-//   is a full clobber to its callers, so the whole register is charged here
+//   is a full clobber to its callers, so the whole register is charged here; a4 is
+//   this walk's collected-slot cache (zeroed here, filled by TrySpawnRing)
 // -----------------------------------------------
-proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0) {
+proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0, a4) {
         move.w  EntityScanState.ess_ring_right_idx(a1), d4
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .at_terminator          // null list: no rings ever enter (ratchet unchanged)
         movea.l d0, a0
+        suba.l  a4, a4                  // this walk's slot cache: not looked up yet
         move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to the current index. The shift is log2(RING_LIST_ENTRY_SIZE)
@@ -1143,11 +1132,12 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0) {
 //
 // In:  a1 = EntityScanState pointer (fully initialized)
 // Out: ring_right_idx set
-// Clobbers: d0-d5, a0, a2 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
+// Clobbers: d0-d5, a0, a2, a4 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
 //   preserves only d5's low word (`preserves(d5.w)`), and a word-preserving callee
-//   is a full clobber to its callers, so the whole register is charged here
+//   is a full clobber to its callers, so the whole register is charged here; a4 is
+//   this walk's collected-slot cache (zeroed before pass 2, filled by TrySpawnRing)
 // -----------------------------------------------
-proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
+proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2, a4) {
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .pdone
         movea.l d0, a2
@@ -1178,6 +1168,7 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
         // Pass 2: offer every listed ring (band/collected/loaded gates inside)
         movea.l a2, a0
         moveq   #0, d4
+        suba.l  a4, a4                  // this walk's slot cache: not looked up yet
     .ploop:
         move.l  (a0), d0                // terminator: dc.l 0
         beq     .pdone
@@ -1207,7 +1198,11 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
 // In:  a0 = ROM object entry
 //      a1 = EntityScanState pointer
 //      d4.w = list index
-// Out: none
+//      a4 = this walk's collected/killed slot cache, TrySpawnRing's contract
+//           exactly (the killed half of the same slot). a4 survives Load_Object
+//           (clobbers d0-d1/d3, a2-a3; out a1) and AllocDynamic (d0/a1) by their
+//           declared contracts, which the contract closure checks.
+// Out: a4 = the slot cache (inout, TrySpawnRing's contract)
 // Clobbers: d0-d2, a2 (d3-d7/a0-a1/a3 preserved; d3/d5/a0-a1/a3 saved internally)
 //
 // The attribute matches that prose as of 2026-09-07. It used to read
@@ -1217,7 +1212,7 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
 // promised they survive, and over-declaration is the direction the contract
 // closure does not check, so the two disagreed silently.
 // -----------------------------------------------
-proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) preserves(d3, d5, a0-a1, a3) {
+proc EntityWindow_TrySpawnObject (a4: u32) clobbers(d0-d2, a2) inout(a4: u32) preserves(d3, d5, a0-a1, a3) {
         // ANY_Y (placement bit 15) skips the Y band check
         move.w  4(a0), d2               // placement word
         bmi     .y_ok
@@ -1240,10 +1235,11 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) preserves(d3, d5, a0-a1,
         // already spawned? (loaded bit — set on spawn, cleared on despawn/kill)
         // FIRST for the same reason as TrySpawnRing: cheap gate, and the one
         // RescanY hits on every already-spawned entity up to the X ratchet.
-        // Killed_CheckObject and EntityLoaded_Test are both pure predicates
-        // branching to the same do-nothing .gated, so this is a cost choice
-        // only. d2 held the placement word on entry here; Killed_CheckObject
-        // clobbered it before too, and the spawn path re-reads it from 4(a0).
+        // The killed gate below and EntityLoaded_Test are both pure predicates
+        // (the killed gate's one write is the walk's slot cache a4) branching to
+        // the same do-nothing .gated, so this is a cost choice only. d2 held the
+        // placement word on entry here; the gates clobber it, and the spawn path
+        // re-reads it from 4(a0).
         moveq   #0, d0
         move.b  EntityScanState.ess_entry_idx(a1), d0
         moveq   #0, d1
@@ -1252,13 +1248,22 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) preserves(d3, d5, a0-a1,
         jbsr    EntityLoaded_Test       // clobbers d0, d2, a0
         bne     .gated                  // loaded → skip
 
-        // killed on a previous visit?
+        // killed on a previous visit? The same once-per-walk slot as
+        // TrySpawnRing's collected gate (a4, see the header).
+        move.l  a4, d0                  // Z set = not looked up yet this walk
+        bne     .have_slot
         move.b  EntityScanState.ess_section_id(a1), d0
-        moveq   #0, d1
-        move.w  d4, d1                  // list_index
-        jbsr    Killed_CheckObject      // clobbers d2, a0
-        bne     .gated                  // Z clear = killed
+        jbsr    Collected_FindSlot      // a0 = slot, Z set = the section owns no slot; clobbers d1
+        beq     .spawn                  // no slot: nothing here was ever killed (a4 stays 0)
+        movea.l a0, a4                  // keep it for the rest of this walk
+    .have_slot:
+        assert.w d4, lo, #MAX_LIST_ENTRIES
+        move.w  d4, d1
+        lsr.w   #3, d1                  // byte offset; btst Dn,mem uses bit# mod 8
+        btst    d4, KILLED_BITMASK_OFFSET(a4, d1.w)
+        bne     .gated                  // killed
 
+    .spawn:
         // spawn (d5 stashes section_id — Load_Object preserves d4-d7)
         movea.l 8(sp), a0               // ROM entry (a0 slot of movem frame)
         moveq   #0, d5
@@ -1318,13 +1323,15 @@ proc EntityWindow_TrySpawnObject () clobbers(d0-d2, a2) preserves(d3, d5, a0-a1,
 // In:  a1 = EntityScanState pointer
 //      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 // Out: none
-// Clobbers: d0-d4, a0-a3
+// Clobbers: d0-d4, a0-a4 (a4 = this walk's collected/killed slot cache, zeroed
+//   here and filled by TrySpawnObject)
 // -----------------------------------------------
-proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0-a3) {
+proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0-a4) {
         move.w  EntityScanState.ess_obj_right_idx(a1), d4
         move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .obj_at_terminator      // null list: no objects ever enter (ratchet unchanged)
         movea.l d0, a0
+        suba.l  a4, a4                  // this walk's slot cache: not looked up yet
         move.w  EntityScanState.ess_origin_x(a1), d3
 
         // Advance a0 to current index: d4 × 6 via ×2, ×3, ×6
@@ -1372,9 +1379,9 @@ proc EntityWindow_ScanObjectsRight () clobbers(d0-d4, a0-a3) {
 //
 // In:  none
 // Out: none
-// Clobbers: d0-d6, a0-a3
+// Clobbers: d0-d6, a0-a4 (a4 transitively: each walker's slot cache)
 // -----------------------------------------------
-proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
+proc EntityWindow_RescanY () clobbers(d0-d6, a0-a4) {
         move.b  Entity_Window_Active, d5
         beq     .done
         lea     Entity_Scan_State, a3
@@ -1405,17 +1412,19 @@ proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
 //
 // In:  a1 = EntityScanState pointer
 // Out: none
-// Clobbers: d0-d5, a0 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
+// Clobbers: d0-d5, a0, a4 — d5 transitively, via TrySpawnRing's DEBUG no-dup scan — that callee
 //   preserves only d5's low word (`preserves(d5.w)`), and a word-preserving callee
-//   is a full clobber to its callers, so the whole register is charged here
+//   is a full clobber to its callers, so the whole register is charged here; a4 is
+//   this walk's collected-slot cache (zeroed here, filled by TrySpawnRing)
 // -----------------------------------------------
-proc EntityWindow_RescanRings () clobbers(d0-d5, a0) {
+proc EntityWindow_RescanRings () clobbers(d0-d5, a0, a4) {
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .done
         movea.l d0, a0
         move.w  EntityScanState.ess_ring_right_idx(a1), d3      // X ratchet bound
         beq     .done
         moveq   #0, d4
+        suba.l  a4, a4                  // this walk's slot cache: not looked up yet
     .loop:
         move.l  (a0), d0                // terminator: dc.l 0
         beq     .done
@@ -1433,15 +1442,17 @@ proc EntityWindow_RescanRings () clobbers(d0-d5, a0) {
 //
 // In:  a1 = EntityScanState pointer
 // Out: none
-// Clobbers: d0-d4, a0-a3
+// Clobbers: d0-d4, a0-a4 (a4 = this walk's collected/killed slot cache, zeroed
+//   here and filled by TrySpawnObject)
 // -----------------------------------------------
-proc EntityWindow_RescanObjects () clobbers(d0-d4, a0-a3) {
+proc EntityWindow_RescanObjects () clobbers(d0-d4, a0-a4) {
         move.l  EntityScanState.ess_rom_obj_ptr(a1), d0
         beq     .done
         movea.l d0, a0
         move.w  EntityScanState.ess_obj_right_idx(a1), d3       // X ratchet bound
         beq     .done
         moveq   #0, d4
+        suba.l  a4, a4                  // this walk's slot cache: not looked up yet
     .loop:
         tst.w   (a0)                    // defensive: -1 sentinel below the ratchet
         bmi     .done

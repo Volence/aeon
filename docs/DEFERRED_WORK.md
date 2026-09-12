@@ -7808,6 +7808,16 @@ is the precedent if budgeting is needed.
 >   **TAG for a foreground controller run:** profile `EntityWindow_RescanY` across a coarse-row
 >   crossing on OJZ act 1, before and after `parcel/ls6-spawn-gate-order`, and replace the
 >   derivations above with measurements.
+>
+> **Lens row C4a-2 (2026-09-11, `parcel/c4a2-findslot-hoist`) cut the other gate, and the
+> burst is STILL unbudgeted.** The collected/killed gate no longer runs `Collected_FindSlot`
+> per candidate: each walk looks the slot up once, at its first not-loaded in-band candidate,
+> and every later such candidate pays one `btst` (derived ~44c + the `bne`, against
+> ~196c + 34c per window-slot position before). `Collected_CheckRing` and
+> `Killed_CheckObject` are deleted, so the two symbol addresses cited above are history.
+> What this does NOT change: the number of candidates a coarse-row crossing offers in one
+> frame, which is this entry's subject. Derivation and the static byte picture:
+> `docs/superpowers/notes/` (the entity-window C4a parcel note of 2026-09-11/12).
 
 ### Entity despawner micro-opts — **dead-field half DONE, but the refund is SPENT (corrected 2026-08-05)**
 > **⚠ THE PROMISE IN THIS ENTRY IS NO LONGER DELIVERABLE — the struct will NOT shrink.**
