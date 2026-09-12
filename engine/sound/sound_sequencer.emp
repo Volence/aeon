@@ -123,10 +123,34 @@ const SND_REG_LR_AMS_FMS   = $B4
 // The MEV_EXT prefix opcode, a literal mirror (authority: sound_constants.emp,
 // whose ensures pin MEV_EXT == $FA inside the $E0-$FF coordination block, so an
 // authority move fails THERE, loudly). Those ensures were added 2026-09-12 (gap lens
-// sweep A2-6); before that this comment claimed a pin that did not exist. They do
-// not see THIS literal: editing the mirror alone is still uncaught. Sub-op 0 = COMM
-// (Seq_Op_Ext tests it with `or a`).
+// sweep A2-6); before that this comment claimed a pin that did not exist. Sub-op 0 =
+// COMM (Seq_Op_Ext tests it with `or a`).
 const MEV_EXT              = $FA
+// A2-6 FOLLOW-UP (2026-09-12): the authority's ensures do not see THIS literal, so
+// until now an edit of the mirror ALONE was uncaught. These two are that pin.
+//
+// The RANGE clause is DERIVED, not a second copy of the value: MEV_VOL is on seam-1's
+// injected const list (the `.coord` ladder in Sequencer_NextOpcode spells it —
+// `cp MEV_VOL` / `jr nc, .coord`, then `sub MEV_VOL` for the table index), and the
+// `cp MEV_EXT` / `jp z, Seq_Op_Ext` intercept sits INSIDE `.coord`. A mirror below
+// MEV_VOL never reaches that compare at all: the byte takes the note/rest/set-dur arm
+// instead and the intercept becomes dead code, silently. The VALUE clause is the
+// literal pin — it is the only form available here, because the authority's MEV_EXT
+// is NOT on the seam-1 injected list (the list is fixed) and an `extern(...)` respelling
+// in a resident module builds green even for a symbol that exists nowhere
+// (tools/test_ym_floor_single_authority.py's measurement, 2026-09-11).
+//
+// WHAT THESE DO NOT COVER, by construction: a CONSISTENT move of the authority and its
+// own A2-6 value ensure to some other byte would leave this mirror stale at $FA and
+// neither ensure would fire — a value pin cannot see another file. That divergence is
+// held by tools/test_mev_ext_single_authority.py in build.sh's pre-build pytest lane,
+// which is the only half of this guard the two DEMO shapes ever evaluate: demo sets
+// SOUND_DRIVER_ENABLED=0 (games/demo/build.conf), so build.sh never runs emit_sound_blob
+// and this module is not elaborated in either demo shape.
+ensure(MEV_EXT >= MEV_VOL,
+       "sound_sequencer.emp's MEV_EXT mirror ({MEV_EXT}) is below MEV_VOL ({MEV_VOL}) — the `cp MEV_EXT` intercept lives inside the .coord arm, which only $E0-$FF bytes reach, so this opcode would never be intercepted")
+ensure(MEV_EXT == $FA,
+       "sound_sequencer.emp's module-local MEV_EXT mirror ({MEV_EXT}) was edited off $FA — the authority is sound_constants.emp's pub const MEV_EXT, which is pinned to $FA there; change BOTH or the Seq_Op_Ext intercept and the packed streams disagree about the extension prefix")
 
 use engine.sound_sfx.{Sfx_Frame}
 use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
