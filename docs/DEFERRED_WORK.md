@@ -30668,21 +30668,40 @@ same premise with an even row count; the message says so.
 on OJZ act 1, section ids unchanged (C4a-4); across a slide into a ring-bearing section and a coarse-row crossing, the same
 rings spawn and collected rings stay collected, with `PopulateSectionRings`/`RescanY` cycle counts before and after (C4a-2). **Status 2026-09-12 (seventh session, `docs/superpowers/notes/2026-09-12-runtime-witnesses-s7.md`):** C4a-4 WITNESSED (every tracked entry's id equals the flat id derived from its own origin, after horizontal and vertical slides, grid rows 0-2). C4a-2 SPAWN HALF witnessed (the same seven section-0 rings after a slide away and back; a retained-slot run, because that trip reached Camera_X 3232 and section 0 is parked only by the slide at 4608); ~~its collected half and the cycle counts NOT, because the boot scene (the OJZ scroll test) has no player physics~~. C1b-3's premise witnessed (289 `Cache_Origin_Row` writes, 0 odd). C4a-3 not run. **CORRECTED 2026-09-12: the boot scene HAS player physics.** The debug build boots in the fly cheat, and one B press hands `Player_1` to the real state machine (`docs/superpowers/notes/2026-09-12-physics-scene-survey.md`, headline). **Update 2026-09-12, ROM crc `9ce1c2ff`:** C4a-2's collected half WITNESSED (`docs/superpowers/notes/2026-09-12-object-witnesses.md`, `tools/lens_residue_object_witness.py`): after a collect, the 1→2 slide (measured at Camera_X 4616) parks section 0 with ring mask `01 00…`; back home, section 0 holds indices [1..6], its slot mask is `01 00…` and the park entry is freed (control, no collect: the park never holds section 0, home [0..6]). C4a-3 at a full buffer WITNESSED (same note and tool): keep-all **15224** cycles, remove-all **65400**, 0 interrupts, both equal to the hand-derived model. C1b-3 WITNESSED WITH PHYSICS (`docs/superpowers/notes/2026-09-12-raster-collision-witnesses.md`, `tools/lens_residue_raster_witness.py`): at `Cache_Origin_Row` 34 the player rests at y 573 = committed floor 592 − 19, and 12/12 `Collision_GetType` returns match the committed cells, 6 of them discriminating; the control, at a warp-re-seeded origin 0, rests at 573 with 12/12. Limit: the old form `floor(L/2) + O/2` equals the shipped `floor((L+O)/2)` at every even origin, so this cannot tell them apart; it shows the shipped lookup is right. **Still OWED:** C4a-3's before/after on the ROM built from the parent of merge `f64f26b3`, and C4a-2's `PopulateSectionRings`/`RescanY` before/after cycle counts (parent of `62fb300f`).
 
-**Gap lens sweep 2026-09-12 (packet `docs/superpowers/notes/2026-09-12-aeon-gap-lens-sweep.md`, review pin aeon `9fe9ee91`), booked, NOT STARTED.**
+**Gap lens sweep 2026-09-12 (packet `docs/superpowers/notes/2026-09-12-aeon-gap-lens-sweep.md`, review pin aeon `9fe9ee91`). A2 WORKED 2026-09-12 (status below); T1 as recorded below.**
 The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`docs/superpowers/notes/2026-09-06-aeon-lens-sweep.md`) had already swept `engine/**/*.emp` and `games/**/*.emp`, sound and `engine/system/` included, and `docs/superpowers/notes/2026-09-06-aeon-tools-lens-sweep.md` gave `tools/` its first review. The row came from a 2026-08-13 coverage map that predates both. This sweep chartered only the two holes those packets name: the Z80 comment surface (seat A2) and the OJZ level bakers (seat T1). It blesses nothing else; the packet lists what is still UNEXAMINED.
-**A2: OPEN, not started, the next session's comment parcel.** There are six load-bearing wrong comments, each re-read by the controller at the pin:
-- A2-1: `Snd_LoadSong`, "preserves de" across `Sfx_StopAll`.
-- A2-2: the driver's import header, "Sequencer_Frame preserving iy".
-- A2-3: `sound_sfx.emp`, "opening FM6 to SFX is a one-byte table edit".
-- A2-5: `sound_constants.emp`, "PSG writes never touch `de`".
-- A2-6: `sound_sequencer.emp`, `MEV_EXT` "pinned" by a guard that does not exist.
-- A2-9: `Snd_LoadSong`'s header, "the loader does not stop the DAC". RUNTIME-TAG.
+**A2: WORKED 2026-09-12 on branch `fix/a2-z80-comments-0912` (commits `975274eb` comments + the A2-6 guard, `cb938131` the A2-7 guards + ledger, then this doc commit). Zero ROM bytes: the landing log's four md5s against the untouched-tree control are in the merge evidence.** Every finding was re-derived from the code before its comment was touched. None was REFUTED. None MOVED in substance: the line numbers had drifted, but every symbol handle still led to the claim. Ledger rows: `docs/lens-findings.jsonl`, ids `GAP12-A2-*` (the bare `A2-n` ids there belong to the 2026-09-06 sweep).
+- A2-1 FIXED: `Snd_LoadSong`'s `Sfx_StopAll` site now says the callee clobbers de (it returns 68), and why that is harmless at this one site.
+- A2-2 FIXED: the driver's import header now says `Sequencer_Frame` clobbers iy and nothing in the driver holds iy across it.
+- A2-3 FIXED: both FM6 notes in `sound_sfx.emp` now say opening FM6 needs at least an eighth SfxChannel, both route maps, the transcoder's `_RESERVED_ROUTES` and an answer for FM6/DAC (that list is not claimed complete).
+- A2-4 FIXED: `Sound_SetTempo`, and the driver's `Snd_TempoCommand`, say 0 is the slot's idle value and cannot request full speed. There are no callers today.
+- A2-5 FIXED: `sound_constants.emp`'s PSG-port note names the four PSG procs that declare de clobbered.
+- A2-6 FIXED, as a zero-byte GUARD in the authority. `sound_constants.emp` now pins `MEV_EXT`: its range is MEV_VOL..MEV_END, its value is $FA, and a collision wall covers all 27 other opcodes. Red-first in all four shapes, each ensure firing with its own message: `$DF` fired the range and value pins, `$F9` fired the collision and value pins. Restored from `975274eb`. Limit: the sequencer's literal mirror itself is still unchecked (BOOKED below).
+- A2-7 FIXED, and wider than booked: there were six unguarded direct pairs, not three. `SndDrv_Init`'s $22/$2B/$2A write through (hl)/(de) and never spell the port symbol, so the sweep's list missed them. All six are now guarded. Red-first raised the floor to 28 on exactly those six: all six messages fired in sonic4 plain and DEBUG; demo (sound off) does not evaluate them, and built green with the mutation. Restored from `cb938131`. The ledger now lists all 19 guarded sites, plus the two cross-proc DAC-park pairs no span can see.
+- A2-8 FIXED: `Snd_StartSample` names its four call contexts, and `sound_api.emp`'s PlayMusic note no longer says "VBlank ISR, DAC paused".
+- A2-9 FIXED, comment only. `Snd_LoadSong`'s header now states what the body does: $2B=$00 and `SND_STAT_DAC_ACTIVE` cleared unconditionally; the streaming loop runs on to the sample's own `.stop`; that `.stop` reads the new song's FM6 fields. The audible consequence stays RUNTIME-TAG, unmeasured.
+- A2-10 FIXED: the FM scratch note names the mailbox unpause path and gives the real reason the static scratch is safe.
+- A2-11 FIXED, comment only: the status-reader note says which bytes are refreshed every frame, and that `SND_STAT_FADE_BUSY` is not cleared on StopMusic. Whether a caller can see a stale 1 is RUNTIME-TAG.
+- A2-12: the comment half is FIXED (the third alias is named, along with PSGNOISE's B5 carve-out). The behavioural half is BOOKED below.
+- A2-13, A2-14, A2-16 FIXED.
+- A2-15 FIXED, confirmed from the listing: `Z80_SOUND_SIZE` is $1820 in `s4.lst` and $18A2 in `s4.debug.lst`, a 130 B difference. The sequencer has 17 DEBUG blocks, and the driver's nine differing operands are each +$82.
+- A2-17 PARTLY FIXED, not claimed complete:
+  - `.drain_pad`: 52 T and 9 B, read from both blobs.
+  - Dead names: `Fm_ReparkDac`, `engine.inc` (in sound_debug.emp), `Snd_TimerA_Program`, `YM_DATA_TO_ADDR_MIN_T`.
+  - Driver counts: imported symbols 4 -> 7, clear-sites 6 -> 8, operand sites 5 -> 9; `Snd_ParkDac`'s "nine" is now scoped to the driver.
+  - The psg header's claim that `Psg_EmitDivisor` loads de.
+  - The ledger's "figure below", which is above.
 
-Wrong but inert (the seat's, not re-verified): A2-4, A2-7, A2-8, A2-10 to A2-16, and the A2-17 stale-count tail. The packet's triage:
-- A byte-neutral comment parcel: A2-1, 2, 3, 5, 8, 10, 12's comment half, 13, 14, 15, 16, the A2-17 tail, and A2-4's doc line.
-- A zero-byte guard with red-first proof for A2-6. A2-7's three unguarded pairs could join the ledger's guard the same way.
-- Runtime first: A2-9, A2-11 and A2-17's poke-storm item.
-- A sigil question: the `carry:` label polarity.
+**A2 BOOKED, not done in that parcel:**
+- RUNTIME-TAGs for the controller:
+  - A2-9: capture the YM writes across a mid-drum `Sound_PlayMusic`.
+  - A2-11: `Sound_IsFading` after a mid-fade `Sound_StopMusic`.
+  - A2-17's `section.emp` poke storm: the seat estimates ~50 ms against a ~10.9 ms ring lead.
+- A2-12's behavioural half: `sfx_transcode.py` does not refuse `MEV_MACRO` ($F9) on an SFX, so the +59 `sc_macro_active` / `sx_patch_base` alias rests on the transcoder never emitting it. Neither the refusal nor a layout pin for +59 exists.
+- The sequencer's `const MEV_EXT = $FA` mirror is not itself checked. The A2-6 pin catches a move of the authority, not an edit of the mirror.
+- `sound_fm.emp` ledger, blocker 2 ("OP COVERAGE") may be stale. Sigil's source at `fbe380b9` prices call/ret/push/pop/bit/add a,n; the binary `6884bfba` was not re-probed. Sigil's to confirm.
+- `engine/debug/error_handler.emp:195` still names the deleted `engine.inc`. It is outside the A2 corpus.
+- Unchanged from the packet: F3 (the 548 B `SfxTable` and the 96 B of duplicate patch banks, both byte-changing), the `carry:` label polarity (sigil's to answer), and `games/sonic4/data/sound/**` (unexamined).
 
 The Z80 standing findings from A2's Step 0 are updated in place at their own rows: the F3 and F4 items under "Sound Engine Deep Audit (2026-06-21)", and the "once the gates are removed" stale comment, now closed.
 **T1's F4, MEASURED** (`docs/superpowers/notes/2026-09-12-blank-priority-measurement.md`, `tools/blank_priority_probe.py`, ROM crc `9ce1c2ff`, oracle-rs):
