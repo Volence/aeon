@@ -60,18 +60,25 @@ half in:
       `dc.b`/`dc.w`/`dc.l` data, and `ensure(...)`/`pad_to_cycles(...)`, including their
       continuation lines.
 
-  (2) its CALLEES' DECLARED effects: for every `call [cc,] Target` and for the proc's own
-      `falls_into Target`, the halves of Target's `clobbers(...)` plus its `out(...)`. The
-      callee's declaration is TRUSTED, never inferred from its body: the caller's contract is
-      a promise made against the callee's contract, and a callee's deliberate
-      over-declaration (LS-2) is exactly what a caller may not assume away. Target's
-      `preserves(...)` is not charged. A caller's own `push`/`pop` around a `call` earns it
-      nothing unless the caller declares `preserves(...)`: sigil credits a bracket only
-      through a declared preserve, and this file does the same.
-      (`X.label` resolves to proc X, as sigil's `resolve_callee_key` does.)
+  (2) its CALLEES' DECLARED effects: for every `call [cc,] Target`, for every TAIL
+      TRANSFER (`jp`/`jr`/`djnz`, conditional or not) into another proc, and for the proc's
+      own `falls_into Target`, the halves of Target's `clobbers(...)` plus its `out(...)`.
+      A tail transfer hands the caller everything Target does before it returns, exactly as
+      a `falls_into` does, so it is charged the same way. The callee's declaration is
+      TRUSTED, never inferred from its body: the caller's contract is a promise made against
+      the callee's contract, and a callee's deliberate over-declaration (LS-2) is exactly
+      what a caller may not assume away. Target's `preserves(...)` is not charged. A
+      caller's own `push`/`pop` around a `call` earns it nothing unless the caller declares
+      `preserves(...)`: sigil credits a bracket only through a declared preserve, and this
+      file does the same. `X.label` resolves to proc X and is charged X's WHOLE declaration,
+      as sigil's `resolve_callee_key` does: the label's tail is part of X's body, so X's
+      declaration over-covers it. A transfer to a `.label` of the proc itself, or to its own
+      name, is a jump inside the proc and charges nothing. A tail into an `@noreturn` proc is
+      charged too (it never returns, so this over-covers; it can only make the census fire).
 
-TWO RULES, each derived from source, for writes that are not clobbers. There is no
-allow-list; the census is zero-firing.
+THREE RULES, each derived from source: two for writes that are not clobbers, and one for
+an edge that is not a transfer to new work. There is no allow-list; the census is
+zero-firing.
 
   RESTORE POP. A `pop RR` whose matching `push` (paired in text order, innermost first)
   saved the same pair RR returns RR to its value at that push, so the pop cannot be the
@@ -91,11 +98,34 @@ allow-list; the census is zero-firing.
   all (z80_preserves.rs UNITS: "stack discipline, never tracked"). Anywhere ELSE an `sp`
   write fires: in a returning proc it is a stack hazard, not a declaration to widen.
 
-UNMEASURABLE CASES FAIL, they are never skipped: a call target that resolves to no Z80
-proc, a callee with no `clobbers(...)` clause (its write set is undeclared, and inferring it
-is exactly what this file refuses to do), a `call` operand it cannot parse, an `rst` (no
-named target), and a proc name defined twice. An attribute token this file does not
-recognise also fails the run, and so does a statement it cannot model (above).
+  DISPATCH RE-ENTRY (a NAMED class, printed every run with its reason by
+  test_dispatch_reentry_class_is_named). The sequencer's coordination handlers are not
+  called: Sequencer_NextOpcode's `.coord` pushes a handler address read from
+  SeqOpcodeTable and `ex (sp), hl` / `ret`s into it, so a handler runs INSIDE the
+  dispatcher's own invocation, and its `jp Sequencer_NextOpcode.fetch` (or `jr
+  Seq_ContinueFetch`, which does that jump) resumes that same invocation's fetch loop. It
+  is a loop back-edge, not a transfer to new work. Charging it the dispatcher's
+  declaration would charge a loop body with its own loop: every handler would have to
+  declare af, bc, de, hl, erasing what each one writes before it hands `hl` back, and the
+  charge would rest on the dispatcher's own declaration, which nothing checks against the
+  handlers it dispatches. So a transfer into the dispatcher's re-entry label is NOT
+  charged when, and only when, the jumping proc is DISPATCHED code: a cell of the
+  dispatcher's table, a proc the dispatcher tail-transfers to (Seq_Op_Ext), or a proc
+  reached from those by tail transfers (Seq_ContinueFetch). Anything else that jumps into
+  the label is charged the dispatcher's whole declaration like any other `X.label`
+  transfer. The class is DISPATCH below, one row, validated from source on every run: the
+  dispatcher must perform the `ex (sp), hl` dispatch, load the named table with `ld hl`,
+  and export the named label, and every table cell must be a Z80 proc. Sigil excludes the
+  same sub-machine from its own check (`is_opcode_dispatch_proc`) for the same reason.
+
+UNMEASURABLE CASES FAIL, they are never skipped: a call or jump target that resolves to no
+Z80 proc, a callee with no `clobbers(...)` clause (its write set is undeclared, and inferring
+it is exactly what this file refuses to do), a `call` operand it cannot parse, an `rst` (no
+named target), an indirect `jp (hl)`/`(ix)`/`(iy)`, a `.label` the proc does not define, an
+`X.label` that X does not export, and a proc name defined twice. The edge failures apply to
+procs that declare a contract: a proc with none (the pinned KNOWN_ATTRIBUTE_LESS set) has
+nothing to charge an edge against. An attribute token this file does not recognise also
+fails the run, and so does a statement it cannot model (above).
 
 THE CONVENTION FOR THE STREAM POINTER. The sequencer's opcode handlers advance `hl`, the
 stream pointer, past their operands and hand it to Sequencer_NextOpcode.fetch, and they
@@ -107,12 +137,11 @@ docs/superpowers/notes/2026-09-12-ctrl1-seqop-clobbers.md (its removal) and
 docs/DEFERRED_WORK.md LS-2a (the call-containing procs, 2026-09-12).
 
 WHAT IT DOES NOT COVER, each a real hole:
-  * TAIL JUMPS. A `jp`/`jr` into another proc hands the caller that proc's effects too;
-    nothing here follows a jump (a `falls_into` IS followed, above). Measured at 808141f7:
-    following every tail jump to a proc other than the fetch loop would add ZERO registers.
-    What it would add comes only from the handlers' `jp Sequencer_NextOpcode.fetch`, the
-    re-entry into the computed dispatch that sigil also declines to bound. (Seq_Op_Ext is
-    entered by a `jp z` from Sequencer_NextOpcode, whose own declaration covers `hl`.)
+  * THE COMPUTED DISPATCH, FORWARD. The `ex (sp), hl` / `ret` into a table cell is not an
+    edge here: Sequencer_NextOpcode is not charged the declarations of the handlers it
+    dispatches to, so a handler that honestly declared a register the dispatcher does not
+    would leave the dispatcher (and Sequencer_Channel, which falls into it) under-declared
+    with nothing to say so. Sigil declines to bound that edge too.
   * THE SHADOW BANK. `exx` and `ex af,af'` are charged as writes of the MAIN registers
     they swap out (conservative, so they can only make the census fire). A write made
     while the shadow bank is swapped in lands in bc'/de'/hl'/af', which no contract
@@ -170,6 +199,19 @@ MIN_CALL_PROCS = 75
 MIN_CALL_EDGES = 227
 MIN_FALLS_INTO_EDGES = 11
 MIN_FLAG_WRITERS = 108
+# The tail transfers (LS-2a item (c)), derived at d5ee8633: 66 charged tail edges (63 into
+# another proc's entry, 3 into another proc's exported label: SndDrv_Sample.afterPoll twice
+# and Snd_PauseMusic.pause_common once) and 20 DISPATCH RE-ENTRY edges (19 handler sites
+# plus Seq_ContinueFetch, all into Sequencer_NextOpcode.fetch).
+MIN_TAIL_EDGES = 66
+MIN_REENTRY_EDGES = 20
+
+# The one computed dispatch this file knows: dispatcher proc -> (its jump table, the label
+# its dispatched handlers jump back into). See DISPATCH RE-ENTRY in the module doc; every
+# field is validated from source on every run.
+DISPATCH: dict[str, tuple[str, str]] = {
+    "Sequencer_NextOpcode": ("SeqOpcodeTable", "fetch"),
+}
 
 # ---------------------------------------------------------------------------------------
 # The scanner.
@@ -193,6 +235,14 @@ RE_DATA = re.compile(r"^dc\.[bwl]\b", re.I)
 # Build-time statements that emit no instruction; their argument list may span lines.
 RE_COMPTIME_STMT = re.compile(r"^(?:ensure|pad_to_cycles)\s*\(")
 RE_EXPORT_LABEL = re.compile(r"^export\s+\.\w+\s*:\s*")
+RE_LABEL_DEF = re.compile(r"^\s*(export\s+)?\.(\w+)\s*:(?!\s*=)")
+RE_TRANSFER = re.compile(r"^(jp|jr|djnz)\b\s*(.*)$", re.I)
+TRANSFER_CONDS = {"jp": frozenset({"nz", "z", "nc", "c", "po", "pe", "p", "m"}),
+                  "jr": frozenset({"nz", "z", "nc", "c"}), "djnz": frozenset()}
+RE_EX_SP_HL = re.compile(r"^ex\s+\(\s*sp\s*\)\s*,\s*hl\s*$", re.I)
+RE_LD_HL_SYM = re.compile(r"^ld\s+hl\s*,\s*([A-Za-z_]\w*)\s*$", re.I)
+RE_NAMED_TARGET = re.compile(r"[A-Za-z_]\w*(?:\.\w+)?")
+RE_INDIRECT_TARGET = re.compile(r"\(\s*(?:hl|ix|iy)\s*\)", re.I)
 RE_CALL_TARGET = re.compile(
     r"^call\s+(?:(?:nz|z|nc|c|po|pe|p|m)\s*,\s*)?([A-Za-z_]\w*(?:\.\w+)?)\s*$", re.I)
 RE_RST = re.compile(r"^rst\b", re.I)
@@ -280,9 +330,10 @@ WRITES_NOTHING = frozenset({"out", "nop", "halt", "di", "ei", "im", "jp", "jr", 
                             "reti", "retn", "rst"})
 
 
-def _operands(text: str) -> list[str]:
-    """Split an operand list on its top-level commas. Register tokens are lower-cased;
-    anything else (an expression, a memory operand) is kept as written."""
+def _operands(text: str, lower: bool = True) -> list[str]:
+    """Split an operand list on its top-level commas. With `lower`, register tokens are
+    lower-cased; anything else (an expression, a memory operand) is kept as written, and
+    with `lower=False` everything is (a jump target keeps its symbol's spelling)."""
     out: list[str] = []
     depth, cur = 0, ""
     for ch in text:
@@ -297,6 +348,8 @@ def _operands(text: str) -> list[str]:
             cur += ch
     if cur.strip():
         out.append(cur.strip())
+    if not lower:
+        return out
     return [re.sub(r"\s+", "", o.lower()) if re.fullmatch(r"\(?\s*[A-Za-z']+\s*\)?", o) else o
             for o in out]
 
@@ -473,6 +526,47 @@ def calls_in(body: list[tuple[int, str]]) -> tuple[list[tuple[int, str]], list[t
     return edges, bad
 
 
+def control_facts(body: list[tuple[int, str]]) -> dict:
+    """The proc's jumps and labels, and the facts DISPATCH validates: every `jp`/`jr`/`djnz`
+    as (line, statement, target text or None when the operand list has no readable
+    target), the local labels it defines and the subset it exports, its `dc.w` cells, and
+    whether it performs `ex (sp), hl` and which symbols it loads with `ld hl, SYM`."""
+    transfers: list[tuple[int, str, str | None]] = []
+    labels: set[str] = set()
+    exports: set[str] = set()
+    cells: list[tuple[int, str]] = []
+    ld_hl: set[str] = set()
+    ex_sp_hl = False
+    for n, line in body:
+        m = RE_LABEL_DEF.match(line)
+        if m:
+            labels.add(m.group(2))
+            if m.group(1):
+                exports.add(m.group(2))
+        s = _instr(line)
+        m = RE_TRANSFER.match(s)
+        if m:
+            mn, ops = m.group(1).lower(), _operands(m.group(2), lower=False)
+            conds = TRANSFER_CONDS[mn]
+            target = None
+            if len(ops) == 1:
+                target = ops[0]
+            elif len(ops) == 2 and ops[0].lower() in conds:
+                target = ops[1]
+            transfers.append((n, s, target))
+            continue
+        if RE_DATA.match(s) and s[:4].lower() == "dc.w":
+            cells += [(n, op) for op in _operands(s.split(None, 1)[1], lower=False)]
+            continue
+        if RE_EX_SP_HL.match(s):
+            ex_sp_hl = True
+        m = RE_LD_HL_SYM.match(s)
+        if m:
+            ld_hl.add(m.group(1))
+    return {"transfers": transfers, "labels": labels, "exports": exports, "cells": cells,
+            "ld_hl": ld_hl, "ex_sp_hl": ex_sp_hl}
+
+
 def file_cpus(lines: list[str]) -> tuple[set[str], str | None]:
     cpus: set[str] = set()
     invariant = None
@@ -555,16 +649,105 @@ def scan_text(text: str, rel: str) -> list[dict]:
             "falls_into": None if fi is None else (start, fi.group(1)),
             "unmeasurable": unmeasurable,
             "unmodelled": unmodelled,
-            "under": {}, "errors": [],
+            **control_facts(body),
+            "under": {}, "errors": [], "tails": [], "reentries": [],
             "body": body,
         })
         i = k + 1
     return out
 
 
-def check(procs: list[dict]) -> list[dict]:
-    """Fill each proc's `under` ({half: why}) and `errors` against the population's own
-    declarations. Returns `procs`."""
+def _resolve_transfers(p: dict, index: dict[str, dict]) -> list[dict]:
+    """Classify each of p's jumps: `self` (a jump inside p, charges nothing), `other` (into
+    another proc's entry or exported label), or `bad` (unresolvable; `why` says how)."""
+    out: list[dict] = []
+    for ln, stmt, t in p["transfers"]:
+        r = {"line": ln, "stmt": stmt, "kind": "bad", "owner": "", "label": "", "why": ""}
+        if t is None:
+            r["why"] = "has no target this file can read"
+        elif t.startswith("."):
+            if t[1:] in p["labels"]:
+                r.update(kind="self", owner=p["proc"], label=t[1:])
+            else:
+                r["why"] = f"names no label `{t}` in this proc"
+        elif RE_INDIRECT_TARGET.fullmatch(t):
+            r["why"] = "is an indirect jump, with no named target to charge"
+        elif RE_NAMED_TARGET.fullmatch(t):
+            owner, _, label = t.partition(".")
+            r.update(owner=owner, label=label)
+            if owner == p["proc"]:
+                if not label or label in p["labels"]:
+                    r["kind"] = "self"
+                else:
+                    r["why"] = f"names no label `.{label}` in this proc"
+            elif owner not in index:
+                r["why"] = "resolves to no Z80 proc"
+            elif label and label not in index[owner]["exports"]:
+                r["why"] = f"names `.{label}`, which {owner} does not export"
+            else:
+                r["kind"] = "other"
+        else:
+            r["why"] = "has a target this file cannot read"
+        out.append(r)
+    return out
+
+
+def _dispatched(index: dict[str, dict], dispatch: dict[str, tuple[str, str]]
+                ) -> tuple[dict[str, str], dict[str, str]]:
+    """Validate DISPATCH against source and compute its class. Returns (the re-entry
+    targets, "Owner.label" -> dispatcher; the DISPATCHED procs, proc -> dispatcher). Each
+    dispatcher row's source problems go on that proc as `dispatch_problems`."""
+    reentry_target: dict[str, str] = {}
+    dispatched: dict[str, str] = {}
+    for d, (table, label) in dispatch.items():
+        dp = index.get(d)
+        if dp is None:
+            raise ValueError(f"DISPATCH names {d!r}, which is no Z80 proc: the row is stale")
+        problems: list[str] = []
+        if not dp["ex_sp_hl"]:
+            problems.append("performs no `ex (sp), hl` computed dispatch")
+        if table not in dp["ld_hl"]:
+            problems.append(f"never loads its table with `ld hl, {table}`")
+        if label not in dp["exports"]:
+            problems.append(f"exports no `.{label}` re-entry label")
+        tp = index.get(table)
+        if tp is None or not tp["cells"]:
+            problems.append(f"its table {table} is no Z80 proc with `dc.w` cells")
+        else:
+            for ln, cell in tp["cells"]:
+                if cell in index:
+                    dispatched.setdefault(cell, d)
+                else:
+                    problems.append(f"table cell `{cell}` ({table} :{ln}) is no Z80 proc")
+        dp["dispatch_problems"] = [f"DISPATCH row {d}: {why}" for why in problems]
+        reentry_target[f"{d}.{label}"] = d
+        for r in dp["resolved"]:                  # the dispatcher's own tails (Seq_Op_Ext)
+            if r["kind"] == "other" and r["owner"] not in dispatch:
+                dispatched.setdefault(r["owner"], d)
+    # Dispatched code reaches more dispatched code by tail transfer or falls_into
+    # (Seq_ContinueFetch, the four `jr` handlers' trampoline).
+    frontier = list(dispatched)
+    while frontier:
+        q = index[frontier.pop()]
+        nxt = [r["owner"] for r in q["resolved"] if r["kind"] == "other"]
+        if q["falls_into"] is not None:
+            nxt.append(q["falls_into"][1].split(".", 1)[0])
+        for owner in nxt:
+            if owner in index and owner not in dispatch and owner not in dispatched:
+                dispatched[owner] = dispatched[q["proc"]]
+                frontier.append(owner)
+    return reentry_target, dispatched
+
+
+def check(procs: list[dict], dispatch: dict[str, tuple[str, str]] | None = None,
+          reentry: bool = True) -> list[dict]:
+    """Fill each proc's `under` ({half: why}), `errors`, `tails` (the charged tail
+    transfers) and `reentries` (the DISPATCH RE-ENTRY edges, printed, not charged) against
+    the population's own declarations. `dispatch` is the DISPATCH map (scan_tree passes the
+    real one, a fixture its own). `reentry=False` switches the DISPATCH RE-ENTRY class off,
+    so a re-entry is charged like any other `X.label` transfer: the class's control.
+    Returns `procs`."""
+    dispatch = dispatch or {}
     index: dict[str, dict] = {}
     dupes: set[str] = set()
     for p in procs:
@@ -572,27 +755,47 @@ def check(procs: list[dict]) -> list[dict]:
             dupes.add(p["proc"])
         index[p["proc"]] = p
     for p in procs:
-        errors: list[str] = [f"proc name {p['proc']!r} is defined more than once, so a call "
-                             f"to it is ambiguous"] if p["proc"] in dupes else []
-        errors += [f":{ln} `{s}` has no named target to charge" for ln, s in p["unmeasurable"]]
+        p["resolved"] = _resolve_transfers(p, index)
+    reentry_target, dispatched = _dispatched(index, dispatch)
+    for p in procs:
+        errors: list[str] = list(p.get("dispatch_problems", []))
+        if p["proc"] in dupes:
+            errors.append(f"proc name {p['proc']!r} is defined more than once, so a call to it "
+                          f"is ambiguous")
         errors += [f":{ln} statement the write model cannot read: {why}"
                    for ln, why in p["unmodelled"]]
+        # Edge failures are charged only where there is a contract to charge them to.
+        edge_errors = [f":{ln} `{s}` has no named target to charge" for ln, s in p["unmeasurable"]]
         required: dict[str, str] = {h: f"written at :{ln}" for h, ln in p["writes"].items()}
         edges = [(ln, t, "call") for ln, t in p["calls"]]
         if p["falls_into"] is not None:
             edges.append((p["falls_into"][0], p["falls_into"][1], "falls_into"))
+        p["tails"], p["reentries"] = [], []
+        for r in p["resolved"]:
+            if r["kind"] == "self":
+                continue
+            if r["kind"] == "bad":
+                edge_errors.append(f":{r['line']} `{r['stmt']}` {r['why']}")
+                continue
+            target = r["owner"] + (f".{r['label']}" if r["label"] else "")
+            d = reentry_target.get(target)
+            if reentry and d is not None and dispatched.get(p["proc"]) == d:
+                p["reentries"].append((r["line"], target))    # DISPATCH RE-ENTRY
+                continue
+            p["tails"].append((r["line"], target))
+            edges.append((r["line"], target, "tail"))
         for ln, target, kind in edges:
             callee = index.get(target.split(".", 1)[0])
             if callee is None:
-                errors.append(f":{ln} {kind} {target} resolves to no Z80 proc")
+                edge_errors.append(f":{ln} {kind} {target} resolves to no Z80 proc")
                 continue
             if callee["effect"] is None:
-                errors.append(f":{ln} {kind} {target}: the callee declares no clobbers(), so "
-                              f"its effect is undeclared")
+                edge_errors.append(f":{ln} {kind} {target}: the callee declares no clobbers(), "
+                                   f"so its effect is undeclared")
                 continue
             for h in sorted(callee["effect"]):
                 required.setdefault(h, f"via {kind} {target} at :{ln}")
-        p["errors"] = errors
+        p["errors"] = errors + (edge_errors if p["has_contract"] else [])
         p["under"] = ({h: why for h, why in required.items() if h not in p["declared"]}
                       if p["has_contract"] else {})
     return procs
@@ -615,7 +818,7 @@ def scan_tree() -> list[dict]:
     procs: list[dict] = []
     for p in z80_files():
         procs.extend(scan_text(p.read_text(errors="replace"), p.relative_to(REPO).as_posix()))
-    return check(procs)
+    return check(procs, DISPATCH)
 
 
 def _fmt(regs) -> str:
@@ -639,10 +842,18 @@ def test_the_scan_reaches_the_z80_tree():
     n_calls = sum(len(p["calls"]) for p in procs)
     n_falls = sum(1 for p in procs if p["falls_into"] is not None)
     n_flag = sum(1 for p in procs if "f" in p["writes"])
+    n_tails = sum(len(p["tails"]) for p in procs)
+    n_reentries = sum(len(p["reentries"]) for p in procs)
     print(f"Z80 files: {len(files)}; procs: {len(procs)} ({len(leaves)} leaves, "
           f"{len(callers)} with a call, all checked); call edges: {n_calls}; "
-          f"falls_into edges: {n_falls}; procs writing f: {n_flag}; own-write facts: "
-          f"{sum(len(p['writes']) for p in procs)}")
+          f"falls_into edges: {n_falls}; charged tail transfers: {n_tails}; DISPATCH "
+          f"RE-ENTRY edges (not charged): {n_reentries}; procs writing f: {n_flag}; "
+          f"own-write facts: {sum(len(p['writes']) for p in procs)}")
+    assert n_tails >= MIN_TAIL_EDGES, (
+        f"only {n_tails} charged tail transfer(s), floor {MIN_TAIL_EDGES}: the jump parser has "
+        f"stopped matching `jp`/`jr`/`djnz` into another proc")
+    assert n_reentries >= MIN_REENTRY_EDGES, (
+        f"only {n_reentries} DISPATCH RE-ENTRY edge(s), floor {MIN_REENTRY_EDGES}")
     assert SEQ in files, (
         f"the Z80 sweep of {ROOTS} did not reach {SEQ}, the sequencer and home of the opcode "
         f"handlers. It found {len(files)} file(s): {files}. The `cpu: z80` match is broken."
@@ -682,16 +893,41 @@ def test_attribute_less_z80_procs_are_the_known_set():
     )
 
 
-def test_every_z80_call_edge_is_measurable():
-    """An edge the census cannot charge is a FAILURE, not a skip: a skipped callee is a
-    callee whose effect nobody checks, which is the hole this file used to be."""
+def test_every_z80_edge_is_measurable():
+    """An edge or statement the census cannot charge is a FAILURE, not a skip: a skipped
+    callee is a callee whose effect nobody checks, which is the hole this file used to be.
+    Covers `call`, tail `jp`/`jr`/`djnz`, `falls_into`, unmodelled statements, and the
+    DISPATCH row's validation against source."""
     problems = [f"{p['file']}:{p['line']} {p['proc']} {e}" for p in scan_tree()
                 for e in p["errors"]]
     assert not problems, (
-        "Z80 clobbers census: call edge(s) it cannot measure:\n  " + "\n  ".join(problems)
+        "Z80 clobbers census: edge(s) or statement(s) it cannot measure:\n  "
+        + "\n  ".join(problems)
         + "\nName a Z80 proc that declares clobbers(), or teach this file the new form with "
           "its own fixture control. Do not skip it."
     )
+
+
+def test_dispatch_reentry_class_is_named():
+    """The DISPATCH RE-ENTRY class is printed, edge by edge, with its reason, every run: an
+    exclusion nobody can see is a skip. Every member must be dispatched code jumping into
+    its own dispatcher's re-entry label (check() only admits those; this re-asserts it
+    over the real tree so a regression in the admission test cannot hide here)."""
+    procs = scan_tree()
+    index = {p["proc"]: p for p in procs}
+    reentry = {f"{d}.{label}": d for d, (_, label) in DISPATCH.items()}
+    members = [(p, ln, t) for p in procs for ln, t in p["reentries"]]
+    print(f"DISPATCH RE-ENTRY, {len(members)} edge(s), not charged. Reason: each is a handler "
+          f"dispatched by its dispatcher's `ex (sp), hl` jumping back into that same "
+          f"invocation's fetch loop (a loop back-edge, not a transfer to new work):")
+    for p, ln, t in members:
+        print(f"  {p['file']}:{ln} {p['proc']} -> {t}")
+    for p, ln, t in members:
+        assert t in reentry, f"{p['proc']} :{ln} excluded a jump to {t}, no DISPATCH label"
+    cells = {cell for d, (table, _) in DISPATCH.items() for _, cell in index[table]["cells"]}
+    assert any(p["proc"] in cells for p, _, _ in members), (
+        "no DISPATCH RE-ENTRY member is a table cell: the class has stopped seeing the "
+        "handlers it exists for")
 
 
 def test_no_z80_proc_under_declares_its_clobbers():
@@ -813,8 +1049,23 @@ FIXTURE = (
     "        ld      sp, $1FFE\n"
     "        ret\n"
     "    }\n"
+    # The dispatcher the handler shapes above jump back into (DISPATCH RE-ENTRY).
+    "    pub proc Loop () clobbers(af, bc, de, hl) {\n"
+    "    export .fetch:\n"
+    "        ld      a, (hl)\n"
+    "        inc     hl\n"
+    "        push    hl\n"
+    "        ld      hl, Table\n"
+    "        ex      (sp), hl\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Table () clobbers() {\n"
+    "        dc.w    Handler_Under, Handler_Ok\n"
+    "        dc.w    Bracket_Ok, Hook_Under, Hook_Ok\n"
+    "    }\n"
     "}\n"
 )
+FIXTURE_DISPATCH = {"Loop": ("Table", "fetch")}
 
 FIXTURE_UNMEASURABLE = (
     "module fake2.z80 (cpu: z80)\n"
@@ -847,11 +1098,11 @@ def test_scanner_controls():
     writes nothing (the DEBUG save pair around a trace call, the shape the booking named
     as a false hit), a move-idiom pop writes, and `sp` is exempt only in an `@noreturn`
     proc. Unmeasurable edges refuse; an unknown attribute token refuses."""
-    procs = {p["proc"]: p for p in check(scan_text(FIXTURE, "fake.emp"))}
+    procs = {p["proc"]: p for p in check(scan_text(FIXTURE, "fake.emp"), FIXTURE_DISPATCH)}
     assert set(procs) == {
         "Leaf_Under", "Leaf_Ok", "Handler_Under", "Handler_Ok", "Caller", "Trace", "Hook",
         "Bracket_Ok", "Move_Under", "Hook_Under", "Hook_Ok", "Falls_Under", "Entry_NoReturn",
-        "Returning_Sp"}, sorted(procs)
+        "Returning_Sp", "Loop", "Table"}, sorted(procs)
     assert not any(p["errors"] for p in procs.values()), (
         {k: p["errors"] for k, p in procs.items() if p["errors"]})
     # --- own writes (unchanged from the leaf census) ---
@@ -1057,12 +1308,175 @@ def test_write_model_controls():
             f"nothing`. Got {errs}")
 
 
+FIXTURE_TAILS = (
+    "module fake4.z80 (cpu: z80)\n"
+    "section fake4 (cpu: z80) {\n"
+    "    pub proc Sink () clobbers(bc, de) {\n"
+    "        ld      bc, 0\n"
+    "        ld      de, 0\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Owner () clobbers(af, bc, hl) {\n"
+    "        ld      a, 1\n"
+    "    export .mid:\n"
+    "        ld      bc, 0\n"
+    "        ld      hl, 0\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc NoClobbers () preserves(bc) {\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc Tail_Under () clobbers(af) {\n"
+    "        jp      Sink\n"
+    "    }\n"
+    "    pub proc Tail_Ok () clobbers(af, bc, de) {\n"
+    "        jp      Sink\n"
+    "    }\n"
+    "    pub proc TailCond_Under () clobbers(af) {\n"
+    "        or      a\n"
+    "        jr      nz, Sink\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc TailDjnz_Under () clobbers(af, b) {\n"
+    "        djnz    Sink\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc TailLabel_Under () clobbers(af) {\n"
+    "        jp      Owner.mid\n"
+    "    }\n"
+    "    pub proc TailLabel_Ok () clobbers(af, bc, hl) {\n"
+    "        jp      Owner.mid\n"
+    "    }\n"
+    "    pub proc Self_Ok () clobbers(b) {\n"
+    "    .loop:\n"
+    "        djnz    .loop\n"
+    "        jr      .loop\n"
+    "        jp      Self_Ok.loop\n"
+    "        jp      Self_Ok\n"
+    "    }\n"
+    "    pub proc Local_Missing () clobbers() {\n"
+    "        jr      .nowhere\n"
+    "    }\n"
+    "    pub proc Label_Missing () clobbers(af, bc, hl) {\n"
+    "        jp      Owner.nowhere\n"
+    "    }\n"
+    "    pub proc Tail_Nowhere () clobbers() {\n"
+    "        jp      Nowhere\n"
+    "    }\n"
+    "    pub proc Tail_Undeclared () clobbers() {\n"
+    "        jp      NoClobbers\n"
+    "    }\n"
+    "    pub proc Tail_Indirect () clobbers() {\n"
+    "        jp      (hl)\n"
+    "    }\n"
+    "    pub proc AttributeLess () {\n"
+    "        jp      (hl)\n"
+    "    }\n"
+    "    pub proc Disp () clobbers(af, bc, de, hl) {\n"
+    "        ld      l, (ix+0)\n"
+    "    export .fetch:\n"
+    "        ld      a, (hl)\n"
+    "        inc     hl\n"
+    "        cp      $80\n"
+    "        jp      z, Handler_Direct\n"
+    "        push    hl\n"
+    "        ld      hl, DispTable\n"
+    "        ex      (sp), hl\n"
+    "        ret\n"
+    "    }\n"
+    "    pub proc DispTable () clobbers() {\n"
+    "        dc.w    Handler_A, Handler_B\n"
+    "    }\n"
+    "    pub proc Handler_A () clobbers(af, hl) {\n"
+    "        inc     hl\n"
+    "        jp      Disp.fetch\n"
+    "    }\n"
+    "    pub proc Handler_B () clobbers(af, hl) {\n"
+    "        inc     hl\n"
+    "        jr      Via_Trampoline\n"
+    "    }\n"
+    "    pub proc Via_Trampoline () clobbers() {\n"
+    "        jp      Disp.fetch\n"
+    "    }\n"
+    "    pub proc Handler_Direct () clobbers(af, hl) {\n"
+    "        inc     hl\n"
+    "        jp      Disp.fetch\n"
+    "    }\n"
+    "    pub proc Rogue () clobbers(af, hl) {\n"
+    "        inc     hl\n"
+    "        jp      Disp.fetch\n"
+    "    }\n"
+    "}\n"
+)
+FIXTURE_TAILS_DISPATCH = {"Disp": ("DispTable", "fetch")}
+
+
+def test_tail_controls():
+    """LS-2a item (c). A tail `jp`/`jr`/`djnz` into another proc is charged that proc's
+    declared effect (entry, conditional, djnz and exported-label forms); a jump inside the
+    proc charges nothing; an unresolvable target refuses. DISPATCH RE-ENTRY: a dispatched
+    handler's jump back into the dispatcher's re-entry label is not charged (directly, or
+    through a tail-reached trampoline, or from a proc the dispatcher tails to), the SAME
+    jump from code the dispatcher did not dispatch IS charged, switching the class off
+    charges the handlers, and a DISPATCH row that does not match the source refuses."""
+    def run(dispatch, reentry=True):
+        return {p["proc"]: p for p in check(scan_text(FIXTURE_TAILS, "fake4.emp"), dispatch,
+                                             reentry)}
+
+    procs = run(FIXTURE_TAILS_DISPATCH)
+    refused = {"Local_Missing": "names no label", "Label_Missing": "does not export",
+               "Tail_Nowhere": "resolves to no Z80 proc",
+               "Tail_Undeclared": "declares no clobbers()", "Tail_Indirect": "indirect jump"}
+    for name, p in procs.items():
+        if name in refused:
+            assert len(p["errors"]) == 1 and refused[name] in p["errors"][0], (name, p["errors"])
+        else:
+            assert p["errors"] == [], (name, p["errors"])
+    want = {"Tail_Under": "bcde", "Tail_Ok": "", "TailCond_Under": "bcde", "TailDjnz_Under": "cde",
+            "TailLabel_Under": "bchl", "TailLabel_Ok": "", "Self_Ok": "", "Disp": "",
+            "Handler_A": "", "Handler_B": "", "Via_Trampoline": "", "Handler_Direct": "",
+            "Rogue": "bcde"}
+    got = {name: "".join(sorted(procs[name]["under"])) for name in want}
+    assert got == {k: "".join(sorted(v)) for k, v in want.items()}, (
+        f"tail charging disagrees with the fixture:\n  got  {got}\n  want {want}")
+    assert procs["Tail_Under"]["under"]["b"].startswith("via tail Sink at :"), procs["Tail_Under"]
+    assert procs["TailLabel_Under"]["under"]["h"].startswith("via tail Owner.mid at :")
+    assert procs["Rogue"]["under"]["b"].startswith("via tail Disp.fetch at :"), (
+        "a jump into the re-entry label from code the dispatcher did NOT dispatch must be "
+        f"charged the dispatcher's declaration: {procs['Rogue']['under']}")
+    assert procs["Self_Ok"]["tails"] == [], procs["Self_Ok"]["tails"]
+    assert procs["AttributeLess"]["errors"] == [], (
+        "a proc with no contract has nothing to charge an edge against")
+    members = {name for name, p in procs.items() if p["reentries"]}
+    assert members == {"Handler_A", "Via_Trampoline", "Handler_Direct"}, members
+
+    off = run(FIXTURE_TAILS_DISPATCH, reentry=False)
+    got_off = {n: "".join(sorted(off[n]["under"]))
+               for n in ("Handler_A", "Handler_B", "Via_Trampoline", "Handler_Direct", "Rogue")}
+    assert got_off == {"Handler_A": "bcde", "Handler_B": "", "Via_Trampoline": "abcdefhl",
+                       "Handler_Direct": "bcde", "Rogue": "bcde"}, (
+        f"with DISPATCH RE-ENTRY switched off every re-entry must be charged: {got_off}")
+
+    bad = run({**FIXTURE_TAILS_DISPATCH, "Owner": ("DispTable", "mid")})
+    owner_errors = " ".join(bad["Owner"]["errors"])
+    assert "performs no `ex (sp), hl`" in owner_errors and \
+        "never loads its table with `ld hl, DispTable`" in owner_errors, bad["Owner"]["errors"]
+    try:
+        run({"Nope": ("DispTable", "fetch")})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a DISPATCH row naming no proc was accepted instead of refused")
+
+
 if __name__ == "__main__":
     test_the_scan_reaches_the_z80_tree()
     test_no_file_mixes_z80_procs_with_68k_sections()
     test_attribute_less_z80_procs_are_the_known_set()
-    test_every_z80_call_edge_is_measurable()
+    test_every_z80_edge_is_measurable()
+    test_dispatch_reentry_class_is_named()
     test_no_z80_proc_under_declares_its_clobbers()
     test_scanner_controls()
     test_write_model_controls()
+    test_tail_controls()
     print("OK")
