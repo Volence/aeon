@@ -33649,7 +33649,7 @@ Byte-neutral on the committed inputs, as measured: a `tools/regenerate-level.sh 
 changed only `DONOR_PROVENANCE.json`'s generator record (its `head` and `modified_tracked`), which every re-bake at a
 new commit does.
 
-## CART-VERIFY-COVERAGE — PARTLY CLOSED 2026-09-12: the spawner now proves the cart, 20 of 68 tools still reach a bus without it (found 2026-09-12)
+## CART-VERIFY-COVERAGE — PARTLY CLOSED 2026-09-12: the spawner now proves the cart (defended 17 of 67 -> 48 of 68); 21 tools still reach a bus without it and 20 of those are undefended (found 2026-09-12)
 
 **Found by reciprocation, not by audit.** Aeon flagged a live staleness hazard to sigil (nine per-session
 `oracle-aether` shims all preloading the main checkout's 41-hour-old `s4.debug.bin`; the
