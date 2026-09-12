@@ -47,6 +47,30 @@ docs/superpowers/notes/2026-09-12-object-witnesses.md):
                is restored after each variant (a full buffer reaching RingBuffer_Add is a
                DEBUG-fatal assert).
 
+  c4a2t        EntityWindow_PopulateSectionRings and EntityWindow_RescanY timed, call by call,
+               across the c4a2 route (subject: ring 0 collected; control: not) plus a vertical
+               leg from the act's left clamp that crosses ~10 coarse rows and brings section 0's
+               rings back through RescanY. Same single-step method as c4a3: an execution
+               breakpoint halts the route at each call, the call is stepped to its return for
+               the mclk delta / 7 and re-run from a checkpoint with one run_to (must agree); a
+               window with an interrupt in it is seen (a step lands on an autovector target,
+               calibrated at run time) and DISCARDED, never billed to the proc.
+
+  c4a3ab       c4a3 on --rom (after) and on --before-rom (built before C4a-3), compared per
+               (N, variant) with the parcel note's prediction (after - before = 36 - 24N for N
+               kept rings, 36 - 28N for N removed, 0 for an empty buffer). Any row off it
+               REFUTES the prediction. --c4a3-n picks the ring counts seeded (default 128).
+  c4a2ab       c4a2t on --rom and on --before-rom (built before C4a-2), paired call by call; a
+               pair is compared only when its inputs (camera, ring counts, section / tracked
+               ids) are identical. Checked against the parcel note's derived bound: the lazy
+               slot cache costs at most +8 per walker call, and a walk that reached the
+               collected/killed gate in the old ROM must come out cheaper.
+
+  Old ROMs: pass the tree they were built from as --src-root / --before-src-root. Every .emp
+  read is proven against that listing's DIGEST-READ crc, so today's tree against an old ROM
+  refuses (COULD NOT RUN) wherever the sources differ; --expect-crc / --before-expect-crc
+  name the ROM each run must be.
+
 HOW THE BOOT WORKS (cited, not re-derived): the DEBUG shape boots in debug fly
 (GameState_OJZScroll_Init arms CHEAT_DEBUG_FLY; Player_Init enters fly). One B press hands
 Player_1 to real physics (tools/spring_launch_witness.py `boot_and_settle`,
@@ -163,18 +187,49 @@ def emp_const(path: Path, name: str) -> int:
     return int(v[1:], 16) if v.startswith("$") else int(v)
 
 
-class Facts:
-    """Every address, offset and constant, from THIS ROM's listing and the source tree."""
+_DIGEST_READ = re.compile(r"^DIGEST-READ crc=([0-9a-f]{8}) size=(\d+) origin=\w+ path=(\S+)\s*$")
+_DIGEST_ROM = re.compile(r"^DIGEST-ROM crc=([0-9a-f]{8}) size=(\d+) ")
 
-    def __init__(self, rom: str, lst: str):
+
+class Facts:
+    """Every address, offset and constant, from THIS ROM's listing and the source tree.
+
+    `src_root` is the tree the sources are read from (default: this tool's own tree). Every
+    `.emp` read is proven to be the file the build read, against the listing's DIGEST-READ crc
+    and size, before a value is derived from it; a file with no digest row (sigil does not read
+    it) is compared byte for byte with the copy in the ROM's own tree. So a run from today's
+    tree against an old ROM REFUSES, correctly, wherever the sources differ; pass the old tree
+    as `src_root` to measure it."""
+
+    def __init__(self, rom: str, lst: str, src_root: Path = AEON,
+                 expect: tuple = (EXPECT_CRC, EXPECT_LEN)):
         data = Path(rom).read_bytes()
+        self.rom_path = Path(rom).resolve()
         self.rom_bytes = data
         self.crc = zlib.crc32(data) & 0xFFFFFFFF
         self.rom_len = len(data)
-        if (self.crc, self.rom_len) != (EXPECT_CRC, EXPECT_LEN):
-            raise CouldNotRun(f"ROM {rom} is crc32 {self.crc:08x} / {self.rom_len} B; this tool's "
-                              f"runs are booked against {EXPECT_CRC:08x} / {EXPECT_LEN} (master "
-                              f"9fe9ee91). Refusing to report on a different ROM.")
+        if (self.crc, self.rom_len) != tuple(expect):
+            raise CouldNotRun(f"ROM {rom} is crc32 {self.crc:08x} / {self.rom_len} B, not the "
+                              f"{expect[0]:08x} / {expect[1]} this run expects. Refusing to report "
+                              f"on a different ROM.")
+        self.src_root = Path(src_root).resolve()
+        self.digest: dict[str, tuple[str, int]] = {}
+        rom_digest = None
+        for line in Path(lst).read_text(errors="replace").splitlines():
+            m = _DIGEST_READ.match(line)
+            if m:
+                self.digest[m.group(3)] = (m.group(1), int(m.group(2)))
+                continue
+            m = _DIGEST_ROM.match(line)
+            if m and rom_digest is None:
+                rom_digest = (int(m.group(1), 16), int(m.group(2)))
+        if rom_digest != (self.crc, self.rom_len):
+            raise CouldNotRun(f"the listing {lst} names ROM {rom_digest}, not this ROM "
+                              f"({self.crc:08x}, {self.rom_len} B): wrong ROM/listing pair")
+        self.checked_sources: list[str] = []
+        self.lst_path = str(Path(lst).resolve())
+        self.opts: dict = {}
+        self.data: dict = {}
         self.lab, self.equ = parse_listing(lst)
         L = self.lab
 
@@ -185,8 +240,9 @@ class Facts:
             return t[name]
         self.need = need
 
+        S = self.src_path
         # Sst field offsets, from engine/objects/sst.emp (the struct is the layout's author).
-        sst = struct_offsets(AEON / "engine/objects/sst.emp", r"\s*pub struct Sst\b")
+        sst = struct_offsets(S("engine/objects/sst.emp"), r"\s*pub struct Sst\b")
         want = ["code_addr", "x_pos", "y_pos", "render_flags", "mappings", "width_pixels",
                 "height_pixels", "mapping_frame", "sprite_piece_count", "parent_ptr",
                 "sibling_ptr", "frame_off"]
@@ -196,12 +252,12 @@ class Facts:
             raise CouldNotRun(f"Sst offsets {miss} not readable from engine/objects/sst.emp")
         self.sst = sst
         m = re.search(r"pub struct Sst \(size: \$([0-9A-Fa-f]+)\)",
-                      (AEON / "engine/objects/sst.emp").read_text())
+                      S("engine/objects/sst.emp").read_text())
         self.sst_size = int(m.group(1), 16)
 
         # PlayerV.debug_flag: the overlay is packed from sst_custom; cross-checked against the
         # three offsets the game exports for witnesses (_pl_gsp / _pl_state / _pl_flip_angle).
-        pv = vars_offsets(AEON / "games/sonic4/player/player_common.emp",
+        pv = vars_offsets(S("games/sonic4/player/player_common.emp"),
                           r"pub vars PlayerV: Sst\.sst_custom \{", sst["sst_custom"])
         for field, eq in (("ground_speed", "_pl_gsp"), ("player_state", "_pl_state"),
                           ("flip_angle", "_pl_flip_angle")):
@@ -212,10 +268,10 @@ class Facts:
             raise CouldNotRun("PlayerV.debug_flag not found in the overlay parse")
         self.debug_flag = pv["debug_flag"]
 
-        ess = struct_offsets(AEON / "engine/objects/entity_window.emp",
+        ess = struct_offsets(S("engine/objects/entity_window.emp"),
                              r"\s*struct EntityScanState\b")
         m = re.search(r"struct EntityScanState \(size: \$([0-9A-Fa-f]+)\)",
-                      (AEON / "engine/objects/entity_window.emp").read_text())
+                      S("engine/objects/entity_window.emp").read_text())
         self.ess_size = int(m.group(1), 16)
         self.ess_section_id = ess["ess_section_id"]
 
@@ -227,12 +283,13 @@ class Facts:
                   "NUM_EFFECTS", "RING_WIDTH", "RING_HEIGHT", "PLAYER_X_RADIUS",
                   "PLAYER_Y_RADIUS"):
             setattr(self, k, need(k, self.equ))
-        const = AEON / "engine/system/constants.emp"
+        const = S("engine/system/constants.emp")
         self.SECTION_SIZE_SHIFT = emp_const(const, "SECTION_SIZE_SHIFT")
         self.ENTITY_DESPAWN_BUFFER_Y = emp_const(const, "ENTITY_DESPAWN_BUFFER_Y")
         self.RF_ONSCREEN = emp_const(const, "RF_ONSCREEN")
         self.RF_MULTISPRITE = emp_const(const, "RF_MULTISPRITE")
         self.RING_BUFFER_ENTRY_SIZE = emp_const(const, "RING_ENTRY_LIST_INDEX_OFFSET") + 1
+        self.ENTITY_RESCAN_ROW = 0x10000 - emp_const(const, "ENTITY_RESCAN_COARSE_MASK")
         if 1 << self.SECTION_SIZE_SHIFT != self.SECTION_SIZE:
             raise CouldNotRun("SECTION_SIZE_SHIFT disagrees with the listing's SECTION_SIZE")
         if emp_const(const, "ENTITY_DESPAWN_BUFFER") != self.ENTITY_DESPAWN_BUFFER:
@@ -240,15 +297,15 @@ class Facts:
 
         # The act's section-0 ring list, from the editor source the ROM was baked from.
         self.sec0_rings = [(r["x"], r["y"]) for r in json.loads(
-            (AEON / "games/sonic4/data/editor/ojz/act1/section_0.rings.json").read_text())]
+            S("games/sonic4/data/editor/ojz/act1/section_0.rings.json").read_text())]
 
         # The sparkle's lifetime, from the ROM's own build-time ensure in ring_sparkle.emp:
         # S3K_SPARKLE_FRAMES frames x (S3K_SPARKLE_DURATION + 1) display ticks each.
-        rs = AEON / "games/sonic4/objects/ring_sparkle.emp"
+        rs = S("games/sonic4/objects/ring_sparkle.emp")
         self.sparkle_live_draws = (emp_const(rs, "S3K_SPARKLE_FRAMES")
                                    * (emp_const(rs, "S3K_SPARKLE_DURATION") + 1))
         # TestParent's children: the rows of child_desc in test_parent.emp.
-        tp = (AEON / "games/sonic4/objects/test_parent.emp").read_text()
+        tp = S("games/sonic4/objects/test_parent.emp").read_text()
         m = re.search(r"data child_desc: \[SpawnDesc; (\d+)\]", tp)
         self.parent_children = int(m.group(1))
 
@@ -307,6 +364,31 @@ class Facts:
 
     def rom_word(self, addr: int) -> int:
         return int.from_bytes(self.rom_bytes[addr:addr + 2], "big")
+
+    def src_path(self, rel: str) -> Path:
+        """`src_root / rel`, after proving it is the file this build read. Never weakened to
+        get a run through: a mismatch is COULD NOT RUN, because every value derived from the
+        file would describe another build."""
+        p = self.src_root / rel
+        data = p.read_bytes()
+        if rel in self.digest:
+            want_crc, want_size = self.digest[rel]
+            got = f"{zlib.crc32(data) & 0xFFFFFFFF:08x}"
+            if got != want_crc or len(data) != want_size:
+                raise CouldNotRun(f"{p} (crc {got}, {len(data)} B) is not the file the build read "
+                                  f"(DIGEST-READ crc {want_crc}, {want_size} B)")
+            note = f"{rel} crc {got} = listing DIGEST-READ"
+        else:
+            twin = self.rom_path.parent / rel
+            if not twin.is_file():
+                raise CouldNotRun(f"{rel} has no DIGEST-READ row and no copy in the ROM's tree "
+                                  f"({self.rom_path.parent}) to compare against")
+            if twin.read_bytes() != data:
+                raise CouldNotRun(f"{p} differs from the copy in the ROM's tree ({twin})")
+            note = f"{rel} byte-identical to the ROM tree's copy (no DIGEST-READ row)"
+        if note not in self.checked_sources:
+            self.checked_sources.append(note)
+        return p
 
 
 # --------------------------------------------------------------------------- the machine
@@ -977,28 +1059,85 @@ async def w_c4a2(rig: Rig, boot: str, out: list) -> tuple[str, str]:
 
 # --------------------------------------------------------------------------- witness: C4a-3
 
-def cost_model(n: int, remove: bool) -> int:
-    """68000 cycles for EntityWindow_DespawnRings over n entries, entry to after the rts.
+#: EntityWindow_DespawnRings' two shipped forms, and their per-path 68000 cycle costs.
+#:
+#: Hand-derived from each ROM's own disassembly with the MC68000 timing tables (no wait states);
+#: the derivation, instruction by instruction, is in the results notes
+#: (2026-09-12-object-witnesses.md for "rolling", 2026-09-12-owed-runtime-witnesses-b.md for
+#: "index"). Common to both: an EMPTY buffer is moveq 4 + move.b abs.w 12 + beq.w taken 10 + rts
+#: 16 = 42, and a non-empty call ends with the last dbf expiring at 14 (+4 over taken) and rts 16.
+#:   rolling (C4a-3, a2 walks the buffer; s4.debug 9ce1c2ff):
+#:     prologue 100 (moveq 4, move.b 12, beq.w nt 12, subq 4, move.w 4, x6 16, lea 8, adda 8,
+#:       move.w Camera_X 12, move.w 4, subi 8, addi 8)
+#:     keep 118: move.w (a2) 8, cmp 4, blt nt 8, cmp 4, ble t 10, move.w 2(a2) 12, move.w
+#:       Camera_Y 12, subi 8, cmp 4, blt nt 8, addi 8, cmp 4, ble t 10, subq.w #6,a2 8, dbf t 10
+#:     remove 510: X tests 32, four section compares 94, remove setup 46, EntryForSection
+#:       (untracked, four probes) 214, tst/bmi 14, move.w/bsr.w 22, RingBuffer_Remove (the last
+#:       entry) 70, subq/dbf 18
+#:   index (pre-C4a-3, &Ring_Buffer[index] rebuilt every pass; s4.debug b726a287):
+#:     prologue 64: the rolling prologue without move.w 4 + x6 16 + lea 8 + adda 8
+#:     keep 142: move.w d5,d0 4 + add.w x3 12 + lea (xxx).w,a0 8 + move.w (a0,d0.w) 14, then
+#:       the rolling keep path with move.w 2(a0,d0.w) 14 for 2(a2) 12, and no subq
+#:     remove 538: the same address build 38 + X tests 24, section compares 96 (the first read
+#:       is move.b 4(a0,d0.w) 14), remove setup 50 (two (a0,d0.w) reads, 14 each), then the
+#:       rolling remove path's callee costs unchanged, and dbf 10 with no subq
+DESPAWN_FORMS = {
+    "rolling": dict(prologue=100, keep=118, remove=510,
+                    what="a2 walks the ring buffer (C4a-3)"),
+    "index": dict(prologue=64, keep=142, remove=538,
+                  what="&Ring_Buffer[index] rebuilt every pass (before C4a-3)"),
+}
+DESPAWN_EMPTY = 42
 
-    Hand-derived from the ROM's disassembly with the MC68000 timing tables (no wait states);
-    the derivation, instruction by instruction, is in the results note. The loop tail's dbf
-    costs 10 taken and 14 on expiry, hence the +4.
-      prologue (moveq .. addi.w d7)                                             100
-      keep-all iteration: X inside the window, Y inside the band               118
-      remove-all iteration: X right of the window, section untracked:
-        X tests 32 + four section compares 94 + remove setup 46
-        + EntryForSection (untracked, four probes) 214 + tst/bmi 14
-        + move.w/bsr.w 22 + RingBuffer_Remove (removing the last entry) 70
-        + subq/dbf 18                                                          510
-      rts                                                                        16
-    """
-    per = 510 if remove else 118
-    return 100 + n * per + 4 + 16
+
+def cost_model(n: int, remove: bool, form: str = "rolling") -> int:
+    """68000 cycles for EntityWindow_DespawnRings over n entries, entry to after the rts."""
+    if n == 0:
+        return DESPAWN_EMPTY
+    p = DESPAWN_FORMS[form]
+    return p["prologue"] + n * (p["remove"] if remove else p["keep"]) + 4 + 16
 
 
-async def profile_once(rig: Rig, variant: str, out: list, tries: int = 6) -> dict:
+def c4a3_predicted_delta(n: int, variant: str) -> int:
+    """The C4a-3 parcel's prediction, after minus before, in cycles, for n seeded entries.
+
+    docs/superpowers/notes/2026-09-12-entity-window-c4a-parcel.md, branch 1: "-24 per kept
+    in-window ring, -26 per ring kept only by its active section, -28..-30 per removed ring;
+    net per frame ~ 36 - 24N for N buffered rings", the +36 being the once-per-call setup that
+    only a NON-EMPTY buffer pays. The keep-all seed is the -24 path; the remove-all seed (X right
+    of the window, section untracked) is the -28 path. An empty buffer skips the setup in both
+    forms, so its predicted change is 0."""
+    if n == 0:
+        return 0
+    return 36 - (24 if variant == "keep" else 28) * n
+
+
+def despawn_form(f) -> str:
+    """Which form this ROM's EntityWindow_DespawnRings is, read from its bytes (capstone)."""
+    try:
+        import capstone
+    except ImportError:
+        raise CouldNotRun("capstone is not importable; the DespawnRings form is decoded with it")
+    from scene_spans import lst_proc_sizes
+    a = f.EntityWindow_DespawnRings
+    size = lst_proc_sizes(f.lst_path).get("EntityWindow_DespawnRings")
+    if not size:
+        raise CouldNotRun("scene_spans.lst_proc_sizes has no size for EntityWindow_DespawnRings")
+    md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    ops = [(i.mnemonic, i.op_str.replace(" ", "")) for i in md.disasm(f.rom_bytes[a:a + size], a)]
+    if ("subq.w", "#$6,a2") in ops:
+        return "rolling"
+    if ("move.w", "(a0,d0.w),d1") in ops:
+        return "index"
+    raise CouldNotRun("EntityWindow_DespawnRings is neither the rolling-pointer nor the index form")
+
+
+async def profile_once(rig: Rig, variant: str, out: list, tries: int = 6, n: int | None = None,
+                       form: str = "rolling") -> dict:
     f = rig.f
-    N = f.MAX_RING_BUFFER
+    N = f.MAX_RING_BUFFER if n is None else n
+    if not 0 <= N <= f.MAX_RING_BUFFER:
+        raise CouldNotRun(f"cannot seed {N} ring entries (MAX_RING_BUFFER {f.MAX_RING_BUFFER})")
     es = f.RING_BUFFER_ENTRY_SIZE
     for attempt in range(tries):
         await stop_at_entry(rig, f.EntityWindow_DespawnRings, 2, "EntityWindow_DespawnRings")
@@ -1063,7 +1202,8 @@ async def profile_once(rig: Rig, variant: str, out: list, tries: int = 6) -> dic
                    loops=loops, efs=efs, rem=rem, clr=clr, foreign=len(foreign),
                    mclk=m1 - m0, mclk_run=mB - mA, after=after)
         rec["cycles"] = rec["mclk"] / MCLK_PER_68K_CYCLE
-        rec["model"] = cost_model(N, variant == "remove")
+        rec["n"] = N
+        rec["model"] = cost_model(N, variant == "remove", form)
         out.append(f"  [{variant}] attempt {attempt}, frame {rec['frame']}: camera {rec['cam']}, "
                    f"tracked ids {tracked}, natural Ring_Count {natural}; seeded {N} x "
                    f"(x={x}, y={y}, sec={sec}); {n_steps} instructions stepped, {loops} loop "
@@ -1080,33 +1220,303 @@ async def profile_once(rig: Rig, variant: str, out: list, tries: int = 6) -> dic
 
 
 async def w_c4a3(rig: Rig, boot: str, out: list) -> tuple[str, str]:
+    """keep-all at every N in --c4a3-n, and remove-all at every non-zero N (default: N =
+    MAX_RING_BUFFER only, the original full-buffer witness). Each N is its own seed from the
+    boot checkpoint, and each is graded against the model for the form this ROM carries."""
     f = rig.f
-    N = f.MAX_RING_BUFFER
+    form = despawn_form(f)
+    ns = f.opts.get("c4a3_n") or [f.MAX_RING_BUFFER]
+    out.append(f"  EntityWindow_DespawnRings in this ROM is the {form!r} form: "
+               f"{DESPAWN_FORMS[form]['what']} (decoded from its bytes)")
+    rows, bad = [], []
+    for n in ns:
+        for variant in (("keep", "remove") if n else ("keep",)):
+            await rig.restore(boot)
+            r = await profile_once(rig, variant, out, n=n, form=form)
+            keep = variant == "keep"
+            ok = (r["loops"] == n and r["rem"] == (0 if keep else n) and r["efs"] == (0 if keep else n)
+                  and r["clr"] == 0 and r["after"] == (n if keep else 0)
+                  and r["mclk"] == r["mclk_run"] and r["mclk"] % MCLK_PER_68K_CYCLE == 0)
+            if not ok:
+                bad.append(f"{variant} N={n}: the trace is not the path the seed selects, or the "
+                           f"stepped and run_to windows disagree")
+            elif r["cycles"] != r["model"]:
+                bad.append(f"{variant} N={n}: {r['cycles']:.2f} cycles, the {form} model says {r['model']}")
+            rows.append(dict(n=n, variant=variant, cycles=r["cycles"], mclk=r["mclk"],
+                             mclk_run=r["mclk_run"], model=r["model"], steps=r["steps"]))
+    f.data["c4a3"] = dict(form=form, rows=rows)
+    out.append(f"  {'N':>4} {'variant':<7} {'mclk':>7} {'cycles':>7} {'model':>7}")
+    for r in rows:
+        out.append(f"  {r['n']:>4} {r['variant']:<7} {r['mclk']:>7} {r['cycles']:>7.0f} {r['model']:>7}")
+    if bad:
+        return "NOT WITNESSED", "; ".join(bad)
+    return "WITNESSED", (f"{len(rows)} windows, every one interrupt-free, stepped == run_to, and equal "
+                         f"to the hand-derived {form} model"
+                         + "".join(f"; {r['variant']} N={r['n']} {r['cycles']:.0f}" for r in rows
+                                   if r["n"] == f.MAX_RING_BUFFER))
+
+
+# --------------------------------------------------------------------------- C4a-2 cycle counts
+
+#: The two procs C4a-2's runtime TAG asks to be timed, before and after.
+C4A2_PROCS = ("EntityWindow_PopulateSectionRings", "EntityWindow_RescanY")
+#: Entries counted inside each timed window (each ROM has the ones it has: Collected_CheckRing
+#: and Killed_CheckObject exist only before C4a-2, and are the collected / killed gate reaches).
+C4A2_COUNTED = ("EntityWindow_TrySpawnRing", "EntityWindow_TrySpawnObject", "Collected_FindSlot",
+                "Collected_CheckRing", "Killed_CheckObject", "RingBuffer_Add",
+                "EntityWindow_RescanRings", "EntityWindow_RescanObjects")
+
+
+def interrupt_vectors(f) -> dict:
+    """{handler entry: level} for the 68000 autovectors 1-7 ($64..$7C), read from this ROM."""
+    return {int.from_bytes(f.rom_bytes[a:a + 4], "big") & 0xFFFFFF: (a - 0x60) // 4
+            for a in range(0x64, 0x80, 4)}
+
+
+async def calibrate_irq(rig: Rig, vectors: dict) -> tuple:
+    """Prove the interrupt detector can see an interrupt before trusting a clean window to it.
+
+    VSync_Wait spins until a VBlank handler has run, so the first pc a single-step reports
+    outside the spin can only be an interrupt's entry. The detector passes only if that pc is
+    one of this ROM's autovector targets (measured 2026-09-12: a step that takes an interrupt
+    reports the vector target itself, e.g. the HBlank trampoline $FFB6A0)."""
+    from scene_spans import lst_proc_sizes
+    f = rig.f
+    vs = f.need("VSync_Wait")
+    size = lst_proc_sizes(f.lst_path).get("VSync_Wait")
+    if not size:
+        raise CouldNotRun("scene_spans.lst_proc_sizes has no size for VSync_Wait")
+    await stop_at_entry(rig, f.need("$engine.vblank$VSync_Wait$wait"), 3, "VSync_Wait's spin")
+    for i in range(400000):
+        pc = int((await rig.step(1))["pc"], 16) & 0xFFFFFF
+        if not vs <= pc < vs + size:
+            return pc, i + 1, pc in vectors
+    raise CouldNotRun("single-stepping never left VSync_Wait's spin")
+
+
+class TimedRig(Rig):
+    """A Rig whose frame and run_to advances halt at the entries of the timed procs (execution
+    breakpoints), time the call there, and carry on, so a whole scripted route runs unchanged
+    while every call of the two procs on it is measured.
+
+    One call is timed the c4a3 way: every instruction from the proc's first to its return
+    address is single-stepped for the mclk delta (divided by 7), and the same window is re-run
+    from a checkpoint at the entry with one run_to, which must give the identical delta. An
+    interrupt inside the window shows as a step landing on an autovector target: that window is
+    DISCARDED (its cycles are None) and never billed to the proc."""
+
+    def __init__(self, bus, f, procs: dict, counted: dict, vectors: dict):
+        super().__init__(bus, f)
+        self.procs, self.counted, self.vectors = procs, counted, vectors
+        self.events: list = []
+        self.held: set = set()
+        self.handles: list = []
+        self.tag = self.leg = ""
+
+    async def arm(self):
+        for a in self.procs:
+            self.handles.append((await self.call("emulator/breakpoint_add", {"addr": hex(a)}))["breakpoint"])
+
+    async def disarm(self):
+        while self.handles:
+            await self.call("emulator/breakpoint_clear", {"breakpoint": self.handles.pop()})
+
+    async def hold(self, button, down):
+        (self.held.add if down else self.held.discard)(button)
+        await super().hold(button, down)
+
+    async def restore(self, cid):
+        self.held.clear()
+        await super().restore(cid)
+
+    async def frames(self, n):
+        target = (await self.status())["frame"] + n
+        r = None
+        while True:
+            cur = (await self.status())["frame"]
+            if cur >= target:
+                return r or {"frame": cur}
+            r = await super().frames(target - cur)       # an armed breakpoint halts run_frames
+            pc = int(r["pc"], 16) & 0xFFFFFF
+            if (await self.status())["frame"] < target:
+                if pc not in self.procs:
+                    raise CouldNotRun(f"run_frames stopped at ${pc:06X} short of its frame count, "
+                                      f"and not at a timed proc")
+                await self.time_call(pc)
+
+    async def run_to(self, addr, max_frames):
+        end = (await self.status())["frame"] + max_frames
+        while True:
+            cur = (await self.status())["frame"]
+            r = await super().run_to(addr, max(1, end - cur))
+            pc = int(r["pc"], 16) & 0xFFFFFF
+            if not r.get("reached") and pc in self.procs and pc != addr:
+                await self.time_call(pc)
+                continue
+            return r
+
+    async def time_call(self, entry: int):
+        f = self.f
+        name = self.procs[entry]
+        rg = await self.regs()
+        ret = await self.rl(rg["a7"]) & 0xFFFFFF
+        st0 = await self.status()
+        m0 = st0["mclk"]
+        ev = dict(tag=self.tag, leg=self.leg, proc=name, frame=st0["frame"], cam=await self.camera(),
+                  ring_count=await self.rb(f.Ring_Count))
+        if name == "EntityWindow_PopulateSectionRings":
+            ev["section"] = await self.rb((rg["a1"] & 0xFFFFFF) + f.ess_section_id)
+        else:
+            ev["tracked"] = await self.tracked_ids()
+        cp = await self.checkpoint()
+        counts = {n: 0 for n in self.counted.values()}
+        irq, steps = [], 0
+        try:
+            while True:
+                s = await self.step(1)
+                steps += 1
+                pc = int(s["pc"], 16) & 0xFFFFFF
+                if pc == ret:
+                    m1 = s["mclk"]
+                    break
+                if pc in self.vectors:
+                    irq.append(self.vectors[pc])
+                if pc in self.counted:
+                    counts[self.counted[pc]] += 1
+                if steps > 500000:
+                    raise CouldNotRun(f"{name} did not return in 500000 steps")
+            ev["ring_count_after"] = await self.rb(f.Ring_Count)
+            # the same window with no stepping, from the same entry state. Not Rig.restore:
+            # that releases the pad, and the route may be holding a direction right now.
+            await self.call("emulator/restore", {"id": cp})
+            await self.call("emulator/release_all")
+            if self.held:
+                await self.call("emulator/hold", {"buttons": sorted(self.held), "down": True})
+            mA = (await self.status())["mclk"]
+            r = await Rig.run_to(self, ret, 2)
+            if not r.get("reached"):
+                raise CouldNotRun(f"the re-run of {name} from its entry did not reach ${ret:06X}")
+            mB = r["mclk"]
+        finally:
+            await self.drop(cp)
+        ev.update(steps=steps, counts=counts, irq=irq, mclk=m1 - m0, mclk_run=mB - mA,
+                  cycles=None if irq else (m1 - m0) / MCLK_PER_68K_CYCLE)
+        self.events.append(ev)
+
+
+async def vertical_leg(rig: Rig, out: list, tag: str) -> dict:
+    """From home, DOWN until section 0's rings have left the Y despawn band by a coarse row,
+    then UP back to the home camera: RescanY runs at every 128 px row crossed, and on the way
+    up it re-offers those rings, so the collected gate is reached (C4a-2's TAG names "a
+    coarse-row crossing"; the c4a2 route alone crosses about one)."""
+    f = rig.f
+    # Start from the act's LEFT CLAMP, not wherever the route's 4-frame-polled LEFT leg
+    # stopped: that overshoot depends on how many ticks each ROM fits in a poll (measured: the
+    # control ended at Camera_X 8 on one ROM and 24 on the other), and a different camera makes
+    # a different call. The clamp is where the camera stops moving, on any ROM.
+    await rig.hold("left", True)
+    try:
+        prev = None
+        for _ in range(0, 1200, 4):
+            await rig.frames(4)
+            cx = (await rig.camera())[0]
+            if cx == prev:
+                break
+            prev = cx
+    finally:
+        await rig.hold("left", False)
+    await rig.frames(8)
+    cam0 = await rig.camera()
+    y_far = max(y for _, y in f.sec0_rings) + f.ENTITY_DESPAWN_BUFFER_Y + f.ENTITY_RESCAN_ROW
+    far = None
+    await rig.hold("down", True)
+    try:
+        for t in range(0, 1200, 4):
+            await rig.frames(4)
+            if (await rig.camera())[1] >= y_far:
+                far = dict(frames=t + 4, cam=await rig.camera(),
+                           sec0=sorted(e["idx"] for e in await rig.ring_buffer() if e["sec"] == 0))
+                break
+    finally:
+        await rig.hold("down", False)
+    if far is None:
+        raise CouldNotRun(f"the camera never reached y {y_far} going down")
+    await rig.hold("up", True)
+    try:
+        for t in range(0, 1200, 4):
+            await rig.frames(4)
+            if (await rig.camera())[1] <= cam0[1]:
+                break
+    finally:
+        await rig.hold("up", False)
+    await rig.frames(8)
+    buf = await rig.ring_buffer()
+    home = dict(cam=await rig.camera(), sec0=sorted(e["idx"] for e in buf if e["sec"] == 0))
+    out.append(f"  [{tag}] vertical leg: DOWN to camera {far['cam']} (derived y >= {y_far}: the "
+               f"lowest section-0 ring + ENTITY_DESPAWN_BUFFER_Y + one coarse row), section-0 indices "
+               f"there {far['sec0']}; UP to camera {home['cam']}, section-0 indices {home['sec0']}")
+    return dict(far=far, home=home)
+
+
+async def w_c4a2t(rig: Rig, boot: str, out: list) -> tuple[str, str]:
+    """Every EntityWindow_PopulateSectionRings and EntityWindow_RescanY call on the c4a2 route
+    (subject: ring 0 collected; control: not), plus a vertical leg, timed one by one."""
+    f = rig.f
+    procs = {f.need(n): n for n in C4A2_PROCS}
+    counted = {f.lab[n]: n for n in C4A2_COUNTED if n in f.lab}
+    vectors = interrupt_vectors(f)
     await rig.restore(boot)
-    k = await profile_once(rig, "keep", out)
-    await rig.restore(boot)
-    r = await profile_once(rig, "remove", out)
-    ok_k = (k["loops"] == N and k["rem"] == 0 and k["efs"] == 0 and k["after"] == N
-            and k["mclk"] == k["mclk_run"] and k["mclk"] % MCLK_PER_68K_CYCLE == 0)
-    ok_r = (r["loops"] == N and r["rem"] == N and r["efs"] == N and r["clr"] == 0
-            and r["after"] == 0 and r["mclk"] == r["mclk_run"]
-            and r["mclk"] % MCLK_PER_68K_CYCLE == 0)
-    model = k["cycles"] == k["model"] and r["cycles"] == r["model"]
-    out.append(f"  hand-derived model agreement: keep {k['cycles']:.0f} vs {k['model']}, remove "
-               f"{r['cycles']:.0f} vs {r['model']} -> {model}")
-    if ok_k and ok_r and model:
-        return "WITNESSED", (f"full buffer ({N}): keep-all {k['cycles']:.0f} cycles "
-                             f"({k['mclk']} mclk), remove-all {r['cycles']:.0f} cycles "
-                             f"({r['mclk']} mclk); both equal the hand-derived model")
-    return "NOT WITNESSED", (f"keep ok={ok_k}, remove ok={ok_r}, model agreement={model} "
-                             f"(keep {k['cycles']:.2f}/{k['model']}, remove "
-                             f"{r['cycles']:.2f}/{r['model']})")
+    pc, n, ok = await calibrate_irq(rig, vectors)
+    out.append(f"  interrupt detector calibration: from VSync_Wait's spin, the first pc outside it came "
+               f"after {n} steps at ${pc:06X}, an autovector target: {ok} (targets "
+               f"{ {('$%06X' % a): lv for a, lv in vectors.items()} })")
+    if not ok:
+        raise CouldNotRun("the interrupt detector is blind: leaving VSync_Wait did not land on a vector")
+    trig = TimedRig(rig.b, f, procs, counted, vectors)
+    checks = []
+    for tag, collect in (("SUBJECT", True), ("CONTROL", False)):
+        trig.tag, trig.leg = tag, "route"
+        await trig.arm()
+        try:
+            res = await c4a2_route(trig, boot, collect, out)
+            trig.leg = "vertical"
+            vres = await vertical_leg(trig, out, tag)
+        finally:
+            await trig.disarm()
+            await trig.call("emulator/release_all")
+        want = list(range(1 if collect else 0, len(f.sec0_rings)))
+        checks.append((tag, res["sec0"] == want and vres["home"]["sec0"] == want and not vres["far"]["sec0"]))
+    ev = trig.events
+    f.data["c4a2t"] = ev
+    out.append(f"  {'tag':<7} {'leg':<8} {'proc':<34} {'frame':>5} {'camera':>12} {'rings':>7} "
+               f"{'steps':>6} {'mclk':>7} {'cycles':>7}  counts / interrupts")
+    for e in ev:
+        who = f"sec {e['section']}" if "section" in e else f"tracked {e['tracked']}"
+        cyc = f"{e['cycles']:.0f}" if e["cycles"] is not None else "DISCARD"
+        cnt = ", ".join(f"{k.split('_', 1)[1]} {v}" for k, v in e["counts"].items() if v)
+        out.append(f"  {e['tag']:<7} {e['leg']:<8} {e['proc']:<34} {e['frame']:>5} {str(e['cam']):>12} "
+                   f"{e['ring_count']:>3}->{e['ring_count_after']:<3} {e['steps']:>6} {e['mclk']:>7} {cyc:>7}  "
+                   f"{who}; {cnt or 'none'}" + (f"; INTERRUPT level {e['irq']}" if e["irq"] else ""))
+    bad = [f"{e['tag']} {e['proc']} frame {e['frame']}: stepped {e['mclk']} vs run_to {e['mclk_run']} mclk"
+           for e in ev if e["mclk"] != e["mclk_run"] or e["mclk"] % MCLK_PER_68K_CYCLE]
+    bad += [f"{t}: the route did not end with section 0's expected ring indices" for t, ok in checks if not ok]
+    clean = [e for e in ev if e["cycles"] is not None]
+    kinds = {(e["tag"], e["proc"]) for e in clean}
+    missing = [(t, p) for t in ("SUBJECT", "CONTROL") for p in C4A2_PROCS if (t, p) not in kinds]
+    if bad:
+        return "NOT WITNESSED", "; ".join(bad)
+    if missing:
+        return "COULD NOT RUN", f"no interrupt-free timed call of {missing}"
+    return "WITNESSED", (f"{len(ev)} calls timed ({len(ev) - len(clean)} discarded for an interrupt "
+                         f"inside the window), every stepped window equal to its run_to re-run")
 
 
 # --------------------------------------------------------------------------- driver
 
 RUNNERS = {"c2a6": w_c2a6, "multisprite": w_multisprite, "nullmap": w_nullmap,
-           "c4a2": w_c4a2, "c4a3": w_c4a3}
+           "c4a2": w_c4a2, "c4a3": w_c4a3, "c4a2t": w_c4a2t}
+#: Before/after comparisons: each runs one measurement on --rom (after) and on --before-rom.
+AB = {"c4a3ab": "c4a3", "c4a2ab": "c4a2t"}
 
 
 async def drive(sock: str, f: Facts, which: list) -> list:
@@ -1140,29 +1550,19 @@ async def drive(sock: str, f: Facts, which: list) -> list:
     return results
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("witness", choices=WITNESSES + ("all",))
-    ap.add_argument("--rom", default=None,
-                    help="default: <suite root>/" + "/".join(DEFAULT_ROM_PARTS))
-    ap.add_argument("--lst", default=None, help="default: the .lst beside the ROM")
-    a = ap.parse_args()
-    which = list(WITNESSES) if a.witness == "all" else [a.witness]
-    print(f"lens_residue_object_witness  {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
+def measure(label: str, rom: str, lst: str, src_root: Path, expect: tuple, which: list,
+            opts: dict):
+    """One ROM, one fresh emulator: run `which`, reap. Returns (results, facts or None)."""
+    print(f"\n#### {label}: ROM {rom}")
     try:
-        if a.rom is None:
-            a.rom = default_rom()
-    except Exception as e:                  # suite_paths refuses by name; not a verdict
-        print(f"COULD NOT RUN (setup): {e}")
-        return 2
-    lst = a.lst or str(Path(a.rom).with_suffix(".lst"))
-    try:
-        f = Facts(a.rom, lst)
+        f = Facts(rom, lst, src_root=src_root, expect=expect)
     except CouldNotRun as e:
         print(f"COULD NOT RUN (setup): {e}")
-        return 2
-    print(f"ROM {a.rom} crc32 {f.crc:08x} / {f.rom_len} B (verified); listing {lst}")
-    inst = AetherInstance(a.rom, symbols=lst)
+        return [(w, "COULD NOT RUN", str(e)) for w in which], None
+    f.opts = opts
+    print(f"ROM crc32 {f.crc:08x} / {f.rom_len} B (verified, and named by the listing's DIGEST-ROM); "
+          f"listing {lst}; sources from {f.src_root}")
+    inst = AetherInstance(rom, symbols=lst)
     pid = None
     try:
         sock = inst.start()
@@ -1182,6 +1582,160 @@ def main() -> int:
                 print(f"WARNING: server pid {pid} still exists after reap")
             except ProcessLookupError:
                 print(f"server pid {pid} reaped: gone")
+    print("sources checked:")
+    for s in f.checked_sources:
+        print(f"  {s}")
+    return results, f
+
+
+def compare_c4a3(before: Facts, after: Facts) -> tuple[str, list]:
+    """after - before per (N, variant), against c4a3_predicted_delta. The prediction HOLDS only
+    if every measured delta equals it exactly: both ROMs are deterministic and both windows are
+    graded interrupt-free, so there is no noise for an 'about' to absorb."""
+    lines, refuted = [], []
+    b = {(r["n"], r["variant"]): r for r in before.data["c4a3"]["rows"]}
+    a = {(r["n"], r["variant"]): r for r in after.data["c4a3"]["rows"]}
+    lines.append(f"  forms: before {before.data['c4a3']['form']!r}, after {after.data['c4a3']['form']!r}")
+    lines.append(f"  {'N':>4} {'variant':<7} {'before':>7} {'after':>7} {'delta':>7} {'predicted':>9}  held")
+    for key in sorted(set(a) & set(b)):
+        n, v = key
+        d = a[key]["cycles"] - b[key]["cycles"]
+        p = c4a3_predicted_delta(n, v)
+        held = d == p
+        if not held:
+            refuted.append(f"{v} N={n}: measured {d:+.0f}, predicted {p:+d}")
+        lines.append(f"  {n:>4} {v:<7} {b[key]['cycles']:>7.0f} {a[key]['cycles']:>7.0f} {d:>+7.0f} {p:>+9d}  "
+                     f"{'yes' if held else 'NO'}")
+    if set(a) != set(b):
+        refuted.append(f"the two runs measured different rows: {sorted(set(a) ^ set(b))}")
+    return ("REFUTED" if refuted else "HELD"), lines + [f"  REFUTED BY: {r}" for r in refuted]
+
+
+def compare_c4a2(before: Facts, after: Facts) -> tuple[str, list]:
+    """Pairs the two ROMs' timed calls by (tag, leg, proc, ordinal) and reports after - before.
+
+    A pair counts as the SAME CALL only when its inputs agree: camera, ring count on entry and
+    exit, and the section (PopulateSectionRings) or the tracked ids (RescanY). The parcel note's
+    derived bound is checked on every same-call pair: the lazy slot cache costs a walk at most
+    8 cycles (its `suba.l a4,a4`), so after - before <= 8 x the walker calls in the window, and
+    once any candidate reaches the collected/killed gate the walk saves 62 on the first and
+    152 + 34k on each later one, so the delta is NEGATIVE whenever the before ROM reached that
+    gate (Collected_CheckRing / Killed_CheckObject entered)."""
+    def keyed(events):
+        seen, out = {}, {}
+        for e in events:
+            k = (e["tag"], e["leg"], e["proc"])
+            seen[k] = seen.get(k, 0) + 1
+            out[k + (seen[k],)] = e
+        return out
+    b, a = keyed(before.data["c4a2t"]), keyed(after.data["c4a2t"])
+    lines, broken, unpaired, same = [], [], [], 0
+    lines.append(f"  {'tag':<7} {'leg':<8} {'proc':<22} {'#':>2} {'frame b/a':>11} {'before':>7} {'after':>7} "
+                 f"{'delta':>7}  gate(b) walkers  bound")
+    for k in sorted(set(a) | set(b), key=lambda t: (t[0], t[1] != "route", t[1], t[2], t[3])):
+        eb, ea = b.get(k), a.get(k)
+        if eb is None or ea is None:
+            unpaired.append(k)
+            continue
+        inputs = ("cam", "ring_count", "ring_count_after", "section", "tracked")
+        diff = [x for x in inputs if eb.get(x) != ea.get(x)]
+        if eb["cycles"] is None or ea["cycles"] is None:
+            lines.append(f"  {k[0]:<7} {k[1]:<8} {k[2][13:]:<22} {k[3]:>2} {eb['frame']:>5}/{ea['frame']:<5} "
+                         f"(an interrupt inside one window; not compared)")
+            continue
+        if diff:
+            lines.append(f"  {k[0]:<7} {k[1]:<8} {k[2][13:]:<22} {k[3]:>2} {eb['frame']:>5}/{ea['frame']:<5} "
+                         f"{eb['cycles']:>7.0f} {ea['cycles']:>7.0f}   (inputs differ: {diff}; not the same call)")
+            continue
+        same += 1
+        d = ea["cycles"] - eb["cycles"]
+        gate = eb["counts"].get("Collected_CheckRing", 0) + eb["counts"].get("Killed_CheckObject", 0)
+        walkers = (1 if k[2].endswith("PopulateSectionRings") else
+                   ea["counts"].get("EntityWindow_RescanRings", 0) + ea["counts"].get("EntityWindow_RescanObjects", 0))
+        ok = d <= 8 * walkers and (gate == 0 or d < 0)
+        if not ok:
+            broken.append(f"{k}: delta {d:+.0f} with {gate} gate reach(es) and {walkers} walker(s)")
+        lines.append(f"  {k[0]:<7} {k[1]:<8} {k[2][13:]:<22} {k[3]:>2} {eb['frame']:>5}/{ea['frame']:<5} "
+                     f"{eb['cycles']:>7.0f} {ea['cycles']:>7.0f} {d:>+7.0f}  {gate:>7} {walkers:>7}  "
+                     f"{'held' if ok else 'BROKEN'}")
+    if unpaired:
+        lines.append(f"  unpaired calls (one ROM made a call the other did not): {unpaired}")
+    lines.append(f"  same-call pairs compared: {same}")
+    if not same:
+        return "COULD NOT RUN", lines + ["  no call on the route could be paired with identical inputs"]
+    return ("BOUND BROKEN" if broken else "BOUND HELD"), lines + [f"  BROKEN: {x}" for x in broken]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("witness", choices=WITNESSES + ("c4a2t", "all") + tuple(AB))
+    ap.add_argument("--rom", default=None,
+                    help="default: <suite root>/" + "/".join(DEFAULT_ROM_PARTS))
+    ap.add_argument("--lst", default=None, help="default: the .lst beside the ROM")
+    ap.add_argument("--src-root", default=str(AEON),
+                    help="the tree the ROM was built from (default: this tool's tree); every .emp "
+                         "read is proven against the listing's DIGEST-READ")
+    ap.add_argument("--expect-crc", default=None,
+                    help=f"the ROM's crc32 (default {EXPECT_CRC:08x}, the booked ROM)")
+    ap.add_argument("--expect-len", type=int, default=None,
+                    help="the ROM's length (default: the booked length with the default crc, "
+                         "otherwise the file's own length; the crc is the identity)")
+    ap.add_argument("--before-rom", help="c4a3ab / c4a2ab: the ROM built before the change")
+    ap.add_argument("--before-lst", help="default: the .lst beside --before-rom")
+    ap.add_argument("--before-src-root", help="the tree --before-rom was built from")
+    ap.add_argument("--before-expect-crc", help="--before-rom's crc32 (required with --before-rom)")
+    ap.add_argument("--c4a3-n", default=None,
+                    help="c4a3: comma-separated ring counts to seed (default: MAX_RING_BUFFER only)")
+    a = ap.parse_args()
+    print(f"lens_residue_object_witness  {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}")
+    opts = {}
+    if a.c4a3_n:
+        opts["c4a3_n"] = [int(x) for x in a.c4a3_n.split(",")]
+    try:
+        if a.rom is None:
+            a.rom = default_rom()
+    except Exception as e:                  # suite_paths refuses by name; not a verdict
+        print(f"COULD NOT RUN (setup): {e}")
+        return 2
+
+    def expect_of(rom, crc, length):
+        if crc is None:
+            return (EXPECT_CRC, EXPECT_LEN)
+        return (int(crc, 16), length if length is not None else Path(rom).stat().st_size)
+
+    lst = a.lst or str(Path(a.rom).with_suffix(".lst"))
+    if a.witness in AB:
+        w = AB[a.witness]
+        if not (a.before_rom and a.before_src_root and a.before_expect_crc):
+            print("COULD NOT RUN (setup): a before/after run needs --before-rom, --before-src-root "
+                  "and --before-expect-crc")
+            return 2
+        blst = a.before_lst or str(Path(a.before_rom).with_suffix(".lst"))
+        ra, fa = measure("AFTER", a.rom, lst, Path(a.src_root), expect_of(a.rom, a.expect_crc, a.expect_len),
+                         [w], opts)
+        rb, fb = measure("BEFORE", a.before_rom, blst, Path(a.before_src_root),
+                         expect_of(a.before_rom, a.before_expect_crc, None), [w], opts)
+        print("\nVERDICTS")
+        for tag, res in (("after", ra), ("before", rb)):
+            for n, v, why in res:
+                print(f"  {tag:<6} {n:<12} {v:<14} {why}")
+        if fa is None or fb is None or w not in fa.data or w not in fb.data:
+            print(f"\nCOMPARISON {a.witness}: COULD NOT RUN (a side has no measurement)")
+            return 2
+        verdict, lines = (compare_c4a3 if w == "c4a3" else compare_c4a2)(fb, fa)
+        print(f"\nCOMPARISON {a.witness} (after - before)")
+        print("\n".join(lines))
+        print(f"  -> {verdict}")
+        vs = [v for _, v, _ in ra + rb]
+        if "NOT WITNESSED" in vs or verdict in ("REFUTED", "BOUND BROKEN"):
+            return 1
+        if "COULD NOT RUN" in vs or verdict == "COULD NOT RUN":
+            return 2
+        return 0
+
+    which = list(WITNESSES) if a.witness == "all" else [a.witness]
+    results, _f = measure("ROM", a.rom, lst, Path(a.src_root), expect_of(a.rom, a.expect_crc, a.expect_len),
+                          which, opts)
     print("\nVERDICTS")
     for w, v, why in results:
         print(f"  {w:<12} {v:<14} {why}")
