@@ -41,6 +41,16 @@ TWO CONTROLS ON THE MODEL, because a mis-modelled probe would read as a result:
     < 0). Without one the assertion has no subject and the run is UNMEASURABLE, not a
     pass.
 
+SAMPLING IS PER PLAYER UPDATE, NOT PER VIDEO FRAME, and the first version of this file got
+that wrong. It stepped with `run_frames(1)` and read RAM at the VBlank boundary. The level
+logic sometimes overruns a VBlank (a lag frame), so a boundary can fall INSIDE a player
+update. Measured on the fix: leg B's first GLIDEFALL update read the class gate at frame 147
+and the ceiling probe (-6, then ejected) at frame 148, and the frame-147 sample, taken after
+gravity and before the eject, reported a head that was never left embedded. The same
+straddle shows up the other way as a boundary with no update in it at all. So `Drive.step`
+stops at each Player_1 entry into Player_Main, where the previous update is complete, and a
+stall under that stepping is UNMEASURABLE.
+
 LEGS (both boot fresh, both select Knuckles the same way):
   A  CHAR-4 (a), ASSERTED. The note's §7 recipe: glide right in open air, and when the
      integer x first reaches INJECT_X write y_pos = 514.0; hold A; step one frame at a
@@ -96,7 +106,7 @@ EDITOR = AEON / "games/sonic4/data/editor/ojz/act1"
 BASE_BANK = AEON / "games/sonic4/data/collision/base"
 
 NEED_SYMS = ("Player_1", "Character_ID", "Boot_At_X", "Boot_At_Y", "Boot_At_Flag",
-             "GameState_OJZScroll_Init", "Player_SetState", "Player_DebugExit")
+             "GameState_OJZScroll_Init", "Player_SetState", "Player_DebugExit", "Player_Main")
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_x_vel", "SST_y_vel", "SST_width_pixels",
              "SST_height_pixels", "SST_status", "SST_layer", "CHAR_KNUCKLES",
              "PSTATE_AIR", "PSTATE_GLIDE", "PSTATE_GLIDEFALL", "SOLID_LRB")
@@ -239,6 +249,7 @@ class Drive:
     def __init__(self, client, syms, equs, state_off, dbg_off):
         self.b, self.s, self.e = client, syms, equs
         self.P = syms["Player_1"] & 0xFFFFFF
+        self.pm = syms["Player_Main"] & 0xFFFFFF
         self.state_off, self.dbg_off = state_off, dbg_off
 
     async def read(self, addr, n):
@@ -256,6 +267,26 @@ class Drive:
         if "ErrorHandler" in (st.get("symbolAtPc") or ""):
             raise Unmeasurable(f"the ROM FAULTED (symbolAtPc={st.get('symbolAtPc')!r}, "
                                f"pc={st.get('pc')}) — every number after this is a halted machine")
+
+    async def step(self):
+        """Advance exactly one PLAYER UPDATE: stop at the next Player_Main entry for
+        Player_1. At that PC the previous update (dispatch, Player_LevelBound, touch) is
+        complete, so every sample is a whole update however the logic straddles a VBlank.
+        `run_to` returns at once when the PC is already the target (measured: six calls,
+        same pc, same frame), so one instruction step leaves it first. NUM_PLAYERS is 2
+        and Player_Main is an object routine, so a stop on another slot is run past."""
+        for _ in range(4):
+            await self.b.call("emulator/step", {"count": 1})
+            r = await self.b.call("emulator/run_to", {"addr": hex(self.pm), "maxFrames": 3})
+            if not r.get("reached"):
+                raise Unmeasurable(f"Player_Main (${self.pm:06X}) was not reached within 3 "
+                                   f"frames (pc={r.get('pc')}) — the player is not being updated")
+            regs = await self.b.call("emulator/registers", {})
+            a0 = next(v for k, v in regs.items() if k.lower() == "a0")
+            a0 = int(a0, 16) if isinstance(a0, str) else int(a0)
+            if a0 & 0xFFFFFF == self.P:
+                return
+        raise Unmeasurable("four Player_Main stops in a row were not Player_1's")
 
     async def player(self):
         e = self.e
@@ -309,7 +340,7 @@ class Drive:
     async def start_glide(self):
         await self.hold_a(True)
         for _ in range(3):
-            await self.frames(1)
+            await self.step()
             if (await self.player())["state"] == self.e["PSTATE_GLIDE"]:
                 return
         raise Unmeasurable("holding A from AIR did not enter PSTATE_GLIDE within 3 frames")
@@ -322,7 +353,7 @@ class Drive:
                                    f"({p['x'] >> 16}, {p['y'] >> 16}) before x reached {x_px}")
             if (p["x"] >> 16) >= x_px:
                 return p
-            await self.frames(1)
+            await self.step()
         raise Unmeasurable(f"x never reached {x_px} in {MAX_FRAMES} frames")
 
     async def set_y(self, y_px):
@@ -334,7 +365,7 @@ class Drive:
     async def record(self, n, stop):
         rows = [await self.player()]
         for _ in range(n):
-            await self.frames(1)
+            await self.step()
             rows.append(await self.player())
             if stop(rows[-1]):
                 break
@@ -381,7 +412,13 @@ def annotate(rows, model, e):
 
 
 def model_control(rows):
-    """Every frame the ENGINE ejected must read 0 in the model afterwards."""
+    """Every frame the ENGINE ejected must read 0 in the model afterwards, and no sample
+    may be a stall: stepping by player updates makes one impossible, so a stall means the
+    stepping is not doing what `Drive.step` says it does."""
+    stalls = sum(r["stall"] for r in rows)
+    if stalls:
+        raise Unmeasurable(f"STEPPING CONTROL: {stalls} sample(s) show no player update at "
+                           f"all, which stepping by Player_Main entries cannot produce")
     bad = [r for r in rows if r["ejected"] and r["dist"] != 0]
     if bad:
         raise Unmeasurable(f"MODEL CONTROL: the engine ejected on {len(bad)} frame(s) and the "
