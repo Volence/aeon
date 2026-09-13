@@ -86,6 +86,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The single SCANLINE_CAPS parser (see game_caps below for why there is only one now).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scene_spans  # noqa: E402
+import band_geometry  # noqa: E402
 import artifact_provenance  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_UNMEASURABLE = 0, 1, 2
@@ -168,7 +169,7 @@ def pcfg_size(repo: str) -> int:
     return pcfg_offset(repo, None)
 
 
-def record_geometry(repo: str) -> tuple[int, int]:
+def record_geometry(repo: str, game: str) -> tuple[int, int]:
     """(offsetof(band_record, br_remap), sizeof(band_record)) — derived from the four tail
     declarations and their capability counts, never typed."""
     text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
@@ -183,12 +184,14 @@ def record_geometry(repo: str) -> tuple[int, int]:
     if not m:
         raise Unmeasurable("could not read BAND_ENTRY_LEN from engine/ram.emp")
     sizes["band_entry"] = int(m.group(1))
-    ns = {}
-    for nm in ("BAND_EXT_N", "BAND_CURVE_N", "BAND_DRIFT_N", "BAND_REMAP_N"):
-        m = re.search(r"pub const " + nm + r" = (\d+)", text)
-        if not m:
-            raise Unmeasurable(f"could not read `{nm}`")
-        ns[nm] = int(m.group(1))
+    # THE FOUR COUNTS ARE PER GAME SINCE 2026-09-13: each folds the GAME_SCANLINE_CAPS define
+    # from games/<game>/map.toml, so they are read for THIS gate's --game through the one
+    # reader (tools/band_geometry.py). Before, they were engine-wide literals and this gate read
+    # sonic4's tails for demo too, which was right only because demo really paid them.
+    try:
+        ns = band_geometry.tail_counts(game, repo)
+    except band_geometry.Unreadable as e:
+        raise Unmeasurable(str(e)) from e
     tail = (sizes["band_entry"] + sizes["band_ext"] * ns["BAND_EXT_N"]
             + sizes["band_curve"] * ns["BAND_CURVE_N"]
             + sizes["band_drift"] * ns["BAND_DRIFT_N"])
@@ -232,7 +235,7 @@ def struct_field_offset(repo: str, struct: str, want: str) -> int:
     raise Unmeasurable(f"{struct} has no field {want!r}")
 
 
-def curve_geometry(repo: str) -> tuple:
+def curve_geometry(repo: str, game: str) -> tuple:
     """(offset of band_curve.bc_flags inside a band_record, CURVE_FLAG_ACTIVE_BIT), or
     (None, None) when this game compiles BAND_CURVE_N = 0 and no band can carry a curve.
 
@@ -245,10 +248,11 @@ def curve_geometry(repo: str) -> tuple:
     NO for every band. Raising Unmeasurable there would refuse a game that simply does not
     have the feature."""
     text = open(os.path.join(repo, "engine/level/parallax.emp"), encoding="utf-8").read()
-    m = re.search(r"pub const BAND_CURVE_N = (\d+)", text)
-    if not m:
-        raise Unmeasurable("could not read `BAND_CURVE_N` from engine/level/parallax.emp")
-    if int(m.group(1)) == 0:
+    try:
+        counts = band_geometry.tail_counts(game, repo)   # per game since 2026-09-13
+    except band_geometry.Unreadable as e:
+        raise Unmeasurable(str(e)) from e
+    if counts["BAND_CURVE_N"] == 0:
         return None, None
     m = re.search(r"pub const CURVE_FLAG_ACTIVE_BIT\s*=\s*(\d+)", text)
     if not m:
@@ -261,10 +265,9 @@ def curve_geometry(repo: str) -> tuple:
     if not m2:
         raise Unmeasurable("could not read BAND_ENTRY_LEN from engine/ram.emp")
     m3 = re.search(r"pub struct band_ext \(size: (\d+)\)", text)
-    m4 = re.search(r"pub const BAND_EXT_N = (\d+)", text)
-    if not (m3 and m4):
+    if not m3:
         raise Unmeasurable("could not size the band_ext tail that precedes band_curve")
-    prefix = int(m2.group(1)) + int(m3.group(1)) * int(m4.group(1))
+    prefix = int(m2.group(1)) + int(m3.group(1)) * counts["BAND_EXT_N"]
     return prefix + struct_field_offset(repo, "band_curve", "bc_flags"), bit
 
 
@@ -581,7 +584,7 @@ def main() -> int:
                 return rc
         syms = parse_lst(a.lst)
         rom = open(a.rom, "rb").read()
-        tail_off, stride, remap_n = record_geometry(a.repo)
+        tail_off, stride, remap_n = record_geometry(a.repo, a.game)
         caps = game_caps(a.repo, a.game)
         anchor_off = pcfg_offset(a.repo, "pcfg_anchor_ch")
         hdr_len = pcfg_size(a.repo)
@@ -590,7 +593,7 @@ def main() -> int:
         offs = {"tbl": pcfg_offset(a.repo, "pcfg_deform_table_bg"),
                 "adsb": pcfg_offset(a.repo, "pcfg_anchor_dsb"),
                 "bdsb": band_entry_offset(a.repo, "band_deform_shift_b")}
-        offs["curve"], offs["curve_bit"] = curve_geometry(a.repo)
+        offs["curve"], offs["curve_bit"] = curve_geometry(a.repo, a.game)
         floor_px = visibility_floor(a.repo)
     except Unmeasurable as e:
         print(f"row_remap_gate: UNMEASURABLE — {e}")
@@ -619,8 +622,16 @@ def main() -> int:
             for b in bad:
                 print("  - " + b)
             return EXIT_FAIL
-        print("row_remap_gate: OK — capability undeclared, and the image carries no ladder "
-              "symbol and no non-NULL remap tail (both checked)")
+        if remap_n:
+            print("row_remap_gate: OK — capability undeclared, and the image carries no ladder "
+                  "symbol and no non-NULL remap tail (both checked)")
+        else:
+            # PER GAME SINCE 2026-09-13: an undeclared game's record has NO remap field, so
+            # there is no pointer to read, and "both checked" would claim a read that did not
+            # happen. The ladder-symbol half is still a real check.
+            print("row_remap_gate: OK — capability undeclared: the image carries no ladder "
+                  "symbol (checked), and this game's band record has no remap field at all "
+                  "(BAND_REMAP_N = 0 for this game), so no remap pointer can exist")
         return EXIT_OK
 
     problems, report = [], []

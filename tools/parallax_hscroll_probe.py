@@ -195,12 +195,17 @@ MAX_PARALLAX_BANDS = _emp_const("engine/system/constants.emp", "MAX_PARALLAX_BAN
 # FOUND 2026-08-27 in this probe's sibling, tools/left_col_mask_probe.py, where the same
 # mistake produced 15 claim failures against a correct ROM — all at band >= 1, because
 # band 0 is the one index a wrong stride cannot corrupt, which is exactly what made it
-# look plausible for so long. Derived from ram.emp's three mirrors rather than from
-# `band_record`, whose `(size: <expression>)` is over capability constants.
-SHADOW_STRIDE = (_emp_const("engine/ram.emp", "BAND_ENTRY_LEN")
-                 + _emp_const("engine/ram.emp", "BAND_EXT_BYTES")
-                 + _emp_const("engine/ram.emp", "BAND_CURVE_BYTES")
-                 + _emp_const("engine/ram.emp", "BAND_DRIFT_BYTES"))
+# look plausible for so long.
+#
+# PER GAME SINCE 2026-09-13: the tails fold the GAME_SCANLINE_CAPS define, so the stride is
+# read for sonic4 (the game this probe drives) through the one reader, tools/band_geometry.py,
+# which sums EVERY tail. The hand sum that stood here stopped at the drift tail and so missed
+# the remap tail (2026-09-03): 24 against a real 32.
+import band_geometry  # noqa: E402
+try:
+    SHADOW_STRIDE = band_geometry.record_stride("sonic4")
+except band_geometry.Unreadable as _e:
+    raise SystemExit(f"parallax_hscroll_probe: {_e}")
 assert SHADOW_STRIDE >= BE_SIZE, (
     "derived shadow stride %d is smaller than sizeof(band_entry) %d — ram.emp's mirrors "
     "and parallax.emp's struct disagree" % (SHADOW_STRIDE, BE_SIZE))

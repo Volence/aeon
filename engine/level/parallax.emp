@@ -147,26 +147,33 @@ pub struct band_entry {
 // capability shape lives in a struct the harvest never sees. `band_record` is deliberately
 // NOT in that list, and `band_entry` must never gain a field.
 //
-// ---- WHY BAND_EXT_N IS A PINNED LITERAL AND NOT A FOLD OF Game.SCANLINE_CAPS ----
+// ---- WHY THE FOUR TAIL COUNTS READ A BUILD DEFINE AND NOT Game.SCANLINE_CAPS ----
 //
-// It should read `if (Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 { 1 } else { 0 }`,
-// and that spelling was written, built, and REJECTED BY THE COMPILER twenty times over —
-// `unknown name Game.SCANLINE_CAPS`, once per emitted config record. The context that lays
-// out an emitted `data` binding's record type does not bind contract members. Neither does
-// the ambient struct harvest, nor `harvest_engine_ram_addresses` (engine/ram.emp earns the
-// same error for the same spelling). A build DEFINE *is* visible there: driving BAND_EXT_N
-// off `DEBUG` sized the record and built byte-identically, which is what makes the fix
-// concrete rather than speculative — expose each game's declared SCANLINE_CAPS as an
-// `emp_defines` row the way MAX_RING_BUFFER already is. That is a sigil-side change, booked
-// in docs/DEFERRED_WORK.md; EXTENDED-RECORD.md has the full evidence.
+// BAND_EXT_N (and BAND_CURVE_N, BAND_DRIFT_N and BAND_REMAP_N below) should be a fold of
+// `Game.SCANLINE_CAPS`, and that spelling was written, built, and REJECTED BY THE COMPILER
+// twenty times over (2026-08-20): `unknown name Game.SCANLINE_CAPS`, once per emitted config
+// record. The context that lays out an emitted `data` binding's record type does not bind
+// contract members, and neither does `harvest_engine_ram_addresses`, which lowers
+// engine/ram.emp. docs/EMP_PITFALLS.md §9 has the list.
 //
-// Until then the number is a mirror and THE CAPABILITY IS STILL THE AUTHORITY, because the
-// game side pins the two together where both are visible: games/sonic4/data/effects/
-// scene_registry.emp carries a two-directional ensure against Game.SCANLINE_CAPS. Raising
-// the bit without setting this to 1 fails the build, and so does the reverse. What this
-// tree cannot do yet is carry two games that DISAGREE about the bit — one engine constant
-// cannot be 0 and 1 at once — and that, precisely, is what the define buys.
-pub const BAND_EXT_N = 0
+// So each game ALSO declares its mask as a build define, `GAME_SCANLINE_CAPS`, in its own
+// games/<game>/map.toml `[defines]` table, and the four counts fold THAT (2026-09-13). A
+// game-side define row reaches both of those contexts (measured, with the evidence, in
+// docs/superpowers/notes/2026-09-13-per-game-band-defines.md), so the two games now get
+// different band records: sonic4 32 bytes, demo 10. Until then the four counts were
+// engine-wide literals held to sonic4's caps, and demo paid sonic4's tails in RAM.
+//
+// THE CAPABILITY IS STILL THE AUTHORITY. The define is a copy, and the block after
+// `band_record` below refuses the build unless it equals Game.SCANLINE_CAPS exactly and each
+// count equals its capability bit. Those checks run in every game that reaches this module,
+// so a new game cannot forget to write them.
+//
+// THE MASKS ARE LITERALS ON PURPOSE (docs/EMP_PITFALLS.md §2). A module that imports one of
+// these counts gets a CLONE whose initializer re-evaluates in THAT module's scope, and a CAP_*
+// name that does not resolve there degrades silently instead of erroring. A define resolves
+// everywhere and a literal needs nothing, so the define is the only free name. The literals
+// are pinned against CAP_* below.
+pub const BAND_EXT_N = if (GAME_SCANLINE_CAPS & $0020) != 0 { 1 } else { 0 }   // CAP_MULTI_DEFORM_TABLE
 
 // band_ext — the per-layer deform reference, present only under CAP_MULTI_DEFORM_TABLE.
 //
@@ -252,25 +259,15 @@ pub struct band_curve (size: 10) {
     bc_span:   u16,  // DERIVED: the layer's on-screen line span, the Bresenham modulus
 }
 
-// BAND_CURVE_N — 1 in a game whose SCANLINE_CAPS include CAP_FACTOR_CURVE, else 0. A
-// PINNED LITERAL for exactly BAND_EXT_N's reason (its banner above has the full evidence):
-// the context that lays out an emitted `data` binding's record type binds no contract
-// members, so `Game.SCANLINE_CAPS` here is `unknown name`, once per emitted config record.
-// The capability is still the authority — games/sonic4/data/effects/scene_registry.emp
-// carries the two-directional pin, where both names are visible.
+// BAND_CURVE_N — 1 in a game whose SCANLINE_CAPS include CAP_FACTOR_CURVE, else 0, folded
+// from GAME_SCANLINE_CAPS for exactly BAND_EXT_N's reason (its banner above).
 //
-// FLIPPED TO 1 BY THE d-15 SHOWCASE PARCEL (2026-08-26). The owner's answer to PARK-1 turns
-// per-layer vertical depth and CURVED SCROLLING on in the OJZ showcase, and the curve half
-// is a RECORD-SHAPE capability: the Aurora-authored scene `ojz_act1_depth`
-// (games/sonic4/data/editor/effects/ojz_act1_depth.json) attaches `curve: SceneCurve.To(..)`
-// to two layers, so every band record in the tree now carries the curve tail and
-// engine/ram.emp's BAND_CURVE_BYTES mirror moved to 10 in the same commit — which is exactly
-// what scene_registry.emp's CAP_FACTOR_CURVE pin says adopting one costs.
-//
-// IT IS ENGINE-WIDE, NOT PER-GAME, and that is this constant's design (see the banner
-// above): a pinned literal cannot read Game.SCANLINE_CAPS, so `demo` pays the widened
-// record too. Both images move; both are rebuilt and gated by this parcel.
-pub const BAND_CURVE_N = 1
+// sonic4 has declared the bit since the d-15 SHOWCASE PARCEL (2026-08-26): the owner's answer
+// to PARK-1 turned curved scrolling on in the OJZ showcase, and the Aurora-authored scene
+// `ojz_act1_depth` (games/sonic4/data/editor/effects/ojz_act1_depth.json) attaches
+// `curve: SceneCurve.To(..)` to two layers, so every sonic4 band record carries the curve
+// tail. Demo does not declare the bit and, since 2026-09-13, does not pay for the tail.
+pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }   // CAP_FACTOR_CURVE
 
 // ============== THE DRIFT TAIL (band drift, design §1.3 / §2) =====================
 //
@@ -343,25 +340,15 @@ pub struct band_drift (size: 4) {
     bd_rate_1616: u32,   // px/frame in 16.16 — the u32 image of a SIGNED rate; see the banner
 }
 
-// BAND_DRIFT_N — 1 in a game whose SCANLINE_CAPS include CAP_BAND_DRIFT, else 0. A PINNED
-// LITERAL for exactly BAND_EXT_N's and BAND_CURVE_N's reason (BAND_EXT_N's banner above has
-// the full evidence): the context that lays out an emitted `data` binding's record type binds
-// no contract members, so `Game.SCANLINE_CAPS` here is `unknown name`. The capability is still
-// the authority — games/sonic4/data/effects/scene_registry.emp carries the two-directional
-// pin, where both names are visible.
+// BAND_DRIFT_N — 1 in a game whose SCANLINE_CAPS include CAP_BAND_DRIFT, else 0, folded from
+// GAME_SCANLINE_CAPS for exactly BAND_EXT_N's reason (its banner above).
 //
-// IT IS ENGINE-WIDE, NOT PER-GAME. Flipping it to 1 widens band_record for BOTH games,
-// including `demo`, whose SCANLINE_CAPS is 0 and which will never drift, and every ROM image
-// in the tree moves. That is owner-gated (scene_registry.emp carries the refusal), and it is
-// why the mechanism lands at 0: the mechanism moves no byte, adoption does.
-//
-// RAISED TO 1 BY THE ADOPTION PARCEL (EFFECTS-W1 item 3, 2026-09-02), in the same commit as
-// engine/ram.emp's BAND_DRIFT_BYTES = 4, games/sonic4/config/game.emp's CAP_BAND_DRIFT and
-// the authored rate on Scene_OJZ_Default — which is exactly the set scene_registry.emp's
-// refusal message enumerates. `demo` pays the widened record and the accumulator array and
-// authors no rate; that is the engine-wide price this banner priced in advance, and its
-// SCANLINE_CAPS stays 0 so it emits none of the three gated spans.
-pub const BAND_DRIFT_N = 1
+// The mechanism landed with the count at 0 and moved no byte; adoption moved bytes (EFFECTS-W1
+// item 3, 2026-09-02, the authored rate on Scene_OJZ_Default), which is why adoption was
+// owner-gated. Until 2026-09-13 the count was one engine-wide literal, so sonic4's adoption
+// also widened demo's record and gave demo an accumulator array it never advances. Per game,
+// demo (SCANLINE_CAPS 0) carries neither.
+pub const BAND_DRIFT_N = if (GAME_SCANLINE_CAPS & $0080) != 0 { 1 } else { 0 }   // CAP_BAND_DRIFT
 
 // ---------------------------------------------------------------------------
 // band_remap — THE ROW REMAP TAIL (EFFECTS-W1 item 9, parcel 9a). The Hydrocity
@@ -422,30 +409,16 @@ pub struct band_remap (size: 8) {
     brm_anchor_ch: u8,   // patch channel carrying the FG's truth about the surface
 }
 
-// BAND_REMAP_N — 1 in a game whose SCANLINE_CAPS include CAP_ROW_REMAP, else 0. A PINNED
-// LITERAL for exactly BAND_EXT_N's, BAND_CURVE_N's and BAND_DRIFT_N's reason (BAND_EXT_N's
-// banner has the full evidence): the context that lays out an emitted `data` binding's
-// record type binds no contract members, so `Game.SCANLINE_CAPS` here is `unknown name`.
-// The capability is still the authority — games/sonic4/data/effects/scene_registry.emp
-// carries the two-directional pin, where both names are visible.
+// BAND_REMAP_N — 1 in a game whose SCANLINE_CAPS include CAP_ROW_REMAP, else 0, folded from
+// GAME_SCANLINE_CAPS for exactly BAND_EXT_N's reason (its banner above).
 //
-// IT IS ENGINE-WIDE, NOT PER-GAME. Flipping it to 1 widens band_record for BOTH games,
-// including `demo`, whose SCANLINE_CAPS is 0 and which will never remap a row, and every
-// ROM image in the tree moves. That is owner-gated (scene_registry.emp carries the
-// refusal), and it is why the mechanism lands at 0 first: THE MECHANISM MOVES NO BYTE,
-// ADOPTION DOES. Measured for this tail rather than asserted by analogy — parcel 9a built
-// all four canonical shapes at BAND_REMAP_N = 0 and got four byte-identical images, then
-// flipped to 1 in a second commit and recorded the deltas. See the parcel's commit
-// messages and docs/DEFERRED_WORK.md's item 9 block.
-//
-// RAISED TO 1 BY THE ADOPTION HALF OF PARCEL 9a (2026-09-03), in the same commit as
-// engine/ram.emp's BAND_REMAP_BYTES = 8, games/sonic4/config/game.emp's CAP_ROW_REMAP and
-// the authored ladder on Scene_OJZ_Underwater — which is exactly the set
-// scene_registry.emp's refusal message enumerates. `demo` pays the widened record and the
-// two-long frame mark and authors no ladder; that is the engine-wide price this banner
-// priced in advance, and its SCANLINE_CAPS stays 0 so it emits none of the three gated
-// spans.
-pub const BAND_REMAP_N = 1
+// THE MECHANISM MOVES NO BYTE, ADOPTION DOES, measured for this tail rather than asserted by
+// analogy: parcel 9a built all four canonical shapes with the count at 0 and got four
+// byte-identical images, then adopted in a second commit (2026-09-03, the authored ladder on
+// Scene_OJZ_Underwater) and recorded the deltas. See the parcel's commit messages and
+// docs/DEFERRED_WORK.md's item 9 block. Until 2026-09-13 the count was engine-wide, so demo
+// paid the widened record and the two-long frame mark; per game, it pays neither.
+pub const BAND_REMAP_N = if (GAME_SCANLINE_CAPS & $0800) != 0 { 1 } else { 0 }   // CAP_ROW_REMAP
 
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker
@@ -471,14 +444,49 @@ ensure(offsetof(band_record, br_base) == 0,
 ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || BAND_DRIFT_N != 0 || BAND_REMAP_N != 0 || sizeof(band_record) == sizeof(band_entry),
        "all four capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}, BAND_DRIFT_N {BAND_DRIFT_N}, BAND_REMAP_N {BAND_REMAP_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
 
-// THE SHADOW RESERVATION IS A MIRROR THIS MODULE HOLDS TO THE RECORD, for the same reason
-// BAND_EXT_N is: engine/ram.emp is lowered by a focused, CONTRACT-BLIND build, so it cannot
-// read the capability either. It reserves BAND_ENTRY_LEN per band; this ensure — which sees
-// both the record and the RESOLVED RAM span — is what stops the two disagreeing. Widen the
-// record without widening ram.emp and the build fails naming the constant, instead of the
+// ---- THE DEFINE IS A CHECKED COPY OF THE CAPABILITY (2026-09-13) ----
+//
+// The four counts above fold GAME_SCANLINE_CAPS, a build define each game declares in its
+// games/<game>/map.toml [defines] table, because Game.SCANLINE_CAPS is invisible where they
+// are consumed (BAND_EXT_N's banner). These guards keep that define from becoming a second,
+// unchecked authority. They sit HERE, in the engine, and not in each game, so every game that
+// reaches parallax gets them without writing them. A module-scope ensure in an ordinary module
+// sees both the define and the contract member.
+//
+// 1. The define equals the contract, every bit, both directions. A bit in the define that the
+//    game does not declare widens the record and the RAM for a service nothing lowers; a bit
+//    the game declares that the define lacks lowers scenes onto a record with no field for
+//    what they author. One equality refuses both, and the message names each difference.
+ensure(GAME_SCANLINE_CAPS == Game.SCANLINE_CAPS,
+       "GAME_SCANLINE_CAPS (the build define in this game's games/<game>/map.toml [defines] table) is {GAME_SCANLINE_CAPS} but this game's Game.SCANLINE_CAPS is {Game.SCANLINE_CAPS}. Bits in the define that the game does not declare: {GAME_SCANLINE_CAPS & ~Game.SCANLINE_CAPS}. Bits the game declares that the define lacks: {Game.SCANLINE_CAPS & ~GAME_SCANLINE_CAPS}. The define sizes band_record here and the parallax reservations in engine/ram.emp, so it must be an exact copy; change it together with SCANLINE_CAPS in the game's config/game.emp (values print in decimal)")
+// 2. The literal masks in the four derivations are the CAP_* bits they claim to be.
+ensure(CAP_MULTI_DEFORM_TABLE == $0020 && CAP_FACTOR_CURVE == $0040 && CAP_BAND_DRIFT == $0080 && CAP_ROW_REMAP == $0800,
+       "a CAP_* bit in engine/level/scene_dsl.emp moved (CAP_MULTI_DEFORM_TABLE {CAP_MULTI_DEFORM_TABLE}, CAP_FACTOR_CURVE {CAP_FACTOR_CURVE}, CAP_BAND_DRIFT {CAP_BAND_DRIFT}, CAP_ROW_REMAP {CAP_ROW_REMAP}; expected 32, 64, 128 and 2048), but the BAND_*_N derivations in engine/level/parallax.emp and the BAND_*_BYTES derivations in engine/ram.emp spell the masks as literals (docs/EMP_PITFALLS.md §2 is why). Update all eight literals, and tools/band_geometry.py, in the same commit")
+// 3. Each count IS its capability bit. With 1 and 2 true this holds by construction; it is
+//    written anyway because it is the property everything downstream relies on, and it is the
+//    one that catches a derivation replaced by a literal again. Each is an equality of two 0/1
+//    values, so both directions of the two-ensure pins these replace (they lived in
+//    games/sonic4/data/effects/scene_registry.emp and covered sonic4 only) are here, now for
+//    every game: a count of 0 against a declared bit lowers the scenes with no field for what
+//    they author and no diagnostic; a count of 1 against an undeclared bit pays the tail in
+//    ROM and shadow RAM for nothing and breaks the zero-capability byte identity (design 8.1).
+ensure(BAND_EXT_N == ((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) / CAP_MULTI_DEFORM_TABLE),
+       "BAND_EXT_N is {BAND_EXT_N} but this game's Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE is {Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE}: the per-layer deform tail no longer follows the capability. BAND_EXT_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+ensure(BAND_CURVE_N == ((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) / CAP_FACTOR_CURVE),
+       "BAND_CURVE_N is {BAND_CURVE_N} but this game's Game.SCANLINE_CAPS & CAP_FACTOR_CURVE is {Game.SCANLINE_CAPS & CAP_FACTOR_CURVE}: the curve tail no longer follows the capability, so a ramp would lower flat, or every band would pay 10 bytes nothing reads. BAND_CURVE_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+ensure(BAND_DRIFT_N == ((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) / CAP_BAND_DRIFT),
+       "BAND_DRIFT_N is {BAND_DRIFT_N} but this game's Game.SCANLINE_CAPS & CAP_BAND_DRIFT is {Game.SCANLINE_CAPS & CAP_BAND_DRIFT}: the drift tail no longer follows the capability, so the gated accumulate would read the record base as a rate, or every band would pay a tail and an accumulator nothing advances. BAND_DRIFT_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+ensure(BAND_REMAP_N == ((Game.SCANLINE_CAPS & CAP_ROW_REMAP) / CAP_ROW_REMAP),
+       "BAND_REMAP_N is {BAND_REMAP_N} but this game's Game.SCANLINE_CAPS & CAP_ROW_REMAP is {Game.SCANLINE_CAPS & CAP_ROW_REMAP}: the remap tail no longer follows the capability, so the gated per-band mark would read the record base as a ROM pointer, or every band would pay a tail and a frame mark nothing writes. BAND_REMAP_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+
+// THE SHADOW RESERVATION IS HELD TO THE RECORD. engine/ram.emp derives its tail sizes from the
+// same define with its own copies of the four masks (the contract-blind RAM harvest cannot
+// import this module's counts). It reserves BAND_ENTRY_LEN plus those tails per band; this
+// ensure, which sees both the record and the RESOLVED RAM span, is what stops the two
+// derivations disagreeing. A mismatch fails the build naming the constants, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10), BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10), BAND_DRIFT_BYTES (the drift tail, sizeof(band_drift) = 4) and/or BAND_REMAP_BYTES (the row-remap tail, sizeof(band_remap) = 8) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
+       "Parallax_Shadow_Bands does not reserve what the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS}. engine/ram.emp's BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10), BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10), BAND_DRIFT_BYTES (the drift tail, sizeof(band_drift) = 4) and BAND_REMAP_BYTES (the row-remap tail, sizeof(band_remap) = 8) each fold GAME_SCANLINE_CAPS with a literal mask and a size: one of them disagrees with this file's BAND_*_N. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
@@ -570,7 +578,7 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // Parallax_VP_Lean, one long, to the ceiling-independent head of the region.
 const PARALLAX_STATE_LONGS = (104 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
-       "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
+       "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real fault is that derivation, a mask or a size out of step with this file's count). A short reservation makes the fill's cross-band carry alias the shadow band array")
 // The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
 // for the same reason: the total-span ensure below can only say the sum is wrong, never
 // WHICH array is short, and a short accumulator array makes the band loop's `addq.l #4, a4`
@@ -579,7 +587,7 @@ ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * B
 // BEFORE Parallax_Curve_Carry in engine/ram.emp precisely so both pins are adjacent-symbol
 // differences; inserting anything between them breaks whichever one it splits.
 ensure(extern("Parallax_Curve_Carry") - extern("Parallax_Drift_Acc") == 4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS,
-       "the band-drift accumulator reserves {extern(\"Parallax_Curve_Carry\") - extern(\"Parallax_Drift_Acc\")} bytes, not the {4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS} this capability needs (one 16.16 long per band, MAX_PARALLAX_BANDS of them) — set BAND_DRIFT_BYTES in engine/ram.emp (DRIFT_ACC_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Update's accumulator cursor walk into Parallax_Curve_Carry and the shadow band array")
+       "the band-drift accumulator reserves {extern(\"Parallax_Curve_Carry\") - extern(\"Parallax_Drift_Acc\")} bytes, not the {4 * BAND_DRIFT_N * MAX_PARALLAX_BANDS} this capability needs (one 16.16 long per band, MAX_PARALLAX_BANDS of them) — set BAND_DRIFT_BYTES in engine/ram.emp (DRIFT_ACC_LONGS is derived from it, so the real fault is that one derivation, a mask or a size out of step with this file's count). A short reservation makes Parallax_Update's accumulator cursor walk into Parallax_Curve_Carry and the shadow band array")
 // The row-remap mark's own reservation, the third adjacent-symbol pin in this run and for
 // the two before it's reason: the total-span ensure below can only say the sum is wrong,
 // never WHICH array is short. Parallax_Remap_State is placed immediately BEFORE
@@ -588,7 +596,7 @@ ensure(extern("Parallax_Curve_Carry") - extern("Parallax_Drift_Acc") == 4 * BAND
 // it splits. Eight bytes under the capability, ZERO without it — and with BAND_REMAP_N at 0
 // the two symbols coincide, which is what makes this ensure true rather than vacuous.
 ensure(extern("Parallax_Drift_Acc") - extern("Parallax_Remap_State") == 8 * BAND_REMAP_N,
-       "the row-remap frame mark reserves {extern(\"Parallax_Drift_Acc\") - extern(\"Parallax_Remap_State\")} bytes, not the {8 * BAND_REMAP_N} this capability needs (a record pointer long plus a top/end word pair) — set BAND_REMAP_BYTES in engine/ram.emp (REMAP_STATE_LONGS is derived from it, so the real edit is that one mirror). A short reservation makes Parallax_Fill_PerLine's mark write the band pointer over the drift accumulators, which moves every drifting layer by a ROM address every frame")
+       "the row-remap frame mark reserves {extern(\"Parallax_Drift_Acc\") - extern(\"Parallax_Remap_State\")} bytes, not the {8 * BAND_REMAP_N} this capability needs (a record pointer long plus a top/end word pair) — set BAND_REMAP_BYTES in engine/ram.emp (REMAP_STATE_LONGS is derived from it, so the real fault is that one derivation, a mask or a size out of step with this file's count). A short reservation makes Parallax_Fill_PerLine's mark write the band pointer over the drift accumulators, which moves every drifting layer by a ROM address every frame")
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from engine/ram.emp's Parallax_State .. Parallax_State_End span: expected {PARALLAX_STATE_LONGS} longs")
 
 // The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is

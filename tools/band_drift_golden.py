@@ -62,6 +62,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import artifact_provenance  # noqa: E402
+import band_geometry  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -235,7 +236,14 @@ def main() -> int:
         count, rates = authored(block, SCENE_NAME)
 
         # ---- the record geometry, out of the engine's own mirrors ----------------
-        drift_bytes = emp_const(RAM, "BAND_DRIFT_BYTES")
+        # PER GAME SINCE 2026-09-13. The tail sizes fold the GAME_SCANLINE_CAPS define, so they
+        # are read for sonic4 (this gate's scene is a sonic4 scene) through the one reader,
+        # tools/band_geometry.py, instead of as literals out of engine/ram.emp.
+        try:
+            geo = band_geometry.geometry("sonic4", REPO)
+        except band_geometry.Unreadable as e:
+            raise Unmeasurable(str(e)) from e
+        drift_bytes = geo["bytes"]["BAND_DRIFT_BYTES"]
         # FIVE MIRRORS, NOT FOUR, SINCE EFFECTS-W1 ITEM 9 (2026-09-03). BAND_REMAP_BYTES is
         # the row-remap tail and it sits AFTER br_drift, so it changes the STRIDE without
         # changing this gate's subject or its offset arithmetic below. Leaving it out is not
@@ -243,21 +251,22 @@ def main() -> int:
         # wrong address and reported three of four correct rates as MISMATCH — measured on
         # the item-9 adoption build before this line was added. A tail added to band_record
         # must be added here in the same commit.
-        remap_bytes = emp_const(RAM, "BAND_REMAP_BYTES")
+        remap_bytes = geo["bytes"]["BAND_REMAP_BYTES"]
         stride = (emp_const(RAM, "BAND_ENTRY_LEN")
-                  + emp_const(RAM, "BAND_EXT_BYTES")
-                  + emp_const(RAM, "BAND_CURVE_BYTES")
+                  + geo["bytes"]["BAND_EXT_BYTES"]
+                  + geo["bytes"]["BAND_CURVE_BYTES"]
                   + drift_bytes
                   + remap_bytes)
-        drift_n = emp_const(PARALLAX, "BAND_DRIFT_N")
+        drift_n = geo["counts"]["BAND_DRIFT_N"]
         if drift_bytes == 0 or drift_n == 0:
             raise Unmeasurable(
                 f"this build carries NO drift tail (engine/ram.emp BAND_DRIFT_BYTES "
                 f"{drift_bytes}, engine/level/parallax.emp BAND_DRIFT_N {drift_n}) while "
                 f"{SCENE_NAME} authors a rate — there is no field in the record for this "
-                f"gate to read. That mismatch is refused at build time by "
-                f"games/sonic4/data/effects/scene_registry.emp's two-directional pin; "
-                f"seeing it here means that pin is no longer running.")
+                f"gate to read. That mismatch is refused at build time: a rate authored in a "
+                f"game that does not declare CAP_BAND_DRIFT by scene_registry.emp's subset "
+                f"test, and a count out of step with the bit by engine/level/parallax.emp's "
+                f"pins; seeing it here means one of those is no longer running.")
         # `band_drift` is the LAST tail in `band_record`, which is what makes this
         # subtraction the offset rather than a guess (engine/level/parallax.emp, at the
         # struct: "LAST IN THE RECORD, so raising BAND_DRIFT_N alone moves neither

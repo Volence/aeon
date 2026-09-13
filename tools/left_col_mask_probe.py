@@ -165,14 +165,17 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
     # claim failures (15 of them, all at band >= 1, measured 2026-08-27 -- band 0 is the
     # one index a wrong stride cannot corrupt, which is exactly why it looked plausible).
     #
-    # DERIVED FROM ram.emp's THREE MIRRORS, which are the same numbers that size
-    # Parallax_Shadow_Bands, rather than from `band_record` itself: band_record is
-    # declared `(size: <expression>)` over capability constants this file's deliberately
-    # minimal parser cannot evaluate, and a parser that guessed would be worse than one
-    # that reads the mirrors parallax.emp already pins against the real struct.
-    stride = (emp_const("engine/ram.emp", "BAND_ENTRY_LEN")
-              + emp_const("engine/ram.emp", "BAND_EXT_BYTES")
-              + emp_const("engine/ram.emp", "BAND_CURVE_BYTES"))
+    # PER GAME SINCE 2026-09-13: the tails fold the GAME_SCANLINE_CAPS define, so the stride
+    # is read for sonic4 (the game this probe drives) through the one reader,
+    # tools/band_geometry.py, which sums EVERY tail. The hand sum that stood here stopped at
+    # the curve tail and so missed the drift (2026-09-02) and remap (2026-09-03) tails: 20
+    # against a real 32, the exact wrong-stride failure the paragraph above describes.
+    sys.path.insert(0, str(AEON / "tools"))
+    import band_geometry
+    try:
+        stride = band_geometry.record_stride("sonic4", str(AEON))
+    except band_geometry.Unreadable as e:
+        raise SystemExit(f"FAIL: {e}")
     if stride < band["__sizeof__"]:
         raise SystemExit(
             f"FAIL: derived band stride {stride} is smaller than sizeof(band_entry) "
