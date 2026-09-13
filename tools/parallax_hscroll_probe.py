@@ -22,7 +22,7 @@ exactly as parallax_cost_probe reads the shipped config header; it is not readin
 WHY EVERY INPUT IS READABLE AT THE SAMPLE POINT. `Parallax_Update`'s tail order is Step 3
 (band scroll lerp) -> Step 5 (vscroll) -> Step 4a (shadow rotate) -> Step 4b (anchor overlay)
 -> Step 4 (fill), with the deform phase advance immediately before the fill call
-(`engine/level/parallax.emp:1030-1040`). The fill is the LAST thing the routine does, so one
+(`engine/level/parallax.emp:1038-1048`). The fill is the LAST thing the routine does, so one
 completed call leaves every input and the whole buffer mutually consistent.
 
 AND THAT IS WHY THE SAMPLE POINT IS A BREAKPOINT, NOT `run_frames`. `run_frames` returns on a
@@ -96,7 +96,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # inferred from a memory dump; every offset names the line that declares it.
 # ======================================================================
 
-# `Hscroll_Buffer: [u8; 896],  // 224 lines x 4 bytes (FG + BG)` — engine/ram.emp:270.
+# `Hscroll_Buffer: [u8; 896],  // 224 lines x 4 bytes (FG + BG)` — engine/ram.emp:277.
 # The per-LINE fill writes one longword per screen line, FG word first then BG word:
 # All four live in engine/level/parallax.emp `Parallax_Fill_PerLine`; cite them by LABEL,
 # not by line (LS-19a) -- .lf_line and .lg_line were unrolled into run/group/tail forms
@@ -265,7 +265,7 @@ class Shadow:
     def spans(self, total=HSCROLL_LINES):
         """The filler's band partition: band i covers [tops[i], tops[i+1]), last ends at total.
 
-        Transcribed from Parallax_Fill_PerLine's `.next_band` (parallax.emp:1274-1283):
+        Transcribed from Parallax_Fill_PerLine's `.next_band` (parallax.emp:1282-1291):
         `move.w #224, d5` then, unless this is the last band, `move.b band_top_line_next(a1), d5`.
         """
         out = []
@@ -277,13 +277,13 @@ class Shadow:
 
 
 def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
-    """Step 4b's L, resolved exactly as engine/level/parallax.emp:802-885 resolves it.
+    """Step 4b's L, resolved exactly as engine/level/parallax.emp:810-893 resolves it.
 
     Returns (L, reason) with L = None meaning "no split this frame".
 
     `screen_l` is the LATCHED Effects_Screen_L[ch] read off the machine — a camera-dependent
     quantity, measured per frame and never assumed (Effects_LatchWorldLines runs between
-    Camera_Update and Parallax_Update, parallax.emp:809-812). `patch_tab_bytes` is the record
+    Camera_Update and Parallax_Update, parallax.emp:817-820). `patch_tab_bytes` is the record
     block Raster_Patch_Tab points at, or None when the table pointer is null.
     """
     ch = cfg[CFG_ANCHOR_CH]
@@ -292,11 +292,11 @@ def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
     L = s16(screen_l[ch])
     if L <= 0:
         # `.anchor_top`: off the top of the screen -> split at line 0, DO NOT clamp to the
-        # band (parallax.emp:817-830).
+        # band (parallax.emp:825-838).
         return 0, "L <= 0 -> whole-screen split at line 0"
     found, lo, hi = _patch_band(patch_tab_bytes, ch)
     if found:
-        lo += 1                                  # fire line -> screen line (parallax.emp:850-851)
+        lo += 1                                  # fire line -> screen line (parallax.emp:858-859)
         hi += 1
         if L > hi:
             return None, f"L {L} past band_hi {hi} — record not emitted, no split"
@@ -338,7 +338,7 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     retopped to the screen top, every other top rebased by `top - vs` (+512 when it wrapped
     past the plane bottom) and clamped to 224 SCREEN LINES. No unit conversion survives.
 
-    Step 4b (parallax.emp:887-993): the band holding L is split, entries below shift down one
+    Step 4b (parallax.emp:895-1001): the band holding L is split, entries below shift down one
     slot, the split entry inherits band k's factors and scroll words and is retopped to L, and
     every band from the split down takes pcfg_anchor_dsa/dsb.
     """
@@ -400,15 +400,15 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
 def derive_hscroll(cfg, shadow, tab_fg, tab_bg, phase_fg, phase_bg, cam_y_hi, vscroll_bg):
     """The expected (FG, BG) word pair for every written entry. THE EXPECTATION.
 
-    Per-line (Parallax_Fill_PerLine, parallax.emp:1250-1470):
+    Per-line (Parallax_Fill_PerLine, parallax.emp:1258-1478):
         FG word = scroll_a[band]  when the band is flat on FG
                 = scroll_a[band] + (sext8(tab_fg[(phase_fg + band_phase + camY + line) & $FF])
                                     >> shift_a)   when it samples
         BG word = the same with tab_bg, Parallax_Deform_Phase_BG, Vscroll_BG and shift_b.
     A channel samples iff its table pointer is non-NULL AND the band's shift != 15
-    (parallax.emp:1289-1303, 1344-1348).
+    (parallax.emp:1297-1311, 1344-1348).
 
-    The two phase folds are the layer anchor (Harmony study defect #2, parallax.emp:1298-1302
+    The two phase folds are the layer anchor (Harmony study defect #2, parallax.emp:1306-1310
     and :1317-1320): the FG index folds Camera_Y's pixel high word, the BG index folds
     Parallax_Current_Vscroll_BG, so the wave rides the ART rather than the screen.
 
@@ -929,7 +929,7 @@ async def arm_sweep(b, sym, rom, frames, out):
         cam_x = s16(st["cam_x_hi"])
         fg0 = s16(act[0][0])
         # THE ONE-TICK-LAGGED TRACKING IDENTITY. Plane A is hard-locked to the camera and never
-        # lerped (parallax.emp:606-614), so band 0's FG word is exactly -camX whenever that band
+        # lerped (parallax.emp's `Parallax_Update` band loop, its "never lerped" note), so band 0's FG word is exactly -camX whenever that band
         # is flat on FG. But the sample point is Parallax_Update's ENTRY, so the buffer in hand
         # was filled by the PREVIOUS call, against the PREVIOUS camera — under motion that is 16
         # px away, and asserting against the camera read in the same breath reports a 16-px

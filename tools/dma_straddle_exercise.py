@@ -2,7 +2,7 @@
 """dma_straddle_exercise — READ the four DEBUG straddle cells across long, varied,
 GROUNDED play. A measurement driver, not a gate and not a fix.
 
-WHY THIS EXISTS. `engine/ram.emp:1424-1476` documents four DEBUG cells built for the d-47
+WHY THIS EXISTS. `engine/ram.emp:1431-1483` documents four DEBUG cells built for the d-47
 booking "DMA SPLIT-REJECT NEEDS TWO FREE IMPORTANT SLOTS, AND NOTHING COUNTS PER-FRAME
 STRADDLES". `ram.emp` states in its own words that `DPLC_ENTRY_RESERVE = 2` was sized from
 total art VOLUME, which "bounds how many straddling entries EXIST IN THE ROM and says

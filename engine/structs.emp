@@ -210,7 +210,7 @@ pub struct DMAEntry {
 // bytes (2 B x 20 configs) is the wrong trade.
 //
 // WHAT THE SIZE ACTUALLY HAS TO SATISFY IS *EVEN*, NOT 28 — the older comment here
-// overstated it. engine/level/parallax.emp:445 `ensure(sizeof(parallax_config) % 2 == 0,
+// overstated it. engine/level/parallax.emp's `copy_run_longs()` `ensure(sizeof(parallax_config) % 2 == 0,
 // ...)`: this size IS the band array's base offset, so an odd one starts copy_band_entry's
 // `move.l` run on an odd address. 30 is even and passes; nothing in the tree requires 28.
 //

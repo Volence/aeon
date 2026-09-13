@@ -2317,7 +2317,7 @@ The engine uses a single continuous world-space camera over a hardware-wrapping 
 > `camera_x`/`camera_y` bands (their ruling `bc34aaf`; aeon side
 > `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md` §5). The load-bearing
 > derivation is the CLAMP, not this prose: `Camera_X_Max = (grid_w << SECTION_SIZE_SHIFT) -
-> SCREEN_WIDTH` (`engine/ram.emp:681`) is consistent only with an EDGE-referenced camera — a
+> SCREEN_WIDTH` (`engine/ram.emp:688`) is consistent only with an EDGE-referenced camera — a
 > centre-referenced one would clamp to `− SCREEN_WIDTH/2`. **If camera origin, bias or clamp
 > semantics ever change, Aurora's preview silently becomes wrong about phase and rate — tell
 > that lane.** Note also that bands read the INTEGER pixel (`engine/level/bg_anim.emp`, `BgAnim_Update`'s driver read — a `move.w` taking

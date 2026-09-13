@@ -32,7 +32,7 @@ with it. That consistency is the whole design and it has one equation.
 THE ONE EQUATION
 ================
 The scene DSL's per-layer `curve` ramps Plane B's scroll factor linearly across
-the layer's screen span (engine/level/parallax.emp:1954-2044, re-derived in
+the layer's screen span (engine/level/parallax.emp:1962-2052, re-derived in
 tools/curve_probe.py:210-255). Author `fb: FACTOR_0` at the layer top and
 `curve: To(F)` at its bottom and the plane offset at depth row dy becomes
 

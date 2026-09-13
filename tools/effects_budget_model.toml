@@ -765,7 +765,7 @@ transition_active_b_cycles      = 14258   # Current = A, Target = B, N > 0 (acti
 transition_active_a_cycles      = 14685   # Current = B, Target = A, N > 0 (active A)
 transition_surcharge_b_cycles   = 1074    # 14258 - 13184, active B (5 bands)
 transition_surcharge_a_cycles   = 894     # 14685 - 13791, active A (4 bands)
-transition_surcharge_reason = "the .use_target routing plus the per-band Plane-B scroll lerp (one divs.w per enabled band, parallax.emp:640-651) and, on A, the Step-5 vscroll lerp its unlocked v_factor enables"
+transition_surcharge_reason = "the .use_target routing plus the per-band Plane-B scroll lerp (one divs.w per enabled band, parallax.emp:648-659) and, on A, the Step-5 vscroll lerp its unlocked v_factor enables"
 
 # axis 3 — VBlank CPU. Enqueue_Dirty_Buffers' per-routine row.
 transition_enqueue_dirty_stable_cycles = 1374

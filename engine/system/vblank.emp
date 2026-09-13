@@ -256,7 +256,7 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
                 subi.w  #DMA_Important, d0
                 cmp.w   DMA_Peak_Important, d0
                 bls     .no_new_important_peak
-                move.w  d0, DMA_Peak_Important  // the field declared at engine/ram.emp:582 and, until now, written nowhere
+                move.w  d0, DMA_Peak_Important  // the field declared at engine/ram.emp:589 and, until now, written nowhere
             .no_new_important_peak:
                 // (b) fold + clear the window's straddling-Important count
                 move.w  Dbg_DMA_Straddle_Frame, d0
@@ -421,7 +421,7 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // "…which appends DMA-queue entries in RAM and calls
             // Parallax_Active_Config — no VDP access on either path." THE SECOND
             // HALF WAS TRUE and the first was not. Parallax_Active_Config really
-            // is two `move.l`s and an `rts` (parallax.emp:1399) — but
+            // is two `move.l`s and an `rts` (parallax.emp's `Parallax_Active_Config`) — but
             // Enqueue_Dirty_Buffers ALSO carries `.ship_reg`
             // (buffers.emp:458-460), a `dbf` loop doing `move.w (a1)+, VDP_CTRL`,
             // whose own comment says THIS WRITES THE VDP DIRECTLY in capitals. So

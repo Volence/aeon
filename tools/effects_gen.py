@@ -2714,7 +2714,7 @@ def render_row_remap(path: str, value, where: str) -> str:
     ABSENT AND `"none"` BOTH EMIT NO ARGUMENT, which follows the three siblings in
     `render_layer` rather than the key-shape note's §5 table, and costs nothing to do so:
     `layer()`'s default is `SceneRemap.None` (scene_dsl.emp:860) and a NULL `brm_ladder` is
-    the per-band gate (parallax.emp:419), so the two lower to the same eight bytes either
+    the per-band gate (parallax.emp:406), so the two lower to the same eight bytes either
     way. The distinction is an authoring one, not a ROM one; making this one key emit an
     explicit `SceneRemap.None` where `curve`/`vsplit`/`drift` emit nothing would be a
     difference a reader has to explain with no byte behind it.

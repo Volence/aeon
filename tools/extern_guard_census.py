@@ -22,7 +22,7 @@ An `extern()`-bearing `ensure` cannot be reached that way, for two independent r
      `.asm`-namespace twin, or a RAM reservation's SPAN (`extern("X_End") - extern("X")`)
      against the geometry that has to fit in it. A poison module contributes ZERO BYTES
      by construction, so it cannot move a reservation or an equate; there is no argument
-     a poison can pass that makes `parallax.emp:480` false.
+     a poison can pass that makes `parallax.emp:488` false.
 
 So the only way to prove one of these individually is to make its own condition false and
 watch the build. That is what this tool does, and mutating the tree is exactly why it is

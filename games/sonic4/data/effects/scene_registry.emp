@@ -575,7 +575,8 @@ ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
 // ⚠ AND THE OLD MESSAGE'S PRICE WAS ALREADY PAID, WHICH IS WORTH SAYING BECAUSE IT READ
 // AS A BLOCKER AND IS NOT ONE. It demanded BAND_CURVE_N become 1 and BAND_CURVE_BYTES
 // become sizeof(band_curve) "in the SAME commit, and every ROM image in the tree moves".
-// Both were ALREADY 1 and 10 on master (engine/level/parallax.emp:273, engine/ram.emp:65)
+// Both were ALREADY 1 and 10 on master (engine/level/parallax.emp's BAND_CURVE_N, engine/ram.emp's
+// BAND_CURVE_BYTES; both fold the GAME_SCANLINE_CAPS define per game since 2026-09-13)
 // — P3 Task 10 landed the tail itself, and the record-shape churn it warns about was
 // spent then, not now. So this adoption is genuinely scene-local: the band record does not
 // change shape, and no config's byte layout moves because a curve was authored.
