@@ -30840,9 +30840,22 @@ The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`doc
   > (FM6 included) that keys a note before a Patch.** Recommendation: decide when the first
   > caller arrives; (c) if the answer is "FM6 music should survive a sample". `Sound_PlaySample`'s
   > header now says this, as a prohibition on the misreading, where that caller will look.
-  > **RUNTIME-TAG (the controller's, not run here):** `tools/fm6_foreign_sample_witness.py` measures
-  > what the latent path would do, on a config-A probe ROM with one added hotkey; `--build-only`
-  > proves the probe builds and differs (`ccfb3f5d` vs `3005a917`) with no emulator.
+  > **RUNTIME-TAG MEASURED 2026-09-13 (controller, headless, `tools/fm6_foreign_sample_witness.py` at
+  > `4d968d3b`): 6 of 6 legs, and `--poison` went loud as it must (L1 with its match emptied).** Probe
+  > `ccfb3f5d` vs unpatched `3005a917`. L2: Moving Trucks loads with `FM6_ADAPTIVE=0`,
+  > `FM6_CHAN_PTR=$1B34` (derived `SND_SEQ_CHANNELS + 5 * SeqChannel_len`), one FM6 `$F6` key-on in 120
+  > frames before any sample. L3, a `Sound_PlaySample` kick under Moving Trucks: `$2B` written once,
+  > `$80`; no FM6 key-off; 1537 `$2A` bytes to `.stop`, the last `$80`; `.stop`'s epilogue wrote no
+  > `$2B` and no `$28`; over the next 300 frames, 38 FM6 `$F6` key-ons and no `$2B` write, so ch6 stays
+  > the DAC while FM6 keeps keying: **the FM6 voice plays unheard until the next song load, as derived.**
+  > C1, the positive control (drum-test song, `FM6_ADAPTIVE=4`): its own drum's `.stop` wrote
+  > `$2B <- $00` and `$28 <- $F6`, so the instrument can see a hand-back. C2 (Moving Trucks reloaded,
+  > no sample): `$2B <- $00`, 3 FM6 key-ons. Scope: config-A probe ROM, one sample, one song.
+  > **NOT CARDED, on purpose (overseer, 2026-09-13):** with no caller, nothing depends on the answer,
+  > and a card would spend the owner's attention on a question that decides nothing. **It becomes a card
+  > the day this prints a line** (or an SFX gains a DAC route, which `sfx_transcode.py` refuses today):
+  > `git grep -n -E 'Sound_PlaySample|SND_REQ_SAMPLE' -- engine games ':!engine/sound'`
+  > (prints nothing at the landing merge, exit 1).
 - **Still unmeasured, named so it is not mistaken for settled:** whether a song loaded over a
   half-completed fade inherits the faded-down master volume. `SND_MASTER_FADE` is outside the
   `Sound_Dbg_Mirror` window; the YM TL (`$4x`) write stream would settle it.
