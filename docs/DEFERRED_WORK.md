@@ -301,6 +301,32 @@ already parked on, so repeating one target runs nothing; alternate two per-frame
 
 ## NOW UNBLOCKED — actionable (compiled 2026-08-05)
 
+### CHAR-4 LEFT TWO THINGS OPEN: THE GLIDE WITNESS HAS NO RUNNER, AND A SLIDE SQUEEZE HAS NO RESOLUTION — booked 2026-09-13 (`parcel/char4-glide-ceiling`)
+
+**1. `tools/glide_ceiling_witness.py` is run by hand, and nothing runs it again.** It is the
+runtime proof that the glide family now pushes Knuckles' head out of a ceiling (RED on
+`96a98abd`: 8 glide frames end in the OJZ slab, depths -4..-1; GREEN on the fix). It boots a
+headless emulator, so it cannot live in `build.sh`'s pytest lanes. The only runner in this
+repo that executes a runtime witness is `tools/nightly_effects_gates.sh`, and its one witness
+row (`preset_lab_witness.py`) is effects scope; there is no lane for player-physics witnesses
+at all. Until one exists, a regression that moves the ceiling probe back out of
+`Glide_Collide` builds green in all four shapes. The witness's exit contract (0 held · 1 did
+not hold · 2 unmeasurable · 3 blocked) is already the nightly's worst-wins shape, so wiring it
+is one invocation once someone owns a player-physics lane.
+
+**2. A slide under a ceiling closer than its 21 px box has no resolution, in S3K or here.**
+`Slide_Terrain`'s floor follow owns Y every frame, so a ceiling eject cannot survive the same
+frame (the floor distance shrinks by exactly the eject and `y += dist` adds it back), which is
+why CHAR-4 deliberately added no probe there. S3K is the same: `Knuckles_Sliding` runs
+`Knux_DoLevelCollision_CheckRet` (:30997) and then the floor follow (:31013), which overwrites
+its eject. So the head of a slide that passes under a low overhang stays embedded, and the
+get-up (`PHook_EnsureStanding`, 9 px up, box 21 -> 39) then embeds it further on the grounded
+path. What it SHOULD do is a design ruling, not a port: stop the slide at the overhang as if
+it were a wall, refuse the get-up while the standing head would not fit (`PState_Roll`'s
+unroll guard is the existing shape for that question), or accept it. Not reproducible in OJZ
+act 1 today: the only overhang with open ground under it (the box's slab, underside 511, floor
+576) leaves 64 px.
+
 ### `lst_proc_sizes` MEASURES PLACEMENT AS WELL AS CODE, AND A PIN WENT RED FOR A PROC THAT DID NOT MOVE — booked 2026-09-06 (`parcel/live-effects-hook`)
 
 `tools/demo_specialization_witness.py`'s image backstop sizes a proc as **the distance to the

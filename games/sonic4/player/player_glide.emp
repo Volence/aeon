@@ -56,6 +56,7 @@
 module games.sonic4.player_glide in player_glide
 
 use engine.objects.sst.{Sst}
+use engine.coords.{abs_w}
 use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT, SOLID_TOP,
         BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, CHEAT_DEBUG_FLY}
@@ -64,8 +65,8 @@ use games.sonic4.ram.{PlayerBlock}
 use games.sonic4.sound_ids.{SFXID_GLIDE_LAND, SFXID_GROUND_SLIDE}
 
 // GetSineCosine (engine.math), ObjectMove (engine.objects), Player_SetState /
-// Player_SensorFloor / Air_WallProbeLeft / Air_WallProbeRight / Air_XInput (the
-// player modules) resolve module-to-module as bare link refs.
+// Player_SensorFloor / Air_WallProbeLeft / Air_WallProbeRight / Air_CeilingBump /
+// Air_XInput (the player modules) resolve module-to-module as bare link refs.
 
 // player-block field displacement (a4-relative), the PBLK_* convention. a4 holds the
 // CALLING SLOT's block, so this reaches that slot's jump-release cap and no other.
@@ -319,6 +320,37 @@ proc Glide_Turn (a0: *Sst) clobbers(d0-d1) {
 // is checked only while descending (S3K gates the floor land on y_vel >= 0, :30722).
 // The box read by the sensors is the SST's, so this is correct at BOTH the 10x10 glide
 // box and the standing GLIDEFALL box with no parameter.
+//
+// THE CEILING (CHAR-4, 2026-09-13). S3K probes the ceiling in three of the four motion
+// classes of Knux_DoLevelCollision_CheckRet: mostly right (:32783), mostly left (:32690)
+// and mostly up (:32759), and not when moving mostly down. An embedded head is moved
+// down by -dist and an upward y_vel is cleared. This pass had no ceiling probe at all,
+// so a glide carried the head into an overhang and nothing pushed it out (measured:
+// 8 frames, 4 px deep, tools/glide_ceiling_witness.py). It now runs the air states' own
+// machinery, Air_CeilingBump -> Player_SensorCeiling, behind Air_Collide's class boundary:
+//   * the class is read from the post-move velocities BEFORE the wall probes can zero
+//     x_vel, the order Air_Collide and S3K both use;
+//   * "mostly down" is |x_vel| <= |y_vel| with y_vel >= 0, Air_Collide's tie rule (a tie
+//     is vertical). Only that one bit of the four-way class decides anything here: the
+//     walls are probed in every class, and the floor gate below already refuses a
+//     rising frame;
+//   * S3K's up class ejects and zeroes y_vel with no reattach (loc_17A62), which is
+//     Air_CeilingBump exactly. Air_Collide's up-class reattach is an air-state rule.
+// DECLINED, deliberately: S3K's left class does not eject a penetration of $14 or more
+// (:32694), and its right class has no such cut. The cut is not a glide escape hatch.
+// S3K carries it at the left class of all three characters (Sonic/Knuckles :24180,
+// Tails :28976), S2's Sonic_HitCeiling (s2.asm:37628) has none, and nothing mirrors it on
+// the right, so it is an S3-wide left-class asymmetry. Air_CeilingBump already declines
+// it for every air state in this engine; reproducing it here alone would make the glide
+// eject differently from the jump it came from.
+// GLIDEFALL shares this pass, so the standing box's head is probed as well: the release
+// lift's embed (CHAR-6, a separate parcel) is ejected on the first GLIDEFALL frame that is
+// not mostly down, where S3K ejects its own on the next frame too.
+// The quadrant is forced to 0 before the probe (the Air_Collide / PState_Slide idiom):
+// the glide family's terrain model is fixed-down (the Collision_ProbeDown below) and
+// fixed-up, and nothing in the family keeps angle(a0) flat. A GLIDEFALL entered from a
+// slide's ledge drop keeps the slide's last floor angle, which Player_Main would turn
+// into a rotated ceiling probe.
 // In:  a0 = player SST, a4 = the slot's player block
 // Out: d0.b = GLF_* flags (GLF_INAIR set = still airborne, GLF_PUSH set = wall hit).
 //      Returned as a plain clobber the caller reads (the Air_WallProbeRight/d4 idiom),
@@ -328,6 +360,18 @@ proc Glide_Turn (a0: *Sst) clobbers(d0-d1) {
 // -----------------------------------------------
 proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.w   -(sp)                           // flags accumulator (low byte at 1(sp))
+        // Motion class, before the walls can zero x_vel. d7 carries it past the wall
+        // probes (they clobber d0-d6/a1): 0 = mostly down, -1 = probe the ceiling.
+        moveq   #0, d7
+        move.w  x_vel(a0), d1
+        abs_w(d1)
+        move.w  y_vel(a0), d2
+        bmi     .probe_ceiling                  // rising: up or horizontal, never down
+        cmp.w   d2, d1                          // |x_vel| - y_vel (y_vel >= 0 is |y_vel|)
+        bls     .classed                        // |x| <= |y| and falling: mostly down
+.probe_ceiling:
+        moveq   #-1, d7
+.classed:
         jbsr    Air_WallProbeLeft               // d4 = -1 on a hit (snaps, zeroes x_vel)
         tst.w   d4
         beq     .no_wall_l
@@ -338,6 +382,11 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         beq     .no_wall_r
         bset    #GLF_PUSH_BIT, 1(sp)
 .no_wall_r:
+        tst.b   d7
+        beq     .no_ceiling
+        clr.b   PlayerBlock.quadrant(a4)        // glide sensors never rotate (header)
+        jbsr    Air_CeilingBump                 // embedded: y += -dist, upward y_vel := 0
+.no_ceiling:
         // Floor land only while descending. THE WALL-CATCH FIX (Task 10 bug): use a
         // *** THE S3K CLAIM BELOW WAS FALSE — corrected 2026-08-13 (lens sweep, CHAR-5).
         // This block used to assert "S3K's glide floor check (sub_11FD6) is likewise a
@@ -582,6 +631,19 @@ pub proc PState_Slide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Slide_Terrain — floor-follow + ledge-drop for the slide (S3K :30996-31024). Walls
 // are snapped out of (the slide stops at a wall); the floor is followed on +Y every
 // frame; a floor gap >= 14 means the ledge dropped away → the fall.
+//
+// NO CEILING PROBE, and that is S3K's net behaviour rather than an omission (CHAR-4,
+// 2026-09-13). "Ceiling" here would mean straight up: PState_Slide forces the quadrant to
+// 0, so Player_SensorCeiling would take its probe_up case. But the floor follow below OWNS
+// Y. It sets y so the feet sit on the floor, whatever y was on entry, so a ceiling eject
+// before it is undone in the same frame (the floor distance shrinks by exactly the eject,
+// and y += dist adds it back), and an eject after it would put the feet in the floor.
+// With the feet on the floor the head can only be embedded when floor and ceiling are
+// closer than the 21 px box, and then no y satisfies both. S3K runs
+// Knux_DoLevelCollision_CheckRet and then the same floor follow (sub_11FD6), so its eject
+// is overwritten the same way. A probe here would cost every slide frame and change
+// nothing. What a squeeze SHOULD do (refuse the get-up, stop the slide) is a design
+// question, not a port, and is booked in docs/DEFERRED_WORK.md.
 // In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_GLIDEFALL)
 // Clobbers: d0-d7, a1-a2
