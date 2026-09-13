@@ -411,7 +411,8 @@ proc Climb_ToLedge (a0: *Sst) clobbers(d0-d7/a1-a2) {
 
 // -----------------------------------------------
 // Climb_LetGo — detach from the wall into the fall (S3K Knuckles_LetGoOfWall, :31453):
-// set the let-go pose and enter GLIDEFALL (whose enter hook restores the standing box).
+// set the let-go pose and enter GLIDEFALL (whose enter hook restores the standing box about
+// the centre, as S3K's :31461 does; y_pos is not written).
 // In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Climb_LetGo (a0: *Sst) clobbers(d0-d7/a1-a2) {

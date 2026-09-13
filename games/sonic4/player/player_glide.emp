@@ -142,7 +142,9 @@ pub proc PState_Glide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 
 .release:
         // Enter the fall: x_vel /= 4 (asr twice, S3K :30727-30728). The GLIDEFALL enter
-        // hook (PHook_AirEnter) restores the standing box — S3K's fall runs at default radii.
+        // hook (PHook_GlideFallEnter) restores the standing box about a FIXED centre, as
+        // S3K's :30730 does: the head rises 9 px and the feet drop 9. PState_GlideFall's
+        // header names what corrects each on the next frame.
         asr.w   x_vel(a0)
         asr.w   x_vel(a0)
         moveq   #PSTATE_GLIDEFALL, d0
@@ -343,9 +345,10 @@ proc Glide_Turn (a0: *Sst) clobbers(d0-d1) {
 // the right, so it is an S3-wide left-class asymmetry. Air_CeilingBump already declines
 // it for every air state in this engine; reproducing it here alone would make the glide
 // eject differently from the jump it came from.
-// GLIDEFALL shares this pass, so the standing box's head is probed as well: the release
-// lift's embed (CHAR-6, a separate parcel) is ejected on the first GLIDEFALL frame that is
-// not mostly down, where S3K ejects its own on the next frame too.
+// GLIDEFALL shares this pass, so the standing box's head is probed as well. That is what
+// corrects the up to 9 px the GLIDEFALL entry's centre-preserving box restore can leave in
+// a ceiling (PHook_GlideFallEnter), on the first GLIDEFALL frame that is not mostly down,
+// as S3K's probe does on its next frame. The floor branch below likewise corrects the feet.
 // The quadrant is forced to 0 before the probe (the Air_Collide / PState_Slide idiom):
 // the glide family's terrain model is fixed-down (the Collision_ProbeDown below) and
 // fixed-up, and nothing in the family keeps angle(a0) flat. A GLIDEFALL entered from a
@@ -489,8 +492,11 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // PState_GlideFall — the fall after a glide release / wall bail (S3K
 // Knuckles_Fall_From_Glide, :30899). A genuinely different body from the glide: normal
 // air control, gravity AFTER the move, and a landing that is a DEAD STOP — all three
-// velocities zeroed, NOT the gsp = x_vel conversion. Runs at the STANDING box (the enter
-// hook restored it).
+// velocities zeroed, NOT the gsp = x_vel conversion. Runs at the STANDING box, which
+// PHook_GlideFallEnter restores about the centre. That restore can leave the feet up to
+// 9 px in a floor, or the head up to 9 px in a ceiling, for the entry frame, as S3K's does;
+// this state's first Glide_Collide is what corrects them (the hook's header says how, and
+// in which motion classes).
 // In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_GROUND)
 // Clobbers: d0-d7, a1-a2

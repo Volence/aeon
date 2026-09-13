@@ -2193,11 +2193,12 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
         // "in ball form", so the test is the bit, not a state range — which is
         // what retires the PSTATE_* ordering constraint (config/constants.emp).
-        // The equivalence is structural, not incidental: PHook_EnsureBall/
-        // EnsureStanding are the bit's ONLY writers (both set/clear it
-        // UNCONDITIONALLY, outside their height-keyed guard), every state reaches
-        // exactly one of them through PState_EnterHooks — Roll/Jump/RollJump/
-        // AirBall → EnsureBall, Ground/Air/Spindash → EnsureStanding — and
+        // The equivalence is structural, not incidental: the enter hooks are the
+        // bit's ONLY writers (each sets/clears it UNCONDITIONALLY, outside any
+        // height-keyed guard), every state reaches exactly one through
+        // PState_EnterHooks — Roll/Jump/RollJump/AirBall → EnsureBall (set);
+        // Ground/Air/Fly/Spindash → EnsureStanding, Glide/Slide/Climb/Ledge →
+        // EnsureAbility, GlideFall → PHook_GlideFallEnter (all clear) — and
         // Player_SetState is the only TRANSITION writer of player_state, writing
         // it and running the enter hook with nothing in between. The one other
         // writer is Player_Init's boot `clr.b` (a defined start for SetState's
@@ -2433,9 +2434,10 @@ pub offsets PState_EnterHooks {
                                         // to make the invariant true, not to assume it.
         Glide:    PHook_GlideEnter,     // GLIDE — install the 10x10 ability box (no y-shift),
                                         // uncurl, airborne
-        GlideFall:PHook_AirEnter,       // GLIDEFALL — restore the STANDING box (S3K's fall
-                                        // runs at default radii) + set airborne. The
-                                        // generalised EnsureStanding lifts feet-planted.
+        GlideFall:PHook_GlideFallEnter, // GLIDEFALL — restore the STANDING box about a FIXED
+                                        // CENTRE + set airborne. Every entry is mid-air from
+                                        // the ability box; see the hook for why this is not
+                                        // PHook_AirEnter (CHAR-6).
         Slide:    PHook_SlideEnter,     // SLIDE — keep the 10x10 ability box, grounded
         Climb:    PHook_ClimbEnter,     // CLIMB — 10x10 ability box, attached to the wall (not airborne)
         Ledge:    PHook_ClimbEnter,     // LEDGE — same box, mid-clamber
@@ -2515,6 +2517,41 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1-d2/a1) { // d2: EnsureStanding
 
 pub proc PHook_AirEnter (a0: *Sst) clobbers(d1-d2/a1) { // uncurled airborne (d2: EnsureStanding's shift calc)
         jbsr    PHook_EnsureStanding
+        bset    #ST_IN_AIR, status(a0)
+        rts
+}
+
+// PHook_GlideFallEnter — GLIDEFALL's enter hook: the STANDING box about a FIXED CENTRE.
+//
+// Every entry to GLIDEFALL is mid-air and comes from the 21x21 ability box: the glide
+// release (PState_Glide .release), the slide's ledge drop (Slide_Terrain .ledge_drop), the
+// failed wall catch (Knuckles_Gliding_WallCatch .fall) and the climb's let-go
+// (Climb_LetGo). S3K restores the radii at all four and never writes y_pos (sonic3k.asm
+// :30730, :30893, :31031, :31461), so the box grows about its centre: the head rises Δr
+// and the feet drop Δr, where Δr = (cd_stand_h >> 1) - (ability h >> 1) = 19 - 10 = 9 for
+// Knuckles. This hook does the same.
+//
+// It is NOT PHook_AirEnter. That hook's EnsureStanding keeps the feet planted
+// (y_pos -= 9), which is right for a GROUNDED restore (the slide get-up, S3K :30978) and
+// wrong in the air, where it raised the head 18 px with no clearance check (CHAR-6).
+//
+// WHAT CORRECTS EACH HALF ON THE NEXT FRAME (PState_GlideFall -> Glide_Collide):
+//   * the feet, up to Δr px inside a floor that lay under the glide's feet: the floor
+//     probe, which is not class-gated and needs only y_vel >= 0, which GLIDEFALL always has
+//     there (gravity is added first). It snaps the feet out and the fall dead-stops. It is
+//     ONE centre sensor where S3K's is the pair (CHAR-5), so a floor under a foot but not
+//     under the centre is not caught, as on every other GLIDEFALL frame;
+//   * the head, up to Δr px inside a ceiling: CHAR-4's Air_CeilingBump, in every motion
+//     class but mostly-down. The failed wall catch and the let-go enter with x_vel = 0, so
+//     their first frames are mostly-down and unprobed; S3K's mostly-down class has no
+//     ceiling probe either.
+//
+// ST_ROLLING is cleared because the hook makes the invariant true rather than assuming it
+// (the ability hooks already cleared it). No guard: with no shift, the store is idempotent.
+proc PHook_GlideFallEnter (a0: *Sst) clobbers(a1) {
+        bclr    #ST_ROLLING, status(a0)
+        movea.l Player_Chardef, a1
+        set_standing_size(a0, a1)               // y_pos untouched: the centre is kept
         bset    #ST_IN_AIR, status(a0)
         rts
 }
