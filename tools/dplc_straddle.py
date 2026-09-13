@@ -2166,8 +2166,16 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
               f"REACHABLE straddling entries {was} -> {now}", file=out)
 
     # (5b) VERDICT B must be provably red on this data, or its green means
-    # nothing. Searched at tile granularity over a whole boundary period, which
-    # covers every distinct placement the art can have.
+    # nothing. Searched at BYTE granularity over a whole boundary period, the rule
+    # the margin search above already states ("WHY BYTE GRANULARITY"). This arm
+    # used to step by tile_size from the CURRENT art base, which visits only the
+    # placements congruent to that base mod 32 and called that "every distinct
+    # placement". Measured 2026-09-13 (parcel/char4-glide-ceiling): the firing band
+    # for sonic is absolute (base and tip both put it at art address $7ECE1), under
+    # one tile wide, and holds no multiple of 32. A +36 B code shift moved
+    # Art_Sonic from $073A9C (mod 32 = 28, whose tile steps land in the band) to
+    # $073AC0 (mod 32 = 0, whose tile steps straddle it), and the arm reported "no
+    # placement in a whole period" while byte steps found one at +45601.
     def reach_split(sub, shift):
         rf = reach[sub["name"]]["frames"]
         c = frame_costs(sub["frames"], sub["art_base"] + shift, tile_size, boundary)
@@ -2177,7 +2185,7 @@ def selftest(lst_path, out=sys.stdout, rom_path=None):
     for x in subs:
         if reach[x["name"]]["undetermined"]:
             continue
-        for d in range(0, boundary, tile_size):
+        for d in range(0, boundary):
             if reach_split(x, d) > reserve:
                 over = (x["name"], d, reach_split(x, d))
                 break

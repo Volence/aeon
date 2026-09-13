@@ -763,13 +763,18 @@ pub proc Air_WallProbeLeft (a0: *Sst) clobbers(d0-d6/a1) {
 }
 
 // -----------------------------------------------
-// Air_CeilingBump — horizontal-class ceiling check: snap out + kill
-// upward velocity. No reattach outside the mostly-up class (classic)
-// In:  a0 = player SST
+// Air_CeilingBump — ceiling check with no reattach: snap out + kill upward
+// velocity (classic). Air_Collide's horizontal classes call it (the air states
+// reattach only in their mostly-up class, which does its own probe), and so does
+// Glide_Collide (player_glide) in its left, right AND up classes: S3K's glide
+// ejects exactly this way in all three (Knux_DoLevelCollision_CheckRet), so one
+// routine serves both rather than a glide copy.
+// In:  a0 = player SST, a4 = the slot's player block (Player_SensorCeiling
+//      rotates by its quadrant; both callers force it to 0 first)
 // Out: none
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
-proc Air_CeilingBump (a0: *Sst) clobbers(d0-d7/a1-a2) {
+pub proc Air_CeilingBump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    Player_SensorCeiling
         tst.w   d0
         bpl     .clear
