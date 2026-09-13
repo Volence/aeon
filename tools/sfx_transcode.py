@@ -3,10 +3,13 @@
 engine's SFX blob format (SfxHeader + per-channel records + event streams +
 FmPatch bank).
 
-BUILD-PC tooling: reads skdisasm Sound/SFX/*.asm, reuses translate_voice() and
-emit_patch_bank_asm() from zyrinx_port.py, and packs events using the song_packer
-event model.  Emits data/sound/sfx/sfx_NN.asm + sfx_NN_patches.asm (the SFX id
-table is sfx_bank.emp's hand-authored `table`, not generated).
+BUILD-PC tooling: reads skdisasm Sound/SFX/*.asm, reuses translate_voice() from
+zyrinx_port.py, and packs events using the song_packer event model.  Emits
+data/sound/sfx/sfx_NN.asm, plus with --emit-bin the sfx_NN.bin twin that
+sfx_bank.emp embeds. Each blob carries its FmPatch bank INLINE (see the Format
+reference below); there is no separate patch-bank file (the sfx_NN_patches.asm /
+.bin pair was retired 2026-09-13, F3 riders), and the SFX id table is
+sfx_bank.emp's hand-authored `table`, not generated.
 
 Format reference:
   SfxHeader (8 bytes): priority, flags, chcount, gain, duck, cap, rsvd, rsvd
@@ -31,14 +34,14 @@ import re
 import sys
 
 # ---------------------------------------------------------------------------
-# Import reuse surface: translate_voice + emit_patch_bank_asm from zyrinx_port,
+# Import reuse surface: translate_voice from zyrinx_port,
 # Event classes from song_packer.  Mirror the import pattern in zyrinx_port.py.
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    from zyrinx_port import translate_voice, emit_patch_bank_asm, FMPATCH_LEN
+    from zyrinx_port import translate_voice
 except ImportError:
-    from tools.zyrinx_port import translate_voice, emit_patch_bank_asm, FMPATCH_LEN  # type: ignore
+    from tools.zyrinx_port import translate_voice  # type: ignore
 
 try:
     from song_packer import (
@@ -782,10 +785,14 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
         # written: ONE FM channel. $B9 (ring loss) has TWO — cFM4 at vol $05 and cFM5
         # at vol $08 — over the single bank they share with $33/$34, so the mutation
         # ran twice and BOTH channels played carriers at +$0D instead of +$05 / +$08.
-        # Measured in the shipped bytes: sfx_B9_patches.bin's TL group reads
-        # `23 23 0d 0d` where sfx_33_patches.bin, from the byte-identical authored
-        # voice, reads `23 23 05 05`. Each TL step is 0.75 dB, so cFM4 played 6.00 dB
-        # and cFM5 3.75 dB too quiet. Shipped and audible since the bake landed.
+        # Measured in the shipped bytes at the time: the separate patch-bank file
+        # sfx_B9_patches.bin read `23 23 0d 0d` in its TL group where
+        # sfx_33_patches.bin, from the byte-identical authored voice, read
+        # `23 23 05 05` (both files were deleted 2026-09-13, F3 riders; they were
+        # copies of the inline banks). Each TL step is 0.75 dB, so cFM4 played
+        # 6.00 dB and cFM5 3.75 dB too quiet. Shipped and audible since the bake
+        # landed. After the fix the INLINE banks read: sfx_33.bin at voice_ptr 26
+        # `23 23 05 05`; sfx_B9.bin cFM4 at 66 `23 23 05 05`, cFM5 at 98 `23 23 08 08`.
         #
         # No single static bank can carry two different channel volumes, so the bank
         # is baked PER CHANNEL and each channel's record points at its own copy.
@@ -1352,7 +1359,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
     # desc['voices'] is the FIRST FM channel's baked bank, which is what it has always
     # been: every core SFX but $B9 has exactly one FM channel, so this is unchanged for
     # 15 of the 16, and it remains the right thing for callers that just want "the
-    # SFX's voices" (emit_sfx_patches_asm's bank listing, the bank-size checks).
+    # SFX's voices" (pack_sfx's fallback for hand-built descriptors that carry no
+    # per-channel bank, and the tests' bank-size checks).
     # Per-channel consumers must read ch['voices'] — for $B9 the two differ.
     _fm_banks = [c['voices'] for c in channels_out if c['kind'] == SFXEL_FM and c['voices']]
     return {
@@ -1746,91 +1754,6 @@ def emit_sfx_asm(sfx_desc: dict, priority: int, label: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def emit_sfx_patches_asm(voices: list, label: str, sfx_id: int) -> str:
-    """Emit the FmPatch bank for an SFX's voices as an AS data file.
-
-    Does NOT reuse emit_patch_bank_asm (which uses the PATCH_COUNT_MT global
-    that collides across multiple inclusions).  Instead emits a self-contained
-    file using a per-SFX constant name ({label}_Patches_Count).
-    """
-    patches_label = f"{label}_Patches"
-    count_const = f"{label}_Patches_Count"
-
-    if not voices:
-        # No FM voices (e.g. PSG-only SFX)
-        lines = []
-        lines.append(f"; ======================================================================")
-        lines.append(f"; data/sound/sfx/{label.lower()}_patches.asm — GENERATED by tools/sfx_transcode.py")
-        lines.append(f"; SFX ${sfx_id:02X}: no FM voices (PSG-only SFX)")
-        lines.append(f"; DO NOT EDIT BY HAND.")
-        lines.append(f"; ======================================================================")
-        lines.append(f"")
-        lines.append(f"{patches_label}:")
-        lines.append(f"{patches_label}_End:")
-        lines.append(f"")
-        lines.append(f"    align 2")
-        return "\n".join(lines) + "\n"
-
-    bank_bytes = b''.join(voices)
-    count = len(voices)
-
-    # pbyte macro (ifndef-guarded so including several generated files is safe)
-    lines = []
-    lines.append("; ======================================================================")
-    lines.append(f"; data/sound/sfx/{label.lower()}_patches.asm — GENERATED by tools/sfx_transcode.py")
-    lines.append(f"; SFX ${sfx_id:02X}: FmPatch bank ({count} voice(s), {count * FMPATCH_LEN} bytes)")
-    lines.append("; DO NOT EDIT BY HAND.")
-    lines.append("; ======================================================================")
-    lines.append("")
-    lines.append("        ifndef pbyte_defined")
-    lines.append("pbyte_defined = 1")
-    lines.append("pbyte   macro                           ; emit data byte(s); CPU-correct directive")
-    lines.append("        if MOMCPUNAME=\"Z80\"")
-    lines.append("        db      ALLARGS                  ; Z80 phase-0 blob context")
-    lines.append("        else")
-    lines.append("        dc.b    ALLARGS                  ; 68k ROM context")
-    lines.append("        endif")
-    lines.append("        endm")
-    lines.append("        endif")
-    lines.append("")
-    lines.append(f"{count_const} = {count}")
-    lines.append("")
-    lines.append(f"{patches_label}:")
-    for vi in range(count):
-        rec = bank_bytes[vi * FMPATCH_LEN:(vi + 1) * FMPATCH_LEN]
-        lines.append(f"; --- voice {vi} ---")
-        lines.append(f"        pbyte   {rec[0]:<3}                     ; fp_alg_fb     ${rec[0]:02X}")
-        lines.append(f"        pbyte   {rec[1]:<3}                     ; fp_lr_ams_fms ${rec[1]:02X}")
-        group_labels = [
-            ('fp_dt_mul', '$30'),
-            ('fp_tl',     '$40'),
-            ('fp_rs_ar',  '$50'),
-            ('fp_am_d1r', '$60'),
-            ('fp_d2r',    '$70'),
-            ('fp_d1l_rr', '$80'),
-        ]
-        for gi, (glbl, greg) in enumerate(group_labels):
-            off = 2 + gi * 4
-            g = rec[off:off + 4]
-            lines.append(f"        pbyte   {g[0]:3}, {g[1]:3}, {g[2]:3}, {g[3]:3}"
-                         f"   ; {glbl}  {greg}  [S1,S3,S2,S4]")
-        ssg = rec[26:30]
-        lines.append(f"        pbyte   {ssg[0]:3}, {ssg[1]:3}, {ssg[2]:3}, {ssg[3]:3}"
-                     f"   ; fp_ssg_eg  $90  [S1,S3,S2,S4]")
-        lines.append(f"        pbyte   {rec[30]:3}, {rec[31]:3}"
-                     f"                ; fp_reserved (pad to 32)")
-    lines.append(f"{patches_label}_End:")
-    lines.append("")
-    lines.append(f"        if ({patches_label}_End-{patches_label})/FmPatch_len <> {count_const}")
-    lines.append(f"          error \"SFX ${sfx_id:02X} patch bank count mismatch\"")
-    lines.append(f"        endif")
-    lines.append(f"        if ({patches_label}_End-{patches_label}) <> {count_const}*FmPatch_len")
-    lines.append(f"          error \"SFX ${sfx_id:02X} patch bank size mismatch\"")
-    lines.append(f"        endif")
-    lines.append("")
-    return "\n".join(lines) + "\n"
-
-
 # ---------------------------------------------------------------------------
 # Top-level: load + transcode a single SFX from a skdisasm source path
 # ---------------------------------------------------------------------------
@@ -1910,9 +1833,9 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
     """Transcode all core SFX and write to out_dir.
 
     emit_bin=True additionally writes the .bin sibling (bin_path_for: same
-    stem, .bin extension) of each generated sfx_NN.asm / sfx_NN_patches.asm
-    with the exact payload bytes their dc.b lines encode — no labels, no
-    align padding.
+    stem, .bin extension) of each generated sfx_NN.asm with the exact payload
+    bytes its dc.b lines encode — no labels, no align padding. That .bin is the
+    blob sfx_bank.emp embeds, FmPatch bank inline.
 
     The SFX id table is NOT generated here: it is sfx_bank.emp's hand-authored
     `table`. (An `emit_table` / `generate --emit-table` bootstrap for the old AS
@@ -2011,19 +1934,12 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
                 f.write(blob)
             print(f"    wrote {bin_path}", file=sys.stderr)
 
-        # Emit patches
-        voices = sfx_desc.get('voices', [])
-        patches_asm = emit_sfx_patches_asm(voices, label, sfx_id)
-        patches_path = os.path.join(out_dir, f'sfx_{sfx_id:02X}_patches.asm')
-        with open(patches_path, 'w') as f:
-            f.write(patches_asm)
-        print(f"    wrote {patches_path}", file=sys.stderr)
-        if emit_bin:
-            patches_blob = b''.join(voices)
-            patches_bin_path = bin_path_for(patches_path)
-            with open(patches_bin_path, 'wb') as f:
-                f.write(patches_blob)
-            print(f"    wrote {patches_bin_path}", file=sys.stderr)
+        # No separate patch-bank file: pack_sfx appends each FM channel's bank to
+        # the blob itself and points voice_ptr at it, and the Z80 reads that copy
+        # (sx_patch_base = blob base + voice offset, engine/sound/sound_sfx.emp).
+        # A standalone sfx_NN_patches.asm + .bin was written here until 2026-09-13
+        # (F3 riders); every non-empty one was byte-identical to the inline bank,
+        # and nothing read them.
 
         id_to_label[sfx_id] = label
 

@@ -2116,9 +2116,12 @@ class TestChannelVolumeBakeIsNotCumulative(unittest.TestCase):
     adds each channel's OWN volume at ITS OWN upload, so FM4 hears +$05 and FM5
     +$08. Baking into one shared, in-place-mutated bank inside the per-channel loop
     gives BOTH channels +$0D: 8 TL steps (6.00 dB) too quiet on FM4 and 5 steps
-    (3.75 dB) too quiet on FM5. That was shipped -- sfx_B9_patches.bin's TL group
-    read `23 23 0d 0d` where sfx_33_patches.bin, from the byte-identical authored
-    voice, read `23 23 05 05`.
+    (3.75 dB) too quiet on FM5. That was shipped -- the separate patch-bank file
+    sfx_B9_patches.bin's TL group read `23 23 0d 0d` where sfx_33_patches.bin,
+    from the byte-identical authored voice, read `23 23 05 05` (measured on those
+    files before they were deleted, 2026-09-13, F3 riders: they were copies of the
+    inline banks). The fixed banks are inline in sfx_B9.bin at voice_ptr 66 and 98,
+    reading `23 23 05 05` and `23 23 08 08`.
 
     Note this cannot be fixed by baking a single shared bank harder or softer -- no
     one static bank can carry two different channel volumes. Each FM channel needs
