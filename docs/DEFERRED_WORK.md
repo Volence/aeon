@@ -162,6 +162,12 @@ vol `$08` over the bank it shares with $33/$34, so the bake ran twice and compou
 | `sfx_33_patches.bin` | `23 23 05 05` | authored + `$05` |
 | `sfx_B9_patches.bin` | `23 23 0d 0d` | authored + `$05` + `$08` |
 
+> **Both files cited above were deleted 2026-09-13 (F3 riders).** Each was a second copy of the bank its
+> blob already carries inline, so the evidence now lives in the blobs. Measured on the committed `.bin`s
+> after the fix: `sfx_33.bin` at `voice_ptr` 26 reads `23 23 05 05`; `sfx_B9.bin` has two banks, `cFM4`'s
+> at 66 reads `23 23 05 05` and `cFM5`'s at 98 reads `23 23 08 08`. The `0d 0d` row is the pre-fix
+> measurement and exists only in git history.
+
 from the **byte-identical authored voice**. Patch byte [0] is `$04`, so alg = 4,
 `_CARRIER_MASK[4] = $0C`, and TL bytes [8],[9] are the carriers. Against the correct per-channel
 values that is 8 TL steps too much attenuation on `cFM4` and 5 on `cFM5`; at 0.75 dB per step,
@@ -8499,6 +8505,33 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   >   calls its target "HAND-OWNED" — and `sfx_table.asm` **exists nowhere in the tree**; the AS build that consumed
   >   it is gone. `tools/test_sfx_transcode.py::TestSfxTableComplete` gates the generator's output string, so the
   >   gate outlives its subject. Dead generator + its gate; same reason, separate parcel.
+  > **BOTH RIDERS CLOSED 2026-09-13, `parcel/f3-riders` (base `origin/master` `dbb67085`), EXCEPT THE PAIRED SIGIL
+  > LINE, WHICH IS OPEN.** Byte-neutral by construction: no `.emp` code or data changed (one `sfx_bank.emp` comment
+  > did), and nothing embedded the deleted files after `cb6e8aff`. The four-shape md5 comparison against a control
+  > built at the base is in the merge evidence, not restated here.
+  > * **Rider 1, the separate patch banks — `f9015efa`.** The row above says 11 committed `.bin`s. **It was 16
+  >   tracked**: 11 through the `.gitignore` allow-list, plus `$42 $4A $4C $7E $B1`, which were force-added and never
+  >   allow-listed. All 16 are deleted, with the 11 allow-list lines, `emit_sfx_patches_asm`, `generate_all`'s patches
+  >   block (both the `.asm` and the `--emit-bin` `.bin`), and the unused `emit_patch_bank_asm`/`FMPATCH_LEN` imports.
+  >   Measured before the delete: each of the 12 non-empty files was byte-identical to the first FM bank inline in its
+  >   own blob, so no unique bytes went. `pack_sfx`'s inline packing is untouched: `generate_all(emit_bin=True)` into a
+  >   scratch dir writes 16 `.asm` + 16 `.bin`, each byte-identical to the pre-change run, every `.bin` identical to
+  >   the committed blob. Comments that cited the files as evidence (the $B9 TL-group reading in `sfx_transcode.py`
+  >   and `test_sfx_transcode.py`, and the table in this file's volume-bake entry) now name the inline bytes and mark
+  >   the file reading as pre-deletion.
+  > * **Rider 2, the dead table generator — `06cfebcd`.** `emit_sfx_table_asm`, `generate_all(emit_table=)`, and the
+  >   `--emit-table` flag, usage and warning text are deleted. `generate` now REFUSES any flag but `--emit-bin`
+  >   instead of testing membership, which would have taken the retired flag silently
+  >   (`TestGenerateCliRefusesUnknownFlags`, red-first shown with the old membership form on disk).
+  >   `TestSfxTableComplete` is deleted rather than re-pointed: the property it was named for, every declared SFX id
+  >   has a table entry, was already graded against the REAL tables by
+  >   `tools/test_sfx_bank_wiring.py::test_transcoder_and_game_agree_on_the_id_set`, shown load-bearing by planting
+  >   an `SFXID` with no table row (red, "only declared [64]"), then restored.
+  > * **OPEN, owned by the sigil lane: the paired sigil change.** sigil `crates/sigil-cli/tests/sfx_port.rs`,
+  >   `sound_dir()`, lists `games/sonic4/data/sound/sfx/sfx_33_patches.bin` as a reference-tree PRESENCE probe. Against
+  >   this tree `sfx_port` SKIPS GREEN in a non-strict run (a silent vacate) and FAILS under `SIGIL_STRICT_GATE=1`
+  >   until that line goes. No sigil code reads the bytes; its other hits are comments. **Land this aeon half only
+  >   together with that sigil change.**
   > **STALE PROSE FOUND BESIDE IT, not this parcel's to fix** (all measured): `sfx_bank_blob.emp`'s header says the
   > block is "0x748 B" and holds "9 FM/PSG SFX blobs" (it was 16 blobs / `0x9E8` before this parcel, `0x643` after),
   > and both it and `sfx_bank.emp`/`sfx_blob_win_tab.emp` give the per-shape base as `$5BB10`/`$5D560` where the

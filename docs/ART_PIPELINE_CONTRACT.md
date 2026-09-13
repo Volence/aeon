@@ -1065,7 +1065,7 @@ address error. `sigil` does not auto-align data declarations.
 | `tools/png_to_bg_override.py` | a PNG | `editor_bg_override.json` |
 | `tools/inject_editor_bg.py` | `editor_bg_override.json` | overwrites `zone_bg.bin` + `bg_tiles.bin`, and emits `bg_anim.emp` + `bg_anim_banks.bin` |
 | `tools/effects_gen.py` | editor scene/preset documents | `effects_scenes.emp` |
-| `tools/sfx_transcode.py` | `skdisasm` SMPS SFX sources | `data/sound/sfx/sfx_NN.asm`, `sfx_NN_patches.asm`, `sfx_table.asm` |
+| `tools/sfx_transcode.py` | `skdisasm` SMPS SFX sources (the spring, `$B1`, from `s2disasm`) | `data/sound/sfx/sfx_NN.bin` (with `generate --emit-bin`; the committed blob `sfx_bank.emp` embeds, FM-patch bank inline) and an untracked `sfx_NN.asm` `dc.b` listing. The SFX id table is **not** generated: it is `sfx_bank.emp`'s hand-authored `table` |
 | `tools/salvador` (vendored, built by `build.sh`) | a raw page | the `.zx0` bitstream |
 
 Everything under `games/<game>/data/generated/` is **auto-generated and committed**; every
