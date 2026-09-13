@@ -32783,6 +32783,35 @@ also has no reproduction to hand them, so the ask would be "watch for something 
 profiler surfaces and can measure a frame-time spike against a known trigger — so the moment there is
 a trigger, the ask is cheap and specific. Until then this row is the whole action.
 
+## THE TIMING A/B HE CHOSE TO HEAR ALREADY EXISTS — BUILT 2026-09-09, NEVER WRITTEN DOWN (banked 2026-09-13)
+
+**He chose `ab-first` on card `SP6-MODULATION-DIVERGENCE` on 2026-09-13T21:53:38Z** (*"you can build
+the a/b and I'll listen"*, read at empyrean `e33a5e3` `docs/OVERSEER.md`). **The pair was built on
+2026-09-09 and is intact:**
+
+| file (in `/home/volence/sonic_hacks/spring-timing-ab/`) | md5 |
+|---|---|
+| `spring-timing-before.debug.bin` | `e62c43ee7d6986ee3ca90e24ea39d9e9` |
+| `spring-timing-after.debug.bin` | `d9112c35901ee37ffb34549ab756dd56` |
+| `README.txt` | written for the ear: what to listen for, and what each answer means |
+
+- **Provenance:** branch `parcel/sp6-ab-timing`, tip `1bbac747` (off `parcel/sp6-modulation` `60233cfc`),
+  whose body carries the whole argument: one flip in `Sfx_Frame`'s slot loop (tick, then modulate,
+  as S3K does), music's call site byte-identical, the spring's data at the same ROM offset in both.
+  **Checked 2026-09-13:** the worktree's own `s4.debug.bin` (its determinism rebuild) is byte-identical
+  to the "after" ROM, so the pair is what the committed tip builds.
+- **Both legs carry the UNLANDED SP-6 stack**, meaning the Sonic & Knuckles two-voice spring he confirmed
+  "sounds better and correct" with a click. That is the right pair for the question: it isolates the
+  timing flip on the sound whose click is in question. **The README's "the engine exactly as it is
+  today" means that 09-09 stack, not master**: master still ships the old spring, because SP-6 has not
+  landed (its landing is the paired refreeze above, aeon first).
+- **Why every later handoff queued it as "build":** the 09-09 session put the path only in that commit
+  body and the README, never in these docs or the card. This is the record now.
+- **Next:** his ear. Load each ROM in turn, hit a spring, and listen between the first hit and the voice
+  change. His answer settles the card: artefact changed means the timing is implicated, and the fix is
+  a global decision; unchanged means the last engine-side candidate is gone, and the question becomes
+  re-sourcing the spring or living with it.
+
 ## THE RED SPRING'S BASE WAS KNUCKLES' PALETTE, NOT THE SPRING'S ART — AND ONE INDEX IS STILL OPEN (2026-09-09; index 9 CLOSED 2026-09-11, see below)
 
 Owner report: "the palette for red springs base is messed up when knuckles is in (but yellow
