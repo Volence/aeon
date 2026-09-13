@@ -317,6 +317,22 @@ def _rust_extension(name):
     return name[i + 1:]
 
 
+def is_nested_checkout_dir(path):
+    """True when the directory `path` is a NESTED checkout, by sigil's own rule
+    (crates/sigil-frontend-emp/src/resolve/manifest.rs, `is_nested_checkout_dir`): it is
+    named `.worktrees`, or it holds a `.git` entry (a FILE in a linked worktree, a
+    DIRECTORY in a clone). Ask it of a walk's CHILDREN only. The root holds a `.git` too
+    whenever it is a checkout, and is always walked.
+
+    One spelling, shared (2026-09-13): tools/test_system_pool_release_empty.py,
+    tools/emp_helper_closure.py, tools/emdash/count_dashes.py and
+    tools/ls8_pin_redproof.py prune their walks with this, after a worktree nested in the
+    main folder doubled a source count and failed a landing on correct code.
+    """
+    return (os.path.basename(os.path.normpath(path)) == ".worktrees"
+            or os.path.exists(os.path.join(path, ".git")))
+
+
 def scan_members(root):
     """The `.emp` module walk's membership, by sigil's rule, as `/`-joined paths relative
     to `root` in the spelling the walk built (crates/sigil-frontend-emp/src/resolve/
@@ -344,7 +360,7 @@ def scan_members(root):
                 is_dir = False
             sub = rel + "/" + e.name if rel else e.name
             if is_dir:
-                if e.name == ".worktrees" or os.path.exists(os.path.join(e.path, ".git")):
+                if is_nested_checkout_dir(e.path):
                     continue
                 walk(e.path, sub)
             elif _rust_extension(e.name) == "emp":

@@ -22,7 +22,10 @@ every string a person reads, and the docs/lane-logs clause makes the wide count
 the right default. A string-literal-only count needs a per-language lexer, and a
 lexer is exactly what desynchronised on sigil's char literal.
 """
-import argparse, collections, pathlib, sys
+import argparse, collections, os, pathlib, sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))  # tools/
+from artifact_provenance import is_nested_checkout_dir  # noqa: E402
 
 EXTS = {'.emp', '.py', '.sh', '.md', '.toml', '.json'}
 EM, EN = '\u2014', '\u2013'
@@ -44,12 +47,23 @@ ESCAPED = [
 ]
 
 
+def _files(root: pathlib.Path):
+    """Every file under `root`, never entering a NESTED checkout (sigil's rule, shared
+    through tools/artifact_provenance.py). The `/worktrees/` test in scan() predates this
+    and only ever caught `.claude/worktrees/`: a checkout nested as, say,
+    `<root>/.aeon-land-cv` was counted as a second copy of every file (2026-09-13)."""
+    for dirpath, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if not is_nested_checkout_dir(os.path.join(dirpath, d))]
+        for n in names:
+            yield pathlib.Path(dirpath, n)
+
+
 def scan(root: pathlib.Path):
     per = collections.Counter()
     files = collections.Counter()
     escaped = collections.Counter()
     em = en = 0
-    for p in sorted(root.rglob('*')):
+    for p in sorted(_files(root)):
         if not p.is_file() or p.suffix not in EXTS:
             continue
         s = str(p)

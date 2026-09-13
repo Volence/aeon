@@ -74,6 +74,8 @@ import re
 
 import pytest
 
+from artifact_provenance import is_nested_checkout_dir
+
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 ROM_LIMIT = 0x400000  # a 4 MB cart: anything at or above this in the .lst is RAM
@@ -209,14 +211,31 @@ def rom_symbol_at(lst_path, off):
 # Source-derived expectations. Derived from the .emp text, not copied from a run.
 # ---------------------------------------------------------------------------
 
-def _emp_sources():
+def _emp_sources(root=None):
+    """Every `.emp`/`.asm` of THIS checkout, absolute and sorted: the population the
+    three derivations below count. `root` defaults to this checkout; only the hermetic
+    tests in tools/test_nested_checkout_walks.py pass one.
+
+    A NESTED CHECKOUT IS NOT THIS CHECKOUT (2026-09-13). A worktree registered as
+    `.aeon-land-cv` inside the main folder was walked as source, `DeleteObject`'s compare
+    was counted twice, the release test below expected 2 against a ROM that correctly
+    had 1, and `tools/landing_build.sh` ended `finished=1` on correct code. A child
+    directory is now pruned by sigil's own module-scan rule (`is_nested_checkout_dir`,
+    tools/artifact_provenance.py): named `.worktrees`, or holding a `.git` entry.
+
+    Otherwise the population is exactly what it was, untracked and gitignored files on
+    disk included, because sigil reads the disk and not the index. That is why this is
+    not a `git ls-files --exclude-standard` listing: that would drop a gitignored `.emp`.
+    """
+    root = AEON if root is None else root
     out = []
-    for root, dirs, files in os.walk(AEON):
+    for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs
-                   if d not in (".git", ".claude", "docs", "tools", "emulators")]
+                   if d not in (".git", ".claude", "docs", "tools", "emulators")
+                   and not is_nested_checkout_dir(os.path.join(dirpath, d))]
         for f in files:
             if f.endswith((".emp", ".asm")):
-                out.append(os.path.join(root, f))
+                out.append(os.path.join(dirpath, f))
     return sorted(out)
 
 
@@ -224,11 +243,11 @@ def _strip_comment(line):
     return line.split("//", 1)[0]
 
 
-def system_slot_constants():
+def system_slot_constants(root=None):
     """Names `equ`'d from `extern("System_Slots")` anywhere in the source."""
     pat = re.compile(r'^\s*equ\s+(\w+)\s*=.*extern\("System_Slots"\)')
     names = set()
-    for path in _emp_sources():
+    for path in _emp_sources(root):
         with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 m = pat.match(_strip_comment(line))
@@ -237,13 +256,14 @@ def system_slot_constants():
     return names
 
 
-def source_writer_sites():
+def source_writer_sites(root=None):
     """(path, lineno, text) for every `movea.l #<System-derived const>` in source.
 
     These are the writers. Enumerated over the CONSTANTS, not over hand-listed
     procs, so a new constant with a new writer is picked up without editing this.
     """
-    consts = system_slot_constants()
+    root = AEON if root is None else root
+    consts = system_slot_constants(root)
     if not consts:
         raise Unmeasurable(
             "no `equ NAME = ... extern(\"System_Slots\")` constants found. Either "
@@ -252,27 +272,28 @@ def source_writer_sites():
             "gate would pass by finding nothing).")
     pat = re.compile(r"movea\.l\s+#(%s)\b" % "|".join(sorted(consts)))
     sites = []
-    for path in _emp_sources():
+    for path in _emp_sources(root):
         with open(path, encoding="utf-8", errors="replace") as fh:
             for n, line in enumerate(fh, 1):
                 if pat.search(_strip_comment(line)):
-                    sites.append((os.path.relpath(path, AEON), n, line.strip()))
+                    sites.append((os.path.relpath(path, root), n, line.strip()))
     return sites
 
 
-def source_compare_sites():
+def source_compare_sites(root=None):
     """(path, lineno) for every `cmpa` against `System_Slots` in source.
 
     These are the release shape's ONLY legitimate references: `DeleteObject`'s
     pool classification.
     """
+    root = AEON if root is None else root
     pat = re.compile(r'cmpa\.[wl]\s+#\s*extern\("System_Slots"\)')
     sites = []
-    for path in _emp_sources():
+    for path in _emp_sources(root):
         with open(path, encoding="utf-8", errors="replace") as fh:
             for n, line in enumerate(fh, 1):
                 if pat.search(_strip_comment(line)):
-                    sites.append((os.path.relpath(path, AEON), n))
+                    sites.append((os.path.relpath(path, root), n))
     return sites
 
 

@@ -8,8 +8,10 @@
 # can sit far behind it. See the resolution block below. It runs in a DETACHED checkout at
 # <suite root>/.aeon-nightly so it never races an overnight session or the
 # auto-commit daemon in the main tree, and never appears inside the main
-# repo directory (a worktree under the repo root double-counts every module
-# in tools/emp_helper_closure.py's tree scan).
+# repo directory (a worktree under the repo root used to double-count every module
+# in tools/emp_helper_closure.py's tree scan; since 2026-09-13 that scan prunes nested
+# checkouts by sigil's rule, but a checkout inside another is still a trap for any
+# walk that does not).
 #
 # Exit-code contract mirrors effects_gates.py: a lane FAILURE and a lane that
 # COULD NOT RUN are both loud — a backstop that silently can't run is the
