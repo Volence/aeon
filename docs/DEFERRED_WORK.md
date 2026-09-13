@@ -8506,6 +8506,17 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   > carries the same two stale numbers, and `pins.rs`'s `SFX_BANK_BLOB` (`plain_len: 0x8EC`) and `ASSEMBLED_LEN`
   > (`0xBDC92`) were **already stale against today's aeon master before this parcel** — so no sigil pin was a live
   > gate on this block's length. Flagged, not touched.
+  > **RUNTIME-TAG CLOSED 2026-09-13 (controller, emulator): nothing read the 932 bytes, in the scope stated.** A build
+  > cannot see a reader, so it was measured on a running game two ways, each with a control that could fail
+  > (`docs/superpowers/notes/2026-09-13-f3-runtime-tag.md`, runners beside it). (1) A/B of the Z80 `SfxChannel` state,
+  > the F3 merge's first parent `0dc9e0d1` against the merge `c0d1b816` and the tip `251f51fe`, one assembler: all 16
+  > SFX identical frame for frame (766 frames, 786 channel rows), every pointer inside its own blob, every FM patch
+  > base at the same in-blob offset, so the Z80 read the inline copy even before the deletion; comparator control
+  > (`$33` against `$35`) differs. (2) Read watches on the 548 B + 384 B in the pre-deletion ROM through boot and all
+  > 16 SFX: 0 reads; 68k positive control predicted 16, measured 16 (`EntryPoint.load_z80`). The Z80 positive control
+  > got 0 because oracle watches cannot see Z80 accesses (oracle `F-Z80-ACCESSES-UNWATCHED`, their `ea1dcb8`), so the
+  > watches cover 68k readers only and (1) covers the Z80. NOT exercised: SFX over music, `Sound_PlaySFX` itself, other
+  > game states, the release shape.
 - **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
