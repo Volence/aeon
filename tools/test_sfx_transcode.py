@@ -9,8 +9,8 @@ Test coverage per Task 4 spec:
     strings; assert route, events, voice bytes, priority.
   - test_no_reserved_target: for Roll + Skid assert no channel targets
     FM1/FM2/FM6/DAC.
-  - test_sfxtable_complete: SfxTable has SFX_COUNT entries + every SFXID_*
-    maps to a label.
+  - (SfxTable completeness is graded against the real tables by
+    tools/test_sfx_bank_wiring.py; see the note where TestSfxTableComplete stood.)
   - test_unknown_flag_errors: unknown $E0-$FF coord flag raises build error.
 """
 
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sfx_transcode
 from sfx_transcode import (
     transcode_sfx_source,
-    pack_sfx, emit_sfx_table_asm,
+    pack_sfx,
     TranscodeError,
     SFXEL_FM, SFXEL_PSG, SFXEL_NOISE, SFXEL_NONE,
     SFXPRI_ROLL, SFXPRI_SKID, SFXPRI_RING, SFXPRI_JUMP,
@@ -545,44 +545,66 @@ class TestBakeChannelVolumeSaturates(unittest.TestCase):
                          "modulator TLs must not be volume-baked (timbre, not loudness)")
 
 
-class TestSfxTableComplete(unittest.TestCase):
-    """SfxTable must have SFX_COUNT entries and every SFXID_* maps to a label."""
+# TestSfxTableComplete stood here until 2026-09-13 (F3 riders). Four of its six
+# tests graded the OUTPUT STRING of emit_sfx_table_asm, a generator for an
+# sfx_table.asm that exists nowhere (the AS build that included it is gone), so the
+# gate had outlived its subject. The property it was named for — every declared SFX
+# id has a table entry, and the table spans the id range — is live and is graded
+# against the REAL tables by tools/test_sfx_bank_wiring.py:
+#   test_transcoder_and_game_agree_on_the_id_set   SFXID_* values == SfxTable rows
+#                                                  == _CORE_SFX_IDS (derived, not a
+#                                                  hand-typed id list)
+#   test_every_win_tab_cell_sits_at_its_own_id_index / ..._cell_count_matches_the_
+#   key_range                                      the table the Z80 actually reads
+# The other two tests were a tautology (a dict built from _CORE_SFX_IDS has as many
+# keys as _CORE_SFX_IDS) and a hard-coded nine-id content pin weaker than the first
+# wiring test above.
 
-    def setUp(self):
-        # Build a synthetic id_to_label map for the core set
-        self.all_ids = _CORE_SFX_IDS
-        self.id_to_label = {sfx_id: _sfx_label(sfx_id) for sfx_id in self.all_ids}
 
-    def test_sfx_count(self):
-        self.assertEqual(len(self.id_to_label), len(self.all_ids))
+class TestGenerateCliRefusesUnknownFlags(unittest.TestCase):
+    """`generate` accepts exactly _GENERATE_FLAGS; anything else is refused BEFORE
+    generate_all runs, so a retired or typo'd flag writes nothing.
 
-    def test_all_sfxid_present(self):
-        # These are the symbolic SFXID_* from sound_constants.asm
-        required_ids = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x62, 0xAB, 0xB6, 0xB9]
-        for sid in required_ids:
-            self.assertIn(sid, self.id_to_label,
-                          f"SFXID ${sid:02X} must be in the SfxTable")
+    The reason it exists: `--emit-table` was retired 2026-09-13, and main() used to
+    test flags by membership alone, which would have accepted the dead flag
+    silently and regenerated into the tree.
 
-    def test_table_asm_contains_all_labels(self):
-        table_asm = emit_sfx_table_asm(self.all_ids, self.id_to_label)
-        for sfx_id, label in self.id_to_label.items():
-            self.assertIn(label, table_asm,
-                          f"SfxTable asm must reference label {label!r} for id ${sfx_id:02X}")
+    generate_all is replaced by a recorder in every case here, because on a
+    regression the real one would write into games/sonic4/data/sound/sfx/. The two
+    accepted cases are the positive control: they prove the recorder sees a real
+    dispatch, so an empty record on a refusal case is a verdict, not a dead
+    tripwire."""
 
-    def test_table_asm_has_sfx_count_define(self):
-        table_asm = emit_sfx_table_asm(self.all_ids, self.id_to_label)
-        self.assertIn('SFX_COUNT', table_asm)
+    def _run(self, argv):
+        import contextlib
+        import io
+        from unittest import mock
+        calls, err = [], io.StringIO()
+        with mock.patch.object(sfx_transcode, 'generate_all',
+                               side_effect=lambda **kw: calls.append(kw)), \
+                contextlib.redirect_stderr(err):
+            rc = sfx_transcode.main(argv)
+        return rc, calls, err.getvalue()
 
-    def test_table_asm_has_completeness_assert(self):
-        table_asm = emit_sfx_table_asm(self.all_ids, self.id_to_label)
-        # The asm must have a `SfxTable_End - SfxTable` check
-        self.assertIn('SfxTable_End', table_asm)
-        self.assertIn('SfxTable_End-SfxTable', table_asm)
+    def test_emit_bin_reaches_generate_all(self):
+        rc, calls, _ = self._run(['generate', '--emit-bin'])
+        self.assertEqual((rc, calls), (0, [{'emit_bin': True}]))
 
-    def test_sfxtable_end_label_present(self):
-        table_asm = emit_sfx_table_asm(self.all_ids, self.id_to_label)
-        self.assertIn('SfxTable:', table_asm)
-        self.assertIn('SfxTable_End:', table_asm)
+    def test_bare_generate_reaches_generate_all(self):
+        rc, calls, _ = self._run(['generate'])
+        self.assertEqual((rc, calls), (0, [{'emit_bin': False}]))
+
+    def test_retired_emit_table_is_refused_and_named(self):
+        rc, calls, err = self._run(['generate', '--emit-table'])
+        self.assertEqual((rc, calls), (1, []),
+                         "--emit-table must be refused before anything is written")
+        self.assertIn('retired', err)
+        self.assertIn('Usage:', err)
+
+    def test_a_typo_flag_is_refused(self):
+        rc, calls, err = self._run(['generate', '--emit-bni'])
+        self.assertEqual((rc, calls), (1, []))
+        self.assertIn('--emit-bni', err)
 
 
 class TestUnknownFlagErrors(unittest.TestCase):
@@ -2094,9 +2116,12 @@ class TestChannelVolumeBakeIsNotCumulative(unittest.TestCase):
     adds each channel's OWN volume at ITS OWN upload, so FM4 hears +$05 and FM5
     +$08. Baking into one shared, in-place-mutated bank inside the per-channel loop
     gives BOTH channels +$0D: 8 TL steps (6.00 dB) too quiet on FM4 and 5 steps
-    (3.75 dB) too quiet on FM5. That was shipped -- sfx_B9_patches.bin's TL group
-    read `23 23 0d 0d` where sfx_33_patches.bin, from the byte-identical authored
-    voice, read `23 23 05 05`.
+    (3.75 dB) too quiet on FM5. That was shipped -- the separate patch-bank file
+    sfx_B9_patches.bin's TL group read `23 23 0d 0d` where sfx_33_patches.bin,
+    from the byte-identical authored voice, read `23 23 05 05` (measured on those
+    files before they were deleted, 2026-09-13, F3 riders: they were copies of the
+    inline banks). The fixed banks are inline in sfx_B9.bin at voice_ptr 66 and 98,
+    reading `23 23 05 05` and `23 23 08 08`.
 
     Note this cannot be fixed by baking a single shared bank harder or softer -- no
     one static bank can carry two different channel volumes. Each FM channel needs

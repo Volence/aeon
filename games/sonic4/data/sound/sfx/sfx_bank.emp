@@ -40,11 +40,11 @@
 //     BYTES ALREADY INSIDE ITS OWN BLOB — measured in the shipped s4.bin: e.g.
 //     $33's blob sits at $BBB18 with its bank inline at $BBB32 (voice_ptr 26) and
 //     the separate copy at $BBB52, byte-identical, addressed by nothing. The
-//     `Sfx_NN_Patches` labels had no reader anywhere in the tree. The
-//     `sfx_NN_patches.bin` FILES still exist (tools/sfx_transcode.py writes them
-//     alongside the `.asm` twins); they are simply no longer embedded. Do NOT
-//     re-add them "so the SFX has its voices" — the voices ship inside the blob,
-//     and that is the copy `voice_ptr` points at.
+//     `Sfx_NN_Patches` labels had no reader anywhere in the tree. The separate
+//     `sfx_NN_patches.bin` files were then deleted as well (2026-09-13, F3
+//     riders), together with the transcoder code that wrote them. Do NOT
+//     re-add a separate bank "so the SFX has its voices" — the voices ship
+//     inside the blob, and that is the copy `voice_ptr` points at.
 //   * NO `cell:` — so the table emits ONLY the payload stream (rows in
 //     declaration order), no key-addressed cell table. `SfxTable` anchors to the
 //     first row's first byte (= `Sfx_33`).
@@ -71,8 +71,11 @@
 // No `_End` labels: every cross-seam consumer reads a `Sfx_NN` label or a blob's
 // `.len` (comptime), never an end-minus-start. Each blob's interior FM-patch-bank
 // invariants are the transcoder's (`pack_sfx` writes the bank and the `voice_ptr`
-// into it together) and are covered by the `.bin` twin verifier + ROM
-// byte-identity of the blob itself.
+// into it together) and are graded by tools/test_sfx_transcode.py, whose
+// `_blob_channel_banks` reads each FM channel's bank back out of the packed blob
+// through its own `voice_ptr` and fails on a NULL pointer or a bank that runs
+// past the blob. (This line used to credit a `.bin` twin verifier,
+// tools/verify_emit_bin.py; that tool was retired at 5fc6ba13.)
 // ===========================================================================
 
 module data.sfx_bank
