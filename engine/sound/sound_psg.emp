@@ -203,10 +203,10 @@ section sound_psg (cpu: z80) {
     // apart from those three constants, so the scan exists once and each family
     // supplies its own head. See VolEnv_ResolveScan for why this is not a generic.
     // ------------------------------------------------------------------
-    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f
+    // Contract: out(hl) = body base + out(carry: unknown); clobbers a, b, de, f
     // (scan scratch); preserves c (untouched) + ix (inherited). The `bc` header
     // over-claims — only `b` (the djnz counter) dies, `c` survives.
-    pub proc PsgVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) falls_into VolEnv_ResolveScan {
+    pub proc PsgVolEnv_Resolve () out(hl, carry: unknown) clobbers(a, b, de, f) preserves(c) falls_into VolEnv_ResolveScan {
         ld      b, PSGVOLENV_COUNT
         ld      hl, PsgVolEnv_Ids      // banked table; label = its $8000-window ptr
         ld      de, PsgVolEnv_Ptrs     // banked ptr array (entries are window ptrs)
@@ -228,9 +228,9 @@ section sound_psg (cpu: z80) {
     // `falls_into` contract makes that placement machine-checked instead of a
     // comment that a later edit can quietly invalidate.
     // ------------------------------------------------------------------
-    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f;
+    // Contract: out(hl) = body base + out(carry: unknown); clobbers a, b, de, f;
     // preserves c (untouched) + ix (inherited).
-    pub proc VolEnv_ResolveScan () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
+    pub proc VolEnv_ResolveScan () out(hl, carry: unknown) clobbers(a, b, de, f) preserves(c) {
     .scan:
         cp      (hl)
         jr      z, .found
@@ -259,10 +259,10 @@ section sound_psg (cpu: z80) {
     // Out: carry clear + hl = body base on a match; carry set on an unknown id.
     // In: a = 1-based env id.
     // ------------------------------------------------------------------
-    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f
+    // Contract: out(hl) = body base + out(carry: unknown); clobbers a, b, de, f
     // (scan scratch); preserves c (untouched) + ix (inherited). The FM mirror of
     // PsgVolEnv_Resolve; the same `bc`-header over-claim (`c` survives).
-    pub proc FmVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
+    pub proc FmVolEnv_Resolve () out(hl, carry: unknown) clobbers(a, b, de, f) preserves(c) {
         ld      b, FMVOLENV_COUNT
         ld      hl, FmVolEnv_Ids       // banked table; label = its $8000-window ptr
         ld      de, FmVolEnv_Ptrs      // banked ptr array (entries are window ptrs)

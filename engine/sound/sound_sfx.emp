@@ -472,8 +472,8 @@ section sound_sfx (cpu: z80) {
     //      CARRY SET (iy indeterminate) if no music channel owns it (or CHCOUNT==0).
     // Preserves ix, hl.
     // ----------------------------------------------------------------------
-    // Contract: out(iy, carry: found); clobbers af, bc, de; preserves hl, ix.
-    pub proc Sfx_MusicChanPtr () out(iy, carry: found) clobbers(af, bc, de) preserves(hl, ix) {
+    // Contract: out(iy, carry: none); clobbers af, bc, de; preserves hl, ix.
+    pub proc Sfx_MusicChanPtr () out(iy, carry: none) clobbers(af, bc, de) preserves(hl, ix) {
         ld      c, a                     // c = target route (preserved across the scan)
         ld      a, (SND_SEQ_CHCOUNT)
         or      a

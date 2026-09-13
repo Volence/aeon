@@ -1048,7 +1048,7 @@ section z80_sound_driver (cpu: z80) {
     // Clobbers a + de (the index/offset math) + f (the id-validity flags and the
     // final `add hl` carry); hl carries the descriptor pointer result; bc, ix, iy
     // are untouched.
-    pub proc Snd_DacLookup () out(hl, carry: ok) clobbers(a, de, f) preserves(bc, ix, iy) {
+    pub proc Snd_DacLookup () out(hl, carry: invalid) clobbers(a, de, f) preserves(bc, ix, iy) {
         or      a
         scf
         ret     z                       // id 0 -> bad (carry set)
