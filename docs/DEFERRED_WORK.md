@@ -32907,6 +32907,11 @@ before spending on it.
 
 ## REGIONS — THE OWNER DREW AN ARCH, AND IT EXPOSES A RUNTIME GAP THE V1 DESIGN DOES NOT ANSWER (2026-09-09)
 
+> **CLOSED 2026-09-13 (`parcel/regions-p1`, step 1):** the BUILD-TIME COVERAGE PROOF is what shipped —
+> no-overlap and exact-tiling `ensure`s over the single-source row const `OJZ_ACT1_REGION_ROWS`, each
+> proven red by inversion, so `Region_Resolve`'s "no region" is unreachable on any act that builds. See
+> the painted-regions v1 parcel-1 entry at the end of this file. The text below is kept as written.
+
 **He drew a region as an ARCH over the section grid** — a horizontal span with two legs hanging
 down, and a NOTCH between the legs that is not part of that identity — and asked whether a region
 can be that shape. **The answer is yes, and the mechanism confirms it rather than merely permitting
@@ -34049,3 +34054,111 @@ next `DEBUG=1 ./build.sh demo` in that tree passed, and a second plain demo buil
 `landing_build.sh` was running in a different tree at the time. **Hypothesis, unverified:** the test assumes artifacts that a
 sound-on (sonic4) build writes first, so it is order-dependent in a fresh tree. **To reproduce:** fresh `git worktree add
 --detach`, then plain `./build.sh demo` first, nothing else running. `landing_build.sh` builds sonic4 first and cannot see it.
+
+## PAINTED-REGIONS v1, PARCEL 1 (steps 1-4) — what shipped, what it closed, what it found (2026-09-13, `parcel/regions-p1`)
+
+**Shipped: identity by rectangle** — steps 1-4 of `docs/superpowers/designs/2026-09-09-regions-v1-design.md`
+(owner go 2026-09-13T15:46:57Z, which also answered its Q2 yes: region edges may sit off the section grid).
+A 16-byte `Region` record (`engine/structs.emp`), `Act.act_regions`/`act_region_count`, OJZ act 1's
+nine-row table (`act_descriptor.emp`, `ojz_region()` + whole-table ensures), `Region_Resolve` and the
+camera-centre rectangle crossing (`engine/level/parallax.emp`), the region-scoped boot select, and
+`Sec.sec_parallax_config` / `Sec.sec_effects` deleted (Sec 34 -> 26). ARCH §4.2, §4.2b and §7.12 carry
+the mechanism.
+
+**IT CHANGES NO PIXEL, and it is a small ROM loss.** The table transcribes the nine sections 1:1, so the
+parcel is a re-scoping; what it buys is an identity edge off the section grid, which is step 5 and not
+shipped. Measured on release sonic4 (emitted bytes from listing spans; `EndOfRom` moves less because
+the placer's fill ahead of anchored sections absorbs most of it):
+
+| step | design (emitted) | measured (emitted) | release EndOfRom | why they differ |
+|---|---:|---:|---:|---|
+| 1 record + table | +150 | +150 | +0 | none; absorbed by fill before the `$0A8000` sound anchor |
+| 2 resolvers retyped | 0 | 0 (2 displacement bytes differ) | +0 | none |
+| 3 rectangle crossing | +74 | +64, RAM +12 | +6 | the deleted `lea OJZ_Act1_Descriptor` (-6, uncounted by the design); `rg_x0:l`'s zero displacement folds (-2); the new same-module call relaxes to `bsr.s` (-2). The +58 of crossing code lands in fill before the `$10000` anchor; the +6 is the boot select |
+| 4 delete Sec identity | -72 | -64 | +0 | the section table shrank exactly 72; the `x sizeof(Sec)` stride went 34 -> 26, and x26 (three set bits) is one add longer than x34 in each `mul_const` chain: `Section_GetSecPtrXY` +4, `TileCache_DecompressBlock` +4 (the demo carries both). All of it lands in fill |
+| **parcel** | **+152** | **+150, RAM +12** | **+6** ($BD9FC -> $BDA02) | the design's -10 at step 3 and +8 at step 4 |
+
+The DEMO moves too (bytes, not `EndOfRom`): it lowers the shared engine modules `preset.emp`,
+`parallax.emp` and `ram.emp`, so it carries the retyped procs, `Region_Resolve`, the new crossing and
+the +12 RAM without ever calling them. DEBUG-only deltas the design did not price: the lab readout's
+stride multiply (x34 -> x16, -4), the boot select's deleted Boot_At block (-16 net), the lab chord's
+deleted grid product (-16), and a longer crossing raise string (+12 in the diag table).
+
+**CLOSED BY THIS PARCEL:**
+- **The REGIONS "arch gap" (2026-09-09, above).** Non-overlap and exact tiling are live comptime ensures
+  over the single-source `OJZ_ACT1_REGION_ROWS`, the same const the table is emitted from, so
+  `Region_Resolve`'s "no region contains the centre" is unreachable on any act that builds and an arch's
+  notch cannot be forgotten. Both proven red by inversion (step 1's commit body).
+- **Design Q1** (can a whole-table invariant be a live `ensure`): shipped, not probed.
+- **The copied `Sec` layouts** in `tools/boot_override_gate.py`, `tools/preset_lab_witness.py` and
+  `tools/parallax_crossing_gate.py`: all three read the act's Region table through `tools/region_table.py`,
+  which parses `Region`'s layout with an offset-comment cross-check. No out-of-assembler reader carries
+  `Sec`'s layout any more; the `sizeof(Sec)` pins say so.
+
+**FOUND — each measured; the commit bodies carry the evidence:**
+
+1. **`tools/effects_gen.py`'s `section_preset_symbols()` mis-paired all nine sections after step 1**, with
+   four shapes, every pytest lane and the needs_build lane green. It paired each descriptor `effects:`
+   with "the nearest numeric `sec:` BEFORE it" — a claim about one constructor's argument order — and the
+   region rows name their preset before their sidecar key. Fixed in step 1c (pair within the enclosing
+   call) with a red-first test. `effects_gen.py emit` reproduced the committed generated tree byte-for-byte
+   with the bug AND with the fix, so its one consumer (the reels alias check) reached the same outcome on
+   today's content — real, silent, not yet live. **THE CLASS IS WIDER THAN THE INSTANCE:** at least five
+   tools read `act_descriptor.emp` as TEXT keyed on a spelling (`effects_gen`, `effects_seam_gate`,
+   `test_anchor_sweep_band`, `lens_residue_raster_witness`, and — through its docs — `preset_lab_witness`);
+   step 4 repointed each. The tools parcel (design §3.3, `regions.json`) should give them a structured source.
+2. **`docs/EMP_PITFALLS.md` §12's "a written 0 to a scalar `Label` argument is refused" did not hold** for a
+   `comptime fn` parameter: `effects: 0` built green. Amended there; `ojz_region()` carries
+   `ensure(effects != 0)`, and the missing default still catches an omission.
+3. **Sigil refuses a `.l` across two 2-byte struct fields** (`[operand.field-overrun]`); the span-major
+   cache fill uses the declared-overlay spelling `Region.rg_x0:l(a0)`. The design had not met the check.
+4. **Design §10.3's T2 inversion cannot be realised** on any tree that builds: `ojz_region()`'s reachable-band
+   ensure keeps interior edges out of the half-screen clamp zone, which is the only place the Boot_At point
+   and the camera centre can differ, so they never name different regions. T2's expectation was rewritten
+   anyway (it restates the rule the engine uses) and inverted by poisoning the engine's boot select (red).
+5. **The region sentinel is NOT load-bearing on first boot.** Measured: `Parallax_Init` without it, T1 and T2
+   stay green, because the Work-RAM clear leaves an empty cache no reachable centre is inside. Design §4
+   step 3's proposed inversion ("confirm the first frame fails to install") is refuted. Where it should be
+   load-bearing — an act reload, or a warp landing inside the region already cached — is NOT measured
+   (TAGGED below).
+6. **The T3 witnesses are not green on BASE**, before this parcel: `tools/sec5_band_witness.py` refuses
+   (`ojz_sec5_showcase.json` has 3 bands; it measures one) and `tools/row_remap_witness.py` fails its own
+   model (no remapped run in any of 12 samples; the tail refutes its phase). Both are repointed off
+   `Parallax_Prev_Sec_X/Y`; both reproduce their base verdict exactly, and row_remap's new region read runs.
+   Their staleness is their own, booked here rather than fixed here.
+7. **`tools/blank_priority_probe.py` also read `Parallax_Prev_Sec_X/Y`** and was not in the design's T3 list.
+   Repointed (the camera centre's section, cross-checked against `Region_Current` and the ROM's table);
+   **not run** — it is a probe nothing runs.
+8. **A process error of my own, recorded because it transfers:** a base tree exported under the worktree's
+   gitignored `.runlogs/` made sigil see every module twice (`module ... declared twice`) and turned a base
+   landing build red in three shapes. **Sigil scans every `.emp` under the aeon root, gitignored or not** —
+   never park an `.emp` tree inside a worktree; use the session scratchpad with `EMPYREAN_SUITE_ROOT`.
+9. **Sigil drift, reported after the fact under the 2026-09-02 ruling (sigil's tree was not edited):**
+   Run from a fresh worktree at sigil `origin/master` `c48d53a9` (`cargo test --release --workspace
+   --no-fail-fast`, `SIGIL_STRICT_GATE=1`, `AEON_DIR` = this parcel's tip): **5268 passed, 175 failed,
+   2 ignored.** Against a same-revision baseline — a clean clone of aeon `96a98abd` carrying the base
+   build's ROMs, listings and generated inputs — **169 of the 175 already fail at base**: sigil master is
+   not paired with aeon master (its goldens were frozen from aeon `ec640bcf`, per `provenance_chain`;
+   several ports stop on `unknown name GAME_SCANLINE_CAPS` / `CRASH_REPORT`). So the design's two named
+   drift walls, `parallax_port` and `plane_buffer_port`, are MASKED by earlier failures and could not be
+   observed tripping. **Six are new; no base failure was fixed.** Four are the name/layout walls the
+   design predicted — `act_fixture_drift::fixture_covers_every_field_the_structs_declare`
+   (`Act_act_regions`, `Act_act_region_count` not carried), `act_fixture_drift::fixture_values_match_the_live_structs`
+   (`Act_len` 0x28 vs 0x2e, every renumbered `Sec_*` offset, `Sec_len` 0x22 vs 0x1a),
+   `structs_module::harvest_emits_the_as_field_offsets_and_sizes` ("harvest must emit Act_len = 0x28 (got
+   Some(46))"), and `test_support::tests::sec_field_equ_names_match_the_harvest` ("supplies
+   `Sec_sec_parallax_config`, which no longer exists"). **Two are NOT name walls:**
+   `controllers_port::controllers_debug_region_matches_reference` (first diff at +0x1d) and
+   `hblank_port::hblank_debug_region_matches_reference` (first diff at +0x5). Decoded from both listings:
+   each is a `.w` RAM-address operand that moved +12 — `$BA8E -> $BA9A` in `Read_Controllers`, `$B6A0 ->
+   $B6AC` in `HBlank_Install` — because the region cache's 12 bytes of RAM precede those variables.
+   Pinned-byte drift from a RAM-moving parcel: the repin/refreeze ritual's work, not an aeon defect.
+
+**OPEN, TAGGED for the controller (need a screen or a scenario tool this parcel did not have):**
+- T5 — the first authored sub-section edge on a screen, crossed at speed (design step 5; not in this parcel).
+- T6 / Q3 — boot directly into a region whose preset differs in `ep_pal` and look at frame 1.
+- T7 — crossing-frame cost once sub-section edges are authored (the step-6 trigger).
+- The sentinel's load-bearing cases: an act reload, and a DEBUG warp that lands inside the region
+  already cached (the fast path would keep the old identity without the sentinel).
+- The lab's PRESET rows still read as section words (WATR, SPLT, ...); region N == section N today, so the
+  words are right, and they become a vocabulary question the day a region is not a section.
