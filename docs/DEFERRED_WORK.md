@@ -3860,10 +3860,42 @@ The two gates are each other's other half and their sampling rules are deliberat
 (before the first crossing there, only after one here). A change to `Effects_ResolveParallax`
 should turn both red; a change to either caller alone should turn exactly one.
 
-### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
+### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20 — DEFINE ROUTE LANDED 2026-09-13
 
-**Blocked on: sigil.** Aeon-side work is done and shipped byte-identically; this is the one
-edit that turns a pinned mirror back into a derivation.
+> **2026-09-13, branch `parcel/per-game-band-defines` (base `62fe88f7`, sigil `1532b72f`).** The
+> sigil mechanism this booking asked for HAD shipped (a game's `map.toml [defines]` rows merge
+> into the shape's define env, `native::shape_defines`), and nothing used it. Now each game
+> declares `GAME_SCANLINE_CAPS` (sonic4 `0x0FDE`, demo `0`); the four `BAND_*_N` in
+> `engine/level/parallax.emp` and the four `BAND_*_BYTES` in `engine/ram.emp` fold it; and
+> `parallax.emp` pins the define to `Game.SCANLINE_CAPS` (one equality: both directions, every
+> bit), pins the literal masks to their `CAP_*` bits, and pins each count to its bit, in EVERY
+> game. The eight sonic4-only pins in `scene_registry.emp` are retired into those. All new pins
+> proven red, both directions, both games. **Bytes:** sonic4 byte-identical in both shapes;
+> demo sheds 428 B of `Parallax_State` (820 -> 392; the debug shape also 352 B of scratch), and
+> demo's ROM files shrink 51 / 52 B, all of it in the deb2 appendix (three zero-size RAM labels
+> now share one address, and deb2 keeps one name per address). The code change (-4 B) is
+> absorbed by fill before the $10000 object-bank anchor. Full record, with the byte derivation
+> written before the build: `docs/superpowers/notes/2026-09-13-per-game-band-defines.md`.
+>
+> **The "measured" table below was one-third wrong, and that decides the Secondary item.** A
+> define reaches the data-binding layout and the RAM harvest, game rows included. It does NOT
+> reach `harvest_engine_struct_offsets`, and neither does the built-in `DEBUG` (spike: `unknown
+> name `DEBUG``); the `d7b36f90` DEBUG measurement sized `band_record`, which is not a harvested
+> twin, so it never tested that context. The Secondary fold-back below therefore stays blocked,
+> on a DIFFERENT sigil gap from the one this booking named: `layout_struct_ambient` has no define
+> env. Nothing shipped needs it.
+>
+> **Still open from this booking:** (1) the Secondary item, now sigil-blocked (the ask is in the
+> note, §6). (2) sigil's `the_shipped_maps_game_declared_rows_are_polarity_covered`
+> (`crates/sigil-harness/tests/game_config_defines.rs`) asserts the shipped maps declare NO game
+> rows; it goes red when their aeon reference tree passes this landing. A one-line expectation
+> change on their side, routed in the note §6. (3) demo still reserves the 256-byte
+> `Waterline_Art_Buffer` ungated. Gating it on the same define is now possible and is its own
+> byte-moving decision (`engine/ram.emp`, at `WATERLINE_ART_BYTES`).
+
+~~**Blocked on: sigil.** Aeon-side work is done and shipped byte-identically; this is the one
+edit that turns a pinned mirror back into a derivation.~~ Unblocked, and done as above. What
+follows is the 2026-08-20 record.
 
 > **ACCEPTED + LEDGERED sigil-side 2026-08-20** (their campaign-gap-ledger.md, sigil master
 > `d3a8c91d`; sized small-medium, queued behind their in-flight m68k round-trip parcel).
@@ -3894,7 +3926,8 @@ and it does not compile. **Three separate contexts refuse it, each measured 2026
 | `harvest_engine_struct_offsets` (the ambient STRUCT_OFFSET_TWINS layout: one file + `types.emp`, no profile, no defines, no contract) | `harvest_engine_struct_offsets: layout band_entry: unknown name Game.SCANLINE_CAPS` — the build dies before a byte is emitted |
 | `harvest_engine_ram_addresses` (the focused `use engine.ram`-only build) | `ram harvest build_program: unknown name Game.SCANLINE_CAPS` — so `engine/ram.emp` cannot size a reservation by capability either |
 
-A **build define is visible in all three.** Driving `BAND_EXT_N` off `DEBUG` sized
+A **build define is visible in all three.** (**CORRECTED 2026-09-13: in two of the three**; the
+struct harvest sees no define, built-in or game. See the status block above.) Driving `BAND_EXT_N` off `DEBUG` sized
 `band_record` correctly and built `s4.debug.bin` **byte-identically** (`d7b36f90`), which is
 what makes this ask concrete rather than speculative: the mechanism is finished and proven,
 only its input is out of reach.
@@ -33743,6 +33776,23 @@ pair this suite has a bar about — it is not a ship notice.** Routed to sigil t
 than asserted here. **If it has shipped, this confirmation is OURS and is un-run**, and the
 reason it is un-run is that a trigger in someone else's tree fires silently for the lane holding
 the obligation.
+
+**RUN 2026-09-13: OBLIGATION 1 DISCHARGED AEON-SIDE, and the answer is TWO OF THREE.** The
+mechanism HAD shipped. Read at sigil `origin/master` `962cec05`: `native::shape_defines` merges
+each game's `games/<g>/map.toml [defines]` rows into the one env every `.emp` consumer reads
+(`crates/sigil-harness/src/game_defines.rs`). Measured with a capability-derived GAME row,
+`GAME_SCANLINE_CAPS`, on branch `parcel/per-game-band-defines`:
+
+| context | verdict | evidence |
+|---|---|---|
+| emitted-`data` record layout | **VISIBLE** | the twenty sonic4 scene records lay out at 32 B per band from the sonic4 row, and `s4.bin` / `s4.debug.bin` are byte-identical to the control |
+| `harvest_engine_ram_addresses` | **VISIBLE** | `engine/ram.emp` sizes `Parallax_State` from the row: 392 B in `demo.lst`, 820 B in `s4.lst`, and `parallax.emp`'s span guards are green in all four shapes |
+| `harvest_engine_struct_offsets` | **NOT VISIBLE, and no define is** | a zero-length `[u8; GAME_SCANLINE_CAPS & 0]` on `band_entry` fails `harvest_engine_struct_offsets: layout band_entry: … unknown name `GAME_SCANLINE_CAPS``; `DEBUG & 0` fails identically; a literal `[u8; 0]` passes the harvest |
+
+The third row is a sigil gap (`layout_struct_ambient` takes no define env). The exact ask is in
+`docs/superpowers/notes/2026-09-13-per-game-band-defines.md` §6, and nothing shipped needs it:
+the band record is deliberately not a harvested struct. It also corrects this booking's own
+source, which said a define "is visible in all three".
 
 **The reusable half:** an obligation whose TRIGGER lives in a peer's repo is untestable by the
 peer (they cannot see our un-run confirmation) and untested by us (nothing prompts a look). It

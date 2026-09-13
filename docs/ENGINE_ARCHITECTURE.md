@@ -2607,8 +2607,9 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   sonic4, +2 code on `demo` for the widened copy loop alone — and **`EndOfRom` does not move in
   any of the four shapes**, so all of it lands in existing slack; the file-size deltas (+190 /
   +192 / +16 / +16) are the deb2 symbol appendix taking the new names.
-- **ADOPTION WAS OWNER-GATED AND HAD A SIGIL RIDER.** `BAND_DRIFT_N` is a pinned engine-wide
-  literal, so raising it widened the record for `demo` too and moved every ROM image;
+- **ADOPTION WAS OWNER-GATED AND HAD A SIGIL RIDER.** `BAND_DRIFT_N` was then a pinned engine-wide
+  literal (per game since 2026-09-13; see "Per-game band sizing" below), so raising it widened
+  the record for `demo` too and moved every ROM image;
   `scene_registry.emp` carried the refusal (its `CAP_BAND_DRIFT` arm is now inverted, and refuses
   the silent LOSS of the adoption instead). It ALSO fails sigil's contract-closure gate on the row
   `Parallax_Update @ Decode_Factor_B :: d2`, because `add.w (a4), d2` makes d2 a live output of
@@ -2622,6 +2623,22 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   drift tail out of the built ROM and decodes it against the authored rate (the DATA half). A
   walker that faithfully accumulates a rate of zero passes the first and fails the second. Whether
   the accumulate moves the PICTURE is still emulator work and is booked as unrun.
+
+**Per-game band sizing — `GAME_SCANLINE_CAPS` (2026-09-13).** The four capability tails of
+`band_record` (`band_ext`, `band_curve`, `band_drift`, `band_remap`) are sized PER GAME. Each
+game declares its scanline capability mask twice: as the contract member
+`Game.SCANLINE_CAPS` (`games/<g>/config/game.emp`, the authority, which the tool layer also
+reads) and as the build define `GAME_SCANLINE_CAPS` (`games/<g>/map.toml [defines]`).
+`engine/level/parallax.emp`'s `BAND_*_N` and `engine/ram.emp`'s `BAND_*_BYTES` fold the
+DEFINE, because a contract member is invisible to an emitted record's layout and to the RAM
+harvest (`docs/EMP_PITFALLS.md` §9), while a define is visible to both. `parallax.emp` pins
+the define to the member (an equality, so both directions and every bit), pins its literal
+masks to `CAP_*`, and pins each count to its bit, for every game that reaches it. Result
+today: sonic4's band record is 32 bytes (curve + drift + remap tails), demo's is the legacy
+10, and demo's `Parallax_State` is 392 B against sonic4's 820. Before this, the four counts
+were engine-wide literals held to sonic4's mask, so demo paid sonic4's tails in RAM. The
+tool layer reads the per-game geometry through one reader, `tools/band_geometry.py`. Record:
+`docs/superpowers/notes/2026-09-13-per-game-band-defines.md`.
 
 **Row remap — the waterline's perspective compression (2026-09-03, `CAP_ROW_REMAP`).** A layer may
 carry `rowRemap: SceneRemap.Ladder(table, surface_plane_y, height_shift)`, and the first `|p|` lines
