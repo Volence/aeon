@@ -36,7 +36,7 @@ use engine.structs.{Act, Sec, Region}
 // (AND AS OF 2026-09-05 it is ONE: section 7 took OJZ_Preset_Sec7 for item 9c's live patch
 // channels, so OJZ_Preset_Plain is section 8's alone. The record is still SHARED-SHAPED and
 // stays that way — a ninth section would point at it — but nothing shares it today.)
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7}
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7, OJZ_Preset_Night}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -502,19 +502,62 @@ comptime fn region_area_sum(r: array) -> int {
     return s
 }
 
+// THE FIRST EDGE OFF THE SECTION GRID (painted-regions v1, step 5 —
+// docs/superpowers/notes/2026-09-13-regions-p2.md). One rectangle, the NIGHT region, cut out of
+// the top row across the section line at x = 4096: its own palette, and the act's first
+// cross-fade on the way in (OJZ_Preset_Night, ojz_effects.emp). Rows 1 and 2 shrink to make room,
+// so the table still tiles the act with no overlap (the whole-table ensures below).
+//
+// WHY THIS FORM, and not the design's example of an interior rectangle in section 4:
+//   * A STRAIGHT SPLIT is the cheapest honest form — one added row, and two rows that change
+//     one number each. An interior rectangle needs four more rows around it.
+//   * STRADDLING 4096 is the point of it. The owner's question was whether the colour change is
+//     "just region based". With the rectangle spanning a section line, the section line INSIDE
+//     it is crossed with nothing happening at all (Region_Current does not change, so the fast
+//     path never rescans), and the two edges that DO change the colour sit at 3400 and 4800,
+//     neither of them a multiple of 2048 — nor of 128 or 256, so no block or chunk grid lines
+//     up with them either.
+//   * THE TOP ROW is the route a held RIGHT takes from the spawn: the DEBUG shape boots in
+//     free-flight, which moves the camera at its 16 px/frame cap along y = 256, so the edges are
+//     crossed at the fastest the camera ever moves. Sections 1 and 2 bind identical presets with
+//     no raster, patched or cycle channel (OJZ_Preset_Sec1 / _Sec2), so the palette is the ONLY
+//     thing that changes at the edge. The design's section-4 example sits on OJZ_Preset_Depth,
+//     whose vertical-split program would change at the same edge and confound the fade.
+//   * THE X=2048 CROSSING IS UNTOUCHED, which keeps tools/parallax_crossing_gate.py's route
+//     (the region-0 | region-1 edge) exactly as it was.
+//
+// NO `parallax:` ON THE NEW ROW, deliberately: it straddles two sections, so no single
+// section sidecar can key it, and 0 defers to rung 2 (OJZ_Preset_Night's ep_parallax, also 0)
+// and then rung 3, the act default — exactly what rows 1 and 2 resolve to today (neither
+// sidecar binds a scene). When bindings move into regions.json (design §3.3) this row gets its
+// own entry there.
+const OJZ_NIGHT_X0 = 3400                    // inclusive left edge, world px
+const OJZ_NIGHT_X1 = 4799                    // inclusive right edge; the next row starts at 4800
+ensure((OJZ_NIGHT_X0 & ((1 << SECTION_SIZE_SHIFT) - 1)) != 0 && ((OJZ_NIGHT_X1 + 1) & ((1 << SECTION_SIZE_SHIFT) - 1)) != 0,
+       "the night region's edges ({OJZ_NIGHT_X0}, {OJZ_NIGHT_X1} + 1) must lie OFF the section grid — that is the whole of what step 5 proves; an edge on a multiple of the section size would be a section edge again")
+ensure(OJZ_NIGHT_X0 < (2 << SECTION_SIZE_SHIFT) && OJZ_NIGHT_X1 >= (2 << SECTION_SIZE_SHIFT),
+       "the night region must STRADDLE the section line at x = {2 << SECTION_SIZE_SHIFT}: the witness (tools/region_fade_witness.py) proves that a section line inside a region changes nothing, and needs one to cross")
+
 // THE ROWS — ONE SOURCE. The guards below read this const and the emitted table IS this
 // const, so the rows checked are the rows shipped (design §10.5: a hand-written table gets
 // the same protection a generated one would).
-const OJZ_ACT1_REGION_ROWS: [Region; 9] = [
+//
+// ROW ORDER: rows 0-8 stay the nine sections' rows in flat-id order and the night region is
+// APPENDED as row 9, so every region index a tool or the effects lab's PRESET rows already
+// name keeps meaning the same preset (games/sonic4/test/ojz_scroll_test.emp's `.lab_index`
+// gained one row for region 9). Rows 1 and 2 are no longer whole sections.
+const OJZ_ACT1_REGION_ROWS: [Region; 10] = [
     ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  parallax: ojz_act1_sec_scene(sec: 0)),
-    ojz_region(x0: 2048, x1: 4095, y0:    0, y1: 2047, effects: OJZ_Preset_Sec1,  parallax: ojz_act1_sec_scene(sec: 1)),
-    ojz_region(x0: 4096, x1: 6143, y0:    0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
+    ojz_region(x0: 2048, x1: OJZ_NIGHT_X0 - 1, y0: 0, y1: 2047, effects: OJZ_Preset_Sec1,  parallax: ojz_act1_sec_scene(sec: 1)),
+    ojz_region(x0: OJZ_NIGHT_X1 + 1, x1: 6143, y0: 0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
     ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  parallax: ojz_act1_sec_scene(sec: 3)),
     ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, parallax: ojz_act1_sec_scene(sec: 4)),
     ojz_region(x0: 4096, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  parallax: ojz_act1_sec_scene(sec: 5)),
     ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  parallax: ojz_act1_sec_scene(sec: 6)),
     ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  parallax: ojz_act1_sec_scene(sec: 7)),
     ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
+    // row 9 — the night region (see the block above OJZ_NIGHT_X0)
+    ojz_region(x0: OJZ_NIGHT_X0, x1: OJZ_NIGHT_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Night),
 ]
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
@@ -532,4 +575,4 @@ ensure(OJZ_ACT1_REGION_OVERLAP == -1,
 ensure(OJZ_ACT1_REGION_AREA == ACT_W * ACT_H,
        "OJZ act 1 region rows do not tile the act: their areas sum to {OJZ_ACT1_REGION_AREA} px², the act is {ACT_W} x {ACT_H}. A hole is a place with no identity")
 
-pub data OJZ_Act1_Regions: [Region; 9] = OJZ_ACT1_REGION_ROWS
+pub data OJZ_Act1_Regions: [Region; 10] = OJZ_ACT1_REGION_ROWS

@@ -791,8 +791,22 @@ def instrument_blindness():
     # probe that matched the reader's pattern could never disagree with it. _blank() empties
     # string literals, so ojz_region()'s own ensure messages cannot count as rows.
     desc = _blank(_read(DESCRIPTOR))
-    rows = len([m for m in re.finditer(r"\bojz_region\s*\(", desc)
-                if not re.search(r"\bfn\s+$", desc[:m.start()])])
+    calls = [m for m in re.finditer(r"\bojz_region\s*\(", desc)
+             if not re.search(r"\bfn\s+$", desc[:m.start()])]
+    # A ROW THAT NAMES NO SIDECAR AT ALL is a region no section sidecar binds — painted-regions
+    # v1 step 5's night region straddles two sections, so no single `section_N.meta.json` can
+    # key it, and it carries neither a `sec:` nor a `parallax:` argument. It can therefore carry
+    # no sidecar-generated sweep, and section_presets() is RIGHT to map nothing for it; counting
+    # it would make a healthy reader look blind by one row (the same trap as counting the
+    # declaration, above). It is set aside ONLY while it names no `parallax:` either: a row that
+    # binds a scene through some spelling other than `(sec: N)` is exactly the unreadable row
+    # this probe exists to catch, so it stays counted and turns this probe red.
+    unkeyed = []
+    for m in calls:
+        body, _ = _balanced(desc, m.end() - 1)
+        if not re.search(r"\bsec\s*:", body) and not re.search(r"\bparallax\s*:", body):
+            unkeyed.append(m.start())
+    rows = len(calls) - len(unkeyed)
     sections = section_presets()
     if rows == 0:
         out.append(

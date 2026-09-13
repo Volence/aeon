@@ -19,8 +19,8 @@ That is it. It used to be three separate chords — `START + LEFT/RIGHT` for bac
 `START + UP/DOWN` for raster programs, `START + A` for whole section presets — because those are
 three different engine slots. **That is a reason that matters to the code and not to you**, so
 they are now one list: the twenty-one background scenes, then the raster programs (with *bands
-off* among them), then the act's nine per-section presets, and last the waterline strips. Thirty-eight
-entries; hold `START` and walk it with `LEFT` and `RIGHT`.
+off* among them), then the act's ten region presets (one per section, plus the night region), and last the
+waterline strips. Thirty-nine entries; hold `START` and walk it with `LEFT` and `RIGHT`.
 
 `START + UP/DOWN` and `START + A` do **nothing** now. They are free pad.
 
@@ -110,10 +110,12 @@ and both wrap — so **one press of `LEFT` from boot lands on `WLIN`**, the last
 | 34 | `BSWP` | preset: section 6 — the plane-base swap |
 | 35 | `BARE` | preset: section 7 — plain, the control |
 | 36 | `GRND` | preset: section 8 — plain + the perspective floor |
-| 37 | `WLIN` | the Hydrocity waterline strips, on screen |
+| 37 | `NITE` | preset: region 9 — the night region, its own palette faded in (not a section) |
+| 38 | `WLIN` | the Hydrocity waterline strips, on screen |
 
 Entries 0-20 are **background scenes** (parallax only). 21-27 are **raster programs** (per-line
-effects only). 28-36 are **whole section presets**. 37 is the **waterline stamp**, which is a
+effects only). 28-37 are **whole region presets** — 28-36 the nine sections', 37 the night
+region's. 38 is the **waterline stamp**, which is a
 background scene *plus* a picture. You do not have to care which is which — that is the point —
 but it is why some entries change the background as you move and others change what is drawn on
 a line.
@@ -157,10 +159,11 @@ worth looking at.
 
 ## The PRESET entries, and what each one needs to be visible
 
-These are the **last nine entries of the list** — one per section of OJZ act 1, in order. The
-quickest way to reach them from a cold boot is **one press of `START + LEFT`**, which wraps you
-straight onto the last of them (`GRND`, section 8); keep pressing `LEFT` to walk down through
-them to `WATR` (section 0).
+These are the **ten entries just before the waterline** — one per REGION of OJZ act 1, in the
+region table's order: the nine sections, then the night region. The quickest way to reach them
+from a cold boot is **two presses of `START + LEFT`**: the first wraps onto `WLIN`, the second
+lands on the last of them (`NITE`, region 9); keep pressing `LEFT` to walk down through them to
+`WATR` (section 0).
 
 | # | Name | What it is | What it needs |
 |---|---|---|---|
@@ -173,10 +176,11 @@ them to `WATR` (section 0).
 | 6 | `BSWP` | **The mid-frame plane swap** — from screen line 3 down, the foreground draws the background's map. | Nothing. It covers nearly the whole screen. |
 | 7 | `BARE` | **Plain.** Palette and the act's own default background, nothing else. | — reads `-`. Deliberately empty; it is the control. |
 | 8 | `GRND` | **The perspective floor.** A wooden floor whose boards fan out from a vanishing point, with the rows nearer you scrolling faster than the rows at the horizon. | Nothing to reach, but **you have to MOVE to see the point of it** — which is exactly what it **reads the arrow** for. |
+| 9 | `NITE` | **The night region** — not a section: the rectangle x 3400..4799 across the top row, with its own darker, bluer palette (`OJZ_Palette_Night`, a placeholder look). Its preset arms the colour fade, so selecting it here fades the palette in wherever you stand. | Nothing. To see it the way the level shows it, fly RIGHT from the spawn instead: the colours change at x = 3400 and back at x = 4800, and nothing happens at the section line 4096 between them. |
 
 ### 8 — the perspective floor, and how to actually see it
 
-**Press `START + LEFT` once from a cold boot** — it wraps straight onto `GRND`, section 8.
+**Press `START + LEFT` three times from a cold boot** — past `WLIN` and `NITE` onto `GRND`, section 8.
 
 **What you are looking at.** The bottom of the screen becomes a wooden floor.
 Its boards splay out from a single vanishing point pinned to the **centre of the
@@ -306,7 +310,7 @@ was invisible; it is 16 px now.
 
 ---
 
-## Entry `37` — `WLIN`, the waterline strips themselves
+## Entry `38` — `WLIN`, the waterline strips themselves
 
 Everything in the section above is the waterline's **scroll** half: the background's rows,
 permuted. The effect has a second half that permutes **pixel rows of an image** into eight tiles
@@ -406,7 +410,7 @@ free-flight with the camera somewhere the foreground is open.
   `START` is the only free bit on a 3-button pad; X/Y/Z/MODE exist only on a 6-button pad, so a
   chord on them would be silently dead on a 3-button one, which is the worst thing a review tool
   can be.
-- **The list goes both ways.** Thirty-eight entries, so the far side is at most nineteen presses,
+- **The list goes both ways.** Thirty-nine entries, so the far side is at most nineteen presses,
   and `LEFT` from the first entry wraps onto the last (`WLIN`, just past the presets).
 - **Entries are mutually exclusive.** Each one evicts the last, because each is an install into an
   engine slot. Selecting a scene and then a preset gives you the preset; the preset writes every

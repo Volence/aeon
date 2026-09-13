@@ -1996,7 +1996,7 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 // SUB-INDEX from past the table's end and dispatch on them.
 // tools/test_lab_index_lint.py holds it to the rows, and holds every row's sub-index
 // to the sub-table its kind names.
-const LAB_CYCLE_COUNT = 38
+const LAB_CYCLE_COUNT = 39
 // One row of `.lab_index`: the kind byte, the sub-index byte, then the four letters of
 // the entry's name (indices into Debug_TierTags_Update's `.alphabet`).
 //
@@ -2314,6 +2314,14 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // ⚠ ROW 35's GLYPH IS STALE AND IS DELIBERATELY LEFT STALE — see the block below.
         dc.b    LAB_KIND_PRESET,   7,  LTR_B, LTR_A, LTR_R, LTR_E   // 35  sec 7: glyph reads BARE; the section is NOT bare (corrected 2026-09-09, see below)
         dc.b    LAB_KIND_PRESET,   8,  LTR_G, LTR_R, LTR_N, LTR_D   // 36  sec 8 plain + the floor
+        // Row 37 is REGION 9, the night region (painted-regions v1 step 5) — the first PRESET row
+        // that names a region which is not a section. It sits here, inside the preset block and
+        // in front of the waterline row, because the block must stay ONE contiguous run in region
+        // order (tools/preset_lab_witness.py steps down through it one press per region, and
+        // tools/test_lab_index_lint.py holds the sub-indices to a dense 0..N-1). Selecting it
+        // installs OJZ_Preset_Night where the camera stands — its palette FADES in, because the
+        // preset arms the cross-fade.
+        dc.b    LAB_KIND_PRESET,   9,  LTR_N, LTR_I, LTR_T, LTR_E   // 37  region 9: the night region, not a section
         // ---- ROW 35: THE GLYPH IS WRONG, AND FIXING IT IS NOT THIS PARCEL'S TO MAKE ----
         //
         // `LTR_B, LTR_A, LTR_R, LTR_E` spells BARE — "sec 7 plain, nothing bound", which is
@@ -2338,11 +2346,14 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // See docs/DEFERRED_WORK.md, the 2026-09-09 section-effects record-fix entry.
         // APPENDED, and appended is the whole placement argument: every scene, raster and
         // preset row above keeps the index it had, so every note, gate and probe that
-        // names a row by number still lands. The sub-index is 1 because `.scene_table`
+        // names a row by number still lands. (This row was 37 until 2026-09-13, when region 9's
+        // PRESET row went in front of it: the preset rows have to stay one contiguous block,
+        // so the waterline row moved to 38 rather than splitting them. docs/EFFECTS_LAB.md
+        // moved with it; nothing else named it by number.) The sub-index is 1 because `.scene_table`
         // row 1 is ParallaxConfig_OJZ_Underwater, the ONE scene in the registry that
         // carries `rowRemap:` — tools/test_lab_index_lint.py derives that from
         // ojz_scenes.emp rather than trusting this comment.
-        dc.b    LAB_KIND_WLINE,    1,  LTR_W, LTR_L, LTR_I, LTR_N   // 37  waterline strips
+        dc.b    LAB_KIND_WLINE,    1,  LTR_W, LTR_L, LTR_I, LTR_N   // 38  waterline strips
 
         // ---- THE SCENE SUB-TABLE, IN SCENES[] ORDER ----
         // Unchanged by the consolidation, deliberately: it is what
