@@ -67,7 +67,7 @@ runner. It FAILS only when it could not ask its question (the probe did not land
 dead watch, a hole in the capture, a sample that never started, a control that
 could not see what it controls for) — never on the engine's behaviour.
 
-    export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+    export SIGIL_BUILD=<the sigil repo's release `sigil` binary>
     python3 tools/fm6_foreign_sample_witness.py --build-only   # no emulator
     python3 tools/fm6_foreign_sample_witness.py                # headless oracle-aether
     python3 tools/fm6_foreign_sample_witness.py --poison       # L1 must go loud
