@@ -1,0 +1,179 @@
+== BYTE/REGION DRIFT (repin): 147
+   act_descriptor_port::act_descriptor_debug_region_matches_reference :: assertion `left == right` failed: act_descriptor must emit exactly 0x15a bytes
+   act_descriptor_port::act_descriptor_region_matches_reference :: assertion `left == right` failed: act_descriptor must emit exactly 0x15a bytes
+   animate_port::animate_debug_region_matches_reference :: animate vs s4.debug.bin[0x3c26..0x3ede]: first diff at offset 0x0 (region-relative)
+   animate_port::animate_region_matches_reference :: animate vs s4.bin[0x33d6..0x356a]: first diff at offset 0x0 (region-relative)
+   bg_anim_port::bg_anim_debug_region_matches_reference :: bg_anim (debug): first diff at offset 0x0 (region-relative)
+   bg_anim_port::bg_anim_region_matches_reference :: bg_anim (plain): first diff at offset 0x0 (region-relative)
+   bg_anim_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   bg_anim_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   bg_port::bg_debug_region_matches_reference :: bg (debug): first diff at offset 0x0 (region-relative)
+   bg_port::bg_region_matches_reference :: bg (plain): first diff at offset 0x0 (region-relative)
+   boot_data_port::s4_boot_data_blob_present :: s4: BootData region [0x398,0x1bfc) diverges from golden at 6090 offset(s); first 0x398 (rom 0x21 != golden 0x80)
+   buffers_port::buffers_debug_region_matches_reference :: buffers (debug): first diff at offset 0x2d (region-relative)
+   buffers_port::buffers_region_matches_reference :: buffers (plain): first diff at offset 0x0 (region-relative)
+   camera_port::camera_debug_region_matches_reference :: camera (debug): first diff at offset 0x0 (region-relative)
+   camera_port::camera_region_matches_reference :: camera (plain): first diff at offset 0x0 (region-relative)
+   children_port::children_debug_region_matches_reference :: assertion `left == right` failed: children vs s4.debug.bin[0x516c..0x5508]: length mismatch, candidate 1100 bytes, expected 924 bytes
+   children_port::children_region_matches_reference :: children vs s4.bin[0x431c..0x4608]: first diff at offset 0x0 (region-relative)
+   collision_data_port::collision_data_debug_matches_reference :: assertion `left == right` failed: collision_data must emit 0x1d304 bytes
+   collision_data_port::collision_data_matches_reference :: assertion `left == right` failed: collision_data must emit 0x1d304 bytes
+   collision_lookup_port::collision_lookup_debug_region_matches_reference :: assertion `left == right` failed: collision_lookup (debug) vs the pinned debug window: length mismatch, candidate 100 bytes, expected 104 bytes
+   collision_lookup_port::collision_lookup_region_matches_reference :: assertion `left == right` failed: collision_lookup (plain) vs the pinned plain window: length mismatch, candidate 100 bytes, expected 104 bytes
+   collision_port::collision_debug_region_matches_reference :: assertion `left == right` failed: collision vs s4.debug.bin[0x3ede..0x41ec]: length mismatch, candidate 820 bytes, expected 782 bytes
+   collision_port::collision_region_matches_reference :: assertion `left == right` failed: collision vs s4.bin[0x356a..0x3870]: length mismatch, candidate 812 bytes, expected 774 bytes
+   compression_selftest_port::compression_selftest_debug_region_matches_reference :: compression_selftest (debug): first diff at 0x0
+   controllers_port::controllers_debug_region_matches_reference :: controllers (debug) vs the s4.debug.bin window at pins::CONTROLLERS: first diff at offset 0x1d (region-relative)
+   controllers_port::controllers_region_matches_reference :: controllers (plain) vs the s4.bin window at pins::CONTROLLERS: first diff at offset 0x0 (region-relative)
+   core_port::core_debug_region_matches_reference :: assertion `left == right` failed: core vs s4.debug.bin[0x2fb2..0x36f2]: length mismatch, candidate 1858 bytes, expected 1856 bytes
+   core_port::core_region_matches_reference :: assertion `left == right` failed: core vs s4.bin[0x2cce..0x2fbc]: length mismatch, candidate 752 bytes, expected 750 bytes
+   demo_native_port::demo_debug_game_modules_match_golden :: demo_debug module `demo_box` first diff at window offset 0x2 (ROM 0x10004): got [4e, f8, 1d, c4], want [4e, f8, 1e, 28]
+   demo_native_port::demo_plain_game_modules_match_golden :: demo module `demo_box` first diff at window offset 0x3 (ROM 0x10005): got [4e, f8, 17, ca], want [4e, f8, 17, 7a]
+   dplc_port::dplc_debug_region_matches_reference :: dplc vs s4.debug.bin[0x2f0e..0x2fb2]: first diff at offset 0x0 (region-relative)
+   dplc_port::dplc_region_matches_reference :: dplc vs s4.bin[0x2c2a..0x2cce]: first diff at offset 0x0 (region-relative)
+   dplc_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   dplc_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   entity_window_port::entity_window_debug_region_matches_reference :: assertion `left == right` failed: entity_window vs s4.debug.bin[0x4410..0x516c]: length mismatch, candidate 3400 bytes, expected 3420 bytes
+   entity_window_port::entity_window_region_matches_reference :: assertion `left == right` failed: entity_window vs s4.bin[0x3a2e..0x431c]: length mismatch, candidate 2266 bytes, expected 2286 bytes
+   entity_window_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   entity_window_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   error_handler_port::error_handler_debug_region_matches_reference :: error_handler vs s4.debug.bin[0xc0444..0xc14f4]: first diff at region offset 0x1
+   error_handler_port::error_handler_region_matches_reference :: error_handler vs s4.bin[0xbcbe2..0xbdc92]: first diff at region offset 0x0
+   extra_entry::a_passing_extra_entry_moves_no_bytes :: assertion `left == right` failed: full-file size vs the frozen golden
+   game_loop_port::game_loop_debug_region_matches_reference :: game_loop vs s4.debug.bin[0x2684..0x26a2]: first diff at offset 0xe (region-relative)
+   game_loop_port::game_loop_region_matches_reference :: game_loop vs s4.bin[0x255a..0x2576]: first diff at offset 0x0 (region-relative)
+   game_loop_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   game_loop_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   hblank_port::hblank_debug_region_matches_reference :: hblank (debug) vs reference window: first diff at offset 0x5 (region-relative)
+   hblank_port::hblank_region_matches_reference :: hblank (plain) vs reference window: first diff at offset 0x0 (region-relative)
+   keystone_flip_relocation::flipped_config_a_anchor_matches_golden :: assertion `left == right` failed: flipped config_a: assembled length
+   load_art_port::load_art_debug_region_matches_reference :: load_art (debug): first diff at offset 0x0 (region-relative)
+   load_art_port::load_art_region_matches_reference :: load_art (plain): first diff at offset 0x0 (region-relative)
+   load_art_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   load_art_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   load_object_port::load_object_debug_region_matches_reference :: load_object vs s4.debug.bin[0x5508..0x5590]: first diff at offset 0x0 (region-relative)
+   load_object_port::load_object_region_matches_reference :: load_object vs s4.bin[0x4608..0x4690]: first diff at offset 0x0 (region-relative)
+   m1c_vector_table::vector_table_matches_reference_rom_first_256_bytes :: vector table first diff at offset 0xa: sigil 0xcb != golden 0xc9
+   native_full_rom::deb2_appendix_negative_controls :: assertion `left == right` failed: control: undoctored BusError
+   native_full_rom::native_full_sonic4_debug :: assertion `left == right` failed: debug: assembled length
+   native_full_rom::native_full_sonic4_plain :: assertion `left == right` failed: plain: assembled length
+   native_offcanonical_full::config_a_full_file :: assertion `left == right` failed: config_a: deb2 magic at EndOfRom
+   native_offcanonical_full::config_b_full_file :: assertion `left == right` failed: config_b: deb2 magic at EndOfRom
+   native_offcanonical_full::demo_debug_full_file :: assertion `left == right` failed: demo_debug: `AnimateSprite` resolved to 0x22E2, size table says 0x2348
+   native_offcanonical_full::demo_plain_full_file :: assertion `left == right` failed: demo: `AnimateSprite` resolved to 0x1BC6, size table says 0x1B80
+   native_offcanonical_full::lean_full_file :: assertion `left == right` failed: lean: a CRASH_REPORT=0 profile must ship NOTHING past EndOfRom, found 0xfffffffffffffd70 bytes (has the deb2 symbol appendix leaked into lean?)
+   native_offcanonical_placement::config_a_size_table_rederives_native :: assertion `left == right` failed: config_a: LMA-native derivation diverged from the committed table (re-derive the offcanonical_sizes/*.txt with `derive_offcanon`?)
+   native_offcanonical_placement::config_b_size_table_rederives_native :: assertion `left == right` failed: config_b: LMA-native derivation diverged from the committed table (re-derive the offcanonical_sizes/*.txt with `derive_offcanon`?)
+   native_offcanonical_placement::demo_debug_size_table_rederives_native :: assertion `left == right` failed: demo_debug: LMA-native derivation diverged from the committed table (re-derive the offcanonical_sizes/*.txt with `derive_offcanon`?)
+   native_offcanonical_placement::demo_size_table_rederives_native :: assertion `left == right` failed: demo: LMA-native derivation diverged from the committed table (re-derive the offcanonical_sizes/*.txt with `derive_offcanon`?)
+   native_offcanonical_placement::lean_size_table_rederives_native :: assertion `left == right` failed: lean: LMA-native derivation diverged from the committed table (re-derive the offcanonical_sizes/*.txt with `derive_offcanon`?)
+   native_offcanonical_rom::config_a_anchor_matches_golden :: assertion `left == right` failed: config_a: assembled length
+   native_offcanonical_rom::config_b_anchor_matches_golden :: assertion `left == right` failed: config_b: assembled length
+   native_offcanonical_rom::demo_debug_anchor_matches_golden :: demo_debug: anchor diverges from golden at 31642 offset(s); first 0x72 (sig 0xb1 != gold 0xb3)
+   native_offcanonical_rom::demo_plain_anchor_matches_golden :: demo: anchor diverges from golden at 19539 offset(s); first 0x72 (sig 0xb1 != gold 0xb2)
+   native_offcanonical_rom::lean_anchor_matches_golden :: assertion `left == right` failed: lean: assembled length
+   native_rom::native_rom_debug :: assertion `left == right` failed: native all-gates (debug) vs s4.debug.bin (assembled-ROM bar) ROM length changed (dropped/added section, or an org skip lost content?); expected EndOfRom 0xc14f4
+   native_rom::native_rom_plain :: assertion `left == right` failed: native all-gates (plain) vs s4.bin (assembled-ROM bar) ROM length changed (dropped/added section, or an org skip lost content?); expected EndOfRom 0xbdc92
+   objdef_port::objdefs_match_reference_debug :: objdefs vs s4.debug.bin: first diff at region offset 0x0 (record 0, field-off 0x0)
+   objdef_port::objdefs_match_reference_plain :: objdefs vs s4.bin: first diff at region offset 0x0 (record 0, field-off 0x0)
+   ojz_run_a_port::ojz_run_a_debug_regions_match_reference :: assertion `left == right` failed: `entity_data` must emit exactly 0x188 bytes
+   ojz_run_a_port::ojz_run_a_regions_match_reference :: assertion `left == right` failed: `entity_data` must emit exactly 0x188 bytes
+   ojz_run_b_port::ojz_run_b_debug_regions_match_reference :: `sec_block_blobs` (debug) first diff at region offset 0x0: got [00, 00, 07, 00, 00, 00, 07, 1a], expected [ed, dd, c9, fb, 22, ee, cb, 28]
+   ojz_run_b_port::ojz_run_b_regions_match_reference :: `sec_block_blobs` (plain) first diff at region offset 0x0: got [00, 00, 07, 00, 00, 00, 07, 1a], expected [cc, da, bd, 45, ee, 63, 88, 12]
+   out_verify_corpus::no_corpus_out_type_is_unresolvable :: assertion `left == right` failed: the corpus's typed out slots: [("Collision_GetType", "d0"), ("Collision_ProbeDown", "d0"), ("Collision_ProbeDown", "d1"), ("Collision_ProbeDown", "d2"), ("Collision_ProbeLeft", "d0"), ("
+   particle_anims_port::particle_anims_debug_region_matches_reference :: assertion `left == right` failed: particle_anims (debug) vs s4.debug.bin[0x2BCC8..0x2BCCF]
+   plane_buffer_port::plane_buffer_debug_region_matches_reference :: assertion `left == right` failed: plane_buffer (debug): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   plane_buffer_port::plane_buffer_region_matches_reference :: plane_buffer (plain): first diff at offset 0x0 (region-relative)
+   plane_buffer_port::two_module_ownership_flip_debug :: assertion `left == right` failed: plane_buffer (two-module flip): length mismatch, candidate 1322 bytes, expected 1206 bytes
+   plane_buffer_port::two_module_ownership_flip_plain :: plane_buffer (two-module flip): first diff at offset 0x0 (region-relative)
+   raster_negative_probes::a_doctored_indexed_mode_changes_the_bytes :: assertion `left == right` failed: the CLEAN build must match the reference
+   raster_port::raster_debug_region_matches_reference :: raster (debug) vs reference window: first diff at offset 0x0 (region-relative)
+   raster_port::raster_region_matches_reference :: raster (plain) vs reference window: first diff at offset 0x0 (region-relative)
+   rings_port::rings_debug_region_matches_reference :: rings vs s4.debug.bin[0x41ec..0x4410]: first diff at offset 0x0 (region-relative)
+   rings_port::rings_region_matches_reference :: rings vs s4.bin[0x3870..0x3a2e]: first diff at offset 0x0 (region-relative)
+   s4lz_port::s4lz_debug_region_matches_reference :: assertion `left == right` failed: s4lz (debug): length mismatch, candidate 410 bytes, expected 512 bytes
+   scene_registry_port::parallax_block_debug_matches_reference :: parallax_configs (debug) first diff at region offset 0x2: got [00, 00, 00, 00, 00, 00, 00, 00, 00, 00], expected [00, 00, 10, 00, 00, 00, 00, 00, 00, 00]
+   scene_registry_port::parallax_block_plain_matches_reference :: parallax_configs (plain) first diff at region offset 0x5: got [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00], expected [00, 00, 00, 00, 05, 00, 00, 00, 0d, 00, 00, 00]
+   seam2_sfx_head_colink::colinked_sfx_head_matches_the_reference_rom_slice_both_shapes :: assertion `left == right` failed: sfx_bank body is 2284 bytes
+   section_port::section_debug_region_matches_reference :: assertion `left == right` failed: section (debug): length mismatch, candidate 2196 bytes, expected 2192 bytes
+   section_port::section_region_matches_reference :: assertion `left == right` failed: section (plain): length mismatch, candidate 1124 bytes, expected 1120 bytes
+   section_row_fixture::both_spellings_of_the_section_row_build_the_same_rom :: assertion `left == right` failed: s4: must reproduce the provenance tip (91c46c94/820209); got 389c3cf3/820348
+   sfx_bank_port::sfx_bank_matches_reference :: assertion `left == right` failed: sfx_bank_blob must emit 0x8ec bytes
+   sfx_port::sfx_bank_debug_region_matches_reference :: sfx_bank (debug) vs s4.debug.bin[0xBD568..0xBDBAB]: first diff at offset 0x3a (region-relative)
+   sfx_port::sfx_bank_region_matches_reference :: sfx_bank (plain) vs s4.bin[0xBBB18..0xBC15B]: first diff at offset 0x3a (region-relative)
+   sonic_anims_port::sonic_anims_debug_region_matches_reference :: sonic_anims (debug) first diff at region offset 0x1: got [00, 30, 00, 3a, 00, 40, 00, 4a, 00], expected [00, 00, 00, 00, 00, 00, 00, 00, 00]
+   sonic_anims_port::sonic_anims_region_matches_reference :: sonic_anims (plain) first diff at region offset 0x0: got [00, 30, 00, 3a, 00, 40, 00, 4a], expected [06, 66, 60, 00, 66, 60, 00, 00]
+   sound_api_port::sound_api_debug_region_matches_reference :: sound_api vs s4.debug.bin[0xb47e..0xb8d8]: first diff at offset 0x0 (region-relative)
+   sound_api_port::sound_api_region_matches_reference :: sound_api vs s4.bin[0x8246..0x84f6]: first diff at offset 0x0 (region-relative)
+   sprites_port::sprites_debug_region_matches_reference :: assertion `left == right` failed: sprites vs s4.debug.bin[0x36f2..0x3c26]: length mismatch, candidate 1330 bytes, expected 1332 bytes
+   sprites_port::sprites_region_matches_reference :: assertion `left == right` failed: sprites vs s4.bin[0x2fbc..0x33d6]: length mismatch, candidate 1040 bytes, expected 1050 bytes
+   test_g1_objects_port::g1_objects_debug_regions_match_reference :: test_static vs s4.debug.bin: first diff at offset 0x0 (region-relative)
+   test_g1_objects_port::g1_objects_regions_match_reference :: test_static vs s4.bin: first diff at offset 0x0 (region-relative)
+   test_g1_objects_port::g1_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored test_animated must match
+   test_g2_objects_port::g2_objects_debug_regions_match_reference :: test_emitter vs s4.debug.bin: first diff at offset 0x0 (region-relative)
+   test_g2_objects_port::g2_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored test_churn must match
+   test_g3_objects_port::g3_objects_debug_regions_match_reference :: test_parent vs s4.debug.bin: first diff at offset 0x0 (region-relative)
+   test_g3_objects_port::g3_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored test_parent must match
+   test_g4_final_objects_port::g4_objects_debug_regions_match_reference :: test_player vs s4.debug.bin: first diff at offset 0x0 (region-relative)
+   test_g4_final_objects_port::g4_objects_regions_match_reference :: path_swap vs s4.bin: first diff at offset 0x0 (region-relative)
+   test_g4_final_objects_port::g4_undoctored_compile_equals_the_reference_window :: undoctored path_swap: first diff at offset 0x0 (region-relative)
+   test_mappings_port::test_mappings_debug_region_matches_reference :: test_mappings (debug) first diff at region offset 0x0: got [00, 06, 00, 14, 00, 22, f8, 08], expected [99, b8, 88, 98, ac, b8, 88, 88]
+   test_mappings_port::test_mappings_region_matches_reference :: test_mappings (plain) first diff at region offset 0x0: got [00, 06, 00, 14, 00, 22, f8, 08], expected [b9, 89, a8, a9, a8, 88, aa, a8]
+   test_p1_player_port::p1_player_common_debug_region_matches_reference :: assertion `left == right` failed: player_common (debug): length mismatch, candidate 2632 bytes, expected 2166 bytes
+   test_p1_player_port::p1_player_common_region_matches_reference :: assertion `left == right` failed: player_common (plain): length mismatch, candidate 2354 bytes, expected 1888 bytes
+   test_p1_player_port::p1_sonic_debug_region_matches_reference :: sonic (debug): first diff at offset 0x0 (region-relative)
+   test_p1_player_port::p1_sonic_region_matches_reference :: sonic (plain): first diff at offset 0x0 (region-relative)
+   test_p1_player_port::p1_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored player_common must match the reference window
+   test_p2_player_states_port::p2_air_debug_region_matches_reference :: player_air (debug): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_air_region_matches_reference :: player_air (plain): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_air_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored player_air must match the reference window
+   test_p2_player_states_port::p2_ground_debug_region_matches_reference :: player_ground (debug): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_ground_region_matches_reference :: player_ground (plain): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_ground_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored player_ground must match the reference window
+   test_p2_player_states_port::p2_spindash_debug_region_matches_reference :: player_spindash (debug): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_spindash_region_matches_reference :: player_spindash (plain): first diff at offset 0x0 (region-relative)
+   test_p2_player_states_port::p2_spindash_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored player_spindash must match the reference window
+   test_p4_player_sensors_port::p4_sensors_debug_region_matches_reference :: player_sensors (debug): first diff at offset 0x0 (region-relative)
+   test_p4_player_sensors_port::p4_sensors_region_matches_reference :: player_sensors (plain): first diff at offset 0x0 (region-relative)
+   test_p4_player_sensors_port::p4_sensors_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: undoctored player_sensors must match the reference window
+   tile_cache_port::tile_cache_debug_region_matches_reference :: assertion `left == right` failed: tile_cache (debug): length mismatch, candidate 4336 bytes, expected 4332 bytes
+   tile_cache_port::tile_cache_region_matches_reference :: assertion `left == right` failed: tile_cache (plain): length mismatch, candidate 3722 bytes, expected 3718 bytes
+   tile_cache_port::two_module_tail_call_flip_debug :: assertion `left == right` failed: tile_cache (two-module flip): length mismatch, candidate 4336 bytes, expected 4332 bytes
+   tranche4_negative_probes::doctored_af_delete_produces_different_bytes :: assertion `left == right` failed: control: the UNDOCTORED compile must byte-match s4.debug.bin[0x2BCC8..0x2BCCF], if it does not, the window address is wrong and the doctored arm below proves nothing
+   vblank_port::vblank_debug_region_matches_reference :: vblank (debug): first diff at offset 0x7 (region-relative)
+   vblank_port::vblank_region_matches_reference :: vblank (plain): first diff at offset 0x0 (region-relative)
+   vdp_init_port::vdp_init_debug_region_matches_reference :: vdp_init (debug) vs the pinned s4.debug.bin window: first diff at offset 0x46 (region-relative)
+   vdp_init_port::vdp_init_region_matches_reference :: vdp_init (plain) vs the pinned s4.bin window: first diff at offset 0x0 (region-relative)
+   vectors_port::vectors_debug_region_matches_reference :: vectors vs s4.debug.bin[0..0x100]: first diff at 0xa
+   vectors_port::vectors_region_matches_reference :: vectors vs s4.bin[0..0x100]: first diff at 0xa
+== NAME/LAYOUT DRIFT WALL: 5
+   act_fixture_drift::fixture_covers_every_field_the_structs_declare :: engine/structs.emp declares fields the supply fixture does not carry: ["Act_act_regions", "Act_act_region_count"]
+   act_fixture_drift::fixture_values_match_the_live_structs :: the supply fixture has drifted from engine/structs.emp: ["Act_len: fixture 0x28, struct 0x2e", "Sec_sec_bg_layout: fixture 0x10, struct 0x0c", "Sec_sec_type_table: fixture 0x14, struct 0x10", "Sec_sec_block_dict: fixture
+   structs_module::harvest_emits_the_as_field_offsets_and_sizes :: assertion `left == right` failed: harvest must emit Act_len = 0x28 (got Some(46))
+   tranche3_negative_probes::collision_lookup_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: the genuine fixtures must reproduce the reference window, otherwise every assert_ne! probe in this file passes for the wrong reason
+   tranche3_negative_probes::vdp_init_undoctored_compile_equals_the_reference_window :: assertion `left == right` failed: the genuine fixtures must reproduce the reference window, otherwise every assert_ne! probe in this file passes for the wrong reason
+== OTHER: 20
+   core_port::debug_shape_length_diverges :: plain shape must emit the pinned span modulo a short align pad (emitted 0x2f0, pin 0x2ee)
+   dma_queue_port::dma_queue_debug_region_matches_reference :: dma_queue.emp drift guards must all PASS: [Diagnostic { level: Error, message: "[extern.unknown] `extern(\"DMA_Queue_End\")` names a symbol not defined in this link: no label, equ or supplied stub is called `DMA_Queue_En
+   dma_queue_port::dma_queue_region_matches_reference :: dma_queue.emp drift guards must all PASS: [Diagnostic { level: Error, message: "[extern.unknown] `extern(\"DMA_Queue_End\")` names a symbol not defined in this link: no label, equ or supplied stub is called `DMA_Queue_En
+   keystone_flip_relocation::deform_pointer_equals_placed_label_vma :: labeled placement regressed (independent of the fold check)
+   keystone_flip_relocation::doctored_golden_at_deform_pointer_is_caught :: index out of bounds: the len is 791098 but the index is 791098
+   m1b_gate::oracle_loadfromaslisting_resolves_emit_listing :: NO REFERENCE TREE IS NAMED, so this run can measure nothing it could attribute, and STOPS. This run DECLINED to use /home/volence/sonic_hacks/oracle-old, which step 3 derived from this checkout's own location: it is a wo
+   native_declared_chain::declared_chain_debug :: range end index 791796 out of range for slice of length 791098
+   native_declared_chain::declared_chain_plain :: range end index 777362 out of range for slice of length 776706
+   native_offcanonical_placement::config_b_doctored_size_table_moves_no_bytes :: control: undoctored config_b anchor must match the golden
+   native_offcanonical_placement::config_b_frozen_placement_exact :: config_b frozen chainer misplaced 48 declared section(s); first: Some(("GetSineCosine", 4140, 4062))
+   preserves_corpus::residue_procs_verify_as_predicted :: proc Collected_CheckRing not found
+   provenance_chain::aeon_dir_matches_the_provenance_tip :: AEON_DIR pairing: /home/volence/sonic_hacks/.aeon-regions-p1 is at aeon 1a6579903e20aecd9b51ef295d5a975b2af96959, but the goldens were frozen from aeon ec640bcf70e263167223a33d987d4661ff221b7e (provenance tip `link-zero-
+   repin_pins::pins_rs_is_current :: src/pins.rs is STALE against the live listings.
+   s4lz_port::s4lz_region_matches_reference :: s4lz.emp lower errors: [Diagnostic { level: Error, message: "unknown name `CRASH_REPORT`", primary: Span { source: SourceId(0), start: 7841, end: 7853 } }, Diagnostic { level: Error, message: "unknown name `CRASH_REPORT`
+   sfx_bank_port::sfx_bank_debug_matches_reference :: called `Result::unwrap()` on an `Err` value: PoisonError { .. }
+   shared_target_defaults::refreeze_tells_its_children_which_build_directory_to_use :: SIGIL_STRICT_GATE set but this test binary was built into the checkout's DEFAULT target/ (/home/volence/sonic_hacks/.sigil-regions-p1/target), so the shared-target row of refreeze_tells_its_children_which_build_directory
+   test_objects_port::test_objects_debug_regions_match_reference :: test_solid lower errors: [Diagnostic { level: Error, message: "[embed.not-found] cannot read /home/volence/sonic_hacks/.aeon-regions-p1/games/sonic4/objects/games/sonic4/data/generated/spring/art_spring.bin", primary: Sp
+   test_objects_port::test_objects_regions_match_reference :: test_solid lower errors: [Diagnostic { level: Error, message: "[embed.not-found] cannot read /home/volence/sonic_hacks/.aeon-regions-p1/games/sonic4/objects/games/sonic4/data/generated/spring/art_spring.bin", primary: Sp
+   tile_cache_port::two_module_tail_call_flip_plain :: /home/volence/sonic_hacks/.aeon-regions-p1/engine/compression/s4lz.emp lower errors: [Diagnostic { level: Error, message: "unknown name `CRASH_REPORT`", primary: Span { source: SourceId(0), start: 7841, end: 7853 } }, Di
+   unittests::test_support::tests::sec_field_equ_names_match_the_harvest :: (no panic text captured)
+== PAIRING (pre-existing GAME_SCANLINE_CAPS): 3
+   game_config_defines::the_shipped_maps_game_declared_rows_are_polarity_covered :: the shipped maps now declare game defines {"GAME_SCANLINE_CAPS"}, update this expectation in the same commit as the row
+   parallax_port::parallax_debug_region_matches_reference :: parallax.emp lower errors: [Diagnostic { level: Error, message: "unknown name `GAME_SCANLINE_CAPS`", primary: Span { source: SourceId(0), start: 12505, end: 12523 } }, Diagnostic { level: Error, message: "unknown name `G
+   parallax_port::parallax_region_matches_reference :: parallax.emp lower errors: [Diagnostic { level: Error, message: "unknown name `GAME_SCANLINE_CAPS`", primary: Span { source: SourceId(0), start: 12505, end: 12523 } }, Diagnostic { level: Error, message: "unknown name `G
