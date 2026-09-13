@@ -28,6 +28,11 @@ from song_packer import (
     CHROUTE_FM1, CHROUTE_FM6, CHROUTE_PSG1, CHROUTE_PSGN, CHROUTE_DAC,
     SH_F_FM6_FM, SH_F_STREAM,
 )
+from song_packer import (
+    CHROUTE_FM2, CHROUTE_COUNT, SH_F_FM6_ADAPTIVE, check_fm6_mode,
+)
+
+AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class TestEventEncoding(unittest.TestCase):
@@ -982,6 +987,165 @@ class TestPackerSafetyGates(unittest.TestCase):
         song = SongDesc(tempo=0x80, channels=[ch], flags=SH_F_FM6_FM,
                         tempo_mod=0)
         self.assertEqual(pack_song(song)[0], SH_F_FM6_FM | SH_F_STREAM)
+
+
+class TestFm6ModeRule(unittest.TestCase):
+    """GAP12-A2-9d: SH_F_FM6_ADAPTIVE must agree with the song's channel set.
+
+    Driven through pack_song, not check_fm6_mode directly, so the CALL SITE is
+    under test as well as the predicate: a predicate nothing calls would pass
+    every direct test.
+    """
+    # Each matcher keys on its own rule's head; test_matchers_are_unique proves no
+    # matcher also accepts another rule's message.
+    SHARE_RE = (r"FM6-MODE: a CHROUTE_FM6 music channel beside a CHROUTE_DAC channel "
+                r"requires SH_F_FM6_ADAPTIVE")
+    VOICE_RE = r"FM6-MODE: SH_F_FM6_ADAPTIVE with no CHROUTE_FM6 channel"
+    PROXY_RE = r"SH_F_FM6_ADAPTIVE requires SH_F_FM6_FM"
+
+    def _fm(self, route):
+        return ChannelDesc(route, [
+            Patch(0), Vol(100), SetDur(0x10), LoopPoint(), Note(57), Jump()])
+
+    def _dac(self):
+        return ChannelDesc(CHROUTE_DAC, [
+            SetDur(0x10), LoopPoint(), Dac(2), Rest(), Jump()])
+
+    def _pack(self, flags, chans):
+        return pack_song(SongDesc(tempo=0x80, tempo_mod=0, flags=flags, channels=chans))
+
+    # --- SHARE: FM6 music + DAC requires ADAPTIVE ---------------------------------
+    def test_fm6_and_dac_without_adaptive_is_refused(self):
+        with self.assertRaisesRegex(PackError, self.SHARE_RE):
+            self._pack(SH_F_FM6_FM, [self._fm(CHROUTE_FM1), self._fm(CHROUTE_FM6),
+                                     self._dac()])
+
+    def test_fm6_and_dac_refused_in_either_declaration_order(self):
+        # The rule is about the SET, not the order the channels are declared in.
+        with self.assertRaisesRegex(PackError, self.SHARE_RE):
+            self._pack(SH_F_FM6_FM, [self._dac(), self._fm(CHROUTE_FM6)])
+
+    def test_fm6_and_dac_with_adaptive_packs(self):
+        # The drum-test song's posture.
+        blob = self._pack(SH_F_FM6_FM | SH_F_FM6_ADAPTIVE,
+                          [self._fm(CHROUTE_FM6), self._dac()])
+        self.assertEqual(blob[0], SH_F_FM6_FM | SH_F_STREAM | SH_F_FM6_ADAPTIVE)
+
+    # --- VOICE: ADAPTIVE requires an FM6 channel -----------------------------------
+    def test_adaptive_with_dac_but_no_fm6_is_refused(self):
+        # SH_F_FM6_FM is set, so the old proxy check passes and only the channel
+        # rule can refuse this.
+        with self.assertRaisesRegex(PackError, self.VOICE_RE):
+            self._pack(SH_F_FM6_FM | SH_F_FM6_ADAPTIVE,
+                       [self._fm(CHROUTE_FM1), self._dac()])
+
+    def test_adaptive_with_no_fm6_and_no_dac_is_refused(self):
+        with self.assertRaisesRegex(PackError, self.VOICE_RE):
+            self._pack(SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, [self._fm(CHROUTE_FM1)])
+
+    # --- what the rule deliberately ADMITS -----------------------------------------
+    def test_fm6_without_dac_non_adaptive_packs(self):
+        # Moving Trucks' posture: FM6 is a full 6th voice, the song fires no sample.
+        blob = self._pack(SH_F_FM6_FM, [self._fm(CHROUTE_FM1), self._fm(CHROUTE_FM6)])
+        self.assertEqual(blob[0], SH_F_FM6_FM | SH_F_STREAM)
+
+    def test_fm6_without_dac_adaptive_packs(self):
+        # Legal and harmless (FM6's patch owns $B6); the posture under which a
+        # sample from outside the song would be handed back. An owner question,
+        # not a contradiction.
+        blob = self._pack(SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, [self._fm(CHROUTE_FM6)])
+        self.assertEqual(blob[0], SH_F_FM6_FM | SH_F_STREAM | SH_F_FM6_ADAPTIVE)
+
+    def test_dac_without_fm6_non_adaptive_packs(self):
+        # HCZ2's posture: FM6 is the DAC for the whole song (dedicate).
+        blob = self._pack(0, [self._fm(CHROUTE_FM1), self._dac()])
+        self.assertEqual(blob[0], SH_F_STREAM)
+
+    # --- the matchers are unique to their rules -------------------------------------
+    def _message(self, flags, chans):
+        with self.assertRaises(PackError) as cm:
+            self._pack(flags, chans)
+        return str(cm.exception)
+
+    def test_matchers_are_unique(self):
+        share = self._message(SH_F_FM6_FM, [self._fm(CHROUTE_FM6), self._dac()])
+        voice = self._message(SH_F_FM6_FM | SH_F_FM6_ADAPTIVE, [self._fm(CHROUTE_FM1)])
+        proxy = self._message(SH_F_FM6_ADAPTIVE, [self._fm(CHROUTE_FM6), self._dac()])
+        msgs = {"share": share, "voice": voice, "proxy": proxy}
+        pats = {"share": self.SHARE_RE, "voice": self.VOICE_RE, "proxy": self.PROXY_RE}
+        for name, pat in pats.items():
+            for other, msg in msgs.items():
+                with self.subTest(matcher=name, message=other):
+                    if name == other:
+                        self.assertRegex(msg, pat)
+                    else:
+                        self.assertNotRegex(msg, pat)
+
+
+class TestCommittedSongHeaders(unittest.TestCase):
+    """The same FM6-mode rule, held against the song bytes the ROM ACTUALLY embeds.
+
+    The build never re-packs a song: games/sonic4/data/sound/mt_bank.emp embeds
+    committed `song_*.bin` files. A pack-time refusal protects the next pack and
+    says nothing about those bytes, so this class decodes each committed header and
+    applies check_fm6_mode to it. The population is read off mt_bank.emp's own
+    `embed(...)` lines, and its size off games/sonic4/config/sound_ids.emp's DEBUG
+    SONG_COUNT, so a new song cannot join the ROM unaudited.
+    """
+    MT_BANK = os.path.join(AEON, "games/sonic4/data/sound/mt_bank.emp")
+    SOUND_IDS = os.path.join(AEON, "games/sonic4/config/sound_ids.emp")
+
+    def _population(self):
+        text = open(self.MT_BANK).read()
+        names = re.findall(r'embed\("(song_[A-Za-z0-9_]+\.bin)"\)', text)
+        if not names:
+            self.fail(f"no `embed(\"song_*.bin\")` in {self.MT_BANK}: the audit has "
+                      f"nothing to audit, which must be loud, never a pass")
+        return [os.path.join(os.path.dirname(self.MT_BANK), n) for n in names]
+
+    @staticmethod
+    def _decode(blob):
+        """-> (flags, routes, first cmd offset, channel count) off the SongHeader.
+
+        Layout: flags +0, tempo +1, tempo_mod +2, count +3, pitchtable dw +4, then
+        per channel (route, cmd_hi, cmd_lo, mod_hi, mod_lo) from +6.
+        """
+        n = blob[3]
+        routes = [blob[6 + 5 * i] for i in range(n)]
+        cmd0 = (blob[7] << 8) | blob[8]
+        return blob[0], routes, cmd0, n
+
+    def test_population_matches_the_debug_song_count(self):
+        text = open(self.SOUND_IDS).read()
+        m = re.search(r"SONG_COUNT\s*=\s*if DEBUG == 1 \{\s*(\d+)\s*\}", text)
+        self.assertIsNotNone(m, "SONG_COUNT's DEBUG arm not found in sound_ids.emp")
+        pop = self._population()
+        self.assertEqual(len(pop), int(m.group(1)),
+                         f"mt_bank.emp embeds {len(pop)} song blobs but the DEBUG "
+                         f"SONG_COUNT is {m.group(1)}")
+        for p in pop:
+            self.assertTrue(os.path.isfile(p), f"{p} is embedded but absent")
+
+    def test_header_decode_is_self_consistent(self):
+        # INSTRUMENT CHECK: if the decode misreads the header, the rule below would
+        # be judging garbage. The first command stream starts right after the
+        # header, 4 + 2 + 5n + 2 bytes (pack_song's own header_len), so a decode
+        # that lands anywhere else is wrong.
+        for p in self._population():
+            with self.subTest(song=os.path.basename(p)):
+                blob = open(p, "rb").read()
+                flags, routes, cmd0, n = self._decode(blob)
+                self.assertTrue(1 <= n <= CHROUTE_COUNT)
+                self.assertEqual(len(set(routes)), n, f"duplicate routes {routes}")
+                self.assertTrue(all(0 <= r < CHROUTE_COUNT for r in routes), routes)
+                self.assertEqual(cmd0, 4 + 2 + 5 * n + 2)
+                self.assertTrue(flags & SH_F_STREAM)
+
+    def test_committed_headers_obey_the_fm6_mode_rule(self):
+        for p in self._population():
+            with self.subTest(song=os.path.basename(p)):
+                flags, routes, _, _ = self._decode(open(p, "rb").read())
+                check_fm6_mode(flags, routes)   # raises PackError on a contradiction
 
 
 if __name__ == "__main__":

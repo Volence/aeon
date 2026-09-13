@@ -170,6 +170,20 @@ pub proc Sound_Ping (d0: u16) clobbers(a0) preserves(sr.mask) {
 // ----------------------------------------------------------------------
 // Sound_PlaySample — start DAC playback of a sample id.
 // In:  d0.b = sample id (nonzero).
+//
+// NO CALLER EXISTS (2026-09-13, GAP12-A2-9d), and the first one inherits a policy
+// nobody has settled. The sample takes ch6 for the DAC: Snd_StartSample writes
+// $2B <- $80 unconditionally. The sample's `.stop` hands ch6 back ($2B <- $00 and
+// the FM6 re-key) ONLY when SND_FM6_ADAPTIVE is set. So under a song whose FM6 is a
+// music voice but which is NOT SH_F_FM6_ADAPTIVE (Moving Trucks is exactly that),
+// FM6 goes on keying after the sample and is NOT HEARD until the next song load.
+// Do not read "the driver hands ch6 back after a sample" into this API; it does so
+// for adaptive songs only (a song with no FM6 voice has nothing to lose). Settle the
+// policy before adding a caller: refuse the sample, time-share, or carry
+// SH_F_FM6_ADAPTIVE on every FM6 song. The options and their costs are in
+// docs/DEFERRED_WORK.md under GAP12-A2-9d. Songs cannot reach this state by
+// themselves: tools/song_packer.py's check_fm6_mode refuses FM6 music beside a DAC
+// channel without the flag.
 // ----------------------------------------------------------------------
 pub proc Sound_PlaySample (d0: u16) clobbers(a0) preserves(sr.mask) {
         lea     SAMPLE_SLOT, a0

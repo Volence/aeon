@@ -976,6 +976,62 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
     return bytes(stream)
 
 
+# --- FM6 MODE vs THE CHANNEL SET (GAP12-A2-9d, 2026-09-13) ---------------------
+# The engine never reads SH_F_FM6_FM at runtime (sound_api.emp's Sound_PlayMusic
+# header says so). What it reads is SH_F_FM6_ADAPTIVE (cached into
+# SND_FM6_ADAPTIVE) and the channel set itself (SND_FM6_CHAN_PTR is non-zero iff a
+# CHROUTE_FM6 record exists). So the flag has to agree with the CHANNELS; the older
+# "ADAPTIVE requires SH_F_FM6_FM" check in pack_song tests a header bit nothing
+# downstream reads. The two message heads are distinct so a test matcher can key
+# on one rule without also matching the other.
+FM6_MODE_RULE_SHARE = "FM6-MODE: a CHROUTE_FM6 music channel beside a CHROUTE_DAC channel"
+FM6_MODE_RULE_VOICE = "FM6-MODE: SH_F_FM6_ADAPTIVE with no CHROUTE_FM6 channel"
+
+
+def check_fm6_mode(flags: int, routes) -> None:
+    """Refuse a SongHeader whose SH_F_FM6_ADAPTIVE disagrees with its channel set.
+
+    One predicate, two callers: pack_song (every song the packer builds) and the
+    committed-blob audit in test_song_packer.py (the song .bins the ROM actually
+    embeds, which are committed and never re-packed by the build).
+
+    SHARE: FM6 music plus a DAC channel requires ADAPTIVE. Without it the song's
+    first $E2 runs Snd_StartSample, which writes $2B <- $80 (the DAC takes ch6)
+    unconditionally, and the drum's `.stop` gates its whole hand-back ($2B <- $00
+    and the FM6 re-key) on SND_FM6_ADAPTIVE, so ch6 stays in DAC mode. FM6 keys on
+    again after the drum (Fm_NoteOnFreq's Layer-4 gate reopens at DAC_ACTIVE = 0)
+    and is not heard for the rest of the song. The DAC channel stands for "this
+    song fires samples": Dac.validate refuses a Dac event on any other route.
+    Setting ADAPTIVE is always the safe remedy when an FM6 channel exists.
+
+    VOICE: ADAPTIVE requires an FM6 channel. Snd_LoadSong skips the ch6 pan seed
+    ($B6 = $C0) for an adaptive song on the promise that FM6's patch will write the
+    real $B6, but Sequencer_StopAll has just closed $B6 to $00 and with no FM6
+    channel no patch ever reopens it, so any DAC output plays through a closed pan
+    gate (only a DAC-route RegWrite to part 1 $B6 could reopen it).
+
+    NOT refused: ADAPTIVE on an FM6 song WITHOUT a DAC channel. Nothing breaks
+    (FM6's own patch owns $B6), and it is the posture under which a sample from
+    OUTSIDE the song would be handed back. Whether songs like Moving Trucks should
+    carry it is an open owner question (docs/DEFERRED_WORK.md, GAP12-A2-9d), not a
+    contradiction this rule can settle.
+    """
+    routes = list(routes)
+    has_fm6 = CHROUTE_FM6 in routes
+    has_dac = CHROUTE_DAC in routes
+    adaptive = bool(flags & SH_F_FM6_ADAPTIVE)
+    if has_fm6 and has_dac and not adaptive:
+        raise PackError(
+            f"{FM6_MODE_RULE_SHARE} requires SH_F_FM6_ADAPTIVE: without it the "
+            f"first $E2 takes ch6 for the DAC ($2B <- $80) and the drum's .stop "
+            f"never hands it back, so FM6 is silent for the rest of the song")
+    if adaptive and not has_fm6:
+        raise PackError(
+            f"{FM6_MODE_RULE_VOICE}: the loader skips the ch6 pan seed "
+            f"($B6 = $C0) for an adaptive song and no FM6 patch exists to write "
+            f"$B6, so DAC output plays through a closed pan gate")
+
+
 def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
     """Pack a SongDesc to bytes. pitchtable_offset (default 0 = engine default)
     is the SongHeader pitchtable_ptr field — a 16-bit BE offset, relative to the
@@ -1013,6 +1069,8 @@ def pack_song(song: SongDesc, pitchtable_offset: int = 0) -> bytes:
         raise PackError(
             f"duplicate channel route(s) {dupes} — two streams would fight "
             f"over one chip channel")
+    # The FM6-mode flag must agree with the channel set (check_fm6_mode, above).
+    check_fm6_mode(flags, routes)
     if not (0 <= pitchtable_offset <= 0xFFFF):
         raise PackError(
             f"pitchtable_offset {pitchtable_offset} out of 16-bit range")
