@@ -76,7 +76,7 @@ module engine.sound_sequencer (cpu: z80)
 
 // The cross-module resident callees this file calls/tail-jumps, resolved by
 // import; every sound-driver writer preserves ix (the project reliance). The two
-// vol-env resolvers carry `out(hl, carry: found)` so the sequencer's `ret c` bails
+// vol-env resolvers carry `out(hl, carry: unknown)` so the sequencer's `ret c` bails
 // EXERCISE the [call.flag-result-unused] cross-proc credit end-to-end (they are
 // DEFINED + checked in sound_psg.emp).
 // The YM2612 address->data spacing floor in Z80 T-states. MUST equal
