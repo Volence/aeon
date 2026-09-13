@@ -13,7 +13,7 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // ---- The Sec/Act ROM-descriptor structs live in the shared engine.structs
 // module: it carries the layout + the per-field drift wall; act keeps the
 // validating constructor + field defaults below.
-use engine.structs.{Act, Sec}
+use engine.structs.{Act, Sec, Region}
 
 // The Effects P1 gate fixtures (OJZ_TestRaster / OJZ_TestPal / OJZ_TestGradient /
 // OJZ_TestVsram / OJZ_TestRamp) were imported here to feed the pal:/raster: constructor
@@ -75,6 +75,8 @@ use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default, ojz_act1_sec_sce
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
 use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, PAGE_TABLE_MAX, ART_POOL_PAGE_BYTES}
+// The region table's per-row invariants read the camera clamp's own terms (see ojz_region()).
+use engine.constants.{SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
 
 // Generated interior-island manifests: the art-pool page count/tile
 // total and the per-section block-dict lengths are `.emp` const modules the
@@ -180,6 +182,8 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     pad_21:              default,
     act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
     act_art_budget:      ACT_ART_BUDGET,                  // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling; guarded above
+    act_regions:         OJZ_Act1_Regions,               // painted-regions v1 — the table at the end of this file
+    act_region_count:    OJZ_ACT1_REGION_ROWS.len,       // the SAME const the guards below read
 }
 
 // -----------------------------------------------
@@ -417,3 +421,126 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
 ]
 // the [Sec; 9] length IS the table-size check; tie the literal to the grid
 ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")
+
+// -----------------------------------------------
+// Region table — the act's IDENTITY scope (painted-regions v1,
+// docs/superpowers/designs/2026-09-09-regions-v1-design.md).
+//
+// A region is an inclusive world-pixel rectangle naming an EffectsPreset (and optionally
+// a parallax config that outranks the preset's). The camera CENTRE's region decides which
+// preset is installed; the section grid above is storage only.
+//
+// THIS TABLE IS A 1:1 TRANSCRIPTION OF THE SECTION GRID, on purpose. Each row names exactly
+// the preset its section's `effects:` names above and exactly the scene binding its
+// section's `ojz_act1_sec_scene(sec: N)` resolves to — so nine rectangles equal to nine
+// sections must produce byte-identical BEHAVIOUR, which is the whole proof strategy of
+// the migration. Row 5's binding is 0 and that does NOT mean "act default": rung 2 then
+// finds OJZ_Preset_Sec5's own ep_parallax (ParallaxConfig_OJZ_Underwater). Row 7's is NOT
+// 0 (section_7.meta.json binds a scene; the design's §3.1 row 7 was wrong about that and
+// is corrected there).
+//
+// `scene:` IS A SIDECAR INDEX, NOT A Label, and the reason is mechanical: the editor
+// binding seam (`ojz_act1_sec_scene`) is still keyed by the per-section sidecar
+// (section_N.meta.json's `sceneRef`), and five of its nine answers are 0 — which a scalar
+// `Label` argument refuses (`expected a label (a Label argument), got int`,
+// docs/EMP_PITFALLS.md §12). So the row names WHICH sidecar binds it and the constructor
+// asks the chooser. When the tools parcel moves bindings into regions.json (design §3.3),
+// this argument becomes that file's binding and the sidecar key goes away.
+// -----------------------------------------------
+
+// The act's extent, exclusive, in world px.
+const ACT_W = GRID_W << SECTION_SIZE_SHIFT
+const ACT_H = GRID_H << SECTION_SIZE_SHIFT
+// THE CAMERA CENTRE'S REACHABLE BAND, derived from the clamp rather than asserted:
+// Camera_Init (engine/level/camera.emp) clamps Camera_X to [0, ACT_W - SCREEN_WIDTH] and
+// the crossing tests Camera_X + CAM_SCREEN_HALF_W, so the centre spans the band below. An
+// interior edge outside it can never be crossed, so its region could never be entered.
+const CENTRE_X_MIN = CAM_SCREEN_HALF_W
+const CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W
+const CENTRE_Y_MIN = CAM_SCREEN_HALF_H
+const CENTRE_Y_MAX = ACT_H - SCREEN_HEIGHT + CAM_SCREEN_HALF_H
+// The minimum span on either axis. The camera moves at most 16 px a frame on each axis, so
+// a rectangle narrower than 17 px could be stepped over; 32 is one doubling of margin.
+// AUTHORING HYGIENE, NOT SAFETY: a stepped-over rectangle costs a missed identity change,
+// never corruption, because the crossing's fast path simply rescans the next frame. Pinned
+// to the Y step, which engine.constants publishes; the X step (camera.emp's CAM_MAX_X_STEP,
+// also 16) is file-local there and cannot be read from here.
+const REGION_MIN_SPAN = 2 * CAM_MAX_Y_STEP
+
+// ojz_region() — one Region row, with every per-row invariant checked HERE, at the call
+// site (a comptime fn's ensures evaluate where it is called, which is what makes them live).
+comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, scene: int) -> Region {
+    ensure(x0 >= 0 && y0 >= 0,
+           "ojz_region(x0: {x0}, y0: {y0}): a negative edge is outside every act — world px start at 0")
+    ensure(x0 <= x1 && y0 <= y1,
+           "ojz_region(x0: {x0}, x1: {x1}, y0: {y0}, y1: {y1}): an inverted rectangle contains no point. Bounds are INCLUSIVE, so a one-pixel column is x0 == x1, never x1 < x0")
+    ensure(x1 < ACT_W && y1 < ACT_H,
+           "ojz_region(x1: {x1}, y1: {y1}): reaches past the act, whose inclusive maximum is ({ACT_W} - 1, {ACT_H} - 1) — no camera centre can stand there")
+    ensure(x1 - x0 + 1 >= REGION_MIN_SPAN && y1 - y0 + 1 >= REGION_MIN_SPAN,
+           "ojz_region(x0: {x0}, x1: {x1}, y0: {y0}, y1: {y1}): narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN} px) on an axis — the camera moves up to 16 px a frame and could step over it")
+    ensure(x0 == 0 || (x0 - 1 >= CENTRE_X_MIN && x0 <= CENTRE_X_MAX),
+           "ojz_region(x0: {x0}): an interior LEFT edge outside the camera centre's reachable band [{CENTRE_X_MIN}, {CENTRE_X_MAX}] can never be crossed")
+    ensure(x1 == ACT_W - 1 || (x1 >= CENTRE_X_MIN && x1 + 1 <= CENTRE_X_MAX),
+           "ojz_region(x1: {x1}): an interior RIGHT edge outside the camera centre's reachable band [{CENTRE_X_MIN}, {CENTRE_X_MAX}] can never be crossed")
+    ensure(y0 == 0 || (y0 - 1 >= CENTRE_Y_MIN && y0 <= CENTRE_Y_MAX),
+           "ojz_region(y0: {y0}): an interior TOP edge outside the camera centre's reachable band [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}] can never be crossed")
+    ensure(y1 == ACT_H - 1 || (y1 >= CENTRE_Y_MIN && y1 + 1 <= CENTRE_Y_MAX),
+           "ojz_region(y1: {y1}): an interior BOTTOM edge outside the camera centre's reachable band [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}] can never be crossed")
+    return Region{ rg_x0: x0, rg_x1: x1, rg_y0: y0, rg_y1: y1, rg_effects: effects,
+                   rg_parallax: ojz_act1_sec_scene(sec: scene) }
+}
+
+// The first overlapping pair as `i * 1000 + j` (i < j), or -1 when no two rows share a
+// pixel. Inclusive bounds: two rectangles overlap iff each one's low edge is at or below
+// the other's high edge, on both axes.
+comptime fn region_first_overlap(r: array) -> int {
+    for i in 0..r.len {
+        for j in (i + 1)..r.len {
+            if r[i].rg_x0 <= r[j].rg_x1 && r[j].rg_x0 <= r[i].rg_x1 && r[i].rg_y0 <= r[j].rg_y1 && r[j].rg_y0 <= r[i].rg_y1 {
+                return i * 1000 + j
+            }
+        }
+    }
+    return -1
+}
+
+// The summed area of every row, in px².
+comptime fn region_area_sum(r: array) -> int {
+    comptime var s: int = 0
+    for i in 0..r.len {
+        s = s + (r[i].rg_x1 - r[i].rg_x0 + 1) * (r[i].rg_y1 - r[i].rg_y0 + 1)
+    }
+    return s
+}
+
+// THE ROWS — ONE SOURCE. The guards below read this const and the emitted table IS this
+// const, so the rows checked are the rows shipped (design §10.5: a hand-written table gets
+// the same protection a generated one would).
+const OJZ_ACT1_REGION_ROWS: [Region; 9] = [
+    ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  scene: 0),
+    ojz_region(x0: 2048, x1: 4095, y0:    0, y1: 2047, effects: OJZ_Preset_Sec1,  scene: 1),
+    ojz_region(x0: 4096, x1: 6143, y0:    0, y1: 2047, effects: OJZ_Preset_Sec2,  scene: 2),
+    ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  scene: 3),
+    ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, scene: 4),
+    ojz_region(x0: 4096, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  scene: 5),
+    ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  scene: 6),
+    ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  scene: 7),
+    ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, scene: 8),
+]
+
+// THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
+// coverage, given every row is inside the act (ojz_region's own ensure): disjoint pieces
+// of a set whose areas add up to the set's area ARE the set. Coverage is what makes
+// Region_Resolve's "no rectangle contains the point" (a0 = 0) unreachable for any camera
+// centre this act can produce, so the crossing's keep-current arm is a robustness net and
+// never a hole an author shipped by forgetting the notch of an arch.
+const OJZ_ACT1_REGION_OVERLAP = region_first_overlap(OJZ_ACT1_REGION_ROWS)
+const OJZ_ACT1_REGION_AREA = region_area_sum(OJZ_ACT1_REGION_ROWS)
+ensure(OJZ_ACT1_REGION_ROWS.len >= 1,
+       "OJZ act 1 has no region rows — Region_Resolve's dbf would count down from $FFFF and the crossing would resolve nothing")
+ensure(OJZ_ACT1_REGION_OVERLAP == -1,
+       "OJZ act 1 region rows overlap (pair code {OJZ_ACT1_REGION_OVERLAP} = row i * 1000 + row j). Identity must be a function of the camera centre alone; with an overlap it depends on scan order")
+ensure(OJZ_ACT1_REGION_AREA == ACT_W * ACT_H,
+       "OJZ act 1 region rows do not tile the act: their areas sum to {OJZ_ACT1_REGION_AREA} px², the act is {ACT_W} x {ACT_H}. A hole is a place with no identity")
+
+pub data OJZ_Act1_Regions: [Region; 9] = OJZ_ACT1_REGION_ROWS
