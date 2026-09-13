@@ -1,64 +1,95 @@
 #!/usr/bin/env python3
-"""glide_ceiling_witness — does Knuckles' glide push his head back out of a ceiling? (CHAR-4)
+"""glide_ceiling_witness — Knuckles' glide family against ceilings and floors (CHAR-4, CHAR-6)
 
-THE CLAIM UNDER TEST (`docs/lens-findings.jsonl` CHAR-4). The glide family had no ceiling
-probe, so a glide carried Knuckles' head into the underside of the OJZ act 1 box's 16 px
-slab and left it there: the controller measured 7 frames at 4 px deep, every frame's y
-change equal to y_vel exactly (docs/superpowers/notes/2026-09-13-char46-repro-recipe.md
-§10). The fix runs the air states' own ceiling machinery (`Air_CeilingBump` ->
-`Player_SensorCeiling`) inside `Glide_Collide` whenever the motion is NOT mostly down —
-`Air_Collide`'s classifier, S3K's `Knux_DoLevelCollision_CheckRet` classes.
+THE CLAIMS UNDER TEST (`docs/lens-findings.jsonl` CHAR-4 and CHAR-6).
 
-THE ASSERTION, DERIVED FROM WHAT THE FIX GUARANTEES rather than from a remembered count.
-Inside `Glide_Collide` the ceiling probe runs after the move and before the frame's
-state decision, and an embedded head (dist < 0) is moved down by exactly -dist, which is
-dist 0 at the new position. Nothing later in a frame that STAYS in PSTATE_GLIDE moves y
-up (the floor snap only moves y up onto a floor the feet are inside, and there is no
-floor within reach here). So:
+CHAR-4. The glide family had no ceiling probe, so a glide carried Knuckles' head into the
+underside of the OJZ act 1 box's 16 px slab and left it there: the controller measured 7
+frames at 4 px deep, every frame's y change equal to y_vel exactly
+(docs/superpowers/notes/2026-09-13-char46-repro-recipe.md §10). The fix runs the air
+states' own ceiling machinery (`Air_CeilingBump` -> `Player_SensorCeiling`) inside
+`Glide_Collide` whenever the motion is NOT mostly down — `Air_Collide`'s classifier, S3K's
+`Knux_DoLevelCollision_CheckRet` classes.
 
-    every frame that starts AND ends in PSTATE_GLIDE, in a motion class that is not
-    mostly down, ends with the head's ceiling distance >= 0.
+CHAR-6. Leaving the 21-high ability box for PSTATE_GLIDEFALL used to run
+PHook_EnsureStanding's feet-planted lift: y_pos -= 9 px, so the head rose 18 px with no
+clearance check. The fix gives GLIDEFALL its own enter hook, PHook_GlideFallEnter, which
+restores the standing box about a FIXED CENTRE, as S3K does at all four of its mid-air
+restore sites (skdisasm sonic3k.asm :30730, :30893, :31031, :31461 write the radii and
+never y_pos). The head now rises Δr and the feet drop Δr, where
 
-Frames that change state are excluded on purpose: the release runs PHook_EnsureStanding's
-9 px lift AFTER Glide_Collide, which is CHAR-6 and a separate parcel. Leg B measures it.
+    Δr = (standing height >> 1) - (ability height >> 1)       (19 - 10 = 9 for Knuckles)
 
-THE CEILING DISTANCE IS THE ENGINE'S OWN CRITERION, re-derived here and not typed in:
-`Player_SensorCeiling`'s pair at (x_int -/+ (width >> 1), y_int - (height >> 1)), each run
-through a Python mirror of `probe_core`'s `Collision_ProbeUp` stamp (player_sensors.emp:
-heights negated, sub-coordinate flipped, one cell forward on empty, one cell back on
-full, the hanging-run rule), over cells baked with `collision_pipeline.bake_plane_cell`
-from the SAME editor collision the build bakes (section 0 plane A/B, the S&K base bank),
-on the layer the player is actually on. The closer sensor wins. dist < 0 is embedded.
-The last solid row of the slab (511) is therefore an OUTPUT of this file — it is printed,
-never assumed. build.sh's level-staleness gate is what binds the editor tree to the ROM.
+with both heights READ from the running player, never typed in. The feet can therefore
+end the release frame up to Δr px inside a floor, which S3K accepts too; the next
+GLIDEFALL update's floor probe (Glide_Collide's centre sensor) snaps them out and the
+fall dead-stops into PSTATE_GROUND.
 
-TWO CONTROLS ON THE MODEL, because a mis-modelled probe would read as a result:
-  * every frame the ENGINE ejected (dy != y_vel * 256 on a glide frame) must read
-    exactly 0 in the model afterwards — the engine moved by its own probe's -dist, so
-    a model that disagrees is caught against the engine itself;
-  * the run must contain at least one frame where the MOVE carried the head into the
-    ceiling (the model's distance at the pre-collision position, y_prev + y_vel, is
-    < 0). Without one the assertion has no subject and the run is UNMEASURABLE, not a
-    pass.
+THE ASSERTIONS, DERIVED FROM WHAT EACH FIX GUARANTEES rather than from a remembered count.
+
+  A (CHAR-4). Inside `Glide_Collide` the ceiling probe runs after the move and before the
+    frame's state decision, and an embedded head (dist < 0) is moved down by exactly
+    -dist, which is dist 0 at the new position. Nothing later in a frame that STAYS in
+    PSTATE_GLIDE moves y up. So every frame that starts AND ends in PSTATE_GLIDE, in a
+    motion class that is not mostly down, ends with the head's ceiling distance >= 0.
+  B (CHAR-6, the head). The release update's only y writers are the glide's own move
+    (Glide_Move sets y_vel before ObjectMove) and, before the fix, the lift. So the
+    release update must change y_pos by EXACTLY y_vel * 256, and the box must become the
+    standing box. The head then sits Δr above where the glide head was, so a release
+    whose glide head had >= Δr of clearance ends clear, and the fall only moves away:
+    no frame from the release on ends with the head embedded.
+  C (CHAR-6, the feet). A release whose glide feet were FEET_GAP_C (< Δr) px above a
+    floor must again move y_pos by exactly y_vel * 256, leave the standing feet at
+    FEET_GAP_C - Δr (< 0: the one frame S3K accepts), and the very next update must land
+    (PSTATE_GROUND, the dead stop's zero velocities) with the feet at floor distance
+    exactly 0, having moved by exactly the model's floor distance.
+
+Frames that change state are excluded from leg A on purpose; legs B and C grade exactly
+those frames.
+
+THE TERRAIN DISTANCES ARE THE ENGINE'S OWN CRITERIA, re-derived here and not typed in:
+`Player_SensorCeiling`'s pair at (x_int -/+ (width >> 1), y_int - (height >> 1)), and
+`Glide_Collide`'s single centre floor sensor at (x_int, y_int + (height >> 1)), each run
+through a Python mirror of `probe_core` (player_sensors.emp): the Up stamp negates heights
+and flips the sub-coordinate, the Down stamp does neither; one cell forward on empty, one
+cell back on full, the hanging-run rule. Cells are baked with
+`collision_pipeline.bake_plane_cell` from the SAME editor collision the build bakes (section
+0 plane A/B, the S&K base bank), on the layer the player is actually on. For the ceiling
+the closer sensor wins. dist < 0 is embedded. The slab's last solid row (511) and the leg-C
+floor's top row are OUTPUTS of this file — printed, never assumed. build.sh's
+level-staleness gate is what binds the editor tree to the ROM.
+
+CONTROLS ON THE MODEL, because a mis-modelled probe would read as a result:
+  * every frame the ENGINE ejected from a ceiling (dy != y_vel * 256 on a frame that stays
+    in its state) must read exactly 0 in the model afterwards;
+  * leg C's landing is the floor twin: the engine's correction must equal the model's
+    floor distance at the post-move position, and read 0 in the model afterwards;
+  * each leg has a SUBJECT requirement. A: at least one frame where the MOVE carried the
+    head into the ceiling. B: the lifted alternative (the release position minus Δr)
+    must be embedded in the model while the unlifted one is clear, so the leg can tell
+    the two designs apart. C: the standing feet must be inside the floor at the release.
+    A run without its subject is UNMEASURABLE, never a pass.
 
 SAMPLING IS PER PLAYER UPDATE, NOT PER VIDEO FRAME, and the first version of this file got
 that wrong. It stepped with `run_frames(1)` and read RAM at the VBlank boundary. The level
 logic sometimes overruns a VBlank (a lag frame), so a boundary can fall INSIDE a player
-update. Measured on the fix: leg B's first GLIDEFALL update read the class gate at frame 147
-and the ceiling probe (-6, then ejected) at frame 148, and the frame-147 sample, taken after
-gravity and before the eject, reported a head that was never left embedded. The same
-straddle shows up the other way as a boundary with no update in it at all. So `Drive.step`
-stops at each Player_1 entry into Player_Main, where the previous update is complete, and a
-stall under that stepping is UNMEASURABLE.
+update. Measured on the CHAR-4 fix: leg B's first GLIDEFALL update read the class gate at
+frame 147 and the ceiling probe (-6, then ejected) at frame 148, and the frame-147 sample,
+taken after gravity and before the eject, reported a head that was never left embedded. The
+same straddle shows up the other way as a boundary with no update in it at all. So
+`Drive.step` stops at each Player_1 entry into Player_Main, where the previous update is
+complete, and a stall under that stepping is UNMEASURABLE.
 
-LEGS (both boot fresh, both select Knuckles the same way):
-  A  CHAR-4 (a), ASSERTED. The note's §7 recipe: glide right in open air, and when the
-     integer x first reaches INJECT_X write y_pos = 514.0; hold A; step one frame at a
-     time to STOP_X. RED on the unfixed ROM (the head sits in the slab), GREEN on the fix.
-  B  CHAR-6 release, INFORMATIONAL. Pass under the slab at y 532 and release A once x
-     reaches RELEASE_X: count the frames that END embedded from the release on. The
-     release frame itself stays embedded until CHAR-6's lift is fixed; with the ceiling
-     probe the next GLIDEFALL frame should eject.
+LEGS (each boots fresh, each selects Knuckles the same way):
+  A  CHAR-4 (a). The note's §7 recipe: glide right in open air, and when the integer x
+     first reaches INJECT_X write y_pos = 514.0; hold A; step one update at a time to
+     STOP_X. RED on 96a98abd (the head sits in the slab), GREEN on the CHAR-4 fix.
+  B  CHAR-6, the head. Pass under the slab at y 532 and release A once x reaches
+     RELEASE_X. RED before the CHAR-6 fix (the release lifts 9 px and ends the head 7 px
+     inside the slab), GREEN on it.
+  C  CHAR-6, the feet. Boot over the open floor right of the boxes, glide to
+     RELEASE_X_C, place the glide feet FEET_GAP_C px above the floor and release. RED
+     before the CHAR-6 fix (the lift), GREEN on it.
 
 HOW KNUCKLES IS SELECTED, and why this way (the note's §2, option B). Boot clears all of
 Work RAM, so the only window that can write `Character_ID` is after the clear and before
@@ -73,16 +104,16 @@ fields with no EQU line, so they are DECODED from the built ROM's own bytes: the
 `move.b d16(a0),d1` at Player_SetState+6 and the `sf d16(a0)` at Player_DebugExit+0. An
 opcode that does not match is UNMEASURABLE, never a guess. The drive coordinates below
 are coordinates into CONTENT, the class of number that moves when the level is edited;
-the model control and the contact requirement are what turn a moved slab into a loud
+the model controls and the subject requirements are what turn moved terrain into a loud
 UNMEASURABLE instead of a quiet pass.
 
 RUNNER: none. This repo runs player-physics runtime witnesses BY HAND; the only runtime
 witness any runner executes is `preset_lab_witness.py`, in the effects nightly. Wiring
-this one somewhere is booked, not done here.
+this one somewhere is booked (docs/DEFERRED_WORK.md, "CHAR-4 LEFT TWO THINGS OPEN").
 
     python3 tools/glide_ceiling_witness.py --rom s4.debug.bin --lst s4.debug.lst [-v]
 
-Exit 0 the guarantee held (leg A) · 1 it did NOT hold · 2 UNMEASURABLE · 3 BLOCKED.
+Exit 0 every asserted leg held · 1 one did NOT hold · 2 UNMEASURABLE · 3 BLOCKED.
 """
 import argparse
 import asyncio
@@ -109,15 +140,20 @@ NEED_SYMS = ("Player_1", "Character_ID", "Boot_At_X", "Boot_At_Y", "Boot_At_Flag
              "GameState_OJZScroll_Init", "Player_SetState", "Player_DebugExit", "Player_Main")
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_x_vel", "SST_y_vel", "SST_width_pixels",
              "SST_height_pixels", "SST_status", "SST_layer", "CHAR_KNUCKLES",
-             "PSTATE_AIR", "PSTATE_GLIDE", "PSTATE_GLIDEFALL", "SOLID_LRB")
+             "PSTATE_AIR", "PSTATE_GLIDE", "PSTATE_GLIDEFALL", "PSTATE_GROUND",
+             "SOLID_LRB", "SOLID_TOP")
 
 # Drive coordinates (world px). Content coordinates — see the docstring.
-BOOT_X, BOOT_Y = 760, 470   # open air left of the box: nothing solid within reach
-INJECT_X = 850              # leg A: first integer x at which y_pos is written
+BOOT_X, BOOT_Y = 760, 470   # legs A, B: open air left of the box: nothing solid within reach
+INJECT_X = 850              # legs A, B: first integer x at which y_pos is written
 INJECT_Y_A = 514            # leg A: the note's §7 recipe (inside its 512..520 band)
 UNDER_Y_B = 532             # leg B: under the slab, glide head clear by the model
 RELEASE_X = 925             # leg B: both standing head sensors under the flat underside
 STOP_X = 960                # leg A: stop recording once past the embed run
+BOOT_C_X, BOOT_C_Y = 1200, 470  # leg C: open air right of the second box, over the y 576 floor
+RELEASE_X_C = 1300          # leg C: the release column, over the flat top-only floor
+FEET_GAP_C = 4              # leg C: glide feet this far above the floor at the release
+FLOOR_SEEK_Y = 540          # leg C: a row above the floor to measure its top from
 MAX_FRAMES = 240
 
 # One section is 2048 px square (Section = (x >> 11, y >> 11)); the drive stays in section
@@ -174,11 +210,12 @@ def decode_playerv(rom, syms):
 
 # --------------------------------------------------------------------------- the model
 
-class CeilingModel:
-    """`Collision_ProbeUp` + `Player_SensorCeiling`'s pair, over section 0's baked cells."""
+class TerrainModel:
+    """`probe_core`'s Up and Down stamps + the glide family's sensors, over section 0's
+    baked cells: `Player_SensorCeiling`'s pair and `Glide_Collide`'s centre floor sensor."""
 
-    def __init__(self, lrb_mask):
-        self.lrb = lrb_mask
+    def __init__(self, lrb_mask, top_mask):
+        self.lrb, self.top = lrb_mask, top_mask
         self.hm = (BASE_BANK / "heightmaps.bin").read_bytes()
         self.an = (BASE_BANK / "angles.bin").read_bytes()
         self.planes = []
@@ -196,40 +233,52 @@ class CeilingModel:
         self.attrs = cp.AttrSet()
         self.cache = {}
 
-    def _cell(self, layer, x, y):
-        """probe_core's `.cell` for the UP stamp: 0 air, 1..15 partial, 16 full."""
+    def _cell(self, layer, x, y, mask, up):
+        """probe_core's `.cell`: 0 air, 1..15 partial, 16 full. `up` is the Up stamp
+        (heights negated, sub-coordinate flipped); otherwise the Down stamp."""
         if not (0 <= x < SECTION_PX and 0 <= y < SECTION_PX):
             raise Unmeasurable(f"the model was asked about ({x}, {y}), outside section 0 — "
                                f"the drive left the area whose collision it reads")
         plane = self.planes[layer & 1]
         i = (((y >> 4) * 2) * EDITOR_W + (x >> 3)) * 2
         word = int.from_bytes(plane[i:i + 2], "big")
-        key = word
-        if key not in self.cache:
+        if word not in self.cache:
             idx = cp.bake_plane_cell(word, self.hm, self.an, self.attrs)
             heights, _angle, sol, _xo = self.attrs.entries[idx]
-            self.cache[key] = (heights, sol)
-        heights, sol = self.cache[key]
-        if not (sol & self.lrb):
+            self.cache[word] = (heights, sol)
+        heights, sol = self.cache[word]
+        if not (sol & mask):
             return 0
         h = heights[x & 15]
         h = h - 256 if h >= 128 else h
-        h = -h                                  # probe_neg: Up negates
+        if up:
+            h = -h                              # probe_neg: Up negates
         if h == 0:
             return 0
         if h < 0:                               # hanging run (near-edge anchored)
-            sub = (y & 15) ^ 15
+            sub = ((y & 15) ^ 15) if up else (y & 15)
             return 0 if sub + h >= 0 else 16
         return h
 
     def probe_up(self, layer, x, y):
         sub = (y & 15) ^ 15                     # psubflip: Up mirrors the axis
-        h = self._cell(layer, x, y)
+        h = self._cell(layer, x, y, self.lrb, True)
         if h == 0:
-            h2 = self._cell(layer, x, y - 16)   # one cell forward (up)
+            h2 = self._cell(layer, x, y - 16, self.lrb, True)   # one cell forward (up)
             return 32 if h2 == 0 else 32 - (h2 + sub)
         if h == 16:
-            h3 = self._cell(layer, x, y + 16)   # one cell back (down)
+            h3 = self._cell(layer, x, y + 16, self.lrb, True)   # one cell back (down)
+            return -(h3 + sub)
+        return 16 - (h + sub)
+
+    def probe_down(self, layer, x, y):
+        sub = y & 15                            # Down: no flip
+        h = self._cell(layer, x, y, self.top, False)
+        if h == 0:
+            h2 = self._cell(layer, x, y + 16, self.top, False)  # one cell forward (down)
+            return 32 if h2 == 0 else 32 - (h2 + sub)
+        if h == 16:
+            h3 = self._cell(layer, x, y - 16, self.top, False)  # one cell back (up)
             return -(h3 + sub)
         return 16 - (h + sub)
 
@@ -237,6 +286,10 @@ class CeilingModel:
         rw, rh = w >> 1, h >> 1
         p = y - rh
         return min(self.probe_up(layer, x - rw, p), self.probe_up(layer, x + rw, p))
+
+    def feet_dist(self, layer, x, y, h):
+        """Glide_Collide's floor probe: ONE centre sensor at (x, y + (h >> 1)), SOLID_TOP."""
+        return self.probe_down(layer, x, y + (h >> 1))
 
 
 # --------------------------------------------------------------------------- the drive
@@ -301,14 +354,16 @@ class Drive:
     async def hold_a(self, down):
         await self.b.call("emulator/hold", {"buttons": ["a"], "down": bool(down)})
 
-    async def boot_knuckles(self, out):
+    async def boot_knuckles(self, out, x, y):
+        """Boot Knuckles at (x, y) and leave debug-fly. Returns the STANDING box (w, h)
+        as the running player reports it: Player_DebugExit installs it."""
         s, e = self.s, self.e
         await self.b.call("emulator/reset", {})
         await run_to_addr(self.b, s["GameState_OJZScroll_Init"] & 0xFFFFFF,
                           "GameState_OJZScroll_Init", max_frames=600)
         await self.write(s["Character_ID"], e["CHAR_KNUCKLES"], 2)
-        await self.write(s["Boot_At_X"], BOOT_X, 2)
-        await self.write(s["Boot_At_Y"], BOOT_Y, 2)
+        await self.write(s["Boot_At_X"], x, 2)
+        await self.write(s["Boot_At_Y"], y, 2)
         await self.write(s["Boot_At_Flag"], 1, 1)            # LAST, per the protocol
         for _ in range(600):
             await self.frames(1)
@@ -336,6 +391,7 @@ class Drive:
                                f"(debug_flag={p['dbg']}, state=${p['state']:02X})")
         out.append(f"  booted Knuckles at ({p['x'] >> 16}, {p['y'] >> 16}), AIR, "
                    f"box {p['w']}x{p['h']}")
+        return p["w"], p["h"]
 
     async def start_glide(self):
         await self.hold_a(True)
@@ -381,21 +437,20 @@ def mostly_down(xv, yv):
 
 
 def annotate(rows, model, e):
-    """One row per stepped frame. THE INTEGRATOR, per state (the note's §8): a GLIDE frame
+    """One row per stepped update. THE INTEGRATOR, per state (the note's §8): a GLIDE update
     writes y_vel in Glide_Move BEFORE ObjectMove, so its move is the END y_vel; a GLIDEFALL
-    frame moves by the PREVIOUS y_vel and adds gravity after. Any other y change on a frame
-    that stays in its state is a correction — an ejection. A state-change frame runs other
-    code (the release lift) and is marked, never graded."""
+    update moves by the PREVIOUS y_vel and adds gravity after. Any other y change on an
+    update that stays in its state is a correction — an ejection. A state-change update runs
+    other code (the release hook, the landing) and is marked, never graded here; legs B and
+    C grade those updates themselves."""
     g, gf = e["PSTATE_GLIDE"], e["PSTATE_GLIDEFALL"]
     out = []
     for prev, cur in zip(rows, rows[1:]):
         x, y = cur["x"] >> 16, cur["y"] >> 16
-        # A STALLED frame — the player code did not run (a lag frame; measured on the
-        # first step after the injection). Every GLIDE frame changes x_vel (gsp accel)
-        # or y_vel (the parachute alternates), and every GLIDEFALL frame changes y_vel
-        # (gravity) or y (at the cap), so "all four unchanged" cannot be a frame that
-        # ran. It is marked and never graded; reading it as dy != move would call it
-        # an ejection, which is what the first run of this file did.
+        # A STALLED update — the player code did not run. Every GLIDE update changes x_vel
+        # (gsp accel) or y_vel (the parachute alternates), and every GLIDEFALL update
+        # changes y_vel (gravity) or y (at the cap), so "all four unchanged" cannot be an
+        # update that ran. model_control refuses it outright.
         stall = all(prev[k] == cur[k] for k in ("x", "y", "xv", "yv"))
         stay = not stall and prev["state"] == cur["state"] and cur["state"] in (g, gf)
         move = (cur["yv"] if cur["state"] == g else prev["yv"]) * 256
@@ -405,6 +460,7 @@ def annotate(rows, model, e):
         out.append({"x": cur["x"] / 65536, "y": cur["y"] / 65536, "yv": cur["yv"],
                     "xv": cur["xv"], "state_in": prev["state"], "state": cur["state"],
                     "box": f"{cur['w']}x{cur['h']}", "dist": d_end, "dist_pre": d_pre,
+                    "feet": model.feet_dist(cur["layer"], x, y, cur["h"]),
                     "stall": stall, "stay": stay,
                     "ejected": stay and cur["y"] - prev["y"] != move,
                     "down": mostly_down(cur["xv"], cur["yv"])})
@@ -412,7 +468,7 @@ def annotate(rows, model, e):
 
 
 def model_control(rows):
-    """Every frame the ENGINE ejected must read 0 in the model afterwards, and no sample
+    """Every update the ENGINE ejected must read 0 in the model afterwards, and no sample
     may be a stall: stepping by player updates makes one impossible, so a stall means the
     stepping is not doing what `Drive.step` says it does."""
     stalls = sum(r["stall"] for r in rows)
@@ -432,15 +488,63 @@ def fmt(i, r):
            if r["stall"] else "" if r["stay"] else "  (state change)")
     return (f"    f+{i:<3d} x={r['x']:8.2f} y={r['y']:8.3f} xv={r['xv']:+6d} yv={r['yv']:+5d} "
             f"state=${r['state_in']:02X}->${r['state']:02X} box={r['box']:5s} "
-            f"head dist={r['dist']:+3d} (move put it at {r['dist_pre']:+3d})"
+            f"head dist={r['dist']:+3d} (move put it at {r['dist_pre']:+3d}) "
+            f"feet dist={r['feet']:+3d}"
             f"{tag}{'  [down class]' if r['down'] else ''}")
+
+
+def release_update(rows, model, stand, e, out):
+    """Find the release update (GLIDE -> GLIDEFALL) and derive, from design-independent
+    quantities only, where it SHOULD leave the player. The release update runs Glide_Move
+    (y_vel), ObjectMove (y += y_vel * 256), Glide_Collide, and then the GLIDEFALL enter
+    hook; the hook touches no velocity, so the unlifted end position is the previous
+    sample plus the END y_vel — valid on both designs. Glide_Collide may not have moved y
+    in that update (no ceiling eject, no floor landing), or the derivation is void."""
+    g, gf = e["PSTATE_GLIDE"], e["PSTATE_GLIDEFALL"]
+    for i in range(1, len(rows)):
+        if rows[i - 1]["state"] == g and rows[i]["state"] == gf:
+            break
+    else:
+        raise Unmeasurable("no GLIDE -> GLIDEFALL update was recorded — the release did not happen")
+    prev, cur = rows[i - 1], rows[i]
+    x = cur["x"] >> 16
+    aw, ah = prev["w"], prev["h"]
+    sw, sh = stand
+    dr = (sh >> 1) - (ah >> 1)
+    out.append(f"  Δr = (standing h {sh} >> 1) - (ability h {ah} >> 1) = {sh >> 1} - "
+               f"{ah >> 1} = {dr}  (both heights read from the running player)")
+    y_nolift = prev["y"] + cur["yv"] * 256
+    yn = y_nolift >> 16
+    if model.head_dist(prev["layer"], x, yn, aw, ah) < 0:
+        raise Unmeasurable("the glide head was in the ceiling at the release update's "
+                           "post-move position, so Glide_Collide ejected it and the release "
+                           "update has a third y writer — the derivation does not apply")
+    if cur["yv"] >= 0 and model.feet_dist(prev["layer"], x, yn, ah) < 0:
+        raise Unmeasurable("the glide feet were in the floor at the release update's "
+                           "post-move position, so the glide should have LANDED there")
+    return {"i": i, "prev": prev, "cur": cur, "x": x, "dr": dr, "stand": stand,
+            "abil": (aw, ah), "y_nolift": y_nolift, "yn": yn, "y_end": cur["y"],
+            "lift": cur["y"] - y_nolift, "layer": prev["layer"]}
+
+
+def grade_release_mechanism(rel, fails, leg):
+    """The two engine facts both CHAR-6 legs rest on: the release moves y by the glide's own
+    move and nothing else, and it leaves the standing box."""
+    cur = rel["cur"]
+    if rel["lift"] != 0:
+        fails.append(f"{leg}: the release update moved y_pos by {rel['lift'] / 65536:+.4f} px "
+                     f"beyond the glide's own move (y_vel {cur['yv']:+d}); a centre-preserving "
+                     f"restore moves it by 0, the feet-planted lift by -Δr = -{rel['dr']}")
+    if (cur["w"], cur["h"]) != rel["stand"]:
+        fails.append(f"{leg}: the release left box {cur['w']}x{cur['h']}, not the standing "
+                     f"box {rel['stand'][0]}x{rel['stand'][1]}")
 
 
 async def leg_a(drv, model, out, verbose):
     e = drv.e
     out.append("LEG A — CHAR-4 (a): glide right into the slab from integer y "
                f"{INJECT_Y_A} (ASSERTED)")
-    await drv.boot_knuckles(out)
+    await drv.boot_knuckles(out, BOOT_X, BOOT_Y)
     await drv.start_glide()
     p = await drv.glide_until_x(INJECT_X)
     out.append(f"  injecting y_pos = {INJECT_Y_A}.0 at x={p['x'] / 65536:.2f} "
@@ -467,16 +571,22 @@ async def leg_a(drv, model, out, verbose):
         raise Unmeasurable("NO SUBJECT: the move never carried the head into a ceiling, so "
                            "'no frame ends embedded' is true of this run for free. The "
                            "content under the drive coordinates has probably moved")
+    fails = []
+    if embedded:
+        fails.append(f"A: {len(embedded)} glide frame(s) in a probing class END with the head "
+                     f"in the ceiling (depths {[r['dist'] for r in embedded]}); the move put it "
+                     f"there on {len(contact)} frame(s) and the engine ejected "
+                     f"{len(ejected)} time(s)")
     return {"frames": len(ann), "subject": len(subject), "contact": len(contact),
             "ejected": len(ejected), "embedded": len(embedded),
-            "embedded_depths": [r["dist"] for r in embedded]}
+            "embedded_depths": [r["dist"] for r in embedded], "fails": fails}
 
 
 async def leg_b(drv, model, out, verbose):
     e = drv.e
-    out.append(f"LEG B — CHAR-6 release under the slab at y {UNDER_Y_B}, x >= {RELEASE_X} "
-               f"(INFORMATIONAL)")
-    await drv.boot_knuckles(out)
+    out.append(f"LEG B — CHAR-6, the head: release under the slab at y {UNDER_Y_B}, "
+               f"x >= {RELEASE_X} (ASSERTED)")
+    stand = await drv.boot_knuckles(out, BOOT_X, BOOT_Y)
     await drv.start_glide()
     await drv.glide_until_x(INJECT_X)
     await drv.set_y(UNDER_Y_B)
@@ -488,25 +598,130 @@ async def leg_b(drv, model, out, verbose):
                                                              e["PSTATE_GLIDEFALL"]))
     ann = annotate(rows, model, e)
     model_control(ann)
-    fall = [r for r in ann if r["state"] == e["PSTATE_GLIDEFALL"]]
-    if not fall:
-        raise Unmeasurable("leg B never reached PSTATE_GLIDEFALL — the release did not happen")
-    first = ann.index(fall[0])
-    tail = ann[first:first + 12]
-    for i, r in enumerate(tail):
+    rel = release_update(rows, model, stand, e, out)
+    first = rel["i"] - 1
+    for i, r in enumerate(ann[first:first + 12]):
         out.append(fmt(first + i + 1, r))
-    emb = [r for r in fall if r["dist"] < 0]
-    run = 0
-    for r in ann[first:]:
-        if r["state"] != e["PSTATE_GLIDEFALL"] or r["dist"] >= 0:
-            break
-        run += 1
-    ej = [r for r in fall if r["ejected"]]
-    out.append(f"  frames ENDING embedded from the release on: {run} consecutive "
-               f"({len(emb)} in all GLIDEFALL frames); release-frame depth "
-               f"{fall[0]['dist']:+d}; GLIDEFALL ejections {len(ej)}")
-    return {"release_run": run, "glidefall_embedded": len(emb),
-            "release_depth": fall[0]["dist"], "glidefall_ejections": len(ej)}
+    sw, sh = stand
+    aw, ah = rel["abil"]
+    L, x, yn, dr = rel["layer"], rel["x"], rel["yn"], rel["dr"]
+    # THE DERIVATION. The unlifted release leaves the head at the glide head's clearance
+    # minus Δr; the lifted one at minus 2Δr. The leg discriminates only if the first is
+    # clear and the second is not.
+    d_glide = model.head_dist(L, x, yn, aw, ah)
+    d_keep = model.head_dist(L, x, yn, sw, sh)
+    d_lift = model.head_dist(L, x, yn - dr, sw, sh)
+    out.append(f"  derived at the release column x={x}: glide head clearance {d_glide:+d}; "
+               f"standing head, centre kept (y {yn}) {d_keep:+d} = {d_glide:+d} - Δr; "
+               f"feet-planted lift (y {yn - dr}) {d_lift:+d} = {d_glide:+d} - 2Δr")
+    if d_keep != d_glide - dr or d_lift != d_glide - 2 * dr:
+        raise Unmeasurable(f"the release column is not under a flat underside for both sensor "
+                           f"pairs ({d_keep} vs {d_glide - dr}, {d_lift} vs {d_glide - 2 * dr}), "
+                           f"so the head's rise is not Δr there and the derivation does not apply")
+    if not (d_keep >= 0 > d_lift):
+        raise Unmeasurable(f"NO SUBJECT: the two designs do not disagree here (centre kept "
+                           f"{d_keep:+d}, lifted {d_lift:+d}); the leg cannot tell them apart")
+    fails = []
+    grade_release_mechanism(rel, fails, "B")
+    tail = ann[rel["i"] - 1:]
+    emb = [r for r in tail if r["state"] in (e["PSTATE_GLIDEFALL"],) and r["dist"] < 0]
+    ej = [r for r in tail if r["ejected"]]
+    out.append(f"  release update: dy = {(rel['y_end'] - rel['prev']['y']) / 65536:+.4f} px, "
+               f"the glide's own move {rel['cur']['yv'] * 256 / 65536:+.4f} px, excess "
+               f"{rel['lift'] / 65536:+.4f} px; box {rel['cur']['w']}x{rel['cur']['h']}; head "
+               f"dist {ann[rel['i'] - 1]['dist']:+d} (expected {d_keep:+d})")
+    out.append(f"  GLIDEFALL updates ENDING with the head embedded: {len(emb)} (expected 0); "
+               f"ceiling ejections {len(ej)}")
+    if emb:
+        fails.append(f"B: {len(emb)} update(s) from the release on END with the head in the "
+                     f"slab (depths {[r['dist'] for r in emb]}); a centre-preserving restore "
+                     f"leaves {d_keep:+d} here")
+    return {"release_excess_px": rel["lift"] / 65536, "release_head_dist": ann[rel["i"] - 1]["dist"],
+            "expected_head_dist": d_keep, "embedded": len(emb), "ejections": len(ej),
+            "fails": fails}
+
+
+async def leg_c(drv, model, out, verbose):
+    e = drv.e
+    out.append(f"LEG C — CHAR-6, the feet: release {FEET_GAP_C} px above the floor at "
+               f"x >= {RELEASE_X_C} (ASSERTED)")
+    stand = await drv.boot_knuckles(out, BOOT_C_X, BOOT_C_Y)
+    await drv.start_glide()
+    p = await drv.glide_until_x(RELEASE_X_C)
+    x, L, ah = p["x"] >> 16, p["layer"], p["h"]
+    seek = model.probe_down(L, x, FLOOR_SEEK_Y)
+    if not 0 <= seek < 32:
+        raise Unmeasurable(f"no floor within reach below ({x}, {FLOOR_SEEK_Y}) (dist {seek}) — "
+                           f"the content under leg C's coordinates has moved")
+    top = FLOOR_SEEK_Y + seek
+    dr = (stand[1] >> 1) - (ah >> 1)
+    if not 0 <= FEET_GAP_C < dr:
+        raise Unmeasurable(f"FEET_GAP_C {FEET_GAP_C} is not in 0..Δr-1 = 0..{dr - 1}, so the "
+                           f"standing feet would not reach the floor and the leg has no subject")
+    y_c = top - (ah >> 1) - FEET_GAP_C
+    out.append(f"  model: the floor's top row under x={x} is {top} (probed from y "
+               f"{FLOOR_SEEK_Y}, not typed in); releasing A at y={y_c}.0 puts the glide "
+               f"feet {FEET_GAP_C} px above it")
+    await drv.set_y(y_c)
+    await drv.hold_a(False)
+    rows = await drv.record(40, lambda r: r["state"] not in (e["PSTATE_GLIDE"],
+                                                             e["PSTATE_GLIDEFALL"]))
+    ann = annotate(rows, model, e)
+    model_control(ann)
+    rel = release_update(rows, model, stand, e, out)
+    first = rel["i"] - 1
+    for i, r in enumerate(ann[first:first + 6]):
+        out.append(fmt(first + i + 1, r))
+    sw, sh = stand
+    aw, ah = rel["abil"]
+    L, x, yn, dr = rel["layer"], rel["x"], rel["yn"], rel["dr"]
+    f_glide = model.feet_dist(L, x, yn, ah)
+    f_keep = model.feet_dist(L, x, yn, sh)
+    out.append(f"  derived at the release column x={x}: glide feet gap {f_glide:+d}; standing "
+               f"feet, centre kept (y {yn}) {f_keep:+d} = {f_glide:+d} - Δr")
+    if f_keep != f_glide - dr:
+        raise Unmeasurable(f"the release column is not over a flat floor ({f_keep} vs "
+                           f"{f_glide - dr}), so the feet's drop is not Δr there")
+    if f_keep >= 0:
+        raise Unmeasurable(f"NO SUBJECT: the standing feet end the release {f_keep:+d} from the "
+                           f"floor, so there is no embedded frame for the next update to correct")
+    fails = []
+    grade_release_mechanism(rel, fails, "C")
+    i = rel["i"]
+    if i + 1 >= len(rows):
+        raise Unmeasurable("the recording ended at the release update; the landing was not sampled")
+    after, land = rows[i], rows[i + 1]
+    moved = after["y"] + after["yv"] * 256                  # GLIDEFALL: move by the previous y_vel
+    f_pre = model.feet_dist(L, land["x"] >> 16, moved >> 16, sh)
+    f_land = model.feet_dist(L, land["x"] >> 16, land["y"] >> 16, sh)
+    corr = land["y"] - moved
+    out.append(f"  release update ends with the feet at {ann[i - 1]['feet']:+d} (expected "
+               f"{f_keep:+d}: the one frame S3K accepts)")
+    out.append(f"  next update: state ${after['state']:02X}->${land['state']:02X}, "
+               f"xv={land['xv']:+d} yv={land['yv']:+d}; its move put the feet at {f_pre:+d}, the "
+               f"engine corrected y by {corr / 65536:+.4f} px, feet now {f_land:+d}")
+    if land["state"] != e["PSTATE_GROUND"]:
+        fails.append(f"C: the update after the release did not land (state ${land['state']:02X}); "
+                     f"the feet stayed {ann[i]['feet']:+d} in the floor for a second update")
+    else:
+        if land["xv"] or land["yv"]:
+            fails.append(f"C: the landing is not GLIDEFALL's dead stop (xv {land['xv']:+d}, "
+                         f"yv {land['yv']:+d})")
+        if corr != f_pre << 16:
+            raise Unmeasurable(f"MODEL CONTROL (floor): the engine corrected y by "
+                               f"{corr / 65536:+.4f} px where the model's floor distance is "
+                               f"{f_pre:+d} — the floor model is not the engine's probe")
+        if f_land != 0:
+            fails.append(f"C: the landing left the feet at floor distance {f_land:+d}, not 0")
+    emb = [r for r in ann[i - 1:] if r["feet"] < 0]
+    out.append(f"  updates ENDING with the feet in the floor from the release on: {len(emb)} "
+               f"(expected 1, the release update)")
+    if len(emb) != 1:
+        fails.append(f"C: {len(emb)} update(s) end with the feet in the floor (expected exactly "
+                     f"the release update)")
+    return {"release_excess_px": rel["lift"] / 65536, "release_feet": ann[i - 1]["feet"],
+            "expected_feet": f_keep, "landing_state": land["state"], "landed_feet": f_land,
+            "feet_embedded_updates": len(emb), "fails": fails}
 
 
 async def main_async(sock, rom, syms, equs, out, verbose):
@@ -516,7 +731,7 @@ async def main_async(sock, rom, syms, equs, out, verbose):
         state_off, dbg_off = decode_playerv(Path(rom).read_bytes(), syms)
         out.append(f"  PlayerV.player_state +${state_off:02X}, debug_flag +${dbg_off:02X} "
                    f"(decoded from the ROM's Player_SetState / Player_DebugExit bytes)")
-        model = CeilingModel(equs["SOLID_LRB"])
+        model = TerrainModel(equs["SOLID_LRB"], equs["SOLID_TOP"])
         # dist = p - u for a sensor under a solid run, so u = p - dist: the model reports
         # the slab's last solid row rather than this file assuming it.
         rows = sorted({520 - model.probe_up(0, x, 520) for x in range(912, 1008)})
@@ -525,7 +740,8 @@ async def main_async(sock, rom, syms, equs, out, verbose):
         drv = Drive(client, syms, equs, state_off, dbg_off)
         a = await leg_a(drv, model, out, verbose)
         b = await leg_b(drv, model, out, verbose)
-        return a, b
+        c = await leg_c(drv, model, out, verbose)
+        return a, b, c
     finally:
         await client.close()
 
@@ -544,7 +760,7 @@ def main():
                 raise Blocked(f"{f} does not exist — build the DEBUG sonic4 shape first")
         syms, equs = parse_lst(args.lst)
         with aether_emulator(args.rom, symbols=args.lst) as sock:
-            a, b = asyncio.run(main_async(sock, args.rom, syms, equs, out, args.verbose))
+            a, b, c = asyncio.run(main_async(sock, args.rom, syms, equs, out, args.verbose))
     except Blocked as e:
         print("\n".join(out))
         print(f"\nBLOCKED: {e}")
@@ -555,17 +771,19 @@ def main():
         return 2
     print("\n".join(out))
     if args.json:
-        Path(args.json).write_text(json.dumps({"leg_a": a, "leg_b": b}, indent=2) + "\n")
-    print(f"\nLEG B (informational): {b['release_run']} frame(s) end embedded from the "
-          f"release on.")
-    if a["embedded"]:
-        print(f"RESULT: FAIL — {a['embedded']} glide frame(s) in a probing class END with the "
-              f"head in the ceiling (depths {a['embedded_depths']}); the move put it there "
-              f"on {a['contact']} frame(s) and the engine ejected {a['ejected']} time(s).")
+        Path(args.json).write_text(json.dumps({"leg_a": a, "leg_b": b, "leg_c": c},
+                                              indent=2) + "\n")
+    fails = a["fails"] + b["fails"] + c["fails"]
+    if fails:
+        print("\nRESULT: FAIL")
+        for f in fails:
+            print(f"  - {f}")
         return 1
-    print(f"RESULT: PASS — the move put the head in the ceiling on {a['contact']} frame(s); "
-          f"the engine ejected {a['ejected']} time(s); no probing-class glide frame ends "
-          f"embedded.")
+    print(f"\nRESULT: PASS — A: the move put the head in the ceiling on {a['contact']} frame(s), "
+          f"the engine ejected {a['ejected']} time(s), no probing-class glide frame ends "
+          f"embedded. B: the release kept the centre and the head ended at "
+          f"{b['release_head_dist']:+d}; 0 updates end embedded. C: the release left the feet "
+          f"at {c['release_feet']:+d} and the next update landed them at 0.")
     return 0
 
 
