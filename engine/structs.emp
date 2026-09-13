@@ -10,7 +10,7 @@
 // for longer than the number a machine reads could have been. So the sizes are not
 // restated here at all: `sizeof()` is the answer, and the four that a consumer's code
 // depends on are already pinned where that dependence lives —
-//   sizeof(Sec) == 34      engine/level/section.emp, engine/level/tile_cache.emp
+//   sizeof(Sec) == 26      engine/level/section.emp, engine/level/tile_cache.emp
 //   sizeof(DMAEntry) == 14 engine/system/buffers.emp, engine/system/dma_queue.emp
 // each with a message naming what re-derives if it moves. Those pins are the mechanism;
 // a size in this banner was only ever a claim.
@@ -160,7 +160,12 @@ pub struct PageFrame {
 }
 
 // -----------------------------------------------
-// Section Definition (§4) — 34 bytes ($22), ROM table
+// Section Definition (§4) — 26 bytes ($1A), ROM table — STORAGE ONLY (painted-regions v1)
+//
+// 34 -> 26 ON 2026-09-13 (painted-regions v1, step 4): sec_parallax_config and sec_effects, the
+// section's IDENTITY binding, moved to the Region record above — a rectangle is the scope an
+// EffectsPreset is bound at now, not a grid cell. 8 B x 9 sections = 72 ROM bytes. What is left
+// is storage: blocks, objects, rings, the BG-layout override, the type table and the dict.
 //
 // 66 -> 34 ON 2026-09-04 (painted-regions audit row 3). Nine fields and the three
 // reserved pads were deleted: sec_plc, sec_pal, sec_raster_table, sec_pal_cycle,
@@ -175,12 +180,12 @@ pub struct PageFrame {
 // still fed live values (sec_pal / sec_raster_table / sec_pal_cycle) were fed by
 // constructor arguments that had themselves been inert since Task 13 deleted their
 // readers (Palette_LoadSection, Palette_InstallCycleSection, Raster_InstallSection);
-// every channel they used to name now arrives through sec_effects -> EffectsPreset.
+// every channel they used to name arrives through the preset (Region.rg_effects since v1).
 // 32 B x 9 sections = 288 ROM bytes.
 //
-// THE TRAILING `// $HH` COMMENTS ARE A GATE, NOT DECORATION — tools/
-// parallax_crossing_gate.py's struct_offsets() accumulates offsets from the field
-// TYPES and raises a setup error on any that disagrees. Renumber when you edit.
+// THE TRAILING `// $HH` COMMENTS ARE KEPT EXACT. Until painted-regions v1 tools/
+// parallax_crossing_gate.py parsed them against the field TYPES; since then no tool reads
+// Sec at all (Region's comments are the gated ones). Renumber when you edit anyway.
 //
 // Surviving fields whose value may be 0: 0 = "defer / none", never "keep current".
 // The pre-Task-13 "0 = keep whatever the previous section had" semantic is gone with
@@ -190,26 +195,10 @@ pub struct Sec {
     sec_block_index:     *u8,           // $00 — 256-entry block index table
     sec_objects:         *u8,           // $04 — objentry list (dc.w -1 terminated)
     sec_rings:           *u8,           // $08 — X-sorted ring entries
-    sec_parallax_config: *u8 = 0,       // $0C — per-section parallax config; outranks the preset's
-                                        //       ep_parallax; 0 = defer (Effects_ResolveParallax)
-    sec_bg_layout:       *u8 = 0,       // $10 — NULL = use Act_act_bg_layout
-    sec_type_table:      *u8,           // $14 — dc.b count,pad; dc.l ObjDef×N
-    sec_block_dict:      *u8,           // $18 — raw dict region (LZ pre-seed)
-    // REQUIRED, and the requirement IS the guard (painted-regions audit row 7).
-    // Effects_InstallPreset dereferences this pointer without testing it, and the
-    // test that does exist at the crossing site (engine/level/parallax.emp) is inside
-    // `if DEBUG == 1` — so the shape that catches a null is the one we develop in and
-    // the shape that ships would read the 68000 vector table as an EffectsPreset. The
-    // audit's own §2 enumeration, re-derived here at 2026-09-04, found that null
-    // UNREACHABLE today; the risk it named was the NEXT author omitting an optional
-    // argument. Dropping the `= 0` default makes the omission a compile error in every
-    // shape at zero ROM bytes, which is strictly stronger than a release-side runtime
-    // test of a condition that cannot arise. What it does NOT catch: an author who
-    // writes an explicit zero, or a generator that emits Sec rows as raw bytes (there
-    // is no such generator today — the only [Sec; N] table in the tree is built by
-    // ojz_sec(), whose own `effects:` argument lost its default in the same change).
-    sec_effects:         *u8,           // $1C — EffectsPreset* (total binding; see above)
-    sec_block_dict_len:  u16,           // $20 — dict bytes (768×K, K≤3)
+    sec_bg_layout:       *u8 = 0,       // $0C — NULL = use Act_act_bg_layout
+    sec_type_table:      *u8,           // $10 — dc.b count,pad; dc.l ObjDef×N
+    sec_block_dict:      *u8,           // $14 — raw dict region (LZ pre-seed)
+    sec_block_dict_len:  u16,           // $18 — dict bytes (768×K, K≤3)
 }
 
 // -----------------------------------------------
@@ -234,7 +223,7 @@ pub struct DMAEntry {
 
 // -----------------------------------------------
 // Parallax config (§4.6) — 30-byte header + N × band_entry inline, ROM data.
-// Pointed-to by Sec.sec_parallax_config; one config per section (or shared).
+// Pointed-to by Region.rg_parallax, EffectsPreset.ep_parallax and Act.act_parallax_config; shared freely.
 // Shared consumers: engine.parallax (the whole pipeline) + engine.buffers
 // (Enqueue_Dirty_Buffers keys the HScroll DMA length off the deform-table
 // fields). band_entry stays parallax-private (single consumer).

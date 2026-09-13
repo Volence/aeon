@@ -2768,7 +2768,7 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 // meet the correction rather than inherit a new one silently.
 //   * They no longer share a record. Section 7 binds `OJZ_Preset_Sec7` (act_descriptor.emp
 //     :352, since 2026-09-05); only section 8 still binds `OJZ_Preset_Plain` (:358).
-//   * Section 7 DOES carry `Sec.sec_parallax_config`. `section_7.meta.json` landed at
+//   * Section 7 DOES carry a rung-1 binding (Region.rg_parallax now). `section_7.meta.json` landed at
 //     c1d0a6be (2026-09-05), so the generated chooser has `if sec == 7` and
 //     `ojz_act1_sec_scene(sec: 7)` yields `EditorSceneBinding_OJZ_Act1_Sec7`
 //     (effects_scenes.emp:346, :168). Both 7 and 8 now resolve at rung 1.
@@ -2781,10 +2781,10 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 // different presets, and sections 0 and 5 both name `ParallaxConfig_OJZ_Underwater` at rung
 // 2 while resolving to DIFFERENT configs — section 0 to its editor scene at rung 1, section
 // 5 to Underwater itself. Reading `ep_parallax` would call those two identical. The
-// question still has to be asked of the SECTION.
+// question still has to be asked of the REGION.
 //
 // It is asked through `Effects_ResolveParallax` — the engine's ONE three-way resolution
-// (Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config), the same proc
+// (Region.rg_parallax > ep_parallax > Act.act_parallax_config), the same proc
 // `Effects_InstallPreset` tail-calls to decide what actually gets installed. Reusing it
 // rather than re-implementing the ladder is what stops the glyph and the install drifting
 // apart; that pair already drifted once (2026-08-26, two sites reading different rungs),

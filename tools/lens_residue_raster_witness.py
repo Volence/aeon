@@ -1083,16 +1083,19 @@ def _top_split(s: str) -> list:
 
 
 def section_preset(build: Build, sec: int) -> tuple:
-    """(GRID_W, the EffectsPreset section `sec` binds), from OJZ act 1's act descriptor."""
+    """(GRID_W, the EffectsPreset the region row keyed on sidecar `sec` names), from OJZ act
+    1's act descriptor. Since painted-regions v1 a REGION row binds the preset and names its
+    sidecar as `parallax: ojz_act1_sec_scene(sec: N)`; act 1's rows transcribe its sections
+    1:1, so that sidecar is the section this witness is about. The row is found by that call,
+    never by position, and refused unless exactly one single-line row carries it."""
     text = _strip_comments(build.source(OJZ_ACT1).decode("utf-8", "replace"))
     gw = re.search(r"^\s*const\s+GRID_W\s*=\s*(\d+)", text, re.M)
-    i = text.find(f"ojz_sec(sec: {sec},")
-    if not gw or i < 0:
-        raise CouldNotRun(f"{OJZ_ACT1}: no GRID_W, or no `ojz_sec(sec: {sec}, ..)` row")
-    j = text.find("ojz_sec(sec:", i + 1)
-    m = re.search(r"\beffects:\s*(\w+)", text[i:j if j > 0 else len(text)])
-    if not m:
-        raise CouldNotRun(f"{OJZ_ACT1}: section {sec}'s row binds no `effects:`")
+    rows = [ln for ln in re.findall(r"ojz_region\([^\n]*\)", text)
+            if re.search(rf"\(sec:\s*{sec}\)", ln) and "effects:" in ln]
+    if not gw or len(rows) != 1:
+        raise CouldNotRun(f"{OJZ_ACT1}: no GRID_W, or {len(rows)} `ojz_region(.., "
+                          f"parallax: ..(sec: {sec}))` row(s) where exactly one was wanted")
+    m = re.search(r"\beffects:\s*(\w+)", rows[0])
     return int(gw.group(1)), m.group(1)
 
 

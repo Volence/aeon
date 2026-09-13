@@ -28,12 +28,12 @@ use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 // (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
 // Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
-// TileCache_DecompressBlock multiplies the flat section id by sizeof(Sec) = 34;
-// the `ensure` keeps 34 the real stride. (66 -> 34 on 2026-09-04, painted-regions
-// audit row 3. This is the SECOND copy of section.emp's stride pin — the two are
-// deliberately independent so either module can be compiled standalone; see that
-// one for why the number is copied into the gate tools as well.)
-ensure(sizeof(Sec) == 34, "tile_cache's stride pin: sizeof(Sec) moved off 34. The walk spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the out-of-assembler readers of the Sec table carry their own copy of the layout (see engine/level/section.emp's twin of this pin), so a struct change is a gate-contract change, not just a stride change")
+// TileCache_DecompressBlock multiplies the flat section id by sizeof(Sec) = 26;
+// the `ensure` keeps 26 the real stride. (34 -> 26 on 2026-09-13, painted-regions v1;
+// 66 -> 34 on 2026-09-04. This is the SECOND copy of section.emp's stride pin — the two
+// are deliberately independent so either module can be compiled standalone; see that
+// one for why it survives now that no gate tool copies the layout.)
+ensure(sizeof(Sec) == 26, "tile_cache's stride pin: sizeof(Sec) moved off 26. The walk spells #sizeof(Sec) so the STRIDE follows automatically; see engine/level/section.emp's twin of this pin for why it is still here — it is the tripwire that makes a Sec change re-ask whether an out-of-assembler reader of the layout has appeared")
 
 // ---- LS-8 family pins: the hand-spelled geometry literals in THIS module ----
 // A `#$F` / `#$FFF0` / `lsl #5` / `lsl #4` / `lsr #8` typed into an instruction is a

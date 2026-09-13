@@ -28,8 +28,8 @@ THE SUBJECT, spelled as the source reads today (2026-08-26):
   `Effects_ResolveParallax` (engine/effects/preset.emp) — THE three-way resolution, and the
   whole of what this gate asserts, restated here rung for rung:
 
-      1. Sec.sec_parallax_config      non-zero wins outright
-      2. EffectsPreset.ep_parallax    read through Sec.sec_effects, if a preset is bound
+      1. Region.rg_parallax           non-zero wins outright (Sec.sec_parallax_config until v1)
+      2. EffectsPreset.ep_parallax    read through Region.rg_effects
       3. Act.act_parallax_config      the act default
 
   A 0 at rung 1 or 2 means DEFER, never "keep": nothing a previous section chose survives
@@ -46,11 +46,11 @@ THE SUBJECT, spelled as the source reads today (2026-08-26):
 WHAT THE BOOKING ASKED FOR. docs/DEFERRED_WORK.md, "PARALLAX CONFIG PRECEDENCE" left open
 item (a): "runtime confirmation that Parallax_Current_Config equals the editor record after
 a crossing once the aurora binding lands". That binding has landed — OJZ act 1 section (0,0)
-carries `sec_parallax_config = EditorSceneBinding_OJZ_Act1_Sec0` — and it is what makes this
+binds `EditorSceneBinding_OJZ_Act1_Sec0` at rung 1 — and it is what makes this
 measurable at all, because section (0,0) is the ONE section in the act where all three rungs
 hold different pointers:
 
-      rung 1  Sec.sec_parallax_config   EditorSceneBinding_OJZ_Act1_Sec0   <- must win
+      rung 1  Region.rg_parallax        EditorSceneBinding_OJZ_Act1_Sec0   <- must win
       rung 2  ep_parallax of OJZ_Preset_Sec0   ParallaxConfig_OJZ_Underwater
       rung 3  Act.act_parallax_config   ParallaxConfig_OJZ_Default
 
@@ -70,7 +70,7 @@ to shorten the walk (it is `boot_override_gate`'s subject, proven there); every 
 is edge-triggered by `Camera_Update` moving the camera, which is the shipped mechanism.
 
   crossing A   (0,0) -> (1,0)   expect Act.act_parallax_config      [rung 3, SMOOTH: staged]
-  crossing B   (1,0) -> (0,0)   expect Sec.sec_parallax_config      [rung 1, INSTANT: snapped]
+  crossing B   (1,0) -> (0,0)   expect Region.rg_parallax           [rung 1, INSTANT: snapped]
 
 B is the one that carries the booking. A exists because a gate that only ever entered the
 authored section could be satisfied by a resolver that returned that one pointer always.
@@ -93,7 +93,7 @@ OBSERVABLES, all three DERIVED from the ROM's own section grid and struct declar
 
 STRUCT OFFSETS ARE PARSED, NOT TYPED. `struct_offsets()` accumulates field sizes out of the
 `.emp` declaration AND cross-checks every `// $HH` offset comment on the way, so a field
-inserted into `Sec` or `Act` fails this gate at setup rather than silently sliding every read
+inserted into `Act` (or `Region`, through tools/region_table.py) fails this gate at setup rather than silently sliding every read
 by four bytes. `EffectsPreset`'s explicit `@ $XX` displacements are read the same way.
 
 THE CROSSING DETECTOR, REPOINTED (2026-09-13, painted-regions v1). The engine's crossing is
@@ -102,10 +102,11 @@ and Parallax_Prev_Sec_X/Y are gone. Only the DETECTOR moved: the walk polls `Reg
 (the Region* the crossing caches) until it becomes the ROM table's region on the far side of
 the edge, and the bookkeeping checks compare `Region_Current` against the region the camera
 centre is in, restated by tools/region_table.py. The VERDICT — Parallax_Current/Target_Config,
-Transition_Frames, reg $0B, the band tail, and the three rungs, still read off the SECTION
-grid — is untouched. On a region table that transcribes the grid 1:1 that makes this gate an
-independent cross-check of the transcription: the engine resolves through the region, the
-expectation through the section, and they must agree. WEAKER THAN "UNCHANGED", and said so:
+Transition_Frames, reg $0B, the band tail — is untouched. From step 3 to step 4 the three
+rungs were still read off the SECTION grid, which made the gate an independent cross-check of
+the 1:1 transcription (engine through the region, expectation through the section; it agreed).
+Step 4 deleted the section fields, so the rungs are now read off the region at the crossing's
+point, the way Region_Resolve finds it — the verdict code is unchanged, its inputs moved. WEAKER THAN "UNCHANGED", and said so:
 the proof is "same walk, same verdict, detector repointed". The detector is proven live by
 inversion: pointed at a cell that never changes on this walk, WALK_MAX_FRAMES runs out, exit 2.
 
@@ -318,14 +319,14 @@ async def run_to_sym(b, sym, name: str, max_frames: int) -> None:
 # ---- the ROM's own section grid ---------------------------------------------
 
 class RomAct:
-    """The act's section grid read out of the ROM image, and `Effects_ResolveParallax`
-    restated against it. One object so every ROM walk here shares a base."""
+    """The act descriptor and its REGION table (read by tools/region_table.py) out of the ROM
+    image, and `Effects_ResolveParallax` restated against them. One object so every ROM walk
+    here shares a base."""
 
     def __init__(self, rom_img: bytes, act_base: int, off: dict):
         self.rom, self.act_base, self.o = rom_img, act_base, off
         self.grid_w = self.u16(act_base + off["act"]["grid_w"])
         self.grid_h = self.u16(act_base + off["act"]["grid_h"])
-        self.grid = self.u32(act_base + off["act"]["sec_grid_ptr"])
         self.act_default = self.u32(act_base + off["act"]["act_parallax_config"])
 
     def _at(self, o: int, n: int) -> bytes:
@@ -342,38 +343,34 @@ class RomAct:
     def u8(self, o: int) -> int:
         return self._at(o, 1)[0]
 
-    def sec_ptr(self, gx: int, gy: int) -> int | None:
-        """`Section_GetSecPtrXY`: flat = sec_y * grid_w + sec_x, stride sizeof(Sec). None is
-        that routine's "Z set = no such section", which every caller answers with the act
-        default."""
-        if not (0 <= gx < self.grid_w and 0 <= gy < self.grid_h):
-            return None
-        return self.grid + (gy * self.grid_w + gx) * self.o["sec_size"]
-
-    def rungs(self, gx: int, gy: int) -> dict:
-        """All three rungs' values for a section, whether or not they win. The gate needs the
-        losers by name: a failure message that says only "wanted X, got Y" leaves the reader
-        to work out that Y is the rung that used to win."""
-        sec = self.sec_ptr(gx, gy)
-        if sec is None:
-            return {"sec": 0, "preset": 0, "act": self.act_default, "sec_ptr": None}
-        preset = self.u32(sec + self.o["sec"]["sec_effects"])
+    def rungs(self, x: int, y: int) -> dict:
+        """All three rungs' values for the REGION containing world point (x, y) — found the way
+        Region_Resolve finds it — whether or not they win. The gate needs the losers by name: a
+        failure message that says only "wanted X, got Y" leaves the reader to work out that Y
+        is the rung that used to win. (The rung-1 key stays "sec" so the verdict code reads as
+        it always has; its value is Region.rg_parallax since painted-regions v1.)"""
+        r = region_table.region_at(self.regions, x, y)
+        if r is None:
+            return {"sec": 0, "preset": 0, "act": self.act_default, "region": None}
+        preset = r["effects"]
         return {
-            "sec": self.u32(sec + self.o["sec"]["sec_parallax_config"]),
+            "sec": r["parallax"],
             "preset": self.u32(preset + self.o["ep"]["ep_parallax"]) if preset else 0,
             "act": self.act_default,
-            "sec_ptr": sec,
+            "region": r,
         }
 
-    def resolve_parallax(self, gx: int, gy: int) -> tuple[int, str]:
-        """`Effects_ResolveParallax` (engine/effects/preset.emp) restated: rung 1
-        Sec.sec_parallax_config, rung 2 EffectsPreset.ep_parallax through Sec.sec_effects,
-        rung 3 Act.act_parallax_config; a 0 at rung 1 or 2 defers, never keeps."""
-        r = self.rungs(gx, gy)
-        if r["sec_ptr"] is None:
-            return r["act"], "act default (no section at that grid coord)"
+    def resolve_parallax(self, x: int, y: int) -> tuple[int, str]:
+        """`Effects_ResolveParallax` (engine/effects/preset.emp) restated for the region at
+        (x, y): rung 1 Region.rg_parallax, rung 2 EffectsPreset.ep_parallax through
+        Region.rg_effects, rung 3 Act.act_parallax_config; a 0 at rung 1 or 2 defers, never
+        keeps. No containing region is the crossing's keep-current twin, which the act's own
+        tiling ensure makes unreachable — reported by name, never assumed."""
+        r = self.rungs(x, y)
+        if r["region"] is None:
+            return r["act"], "act default (no region contains that point)"
         if r["sec"]:
-            return r["sec"], "Sec.sec_parallax_config"
+            return r["sec"], "Region.rg_parallax"
         if r["preset"]:
             return r["preset"], "EffectsPreset.ep_parallax"
         return r["act"], "Act.act_parallax_config"
@@ -536,7 +533,7 @@ def _fail(msgs: list[str], cond: bool, text: str) -> None:
 def rung_story(got: int, rungs: dict, inv: dict) -> str:
     """Name the rung the observed pointer belongs to, so a red says WHICH precedence the
     engine appears to be using rather than only that it is wrong."""
-    for key, label in (("sec", "rung 1 Sec.sec_parallax_config"),
+    for key, label in (("sec", "rung 1 Region.rg_parallax"),
                        ("preset", "rung 2 EffectsPreset.ep_parallax"),
                        ("act", "rung 3 Act.act_parallax_config")):
         if got and got == rungs[key]:
@@ -544,12 +541,12 @@ def rung_story(got: int, rungs: dict, inv: dict) -> str:
     return "that pointer is none of this section's three rungs"
 
 
-def check_crossing(fails: list, who: str, sec: tuple, cross: dict, final: dict,
+def check_crossing(fails: list, who: str, sec: tuple, pt: tuple, cross: dict, final: dict,
                    ra: RomAct, inv: dict, k: dict) -> None:
     """Every assertion about one crossing. `cross` is the sample from the frame the crossing
     happened in; `final` is after the transition window closed."""
-    want, rung = ra.resolve_parallax(*sec)
-    rungs = ra.rungs(*sec)
+    want, rung = ra.resolve_parallax(*pt)     # the region on section `sec`'s side of the edge
+    rungs = ra.rungs(*pt)
     trans = ra.transition(want)
     got, how = installed(cross)
 
@@ -559,7 +556,7 @@ def check_crossing(fails: list, who: str, sec: tuple, cross: dict, final: dict,
           f"{who}: crossing into section {sec} installed {sym_name(got, inv)} ({how}), but "
           f"Effects_ResolveParallax resolves that section to {sym_name(want, inv)} [{rung}]. "
           f"{rung_story(got, rungs, inv)}. This section's three rungs are: "
-          f"1 Sec.sec_parallax_config {sym_name(rungs['sec'], inv)}; "
+          f"1 Region.rg_parallax {sym_name(rungs['sec'], inv)}; "
           f"2 EffectsPreset.ep_parallax {sym_name(rungs['preset'], inv)}; "
           f"3 Act.act_parallax_config {sym_name(rungs['act'], inv)}")
 
@@ -649,7 +646,6 @@ async def main_async(args) -> int:
     # mid-lerp and calling it a regression.
     k["SETTLE"] = k["TRANS"] + 2
 
-    sec_off, sec_size = struct_offsets("engine/structs.emp", "Sec")
     act_off, _ = struct_offsets("engine/structs.emp", "Act")
     ep_off, _ = struct_offsets("engine/effects/preset.emp", "EffectsPreset")
     pcfg_off, pcfg_size = struct_offsets("engine/structs.emp", "parallax_config")
@@ -657,8 +653,7 @@ async def main_async(args) -> int:
         raise SetupError(f"sizeof(parallax_config) parsed as {pcfg_size}, which is ODD — "
                          "parallax.emp requires it EVEN (copy_band_entry's move.l would "
                          "address-error), so this parse disagrees with the engine")
-    off = {"sec": sec_off, "act": act_off, "ep": ep_off, "pcfg": pcfg_off,
-           "sec_size": sec_size}
+    off = {"act": act_off, "ep": ep_off, "pcfg": pcfg_off}
 
     sym = parse_lst(args.lst)
     inv: dict[int, list[str]] = {}
@@ -698,17 +693,23 @@ async def main_async(args) -> int:
         raise SetupError(f"this act's grid is {ra.grid_w}x{ra.grid_h}, so there is no section "
                          f"{away} to cross into — the route has gone stale")
 
+    # THE TWO POINTS THE WALK CROSSES BETWEEN, one pixel either side of the edge at the boot's
+    # centre Y (the boot centres the camera on the boot point). The rungs are read off the
+    # REGION the ROM's own table places at each (painted-regions v1).
+    home_pt, away_pt = (size - 1, boot_y), (size, boot_y)
+
     # THE PREMISE, and it is a setup error rather than a pass when it fails. Section (0,0) is
     # the only section that binds its own config, and the whole content of the booking is
     # that rung 1 must beat rungs 2 and 3 there. If any two of its three rungs ever hold the
     # SAME pointer, a resolver with the old (preset-first) precedence would be
     # indistinguishable from the correct one and every assertion below would be vacuous.
-    hr = ra.rungs(*home)
-    home_cfg, home_rung = ra.resolve_parallax(*home)
-    away_cfg, away_rung = ra.resolve_parallax(*away)
+    hr = ra.rungs(*home_pt)
+    home_cfg, home_rung = ra.resolve_parallax(*home_pt)
+    away_cfg, away_rung = ra.resolve_parallax(*away_pt)
     if not hr["sec"]:
         raise SetupError(
-            f"section {home} no longer binds Sec.sec_parallax_config, so a crossing into it "
+            f"the region at {home_pt} (section {home}'s side of the edge) no longer binds "
+            "Region.rg_parallax, so a crossing into it "
             "cannot witness rung 1 at all. That binding (the aurora editor scene) is the "
             "entire reason DEFERRED_WORK item (a) became measurable; if content dropped it, "
             "say so in DEFERRED_WORK rather than letting this gate go green on rung 3.")
@@ -788,7 +789,7 @@ async def main_async(args) -> int:
           "config and neither crossing below would mean anything")
 
     # A. OUTBOUND — into a section that binds NOTHING, so the resolver must fall to rung 3.
-    check_crossing(fails, f"crossing A {home}->{away}", away, cross_a, final_a, ra, inv, k)
+    check_crossing(fails, f"crossing A {home}->{away}", away, away_pt, cross_a, final_a, ra, inv, k)
     # A NEGATIVE CONTROL THAT IS NOT FREE: crossing A must actually have CHANGED the config.
     # Without this, a resolver frozen on the away config would satisfy A on its own.
     _fail(fails, final_a["current"] != start["current"],
@@ -799,7 +800,7 @@ async def main_async(args) -> int:
 
     # B. INBOUND — the crossing DEFERRED_WORK item (a) names. Into the section aurora bound,
     #    where rung 1 must beat both the preset's ep_parallax and the act default.
-    check_crossing(fails, f"crossing B {away}->{home}", home, cross_b, final_b, ra, inv, k)
+    check_crossing(fails, f"crossing B {away}->{home}", home, home_pt, cross_b, final_b, ra, inv, k)
     _fail(fails, final_b["current"] != final_a["current"],
           f"crossing B: Parallax_Current_Config is still {sym_name(final_a['current'], inv)} "
           f"from crossing A — section {home} resolves to {sym_name(home_cfg, inv)} "
@@ -808,7 +809,7 @@ async def main_async(args) -> int:
     _fail(fails, final_b["current"] == hr["sec"],
           f"crossing B: after re-entering section {home}, Parallax_Current_Config is "
           f"{sym_name(final_b['current'], inv)} and NOT the per-section editor record "
-          f"{sym_name(hr['sec'], inv)} that section binds through Sec.sec_parallax_config. "
+          f"{sym_name(hr['sec'], inv)} that region binds through Region.rg_parallax. "
           f"The preset's ep_parallax is {sym_name(hr['preset'], inv)} and the act default is "
           f"{sym_name(hr['act'], inv)}; landing on either means the crossing is resolving "
           "with the wrong precedence, which is exactly the 2026-08-26 defect")
@@ -824,7 +825,7 @@ async def main_async(args) -> int:
                   "settle_frames": k["SETTLE"], "detector": DETECTOR,
                   "regions": {"home": hex(home_region["addr"]), "away": hex(away_region["addr"])}},
         "rungs_at_home": {
-            "1_sec_parallax_config": sym_name(hr["sec"], inv),
+            "1_rg_parallax": sym_name(hr["sec"], inv),
             "2_ep_parallax": sym_name(hr["preset"], inv),
             "3_act_parallax_config": sym_name(hr["act"], inv),
             "resolves_to": sym_name(home_cfg, inv), "rung": home_rung,
@@ -856,7 +857,7 @@ async def main_async(args) -> int:
     else:
         print(f"parallax_crossing_gate: OJZ act 1, {size}px sections, boot "
               f"({boot_x},{boot_y}) in {home}")
-        print(f"  section {home} rungs — 1 Sec.sec_parallax_config "
+        print(f"  section {home}'s region rungs — 1 Region.rg_parallax "
               f"{sym_name(hr['sec'], inv)}")
         print(f"                         2 EffectsPreset.ep_parallax "
               f"{sym_name(hr['preset'], inv)}")

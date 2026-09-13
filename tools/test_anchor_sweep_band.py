@@ -295,14 +295,16 @@ def preset_patched_programs():
 
 
 def section_presets():
-    """{section index: the preset name its `effects:` argument names}, from act_descriptor.emp.
+    """{sidecar index: the preset name the region row keyed on it names}, from act_descriptor.emp.
 
-    The generated arm's sweeps are keyed on a SECTION, and a section names a band only through
-    the preset it binds. This is the one edge that crosses out of the effects library, and it
-    is read rather than assumed for the same reason everything else here is."""
+    The generated arm's sweeps are keyed on a SECTION sidecar (`sec: N` at the chooser site),
+    and since painted-regions v1 the preset a sidecar's place installs is named by the REGION
+    row whose `parallax:` binding carries that same `sec: N`. This is the one edge that crosses
+    out of the effects library, and it is read rather than assumed for the same reason
+    everything else here is."""
     src = _blank(_read(DESCRIPTOR))
     out = {}
-    for m in re.finditer(r"\bojz_sec\s*\(", src):
+    for m in re.finditer(r"\bojz_region\s*\(", src):
         body, _ = _balanced(src, m.end() - 1)
         sm = re.search(r"\bsec:\s*(\d+)", body)
         em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
@@ -364,8 +366,8 @@ def bands_for_sweep(s, progs=None, presets=None, sections=None):
                     "resolved for it" % s.site), False
     name = sections.get(sec)
     if name is None:
-        return {}, ("no `ojz_sec(sec: %d, .., effects: ..)` row in %s, so the section binds no "
-                    "preset this reader can see"
+        return {}, ("no `ojz_region(.., effects: .., parallax: ..(sec: %d))` row in %s, so that "
+                    "sidecar binds no preset this reader can see"
                     % (sec, os.path.relpath(DESCRIPTOR, AEON))), False
     bands, why, has_prog = bands_for_preset(name, progs, presets)
     return bands, "section %d -> %s" % (sec, why), has_prog
@@ -781,25 +783,26 @@ def instrument_blindness():
 
     # ---- PROBE 1: RESOLUTION ----
     # CALL SITES ONLY, and the exclusion is spelled rather than pattern-matched away: the
-    # descriptor also carries the `comptime fn ojz_sec(sec: int, ..)` DECLARATION, whose
-    # argument list has no literal `sec:` for section_presets() to read — so counting it made
-    # a healthy reader look blind by exactly one row. (Measured on the unmutated tree,
-    # 2026-09-09: 10 occurrences, 9 resolved, and the reader was right.) The count stays over
-    # the bare SPELLING and not over `ojz_sec(sec: <digits>`, because a probe that matched the
-    # reader's own pattern could never disagree with it.
+    # descriptor also carries the `comptime fn ojz_region(..)` DECLARATION, whose argument
+    # list has no literal `sec:` for section_presets() to read — so counting it would make a
+    # healthy reader look blind by exactly one row (the same trap the `ojz_sec(` spelling this
+    # probe counted until painted-regions v1 had: 10 occurrences, 9 resolved, reader right).
+    # The count stays over the bare SPELLING and not over the reader's own pattern, because a
+    # probe that matched the reader's pattern could never disagree with it. _blank() empties
+    # string literals, so ojz_region()'s own ensure messages cannot count as rows.
     desc = _blank(_read(DESCRIPTOR))
-    rows = len([m for m in re.finditer(r"\bojz_sec\s*\(", desc)
+    rows = len([m for m in re.finditer(r"\bojz_region\s*\(", desc)
                 if not re.search(r"\bfn\s+$", desc[:m.start()])])
     sections = section_presets()
     if rows == 0:
         out.append(
-            "%s contains no `ojz_sec(` row at all. section_presets() reads that spelling, so "
+            "%s contains no `ojz_region(` row at all. section_presets() reads that spelling, so "
             "either the descriptor moved or the call was renamed — every band this file "
             "resolves for a generated sweep goes through this map."
             % os.path.relpath(DESCRIPTOR, AEON))
     elif len(sections) != rows:
         out.append(
-            "section_presets() resolved %d of the %d `ojz_sec(` rows in %s (%r). A row whose "
+            "section_presets() resolved %d of the %d `ojz_region(` rows in %s (%r). A row whose "
             "`sec:`/`effects:` arguments this reader cannot see is a section whose band it "
             "silently cannot resolve — teach the reader the spelling, do not widen the "
             "pattern."

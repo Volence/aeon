@@ -140,13 +140,13 @@ ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
 ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
        "grid_h axis extent breaks the signed-word camera clamp")
 // Section_GetSecPtrXY (engine/level/section.emp) indexes the Sec grid with
-// `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=34; adda.w SIGN-EXTENDS the word, so
-// an act above $7FFF / 34 = 963 flat sections wraps the pointer. MAX_ACT_SECTIONS
+// `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=26; adda.w SIGN-EXTENDS the word, so
+// an act above $7FFF / 26 = 1260 flat sections wraps the pointer. MAX_ACT_SECTIONS
 // is the flat-section ceiling. The stride derives from the struct, so the
 // ceiling moves with Sec instead of staying pinned to whatever it is today, and
 // the message reports both operands rather than a baked-in limit. Note the
 // consumers still spell the stride as a literal under section.emp's
-// `ensure(sizeof(Sec) == 34)`, so a Sec change trips THAT first — this guard is
+// `ensure(sizeof(Sec) == 26)`, so a Sec change trips THAT first — this guard is
 // the ceiling's own net, not the stride's.
 ensure(MAX_ACT_SECTIONS * sizeof(Sec) <= $7FFF,
        "MAX_ACT_SECTIONS ({MAX_ACT_SECTIONS}) x sizeof(Sec) ({sizeof(Sec)}) exceeds $7FFF: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
@@ -187,7 +187,8 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 }
 
 // -----------------------------------------------
-// Section definition table — 9 entries × sizeof(Sec)
+// Section definition table — 9 entries × sizeof(Sec). STORAGE ONLY since painted-regions v1:
+// which preset each place installs is the region table's business (end of this file).
 // Grid layout (3×3):  Row 0 = Sec0,Sec1,Sec2 (unique art)
 //                     Row 1 = Sec3,Sec4,Sec5 (clone Sec0 art, distinct sky tint)
 //                     Row 2 = Sec6,Sec7,Sec8 (clone Sec0 art, distinct sky tint)
@@ -204,7 +205,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // section now sets sec_effects" — and then deleted the READERS without deleting the
 // writers, so three constructor arguments went on feeding three fields nothing read.
 // Every channel they used to name (base palette, raster program, palette-cycle script)
-// now arrives through `effects:` -> EffectsPreset -> Effects_InstallPreset, which writes
+// now arrives through a region row's `effects:` -> EffectsPreset -> Effects_InstallPreset, which writes
 // all of them itself. See engine/structs.emp's Sec header for the field-by-field
 // re-verification and the 288-byte figure.
 //
@@ -212,35 +213,27 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // (CharacterDef.cd_palette) and the level must never write it — the preset's
 // ep_pal carries that contract now (engine/effects/palette.emp, Palette_LoadPal).
 //
-// `effects` (Parcel C2 Task 12) is the total-binding EffectsPreset* for this section
-// (sec_effects, $1C). IT IS REQUIRED, not defaulted — painted-regions audit row 7.
-// Effects_InstallPreset dereferences it untested and the crossing site's only null test
-// is inside `if DEBUG == 1`, so an omitted `effects:` would compile clean, ship, and
-// send the release build into the 68000 vector table. Nothing about that is caught at
-// run time in the shape that ships; dropping the default catches it at build time in
-// every shape, for zero ROM bytes. The Sec field lost its own `= 0` default in the
-// same change, so this holds for any future constructor too.
-//
-// `parallax` (P5 slice 5) is the per-section half of the editor binding seam:
-// section_N.meta.json's `sceneRef` decides, 0 = "use the act default" exactly as
-// `default` did before. Every call site passes it — the ruling's single live path —
-// and a section with a HAND binding would pass its own record as `hand:` there.
-comptime fn ojz_sec(sec: int, blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, effects: Label) -> Sec {
+// THE `effects:` AND `sec:` ARGUMENTS ARE GONE (2026-09-13, painted-regions v1, step 4),
+// with the two Sec fields they fed. A section's IDENTITY — the EffectsPreset it installs and
+// the editor scene that outranks the preset's own parallax — is bound by the REGION table at
+// the end of this file (OJZ_ACT1_REGION_ROWS): each row names its preset (`effects:`, still
+// REQUIRED, and ensured non-zero as well, so a written 0 fails the build too) and its
+// sidecar's scene binding (`parallax: ojz_act1_sec_scene(sec: N)`). `sec:` fed nothing else,
+// so it went too: a section row is storage only, and its index in this table is its flat id.
+comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int) -> Sec {
     return Sec{
         sec_block_index:      blocks,
         sec_objects:          objects,
         sec_rings:            rings,
-        sec_parallax_config:  ojz_act1_sec_scene(sec: sec),  // editor binding; 0 = act default
         sec_bg_layout:        default,      // NULL = zone-wide T1 BG
         sec_type_table:       type_table,
         sec_block_dict:       dict,
-        sec_effects:          effects,      // effects P3 Task 12: total-binding preset
         sec_block_dict_len:   dict_len,
     }
 }
 
 pub data OJZ_Act1_Sections: [Sec; 9] = [
-    ojz_sec(sec: 0, blocks: OJZ_Sec0_Blocks,
+    ojz_sec(blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
             // Effects P3 gate: the first VSRAM raster program in this engine.
@@ -253,10 +246,9 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // spawn with no navigation. (The ramp reaches the ROM through this
             // section's preset now — OJZ_Preset_Sec0's ep_raster — not through a
             // `raster:` argument here; Task 13's deletion finally happened.)
-            effects: OJZ_Preset_Sec0,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
-    ojz_sec(sec: 1, blocks: OJZ_Sec1_Blocks,
+    ojz_sec(blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
             // SECTION 1 CARRIES NO RASTER PROGRAM since 2026-09-12. It used to carry the
@@ -267,10 +259,9 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // in the banner above `OJZ_Preset_Sec1` (games/sonic4/data/effects/
             // ojz_effects.emp). `OJZ_Preset_Sec1` still exists and is still section 1's
             // alone, so re-binding is one word in one place.
-            effects: OJZ_Preset_Sec1,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
-    ojz_sec(sec: 2, blocks: OJZ_Sec2_Blocks,
+    ojz_sec(blocks: OJZ_Sec2_Blocks,
             objects: OJZ_Sec2_Objects, rings: OJZ_Sec2_Rings,
             type_table: OJZ_Sec2_TypeTable,
             // Effects P1 gate: section 2 proves the per-section base palette on its own
@@ -291,28 +282,25 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // tools/raster_off_gate.py has always reached the equally unbound
             // `OJZ_TestVsram`). If a dense effect is ever wanted on the map again, binding
             // it is one word in `OJZ_Preset_Sec2`.
-            effects: OJZ_Preset_Sec2,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
-    ojz_sec(sec: 3, blocks: OJZ_Sec3_Blocks,
+    ojz_sec(blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
             // Effects P2 Task 8 gate: section 3 carries a palette-cycling band
             // (line 2 entries 8-11, 8-frame period). Read CRAM per frame to see it.
-            effects: OJZ_Preset_Sec3,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
-    ojz_sec(sec: 4, blocks: OJZ_Sec4_Blocks,
+    ojz_sec(blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
             // THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26): Plain plus the
             // vertical-split program lowered from this section's own Aurora scene. The
             // parallax half — the curved BG factors — arrives separately through
             // ojz_act1_sec_scene(sec: 4) below, from the same editor JSON.
-            effects: OJZ_Preset_Depth,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
-    ojz_sec(sec: 5, blocks: OJZ_Sec5_Blocks,
+    ojz_sec(blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
             // SECTION 5 OWNS ITS PRESET (EFFECTS-W1 item 1 step 5). It exists so this
@@ -335,10 +323,9 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             //                                                        (Plain: ANCHOR_MOTION_NONE)
             // Section 5 is where the act's row-remap waterline actually renders. That is an
             // owner-facing content fact, not a tidy: see ojz_effects.emp at OJZ_Preset_Sec5.
-            effects: OJZ_Preset_Sec5,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
-    ojz_sec(sec: 6, blocks: OJZ_Sec6_Blocks,
+    ojz_sec(blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
             // EFFECTS-W1 item 11a's authorable half (2026-09-03): the mid-frame
@@ -364,10 +351,9 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // it a second band on the OTHER register — the two halves of the owner's
             // sentence are two DIFFERENT VDP registers, which is why "move the band down"
             // was not what was needed.)
-            effects: OJZ_Preset_Sec6,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
-    ojz_sec(sec: 7, blocks: OJZ_Sec7_Blocks,
+    ojz_sec(blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
             // THE ACT'S SECOND SECTION WITH LIVE PATCH CHANNELS (EFFECTS-W1 item 9c
@@ -409,13 +395,11 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // this same parcel. Two more copies were corrected with it: ojz_effects.emp's
             // OJZ_Preset_Sec7 banner, and games/sonic4/test/ojz_scroll_test.emp's parallax
             // readout rationale.
-            effects: OJZ_Preset_Sec7,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
-    ojz_sec(sec: 8, blocks: OJZ_Sec8_Blocks,
+    ojz_sec(blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
-            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]

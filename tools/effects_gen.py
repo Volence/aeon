@@ -376,8 +376,8 @@ def _check_reels(path: str, scene: dict, bands: int) -> None:
 # engine holds to the ACTIVE parallax_config. `Effects_ResolveParallax`
 # (engine/effects/preset.emp) resolves that pointer through three rungs:
 #
-#   1. Sec.sec_parallax_config   the PER-SECTION binding — the editor's `sceneRef`,
-#                                lowered by THIS generator, one `pub data` per section
+#   1. Region.rg_parallax        the PER-REGION binding — the editor's `sceneRef`, lowered by
+#                                THIS generator, one `pub data` per section sidecar
 #   2. EffectsPreset.ep_parallax the PRESET binding, SHARED by every section whose
 #                                `preset()` names it
 #   3. Act.act_parallax_config   the act default, shared by everything that falls through
@@ -571,10 +571,10 @@ def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
 
 
 def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
-    """{section index: the EffectsPreset symbol its `Sec` record binds}.
+    """{sidecar index: the EffectsPreset symbol the act descriptor binds to it}.
 
-    Read from the act descriptor, which is the only place the section->preset edge is
-    written down. Returns {} when the descriptor is absent — the caller then refuses
+    Read from the act descriptor, which is the only place that edge is written down — a region
+    row's `effects:` beside its sidecar's `sec:` (painted-regions v1; a `Sec` row until then). Returns {} when the descriptor is absent — the caller then refuses
     WITHOUT a section number rather than inventing one, and says so in the message.
     """
     path = names.descriptor_path(repo)
