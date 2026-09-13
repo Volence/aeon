@@ -25,7 +25,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 // vram_art — the packed art_tile word (tile | palette | priority) the DEBUG
 // scene readout stamps into its two glyph objects (Debug_SceneReadout_Show).
 use engine.objects.objdef.{vram_bytes, vram_art}
-use engine.structs.{Act, Sec}
+use engine.structs.{Act, Sec, Region}
 // Act_grid_w_lo / Act_grid_h_lo — the blessed low-byte views of the word grid dims
 // (they live WITH the layout, engine.structs). Debug_PresetCycleHotkey reads the
 // LIVE act's section count out of them rather than mirroring a constant, which is
@@ -2891,12 +2891,12 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 //
 // In:  none (reads Debug_Preset_Index, Current_Act_Ptr, Effects_World_Y,
 //      Effects_Screen_L, the named preset's channels, and — through
-//      Effects_ResolveParallax — the named SECTION's resolved parallax config)
+//      Effects_ResolveParallax — the named REGION's resolved parallax config)
 // Out: the two glyph objects exist and the two VRAM cells are queued to show the
-//      section digit and the verdict
+//      region digit and the verdict
 // Clobbers: d0-d4, a0-a3 — d0-d4/a1-a2 is QueueDMA_Critical's declared set, d2/a1
 //      also RefreshSpritePieceCount's, a3 holds the EffectsPreset* across the verdict,
-//      and a0 is the SST cursor, then the anchor cursor OR the Sec* handed to
+//      and a0 is the SST cursor, then the anchor cursor OR the Region* handed to
 //      Effects_ResolveParallax (the two verdict arms are exclusive), then the font
 //      base. a1 additionally parks the act-default config across that call, which is
 //      safe because the callee declares a0 alone.
@@ -2959,9 +2959,11 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         jbsr    .ensure_glyph
 
         // -- (2) resolve the preset the cursor names --
-        // The SECTION comes out of the lab list's own row, not out of a cursor of this
+        // The REGION comes out of the lab list's own row, not out of a cursor of this
         // readout's own: `Debug_Lab_Index` names a row of `.lab_index`, and on a PRESET
-        // row that row's sub-index IS the flat section id. Re-derived here rather than
+        // row that row's sub-index IS the region index into `Act.act_regions` (painted-
+        // regions v1: the identity scope is the region, not the section; act 1's table is
+        // a 1:1 transcription of its grid, so the digit reads as before). Re-derived here rather than
         // passed in a register so this proc's contract stays "reads the cursor" — a
         // readout that had to be handed its subject could not be called from a tail, and
         // this one is.
@@ -2969,7 +2971,7 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // IT IS ONLY EVER CALLED ON A PRESET ROW (Debug_LabCycleHotkey's `.preset` arm);
         // every other row calls Debug_PresetReadout_Blank below instead. The assert on
         // the sub-index is what makes that a checked precondition rather than a comment:
-        // a scene row's sub-index can reach 20, which is past this act's section count
+        // a scene row's sub-index can reach 20, which is past this act's region count
         // and past the single digit this readout can draw.
         moveq   #0, d0                          // index-register hygiene (§2.5b)
         move.b  Debug_Lab_Index, d0             // (Debug_Lab_Index).w
@@ -2977,13 +2979,13 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         lea     Debug_LabCycleHotkey.lab_index(pc), a1
         adda.w  d0, a1                          // a1 = the row
         moveq   #0, d0
-        move.b  1(a1), d0                       // d0 = the row's sub-index = the section
+        move.b  1(a1), d0                       // d0 = the row's sub-index = the region
         movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
-        movea.l Act.sec_grid_ptr(a2), a0
+        movea.l Act.act_regions(a2), a0
         move.w  d0, d4                          // d4 = the digit, kept across the verdict
-        mul_const.w d0, #sizeof(Sec), d1        // d0 = section x the Sec stride (d1 scratch)
-        adda.w  d0, a0
-        movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset*
+        mul_const.w d0, #sizeof(Region), d1     // d0 = region x the Region stride (d1 scratch)
+        adda.w  d0, a0                          // a0 = Region*
+        movea.l Region.rg_effects(a0), a3       // a3 = EffectsPreset*
 
         // -- (3) the verdict. See the header for what each state means. --
         moveq   #PRESET_VERDICT_NONE, d3
@@ -3041,11 +3043,11 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         bne     .verdict_live
 
         // -- THE PARALLAX CHANNEL, asked last and only here. See the header for why the
-        //    question is put to the SECTION rather than to the preset record (sections 7
-        //    and 8 share one EffectsPreset and differ only in Sec.sec_parallax_config),
-        //    and for exactly what the arrow does and does not promise.
+        //    question is put to the REGION rather than to the preset record (a preset's
+        //    ep_parallax is rung 2 and is silent about the rung-1 Region.rg_parallax that
+        //    outranks it), and for exactly what the arrow does and does not promise.
         //
-        //    a0 is STILL the Sec* resolved in step (2) — the patched arm is what
+        //    a0 is STILL the Region* resolved in step (2) — the patched arm is what
         //    repurposes it, and this arm never runs after that one. a2 is still
         //    Current_Act_Ptr. Effects_ResolveParallax declares a0 alone, so the baseline
         //    parked in a1 survives the call; a1 is inside this proc's declared set.
@@ -3054,7 +3056,7 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         //    act-default rung reloads Current_Act_Ptr into a0 — reading it afterwards
         //    would be reading it out of a register the callee has already overwritten.
         movea.l Act.act_parallax_config(a2), a1 // the act's own background: the baseline
-        jbsr    Effects_ResolveParallax         // a0 = Sec* in, parallax_config* out
+        jbsr    Effects_ResolveParallax         // a0 = Region* in, parallax_config* out
         cmpa.l  a1, a0
         beq     .verdict_done                   // the act default: nothing bound at all
         moveq   #PRESET_VERDICT_PARALLAX, d3

@@ -10,8 +10,8 @@
 //
 // This module is a TYPE-ONLY twin, same precedent as engine.objects.sst / Sst and
 // engine.objects.entity_window / EntityScanState: it emits ZERO bytes (no section,
-// no placement). EffectsPreset is read at runtime by a later task (through
-// Sec.sec_effects, engine/structs.emp:124), so — matching pal_variant
+// no placement). EffectsPreset is read at runtime (through Region.rg_effects,
+// engine/structs.emp `Region` — the act's identity rectangles), so — matching pal_variant
 // (engine/effects/palette.emp:126) and RasterGradientProgram (engine/effects/
 // raster.emp:279) — the wire-format struct and its comptime constructor both live
 // HERE in the CODE module, not in a *_dsl helper. Consumers import explicitly:
@@ -21,7 +21,7 @@
 module engine.effects.preset in preset
 
 use engine.effects.palette.{PAL_MAX_VARIANTS}
-use engine.structs.{Sec, Act}
+use engine.structs.{Region, Act}
 
 // Field order deliberately avoids an odd run of u8 before a pointer — sigil does
 // NOT auto-align, and even alignment is all the 68000 needs.
@@ -57,7 +57,7 @@ use engine.structs.{Sec, Act}
 pub struct EffectsPreset (size: 46) {
     ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
     ep_parallax:       *u8      @ $04,   // 0 = defer to the act default (the one legal 0); a
-                                         // non-zero Sec.sec_parallax_config outranks it either
+                                         // non-zero Region.rg_parallax outranks it either
                                          // way — see Effects_ResolveParallax
     ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
     ep_patched:        *u8      @ $0C,   // patched template (water / world-anchored gradient); 0 = none
@@ -179,29 +179,33 @@ const EP_VARIANT_0 = offsetof(EffectsPreset, ep_variants)
 const EP_VARIANT_1 = EP_VARIANT_0 + 4
 
 // -----------------------------------------------
-// Effects_ResolveParallax — THE parallax-config resolution for a section.
+// Effects_ResolveParallax — THE parallax-config resolution for a region.
 //
-// A section's parallax config can be bound in three places, and this is the one
+// A region's parallax config can be bound in three places, and this is the one
 // proc that orders them. Both consumers — the boot select (games/sonic4/test/
 // ojz_scroll_test.emp, before Parallax_Init) and the crossing site (via
 // Effects_InstallPreset's tail, from Parallax_CheckBoundary) — call it, so the
 // first painted frame and every later crossing agree by construction:
 //
-//   1. Sec.sec_parallax_config   the PER-SECTION binding (the editor's sceneRef,
-//                                lowered by tools/effects_gen.py)
-//   2. EffectsPreset.ep_parallax the PRESET binding, shared by every section that
-//                                names that preset (read through Sec.sec_effects;
-//                                a section with no preset skips this rung)
+//   1. Region.rg_parallax        the PER-REGION binding (today the editor's
+//                                per-section sceneRef, lowered by tools/effects_gen.py
+//                                and named by the region row that transcribes it)
+//   2. EffectsPreset.ep_parallax the PRESET binding, shared by every region that
+//                                names that preset (read through Region.rg_effects)
 //   3. Act.act_parallax_config   the act default
 //
+// THREE RUNGS BEFORE REGIONS AND THREE AFTER: the region scope REPLACES the section
+// scope rather than sitting beside it (painted-regions v1), because two sources for
+// one rule is exactly the defect recorded below.
+//
 // A 0 in (1) or (2) means "defer to the next rung", never "keep" — the config is
-// re-resolved from scratch on every call, so nothing a previous section chose
-// survives into a section that did not bind it.
+// re-resolved from scratch on every call, so nothing a previous region chose
+// survives into a region that did not bind it.
 //
 // Found 2026-08-26 by aurora's first authored scene: the two sites each read a
 // different pair of the three and the preset won on the first crossing.
 //
-//   a0 = Sec*   (non-NULL — a caller with no section resolves the act default itself)
+//   a0 = Region*   (non-NULL — a caller with no region resolves the act default itself)
 //   Out: a0 = parallax_config*, never 0 while the act binds a default
 //
 // ---- `out(a0)` AND NOT `clobbers(a0)`, CORRECTED 2026-09-04 ----
@@ -226,12 +230,12 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 // under the old spelling either, because both hand a0 straight on.
 // -----------------------------------------------
 pub proc Effects_ResolveParallax (a0: u32) out(a0) {
-        tst.l   Sec.sec_parallax_config(a0)     // (1) the per-section binding
-        beq     .no_sec_binding
-        movea.l Sec.sec_parallax_config(a0), a0
+        tst.l   Region.rg_parallax(a0)          // (1) the per-region binding
+        beq     .no_region_binding
+        movea.l Region.rg_parallax(a0), a0
         rts
-    .no_sec_binding:
-        movea.l Sec.sec_effects(a0), a0         // (2) the preset's binding, if a preset is bound
+    .no_region_binding:
+        movea.l Region.rg_effects(a0), a0       // (2) the preset's binding, if a preset is bound
         cmpa.w  #0, a0
         beq     .act_default
         movea.l EffectsPreset.ep_parallax(a0), a0
@@ -253,11 +257,12 @@ pub proc Effects_ResolveParallax (a0: u32) out(a0) {
 // (or any other effect) installed by one section from surviving forever past the
 // section that turned it on.
 //
-//   a0 = Sec*   (sec_effects is known non-zero — the caller already checked)
+//   a0 = Region*   (rg_effects is non-zero by construction — Region.rg_effects has no
+//                   default, so an omitted binding does not compile)
 //
 // Returns (a0) = the resolved parallax config pointer, through
 // Effects_ResolveParallax (above) — the ONE three-way resolution, precedence
-// Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config. Until
+// Region.rg_parallax > ep_parallax > Act.act_parallax_config. Until
 // 2026-08-26 this tail resolved ep_parallax-else-act on its own and never read the
 // per-section field, while the boot site resolved sec-else-act and never read the
 // preset: the first authored editor scene lost to its section's preset on the first
@@ -268,7 +273,7 @@ pub proc Effects_ResolveParallax (a0: u32) out(a0) {
 // Register hazard: Palette_LoadPal's own clobber list includes a2 (d1/a1-a2), so
 // the preset pointer is held in a3 instead — the only address register none of
 // the six callees below (Palette_ArmFade/LoadPal/LoadCycle/SetVariant,
-// Raster_Install/InstallPatchedWorldY) clobber. The Sec* itself has NO free
+// Raster_Install/InstallPatchedWorldY) clobber. The Region* itself has NO free
 // register left, so it is spilled to the stack at entry and popped for the resolve
 // at the tail — widening this proc to a4 would propagate `transitive a4` up
 // Parallax_CheckBoundary's declared contract (the d5 lesson, buffers.emp).
@@ -298,8 +303,8 @@ pub proc Effects_ResolveParallax (a0: u32) out(a0) {
 // the live Pal_Variant_Ptr entry and the call is skipped when unchanged.
 // -----------------------------------------------
 pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
-        move.l  a0, -(sp)                       // Sec* — popped for the parallax resolve at the tail
-        movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset* — survives every callee below
+        move.l  a0, -(sp)                       // Region* — popped for the parallax resolve at the tail
+        movea.l Region.rg_effects(a0), a3       // a3 = EffectsPreset* — survives every callee below
 
         // ---- ep_patch_world_ys -> Effects_World_Y[], UNCONDITIONALLY (Parcel W0) ----
         // This is the channel total binding forgot. The seed used to live inside
@@ -436,8 +441,8 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         jbsr    Raster_Install
     .raster_done:
 
-        // ---- resolve the return value: section > preset > act, the shared way ----
-        movea.l (sp)+, a0                       // Sec* back
+        // ---- resolve the return value: region > preset > act, the shared way ----
+        movea.l (sp)+, a0                       // Region* back
         jbra    Effects_ResolveParallax
 }
 
