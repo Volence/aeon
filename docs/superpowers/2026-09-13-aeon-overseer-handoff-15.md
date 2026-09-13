@@ -134,3 +134,36 @@ The witness's leg B is its target. After the release, only the release frame its
 because `PHook_EnsureStanding`'s lift runs after `Glide_Collide`; the first GLIDEFALL update then ejects it. The
 witness has no runner (booked), so run it by hand:
 `python3 tools/glide_ceiling_witness.py --rom <tree>/s4.debug.bin --lst <tree>/s4.debug.lst`.
+
+
+## Addendum, 2026-09-13 ~18:40Z: A (REGIONS parcel 1) LANDED — nothing is in flight, and this session is clearable
+
+Merge `a094ddbc`, land commit `aab6ca59`, on `origin/master` (verified with `ls-remote` and `merge-base`), on top of CHAR-4.
+- **Merged tree:** `landing_build.sh` `finished=0`, 2613 passed / 0 failed x4, needs_build 14/0/0. ROMs: s4 `78d31f53`,
+  s4.debug `0e5c05ee`, demo `e3e7190e`, demo.debug `6bd0ecd3`. `EndOfRom` equals the branch: s4 `$BDA02`, s4.debug
+  `$C123A`, demo `$1121A`.
+- **Checks on the merged ROM:**
+  - effects-gate ritual 16/16 PASS, exit 0 (T1 and T2 among them);
+  - `preset_lab_witness` exit 0;
+  - `glide_ceiling_witness` PASS.
+  - The T3 witnesses fail on base and final alike. That is pre-existing and booked in DEFERRED_WORK.
+- **Sigil:** 6 new suite failures (4 name/layout walls, and 2 RAM repins, `controllers_port` and `hblank_port`
+  debug). Their list is at `docs/superpowers/notes/2026-09-13-regions-p1-sigil-suite-classified.txt`. Sigil is
+  told. Under the owner's 09-02 ruling these are sigil's after-the-fact repin work, not an aeon gate.
+- **Tidied:** the worktrees `.aeon-regions-p1` and `.sigil-regions-p1` are removed and branch `parcel/regions-p1`
+  is deleted, with the tip published. The agent's gitignored `.runlogs` went with them; its commit messages and
+  the committed list are the record.
+
+**Next, in order, replacing the list above:**
+1. **CHAR-6 (the lift), `next` in the queue.** Design inputs are in item 1 above. Its target is the glide
+   witness's leg B, where the release frame still ends embedded at -7.
+2. **REGIONS-P2, `open`: step 5, one authored rectangle edge that is off the section grid**
+   (design §4 step 5). It is the first step that changes a pixel, and T5 needs the controller's screen.
+   - It can run in parallel with CHAR-6: they touch different files (player code against level data).
+   - The agent's open questions ride with it: whether the sentinel matters on an act reload or on a DEBUG warp
+     inside the already-cached region; that the lab's PRESET rows still use section words, which is right only
+     while region N = section N; T6/Q3 (booting into a region whose preset differs in `ep_pal`); and T7 (the
+     crossing cost with sub-section edges).
+3. **To check, not booked:** the demo now carries the regions engine code (it lowers the shared engine modules;
+   module granularity means unused code in an imported module ships). This morning's per-game capability work is
+   the precedent for gating it. Measure the demo's code and RAM cost before proposing anything.
