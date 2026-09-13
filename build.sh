@@ -1228,9 +1228,10 @@ if [[ "$FAST" == "0" ]]; then
     # RUN FOR BOTH GAMES, DELIBERATELY OUTSIDE THE sonic4 ARM BELOW. demo declares no
     # CAP_ROW_REMAP, and the gate's undeclared path is not a skip — it asserts that demo's
     # image carries NEITHER a ladder symbol NOR a non-NULL remap tail, in both directions.
-    # That is the shape this capability actually threatens demo in: BAND_REMAP_N is
-    # ENGINE-WIDE, so demo's band record widened for it, and a gate that only looked at
-    # sonic4 would be blind to a pointer leaking into the game that can never use one.
+    # That is the shape this capability threatens demo in. Until 2026-09-13 BAND_REMAP_N was
+    # ENGINE-WIDE and demo's band record carried the remap tail; it is now per game (the
+    # GAME_SCANLINE_CAPS define), so demo's record has no remap field at all, and the gate's
+    # undeclared arm still asserts no ladder symbol and no remap state reach demo's image.
     # EXIT 2 HERE MEANS: EXIT_UNMEASURABLE -- a symbol, the curve geometry, or the
     # generator module it agrees against is gone. This file DEFINES the {0,1,2} constants
     # the golden/swap-gate family imports, so it is the family's reference spelling.

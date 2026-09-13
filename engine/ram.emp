@@ -44,10 +44,17 @@ const BAND_ENTRY_LEN        = 10    // sizeof(band_entry); pinned in parallax.em
 //   * BAND_ENTRY_LEN mirrors the LEGACY `band_entry`, which sigil harvests ambiently and
 //     which never gains a field (see parallax.emp's band_record banner for why it cannot).
 //     The `extern("band_entry_len")` pin below holds it there FOR EVER.
-//   * BAND_EXT_BYTES mirrors `sizeof(band_ext) * BAND_EXT_N` — the capability-selected
-//     tail. ram.emp is lowered by a focused, CONTRACT-BLIND build and cannot read the
-//     capability, so this is the one edit a capability flip needs on this side, and
-//     parallax.emp's reservation guard names it.
+//   * BAND_EXT_BYTES is `sizeof(band_ext) * BAND_EXT_N` — the capability-selected tail.
+//
+// ALL FOUR TAIL SIZES ARE DERIVED PER GAME FROM THE BUILD DEFINE GAME_SCANLINE_CAPS (each
+// game's games/<game>/map.toml [defines] row), and are no longer hand-set mirrors (2026-09-13).
+// ram.emp is lowered by a focused, CONTRACT-BLIND build that binds no `Game.*`, but it does see
+// the shape's define env, game rows included (measured: docs/superpowers/notes/
+// 2026-09-13-per-game-band-defines.md). The masks are LITERALS because ram.emp cannot import
+// scene_dsl's CAP_* in that build; each literal is the same one engine/level/parallax.emp's
+// BAND_*_N derivation reads, parallax.emp pins those literals against CAP_*, and its
+// reservation guards pin every array below to `sizeof(band_record)` and the four counts. So
+// a wrong mask here fails there. The define itself is pinned to Game.SCANLINE_CAPS there too.
 //
 // THIS SPLIT REPLACES A CONTRADICTION P3 TASK 9 WALKED INTO. Task 8's reservation guard
 // said "widen BAND_ENTRY_LEN by sizeof(band_ext)", and doing exactly that fails the mirror
@@ -55,15 +62,14 @@ const BAND_ENTRY_LEN        = 10    // sizeof(band_entry); pinned in parallax.em
 // Following the advice made the build red in a second place, which is the worst kind of
 // guidance: correct-sounding, and a dead end. Measured 2026-08-20 raising the capability
 // for Task 9's instrument build.
-const BAND_EXT_BYTES        = 0     // sizeof(band_ext) * BAND_EXT_N; pinned in parallax.emp
+const BAND_EXT_BYTES        = if (GAME_SCANLINE_CAPS & $0020) != 0 { 10 } else { 0 }   // CAP_MULTI_DEFORM_TABLE -> sizeof(band_ext)
 // BAND_CURVE_BYTES — the per-band CURVE tail (P3 Task 10), a THIRD constant for the same
 // reason BAND_EXT_BYTES is a second one: it mirrors a DIFFERENT capability bit
 // (CAP_FACTOR_CURVE, not CAP_MULTI_DEFORM_TABLE), and a game may declare either, both or
 // neither. A shadow band occupies BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES, and
 // parallax.emp's reservation guard names whichever one is short.
-// MOVED TO 10 BY THE d-15 SHOWCASE PARCEL (2026-08-26), in the same commit as
-// parallax.emp's BAND_CURVE_N = 1, because the OJZ showcase now authors a curve.
-const BAND_CURVE_BYTES      = 10    // sizeof(band_curve) * BAND_CURVE_N; pinned in parallax.emp
+// sonic4 has carried the curve tail since the d-15 showcase parcel (2026-08-26); demo does not.
+const BAND_CURVE_BYTES      = if (GAME_SCANLINE_CAPS & $0040) != 0 { 10 } else { 0 }   // CAP_FACTOR_CURVE -> sizeof(band_curve)
 // CURVE_CARRY_WORDS — the two words a curve fill parks between an anchored split and the
 // layer it split, DERIVED from the tail mirror above rather than being a fourth constant a
 // capability flip would have to remember. A curve tail (10 B) means a carry (2 words); no
@@ -75,9 +81,8 @@ const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
 // a game may declare any subset of the three. A shadow band occupies
 // BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES, and parallax.emp's
 // reservation guard names whichever one is short.
-// MOVED TO 4 BY THE DRIFT ADOPTION PARCEL (EFFECTS-W1 item 3, 2026-09-02), in the same commit
-// as parallax.emp's BAND_DRIFT_N = 1, because Scene_OJZ_Default now authors a rate.
-const BAND_DRIFT_BYTES      = 4     // sizeof(band_drift) * BAND_DRIFT_N; pinned in parallax.emp
+// sonic4 has carried the drift tail since EFFECTS-W1 item 3 (2026-09-02); demo does not.
+const BAND_DRIFT_BYTES      = if (GAME_SCANLINE_CAPS & $0080) != 0 { 4 } else { 0 }    // CAP_BAND_DRIFT -> sizeof(band_drift)
 // DRIFT_ACC_LONGS — the per-band 16.16 accumulators (Parallax_Drift_Acc), DERIVED from the
 // tail mirror above rather than being a fifth constant a capability flip would have to
 // remember. This copies CURVE_CARRY_WORDS' shape deliberately: A CAPABILITY FLIP MUST EDIT ONE
@@ -90,9 +95,8 @@ const DRIFT_ACC_LONGS       = BAND_DRIFT_BYTES / 4
 // capability bit (CAP_ROW_REMAP), and a game may declare any subset of the four. A shadow
 // band occupies BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES +
 // BAND_REMAP_BYTES, and parallax.emp's reservation guard names whichever one is short.
-// MOVED TO 8 BY THE ADOPTION HALF OF PARCEL 9a (EFFECTS-W1 item 9, 2026-09-03), in the same
-// commit as parallax.emp's BAND_REMAP_N = 1, because Scene_OJZ_Underwater now authors a ladder.
-const BAND_REMAP_BYTES      = 8     // sizeof(band_remap) * BAND_REMAP_N; pinned in parallax.emp
+// sonic4 has carried the remap tail since parcel 9a's adoption half (2026-09-03); demo does not.
+const BAND_REMAP_BYTES      = if (GAME_SCANLINE_CAPS & $0800) != 0 { 8 } else { 0 }    // CAP_ROW_REMAP -> sizeof(band_remap)
 // REMAP_STATE_LONGS — the row remap's per-FRAME mark (Parallax_Remap_State), DERIVED from
 // the tail mirror above rather than being a sixth constant a capability flip would have to
 // remember. This copies CURVE_CARRY_WORDS' and DRIFT_ACC_LONGS' shape deliberately: A
@@ -117,11 +121,13 @@ const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
 // moves BOTH, and the pin is what makes forgetting one a build error rather than a buffer
 // overrun into the block below.
 //
-// IT IS NOT GATED ON BAND_REMAP_BYTES, deliberately. The gate on the CODE is the game's
-// CAP_ROW_REMAP bit, exactly as for the pass in parallax.emp; the gate on the RAM would have
-// to be a second authority for the same fact, and `BAND_REMAP_N` is engine-wide anyway (demo
-// already pays 8 bytes per band for a capability it does not declare — the precedent, not an
-// accident). 256 bytes is what demo pays here.
+// IT IS NOT GATED ON BAND_REMAP_BYTES. The gate on the CODE is the game's CAP_ROW_REMAP
+// bit, exactly as for the pass in parallax.emp. This used to argue that gating the RAM would
+// be pointless because `BAND_REMAP_N` was engine-wide and demo paid the remap tail anyway;
+// since 2026-09-13 the tail is per game (GAME_SCANLINE_CAPS) and demo does NOT pay it, so
+// that argument is gone and gating this buffer on the same define is now possible. It is not
+// done here: it is a separate byte-moving decision (booked in docs/DEFERRED_WORK.md with the
+// band-defines parcel). 256 bytes is what demo still pays here.
 const WATERLINE_ART_BYTES   = 256   // 16 * H; pinned against parallax_dsl in bg_anim.emp
 // PARALLAX_CFG_HDR_LEN — sizeof(parallax_config), a SEVENTH mirror for the six above's
 // reason: it sizes an array here (the live-effects scratch at the RAM tail) and is declared
@@ -139,9 +145,10 @@ const PARALLAX_CFG_HDR_LEN  = 30    // sizeof(parallax_config); pinned below
 // such config is a full-band one —
 //
 //     sizeof(parallax_config)                       = PARALLAX_CFG_HDR_LEN          =  30
-//   + sizeof(band_record) * MAX_PARALLAX_BANDS      = (10+0+10+4+8) * 16 = 32 * 16  = 512
+//   + sizeof(band_record) * MAX_PARALLAX_BANDS      sonic4 (10+0+10+4+8) * 16       = 512
+//                                                   demo   (10+0+0+0+0)  * 16       = 160
 //                                                                                   -----
-//                                                                                     542
+//                                                                     sonic4 542, demo 190
 //
 // Both halves are pinned rather than trusted. The header half by the `parallax_config_len`
 // harvest ensure below; the per-band half by the mirror sum being LITERALLY the expression
@@ -1667,11 +1674,12 @@ pub vars upper_ram {
     // `Parallax_StartTransition`, which is public and in both shapes — so a resident scratch
     // would be 542 bytes of work RAM no shipped path reaches.
     //
-    // NOT gated on the game, and demo.debug therefore reserves 544 bytes for a hook it can
+    // NOT gated on the game, and demo.debug therefore reserves 192 bytes for a hook it can
     // never fire (games/demo has no caller for Parallax_Update, so the arm is never polled).
-    // Same disposition, and the same reason, as BAND_REMAP_BYTES above: this is engine RAM
-    // with no per-game arms, and a capability bit for "this game calls Parallax_Update" would
-    // be a second authority for what the call graph already says.
+    // It was 544 until 2026-09-13; the per-game band record (GAME_SCANLINE_CAPS) shrank the
+    // per-band half to demo's 10-byte record, and the header, the arm byte and the pad remain.
+    // A capability bit for "this game calls Parallax_Update" would be a second authority for
+    // what the call graph already says.
     // Parallax_Scratch_Arm is the REQUEST cell, and it exists because the editor drives a
     // BUS, not a call stack: an Aether client can write a byte and run a frame, and cannot
     // force a `jsr`. So the hook is armed by a poke and serviced at the head of

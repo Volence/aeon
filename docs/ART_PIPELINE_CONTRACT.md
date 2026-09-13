@@ -64,7 +64,7 @@ The boot register table writes VDP registers `$00`–`$17`. The values that cons
 |---|---|---|
 | `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:320`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:908`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
 | `$0A` | `$FF` | HInt counter — raster programs rewrite this per fire (§8) |
-| `$0B` | `$00` at boot | **at runtime the engine writes `%11` (per-line HScroll) unconditionally**, plus bit 2 for per-column VSRAM when the scene attaches a column table — `engine/level/parallax.emp:1326` and `:1743` |
+| `$0B` | `$00` at boot | **at runtime the engine writes `%11` (per-line HScroll) unconditionally**, plus bit 2 for per-column VSRAM when the scene attaches a column table — `engine/level/parallax.emp`'s `Parallax_StartTransition` (`.update_mode`) and `Parallax_Update` (after `.config_resolved`) |
 | `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:554`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
 | `$0F` | `$02` | autoincrement 2 |
 | `$10` | `$11` | **scroll planes are 64 × 64 cells** (512 × 512 px) |
@@ -444,7 +444,7 @@ the waterline art.
 ### 4.6 Scrolling arrangement actually used
 
 * **Horizontal: per-line HScroll, always.** Reg `$0B` bits 1:0 = `%11`, written
-  unconditionally by `engine/level/parallax.emp:1326` and `:1743`. The HScroll table is
+  unconditionally by `engine/level/parallax.emp`'s `Parallax_StartTransition` (`.update_mode`) and `Parallax_Update` (after `.config_resolved`). The HScroll table is
   the full 224-line form: 896 bytes DMA'd from `Hscroll_Buffer` to `VRAM_HSCROLL_TABLE`
   every frame (`engine/system/buffers.emp`, the sixth static DMA entry). The per-cell
   (`%10`) 112-byte variant was **deleted** on 2026-08-26 — it was writing stride 4 where

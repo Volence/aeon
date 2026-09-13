@@ -217,7 +217,7 @@ def legacy_field_offset(repo: str, want: str) -> int:
     raise refuse(f"band_entry has no field {want!r}")
 
 
-def record_stride(repo: str) -> int:
+def record_stride(repo: str, game: str = "sonic4") -> int:
     """(offsetof(band_record, br_remap), sizeof(band_record)) — both derived from the four
     tail declarations and their capability counts, never typed."""
     import re
@@ -237,12 +237,14 @@ def record_stride(repo: str) -> int:
     if not m:
         raise refuse("could not read BAND_ENTRY_LEN from engine/ram.emp")
     sizes["band_entry"] = int(m.group(1))
-    ns = {}
-    for nm in ("BAND_EXT_N", "BAND_CURVE_N", "BAND_DRIFT_N", "BAND_REMAP_N"):
-        m = re.search(r"pub const " + nm + r" = (\d+)", text)
-        if not m:
-            raise refuse(f"could not read `{nm}`")
-        ns[nm] = int(m.group(1))
+    # The four counts are PER GAME since 2026-09-13 (each folds the GAME_SCANLINE_CAPS define in
+    # games/<game>/map.toml), so they come from the one reader. This witness drives s4.bin, so
+    # the game defaults to sonic4.
+    import band_geometry
+    try:
+        ns = band_geometry.tail_counts(game, repo)
+    except band_geometry.Unreadable as e:
+        raise refuse(str(e))
     tail_base = (sizes["band_entry"] + sizes["band_ext"] * ns["BAND_EXT_N"]
                  + sizes["band_curve"] * ns["BAND_CURVE_N"]
                  + sizes["band_drift"] * ns["BAND_DRIFT_N"])

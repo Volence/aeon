@@ -242,15 +242,29 @@ Inside a **`comptime fn` body** it is worse than absent: it degrades to a LABEL 
 defined for label and int ``), which is the section-2 call-site-resolution rule biting a contract
 member.
 
-A **build define IS visible in all three** (`DEBUG` sizes a struct correctly and builds
-byte-identically), which is the shape of the fix: an `emp_defines` row per game, the
-`MAX_RING_BUFFER` pattern, cross-pinned to the contract member in a module that can see both.
+~~A **build define IS visible in all three** (`DEBUG` sizes a struct correctly and builds
+byte-identically).~~ **CORRECTED 2026-09-13, measured: a define is visible in TWO of the
+three.** A game's own `games/<game>/map.toml [defines]` row reaches the emitted-`data` record
+layout and `harvest_engine_ram_addresses` (both size per game from `GAME_SCANLINE_CAPS` and
+build green, sonic4 byte-identical). It does NOT reach `harvest_engine_struct_offsets`, and
+neither does a BUILT-IN define: a zero-length array `[u8; DEBUG & 0]` on `band_entry` fails
+`harvest_engine_struct_offsets: layout band_entry: … unknown name `DEBUG``, and the same with
+`GAME_SCANLINE_CAPS` fails the same way, while `[u8; 0]` passes the harvest. The harvest
+calls sigil's `layout_struct_ambient`, which takes no define env at all. The 2026-08-20 `DEBUG`
+measurement sized `band_record`, which is not a harvested twin, so it never tested that
+context. Evidence: `docs/superpowers/notes/2026-09-13-per-game-band-defines.md` §3.
 
 **Rule:** anything a LAYOUT depends on must come from a define, a literal, or a same-file
-const — never from `Game.*`. If the value is genuinely a per-game contract member, carry it
-as a pinned mirror and put the two-directional `ensure` in a module where both names are
-visible (`games/sonic4/data/effects/scene_registry.emp` is the worked example) — and book
-the define, because one engine constant cannot serve two games that disagree.
+const — never from `Game.*` — and a `STRUCT_OFFSET_TWINS` struct (the harvested ones) from a
+literal or a same-file const only. If the value is genuinely a per-game contract member,
+declare it ALSO as a `[defines]` row in each game's `map.toml`, fold the layout from the
+define, and pin the define to the member where both are visible, as an equality so both
+directions are covered. `GAME_SCANLINE_CAPS` is the worked example: the rows are in both
+`map.toml`s, the folds are `engine/level/parallax.emp`'s `BAND_*_N` and `engine/ram.emp`'s
+`BAND_*_BYTES`, and the pins are engine-side in `parallax.emp`, so every game gets them.
+(The earlier worked example, a pinned engine-wide mirror with two-directional ensures in
+`games/sonic4/data/effects/scene_registry.emp`, is retired: it could not let two games
+disagree.)
 
 ## 10. The universal countermeasure: inversion
 

@@ -97,7 +97,7 @@ different roads through the resolver:
 **What these three do NOT prove**, said plainly because it is easy to misread as coverage:
 they prove the *phase* is live, not that any individual engine guard is. A poison
 contributes zero bytes by construction, so it cannot move a reservation or an equate —
-there is no argument a poison can pass that makes `engine/level/parallax.emp:480` false.
+there is no argument a poison can pass that makes `engine/level/parallax.emp:488` false.
 Per-guard proof for all 135 is `tools/extern_guard_census.py`, which negates each guard's
 own condition and reads the diagnostics back. That lane REWRITES engine sources, so it is
 deliberately not in `build.sh`; run it by hand after touching the family.

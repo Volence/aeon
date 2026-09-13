@@ -49,7 +49,7 @@ def mkcfg(tops, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
 
 class TestLayout(unittest.TestCase):
     def test_buffer_size_matches_ram_declaration(self):
-        # engine/ram.emp:270 — `Hscroll_Buffer: [u8; 896]`, 224 lines x 4 bytes.
+        # engine/ram.emp:277 — `Hscroll_Buffer: [u8; 896]`, 224 lines x 4 bytes.
         self.assertEqual(HSCROLL_BYTES, 896)
         self.assertEqual(HSCROLL_LINES * 4, HSCROLL_BYTES)
 
@@ -66,7 +66,7 @@ class TestLayout(unittest.TestCase):
 
 
 class TestShadowRotation(unittest.TestCase):
-    """Step 4a — engine/level/parallax.emp:687-770."""
+    """Step 4a — engine/level/parallax.emp:695-778."""
 
     def test_vs_zero_is_the_identity(self):
         # No unit conversion survives: a plane line at vs = 0 IS the screen line.
@@ -109,7 +109,7 @@ class TestShadowRotation(unittest.TestCase):
 
 
 class TestAnchorOverlay(unittest.TestCase):
-    """Step 4b — engine/level/parallax.emp:887-993."""
+    """Step 4b — engine/level/parallax.emp:895-1001."""
 
     def test_split_inserts_one_band_and_overrides_the_shifts_below(self):
         # Continuing the rotation above with L = 80: the last shadow top <= 80 is 48, so k = 1,
@@ -123,7 +123,7 @@ class TestAnchorOverlay(unittest.TestCase):
         self.assertEqual(sh.dsb, [NO_DEFORM, NO_DEFORM, 2, 2, 2])
         self.assertEqual(sh.dsa, [NO_DEFORM] * 5)
         # The split entry INHERITS its parent's scroll words — the surface changes where the
-        # wave starts, not how the layer scrolls (parallax.emp:955-975).
+        # wave starts, not how the layer scrolls (parallax.emp:963-983).
         self.assertEqual(sh.scroll_a, [13, 10, 10, 11, 12])
         self.assertEqual(sh.scroll_b, [23, 20, 20, 21, 22])
 
@@ -135,7 +135,7 @@ class TestAnchorOverlay(unittest.TestCase):
 
 
 class TestAnchorResolution(unittest.TestCase):
-    """resolve_anchor_line — engine/level/parallax.emp:802-885."""
+    """resolve_anchor_line — engine/level/parallax.emp:810-893."""
 
     def _tab(self, ch, lo, hi, count=1):
         b = bytearray(count.to_bytes(2, "big"))
@@ -151,14 +151,14 @@ class TestAnchorResolution(unittest.TestCase):
 
     def test_off_the_top_splits_at_line_zero_and_is_not_band_clamped(self):
         # L <= 0 is answered by `.anchor_top` BEFORE Raster_GetChannelBand is consulted
-        # (parallax.emp:817-830): the palette side covers the whole screen from the frame top,
+        # (parallax.emp:825-838): the palette side covers the whole screen from the frame top,
         # so clamping here too would make the two disagree across exactly those rows.
         cfg = mkcfg([0], anchor=0)
         L, _ = resolve_anchor_line(cfg, [u16(-96), 0, 0, 0], self._tab(0, 40, 200))
         self.assertEqual(L, 0)
 
     def test_below_the_band_floor_clamps_up(self):
-        # fire lines -> screen lines is +1 on both bounds (parallax.emp:850-851).
+        # fire lines -> screen lines is +1 on both bounds (parallax.emp:858-859).
         cfg = mkcfg([0], anchor=0)
         L, why = resolve_anchor_line(cfg, [20, 0, 0, 0], self._tab(0, 40, 200))
         self.assertEqual(L, 41)
@@ -216,7 +216,7 @@ class TestDeriveHscroll(unittest.TestCase):
     def test_bg_sampling_uses_phase_plus_vscroll_plus_line_mod_256(self):
         # BG index = (Parallax_Deform_Phase_BG + band_phase + Vscroll_BG + line) & $FF, sample
         # sign-extended and arithmetic-shifted right by band_deform_shift_b, added to the band's
-        # scroll word (parallax.emp:1344-1371). Table[i] = i - 128 makes the sample readable:
+        # scroll word (parallax.emp:1352-1379). Table[i] = i - 128 makes the sample readable:
         # at phase 10, vscroll 0, line 0 -> index 10 -> sample -118 -> >> 2 = -30 (arithmetic,
         # so it floors: -118 >> 2 == -30). Base -48 -> -78.
         tab = bytes(((i - 128) & 0xFF) for i in range(256))

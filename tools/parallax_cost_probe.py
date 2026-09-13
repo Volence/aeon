@@ -1269,7 +1269,7 @@ def anchor_ops(c: bytes, split: int | None = None) -> int:
 
     The mechanism is the overlay's own loop trip counts, and they are a function of the band
     count `n` and the index `k` of the band the split lands in, nothing else
-    (`engine/level/parallax.emp:889-987`):
+    (`engine/level/parallax.emp:897-995`):
 
         .anchor_find_k     min(k+1, n-1)   probes for the band containing L
         .anchor_shift_band n-1-k           entries shifted down one slot (skipped when 0)

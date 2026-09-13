@@ -1058,7 +1058,7 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) >= 0,
            "layer(): rowRemap surface plane line {scene_remap_plane_y(rowRemap)} is negative. IT IS A PLANE-B LINE (0..511), not a world Y and not a screen line: the runtime computes the background's image of the surface as `plane_y - Vscroll_BG`, so this is where the BG ART paints it, which is a different number from the layer's own world_y")
     // THE CEILING. Until 2026-09-04 the guard above was the ONLY one and its "(0..511)" was
-    // PROSE: `brm_plane_y` is a u16 (engine/level/parallax.emp:420), so 512..65535 packed
+    // PROSE: `brm_plane_y` is a u16 (engine/level/parallax.emp:407), so 512..65535 packed
     // cleanly and the runtime read `plane_y - Vscroll_BG` against a plane 512 lines tall —
     // representable, emitted, and silently the wrong window, with nothing anywhere refusing
     // it. 512 is inlined per the pin block at the top of this file (PLANE_B_SPAN), which is
@@ -1794,7 +1794,7 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
     // reason — it would also read as "derive".
     ensure(layer_mask_raw >= -1 && layer_mask_raw <= $FFFF,
            "scene(): layer_mask_raw {layer_mask_raw} outside -1 (derive) .. $FFFF — pcfg_layer_mask is a u16 (one bit per band at MAX_PARALLAX_BANDS 16), and a wider value would wrap through the i32 bridge field")
-    // Same shape, same reason. The runtime samples with `asr.w d3, d5` (parallax.emp:1038),
+    // Same shape, same reason. The runtime samples with `asr.w d3, d5` (parallax.emp:1046),
     // so a shift past 15 saturates to the sign bit: a wrong picture, not a fault, which is
     // exactly the class of error that belongs to the build.
     ensure(v_deform_shift_raw >= -1 && v_deform_shift_raw <= 15,
@@ -1885,7 +1885,7 @@ pub comptime fn scene(layers: [SceneLayer; 16], count: int,
            "scene(): v_factor_fg {v_factor_fg} outside 0 .. 15 — this is v_factor's FG twin and takes v_factor's span. The v1 runtime does not READ it (pcfg_v_factor_fg is RESERVED; Step 5 always sets the FG vscroll to camY), so a wider value cannot bend a picture today — it would sit in the emitted record as a number with no meaning, waiting for the parcel that lifts the reservation to read it as a shift. Author 0 unless you are reproducing a byte")
     // THE SELECTOR IS RANGE-CHECKED AS AN ARGUMENT, not just pinned as a constant. It is
     // stored raw and read by a one-bit test, so an out-of-range value does not fail, it
-    // MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and
+    // MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp's `Parallax_StartTransition`, `tst.b pcfg_transition` / `bne .instant`) and
     // therefore silently means INSTANT.
     ensure(transition == 0 || transition == 1,
            "scene(): transition {transition} is neither TRANS_SMOOTH (0) nor TRANS_INSTANT (1) — the runtime tests this byte with tst.b, so anything nonzero silently means instant")
@@ -3357,7 +3357,7 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
 // PLANE, and the plane does not track the act 1:1 — it tracks it through the scene's own
 // vertical mapping, the SAME one Parallax_Step5_Vscroll applies to the camera:
 //
-//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (parallax.emp:1062-1067)
+//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (parallax.emp:1070-1075)
 //
 // So the plane line an authored world Y lands on is that expression evaluated at the TOP
 // instead of at the camera, and Step 4a's whole per-frame job is the subtraction of the
@@ -3375,7 +3375,7 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
 // and are meant to disagree everywhere else.
 //
 // THE LOCKED CASE IS NOT A SPECIAL CASE, IT IS THE DEGENERATE ONE. `v_factor == 15` is
-// the lock sentinel (parallax.emp:1055-1057): the BG plane ignores the camera entirely
+// the lock sentinel (parallax.emp's `Parallax_Step5_Vscroll`, its `cmpi.b #15` / `beq .v_locked`): the BG plane ignores the camera entirely
 // and Vscroll_BG is pinned at v_offset. There is no act->plane relation to invert —
 // `(wy - v_center) >> 15` is 0 or -1 for every wy, which would collapse every layer of
 // every locked scene onto one line. For a locked plane the authoring space IS the plane,

@@ -488,7 +488,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
-    "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656; 32 B record stride since CAP_ROW_REMAP, 2026-09-03)
+    "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
     "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 280 — re-measurable now that tools/scene_spans.py's phased-VMA fix landed; it read as 64 before that fix, truncated at SoundTablesZ80_Head's $8000 VMA)
     "Parallax_Update":          260,   # CAP_ROLE_SWAP              (sonic4 290). 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)

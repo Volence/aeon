@@ -537,7 +537,7 @@ def _decode_slots(raw: str, lo: int, hi: int) -> list[dict]:
     return slots
 
 
-# The three sub-queues, in the order engine/ram.emp:266-278 lays them out. Each is a bump
+# The three sub-queues, in the order engine/ram.emp:273-285 lays them out. Each is a bump
 # allocator: entries occupy [base, cursor) and everything from the cursor to the sub-queue's
 # end is DEAD.
 _DMA_SUBQUEUES = ("DMA_Critical", "DMA_Important", "DMA_Deferrable")

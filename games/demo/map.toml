@@ -62,3 +62,17 @@ when = "sound_off"
 region = "object_bank"
 ceiling = 0x20000
 cursor = "ObjDef_DemoBox"
+
+# ── Game→engine comptime defines ──
+# sigil merges these rows into both demo shapes' define env (crates/sigil-harness/src/
+# game_defines.rs). A new game copies this table: the engine reads GAME_SCANLINE_CAPS
+# unconditionally, so a game without the row fails with `unknown name GAME_SCANLINE_CAPS`.
+#
+# GAME_SCANLINE_CAPS is this game's `Game.SCANLINE_CAPS` as a build define, which is what lets
+# the engine size its parallax band records and reservations PER GAME (see the same block in
+# games/sonic4/map.toml for why a define and not the contract member). Demo's mask is the fold
+# of its empty scene registry (games/demo/config/game.emp), so 0: demo's band record is the
+# legacy 10-byte entry and it reserves no capability tail. engine/level/parallax.emp refuses
+# the build unless this equals Game.SCANLINE_CAPS exactly, in both directions.
+[defines]
+GAME_SCANLINE_CAPS = 0

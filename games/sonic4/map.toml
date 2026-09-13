@@ -390,3 +390,20 @@ when = "sound_off"
 region = "object_bank"
 ceiling = 0x20000
 cursor = "DeformTable_Zero"
+
+# ── Game→engine comptime defines ──
+# sigil merges these rows into every sonic4 shape's define env (crates/sigil-harness/src/
+# game_defines.rs; a row may not shadow a built-in define, and values are integers).
+#
+# GAME_SCANLINE_CAPS is games/sonic4/config/game.emp's `Game.SCANLINE_CAPS`, carried a second
+# time as a BUILD DEFINE because a define is visible where a contract member is not:
+# engine/level/parallax.emp sizes `band_record` from it (an emitted `data` record's layout
+# binds no `Game.*`), and engine/ram.emp sizes the parallax reservations from it (the RAM
+# harvest binds no `Game.*` either). See docs/EMP_PITFALLS.md §9.
+#
+# IT IS A CHECKED COPY, NOT A SECOND AUTHORITY. engine/level/parallax.emp refuses the build
+# unless it equals Game.SCANLINE_CAPS exactly, every bit, in both directions, and names the
+# bits that differ. So changing the game's capabilities is an edit to BOTH lines, and the
+# build says so if one is forgotten. tools/band_geometry.py reads this row for the tool layer.
+[defines]
+GAME_SCANLINE_CAPS = 0x0FDE

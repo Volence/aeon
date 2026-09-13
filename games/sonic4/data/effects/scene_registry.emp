@@ -450,62 +450,31 @@ ensure(SCENE_CYCLE_COUNT == SCENES.len,
 // Full workings: docs/superpowers/notes/2026-09-10-scanline-caps-derivation.md.
 // =====================================================================
 // ---------------------------------------------------------------------
-// THE RECORD-SHAPE PIN (P3 Task 8) — the capability is the authority, this holds the
-// engine's mirror to it.
+// THE RECORD-SHAPE PINS MOVED TO THE ENGINE (2026-09-13).
 //
-// engine/level/parallax.emp's BAND_EXT_N decides whether a lowered band carries the
-// per-layer deform extension, and it CANNOT read Game.SCANLINE_CAPS: the context that lays
-// out an emitted record's type does not bind contract members (`unknown name
-// Game.SCANLINE_CAPS`, twenty of them, measured 2026-08-20 — the full evidence and the
-// sigil-side fix are in docs/benchmarks/scanline-p3/EXTENDED-RECORD.md and
-// docs/DEFERRED_WORK.md). This module is where both numbers ARE visible, so this is where
-// they are pinned together.
+// This block held eight ensures, two per capability tail (P3 Tasks 8 and 10, band drift,
+// EFFECTS-W1 item 9), pinning engine/level/parallax.emp's BAND_EXT_N / BAND_CURVE_N /
+// BAND_DRIFT_N / BAND_REMAP_N to this game's Game.SCANLINE_CAPS in both directions. They
+// existed because those counts were engine-wide literals that could not read the capability
+// (an emitted record's layout binds no contract member), and this module was where both names
+// were visible.
 //
-// TWO ENSURES, NOT ONE, BECAUSE BOTH DIRECTIONS ARE REAL FAULTS — the same reasoning the
-// VDP_Shadow_len equality above it uses, and the opposite of the capability SUBSET test
-// below, which is one-sided on purpose. A game that raises the bit while the engine record
-// stays legacy gets a lowering that silently drops the per-layer refs the scenes demand. A
-// game that leaves the bit clear while the record carries the extension pays 10 bytes per
-// band of ROM and RAM for a field nothing reads, and breaks design 8.1's byte-identity
-// claim with no other symptom.
+// The counts now FOLD GAME_SCANLINE_CAPS, a build define in games/sonic4/map.toml's [defines]
+// table, and parallax.emp carries the pins itself: the define equals Game.SCANLINE_CAPS
+// exactly, and each count equals its capability bit. Both are EQUALITIES, so both directions
+// of every retired pin survive, and they now run for EVERY game that reaches parallax (demo
+// included), which pins living in this file never could. The retired arms were proven red
+// once against the literals (2026-08-20 and each tail's own parcel); the engine-side ones
+// were proven red again, both directions, in the band-defines parcel
+// (docs/superpowers/notes/2026-09-13-per-game-band-defines.md).
 //
-// PROVEN RED, both arms (2026-08-20): flipping BAND_EXT_N to 1 against this game's $001F
-// fails with the second message; narrowing the test's bit to one the game DOES declare
-// (CAP_DEFORM, $0004) fails with the first.
-ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) == 0 || BAND_EXT_N == 1,
-       "this game declares CAP_MULTI_DEFORM_TABLE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} — the lowered band record would carry no per-layer deform extension while the scenes demand one. Set BAND_EXT_N to 1 and set BAND_EXT_BYTES in engine/ram.emp to sizeof(band_ext)")
-ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 || BAND_EXT_N == 0,
-       "engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} but this game does NOT declare CAP_MULTI_DEFORM_TABLE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_ext) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
+// What stays HERE is the scene-side half, which only this module can see: that a shipped
+// scene still AUTHORS each record-shape capability this game declares (the fold arms below).
 
-// THE SAME PIN FOR THE CURVE TAIL (P3 Task 10). A separate PAIR rather than a widened one,
-// because the two tails answer to different capability bits and a game may declare either,
-// both or neither — folding them into one test would let a curve game with no deform silence
-// the deform arm and vice versa.
-ensure((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) == 0 || BAND_CURVE_N == 1,
-       "this game declares CAP_FACTOR_CURVE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_CURVE_N is {BAND_CURVE_N} — the lowered band record would carry no curve tail while the scenes demand one, so every ramp would lower to a flat band with no diagnostic. Set BAND_CURVE_N to 1 and set BAND_CURVE_BYTES in engine/ram.emp to sizeof(band_curve)")
-ensure((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 || BAND_CURVE_N == 0,
-       "engine/level/parallax.emp's BAND_CURVE_N is {BAND_CURVE_N} but this game does NOT declare CAP_FACTOR_CURVE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_curve) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
-// THE THIRD TAIL: CAP_BAND_DRIFT <-> BAND_DRIFT_N, the same two-directional pin for the same
-// reason. parallax.emp's BAND_DRIFT_N cannot read Game.SCANLINE_CAPS (a `data` record type's
-// layout context binds no contract members — its banner has the evidence), so the capability
-// and the record shape are two numbers that must agree and only this file can see both.
-ensure((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) == 0 || BAND_DRIFT_N == 1,
-       "this game declares CAP_BAND_DRIFT in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_DRIFT_N is {BAND_DRIFT_N} — the lowered band record would carry no drift tail while the scenes demand one, so every drifting layer would lower to a still one with no diagnostic AND the gated accumulate would read the record base as a rate. Set BAND_DRIFT_N to 1 and set BAND_DRIFT_BYTES in engine/ram.emp to sizeof(band_drift)")
-// THE FOURTH TAIL: CAP_ROW_REMAP <-> BAND_REMAP_N, the same two-directional pin for the same
-// reason. parallax.emp's BAND_REMAP_N cannot read Game.SCANLINE_CAPS (a `data` record type's
-// layout context binds no contract members — its banner has the evidence), so the capability
-// and the record shape are two numbers that must agree and only this file can see both.
-ensure((Game.SCANLINE_CAPS & CAP_ROW_REMAP) == 0 || BAND_REMAP_N == 1,
-       "this game declares CAP_ROW_REMAP in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_REMAP_N is {BAND_REMAP_N} — the lowered band record would carry no remap tail while the scenes demand one, so every remapping layer would lower to a still one with no diagnostic AND the gated per-band mark would read the record base as a ROM pointer and index the HScroll buffer through it. Set BAND_REMAP_N to 1 and set BAND_REMAP_BYTES in engine/ram.emp to sizeof(band_remap)")
-ensure((Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 || BAND_REMAP_N == 0,
-       "engine/level/parallax.emp's BAND_REMAP_N is {BAND_REMAP_N} but this game does NOT declare CAP_ROW_REMAP (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_remap) bytes of ROM and shadow RAM that nothing reads, plus two longs of frame mark nothing writes, and the zero-capability lowering would stop being byte-identical to the legacy one")
-// The scene half of the same fact, in the shape the drift arm above uses: a shipped scene
-// must actually AUTHOR a ladder, or the declared bit is a capability claim with no subject.
+// The scene half of the remap fact: a shipped scene must actually AUTHOR a ladder, or the
+// declared bit is a capability claim with no subject.
 ensure((SceneRegistry_CapsFolded & CAP_ROW_REMAP) != 0,
-       "scene registry: NO shipped scene folds CAP_ROW_REMAP any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Underwater's layer 1 carried `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)` as of EFFECTS-W1 item 9 parcel 9a — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0800 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_REMAP_N back to 0 and engine/ram.emp's BAND_REMAP_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, drop the 272-byte RowRemapLadder_Waterline16 emission, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State, 26 cycles per band per frame and 272 ROM bytes for a background that does not remap")
-
-ensure((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 || BAND_DRIFT_N == 0,
-       "engine/level/parallax.emp's BAND_DRIFT_N is {BAND_DRIFT_N} but this game does NOT declare CAP_BAND_DRIFT (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_drift) bytes of ROM and shadow RAM that nothing reads, plus a whole accumulator array of RAM nothing advances, and the zero-capability lowering would stop being byte-identical to the legacy one")
+       "scene registry: NO shipped scene folds CAP_ROW_REMAP any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Underwater's layer 1 carried `rowRemap: SceneRemap.Ladder(RowRemapLadder_Waterline16, 101, 4)` as of EFFECTS-W1 item 9 parcel 9a — if that was deliberately dropped, this is not a scene-local edit: clear $0800 from SCANLINE_CAPS in games/sonic4/config/game.emp AND from GAME_SCANLINE_CAPS in games/sonic4/map.toml in the SAME commit (engine/level/parallax.emp's BAND_REMAP_N and engine/ram.emp's BAND_REMAP_BYTES follow the define; nothing to edit there), re-derive SceneRegistry_CapsExpected above, drop the 272-byte RowRemapLadder_Waterline16 emission, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State, 26 cycles per band per frame and 272 ROM bytes for a background that does not remap")
 
 pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 
@@ -587,12 +556,14 @@ ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
 // reader who trips it needs a different sentence. The equality above catches this too;
 // what it cannot say is WHAT ELSE has to move. CAP_MULTI_DEFORM_TABLE is the one bit
 // whose folding changes the LOWERED RECORD SHAPE — engine/level/parallax.emp's
-// BAND_EXT_N and engine/ram.emp's BAND_ENTRY_LEN both have to move with it, and the
-// two-directional pin above this block is what refuses the half-edit. Adoption of
+// BAND_EXT_N and engine/ram.emp's BAND_EXT_BYTES follow it through the GAME_SCANLINE_CAPS
+// define in games/sonic4/map.toml, and parallax.emp's pins refuse a define that disagrees
+// with Game.SCANLINE_CAPS. (Until 2026-09-13 this said BAND_ENTRY_LEN, which was wrong
+// since P3 Task 9 split the tail into its own mirror.) Adoption of
 // `deform: Own(..)` by a shipped scene is PARK-1, owner-gated, and is NOT what P3 Task 9
 // landed: Task 9 built the mechanism and left every shipped scene on Shared/None.
 ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
-       "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_EXT_BYTES must become sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
+       "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips this game's lowered band record to the extended shape: add $0020 to SCANLINE_CAPS in games/sonic4/config/game.emp AND to GAME_SCANLINE_CAPS in games/sonic4/map.toml in the SAME commit (engine/level/parallax.emp's BAND_EXT_N and engine/ram.emp's BAND_EXT_BYTES follow the define), and every sonic4 ROM image moves")
 // THE SECOND RECORD-SHAPE BIT (P3 Task 10). Same shape, same reason, different tail:
 // CAP_FACTOR_CURVE moves BAND_CURVE_N and BAND_CURVE_BYTES.
 //
@@ -604,12 +575,13 @@ ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
 // ⚠ AND THE OLD MESSAGE'S PRICE WAS ALREADY PAID, WHICH IS WORTH SAYING BECAUSE IT READ
 // AS A BLOCKER AND IS NOT ONE. It demanded BAND_CURVE_N become 1 and BAND_CURVE_BYTES
 // become sizeof(band_curve) "in the SAME commit, and every ROM image in the tree moves".
-// Both were ALREADY 1 and 10 on master (engine/level/parallax.emp:273, engine/ram.emp:65)
+// Both were ALREADY 1 and 10 on master (engine/level/parallax.emp's BAND_CURVE_N, engine/ram.emp's
+// BAND_CURVE_BYTES; both fold the GAME_SCANLINE_CAPS define per game since 2026-09-13)
 // — P3 Task 10 landed the tail itself, and the record-shape churn it warns about was
 // spent then, not now. So this adoption is genuinely scene-local: the band record does not
 // change shape, and no config's byte layout moves because a curve was authored.
 ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) != 0,
-       "scene registry: NO shipped scene folds CAP_FACTOR_CURVE any more, but this game still declares it in Game.SCANLINE_CAPS and engine/level/parallax.emp still carries BAND_CURVE_N = 1. Scene_Perspective_Floor's floor band carried `curve: SceneCurve.To(FACTOR_1)` as of EFFECTS-W1 T2 — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0040 from SCANLINE_CAPS in games/sonic4/config/game.emp, put BAND_CURVE_N back to 0 and engine/ram.emp's BAND_CURVE_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs sizeof(band_curve) = 10 bytes of ROM and shadow RAM in EVERY band of EVERY scene, plus the per-frame divide and the per-line Bresenham loop, for a background that ramps nothing")
+       "scene registry: NO shipped scene folds CAP_FACTOR_CURVE any more, but this game still declares it in Game.SCANLINE_CAPS, so engine/level/parallax.emp's BAND_CURVE_N folds to 1. Scene_Perspective_Floor's floor band carried `curve: SceneCurve.To(FACTOR_1)` as of EFFECTS-W1 T2 — if that was deliberately dropped, this is not a scene-local edit: clear $0040 from SCANLINE_CAPS in games/sonic4/config/game.emp AND from GAME_SCANLINE_CAPS in games/sonic4/map.toml in the SAME commit (BAND_CURVE_N and engine/ram.emp's BAND_CURVE_BYTES follow the define), re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs sizeof(band_curve) = 10 bytes of ROM and shadow RAM in EVERY band of EVERY scene, plus the per-frame divide and the per-line Bresenham loop, for a background that ramps nothing")
 // CAP_BAND_DRIFT moves BAND_DRIFT_N and BAND_DRIFT_BYTES, and it ALSO adds a 64-byte
 // accumulator array to Parallax_State. Same owner gate, same reason: the mechanism landing at
 // BAND_DRIFT_N = 0 moves no byte, and adoption on a scene the owner sees does.
@@ -624,7 +596,7 @@ ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) != 0,
 // (The two-sided SceneRegistry_CapsExpected pin above catches the same regression by equality;
 // this arm exists because the reader who trips it needs the sentence, not the hex word.)
 ensure((SceneRegistry_CapsFolded & CAP_BAND_DRIFT) != 0,
-       "scene registry: NO shipped scene folds CAP_BAND_DRIFT any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Default's four bands carried `drift: SceneDrift.Rate(-32)` as of EFFECTS-W1 item 3 — if that was deliberately dropped, this is a THREE-file retreat and not a scene-local edit: clear $0080 from SCANLINE_CAPS in games/sonic4/config/game.emp, put engine/level/parallax.emp's BAND_DRIFT_N back to 0 and engine/ram.emp's BAND_DRIFT_BYTES back to 0 in the SAME commit, re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State and 68 cycles per band per frame for a background that does not move")
+       "scene registry: NO shipped scene folds CAP_BAND_DRIFT any more, but this game still declares it in Game.SCANLINE_CAPS. Scene_OJZ_Default's four bands carried `drift: SceneDrift.Rate(-32)` as of EFFECTS-W1 item 3 — if that was deliberately dropped, this is not a scene-local edit: clear $0080 from SCANLINE_CAPS in games/sonic4/config/game.emp AND from GAME_SCANLINE_CAPS in games/sonic4/map.toml in the SAME commit (engine/level/parallax.emp's BAND_DRIFT_N and engine/ram.emp's BAND_DRIFT_BYTES follow the define), re-derive SceneRegistry_CapsExpected above, and flip this arm back to `== 0`. Leaving it half-done costs the widened band record, 128 B of Parallax_State and 68 cycles per band per frame for a background that does not move")
 // ---------------------------------------------------------------------
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 

@@ -162,7 +162,7 @@ class TestBracketConvention(unittest.TestCase):
 
         P3 Task 5 is exactly such a day and this check is why it is safe: CAP_DEFORM
         and CAP_MULTI_DEFORM_TABLE are both live, the fill loop already brackets
-        `.cap_deform_sample_begin/_end` (parallax.emp:1297/1421), and `deform` is not a
+        `.cap_deform_sample_begin/_end` (parallax.emp:1305/1429), and `deform` is not a
         prefix of `multi_deform_table` in either direction, so no existing span moved.
         Had the new bit been spelled CAP_DEFORM_TABLE it would have, and this fails."""
         lowered = sorted(name[len("CAP_"):].lower() for name in capability_bits())

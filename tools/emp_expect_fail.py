@@ -56,7 +56,7 @@ which is what makes a fragment match meaningful when more than one fires.
 WHAT THESE ROWS DO NOT DO, said plainly because the gap is easy to misread as covered:
 they prove the PHASE is live, not that any individual engine guard is. A poison module
 contributes zero bytes by construction, so it cannot move a reservation or an equate;
-there is no argument a poison can pass that makes `engine/level/parallax.emp:480` false.
+there is no argument a poison can pass that makes `engine/level/parallax.emp:488` false.
 Per-guard proof for the 135 is `tools/extern_guard_census.py`, which negates each guard's
 own condition and reads the diagnostics back — a tree-MUTATING lane, deliberately not
 wired into build.sh for the reason this lane's `--extra-entry` design exists.

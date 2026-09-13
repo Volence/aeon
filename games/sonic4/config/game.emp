@@ -131,10 +131,10 @@ pub implement Game {
     //                            oversight and asked (aurora, 2026-09-05). It is not.
     //                            games/sonic4/data/effects/scene_registry.emp rules it
     //                            PARK-1, OWNER-GATED: adopting a per-layer deform table is
-    //                            not a scene-local edit — it flips the lowered band record
-    //                            to the extended shape, so BAND_EXT_N becomes 1 and
-    //                            BAND_EXT_BYTES becomes sizeof(band_ext) in the SAME commit,
-    //                            and EVERY ROM IMAGE IN THE TREE MOVES. Corroborating, not
+    //                            not a scene-local edit — it flips this game's lowered band
+    //                            record to the extended shape (BAND_EXT_N and BAND_EXT_BYTES
+    //                            follow the GAME_SCANLINE_CAPS define below), and every
+    //                            sonic4 ROM image moves. Corroborating, not
     //                            resting on that one sentence: every shipped sonic4 scene
     //                            uses SceneDeform.Shared and none uses .Own, and
     //                            games/sonic4/test/scene_equiv_proof.emp pins the clear bit
@@ -142,6 +142,13 @@ pub implement Game {
     //                            BYTE-IDENTICALLY") — which is not what an oversight looks
     //                            like. CAP_DEFORM ($0004) IS set, so shared deform works;
     //                            only the per-layer own-table route is closed.
+    //
+    // THIS WORD HAS A CHECKED COPY (2026-09-13): `GAME_SCANLINE_CAPS` in games/sonic4/map.toml's
+    // [defines] table. The engine sizes its band records and parallax reservations from the
+    // define, because a contract member is invisible where those are laid out
+    // (docs/EMP_PITFALLS.md §9), and engine/level/parallax.emp refuses the build unless the two
+    // are equal, every bit. Change both in the same commit. Keep this a bare literal: the tool
+    // layer reads it with one regex (tools/scene_spans.py's caps_from_manifest).
     const SCANLINE_CAPS = $0FDE
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
