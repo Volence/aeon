@@ -590,3 +590,40 @@ The reader is a Python module that imports `tools/collision_pipeline.py` from th
 - glide walls: (x ± 10, y), LRB;
 - glide floor: (x, y + (h >> 1)), TOP;
 - ceiling pair: (x ± (w >> 1), y − (h >> 1)), LRB.
+
+## 10. CHAR-4 (a) runtime witness (MEASURED BY THE CONTROLLER, 2026-09-13)
+
+Same ROM (md5 `6211829d`) and recipe §7 CHAR-4 (a), with one staging difference. The warp
+to (760, 480) is slow: its tile-cache reseed runs inside one call and spanned many frames
+(`Warp_Req_Flag` still read 1 at frame 796 and read 0 by frame 856). By then Knuckles had
+fallen and landed at (760, 547). So he jumped with a one-frame A press, A was released for
+one frame, and A was then held to glide. At frame 884 (x 857.1, state `$10`) y_pos was
+written to `$02020000` (514.0) and read back before any frame ran.
+
+| frame | x | y | y_vel | state | head top (y_int - 10) | ceiling dist | source |
+|---|---|---|---|---|---|---|---|
+| 890 | 883.5 | 517.1875 | `$0078` | `$10` | 507 | clear (right sensor x 893, left of the slab) | measured |
+| 891 | 887.95 | 517.78125 | `$0098` | `$10` | 507 | **-4** (right sensor x 897, under the slab) | measured |
+| 892-895 | | 518.25 / 518.84 / 519.31 / 519.91 | | | 508 / 508 / 509 / 509 | -3 / -3 / -2 / -2 | derived by integration |
+| 896 | 910.45 | 520.375 | `$0078` | `$10` | 510 | **-1** (both sensors, x 900 and 920, under the slab) | measured |
+| 897-898 | | 520.97 / 521.44 | | | 510 / 511 | -1 / 0 | derived by integration |
+| 899 | 924.14 | 522.03125 | `$0098` | `$10` | 512 | +1, clear | measured |
+
+**Integrator checks, all exact:** Δy 890→891 = +0.59375 = `$98`/256; Δy 891→896 = +2.59375 =
+(3×`$78` + 2×`$98`)/256; Δy 896→899 = +1.65625 = (2×`$98` + `$78`)/256. No frame received any
+correction. The state stayed `$10` throughout and x_vel rose normally (`$0470` → `$0494`), so
+no wall, floor or state reaction occurred. The derived rows sit between measured rows that
+match the integration exactly.
+
+**Result: CHAR-4 is REPRODUCED.** The glide carried the head into the slab and it stayed
+inside for **7 frames (891-897, dist -4 to -1)**, against the prediction of about 8, leaving
+only by the glide's own sink. None of the §8 "CHAR-4 forbids" outcomes occurred.
+
+**On screen** (frames 891 and 896, camera (723, 409) and (745, 409)): the underside's last
+solid row is screen row 102, and Knuckles' drawn quills reach about rows 93-100 under the
+box's left edge, so the sprite visibly overlaps the rock by a few pixels. The proof is the
+RAM, not the picture; the sprite art is not the collision box.
+
+**CHAR-6, restated with the engine's criterion:** the release-under-the-lip run (frames
+776→777) was embedded for **5 frames (777-781)**, per §5's integer-y, r = 19 table. The
+controller's first report of 6 used y - 19.5 and is superseded.
