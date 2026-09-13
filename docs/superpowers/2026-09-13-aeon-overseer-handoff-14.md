@@ -80,3 +80,24 @@ WORKING-COPY-CATCHUP (212 behind), CTRL-3, EFX-2, CHAR-10, SP6-MODULATION-DIVERG
 The owner's ~200k clear rule: **233,811 tokens measured from this session's transcript usage record at
 2026-09-13T09:57:35Z** (input 32 + cache_read 231,962 + cache_creation 1,817), most of it the boot reads. Nothing
 new is dispatched; the session stops once the band agent's work is landed or handed on.
+
+## Addendum, written at the band landing (same session)
+
+**PER-GAME-BAND-DEFINES LANDED** (merge `98c5773f`; the land commit carrying this addendum follows it). Evidence is in
+the lane-log entry. The design deviation (the define-to-contract guard lives in `engine/level/parallax.emp`, not per
+game) was RATIFIED: every game inherits it and a game with no row fails by name. Still owed, not blocking: sigil's
+`the_shipped_maps_game_declared_rows_are_polarity_covered` goes red once their aeon reference includes this (told
+them at the push); demo's image moved, so sigil repins demo on their clock; the agent's note lists stale prose it
+did not fix and books gating the 256-byte `Waterline_Art_Buffer` on the same define (its own byte-mover).
+
+**Found while building the control, not caused by the parcel:** in a FRESH checkout of `c28a4173`, the FIRST build
+being `./build.sh demo` (plain) failed `tools/test_extern_guard_reachability.py::test_check_does_not_perturb_generated_sound_artifacts`
+(1 failed / 2594 passed). `DEBUG=1 ./build.sh demo` then passed, and re-running the plain demo build in the same tree
+passed. One instance; hypothesis (unverified): the test depends on sound artifacts a sonic4 build writes first.
+`landing_build.sh` builds sonic4 first and never meets it. Booked in DEFERRED_WORK.
+
+**Oracle (their `453aa96`, relayed, not verified here):** a bus watch still cannot see the Z80's own reads; a watch
+over ROM, Z80 RAM or work RAM now carries a caveat that a zero Z80 hit count means the instrument is absent. Never
+read a zero Z80 count from a watch as a result.
+
+**Stop state:** nothing dispatched after the band agent. The next session starts at "Next, in order" item 1 (CHAR-4/6).

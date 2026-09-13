@@ -34039,3 +34039,13 @@ always reached the equally unbound `OJZ_TestVsram`. `tools/raster_cost_probe.py`
 `tools/preset_lab_witness.py` needed no code change — the first two build their own program and
 use only `OJZ_GradientStream`'s ADDRESS, the next two derive sizes from symbol GAPS that this
 parcel does not move, and the last derives every expectation from the presets' own fields.
+
+## FRESH-CHECKOUT FIRST BUILD = DEMO: a sound-artifact test failed once (found 2026-09-13, not yet reproduced)
+
+In a fresh detached checkout of aeon `c28a4173` under sigil `1532b72f`, the first build run was plain `./build.sh demo`,
+and the tool-suite lane failed exactly one test: `tools/test_extern_guard_reachability.py::test_check_does_not_perturb_generated_sound_artifacts`
+("`sigil build --check` rewrote generated sound artifacts with different content than emit_sound_blob had written"). The very
+next `DEBUG=1 ./build.sh demo` in that tree passed, and a second plain demo build passed (2595 passed). A concurrent
+`landing_build.sh` was running in a different tree at the time. **Hypothesis, unverified:** the test assumes artifacts that a
+sound-on (sonic4) build writes first, so it is order-dependent in a fresh tree. **To reproduce:** fresh `git worktree add
+--detach`, then plain `./build.sh demo` first, nothing else running. `landing_build.sh` builds sonic4 first and cannot see it.
