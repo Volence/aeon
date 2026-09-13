@@ -44,6 +44,8 @@ directory is untracked, and clean_check() would refuse the second mutation becau
 """
 import os, subprocess, sys, shutil, json
 
+from artifact_provenance import is_nested_checkout_dir
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SC = os.environ.get("LS8_OUT", os.path.join(REPO, ".ls8-redproof"))
 os.makedirs(SC, exist_ok=True)
@@ -234,6 +236,8 @@ def clean_check():
 def clear_pycache():
     n = 0
     for root, dirs, files in os.walk(REPO):
+        # Never into a nested checkout: its caches belong to another checkout (2026-09-13).
+        dirs[:] = [d for d in dirs if not is_nested_checkout_dir(os.path.join(root, d))]
         if ".git" in root: continue
         if os.path.basename(root) == "__pycache__":
             shutil.rmtree(root, ignore_errors=True); n += 1

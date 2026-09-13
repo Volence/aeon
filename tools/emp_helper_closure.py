@@ -50,6 +50,8 @@ import re
 import sys
 from typing import Dict, List, Optional, Set, Tuple
 
+from artifact_provenance import is_nested_checkout_dir
+
 # One declaration in ITEM position: optional `pub`, optional `comptime`, the kind
 # keyword, the name. `fn` only ever appears as `comptime fn` (the parser reaches
 # comptime_fn_decl solely through `at_kw("comptime")`), so the qualifier is optional
@@ -228,7 +230,12 @@ def module_index(aeon: str) -> Dict[str, str]:
         # .claude/worktrees/<agent>/ and are full repo copies, so scanning them
         # declares every module twice and fails the main tree's build while any
         # concurrent worktree session exists (bit 2026-08-19).
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        # AND every nested checkout, by sigil's own rule (`is_nested_checkout_dir`: a
+        # child named `.worktrees` or holding a `.git` entry). The dot rule alone let in
+        # a checkout nested under a name WITHOUT a leading dot, which declares every
+        # module twice exactly the same way (2026-09-13).
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")
+                       and not is_nested_checkout_dir(os.path.join(dirpath, d))]
         for fn in filenames:
             if not fn.endswith(".emp"):
                 continue
