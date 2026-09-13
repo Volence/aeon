@@ -30787,9 +30787,59 @@ The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`doc
     from the R1 underrun guard) and 2.29x the 16.65 ms Timer-A period (2 dropped sequencer frames).
     Control: the per-frame `VInt_*` bracket on the same flag is 0.918 ms median.
     `tools/poke_storm_sound_cost_witness.py`, 6 legs.
-- **NEW from that work, still open:** `GAP12-A2-9d` — Moving Trucks loads with a real FM6 music
+- **NEW from that work, ~~still open~~ — ✅ ANSWERED 2026-09-13, `parcel/a2-9d-fm6-handback`
+  (`0d45d322`, `12fb7868`, `177e1bb4`):** `GAP12-A2-9d` — Moving Trucks loads with a real FM6 music
   channel (`SND_FM6_CHAN_PTR = $1B34`) but `SND_FM6_ADAPTIVE = 0`, so a DAC sample ending while it
-  plays gets neither the `$2B <- $00` hand-back nor the FM6 re-key. Song flag or gate width: open.
+  plays gets neither the `$2B <- $00` hand-back nor the FM6 re-key. Song flag or gate width: ~~open~~.
+  > **ANSWER: NEITHER is wrong, and the hazard is LATENT in every shape, config-A included.**
+  > **What "adaptive" means, by design.** `sound_constants.emp`'s header block: `SH_F_FM6_FM` = "FM6 is
+  > a 6th FM SEQUENCER voice (DAC mode OFF, $2B=$00)"; `SH_F_FM6_ADAPTIVE` = "FM6 TIME-SHARES ch6 with
+  > the DAC (requires SH_F_FM6_FM)". The 1D spec §5.1: FM6 is "a 6th FM sequencer voice **or** the DAC
+  > channel (mutually exclusive — the YM2612 shares ch6 between FM and the DAC via `$2B` bit7)". The
+  > sound-driver spec §4.3 table: "FM6 melody, little/no DAC → Full 6th FM synth voice"; "FM6 melody
+  > **and** DAC samples → Time-share". Moving Trucks has an FM6 channel and NO DAC channel, so its `$03`
+  > header is the DESIGNED one; the gate is right for every song-internal case. The three shipped
+  > headers, decoded off the committed `.bin`s: MT `$03` FM1-FM6; drum-test `$07` FM1/FM2/FM6/PSG1/DAC;
+  > HCZ2 `$02` DAC/FM1-5/PSG1/PSG2/PSGN. All three are exactly what the §4.3 table derives.
+  > **Reachability, every path that can start a sample while a song plays:** (1) a song's `$E2`: only
+  > the drum-test and HCZ2 songs carry a DAC channel, both DEBUG-only and reachable only from the
+  > config-A hotkeys; (2) SFX: SFX run on the SHARED interpreter, so an `$E2` byte would reach
+  > `Seq_HookDac`, but `sfx_transcode.py` never constructs a `Dac` event and refuses the DAC route
+  > (`_RESERVED_ROUTES`) — unreachable, resting on the transcoder; (3) `Sound_PlaySample` /
+  > `SND_REQ_SAMPLE`: **zero callers** in `engine/` and `games/`; (4) jingles: SFX ids, same as (2);
+  > (5) a drum in flight across a song load (A2-9b's case): benign for MT, because the loader itself
+  > writes `$2B <- $00` and clears `DAC_ACTIVE`, and MT then keys FM6 normally (A2-9b L2 measured it).
+  > And the subject never loads in a canonical shape: `Sound_PlayMusic`'s only callers are in
+  > `game_debug.emp`, placed only at config-A. **Latent everywhere, live nowhere.**
+  > **The class that WAS unguarded, now refused at pack time (zero ROM bytes):** the runtime reads the
+  > CHANNEL SET (`SND_FM6_CHAN_PTR`) and `SH_F_FM6_ADAPTIVE`, never `SH_F_FM6_FM`, yet the packer only
+  > checked ADAPTIVE against that proxy bit. `song_packer.check_fm6_mode` now refuses SHARE (an FM6
+  > channel beside a DAC channel without ADAPTIVE: the first `$E2` takes ch6 and `.stop` never gives it
+  > back, FM6 silent for the rest of the song) and VOICE (ADAPTIVE with no FM6 channel: the loader skips
+  > the `$B6 = $C0` seed after `Sequencer_StopAll` closed `$B6`, and no FM6 patch reopens it). It runs
+  > in `pack_song` AND over the committed song `.bin`s `mt_bank.emp` embeds (the build never re-packs
+  > them): `tools/test_song_packer.py` `TestFm6ModeRule` + `TestCommittedSongHeaders`, in build.sh's
+  > pre-build pytest lane. Red-first, four mutations, each restored from `0d45d322`: the call removed
+  > (5 named failures), drum-test `$07 -> $03` (SHARE, its own message), HCZ2 `$02 -> $06` (VOICE, its
+  > own message), HCZ2 count `9 -> 8` (the header-decode instrument check, `53 != 48`). A matcher test
+  > proves each rule's regex matches only its own message and not the older proxy refusal's.
+  > **STILL OPEN, FOR THE OWNER — the foreign-sample policy.** Only a sample from OUTSIDE a
+  > non-adaptive FM6 song (an SFX with a DAC voice, or the first `Sound_PlaySample` caller) can reach
+  > the row's state, and nothing decides what it should do. Options: **(a)** `Snd_StartSample` refuses
+  > a sample while a non-adaptive FM6 song plays (FM6 kept, the sample silently dropped; a few Z80
+  > bytes); **(b)** widen `.stop`'s hand-back and `Snd_StartSample`'s FM6 key-off to
+  > `SND_FM6_CHAN_PTR != 0` (every FM6 song time-shares; a few Z80 bytes; ADAPTIVE then only selects
+  > the `$B6` seed); **(c)** the packer DERIVES ADAPTIVE for every song with an FM6 channel (same
+  > behaviour as (b), zero Z80 bytes, one header byte per FM6 song: MT `$03 -> $07`, which needs the
+  > committed `song_movingtrucks.bin` re-emitted). Read off source, not measured: (c) should not change
+  > how MT sounds in normal play, since the skipped `$B6` seed is overwritten by FM6's patch and
+  > `Sfx_UnpauseRestore` re-uploads FM6 on resume; whether MT's FM6 stream loads a patch before its
+  > first note is UNVERIFIED and is the one fact (c) rests on. Recommendation: decide when the first
+  > caller arrives; (c) if the answer is "FM6 music should survive a sample". `Sound_PlaySample`'s
+  > header now says this, as a prohibition on the misreading, where that caller will look.
+  > **RUNTIME-TAG (the controller's, not run here):** `tools/fm6_foreign_sample_witness.py` measures
+  > what the latent path would do, on a config-A probe ROM with one added hotkey; `--build-only`
+  > proves the probe builds and differs (`ccfb3f5d` vs `3005a917`) with no emulator.
 - **Still unmeasured, named so it is not mistaken for settled:** whether a song loaded over a
   half-completed fade inherits the faded-down master volume. `SND_MASTER_FADE` is outside the
   `Sound_Dbg_Mirror` window; the YM TL (`$4x`) write stream would settle it.
