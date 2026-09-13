@@ -572,7 +572,8 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
     numbers. `cols_per_band` is **refused by closure**: the geometry is fixed at
     REEL_BAND_COUNT x REEL_COLS_PER_BAND because the column->band map is a compiled shift,
     not a value read at runtime (CR ruling 5). It is recoverable additively later.
-  - **THE KEY IS LEGAL ONLY ON A SECTION BOUND AT RUNG 1** — `Sec.sec_parallax_config`, i.e.
+  - **THE KEY IS LEGAL ONLY ON A SECTION BOUND AT RUNG 1** — the `Region.rg_parallax` of the region row
+    keyed on that section's sidecar (`Sec.sec_parallax_config` until painted-regions v1), i.e.
     a `sceneRef` sidecar. The generated binding is keyed on `Parallax_Current_Config`, and
     that pointer is unique only at rung 1; a section resolving through a preset
     (`EffectsPreset.ep_parallax`, rung 2, shared by every section naming that preset) or the

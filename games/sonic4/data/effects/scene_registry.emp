@@ -140,7 +140,7 @@ pub struct SceneCfg16 { hdr: parallax_config, bands: [band_record; 16] }
 // is what makes reordering these structs a build error instead of a silent miss.
 //
 // Every consumer of a lowered record holds a `parallax_config*`, never a `SceneCfgN*`:
-// `Sec.sec_parallax_config` and `Act.act_parallax_config` are `*u8` (engine/structs.emp),
+// `Region.rg_parallax` and `Act.act_parallax_config` are `*u8` (engine/structs.emp),
 // `EffectsPreset.ep_parallax` is `*u8` (engine/effects/preset.emp), and
 // `Parallax_Current_Config` (engine/ram.emp) is the `u32` all three funnel into via
 // `Parallax_StartTransition`'s `a0`. The generator, meanwhile, emits

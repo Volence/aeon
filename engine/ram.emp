@@ -449,7 +449,7 @@ pub vars upper_ram {
     //
     // THE SHAPE OF THE SUM, which does not decay because it names no total:
     //   ceiling-INDEPENDENT — 3 deform phase words + 2 vanishing-point words + the vscroll
-    //     word + 2 config longs + 4 transition/section bytes + the 80 B VSRAM column buffer
+    //     word + 2 config longs + 2 transition bytes + a 2-byte pad + the 80 B VSRAM column buffer
     //     + Parallax_Curve_Carry (CURVE_CARRY_WORDS) + Parallax_Remap_State
     //     (REMAP_STATE_LONGS).
     //   PER BAND — 2 current-scroll words + 2 shadow-scroll words + one drift accumulator
@@ -491,12 +491,14 @@ pub vars upper_ram {
     Parallax_Target_Config:      u32,   // ptr to incoming during transition
     Parallax_Transition_Frames:  u8,    // frames remaining; 0 = stable
     Parallax_Snap_Pending:       u8,    // 1 = next Update writes target_scroll directly to current (skip lerp)
-    // Per-section parallax: section grid coords under the camera centre on the
-    // previous frame. A change in either is a section-boundary crossing, which
-    // re-selects the active config via Parallax_CheckBoundary. Seeded to $FF in
-    // Parallax_Init so the first frame always re-selects.
-    Parallax_Prev_Sec_X:         u8,
-    Parallax_Prev_Sec_Y:         u8,
+    // Two bytes that held Parallax_Prev_Sec_X/Y until painted-regions v1 replaced the
+    // section-grid crossing with a region-rectangle one (the region cache lives OUTSIDE
+    // this span, below Parallax_Roles_Swapped, and says why). A PAD rather than a
+    // deletion, deliberately: this span is a LONGWORD-counted clear pinned to
+    // PARALLAX_STATE_LONGS, and removing two bytes would leave it a non-multiple of four
+    // and shift every field below — a parallax-RAM arithmetic change inside a parcel
+    // about identity scope.
+    pad(2),
     Parallax_Vscroll_Column_Buf: [u8; 80],  // 40 VSRAM entries × 2 bytes
     // Per-frame screen-space band view (Step 4a): the config's plane-space band
     // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
@@ -555,6 +557,30 @@ pub vars upper_ram {
     // a shipped game can use for a real set-piece, not a review-only toy.
     Parallax_Roles_Swapped: u8,
     pad(1),                      // keep the following long even-aligned
+
+    // Painted-regions v1 — the IDENTITY SCOPE's crossing cache. The live region's
+    // inclusive rectangle, copied out of ROM on each crossing so the per-frame test
+    // (Parallax_CheckBoundary's fast path) is four unsigned compares against RAM and no
+    // pointer chase. Parallax_Prev_Sec_X/Y was this same pattern at two bytes.
+    //
+    // SPAN-MAJOR AND CONTIGUOUS, and both are load-bearing: X0:X1 and Y0:Y1 are each filled
+    // by ONE move.l straight out of the Region record, which has the same order. The
+    // adjacency is pinned by `ensure`s in engine/level/parallax.emp.
+    //
+    // OUTSIDE Parallax_State/_End for Parallax_Roles_Swapped's reason, above: this is the
+    // identity scope, read by the effects path, not parallax-internal state, and it must
+    // NOT be zeroed by Parallax_Init's longword clear. Its reset is an explicit, named write
+    // there — the $FFFF/$0000 sentinel, a rectangle nothing is inside, so the first
+    // crossing test always rescans.
+    //
+    // Region_Current is the Region* the cache came from (0 = none resolved yet). ENGINE
+    // LOGIC NEVER READS IT: it is the observable the crossing gate and the witnesses poll
+    // to see a crossing happen, replacing Parallax_Prev_Sec_X/Y in that role.
+    Region_Cur_X0:          u16,
+    Region_Cur_X1:          u16,
+    Region_Cur_Y0:          u16,
+    Region_Cur_Y1:          u16,
+    Region_Current:         u32,
 
     // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
     // (engine/effects/raster.emp). Its span is cross-checked there by an

@@ -393,6 +393,15 @@ The same probe — a `comptime fn` taking a scalar `Label`, called with `0` — 
 meets this message has not found a side effect of §12 and should not go looking for one. Run
 by the sigil lane and reproduced here independently against both binaries.
 
+**AMENDED 2026-09-13 — the refusal does NOT hold for a `comptime fn`'s own scalar `Label`
+parameter.** Measured by inversion (painted-regions v1, step 1): `comptime fn ojz_region(...,
+effects: Label, ...)` — no default — called with a written `effects: 0` built GREEN on the sigil
+release binary of 2026-09-13 05:21, emitting 0 into the record's `*u8` field. So the missing
+default catches an OMITTED argument (`missing argument `effects``, measured in the same run) and
+nothing catches a WRITTEN 0 except an `ensure(effects != 0, ...)`, which is legal because a label
+beside `0` is the one cross-kind comparison this section keeps defined. Which other forms the
+2026-09-02 refusal covered was not re-established; do not rely on it for a null guard.
+
 *How this nearly went unrecorded, because the lesson is about prohibitions rather than about
 labels:* the pre-change binary was frozen read-only during the landing, and the freeze was
 written — and read — as "off-limits". **It was `-r-xr-xr-x`: writing was refused, RUNNING was

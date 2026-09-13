@@ -2367,34 +2367,56 @@ Example: Oracle Jungle Zone Act 1
   Y=2 (deep):                   [deep]
 ```
 
-### 4.2 Section Definition — Per-Cell Configuration
+### 4.2 Section Definition — Per-Cell Storage
 
-Each section in the 2D grid is fully self-describing — almost its own level:
+Each section in the 2D grid carries its own STORAGE — terrain blocks, objects, rings, an optional background layout, its object type table and its block dictionary:
 
 ```
-; Section definition — 34 bytes per (X, Y) cell (Sec struct in structs.emp):
+; Section definition — 26 bytes per (X, Y) cell (Sec struct in structs.emp):
     dc.l    sec_block_index      ; +$00: 256-entry block index (ROM pointer, see §4.3/§4.7)
     dc.l    sec_objects          ; +$04: object layout (6-byte objentry entries, X-sorted, see 4.9)
     dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
-    dc.l    sec_parallax_config  ; +$0C: parallax_config pointer — outranks the preset's ep_parallax; 0 = defer (Effects_ResolveParallax, §4.6)
-    dc.l    sec_bg_layout        ; +$10: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
-    dc.l    sec_type_table       ; +$14: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
-    dc.l    sec_block_dict       ; +$18: raw block-dictionary ptr (block blob + index size; LZ window pre-seed)
-    dc.l    sec_effects          ; +$1C: EffectsPreset* — TOTAL BINDING (§4.12b). REQUIRED, no default.
-    dc.w    sec_block_dict_len   ; +$20: block-dict bytes (768×K, K≤3, word-even; 0 = no dict)
-; Sec_len = $22 (34 bytes). Per-section tile art removed — art is the act-wide
+    dc.l    sec_bg_layout        ; +$0C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
+    dc.l    sec_type_table       ; +$10: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
+    dc.l    sec_block_dict       ; +$14: raw block-dictionary ptr (block blob + index size; LZ window pre-seed)
+    dc.w    sec_block_dict_len   ; +$18: block-dict bytes (768×K, K≤3, word-even; 0 = no dict)
+; Sec_len = $1A (26 bytes). Per-section tile art removed — art is the act-wide
 ; paged pool on the Act descriptor (act_art_pool_table / act_art_pool_pages).
 ```
 
-A surviving field's 0 means "defer / none", never "keep current". Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. Everything in that list except the terrain, object and layout pointers now arrives through the ONE `sec_effects` pointer rather than through a field of its own (§4.12b).
+A surviving field's 0 means "defer / none", never "keep current".
+
+**A section's IDENTITY is not in this record.** Which `EffectsPreset` a place installs — palette, raster program, cycling, variants, patched template — and which parallax scene outranks the preset's own is bound by the act's **region table** (§4.2b): world-pixel rectangles that need not follow the section grid. The two fields that carried identity here, `sec_parallax_config` (+$0C) and `sec_effects` (+$1C), were deleted by painted-regions v1 (step 4, 2026-09-13): 34 → 26 bytes, 8 B × 9 sections = 72 ROM bytes on OJZ act 1.
 
 **66 → 34 bytes on 2026-09-04 (painted-regions audit rows 3 and 7).** Nine fields and three reserved pads were deleted — `sec_plc`, `sec_pal`, `sec_raster_table`, `sec_pal_cycle`, `sec_sound_bank`, `sec_anim_blocks`, `sec_flags`, `sec_music`, `sec_camera_lookahead`, `sec_pcfg_pad_3C/_3E/_3F` — recovering 32 B × 9 sections = 288 ROM bytes. Every one had **zero code readers**, re-verified name by name on the day: the effects-P3-C2 Task 13 cutover (`e6b016e5`) deleted the readers (`Palette_LoadSection`, `Palette_InstallCycleSection`, `Raster_InstallSection`) and left the writers standing. The `SF_*` bit names this section used to list (`SF_HAS_WATER | SF_UNDERGROUND | SF_NO_Y_WRAP | SF_PRESERVE_STATE | SF_HAS_ANIMATED_BLOCKS`) went with `sec_flags`: they were never defined anywhere in `engine/`/`games/`, so nothing depended on them, and a per-section flag word can be re-added when a consumer wants one rather than reserved indefinitely. Two names sometimes mistaken for `Sec` members are still not fields of it: `sec_grid_ptr` is an **`Act`** field (`Act` +$00, the section-definition-array pointer), and `sec_id` is a **computed** flat index (`sec_y × grid_w + sec_x`, `engine/level/tile_cache.emp`) never stored in the struct.
 
-**`sec_effects` is required, and that requirement is the null guard.** `Effects_InstallPreset` dereferences the pointer without testing it, and the only null test on the crossing path (`engine/level/parallax.emp`) sits inside `if DEBUG == 1` — so a null would have taken the *release* build into the 68000 vector table while the *development* build raised. The value has no runtime writer (it is ROM, reached only through `Section_GetSecPtrXY` over `Act.sec_grid_ptr`), which makes its nullity a build-time property, so the field and `ojz_sec()`'s `effects:` argument both dropped their `= 0` defaults instead: an omitted binding is now a compile error in every shape at zero ROM bytes. The DEBUG test survives for what a comptime pin cannot see — a poked `Sec*` or a corrupted `Act.sec_grid_ptr`.
+**The identity pointer is required, and that requirement is the null guard** — the argument this section made for `sec_effects` on 2026-09-04, now carried by `Region.rg_effects`. `Effects_InstallPreset` dereferences the pointer without testing it, and the only null test on the crossing path (`engine/level/parallax.emp`) sits inside `if DEBUG == 1` — so a null would take the *release* build into the 68000 vector table. The value has no runtime writer (it is ROM), so its nullity is a build-time property: `Region.rg_effects` has no `= 0` default (an omitted binding does not compile) and `ojz_region()` ensures a WRITTEN zero fails too — a scalar `Label` argument accepts a literal 0, measured, so the missing default alone is not enough (docs/EMP_PITFALLS.md §12's 2026-09-13 amendment).
 
-**`sizeof(Sec) = 34` (`$22`)** is `ensure`-guarded twice, in `engine/level/section.emp` and `engine/level/tile_cache.emp`. Both pins exist for the readers OUTSIDE the assembler: `tools/boot_override_gate.py` and `tools/preset_lab_witness.py` carry their own copy of the stride and the field offsets, and `tools/parallax_crossing_gate.py` parses the offsets out of the trailing `// $HH` comments in `engine/structs.emp` — which are therefore a gate, not decoration.
+**`sizeof(Sec) = 26` (`$1A`)** is `ensure`-guarded twice, in `engine/level/section.emp` and `engine/level/tile_cache.emp`. Both runtime multiplies spell `#sizeof(Sec)`, so the stride follows the struct. The pins used to exist for three gate tools that carried their own copy of the Sec layout (`boot_override_gate`, `preset_lab_witness`, `parallax_crossing_gate`); since painted-regions v1 all three read the act's REGION table through `tools/region_table.py`, which parses `Region`'s layout with an offset-comment cross-check — so `Region`'s trailing `// $HH` comments are the gated ones now, and the `Sec` pins remain as the tripwire that makes a Sec change re-ask whether an out-of-assembler reader has appeared.
 
-**Palette format:** a section's base palette is a full 128-byte copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression — and it reaches CRAM through `EffectsPreset.ep_pal` → `Palette_LoadPal`, installed by `Effects_InstallPreset` at the section-boundary crossing (§4.12b). There is no `sec_pal` field any more; the descriptor-driven *cross-fade* half of §7.1 remains design-stage. Engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`/`sec_effects` — that is now the whole struct minus `sec_objects`/`sec_rings`/`sec_type_table` (the entity window's three) and `sec_block_dict_len`. Alongside it, the game-poked path still ships: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
+**Palette format:** a section's base palette is a full 128-byte copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression — and it reaches CRAM through `EffectsPreset.ep_pal` → `Palette_LoadPal`, installed by `Effects_InstallPreset` at the region crossing (§4.2b, §7.12). There is no `sec_pal` field any more; the descriptor-driven *cross-fade* half of §7.1 remains design-stage. Engine level code reads `sec_bg_layout`/`sec_block_dict`/`sec_block_index` — the whole struct minus `sec_objects`/`sec_rings`/`sec_type_table` (the entity window's three) and `sec_block_dict_len`. Alongside it, the game-poked path still ships: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
+
+### 4.2b Regions — Identity by Rectangle (painted-regions v1, 2026-09-13)
+
+A **region** is an inclusive world-pixel rectangle that names an identity record — the `EffectsPreset` (§7.12) — and, optionally, a parallax config that outranks the preset's own. The act descriptor gains `act_regions` (`*u8` → `[Region; act_region_count]`, +$28) and `act_region_count` (u16, +$2C, required, ≥ 1); `Act` is 46 bytes. Storage stays per section (§4.2); only identity moved.
+
+```
+Region — 16 bytes (engine/structs.emp), span-major so each axis is one move.l:
+    dc.w    rg_x0, rg_x1         ; +$00/$02: inclusive X span, world px
+    dc.w    rg_y0, rg_y1         ; +$04/$06: inclusive Y span
+    dc.l    rg_effects           ; +$08: EffectsPreset* — REQUIRED (no default; ojz_region() also ensures != 0)
+    dc.l    rg_parallax          ; +$0C: parallax_config* — rung 1 of Effects_ResolveParallax; 0 = defer
+```
+
+Two rows naming the same preset ARE one region for every purpose the engine has (nothing reads a region id), so an L-shape is two rows and an arch is three. **The cost of a shape is its row count, never its area.**
+
+**The crossing** (`Parallax_CheckBoundary`, `engine/level/parallax.emp`) tests the camera CENTRE — `Camera_X + CAM_SCREEN_HALF_W`, `Camera_Y + CAM_SCREEN_HALF_H` — against the live rectangle cached in RAM (`Region_Cur_X0/X1/Y0/Y1`, outside `Parallax_State`): four unsigned compares a frame, no shifts, no pointer chase. On a miss, `Region_Resolve` scans the act's table linearly for the first containing row (rows never overlap, so first is only); the cache is refilled with two `move.l` (spelled `Region.rg_x0:l(a0)` — sigil refuses a bare `.l` on a 2-byte field, and `:l` is its declared-overlay form); `Region_Current` records the `Region*` (an observable the gates poll; no engine logic reads it); and the one total-binding install runs, `Effects_InstallPreset` then `Parallax_StartTransition`. No containing row keeps everything — unreachable on an act that builds (see the invariants). `Parallax_Init` and the DEBUG warp write the sentinel `$FFFF/$0000` (a rectangle nothing is inside) so the next test rescans; that is load-bearing on an act reload and on a warp that lands inside the region already cached, while on first boot the Work-RAM clear already leaves an empty cache.
+
+**The boot select** (`GameState_OJZScroll_Init`) resolves the region under the camera centre as well — after `Camera_Init` and the DEBUG boot override have placed the camera — so the first painted frame and the first crossing test agree by construction.
+
+**Build-time invariants** (`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`: `ojz_region()` per row, and ensures over the single-source `OJZ_ACT1_REGION_ROWS`): no negative or inverted rectangle; nothing past the act; each span ≥ `REGION_MIN_SPAN` (2 × the 16 px camera step — hygiene, not safety); every interior edge inside the camera centre's reachable band, so every region can be entered (and the boot point and the camera centre can never name different regions); `effects` non-zero; **no two rows overlap, and the rows' areas sum to the act's — exact tiling**, so `Region_Resolve`'s "none" is unreachable and an arch's notch cannot be forgotten. The emitted table IS the const the ensures read. Each guard was proven red by inversion (the parcel's commits).
+
+**What parcel 1 is and is not.** OJZ act 1's table is a 1:1 transcription of its nine sections, so steps 1–4 changed no pixel: a re-scoping whose ROM cost is a small net loss (the table and the crossing outweigh the 72 bytes the Sec deletion recovered; measured per step in the commits) and +12 RAM. What it buys is an identity edge off the section grid — step 5, an authored sub-section edge, not yet shipped. The background still belongs to the section (`sec_bg_layout`); that is parcel 2's seam. The out-of-assembler reader is `tools/region_table.py`; the crossing gate polls `Region_Current`. Design: `docs/superpowers/designs/2026-09-09-regions-v1-design.md`.
 
 ### 4.3 Pre-Computed Nametable Data (Block-Based) (confirmed by Batman & Robin)
 
@@ -2430,7 +2452,7 @@ Producer-consumer pattern: all tile writes are buffered in RAM during the game l
 
 **`Section_RedrawPlanes` is the level-init / cache-recovery draw only** (triggered by `Section_Plane_Dirty`, which has exactly two setters in the tree today — level init and the DEBUG warp — per `engine/level/section.emp`'s own comment naming both). It writes **all 64 rows** of all 64 Plane B columns (`moveq #32-1` longwords per column = 64 words = rows 0..63, NEW-5 2026-08-05 — a prior 32-row half-strip silently reverted BG art in rows 32-63) + 64-column Plane A synchronously via direct VDP pokes with interrupts masked. Both planes are now written column-major (autoinc $80, per-column VDP address, one `move.l` = two vertically-adjacent cells); the mask (`move.w #$2700, sr`) is required because VBlank's `VInt_DrawLevel` repoints the VDP address and resets the autoincrement register to $02, which would corrupt remaining column writes mid-loop. After init, the camera scrolls freely with only edge streaming; there is no recovery redraw on the normal path.
 
-**Per-section parallax snap on boundary crossing.** Sections retain distinct parallax configs (§4.6). The snap that an earlier draft fired on teleport now fires on **section-boundary crossing**: the camera detects a change in `(Camera_X >> SECTION_SIZE_SHIFT)` (or Y) frame-to-frame, looks up the entered section's `sec_parallax_config`, and snaps (vs lerps) the parallax bands. `Parallax_Snap_Pending` is sourced from that boundary-crossing check rather than from a teleport handler.
+**Per-region parallax snap on crossing.** Regions carry distinct parallax configs (§4.6, §4.2b). The snap that an earlier draft fired on teleport fires on a **region crossing**: the camera centre leaves the live region rectangle frame-to-frame (it was a change in `Camera_X >> SECTION_SIZE_SHIFT` until painted-regions v1), the entered region's identity is installed, and the parallax bands snap or lerp from the resolved config's `pcfg_transition`. `Parallax_Snap_Pending` is sourced from that crossing check rather than from a teleport handler.
 
 ### 4.5 Camera System (from S.C.E. ExtendedCamera, enhanced)
 
@@ -2759,7 +2781,7 @@ capability bit.
 | `Parallax_Current_Vscroll_BG` | 2 | no |
 | `Parallax_Current_Config / Target_Config` | 8 | no |
 | `Parallax_Transition_Frames / Snap_Pending` | 2 | no |
-| `Parallax_Prev_Sec_X/Y` | 2 | no |
+| pad (was `Parallax_Prev_Sec_X/Y`; the region cache `Region_Cur_*` lives OUTSIDE the span, §4.2b) | 2 | no |
 | `Parallax_Vscroll_Column_Buf` | 80 | no |
 | `Parallax_Curve_Carry[CURVE_CARRY_WORDS]` | 4 | no (capability) |
 | `Parallax_Drift_Acc[DRIFT_ACC_LONGS × MAX]` | 0 (64 under `CAP_BAND_DRIFT`) | **yes** (4 × MAX, capability) |
@@ -2848,7 +2870,7 @@ Continuous scrolling makes "streaming" a steady per-frame edge process rather th
 - Section-local ROM entity data (positions relative to the section, §4.9.1/4.9.2) and section_id-keyed respawn/kill memory (§4.9.5) are coordinate-invariant — large levels and the future floating-origin rebase never touch the static section data
 
 **Section + Parallax (4.6):**
-- Each section's `sec_parallax_config` loads a new config when the camera crosses into the section (a change in `Camera >> SECTION_SIZE_SHIFT`); the 16-frame lerp eases ordinary crossings, `pcfg_transition`/`Parallax_Snap_Pending` forces an instant snap when the config demands it
+- Each REGION's identity — its preset, and its rung-1 parallax config — loads when the camera centre enters its rectangle (§4.2b); the 16-frame lerp eases ordinary crossings, `pcfg_transition`/`Parallax_Snap_Pending` forces an instant snap when the config demands it
 - Different sections in the same zone can have different parallax (outdoor → cave → underwater)
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
 
@@ -2859,7 +2881,7 @@ Each section could define its own animated tile set via `sec_anim_blocks` — co
 The visibility-derived window preserves entity state for sections inside the 2×2 tracked window naturally — mask bits carry over by section identity at every slide. Collected rings stay collected, destroyed objects stay gone, as long as the section remains tracked. Once a section leaves the window, revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5), keyed by section_id, extends this to ±1 section of backtrack regardless of where the camera is in world space.
 
 **Transition / Blend Sections (NOVEL — PLANNED, not implemented):**
-Transition cells in the grid would interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event. **Status:** only the parallax leg exists (per-section `sec_parallax_config` with the 16-frame lerp, above). No palette-BLEND code ships — the per-section base palette does install on a crossing (`EffectsPreset.ep_pal`, §4.12b; the `sec_pal` field it used to come from is deleted) but interpolating BETWEEN two sections' palettes across a cell is design-stage (§7.1 and the §7 banner; see also DEFERRED_WORK.md "Palette transition on section crossing"); the physics leg is the deferred modifier half of §5.2 (DEFERRED_WORK.md §5).
+Transition cells in the grid would interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event. **Status:** only the parallax leg exists (per-region `rg_parallax` / preset parallax with the 16-frame lerp, above; per-section `sec_parallax_config` until painted-regions v1). No palette-BLEND code ships — the per-region base palette does install on a crossing (`EffectsPreset.ep_pal`, §4.2b / §7.12; the `sec_pal` field it used to come from is deleted) but interpolating BETWEEN two sections' palettes across a cell is design-stage (§7.1 and the §7 banner; see also DEFERRED_WORK.md "Palette transition on section crossing"); the physics leg is the deferred modifier half of §5.2 (DEFERRED_WORK.md §5).
 
 **Streaming During Cutscenes:**
 During boss deaths, story sequences, or triggered animations the camera is usually still, so the edge streamer is idle and the DMA queue has spare capacity. There is no per-section art preload to run (art is resident); cutscene time is instead free budget for effects and audio work.
@@ -3245,7 +3267,7 @@ The reason the warp is an engine feature rather than a client trick is that a ba
 4. `Section_Init` — re-stamps `Current_Act_Ptr`, reseeds the four `Section_*_Written` trackers via `Section_FillInitial`, recentres the entity window via `EntityWindow_Init`;
 5. `PageCache_ResetRefcounts` then `Tile_Cache_Init` — the latter reseeds *every* streaming latch (window bounds, circular origins, resume sentinels, `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the H-prefetch direction and accumulator, the `$FFFF` ahead-target sentinels), invalidates block staging and refills;
 6. `Plane_Buffer_Reset`, `Section_Plane_Dirty`, `Section_UpdateColumns` — drop any stale pre-warp plane entry, then the synchronous full redraw;
-7. force a section crossing (`Parallax_Prev_Sec_X/Y = $FF`, `Parallax_Snap_Pending`, then `Parallax_CheckBoundary`) so the destination's palette / cycle / variants / raster install through the **one path a walked crossing takes** (`Effects_InstallPreset`), rather than a second copy of that logic; then `BgAnim_Init` + `Parallax_Update`;
+7. force a region crossing (the region sentinel `Region_Cur_X0/X1 = $FFFF/$0000` + `clr.l Region_Current`, `Parallax_Snap_Pending`, then `Parallax_CheckBoundary`) so the destination's palette / cycle / variants / raster install through the **one path a walked crossing takes** (`Effects_InstallPreset`), rather than a second copy of that logic; then `BgAnim_Init` + `Parallax_Update`;
 8. clear the flag.
 
 **Placement semantics — what a client actually gets.** Two behaviours were measured from outside and misread; both are settled here, and one of them was a defect that is now fixed.
@@ -3299,7 +3321,7 @@ It does three things and no more: clamp + publish; write the leader's position *
 
 The §4.12a feet-planted-lift hazard cannot arise on this path either: there is no `Player_SetState` after the position write (`Player_Init` has already run the entry sequence), so nothing re-normalises the box on top of the placement.
 
-**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. This was **unobservable** when the hook was written — every OJZ act 1 section bound `sec_parallax_config: default`, so the select returned the act default whatever index it was handed and poisoning that half of the hook changed no measurement (verified) — and the gate asserted that *premise* with a tripwire rather than implying coverage it did not have. Both halves ended on 2026-08-26: the select became the shared `Effects_ResolveParallax` (so it reads the preset rung too), aurora's first authored scene bound section (0,0)'s own `sec_parallax_config`, and the tripwire was **replaced by a direct witness** — `boot_override_gate` now reads `Parallax_Current_Config` at the init's exit against a restatement of the resolver's three rungs, and fails on a source poison. What a crossing installs is a different question with a different sampling rule, and has its own gate: see §7.12's "Both callers are gated".
+**The second consumer** is the init's parallax config select. Since painted-regions v1 it resolves the REGION under the camera centre, which the override has already placed (§4.2b); until then it read `Act.start_sec_x/y`, and under an override the section containing the (clamped) destination. This was **unobservable** when the hook was written — every OJZ act 1 section bound `sec_parallax_config: default`, so the select returned the act default whatever index it was handed and poisoning that half of the hook changed no measurement (verified) — and the gate asserted that *premise* with a tripwire rather than implying coverage it did not have. Both halves ended on 2026-08-26: the select became the shared `Effects_ResolveParallax` (so it reads the preset rung too), aurora's first authored scene bound section (0,0)'s own `sec_parallax_config`, and the tripwire was **replaced by a direct witness** — `boot_override_gate` now reads `Parallax_Current_Config` at the init's exit against a restatement of the resolver's three rungs, and fails on a source poison. What a crossing installs is a different question with a different sampling rule, and has its own gate: see §7.12's "Both callers are gated".
 
 **Shape rules.** Everything is inside `if DEBUG == 1`, and — unlike the warp consumer — **nothing new is a `proc`**. The clamp and the camera centring are `comptime fn … -> Code` templates (`clamp_and_publish`, `center_camera_on`) shared with `Debug_Warp_Consume`. That is a constraint, not a preference: a proc whose body is wholly `if DEBUG == 1` emits zero release *bytes* but still declares a release *label*, and although only one symbol per address survives into the deb2 address table, the dropped duplicates still feed the appendix's **name trie**, so the appendix changes size and every release CRC moves. Measured on this parcel: three zero-byte procs parked against `Debug_Warp_Consume` took `s4.bin` from `d00dd11d`/698411 to `84df688f`/698409 — identical through `EndOfRom` (`$A11C0`), appendix-only, and still a changed ROM. Templates declare no symbol at all. With them, `s4.bin` (`d00dd11d`), `demo.bin` (`7db47b7b`) and `demo.debug.bin` (`30696400`) are byte-identical to master.
 
@@ -4001,7 +4023,7 @@ DAC (6.2, shipped shape)
 > siblings, effects-P3-C2 Task 13): `Sec.sec_pal` / `Sec.sec_raster_table` were left
 > as descriptor-only fields with **zero code readers**, and were **deleted on
 > 2026-09-04** (§4.2) — a section instead names one
-> `EffectsPreset` via `Sec.sec_effects`, and `Effects_InstallPreset` resolves the
+> `EffectsPreset` via `Sec.sec_effects` (a region's `rg_effects` since painted-regions v1), and `Effects_InstallPreset` resolves the
 > preset's own `ep_pal`/`ep_raster` pointers at the crossing. The dispatcher lives in
 > `engine/effects/raster.emp` and the palette module in `engine/effects/palette.emp`
 > (split out of `engine/system/hblank.emp` / `buffers.emp`; `hblank` is the RAM
@@ -4102,8 +4124,8 @@ reserves `ep_transition` to claim it, deliberately unused by any Parcel-C2 fixtu
 that parcel's gate stays clean. So the load is still an instant snap in practice.
 
 **How a section binds all of this changed in Parcel C2.** `sec_pal` and `sec_pal_cycle`
-are no longer read directly on a crossing: a section names ONE `EffectsPreset` through
-`Sec.sec_effects`, and `Effects_InstallPreset` writes every channel — palette,
+are no longer read directly on a crossing: a region names ONE `EffectsPreset` through
+`Region.rg_effects` (a section did, through `Sec.sec_effects`, until painted-regions v1), and `Effects_InstallPreset` writes every channel — palette,
 parallax, raster, patched template, cycling, variants. See §7.12.
 
 **Shared line-0 slots — the per-character line-0 convention (game-side).** CRAM line 0 is the **per-character** line: `Player_RefreshPhysics` swaps the active `Player_Chardef`'s `cd_palette` (Pal_SonicTails or Pal_Knuckles) into `Palette_Buffer` line 0 on a character change. Every sprite drawn with palette 0 therefore renders through whichever character is active, so **a slot the character palettes disagree about recolours that sprite on a swap**. The line-0 shared drawers and the indices they use: the effect dust (`DustPuff` / `DustSpindash`) at **0/4/6/7**, authored gray; the insta-shield (`Art_InstaShield`) at **0/6/7/8**; the spring (`Art_Spring`) at **0/1/6/7/8/12/13** (the donor's index-9 coil grey is moved onto 8, see below). HUD/rings live on line 1 and are unaffected; the Tails appendage rides line 0 only while Tails is active, and Tails shares Sonic's palette file.
@@ -4273,7 +4295,7 @@ All from ONE handler walking ONE table. No per-effect handler swapping, no prior
 
 **Corrected 2026-08-14 — there IS a limit, and it binds.** This paragraph used to claim "no limit on how many effects stack in a single frame". `RASTER_BUF_SIZE` is 128 bytes = 64 words, and `raster_program` refuses anything longer (the VBlank walker and the water installer both copy a fixed 128 bytes, so a longer program would be truncated live). Header + two priming records + terminator is ~9 words and a CRAM-class event is ~7-9, so **a program caps at roughly 6-8 events depending on op mix** — one full-line palette boundary alone is 51 of the 64. Raising the buffer is a RAM change (two arrays in `engine/ram.emp` plus the pins) and is not currently planned; see `docs/EFFECTS_AUTHORING.md`'s size-ceiling section for the arithmetic.
 
-**Section installs its raster table:** through `EffectsPreset.ep_raster` / `ep_patched`, named by the section's `sec_effects` preset — `Effects_InstallPreset` stages it on the boundary crossing. (The `sec_raster_table` field this used to name lost its reader at effects-P3-C2 Task 13 and was deleted on 2026-09-04 — §4.2.) Default is an empty table (just the terminator) — zero cost when no raster effects are needed.
+**A region installs its raster table:** through `EffectsPreset.ep_raster` / `ep_patched`, named by the region's `rg_effects` preset — `Effects_InstallPreset` stages it on the region crossing. (The `sec_raster_table` field this used to name lost its reader at effects-P3-C2 Task 13 and was deleted on 2026-09-04 — §4.2.) Default is an empty table (just the terminator) — zero cost when no raster effects are needed.
 
 **Build-time generation:** The build tool compiles high-level raster effect descriptions (water line, parallax bands, nametable splits) into sorted command tables. The 68K never sorts or builds tables at runtime.
 
@@ -4446,13 +4468,16 @@ Oscillator System (7.5)
       → Screen shake reads oscillator for natural amplitude variation
 ```
 
-### 7.12 Effect binding: one preset per section (TOTAL BINDING)
+### 7.12 Effect binding: one preset per region (TOTAL BINDING)
 
-> **SHIPPED — effects P3 Parcel C2, 2026-08-14.**
+> **SHIPPED — effects P3 Parcel C2, 2026-08-14; re-scoped from the section to the REGION by
+> painted-regions v1, 2026-09-13 (§4.2b).**
 
-A section binds every visual effect through ONE pointer: `Sec.sec_effects`
-(offset `$1C`) names an `EffectsPreset` (`engine/effects/preset.emp`), and
-`Effects_InstallPreset` writes **every channel** on the crossing.
+A region binds every visual effect through ONE pointer: `Region.rg_effects`
+(offset `$08`) names an `EffectsPreset` (`engine/effects/preset.emp`), and
+`Effects_InstallPreset` writes **every channel** on the crossing. Until 2026-09-13 the pointer
+was the section's (`Sec.sec_effects`); the paragraphs below that describe the section field
+are its history, and every mechanism they describe carried over unchanged.
 
 *(This paragraph stated `$34` and **38 bytes** until 2026-09-09. Both were true when
 written and both were superseded by changes recorded in this very section: the field
@@ -4466,7 +4491,7 @@ this table is a reader's copy.** No number here is a value anything derives from
 ```
 EffectsPreset      $00 ep_pal            required — the preset CARRIES the palette
                    $04 ep_parallax        0 = defer to the act default (the one legal 0); a non-zero
-                                          Sec.sec_parallax_config outranks it (Effects_ResolveParallax)
+                                          Region.rg_parallax outranks it (Effects_ResolveParallax)
                    $08 ep_raster          static program; 0 illegal, use Raster_Program_None
                    $0C ep_patched         patched template (water / world-anchored gradient)
                    $10 ep_cycle           0 illegal, use Pal_Cycle_None
@@ -4497,8 +4522,9 @@ consumers — so Parcel C2 widened nothing. Then, once every channel it replaced
 its own reader, the nine fields it superseded were deleted (2026-09-04, §4.2): `sizeof(Sec)`
 went 66 → 34 and `sec_effects` moved to `$1C`. The stride is `ensure`-pinned in
 `section.emp` and `tile_cache.emp` and spelled `#sizeof(Sec)` in both runtime multiplies,
-so the move cost no engine edit — only the three gate tools that keep their own copy of
-the layout.
+so the move cost no engine edit — only the three gate tools that kept their own copy of
+the layout. (Painted-regions v1 then moved the pointer to `Region.rg_effects`, `$08`, and deleted
+the section field, 34 → 26; since then none of those tools copies a layout — §4.2.)
 
 **One patched channel, generically named.** `ep_raster` and `ep_patched` are mutually
 exclusive, enforced at comptime by `preset()`, because they route through DIFFERENT
@@ -4513,8 +4539,9 @@ structurally unrepresentable rather than merely checked.
 **Install ordering** has exactly one hard constraint: `ep_transition` must arm before
 the palette load, because `Pal_Fade_Request` is a one-shot the load consumes.
 `Effects_InstallPreset` returns the resolved parallax config in `a0` — through
-`Effects_ResolveParallax`, the ONE resolver (precedence `Sec.sec_parallax_config` >
-`ep_parallax` > `Act.act_parallax_config`) that the boot select also calls, so the first
+`Effects_ResolveParallax`, the ONE resolver (precedence `Region.rg_parallax` >
+`ep_parallax` > `Act.act_parallax_config`; `Sec.sec_parallax_config` held rung 1 until
+painted-regions v1 — three rungs before, three after) that the boot select also calls, so the first
 painted frame and every crossing agree (closed 2026-08-26; the two sites used to read
 different pairs of the three) — and does NOT call
 `Parallax_StartTransition` itself — that would make `engine/effects` depend on
@@ -4523,11 +4550,13 @@ different pairs of the three) — and does NOT call
 **Both callers are gated, and by different gates on purpose.** `tools/boot_override_gate.py`
 witnesses the BOOT select, sampling `Parallax_Current_Config` at the level init's exit —
 deliberately before any `Parallax_CheckBoundary`, which would launder a wrong choice into a
-right one. `tools/parallax_crossing_gate.py` witnesses the CROSSING, and only ever samples
-after one: it boots an eighth of a section short of the OJZ (0,0)|(1,0) edge and WALKS the pad
-across it and back, so both crossings are edge-triggered by `Camera_Update` rather than by the
-warp (which sets `Parallax_Snap_Pending` and teleports the camera). Section (0,0) is the only
-section in the act where all three rungs hold different pointers — the aurora editor record,
+right one — against the region the ROM's own table places under the camera centre.
+`tools/parallax_crossing_gate.py` witnesses the CROSSING, and only ever samples after one: it
+boots an eighth of a section short of the OJZ (0,0)|(1,0) edge and WALKS the pad across it and
+back, detecting each crossing by `Region_Current` changing (the region-era detector), so both
+crossings are edge-triggered by `Camera_Update` rather than by the warp (which sets
+`Parallax_Snap_Pending` and teleports the camera). The region over section (0,0) is the only
+one in the act where all three rungs hold different pointers — the aurora editor record,
 `OJZ_Preset_Sec0`'s `ep_parallax`, and the act default — so it is the one place the precedence
 is observable, and the crossing gate raises a setup error rather than passing if content ever
 makes any two of them coincide. Each crossing is checked against the entered config's own

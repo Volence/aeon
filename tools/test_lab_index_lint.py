@@ -20,9 +20,9 @@ offsets is bounded by anything sigil can see:
     (`Parallax_StartTransition` / `Raster_Install` / `Effects_InstallPreset`), so a
     row whose kind disagrees with its sub-index hands one table's index to another
     table;
-  * a PRESET row's sub-index is a flat SECTION id resolved as
-    `Act.sec_grid_ptr + sub * sizeof(Sec)`, so a row naming a section the act does not
-    have resolves into whatever ROM follows the section grid;
+  * a PRESET row's sub-index is a REGION index resolved as
+    `Act.act_regions + sub * sizeof(Region)` (painted-regions v1), so a row naming a region
+    the act does not have resolves into whatever ROM follows the region table;
   * the four name letters are `lsl.w #5` offsets into `Debug_TierTags_Update`'s
     26-tile `.alphabet`, so a letter index past 'Z' DMAs whatever follows the sheet
     into the tag.
@@ -48,8 +48,8 @@ EVERY EXPECTATION IS DERIVED. There is no 37, no 21, no 6, no 9 and no letter in
 file. Row widths come from LAB_ENTRY_SIZE and LAB_NAME_CELLS as those constants are
 spelled; the scene bound from the `.scene_table` rows themselves and from
 SCENE_CYCLE_COUNT in the registry; the raster bound from the `.raster_table` rows and
-RASTER_CYCLE_COUNT; the section bound from the ACT's own `const GRID_W`/`GRID_H` and its
-`pub data OJZ_Act1_Sections: [Sec; N]` arity; the alphabet size from ALPHABET_GLYPHS.
+RASTER_CYCLE_COUNT; the region bound from the ACT's own
+`pub data OJZ_Act1_Regions: [Region; N]` arity; the alphabet size from ALPHABET_GLYPHS.
 
 LOUD RATHER THAN GREEN WHEN IT CANNOT MEASURE. Every parse below raises with the file
 and the pattern it could not find. A gate that quietly finds zero rows and passes is the
@@ -62,7 +62,7 @@ in this parcel's report. The arms and their mutations:
   * flip a SCENE row's kind to RASTER       -> test_scene_rows_are_a_dense_run_over_the_scene_table
                                                (and the raster arm, which then sees a
                                                duplicate sub-index)
-  * point a PRESET row at section 9         -> test_preset_rows_are_inside_the_acts_own_grid
+  * point a PRESET row at region 9          -> test_preset_rows_are_inside_the_acts_own_region_table
   * misspell one name letter (LTR_Q -> Q)   -> test_every_name_is_four_defined_letters
   * copy one row's name onto another        -> test_no_two_entries_spell_the_same_word
   * change a raster row's name to a word
@@ -103,7 +103,7 @@ _SUM_CONST = re.compile(
 _BLOCK_END = r"(?=^\s*(?:export\s+)?[.\w]+:\s*$|^\s*\}\s*$)"
 _ROW = re.compile(r"^\s*dc\.b\s+([^/\n]+?)\s*(?://.*)?$", re.M)
 _DC_L = re.compile(r"^\s*dc\.l\s+([^/\n]+?)\s*(?://.*)?$", re.M)
-_ACT_SEC_ARITY = re.compile(r"^pub\s+data\s+\w+\s*:\s*\[\s*Sec\s*;\s*(\d+)\s*\]", re.M)
+_ACT_REGION_ARITY = re.compile(r"^pub\s+data\s+\w+\s*:\s*\[\s*Region\s*;\s*(\d+)\s*\]", re.M)
 
 
 def _read(path: Path) -> str:
@@ -228,31 +228,18 @@ def sub_indices(kind_name: str) -> list[int]:
     return out
 
 
-def act_section_count() -> int:
-    """grid_w x grid_h for OJZ act 1, cross-read against the Sec table's own arity."""
-    values = _consts(ACT)
-    for name in ("GRID_W", "GRID_H"):
-        if name not in values:
-            raise AssertionError(
-                f"{ACT.name}: could not resolve `const {name}`. A preset row's sub-index "
-                "is a flat section id into this act's grid; without the grid this lint "
-                "cannot bound it and must not pass."
-            )
-    product = values["GRID_W"] * values["GRID_H"]
-    m = _ACT_SEC_ARITY.search(_read(ACT))
+def act_region_count() -> int:
+    """The row count of OJZ act 1's region table: the arity of its
+    `pub data <name>: [Region; N]`. A PRESET row's sub-index indexes that table since
+    painted-regions v1 (2026-09-13); the act's own ensures tie N to the rows it emits."""
+    m = _ACT_REGION_ARITY.search(_read(ACT))
     if m is None:
         raise AssertionError(
-            f"{ACT.name}: could not find the `pub data <name>: [Sec; N]` section table. "
-            "This lint cross-reads the grid product against that arity so a grid that "
-            "drifted from its own table cannot silently widen the bound."
+            f"{ACT.name}: could not find the `pub data <name>: [Region; N]` region table. A "
+            "preset row's sub-index indexes that table; without its arity this lint cannot "
+            "bound it and must not pass."
         )
-    arity = int(m.group(1))
-    assert product == arity, (
-        f"{ACT.name}: grid_w x grid_h is {product} but the section table is declared "
-        f"`[Sec; {arity}]`. The act's own `ensure` fails the build on this too; fix it "
-        "there. Until then this lint cannot say how many sections the act has."
-    )
-    return product
+    return int(m.group(1))
 
 
 # ---------------------------------------------------------------- the arms
@@ -400,22 +387,23 @@ def test_raster_rows_are_a_dense_run_with_one_off_row_last():
     )
 
 
-def test_preset_rows_are_inside_the_acts_own_grid():
-    """A preset sub-index is a flat SECTION id, resolved with no runtime table."""
+def test_preset_rows_are_inside_the_acts_own_region_table():
+    """A preset sub-index is a REGION index (painted-regions v1), resolved as
+    `Act.act_regions + sub * sizeof(Region)` with no runtime table of its own."""
     subs = sub_indices("LAB_KIND_PRESET")
-    sections = act_section_count()
+    regions = act_region_count()
     assert subs == list(range(len(subs))), (
         f"{LAB.name}: the PRESET rows' sub-indices are {subs}, which is not a dense "
-        "0..N-1 run in order. They are flat section ids; out of order the readout's "
-        "section digit disagrees with the order a reviewer walks them in."
+        "0..N-1 run in order. They are region indices; out of order the readout's "
+        "digit disagrees with the order a reviewer walks them in."
     )
-    assert len(subs) <= sections, (
+    assert len(subs) <= regions, (
         f"{LAB.name}: the one list holds {len(subs)} PRESET row(s) but OJZ act 1 has "
-        f"{sections} section(s) ({ACT.name}, grid_w x grid_h). A row naming a section the "
-        "act does not have resolves `Act.sec_grid_ptr + sub * sizeof(Sec)` into whatever "
-        "ROM follows the section grid and hands it to Effects_InstallPreset. The hotkey "
-        "has a runtime bound too, and it would STAND DOWN — so the visible symptom is a "
-        "row that does nothing, which is worse to debug than a build failure."
+        f"{regions} region row(s) ({ACT.name}, its `[Region; N]` table). A row naming a region "
+        "the act does not have resolves `Act.act_regions + sub * sizeof(Region)` into whatever "
+        "ROM follows the region table and hands it to Effects_InstallPreset. The hotkey "
+        "has a runtime bound too (Act.act_region_count), and it would STAND DOWN — so the "
+        "visible symptom is a row that does nothing, which is worse to debug than a build failure."
     )
     digit_max = const("PRESET_CYCLE_MAX")
     assert len(subs) <= digit_max, (

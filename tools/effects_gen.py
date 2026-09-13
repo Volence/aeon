@@ -376,8 +376,8 @@ def _check_reels(path: str, scene: dict, bands: int) -> None:
 # engine holds to the ACTIVE parallax_config. `Effects_ResolveParallax`
 # (engine/effects/preset.emp) resolves that pointer through three rungs:
 #
-#   1. Sec.sec_parallax_config   the PER-SECTION binding — the editor's `sceneRef`,
-#                                lowered by THIS generator, one `pub data` per section
+#   1. Region.rg_parallax        the PER-REGION binding — the editor's `sceneRef`, lowered by
+#                                THIS generator, one `pub data` per section sidecar
 #   2. EffectsPreset.ep_parallax the PRESET binding, SHARED by every section whose
 #                                `preset()` names it
 #   3. Act.act_parallax_config   the act default, shared by everything that falls through
@@ -431,12 +431,48 @@ _IDENT_PATH = re.compile(r"^[A-Za-z_]\w*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_]\w*)*$
 _CALL_HEAD = re.compile(
     r"^([A-Za-z_]\w*(?:[ \t\r\n]*\.[ \t\r\n]*[A-Za-z_]\w*)*)[ \t\r\n]*\(")
 _SEC_ARG = re.compile(r"\bsec[ \t\r\n]*:[ \t\r\n]*(\d+)[ \t\r\n]*(?:,|\)|$)")
-# `ojz_sec(sec: N, ..., effects: OJZ_Preset_SecN, ...)` in the act descriptor. Read as
-# two independent streams and paired by position — each `effects:` belongs to the
-# nearest NUMERIC `sec:` before it — rather than by a game-specific constructor name,
-# which this generator does not know and must not hardcode.
+# `ojz_sec(sec: N, ..., effects: OJZ_Preset_SecN, ...)` and, since painted-regions v1,
+# `ojz_region(..., effects: OJZ_Preset_SecN, parallax: ojz_act1_sec_scene(sec: N))` in the
+# act descriptor. Each `effects:` is paired with the NUMERIC `sec:` inside ITS OWN CALL — the
+# balanced parentheses enclosing it, nested chooser calls included — rather than by a
+# game-specific constructor name, which this generator does not know and must not hardcode.
+#
+# IT USED TO BE "the nearest numeric `sec:` BEFORE it", and that was a claim about the
+# argument ORDER of one constructor. The region rows name their preset before their sidecar
+# key, so under that rule every row paired with the PREVIOUS row's key: measured on the
+# painted-regions step-1 tree, all nine sections mapped to their neighbour's preset and
+# section 8 to section 0's, with four ROM shapes and every pytest lane green. A constructor
+# DECLARATION (`effects: Label`, whose own parentheses hold `sec: int` or no `sec:` at all)
+# and a call naming two different indices pair with nothing: the caller refuses without a
+# section number rather than this reader inventing one.
 _SEC_INDEX = re.compile(r"\bsec[ \t]*:[ \t]*(\d+)\b")
 _SEC_EFFECTS = re.compile(r"\beffects[ \t]*:[ \t]*([A-Za-z_]\w*)")
+
+
+def _enclosing_call_span(src: str, pos: int) -> tuple:
+    """(start, end) of the innermost `( ... )` enclosing `pos`, or None at top level."""
+    depth = 0
+    i = pos - 1
+    while i >= 0:
+        ch = src[i]
+        if ch == ")":
+            depth += 1
+        elif ch == "(":
+            if depth == 0:
+                break
+            depth -= 1
+        i -= 1
+    if i < 0:
+        return None
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "(":
+            depth += 1
+        elif src[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return i, j + 1
+    return None
 
 
 def _strip_line_comments(src: str) -> str:
@@ -535,10 +571,10 @@ def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
 
 
 def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
-    """{section index: the EffectsPreset symbol its `Sec` record binds}.
+    """{sidecar index: the EffectsPreset symbol the act descriptor binds to it}.
 
-    Read from the act descriptor, which is the only place the section->preset edge is
-    written down. Returns {} when the descriptor is absent — the caller then refuses
+    Read from the act descriptor, which is the only place that edge is written down — a region
+    row's `effects:` beside its sidecar's `sec:` (painted-regions v1; a `Sec` row until then). Returns {} when the descriptor is absent — the caller then refuses
     WITHOUT a section number rather than inventing one, and says so in the message.
     """
     path = names.descriptor_path(repo)
@@ -546,12 +582,14 @@ def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
         return {}
     with open(path, "r") as f:
         src = _strip_line_comments(f.read())
-    indices = [(m.start(), int(m.group(1))) for m in _SEC_INDEX.finditer(src)]
     out = {}
     for m in _SEC_EFFECTS.finditer(src):
-        prior = [sec for pos, sec in indices if pos < m.start()]
-        if prior:
-            out[prior[-1]] = m.group(1)
+        span = _enclosing_call_span(src, m.start())
+        if span is None:
+            continue
+        secs = {int(s.group(1)) for s in _SEC_INDEX.finditer(src, span[0], span[1])}
+        if len(secs) == 1:
+            out[secs.pop()] = m.group(1)
     return out
 
 

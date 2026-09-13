@@ -1371,8 +1371,8 @@ pub data OJZ_DepthVSplit: [u16; static_words()] = static_program(OJZ_DEPTH_VSPLI
 // The nine act_descriptor.emp sections today bind sec_pal/sec_raster_table/
 // sec_pal_cycle separately, each with "NULL means keep whatever the previous
 // section had" semantics. These five presets are the total-binding replacement:
-// ojz_sec() feeds each one into sec_effects, and Effects_InstallPreset writes
-// every channel on section entry, using the explicit _None sentinels for "off"
+// a region row names each one (Region.rg_effects), and Effects_InstallPreset writes
+// every channel on region entry, using the explicit _None sentinels for "off"
 // rather than leaving a field at 0/"keep".
 //
 // EVERY preset here carries `variants: [Variant_Water_Deep, 0]`, and that is
@@ -1637,7 +1637,7 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // channel that resolves to Raster_Program_None — and it exists ONLY so that section 5 has a
 // preset of its own to bind a `rasterRef` through.
 //
-// WHY A SPLIT IS NEEDED AT ALL: `Sec.sec_effects` is a per-section POINTER to a shared
+// WHY A SPLIT IS NEEDED AT ALL: `Sec.sec_effects` (Region.rg_effects now) is a POINTER to a shared
 // record, and sections 5-8 all pointed at OJZ_Preset_Plain. The chooser is keyed on a
 // SECTION INDEX, so threading `ojz_act1_sec_raster(sec: 5, ...)` into the shared record
 // would have given sections 6, 7 and 8 the same band. The friction is `sec_effects`'s, not
@@ -1792,7 +1792,7 @@ pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
 // section 0, which CANNOT bind an editor document at all"*, and concludes that the anchored
 // precondition and the authorable binding are mutually exclusive. The half of that which is
 // still true is section 0's; the conclusion is not, because `rowRemap` is a SCENE key and a
-// scene binds through `section_N.meta.json`'s `sceneRef` -> `Sec.sec_parallax_config` (rung 1
+// scene binds through `section_N.meta.json`'s `sceneRef` -> `Region.rg_parallax` (rung 1
 // of Effects_ResolveParallax), which has NO interaction with `ep_raster`/`ep_patched`
 // exclusivity.
 //
@@ -2422,7 +2422,7 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
         // terminator long and this walk is four instructions.
         //
         // The key is a UNIQUE handle only for a section bound at
-        // Effects_ResolveParallax's RUNG 1 (Sec.sec_parallax_config, the editor's
+        // Effects_ResolveParallax's RUNG 1 (Region.rg_parallax, the editor's
         // sceneRef). A section resolving through a preset (rung 2) or the act default
         // (rung 3) holds a pointer SHARED with other sections — tools/effects_gen.py
         // REFUSES a `reels` key in either case, by name, because that failure is
@@ -2485,7 +2485,7 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 // renderer, and `OJZ_GradientStream` is data and was never one of the six.
 // The rest are gate fixtures, a retired install, and two DEBUG-only demos.
 // EVERY ROW BELOW IS DERIVED FROM THE `preset()` CALLS IN THIS FILE plus the nine
-// `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp:239-361 —
+// `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp's `OJZ_Act1_Sections` —
 // a program "reaches a section" iff some preset names it AND that preset is bound there.
 //
 // ⚠ REFERENCE COUNTING IS THE WRONG INSTRUMENT HERE, and it is worth one line because it

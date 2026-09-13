@@ -39,11 +39,11 @@ ARTIFACT does not carry what the inputs say it should.
 THE RASTER SEAM IS A SECOND CALL SITE, IN A DIFFERENT FILE (EFFECTS-W1 item 1 step 5).
 The two scene choosers are called from `act_descriptor.emp`; the third — the raster
 chooser — is called from `games/sonic4/data/effects/ojz_effects.emp`, because a raster
-program is an `EffectsPreset` channel and not a `Sec` field. It needs its own check for
-the reason above AND for one more: `Sec.sec_effects` is a per-section POINTER to a record
-several sections may share, so threading a SECTION-KEYED chooser into a SHARED preset
-would silently give every one of those sections the same band. Step 2b checks that a
-preset which chooses on sec N is bound by exactly one section, and that it is N.
+program is an `EffectsPreset` channel and not a region field. It needs its own check for
+the reason above AND for one more: `Region.rg_effects` (Sec.sec_effects until painted-regions
+v1) is a POINTER to a record several rows may share, so threading a SIDECAR-KEYED chooser into
+a SHARED preset would silently give every one of those rows the same band. Step 2b checks that
+a preset which chooses on sec N is named by exactly one region row, and that it is keyed on N.
 
 Both halves are silent-and-green failures today: with no sidecar carrying a `rasterRef`
 the chooser resolves to `hand`, so deleting the call and typing the literal back leaves
@@ -262,17 +262,32 @@ def prescription(ch, fn: str, sec: int) -> str:
 
 
 def descriptor_effects_bindings(desc: str) -> dict:
-    """{sec index: the preset name that section's `ojz_sec(...)` binds}.
+    """{sidecar index: the preset name the region row keyed on that sidecar names}.
 
-    Sections that bind no `effects:` are absent rather than mapped to None — the
-    field defaults to 0 = "no preset" and that is a legal state, not a fault here.
+    Since painted-regions v1 a section binds no preset; a REGION row does, and each row names
+    its sidecar's scene binding as `parallax: <chooser>(sec: N)`. The section-keyed choosers
+    this gate checks are keyed by that same sidecar index, so it is the right key: a row whose
+    own call carries `effects: X` and exactly one numeric `sec: N` pairs N -> X. A row naming
+    no numeric `sec:` (no sidecar-keyed binding) is absent rather than mapped to None, and so
+    is a row naming two different indices. `//` comments are stripped first, so prose that
+    quotes a row cannot become one.
     """
+    code = re.sub(r"//[^\n]*", "", desc)
     out = {}
-    chunks = re.split(r"ojz_sec\s*\(\s*sec\s*:\s*(\d+)", desc)
-    for i in range(1, len(chunks), 2):
-        m = re.search(r"effects\s*:\s*([A-Za-z_][A-Za-z0-9_]*)", chunks[i + 1])
-        if m:
-            out[int(chunks[i])] = m.group(1)
+    for m in re.finditer(r"\bojz_region\s*\(", code):
+        if re.search(r"\bfn\s+$", code[:m.start()]):
+            continue                                  # the constructor's declaration
+        depth, j = 0, m.end() - 1
+        while j < len(code):
+            depth += {"(": 1, ")": -1}.get(code[j], 0)
+            if depth == 0:
+                break
+            j += 1
+        body = code[m.end():j]
+        em = re.search(r"\beffects\s*:\s*([A-Za-z_][A-Za-z0-9_]*)", body)
+        secs = {int(s) for s in re.findall(r"\bsec\s*:\s*(\d+)", body)}
+        if em and len(secs) == 1:
+            out[secs.pop()] = em.group(1)
     return out
 
 
@@ -281,9 +296,9 @@ def chooser_call_faults(calls: dict, bindings: dict, sections: int, fn: str,
     """The per-call-site invariants, shared by the `raster:` and `patched:` arms.
 
     THE INVARIANT, in one sentence: a preset whose channel is chosen BY SECTION INDEX must
-    belong to exactly one section, and to that index. `Sec.sec_effects` is a per-section
-    POINTER to a shared record (sections 6-8 share one today), so threading `<fn>(sec: N)`
-    into a record two sections point at silently gives BOTH the band — the design's §3.3(b)
+    belong to exactly one region row, and to that index. `Region.rg_effects` (Sec.sec_effects
+    until painted-regions v1) is a POINTER to a possibly shared record, so threading `<fn>(sec: N)`
+    into a record two rows point at silently gives BOTH the band — the design's §3.3(b)
     hazard, which has no other symptom. That hazard is a property of SECTION-KEYED CHOOSING,
     not of the raster channel, so it applies identically to `patched:` and the check is
     factored rather than copied (a copied check is the one that drifts).
@@ -687,19 +702,21 @@ def main() -> int:
     if f"{names.fn_sec_scene}(sec:" not in desc:
         fail(f"{DESCRIPTOR} imports {names.fn_sec_scene} but never calls it — no "
              f"section can carry an editor-authored scene.")
-    # EVERY section index reaches the binding, exactly once. The descriptor funnels
-    # the call through its own `ojz_sec` constructor, so what has to be checked is
-    # the INDEX each call site passes: a duplicated or missing `sec:` would leave a
-    # section permanently unbindable (or bound to another section's scene) with no
-    # other symptom, since every index resolves to 0 = "act default" today. Derived
-    # from project.json's grid, never typed.
+    # EVERY sidecar index reaches the binding, exactly once. Since painted-regions v1 the
+    # descriptor calls the scene chooser from its REGION rows (`parallax: <fn>(sec: N)`), so
+    # what has to be checked is the INDEX each of those call sites passes: a duplicated or
+    # missing `sec:` would leave a section's sidecar permanently unbindable (or bound to
+    # another row's scene) with no other symptom. Derived from project.json's grid, never
+    # typed; counted over the CALL with a literal index in comment-stripped source, so the
+    # chooser's declaration, a `sec: sec` pass-through and prose quoting a call cannot count.
     sections = effects_gen.act_section_count(REPO)
-    passed = sorted(int(n) for n in re.findall(r"ojz_sec\(sec:\s*(\d+)", desc))
+    code = re.sub(r"//[^\n]*", "", desc)
+    passed = sorted(int(n) for n in re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)", code))
     if passed != list(range(sections)):
-        fail(f"{DESCRIPTOR}'s section table passes sec indices {passed} to the "
-             f"binding constructor, but project.json's grid declares {sections} "
+        fail(f"{DESCRIPTOR}'s region rows pass sidecar indices {passed} to "
+             f"{names.fn_sec_scene}, but project.json's grid declares {sections} "
              f"sections ({list(range(sections))}). A missing index is a section "
-             f"that can never carry an editor scene; a duplicate is two sections "
+             f"whose sidecar can never carry an editor scene; a duplicate is two rows "
              f"sharing one binding slot. Neither has any other symptom.")
     calls = len(passed)
 

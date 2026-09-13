@@ -3357,7 +3357,7 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
 // PLANE, and the plane does not track the act 1:1 — it tracks it through the scene's own
 // vertical mapping, the SAME one Parallax_Step5_Vscroll applies to the camera:
 //
-//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (parallax.emp:1070-1075)
+//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (parallax.emp `Parallax_Step5_Vscroll`)
 //
 // So the plane line an authored world Y lands on is that expression evaluated at the TOP
 // instead of at the camera, and Step 4a's whole per-frame job is the subtraction of the

@@ -4608,3 +4608,38 @@ class TestTheContractNamesTheReelsKey(unittest.TestCase):
             f"`{effects_gen.REELS_KEY}`, which tools/effects_gen.py accepts as a "
             f"scene key. Adding a read is a CONTRACT change under this document's "
             f"own drift rule.")
+
+
+# ---------------------------------------------------------------------------------------
+# section_preset_symbols — each `effects:` pairs with the `sec:` of ITS OWN CALL.
+#
+# Red-first: under the old "nearest numeric `sec:` BEFORE it" rule the region row below pairs
+# OJZ_Preset_Sec5 with section 0 (the section row above it), and the constructor declaration's
+# `effects: Label` pairs the TYPE NAME with section 0 as well. Both are asserted absent here.
+# ---------------------------------------------------------------------------------------
+class _DescriptorAt:
+    def __init__(self, path):
+        self.path = path
+
+    def descriptor_path(self, repo=None):
+        return self.path
+
+
+def test_section_preset_symbols_pairs_within_one_call(tmp_path):
+    desc = tmp_path / "act_descriptor.emp"
+    desc.write_text(
+        "comptime fn ojz_sec(sec: int, blocks: Label, effects: Label) -> Sec {\n"
+        "    return Sec{ sec_parallax_config: ojz_act1_sec_scene(sec: sec), sec_effects: effects }\n"
+        "}\n"
+        "pub data S: [Sec; 1] = [\n"
+        "    ojz_sec(sec: 0, blocks: A, effects: OJZ_Preset_Sec0),\n"
+        "]\n"
+        "comptime fn ojz_region(x0: int, effects: Label, parallax: Label = 0) -> Region {\n"
+        "    return Region{ rg_effects: effects, rg_parallax: parallax }\n"
+        "}\n"
+        "const ROWS: [Region; 2] = [\n"
+        "    ojz_region(x0: 0, effects: OJZ_Preset_Sec5, parallax: ojz_act1_sec_scene(sec: 5)),\n"
+        "    ojz_region(x0: 9, effects: OJZ_Preset_Two, parallax: pick(sec: 1, other: f(sec: 2))),\n"
+        "]\n")
+    got = effects_gen.section_preset_symbols(_DescriptorAt(str(desc)))
+    assert got == {0: "OJZ_Preset_Sec0", 5: "OJZ_Preset_Sec5"}, got

@@ -50,8 +50,8 @@ name}. The preset entries are the last BLOCK of that list, so this instrument no
 
 WHY AN INSTRUMENT AND NOT A LINT. The two tiers beside this one each carry a `dc.l` table
 and a pytest lane that counts its rows, because a table can drift from the registry it
-mirrors. THIS TIER HAS NO TABLE — the cycle list is the act's own section grid, walked by
-`Act.sec_grid_ptr + cursor * sizeof(Sec)` — so there is nothing textual to lint and the
+mirrors. THIS TIER HAS NO TABLE — the cycle list is the act's own REGION table, walked by
+`Act.act_regions + cursor * sizeof(Region)` — so there is nothing textual to lint and the
 only question worth asking is a runtime one: does the press install, and does the glyph
 match. That question needs a machine.
 
@@ -98,19 +98,19 @@ section 5 to be EMPTY on the strength of a source comment, when section 5's side
 binds a real program and the ROM says so. The readout under test was RIGHT both times
 and the expectation was wrong. So nothing is typed now:
 
-  * the section list, its length and each `Sec*` come from the LIVE act, walked exactly
-    as the hotkey walks it (`Current_Act_Ptr` -> `Act.sec_grid_ptr` + cursor * 34, the
-    `SEC_SIZE` this file pins below — the "* 66" this line used to say was a stale stride
-    contradicted by this file's own code, booked as LS-20 by the 2026-09-06 lens sweep);
+  * the region list, its length and each `Region*` come from the LIVE act, walked exactly
+    as the hotkey walks it (`Current_Act_Ptr` -> `Act.act_regions` + cursor * sizeof(Region),
+    both layouts parsed out of engine/structs.emp by tools/region_table.py — this line said
+    `* 34`, and `* 66` before that: both were copied strides, and both went stale);
   * each preset's `ep_raster` / `ep_patched` / `ep_cycle` are read out of ROM at that
-    `Sec`'s own `sec_effects`, and the PARALLAX rung is resolved off the ROM's own
-    records the way `Effects_ResolveParallax` resolves it (`Sec.sec_parallax_config` >
+    region's own `rg_effects`, and the PARALLAX rung is resolved off the ROM's own
+    records the way `Effects_ResolveParallax` resolves it (`Region.rg_parallax` >
     `ep_parallax` > `Act.act_parallax_config`) — so the expected verdict is computed from
     the same four channels the proc reads, by an independent implementation of the
     documented rule. The proc CALLS the engine routine; this side reimplements it, which
     is what makes the two independent. It matters that the rung ladder is walked in full:
     OJZ act 1 sections 7 and 8 share ONE `EffectsPreset`, and differ only in
-    `Sec.sec_parallax_config`, so a derivation that stopped at `ep_parallax` would give
+    their rung-1 binding (Region.rg_parallax since v1), so a derivation that stopped at `ep_parallax` would give
     the floor and the control the same answer and could never fail on the defect the
     arrow verdict exists to fix;
   * both glyph sheets are read out of ROM at their own listing symbols, so a glyph edited
@@ -179,6 +179,7 @@ add_client_path()
 from aether import BusClient                      # noqa: E402
 from aether_instance import aether_emulator       # noqa: E402
 from raster_cost_probe import parse_lst           # noqa: E402
+import region_table                               # noqa: E402  (the one Region reader)
 
 BOOT_FRAMES = 180        # into real gameplay before the first press
 SETTLE_FRAMES = 6        # let VBlank consume Raster_Pending and the glyph DMAs land
@@ -190,14 +191,14 @@ V_NONE, V_BLIND, V_LIVE, V_PARALLAX = 0, 1, 2, 3
 V_NAMES = {V_NONE: "bar/none", V_BLIND: "X/blind", V_LIVE: "diamond/live",
            V_PARALLAX: "arrow/parallax"}
 
-SEC_SIZE = 34                  # sizeof(Sec) — engine/structs.emp's own stride pin
-SEC_EFFECTS = 0x1C             # Sec.sec_effects
-SEC_PARALLAX_CONFIG = 0x0C     # Sec.sec_parallax_config — rung 1 of the resolve
+# THE ACT AND REGION LAYOUTS ARE PARSED, NOT TYPED (painted-regions v1, 2026-09-13). The lab's
+# PRESET rows index the act's REGION table now, and tools/region_table.py reads both layouts
+# out of engine/structs.emp with its offset-comment cross-check — so this file no longer carries
+# SEC_SIZE = 34 and two Sec offsets that a struct change would silently stale.
+_ACT_OFF, _ACT_SIZE = region_table.struct_layout("Act")
+_RG_OFF, RG_SIZE = region_table.region_layout()
 EP_RASTER, EP_PATCHED, EP_CYCLE = 0x08, 0x0C, 0x10   # EffectsPreset field offsets
 EP_PARALLAX = 0x04             # EffectsPreset.ep_parallax — rung 2 of the resolve
-ACT_SEC_GRID, ACT_GRID_W, ACT_GRID_H = 0x00, 0x04, 0x06
-ACT_PARALLAX_CONFIG = 0x16     # Act.act_parallax_config — rung 3, and the BASELINE
-ACT_HDR = 0x1A                 # enough of the Act header to reach act_parallax_config
 PATCH_ANCHOR_NONE = 0x7FFF     # engine/effects/raster_dsl.emp; pinned below against ROM
 RASTER_MAX_PATCH = 4
 SCREEN_HEIGHT = 224            # engine/system/constants.emp
@@ -614,22 +615,22 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
     if not act:
         return 2, ["Current_Act_Ptr is 0 after boot — no act is loaded, so there is no "
                    "cycle list to walk and nothing below means anything"]
-    grid = await rd(b, act, ACT_HDR)
-    sec_grid = u32(grid, ACT_SEC_GRID)
-    act_parallax = u32(grid, ACT_PARALLAX_CONFIG)
+    grid = await rd(b, act, _ACT_SIZE)
+    regions = u32(grid, _ACT_OFF["act_regions"])
+    act_parallax = u32(grid, _ACT_OFF["act_parallax_config"])
     if not act_parallax:
         return 2, ["Act.act_parallax_config is 0 — the arrow verdict is decided by "
                    "comparing each section's RESOLVED parallax config against the act "
                    "default, and with no default there is nothing to compare against"]
-    count = int.from_bytes(grid[ACT_GRID_W:ACT_GRID_W + 2], "big") * \
-            int.from_bytes(grid[ACT_GRID_H:ACT_GRID_H + 2], "big")
+    o = _ACT_OFF["act_region_count"]
+    count = int.from_bytes(grid[o:o + 2], "big")
     if not 1 <= count <= 10:
-        return 2, [f"the act reports {count} sections; this instrument walks the whole "
+        return 2, [f"the act reports {count} regions; this instrument walks the whole "
                    f"cycle and the readout clamps at 10, so anything else needs the "
                    f"clamp handled explicitly rather than assumed"]
     none_prog = sym["Raster_Program_None"]
     none_cycle = sym["Pal_Cycle_None"]
-    print(f"act at ${act:06X}: {count} sections, table ${sec_grid:06X}; "
+    print(f"act at ${act:06X}: {count} regions, table ${regions:06X}; "
           f"Raster_Program_None ${none_prog:06X}, Pal_Cycle_None ${none_cycle:06X}; "
           f"act_parallax_config ${act_parallax:06X}")
 
@@ -637,18 +638,18 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         """(EffectsPreset*, ep_raster, ep_patched, ep_cycle, RESOLVED parallax*) from ROM.
 
         The parallax pointer is the three-rung resolve `Effects_ResolveParallax` performs
-        — Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config — reimplemented
+        — Region.rg_parallax > ep_parallax > Act.act_parallax_config — reimplemented
         here off the ROM's own records, which is the point: the proc under test CALLS that
         engine routine, and this side must not. Sections 7 and 8 of OJZ act 1 share ONE
         EffectsPreset, so a derivation that stopped at `ep_parallax` would give the floor
         and the control the same answer and could never fail on the defect this checks.
         """
-        sec = sec_grid + cursor * SEC_SIZE
-        ep = u32(await rd(b, sec + SEC_EFFECTS, 4))
+        rg = regions + cursor * RG_SIZE
+        ep = u32(await rd(b, rg + _RG_OFF["rg_effects"], 4))
         if not ep:
-            raise RuntimeError(f"section {cursor} has sec_effects == 0")
+            raise RuntimeError(f"region {cursor} has rg_effects == 0")
         f = await rd(b, ep, 0x14)
-        cfg = u32(await rd(b, sec + SEC_PARALLAX_CONFIG, 4))    # (1) the section's own
+        cfg = u32(await rd(b, rg + _RG_OFF["rg_parallax"], 4))  # (1) the region's own
         if not cfg:
             cfg = u32(f, EP_PARALLAX)                           # (2) the preset's
         if not cfg:
@@ -685,7 +686,7 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
                         "own default background")
 
     if sorted(row_of_section) != list(range(count)):
-        return 2, [f"the act reports {count} sections but `.lab_index`'s preset rows name "
+        return 2, [f"the act reports {count} regions but `.lab_index`'s preset rows name "
                    f"{sorted(row_of_section)} — the list and the act disagree, so a walk "
                    f"over one of them says nothing about the other. "
                    f"tools/test_lab_index_lint.py fails the build on this too"]

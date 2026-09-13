@@ -132,7 +132,9 @@ class TestGateAgainstTheRealTree(unittest.TestCase):
         self.assertIn(names.fn_act_default, desc)
         self.assertIn(names.fn_sec_scene, desc)
         import re
-        passed = sorted(int(n) for n in re.findall(r"ojz_sec\(sec:\s*(\d+)", desc))
+        code = re.sub(r"//[^\n]*", "", desc)
+        passed = sorted(int(n) for n in
+                        re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)", code))
         self.assertEqual(passed, list(range(effects_gen.act_section_count(REPO))))
 
 
@@ -198,25 +200,30 @@ class TestRasterCallSiteParse(unittest.TestCase):
 
 
 class TestDescriptorBindingParse(unittest.TestCase):
-    """`descriptor_effects_bindings` — which section points at which preset."""
+    """`descriptor_effects_bindings` — which sidecar's region row names which preset
+    (painted-regions v1: region rows bind presets; sections bind none)."""
 
-    SRC = ("    ojz_sec(sec: 4, blocks: B4,\n"
-           "            effects: OJZ_Preset_Depth,\n"
-           "            dict_len: L),\n"
-           "    ojz_sec(sec: 5, blocks: B5,\n"
-           "            effects: OJZ_Preset_Sec5,\n"
-           "            dict_len: L),\n"
-           "    ojz_sec(sec: 6, blocks: B6,\n"
-           "            dict_len: L),\n")
+    SRC = ("comptime fn ojz_region(x0: int, effects: Label, parallax: Label = 0) -> Region {\n"
+           "    return Region{ rg_effects: effects, rg_parallax: parallax }\n"
+           "}\n"
+           "    // quoted in prose: ojz_region(effects: OJZ_Preset_Ghost, parallax: f(sec: 7))\n"
+           "    ojz_region(x0: 2048, effects: OJZ_Preset_Depth,\n"
+           "               parallax: ojz_act1_sec_scene(sec: 4)),\n"
+           "    ojz_region(x0: 4096, effects: OJZ_Preset_Sec5,\n"
+           "               parallax: ojz_act1_sec_scene(sec: 5)),\n"
+           "    ojz_region(x0: 0, effects: OJZ_Preset_Sec6),\n")
 
     def test_it_pairs_each_index_with_its_preset(self):
         got = effects_seam_gate.descriptor_effects_bindings(self.SRC)
         self.assertEqual(got, {4: "OJZ_Preset_Depth", 5: "OJZ_Preset_Sec5"})
 
-    def test_a_section_binding_no_preset_is_ABSENT_not_None(self):
-        """`sec_effects` defaults to 0 = no preset and that is legal, so section 6 must
-        not appear at all — mapping it to None would make an `owners` lookup match it."""
-        self.assertNotIn(6, effects_seam_gate.descriptor_effects_bindings(self.SRC))
+    def test_a_row_keyed_on_no_sidecar_is_ABSENT_not_None(self):
+        """A region row with no sidecar-keyed binding is legal, so its preset must not appear
+        under any index — mapping it to None would make an `owners` lookup match it — and a
+        row quoted in a comment is not a row at all."""
+        got = effects_seam_gate.descriptor_effects_bindings(self.SRC)
+        self.assertNotIn("OJZ_Preset_Sec6", got.values())
+        self.assertNotIn(7, got)
 
 
 class TestSeamFaults(unittest.TestCase):

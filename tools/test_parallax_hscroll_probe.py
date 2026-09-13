@@ -27,7 +27,7 @@ from parallax_hscroll_probe import (            # noqa: E402
 
 def mkcfg(tops, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
           anchor=ANCHOR_NONE, adsa=NO_DEFORM, adsb=NO_DEFORM, phase=0):
-    """A parallax_config + band array, laid out per engine/structs.emp:161-190."""
+    """A parallax_config + band array, laid out per engine/structs.emp `parallax_config`."""
     h = bytearray(CFG_SIZE)
     h[CFG_BAND_COUNT] = len(tops)
     h[CFG_ANCHOR_CH] = anchor

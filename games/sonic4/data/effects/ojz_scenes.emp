@@ -254,7 +254,7 @@ pub const Scene_OJZ_Underwater: Scene = scene(
               // with a live patch channel". BOTH HALVES ARE FALSE, quoted so a reader who
               // remembers it meets the correction. Two presets name this record —
               // OJZ_Preset_Sec0 and OJZ_Preset_Sec5 (the d-53 loan) — but SECTION 0's NAMING
-              // IS DEAD: its Sec.sec_parallax_config is non-zero (the `if sec == 0` arm of
+              // IS DEAD: its region's rg_parallax is non-zero (the `if sec == 0` arm of
               // ojz_act1_sec_scene), and Effects_ResolveParallax takes rung 1 outright, so
               // section 0 installs the editor scene `ojz_act1_start`. SECTION 5 — which has no
               // such arm — IS THE ONLY LIVE INSTALL. Section 7 also has live patch channels

@@ -28,7 +28,7 @@ badly, it cannot match a warp that streamed it well.
 ...EXCEPT FOR THE SECOND CONSUMER, WHERE THE WARP IS NOT A REFERENCE AT ALL. The override
 feeds two consumers: the placement hook (camera + leader), which the plane/scanline
 comparison above witnesses hard, and the init's PARALLAX CONFIG SELECT, which must read the
-section containing the destination rather than `Act.start_sec_x/y`. The warp cannot arbitrate
+region under the destination's camera centre rather than the authored start's. The warp cannot arbitrate
 that one, for a reason that is about mechanism and not resolution: the warp sets
 `Parallax_Snap_Pending`, so it SNAPS to the destination section's config, and a boot whose
 select picked the WRONG config is corrected a few frames later by the first
@@ -44,8 +44,8 @@ instruction), before a single Update tick can launder the answer. Three observab
 derived from the ROM's own section grid, never pinned:
 
   * `Parallax_Current_Config` must equal `Effects_ResolveParallax`'s answer for the
-    DESTINATION's section (Sec.sec_parallax_config > EffectsPreset.ep_parallax >
-    Act.act_parallax_config), and the control's must equal the AUTHORED section's. The gate
+    region under the DESTINATION's camera centre (Region.rg_parallax > EffectsPreset.ep_parallax >
+    Act.act_parallax_config), and the control's must equal the AUTHORED start's. The gate
     refuses to run (setup error) if those two resolve the same, because then the witness
     could not fail.
   * `Parallax_Target_Config` = 0 and `Parallax_Transition_Frames` = 0 — the init SEEDED the
@@ -89,7 +89,7 @@ THE RUNS (each a fresh oracle-aether process, each from reset):
 EXPECTATIONS ARE DERIVED, NEVER COPIED. The authored start comes out of the ROM's own
 act descriptor; the clamp edges out of `grid_w/grid_h` and the two constants
 Player_BoundsInit uses; the tile-cache window out of Tile_Cache_Init's arithmetic
-against engine/system/constants.emp; the two parallax configs out of the section grid
+against engine/system/constants.emp; the two parallax configs out of the act's region table (tools/region_table.py)
 through a restatement of Effects_ResolveParallax. Nothing here is a number lifted from
 a pin.
 
@@ -113,6 +113,7 @@ from aether import BusClient            # noqa: E402
 from aether_instance import (            # noqa: E402
     AetherInstance, SpawnError, WrongServerError, run_to_addr)
 from raster_cost_probe import parse_lst  # noqa: E402
+import region_table                      # noqa: E402  (the one Region reader, painted-regions v1)
 
 BOOT_MAX_FRAMES = 600        # ceiling for run_to(Init) / run_to(Update); the DEBUG shape
                              # boots straight into the OJZ scroll test, no buttons pressed
@@ -138,14 +139,11 @@ SCANLINE_START, SCANLINE_COUNT = 100, 8
 # only, and these two are the whole of what a placement check needs.
 SST_X_POS, SST_Y_POS = 0x02, 0x06
 
-# Sec record (engine/structs.emp `struct Sec`, sizeof 34 — pinned by an `ensure` in
-# engine/level/section.emp, which names THIS file as one of the reasons the pin exists:
-# the layout is copied here, so a struct change desynchronises this gate from the ROM.
-# 66 -> 34 on 2026-09-04, painted-regions audit row 3 (nine dead fields + three pads).
-SEC_SIZE = 34
-SEC_PARALLAX_CONFIG = 0x0C
-SEC_EFFECTS = 0x1C
-ACT_SEC_GRID_PTR = 0x00
+# NO Sec LAYOUT HERE ANY MORE (painted-regions v1, 2026-09-13). The init's parallax select
+# resolves the REGION under the camera centre, so this gate reads the act's region table
+# through tools/region_table.py, which PARSES Region's layout out of engine/structs.emp
+# rather than copying it. Until then this block carried SEC_SIZE = 34 and two Sec field
+# offsets, which is why engine/level/section.emp's sizeof(Sec) pin used to name this file.
 
 # Act descriptor field offsets (engine/structs.emp `struct Act`).
 ACT_GRID_W, ACT_GRID_H = 0x04, 0x06
@@ -157,8 +155,7 @@ ACT_PARALLAX_CONFIG = 0x16
 EP_PARALLAX = 0x04
 
 # parallax_config (engine/structs.emp `struct parallax_config`) — only the fields the two
-# derivations below read. PCFG_V_DEFORM_TABLE_BG shares its offset with SEC_PARALLAX_CONFIG
-# by coincidence; they are different structs.
+# derivations below read.
 PCFG_BAND_COUNT = 0x00
 PCFG_DEFORM_TABLE_FG = 0x0C
 PCFG_DEFORM_TABLE_BG = 0x10
@@ -439,20 +436,23 @@ def camera_expect(px: int, py: int, act: dict, k: dict) -> tuple[int, int]:
 #
 # THE OVERRIDE'S SECOND CONSUMER. Everything above witnesses the placement hook. The init
 # ALSO picks the parallax config for the first painted frame, and under an override that
-# select must read the section containing the DESTINATION rather than the authored
-# `Act.start_sec_x/y`. What follows restates the engine's own two derivations against the
+# select must read the REGION under the destination's camera centre rather than the
+# authored start's. What follows restates the engine's own two derivations against the
 # ROM image, in the gate's house style — nothing here is a pointer copied from a pin.
 
 
 class RomAct:
-    """The act's section grid, read out of the ROM image. One object so the three ROM
-    walks below (grid lookup, resolution, config fields) cannot disagree on the base."""
+    """The act's region table, read out of the ROM image. One object so the ROM walks below
+    (region lookup, resolution, config fields) cannot disagree on the base."""
 
     def __init__(self, rom_img: bytes, act_base: int, grid_w: int, grid_h: int):
         self.rom, self.grid_w, self.grid_h = rom_img, grid_w, grid_h
         self.act_base = act_base
-        self.grid = self.u32(act_base + ACT_SEC_GRID_PTR)
         self.act_default = self.u32(act_base + ACT_PARALLAX_CONFIG)
+        try:
+            self.regions = region_table.read_regions(rom_img, act_base)
+        except region_table.LayoutError as e:
+            raise SetupError(f"the act's region table cannot be read: {e}") from e
 
     def u32(self, off: int) -> int:
         if off + 4 > len(self.rom):
@@ -464,32 +464,24 @@ class RomAct:
             raise SetupError(f"ROM read at {off:#x} is past the end of the image")
         return self.rom[off]
 
-    def sec_ptr(self, gx: int, gy: int) -> int | None:
-        """Section_GetSecPtrXY: flat = sec_y * grid_w + sec_x, stride sizeof(Sec).
-        None is that routine's "Z set = no such section", which both callers answer
-        with the act default."""
-        if not (0 <= gx < self.grid_w and 0 <= gy < self.grid_h):
-            return None
-        return self.grid + (gy * self.grid_w + gx) * SEC_SIZE
-
-    def resolve_parallax(self, gx: int, gy: int) -> tuple[int, str]:
-        """`Effects_ResolveParallax` (engine/effects/preset.emp) restated. THE one
+    def resolve_parallax(self, cx: int, cy: int) -> tuple[int, str]:
+        """The init's select restated: `Region_Resolve` at the camera centre (cx, cy), then
+        `Effects_ResolveParallax` (engine/effects/preset.emp) on that region — THE one
         three-way resolution both the boot select and the crossing site call, precedence
-        Sec.sec_parallax_config > EffectsPreset.ep_parallax > Act.act_parallax_config,
-        a 0 at either upper rung meaning "defer" and never "keep". Returns the pointer
-        and which rung produced it, so a failure message can say WHY."""
-        sec = self.sec_ptr(gx, gy)
-        if sec is None:
-            return self.act_default, "act default (no section at that grid coord)"
-        p = self.u32(sec + SEC_PARALLAX_CONFIG)
-        if p:
-            return p, "Sec.sec_parallax_config"
-        preset = self.u32(sec + SEC_EFFECTS)
-        if preset:
-            p = self.u32(preset + EP_PARALLAX)
+        Region.rg_parallax > EffectsPreset.ep_parallax > Act.act_parallax_config, a 0 at
+        either upper rung meaning "defer" and never "keep". No containing region is the
+        select's own act-default arm. Returns the pointer and which rung produced it, so a
+        failure message can say WHY."""
+        r = region_table.region_at(self.regions, cx, cy)
+        if r is None:
+            return self.act_default, "act default (no region contains that centre)"
+        if r["parallax"]:
+            return r["parallax"], f"Region.rg_parallax (region row {r['index']})"
+        if r["effects"]:
+            p = self.u32(r["effects"] + EP_PARALLAX)
             if p:
-                return p, "EffectsPreset.ep_parallax"
-        return self.act_default, "Act.act_parallax_config"
+                return p, f"EffectsPreset.ep_parallax (region row {r['index']})"
+        return self.act_default, f"Act.act_parallax_config (region row {r['index']})"
 
     def band_count(self, cfg: int) -> int:
         return self.u8(cfg + PCFG_BAND_COUNT)
@@ -789,20 +781,28 @@ async def main_async(args) -> int:
     # `Parallax_Current_Config` at the init's exit — before the update loop has ticked once —
     # removes that ambiguity at the source instead of arguing about pixels downstream of it.
     ra = RomAct(rom_img, d, act["grid_w"], act["grid_h"])
-    dest_gxy = (dest_clamped[0] >> k["SHIFT"], dest_clamped[1] >> k["SHIFT"])
-    auth_gxy = (act["start_sx"], act["start_sy"])
-    dest_cfg, dest_rung = ra.resolve_parallax(*dest_gxy)
-    auth_cfg, auth_rung = ra.resolve_parallax(*auth_gxy)
+    # THE REFERENCE POINT IS THE CAMERA CENTRE (painted-regions v1; design §10.3). The init's
+    # select resolves the region under Camera_X/Y + half a screen — the point
+    # Parallax_CheckBoundary tests — and Camera_Init / the override's center_camera_on have
+    # already clamped the camera. So the expectation is the region containing THAT point, not
+    # the section containing Boot_At_X/Y. On any act whose rows pass ojz_region()'s
+    # reachable-band ensures the two points cannot fall in different regions (they differ only
+    # within half a screen of an act edge, where no interior region edge may lie), so there
+    # this rewrite changes no verdict. It is here so the gate restates the rule the engine uses.
+    dest_pt = (dest_cam[0] + k["HALF_W"], dest_cam[1] + k["HALF_H"])
+    auth_pt = authored         # already the authored CAMERA CENTRE, derived above
+    dest_cfg, dest_rung = ra.resolve_parallax(*dest_pt)
+    auth_cfg, auth_rung = ra.resolve_parallax(*auth_pt)
     if not dest_cfg:
         raise SetupError("the destination section resolves to a NULL parallax config — "
                          "the act binds no default, so there is nothing to witness")
     if dest_cfg == auth_cfg:
         raise SetupError(
-            f"the authored start section {auth_gxy} and the destination section {dest_gxy} "
+            f"the authored start region at the camera centre {auth_pt} and the destination region at the camera centre {dest_pt} "
             f"both resolve to {sym_name(dest_cfg, inv)}, so a select that read the authored "
             "section instead of the destination would be INDISTINGUISHABLE from a correct "
-            "one and the witness below cannot fail. Pick a destination whose section "
-            "resolves differently (Sec.sec_parallax_config > EffectsPreset.ep_parallax > "
+            "one and the witness below cannot fail. Pick a destination whose region "
+            "resolves differently (Region.rg_parallax > EffectsPreset.ep_parallax > "
             "Act.act_parallax_config), or say in DEFERRED_WORK that this act can no longer "
             "witness the select.")
     dest_bands, auth_bands = ra.band_count(dest_cfg), ra.band_count(auth_cfg)
@@ -811,10 +811,9 @@ async def main_async(args) -> int:
     # the same band count and the same reg $0B. Say so rather than let a reader assume it
     # is carrying weight it is not.
     second_discriminates = (dest_bands != auth_bands) or (dest_mode3 != auth_mode3)
-    # Informational, kept from the tripwire it replaced: how much of the grid binds its own
-    # config today. No longer a verdict.
-    sec_bound = sum(1 for i in range(act["grid_w"] * act["grid_h"])
-                    if ra.u32(ra.grid + i * SEC_SIZE + SEC_PARALLAX_CONFIG))
+    # Informational, kept from the tripwire it replaced: how many of the act's regions bind
+    # their own config today. No longer a verdict.
+    sec_bound = sum(1 for r in ra.regions if r["parallax"])
 
     ctl = await run_control(args.rom, sym, args.lst, k, plane_base)
     ovr = await run_override(args.rom, sym, args.lst, k, plane_base, *dest)
@@ -888,12 +887,12 @@ async def main_async(args) -> int:
     op, cp = ovr["parallax"], ctl["parallax"]
     _fail(fails, cp["config"] == auth_cfg,
           f"control: the init seeded Parallax_Current_Config = {sym_name(cp['config'], inv)}, "
-          f"wanted the authored start section {auth_gxy}'s {sym_name(auth_cfg, inv)} "
+          f"wanted the authored start region at the camera centre {auth_pt}'s {sym_name(auth_cfg, inv)} "
           f"[{auth_rung}]")
     _fail(fails, op["config"] == dest_cfg,
           f"override: the init seeded Parallax_Current_Config = {sym_name(op['config'], inv)}, "
-          f"wanted the DESTINATION section {dest_gxy}'s {sym_name(dest_cfg, inv)} "
-          f"[{dest_rung}]. The authored start section {auth_gxy} resolves to "
+          f"wanted the DESTINATION region at the camera centre {dest_pt}'s {sym_name(dest_cfg, inv)} "
+          f"[{dest_rung}]. The authored start region at the camera centre {auth_pt} resolves to "
           f"{sym_name(auth_cfg, inv)} [{auth_rung}] — a select that read the authored "
           f"section instead of the destination lands exactly there. Act default is "
           f"{sym_name(ra.act_default, inv)}")
@@ -1029,12 +1028,12 @@ async def main_async(args) -> int:
             "saving_frames": saving,
             "saving_seconds_ntsc": round(saving / 60.0, 3),
         },
-        "parallax_sections_binding_own_config": sec_bound,
+        "parallax_regions_binding_own_config": sec_bound,
         "parallax_select": {
-            "authored_section": list(auth_gxy),
+            "authored_centre": list(auth_pt),
             "authored_config": sym_name(auth_cfg, inv), "authored_rung": auth_rung,
             "authored_seeded": sym_name(cp["config"], inv),
-            "destination_section": list(dest_gxy),
+            "destination_centre": list(dest_pt),
             "destination_config": sym_name(dest_cfg, inv), "destination_rung": dest_rung,
             "destination_seeded": sym_name(op["config"], inv),
             "act_default": sym_name(ra.act_default, inv),
@@ -1075,15 +1074,15 @@ async def main_async(args) -> int:
               f"control-first vs override-first {d_ctl_ovr}")
         print(f"  rendered scanlines differing from the warp reference: {px_diff} of "
               f"{len(ovr['final']['rows'])}")
-        print(f"  parallax select at the init's exit — authored section {auth_gxy} -> "
+        print(f"  parallax select at the init's exit — authored region at the camera centre {auth_pt} -> "
               f"{sym_name(auth_cfg, inv)} [{auth_rung}], seeded "
               f"{sym_name(cp['config'], inv)}")
-        print(f"                                        destination section {dest_gxy} -> "
+        print(f"                                        destination region at the camera centre {dest_pt} -> "
               f"{sym_name(dest_cfg, inv)} [{dest_rung}], seeded "
               f"{sym_name(op['config'], inv)}")
         print(f"    reg $0B {cp['mode3']:#04b}/{op['mode3']:#04b} (derived "
               f"{auth_mode3:#04b}/{dest_mode3:#04b}); bands {auth_bands}/{dest_bands}; "
-              f"{sec_bound} of {act['grid_w'] * act['grid_h']} sections bind their own config")
+              f"{sec_bound} of {len(ra.regions)} regions bind their own config")
         if not second_discriminates:
             print("    NOTE: the two configs drive the same band count AND the same reg $0B, "
                   "so the consumption checks are not discriminating here — the config "
