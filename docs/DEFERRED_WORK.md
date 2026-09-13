@@ -34182,9 +34182,57 @@ deleted grid product (-16), and a longer crossing raise string (+12 in the diag 
 
 **OPEN, TAGGED for the controller (need a screen or a scenario tool this parcel did not have):**
 - T5 — the first authored sub-section edge on a screen, crossed at speed (design step 5; not in this parcel).
+  → Step 5 SHIPPED in parcel 2 (below); T5 itself is still TAGGED — it needs a screen.
 - T6 / Q3 — boot directly into a region whose preset differs in `ep_pal` and look at frame 1.
+  → MEASURED headlessly in parcel 2: frame 1 is the act default, frames 2-5 fade, frame 6 is the region's.
 - T7 — crossing-frame cost once sub-section edges are authored (the step-6 trigger).
+  → MEASURED in parcel 2: the install is ~3,000 cycles; the cost is the fade's step frames (~35,000 each).
 - The sentinel's load-bearing cases: an act reload, and a DEBUG warp that lands inside the region
   already cached (the fast path would keep the old identity without the sentinel).
+  → MEASURED in parcel 2: no runtime act-reload path exists; on the warp the fast path keeps the RIGHT
+    identity without the sentinel (M4) — the sentinel only forces a redundant re-install.
 - The lab's PRESET rows still read as section words (WATR, SPLT, ...); region N == section N today, so the
   words are right, and they become a vocabulary question the day a region is not a section.
+  → That day was parcel 2: region 9 is not a section; the lab gained row 37 `NITE` for it.
+
+## PAINTED-REGIONS v1, PARCEL 2 (step 5) — the first edge off the section grid, and the fade's first run (2026-09-13, `parcel/regions-p2`)
+
+**Shipped:** the NIGHT region, OJZ act 1 region row 9 — x 3400..4799, y 0..2047, across the section line at
+4096 — binding `OJZ_Preset_Night` (`OJZ_Preset_Sec1` plus its own palette, `OJZ_Palette_Night`, and
+`transition: 1`, the cross-fade's first caller). Rows 1 and 2 shrink to 2048..3399 / 4800..6143; the table
+still tiles the act. Record: `docs/superpowers/notes/2026-09-13-regions-p2.md`. Witness:
+`tools/region_fade_witness.py` (hand-run; RED on base, GREEN on the tip, mutation reds in the note).
+
+**CLOSED BY IT (from the parcel-1 TAGGED list above):** T6/Q3 and T7 are MEASURED headlessly (the note §4, §5);
+the lab's PRESET rows are region rows now (row 37 `NITE` = region 9). The warp-inside-the-cached-region
+sentinel case is measured (the note §4). T5 itself stays TAGGED: it needs a screen.
+
+**OPEN — the parcel's findings, each measured, none fixed here (the step touches no engine code):**
+- **DEFECT, STOPPED: a fade in flight survives a crossing back and finishes on the region the camera
+  left.** Cross into the night region and re-cross within 16 frames: the destination's snap install
+  (`Palette_LoadPal`'s `Pal_Base` arm) never cancels `Pal_Fade_Frames`, so `Palette_DoFade` keeps stepping
+  toward the old `Pal_Target` and its closing snap writes that palette into the buffer AND `Pal_Base`.
+  Measured: standing in row 1 with `OJZ_Palette_Night` in the buffer and CRAM. The "0 means keep" class,
+  in the palette channel. Fix candidate: the snap path cancels a fade in flight. Engine code, so the
+  effects-gate ritual. `tools/region_fade_witness.py --strict-reversal` is the red it has to turn green.
+- **`Palette_DoFade`'s comments contradict its branch.** `btst #0 / bne .noskip` steps when the decremented
+  count is ODD; the comments say "even". The behaviour is fine (8 steps, then the snap); the comments,
+  ARCH's old "~3840 cycles", and the EFX-2 ledger note's "even frames, ~0.27 s" were all wrong — see the
+  note §3.1. A comment fix in `engine/effects/palette.emp`, not made here (no engine edits in step 5).
+- **The fade's cost is the variant re-derive, not the step.** Every step publishes lines 1-3, which marks
+  `PAL_ACT_VARIANT_STALE`, and every OJZ preset binds `Variant_Water_Deep`: each of the 8 step frames costs
+  ~35,000 cycles in `Palette_Compose` (27% of a frame), including the 11 frames after the colours have
+  stopped moving (k = 6..16 still step and still re-derive). A same-palette SNAP crossing costs ~20,000 in
+  `Palette_Compose` for the same reason (x = 2048: no colour changes, the variant re-derives anyway). This
+  is the step-6 question re-aimed: skipping an unchanged install (step 6) would not touch the fade's cost;
+  ending the fade when the buffer reaches the target, or not re-deriving a variant for a no-op step, would.
+- **A DEBUG warp inside the cached region re-arms a no-op fade** (the sentinel forces the re-install): eight
+  ~35,000-cycle frames that move no colour. DEBUG-only.
+- **Boot into a fading region fades in from the act default** over five frames (frame 1 is `OJZ_Palette`,
+  frame 6 is night). Design Q3's "install the whole preset at boot" is still the owner's call.
+- **The palette is a parked look** for the owner (R-3 G-2 B+0 over `OJZ_Palette`); one word reverts it.
+- **The witness has no runner.** `tools/effects_gates.py` does not run it. Adding it there is the next step
+  once the reversal defect is fixed (so the lane can carry `--strict-reversal`).
+- **The text-parsing tools** (`test_anchor_sweep_band` PROBE 1 needed a change for a row with no sidecar key;
+  `effects_seam_gate`, `effects_gen`, `lens_residue_raster_witness` already ignore such a row) are the class
+  parcel 1 booked; the tools parcel's structured `regions.json` source still owes them.
