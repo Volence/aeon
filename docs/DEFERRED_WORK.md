@@ -30834,7 +30834,10 @@ The queue row `LENS-SWEEP-COVERAGE` was stale. The 2026-09-06 engine panel (`doc
   > committed `song_movingtrucks.bin` re-emitted). Read off source, not measured: (c) should not change
   > how MT sounds in normal play, since the skipped `$B6` seed is overwritten by FM6's patch and
   > `Sfx_UnpauseRestore` re-uploads FM6 on resume; whether MT's FM6 stream loads a patch before its
-  > first note is UNVERIFIED and is the one fact (c) rests on. Recommendation: decide when the first
+  > first note ~~is UNVERIFIED and is the one fact (c) rests on~~ **— VERIFIED, same parcel: the
+  > committed `song_movingtrucks.bin`'s FM6 command stream opens `e1 12` (`MEV_PATCH` $12) as its very
+  > first event, and it is structural beyond MT: `_validate_channel` refuses any route in `_FM_ROUTES`
+  > (FM6 included) that keys a note before a Patch.** Recommendation: decide when the first
   > caller arrives; (c) if the answer is "FM6 music should survive a sample". `Sound_PlaySample`'s
   > header now says this, as a prohibition on the misreading, where that caller will look.
   > **RUNTIME-TAG (the controller's, not run here):** `tools/fm6_foreign_sample_witness.py` measures
