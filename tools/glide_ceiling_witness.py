@@ -153,7 +153,9 @@ STOP_X = 960                # leg A: stop recording once past the embed run
 BOOT_C_X, BOOT_C_Y = 1200, 470  # leg C: open air right of the second box, over the y 576 floor
 RELEASE_X_C = 1300          # leg C: the release column, over the flat top-only floor
 FEET_GAP_C = 4              # leg C: glide feet this far above the floor at the release
-FLOOR_SEEK_Y = 540          # leg C: a row above the floor to measure its top from
+FLOOR_SEEK_Y = 560          # leg C: a row above the floor to measure its top from. probe_core
+                            #   reaches the primary cell and ONE cell forward, so the row must
+                            #   sit in the cell directly above the floor's (540 read "nothing")
 MAX_FRAMES = 240
 
 # One section is 2048 px square (Section = (x >> 11, y >> 11)); the drive stays in section
