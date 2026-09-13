@@ -113,3 +113,24 @@ WORKING-COPY-CATCHUP (221 behind), CTRL-3, EFX-2, CHAR-10, SP6-MODULATION-DIVERG
 The owner's ~200k clear rule: **371,222 tokens measured from this session's transcript usage record at
 2026-09-13T16:35:13Z** (input 32 + cache_read 367,107 + cache_creation 4,083). No new work is dispatched. The
 session stops once A and B are landed or handed on, with this file updated at that point.
+
+## Addendum, 2026-09-13 ~17:47Z: B (CHAR-4) LANDED
+
+Merge `6ccf31e6`, land commit `d46e66db`, on `origin/master` (verified with `ls-remote` and `merge-base`).
+- **Deviations RATIFIED:**
+  - No slide probe. The slide's floor follow owns y and would undo an eject; S3K's `.continueSliding` overwrites
+    its own eject the same way (skdisasm :30997-31013, read firsthand).
+  - The `dplc_straddle.py` selftest search widened from tile steps to byte steps. That visits strictly more
+    placements, and the gate's own verdict is unchanged.
+  - S3K's left-class `$14` cutoff NOT reproduced, matching `Air_CeilingBump` for every air state.
+- **Merged-tree `landing_build.sh`:** `finished=0`. s4 is `e8ae697a` and s4.debug is `f7dea36d`, both equal to the
+  branch build. The demo pair is unchanged. Test totals: 2606 passed / 0 failed x4, and needs_build 14/0/0.
+- **The controller ran `tools/glide_ceiling_witness.py` on the merged-tree ROM: PASS, exit 0.**
+- The CHAR-4 `fixed` ledger row is appended. `research/char46-repro` and `parcel/char4-glide-ceiling` are deleted,
+  with both tips on origin, and sigil has been told (the new `pub` name and the +$24 player shift).
+
+**So "Next, in order" item 0 is now A only, and item 1 (dispatch CHAR-6) is UNBLOCKED for the next session.**
+The witness's leg B is its target. After the release, only the release frame itself still ends embedded (-7),
+because `PHook_EnsureStanding`'s lift runs after `Glide_Collide`; the first GLIDEFALL update then ejects it. The
+witness has no runner (booked), so run it by hand:
+`python3 tools/glide_ceiling_witness.py --rom <tree>/s4.debug.bin --lst <tree>/s4.debug.lst`.
