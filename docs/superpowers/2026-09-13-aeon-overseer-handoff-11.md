@@ -32,7 +32,11 @@ git -C /home/volence/sonic_hacks/aeon log -3 --format='%h %ci %s' origin/master 
 the code reached master. Corrected in DEFERRED_WORK beside the branch's own "still open" sentence. Branch and both
 carry worktrees reaped after a controlled `/proc` scan (a planted process was caught; no foreign holder).
 
-## IN FLIGHT at the moment of writing — verify, do not assume
+## ~~IN FLIGHT~~ LANDED before the clear (2026-09-13T06:21:33Z): BLOCKER2-REWRITE, merge `b77800c4`
+
+**The section below is kept as the record of what was dispatched; it is no longer in flight.** Evidence: Landing on origin/master 0adc9e0e: landing_build finished=0, four shapes 2585 passed / 0 failed each, needs_build 14 ran / 0 deferred / 0 failed; ROM CRC32s s4 1b350bab, s4.debug e36d98ba, demo 3170d31e, demo.debug 3cf4f104, equal to master's (zero bytes), freshly built; sigil z80_clobbers_incomplete from clean pin af35fa56, 5 passed against a git-archive export of the merge, 0 skip lines, shared sigil md5 unchanged. The agent corrected the brief (ret cc / call cc never reach ambiguous-branch); sigil was told their doc and message still say otherwise. Left to reap (controlled `/proc` scan first): worktree `aeon/.claude/worktrees/blocker2-baseline-9f7051a3`, the agent worktree, branch `probe/blocker2-throwaway`.
+
+### What was dispatched (historical)
 
 **`BLOCKER2-REWRITE`, branch `parcel/blocker2-rewrite`, one background agent** (dispatched ~05:36Z from this
 session; it will NOT survive a clear, but its commits live in the shared `.git`). Comment-only rewrite of
@@ -54,7 +58,7 @@ docs-only). **Expect a DEFERRED_WORK conflict** on the blocker-2 clause: the lan
 2026-09-13" note to the same sentence the agent closes. Compose, do not pick: the agent's CLOSED text supersedes
 the DISPATCHED note. If the agent's comment or probe contradicts the brief, the source and the running binary win.
 
-## Next, in order (after BLOCKER2 lands) — re-derive before starting, never from this list alone
+## Next, in order (BLOCKER2 has landed) — re-derive before starting, never from this list alone
 
 1. **F3 RUNTIME-TAG (controller, emulator, foreground).** handoff-10 item 4: boot `s4.debug.bin`, fire the 16 SFX
    ids listed in the F3 row; a green build cannot observe reachability of the 932 deleted bytes. SFX need no
