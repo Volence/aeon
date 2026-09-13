@@ -216,9 +216,10 @@ Same ROM, md5 `6211829d`. Knuckles was selected with the debug-fly A cycle
 | 753 | `$0201D800` (513.844) | `$0078` | `$010E` | 19x39 |
 
 Δy = −8.531 = −9 + $78/256. The glide frame's own move happens first, then the 9 px lift.
-The x_pos was not reported. If it lay in 896..1023, the head sensor after the lift (y 513,
-sensor 494) is inside the box structure above the slab (section 7). **Controller to
-check that x.**
+The controller then reported x_pos: `$031DC800` (797.78) at frame 752 and `$03220000`
+(802.0) at frame 753. Both lie outside the box's x 896..1023, so this was an open-air
+release with nothing above the head. **Witness 1 is therefore a pure mechanism witness:
+it shows the lift fires. Witness 2 below is the harm witness.**
 
 **Witness 2, the brown overhang at x ≈ 880..1010:**
 
