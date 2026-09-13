@@ -439,13 +439,14 @@ ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")
 // 0 (section_7.meta.json binds a scene; the design's §3.1 row 7 was wrong about that and
 // is corrected there).
 //
-// `scene:` IS A SIDECAR INDEX, NOT A Label, and the reason is mechanical: the editor
-// binding seam (`ojz_act1_sec_scene`) is still keyed by the per-section sidecar
-// (section_N.meta.json's `sceneRef`), and five of its nine answers are 0 — which a scalar
-// `Label` argument refuses (`expected a label (a Label argument), got int`,
-// docs/EMP_PITFALLS.md §12). So the row names WHICH sidecar binds it and the constructor
-// asks the chooser. When the tools parcel moves bindings into regions.json (design §3.3),
-// this argument becomes that file's binding and the sidecar key goes away.
+// `parallax:` IS WHAT THE ROW'S SIDECAR BINDS, asked of the editor seam in place. The seam
+// (`ojz_act1_sec_scene`) is still keyed by the per-section sidecar (section_N.meta.json's
+// `sceneRef`); when the tools parcel moves bindings into regions.json (design §3.3), the
+// argument becomes that file's binding and the sidecar key goes away. A 0 here is legal and
+// means "defer to rung 2" — which is why `effects:`, where 0 is NOT legal, carries its own
+// ensure below: a scalar `Label` argument ACCEPTS a written 0 (measured 2026-09-13; the
+// asymmetry docs/EMP_PITFALLS.md §12 described does not hold for this form), so the missing
+// default catches an omitted binding and only the ensure catches a written one.
 // -----------------------------------------------
 
 // The act's extent, exclusive, in world px.
@@ -469,7 +470,11 @@ const REGION_MIN_SPAN = 2 * CAM_MAX_Y_STEP
 
 // ojz_region() — one Region row, with every per-row invariant checked HERE, at the call
 // site (a comptime fn's ensures evaluate where it is called, which is what makes them live).
-comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, scene: int) -> Region {
+comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, parallax: Label = 0) -> Region {
+    // A label beside 0 is the one cross-kind comparison sigil keeps DEFINED (EMP_PITFALLS
+    // §12): a real label is never 0, so this is false exactly for a written zero.
+    ensure(effects != 0,
+           "ojz_region(x0: {x0}, y0: {y0}): effects is 0. Effects_InstallPreset dereferences Region.rg_effects untested, so a null binding would read the 68000 vector table as an EffectsPreset in the release shape")
     ensure(x0 >= 0 && y0 >= 0,
            "ojz_region(x0: {x0}, y0: {y0}): a negative edge is outside every act — world px start at 0")
     ensure(x0 <= x1 && y0 <= y1,
@@ -487,7 +492,7 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, scene
     ensure(y1 == ACT_H - 1 || (y1 >= CENTRE_Y_MIN && y1 + 1 <= CENTRE_Y_MAX),
            "ojz_region(y1: {y1}): an interior BOTTOM edge outside the camera centre's reachable band [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}] can never be crossed")
     return Region{ rg_x0: x0, rg_x1: x1, rg_y0: y0, rg_y1: y1, rg_effects: effects,
-                   rg_parallax: ojz_act1_sec_scene(sec: scene) }
+                   rg_parallax: parallax }
 }
 
 // The first overlapping pair as `i * 1000 + j` (i < j), or -1 when no two rows share a
@@ -517,15 +522,15 @@ comptime fn region_area_sum(r: array) -> int {
 // const, so the rows checked are the rows shipped (design §10.5: a hand-written table gets
 // the same protection a generated one would).
 const OJZ_ACT1_REGION_ROWS: [Region; 9] = [
-    ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  scene: 0),
-    ojz_region(x0: 2048, x1: 4095, y0:    0, y1: 2047, effects: OJZ_Preset_Sec1,  scene: 1),
-    ojz_region(x0: 4096, x1: 6143, y0:    0, y1: 2047, effects: OJZ_Preset_Sec2,  scene: 2),
-    ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  scene: 3),
-    ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, scene: 4),
-    ojz_region(x0: 4096, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  scene: 5),
-    ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  scene: 6),
-    ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  scene: 7),
-    ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, scene: 8),
+    ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  parallax: ojz_act1_sec_scene(sec: 0)),
+    ojz_region(x0: 2048, x1: 4095, y0:    0, y1: 2047, effects: OJZ_Preset_Sec1,  parallax: ojz_act1_sec_scene(sec: 1)),
+    ojz_region(x0: 4096, x1: 6143, y0:    0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
+    ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  parallax: ojz_act1_sec_scene(sec: 3)),
+    ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, parallax: ojz_act1_sec_scene(sec: 4)),
+    ojz_region(x0: 4096, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  parallax: ojz_act1_sec_scene(sec: 5)),
+    ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  parallax: ojz_act1_sec_scene(sec: 6)),
+    ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  parallax: ojz_act1_sec_scene(sec: 7)),
+    ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
 ]
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact

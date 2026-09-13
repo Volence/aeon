@@ -2485,7 +2485,7 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 // renderer, and `OJZ_GradientStream` is data and was never one of the six.
 // The rest are gate fixtures, a retired install, and two DEBUG-only demos.
 // EVERY ROW BELOW IS DERIVED FROM THE `preset()` CALLS IN THIS FILE plus the nine
-// `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp:239-361 —
+// `ojz_sec(...)` calls in games/sonic4/data/levels/ojz/act1/act_descriptor.emp's `OJZ_Act1_Sections` —
 // a program "reaches a section" iff some preset names it AND that preset is bound there.
 //
 // ⚠ REFERENCE COUNTING IS THE WRONG INSTRUMENT HERE, and it is worth one line because it

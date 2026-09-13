@@ -794,8 +794,8 @@ What this engine has instead, from `engine/system/constants.emp` and
 
 So "16 × 16 block" here means **sixteen tiles square**, not sixteen pixels square. The
 shipped OJZ act 1 is a 3 × 3 grid = 9 sections (`GRID_W`/`GRID_H` in
-`games/sonic4/data/levels/ojz/act1/act_descriptor.emp:111-112`, pinned by
-`ensure(GRID_W * GRID_H == 9, …)` at `:363`).
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, pinned by its
+`ensure(GRID_W * GRID_H == 9, …)` beside `OJZ_Act1_Sections`).
 
 Both act axes are bounded by `ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000, …)` — the
 camera's world coordinates are signed words, so an act may not exceed **32 768 px** on
