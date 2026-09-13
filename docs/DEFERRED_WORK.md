@@ -327,6 +327,42 @@ unroll guard is the existing shape for that question), or accept it. Not reprodu
 act 1 today: the only overhang with open ground under it (the box's slab, underside 511, floor
 576) leaves 64 px.
 
+### CHAR-6 LEFT THREE THINGS OPEN, AND A BUILD CHECK COUNTS SOURCE IN NESTED COPIES OF THE TREE — booked 2026-09-13 (`parcel/char6-lift`, landed `1b414115`)
+
+The parcel record is `docs/superpowers/notes/2026-09-13-char6-lift.md`; §2c and §5 are the source for items 1-3.
+
+**1. A vertical spring touching Knuckles while he holds the ability box still lifts him 9 px.**
+`Touch_Spring` seats him on the spring face using his current box, then `Spring_Launched` enters
+AIR, and `PHook_AirEnter` -> `PHook_EnsureStanding` grows the box 21 -> 39 with the feet planted.
+GLIDE is the mid-air case; whether SLIDE, CLIMB and LEDGE can reach it was read from the box logic
+only, not traced or driven. **Kept on purpose, and ratified by the controller at landing:** the
+seat was computed from the ability box's bottom edge, so a centre restore would put the feet 9 px
+inside the spring on the launch frame. **S3K's net y for a spring hit mid-glide is UNVERIFIED**: the
+agent read that a gliding Knuckles meets an object's top through `RideObject_SetRide` ->
+`Knux_TouchFloor`, which restores the radii before any spring code, and did not trace further.
+What would settle it: trace S3K from `RideObject_SetRide` through the up-spring handler `sub_22F98`
+(skdisasm :47717) for a gliding Knuckles, then run the same spring case headlessly here.
+
+**2. CHAR-5 now matters slightly more.** GLIDEFALL's next-frame feet correction is
+`Glide_Collide`'s single centre sensor, so a floor under one foot and not under the centre is not
+caught. The centre restore starts that exposure up to 9 px deeper than the old lift did. Restoring
+S3K's sensor pair (CHAR-5) makes the correction complete.
+
+**3. `tools/measure_character_boxes.py`'s `STATE_BOX` still lists `GlideFall` as the ability box.**
+GLIDEFALL has run at the standing box since before CHAR-6. The row is marked not-grounded, so it
+produces no reading today; it is stale, not wrong in any output.
+
+**4. `tools/test_system_pool_release_empty.py` counts source in nested copies of the tree.**
+`_emp_sources()` walks the whole checkout with `os.walk`, skipping only `.git`, `.claude`, `docs`,
+`tools` and `emulators`, so any other nested checkout is counted as source. **Measured
+2026-09-13:** the main folder's `landing_build` started 22:22Z ended `finished=1`, with
+`test_release_rom_never_loads_a_system_slot_address` expecting 2 System-pool compares
+(`engine/objects/core.emp:273`, once in the tree and once in a worktree registered as `.aeon-land-cv`
+inside the main folder) where the ROM correctly has 1. The same content passed in a clean landing
+tree. The nested worktree was moved out at 22:39Z (to `../.aeon-land-cv-nested-0912`), so the main
+folder is green again, but the walk is unchanged. Fix: enumerate from `git ls-files '*.emp' '*.asm'`.
+Other tools may share the same walk, so `git grep -n "os.walk(AEON"` before fixing only this one.
+
 ### `lst_proc_sizes` MEASURES PLACEMENT AS WELL AS CODE, AND A PIN WENT RED FOR A PROC THAT DID NOT MOVE — booked 2026-09-06 (`parcel/live-effects-hook`)
 
 `tools/demo_specialization_witness.py`'s image backstop sizes a proc as **the distance to the
