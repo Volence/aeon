@@ -37,8 +37,9 @@ THIS IS AN INSTRUMENT, NOT A GATE, and it REFUSES rather than guesses on:
   * a warp that never acks, or that the engine clamped away from the requested point
   * `Raster_Pending` still staged after the settle (VBlank never consumed the install)
   * `Raster_Program` not being the label the chooser binds (bound) / not 0 (control)
-  * the camera's section (recomputed from Camera_X/Y) disagreeing with the engine's own
-    Parallax_Prev_Sec_X/Y, or either disagreeing with the requested section
+  * the camera's section (recomputed from Camera_X/Y) disagreeing with the requested section,
+    or the engine's Region_Current disagreeing with the region the ROM's own table puts the
+    camera centre in (Parallax_Prev_Sec_X/Y played that role until painted-regions v1)
   * `run_to_scanline` reporting `reached: false`
   * VACUITY (bound runs): every in-band sample identical to every out-of-band sample means
     the CRAM instrument is frame-latched and blind to a mid-frame write. UNMEASURABLE, not
@@ -73,6 +74,7 @@ add_client_path()  # the Aether client, resolved from the suite root; loud if ab
 from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
 from fg_left_edge_capture import grab, write_png  # noqa: E402  (grab insists source == "raster")
+import region_table  # noqa: E402  (the one Region reader, painted-regions v1)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ACT_DIR = os.path.join("games", "sonic4", "data", "editor", "ojz", "act1")
@@ -236,7 +238,7 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, ctrl: dict | None
     print(f"      server romPath={st['romPath']} romBytes={st['romBytes']} (matches)")
 
     names = ["Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Raster_Program", "Raster_Pending",
-             "Parallax_Prev_Sec_X", "Parallax_Prev_Sec_Y", "Camera_X", "Camera_Y", "Raster_Program_None"]
+             "Region_Current", "OJZ_Act1_Descriptor", "Camera_X", "Camera_Y", "Raster_Program_None"]
     syms = {n: await lookup(c, n) for n in names}
     want_prog = 0
     if label_name is not None:
@@ -246,8 +248,8 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, ctrl: dict | None
 
     await c.call("emulator/run_frames", {"frames": a.settle})
     pre_prog = await rd(c, syms["Raster_Program"], 4)
-    pre_sec = (await rd(c, syms["Parallax_Prev_Sec_X"], 1), await rd(c, syms["Parallax_Prev_Sec_Y"], 1))
-    print(f"      after {a.settle} settle frames: Raster_Program=${pre_prog:06X} Prev_Sec={pre_sec}")
+    pre_region = await rd(c, syms["Region_Current"], 4)
+    print(f"      after {a.settle} settle frames: Raster_Program=${pre_prog:06X} Region_Current=${pre_region:06X}")
 
     # ---- into the section, through the engine's own crossing path ----
     col, row = a.section % geo["grid_w"], a.section // geo["grid_w"]
@@ -261,19 +263,26 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, ctrl: dict | None
     prog = await rd(c, syms["Raster_Program"], 4)
     cam_x = (await rd(c, syms["Camera_X"], 4)) >> 16
     cam_y = (await rd(c, syms["Camera_Y"], 4)) >> 16
-    prev = (await rd(c, syms["Parallax_Prev_Sec_X"], 1), await rd(c, syms["Parallax_Prev_Sec_Y"], 1))
+    prev = await rd(c, syms["Region_Current"], 4)
+    # The region the ROM's own table puts the camera centre in (tools/region_table.py restates
+    # Region_Resolve) — what Region_Current must name if the crossing installed where it stands.
+    rows = region_table.read_regions(blob, syms["OJZ_Act1_Descriptor"] & 0xFFFFFF)
+    want_region = region_table.region_at(rows, cam_x + geo["screen_w"] // 2, cam_y + geo["screen_h"] // 2)
     # Parallax_CheckBoundary's own decompose: the section under the camera CENTRE.
     cam_sec = ((cam_x + geo["screen_w"] // 2) >> geo["shift"], (cam_y + geo["screen_h"] // 2) >> geo["shift"])
     flat = cam_sec[1] * geo["grid_w"] + cam_sec[0]
     print(f"      Camera=({cam_x}, {cam_y})  camera-centre section={cam_sec} flat={flat}  "
-          f"engine Parallax_Prev_Sec={prev}  Raster_Pending=${pending:08X}  Raster_Program=${prog:06X}")
+          f"engine Region_Current=${prev:06X} (table row for the centre: "
+          f"{'none' if want_region is None else hex(want_region['addr'])})  "
+          f"Raster_Pending=${pending:08X}  Raster_Program=${prog:06X}")
     out.update({"player": [px, py], "camera": [cam_x, cam_y], "camera_section": list(cam_sec),
-                "flat_section": flat, "engine_prev_sec": list(prev),
+                "flat_section": flat, "engine_region_current": f"${prev:06X}",
                 "raster_pending": f"${pending:08X}", "raster_program": f"${prog:06X}",
                 "raster_program_want": f"${want_prog:06X}", "warp_ack_frames": acked})
-    if cam_sec != (col, row) or prev != (col, row):
+    if cam_sec != (col, row) or want_region is None or prev != want_region["addr"]:
         raise refuse(f"section mismatch: requested ({col}, {row}), camera-centre says {cam_sec}, "
-                     f"engine says {prev}")
+                     f"engine Region_Current ${prev:06X}, the table's row for the centre "
+                     f"{'none' if want_region is None else hex(want_region['addr'])}")
     if pending != 0:
         raise refuse(f"Raster_Pending is still ${pending:08X} after {a.post_warp} frames — VBlank never "
                      f"consumed the install, so nothing below is the authored program")

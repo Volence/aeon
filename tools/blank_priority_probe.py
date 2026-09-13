@@ -17,7 +17,7 @@ WHAT IT DOES, in order:
      from engine/system/constants.emp (NT_TILE_MASK) and the strip layout from ojz_strip_gen.py.
      Priority is bit 15, the top bit of NT_ATTR_MASK.
   2. S/H EXTENT, MEASURED. For every section, warps the player to the section centre (warp
-     mailbox), confirms the section the engine installed (Parallax_Prev_Sec_X/Y), then walks
+     mailbox), confirms the region the engine installed (Region_Current, against the ROM's region table), then walks
      one frame with `run_to_scanline` 0..223 and reads VDP reg $0C at each line. The lines with
      bit 3 set are that section's S/H extent at that camera.
   3. PREMISE (section 1). Picks a blank plane-A cell ($0000 in VRAM) whose 64 pixels are all
@@ -85,6 +85,7 @@ AEON = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AEON / "tools"))
 from aether_instance import AetherInstance, unprefix  # noqa: E402  (also puts the client on sys.path)
 from aether import BusClient                             # noqa: E402
+import region_table  # noqa: E402  (the one Region reader, painted-regions v1)
 from raster_cost_probe import parse_lst                  # noqa: E402
 
 GEN = AEON / "games" / "sonic4" / "data" / "generated" / "ojz" / "act1"
@@ -123,6 +124,8 @@ def derive_constants() -> dict:
         "NT_TILE_MASK": _emp_const("engine/system/constants.emp", "NT_TILE_MASK"),
         "NT_ATTR_MASK": _emp_const("engine/system/constants.emp", "NT_ATTR_MASK"),
         "SECTION_SIZE_SHIFT": _emp_const("engine/system/constants.emp", "SECTION_SIZE_SHIFT"),
+        "CAM_SCREEN_HALF_W": _emp_const("engine/system/constants.emp", "CAM_SCREEN_HALF_W"),
+        "CAM_SCREEN_HALF_H": _emp_const("engine/system/constants.emp", "CAM_SCREEN_HALF_H"),
         "STRIP_TILE_HEIGHT": _py_const("tools/ojz_strip_gen.py", "STRIP_TILE_HEIGHT"),
         "STRIP_COLLISION_PAD": _py_const("tools/ojz_strip_gen.py", "STRIP_COLLISION_PAD"),
     }
@@ -356,10 +359,25 @@ class Probe:
         cam2 = await self.camera()
         if cam != cam2:
             raise CouldNotRun(f"camera still moving after the warp settle: {cam} -> {cam2}")
-        sec = tuple(await rmem(b, s["Parallax_Prev_Sec_X"], 2))
+        # THE INSTALLED IDENTITY (painted-regions v1): the engine installs the REGION under the
+        # camera centre and caches its Region* in Region_Current (Parallax_Prev_Sec_X/Y retired).
+        # This probe is keyed by SECTION, so it records the section under the centre — the rule
+        # the retired crossing used — and REFUSES unless the ROM's own region table puts that
+        # centre in the row Region_Current names, which keeps "the engine installed what the
+        # camera stands in" a checked fact rather than an assumption.
+        cx = cam[0] + self.k["CAM_SCREEN_HALF_W"]
+        cy = cam[1] + self.k["CAM_SCREEN_HALF_H"]
+        region = await self.rword("Region_Current", 4)
+        want = region_table.region_at(self.regions, cx, cy)
+        if want is None or region != want["addr"]:
+            raise CouldNotRun(f"after the warp Region_Current is ${region:06X} but the ROM's region "
+                              f"table puts the camera centre ({cx},{cy}) in "
+                              f"{'no row' if want is None else hex(want['addr'])}")
+        sec = (cx >> self.k["SECTION_SIZE_SHIFT"], cy >> self.k["SECTION_SIZE_SHIFT"])
         rp = await self.rword("Raster_Program", 4)
         return {"ack_frames": ack, "requested": (px_, py_), "clamped": clamped, "camera": cam,
                 "installed_section": sec[1] * self.k["GRID_W"] + sec[0], "section_xy": sec,
+                "region_current": hex(region),
                 "raster_program": rp, "raster_program_name": self.name_of(rp)}
 
     async def screen_l(self):
@@ -590,7 +608,7 @@ async def inplace(p: Probe, cp, fr: Frame, cam, words, base_rows, label, out):
 async def run(rom, lst, sock, k, strips, pop, report):
     sym = parse_lst(lst)
     for n in ("Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Camera_X", "Camera_Y", "Raster_Program",
-              "Parallax_Prev_Sec_X", "Camera_X_Max", "Camera_Y_Max"):
+              "Region_Current", "OJZ_Act1_Descriptor", "Camera_X_Max", "Camera_Y_Max"):
         if n not in sym:
             raise CouldNotRun(f"{lst}: symbol {n} absent")
     b = BusClient(socket_path=sock, client_id="blank-priority", client_name="blank_priority_probe")
@@ -600,6 +618,7 @@ async def run(rom, lst, sock, k, strips, pop, report):
         if not b.supports(m):
             raise CouldNotRun(f"server does not advertise {m}")
     p = Probe(b, sym, k, strips)
+    p.regions = region_table.read_regions(open(rom, "rb").read(), sym["OJZ_Act1_Descriptor"])
     await c(b, "emulator/load_symbols", {"path": lst})
     await c(b, "emulator/reset", {})
     await c(b, "emulator/run_frames", {"frames": SETTLE})
@@ -607,7 +626,8 @@ async def run(rom, lst, sock, k, strips, pop, report):
     # ---- 2. S/H extent, measured, per section -------------------------------------------
     # First at the BOOT camera, before any warp: the one position no warp chose.
     cam0 = await p.camera()
-    sec0 = tuple(await rmem(b, sym["Parallax_Prev_Sec_X"], 2))
+    sec0 = ((cam0[0] + k["CAM_SCREEN_HALF_W"]) >> k["SECTION_SIZE_SHIFT"],
+            (cam0[1] + k["CAM_SCREEN_HALF_H"]) >> k["SECTION_SIZE_SHIFT"])
     rp0 = await p.rword("Raster_Program", 4)
     cp = (await c(b, "emulator/checkpoint", {}))["id"]
     sw0 = await p.sh_sweep(cp)

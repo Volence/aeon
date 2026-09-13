@@ -172,15 +172,15 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
 //      Section_FlatIDXY on the very next line: lens row C4a-4. Every caller was
 //      enumerated by call site before the change and none reads d0 as a flag —
 //      Section_RedrawPlanes, Parallax_CheckBoundary and GameState_OJZScroll_Init
-//      test only Z; BuildEntries takes the id.)
-// Clobbers: d1, d4
+//      test only Z; BuildEntries takes the id. Since painted-regions v1 the last two use
+//      Region_Resolve instead, leaving Section_RedrawPlanes and EntityWindow_BuildEntries.)
 //      d2 (sec_x) and d3 (sec_y) come back unchanged on every path, and since 2026-09-12 the
 //      declaration says so (parcel/clobber-decls-0912; it named d2 clobbered though no path
 //      wrote it: `.out_of_range` writes a0/d0, the found path d0/d1/d4/a0, in all four shapes'
-//      bytes). Parallax_CheckBoundary (engine/level/parallax.emp) stores d2/d3 into
-//      Parallax_Prev_Sec_X/Y straight after this call and relies on it; the narrowing only
-//      shrinks what the other three callers must assume lost. KEEP THE BODY OFF d2: a write
-//      now fails as [proc.clobber-undeclared] here and as D1c at the Parallax call site.
+//      bytes). Parallax_CheckBoundary relied on that until painted-regions v1 moved it to
+//      Region_Resolve; the declaration stays exact because an over-wide one is unchecked and
+//      only shrinks what the remaining callers may assume. KEEP THE BODY OFF d2: a write
+//      now fails as [proc.clobber-undeclared] here. Clobbers: d1, d4
 //      d4 — the Sec-stride multiply's scratch, since d0 now carries the id and d1
 //      the product. Every caller's own declaration already covers d4, and none
 //      holds anything in d4 across the call.

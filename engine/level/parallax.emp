@@ -3,14 +3,16 @@
 // Public:
 //   Parallax_Init(a0=parallax_config*) — initialize Parallax_State at level load
 //   Parallax_Update                    — main-loop per-frame builder
-//   Parallax_StartTransition(a0=new)   — section-boundary config switch
+//   Parallax_StartTransition(a0=new)   — region-crossing config switch
+//   Parallax_CheckBoundary             — the identity crossing (painted-regions v1)
+//   Region_Resolve(d2=x, d3=y)         — THE point-in-region query
 //   Vscroll_Write                      — VBlank VSRAM emitter
 //   Parallax_Set_Roles_Swapped(d0=u8)  — EFFECTS-W1 item 10b: swap FG/BG plane roles
 
 module engine.parallax in parallax
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES, VRAM_PLANE_A, VRAM_PLANE_B}
-use engine.structs.{Sec, parallax_config}
+use engine.constants.{CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS, SINE_AMPLITUDE, SINE_CYCLE_ENTRIES, VRAM_PLANE_A, VRAM_PLANE_B}
+use engine.structs.{Act, Region, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF, VdpBase, vdp_base_reg}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
@@ -1105,13 +1107,15 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 
         move.l  a0, Parallax_Current_Config                 // (Parallax_Current_Config).w
 
-        // Seed the previous-section trackers to a sentinel (the .zero loop
-        // above just cleared them to 0,0, a valid grid coord). $FF,$FF can
-        // never match a real section, so the first Parallax_CheckBoundary
-        // re-selects the start section's config — a no-op against the config
-        // this Init already chose, but it primes Prev_Sec_X/Y correctly.
-        move.b  #$FF, Parallax_Prev_Sec_X                   // (Parallax_Prev_Sec_X).w
-        move.b  #$FF, Parallax_Prev_Sec_Y                   // (Parallax_Prev_Sec_Y).w
+        // The region sentinel: a live rectangle NOTHING is inside (X0 = $FFFF above
+        // X1 = $0000), so the first Parallax_CheckBoundary always takes its rescan path
+        // and installs the start region's WHOLE identity — preset and config — through
+        // the one crossing path. It costs the fast path nothing: no null test, no extra
+        // branch, just a first compare that can never pass. One long writes both X words
+        // because the cache is span-major. The cache lives OUTSIDE Parallax_State (see
+        // engine/ram.emp), so the zero loop above never touches it and this is its reset.
+        move.l  #$FFFF0000, Region_Cur_X0                   // (Region_Cur_X0).w
+        clr.l   Region_Current                              // (Region_Current).w — none resolved yet
 
         // EFFECTS-W1 item 10b: a role swap must not survive an act reload. The flag
         // lives OUTSIDE Parallax_State/_End (ram.emp's placement note explains why), so
@@ -1145,96 +1149,140 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 }
 
 // ----------------------------------------------------------------------
-// Parallax_CheckBoundary — per-section parallax: re-select config on a
-// section-boundary crossing.
+// Parallax_CheckBoundary — the identity crossing: re-select the preset and the
+// parallax config the frame the camera centre enters a new REGION.
 //
-// Continuous-scroll replacement for the deleted teleport-driven snap. The
-// camera scrolls live in world space, so there is no teleport to hang the
-// config switch on; instead we watch the section under the camera CENTRE
-// (matching the active-section semantic used for the diagnostic tint) and
-// act the frame it changes. On a crossing we hand the new section to
-// Effects_InstallPreset, which resolves ep_parallax (the act default when
-// NULL) and returns it, and hand THAT to Parallax_StartTransition, which
-// decides snap vs. lerp from the new config's pcfg_transition flag and
-// no-ops when the config is unchanged.
+// Painted-regions v1 (docs/superpowers/designs/2026-09-09-regions-v1-design.md): the
+// scope an EffectsPreset is bound at is a world-pixel rectangle from Act.act_regions,
+// not the section grid. The reference point is unchanged — the camera CENTRE,
+// Camera_X + CAM_SCREEN_HALF_W / Camera_Y + CAM_SCREEN_HALF_H — and the named
+// constants replace the SCREEN_WIDTH/2 and SCREEN_HEIGHT/2 this proc used to restate.
 //
-// Edge-triggered: the per-frame cost off a boundary is two shifts and a
-// byte compare. Out-of-grid sections (Section_GetSecPtrXY Z set) are left
-// alone — the camera is clamped in-grid, but the guard keeps this robust.
+// FAST PATH, every frame the centre is still inside the live rectangle: four unsigned
+// compares against the RAM cache (Region_Cur_X0..Y1), no shifts and no pointer chase.
+// SLOW PATH, a frame it is not: Region_Resolve finds the containing row, the cache is
+// refilled (two move.l — the cache and the record are both span-major), Region_Current
+// records the Region*, and the ONE total-binding install runs: Effects_InstallPreset
+// writes every channel and returns the resolved parallax config, which
+// Parallax_StartTransition snaps or lerps to from its pcfg_transition byte (a no-op when
+// the config is unchanged).
 //
-// In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
-// Out: config switched + transition staged iff a crossing changed it.
-// Clobbers: d0-d4, a0-a3 (a1/a3 enter the union via Effects_InstallPreset,
-//   the effects-P3 preset path — the sole per-section effect consumer since
-//   the legacy per-field installers were removed, effects-P3-C2 Task 13; d4
-//   joined it in P-b, where Raster_BuildSchedule's table walk reaches d4. d2/d3 hold
-//   the section coords and are dead by the call, so nothing here needs saving.)
+// NO ROW CONTAINS THE POINT (a0 = 0): keep everything, stale cache included, so the next
+// frame rescans. Unreachable on any act that builds — the act constructor proves its rows
+// tile the act, and the centre is always inside the act — so this is a robustness net,
+// not a hole an author can ship. It is the out-of-grid guard's twin.
+//
+// UNSIGNED COMPARES throughout (blo/bhi/bls): a world coordinate can reach $7FFF, where a
+// signed compare would be one authored act away from meaning something else. Parallax_Init's
+// $FFFF/$0000 sentinel is a rectangle nothing is inside, so the first call always rescans.
+//
+// In:  none (reads Camera_X/Y, Current_Act_Ptr, Region_Cur_X0..Y1)
+// Out: preset + config switched iff the centre entered a new region; Region_Current set.
+// Clobbers: d0-d4, a0-a3 (d0/a2 are Region_Resolve's; a1/a3 enter the union via
+//   Effects_InstallPreset — the sole identity consumer since the legacy per-field
+//   installers were removed, effects-P3-C2 Task 13; d4 via Raster_BuildSchedule's table
+//   walk under it. d2/d3 hold the centre and are dead by the install.)
 // ----------------------------------------------------------------------
 pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
-        // -- section under the camera centre (camX+160 / camY+112) --
+        // -- the camera centre, world px --
         move.w  Camera_X, d2                        // (Camera_X).w — world X px (high word)
-        addi.w  #SCREEN_WIDTH/2, d2
-        moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d2 as GridX                     // d2 = cur_sec_x
+        addi.w  #CAM_SCREEN_HALF_W, d2
         move.w  Camera_Y, d3                        // (Camera_Y).w — world Y px
-        addi.w  #SCREEN_HEIGHT/2, d3
-        asr.w   d0, d3 as GridY                     // d3 = cur_sec_y
+        addi.w  #CAM_SCREEN_HALF_H, d3
 
-        // -- crossing? compare against last frame's section --
-        cmp.b   Parallax_Prev_Sec_X, d2            // (Parallax_Prev_Sec_X).w
-        bne     .crossed
-        cmp.b   Parallax_Prev_Sec_Y, d3            // (Parallax_Prev_Sec_Y).w
-        beq     .no_crossing
-    .crossed:
-        // -- look up the new section (a2 = act ptr) --
-        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
-        jbsr    Section_GetSecPtrXY                 // a0 = Sec ptr (Z set = out of grid)
-        beq     .no_crossing                        // out of grid — keep current config
+        // -- fast path: still inside the live rectangle? inclusive, unsigned --
+        cmp.w   Region_Cur_X0, d2                   // (Region_Cur_X0).w
+        blo     .rescan
+        cmp.w   Region_Cur_X1, d2                   // (Region_Cur_X1).w
+        bhi     .rescan
+        cmp.w   Region_Cur_Y0, d3                   // (Region_Cur_Y0).w
+        blo     .rescan
+        cmp.w   Region_Cur_Y1, d3                   // (Region_Cur_Y1).w
+        bls     .no_crossing
+    .rescan:
+        jbsr    Region_Resolve                      // a0 = Region*, or 0 (d2/d3 read, not written)
+        cmpa.w  #0, a0
+        beq     .no_crossing                        // no row contains the centre: keep everything
+        // The `:l` is a DECLARED OVERLAY (sigil's sized-override spelling): one long reads
+        // x0:x1 (then y0:y1) as a pair, which is the span-major order doing its job. Sigil
+        // refuses a bare `.l` on a 2-byte field as [operand.field-overrun]; the override states
+        // the 4-byte width on purpose and stays bounded by the struct's end.
+        move.l  Region.rg_x0:l(a0), Region_Cur_X0   // x0:x1 — one long per axis, span-major
+        move.l  Region.rg_y0:l(a0), Region_Cur_Y0   // y0:y1
+        move.l  a0, Region_Current                  // the observable; engine logic never reads it
 
-        // commit the new section coords only once valid (d2/d3 survive the call by its declaration)
-        move.b  d2, Parallax_Prev_Sec_X             // (Parallax_Prev_Sec_X).w
-        move.b  d3, Parallax_Prev_Sec_Y             // (Parallax_Prev_Sec_Y).w
-
-        // -- the per-section effect consumer (effects P3) --
-        // This is the ONE place the engine notices "the camera entered a new
-        // section", so the per-section effect consumer hangs here beside the
-        // parallax one rather than duplicating the crossing detection. Every
-        // section sets sec_effects (Task 12 converted the last OJZ act), so
-        // TOTAL BINDING is the only path left: Effects_InstallPreset writes
-        // every channel (palette, cycle, variants, raster) itself and returns
-        // the resolved parallax config in a0. The legacy per-field "NULL means
-        // keep whatever the previous section had" installers (Palette_LoadSection,
-        // Palette_InstallCycleSection, Raster_InstallSection) are deleted —
-        // effects-P3-C2 Task 13; a0 = Sec* with sec_effects == 0 reaching here
-        // is a content bug, not a runtime state to degrade gracefully into.
+        // -- the identity consumer (effects P3): TOTAL BINDING --
+        // This is the ONE place the engine notices "the camera entered a new region", so
+        // the whole install hangs here rather than duplicating the crossing detection.
         //
-        // WHY THE TEST BELOW STAYS DEBUG-ONLY, AND WHAT REPLACED IT IN RELEASE
-        // (painted-regions audit row 7, closed 2026-09-04). The asymmetry is real and
-        // was stated plainly by the audit: this `tst.l` is the only null test on the
-        // path, `Effects_InstallPreset` dereferences the pointer untested, and release
-        // therefore had nothing between a null and reading the 68000 vector table as an
-        // EffectsPreset. The fix is NOT a release-side copy of this test. Re-enumerating
-        // by what can REACH the value — not by what names it — the Sec* here comes from
-        // `Section_GetSecPtrXY` over `Act.sec_grid_ptr`, there is exactly one `[Sec; N]`
-        // table in the tree (`OJZ_Act1_Sections`; games/demo has none and never calls
-        // this proc), and `Sec.sec_effects` has no runtime writer anywhere — it is ROM.
-        // So the value is fixed at build time, which makes it a BUILD-TIME property, and
-        // `Sec.sec_effects` accordingly lost its `= 0` struct default (engine/structs.emp)
-        // and `ojz_sec()`'s `effects:` argument lost its own (act_descriptor.emp). An
-        // omitted binding is now a compile error in EVERY shape for zero ROM bytes,
-        // instead of a runtime test that ships in one shape and can never fire in either.
-        // This test survives for what the comptime pin cannot see: a Sec* that a debug
-        // tool poked, or a corrupted `Act.sec_grid_ptr` — development-time faults, caught
-        // in the shape development runs.
+        // WHY THE TEST BELOW STAYS DEBUG-ONLY, AND WHAT GUARDS RELEASE (painted-regions
+        // audit row 7's argument, carried from Sec.sec_effects to Region.rg_effects).
+        // Effects_InstallPreset dereferences the pointer untested, so a null would read
+        // the 68000 vector table as an EffectsPreset. Re-enumerating by what can REACH the
+        // value: the Region* here comes from Region_Resolve over Act.act_regions, the only
+        // [Region; N] table in the tree is OJZ_Act1_Regions (games/demo has none and never
+        // calls this proc), and it is ROM with no runtime writer. So nullity is a BUILD-
+        // TIME property, and it is guarded at build time twice: Region.rg_effects has no
+        // `= 0` default (an omission does not compile) and ojz_region() ensures a WRITTEN
+        // zero fails too. This test survives for what those cannot see: a Region* a debug
+        // tool poked, or a corrupted Act.act_regions — development faults, caught in the
+        // shape development runs.
     if DEBUG == 1 {
-        tst.l   Sec.sec_effects(a0)                  // (Sec.sec_effects)(a0)
+        tst.l   Region.rg_effects(a0)                // (Region.rg_effects)(a0)
         bne     .have_preset
-        raise_error "Parallax_CheckBoundary: section with sec_effects == 0 (the legacy per-field path was removed, effects-P3-C2 Task 13)"
+        raise_error "Parallax_CheckBoundary: region with rg_effects == 0 (a poked or corrupted Act.act_regions table - the build forbids a null binding)"
     .have_preset:
     }
-        jbsr    Effects_InstallPreset                // a0 = Sec* in, a0 = resolved parallax config out
+        jbsr    Effects_InstallPreset                // a0 = Region* in, a0 = resolved parallax config out
         jbra    Parallax_StartTransition             // snap/lerp + mode shadow; no-op if unchanged
     .no_crossing:
+        rts
+}
+
+// The crossing cache is filled by two move.l straight out of a Region record, which is
+// only right while the four RAM words sit in the record's own order with no gap. A field
+// inserted between them would not fail to build; it would make the fast path compare
+// against the wrong edge.
+ensure(extern("Region_Cur_X1") - extern("Region_Cur_X0") == 2 && extern("Region_Cur_Y0") - extern("Region_Cur_X0") == 4 && extern("Region_Cur_Y1") - extern("Region_Cur_X0") == 6,
+       "engine/ram.emp's Region_Cur_X0/X1/Y0/Y1 are no longer four contiguous words in Region's own order — Parallax_CheckBoundary fills them with two move.l out of the Region record")
+
+// ----------------------------------------------------------------------
+// Region_Resolve — THE point-in-region query. Both the crossing (above) and the level
+// init's boot select (games/sonic4/test/ojz_scroll_test.emp) call it, for
+// Effects_ResolveParallax's reason: two sites resolving the same thing privately is how
+// the 2026-08-26 precedence bug shipped.
+//
+// LINEAR, and that is a decision: a rejected row costs 36 to 100 cycles, so a nine-row act
+// is under a thousand cycles, on crossing frames only, beside an Effects_InstallPreset that
+// can reach ~19,332 on the same frame. The three upgrades ((a0)+ compares, neighbours
+// first, a per-section bucket) and their triggers are in the design, §2.4.
+//
+// In:  d2.w = world X, d3.w = world Y (the camera centre at both call sites);
+//      Current_Act_Ptr names an act whose act_region_count >= 1 (its constructor ensures it)
+// Out: a0 = the FIRST Region* whose inclusive rectangle contains (d2, d3), compared
+//      unsigned, or 0 when none does. The act constructor proves no two rows overlap, so
+//      first is only. The flags are NOT the result — test a0.
+// Clobbers: d0, a2. d2/d3 are read, never written.
+// ----------------------------------------------------------------------
+pub proc Region_Resolve (d2: u16, d3: u16) clobbers(d0/a2) out(a0) {
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        movea.l Act.act_regions(a2), a0
+        move.w  Act.act_region_count(a2), d0
+        subq.w  #1, d0                              // dbf counts down to -1
+    .scan:
+        cmp.w   Region.rg_x0(a0), d2
+        blo     .next
+        cmp.w   Region.rg_x1(a0), d2
+        bhi     .next
+        cmp.w   Region.rg_y0(a0), d3
+        blo     .next
+        cmp.w   Region.rg_y1(a0), d3
+        bls     .found
+    .next:
+        lea     sizeof(Region)(a0), a0
+        dbf     d0, .scan
+        suba.l  a0, a0                              // no row contains the point
+    .found:
         rts
 }
 

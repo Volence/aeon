@@ -94,6 +94,7 @@ from suite_paths import add_client_path  # noqa: E402
 add_client_path()
 from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
+import region_table  # noqa: E402  (the one Region reader, painted-regions v1)
 
 
 class Refused(RuntimeError):
@@ -379,7 +380,7 @@ async def run(a) -> int:
 
         names = ["Parallax_Remap_State", "Parallax_Current_Vscroll_BG", "Effects_Screen_L",
                  "Hscroll_Buffer", "Camera_Y", "Parallax_Deform_Phase_BG",
-                 "Parallax_Prev_Sec_X", "Parallax_Prev_Sec_Y",
+                 "Region_Current", "OJZ_Act1_Descriptor",
                  "Parallax_Current_Config", "Parallax_Target_Config",
                  "Parallax_Transition_Frames"]
         syms = {n: await lookup(c, n) for n in names}
@@ -397,10 +398,14 @@ async def run(a) -> int:
         out["rewind_observed"] = bool(rewound)
         print(f"  frames {f_prev} -> {f_now} over {a.settle} settle frames "
               f"(delta {f_now - f_prev}); rewind observed: {rewound}")
-        sec = (await rd(c, syms["Parallax_Prev_Sec_X"], 1), await rd(c, syms["Parallax_Prev_Sec_Y"], 1))
-        out["section"] = sec
+        # The region the engine's crossing cached (Parallax_Prev_Sec_X/Y until painted-regions
+        # v1), named by its row in the ROM's own table.
+        reg = await rd(c, syms["Region_Current"], 4)
+        rows = region_table.read_regions(rom, syms["OJZ_Act1_Descriptor"] & 0xFFFFFF)
+        idx = next((r["index"] for r in rows if r["addr"] == reg), None)
+        out["region"] = {"addr": f"${reg:06X}", "row": idx}
         was = await rd(c, syms["Parallax_Current_Config"], 4)
-        print(f"  section {sec}; section-installed config ${was:06X}")
+        print(f"  region row {idx} (${reg:06X}); region-installed config ${was:06X}")
         out["config_installed_by_section"] = f"${was:06X}"
 
         # -- install the hand-authored scene, the way the DEBUG scene-cycle hotkey does --

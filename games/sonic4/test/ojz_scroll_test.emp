@@ -853,57 +853,35 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
         jbsr    Section_UpdateColumns
 
-        // -- parallax init: pull the start section's parallax_config.
-        //    Section_GetSecPtrXY handles the full grid math (sec_y included);
-        //    runs after Section_Init so Current_Act_Ptr is valid. --
-        lea     OJZ_Act1_Descriptor, a2            // (OJZ_Act1_Descriptor).l
-        move.b  Act.start_sec_x(a2), d2 as GridX
-        move.b  Act.start_sec_y(a2), d3 as GridY
-
-        // -- BOOT-POSITION OVERRIDE, second and last consumer (DEBUG shapes): the
-        //    only place below the placement block where the init still reads the
-        //    AUTHORED start rather than the camera. An override into a different
-        //    section must start on THAT section's parallax config — otherwise the
-        //    first painted frame carries section (start_sec_x, start_sec_y)'s
-        //    bands/palette and only the first Parallax_CheckBoundary of the update
-        //    loop corrects it — as a lerp rather than a snap, since nothing here
-        //    sets Parallax_Snap_Pending the way Debug_Warp_Consume does.
-        //    Derived from the CLAMPED, already-published Boot_At_X/Y (the section
-        //    containing the player), which is the same relation start_sec_* has to
-        //    start_local_*.
+        // -- parallax init: the start REGION's parallax_config (painted-regions v1).
+        //    Chosen by the CAMERA CENTRE, the same point Parallax_CheckBoundary tests, so
+        //    the first painted frame and the first crossing test select the same region by
+        //    construction. Camera_Init has already clamped Camera_X/Y to the authored start,
+        //    and in the DEBUG shapes center_camera_on has already aimed them at the clamped
+        //    Boot_At_X/Y override — so the override reaches this select THROUGH the camera,
+        //    and the Boot_At -> grid-coordinate block that used to sit here is deleted rather
+        //    than converted.
         //
-        //    WITNESSED since 2026-08-26 — this paragraph used to say the opposite
-        //    and was made false by the work it predicted, so read the date before
-        //    trusting any claim here about what is covered. What it said: every OJZ
-        //    act 1 section bound `sec_parallax_config: default`, so poisoning this
-        //    block changed no pixel, and tools/boot_override_gate.py asserted that
-        //    PREMISE rather than imply coverage it did not have. Both halves ended:
-        //    Aurora's first authored scene binds section 0, and the select below is
-        //    now the shared three-way resolve (Sec.sec_parallax_config > the
-        //    preset's ep_parallax > Act.act_parallax_config), so it reads the preset
-        //    rung too. The gate now WITNESSES the select instead: it reads
-        //    Parallax_Current_Config at the init's exit — before any
-        //    Parallax_CheckBoundary can launder a wrong choice into a right one —
-        //    against an expectation derived from the ROM's own section grid, and
-        //    cross-checks the VDP reg $0B shadow and the band-scroll tail, which are
-        //    written FROM the active config. Poisoning this block (DEBUG == 99) now
-        //    fails it loudly on all three observables. Emits nothing in the plain
-        //    shape. --
-        if DEBUG == 1 {
-                tst.b   Boot_At_Flag            // (Boot_At_Flag).w
-                beq     .init_bootat_no_parallax
-                move.w  Boot_At_X, d2           // (Boot_At_X).w — clamped world px
-                lsr.w   #8, d2
-                lsr.w   #SECTION_SIZE_SHIFT-8, d2 as GridX   // split 8+rest: max shift is 8/op
-                move.w  Boot_At_Y, d3           // (Boot_At_Y).w
-                lsr.w   #8, d3
-                lsr.w   #SECTION_SIZE_SHIFT-8, d3 as GridY
-        .init_bootat_no_parallax:
-        }
-
-        jbsr    Section_GetSecPtrXY             // a0 = start Sec ptr (Z set = none)
+        //    WHY THE CENTRE, AND NOT THE BOOT POINT, CANNOT CHOOSE DIFFERENTLY, derived: the
+        //    two points differ only where the camera clamps, i.e. within CAM_SCREEN_HALF_W
+        //    (X) or CAM_SCREEN_HALF_H (Y) of an act edge, and ojz_region()'s per-row ensures
+        //    keep every interior region edge inside the centre's reachable band. So no region
+        //    edge can lie between them, and they always name the same region.
+        //
+        //    WITNESSED by tools/boot_override_gate.py: it reads Parallax_Current_Config at
+        //    the init's exit — before any Parallax_CheckBoundary can launder a wrong choice
+        //    into a right one — against the region the ROM's own table places under the
+        //    camera centre, and cross-checks the VDP reg $0B shadow and the band-scroll
+        //    tail, which are written FROM the active config. Runs after Section_Init and
+        //    Camera_Init, so Current_Act_Ptr and Camera_X/Y are valid here. --
+        move.w  Camera_X, d2                    // (Camera_X).w — world X px (high word)
+        addi.w  #CAM_SCREEN_HALF_W, d2
+        move.w  Camera_Y, d3                    // (Camera_Y).w
+        addi.w  #CAM_SCREEN_HALF_H, d3
+        jbsr    Region_Resolve                  // a0 = the start Region*, or 0
+        cmpa.w  #0, a0
         beq     .init_use_act_config
-        // The SAME resolution the crossing site uses (section > preset > act), so the
+        // The SAME resolution the crossing site uses (region > preset > act), so the
         // first painted frame and the first Parallax_CheckBoundary cannot disagree. This
         // used to be a private sec-else-act copy that never read the preset, while the
         // crossing read preset-else-act and never read the section — 2026-08-26.
@@ -1800,18 +1778,18 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         st      Section_Plane_Dirty             // (Section_Plane_Dirty).w
         jbsr    Section_UpdateColumns
 
-        // -- 7. the section CROSSING. Not a duplicate of the crossing logic: the
-        //    sentinel pair is exactly what Parallax_Init writes so the next
-        //    Parallax_CheckBoundary cannot match, which makes the destination
-        //    section read as a crossing and go through the ONE path a walked
-        //    crossing takes — Effects_InstallPreset (palette, cycle, variants,
-        //    raster) then Parallax_StartTransition. Snap_Pending on top so the
-        //    bands snap to the destination instead of lerping across the world
-        //    from the old section. BgAnim_Init forces a bank DMA on the next
+        // -- 7. the region CROSSING. Not a duplicate of the crossing logic: the
+        //    sentinel pair is exactly what Parallax_Init writes — a live rectangle
+        //    nothing is inside — so the next Parallax_CheckBoundary cannot take its fast
+        //    path, which makes the destination region read as a crossing and go through
+        //    the ONE path a walked crossing takes — Effects_InstallPreset (palette,
+        //    cycle, variants, raster) then Parallax_StartTransition. Snap_Pending on top
+        //    so the bands snap to the destination instead of lerping across the world
+        //    from the old region. BgAnim_Init forces a bank DMA on the next
         //    Update; the final Parallax_Update primes HScroll/VSRAM so the first
         //    displayed frame at the destination already scrolls correctly. --
-        move.b  #$FF, Parallax_Prev_Sec_X       // (Parallax_Prev_Sec_X).w
-        move.b  #$FF, Parallax_Prev_Sec_Y       // (Parallax_Prev_Sec_Y).w
+        move.l  #$FFFF0000, Region_Cur_X0       // (Region_Cur_X0).w — the region sentinel
+        clr.l   Region_Current                  // (Region_Current).w
         st      Parallax_Snap_Pending           // (Parallax_Snap_Pending).w
         jbsr    Parallax_CheckBoundary
         jbsr    BgAnim_Init
@@ -1869,8 +1847,8 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 // ---- IT IS AN INDEX, NOT A REPLACEMENT FOR THE THREE TABLES ----
 // `.lab_index` names a KIND and a SUB-INDEX into the table that kind dispatches
 // through — `.scene_table` and `.raster_table` below, and for a preset the act's OWN
-// section grid, which has no table here at all (the Sec* is
-// `Act.sec_grid_ptr + sub * sizeof(Sec)`, `Section_GetSecPtrXY`'s own tail arithmetic).
+// region table, which has no copy here at all (the Region* is
+// `Act.act_regions + sub * sizeof(Region)`; painted-regions v1 moved it off the section grid).
 // That is deliberate and it is the cheap half of this parcel: the sub-tables stay
 // exactly what they were, so `tools/test_scene_cycle_table_lint.py` (which holds
 // `.scene_table` to the scene registry, row for row, in emission order) and
@@ -1889,8 +1867,8 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
 //           PALETTE AND RASTER ARE NOT TOUCHED, and that is correct rather than a
 //           shortcut: a scene IS a parallax_config. Everything else a scene needs is
 //           re-derived per frame FROM the config, so there is nothing else to re-seed.
-//           `Parallax_Init` is deliberately NOT used — it re-seeds
-//           Parallax_Prev_Sec_X/Y to $FF, which would make the very next
+//           `Parallax_Init` is deliberately NOT used — it re-seeds the region
+//           sentinel, which would make the very next
 //           Parallax_CheckBoundary undo the swap on the following frame.
 //   RASTER  `Raster_Install`, staging Raster_Pending for the next Raster_VBlank. The
 //           LAST raster row is bands OFF, and it installs `Raster_Program_None` — the
@@ -2209,51 +2187,43 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         jbra    Raster_Install
 
     .preset:
-        // -- PRESET: a whole EffectsPreset, installed onto the section the camera is
-        //    actually standing in, through the engine's own crossing path.
+        // -- PRESET: a REGION's whole EffectsPreset, installed onto the region the camera
+        //    is actually standing in, through the engine's own crossing path. The sub-index
+        //    is a REGION index since painted-regions v1; act 1's table is a 1:1
+        //    transcription of its grid, so every row names the same preset it always did.
         //
-        //    THE ROW'S SECTION IS CHECKED AGAINST THE LIVE ACT FIRST. The rows are
-        //    authored here and the act's grid is data, so a row could name a section
-        //    this act does not have — and `Act.sec_grid_ptr + sub * sizeof(Sec)` would
-        //    happily resolve to whatever ROM follows the grid. tools/test_lab_index_lint.py
-        //    fails the build on that, and this is the runtime backstop for an act loaded
-        //    at runtime that the lint never saw. grid_w/grid_h's low bytes are the
-        //    blessed sub-field view (engine.structs Act_grid_w_lo/Act_grid_h_lo), safe
-        //    because the act constructor bounds both by MAX_ACT_SECTIONS; mul_bounded
-        //    elects between a repeated-add loop and mulu at build time on the worst case,
-        //    which is what CODING_CONVENTIONS §2.1 asks for in place of a hand-written
-        //    multiply, so no four-point argument is owed. It runs once per PRESS.
-        move.w  d1, d4                          // d4 = the section this row names
+        //    THE ROW'S REGION IS CHECKED AGAINST THE LIVE ACT FIRST. The rows are authored
+        //    here and the act's region table is data, so a row could name a region this
+        //    act does not have — and `Act.act_regions + sub * sizeof(Region)` would happily
+        //    resolve to whatever ROM follows the table. tools/test_lab_index_lint.py fails
+        //    the build on that, and this is the runtime backstop for an act loaded at
+        //    runtime that the lint never saw. The bound is Act.act_region_count itself —
+        //    there is no grid product to form any more. It runs once per PRESS.
+        move.w  d1, d4                          // d4 = the region this row names
         movea.l Current_Act_Ptr, a2             // (Current_Act_Ptr).w
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.b  Act_grid_h_lo(a2), d0
-        moveq   #0, d1
-        move.b  Act_grid_w_lo(a2), d1
-        mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = grid_h * grid_w = section count
-        cmp.w   d0, d4
-        bhs     .done                           // this act has no such section
+        cmp.w   Act.act_region_count(a2), d4
+        bhs     .done                           // this act has no such region
 
-        // The Sec*: `Section_GetSecPtrXY`'s own tail arithmetic, minus the grid
-        // decomposition — the sub-index IS the flat id. The stride is spelled
-        // #sizeof(Sec) so it follows the struct, and adda.w sign-extends, which is safe
-        // because the check above bounds the index by MAX_ACT_SECTIONS.
-        movea.l Act.sec_grid_ptr(a2), a0
+        // The Region*: the table base plus index × record size. sizeof(Region) is 16, so
+        // mul_const elects a shift, and adda.w's sign extension is safe because the index is
+        // a lab row's sub-index, which the lint bounds by PRESET_CYCLE_MAX (10) — 160 bytes.
+        movea.l Act.act_regions(a2), a0
         move.w  d4, d0
-        mul_const.w d0, #sizeof(Sec), d2        // d0 = section × the Sec stride (d2 scratch)
-        adda.w  d0, a0                          // a0 = Sec*
+        mul_const.w d0, #sizeof(Region), d2     // d0 = region × the Region stride (d2 scratch)
+        adda.w  d0, a0                          // a0 = Region*
 
-        // This DEBUG block mirrors Parallax_CheckBoundary's: a section whose
-        // sec_effects is 0 is a content bug, and Effects_InstallPreset would follow the
-        // null into whatever ROM sits at offset 0. The crossing site raises there; here
-        // we STAND DOWN instead, because a review tool must not be the thing that kills
-        // the machine the review is running on — and the readout's own resolve would
-        // fault on the same null.
-        tst.l   Sec.sec_effects(a0)             // (Sec.sec_effects)(a0)
+        // This DEBUG block mirrors Parallax_CheckBoundary's: a region whose rg_effects is
+        // 0 is a content bug (the build forbids it; this sees a poked table), and
+        // Effects_InstallPreset would follow the null into whatever ROM sits at offset 0.
+        // The crossing site raises there; here we STAND DOWN instead, because a review
+        // tool must not be the thing that kills the machine the review is running on —
+        // and the readout's own resolve would fault on the same null.
+        tst.l   Region.rg_effects(a0)           // (Region.rg_effects)(a0)
         beq     .done
-        jbsr    Effects_InstallPreset           // a0 = Sec* in, resolved parallax out
+        jbsr    Effects_InstallPreset           // a0 = Region* in, resolved parallax out
         jbsr    Parallax_StartTransition        // snap/lerp + VDP $0B mode shadow
 
-        // -- and say WHICH section it came from and WHETHER it can show here --
+        // -- and say WHICH region it came from and WHETHER it can show here --
         // AFTER the install, not before it, and for a reason that is specific rather
         // than stylistic: the verdict reads Effects_Screen_L, and the only thing that
         // latches it against this preset's anchors is Effects_InstallPreset's own
@@ -2282,7 +2252,7 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // lane): the row count against LAB_CYCLE_COUNT; every scene sub-index a dense
         // 0..SCENE_CYCLE_COUNT-1 run in order; every raster sub-index a dense
         // 0..RASTER_CYCLE_COUNT run with exactly one OFF row, last; every preset
-        // sub-index a dense run inside the act's own grid_w × grid_h; every name exactly
+        // sub-index a dense run inside the act's own region table; every name exactly
         // four defined `LTR_*` glyphs; no two rows spelling the same word; and the
         // raster rows' names equal `.rtag_names`' rows for the same programs, so the
         // selection name and the live-state name for one program cannot disagree.
