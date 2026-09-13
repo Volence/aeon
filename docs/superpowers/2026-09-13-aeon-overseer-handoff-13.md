@@ -43,8 +43,17 @@ meet it**; a firing there is a real finding about the parcel's code, not a toolc
 The standing promise, both directions: sigil asks before a relink, and this lane answers when no aeon build
 is on the path.
 
+**THE SWAP IS CONDITIONAL, and checking it is your first job** (the hub's condition, relayed to this lane
+at ~09:33Z; the hub banks it in empyrean `docs/OVERSEER-LOG.md` and sends the anchor with its swap announce):
+the swap stands only if aeon's four-shape build under the NEW pair produces the same ROM bytes as the four
+md5s above. If they move, the aside pair goes back in. The hub's figures for the pair, relayed not measured
+here: outgoing sigil `2e7c2592` / emit_sound_blob `d2583416`, incoming sigil `73901664` / emit_sound_blob
+`1f936ebb`. So once the hub announces the swap: `md5sum` both binaries, run `./tools/landing_build.sh` on a
+clean detached `origin/master`, compare the four ROM md5s, and tell the hub the result either way.
+
 ## Next, in order (re-derive before starting)
 
+0. **The swap check above**, the moment the hub announces the swap.
 1. **`PER-GAME-BAND-DEFINES`** (M, byte-mover): handoff-11 item 4 says what to read first. The byte-mover
    slot is free. Check the sigil md5 first (above).
 2. **Worktree hygiene**, handoff-11 item 5, unchanged. This session's own trees are already tidied (below).
