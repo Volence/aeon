@@ -1203,23 +1203,30 @@ section sound_fm (cpu: z80) {
     // Every other re-park is followed only by the streaming loop's next consumer
     // write, which is further away still.
     //
-    // NOT CHECKED — data->next-address, at any site. Two independent blockers,
-    // both verified by probe rather than assumed:
+    // NOT CHECKED — data->next-address, at any site. Two blockers, both verified
+    // by probe rather than assumed; they are one fact seen from two sides:
     //   1. STRUCTURAL. `cycles(L1, L2)` requires both labels to be proc-local and
     //      carves the span from ONE proc's code buffer. Every data->next-address
     //      gap begins inside Fm_YmWrite (just after its data write), runs out
     //      through `ret` into the caller, and ends back inside Fm_YmWrite at the
     //      next address write. That is three procs of straight line and can never
     //      be one span.
-    //   2. OP COVERAGE. Even the caller-local remainder is unmeasurable:
-    //      `call nn`, `ret`, `pop af`, `bit n,r` and `add a,n` are all absent from
-    //      `z80_cycles::instr_cost`'s demand subset, so any span containing them
-    //      bails `[cycles.unknown-op]` (probed: "`pop` is not in the timed-region
-    //      T-state table"). Adding them is a sigil-side change, out of scope for
-    //      this parcel. MAY BE STALE: sigil's z80_cycles.rs at fbe380b9 prices
-    //      `call nn`, `ret`, `push`/`pop`, `bit` and `add a,n`; this build's binary
-    //      reports 6884bfba and was NOT re-probed (booked, gap lens sweep A2-7,
-    //      2026-09-12). Blocker 1 stands either way.
+    //   2. THE CALL AND THE RETURN. Every op in the gap is priced; the gap's shape
+    //      is what a span refuses, BY NAME, before it consults the T-state table:
+    //      `call`/`rst` bail `[cycles.opaque-call]` (the call is priced, but its
+    //      callee is not in the slice, so the sum would count less code than
+    //      runs) and `ret` bails `[cycles.path-end]` (a straight-line sum cannot
+    //      run past a return). `call cc`/`ret cc` meet those same two refusals
+    //      first, so they never reach `[cycles.ambiguous-branch]`. No table row
+    //      can release either. `pop af`, `bit n,r` and `add a,n` are priced and
+    //      sum cleanly, so the caller-local ops between the two calls CAN be
+    //      spanned; that span is just not the gap.
+    //      (Probed 2026-09-13 through emit_sound_blob built beside sigil
+    //      6884bfba; source read at sigil 06620722. This item used to say all
+    //      five ops bail `[cycles.unknown-op]` as "absent from instr_cost's demand
+    //      subset". That was sigil's own stale module-doc wording, fixed in their
+    //      cbe10440, and for `ret`, priced since ce64b6d1 on 2026-08-04, it was
+    //      wrong when written.)
     // Splitting the requirement across the pieces was rejected: it would need a
     // hand-derived constant for the callee's prologue and tail, which is the very
     // hand audit this task exists to retire. A partial mechanical check plus this
