@@ -1,0 +1,46 @@
+#!/bin/sh
+# aeon's pre-push hook: the landing gate (CTRL-3). Tracked at tools/hooks/pre-push.
+#
+# A push to refs/heads/master is refused unless tools/landing_build.sh proved the
+# pushed code green (a content-keyed stamp), or the push changes no code relative to
+# the remote's master. Pushes of every other ref pass through untouched and print
+# nothing. The logic lives in tools/land_gate.py; this file only decides whether the
+# push touches master at all, so a parcel/* push costs one shell read loop.
+#
+# INSTALL (once, from any checkout of this repository; every worktree shares it):
+#     install -m 0755 tools/hooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+# UNINSTALL:
+#     rm "$(git rev-parse --git-common-dir)/hooks/pre-push"
+#
+# It is a COPY on purpose, not core.hooksPath. A relative core.hooksPath resolves
+# inside each worktree's checkout, and git runs NO hook when the file is absent there:
+# a worktree on a branch older than this file would push master ungated, silently.
+# This copy always runs, and it dispatches to the PUSHING checkout's tools/land_gate.py,
+# so the gate logic is the version that travels with the tree being pushed. When that
+# file is missing (an old checkout), a master push is REFUSED and every other push
+# still passes: fail closed on the one ref the gate exists for.
+#
+# BYPASS, deliberate and printed:   AEON_LAND_GATE=skip git push ...
+# git's own `git push --no-verify` also skips this hook, and nothing can print then:
+# a hook that does not run cannot say it did not run. Prefer the variable.
+
+input=$(cat)
+hit=0
+while read -r lref lsha rref rsha; do
+    [ "$rref" = refs/heads/master ] && hit=1
+done <<EOF
+$input
+EOF
+[ "$hit" = 1 ] || exit 0
+
+top=$(git rev-parse --show-toplevel 2>/dev/null)
+gate="$top/tools/land_gate.py"
+if [ -z "$top" ] || [ ! -f "$gate" ]; then
+    echo "land-gate: REFUSED: this push updates master, and this checkout has no" >&2
+    echo "land-gate:   tools/land_gate.py to prove it with (${top:-no working tree})." >&2
+    echo "land-gate:   Push master from a checkout that carries the gate, or bypass on" >&2
+    echo "land-gate:   purpose: AEON_LAND_GATE=skip is honoured only by the gate itself," >&2
+    echo "land-gate:   so here the only bypass is git push --no-verify." >&2
+    exit 1
+fi
+printf '%s\n' "$input" | exec python3 "$gate" pre-push "$@"

@@ -122,6 +122,9 @@ _FIXED = [
     ("ojz_strip_gen", ["generate", "preflight", "run_tests"]),
     ("ojz_entity_gen", ["generate", "run_tests"]),
     ("ojz_block_gen", ["generate_all", "run_tests"]),
+    # CTRL-3 (2026-09-13): born in the table form. `finish` writes the landing stamp and
+    # `pre-push` can run tests; neither may be reachable from an unknown mode.
+    ("land_gate", ["cmd_finish", "cmd_pre_push", "cmd_begin", "cmd_stamps"]),
 ]
 
 
@@ -351,6 +354,7 @@ _ROSTER = {
     "ojz_block_gen.py": "FIXED LS-15d (was: validated set, if/elif, no else -> silent exit 0)",
     "ojz_entity_gen.py": "FIXED LS-15d (was: DESTRUCTIVE fall-through into generate())",
     "ojz_strip_gen.py": "FIXED LS-15d (was: DESTRUCTIVE fall-through into generate() -- the incident)",
+    "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
     "state_ram.py": "refuses: no mode SET -- a typo'd `test` becomes a state path -> unhandled FileNotFoundError, exit 1",
@@ -382,6 +386,7 @@ def test_the_ladder_population_is_still_the_roster():
         "them: %s. Either they were rewritten (drop the entry AND the rows above that "
         "name them) or the detector has gone blind -- a silently-shrinking population "
         "is the failure this row is built to prevent." % ", ".join(vanished))
-    assert len(found) == 12, (
-        "expected the 2026-09-10 census's 12 CLI string dispatches, found %d: %s"
-        % (len(found), sorted(found)))
+    # 12 at the 2026-09-10 census; 13 since CTRL-3 (2026-09-13) added land_gate.py.
+    assert len(found) == 13, (
+        "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
+        "land_gate.py, found %d: %s" % (len(found), sorted(found)))

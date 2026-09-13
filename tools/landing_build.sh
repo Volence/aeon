@@ -104,10 +104,13 @@ rc=0
 run_shape() {
     local rom="$1"; shift
     local tmp="${rom}.landing-tmp"
+    # secs= on every EXIT_ line (CTRL-3, 2026-09-13): the per-shape wall clock is what the
+    # "which shapes to keep" question is priced in, and it was nowhere in the log.
+    local t0; t0=$(date +%s)
 
     rm -f "$tmp"                       # the temp, never the live artifact
     if ! ( "$@" ) ; then
-        echo "EXIT_${rom}=FAILED (build command returned non-zero)"
+        echo "EXIT_${rom}=FAILED (build command returned non-zero) secs=$(( $(date +%s) - t0 ))"
         rc=1
         return
     fi
@@ -115,12 +118,12 @@ run_shape() {
     # build.sh writes <rom>.bin in place; move it aside atomically only once complete.
     if [ ! -f "${rom}.bin" ]; then
         # Loud on unmeasurable: a missing artifact is "did not run", never a verdict.
-        echo "EXIT_${rom}=NO_ARTIFACT (${rom}.bin absent after a zero-exit build)"
+        echo "EXIT_${rom}=NO_ARTIFACT (${rom}.bin absent after a zero-exit build) secs=$(( $(date +%s) - t0 ))"
         rc=1
         return
     fi
     mv -f "${rom}.bin" "$tmp" && mv -f "$tmp" "${rom}.bin"
-    echo "EXIT_${rom}=0 size=$(stat -c %s "${rom}.bin")"
+    echo "EXIT_${rom}=0 size=$(stat -c %s "${rom}.bin") secs=$(( $(date +%s) - t0 ))"
 }
 
 # The provenance instant for the needs_build lane at the bottom: every artifact it grades
@@ -132,6 +135,25 @@ run_shape() {
 # Source Digest reproduces ("the file matches the sources it was built from"). A pair that
 # fails either is DEFERRED, which this lane reports as exit 2.
 T0=$(date +%s)
+
+# ---- the land gate (CTRL-3, 2026-09-13) -----------------------------------------------
+# A completed green run of an unmoved, clean tree writes a STAMP keyed by the content of
+# every code path (tools/land_gate.py, "THE STAMP IS KEYED BY CONTENT"). The pre-push hook
+# (tools/hooks/pre-push) refuses a push to master whose code has no stamp. This block and
+# the one above `finished=` are the only writers, so the stamp means exactly "this script
+# finished 0 over this code". It changes nothing about what is built or graded, and the
+# exit code only in one case: HEAD or a code path MOVED under the run, which is COULD NOT
+# RUN (2), because nothing the run printed then describes any commit. A tree that is not
+# a git repository, or has no tools/land_gate.py, is UNMEASURABLE: no stamp, same verdict.
+G_HEAD=unmeasurable; G_KEY=unmeasurable; G_CLEAN=0
+gate_begin=$(python3 tools/land_gate.py begin 2>&1)
+printf '%s\n' "$gate_begin" | grep -v '^LAND_GATE_START '
+gate_start=$(printf '%s\n' "$gate_begin" | grep '^LAND_GATE_START ' | tail -1)
+if [ -n "$gate_start" ]; then
+    read -r _ G_HEAD G_KEY G_CLEAN <<<"$gate_start"
+else
+    echo "land-gate: UNMEASURABLE at start (tools/land_gate.py did not answer): this run will write no stamp"
+fi
 
 {
     run_shape s4          ./build.sh
@@ -187,6 +209,23 @@ T0=$(date +%s)
         echo "--- Not a pass. The lane grades artifacts THIS run wrote; one is missing. ---"
     fi
 } 2>&1
+
+# The land gate's stamp (CTRL-3): written only here, only for finished=0 over a tree that
+# was clean at the start and did not move. See the block above T0.
+if [ "$G_HEAD" != unmeasurable ]; then
+    python3 tools/land_gate.py finish --head "$G_HEAD" --key "$G_KEY" --clean "$G_CLEAN" \
+        --rc "$rc" --sigil "$SIGIL_BUILD" 2>&1
+    frc=$?
+    if [ "$frc" = 3 ]; then
+        echo "landing_build: COULD NOT RUN: the tree moved under this run (above), so nothing it"
+        echo "  printed describes a commit. Re-run on a tree nothing else is writing to."
+        rc=2
+    elif [ "$frc" != 0 ] && [ "$frc" != 1 ]; then
+        echo "land-gate: finish exited $frc: NO STAMP"
+    fi
+else
+    echo "land-gate: NO STAMP: the start could not be measured"
+fi
 
 # The stamp is the only thing that distinguishes a completed run from a vanished one:
 # in a log they trail IDENTICALLY. Keep the NUMBER, not just the fact -- 137 vs 143
