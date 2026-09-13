@@ -703,8 +703,8 @@ async def leg_c(drv, model, out, verbose):
                f"xv={land['xv']:+d} yv={land['yv']:+d}; its move put the feet at {f_pre:+d}, the "
                f"engine corrected y by {corr / 65536:+.4f} px, feet now {f_land:+d}")
     if land["state"] != e["PSTATE_GROUND"]:
-        fails.append(f"C: the update after the release did not land (state ${land['state']:02X}); "
-                     f"the feet stayed {ann[i]['feet']:+d} in the floor for a second update")
+        fails.append(f"C: the update after the release did not land (state ${land['state']:02X}, "
+                     f"feet at floor distance {ann[i]['feet']:+d})")
     else:
         if land["xv"] or land["yv"]:
             fails.append(f"C: the landing is not GLIDEFALL's dead stop (xv {land['xv']:+d}, "
