@@ -317,7 +317,31 @@ tool readers of the literals and missed this one: it pins PROC SIZES, not consta
 grep for `BAND_*` finds it. The image half of that witness exists for exactly this kind of
 unannounced byte movement, and it worked.
 
-(The final landing run follows.)
+**Final landing run, tip `af246d84`: `finished=0`.** `tools/landing_build.sh`, log
+`.runlogs/landing-af246d84-1052.log` (worktree-local, gitignored), 10:52Z to 11:05Z.
+
+| shape | EXIT | size | md5 | pytest lane (pre-sigil) | post-sigil marked half | expect-fail |
+|---|---|---|---|---|---|---|
+| s4 | 0 | 820223 | `d83e2780169264af93b0b0276423ad1c` (= control) | 2606 passed, 2 skipped | 5 passed, 9 skipped | 55/55 |
+| s4.debug | 0 | 846601 | `6211829d4b067b0130e4c693f6528589` (= control) | 2606 passed, 2 skipped | 6 passed, 8 skipped | 55/55 |
+| demo | 0 | 97058 | `1774d78cf82982c3faaf27f5fb809161` | 2606 passed, 2 skipped | 1 passed, 13 skipped | 55/55 |
+| demo.debug | 0 | 103449 | `339f50a332426b138082307d5186bea6` | 2606 passed, 2 skipped | 1 passed, 13 skipped | 55/55 |
+| needs_build lane | 0 | | | 14 passed; "OK — all 14 marked test(s) ran and passed" | | |
+
+The pytest lane is 2606 per shape against the control's 2595: +11, the new
+`tools/test_band_geometry.py`. `[call.flag-result-unused]` / `[call.result-invalid-path]`: 0 hits
+in the log, the same as the control. `row_remap_gate` reads sonic4 at `sizeof(band_record)=32`
+and demo at `10` with no remap field, both OK. The assembler is `sigil 0.1.0 (1532b72f)`.
+sigil md5 `739016647ad1ab92f4d072e3013b8818` and emit_sound_blob md5
+`1f936ebb805d39eae23844ee66fb458a`, read at the start (09:54Z), mid-parcel (10:27Z) and at the
+end (11:02Z): unchanged.
+
+**Not run, and owed by the overseer:** no emulator was used. The runtime consequence (demo's
+`Parallax_Init` now clears 98 longs instead of 205, and its walker strides by 10 instead of 32)
+is exercised by no lane, because demo never calls `Parallax_Update`. The effects-gate ritual is
+not triggered: no file under `engine/effects/`, `engine/level/bg_anim.emp` or
+`engine/system/buffers.emp` changed, and `tools/effects_gates.py` and the nightly call none of
+the tools this parcel edited.
 
 ## 6. Asks, and what is left
 
