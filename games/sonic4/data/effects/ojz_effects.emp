@@ -1931,6 +1931,50 @@ pub data OJZ_Preset_Sec7:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
                                                                    ANCHOR_MOTION_NONE])
 
 // ===========================================================================
+// THE NIGHT REGION (painted-regions v1, step 5 — docs/superpowers/notes/2026-09-13-regions-p2.md).
+//
+// The act's first identity edge OFF the section grid binds this preset: a rectangle across the
+// top row from x = 3400 to 4799 (act_descriptor.emp, OJZ_NIGHT_X0/X1), straddling the section line
+// at 4096. It is OJZ_Preset_Sec1 / OJZ_Preset_Sec2 in every channel — the two neighbours it was
+// cut out of, which are themselves identical — except TWO, so crossing its edge changes exactly
+// those two things and nothing else:
+//
+//   pal:        OJZ_Palette_Night, below — the act's first palette that is not OJZ_Palette. Every
+//               other preset in the act binds OJZ_Palette, so without a second palette a fade
+//               between any two of them would lerp a palette into itself.
+//   transition: 1 — the cross-fade's FIRST caller in the game (owner, EFX-2 `show`, 2026-09-13).
+//               Effects_InstallPreset reads only whether this word is non-zero (`tst.w` then
+//               Palette_ArmFade); the magnitude is not read, and the fade's length is
+//               PAL_FADE_FRAMES in engine/effects/palette.emp. What that length means on screen
+//               is measured, not assumed — tools/region_fade_witness.py and the parcel note.
+//
+// The fade is armed by the DESTINATION's preset, so it runs on the way IN (from either side) and
+// the neighbours, whose presets leave it 0, SNAP back on the way out.
+//
+// ⚠ THE LOOK IS PARKED FOR THE OWNER. OJZ_Palette_Night is a legible default, not a design: every
+// colour of OJZ_Palette (games/sonic4/data/generated/ojz/act1/ojz_palette.bin, lines 1-3) with its
+// 3-bit channels moved by red -3, green -2, blue 0, each clamped to 0..7 — the same darker, bluer
+// cast on every line, so the level reads as moonlit rather than recoloured. Line 1 carries the
+// rings' gold, so the rings dim with it. To regenerate after OJZ_Palette changes, or to try a
+// different cast, rerun the one transform over the .bin:
+//
+//   python3 -c "import sys;d=open('games/sonic4/data/generated/ojz/act1/ojz_palette.bin','rb').read();c=lambda v:max(0,min(7,v));print(', '.join('$%04X'%((c(((w>>1)&7)-3)<<1)|(c(((w>>5)&7)-2)<<5)|(c((w>>9)&7)<<9)) for w in (int.from_bytes(d[i:i+2],'big') for i in range(0,96,2))))"
+//
+// REVERSIBLE IN ONE WORD: `pal: OJZ_Palette` in OJZ_Preset_Night puts the old colours back with the
+// region and the fade kept; deleting the region row (act_descriptor.emp) puts everything back.
+// ===========================================================================
+pub data OJZ_Palette_Night: [u16; 48] = [
+    // line 1
+    $0000, $0000, $0E20, $0A40, $0E40, $0000, $0EA8, $0A64, $0842, $0400, $0620, $0E40, $00A8, $0042, $0E62, $0E84,
+    // line 2
+    $0000, $0000, $0800, $0200, $0202, $0224, $0446, $0668, $0000, $0000, $0200, $0420, $0460, $0440, $0280, $06A4,
+    // line 3
+    $0000, $0000, $0200, $0420, $0640, $0200, $0600, $0802, $0802, $0860, $0000, $0C46, $0C08, $0E08, $0E48, $0E88,
+]
+pub data OJZ_Preset_Night: EffectsPreset = preset(pal: OJZ_Palette_Night, raster: Raster_Program_None, cycle: Pal_Cycle_None, variants: [Variant_Water_Deep, 0],
+                                                  transition: 1)
+
+// ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
 // program, which is exactly what the Phase-3 design declared out of scope for Parcel C
 // ("two independently patched effects in one section — Raster_Buf_B is single").
