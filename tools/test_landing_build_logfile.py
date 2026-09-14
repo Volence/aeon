@@ -22,7 +22,7 @@ Each subprocess also runs in its own session and is KILLED as a group on timeout
 hang cannot leave an orphan behind.
 
 WHAT IS ASSERTED:
-  * the GREEN path (four stub shapes build, stub lane exits 0): with a logfile, the log
+  * the GREEN path (the script's LANDING_SHAPES build as stubs, stub lane exits 0): with a logfile, the log
     holds exactly what stdout received, `finished=0` is the LAST line of both, exit 0;
   * a FAILED shape: `finished=1` last in both, exit 1, and the lane is reported skipped;
   * a lane that COULD NOT RUN (stub exits 2): `finished=2` last in both, exit 2;
@@ -41,7 +41,7 @@ WHAT IS ASSERTED:
 
 WHAT IT DOES NOT COVER: the real build.sh and the real needs_build lane. What the script
 RUNS is stubbed on purpose; the rows grade how it reports and where the report goes.
-That the real four shapes end in `finished=0` is witnessed only by a real landing run.
+That the real shapes end in `finished=0` is witnessed only by a real landing run.
 
 RUNNER: build.sh's pre-build tool-suite lane, build-fatal. Source only, no marker.
 """
@@ -50,10 +50,21 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(TOOLS, "landing_build.sh")
+if TOOLS not in sys.path:
+    sys.path.insert(0, TOOLS)
+from test_landing_lane_shapes import landing_shapes  # noqa: E402
+
+
+def _shapes():
+    """The shapes the real script builds, from its one declared list (CTRL-3b): never typed
+    here, so a change to LANDING_SHAPES moves these rows with it."""
+    with open(SCRIPT, encoding="utf-8") as f:
+        return landing_shapes(f.read())
 
 STUB_BUILD = r"""#!/bin/bash
 # stub: the .bin a shape writes, by build.sh's own naming rule
@@ -88,7 +99,8 @@ def _sandbox(root):
 
 def _env(**extra):
     env = dict(os.environ)
-    for k in ("FAST", "NO_LINT", "DEBUG", "STUB_FAIL_SHAPE", "STUB_LANE_RC"):
+    for k in ("FAST", "NO_LINT", "DEBUG", "STUB_FAIL_SHAPE", "STUB_LANE_RC",
+              "AEON_LANDING_LANES_RECEIPT"):
         env.pop(k, None)
     # Set, because the script's assembler checks come first; /bin/false, because the only
     # use is `$SIGIL_BUILD --version` after the stubs, and it must never be a real assembler.
@@ -139,15 +151,16 @@ def _assert_logged(root, args, want_rc, cwd=None, **extra):
 def test_the_green_path_is_logged_whole_and_ends_finished_0():
     with tempfile.TemporaryDirectory() as d:
         out = _assert_logged(d, None, 0)
-        for rom in ("s4", "s4.debug", "demo", "demo.debug"):
+        for rom in _shapes():
             assert "EXIT_%s=0" % rom in out, (rom, out)
         assert "EXIT_needs_build=0" in out, out
 
 
 def test_a_failed_shape_is_logged_and_ends_finished_1():
+    last = _shapes()[-1]
     with tempfile.TemporaryDirectory() as d:
-        out = _assert_logged(d, None, 1, STUB_FAIL_SHAPE="demo")
-        assert "EXIT_demo=FAILED" in out, out
+        out = _assert_logged(d, None, 1, STUB_FAIL_SHAPE=last)
+        assert "EXIT_%s=FAILED" % last in out, out
         assert "needs_build lane SKIPPED" in out, out
 
 
