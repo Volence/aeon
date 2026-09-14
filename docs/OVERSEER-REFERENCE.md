@@ -65,6 +65,38 @@ That block is superseded. Everything below it moved here from the boot file on 2
   writes one game's pair, so it DEFERS in every `build.sh` shape. It takes one optional
   argument, a logfile: `./tools/landing_build.sh .runlogs/landing.log` tees the whole run there
   with `finished=<n>` last in both (since 2026-09-11; before that `$1` was silently ignored).
+  Since CTRL-3 (2026-09-13) every `EXIT_<shape>=` line also carries `secs=<n>`.
+- **THE PUSH TO MASTER IS GATED (CTRL-3, owner's `gate`, 2026-09-13T22:06:54Z).** Nothing above
+  changes; the gate appears at the push. `tools/landing_build.sh` now ends, just above
+  `finished=`, with either `land-gate: STAMP WRITTEN key=... head=...` or `land-gate: NO STAMP:
+  <why>`. A stamp is written only for `finished=0` over a tree whose code paths were clean at the
+  start and did not move (a moved HEAD or code path makes the run `finished=2`, COULD NOT RUN).
+  It is keyed by the CONTENT of every code path, so the ledger / lane-log commit you make after
+  the verified merge keeps the key and pushes without a rebuild. The pre-push hook then:
+  - lets every ref except `refs/heads/master` through, untouched and silent (`parcel/*` pushes);
+  - refuses a master push whose code has no stamp and differs from the remote's master. If you
+    commit a CODE fix after the landing run, re-run `landing_build.sh`; the refusal names the paths;
+  - lets a push that changes only `docs/` through WITHOUT a build, but runs the source-only tests
+    that read the changed files (every docs file is read by `test_citation_form`; ledger files add
+    their shape tests) in a temporary checkout of the pushed commit, a sibling of your checkout.
+    Seconds, not minutes; a broken ledger line is refused here instead of reddening the next build;
+  - refuses deleting master, and a master push from a checkout that has no `tools/land_gate.py`.
+  Which paths count as code is `tools/land_gate.py` RULES: everything outside `docs/`, plus any
+  `docs/**/*.emp` (sigil's module walk takes it). A test that starts reading a docs file the RULES
+  do not name fails the build that runs it (`tools/land_gate_audit.py`), with the rule to add.
+  **Install, once, from any checkout (every worktree shares it):**
+  ```sh
+  install -m 0755 tools/hooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+  ```
+  **Uninstall:** `rm "$(git rev-parse --git-common-dir)/hooks/pre-push"`. It is a copy, not
+  `core.hooksPath`: a relative hooksPath resolves inside each worktree and git runs no hook where
+  the file is absent, i.e. an older worktree would push master ungated. After a change to
+  `tools/hooks/pre-push` itself, re-run the install line. Stamps: `tools/land_gate.py stamps`
+  (they live in `$(git rev-parse --git-common-dir)/aeon-land-gate/`, one small JSON per landing).
+  **Bypass, deliberate and printed:** `AEON_LAND_GATE=skip git push origin HEAD:master` prints a
+  GATE SKIPPED banner; say so in the lane log. `git push --no-verify` also skips it and prints
+  NOTHING (a hook that does not run cannot say so), so prefer the variable. Design, derivation
+  and measured cost: `docs/superpowers/notes/2026-09-13-ctrl3-land-gate.md`.
 - **THE Z80 CLOBBERS GATE IS A LANDING STEP, AND IT LIVES IN SIGIL'S TREE (lens C2b-4, named
   2026-09-11).** A Z80 proc that under-declares its transitive clobbers CAN build GREEN here: aeon's
   build has a Z80 clobber census (`tools/test_z80_clobbers_census.py`, since `ad707b83`; zero-firing and no allow-list since the CTRL-1 follow-up; procs containing a `call` checked since LS-2a, 2026-09-12, charged each callee's DECLARED clobbers), but it trusts every callee's declaration (tail `jp`/`jr`/`djnz` are followed since LS-2a item (c) and implicit writers modelled since item (b); the sequencer handlers' jump back into `Sequencer_NextOpcode.fetch` is a named, printed DISPATCH RE-ENTRY class, and the dispatcher is charged every `SeqOpcodeTable` cell instead). The transitive check is sigil's

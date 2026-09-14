@@ -462,7 +462,8 @@ def _one_master_update(lsha, rsha, top, say) -> bool:
             say("  Prove it: from a clean checkout of %s run tools/landing_build.sh, read its"
                 " 'STAMP WRITTEN' and finished=0 lines, then push again." % lsha[:12])
             return False
-        say("code proven green: stamp %s, written %s by landing_build.sh in %s (head %s)"
+        say("code proven green: stamp %s, written %s in %s for head %s (land_gate.py finish,"
+            " which only landing_build.sh calls)"
             % (key[:16], stamp.get("at"), stamp.get("worktree"), str(stamp.get("head"))[:12]))
     if checked_paths:
         return _validate_checked(checked_paths, lsha, top, say)
