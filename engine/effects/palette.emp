@@ -171,22 +171,6 @@ pub struct PalCycleScript2 { pcs_count: u16, pcs_ch: [pal_cycle_channel; 2] }
 // inlines into the caller (whose clobbers already cover the registers) and sigil
 // uniquifies the local labels per expansion, exactly as queue_static_dma relies on.
 
-// clamp_d1_07 — clamp d1 (signed word) into 0..7 in place. Branch-based so a channel
-// can never overflow into a neighbour (survey / plan Task 2 Step 2).
-comptime fn clamp_d1_07() -> Code {
-    return asm {
-        tst.w   d1
-        bpl   .cl_pos
-        moveq   #0, d1
-        jbra   .cl_end
-    .cl_pos:
-        cmpi.w  #7, d1
-        bls   .cl_end
-        moveq   #7, d1
-    .cl_end:
-    }
-}
-
 // publish_compose_lines — a compose layer announces that it MOVED lines 1-3.
 //
 // The CHANGED-not-INSTALLED rule (substrate sweep item 2, 2026-08-18). Every
@@ -222,6 +206,38 @@ comptime fn step_d3_toward_d4() -> Code {
     .st_up:
         addq.w  #1, d3
     .st_end:
+    }
+}
+
+// derive_table — fill 8 words at (a3)+ with clamp((c >> d2) + d4, 0, 7) << d3 for
+// c = 0..7: one channel of a variant, precomputed for every value the channel can hold.
+//   In: d2.b = shift (0..3; lsr takes the count mod 64, so move.b's stale upper bits are
+//       harmless, as they are in the per-word derive this replaced), d4.w = bias,
+//       sign-extended, d3.w = the channel's bit position (1, 5 or 9), a3 = table cursor.
+//   Scratch: d0-d1. The clamp is branch-based, so a channel can never overflow into a
+//   neighbour (survey / plan Task 2 Step 2). It was the clamp_d1_07 splice, called once per
+//   channel per WORD by the per-word derive; that derive is gone (B2), and with it the
+//   splice's only caller, so the clamp now lives here, run 24 times per derive.
+comptime fn derive_table() -> Code {
+    return asm {
+        moveq   #0, d0
+    .dt_entry:
+        move.w  d0, d1
+        lsr.w   d2, d1
+        add.w   d4, d1
+        bpl   .dt_pos
+        moveq   #0, d1
+        jbra   .dt_put
+    .dt_pos:
+        cmpi.w  #7, d1
+        bls   .dt_put
+        moveq   #7, d1
+    .dt_put:
+        lsl.w   d3, d1
+        move.w  d1, (a3)+
+        addq.w  #1, d0
+        cmpi.w  #8, d0
+        bcs   .dt_entry
     }
 }
 
@@ -789,10 +805,23 @@ proc Palette_DoVariants () clobbers(d0-d7/a0-a3) {
 // Palette_DeriveVariant — apply a variant's per-channel transform to the covered
 // lines of the live composed palette (Task 2 Step 2).
 //   a0 = pal_variant*   a1 = dest (128-byte staging image)
-// Per channel: clamp((c >> shift) + bias, 0, 7), extracted/shifted/biased/clamped
-// and repacked with shift-and-add only — NO mulu/divu — and the clamp is
-// branch-based so a channel can never overflow into a neighbour.
+// Per channel: clamp((c >> shift) + bias, 0, 7), repacked. NO mulu/divu, and the clamp
+// is branch-based so a channel can never overflow into a neighbour.
 // Only lines named in v_lines (bits 1-3) are written; uncovered lines are left as-is.
+//
+// TABLE-DRIVEN since the fade-fix parcel (B2, 2026-09-13). A channel holds one of 8
+// values, so the transform is precomputed once per call into three 8-word tables on the
+// STACK (R at 0(sp), G at 16(sp), B at 32(sp), each entry already shifted into its
+// channel's place), and each of the 48 words becomes three indexed lookups ORed
+// together. The index needs no shift: R's bits 1-3 masked with $000E ARE the channel
+// times 2, a word offset; G and B are the same after lsr #4 / lsr #8. The output is the
+// word the per-channel code rebuilt, bit for bit (both drop every non-channel bit).
+// Why: every palette change the compose publishes (each fade step, each snap crossing,
+// each cycle rotation) re-derives a bound slot, and every OJZ preset binds one. The stack
+// tables cost no RAM and no layout change; 48 bytes of stack for the call's duration,
+// above sp, so an interrupt pushing below it cannot touch them.
+// Measured (entry to return, master clock / 7, Variant_Water_Deep over lines 1-3): 18,946
+// cycles before, the figure in the fade-fix note after.
 //
 // WHAT CHECKS THIS BODY. `palette_dsl.emp`'s `variant_word()` is a comptime MODEL of the
 // transform, and its `ensure()` vectors pin that model at build time. Those ensures cannot
@@ -807,6 +836,25 @@ proc Palette_DoVariants () clobbers(d0-d7/a0-a3) {
 // one-shift change here builds green and fails there.
 // ===========================================================================
 pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
+        // ---- the three channel tables, on the stack (header) ----
+        lea     -48(sp), sp
+        movea.l sp, a3                          // table cursor: R, then G, then B
+        move.b  pal_variant.v_shift_r(a0), d2
+        move.b  pal_variant.v_bias_r(a0), d4
+        ext.w   d4
+        moveq   #1, d3                          // R lives in bits 1-3
+        derive_table()
+        move.b  pal_variant.v_shift_g(a0), d2
+        move.b  pal_variant.v_bias_g(a0), d4
+        ext.w   d4
+        moveq   #5, d3                          // G in bits 5-7
+        derive_table()
+        move.b  pal_variant.v_shift_b(a0), d2
+        move.b  pal_variant.v_bias_b(a0), d4
+        ext.w   d4
+        moveq   #9, d3                          // B in bits 9-11
+        derive_table()
+
         move.b  pal_variant.v_lines(a0), d5     // line mask (bits 1-3)
         moveq   #1, d6                          // current line index (start at 1)
     .line:
@@ -821,52 +869,24 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
         adda.w  d0, a3
         moveq   #16 - 1, d7                     // 16 entries per line
     .entry:
-        move.w  (a2)+, d0                       // source colour word
-        moveq   #0, d4                          // rebuilt word
-        // ---- R (bits 1-3) ----
+        move.w  (a2)+, d0                       // source colour word 0000 BBB0 GGG0 RRR0
         move.w  d0, d1
-        lsr.w   #1, d1
-        andi.w  #7, d1
-        move.b  pal_variant.v_shift_r(a0), d2
-        lsr.w   d2, d1
-        move.b  pal_variant.v_bias_r(a0), d2
-        ext.w   d2
-        add.w   d2, d1
-        clamp_d1_07()
-        add.w   d1, d1                          // <<1 as an add: 4 cyc vs lsl.w #1's 8
-        or.w    d1, d4
-        // ---- G (bits 5-7) ----
+        andi.w  #$000E, d1                      // R * 2: a word offset into the R table
+        move.w  (sp, d1.w), d4
         move.w  d0, d1
-        lsr.w   #5, d1
-        andi.w  #7, d1
-        move.b  pal_variant.v_shift_g(a0), d2
-        lsr.w   d2, d1
-        move.b  pal_variant.v_bias_g(a0), d2
-        ext.w   d2
-        add.w   d2, d1
-        clamp_d1_07()
-        lsl.w   #5, d1
-        or.w    d1, d4
-        // ---- B (bits 9-11) ----
-        move.w  d0, d1
-        lsr.w   #8, d1
-        lsr.w   #1, d1
-        andi.w  #7, d1
-        move.b  pal_variant.v_shift_b(a0), d2
-        lsr.w   d2, d1
-        move.b  pal_variant.v_bias_b(a0), d2
-        ext.w   d2
-        add.w   d2, d1
-        clamp_d1_07()
-        lsl.w   #8, d1
-        add.w   d1, d1                          // the 9th shift as an add (4 vs 8 cyc)
-        or.w    d1, d4
+        lsr.w   #4, d1
+        andi.w  #$000E, d1                      // G * 2
+        or.w    16(sp, d1.w), d4
+        lsr.w   #8, d0
+        andi.w  #$000E, d0                      // B * 2
+        or.w    32(sp, d0.w), d4
         move.w  d4, (a3)+
         dbf     d7, .entry
     .next_line:
         addq.w  #1, d6
         cmpi.w  #4, d6
-        bcs   .line                           // loops back across the unrolled body
+        bcs   .line
+        lea     48(sp), sp                      // drop the three tables
         rts
 }
 
