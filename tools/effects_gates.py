@@ -59,6 +59,12 @@ WHAT IT RUNS
      the fill had not populated is a PERMANENT hole on screen. This asserts plane A against the
      tile cache over exactly the recorded window, and asserts that the fill's pending partial
      is never inside it.
+  9. the palette cross-fade at an authored region edge — `region_fade_witness` (painted-regions
+     step 5; joined this lane in the fade-fix parcel, 2026-09-13). It walks OJZ's night edge and
+     asserts Palette_DoFade's step rule word for word, and that an install meeting a fade IN
+     FLIGHT cancels it (a snap) or retargets it from the live buffer (a fade). Its default run
+     could not join the lane until the defect it found (a fade surviving a snap install) was
+     fixed, because asserting that was red.
 
 Gates 6 and 7 boot no emulator, but they need a listing, so they cannot go in build.sh either
 (build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
@@ -221,6 +227,12 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # ordinary emulator budget, ~600x that, and is a wedge ceiling and not a performance
         # assertion.
         ("parallax_crossing", True, GATE_EMU_BUDGET),
+        # region_fade sits beside parallax_crossing because the two walk the same crossing site
+        # (Parallax_CheckBoundary -> Effects_InstallPreset): that gate owns the PARALLAX channel
+        # of the install, this one the PALETTE channel, including an install that meets a fade in
+        # flight (fade-fix, 2026-09-13). One oracle-aether process, several boots; the budget is
+        # the lane's ordinary wedge ceiling, not a performance assertion.
+        ("region_fade", True, GATE_EMU_BUDGET),
         # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
         # non-effects member: it is the section streamer's own invariant (a cell RECORDED
         # as written was actually written), and this lane is still the tree's only
@@ -1037,6 +1049,15 @@ def main() -> int:
                            "parallax_crossing (a WALKED section crossing installs the config "
                            "Effects_ResolveParallax names for the section entered — section "
                            "beats preset beats act)", ok, msg, final=True))
+
+    if wanted("region_fade"):
+        ok, msg = run(["python3", str(AEON / "tools/region_fade_witness.py"),
+                       "--rom", rom, "--lst", lst], "region_fade")
+        results.append(row("region_fade",
+                           "region_fade (the palette cross-fade at the night region's edge follows "
+                           "Palette_DoFade's step rule word for word, and an install that meets a "
+                           "fade in flight cancels it or retargets it from the live buffer)",
+                           ok, msg, final=True))
 
     if wanted("tile_cache_fill"):
         ok, msg = run(["python3", str(AEON / "tools/tile_cache_fill_gate.py"),

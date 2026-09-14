@@ -210,7 +210,7 @@ terminator = **14 words**, and the single event at screen line 96 gives arm `$8A
 
 ```
 moveq   #1, d0                  // slot 1 — the slot DUSK_PROG names
-lea     Variant_Dusk, a0        // one of the five starters, palette.emp:780
+lea     Variant_Dusk, a0        // one of the five starters, ojz_effects.emp:1281
 jbsr    Palette_SetVariant
 ```
 
@@ -560,7 +560,8 @@ palette system's staging buffer. You cannot author a *new* variant effect withou
 channel, so `shift` is 0..3 and `bias` is -7..+7 — both validated at build time
 (`palette_dsl.emp:32-49`). The descriptor is the 8-byte `pal_variant` struct (`palette.emp:126-132`) and
 `lines` is a bitmask of CRAM lines 1-3; line 0 is refused, because it is the character's
-(`CharacterDef.cd_palette`). Five starters ship at `palette.emp:776-780`.
+(`CharacterDef.cd_palette`). Five starters ship at `ojz_effects.emp:1277-1281` (game data; the engine
+keeps only the `variant()` constructor).
 
 **It transforms the LIVE palette, which is why it never goes stale.** `Palette_Compose` runs one
 deterministic order per frame — base → cycling → cross-fade → global operators → **variants**
@@ -569,16 +570,19 @@ is no snapshot to invalidate.
 
 **A slot is one of `PAL_MAX_VARIANTS` = 2 staging images.** `Palette_SetVariant`
 (`palette.emp`, `Palette_SetVariant`) binds a `pal_variant*` to slot 0 or 1 (or clears it with `a0 = 0`). While a slot
-is bound, `Palette_DoVariants` (`palette.emp:681-697`) calls `Palette_DeriveVariant` (`:709-771`) once
-per frame, writing the transformed colours into `Pal_Variant_Stage` — **128 bytes per slot, a 4-line
-image, each line at its natural `line * 32` offset.** Only lines named in `v_lines` are written.
+is bound, `Palette_DoVariants` (`palette.emp:786-802`) calls `Palette_DeriveVariant` (`:838-891`) on
+every frame the gate below lets through, writing the transformed colours into `Pal_Variant_Stage` —
+**128 bytes per slot, a 4-line image, each line at its natural `line * 32` offset.** Only lines named in
+`v_lines` are written. The derive is table-driven (fade-fix B2, 2026-09-13): three 8-word channel tables
+built on the stack per call, then three indexed lookups per colour; 9,096 cycles for a 3-line slot, was
+18,946.
 
 `PAL_MAX_VARIANTS` cannot be raised past 2 without a fix first: `Palette_SetVariant`'s
 `andi.w #(PAL_MAX_VARIANTS - 1), d0` (`palette.emp`, first instruction of `Palette_SetVariant`) is a power-of-two mask, so 3 would silently fold
 slot 2 onto slot 0. `palette_dsl.emp:125-126` pins that.
 
 **The derive is gated, and the gate is a measured win.** It runs only when `PAL_ACT_VARIANT_STALE`
-(`palette.emp:115`) is set — that is, when a bound slot's *source* actually moved (`:411-413`). The
+(`palette.emp:115`) is set — that is, when a bound slot's *source* actually moved (`:456-458`). The
 derive is a pure function of (descriptor, `Palette_Buffer[v_lines]`), so skipping it on an unchanged
 frame yields the *same answer*, not an approximation. Measured before the gate on `OJZ_ScrollTest`:
 19332 cyc/frame = **15.1% of every frame**, larger than the whole sparse raster tier, entirely spent

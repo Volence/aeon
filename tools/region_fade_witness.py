@@ -21,15 +21,20 @@ THE STEP RULE, READ OUT OF Palette_DoFade'S INSTRUCTIONS AND NOT ITS COMMENTS (t
       .step_frame: btst #0, Pal_Fade_Frames ; bne .noskip ; rts
                                                         -> STEP when the decremented count is ODD
       .noskip: every channel of every word of lines 1-3 moves +/-1 toward Pal_Target
-               (step_d3_toward_d4), the word rebuilt from the three 3-bit channels alone
+               (step_d3_toward_d4), the word rebuilt from the three 3-bit channels alone;
+               `andi.w #$0EEE, d6 ; beq .arrived` then asks whether EVERY channel is now on
+               its target, and if so `.arrived: clr.b Pal_Fade_Frames` runs the close at once
+               (buffer and Pal_Base = Pal_Target), the fade-fix B1 early end
 
-  The inline comments say "step only on even frame parity" / "odd frame: nothing moved"; the
-  branch does the opposite (`bne` after `btst` is taken when the bit is SET). So with
+  Its comments said "even" until the fade-fix parcel (2026-09-13) corrected them; the branch
+  has always stepped on ODD (`bne` after `btst` is taken when the bit is SET). So with
   PAL_FADE_FRAMES = F, the k-th compose after the arm (k = 1 is the arming tick's own compose)
-  leaves Pal_Fade_Frames = F - k, steps when F - k is odd, and snaps to Pal_Target at k = F. A
-  channel that is d steps from its target therefore arrives at k = 2d - 1, and the whole palette
-  arrives at k = 2 * max(d) - 1. PAL_FADE_FRAMES is parsed out of the source; the parity and the
-  +/-1 are transcribed from the instructions above, and `fade_model()` below is the only copy.
+  leaves Pal_Fade_Frames = F - k and steps when F - k is odd. A channel that is d steps from its
+  target arrives at k = 2d - 1, and the step on which the whole palette arrives, k = 2*max(d) - 1,
+  closes the fade (Pal_Fade_Frames 0). The count reaching 0 at k = F is the backstop close for a
+  buffer that never arrives. PAL_FADE_FRAMES is parsed out of the source; the parity, the +/-1 and
+  the arrival test are transcribed from the instructions above, and `fade_model()` below is the
+  only copy.
 
 WHAT IS ASSERTED (exit 1 on any failure):
   E0  the premise: exactly one region row binds a preset with ep_transition != 0 (the FADE
@@ -42,23 +47,41 @@ WHAT IS ASSERTED (exit 1 on any failure):
       Region_Current becomes the fade region, and that tick's compose leaves
       Pal_Fade_Frames == F - 1 with Pal_Target == the fade region's ep_pal.
   E3  it reaches the target after the derived number of composes, and follows fade_model()
-      word for word on EVERY compose in between; Pal_Fade_Frames reaches 0 at k = F and the
-      PAL_ACT_FADE bit is clear after it; CRAM lines 1-3 read the target once settled.
+      word for word on EVERY compose in between; Pal_Fade_Frames reaches 0 on the compose
+      fade_model() closes it (the arrival, k = 2*max(d) - 1; k = F only for a buffer that never
+      arrives) and the PAL_ACT_FADE bit is clear there; CRAM lines 1-3 read the target once
+      settled.
   E4  the section line INSIDE the fade region is crossed with nothing happening: Region_Current
       unchanged, no request, no frames, palette unchanged.
   E5  crossing OUT of the fade region into a region whose preset does not arm the fade SNAPS:
       the first compose in the new region shows that region's ep_pal exactly, no frames.
   E6  a crossing between two regions that share an ep_pal (the section line at the left
       region's own left edge) changes no colour and arms nothing.
+  E7  a WALKED reversal (cross in, turn back after REVERSAL_AFTER ticks) ends on the palette of
+      the region the camera stands in, buffer and CRAM, and the first compose back in a
+      non-fading region shows its ep_pal exactly with no frames. Until the fade-fix parcel
+      (2026-09-13) this was `--strict-reversal`, off by default, and red: the fade in flight
+      survived the snap install and finished on the palette of the region the camera LEFT.
+      Measured on the fixed engine, the walk re-enters at compose k = 11, which is after a
+      d = 3 fade has ended (k = 5), so E7 alone no longer crosses back MID-fade; E8 does.
+  E8  a MID-FADE snap install cancels the fade. WARP_AT_K composes after the arm (the fade in
+      flight, asserted as a premise), the DEBUG warp mailbox moves the camera into the left
+      region, whose re-install takes Palette_LoadPal's SNAP arm (asserted: the request byte
+      at LoadPal's entry is 0). That compose must show the left region's ep_pal exactly with
+      Pal_Fade_Frames 0, and it must stay there. Palette_LoadPal's header states the rule.
+  E9  a MID-FADE fade install RETARGETS from the live buffer. Same walk; the warp lands inside
+      the fade region, the forced re-install takes the FADE arm (asserted), and every compose
+      after it must follow fade_model() started from the buffer as it stood before the warp
+      (not from Pal_Base, which would jump back to the first fade's source).
+  The warp legs refuse (exit 2) when the warp never reaches Palette_LoadPal: no install, no
+  subject. The warp's forced re-install is the region sentinel in Debug_Warp_Consume.
   Every sample: Region_Current is the row the ROM's own table (tools/region_table.py) places
   under the camera centre, and Logic_Tick advanced by exactly one (a lag-free sample stream,
   so "k composes" and "k samples" are the same count — checked, not assumed).
 
 WHAT IS MEASURED AND PRINTED BUT NOT ASSERTED (open questions; see the parcel note):
-  R   REVERSAL mid-fade: cross into the fade region, turn back after a few ticks, and read what
-      the palette settles to in the region you returned to. `--strict-reversal` asserts that it
-      settles to THAT region's own ep_pal (region-exact); without the flag the reading is
-      printed as a finding.
+  R   the walked reversal's trace (asserted as E7; the trace and whether the fade was still in
+      flight at the re-entry are printed).
   W   a DEBUG warp that lands INSIDE the already-cached fade region: does the forced
       re-install arm a fade, and does any colour move?
   B   a boot (the DEBUG boot-position mailbox) straight into the fade region: the palette buffer
@@ -75,8 +98,9 @@ walk is a HOLD (emulator/hold) sampled once per logic tick at the first instruct
 GameState_OJZScroll_Update — `step` one instruction off it, `run_to` back — where the previous
 tick's crossing and compose have both completed.
 
-RUNNER: none. Like tools/preset_lab_witness.py this is a hand-run witness for the parcel that
-authored the edge; tools/effects_gates.py does not run it. Booked in docs/DEFERRED_WORK.md.
+RUNNER: tools/effects_gates.py (gate `region_fade`), since the fade-fix parcel (2026-09-13).
+It was hand-run only while the reversal defect was open, because its default run could not
+assert E7 without being red.
 
 Exit 0 every assertion held · 1 an assertion failed (or the premise is absent) · 2 could not
 measure (setup error). `--json` prints the per-tick record.
@@ -104,6 +128,8 @@ TICK_MAX_FRAMES = 8          # run_to ceiling for one logic tick (a lag tick spa
 WALK_MAX_TICKS = 900         # a ceiling on any one leg; running out is a SETUP error, never a skip
 MARGIN_TICKS = 24            # samples kept past a crossing before a leg may stop (> PAL_FADE_FRAMES)
 REVERSAL_AFTER = 4           # ticks spent inside the fade region before turning back (< F/2)
+WARP_AT_K = 2                # composes of the fade before the mid-fade warp (E8/E9); must be
+                             # short of the fade's end, which the legs assert rather than assume
 SETTLE_TICKS = 24
 WARP_MAX_FRAMES = 240        # the warp tick only: a synchronous window refill + plane redraw
 
@@ -151,7 +177,11 @@ def dofade_rule_check() -> None:
     body = re.sub(r"//[^\n]*", "", m.group(1))
     want = [r"subq\.b\s+#1,\s*Pal_Fade_Frames\s+bne\s+\.step_frame",
             r"\.step_frame:\s+btst\s+#0,\s*Pal_Fade_Frames\s+bne\s+\.noskip\s+rts",
-            r"cmp\.w\s+d4,\s*d3|step_d3_toward_d4\(\)"]
+            r"cmp\.w\s+d4,\s*d3|step_d3_toward_d4\(\)",
+            # the arrival test (fade-fix B1): d6 is the OR of (new ^ target) over the 48 words
+            r"eor\.w\s+d2,\s*d1\s+or\.w\s+d1,\s*d6",
+            r"andi\.w\s+#\$0EEE,\s*d6\s+beq\s+\.arrived",
+            r"\.arrived:\s+clr\.b\s+Pal_Fade_Frames"]
     for w in want:
         if not re.search(w, body):
             raise SetupError(f"Palette_DoFade no longer matches the step rule this witness "
@@ -184,9 +214,11 @@ def fade_model(start: list[int], target: list[int], k: int, frames: int) -> tupl
             break
         left -= 1
         if left == 0:
-            cur = list(target)                  # the snap copies Pal_Target verbatim
+            cur = list(target)                  # the backstop close copies Pal_Target verbatim
         elif left & 1:
             cur = [step_word(c, t) for c, t in zip(cur, target)]
+            if all(((c ^ t) & 0x0EEE) == 0 for c, t in zip(cur, target)):
+                cur, left = list(target), 0     # arrived: `.arrived` runs the close NOW (B1)
     return cur, left
 
 
@@ -358,14 +390,17 @@ def check_fade_in(fails, leg, samples, i_arm, fade, start_pal, F, cram_after, wh
     if arrived != k_vis:
         fails.append(f"{who}: the palette first equalled the target at compose k={arrived}; the "
                      f"step rule predicts k = 2*{d}-1 = {k_vis} for a max channel distance of {d}")
-    j_end = i_arm + F - 1
+    k_close = next((k for k in range(1, F + 1) if fade_model(start_pal, tgt, k, F)[1] == 0), F)
+    j_end = i_arm + k_close - 1
     if j_end < len(samples):
         e = samples[j_end]
         if e["frames"] != 0 or (e["active"] & cram_after["PAL_ACT_FADE"]):
-            fails.append(f"{who}: at k=F={F} Pal_Fade_Frames={e['frames']} and Pal_Active="
-                         f"{e['active']:#04x} — the fade did not close at PAL_FADE_FRAMES")
+            fails.append(f"{who}: at compose k={k_close}, where fade_model() closes the fade, "
+                         f"Pal_Fade_Frames={e['frames']} and Pal_Active={e['active']:#04x} — the "
+                         "fade did not close")
     lo, hi = max(0, i_arm - 1), min(len(samples) - 1, i_arm + F)
     return {"distance": d, "k_visible_derived": k_vis, "k_visible_measured": arrived,
+            "k_close": k_close,
             # REPORTED, NOT ASSERTED: a lag frame here could be streaming's, not the fade's.
             "lag_frames_over_window": samples[hi]["lag"] - samples[lo]["lag"],
             "video_frames_over_window": (samples[hi]["frame"] - samples[lo]["frame"]) & 0xFFFF,
@@ -389,7 +424,7 @@ async def run(args) -> int:
                  "Camera_X", "Camera_Y", "Region_Current", "Pal_Fade_Frames", "Pal_Fade_Request",
                  "Pal_Active", "Pal_Target", "Palette_Buffer", "Logic_Tick", "Frame_Counter",
                  "Lag_Frame_Count", "OJZ_Act1_Descriptor", "Parallax_CheckBoundary",
-                 "Palette_Compose"):
+                 "Palette_Compose", "Palette_LoadPal"):
         if need not in sym:
             raise SetupError(f"symbol {need} is not in {args.lst} — this witness needs the sonic4 "
                              "DEBUG listing")
@@ -634,26 +669,94 @@ async def run(args) -> int:
                                         "region_rows": [s["row"] for s in wtrace]}
         findings.append(f"W: a DEBUG warp to ({wx},{y_c}), inside the fade region the crossing had "
                         f"already cached: Pal_Fade_Frames by tick {armed[:6]}...; "
-                        f"{'a fade ARMED (the sentinel forced a re-install)' if any(armed) else 'nothing armed'}; "
+                        + ("a fade stayed in flight past a compose (the sentinel forced a re-install)"
+                           if any(armed) else
+                           "no fade in flight after any compose (a re-arm toward the palette "
+                           "already showing closes on its first compose since fade-fix B1)")
+                        + "; "
                         f"colour {'MOVED' if moved else 'did not move'}; Warp_Req_Flag {flag} after")
 
         # ---- C: cost of the crossing, by master clock -----------------------------------
         cost = await measure_costs(rig, b, sym, rows, fade, left, edge, FLY, F)
         report["cost"] = cost
 
-        # ---- R: reversal mid-fade --------------------------------------------------------
+        # ---- R / E7: a WALKED reversal -------------------------------------------------
         rev = await reversal(rig, b, sym, rows, fade, left, edge, FLY, F)
         report["reversal"] = rev
-        exact = rev["settled_pal_is"] == "left"
+        exact = rev["settled_pal_is"] == "left" and rev["settled_cram_is"] == "left"
         findings.append(
             f"R: crossed into the fade region, turned back after {REVERSAL_AFTER} ticks "
-            f"(Pal_Fade_Frames {rev['frames_at_turn']}), re-entered row {left['index']} at tick "
-            f"{rev['reentry_k']} after the arm; {SETTLE_TICKS} ticks later the palette buffer is "
-            f"{rev['settled_pal_is'].upper()}'s ep_pal and CRAM is {rev['settled_cram_is'].upper()}'s"
-            f"{'' if exact else ' — the fade in flight survived the crossing back and finished on the region the camera LEFT'}")
-        if args.strict_reversal and not exact:
-            fails.append(f"R (--strict-reversal): after a mid-fade reversal into row {left['index']} "
-                         f"the palette settled to {rev['settled_pal_is']}'s ep_pal, not the region's own")
+            f"(Pal_Fade_Frames {rev['frames_at_turn']}), re-entered row {left['index']} at compose "
+            f"k={rev['reentry_k']} after the arm with Pal_Fade_Frames "
+            f"{rev['frames_before_reentry']} on the tick before "
+            + ("(the fade still in flight)" if rev["frames_before_reentry"] else
+               "(the fade already over, so this walk re-enters by a plain snap; E8 is the leg "
+               "that crosses back mid-fade)")
+            + f"; {SETTLE_TICKS} ticks later the buffer is {rev['settled_pal_is'].upper()}'s "
+            f"ep_pal and CRAM {rev['settled_cram_is'].upper()}'s")
+        if left["transition"] == 0 and (rev["frames_at_reentry"] or rev["reentry_pal_is"] != "left"):
+            fails.append(f"E7: walked back into row {left['index']} (ep_transition 0): on the first "
+                         f"compose there Pal_Fade_Frames={rev['frames_at_reentry']} and the buffer is "
+                         f"{rev['reentry_pal_is'].upper()}'s ep_pal; the snap install must show row "
+                         f"{left['index']}'s own ep_pal and cancel any fade in flight")
+        if not exact:
+            fails.append(f"E7: after the walked reversal the camera stands in row {left['index']} but "
+                         f"the buffer settled to {rev['settled_pal_is'].upper()}'s ep_pal and CRAM to "
+                         f"{rev['settled_cram_is'].upper()}'s: a fade in flight survived the crossing "
+                         "back and finished on the region the camera LEFT")
+
+        # ---- E8 / E9: an install that meets a fade IN FLIGHT, made deterministic -----------
+        # A walked turn cannot be timed into the fade window: the camera trails the player, and
+        # measured on this route it re-enters 7 ticks after the turn, past a d = 3 fade's end on
+        # the fixed engine. The DEBUG warp mailbox re-installs through the walked crossing's own
+        # path (Parallax_CheckBoundary -> Effects_InstallPreset -> Palette_LoadPal) on the tick
+        # it is written, so the install lands on a chosen compose.
+        left_mid = left["x0"] + (left["x1"] - left["x0"]) // 2
+        wr = await mid_fade_warp(rig, b, sym, fade, left, edge, FLY, F, (left_mid, y_c), "wrev")
+        report["warp_reversal"] = summarise_warp(wr, left, fade)
+        a0, last = wr["after"][0], wr["after"][-1]
+        if a0["row"] != left["index"]:
+            raise SetupError(f"E8: the warp to ({left_mid},{y_c}) left the camera in "
+                             f"{row_name(rows, a0['region'])}, not row {left['index']}")
+        if wr["request_at_load"] != (1 if left["transition"] else 0):
+            raise SetupError(f"E8: the re-install into row {left['index']} (ep_transition "
+                             f"{left['transition']}) reached Palette_LoadPal with Pal_Fade_Request "
+                             f"{wr['request_at_load']}, so it did not take the arm this leg measures")
+        if left["transition"] == 0 and (a0["frames"] or a0["pal"] != left["pal"]):
+            fails.append(f"E8: a snap install into row {left['index']} made {WARP_AT_K} composes into "
+                         f"a fade (Pal_Fade_Frames {wr['pre']['frames']} before it): that compose left "
+                         f"Pal_Fade_Frames={a0['frames']} and a buffer "
+                         f"{channel_distance(a0['pal'], left['pal'])} channel step(s) from row "
+                         f"{left['index']}'s ep_pal; the snap must CANCEL the fade and show its "
+                         "palette exactly")
+        if last["pal"] != left["pal"] or last["cram"] != left["pal"] or last["frames"]:
+            fails.append(f"E8: {SETTLE_TICKS} ticks after the mid-fade snap install the buffer is "
+                         f"{'==' if last['pal'] == left['pal'] else '!='} row {left['index']}'s ep_pal "
+                         f"and CRAM {'==' if last['cram'] == left['pal'] else '!='} it, "
+                         f"Pal_Fade_Frames {last['frames']}")
+
+        wt = await mid_fade_warp(rig, b, sym, fade, left, edge, FLY, F, (wx, y_c), "wret")
+        report["warp_retarget"] = summarise_warp(wt, left, fade)
+        if wt["after"][0]["row"] != fade["index"]:
+            raise SetupError(f"E9: the warp to ({wx},{y_c}) left the camera in "
+                             f"{row_name(rows, wt['after'][0]['region'])}, not the fade region")
+        if wt["request_at_load"] != 1:
+            raise SetupError(f"E9: the forced re-install of the fade region reached Palette_LoadPal "
+                             f"with Pal_Fade_Request {wt['request_at_load']}, not 1: no fade arm")
+        start = wt["pre"]["pal"]
+        for k, s in enumerate(wt["after"], 1):
+            want_pal, want_frames = fade_model(start, fade["pal"], k, F)
+            if s["row"] != fade["index"] or s["pal"] != want_pal or s["frames"] != want_frames:
+                bad = [n for n in range(48) if s["pal"][n] != want_pal[n]]
+                fails.append(f"E9: compose k={k} after a mid-fade re-install of the fade region: "
+                             f"row {s['row']}, Pal_Fade_Frames {s['frames']} (model {want_frames}), "
+                             f"{len(bad)} word(s) differ from fade_model() started from the buffer "
+                             "as it stood before the install"
+                             + (f", first at line {bad[0] // 16 + 1} entry {bad[0] % 16}: "
+                                f"${s['pal'][bad[0]]:04X} vs ${want_pal[bad[0]]:04X}" if bad else ""))
+                break
+        if wt["after"][-1]["cram"] != fade["pal"]:
+            fails.append("E9: after the retargeted fade, CRAM lines 1-3 are not the fade ep_pal")
 
         # ---- B: boot straight into the fade region ---------------------------------------
         report["boot_into_fade"] = await boot_into(rig, b, sym, rows, fade, left, wx, y_c, F)
@@ -742,11 +845,70 @@ async def reversal(rig, b, sym, rows, fade, left, edge, FLY, F) -> dict:
     def who(p):
         return "left" if p == left["pal"] else "fade" if p == fade["pal"] else "neither"
     return {"frames_at_turn": trace[turn]["frames"], "reentry_k": reentry - arm + 1,
+            "frames_before_reentry": trace[reentry - 1]["frames"],
             "frames_at_reentry": trace[reentry]["frames"],
+            "reentry_pal_is": who(trace[reentry]["pal"]),
             "settled_pal_is": who(fin["pal"]), "settled_cram_is": who(fin["cram"]),
             "row_after": fin["row"],
             "frames_trace": [(s["row"], s["frames"], channel_distance(s["pal"], left["pal"]))
                              for s in trace[arm:reentry + 20]]}
+
+
+async def mid_fade_warp(rig, b, sym, fade, left, edge, FLY, F, dest, tag) -> dict:
+    """Walk into the fade region from the left and, WARP_AT_K composes after the arm, write the
+    warp mailbox. The warp is consumed at the top of the very next tick (Debug_Warp_Consume is
+    GameState_OJZScroll_Update's first call), and its region sentinel forces the destination's
+    re-install through Parallax_CheckBoundary. The request byte is read at Palette_LoadPal's
+    entry, so the leg KNOWS which arm the install took; a warp that never reaches LoadPal made
+    no install and the leg refuses."""
+    await rig.boot()
+    await walk(rig, "right", lambda s: s["centre"][0] >= edge - FLY * (MARGIN_TICKS + 4),
+               f"{tag}pre")
+    await rig.hold("right")
+    arm = pre = None
+    for i in range(WALK_MAX_TICKS):
+        await rig.tick()
+        s = await rig.sample(f"{tag}in{i}")
+        if arm is None and s["row"] == fade["index"]:
+            arm = i
+        if arm is not None and i - arm + 1 == WARP_AT_K:
+            pre = s
+            break
+    await rig.hold(None)
+    if pre is None:
+        raise SetupError(f"leg `{tag}`: the walk never entered the fade region")
+    _, want_frames = fade_model(left["pal"], fade["pal"], WARP_AT_K, F)
+    if want_frames == 0 or pre["frames"] == 0 or pre["pal"] == fade["pal"]:
+        raise SetupError(f"leg `{tag}`: {WARP_AT_K} composes after the arm the fade is not in flight "
+                         f"(Pal_Fade_Frames {pre['frames']}, model {want_frames}; buffer "
+                         f"{'==' if pre['pal'] == fade['pal'] else '!='} the target), so a warp here "
+                         "tests nothing: lower WARP_AT_K")
+    for nm, v, w in (("Warp_Req_X", dest[0], 2), ("Warp_Req_Y", dest[1], 2), ("Warp_Req_Flag", 1, 1)):
+        await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
+    r = await _c(b, "emulator/run_to", {"addr": hex(sym["Palette_LoadPal"]),
+                                         "maxFrames": WARP_MAX_FRAMES})
+    if not r.get("reached"):
+        raise SetupError(f"leg `{tag}`: the warp to {dest} never reached Palette_LoadPal within "
+                         f"{WARP_MAX_FRAMES} frames, so no install happened and there is nothing to "
+                         "measure (is the region sentinel still in Debug_Warp_Consume?)")
+    request = await rd(b, sym["Pal_Fade_Request"], 1)
+    r = await _c(b, "emulator/run_to", {"addr": hex(rig.upd), "maxFrames": WARP_MAX_FRAMES})
+    if not r.get("reached"):
+        raise SetupError(f"leg `{tag}`: the warp tick never came round to the Update entry: {r}")
+    after = [await rig.sample(f"{tag}w0")]
+    for i in range(1, SETTLE_TICKS):
+        await rig.tick()
+        after.append(await rig.sample(f"{tag}w{i}", cram=(i == SETTLE_TICKS - 1)))
+    return {"pre": pre, "request_at_load": request, "after": after}
+
+
+def summarise_warp(w, left, fade) -> dict:
+    return {"frames_before": w["pre"]["frames"], "request_at_load": w["request_at_load"],
+            "trace": [(s["row"], s["frames"], channel_distance(s["pal"], left["pal"]),
+                       channel_distance(s["pal"], fade["pal"])) for s in w["after"][:F_TRACE]]}
+
+
+F_TRACE = 18                 # samples of each warp leg kept in the report
 
 
 async def boot_into(rig, b, sym, rows, fade, left, bx, by, F) -> dict:
@@ -844,8 +1006,6 @@ def main() -> int:
     ap.add_argument("--rom", default=str(AEON / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--strict-reversal", action="store_true",
-                    help="assert that a mid-fade reversal settles to the returned-to region's own palette")
     args = ap.parse_args()
     try:
         return asyncio.run(run(args))
