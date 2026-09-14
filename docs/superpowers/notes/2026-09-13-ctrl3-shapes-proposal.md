@@ -15,13 +15,13 @@ and tests each one:
    screen. It exists to prove the engine is not secretly tied to Sonic.
 4. **Demo, debug** (`demo.debug.bin`). The tiny game with the developer tools on.
 
-Each takes about three to three and a half minutes on your PC, so the whole check runs about
-14 minutes.
+Each takes three and a half to four minutes on your PC, so the whole check runs about
+15 minutes (measured 15 min 18 s on 2026-09-13, with another job running).
 
 ## The recommendation
 
 **Stop building "demo, normal" in the pre-merge check. Keep the other three.** That saves
-about three minutes per merge (3 min 17 s measured, below).
+about three and a half minutes per merge (3 min 35 s measured, below).
 
 What you give up: a problem that shows up **only** in the normal build of the tiny demo game
 would reach the main copy and be caught by the nightly check the next morning instead of
@@ -41,7 +41,7 @@ tests still build it from our source.
 
 **A separate saving that drops nothing (option D below):** about a minute and a half of each
 build is the same set of tests run again, identically, four times. Running it once would save
-about four more minutes per merge with no loss of checking. It needs a small change to the
+about four and a half more minutes per merge with no loss of checking. It needs a small change to the
 build script and a ruling, because the build script currently refuses every non-standard
 switch on purpose. It can be taken with any of the options.
 
@@ -49,9 +49,9 @@ switch on purpose. It can be taken with any of the options.
 
 | | What changes | Saved per merge | What would reach the main copy unseen (caught by the nightly next morning instead) |
 |---|---|---|---|
-| **A (recommended)** | drop demo normal from the check | about 3 min 17 s | a problem only demo's normal build shows: a debug-only change that shifts demo's normal ROM (2026-08-19, spotted by checksum); one test row (the symbol appendix in `demo.bin`) |
-| B | drop both demo builds | about 6 min 30 s | the above, plus: the test comparing the two games' effects code, demo debug's memory-layout checks, and the effects checks' demo comparison (2026-09-03, demo paid 104 bytes where 30 were expected, found through the demo debug listing). "The engine works for other games" becomes a nightly-only fact |
-| D (no drop) | keep all four, run the shared tests once | about 4 min 20 s (3 x the shared part) | nothing |
+| **A (recommended)** | drop demo normal from the check | about 3 min 35 s | a problem only demo's normal build shows: a debug-only change that shifts demo's normal ROM (2026-08-19, spotted by checksum); one test row (the symbol appendix in `demo.bin`) |
+| B | drop both demo builds | about 7 min 14 s | the above, plus: the test comparing the two games' effects code, demo debug's memory-layout checks, and the effects checks' demo comparison (2026-09-03, demo paid 104 bytes where 30 were expected, found through the demo debug listing). "The engine works for other games" becomes a nightly-only fact |
+| D (no drop) | keep all four, run the shared tests once | about 4 min 40 s (3 x the shared part) | nothing |
 
 **Not offered: dropping either Sonic 4 build.** Sonic 4 normal is the only build that showed
 two of the recorded problems (below), and it is what ships. Sonic 4 debug is what the owner's
@@ -69,29 +69,34 @@ Landing lane, `docs/EMP_PITFALLS.md` Trap C). `build.sh` and the nightly do not 
 
 ### Cost per build (from `tools/landing_build.sh` logs)
 
-Run 1, 2026-09-13 19:23-19:35 local, this worktree at `6a6b0baa`, load average 5.0 to 7.6
-(another agent was building). The demo debug build in this run was cut short by an unrelated
-test failure this parcel itself caused (an uncommitted tool not yet on a roster), so its time
-comes from run 2.
+**Run 2 is the one to price from:** the verification run of this parcel's tip `09b6e8a9`,
+2026-09-13 20:07:27-20:22:45 local, `finished=0`, the `secs=` each `EXIT_` line now carries.
+Load average 4.2 rising to 9.9 during it (another agent was building), so the absolute seconds
+are inflated; the proportions are what matter.
 
-| build | seconds | of which: the shared tool-suite tests | of which: shared `emp_expect_fail` |
+| build | seconds (run 2) | of which: the shared tool-suite tests | shared `emp_expect_fail` |
 |---|---|---|---|
-| Sonic 4 normal | 217 | 63 | yes (55/55 cases) |
-| Sonic 4 debug | 215 | 65 | yes (55/55) |
-| demo normal | 197 | 62 | yes (55/55) |
-| demo debug | see run 2 | 61 | yes |
-| needs_build lane (once) | 13 | | |
+| Sonic 4 normal | 230 | 66 (2651 passed) | yes, 55/55 cases |
+| Sonic 4 debug | 230 | 73 (2651 passed) | yes, 55/55 |
+| demo normal | 215 | 68 (2651 passed) | yes, 55/55 |
+| demo debug | 219 | 72 (2651 passed) | yes, 55/55 |
+| needs_build lane (once) | 24 | 14 ran, 0 deferred | |
+| **whole check** | **918** (15 min 18 s) | | |
 
-Run 2 (the verification run of this parcel's tip) is recorded in
-`docs/superpowers/notes/2026-09-13-ctrl3-land-gate.md`, "Final verification run", with the
-`secs=` each `EXIT_` line now carries.
+Run 1 (19:23-19:35, `6a6b0baa`, load 5.0 to 7.6) agrees: 217, 215 and 197 s for the first three
+(its demo debug build stopped early on a test failure this parcel caused and then fixed).
+
+So, per merge at run 2's load: **A saves 215 s (3 min 35 s); B saves 434 s (7 min 14 s); D saves
+about 3 x (70 s of tests + about 23 s of expect-fail, the figure in `build.sh`'s header table)
+= about 4 min 40 s.** A and D together: about 8 min 15 s, a check of about 7 minutes.
 
 **Why option D is real.** The pre-build tool-suite lane is `pytest tools -m "not needs_build"`.
 It takes no shape input (no test reads `DEBUG`, `GAME` or `ROM_NAME` from the environment;
-`build.sh` exports neither), and it ran the identical 2613 tests in all four builds. The
-expect-fail lane builds sonic4 with `NATIVE_DEBUG=1` whatever the shape
-(`tools/emp_expect_fail.py`), 55/55 each time. So roughly 85 s of every build is the same work.
-Run once instead of four times: about 3 x 85 = 255 s saved.
+`build.sh` exports neither), and it ran the identical set in all four builds of each run
+(2613 tests in run 1; 2651 in run 2, after this parcel's own tests joined). The expect-fail
+lane builds sonic4 with `NATIVE_DEBUG=1` whatever the shape (`tools/emp_expect_fail.py`),
+55/55 each time. So roughly 90 s of every build (66-73 s of tests plus about 23 s of
+expect-fail) is the same work. Run once instead of four times: about 3 x 93 = 280 s saved.
 
 ### What each build uniquely catches
 

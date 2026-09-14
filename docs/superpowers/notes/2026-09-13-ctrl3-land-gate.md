@@ -197,6 +197,29 @@ copy always runs and dispatches to the pushing checkout's `tools/land_gate.py`; 
 missing it refuses master and passes everything else. No git config was changed and no hook was
 installed by this parcel.
 
+## Final verification run
+
+`tools/landing_build.sh` on this parcel's tip `09b6e8a9` (all gate code and tests, the record
+and the proposal committed), detached, 2026-09-13 20:07:27-20:22:45 local, with the inotify
+trace of `docs/` running and nothing else touching the worktree. Load average 4.2 at the start,
+9.9 at the end (another agent was building).
+
+- `EXIT_s4=0 secs=230`, `EXIT_s4.debug=0 secs=230`, `EXIT_demo=0 secs=215`,
+  `EXIT_demo.debug=0 secs=219`, `EXIT_needs_build=0` ("14 case(s) in the report: 14 ran,
+  0 deferred, 0 failed"), `land-gate: STAMP WRITTEN key=3c9016df9cf1eb89 head=09b6e8a9705d`,
+  **`finished=0`**. The pre-build lane was 2651 passed in every build, with the audit armed and
+  no LAND GATE rows; `emp_expect_fail` 55/55 in every build.
+- md5: `s4.bin` 0de120e3, `s4.debug.bin` 45ddcada, `demo.bin` e3e7190e, `demo.debug.bin`
+  6bd0ecd3; assembler sigil 0.1.0 (`1532b72f`, clean), md5(SIGIL_BUILD) 73901664.
+- `git status --porcelain --untracked-files=all` was empty before and after: a build writes no
+  tracked or unignored file, so "the tree changed during the run" cannot fire on a clean landing.
+- **The trace, clean this time: residual 0.** Full run minus four times the lane-only trace
+  minus the needs_build trace is zero for every file. The only files not in the earlier lane
+  trace are this parcel's two notes, opened 4 times each (the lane, once per build). 832 of 834
+  tracked docs files opened; the two missing are the non-ASCII names. **So no build stage opens
+  any docs file; every docs read in a landing is the pytest lane's**, and the first trace's
+  residual was the subagent, as suspected.
+
 ## For the controller at landing
 
 - Install the hook (above), then push the landing itself through it: the landing run's stamp
