@@ -2,7 +2,8 @@
 must, and lets through what "doesn't hamper too much" says it must.
 
 WHY THIS FILE EXISTS. CTRL-3 (docs/decisions.jsonl, the owner's answer of
-2026-09-13T22:06:54Z): the four-shape landing check becomes the only way code reaches
+2026-09-13T22:06:54Z): the landing check (tools/landing_build.sh, whatever shapes its
+LANDING_SHAPES list names; nothing here counts them) becomes the only way code reaches
 master. The gate is a pre-push hook plus a content-keyed stamp that
 tools/landing_build.sh writes. Every row below is one clause of that contract, driven
 through REAL `git push` calls.

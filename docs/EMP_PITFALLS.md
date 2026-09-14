@@ -187,7 +187,11 @@ yourself, and prove zero release cost by CRC equality, not reasoning.
   trip `[proc.sr-undeclared]` — that fires only with SR as destination.)
 - **Trap C — sonic4 can build green over a broken tree:** shape-gated brackets like
   `with z80_stopped if SOUND_DRIVER_ENABLED == 0` mean the failing region may only be
-  planted in `demo`. **Always build all four shapes** (sonic4/demo × plain/DEBUG).
+  planted in `demo`. **Build both games in both shapes** (sonic4/demo × plain/DEBUG) before you
+  trust a green: `./build.sh` makes any of the four on request, and the nightly builds all four.
+  The pre-merge check (`tools/landing_build.sh`) builds three since CTRL-3b (2026-09-14): demo
+  plain is only ASSEMBLED there, by every Sonic 4 build, for placement and budget; its own lanes
+  run in `./build.sh demo` and the nightly.
 
 Placement: never immediately after the proc's own `move.w #$2700, sr` — that asserts the
 line above it and is vacuous.

@@ -103,6 +103,15 @@ without being told when the build began — freshness here is a BUILD-TIME
 comparison, and `pytest tools` run by hand passes no threshold and therefore grades
 whatever is on disk. That is the right default for a hand run and the wrong one for
 a lane, which is why build.sh's post-sigil lane passes `${SIGIL_T0}`.
+
+WHICH ARTIFACTS DEFERRED A CASE IS RECORDED, NOT RE-PARSED (CTRL-3b, 2026-09-14). Every
+marked item carries two JUnit properties from the collection hook below: `needs_build_declared`
+(every artifact its markers name) and, when it is deferred, `needs_build_unusable` (the ones
+this invocation did not produce). They are inert without `--junit-xml`, so build.sh's
+post-sigil lane is unchanged. tools/needs_build_lane.py reads them to apply a caller's
+declared exemption (`--shapes-built`: the landing check does not build demo-normal, so a case
+deferred ONLY on demo.bin/demo.lst is EXEMPTED and named there). A deferred case without the
+record is never exempted: the lane fails closed rather than parsing the reason text.
 """
 
 import os
@@ -121,6 +130,11 @@ BUILD_ARTIFACTS = (
 )
 
 MARKER = "needs_build"
+
+#: The JUnit properties every marked item carries (CTRL-3b, 2026-09-14): what it declares,
+#: and, when deferred, what made it defer. tools/needs_build_lane.py spells the same names.
+DECLARED_PROPERTY = "needs_build_declared"
+UNUSABLE_PROPERTY = "needs_build_unusable"
 
 #: Deferred rows for the terminal summary: (nodeid, ["<name> (absent)", ...]).
 _deferred = []
@@ -211,16 +225,22 @@ def _unusable(names):
     (the ROM it names, every file the build read, the module scan, the assembler). The
     first problem is quoted in the reason; the pair's verdict lists them all.
     """
+    return ["%s (%s)" % pair for pair in _unusable_pairs(names)]
+
+
+def _unusable_pairs(names):
+    """`_unusable` as (name, reason) pairs, so the collection hook can record the NAMES as a
+    JUnit property without re-parsing its own reason text (CTRL-3b)."""
     out = []
     for n in names:
         p = os.path.join(AEON, n)
         if not os.path.isfile(p):
-            out.append("%s (absent)" % n)
+            out.append((n, "absent"))
         elif _built_after is not None:
             problems = _pair_problems(n)
             if problems:
                 more = "; and %d more" % (len(problems) - 1) if len(problems) > 1 else ""
-                out.append("%s (stale — %s%s)" % (n, problems[0], more))
+                out.append((n, "stale — %s%s" % (problems[0], more)))
     return out
 
 
@@ -238,16 +258,23 @@ def pytest_collection_modifyitems(config, items):
     An item skipped here is reported as skipped, lands in the DEFERRED block below with
     its reason, and is never silent. An item whose artifacts are all usable is left
     completely alone — if it then skips on its own, that is the FAILURE arm.
+
+    Every marked item also carries DECLARED_PROPERTY, and a deferred one UNUSABLE_PROPERTY,
+    as JUnit properties (inert without --junit-xml). tools/needs_build_lane.py reads them to
+    apply a caller's declared exemption; a deferred case without them is never exempted.
     """
     for item in items:
         declared = _declared(item)
         if not declared:
             continue
-        unusable = _unusable(declared)
-        if unusable:
+        item.user_properties.append((DECLARED_PROPERTY, " ".join(declared)))
+        pairs = _unusable_pairs(declared)
+        if pairs:
+            unusable_names = [n for n, _ in pairs]
+            item.user_properties.append((UNUSABLE_PROPERTY, " ".join(unusable_names)))
             item.add_marker(pytest.mark.skip(
                 reason="DEFERRED: this build shape did not produce " +
-                       ", ".join(unusable)))
+                       ", ".join("%s (%s)" % pair for pair in pairs)))
 
 
 def _skip_reason(report):

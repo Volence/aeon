@@ -31,10 +31,14 @@ actually contains, maps shape -> artifacts by build.sh's own rule, and asserts t
 covers the first. There is no expected count anywhere in it: a number copied from a
 neighbouring pin is exactly what went stale.
 
-THE RUNNERS IT GRADES are `tools/landing_build.sh` (the four-shape landing build every
-parcel runs before it merges, and now the merge-time home of the needs_build lane) and
-`tools/nightly_effects_gates.sh` (the once-a-day backstop). Both must build every shape the
-markers declare, and both now build all four -- which is every shape build.sh can produce.
+THE RUNNERS IT GRADES are `tools/landing_build.sh` (the pre-merge check every parcel runs
+before it merges, and the merge-time home of the needs_build lane) and
+`tools/nightly_effects_gates.sh` (the once-a-day backstop). The nightly must build every
+shape the markers declare, and builds all four -- every shape build.sh can produce. The
+landing check builds its one declared list, LANDING_SHAPES (three since CTRL-3b,
+2026-09-14: demo normal left it under the hub's option A), so for it the rule is narrower
+and still checked: whatever it leaves uncovered must be exactly inside the exemption its
+needs_build lane derives from that same list, never an artifact of a shape it builds.
 
 IT RUNS IN build.sh's PRE-BUILD LANE — `python3 -m pytest tools -q -m "not needs_build"`,
 build-fatal, in every shape of every parcel's build. It reads no build artifact and must
@@ -69,6 +73,37 @@ RUNNERS = ("landing_build.sh", "nightly_effects_gates.sh")
 #: argument scan, which is why `>> "$LOG"` does not become a game name.
 _INVOKE = re.compile(r"\./build\.sh(?P<rest>.*)$")
 _WORD = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+#: tools/landing_build.sh's ONE declared shape list (CTRL-3b, 2026-09-14): its markers. The
+#: A->B swap is the one line between them; tools/test_landing_build_trim.py makes it.
+LANDING_BLOCK = ("# >>> LANDING_SHAPES", "# <<< LANDING_SHAPES")
+
+
+def landing_shapes(script_text):
+    """The shapes tools/landing_build.sh builds, read out of its LANDING_SHAPES block.
+
+    A missing or doubled block, or anything but ONE non-empty `LANDING_SHAPES="..."` line in
+    it, raises: a parse that quietly found nothing would grade the empty list, which covers
+    nothing and would read as a green."""
+    begin, end = LANDING_BLOCK
+    if script_text.count(begin) != 1 or script_text.count(end) != 1:
+        raise ValueError("expected exactly one %r / %r pair" % LANDING_BLOCK)
+    body = script_text.split(begin, 1)[1].split(end, 1)[0]
+    rows = [l.strip() for l in body.splitlines() if l.strip() and not l.strip().startswith("#")]
+    m = re.fullmatch(r'LANDING_SHAPES="([A-Za-z0-9_. ]*)"', rows[0]) if len(rows) == 1 else None
+    if not m or not m.group(1).split():
+        raise ValueError('the LANDING_SHAPES block must hold exactly one non-empty '
+                         'LANDING_SHAPES="..." line; it holds %r' % rows)
+    return m.group(1).split()
+
+
+def shape_game_debug(shape):
+    """A landing shape (a ROM name) back to build.sh's (game, DEBUG): the inverse of
+    `_artifacts_for`, and the rule tools/landing_build.sh's loop applies (`${shape%.debug}`,
+    then s4 -> sonic4)."""
+    debug = shape.endswith(".debug")
+    base = shape[:-len(".debug")] if debug else shape
+    return ("sonic4" if base == "s4" else base), debug
 
 
 def _artifacts_for(game, debug):
@@ -254,7 +289,15 @@ def test_a_multi_shape_runner_builds_every_declared_artifact(runner):
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
 
-    shapes = shapes_built_by(text)
+    if runner == "landing_build.sh":
+        # CTRL-3b: the landing check builds its one declared list, LANDING_SHAPES, through a
+        # loop, so its shapes are read from the list (landing_shapes raises on an unreadable
+        # or empty one) rather than from `./build.sh` spellings in the text.
+        listed = landing_shapes(text)
+        shapes = {shape_game_debug(s) for s in listed}
+    else:
+        listed = None
+        shapes = shapes_built_by(text)
     assert shapes, (
         "%s contains no parseable `./build.sh` invocation outside its comments. Either it "
         "stopped being a multi-shape runner, or it invokes build.sh in a form this file's "
@@ -266,6 +309,18 @@ def test_a_multi_shape_runner_builds_every_declared_artifact(runner):
         built |= _artifacts_for(game, debug)
     declared = declared_artifacts()
     missing = sorted(declared - built)
+    if listed is not None:
+        # The landing check does not build every shape (option A), and its needs_build lane
+        # is handed the list and EXEMPTS exactly the artifacts of the unbuilt shapes. So what
+        # it leaves uncovered must be inside that derived exemption, and the exemption must
+        # never include something the check builds. Anything else missing is still the
+        # 2026-09-07 drift and still fails below.
+        import conftest
+        import needs_build_lane
+        exempt = set(needs_build_lane.exempt_artifacts(listed, conftest.BUILD_ARTIFACTS))
+        assert not exempt & built, (
+            "the lane would exempt %s, which %s builds" % (sorted(exempt & built), path))
+        missing = sorted(set(missing) - exempt)
     assert not missing, (
         "%s builds %s, writing %s — but the @pytest.mark.%s markers in %s declare %s, so "
         "tools/needs_build_lane.py run by this script will DEFER on %s and report COULD NOT "

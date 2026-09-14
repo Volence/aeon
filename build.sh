@@ -390,6 +390,101 @@ if [[ -n "${NO_LINT_FROM}" ]]; then
 fi
 # <<< NO_LINT_KNOB
 
+# THE LANDING RECEIPT (CTRL-3b, 2026-09-14): tools/landing_build.sh's one exception to "every
+# shape runs every lane". The pre-build tool-suite lane (`pytest tools -m "not needs_build"`)
+# and the expect-fail lane read no shape input -- no DEBUG, GAME or ROM_NAME, and no artifact
+# a shape writes (re-established from source, and by a getenv trace, in
+# docs/superpowers/notes/2026-09-14-ctrl3b-trim-check.md) -- so the landing check, which
+# builds several shapes back to back, runs them ONCE: inside its first shape, exactly as a
+# person's `./build.sh` runs them, and hands every later shape a RECEIPT saying so. Ruled: the
+# hub's pick of A plus D in the CTRL-3 shapes proposal (empyrean cf430f7 docs/OVERSEER.md);
+# bending this file's refuse-every-non-canonical-switch policy for it is the aeon controller's
+# call, made narrowly.
+#
+# IT IS NOT A SECOND FAST=1, and this block is why. The variable holds a PATH, and it is
+# honoured only when every one of these holds. Any one failing is a REFUSAL (exit 1), never a
+# quiet fallback, so a hand-set value is always loud:
+#   1. the file exists, records `lanes=passed` and a carrier shape, and names a pid;
+#   2. that pid is an ANCESTOR of this build.sh process, walked through /proc. A value exported
+#      in a shell, or left behind by a finished landing run, cannot satisfy it: no live
+#      landing run sits above that build;
+#   3. that ancestor is running a script named landing_build.sh,
+#   4. from THIS build's directory (landing_build.sh cd's to its own repo root first).
+# landing_build.sh writes the receipt only after the carrier's build.sh EXITED 0 with pytest
+# importable, FAST and NO_LINT refused and no -nl passed, i.e. after both lanes ran and passed.
+# What it cannot stop is a deliberate forgery (a process renamed landing_build.sh); nothing in
+# a file anyone can edit can. It stops the SHORTCUT, which is what FAST=1 would have become.
+# Unmeasurable is refused too: an unreadable /proc finds no ancestor.
+# tools/test_build_env_knobs.py lifts this block and runs it (every refusal above, and the
+# honoured case under a real landing_build.sh ancestor); tools/test_landing_build_trim.py runs
+# it inside a stub build.sh under the real landing_build.sh. The markers are load-bearing.
+# >>> LANDING_LANES_RECEIPT
+LANDING_LANES_SKIP=0
+LANDING_LANES_FROM=""
+if [[ -n "${AEON_LANDING_LANES_RECEIPT:-}" ]]; then
+    _lr_file="${AEON_LANDING_LANES_RECEIPT}"
+    _lr_pid=""; _lr_carrier=""; _lr_lanes=""; _lr_why=""
+    if [[ ! -f "${_lr_file}" || ! -r "${_lr_file}" ]]; then
+        _lr_why="there is no readable receipt at ${_lr_file}"
+    else
+        while IFS='=' read -r _lr_k _lr_v || [[ -n "${_lr_k}" ]]; do
+            case "${_lr_k}" in
+                landing_pid) _lr_pid="${_lr_v}" ;;
+                carrier)     _lr_carrier="${_lr_v}" ;;
+                lanes)       _lr_lanes="${_lr_v}" ;;
+            esac
+        done < "${_lr_file}"
+        if [[ ! "${_lr_pid}" =~ ^[0-9]+$ || "${_lr_pid}" -le 1 ]]; then
+            _lr_why="the receipt names no landing_build.sh process (landing_pid='${_lr_pid}')"
+        elif [[ "${_lr_lanes}" != "passed" || -z "${_lr_carrier}" ]]; then
+            _lr_why="the receipt does not record the lanes passing in a named shape"
+        else
+            _lr_up=$$; _lr_found=0
+            while [[ "${_lr_up}" -gt 1 ]]; do
+                _lr_stat="$(cat "/proc/${_lr_up}/stat" 2>/dev/null || true)"
+                [[ -n "${_lr_stat}" ]] || break
+                # The field after the ')' that closes the command name is the state, then the ppid.
+                read -r _lr_state _lr_up _lr_rest <<< "${_lr_stat##*) }"
+                [[ "${_lr_up}" =~ ^[0-9]+$ ]] || break
+                if [[ "${_lr_up}" == "${_lr_pid}" ]]; then _lr_found=1; break; fi
+            done
+            if [[ "${_lr_found}" != 1 ]]; then
+                _lr_why="process ${_lr_pid} is not an ancestor of this build.sh (pid $$), so no landing_build.sh run is calling it"
+            else
+                _lr_cmd="$(tr '\0' ' ' 2>/dev/null < "/proc/${_lr_pid}/cmdline" || true)"
+                _lr_cwd="$(readlink "/proc/${_lr_pid}/cwd" 2>/dev/null || true)"
+                case " ${_lr_cmd}" in
+                    *"/landing_build.sh "*|*" landing_build.sh "*) ;;
+                    *) _lr_cmd="${_lr_cmd//$'\n'/ }"
+                       _lr_why="its ancestor ${_lr_pid} is running '${_lr_cmd:0:120}', not tools/landing_build.sh" ;;
+                esac
+                if [[ -z "${_lr_why}" && "${_lr_cwd}" != "$(pwd -P)" ]]; then
+                    _lr_why="its landing_build.sh ancestor works in '${_lr_cwd}', not in this build's $(pwd -P)"
+                fi
+            fi
+        fi
+    fi
+    if [[ -n "${_lr_why}" ]]; then
+        echo "ERROR: AEON_LANDING_LANES_RECEIPT is set, and only tools/landing_build.sh may set it."
+        echo "  It skips the shape-independent lanes (the pre-build \`pytest tools -m \"not needs_build\"\`"
+        echo "  and emp_expect_fail) in a shape AFTER tools/landing_build.sh ran them green in an"
+        echo "  earlier shape of the SAME run. It is not a speed knob. Refused because"
+        echo "  ${_lr_why}."
+        echo "  Unset it. A hand build that skips lanes is NO_LINT=1, which says so."
+        exit 1
+    fi
+    LANDING_LANES_SKIP=1
+    LANDING_LANES_FROM="tools/landing_build.sh (pid ${_lr_pid}) ran them green in its ${_lr_carrier} build of this run"
+    echo "################################################################################"
+    echo "## SHARED LANES NOT RE-RUN IN THIS SHAPE (tools/landing_build.sh's receipt)."
+    echo "##   skipped here: pytest tools -m \"not needs_build\" (the pre-build lane) and"
+    echo "##                 emp_expect_fail. Neither reads a shape input;"
+    echo "##   ${LANDING_LANES_FROM}."
+    echo "##   Every other lane and gate of this build runs as normal."
+    echo "################################################################################"
+fi
+# <<< LANDING_LANES_RECEIPT
+
 # The canonical shapes (the frozen goldens) are what build.sh ships: plain + debug,
 # both games. The NON-canonical sonic4 sound shapes (silent / hotkeys / mirror) are
 # named off-canonical profiles now — build them directly and diff their own goldens:
@@ -813,6 +908,12 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
         exit 1
     fi
 
+    # THE TWO SHARED LANES (CTRL-3b): the pre-build pytest lane and the expect-fail lane, the
+    # ones LANDING_LANES_RECEIPT above skips in the later shapes of one landing check. Without
+    # a receipt (every hand build) both run exactly as before. tools/test_build_env_knobs.py
+    # lifts the block between the markers and runs it with python3 stubbed, so they are
+    # load-bearing.
+    # >>> SHARED_LANES
     # The tool-suite unit tests. WIRED 2026-08-16, because they were the tree's largest
     # run-by-nothing gate: on THAT date 18 files, ~984 assertions, no pytest.ini, no conftest,
     # no caller. That count is history; today's extent is pytest's own line, printed below. When
@@ -849,7 +950,10 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # DO NOT "FIX" A RECURRENCE BY DROPPING THE `-m` FILTER, and do not add a staleness
     # check here instead: refusing an old listing treats the symptom and still leaves
     # this lane unable to reach the build that clears it. The ordering IS the fix.
-    if python3 -c "import pytest" 2>/dev/null; then
+    if [[ "${LANDING_LANES_SKIP}" == "1" ]]; then
+        echo "Tool-suite unit tests (pre-build lane): NOT RUN in this shape --"
+        echo "  ${LANDING_LANES_FROM} (LANDING_LANES_RECEIPT)."
+    elif python3 -c "import pytest" 2>/dev/null; then
         echo "Running the tool-suite unit tests (pre-build lane)..."
         echo "  the file count is pytest's own (its first line below), not a find(1) of ${TOOLS}"
         echo "  deselecting -m needs_build; those run in the POST-SIGIL lane below"
@@ -872,11 +976,16 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # file's body being rewritten — see tools/emp_expect_fail.py's docstring and
     # games/sonic4/test/poison/README.md. Same NO_LINT hatch as the other source
     # gates.
-    echo "Running the expect-fail lane..."
-    if ! gate strict "emp_expect_fail.py" python3 "${TOOLS}/emp_expect_fail.py"; then
-        echo "expect-fail lane failed — a poison module built clean or a guard's message drifted."
-        exit 1
+    if [[ "${LANDING_LANES_SKIP}" == "1" ]]; then
+        echo "expect-fail lane: NOT RUN in this shape -- ${LANDING_LANES_FROM}."
+    else
+        echo "Running the expect-fail lane..."
+        if ! gate strict "emp_expect_fail.py" python3 "${TOOLS}/emp_expect_fail.py"; then
+            echo "expect-fail lane failed — a poison module built clean or a guard's message drifted."
+            exit 1
+        fi
     fi
+    # <<< SHARED_LANES
 fi
 
 # STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an

@@ -155,3 +155,135 @@ def test_a_silent_shape_says_the_emitter_is_not_used():
                         SIGIL_EMIT="/nonexistent/emit_sound_blob")
     assert rc == 0, (out, err)
     assert "Emitter:" in out and "not used" in out and "NOT FOUND" not in out, out
+
+
+# ------------------------------------------------------------------------ LANDING RECEIPT
+# CTRL-3b (2026-09-14): the one switch that skips the shared lanes, and it is landing_build.sh's
+# alone. Every refusal row asserts exit != 0, NO result line (the block stopped the build), the
+# name landing_build.sh in the message, and the specific reason.
+def _receipt_block():
+    return _block("LANDING_LANES_RECEIPT") + '\necho "RESULT SKIP=${LANDING_LANES_SKIP}"\n'
+
+
+def _write_receipt(d, pid, lanes="passed", carrier="s4"):
+    p = os.path.join(d, "receipt")
+    with open(p, "w") as f:
+        f.write("landing_pid=%s\ncarrier=%s\nlanes=%s\n" % (pid, carrier, lanes))
+    return p
+
+
+def _refused(out, why):
+    assert "RESULT" not in out, "the block let the build continue:\n" + out
+    assert "only tools/landing_build.sh may set it" in out, out
+    assert why in out, (why, out)
+
+
+def test_no_receipt_means_every_lane_runs_and_nothing_is_said():
+    rc, out, err = _run(_receipt_block())
+    assert rc == 0, (out, err)
+    assert "RESULT SKIP=0" in out and "SHARED LANES" not in out, out
+
+
+def test_a_hand_set_receipt_is_refused_naming_landing_build():
+    with tempfile.TemporaryDirectory() as d:
+        # a path to nothing
+        rc, out, err = _run(_receipt_block(), AEON_LANDING_LANES_RECEIPT=os.path.join(d, "no"))
+        assert rc != 0
+        _refused(out, "there is no readable receipt")
+        # a receipt naming THIS pytest process: a real, live ancestor of the block's shell,
+        # and exactly what a hand run under any other runner looks like
+        rc, out, err = _run(_receipt_block(),
+                            AEON_LANDING_LANES_RECEIPT=_write_receipt(d, os.getpid()))
+        assert rc != 0
+        _refused(out, "not tools/landing_build.sh")
+        # a receipt naming a live process that is NOT an ancestor
+        sleeper = subprocess.Popen(["sleep", "30"])
+        try:
+            rc, out, err = _run(_receipt_block(),
+                                AEON_LANDING_LANES_RECEIPT=_write_receipt(d, sleeper.pid))
+        finally:
+            sleeper.kill()
+            sleeper.wait()
+        assert rc != 0
+        _refused(out, "is not an ancestor of this build.sh")
+        # a receipt that does not say the lanes passed
+        rc, out, err = _run(_receipt_block(),
+                            AEON_LANDING_LANES_RECEIPT=_write_receipt(d, os.getpid(), "failed"))
+        assert rc != 0
+        _refused(out, "does not record the lanes passing")
+        # a receipt with no pid at all, and pid 1 (every process's ancestor)
+        for pid in ("", "1"):
+            rc, out, err = _run(_receipt_block(),
+                                AEON_LANDING_LANES_RECEIPT=_write_receipt(d, pid))
+            assert rc != 0, pid
+            _refused(out, "names no landing_build.sh process")
+
+
+def _fake_landing(root, name, child_dir=None):
+    """A real ancestor: <root>/tools/<name> cd's to <root> (as landing_build.sh does), writes
+    a receipt naming its own pid, then runs the lifted block as its CHILD. `child_dir`
+    makes the child run from another directory while the ancestor stays at <root>."""
+    tools = os.path.join(root, "tools")
+    os.makedirs(tools, exist_ok=True)
+    os.makedirs(os.path.join(root, "sub"), exist_ok=True)
+    script = os.path.join(tools, name)
+    run = 'bash -c "$BLOCK" build.sh'
+    if child_dir:
+        run = '( cd %s && exec %s )' % (child_dir, run)
+    with open(script, "w") as f:
+        f.write('cd "$(dirname "$0")/.." || exit 9\n'
+                "printf 'landing_pid=%s\\ncarrier=s4\\nlanes=passed\\n' \"$$\" > \"$PWD/receipt\"\n"
+                'export AEON_LANDING_LANES_RECEIPT="$PWD/receipt"\n' + run + "\n")
+    env = {k: v for k, v in os.environ.items() if k != "AEON_LANDING_LANES_RECEIPT"}
+    env["BLOCK"] = "set -euo pipefail\n" + _receipt_block()
+    p = subprocess.run(["bash", script], env=env, capture_output=True, text=True, timeout=30)
+    return p.returncode, p.stdout, p.stderr
+
+
+def test_a_receipt_from_a_real_landing_build_ancestor_is_honoured_and_announced():
+    with tempfile.TemporaryDirectory() as d:
+        rc, out, err = _fake_landing(d, "landing_build.sh")
+        assert rc == 0, (out, err)
+        assert "RESULT SKIP=1" in out, out
+        assert "SHARED LANES NOT RE-RUN IN THIS SHAPE" in out, out
+        assert "ran them green in its s4 build of this run" in out, out
+
+
+def test_the_ancestor_must_be_named_landing_build_and_work_in_this_directory():
+    """The two controls for the honoured row: the SAME script under another name, and the
+    same script whose build runs from another directory, are both refused."""
+    with tempfile.TemporaryDirectory() as d:
+        rc, out, err = _fake_landing(d, "landing_check.sh")
+        assert rc != 0
+        _refused(out, "not tools/landing_build.sh")
+    with tempfile.TemporaryDirectory() as d:
+        rc, out, err = _fake_landing(d, "landing_build.sh", child_dir="sub")
+        assert rc != 0
+        _refused(out, "not in this build's")
+
+
+# ------------------------------------------------------------------------ SHARED LANES
+# The two call sites the receipt guards, lifted and run with python3 and gate() stubbed, so
+# what is asserted is which commands the real block reaches.
+def _lanes(skip):
+    stub = ('TOOLS=/stub/tools\n'
+            'python3() { echo "CALLED python3 $*"; return 0; }\n'
+            'gate() { shift 2; "$@"; }\n'
+            'LANDING_LANES_SKIP=%s\nLANDING_LANES_FROM="stub receipt"\n' % skip)
+    return _run(stub + _block("SHARED_LANES"))
+
+
+def test_without_a_receipt_both_shared_lanes_run():
+    rc, out, err = _lanes(0)
+    assert rc == 0, (out, err)
+    assert "CALLED python3 -m pytest /stub/tools" in out and "-m not needs_build" in out, out
+    assert "CALLED python3 /stub/tools/emp_expect_fail.py" in out, out
+    assert "NOT RUN in this shape" not in out, out
+
+
+def test_with_a_receipt_neither_shared_lane_runs_and_both_say_so():
+    rc, out, err = _lanes(1)
+    assert rc == 0, (out, err)
+    assert "CALLED" not in out, "a shared lane ran although the receipt was honoured:\n" + out
+    assert out.count("NOT RUN in this shape") == 2, out
+    assert "stub receipt" in out, out

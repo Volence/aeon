@@ -37,6 +37,16 @@ import tempfile
 import time
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
+if TOOLS not in sys.path:
+    sys.path.insert(0, TOOLS)
+from test_landing_lane_shapes import landing_shapes  # noqa: E402
+
+#: The LAST shape the real script builds, from its one declared list (CTRL-3b): the failed-
+#: shape and the during-the-run rows act there, so every earlier shape (and the land gate's
+#: `begin`) has already run. It was `demo` when the check built four shapes; demo normal
+#: left the check under option A, and a stub keyed to a shape nobody builds never fires.
+with open(os.path.join(TOOLS, "landing_build.sh"), encoding="utf-8") as _f:
+    LAST = landing_shapes(_f.read())[-1]
 
 STUB_BUILD = r"""#!/bin/bash
 g="${1:-sonic4}"
@@ -44,7 +54,7 @@ if [ "$g" = sonic4 ]; then r=s4; else r="$g"; fi
 if [ "${DEBUG:-0}" = 1 ]; then r="$r.debug"; fi
 echo "stub build $r"
 if [ -n "${STUB_FAIL_SHAPE:-}" ] && [ "$STUB_FAIL_SHAPE" = "$r" ]; then exit 1; fi
-if [ "$r" = demo ] && [ -n "${STUB_DURING:-}" ]; then
+if [ -n "${STUB_DURING:-}" ] && [ "$r" = "${STUB_DURING_SHAPE:-}" ]; then
     case "$STUB_DURING" in
         commit) echo moved > engine/a.emp; git add engine/a.emp; git commit -q -m during ;;
         edit)   echo edited > engine/a.emp ;;
@@ -81,10 +91,11 @@ def _sandbox(root, git=True):
 def _env(**extra):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("GIT_", "AEON_LAND_GATE")) and
-           k not in ("FAST", "NO_LINT", "DEBUG", "STUB_FAIL_SHAPE", "STUB_DURING")}
+           k not in ("FAST", "NO_LINT", "DEBUG", "STUB_FAIL_SHAPE", "STUB_DURING",
+                     "STUB_DURING_SHAPE", "AEON_LANDING_LANES_RECEIPT")}
     env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t",
                GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
-               SIGIL_BUILD="/bin/false", SIGIL_EMIT="/bin/false")
+               SIGIL_BUILD="/bin/false", SIGIL_EMIT="/bin/false", STUB_DURING_SHAPE=LAST)
     env.update(extra)
     return env
 
@@ -127,7 +138,7 @@ def test_a_green_run_writes_the_stamp_for_its_content():
 
 def test_a_failed_shape_writes_no_stamp():
     with tempfile.TemporaryDirectory() as d:
-        rc, out = _run(_sandbox(d), d, STUB_FAIL_SHAPE="demo")
+        rc, out = _run(_sandbox(d), d, STUB_FAIL_SHAPE=LAST)
         assert rc == 1 and _last(out) == "finished=1", out
         assert "NO STAMP" in out and _stamps(d) == [], out
 

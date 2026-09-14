@@ -1,8 +1,8 @@
 """The landing gate's classifier (tools/land_gate.py RULES) covers every docs/ file the
 build and its tests read, and its guard (tools/land_gate_audit.py) is live and can fail.
 
-WHY THIS FILE EXISTS. The gate lets a push that changes only docs files skip the four-shape
-build and run, instead, the tests the RULES name as reading them. If a test or a build
+WHY THIS FILE EXISTS. The gate lets a push that changes only docs files skip the landing
+check's builds and run, instead, the tests the RULES name as reading them. If a test or a build
 stage reads a docs file the RULES do not name, a docs push can break master with no check
 having run. So the classifier is a gate in its own right, and this file holds it:
 

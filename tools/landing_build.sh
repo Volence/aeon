@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# landing_build.sh — the four-shape landing verification, as a COMMAND rather than a ritual.
+# landing_build.sh — the landing verification (the pre-merge check), as a COMMAND rather than a ritual.
 #
 # WHY THIS EXISTS. The landing lane (docs/OVERSEER-REFERENCE.md since 2026-09-10) said "four shapes, ROMs deleted first,
 # so existence proves freshness". Every session implemented that by hand, and the natural
@@ -21,12 +21,40 @@
 # This repo prefers a check that cannot be omitted to a rule that must be remembered. The
 # rule is now this file.
 #
+# WHICH SHAPES (CTRL-3b, 2026-09-14). The hub picked A plus D of the CTRL-3 shapes proposal
+# (empyrean cf430f7 docs/OVERSEER.md, "HUB PICK on aeon CTRL-3";
+# docs/superpowers/notes/2026-09-13-ctrl3-shapes-proposal.md):
+#   A  this check builds Sonic 4 normal, Sonic 4 debug and demo debug, and NOT demo normal.
+#      Every Sonic 4 build still assembles demo normal in full for its placement, region
+#      budget and image bounds (build.sh, "Evaluating the other game's link-time guards");
+#      demo normal's own lanes run in `./build.sh demo` and in the nightly.
+#   D  the shape-independent lanes (build.sh's pre-build `pytest tools -m "not needs_build"`
+#      and tools/emp_expect_fail.py) run ONCE per check: inside the first shape's build.sh,
+#      exactly as a person's ./build.sh runs them (same selection, flags and pre-state, with
+#      nothing retyped here), and every later shape skips them on a RECEIPT this script
+#      writes only after that shape exited 0. build.sh's LANDING_LANES_RECEIPT block says how
+#      the receipt proves its caller, and why it is not a second FAST=1. If the carrier fails,
+#      the next shape runs the lanes itself: they are never skipped on a build that did not pass.
+# B (drop both demo shapes) is the OWNER'S, one word away, and it is ONE line: LANDING_SHAPES
+# below. Everything else derives from it: which shapes build, the md5 line, the shape list
+# the needs_build lane is handed (and so its exemption), and which shape carries the lanes.
+# tools/test_landing_build_trim.py makes that swap in a sandbox and checks all of it.
+# This is the PRE-MERGE CHECK only: ./build.sh still builds all four shapes on request, the
+# nightly (tools/nightly_effects_gates.sh) builds all four, and sigil's goldens pin all six.
+#
 # Usage:  tools/landing_build.sh [logfile]
 #   With a logfile, the WHOLE output (stdout and stderr, refusals included) also goes to that
 #   file, truncated first, and `finished=<n>` is its last line exactly as it is stdout's. A
 #   relative path is relative to the CALLER's directory. Without one: stdout only.
 # Reads:  SIGIL_BUILD, SIGIL_EMIT (required; set by no dotfile on this machine)
 set -u
+
+# The shapes this check builds, in build order: ROM names by build.sh's rule (s4 for sonic4,
+# else the game name, plus .debug for DEBUG=1). The first one carries the shared lanes. The
+# A->B swap is the one line between the markers; tools/test_landing_build_trim.py parses it.
+# >>> LANDING_SHAPES
+LANDING_SHAPES="s4 s4.debug demo.debug"
+# <<< LANDING_SHAPES
 
 # ---- [logfile] (2026-09-11) ----------------------------------------------------------
 # The usage line above advertised this for the script's whole life and nothing read $1: every
@@ -97,10 +125,60 @@ fi
 # untouched, and run_shape's own `[ -f s4.bin ]` check would pass on a STALE file from a
 # previous run. Every shape here sets DEBUG explicitly or must not have it at all.
 unset DEBUG
+# The receipt that lets a later shape skip the shared lanes is THIS run's to write (below).
+# One inherited from anywhere else must not reach the first shape, which is the one that
+# has to run them.
+unset AEON_LANDING_LANES_RECEIPT
+
+# ---- the shape list, checked before anything is built (CTRL-3b) -----------------------
+# Each shape must round-trip through build.sh's naming rule (game = s4 -> sonic4, else the
+# name; .debug = DEBUG=1), so `sonic4` or `s4.debug.debug` is refused here instead of
+# building something whose ROM name the rest of this script would not recognise. An empty
+# list would build nothing and still print finished=0: refused too.
+read -r -a SHAPES <<< "$LANDING_SHAPES"
+if [ "${#SHAPES[@]}" -eq 0 ]; then
+    echo "landing_build: COULD NOT RUN: LANDING_SHAPES is empty; this check would build nothing."
+    echo "finished=2"
+    exit 2
+fi
+for shape in "${SHAPES[@]}"; do
+    base="${shape%.debug}"
+    if [ "$base" = s4 ]; then game=sonic4; else game="$base"; fi
+    rom="$base"; [ "$game" = sonic4 ] && rom=s4
+    [ "$shape" != "$base" ] && rom="$rom.debug"
+    case "$shape" in *[!a-z0-9_.]*) rom="" ;; esac
+    if [ "$rom" != "$shape" ] || [ "$game" = s4 ]; then
+        echo "landing_build: COULD NOT RUN: LANDING_SHAPES names '$shape', which is not a ROM name"
+        echo "  build.sh produces (s4, s4.debug, <game>, <game>.debug)."
+        echo "finished=2"
+        exit 2
+    fi
+done
+
+# The shared lanes run inside the first shape's build.sh, which SKIPS its pytest lane with a
+# warning (not a failure) when pytest is missing; the receipt below would then claim lanes
+# that never ran. So a missing pytest is COULD NOT RUN here, before anything is built.
+if ! python3 -c "import pytest" 2>/dev/null; then
+    echo "landing_build: COULD NOT RUN: python3 cannot import pytest, so neither the shared"
+    echo "  pre-build lane nor the needs_build lane can run. A landing check without them is not one."
+    echo "finished=2"
+    exit 2
+fi
+
+# Where the receipt lives: outside the tree (an untracked file in it would make the land
+# gate's end-of-run check read the tree as CHANGED), and gone when this run is.
+LANES_DIR=$(mktemp -d "${TMPDIR:-/tmp}/aeon-landing-lanes.XXXXXX") || {
+    echo "landing_build: COULD NOT RUN: cannot make a private directory for the lanes receipt"
+    echo "finished=2"
+    exit 2
+}
+trap 'rm -rf "$LANES_DIR"' EXIT
+RECEIPT=""
 
 rc=0
 
-# shape name -> the build invocation that produces <name>.bin
+# shape name -> the build invocation that produces <name>.bin. Returns 0 only for a shape
+# that built and left its ROM (the lanes receipt below is written on that and nothing less).
 run_shape() {
     local rom="$1"; shift
     local tmp="${rom}.landing-tmp"
@@ -112,7 +190,7 @@ run_shape() {
     if ! ( "$@" ) ; then
         echo "EXIT_${rom}=FAILED (build command returned non-zero) secs=$(( $(date +%s) - t0 ))"
         rc=1
-        return
+        return 1
     fi
 
     # build.sh writes <rom>.bin in place; move it aside atomically only once complete.
@@ -120,14 +198,15 @@ run_shape() {
         # Loud on unmeasurable: a missing artifact is "did not run", never a verdict.
         echo "EXIT_${rom}=NO_ARTIFACT (${rom}.bin absent after a zero-exit build) secs=$(( $(date +%s) - t0 ))"
         rc=1
-        return
+        return 1
     fi
     mv -f "${rom}.bin" "$tmp" && mv -f "$tmp" "${rom}.bin"
     echo "EXIT_${rom}=0 size=$(stat -c %s "${rom}.bin") secs=$(( $(date +%s) - t0 ))"
+    return 0
 }
 
 # The provenance instant for the needs_build lane at the bottom: every artifact it grades
-# must post-date this, i.e. must have been written by one of the four shapes below. Taken
+# must post-date this, i.e. must have been written by one of the shapes below. Taken
 # from `date +%s` for the reason build.sh's SIGIL_T0 is -- whole seconds truncate DOWN, so
 # a file written in the same second still counts as fresh. Since LS-1a (2026-09-12) it is
 # BOTH claims: the lane's conftest asks tools/artifact_provenance.py, which calls a pair
@@ -156,14 +235,31 @@ else
 fi
 
 {
-    run_shape s4          ./build.sh
-    run_shape s4.debug    env DEBUG=1 ./build.sh
-    run_shape demo        ./build.sh demo
-    run_shape demo.debug  env DEBUG=1 ./build.sh demo
+    echo "landing_build: shapes this check builds, in order: ${SHAPES[*]} (LANDING_SHAPES)"
+    for shape in "${SHAPES[@]}"; do
+        base="${shape%.debug}"
+        cmd=(env)
+        [ "$shape" != "$base" ] && cmd+=(DEBUG=1)
+        [ -n "$RECEIPT" ] && cmd+=("AEON_LANDING_LANES_RECEIPT=$RECEIPT")
+        cmd+=(./build.sh)
+        [ "$base" != s4 ] && cmd+=("$base")
+        # The first shape that exits 0 without a receipt ran the shared lanes green (they are
+        # build-fatal inside build.sh, pytest is importable, FAST/NO_LINT are refused above and
+        # no -nl is passed). Only then is the receipt written; every later shape carries it.
+        if run_shape "$shape" "${cmd[@]}" && [ -z "$RECEIPT" ]; then
+            if printf 'landing_pid=%s\ncarrier=%s\nlanes=passed\n' "$$" "$shape" \
+                    > "$LANES_DIR/receipt"; then
+                RECEIPT="$LANES_DIR/receipt"
+                echo "--- shared lanes: ran ONCE, green, inside the $shape build; the shapes after it skip them on a receipt ---"
+            else
+                echo "--- shared lanes: the receipt could not be written, so the shapes after $shape run them again ---"
+            fi
+        fi
+    done
 
     echo "--- md5 (quote these WITH the assembler revision beside them; a CRC alone is"
     echo "--- meaningless across sessions because the toolchain is the one unpinned input) ---"
-    md5sum s4.bin s4.debug.bin demo.bin demo.debug.bin 2>&1
+    md5sum "${SHAPES[@]/%/.bin}" 2>&1
     echo "--- assembler ---"
     "$SIGIL_BUILD" --version 2>&1 | head -1
     echo "md5(SIGIL_BUILD)=$(md5sum "$SIGIL_BUILD" | cut -d' ' -f1)"
@@ -176,28 +272,33 @@ fi
     # tools/test_effects_gates_segments.py::test_segmented_parent_checks_the_row_set_it_aggregated
     # -- declares s4.debug.bin, s4.debug.lst AND demo.debug.lst at once, and one build.sh
     # invocation writes exactly one game's .bin/.lst pair (GAME is a single scalar threaded
-    # into one ${SIGIL_BUILD} build). So it DEFERS in all four shapes and, until now, ran
-    # nowhere except tools/nightly_effects_gates.sh -- once a day, after the merge.
+    # into one ${SIGIL_BUILD} build). So it DEFERS in every build.sh shape and, until LS-1c,
+    # ran nowhere except tools/nightly_effects_gates.sh -- once a day, after the merge.
     #
     # It belongs HERE and not in build.sh, re-checked rather than inherited: build.sh
     # builds one game per invocation and every other gate in it depends on that contract.
-    # This script is already the multi-shape caller, it is already the landing lane nobody
-    # merges past, and the four shapes it builds are every shape build.sh can produce --
-    # hence all eight names in tools/conftest.py's BUILD_ARTIFACTS. The lane costs one
-    # pytest run on artifacts that are already on disk.
+    # This script is already the multi-shape caller and the landing lane nobody merges past.
+    # The lane costs one pytest run on artifacts that are already on disk.
+    #
+    # THE SHAPES IT DOES NOT BUILD ARE DECLARED, NOT FORGIVEN (CTRL-3b). Under A this script
+    # does not build demo normal, so test_deb2_appendix[demo.bin] defers here by design. The
+    # lane is handed LANDING_SHAPES with --shapes-built and derives the exemption itself:
+    # BUILD_ARTIFACTS minus the listed shapes' .bin/.lst, printed, with every case it exempts
+    # named as EXEMPTED. A deferral on anything a listed shape writes is still COULD NOT RUN,
+    # so the segments parent (s4.debug + demo.debug, both built under A) still RUNS here.
     #
     # IT IS A TOOL AND NOT AN INLINE `python3 -m pytest`, for the reason
     # tools/needs_build_lane.py's header gives: pytest exits 0 when every test it collected
     # was SKIPPED, which is precisely the state this lane exists to catch. The verdict is
-    # read out of a JUnit report instead. ZERO deferrals are legitimate here -- this script
-    # builds every shape the marked tests declare -- so a deferral is exit 2, COULD NOT RUN.
+    # read out of a JUnit report instead. The only deferrals legitimate here are the declared
+    # exemption above; any other is exit 2, COULD NOT RUN.
     #
     # NOT RUN AFTER A FAILED BUILD: the lane would then defer on the shape that did not
     # write, and report COULD NOT RUN on top of a real build failure, burying it. The skip
     # is printed by name and rc is already non-zero, so it is never a silent pass.
     if [ "$rc" = 0 ]; then
         echo "--- needs_build lane (--built-after $T0) ---"
-        python3 tools/needs_build_lane.py --built-after "$T0"
+        python3 tools/needs_build_lane.py --built-after "$T0" --shapes-built "${SHAPES[@]}"
         nb=$?
         echo "EXIT_needs_build=$nb"
         # worst-wins, matching effects_gates.py and nightly_effects_gates.sh: 2 (could not

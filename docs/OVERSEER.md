@@ -19,7 +19,7 @@ brief, and the standing rulings that change what a session does *first*.
 **Everything read at a LATER, SPECIFIC MOMENT is in `docs/OVERSEER-REFERENCE.md`** — named here by
 path so you can reach it at that moment, and not read at boot:
 
-- **the landing lane** — before you merge, build the four shapes, freeze, or append to the ledger;
+- **the landing lane** — before you merge, run the landing check (`tools/landing_build.sh`), freeze, or append to the ledger;
 - **recovering a vintage artifact** — before ANY toolchain-archaeology parcel;
 - **instruments (which oracle for what)** — before you measure anything;
 - **there is no auto-commit daemon** — before you defer to an owner of a tree you have not
