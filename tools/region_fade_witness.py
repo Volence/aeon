@@ -21,15 +21,20 @@ THE STEP RULE, READ OUT OF Palette_DoFade'S INSTRUCTIONS AND NOT ITS COMMENTS (t
       .step_frame: btst #0, Pal_Fade_Frames ; bne .noskip ; rts
                                                         -> STEP when the decremented count is ODD
       .noskip: every channel of every word of lines 1-3 moves +/-1 toward Pal_Target
-               (step_d3_toward_d4), the word rebuilt from the three 3-bit channels alone
+               (step_d3_toward_d4), the word rebuilt from the three 3-bit channels alone;
+               `andi.w #$0EEE, d6 ; beq .arrived` then asks whether EVERY channel is now on
+               its target, and if so `.arrived: clr.b Pal_Fade_Frames` runs the close at once
+               (buffer and Pal_Base = Pal_Target), the fade-fix B1 early end
 
-  The inline comments say "step only on even frame parity" / "odd frame: nothing moved"; the
-  branch does the opposite (`bne` after `btst` is taken when the bit is SET). So with
+  Its comments said "even" until the fade-fix parcel (2026-09-13) corrected them; the branch
+  has always stepped on ODD (`bne` after `btst` is taken when the bit is SET). So with
   PAL_FADE_FRAMES = F, the k-th compose after the arm (k = 1 is the arming tick's own compose)
-  leaves Pal_Fade_Frames = F - k, steps when F - k is odd, and snaps to Pal_Target at k = F. A
-  channel that is d steps from its target therefore arrives at k = 2d - 1, and the whole palette
-  arrives at k = 2 * max(d) - 1. PAL_FADE_FRAMES is parsed out of the source; the parity and the
-  +/-1 are transcribed from the instructions above, and `fade_model()` below is the only copy.
+  leaves Pal_Fade_Frames = F - k and steps when F - k is odd. A channel that is d steps from its
+  target arrives at k = 2d - 1, and the step on which the whole palette arrives, k = 2*max(d) - 1,
+  closes the fade (Pal_Fade_Frames 0). The count reaching 0 at k = F is the backstop close for a
+  buffer that never arrives. PAL_FADE_FRAMES is parsed out of the source; the parity, the +/-1 and
+  the arrival test are transcribed from the instructions above, and `fade_model()` below is the
+  only copy.
 
 WHAT IS ASSERTED (exit 1 on any failure):
   E0  the premise: exactly one region row binds a preset with ep_transition != 0 (the FADE
@@ -42,8 +47,10 @@ WHAT IS ASSERTED (exit 1 on any failure):
       Region_Current becomes the fade region, and that tick's compose leaves
       Pal_Fade_Frames == F - 1 with Pal_Target == the fade region's ep_pal.
   E3  it reaches the target after the derived number of composes, and follows fade_model()
-      word for word on EVERY compose in between; Pal_Fade_Frames reaches 0 at k = F and the
-      PAL_ACT_FADE bit is clear after it; CRAM lines 1-3 read the target once settled.
+      word for word on EVERY compose in between; Pal_Fade_Frames reaches 0 on the compose
+      fade_model() closes it (the arrival, k = 2*max(d) - 1; k = F only for a buffer that never
+      arrives) and the PAL_ACT_FADE bit is clear there; CRAM lines 1-3 read the target once
+      settled.
   E4  the section line INSIDE the fade region is crossed with nothing happening: Region_Current
       unchanged, no request, no frames, palette unchanged.
   E5  crossing OUT of the fade region into a region whose preset does not arm the fade SNAPS:
@@ -170,7 +177,11 @@ def dofade_rule_check() -> None:
     body = re.sub(r"//[^\n]*", "", m.group(1))
     want = [r"subq\.b\s+#1,\s*Pal_Fade_Frames\s+bne\s+\.step_frame",
             r"\.step_frame:\s+btst\s+#0,\s*Pal_Fade_Frames\s+bne\s+\.noskip\s+rts",
-            r"cmp\.w\s+d4,\s*d3|step_d3_toward_d4\(\)"]
+            r"cmp\.w\s+d4,\s*d3|step_d3_toward_d4\(\)",
+            # the arrival test (fade-fix B1): d6 is the OR of (new ^ target) over the 48 words
+            r"eor\.w\s+d2,\s*d1\s+or\.w\s+d1,\s*d6",
+            r"andi\.w\s+#\$0EEE,\s*d6\s+beq\s+\.arrived",
+            r"\.arrived:\s+clr\.b\s+Pal_Fade_Frames"]
     for w in want:
         if not re.search(w, body):
             raise SetupError(f"Palette_DoFade no longer matches the step rule this witness "
@@ -203,9 +214,11 @@ def fade_model(start: list[int], target: list[int], k: int, frames: int) -> tupl
             break
         left -= 1
         if left == 0:
-            cur = list(target)                  # the snap copies Pal_Target verbatim
+            cur = list(target)                  # the backstop close copies Pal_Target verbatim
         elif left & 1:
             cur = [step_word(c, t) for c, t in zip(cur, target)]
+            if all(((c ^ t) & 0x0EEE) == 0 for c, t in zip(cur, target)):
+                cur, left = list(target), 0     # arrived: `.arrived` runs the close NOW (B1)
     return cur, left
 
 
@@ -377,14 +390,17 @@ def check_fade_in(fails, leg, samples, i_arm, fade, start_pal, F, cram_after, wh
     if arrived != k_vis:
         fails.append(f"{who}: the palette first equalled the target at compose k={arrived}; the "
                      f"step rule predicts k = 2*{d}-1 = {k_vis} for a max channel distance of {d}")
-    j_end = i_arm + F - 1
+    k_close = next((k for k in range(1, F + 1) if fade_model(start_pal, tgt, k, F)[1] == 0), F)
+    j_end = i_arm + k_close - 1
     if j_end < len(samples):
         e = samples[j_end]
         if e["frames"] != 0 or (e["active"] & cram_after["PAL_ACT_FADE"]):
-            fails.append(f"{who}: at k=F={F} Pal_Fade_Frames={e['frames']} and Pal_Active="
-                         f"{e['active']:#04x} — the fade did not close at PAL_FADE_FRAMES")
+            fails.append(f"{who}: at compose k={k_close}, where fade_model() closes the fade, "
+                         f"Pal_Fade_Frames={e['frames']} and Pal_Active={e['active']:#04x} — the "
+                         "fade did not close")
     lo, hi = max(0, i_arm - 1), min(len(samples) - 1, i_arm + F)
     return {"distance": d, "k_visible_derived": k_vis, "k_visible_measured": arrived,
+            "k_close": k_close,
             # REPORTED, NOT ASSERTED: a lag frame here could be streaming's, not the fade's.
             "lag_frames_over_window": samples[hi]["lag"] - samples[lo]["lag"],
             "video_frames_over_window": (samples[hi]["frame"] - samples[lo]["frame"]) & 0xFFFF,
@@ -653,7 +669,11 @@ async def run(args) -> int:
                                         "region_rows": [s["row"] for s in wtrace]}
         findings.append(f"W: a DEBUG warp to ({wx},{y_c}), inside the fade region the crossing had "
                         f"already cached: Pal_Fade_Frames by tick {armed[:6]}...; "
-                        f"{'a fade ARMED (the sentinel forced a re-install)' if any(armed) else 'nothing armed'}; "
+                        + ("a fade stayed in flight past a compose (the sentinel forced a re-install)"
+                           if any(armed) else
+                           "no fade in flight after any compose (a re-arm toward the palette "
+                           "already showing closes on its first compose since fade-fix B1)")
+                        + "; "
                         f"colour {'MOVED' if moved else 'did not move'}; Warp_Req_Flag {flag} after")
 
         # ---- C: cost of the crossing, by master clock -----------------------------------

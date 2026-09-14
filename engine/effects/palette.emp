@@ -548,8 +548,23 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
 // channel on the composes where the DECREMENTED count is ODD: k = 1, 3, ..., 15 after the
 // arm, where k = 1 is the arming tick's own compose, so the colours start moving at once.
 // Eight steps cross the whole 3-bit 0..7 range; a channel d steps away arrives at
-// k = 2d - 1. The count reaching 0 (k = 16) snaps exactly to Target and copies
-// Target -> Base so a future fade departs from here. NO multiply.
+// k = 2d - 1. NO multiply.
+//
+// THE FADE ENDS WHEN THE PALETTE ARRIVES (fade-fix B1, 2026-09-13). The step that leaves
+// every channel on its target runs the CLOSE at once: snap Target -> buffer and Target ->
+// Base (so a future fade departs from here), clear PAL_ACT_FADE, count 0. The fade therefore
+// lasts 2*max(d) - 1 composes, not PAL_FADE_FRAMES. Nothing later could have changed a
+// colour: a step on an arrived buffer is the identity (step_d3_toward_d4 leaves an equal
+// channel alone and the word is rebuilt from its channels), and the close writes Target,
+// which the buffer already equals in every channel bit. Before this, the steps after
+// arrival (five of the night region's eight, k = 7..15) and the closing snap (k = 16)
+// moved nothing and still published lines 1-3, and each publication forces a ~19,000-cycle
+// variant re-derive. The count reaching 0
+// (k = PAL_FADE_FRAMES) is now only the BACKSTOP close, for a buffer another layer keeps
+// moving off target (a cycle script composes before the fade; an operator after it).
+// A step that arrives having moved NOTHING (an install re-arming toward the palette
+// already showing, as a DEBUG warp inside the cached fading region does) closes without
+// publishing: no colour moved, so nothing needs shipping or re-deriving.
 // (These comments said "even" until 2026-09-13; the branch has always stepped on ODD.
 // Nothing outside this proc depends on the parity. tools/region_fade_witness.py transcribes
 // it. Odd rather than even buys only the step on the arming tick: even parity would first
@@ -558,7 +573,11 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
 proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         subq.b  #1, Pal_Fade_Frames
         bne   .step_frame
-        // ---- final frame: snap Palette_Buffer to Target, and Target -> Base ----
+        // ---- the count ran out: the BACKSTOP close, which always publishes ----
+        moveq   #-1, d5
+    .close:
+        // ---- snap Palette_Buffer to Target, and Target -> Base ----
+        // d5 = the channel bits the closing step moved (0 = none: close quietly)
         lea     Pal_Target, a0
         lea     Palette_Buffer + $20, a1
         lea     Pal_Base, a2
@@ -570,7 +589,10 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         addq.l  #4, a0
         dbf     d0, .snap
         andi.b  #~PAL_ACT_FADE, Pal_Active
+        tst.w   d5
+        beq   .close_quiet
         publish_compose_lines()                 // the snap rewrote lines 1-3
+    .close_quiet:
         rts
     .step_frame:
         btst    #0, Pal_Fade_Frames             // step only on ODD decremented counts (15, 13, .., 1)
@@ -580,6 +602,8 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         lea     Palette_Buffer + $20, a0        // cur (lines 1-3)
         lea     Pal_Target, a1
         move.w  #48 - 1, d7                     // 48 words = lines 1-3
+        moveq   #0, d5                          // OR of (old ^ new): did this step move anything?
+        moveq   #0, d6                          // OR of (new ^ target): is any channel still short?
     .word:
         move.w  (a0), d0                        // cur word
         move.w  (a1)+, d1                       // target word
@@ -617,10 +641,23 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         lsl.w   #8, d3
         add.w   d3, d3                          // the 9th shift as an add (4 vs 8 cyc)
         or.w    d3, d2
+        eor.w   d2, d0                          // old ^ new (d0 and d1 are dead past the B extract)
+        or.w    d0, d5
+        eor.w   d2, d1                          // target ^ new
+        or.w    d1, d6
         move.w  d2, (a0)+
         dbf     d7, .word
+        // Masked once here rather than per word: (a | b) & m == (a & m) | (b & m).
+        andi.w  #$0EEE, d6                      // the three 3-bit channels only
+        beq   .arrived
+        // Still short. A channel short AFTER the step was short BEFORE it (an equal channel is
+        // never stepped), so it moved one unit: this step changed a colour, and publishes.
         publish_compose_lines()                 // the step rebuilt lines 1-3
         rts
+    .arrived:
+        clr.b   Pal_Fade_Frames                 // every channel is on its target: close NOW
+        andi.w  #$0EEE, d5                      // publish iff this step moved a colour
+        jbra    .close
 }
 
 // ===========================================================================
