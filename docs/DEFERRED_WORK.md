@@ -426,6 +426,17 @@ tree. The nested worktree was moved out at 22:39Z (to `../.aeon-land-cv-nested-0
 folder is green again, but the walk is unchanged. Fix: enumerate from `git ls-files '*.emp' '*.asm'`.
 Other tools may share the same walk, so `git grep -n "os.walk(AEON"` before fixing only this one.
 
+### CTRL-3b LEFT ONE GAP: NOTHING STOPS A "SHARED" LANE BECOMING SHAPE-DEPENDENT — booked 2026-09-14 (`parcel/ctrl3b-trim-check`, merge `39ce98b8`)
+
+The pre-merge check now runs the pre-build pytest lane and `emp_expect_fail` ONCE, inside its first shape,
+on the evidence that neither reads a shape input: from source, no tool reads `DEBUG`, `GAME` or `ROM_NAME`,
+and a one-off getenv trace of both lanes under `DEBUG` unset and `DEBUG=1` found no shape lookup and 2674
+identical outcomes (`docs/superpowers/notes/2026-09-14-ctrl3b-trim-check.md`). **That is a measurement, not
+a gate.** A tool that later starts reading one of those variables makes a "shared" lane shape-dependent, and
+the trimmed check would then test only the carrier shape's answer, silently. Fix: a small test in the same
+pre-build lane that fails on any `tools/**/*.py` (and any script those lanes spawn) reading `DEBUG`, `GAME` or
+`ROM_NAME` from the environment, derived by scanning source, red-first with a planted read.
+
 ### `lst_proc_sizes` MEASURES PLACEMENT AS WELL AS CODE, AND A PIN WENT RED FOR A PROC THAT DID NOT MOVE — booked 2026-09-06 (`parcel/live-effects-hook`)
 
 `tools/demo_specialization_witness.py`'s image backstop sizes a proc as **the distance to the

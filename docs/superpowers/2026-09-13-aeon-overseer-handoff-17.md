@@ -110,3 +110,21 @@ and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS O
   EFX-2 is closed as fixed. The owner's look card `NIGHT-REGION-LOOK` is filed; the notices to aurora and sigil
   were sent at this push. Worktrees `.aeon-regions-p2` and `.aeon-fade-fix` are tidied after the push.
 - **CTRL-3b** (`parcel/ctrl3b-trim-check` tip `57108a01`) is the last landing of this session. Then it stops clearable.
+
+## Addendum, 2026-09-14T02:18:02Z (from the clock): SESSION END, CLEARABLE
+
+- **CTRL-3b LANDED**: merge `39ce98b8`. The pre-merge check is `LANDING_SHAPES="s4 s4.debug demo.debug"` with the
+  shared lanes once, about 4 minutes. B (drop demo.debug too) is the owner's, one line. Gap booked in DEFERRED_WORK
+  ("CTRL-3b LEFT ONE GAP").
+- **Sigil (their word, 2026-09-14, relayed not verified):** their landing gate reads aeon pinned at `ec640bcf`, so our
+  master cannot redden it; advancing that pin is their held AEON-REFREEZE-DEBT, a decision, not a chore. Tonight's
+  nightly source gates are the first to see `OJZ_Palette_Night`/`OJZ_Preset_Night`, and any red there is theirs. **For
+  the next shared-binary swap:** their carry-flag model changed at sigil `700177b1` and fires 0 times in all seven
+  shapes at `ec640bcf`, `55c062a4` and `eec81e48`, so it should not refuse our build on that account.
+- **Aurora:** their fix `fix/sections-0-7-regions-reader` lands against our `6bd8ed89`; their row
+  SECTIONS-STEP5-KEYLESS-ROW re-pins to `b010032e` and measures row 9 as "unkeyed". Design Q8 (where a sectionless
+  binding appears) is empyrean's with them.
+- **Nothing in flight. Nothing startable in the queue** except owner cards (SP6 listen, NIGHT-REGION-LOOK) and booked
+  follow-ups a fresh session may propose: the fade's lag frame (defer a step on a full frame), the priced fade-cost
+  options P1/P2, the CTRL-3b environment-read guard, the glide witness's missing runner, the demo's share of the
+  regions engine code (measure before proposing), and the spring ability-box lift (S3K trace).
