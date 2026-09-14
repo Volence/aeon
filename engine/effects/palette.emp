@@ -196,7 +196,7 @@ comptime fn clamp_d1_07() -> Code {
 // a cycle script AND a variant, which forced the full ~19,332-cycle re-derive
 // every frame — the exact cost the stale bit exists to remove (the
 // "15.1%-of-frame gate" at .variants below). Cycling was the measured case;
-// fade (odd-frame parity) and the operators (every-2 / every-4 cadences) had the
+// fade (it steps on odd counts only) and the operators (every-2 / every-4 cadences) had the
 // same shape.
 //
 // So the announcement lives HERE, at the paths that actually wrote, and the
@@ -543,11 +543,17 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
 }
 
 // ===========================================================================
-// Palette_DoFade — 16-frame per-channel cross-fade Pal_Base -> Pal_Target (Task 6).
-// Steps Palette_Buffer (the live accumulator) toward Pal_Target by +/-1 per channel
-// on every OTHER frame (cadence 2 -> up to 8 steps across the 16-frame window, which
-// spans the full 3-bit 0..7 range monotonically). NO multiply. At frame 0 it snaps
-// exactly to Target and copies Target -> Base so a future fade departs from here.
+// Palette_DoFade — PAL_FADE_FRAMES-frame per-channel cross-fade toward Pal_Target (Task 6).
+// Steps Palette_Buffer (the live accumulator, NOT Pal_Base) toward Pal_Target by +/-1 per
+// channel on the composes where the DECREMENTED count is ODD: k = 1, 3, ..., 15 after the
+// arm, where k = 1 is the arming tick's own compose, so the colours start moving at once.
+// Eight steps cross the whole 3-bit 0..7 range; a channel d steps away arrives at
+// k = 2d - 1. The count reaching 0 (k = 16) snaps exactly to Target and copies
+// Target -> Base so a future fade departs from here. NO multiply.
+// (These comments said "even" until 2026-09-13; the branch has always stepped on ODD.
+// Nothing outside this proc depends on the parity. tools/region_fade_witness.py transcribes
+// it. Odd rather than even buys only the step on the arming tick: even parity would first
+// move at k = 2 and step 7 times, which still reaches d = 7, at k = 14.)
 // ===========================================================================
 proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         subq.b  #1, Pal_Fade_Frames
@@ -567,9 +573,9 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         publish_compose_lines()                 // the snap rewrote lines 1-3
         rts
     .step_frame:
-        btst    #0, Pal_Fade_Frames             // step only on even frame parity
+        btst    #0, Pal_Fade_Frames             // step only on ODD decremented counts (15, 13, .., 1)
         bne   .noskip
-        rts                                     // odd frame: nothing moved, announce nothing
+        rts                                     // even count: nothing moved, announce nothing
     .noskip:
         lea     Palette_Buffer + $20, a0        // cur (lines 1-3)
         lea     Pal_Target, a1
