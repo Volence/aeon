@@ -61,11 +61,22 @@ merges: until the install line runs, nothing refuses anything. CTRL-3's answer i
 no hosted CI" (the owner's `gate`); the hosted option stays unbuilt by his choice.
 
 ### Still open after this parcel
-- **The shapes question is the owner's/hub's, not built.** He asked to drop some of the four
-  shapes. The priced proposal is `docs/superpowers/notes/2026-09-13-ctrl3-shapes-proposal.md`;
-  nothing was dropped. If a shape leaves the landing check, `landing_build.sh`'s four `run_shape`
-  lines, the needs_build lane's "zero deferrals are legitimate here" claim, and
-  `tools/conftest.py` BUILD_ARTIFACTS all have to move together.
+- **The shapes question: DECIDED and BUILT (CTRL-3b, 2026-09-14, `parcel/ctrl3b-trim-check`).**
+  The hub picked A plus D of `docs/superpowers/notes/2026-09-13-ctrl3-shapes-proposal.md`
+  (empyrean cf430f7 docs/OVERSEER.md, "HUB PICK on aeon CTRL-3"). The pre-merge check
+  (`tools/landing_build.sh`) now builds its one declared list `LANDING_SHAPES` = Sonic 4 plain,
+  Sonic 4 debug, demo debug (A: demo plain is only assembled there, by every Sonic 4 build), and
+  runs the pre-build pytest lane and `emp_expect_fail` ONCE, in the first shape, with later
+  shapes skipping them on a receipt `build.sh` verifies (D; `LANDING_LANES_RECEIPT`). The
+  needs_build lane takes `--shapes-built` and EXEMPTS, by name, a deferral caused only by
+  artifacts of an unbuilt shape; any other deferral is still COULD NOT RUN. BUILD_ARTIFACTS
+  did not move (it lists what build.sh can make, which did not change). `./build.sh`, the
+  nightly and sigil's goldens keep every shape. The land gate's stamp now means "the TRIMMED
+  check finished 0 over this code". Record: `docs/superpowers/notes/2026-09-14-ctrl3b-trim-check.md`.
+  **Still open:** B (drop demo debug as well) is the OWNER'S; it is the one `LANDING_SHAPES`
+  line, and under it the segments parent (`test_segmented_parent_checks_the_row_set_it_aggregated`)
+  would be EXEMPTED before merge (printed with the s4.debug artifacts it also declares) and
+  graded only by the nightly.
 - **`tools/test_citation_form.py` never reads two tracked docs files**, both with a non-ASCII `§`
   in their names (`docs/research/parallax-§4.6.md`, `docs/research/sprite-system-§1.2.md`):
   `git ls-files` without `-z` quotes such names, the quoted path does not exist, and `_read`

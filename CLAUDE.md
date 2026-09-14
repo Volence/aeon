@@ -144,11 +144,19 @@ When researching how to implement a system, check these in order:
   `pgrep -x oracle_gui`; multiple instances contend for the MCP socket and you end up debugging
   a stale binary). Other emulators: never auto-launch — user handles that
 - Use Oracle MCP tools to inspect VRAM, CRAM, registers, RAM directly
-- **Four-shape landing evidence — run `tools/landing_build.sh` (LS-1c, 2026-09-10).** Every parcel
-  already has to build all four canonical shapes before it lands (sonic4 alone builds green over
-  a broken tree). That script IS those four builds — plain and `DEBUG=1`, sonic4 and `demo` — and
-  it then runs `python3 tools/needs_build_lane.py --built-after $T0` over the complete eight-artifact
-  set. Use it instead of four hand-typed `./build.sh` invocations, and paste its exit code into the
+- **Landing evidence — run `tools/landing_build.sh` (LS-1c, 2026-09-10; trimmed by CTRL-3b, 2026-09-14).**
+  Every parcel has to pass the pre-merge check before it lands (sonic4 alone builds green over
+  a broken tree). That script IS the check: it builds the shapes in its one declared list,
+  `LANDING_SHAPES` — Sonic 4 plain, Sonic 4 `DEBUG=1` and demo `DEBUG=1` (the hub's pick A: demo
+  plain is not built there, but every Sonic 4 build assembles it for placement) — and runs the
+  shape-independent lanes (the pre-build `pytest tools -m "not needs_build"` and
+  `emp_expect_fail`) ONCE, inside the first shape, instead of once per shape (pick D). Then it
+  runs `python3 tools/needs_build_lane.py --built-after $T0 --shapes-built <the list>`: a
+  deferral is COULD NOT RUN unless every artifact behind it belongs to a shape the list omits
+  (today only `test_deb2_appendix[demo.bin]`), and those are printed as EXEMPTED, never passed.
+  `./build.sh` still builds all four shapes on request, the nightly builds all four, and
+  sigil's goldens pin all six. Dropping demo debug too (B) is the owner's call and one line.
+  Use the script instead of hand-typed `./build.sh` invocations, and paste its exit code into the
   merge evidence. It is the ONLY thing that grades
   `test_segmented_parent_checks_the_row_set_it_aggregated` before a merge: that test declares
   `s4.debug.bin` + `s4.debug.lst` + `demo.debug.lst` at once, and one `build.sh` invocation writes

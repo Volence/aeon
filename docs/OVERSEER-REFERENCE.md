@@ -41,14 +41,26 @@ That block is superseded. Everything below it moved here from the boot file on 2
 
 - **A byte-mover lands with our own gates and asks sigil for nothing:** merge → **assert the
   parcel's content is present** (a failed merge is silent and rebuilds master's numbers) →
-  four shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f` all four
-  up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
+  the landing check's shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f`
+  the ROMs up front — see the landing-lane freshness rule) → re-verify on the merged tree → effects-gate ritual (only
   if `engine/effects/*`, `bg_anim.emp` or `buffers.emp` moved) → the Z80 clobbers gate (only if
   one of its seven inputs moved; the bullet below: it runs in sigil's tree but asks their lane for
   nothing) → push. Totals, never a tail.
-- **The four-shape half IS `tools/landing_build.sh` — run the script, do not retype it.**
-  It does the temp-name-then-rename for all four shapes and then, since 2026-09-10 (LS-1c),
-  runs the `needs_build` pytest lane over the complete eight-artifact set it just built:
+- **The pre-merge half IS `tools/landing_build.sh` — run the script, do not retype it.**
+  Since CTRL-3b (2026-09-14, the hub's pick of A plus D in
+  `docs/superpowers/notes/2026-09-13-ctrl3-shapes-proposal.md`) it builds THREE shapes, its one
+  declared list `LANDING_SHAPES`: Sonic 4 plain, Sonic 4 `DEBUG=1`, demo `DEBUG=1`. Demo plain is
+  not built by the check (every Sonic 4 build still assembles it for placement: build.sh,
+  "Evaluating the other game's link-time guards"), and the shape-independent lanes (the pre-build
+  `pytest tools -m "not needs_build"` and `emp_expect_fail`) run ONCE, inside the first shape;
+  later shapes skip them on a receipt `build.sh` checks (`LANDING_LANES_RECEIPT`: honoured only
+  under a live `landing_build.sh` ancestor in the same directory, refused loudly by hand).
+  `./build.sh` still builds all four shapes on request, the nightly builds all four, and sigil's
+  goldens pin all six. **B (drop demo debug too) is the owner's, and is the one
+  `LANDING_SHAPES` line.** The script does the temp-name-then-rename for each shape and then, since
+  2026-09-10 (LS-1c), runs the `needs_build` pytest lane over what it just built, with
+  `--shapes-built`: a deferral caused only by artifacts of a shape the list omits is printed as
+  EXEMPTED (today `test_deb2_appendix[demo.bin]`); any other deferral is COULD NOT RUN:
   ```sh
   export SIGIL_BUILD=<suite>/sigil/target/release/sigil
   export SIGIL_EMIT=<suite>/sigil/target/release/emit_sound_blob
