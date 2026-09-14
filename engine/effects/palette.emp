@@ -245,6 +245,26 @@ comptime fn step_d3_toward_d4() -> Code {
 //   a1 = palette*  (96 bytes = CRAM lines 1-3, NEVER line 0 — the character's)
 // See the ordering note above about Pal_Fade_Request being a one-shot consumed
 // here.
+//
+// WHAT EACH ARM DOES TO A FADE ALREADY IN FLIGHT (fade-fix, 2026-09-13). This proc is
+// the only writer of Pal_Base and Pal_Target outside Palette_DoFade, and every
+// install (a walked crossing, a DEBUG warp's forced re-install, an effects-lab
+// install) reaches it through Effects_InstallPreset, so the rule lives HERE:
+//   * SNAP arm  -> CANCEL. The preset asked for its palette NOW. A fade an earlier
+//                  install armed is heading for that install's palette, and letting
+//                  it run would repaint the buffer toward the region the camera LEFT
+//                  and, at its closing snap, copy that palette into Pal_Base too —
+//                  measured before this fix: re-cross the night edge within 16 frames
+//                  and row 1 ends on OJZ_Palette_Night, buffer and CRAM. It is the
+//                  "0 means keep" class TOTAL BINDING deletes (preset.emp), surviving
+//                  in the palette channel: state one install armed outliving an
+//                  install that did not ask for it.
+//   * FADE arm  -> RETARGET from the live buffer. Palette_DoFade steps
+//                  Palette_Buffer, not Pal_Base, toward Pal_Target, so overwriting the
+//                  target and restarting the count continues from the colours on
+//                  screen. Restarting from Pal_Base instead would jump back to the
+//                  previous fade's source for a frame. Any buffer is within 7 steps of
+//                  any target, so a fresh PAL_FADE_FRAMES window always arrives.
 // -----------------------------------------------
 pub proc Palette_LoadPal (a1: u32) clobbers(d1/a1-a2) {
         // fade armed? -> load Target and start the lerp; else -> load Base (snap)
@@ -257,6 +277,8 @@ pub proc Palette_LoadPal (a1: u32) clobbers(d1/a1-a2) {
         dbf     d1, .copy_base
         move.b  #1, Pal_Base_Dirty              // one-shot base copy
         move.b  #%1110, Pal_Compose_Lines       // lines the base touched
+        clr.b   Pal_Fade_Frames                 // a snap CANCELS a fade in flight (header)
+        andi.b  #~PAL_ACT_FADE, Pal_Active
         ori.b   #PAL_ACT_BASE, Pal_Active
         rts
     .load_target:
