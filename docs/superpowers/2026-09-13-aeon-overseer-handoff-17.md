@@ -73,3 +73,14 @@ and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS O
   - file the owner's look card for the night palette, pointing at the captures;
   - answer EFX-2's two questions from the measured fade.
 - **CTRL-3** is still in flight, as listed above.
+
+## Addendum, 2026-09-14T00:46:26Z (from the clock)
+
+- **CTRL-3 LANDED AND THE GATE IS LIVE**: merge `383fb350`, hook installed in `.git/hooks/pre-push`. Every aeon
+  master push now needs a `landing_build.sh` stamp for its code (landing_build writes it on `finished=0` over a
+  clean, unmoved tree), and docs-only pushes run only the tests that read them. **A stray untracked file at a
+  landing tree's root blocks the stamp**: keep landing trees clean. Bypass: `AEON_LAND_GATE=skip` (prints a banner).
+- **Shapes proposal** is with the hub: A plus D recommended. Their pick comes back as a small parcel.
+- **OWED at the REGIONS-P2 push: a notice to the lane named `aurora`** (their section-binding reader; asked 2026-09-14,
+  and my answer is banked at aurora `98989d4b` `docs/reviews/2026-09-14-aeon-answer-sections-0-7.md`). Also owed at
+  that push: sigil told that `OJZ_Act1_Regions` grew and data moved `$8E`.
