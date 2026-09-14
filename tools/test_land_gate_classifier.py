@@ -66,6 +66,14 @@ KNOWN = {
         "the same witness tool",
 }
 
+#: The gate's own files name docs paths as DATA (the RULES table, scratch-repository
+#: fixtures, synthetic audit observations) and open none of this repository's docs: the
+#: tests among them are watched by the audit plugin like every other test. Excluded BY
+#: NAME, not by pattern. Found by the red-first control run: the scan enumerates with
+#: `git ls-files`, so these were invisible to it until the commit that tracked them.
+GATE_OWN = ("tools/land_gate.py", "tools/land_gate_audit.py", "tools/test_land_gate.py",
+            "tools/test_land_gate_classifier.py", "tools/test_landing_build_stamp.py")
+
 _PATHLIT = re.compile(r"^docs(/[^\s'\"`]*)?$")
 _SHTOK = re.compile(r"docs/[A-Za-z0-9_./*-]+")
 
@@ -130,7 +138,7 @@ def _scan_static_refs():
                            check=True).stdout.decode().split("\0")
     refs = set()
     for f in files:
-        if not f or f.startswith("docs/") or not (f.endswith((".py", ".sh"))):
+        if not f or f.startswith("docs/") or not (f.endswith((".py", ".sh"))) or f in GATE_OWN:
             continue
         try:
             with open(os.path.join(AEON, f), encoding="utf-8") as fh:
@@ -261,6 +269,8 @@ def test_the_known_list_has_no_dead_entries():
     live = _static_refs()
     dead = sorted(k for k in KNOWN if k not in live)
     assert not dead, "KNOWN names references the code no longer makes: %s" % dead
+    gone = [f for f in GATE_OWN if not os.path.isfile(os.path.join(AEON, f))]
+    assert not gone, "GATE_OWN excludes files that no longer exist: %s" % gone
 
 
 def test_the_landing_ledger_files_never_need_a_rebuild():
