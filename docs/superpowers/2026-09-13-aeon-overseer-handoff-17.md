@@ -128,3 +128,21 @@ and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS O
   follow-ups a fresh session may propose: the fade's lag frame (defer a step on a full frame), the priced fade-cost
   options P1/P2, the CTRL-3b environment-read guard, the glide witness's missing runner, the demo's share of the
   regions engine code (measure before proposing), and the spring ability-box lift (S3K trace).
+
+## Addendum, 2026-09-14T02:43:58Z (from the clock): a correction to CTRL-3b's evidence, and the main folder
+
+- **A stray `landing_build.sh` shared the landing tree with CTRL-3b's merged-tree check.** It was meant for the main
+  folder: a chained command opened with `cd .aeon-land-0913`, so its later `nohup ./tools/landing_build.sh` ran there
+  (02:11:39Z to 02:20:48Z, started at `f5892615`). HEAD moved under it, and the land gate refused it: "HEAD MOVED
+  during the run … NO STAMP", `finished=2`. But it overlapped CTRL-3b's check window (02:12:56Z to 02:17:08Z), building
+  both demo shapes in the same directory, so **that check is NOT clean evidence.**
+- **The clean evidence is a single-writer re-run at the published tip `2e6709a1`**
+  (`.aeon-land-0913/.runlogs/reverify-ctrl3b.log`): `finished=0`, 2688 passed once, needs_build 13 ran / 0 deferred /
+  0 failed / 1 exempted (demo.bin, demo.lst), s4 `4d9b2524`, s4.debug `76ea409b`, demo.debug `d326c9e7`, the same
+  stamp key `598642eb`. The earlier run's answer was right; this run is the one to cite.
+- **Also this night:** a push piped into `grep` hid the gate's REFUSAL, and the chain fast-forwarded the main folder to
+  an unpublished commit. The fix (option names on NIGHT-REGION-LOOK) was pushed minutes later, before anything else
+  read it. Memory: `feedback_leading_cd_relocates_the_chain.md`.
+- **The main folder is at `2e6709a1` and rebuilt with the trimmed check** (`finished=0`; s4.debug `76ea409b`, the
+  owner's launcher ROM, has the region edge and the fade fix). **Its `demo.bin` is stale by design**: the trimmed check
+  no longer builds demo-normal, and `./build.sh demo` refreshes it.
