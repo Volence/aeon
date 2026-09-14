@@ -257,10 +257,10 @@ pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a
 // an uncalled comptime fn is never elaborated and its `ensure`s never fire.
 // ---------------------------------------------------------------------------
 // MAIN-LOOP WRITERS of Palette_Buffer (all upstream of the ship):
-//    0  Palette_Compose               effects/palette.emp:344   lines 1-3, once per frame
-//    1  Palette_RotateSpan            effects/palette.emp:447   in-place span rotate
-//    2  Palette_DoFade                effects/palette.emp:490,506  step + final snap
-//    3  Palette_DoOperator            effects/palette.emp:574,593,631  the operator arms
+//    0  Palette_Compose               effects/palette.emp:403   lines 1-3, once per frame
+//    1  Palette_RotateSpan            effects/palette.emp:523   in-place span rotate
+//    2  Palette_DoFade                effects/palette.emp:598,618  close (snap) + step
+//    3  Palette_DoOperator            effects/palette.emp:702,724,763  the operator arms
 //    4  Player_RefreshPhysics         sonic4/player/player_common.emp:517  line-0 character copy
 //    5  GameState_OJZScroll_Init      sonic4/test/ojz_scroll_test.emp:111,118  init copy (lines 0-1)
 //    6  GameState_OJZScroll_Update    sonic4/test/ojz_scroll_test.emp:485  T15 sky-marker, once/frame, section-keyed
@@ -274,7 +274,7 @@ pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a
 //   12  Raster_HInt .op_pal_restore         effects/raster.emp:812 — the only runtime READER
 //                                            of Palette_Ship_Snap
 // MAIN-LOOP READER (listed so the census is the complete reference set):
-//   13  Palette_DeriveVariant         effects/palette.emp:688   reads the composed buffer
+//   13  Palette_DeriveVariant         effects/palette.emp:864   reads the composed buffer
 // ===========================================================================
 comptime fn pal_committer_census(census: array = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) -> int {
     ensure(census.len == 14,
