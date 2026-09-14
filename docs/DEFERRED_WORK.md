@@ -46,6 +46,45 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## CTRL-3 LAND GATE — BUILT 2026-09-13 (`parcel/ctrl3-land-gate`); LIVE ONLY ONCE THE CONTROLLER INSTALLS THE HOOK
+
+**What shipped.** `tools/landing_build.sh` writes a content-keyed stamp for a completed green
+run of an unmoved tree, and `tools/hooks/pre-push` refuses a push to master whose code has no
+stamp (docs-only pushes run the tests that read the changed docs, in seconds; other refs are
+untouched). `tools/land_gate.py` is the logic and the path classifier; `tools/land_gate_audit.py`
+keeps the classifier honest on every build. Install, uninstall and bypass are in
+`docs/OVERSEER-REFERENCE.md`, Landing lane. Record:
+`docs/superpowers/notes/2026-09-13-ctrl3-land-gate.md`.
+
+**Closure.** Ledger rows `CTRL-3` and `V-8` close when the hook is INSTALLED, not when this
+merges: until the install line runs, nothing refuses anything. CTRL-3's answer is "a local gate,
+no hosted CI" (the owner's `gate`); the hosted option stays unbuilt by his choice.
+
+### Still open after this parcel
+- **The shapes question is the owner's/hub's, not built.** He asked to drop some of the four
+  shapes. The priced proposal is `docs/superpowers/notes/2026-09-13-ctrl3-shapes-proposal.md`;
+  nothing was dropped. If a shape leaves the landing check, `landing_build.sh`'s four `run_shape`
+  lines, the needs_build lane's "zero deferrals are legitimate here" claim, and
+  `tools/conftest.py` BUILD_ARTIFACTS all have to move together.
+- **`tools/test_citation_form.py` never reads two tracked docs files**, both with a non-ASCII `§`
+  in their names (`docs/research/parallax-§4.6.md`, `docs/research/sprite-system-§1.2.md`):
+  `git ls-files` without `-z` quotes such names, the quoted path does not exist, and `_read`
+  swallows the FileNotFoundError. Measured by the CTRL-3 inotify trace (830 of 832 opened).
+  A `.emp:N` citation or an anchor declaration in either file is unchecked. Not fixed here (a
+  one-flag change in another parcel's gate, and it may move that gate's census).
+- **What the docs-read audit cannot see.** It watches the pytest process. A docs read by a CHILD
+  process (a build.sh stage, a tool a test shells out to) is covered only by the static scan of
+  docs paths named in tracked code (`tools/test_land_gate_classifier.py`), and a relative
+  `os.open()` is invisible (its audit event has no dir_fd). The one full check was the inotify
+  trace in the record; nothing repeats it. A nightly re-trace would close this.
+- **`git push --no-verify` is silent.** Nothing detects a master push that skipped the hook
+  after the fact. A `reference-transaction` hook watching `refs/remotes/origin/master` could say
+  "master moved without a stamp"; not built.
+- **The stamp store is never pruned** (one ~300-byte JSON per green landing run). `rm` is safe:
+  a missing stamp only means "run landing_build.sh again".
+
+---
+
 ## LOOP SPRITE PRIORITY SWAP — SHIPPED 2026-09-10 (`parcel/loops-p-sprite-priority`)
 
 **LOOPS-P Parcel 2, the one that was never built.** Parcel 1 (the tilt, 2026-08-28) and

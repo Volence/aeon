@@ -152,6 +152,19 @@ def pytest_configure(config):
         "a failure." % MARKER)
     _deferred.clear()
     _pair_verdicts.clear()
+    # CTRL-3 (2026-09-13): the land gate's docs-read audit. It fails the session when a
+    # test opens a docs/ file tools/land_gate.py's RULES do not name that test as reading,
+    # because a push changing that file would skip the test. Registered from this file's
+    # OWN directory, and only when the plugin is there: the sandboxes that copy this
+    # conftest (tools/test_needs_build_lane.py) do not carry it. That it is active in the
+    # real lane is asserted by tools/test_land_gate_classifier.py, so its absence is loud.
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.isfile(os.path.join(here, "land_gate_audit.py")) and \
+            not config.pluginmanager.has_plugin("land_gate_audit"):
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import land_gate_audit
+        config.pluginmanager.register(land_gate_audit, "land_gate_audit")
 
 
 def _declared(item):
