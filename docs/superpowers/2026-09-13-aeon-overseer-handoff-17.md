@@ -103,3 +103,10 @@ and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS O
   (`a3757a59`) must not publish without the fade fix.
 - **The land gate is live**: every master push needs a `landing_build.sh` stamp for its code, and a stray
   untracked file at a landing tree's root blocks the stamp.
+
+## Addendum, 2026-09-14T02:11:33Z (from the clock)
+
+- **REGIONS-P2 and FADE-FIX LANDED together** (merges `163b27f7`, `2402aa4d`, each verified on its own merged tree).
+  EFX-2 is closed as fixed. The owner's look card `NIGHT-REGION-LOOK` is filed; the notices to aurora and sigil
+  were sent at this push. Worktrees `.aeon-regions-p2` and `.aeon-fade-fix` are tidied after the push.
+- **CTRL-3b** (`parcel/ctrl3b-trim-check` tip `57108a01`) is the last landing of this session. Then it stops clearable.
