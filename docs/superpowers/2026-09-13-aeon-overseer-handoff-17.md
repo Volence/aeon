@@ -51,3 +51,25 @@ Nothing startable is left in the queue. Everything else waits on the owner, sigi
 `lane-status.json`'s `queue` says which. Candidates to propose: handoff-15's "to check, not booked" item
 (the demo now carries the regions engine code; measure its code and RAM cost before proposing anything),
 and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS OPEN", item 1).
+
+## Addendum, 2026-09-14T00:12:07Z (from the clock)
+
+- **TEST-WALK LANDED**: merge `684658c7`, land `24a92168`, pushed. Four walks fixed (not one), ROMs
+  md5-identical to master, 2634 passed x4. Branch and worktree removed. It is no longer in flight.
+- **REGIONS-P2 RETURNED** (`parcel/regions-p2` tip `a3757a59`, worktree `.aeon-regions-p2`, NOT merged).
+  The night region is row 9, x 3400..4799, with `OJZ_Palette_Night`/`OJZ_Preset_Night`. **T5 DONE on screen
+  by the controller**, evidence committed at `docs/captures/2026-09-13-regions-p2-night/`: the normal crossing is
+  correct, and the reversal defect reproduces (turning back within 16 frames settles NIGHT inside the forest
+  region).
+- **FADE FIX IN FLIGHT**: `parcel/fade-fix`, worktree `/home/volence/sonic_hacks/.aeon-fade-fix`, STACKED on
+  `a3757a59`. It owes (A) the reversal fix plus `--strict-reversal` made a default witness leg, (B1) end the
+  fade on arrival, (B2) the ~35k-cycle re-derive per step (a fix or a priced STOP), (B3) the lag frame
+  attributed, and (C) the parity comments.
+- **LANDING ORDER, ruled here:** master must never carry a reachable fade bug, so REGIONS-P2 does NOT publish
+  alone. Merge REGIONS-P2 and verify it (`landing_build`, `effects_gates`, the fade witness), then merge the fix
+  and verify it separately (two byte-movers, each attributed), and push only once BOTH are green. Then:
+  - tell sigil the data moved (`OJZ_Act1_Regions` grew to 10 rows; data after `OJZ_Preset_Sec7` moved by
+    $8E): their after-the-fact repin, under the 09-02 ruling;
+  - file the owner's look card for the night palette, pointing at the captures;
+  - answer EFX-2's two questions from the measured fade.
+- **CTRL-3** is still in flight, as listed above.
