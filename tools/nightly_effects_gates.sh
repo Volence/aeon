@@ -21,9 +21,12 @@
 # it builds FOUR shapes rather than two — every shape build.sh can produce, which is
 # what makes the covering claim below structural instead of remembered (LS-1c,
 # 2026-09-10; it was THREE, and the drift cost three red nights). It no longer OWNS
-# that lane: tools/landing_build.sh runs the same lane over the same four shapes at merge
-# time, so a parcel is graded before it lands rather than the next morning. This stays
-# as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
+# that lane: tools/landing_build.sh runs the same lane at merge time, so a parcel is graded
+# before it lands rather than the next morning. That pre-merge check builds only the shapes
+# in its LANDING_SHAPES list (three since CTRL-3b, 2026-09-14; demo normal is assembled
+# there, not built) and EXEMPTS by name what the others would feed, so THIS script, which
+# still builds all four, is the one place every marked test runs, and it takes no
+# exemption. This stays as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
 # artifact into a post-sigil lane inside build.sh; one of them —
 # test_segmented_parent_checks_the_row_set_it_aggregated — declares s4.debug.bin,
 # s4.debug.lst AND demo.debug.lst, and one build.sh invocation writes exactly one

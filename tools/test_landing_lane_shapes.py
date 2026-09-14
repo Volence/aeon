@@ -31,10 +31,14 @@ actually contains, maps shape -> artifacts by build.sh's own rule, and asserts t
 covers the first. There is no expected count anywhere in it: a number copied from a
 neighbouring pin is exactly what went stale.
 
-THE RUNNERS IT GRADES are `tools/landing_build.sh` (the four-shape landing build every
-parcel runs before it merges, and now the merge-time home of the needs_build lane) and
-`tools/nightly_effects_gates.sh` (the once-a-day backstop). Both must build every shape the
-markers declare, and both now build all four -- which is every shape build.sh can produce.
+THE RUNNERS IT GRADES are `tools/landing_build.sh` (the pre-merge check every parcel runs
+before it merges, and the merge-time home of the needs_build lane) and
+`tools/nightly_effects_gates.sh` (the once-a-day backstop). The nightly must build every
+shape the markers declare, and builds all four -- every shape build.sh can produce. The
+landing check builds its one declared list, LANDING_SHAPES (three since CTRL-3b,
+2026-09-14: demo normal left it under the hub's option A), so for it the rule is narrower
+and still checked: whatever it leaves uncovered must be exactly inside the exemption its
+needs_build lane derives from that same list, never an artifact of a shape it builds.
 
 IT RUNS IN build.sh's PRE-BUILD LANE — `python3 -m pytest tools -q -m "not needs_build"`,
 build-fatal, in every shape of every parcel's build. It reads no build artifact and must

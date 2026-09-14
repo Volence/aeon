@@ -2,8 +2,10 @@
 """land_gate: the landing gate (CTRL-3). Code reaches master only if a completed
 `tools/landing_build.sh` run proved that exact content green.
 
-WHY THIS EXISTS. The four-shape landing check was a habit: `tools/landing_build.sh`
-builds and grades all four shapes, and nothing stopped a push to master that skipped
+WHY THIS EXISTS. The landing check was a habit: `tools/landing_build.sh` builds and
+grades the shapes in its LANDING_SHAPES list (three since CTRL-3b, 2026-09-14: the hub's
+A plus D; a stamp therefore means "the TRIMMED check finished 0 over this code"), and
+nothing stopped a push to master that skipped
 it. Its own closure row (LS-1c) said so: "a ritual like the effects gate, not a hook
 -- nothing in this tree mechanically blocks a merge". The owner chose `gate` on
 2026-09-13T22:06:54Z (docs/decisions.jsonl, CTRL-3), bounded by "as long as it doesn't
