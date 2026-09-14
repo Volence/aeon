@@ -455,7 +455,8 @@ if [[ -n "${AEON_LANDING_LANES_RECEIPT:-}" ]]; then
                 _lr_cwd="$(readlink "/proc/${_lr_pid}/cwd" 2>/dev/null || true)"
                 case " ${_lr_cmd}" in
                     *"/landing_build.sh "*|*" landing_build.sh "*) ;;
-                    *) _lr_why="its ancestor ${_lr_pid} is running '${_lr_cmd% }', not tools/landing_build.sh" ;;
+                    *) _lr_cmd="${_lr_cmd//$'\n'/ }"
+                       _lr_why="its ancestor ${_lr_pid} is running '${_lr_cmd:0:120}', not tools/landing_build.sh" ;;
                 esac
                 if [[ -z "${_lr_why}" && "${_lr_cwd}" != "$(pwd -P)" ]]; then
                     _lr_why="its landing_build.sh ancestor works in '${_lr_cwd}', not in this build's $(pwd -P)"

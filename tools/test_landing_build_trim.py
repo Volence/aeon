@@ -150,17 +150,31 @@ def _stub_rows(out):
 
 
 def _md5_files(out):
-    """The ROM names the script's md5 block hashed (md5sum's `<hash>  <file>` lines)."""
+    """The ROM names the script's md5 block hashed. EVERY line of the block must be an md5sum
+    `<hash>  <file>` line: a typed list naming a ROM the run did not build leaves an md5sum
+    error line there, and that is a failure, not a line to skip (red-first row R14 of the
+    CTRL-3b record: skipping it let a typed md5 line pass under the B swap)."""
     lines = out.splitlines()
     start = next(i for i, l in enumerate(lines) if l.startswith("--- md5"))
     names = []
     for l in lines[start + 1:]:
         if l.startswith("--- assembler"):
             break
+        if l.startswith("---"):
+            continue                      # the block's own second header line
         parts = l.split()
-        if len(parts) == 2 and len(parts[0]) == 32:
-            names.append(parts[1])
+        assert len(parts) == 2 and len(parts[0]) == 32, "not an md5 line: %r\n%s" % (l, out)
+        names.append(parts[1])
     return names
+
+
+def _lane_shapes_argv(root):
+    """Everything the stub lane received after --shapes-built: it must be the list and
+    nothing more (red-first row R13: a prefix check let a typed longer list pass)."""
+    with open(os.path.join(root, "lane-argv.json")) as f:
+        argv = json.load(f)
+    assert argv.count("--shapes-built") == 1, argv
+    return argv[argv.index("--shapes-built") + 1:]
 
 
 def _last(out):
@@ -199,10 +213,7 @@ def test_the_check_builds_exactly_its_shapes_and_runs_the_shared_lanes_once():
                 assert "EXIT_%s=" % s not in out, ("built a shape the list omits", s, out)
                 assert not os.path.exists(os.path.join(d, s + ".bin")), s
         assert _md5_files(out) == [s + ".bin" for s in shapes], out
-        with open(os.path.join(d, "lane-argv.json")) as f:
-            argv = json.load(f)
-        i = argv.index("--shapes-built")
-        assert argv[i + 1:i + 1 + len(shapes)] == shapes, argv
+        assert _lane_shapes_argv(d) == shapes, out
         # The receipt lives outside the tree and is gone when the run is.
         assert "EXIT_needs_build=0" in out, out
 
@@ -241,10 +252,8 @@ def test_the_A_to_B_swap_is_one_line_and_derives_everything_else():
         assert rc == 0 and _last(out) == "finished=0", out
         assert [s for s, _ in _stub_rows(out)] == b_shapes, out
         assert [l for _, l in _stub_rows(out)] == ["ran", "skipped"], out
-        with open(os.path.join(d, "lane-argv.json")) as f:
-            argv = json.load(f)
-        i = argv.index("--shapes-built")
-        assert argv[i + 1:i + 1 + len(b_shapes)] == b_shapes, argv
+        assert _md5_files(out) == [s + ".bin" for s in b_shapes], out
+        assert _lane_shapes_argv(d) == b_shapes, out
         # What the swapped script did NOT write, observed on disk ...
         unwritten = [s for s in _all_shapes() if not os.path.exists(os.path.join(d, s + ".bin"))]
 
