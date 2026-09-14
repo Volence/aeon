@@ -84,3 +84,22 @@ and the glide witness's missing runner (DEFERRED_WORK, "CHAR-4 LEFT TWO THINGS O
 - **OWED at the REGIONS-P2 push: a notice to the lane named `aurora`** (their section-binding reader; asked 2026-09-14,
   and my answer is banked at aurora `98989d4b` `docs/reviews/2026-09-14-aeon-answer-sections-0-7.md`). Also owed at
   that push: sigil told that `OJZ_Act1_Regions` grew and data moved `$8E`.
+
+## Addendum, 2026-09-14T00:49:18Z (from the clock): CONTEXT IS PAST THE LINE; STOPPING AFTER WHAT IS IN FLIGHT
+
+- **Measured 447,399 tokens** at 2026-09-14T00:48:28Z (this session's transcript usage record: input 32 +
+  cache_read 441,193 + cache_creation 6,174), more than twice the owner's 200k line. **Nothing new is dispatched.**
+  The two agents in flight are landed as they return, and then the session stops clearable.
+- **In flight (agents do NOT survive a clear; their branch commits are the record):**
+  - **FADE FIX:** `parcel/fade-fix`, `/home/volence/sonic_hacks/.aeon-fade-fix`, stacked on REGIONS-P2 `a3757a59`.
+    Owes (A) the reversal fix, (B1) ending the fade on arrival, (B2) the re-derive cost or a priced STOP, (B3) the
+    lag frame attributed, (C) the comments. Landing order as in the addendum above.
+  - **CTRL-3b** (the hub's pick A plus D, empyrean `cf430f7`): `parcel/ctrl3b-trim-check`,
+    `/home/volence/sonic_hacks/.aeon-ctrl3b`, base `d4d7977d`. The pre-merge check drops demo-normal and runs
+    the shape-independent pytest and expect-fail lanes once. Owes a caller-proven knob that `build.sh` refuses
+    outside `landing_build.sh`, an exemption for exactly the unbuilt shape's needs_build rows (derived from one
+    shape list, so B is a one-line swap), and a control-vs-tip run. It moves no ROM bytes. B stays the owner's.
+- **If cleared before they report:** read each branch's commits and land or re-dispatch from there. REGIONS-P2
+  (`a3757a59`) must not publish without the fade fix.
+- **The land gate is live**: every master push needs a `landing_build.sh` stamp for its code, and a stray
+  untracked file at a landing tree's root blocks the stamp.
