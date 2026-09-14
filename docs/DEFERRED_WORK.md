@@ -34207,32 +34207,58 @@ still tiles the act. Record: `docs/superpowers/notes/2026-09-13-regions-p2.md`. 
 the lab's PRESET rows are region rows now (row 37 `NITE` = region 9). The warp-inside-the-cached-region
 sentinel case is measured (the note §4). T5 itself stays TAGGED: it needs a screen.
 
-**OPEN — the parcel's findings, each measured, none fixed here (the step touches no engine code):**
-- **DEFECT, STOPPED: a fade in flight survives a crossing back and finishes on the region the camera
-  left.** Cross into the night region and re-cross within 16 frames: the destination's snap install
-  (`Palette_LoadPal`'s `Pal_Base` arm) never cancels `Pal_Fade_Frames`, so `Palette_DoFade` keeps stepping
-  toward the old `Pal_Target` and its closing snap writes that palette into the buffer AND `Pal_Base`.
-  Measured: standing in row 1 with `OJZ_Palette_Night` in the buffer and CRAM. The "0 means keep" class,
-  in the palette channel. Fix candidate: the snap path cancels a fade in flight. Engine code, so the
-  effects-gate ritual. `tools/region_fade_witness.py --strict-reversal` is the red it has to turn green.
-- **`Palette_DoFade`'s comments contradict its branch.** `btst #0 / bne .noskip` steps when the decremented
-  count is ODD; the comments say "even". The behaviour is fine (8 steps, then the snap); the comments,
-  ARCH's old "~3840 cycles", and the EFX-2 ledger note's "even frames, ~0.27 s" were all wrong — see the
-  note §3.1. A comment fix in `engine/effects/palette.emp`, not made here (no engine edits in step 5).
-- **The fade's cost is the variant re-derive, not the step.** Every step publishes lines 1-3, which marks
-  `PAL_ACT_VARIANT_STALE`, and every OJZ preset binds `Variant_Water_Deep`: each of the 8 step frames costs
-  ~35,000 cycles in `Palette_Compose` (27% of a frame), including the 11 frames after the colours have
-  stopped moving (k = 6..16 still step and still re-derive). A same-palette SNAP crossing costs ~20,000 in
-  `Palette_Compose` for the same reason (x = 2048: no colour changes, the variant re-derives anyway). This
-  is the step-6 question re-aimed: skipping an unchanged install (step 6) would not touch the fade's cost;
-  ending the fade when the buffer reaches the target, or not re-deriving a variant for a no-op step, would.
-- **A DEBUG warp inside the cached region re-arms a no-op fade** (the sentinel forces the re-install): eight
-  ~35,000-cycle frames that move no colour. DEBUG-only.
+**OPEN — the parcel's findings, each measured, none fixed here (the step touches no engine code).** Four of
+them were answered by the FADE FIX parcel the same day (the section after this one); each says so in place:
+- ~~**DEFECT, STOPPED: a fade in flight survives a crossing back and finishes on the region the camera
+  left.**~~ **FIXED by `parcel/fade-fix` (`a4101c1e`).** `Palette_LoadPal`'s snap arm now cancels a fade in
+  flight; its fade arm retargets one from the live buffer. The witness asserts both in its default run (E7,
+  E8, E9; `--strict-reversal` is gone). As it was booked: re-crossing the night edge within 16 frames left row
+  1 on `OJZ_Palette_Night`, because the snap install never cleared `Pal_Fade_Frames` and the fade's closing
+  snap wrote the old target into the buffer and `Pal_Base`.
+- ~~**`Palette_DoFade`'s comments contradict its branch.**~~ **FIXED by `parcel/fade-fix` (`7a5ae29a`),
+  comments only.** It steps when the decremented count is ODD; the comments now say so.
+- ~~**The fade's cost is the variant re-derive, not the step.**~~ **Taken by `parcel/fade-fix`, and the
+  attribution corrected.** Measured there, a step frame's ~35,000 was `Palette_DoFade` ~15,400-16,800 plus the
+  derive 18,946: the derive was ~54%, not all of it. The fade now ends on the compose where the palette
+  arrives (`f122cce3`) and the derive is table-driven (`276aef46`, 9,096 cycles): the whole night fade went
+  302,824 -> 83,788 cycles, a step frame ~27,000, a snap crossing's compose 20,060 -> 10,210.
+- ~~**A DEBUG warp inside the cached region re-arms a no-op fade**~~ (eight ~35,000-cycle frames).
+  **Mostly answered by `parcel/fade-fix`:** a re-arm toward the palette already showing now closes on its first
+  compose without publishing (one step, no derive). The redundant re-install itself is still the DEBUG-tooling
+  call the regions-p2 note TAGGED.
 - **Boot into a fading region fades in from the act default** over five frames (frame 1 is `OJZ_Palette`,
   frame 6 is night). Design Q3's "install the whole preset at boot" is still the owner's call.
 - **The palette is a parked look** for the owner (R-3 G-2 B+0 over `OJZ_Palette`); one word reverts it.
-- **The witness has no runner.** `tools/effects_gates.py` does not run it. Adding it there is the next step
-  once the reversal defect is fixed (so the lane can carry `--strict-reversal`).
+- ~~**The witness has no runner.**~~ **FIXED by `parcel/fade-fix`:** `tools/effects_gates.py` runs it as gate
+  `region_fade`, default legs, reversal included.
 - **The text-parsing tools** (`test_anchor_sweep_band` PROBE 1 needed a change for a row with no sidecar key;
   `effects_seam_gate`, `effects_gen`, `lens_residue_raster_witness` already ignore such a row) are the class
   parcel 1 booked; the tools parcel's structured `regions.json` source still owes them.
+
+## FADE FIX — a fade in flight meets another install; the fade ends at arrival; the derive is table-driven (2026-09-13, `parcel/fade-fix`)
+
+**Shipped** (base `a3757a59`, the unlanded regions-p2 tip): (A) `Palette_LoadPal`'s snap arm cancels a fade in
+flight, and its fade arm retargets from the live buffer; (B1) `Palette_DoFade` closes on the compose where every
+channel reaches its target; (B2) `Palette_DeriveVariant` is table-driven (18,946 -> 9,096 cycles); (C) the fade's
+parity comments say ODD. `tools/region_fade_witness.py` asserts the reversal in its default run (E7), plus a
+mid-fade snap install (E8) and a mid-fade fade install (E9), and runs in `tools/effects_gates.py` as gate
+`region_fade`. Record, with the complete list of palette writers and the rule for each:
+`docs/superpowers/notes/2026-09-13-fade-fix.md`.
+
+**OPEN — booked by it, each priced in the note:**
+- **P1 — derive only the slots a live raster program reads.** In the night region no program reads the variant
+  (`Raster_Program_None`), yet every palette-moving frame derives it: 9,096 cycles each. Needs the raster
+  install to publish its program's slot use to the palette module (a comptime slot mask, or an op scan at
+  install); 0 RAM if it lives in `Pal_Active`'s free bits 6-7. A palette/raster contract change, so it was
+  STOPPED there by the brief's rule.
+- **P2 — a whole-word fade step.** The step's own ~17,400 cycles is now the larger half of a step frame. A
+  guard-bit subtract steps a word's three channels at once (verified exhaustively against the witness's
+  `step_word()`: 262,147 pairs, 0 mismatches); estimated ~7,000 a step frame, about the same code size.
+- **The inbound night crossing's lag frame.** Attributed to the fade (the transition-0 control has none): its
+  k = 3 step lands on a tick with only 2,576 cycles of slack without any fade (streaming-heavy). B1 and B2 cut
+  the overrun from 39,401 to 30,349 cycles and do not remove it; no local cut can. Needs the fade to defer a
+  step when the frame's budget is short (a scheduling design question).
+- **Operator over fade.** A flash ending mid-fade restores `Pal_Base`, the fade's SOURCE, so the colours would
+  pop back and the fade resume from there. `Palette_SetOp` has no caller today.
+- **A cycle and a fade in one region.** The fade pulls rotated entries back toward the un-rotated target until
+  arrival (the backstop close covers a buffer that never arrives). No fading preset binds a cycle today.
