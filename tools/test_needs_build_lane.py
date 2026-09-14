@@ -240,3 +240,107 @@ def test_pytest_failing_to_run_at_all_is_exit_2(tmp_path):
     assert p.returncode == 2, p.stdout + p.stderr
     assert "COULD NOT RUN" in p.stdout
     assert "OK —" not in p.stdout
+
+
+# ---------------------------------------------------------------- the declared exemption
+# CTRL-3b (2026-09-14). A caller that deliberately does not build some shapes (the landing
+# check under option A does not build demo-normal) passes `--shapes-built`; the lane derives
+# the exemption from it and this conftest's BUILD_ARTIFACTS. A deferral whose unusable
+# artifacts ALL belong to unbuilt shapes is EXEMPTED and named; every other deferral is still
+# COULD NOT RUN. Without `--shapes-built` (the nightly, a hand run) nothing is exempt.
+
+A_SHAPES = ("--shapes-built", "s4", "s4.debug", "demo.debug")
+
+ONE_BUILT_ONE_DEMO = """\
+import pytest
+
+@pytest.mark.needs_build("s4.debug.bin")
+def test_built():
+    assert True
+
+@pytest.mark.needs_build("demo.bin", "demo.lst")
+def test_demo_normal():
+    assert True
+"""
+
+
+def test_a_deferral_on_a_shape_the_caller_does_not_build_is_exempted_and_named(tmp_path):
+    lane = make_lane(tmp_path, ONE_BUILT_ONE_DEMO, artifacts=("s4.debug.bin",))
+    p = run_lane(lane, *A_SHAPES)
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "1 ran, 0 deferred, 0 failed, 1 exempted" in p.stdout, p.stdout
+    assert "EXEMPTED  lane.test_marked::test_demo_normal" in p.stdout, p.stdout
+    assert "exempt: demo.bin, demo.lst" in p.stdout, p.stdout
+    assert "OK —" in p.stdout and "EXEMPTED is not passed" in p.stdout, p.stdout
+    # THE CONTROL: the same lane without --shapes-built (the nightly's call) is COULD NOT RUN.
+    q = run_lane(lane)
+    assert q.returncode == 2, q.stdout + q.stderr
+    assert "1 marked test(s) DEFERRED" in q.stdout, q.stdout
+
+
+def test_a_second_deferral_is_still_could_not_run(tmp_path):
+    """The planted second deferral: an artifact of a shape the caller DOES build is absent."""
+    body = ONE_BUILT_ONE_DEMO + (
+        '\n@pytest.mark.needs_build("s4.debug.lst")\ndef test_planted():\n    assert True\n')
+    lane = make_lane(tmp_path, body, artifacts=("s4.debug.bin",))
+    p = run_lane(lane, *A_SHAPES)
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "DEFERRED  lane.test_marked::test_planted" in p.stdout, p.stdout
+    assert "s4.debug.lst (absent)" in p.stdout, p.stdout
+    assert "EXEMPTED  lane.test_marked::test_demo_normal" in p.stdout, p.stdout
+    assert "1 marked test(s) DEFERRED" in p.stdout, p.stdout
+    assert "OK —" not in p.stdout
+
+
+def test_a_case_that_also_misses_a_built_shape_is_not_exempted(tmp_path):
+    """Exempt only when EVERY artifact that deferred it is exempt: one built-shape artifact
+    missing beside an exempt one is COULD NOT RUN."""
+    lane = make_lane(tmp_path, (
+        'import pytest\n\n@pytest.mark.needs_build("demo.lst", "s4.debug.lst")\n'
+        'def test_straddle():\n    assert True\n'))
+    p = run_lane(lane, *A_SHAPES)
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "DEFERRED  lane.test_marked::test_straddle" in p.stdout, p.stdout
+    assert not [l for l in p.stdout.splitlines() if l.startswith("  EXEMPTED  ")], p.stdout
+    assert "0 exempted" in p.stdout, p.stdout
+
+
+def test_the_exemption_is_derived_from_the_shape_list(tmp_path):
+    """A's list exempts the plain demo pair; B's list (the owner's swap) all four demo
+    artifacts. Expected sets are taken from the copied conftest's BUILD_ARTIFACTS, filtered
+    by the shapes each list omits -- nothing typed here but the two lists."""
+    import ast
+    lane = make_lane(tmp_path, ONE_BUILT_ONE_DEMO)
+    tree = ast.parse((lane / "conftest.py").read_text())
+    arts = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                and any(getattr(t, "id", None) == "BUILD_ARTIFACTS" for t in n.targets))
+    sys.path.insert(0, str(TOOLS))
+    import needs_build_lane
+    for shapes in (["s4", "s4.debug", "demo.debug"], ["s4", "s4.debug"]):
+        want = sorted(a for a in arts if a.rsplit(".", 1)[0] not in shapes)
+        assert needs_build_lane.exempt_artifacts(shapes, arts) == want, shapes
+        p = run_lane(lane, "--shapes-built", *shapes)
+        assert "exempt: %s" % ", ".join(want) in p.stdout, (shapes, p.stdout)
+
+
+def test_an_unknown_shape_is_could_not_run(tmp_path):
+    """A typo must not widen the exemption: `s4.debgu` would otherwise exempt s4.debug."""
+    lane = make_lane(tmp_path, TWO_PASSING,
+                     artifacts=("s4.debug.bin", "s4.debug.lst", "demo.debug.lst"))
+    p = run_lane(lane, "--shapes-built", "s4", "s4.debgu", "demo.debug")
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "s4.debgu" in p.stdout and "COULD NOT RUN" in p.stdout, p.stdout
+
+
+def test_a_deferred_case_without_the_conftest_record_is_not_exempted(tmp_path):
+    """Fail closed: the exemption reads which artifacts deferred a case from the record the
+    conftest writes. A conftest that does not write it exempts nothing."""
+    lane = make_lane(tmp_path, ONE_BUILT_ONE_DEMO, artifacts=("s4.debug.bin",))
+    conf = (lane / "conftest.py").read_text()
+    needle = 'item.user_properties.append((UNUSABLE_PROPERTY, " ".join(unusable_names)))'
+    assert conf.count(needle) == 1, "the conftest record line moved; update this row"
+    (lane / "conftest.py").write_text(conf.replace(needle, "pass"))
+    p = run_lane(lane, *A_SHAPES)
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "DEFERRED  lane.test_marked::test_demo_normal" in p.stdout, p.stdout
+    assert "no record of which artifacts deferred it" in p.stdout, p.stdout

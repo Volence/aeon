@@ -40,6 +40,18 @@ lane that reports success because its subject did not run. `pytest` cannot expre
 this: its exit status is 0 when every test was skipped, which is why the decision is
 made here from the JUnit report rather than from a return code.
 
+THE DECLARED EXEMPTION (CTRL-3b, 2026-09-14), and it is narrow on purpose. The hub picked
+option A of the CTRL-3 shapes proposal: the landing check (tools/landing_build.sh) no longer
+builds demo-normal, so `test_deb2_appendix[demo.bin]` defers there by design. The caller
+says which shapes it builds with `--shapes-built S...`; the EXEMPT set is derived here, never
+typed: tools/conftest.py's BUILD_ARTIFACTS minus each listed shape's `.bin`/`.lst`, and a
+shape that is not in BUILD_ARTIFACTS is COULD NOT RUN (a typo would otherwise exempt the
+shape it misspelt). A deferred case is EXEMPTED only when the conftest RECORDED which
+artifacts deferred it (a JUnit property) and every one of them is exempt; it is printed by
+name as EXEMPTED, counted on the summary line, and never called a pass. Every other deferral
+is still exit 2, and so is a run in which every case was exempted. Without `--shapes-built`
+(the nightly, a hand run) nothing is exempt and this paragraph changes nothing.
+
 WHAT `--built-after` CLAIMS (since LS-1a, 2026-09-12). It is forwarded to
 tools/conftest.py as `--artifacts-built-after`, where a declared artifact is usable
 only when tools/artifact_provenance.py calls its (.bin, .lst) pair FRESH: both written
@@ -72,6 +84,41 @@ import xml.etree.ElementTree as ET
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 MARKER = "needs_build"
+
+#: The JUnit properties tools/conftest.py records on every marked case (CTRL-3b): the
+#: artifacts it declares, and the ones that made it defer. Inert without --junit-xml.
+DECLARED_PROPERTY = "needs_build_declared"
+UNUSABLE_PROPERTY = "needs_build_unusable"
+
+
+def build_artifacts_of(tests_dir):
+    """BUILD_ARTIFACTS out of the conftest governing `tests_dir`: parsed, never imported, so
+    the synthetic lanes in tools/test_needs_build_lane.py are read by the same rule as the
+    real one. No conftest, or no literal BUILD_ARTIFACTS in it, raises."""
+    path = os.path.join(tests_dir, "conftest.py")
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "BUILD_ARTIFACTS" for t in node.targets):
+            return tuple(ast.literal_eval(node.value))
+    raise ValueError("%s assigns no literal BUILD_ARTIFACTS" % path)
+
+
+def exempt_artifacts(shapes, build_artifacts):
+    """The artifacts of every shape a caller does NOT build: BUILD_ARTIFACTS minus each listed
+    shape's `<shape>.bin` and `<shape>.lst` (build.sh's naming rule). A shape whose pair is
+    not in BUILD_ARTIFACTS raises: a misspelt shape adds nothing to the built set, so it would
+    otherwise silently exempt the very shape it meant to name."""
+    arts = set(build_artifacts)
+    built = set()
+    for s in shapes:
+        pair = {s + ".bin", s + ".lst"}
+        if not pair <= arts:
+            raise ValueError("%r is not a shape build.sh produces (%s not in BUILD_ARTIFACTS %s)"
+                             % (s, ", ".join(sorted(pair - arts)), ", ".join(sorted(arts))))
+        built |= pair
+    return sorted(arts - built)
 
 
 def decorator_count(tests_dir):
@@ -121,8 +168,10 @@ def run_pytest(tests_dir, built_after, junit, extra=()):
 def classify(junit):
     """(cases, failed, deferred) out of a JUnit report.
 
-    `cases` is every testcase element as "classname::name"; `failed` and `deferred` are
-    (label, message) pairs. A <skipped> case is a DEFERRAL: `tools/conftest.py` turns a
+    `cases` is every testcase element as "classname::name"; `failed` is (label, message)
+    pairs; `deferred` is (label, message, unusable, declared), the last two being the
+    artifact lists tools/conftest.py recorded as the case's JUnit properties, or None when
+    the case carries no record. A <skipped> case is a DEFERRAL: `tools/conftest.py` turns a
     marked test that skips WITH its inputs on disk into a failure, so the only skip that
     survives to here is one the collection hook deferred for a missing or stale artifact.
     """
@@ -131,13 +180,17 @@ def classify(junit):
     for tc in root.iter("testcase"):
         label = "%s::%s" % (tc.get("classname", "?"), tc.get("name", "?"))
         cases.append(label)
+        props = {p.get("name"): p.get("value", "") for p in tc.iter("property")}
         for child in tc:
             msg = (child.get("message") or child.text or "").strip().splitlines()
             msg = msg[0] if msg else ""
             if child.tag in ("failure", "error"):
                 failed.append((label, "%s: %s" % (child.tag, msg)))
             elif child.tag == "skipped":
-                deferred.append((label, msg))
+                unusable = props.get(UNUSABLE_PROPERTY)
+                decl = props.get(DECLARED_PROPERTY)
+                deferred.append((label, msg, unusable.split() if unusable else None,
+                                 decl.split() if decl else None))
     return cases, failed, deferred
 
 
@@ -151,6 +204,11 @@ def main(argv=None):
                          "began. Omitting it grades whatever is on disk.")
     ap.add_argument("--junit", default=None,
                     help="where to write the JUnit report (default: a temporary file)")
+    ap.add_argument("--shapes-built", nargs="+", default=None, metavar="SHAPE",
+                    help="the shapes (ROM names: s4, s4.debug, demo, demo.debug) this caller "
+                         "built. The artifacts of every OTHER shape in BUILD_ARTIFACTS are "
+                         "exempt: a deferral caused only by them is EXEMPTED and named, not "
+                         "COULD NOT RUN. Omitted: nothing is exempt.")
     args, extra = ap.parse_known_args(argv)
 
     tests_dir = os.path.abspath(args.tests)
@@ -160,6 +218,24 @@ def main(argv=None):
     print("  provenance threshold: %s" % (
         args.built_after if args.built_after is not None
         else "NONE — grading whatever is on disk (hand-run mode)"))
+    exempt = set()
+    if args.shapes_built is not None:
+        try:
+            exempt_list = exempt_artifacts(args.shapes_built, build_artifacts_of(tests_dir))
+        except (OSError, SyntaxError, ValueError) as exc:
+            print("\nCOULD NOT RUN: --shapes-built %s: %s" % (" ".join(args.shapes_built), exc))
+            print("  The exemption is derived from the caller's shape list; a list this lane")
+            print("  cannot resolve could exempt the wrong artifacts, so nothing is graded.")
+            return 2
+        exempt = set(exempt_list)
+        unbuilt = sorted({a.rsplit(".", 1)[0] for a in exempt_list})
+        print("  shapes this caller builds: %s; does NOT build: %s"
+              % (" ".join(args.shapes_built), " ".join(unbuilt) or "none"))
+        print("  exempt: %s" % (", ".join(exempt_list) or "nothing"))
+        print("    (a deferral caused ONLY by these is EXEMPTED and named below, never passed;")
+        print("     any other deferral still stops this lane with exit 2)")
+    else:
+        print("  exempt: nothing (no --shapes-built): any deferral stops this lane with exit 2")
 
     tmp = None
     junit = args.junit
@@ -181,11 +257,16 @@ def main(argv=None):
         if tmp is not None and os.path.exists(tmp):
             os.unlink(tmp)
 
-    ran = [c for c in cases if c not in dict(deferred)]
+    skipped = {d[0] for d in deferred}
+    ran = [c for c in cases if c not in skipped]
+    # EXEMPT only when the conftest recorded which artifacts deferred the case AND every one
+    # of them belongs to a shape the caller declared it does not build (CTRL-3b).
+    exempted = [d for d in deferred if d[2] and set(d[2]) <= exempt]
+    deferred = [d for d in deferred if not (d[2] and set(d[2]) <= exempt)]
     # pytest's own status is PRINTED and never trusted as the verdict: it is 0 when every
     # marked test was deferred, which is precisely the state this lane exists to catch.
-    print("\n  pytest exit %d — %d case(s) in the report: %d ran, %d deferred, %d failed"
-          % (rc, len(cases), len(ran), len(deferred), len(failed)))
+    print("\n  pytest exit %d — %d case(s) in the report: %d ran, %d deferred, %d failed, "
+          "%d exempted" % (rc, len(cases), len(ran), len(deferred), len(failed), len(exempted)))
     # EVERY CASE THAT RAN IS NAMED, not just the ones that went wrong (LS-1c, 2026-09-10).
     # A green log and an absent run are the same artifact: "4 passed" cannot tell a reader
     # WHICH four, and the whole reason this lane exists is one specific test —
@@ -195,8 +276,16 @@ def main(argv=None):
     # count fall together silently, but a name that stops appearing does not.
     for label in ran:
         print("  RAN       %s" % label)
-    for label, msg in deferred:
-        print("  DEFERRED  %s  — %s" % (label, msg))
+    for label, msg, unusable, _decl in deferred:
+        why = ("  [no record of which artifacts deferred it: not exempted]"
+               if exempt and unusable is None else "")
+        print("  DEFERRED  %s  — %s%s" % (label, msg, why))
+    for label, msg, unusable, decl in exempted:
+        also = sorted(set(decl or ()) - exempt)
+        print("  EXEMPTED  %s  — deferred only on %s, written only by a shape this caller does "
+              "not build%s" % (label, ", ".join(unusable),
+                               "; it ALSO declares %s, which this caller built" % ", ".join(also)
+                               if also else ""))
     for label, msg in failed:
         print("  FAILED    %s  — %s" % (label, msg))
 
@@ -223,6 +312,12 @@ def main(argv=None):
         print("  that builds every shape the marked tests declare, so a deferral means a")
         print("  build did not write what it was supposed to. Reporting a pass on a test")
         print("  that did not run is the exact defect LS-1 closed.")
+        if exempted:
+            print("  (The EXEMPTED cases above are not the problem: they need only a shape this")
+            print("  caller declared it does not build. The DEFERRED ones need a shape it does.)")
+        return 2
+    if not ran:
+        print("\nCOULD NOT RUN: every marked case was EXEMPTED, so this lane graded nothing.")
         return 2
     if failed or rc not in (0,):
         if failed:
@@ -232,6 +327,12 @@ def main(argv=None):
         print("\nCOULD NOT RUN: pytest exited %d with no failing case in the report." % rc)
         print("  That is an internal error, a usage error or an interrupt — not a verdict.")
         return 2
+    if exempted:
+        print("\nOK — all %d marked test(s) this caller's shapes can reach ran and passed; %d "
+              "EXEMPTED above." % (len(ran), len(exempted)))
+        print("  EXEMPTED is not passed: those cases need a shape this caller does not build,")
+        print("  and are graded by whatever builds it (./build.sh <game>, the nightly).")
+        return 0
     print("\nOK — all %d marked test(s) ran and passed." % len(cases))
     return 0
 
