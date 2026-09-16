@@ -474,3 +474,82 @@ Change **(b)**, the rate clamp, has a discriminator that has not yet run to comp
 Change **(a)**, the position clamp, has exactly one discriminator in the entire tree (leg S), and
 it has never run. A run missing either now says which half went untested, in the output, in those
 words. Nothing here claims either half is verified.
+
+## ADDENDUM 3 — both discriminators fired; the red was the instrument, and the proof is conservation
+
+The controller's third run: **A4 and A5 both fired.** Leg W forced the rate clamp to the bound for
+nine consecutive ticks; leg S, on a patched ROM copy, settled at 144 = `rg_bg_span - SCREEN_HEIGHT`
+rather than at `VSCROLL_BG_MAX` = 288 (which it reaches at 177 unpatched). Route C works and the
+lock-sentinel rejection prints as designed. The run was nonetheless **RED on A1/A3**.
+
+### One logic tick, TWO `Parallax_Update` calls
+
+The right axis was neither of the two offered. It is one tick, and two invocations:
+
+* `GameState_OJZScroll_Update` calls `Debug_Warp_Consume` at its **frame top**, inside the same
+  logic tick — *"First thing in the frame's game work, before objects, camera follow and every
+  streaming step"*.
+* `Debug_Warp_Consume` ends with `jbsr Parallax_CheckBoundary` + `jbsr Parallax_Update`; its own
+  comment: *"the final Parallax_Update primes HScroll/VSRAM so the first displayed frame at the
+  destination already scrolls correctly."*
+* The same frame's body then runs both again.
+
+Two correctly clamped 16 px stores; a rig sampling once per tick attributes both to one tick.
+
+### The decisive check is conservation, and it uses only the failing run's own numbers
+
+Target 177. Observed 0 → 32, then **nine** consecutive ticks at exactly 16 = 144. `32 + 144 = 176`,
+and the last tick takes the remaining 1. **Every pixel accounted for, none skipped.** A bypassed
+clamp lands on 177 in a single store and there is no run of nine to have. That is what separates
+"the clamp bound twice" from "the clamp was skipped and 32 happens to look tidy" — and it is
+stronger than my reading of the source, because it is arithmetic over data I did not produce.
+
+### The fix TIGHTENS A1; it does not teach the gate to pass
+
+A1 was **not** relaxed to admit 32 on the first tick. Leg W now samples once per
+`Parallax_Step5_Vscroll` **invocation** — the thing the clamp actually bounds. A per-tick bound
+follows from a per-invocation one but is weaker, so this is a strictly stronger assertion that
+happens to also be the correct one. A3 became granularity-aware, because the pairing differs: per
+tick `v[i]` pairs with `cam[i]`; per invocation the entry sample reads the *previous* store, so
+`v[i]` pairs with `cam[i-1]`.
+
+And the per-tick legs now **prove** they are per-tick: every sample carries `Logic_Tick`, and a
+tick-mode leg **blocks** if any interval is not exactly one tick. The question "one tick or two"
+is now answerable from data instead of from my reading.
+
+### FINDING D: your guess was right, and the witness now has to say so
+
+Bound steps are classified by whether the region or active config **changed** across them. Leg D's
+route crosses rows whose config is the vertical lock, so the target jumps to a fixed `v_offset` and
+the clamp does its job. D's finding now reports *n at a change* and *n in steady state* separately,
+and only the second would contradict the shipped `v_factor`. A negative control that fires and is
+waved through is worth less than no control.
+
+### ⚠ A mutation left a test GREEN — a runner defect, and the second one this parcel has produced
+
+Red-proving the above, the mutation that **emptied** `warp_consumer_shape_check`'s search loop —
+making it look at nothing at all — left its test passing. The test called the check and asserted it
+did not raise, and **a check that cannot see the tree satisfies that just as well as one that can**.
+There was no arm exercising the refusal, so the refusal was never tested.
+
+Both shape checks now take doctored `text` and have a **positive and a negative arm**: the real tree
+passes, and source with the mechanism removed **raises**. Each probe asserts its own substitution
+matched something first, so a probe that stops probing fails rather than passing quietly. G-D is red
+against the fixed tests; control green, run last, 18 passed.
+
+This is the same defect shape as leg S's original vacuity and as BG-NT-IDENTICAL in step 3: *a green
+consistent with the mechanism never running*. Three instances in one parcel, in three different
+places, found three different ways.
+
+### Where step 4 stands now
+
+| change | discriminator | status |
+|---|---|---|
+| (b) rate clamp | A4, leg W | **FIRED** — 9 consecutive ticks at the bound, conservation exact |
+| (a) position clamp | A5, leg S | **FIRED** — settled at the patched ceiling 144, not at 288 |
+
+Both halves now have real evidence. What is NOT yet done: the A1/A3 red has been diagnosed and the
+instrument corrected, but **the corrected instrument has never run** — the next run is the one that
+says whether A1/A3 are green at invocation granularity. And the two ROM-side mutations in the
+witness's MUTATIONS block (revert the rate clamp; revert the position clamp) remain unrun, so
+nothing has yet confirmed the gate goes red when the subject breaks.

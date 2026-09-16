@@ -35090,10 +35090,27 @@ the store in `Parallax_Step5_Vscroll`. It bounds the row streamer's per-frame wo
 what the spec asks for, and it also bounds a case the spec does not discuss: a **prime**, where the
 plane's whole picture is redrawn synchronously and the scroll has no rows to stream at all.
 
-**The measured consequence.** A DEBUG warp teleports the camera; `Section_RedrawPlanes` re-primes
-Plane B in one IRQ-masked burst; and the BG V-scroll then ratchets to its new value at 16 px a frame
-— up to 18 frames of visible slide for a full-height jump on a 512-px map. Nothing is incorrect; it
-is a cosmetic artefact in a DEBUG-only path, and the ratchet is bounded and self-terminating.
+**The measured consequence — now MEASURED, not estimated (2026-09-16, BG-RATE leg W).** A DEBUG
+warp teleports the camera; `Section_RedrawPlanes` re-primes Plane B in one IRQ-masked burst; and the
+BG V-scroll then ratchets to its new value 16 px at a time. The observed case: a warp inside region
+row 1 whose derived target jump is **177 px** produced **0 → 32 on the warp tick, then nine
+consecutive ticks at exactly 16 px**, then the remaining 1 — about **11 logic ticks, ~0.18 s at
+60 Hz**, of background sliding after the picture itself is already correct. Nothing is incorrect; it
+is a cosmetic artefact in a DEBUG-only path, bounded and self-terminating. The booking STANDS, with
+a number instead of an estimate.
+
+⚠ **THE 32 ON THE WARP TICK IS NOT A CLAMP FAILURE, and the reason is worth carrying** because it
+is the shape of this whole family of artefact. A warp tick runs `Parallax_Update` **TWICE** —
+`Debug_Warp_Consume` runs at the frame top and ends with `jbsr Parallax_CheckBoundary` + `jbsr
+Parallax_Update` to prime HScroll/VSRAM, and then the same frame's body runs both again. Two
+correctly clamped 16 px stores in one tick. The arithmetic conserves exactly: 32 + 9×16 = 176, plus
+a final 1, equals the 177 the target moved — every pixel accounted for and none skipped, which a
+bypassed clamp could not produce. So the ratchet booked here is ~11 ticks and not ~18: the prime's
+own extra `Parallax_Update` buys back one step.
+
+**A consequence for whoever closes this at step 6:** an exemption keyed to "the plane is being
+rebuilt" will have to decide whether it exempts BOTH of the warp tick's invocations or only the
+consumer's. They are not the same frame of picture.
 
 **Why no exemption was built, which is the part worth carrying.** The obvious signal is
 `Parallax_Snap_Pending`, and it is **not available at this site** — see PARALLAX-STEP5-SNAP-DEAD
