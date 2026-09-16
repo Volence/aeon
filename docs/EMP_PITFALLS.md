@@ -428,6 +428,32 @@ Note also that the `unit`-operand hint (§1) says *likely cause*. `unit` has oth
 an empty `else`, a statement used as a value, a fn falling off its end — so read it as a lead
 about one operand's kind, never as a verdict about where it came from.
 
+### AMENDED 2026-09-16 — a field read THROUGH A LABEL answers TRUE to everything
+
+Measured on `parcel/regions-p2-step2` against the release sigil that builds this tree
+(`md5 324d85d6ad5267a99bd57f118871ed1f`), with the control run first, at act 1's ten real
+`ojz_region()` rows:
+
+| condition | result |
+|---|---|
+| `ensure(1 == 0, …)` — the control | **RED**, 55 times (once per call) |
+| `ensure(parallax_config.pcfg_v_deform_table_bg(parallax) == 12345, …)` | GREEN |
+| `ensure(parallax_config.pcfg_v_deform_table_bg(parallax) != 12345, …)` | GREEN |
+
+`parallax` is a scalar `Label` parameter. A proposition and its exact negation both passing
+means the condition was not decided at all — this is §12's **always GREEN** sign, and the
+2026-09-02 cross-class refusal does not catch it, because the offending operand is not a
+value of the wrong class, it is a `<struct>.<field>(<Label>)` displacement form that looks
+like an ordinary field read and is a runtime addressing mode.
+
+**Rule:** a `Label` in comptime supports `!= 0` and nothing else. You cannot read what it
+points at, and a spelling that appears to is a guard that can never fail. If a fact you need
+lives behind a label, get it to the call site as a VALUE (a comptime `fn` that returns it, a
+generated twin constant) or make the refusal somewhere that reads bytes — a `needs_build`
+pytest over the built image. `tools/test_bg_stream_vdeform_exclusion.py` is the worked
+example, and `docs/DEFERRED_WORK.md`'s BG-STREAM-VDEFORM entry carries the three ways to
+turn it back into an `ensure`.
+
 ### The shape to reach for instead
 
 Hold the value in a module-level `const` and feed BOTH the emitted twin and the guard from it:

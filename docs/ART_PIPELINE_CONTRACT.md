@@ -399,15 +399,24 @@ shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
 
 ### 4.4 The background layout blob
 
-`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:51`) — a **full Plane B
-nametable**, all 64 rows live. Measured: `games/sonic4/data/generated/ojz/act1/zone_bg.bin`
-is exactly 8192 bytes.
+`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp`, `BG_LAYOUT_SIZE`) — a
+**full Plane B nametable**, all 64 rows live. Measured:
+`games/sonic4/data/generated/ojz/act1/zone_bg.bin` is exactly 8192 bytes.
 
-**Byte order is COLUMN-MAJOR**: `blob[col*128 + row*2]`; each column's 64 rows are
-contiguous, column stride = 64 rows × 2 B = 128 (`engine/level/bg.emp:17-19`). Every
-consumer reads it column-wise, using VDP autoincrement `$80` so one `move.l` writes two
-vertically-adjacent cells. `tools/inject_editor_bg.py` transposes the row-major editor
-layout into this order at the editor→engine boundary.
+**Byte order is ROW-MAJOR** (since regions part 2 step 2, 2026-09-15): `blob[(row*64 +
+col)*2]`; each row's 64 columns are contiguous, row stride = 64 cols × 2 B = 128
+(`engine/level/bg.emp`, the header's "Layout shape"). That is byte-for-byte the Plane B
+nametable's own VRAM order, so both full-plane blits — `BG_Init` and
+`Section_RedrawPlanes` — are a single linear `move.l` run at the default autoincrement
+`$02`, and one plane ROW is a contiguous 64-word gather (`Draw_BG_TileRow`,
+`engine/level/plane_buffer.emp`). `tools/inject_editor_bg.py` no longer transposes: it
+emits the editor's own order.
+
+It was column-major until that step, for one consumer — `Draw_BG_TileColumn`, which had
+zero callers for its whole life and was deleted with the flip. Part 2 streams the other
+axis (a background taller than the plane, and a row-by-row repaint at a region crossing),
+and a row producer over a column-major blob is a stride-128 gather at about twice the
+cost on every streamed row.
 
 The blob is **length-typed at the embed site**, which is the guard:
 
@@ -417,9 +426,11 @@ pub data OJZ_Act1_BG_Layout: [u8; BG_LAYOUT_SIZE] = embed("…/zone_bg.bin")
 
 (`games/sonic4/data/levels/ojz/act1/act_assets.emp`). A wrong-sized blob is an `array
 length mismatch` at build time. That annotation exists because two generators write this
-file with **incompatible geometry** — `ojz_strip_gen.py` emits 4096 bytes row-major for a
-32-row plane, `inject_editor_bg.py` emits 8192 bytes column-major — and the committed
-blob is correct only because the injector happens to run second.
+file with **incompatible geometry** — `ojz_strip_gen.py` emits 4096 bytes for a 32-row
+plane, `inject_editor_bg.py` emits 8192 bytes for a 64-row one — and the committed blob is
+correct only because the injector happens to run second. They no longer disagree about
+ORDER: both emit row-major since the part-2 flip, which is one fewer way for the
+second-writer accident to matter.
 
 ### 4.5 The background tile blob
 

@@ -200,8 +200,10 @@ async def run(rom, lst):
                                     VRAM_PLANE_B + row_i * pfg.PLANE_COLS * 2,
                                     pfg.PLANE_COLS)
             live_rows[row_i] = live
+            # zone_bg.bin is ROW-major since regions part 2 step 2 — the blob's
+            # order IS the nametable's, so a plane row is one contiguous run.
             want = [struct.unpack_from(">H", nt,
-                                       (col * pfg.PLANE_ROWS + row_i) * 2)[0]
+                                       (row_i * pfg.PLANE_COLS + col) * 2)[0]
                     for col in range(pfg.PLANE_COLS)]
             bad += sum(1 for a, b in zip(live, want) if a != b)
         total_words = (s["row1"] + 1 - s["row0"]) * pfg.PLANE_COLS
