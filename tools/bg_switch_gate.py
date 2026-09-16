@@ -80,8 +80,7 @@ class Consts:
         C = "engine/system/constants.emp"
         self.PLANE_H_CELLS = _const(C, "PLANE_H_CELLS")
         self.PLANE_V_CELLS = _const(C, "PLANE_V_CELLS")
-        self.VRAM_PLANE_B = _const(C, "VRAM_PLANE_B_BYTES") if self._has(C, "VRAM_PLANE_B_BYTES") \
-            else None
+        self.VRAM_PLANE_B = _const(C, "VRAM_PLANE_B_BYTES")
         self.BG_TILE_BASE_VRAM = _const(C, "BG_TILE_BASE_VRAM")
         self.BG_TILE_CAPACITY = _const(C, "BG_TILE_CAPACITY")
         self.HALF_W = _const(C, "CAM_SCREEN_HALF_W")
@@ -90,11 +89,53 @@ class Consts:
         self.PLANE_BYTES = self.PLANE_H_CELLS * self.PLANE_V_CELLS * 2
         if self.VRAM_PLANE_B is None:
             raise GateError("engine/system/constants.emp declares no VRAM_PLANE_B_BYTES")
+        self.CHUNK = _const("engine/level/bg.emp", "BG_OVERWRITE_CHUNK_BYTES")
+        self.ARENA_END = self.BG_TILE_BASE_VRAM + self.BG_TILE_CAPACITY * 32
+        self.WIPE_ROWS = _const("engine/level/bg.emp", "BG_WIPE_ROWS_PER_FRAME")
+        self.WIPE_FRAMES = -(-self.PLANE_V_CELLS // self.WIPE_ROWS)
+        self.DMA_ENTRY, self.DMA_ENTRY_SIZE = dma_entry_layout()
+        # The one free tile in the VRAM map (vram.toml: "THE MAP HAS ONE FREE TILE LEFT"),
+        # derived from the generated map rather than typed: the tile no region covers.
+        from vram_map import REGIONS
+        covered = set()
+        for r in REGIONS.values():
+            covered.update(range(r["base"], r["base"] + r["tiles"]))
+        free = [t for t in range(0, 2048) if t not in covered]
+        if not free:
+            raise GateError("the VRAM map has no free tile; the TRAFFIC leg's synthetic "
+                            "Deferrable producer has nowhere harmless to write")
+        self.FREE_TILE = free[0]
 
-    @staticmethod
-    def _has(rel, name):
-        return re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\b",
-                         (AEON / rel).read_text(errors="replace"), re.M) is not None
+
+def dma_entry_layout():
+    """`struct DMAEntry` field offsets, parsed from engine/structs.emp by type width (its
+    comments carry VDP register numbers like `$14`, so region_table's comment check cannot be
+    used on it)."""
+    text = (AEON / "engine/structs.emp").read_text()
+    m = re.search(r"pub struct DMAEntry\s*\{(.*?)^\}", text, re.M | re.S)
+    if not m:
+        raise GateError("engine/structs.emp declares no `pub struct DMAEntry`")
+    widths = {"u8": 1, "u16": 2, "u32": 4}
+    off, out = 0, {}
+    for ln in m.group(1).splitlines():
+        fm = re.match(r"\s*(\w+)\s*:\s*(u8|u16|u32)\s*,", ln.split("//")[0])
+        if fm:
+            out[fm.group(1)] = off
+            off += widths[fm.group(2)]
+    if off != 14 or "Command" not in out:
+        raise GateError(f"DMAEntry parsed to {off} B with fields {list(out)}; the queue "
+                        f"readers below assume the 14-byte interleaved layout")
+    return out, off
+
+
+def vdp_delta(addr):
+    """engine/vdp.emp vdp_comm_delta, restated."""
+    return ((addr & 0x3FFF) << 16) | ((addr & 0xC000) >> 14)
+
+
+def vdp_addr(cmd):
+    """engine/vdp.emp vdp_comm_addr, restated."""
+    return ((cmd >> 16) & 0x3FFF) | ((cmd & 3) << 14)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +209,57 @@ class Rig:
                 return i + 1
         raise GateError(f"Warp_Req_Flag never cleared in {ACK_MAX_TICKS} ticks — the warp did "
                         f"not happen, so every sample after it would be the sample before it")
+
+    async def hold(self, button):
+        await _c(self.b, "emulator/release_all", {})
+        if button:
+            await _c(self.b, "emulator/hold", {"buttons": [button], "down": True})
+
+    async def queue(self):
+        """The Deferrable queue's live entries: [(dest, length_bytes, source_bytes)]."""
+        K, sym = self.K, self.sym
+        base, slot = sym["DMA_Deferrable"], await rd(self.b, sym["DMA_Deferrable_Slot"], 2)
+        slot |= 0xFF0000
+        n = (slot - base) // K.DMA_ENTRY_SIZE
+        if slot < base or (slot - base) % K.DMA_ENTRY_SIZE or n > 64:
+            raise GateError(f"DMA_Deferrable_Slot ${slot:06X} is not a whole number of "
+                            f"entries past DMA_Deferrable ${base:06X}")
+        out = []
+        if n:
+            raw = bytes.fromhex(await read_bytes(self.b, base, n * K.DMA_ENTRY_SIZE))
+            E = K.DMA_ENTRY
+            for i in range(n):
+                e = raw[i * K.DMA_ENTRY_SIZE:(i + 1) * K.DMA_ENTRY_SIZE]
+                cmd = int.from_bytes(e[E["Command"]:E["Command"] + 4], "big")
+                ln = ((e[E["SizeH"]] << 8) | e[E["SizeL"]]) * 2
+                src = ((e[E["SrcH"]] << 16) | (e[E["SrcM"]] << 8) | e[E["SrcL"]]) * 2
+                out.append((vdp_addr(cmd), ln, src))
+        return out
+
+    async def append_synthetic(self, src, dest, cmd_base):
+        """TRAFFIC's producer: append ONE well-formed 32-byte ROM->VRAM entry at the slot, the
+        way QueueDMA_Deferrable's core lays it, from the main loop (no VBlank mid-write:
+        sampled at the top of Update)."""
+        K, sym, E = self.K, self.sym, self.K.DMA_ENTRY
+        slot = (await rd(self.b, sym["DMA_Deferrable_Slot"], 2)) | 0xFF0000
+        if slot + K.DMA_ENTRY_SIZE > sym["DMA_Deferrable_End"]:
+            return False
+        e = bytearray(K.DMA_ENTRY_SIZE)
+        words = 16
+        w = src >> 1
+        e[E["Reg94"]], e[E["SizeH"]] = 0x94, (words >> 8) & 0xFF
+        e[E["Reg93"]], e[E["SizeL"]] = 0x93, words & 0xFF
+        e[E["Reg97"]], e[E["SrcH"]] = 0x97, (w >> 16) & 0x7F
+        e[E["Reg96"]], e[E["SrcM"]] = 0x96, (w >> 8) & 0xFF
+        e[E["Reg95"]], e[E["SrcL"]] = 0x95, w & 0xFF
+        e[E["Command"]:E["Command"] + 4] = (cmd_base | vdp_delta(dest)).to_bytes(4, "big")
+        for i, v in enumerate(e):
+            await _c(self.b, "emulator/write_memory", {"addr": hex(slot + i), "value": v,
+                                                       "width": 1})
+        await _c(self.b, "emulator/write_memory", {"addr": hex(sym["DMA_Deferrable_Slot"]),
+                                                   "value": (slot + K.DMA_ENTRY_SIZE) & 0xFFFF,
+                                                   "width": 2})
+        return True
 
     async def centre_region(self, rows):
         K = self.K
@@ -272,7 +364,175 @@ async def leg_warp(rig, F, K, fails):
     await assert_holds(rig, F, K, "act", "WARP out", fails)
 
 
-LEGS = {"boot": leg_boot, "warp": leg_warp}
+WALK_MAX_TICKS = 400
+
+
+async def sample_ow(rig, F, K, with_arena=True):
+    b, sym = rig.b, rig.sym
+    s = {"region": await rd(b, sym["Region_Current"], 4),
+         "target": await rd(b, sym["BG_Tiles_Target"], 4),
+         "offset": await rd(b, sym["BG_Tiles_Offset"], 2),
+         "current": await rd(b, sym["BG_Tiles_Current"], 4),
+         "cursor": await rd(b, sym["BG_Wipe_Cursor"], 1),
+         "queue": await rig.queue()}
+    s["arena_entries"] = [q for q in s["queue"]
+                          if K.BG_TILE_BASE_VRAM <= q[0] < K.ARENA_END]
+    if with_arena:
+        s["arena"] = await read_vram(b, K.BG_TILE_BASE_VRAM, len(F.S_tiles))
+    return s
+
+
+async def cross_into_subject(rig, F, K, per_tick=None, tag="CROSS"):
+    """Boot in the left neighbour, hold RIGHT until the camera centre's region is the subject
+    row, then keep holding while `per_tick` samples, until the overwrite completes or the walk
+    budget runs out. Returns (samples, index of the first sample inside the subject)."""
+    run_up = 8 * K.FLY
+    start = (F.S["x0"] - run_up, F.centre[1])
+    await rig.boot(start)
+    for _ in range(4):
+        await rig.tick()
+    base = await sample_ow(rig, F, K)
+    if base["region"] == F.S["addr"]:
+        raise GateError(f"{tag}: booted at {start} but the camera centre is already inside "
+                        f"the subject row; the route has no outside")
+    await rig.hold("right")
+    samples, i_in = [], None
+    # Stop flying a few ticks after the crossing so the camera stays inside the subject row
+    # for as long as the overwrite takes; the row is 1024 px wide, 64 ticks at fly speed.
+    STOP_AFTER = 8
+    budget = None
+    try:
+        for i in range(WALK_MAX_TICKS):
+            if per_tick:
+                await per_tick(i)
+            s = await sample_ow(rig, F, K)
+            samples.append(s)
+            if i_in is None and s["region"] == F.S["addr"]:
+                i_in = i
+                budget = i + STOP_AFTER + 4 * (-(-len(F.S_tiles) // K.CHUNK)) + 16
+            if i_in is not None and i - i_in == STOP_AFTER:
+                await rig.hold(None)
+            if i_in is not None and s["current"] == F.S["bg_tiles"]:
+                return samples, i_in
+            if i_in is not None and s["region"] != F.S["addr"]:
+                raise GateError(f"{tag}: the camera left the subject row {i - i_in} ticks after "
+                                f"entering, before the overwrite completed; the route no "
+                                f"longer keeps the camera inside")
+            if budget is not None and i >= budget:
+                return samples, i_in       # never completed: check_transport reports it red
+            await rig.tick()
+    finally:
+        await rig.hold(None)
+    return samples, i_in
+
+
+def check_transport(samples, i_in, F, K, label, fails, slack):
+    if i_in is None:
+        raise GateError(f"{label}: the walk never entered the subject row")
+    n_chunks = -(-len(F.S_tiles) // K.CHUNK)
+    # The crossing is published by Parallax_CheckBoundary BEFORE BG_Stream_Update in the same
+    # frame, so the first sample showing Region_Current == subject also shows the arm.
+    s0 = samples[i_in]
+    if s0["target"] != F.S["bg_tiles"] and s0["current"] != F.S["bg_tiles"]:
+        fails.append(f"{label} ARM: on the first sample inside the subject row the target is "
+                     f"${s0['target']:06X} and Current ${s0['current']:06X}; neither names the "
+                     f"subject's blob ${F.S['bg_tiles']:06X}")
+    prev = None
+    for k, s in enumerate(samples[i_in:], start=i_in):
+        if len(s["arena_entries"]) > 2:
+            fails.append(f"{label} tick {k}: {len(s['arena_entries'])} queued Deferrable entries "
+                         f"write the BG arena; one outstanding chunk allows at most 2 (a "
+                         f"128 KB split pair)")
+        if prev is not None and s["offset"] > prev["offset"] and s["target"] == prev["target"]:
+            step = s["offset"] - prev["offset"]
+            if step > K.CHUNK:
+                fails.append(f"{label} tick {k}: the offset advanced {step} B in one tick; one "
+                             f"chunk is {K.CHUNK} B")
+            if prev["arena_entries"]:
+                fails.append(f"{label} tick {k}: a chunk was enqueued while an arena write was "
+                             f"still queued at the tick before ({prev['arena_entries']})")
+        prev = s
+    done = [k for k, s in enumerate(samples) if s["current"] == F.S["bg_tiles"]]
+    if not done:
+        fails.append(f"{label}: the overwrite never completed in {len(samples) - i_in} ticks "
+                     f"inside the subject row (last offset {samples[-1]['offset']} of "
+                     f"{len(F.S_tiles)} B, {len(samples[-1]['arena_entries'])} arena entries "
+                     f"queued)")
+        return None
+    k = done[0]
+    if samples[k]["arena"] != F.S_tiles:
+        bad = sum(1 for i in range(0, len(F.S_tiles), 32)
+                  if samples[k]["arena"][i:i + 32] != F.S_tiles[i:i + 32])
+        fails.append(f"{label}: BG_Tiles_Current named the subject's blob at tick {k} while "
+                     f"{bad} of {len(F.S_tiles) // 32} arena tiles still differed")
+    bound = n_chunks + 2 + slack
+    took = k - i_in
+    if took > bound:
+        fails.append(f"{label}: the overwrite took {took} ticks; {n_chunks} chunks of "
+                     f"{K.CHUNK} B allow {bound}")
+    print(f"  {label}: {n_chunks} chunks of {K.CHUNK} B, completed {took} ticks after the "
+          f"crossing (bound {bound})")
+    return k
+
+
+async def leg_transport(rig, F, K, fails):
+    samples, i_in = await cross_into_subject(rig, F, K, tag="TRANSPORT")
+    check_transport(samples, i_in, F, K, "TRANSPORT", fails, slack=0)
+
+
+async def leg_traffic(rig, F, K, fails):
+    sym = rig.sym
+    cmd_sat = await rd(rig.b, sym["Static_Sprite_DMA"] + K.DMA_ENTRY["Command"], 4)
+    sat = _const("engine/system/constants.emp", "VRAM_SPRITE_TABLE")
+    if vdp_addr(cmd_sat) != sat:
+        raise GateError(f"TRAFFIC: Static_Sprite_DMA's command decodes to "
+                        f"${vdp_addr(cmd_sat):04X}, not VRAM_SPRITE_TABLE ${sat:04X}; the "
+                        f"synthetic entry's command cannot be derived from it")
+    cmd_base = cmd_sat ^ vdp_delta(sat)
+    dest = K.FREE_TILE * 32
+    src = F.S["bg_tiles"] + 2 + 32                   # an even ROM address with real art
+    want = F.S_tiles[32:64]
+
+    # POSITIVE CONTROL: the synthetic entry drains and lands, with no crossing in play.
+    await rig.boot((F.left_centre[0], F.left_centre[1]))
+    for _ in range(4):
+        await rig.tick()
+    before = await read_vram(rig.b, dest, 32)
+    if before == want:
+        raise GateError(f"TRAFFIC: free tile {K.FREE_TILE} already holds the synthetic "
+                        f"source bytes, so a landing cannot be observed")
+    if not await rig.append_synthetic(src, dest, cmd_base):
+        raise GateError("TRAFFIC: the Deferrable queue was full at the control")
+    await rig.tick()
+    await rig.tick()
+    q = await rig.queue()
+    landed = await read_vram(rig.b, dest, 32)
+    if any(e[0] == dest for e in q) or landed != want:
+        raise GateError(f"TRAFFIC control: the synthetic entry did not drain and land within "
+                        f"2 ticks (queued {[hex(e[0]) for e in q]}, tile {K.FREE_TILE} "
+                        f"{'==' if landed == want else '!='} source) — the producer is not a "
+                        f"real Deferrable entry and the leg would measure nothing")
+    print(f"  TRAFFIC control: a synthetic 32 B entry to tile {K.FREE_TILE} drained and landed")
+
+    appended = []
+
+    async def per_tick(i):
+        appended.append(await rig.append_synthetic(src, dest, cmd_base))
+
+    samples, i_in = await cross_into_subject(rig, F, K, per_tick=per_tick, tag="TRAFFIC")
+    busy = sum(1 for s in samples if s["queue"])
+    if i_in is not None and not all(bool(s["queue"]) for s in samples[i_in:]):
+        raise GateError("TRAFFIC: some sample after the crossing saw an EMPTY Deferrable queue; "
+                        "the synthetic producer is not keeping the queue busy, so a global "
+                        "queue-empty completion test would not be discriminated")
+    print(f"  TRAFFIC: queue non-empty at {busy} of {len(samples)} samples; "
+          f"{sum(appended)} synthetic entries appended")
+    # Slack: the synthetic entry is 32 B per frame against a window thousands of bytes wide.
+    check_transport(samples, i_in, F, K, "TRAFFIC", fails, slack=2)
+
+
+LEGS = {"boot": leg_boot, "warp": leg_warp, "transport": leg_transport,
+        "traffic": leg_traffic}
 
 
 async def run(rom_path, lst_path, only):
@@ -282,7 +542,9 @@ async def run(rom_path, lst_path, only):
     need = ("GameState_OJZScroll_Init", "GameState_OJZScroll_Update", "Boot_At_X", "Boot_At_Y",
             "Boot_At_Flag", "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Camera_X",
             "Camera_Y", "BG_Tiles_Current", "BG_Tiles_Target", "BG_Tiles_Offset",
-            "BG_Plane_Layout", "BG_Wipe_Cursor", "OJZ_Act1_Descriptor")
+            "BG_Plane_Layout", "BG_Wipe_Cursor", "OJZ_Act1_Descriptor", "Region_Current",
+            "DMA_Deferrable", "DMA_Deferrable_Slot", "DMA_Deferrable_End",
+            "Static_Sprite_DMA", "DMA_Budget_Default")
     for nm in need:
         if nm not in sym:
             raise GateError(f"`{nm}` is not in {lst_path} — not the sonic4 DEBUG listing this "
