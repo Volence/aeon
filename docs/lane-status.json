@@ -54,7 +54,7 @@
       "title": "Boot's hand-written pause of the sound chip: cheaper to fix than we thought",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil, row EMP-Z80-HOLD-INTERLEAVE-FORM: the language design is unwritten. A look from you is a gate at the end, not in front of it"
+      "blockedBy": "sigil: their design is written and is with you as decision d-33. A look from you is the gate, and nothing of ours waits on their landing"
     },
     {
       "id": "FLOOR-FAN",
@@ -66,5 +66,5 @@
   ],
   "awaiting": "Two things for your eye, both built: the spring sound A/B from 09-09, and the night colours -- my read is overcast dusk rather than moonlight, with two alternatives pictured beside it.",
   "atBoundary": false,
-  "updatedAt": "2026-09-16T10:43:41Z"
+  "updatedAt": "2026-09-16T11:14:23Z"
 }
