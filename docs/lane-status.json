@@ -49,7 +49,7 @@
       "title": "Boot's hand-written pause of the sound chip: cheaper to fix than we thought",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil: their design is written and is with you as decision d-33. A look from you is the gate, and nothing of ours waits on their landing"
+      "blockedBy": "sigil, and no longer you: you answered their d-33 today and picked the option they recommended. They are building the thing now; nothing of ours waits on it, and they tell us when it is real rather than when it looks close"
     },
     {
       "id": "FLOOR-FAN",
@@ -61,5 +61,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T13:15:16Z"
+  "updatedAt": "2026-09-16T13:20:40Z"
 }
