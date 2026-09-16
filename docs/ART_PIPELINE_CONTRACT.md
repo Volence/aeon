@@ -1556,11 +1556,17 @@ and a third error has appeared that the original sentence did not have.**
   The earlier version of this section asserted `:36` — that has drifted too. **A line number is
   a figure like any other and rots at the same rate**; prefer naming the symbol.
 * **And this document was the next victim.** `docs/ART_PIPELINE_CONTRACT.md` is NOT covered by
-  that gate, and between 2026-09-08 and 2026-09-15 it carried `BG_TILE_CAPACITY = 400` at four
-  sites, an 80-tile `band_reserve` that is 56, and a derived `BG_TILE_CAPACITY * 32 = 12 800`
-  that is 12 032 — corrected in this same edit. The lesson is not "that other document was
-  careless": **a gate scoped to one file leaves every unscoped file exactly as exposed as the
-  gated one was before the gate.**
+  that gate. Between 2026-09-08 and 2026-09-15 it stated the BG tile capacity as 400 at four
+  sites (the live value is 376), the band reserve as 80 (it is 56), and a clamp derived from
+  the capacity as 12 800 bytes (it is 12 032) — and its VRAM map table's byte-address column
+  still described a 380-tile arena. All corrected in this same edit, and **gated afterwards**
+  by `tools/test_art_pipeline_contract.py`, the sibling this section argued for. The lesson is
+  not "that other document was careless": **a gate scoped to one file leaves every unscoped
+  file exactly as exposed as the gated one was before the gate.**
+
+  *(Deliberately, no live-looking restatement appears in the paragraph above: the stale values
+  are named in prose rather than written as `NAME = n`, because a drift gate cannot tell a
+  historical quotation from a current claim and should not have to.)*
 
 The *mechanism* the original sentence describes — one authority, imported from the generated
 mirror — is correct and is what the code does. This is exactly the failure mode this
