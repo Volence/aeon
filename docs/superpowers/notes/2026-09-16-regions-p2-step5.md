@@ -408,11 +408,29 @@ cannot see it; that gate reads `X.emp:N`, not doc paths. Replaced with the prima
 * **BG-STREAM-VDEFORM's exclusion is a CHOICE, not a necessity** — S3K ships the combination
   (`DrawTilesVDeform2`, LRZ3, 20 per-band trackers). Booked with its price: ~40 B RAM and up to 20
   partial row draws a frame.
-* **The step-6 wipe has a shipped precedent nobody had named**: SSZ1 runs an amortized 16-row
-  bottom-up repaint on a background theme change (`sonic3k.asm:116570-116580`) **through the
-  ordinary row producer, alongside the normal streamer in the same frame**, and it **skips rows
-  outside the visible span** rather than drawing all 64 (`:103440-103443`). That is three design
-  decisions step 6 does not have to invent.
+* **The step-6 wipe has a shipped precedent nobody had named**: SSZ1 runs an amortized
+  repaint on a background theme change, **through the ordinary row producer, alongside the normal
+  streamer in the same frame**.
+  ⚠ **CORRECTED 2026-09-16 BY STEP 6, WHICH VERIFIED IT FIRSTHAND. THE ORIGINAL SENTENCE HERE WAS
+  WRONG IN TWO MATERIAL WAYS AND IT TRAVELLED INTO A DISPATCH BRIEF VERBATIM.** It read: SSZ1 runs
+  an amortized 16-row bottom-up repaint (`sonic3k.asm:116570-116580`) *"and it **skips rows outside
+  the visible span** rather than drawing all 64 (`:103440-103443`)"*.
+  **(1) Both line citations miss.** `:116570-116580` is camera/flag code (`Camera_X_pos_BG_copy`,
+  `andi.w #$FFF0`, `Camera_X_pos_BG_rounded`) and triggers no repaint; the machine is
+  `SSZ1_BackgroundEvent` at **`:116430-116561`**. Re-verified here at the disassembly, not taken
+  from the report.
+  **(2) "Skips rows rather than drawing all 64" is false in BOTH halves.** S3K's Plane B is
+  **64x32 blocks = sixteen block-rows**, so there is no 64 to skip out of; and
+  `move.w #$F,(Draw_delayed_rowcount).w` appears **twice** in that range — 16 rows, every one of
+  them. The span test drops about one row and is a live-camera guard, not a budget saver. The rate
+  is not flat either (2/frame, then 1/frame).
+  **So S3K is not an economy we declined — it repaints its whole plane, which is what step 6 now
+  does.** What survives: the amortization, the reuse of the ordinary row producer, and running
+  alongside the streamer in the same frame.
+  **Why this is recorded here rather than quietly fixed:** this lane relayed the wrong sentence
+  into step 6's brief as a researched finding, and only the agent's refusal to take a summary on
+  trust caught it. A wrong fact in a note is worse than a wrong fact in a message, because a note
+  is what the next brief is assembled from.
 * **Paired sigil half: NONE.** The paired freeze was retired by the owner on 2026-09-02 and aeon
   lands alone.
 
