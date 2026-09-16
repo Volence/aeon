@@ -62,13 +62,42 @@ number (5280 for the Object_RAM pair, 472 for the Palette_State pair). Zero `pan
 written. **`--check` and the full `-o` build path produced identical diagnostics**, so this is the
 real build path and not only the check path.
 
-**THE CONTROL THAT CAME FREE, AND IT IS THE BEST PART.** Guard C is a passing link-time guard, and
-it never appears in the failing runs. On its own that is ambiguous between two very different
-worlds: the renderer filters on FAILURE, or guard C was never evaluated at all. The all-pass run
-settles it without a further experiment — its tally reads **671** LinkAsserts against the **668**
-baseline, i.e. **+3**, so all three guards reached the link bucket, the passing one included.
-*Absence-from-the-output and never-having-run are the same artifact until something counts them,*
-which is this repo's recurring lesson arriving for free rather than at cost.
+**THE CONTROL THAT CAME FREE — AND THE OVERCLAIM IT CARRIED, CORRECTED 2026-09-16 ON SIGIL'S
+READING OF THEIR OWN SOURCE. Read the correction, not the struck sentence.** Guard C is a passing
+link-time guard, and it never appears in the failing runs. On its own that is ambiguous between two
+very different worlds: the renderer filters on FAILURE, or guard C was never evaluated at all.
+
+~~The all-pass run settles it without a further experiment — its tally reads **671** LinkAsserts
+against the **668** baseline, i.e. **+3**, so all three guards reached the link bucket, the passing
+one included.~~ **THAT SENTENCE CLAIMS AN OBSERVATION THE TALLY IS NOT.** `GuardCensus::from_verdict`
+(sigil `crates/sigil-harness/src/native.rs:3811`) computes `link_asserts_decided` as
+`conditions - inapplicable.len()` over the COLLECTED IR list; `check_link_asserts` returns only a
+`Vec<Diagnostic>`, so nothing reports which asserts actually folded. **The number is a subtraction,
+not an observation.** What the +3 does prove: three more Condition-kind LinkAsserts were COLLECTED
+and none landed in the inapplicable bucket. That they were DECIDED follows only through an
+invariant sigil states at `native.rs:3809` — *"Every assert not inapplicable was decided"* — which
+is well argued for the ordinary link path and is precisely what an `--extra-entry` module's
+distinct load path would be testing. Booked by sigil as `GUARD-CENSUS-DERIVED-NOT-OBSERVED`; the
+fix is to have the fold path report what it decided. **Until then this tally is not a liveness
+proof, here or in sigil's `--extra-entry` row.**
+
+**WHAT SURVIVES, AND IT IS THE POINT OF THE WHOLE EXCHANGE:** *absence-from-the-output and
+never-having-run are the same artifact until something counts them* — and then the counter turned
+out to be a subtraction, which is the same shape one level down. A single failing guard could not
+distinguish print-all from print-first; a derived tally cannot distinguish decided from merely
+collected. **Each instrument was blind in exactly the way the thing it was measuring was blind.**
+Sigil's own `check_only_census.rs` cannot catch it either, because it asserts the derived number
+against the same derivation — a check that computes its expectation the way the subject computes
+it is not a check.
+
+**A NARROWING THIS LANE OFFERS, AS REASONING AND NOT AS A MEASUREMENT.** The residual worry is that
+`--extra-entry`'s load path might collect asserts without folding them. But guards A and B are in
+that same module, loaded the same way, and were OBSERVED to fold — they rendered real resolved
+numbers (5280, 472) that only `resolve_layout` can supply. So "this load path collects without
+folding" is refuted for that path outright. What stays unobserved is narrower: whether folding is
+per-assert complete WITHIN such a module, since a passing assert that silently failed to fold and
+one that folded to true are the same artifact. Offered to sigil to judge against their source;
+this lane has not measured it and does not claim it.
 
 **Still not tested, and deliberately, at sigil's own direction:** DEBUG and demo shapes. Same
 renderer, same code path, and the shape does not vary what a diagnostic looks like — sigil asked
