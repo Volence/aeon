@@ -643,11 +643,25 @@ run against this tree would have read the shipped four-entry table. Corrected 20
 reading SOURCE, not by running the gate — `offsets Ani_Spring` has four entries (Idle, Fire,
 IdleH, FireH) at `games/sonic4/objects/test_solid.emp`, the highest frame byte any of them
 names is `SPRING_FRAME_EXTEND_H = 5`, and `offsets Map_Spring` has six frames. Margin is still
-0 (6 - 1 - 5). **The `max reachable` cell is left explicitly un-derived**: that column is the
-gate's tilt/bank/direct-write model over the BUILT ROM, and no `s4*.bin` / `s4*.lst` exists in
-the tree this correction was made in. `tools/anim_frame_bound.py`'s own docstring carries the
-same stale "spring 2/3" and is NOT fixed here. **Re-run the gate and paste its real output
-over this whole table** — and when you do, restore a provenance line that says which ROM.
+0 (6 - 1 - 5).
+
+**RE-RUN 2026-09-16 AGAINST A BUILT ROM, AND THE UN-DERIVED CELL IS NOW FILLED.** The correction
+above was made in a tree with no `s4*.bin`, so the `max reachable` column — the gate's
+tilt/bank/direct-write model over the BUILT image — was left reading *"not re-derived"* rather
+than guessed. **PROVENANCE, which the previous version of this table lacked and is the reason it
+was wrong:** `python3 tools/anim_frame_bound.py --lst s4.lst --rom s4.bin`, **exit 0**, run in the
+landing worktree on the artifacts of merge `cdf438bd` (release shape, `s4.bin` 820515 B, built by
+`tools/landing_build.sh`, `finished=0`). `Ani_Spring` reads **`$05`**, so the row's margin of 0
+stands and every other row the source re-derivation produced is confirmed **unchanged by the run**
+— nine for nine, which is the outcome that makes the source method trustworthy rather than lucky.
+
+The run also confirms §9 trap 2 from the other direction: it reports
+`Ani_Particle (DECLARED) is not in this image — nothing to bound for this shape`, i.e. the tenth
+table is absent from the release image rather than silently unchecked in it.
+
+`tools/anim_frame_bound.py`'s own docstring carries the same stale "spring 2/3" and is **still not
+fixed** — booked with the other source-side twins, and called out here because a tool whose
+docstring disagrees with its own output is the next citation drift waiting to happen.
 
 The other nine rows were re-derived from source on 2026-09-15 and agreed:
 
@@ -659,7 +673,7 @@ The other nine rows were re-derived from source on 2026-09-15 and agreed:
 | `Ani_Knuckles` | `Map_Knuckles` | 24 | `$DE` | `$DE` | 251 | 28 |
 | `Ani_RingSparkle` | `Map_RingSparkle` | 1 | `$03` | `$03` | 4 | **0** |
 | `Ani_Sonic` | `Map_Sonic` | 24 | `$C4` | `$C4` | 224 | 27 |
-| `Ani_Spring` | `Map_Spring` | 4 | `$05` | ⚠ not re-derived | 6 | **0** |
+| `Ani_Spring` | `Map_Spring` | 4 | `$05` | `$05` | 6 | **0** |
 | `Ani_Tails` | `Map_Tails` | 24 | `$B4` | `$B4` | 251 | 70 |
 | `Ani_TailsAppendage` | `Map_TailsAppendage` | 24 | `$28` | `$28` | 45 | 4 |
 
