@@ -1,6 +1,12 @@
 {
-  "focus": "The backdrop now changes over when you cross between areas. Landed; the content to show it off does not exist yet.",
-  "inFlight": [],
+  "focus": "Switching act 1 to read its areas from the editor's own file, so the two halves cannot drift apart.",
+  "inFlight": [
+    {
+      "what": "The re-keying that lets act 1 read its areas from the editor file instead of hand-written engine source -- nothing should look different",
+      "where": "branch parcel/regions-emit-bindings",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Nothing running, nothing half-applied. The next row is startable from the repo alone.",
+  "nextBoundary": "When the agent returns and its work is judged. It is three pieces that must land together, so a partial is a stop, not a shippable half.",
   "queue": [
     {
       "id": "REGIONS-EMIT-BINDINGS",
       "title": "Switch act 1 over to the editor's region file for real. The emitter landed and is wired but deliberately inert; this is the re-keying behind it, priced at 87 sites across 14 files",
-      "state": "next",
+      "state": "doing",
       "size": "L",
       "blockedBy": null
     },
@@ -27,7 +33,7 @@
     {
       "id": "LS-13b",
       "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -39,7 +45,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "your eye on the changeover if you want it (route is in the log), though it is one column of tiles until a second backdrop is authored. Also still yours: the spring sound A/B from 09-09.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T16:05:23Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T16:15:39Z"
 }
