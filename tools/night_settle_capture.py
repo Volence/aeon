@@ -62,6 +62,12 @@ other hat. See docs/DEFERRED_WORK.md for the note.
 a motion percept and a contact sheet cannot produce it. And the ruling's channel means should
 be re-measured off the frames named `settled` here, never off the old set.
 
+RUN IT FROM THE AEON ROOT. Every default path (`--rom`, `--lst`, `--outdir`) is relative to
+the working directory, so `cd /path/to/aeon && python3 tools/night_settle_capture.py` is the
+form. Run `--check` FIRST: it starts no emulator, costs about a second, and covers the whole
+ROM-side failure surface, so a foreground Oracle run is never spent on a ROM that would have
+been refused.
+
 Exit 0  the run settled and the frames are written
      2  COULD NOT RUN (a premise refused, a symbol is missing, the route has moved) or the
         fade did not settle within the ceiling. The report and frames are still written when
@@ -511,14 +517,17 @@ def main() -> int:
         prog="night_settle_capture",
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rom", default="s4.debug.bin",
-                    help="the sonic4 DEBUG ROM to boot (default: %(default)s). The night "
-                         "region is in both shapes, but the route needs DEBUG free flight.")
+                    help="the sonic4 DEBUG ROM to boot (default: %(default)s, RELATIVE to the "
+                         "working directory — run this from the aeon root). The night region "
+                         "is in both shapes, but the route needs DEBUG free flight.")
     ap.add_argument("--lst", default="s4.debug.lst",
                     help="the listing THAT ROM was built from (default: %(default)s). A "
                          "mismatched pair is the one thing this tool cannot detect.")
     ap.add_argument("--outdir", default="docs/captures/2026-09-16-night-settled",
-                    help="where the frames, report.json and README.md go "
-                         "(default: %(default)s). Created if absent.")
+                    help="where the frames, report.json and README.md go (default: "
+                         "%(default)s, relative to the working directory). Created if "
+                         "absent. The tool WRITES README.md and report.json there: point it "
+                         "somewhere new rather than at an existing capture set.")
     ap.add_argument("--check", action="store_true",
                     help="run every premise this capture depends on and EXIT, without "
                          "starting an emulator: the engine derivation N is read from, the "
