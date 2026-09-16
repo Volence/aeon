@@ -34939,7 +34939,9 @@ zero-change remedy is a hand-written `ensure(sizeof(X) == N, ...)` beside the de
 FIRED in all four arms sigil probed.
 
 **Same class as the night palette's recipe comment and as the lapsed spec clause:** a standing
-claim that was true when written, that nothing re-checks.
+claim that was true when written, that nothing re-checks. (The night-palette instance CLOSED
+2026-09-16 — see `NIGHT-REGION-LOOK` at the end of this file; the recipe is now the executable
+definition of the array. The class is unchanged; this exemplar is spent.)
 
 ## REGIONS-BG-GOLDEN-GAP (booked 2026-09-16, raised by the hub out of aurora's seam proof)
 
@@ -35037,7 +35039,8 @@ shape, not the cheap one.
    that assumes it is.
 
 **Same class as the two findings beside this one** (`PRESET-NOTE-POINTS-AT-A-BLIND-INSTRUMENT`, and
-the night palette's recipe comment): a green that means less than a reader would take it to mean.
+the night palette's recipe comment — the latter CLOSED 2026-09-16, see `NIGHT-REGION-LOOK` at the
+end of this file): a green that means less than a reader would take it to mean.
 The standing rules that came out of tonight apply directly — **do not cite a gate as your mitigation
 until you have made it fire on purpose**, and **before trusting a test that passed, ask what it
 would accept at random.**
@@ -35394,3 +35397,52 @@ about this next: do not call it a workaround.
 **WHEN IT CLOSES:** the first act (or the first mega-act section, per the tech-demo goal) whose
 background map is not 512 px tall. At that point the span stops being a sentinel everywhere and the
 clamp's two halves become distinguishable in ordinary play.
+
+## NIGHT-REGION-LOOK — CLOSED 2026-09-16 (`parcel/night-palette-tone`), with three riders
+
+**What closed.** `OJZ_Palette_Night`'s "⚠ THE LOOK IS PARKED FOR THE OWNER" banner is gone and so
+are its 48 hand-typed literals. The palette is now `night_palette(OJZ_Palette)` — a per-channel
+multiplicative scale in eighths (`NIGHT_LIGHT_8 = 4` for red and green, `NIGHT_BLUE_8 = 6` for
+blue) with round-half-up and a non-zero floor — carrying **fourteen comptime pins**, every one of
+which was proven to fire by mutating the transform on disk. Ledger and the full red-first sweep:
+`docs/superpowers/notes/2026-09-16-night-palette-tone.md`. Options contact sheet, synthesized and
+labelled as such: `docs/captures/2026-09-16-night-grade-options/`.
+
+**This also closes the standing claim two other entries in this file cite as an exemplar** —
+"the night palette's recipe comment", a regeneration recipe written in prose that nothing
+re-checked. It is now the executable definition of the array, so it cannot be stale: if it drifts
+from `ojz_palette.bin` the build stops. The *class* those entries point at is unchanged and the
+pointer should be re-aimed at a live instance the next time one of them is touched.
+
+### RIDER 1 — the look is not settled, and no still can settle it
+
+Every figure in the parcel is a still or a derivation. Whether `4/6` reads as "the forest after
+dark" at 60 Hz is the owner's call on a running ROM. Aeon's own read of the contact sheet: it
+reads more **overcast dusk** than **moonlit**. Two named alternatives, each one word away and each
+with its cost measured in the sheet's README: `4/8` (bluer, one art edge lost instead of three,
+but it destroys the 76% retention ceiling that makes "nothing stays at daylight" enforceable), and
+a **blue floor on the shadows** (reads most like moonlight; refused by the shipped pins on purpose,
+because its retention reaches 136% — some colours would be brighter at night than by day).
+
+### RIDER 2 — the FADE's midway frames have not been re-judged
+
+Under the subtraction they were the ugliest pictures in the E2 run (empyrean's E2 verdict says so
+explicitly). Under a ratio-preserving grade every intermediate now lies between two colours of the
+same hue, so they should be strictly better — **not measured**, and it needs the running fade, not
+a still. Closes with the next fade capture on this palette.
+
+### RIDER 3 — the knob positions are unbuilt, deliberately
+
+Only `4/6` is in a ROM. Moving either constant turns several of the fourteen pins red with the
+measured figure in the message. That is intended: **re-derive the pins from the new scale, do not
+re-type them from what the build reports**, or the pins become a transcript of the last edit.
+
+### Answered here rather than booked: `06-night-landed.png`
+
+The hub handed aeon a finding it did not rule on — whether that frame's canopy is a different
+scene or "a streaming defect in a capture's clothes". **Different scene, correct behaviour, no
+defect**, and it needed no emulator: the frame decodes 98.0% to the DAY palette and only 67.1% to
+the night one (all of it shared colours), so it is not a night-region frame at all. Independently,
+`docs/captures/2026-09-15-regions-p2-e2/README.md` already carries a 2026-09-16 correction
+measured on the running ROM — landing drops the camera to y 3034 and the night region is
+y 0..2047, so the resolved row becomes section 5's. Nothing to route onward.
