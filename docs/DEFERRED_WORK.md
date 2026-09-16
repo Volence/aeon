@@ -35635,8 +35635,60 @@ identifies the map row uniquely — which is the whole reason the marker cell ex
    never been run and which this act's camera path is the first thing able to exercise
    non-vacuously — before step 5 there was no region whose clamp could bind.
 
+**⚠ AND A SECOND THING NOT TO REPORT AS A STREAMING DEFECT.** The BG scroll sits at its ceiling
+544 for every camera Y from 4864 to 6143, and 544 masked into plane space is line 32, so Step 4a
+selects parallax band 0 where the map says band 3 — the horizon snaps. That is
+**BG-BAND-PLANE-ANCHOR** below, it is not the streamer, and the nametable is correct there.
+
 **A warning about reading a pass.** Plane B at boot already holds map rows 0..63 of a blob whose
 first 64 rows ARE the shipped background. So in the region's upper reaches a correct streamer and
 a dead one produce the same picture. Only camera Y above roughly 2816 (where `top` exceeds 0 by
 more than the lead absorbs, and where the OLD ceiling would have clamped) separates them. **Sample
 at the BOTTOM of the region, not the top.**
+
+## BG-BAND-PLANE-ANCHOR: parallax band tops are PLANE lines, and a map taller than the plane aliases them (found 2026-09-16, `parcel/regions-p2-step5`)
+
+**Reachable today, in the DEBUG shape, inside step 5's own test region.** Not a defect this parcel
+introduced — `Parallax_Step5_Vscroll`'s Step 4a band rotation has masked with
+`and.w #PLANE_B_SPAN-1` since long before regions — but step 5 is the first thing that can drive
+the masked value past a full turn of the ring, so it is the first time the aliasing is observable.
+
+**The mechanism.** Step 4a computes `vs = Parallax_Current_Vscroll_BG & (PLANE_B_SPAN - 1)` and
+calls it *"the plane LINE at the screen top"*, then finds the band containing `vs` and rebases
+every band's top to a screen line from there. That is exactly right while the background map IS
+the plane, because plane line and map line are then the same number. **Once the map is taller, the
+band tops stay anchored in PLANE space while the art moves through the ring**, so the band pattern
+repeats every `PLANE_B_SPAN` px of map.
+
+**Derived from source, not observed** (`OJZ_Default`'s four layers at world Y 512/1024/3072/3584
+under `v_center 512 / v_factor 3` — `games/sonic4/data/effects/ojz_scenes.emp`):
+
+| BG scroll | masked plane line | band selected |
+|---|---|---|
+| 192 | 192 | 1 |
+| 447 | 447 | 3 |
+| 511 | 511 | 3 |
+| **512** | **0** | **0** |
+| 544 | 32 | 0 |
+
+Band tops are `[0, 64, 320, 384]`. **The selection jumps 3 → 0 as the scroll crosses 512**, which
+on screen is the parallax horizon snapping.
+
+**Where it bites right now.** Step 5's DEBUG test region (act 1 row 11, x 5120..6143,
+y 2048..6143, span 768) has a clamp ceiling of 544, and the scroll sits AT 544 for every camera Y
+from 4864 to 6143. So the bottom ~1280 px of that region runs with band 0 selected where the map
+says band 3. **Anyone running the BG-TALL foreground procedure will see it and should not report it
+as a streaming defect** — the nametable is correct there; it is the horizontal band rates that are
+wrong. The `docs/DEFERRED_WORK.md` BG-TALL entry carries the same warning.
+
+**What the fix is, and why it is not this parcel's.** The band table wants its tops in MAP space,
+with `vs` derived from the unmasked map-space scroll and the mask applied only where a genuine
+plane coordinate is needed (the VSRAM word, which the VDP wraps for free anyway). That is a change
+to the parallax band model, it touches every scene's authored tops, and it interacts with the
+per-band anchors — a design item, not a line edit. It belongs with step 8 (the plane shrink makes
+it strictly worse: a 32-row plane aliases every 256 px) or with big levels' TRACK bands, whichever
+reaches it first.
+
+**Do not "fix" it by shortening the test map.** Capping the fixture at 88 rows would put the
+ceiling at 480 and hide the aliasing, which is the wrong trade: the map's height is the spec's
+number and the aliasing is information the next two steps need.

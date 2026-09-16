@@ -447,7 +447,74 @@ do not gate this landing.
 
 ---
 
+## A second finding, derived while the landing build ran: BG-BAND-PLANE-ANCHOR
+
+`Parallax_Step5_Vscroll`'s Step 4a computes `vs = Parallax_Current_Vscroll_BG &
+(PLANE_B_SPAN - 1)` and calls it "the plane LINE at the screen top", then selects the parallax
+band containing `vs`. **That is exactly right while the background map IS the plane** — plane line
+and map line are the same number — and it aliases the moment the map is taller, because the band
+tops stay anchored in PLANE space while the art moves through the ring.
+
+Derived from source (`OJZ_Default`'s four layers at world Y 512/1024/3072/3584 under
+`v_center 512 / v_factor 3`, band tops `[0, 64, 320, 384]`):
+
+| BG scroll | masked plane line | band |
+|---|---|---|
+| 447 | 447 | 3 |
+| 511 | 511 | 3 |
+| **512** | **0** | **0** |
+| 544 | 32 | 0 |
+
+**And step 5's own fixture reaches it**: the scroll sits AT its 544 ceiling for camera Y
+4864..6143, so the bottom ~1280 px of the tall region runs with band 0 where the map says band 3.
+The horizon snaps. **This is not the streamer and the nametable is correct there** — the BG-TALL
+procedure carries the same warning so the foreground runner does not misattribute it.
+
+It predates this parcel (the mask is older than regions) but step 5 is the first thing that can
+drive the value past a full turn of the ring, so it is the first time it is observable. Booked
+with its fix — band tops in MAP space — and with the note that **step 8 makes it strictly worse**:
+a 32-row plane aliases every 256 px. I did NOT shorten the test map to hide it; the height is the
+spec's number and the aliasing is information the next two steps need.
+
+---
+
 ## Landing evidence
 
-See the commit that carries this file and the report to the coordinator for
-`tools/landing_build.sh`'s exit code and `finished=` stamp.
+`tools/landing_build.sh` at HEAD **`843f810c`**, detached, polled on a marker I wrote.
+**`rc=0` and `finished=0` AGREE.**
+
+```
+MY_END_MARKER rc=0 head=843f810c at=11:26:44Z
+EXIT_s4=0          size=820746  secs=215
+EXIT_s4.debug=0    size=847156  secs=18
+EXIT_demo.debug=0  size=103874  secs=3
+EXIT_needs_build=0
+finished=0
+3cff4dff276500386e9ca905635a074b  s4.bin
+5e6fd073a665a6a609d9e754b74ee8b3  s4.debug.bin
+471080a8cfdc21f94848b565ad92d95e  demo.debug.bin
+sigil 0.1.0 (700177b1)
+land-gate: STAMP WRITTEN key=28a6e28abb77a656 head=843f810c9a2c
+```
+
+Lanes, aggregate totals:
+
+* pre-build `pytest tools -m "not needs_build"` — **2851 passed, 2 skipped, 28 deselected,
+  5 warnings, 143 subtests passed**
+* `emp_expect_fail` — **56/56 cases (54 comptime + 2 link)**
+* other-game link guards — **10 passed, 18 skipped, 2853 deselected, 40 subtests passed**
+* `needs_build` lane — **28 cases: 27 ran, 0 deferred, 0 failed, 1 EXEMPTED**
+  (`test_deb2_appendix[demo.bin]`, a shape this caller does not build; EXEMPTED is printed as
+  exempted, never as passed)
+
+**A FIRST landing_build run of this parcel was KILLED and is not evidence.** I stopped it
+mid-lane on purpose: while it was running I derived that the fixture's rectangle never let the new
+ceiling bind, and editing during a run would have left the stamp grading a tree I was not about to
+land. It wrote no marker and I did not read its partial log as a pass — though its pre-build lane
+total (2851) is quoted nowhere except here, as context. Its orphaned `sigil` and `emp_expect_fail`
+children were killed by PID after the parent, and checked gone.
+
+**The commits after `843f810c` are documentation only** (this section, the BG-BAND-PLANE-ANCHOR
+booking). Proven rather than asserted: both sonic4 shapes rebuilt afterwards to md5
+`3cff4dff276500386e9ca905635a074b` and `5e6fd073a665a6a609d9e754b74ee8b3` — identical to the
+graded ones.
