@@ -34402,7 +34402,7 @@ mid-fade snap install (E8) and a mid-fade fade install (E9), and runs in `tools/
 - **A cycle and a fade in one region.** The fade pulls rotated entries back toward the un-rotated target until
   arrival (the backstop close covers a buffer that never arrives). No fading preset binds a cycle today.
 
-## FOUR DOC/COMMENT FIGURES THAT DISAGREE WITH SOURCE — booked 2026-09-15, three CONFIRMED here, one settled beyond its booking
+## FOUR DOC/COMMENT FIGURES THAT DISAGREE WITH SOURCE — booked 2026-09-15, three CONFIRMED here, one settled beyond its booking; ITEM 3 CLOSED 2026-09-15 (see its row)
 
 Handed over by the hub from the part 2 and big-levels reads (none blocks step 0), plus what E3
 and this lane verified firsthand. **Each row says what was checked and what was NOT**, because
@@ -34437,7 +34437,71 @@ three of the four were booked from reading two lines against each other.
      reserve each shrank by 24 (`vram.toml:224-231` states the intent: the 48 came out of the
      RESERVE, not out of the shipped background). **Two stale figures and one accidentally-surviving
      one in a single sentence** — do not "fix" the 320.
-   - Not fixed here; this is a booking, and the contract doc's other figures were NOT audited.
+   - **CLOSED 2026-09-15, `parcel/docfix-capacity`. THE BOOKING WAS RIGHT ON EVERY POINT IT
+     MADE, INCLUDING THE ONE IT WARNED NOT TO "FIX": `BG_STATIC_TILE_BUDGET = 320` is
+     correct (376 - 56 = 320) and was left alone.** The capacity turned out to be stale at
+     **five** sites, not four: the fifth is `BG_TILE_CAPACITY * 32 = 12 800` at `:439`
+     (376*32 = 12 032), and it is the only DERIVED one — a derived figure drifts silently
+     because it does not look like a restatement of the constant it came from.
+   - **THE AUDIT THE BOOKING ASKED FOR RAN OVER ALL 1 548 LINES AND FOUND 40 MORE
+     DISAGREEMENTS.** Highlights, because the class matters more than the count:
+     * **§2.2's VRAM table byte column was never moved when its tile column was.** Three
+       rows (`bg_region`, `waterline_strips`, `spring`) carried 380-era addresses while
+       their own tile ranges were current — and the table's own caption states the rule
+       ("byte address = tile x 32") that falsifies them. The `waterline_strips` row says in
+       prose that its base "slides when the BG arena is resized", beside an address from
+       before the slide.
+     * **The `Sec` record lost two fields and eight bytes on 2026-09-13 and the doc still
+       listed them**, so every offset from `$0C` down was wrong and the paragraph beneath
+       argued the design of a field that had moved to `Region`.
+     * **The BgAnim record's `vram_dest` is `u16` (`VramAddr`), not `u32`**, so `banks` sits
+       at `$0C`, not `$0E` — the doc's own "44-byte records" was unreachable from its own
+       field list ($0E + 32 = 46).
+     * **A refusal documented as a warning.** The wrong-length `collattr` fallback was
+       deleted on 2026-09-12 *because* it shipped all-air sections; the doc still described
+       the deleted fallback, and then warned about the hazard it had already been fixed for.
+     * **A frame-byte table published as a gate run that cannot have produced it** (its
+       `Ani_Spring` row predates the 2026-09-07 side sheet).
+     * **Nineteen drifted `file:N` citations**, every one inside the documented blind spot
+       of `tools/test_citation_form.py` (it asserts a cited line EXISTS and is non-blank;
+       its own docstring says it does not catch one resolving to the WRONG thing). The
+       sharpest: `palette.emp:76` for `PAL_CYCLE_MAX_CHANNELS` resolves to a real,
+       non-blank, plausible, wrong constant (`PAL_MAX_VARIANTS`).
+     * **A phantom routine.** `Player_ApplyCharacter` names nothing in the tree; the writer
+       is `Player_RefreshPhysics`. The doc inherited the name from an engine COMMENT.
+   - **GATED, so this document stops being the one nobody checks:**
+     `tools/test_art_pipeline_contract.py` (5 tests, 0.07 s, pre-build lane; registered in
+     `tools/land_gate.py` RULES) diffs the VRAM table's tile AND byte columns against the
+     generated `tools/vram_map.py`, asserts every mirror region has a row at all, re-derives
+     both quoted `gen_vram_map` success lines by executing the generator's own loader, and
+     checks the restated budget constants. Expectations are DERIVED — no 376/56/320/23
+     literal appears in the test. Red-first proved with the mutations quoted from disk, and
+     the byte-column assertion proved red in ISOLATION after the row-count floor masked it
+     in the combined arm. **The motivating argument: `test_bg_emit.py`'s existing gate
+     covers ONE document, and this one broke the same week on the same constant from the
+     same carve. A gate scoped to one file leaves every unscoped file exactly as exposed as
+     the gated one was before the gate.**
+   - **STILL OPEN, all in SOURCE rather than in the doc, and none of them emits a byte
+     (this was a docs-only parcel and they were deliberately not touched):**
+     * `engine/system/constants.emp:636-641` — the comment above `BG_TILE_CAPACITY = 376`
+       still says "since EFFECTS-W1 item 9d that is 400", and `:655`'s trailing comment
+       still reads `// $B200 (slot 1424)` where the expression now yields `$AF00`, slot
+       1400. **The constant is right and its own explanation is two carves stale.**
+     * `games/sonic4/vram.toml:227-228` — comment says "448 -> 400" and "Reserve 128 -> 80"
+       beside the live 376 / 56.
+     * `engine/ram.emp:759` and `engine/effects/palette.emp:49` — both name the phantom
+       `Player_ApplyCharacter`; this is where the doc caught it from.
+     * `games/sonic4/data/collision/collision_data.emp:84` — carries the stale Sonic art
+       trio (101 056 / 3 158 / 938) the doc had.
+     * `tools/anim_frame_bound.py:28` — docstring carries the stale "spring 2/3".
+     * `engine/system/buffers.emp:101` — header still says "2 HScroll entries"; one survives
+       the 2026-08-26 deletion.
+     * `tools/EFFECTS_CONSUMER_CONTRACT.md:69` — its capacity is correct and gated, but its
+       `:24` line citation points at `sprite_table` in the mirror (the capacity is `:35`).
+   - **TAGGED FOR A FOREGROUND RUN (needs a built ROM, which a background lane must not
+     make):** re-run `tools/anim_frame_bound.py` against `s4.bin`/`s4.lst` and paste its real
+     output over §5.3's table. The `max reachable` column is deliberately left reading
+     "⚠ not re-derived" for `Ani_Spring` rather than filled with a plausible `$05`.
 
 4. **152 vs 142 OBJECT TILES — NOT RECONCILED.** The VRAM card and the object-art research disagree;
    only the generated VRAM map's "1 free tile" line was re-read. Whichever is right, the two
