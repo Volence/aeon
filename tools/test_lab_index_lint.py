@@ -103,7 +103,16 @@ _SUM_CONST = re.compile(
 _BLOCK_END = r"(?=^\s*(?:export\s+)?[.\w]+:\s*$|^\s*\}\s*$)"
 _ROW = re.compile(r"^\s*dc\.b\s+([^/\n]+?)\s*(?://.*)?$", re.M)
 _DC_L = re.compile(r"^\s*dc\.l\s+([^/\n]+?)\s*(?://.*)?$", re.M)
-_ACT_REGION_ARITY = re.compile(r"^pub\s+data\s+\w+\s*:\s*\[\s*Region\s*;\s*(\d+)\s*\]", re.M)
+_ACT_REGION_ARITY = re.compile(r"^pub\s+data\s+\w+\s*:\s*\[\s*Region\s*;\s*([^\]\n]+?)\s*\]", re.M)
+# The two arity spellings this lint accepts, and NOTHING else. A bare integer, or an
+# integer plus ONE name that a DEBUG-gated `const <NAME> = <something>.len` makes zero in
+# the release shape (REGIONS-P2 E2 added the second form: the act table gained a row that
+# exists only in the DEBUG ROM). The bound this lint wants is the MINIMUM over shapes,
+# because a `.lab_index` PRESET row has to index a real region in EVERY shape — so the
+# literal base is the right answer for both forms, and the added term is CHECKED to be the
+# DEBUG-only kind rather than assumed. Anything else is a loud refusal, not a guess.
+_ACT_REGION_ARITY_SUM = re.compile(r"^(\d+)\s*\+\s*(\w+)$")
+
 
 
 def _read(path: Path) -> str:
@@ -232,14 +241,45 @@ def act_region_count() -> int:
     """The row count of OJZ act 1's region table: the arity of its
     `pub data <name>: [Region; N]`. A PRESET row's sub-index indexes that table since
     painted-regions v1 (2026-09-13); the act's own ensures tie N to the rows it emits."""
-    m = _ACT_REGION_ARITY.search(_read(ACT))
+    src = _read(ACT)
+    m = _ACT_REGION_ARITY.search(src)
     if m is None:
         raise AssertionError(
             f"{ACT.name}: could not find the `pub data <name>: [Region; N]` region table. A "
             "preset row's sub-index indexes that table; without its arity this lint cannot "
             "bound it and must not pass."
         )
-    return int(m.group(1))
+    arity = m.group(1).strip()
+    if arity.isdigit():
+        return int(arity)
+    s = _ACT_REGION_ARITY_SUM.match(arity)
+    if s is None:
+        raise AssertionError(
+            f"{ACT.name}: the region table's arity is `{arity}`, which this lint cannot bound. "
+            "It reads a bare integer, or `<integer> + <NAME>` where NAME is a DEBUG-only row "
+            "count. A preset row's sub-index indexes that table in every shape, so an arity "
+            "this lint cannot resolve must not pass."
+        )
+    base, name = int(s.group(1)), s.group(2)
+    # The added term must be zero in the RELEASE shape, and that has to be read out of the
+    # source rather than trusted: `const NAME = <rows>.len` whose <rows> is the
+    # `if DEBUG == 1 { [ .. ] } else { [] }` shape. An empty `else` branch is the proof.
+    decl = re.search(rf"^const\s+{re.escape(name)}\s*=\s*(\w+)\.len\s*$", src, re.M)
+    assert decl is not None, (
+        f"{ACT.name}: the region table's arity adds `{name}`, but no `const {name} = "
+        "<rows>.len` declares it. This lint bounds preset rows by the RELEASE row count and "
+        "cannot prove the added term is zero there."
+    )
+    rows = decl.group(1)
+    gated = re.search(rf"^const\s+{re.escape(rows)}\s*:\s*array\s*=\s*if\s+DEBUG\s*==\s*1\s*\{{"
+                      rf".*?\}}\s*else\s*\{{\s*\[\s*\]\s*\}}", src, re.M | re.S)
+    assert gated is not None, (
+        f"{ACT.name}: `{rows}` is not the `if DEBUG == 1 {{ .. }} else {{ [] }}` shape, so this "
+        f"lint cannot prove `{name}` is 0 in the release shape. The bound a `.lab_index` PRESET "
+        "row must satisfy is the MINIMUM row count over shapes; without that proof there is no "
+        "minimum to bound it by."
+    )
+    return base
 
 
 # ---------------------------------------------------------------- the arms
