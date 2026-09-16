@@ -13,7 +13,7 @@
       "since": "2026-09-16"
     }
   ],
-  "nextBoundary": "Now. Step 5 is merged, pushed, gated and logged; nothing is running.",
+  "nextBoundary": "Here. Nothing is running, nothing is half-applied, and the next row is startable from the repo alone.",
   "queue": [
     {
       "id": "BG-PLANE-WINDOW",
@@ -58,7 +58,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "Two things for your eye, both built: the spring sound A/B from 09-09, and the night colours -- my read is overcast dusk rather than moonlight, with two alternatives pictured beside it.",
+  "awaiting": "This lane is clearable and is holding rather than starting the next row -- it is past the point where a fresh session is cheaper. Also still yours: the spring sound A/B from 09-09, and the night colours, three looks pictured side by side.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T11:47:39Z"
+  "updatedAt": "2026-09-16T11:51:38Z"
 }
