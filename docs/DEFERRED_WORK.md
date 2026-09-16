@@ -35082,3 +35082,67 @@ the window. Two later steps make it real and each supplies the missing number:
 
 Whoever writes it: the destination wraps modulo `PLANE_V_CELLS` while the source does not, so it
 is the two-run shape `Draw_TileRow_FromCache`'s `.emit_row_run` already has, not one `move.l` run.
+
+## The night-settle capture set is NOT TAKEN — the tool ships, the run needs a live Oracle (booked 2026-09-16, `parcel/night-settle-capture`)
+
+`tools/night_settle_capture.py` exists and its offline half is green, but **no capture set has
+been produced**, because the agent that wrote it may not touch an emulator (MCP deadlocks from
+background agents). Until someone runs it there is **no settled night-colour reference in this
+repository**, and `docs/captures/2026-09-13-regions-p2-night/` carries a correction saying so.
+
+The run, in the foreground, with a single Oracle instance:
+
+```sh
+export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+DEBUG=1 ./build.sh                                   # s4.debug.bin + s4.debug.lst, paired
+python3 tools/night_settle_capture.py                # defaults are the night edge
+echo "exit=$?"                                       # 0 settled · 2 could not run / did not settle
+```
+
+Exit 2 is **not** an absence of evidence when the ceiling is what stopped it: the frames and
+`report.json` are still written and nothing in them is named `settled`. That is a finding about
+the fade and should be booked as one, not re-run until it looks different.
+
+Two things the run should be read for beyond the frames:
+
+* **`model_cross_check` in `report.json`.** It prints the max channel distance `d` measured
+  from the LIVE buffer at the arm, the `2d - 1` arrival the step rule predicts, and the arrival
+  actually measured. If they disagree the tool says so on stderr and the NAMES still come from
+  the reads. The 2026-09-13 set asserted `k = 5, the derived 2d-1 for d = 3` in a row whose
+  counter read 11 and nobody noticed; this is where that would now be loud.
+* **whether the fade settles at all inside the region at flight speed.** The ceiling is
+  `2 * (PAL_FADE_FRAMES + N + settled_frames)` = 44 ticks = 704 px at 16 px/tick, against a
+  1400 px region, so it should — but "should" is what this whole parcel is about.
+
+## The two region-edge capture tools share their substrate, NOT their loop, and that was a decision (booked 2026-09-16, `parcel/night-settle-capture`)
+
+The brief that produced `night_settle_capture.py` proposed generalising
+`tools/e2_snap_capture.py` with an `--edge` argument and a settle-until mode, on the ground that
+two capture tools that drift are the same defect class as two private answers to one question.
+**Partly taken.** What was extracted is the part that can actually drift into a wrong answer:
+the settle predicate and the name derivation, now `tools/capture_settle.py`, with the Rig,
+the readers and the region table already shared through `region_fade_witness` and `region_table`.
+
+What was NOT merged is the loop, and the reason is structural rather than a preference:
+
+* e2 captures a fixed window, `PRE = 4` / `POST = 16` ticks around a crossing. That is right for
+  an instantaneous event and wrong for a fade, whose length is not known in advance: the step
+  rule fires only on ODD decremented counts and closes early on arrival, so it ends at
+  `2*max(d) - 1` composes for a distance the tool has to MEASURE. `POST = 16` happens to equal
+  `PAL_FADE_FRAMES`, which is the fade's backstop worst case with **zero** margin for the
+  settle window that has to follow it.
+* the premise refusals differ completely (a snap edge must bind `ep_transition` 0 and two
+  different `ep_pal`s; a fade edge must bind a non-zero transition AND `Raster_Program_None`,
+  because a raster program writing CRAM mid-scan defeats the settle predicate silently).
+* a `--stop settle` mode would have put two loops and two naming policies inside one file to
+  avoid having two files. That is the same defect wearing the other hat.
+
+**What is still open**, and is the honest residue of the decision: `e2_snap_capture.py` does
+NOT yet name through `capture_settle.frame_name`. Its names (`in-k+03.png`) are already
+state-derived and it never claims settledness, so nothing is wrong today; but the two tools now
+have one shared namer and one private one. Retrofitting it would make every e2 frame carry
+`-unknown` (it takes none of the reads the predicate needs), which is arguably correct and
+certainly churn. Whoever next touches that tool should decide deliberately: either teach it the
+three extra reads (`Pal_Op`, `Pal_Base_Dirty`, `Pal_Cycle_Script`) and name through the shared
+path, or write down that a snap capture is exempt because a snap has no settling to claim.
