@@ -2911,8 +2911,19 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // (`clr.b Parallax_Snap_Pending`) immediately before its `jbra` into this proc, so the
         // `tst.b` at the top of this routine already reads 0 on every path (see the note
         // there). Rather than invent a private "this frame is a prime" flag — a second
-        // authority for a question step 6 will have a real answer to — the ratchet is left
+        // authority for a question step 6 was expected to answer — the ratchet is left
         // visible and booked in DEFERRED_WORK as BG-RATE-PRIME-EXEMPTION.
+        //
+        // STEP 6 LANDED (2026-09-16) AND DID NOT ANSWER IT, which is worth recording here
+        // because the booking predicted it would. `BG_Wipe_Cursor` means "a crossing wipe is
+        // in flight", and a PRIME is exactly the case where it is definitionally ZERO: both
+        // synchronous Plane B writers retire the cursor with `clr.w BG_Wipe_Cursor` as part
+        // of priming. So the flag this site would have to test says "not being rebuilt" on
+        // precisely the frame the plane was just rebuilt. Exempting the clamp during a WIPE
+        // would also be the wrong direction — the wipe is already spending
+        // BG_WIPE_ROWS_PER_FRAME row entries, so letting the scroll move faster there adds
+        // streamer rows on top of them. The booking stands, unchanged and now with a reason
+        // rather than a forecast.
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
         sub.w   d0, d2                              // d2 = the step this frame wants
         cmp.w   #BG_VSCROLL_MAX_STEP, d2

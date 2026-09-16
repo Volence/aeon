@@ -34980,7 +34980,43 @@ v_deform. What aeon rejects is therefore a cost, not an impossibility, and the r
 "cannot be done". Whoever revisits it: the S3K routine is the worked example and the 40 bytes is
 the floor, not the estimate.
 
-## REGIONS-VERTICAL-CROSSING-ON-LANDING (booked 2026-09-16, from the E2 capture set)
+## ✅ CLOSED 2026-09-16 (`parcel/regions-p2-step6`) — REGIONS-VERTICAL-CROSSING-ON-LANDING (booked 2026-09-16, from the E2 capture set)
+
+**HOW IT WAS ANSWERED: BY DELETING THE QUESTION, NOT BY ADDING A VERTICAL CASE.** This item
+asked what "sweep from the entry side" means when a fall enters a region from above. Step 6's
+answer is that the entry side is not a usable input for a ROW sweep on EITHER axis, so there is
+one fixed order and no axis test at all:
+
+* **A horizontal entry carries no row order.** A row spans the whole plane width, so crossing
+  left-to-right changes nothing about which rows the screen shows. §4.3's "the plane row just
+  past the far edge of the screen from the direction of entry" has no value along the only axis
+  a row sweep can walk. The gap this item found in the vertical case was really a gap in both.
+* **So the sweep is FIXED: top VISIBLE plane row, walking down, wrapping.** `BG_Wipe_Dir` was
+  renamed `BG_Wipe_Row` — same byte, same adjacency, same `clr.w` — because a direction byte
+  under a fixed sweep would have held one value forever, while a resume point is what the sweep
+  actually needs.
+* **The fall's real difficulty was never the seed; it was that the WINDOW MOVES mid-sweep.**
+  That is handled by storing a PLANE row and deriving the source map row from the live
+  `BG_Plane_Top` at each draw, and by snapping the window to `want_top` at the arm. Both are
+  argued at `engine/level/bg.emp`'s wipe arm.
+* **MEASURED, on the vertical route, by `tools/bg_wipe_gate.py`'s VERTICAL leg** (act 1 row 10
+  -> row 11, holding DOWN across the y 2048 edge at x 5631): the sweep arms with cursor 60 on
+  the crossing tick, the window snaps 0 -> 5, and all 64 plane rows hold the new blob at the
+  end. The gate MEASURES that free flight descends at `CAM_MAX_Y_STEP` rather than believing
+  the source comment, because the leg's claim to be the worst-case vertical entry rests on it.
+
+**WHAT SURVIVES THIS CLOSE, and it is the part the item asked for:** §3's second, shorter LOOK
+at the step-6 transient still has to cover a FALL as well as a walk, and it still needs an eye.
+The gate holds DOWN in free flight, which is the CAMERA's worst case and not the PLAYER's — it
+says nothing about a real gravity fall's landing transient. **TAGGED for the foreground**, with
+the route in the parcel's report.
+
+**AND A CAVEAT ON WHAT A FALL SHOWS TODAY:** the only pair of regions in the tree with different
+layouts is the step-5 tall DEBUG fixture against the act default, and the tall blob's rows 0..63
+are the shipped background with ONE CELL changed (the row marker, `tools/gen_tall_bg_test.py`).
+So the sweep is byte-crisp to a gate and, on screen, one column of tiles. The visible showcase is
+a second real layout, which the hub's FIRST-SHOWCASE ruling put on a follow-up card.
+
 
 **A region crossing that nobody designed, in a capture set built to show one.** The E2 set
 (`docs/captures/2026-09-15-regions-p2-e2/`) was run as a single hold of RIGHT through the fade
@@ -35450,6 +35486,41 @@ is ever wanted, the cheap fix is for the snap arm to clear a `Pal_Target_Valid` 
 the base into `Pal_Target` as it copies it into `Pal_Base`), costing a few bytes and making the
 field self-describing. Not done here: this parcel had no engine subject, and adding a RAM byte
 to serve a tool would be the wrong direction.
+## ✅ FOUND AND CLOSED IN ONE PARCEL, 2026-09-16 (`parcel/regions-p2-step6`) — `BG_Stream_Update`'s two early-outs froze a stale window, and step 6 turned that from invisible into an out-of-bounds read
+
+**NOT A DEFECT STEP 6 INTRODUCED. A DEFECT STEP 5 SHIPPED that step 6 made reachable**, found by
+reasoning about the REVERSE crossing rather than by any gate — recorded because the shape is worth
+carrying: an early-out whose justification quietly assumes the state it is about to skip.
+
+`BG_Stream_Update` opened with `beq .done` on a 0 `rg_bg_span` and `ble .done` on a map no taller
+than the plane, justified as *"a one-position window, so both leave with the window where it is"*.
+That is true only while `BG_Plane_Top` is ALREADY at that one position. Fly OUT of the step-5 tall
+region (`BG_Plane_Top` up to 32) into a neighbour whose span is 0 and it is not: the tracker keeps a
+top no 64-row map has, and the streamer never moves again because it left at the second test.
+
+**Before step 6 that was invisible** — the tall blob and the act default share their art except for
+the row marker, so nothing on screen could show it, and no ROM-side test looks at the window after a
+crossing. **With a wipe it is not invisible**: the sweep derives its source map row from
+`BG_Plane_Top` as `T + ((p - T) mod 64)`, so a stale `T = 32` makes it read map rows 32..95 out of a
+64-row blob, one row past the end at a time, for a whole sweep.
+
+**FIXED IN TWO PLACES, and either alone leaves a hole.** (1) The early-outs are gone: `max_top` is
+computed as 0 for both cases and the clamp runs, so a stale window is walked back at
+`BG_STREAM_MAX_ROWS` a frame instead of frozen. Release behaviour is identical — span 0 gives
+max_top 0 gives want_top 0, and the `cmp/beq` still finds the window already there on every shipped
+row, whose top is always 0 — at the cost of the window arithmetic release used to skip. (2) The
+wipe's arm SNAPS `BG_Plane_Top` to `want_top`, which makes every derived source row in-bounds by
+construction, since the derivation yields `[T, T+63]` and `want_top` is clamped to
+`[0, map_rows - 64]`.
+
+**WHAT NO GATE IN THE TREE COVERS, and it is booked rather than claimed:** the cross-OUT crossing
+itself. `tools/bg_wipe_gate.py` flies INTO the tall region on both axes; flying back OUT is the case
+this item is about, and its route needs a boot position inside the tall region plus a held LEFT or
+UP. It was not added because the fix is structural (the early-outs no longer exist, so there is no
+branch to be wrong) and because a gate leg that has never been red is worth less than the argument —
+but a successor extending the gate should add it, and the derived expectation is simply that
+`BG_Plane_Top` reaches 0 within `ceil(32 / BG_STREAM_MAX_ROWS)` ticks of the crossing.
+
 ## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4)
 
 Step 4 added `|new - Parallax_Current_Vscroll_BG| <= BG_VSCROLL_MAX_STEP` (16 px) immediately before
@@ -35490,6 +35561,22 @@ is left visible and named rather than papered over.
 At that point the exemption is one test against a flag that already means what it needs to mean.
 Until then, anyone surprised by a sliding background after a warp should read this row rather than
 suspect the streamer.
+
+> **⚠ STEP 6 LANDED 2026-09-16 AND THIS ITEM STAYS OPEN. The forecast above was wrong, and the
+> reason is worth more than the forecast was.** `BG_Wipe_Cursor` does NOT mean "the plane is being
+> rebuilt". It means "a CROSSING WIPE is in flight", and a PRIME is exactly the case where it is
+> definitionally ZERO: both synchronous Plane B writers retire it with `clr.w BG_Wipe_Cursor` as
+> part of priming, because a plane that was just blitted whole has nothing left to sweep. So the
+> flag this site would test reads "not being rebuilt" on precisely the frame the plane was rebuilt.
+>
+> **The other direction is wrong too.** Exempting the rate clamp DURING a wipe would make the frame
+> worse, not better: the wipe is already spending `BG_WIPE_ROWS_PER_FRAME` row entries out of the
+> plane buffer, and a faster scroll adds steady-state streamer rows on top of them — the clamp is
+> what bounds that sum (the reservation `ensure` in `engine/level/bg.emp` is stated against it).
+>
+> **So the exemption still needs a state nothing in the engine holds**, and step 6 deliberately did
+> not invent one, for the same reason step 4 did not. The note at `engine/level/parallax.emp`'s
+> rate clamp carries this correction beside the code.
 
 **Alternative that was NOT taken and its price:** exempt on `Parallax_Transition_Frames == 0 &&
 camera moved more than N`, i.e. infer the prime from the camera delta. Rejected for the reason
@@ -35714,6 +35801,16 @@ identifies the map row uniquely — which is the whole reason the marker cell ex
    moves more than 2 rows in a frame. This is also step 4's outstanding BG-RATE gate, which has
    never been run and which this act's camera path is the first thing able to exercise
    non-vacuously — before step 5 there was no region whose clamp could bind.
+
+   > **⚠ STILL NEVER RUN after step 6 (2026-09-16), and it is now ONE ASSERTION away rather than a
+   > procedure away.** `tools/bg_wipe_gate.py` already samples `Parallax_Current_Vscroll_BG` and
+   > `BG_Plane_Top` once per LOGIC TICK across two flown traversals (a held RIGHT and a held DOWN,
+   > both crossing into the tall region), and it prints the window's whole path — the step-6 run
+   > recorded `BG_Plane_Top` 20 -> 32 over 16 ticks on the horizontal route. Asserting "no
+   > per-tick step exceeds `BG_VSCROLL_MAX_STEP`, and no window step exceeds
+   > `BG_STREAM_MAX_ROWS`" over those same samples IS leg 3, and IS step 4's BG-RATE gate. Step 6
+   > deliberately did not fold it in — a leg added and never proven red is the thing this file
+   > keeps warning about — so it stays booked, with the note that the harness now exists.
 
 **⚠ AND A SECOND THING NOT TO REPORT AS A STREAMING DEFECT.** The BG scroll sits at its ceiling
 544 for every camera Y from 4864 to 6143 (4864 is where the raw scroll REACHES 544; the clamp
