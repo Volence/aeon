@@ -1577,3 +1577,37 @@ path, for the same reason the protocol is read that way.
   `--stat` on what that returns. **Run it every time**; the chain-180 result (skip was correct)
   is a fact about one night, not about the binary, and is in `docs/OVERSEER-LOG.md`.
 - **RETIRED trees are recorded in `docs/OVERSEER-LOG.md`** (search `RETIRED TREE`), not here: `.aeon-freeze-179` (chain 179, aeon `4ba7cb92`) moved there 2026-09-09. A retirement is history the moment it is written, and history is what the log is for.
+
+## After finding a rotted standing claim, ask what would have CAUGHT it (hub, 2026-09-16)
+
+Banked at empyrean `6208920`; read it there rather than from this summary:
+
+```sh
+git -C ../empyrean fetch -q origin && \
+git -C ../empyrean show origin/main:docs/OVERSEER-PROTOCOL-REFERENCE.md | command grep -n -A6 'found six times more often than it is instrumented'
+```
+
+**On one night this repo and its peers found SIX standing claims that were true when written and
+that nothing re-checks:** a capture caption naming the wrong region; a spec step-table clause still
+being obeyed after the ruling that killed it; sigil's hand-maintained multiplier list, which 22 had
+dropped out of; `engine/effects/preset.emp:114` prescribing a census structurally blind to its own
+case; the night palette's recipe comment claiming "the same darker, bluer cast on every line" when
+the transform's luminance retention ranges 0% to 100%; and a capture filename asserting a palette
+state the frame was not in. **Exactly one acquired an instrument, and that one was built by
+accident while failing at something else.**
+
+**So the question after finding one is NOT "what else has rotted."** That produces a list nobody
+re-measures, which is the class itself in a new costume. The question is **"what would have caught
+this, and does it exist yet?"** The first question makes an entry. The second makes a tool.
+
+**The sharpest sub-case, because it travels:** in both bad captures the FILENAME asserted the very
+thing the frame was being used as evidence for (`06-night-landed` a region, `t5-f272-settled` a
+palette state). A filename is a standing claim of the most load-bearing kind — it moves into other
+people's reasoning without ever being read as a claim at all.
+
+**The two rules this sits on, both from the same night, and neither substitutes for the other:**
+*do not cite a gate as your mitigation until you have made it fire on purpose* (so you know it CAN
+go red), and *before trusting a test that PASSED, ask what it would accept at random* (so you know
+its green means something). The second exists because a vacuous test here returned a result that
+was not implausible — it was beautiful, 100% explained with zero residue — and its control showed
+it accepted 28% of the entire colour space.
