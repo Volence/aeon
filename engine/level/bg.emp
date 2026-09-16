@@ -67,6 +67,8 @@
 module engine.bg in bg
 
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
+// Step 6's plane-buffer reservation `ensure` is stated against the buffer's own size.
+use engine.constants.{PLANE_BUFFER_SIZE}
 use engine.constants.{SCREEN_HEIGHT}
 use engine.structs.{Act, Region}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
@@ -240,7 +242,7 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // above Camera_Init) means no camera, no region and no scroll exist at this site.
         move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w — what the plane will hold
         clr.w   BG_Plane_Top                    // (BG_Plane_Top).w — window top = map row 0
-        clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir, one word
+        clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + resume row, one word
         // Second consumer of the $2700 mask above. The mask is STILL load-bearing
         // after the row-major flip, and for the reason that outlived the
         // autoincrement excursion: the VInt handler repoints the VDP address
@@ -336,8 +338,120 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 // "fast enough in practice", it is bounded by construction, and the `ensure` below
 // is what keeps the two constants tied together if either moves.
 //
+// ---- THE SWEEP ORDER, AND THE ONE DESIGN CALL OF STEP 6 ----
+// The sweep starts at the TOP VISIBLE plane row and walks DOWN, wrapping, covering all
+// PLANE_V_CELLS plane rows exactly once. It is FIXED: no entry axis, no direction byte.
+//
+// §4.3 asks instead for a sweep "from the entry side", starting past the far edge of the
+// screen "so hidden rows repaint first". Three things are wrong with that here, and each
+// is measurable rather than a matter of taste:
+//
+//   1. A HORIZONTAL ENTRY CARRIES NO ROW ORDER. A row spans the whole plane width, so
+//      crossing left-to-right changes nothing about which rows the screen shows. There is
+//      no "far edge of the screen" along the axis a row sweep can walk.
+//   2. A FALL HAS NO HORIZONTAL COMPONENT AT ALL. Measured before this step and booked as
+//      REGIONS-VERTICAL-CROSSING-ON-LANDING: leaving DEBUG free flight at (5700, 1000)
+//      drops the camera centre to y 3034 and resolves a different region, with the camera
+//      X unmoved. An entry-side rule has no value to read there.
+//   3. HIDDEN-FIRST MAXIMISES THE ONE TRANSIENT E2 COULD NOT JUDGE. The E2 verdict
+//      (2026-09-16, confirming the owner's own 2026-09-14 ruling) is that the palette
+//      SNAPS on frame 0 and the rows sweep after it. So from frame 0 the visible rows are
+//      showing the NEW palette over the OLD art, and that is precisely the state E2 said
+//      it could not evaluate because it did not exist yet. Repainting the ~BG_SCREEN_ROWS
+//      hidden rows first would hold that state for the whole sweep; repainting the visible
+//      ones first clears it in ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) frames and
+//      leaves the rest to run out of sight.
+//
+// ---- WHAT S3K ACTUALLY DOES, RE-VERIFIED FIRSTHAND, AND WHERE IT DISAGREES WITH THIS ----
+// (2026-09-16 sweep over ten trees. Two claims that reached this parcel as received wisdom
+// were WRONG at the source and are corrected here rather than repeated.)
+//
+// S3K's Plane B is 64 x 32 cells = 512 x 256 px (`VRAM_Plane_B_Name_Table = $E000 ; Extends
+// until $EFFF`, sonic3k.constants.asm:1064), so it is SIXTEEN block-rows tall, not 64. Its
+// background repaints are a 4-state machine per zone (SSZ1: sonic3k.asm:116430-116561) that
+// seeds `Draw_delayed_rowcount = $F` and walks `Draw_delayed_position` by $10 a row through
+// the ORDINARY row producer (`jsr Setup_TileRowDraw`, :103450) into the same deferred plane
+// buffer the streamer uses, alongside the streamer in the same frame. All of that matches
+// what aeon does here. TWO THINGS DO NOT:
+//
+//   * `rowcount = $F` IS THE WHOLE PLANE HEIGHT. The camera-span test at :103444-103448 is
+//     not a budget mechanism and does not make the sweep a subset: the plane is 256 px and
+//     the test's window is 240, so it drops about ONE row, plus whatever the camera scrolls
+//     past mid-sweep. It is a live-camera guard. (The claim that S3K "skips rows outside the
+//     visible span RATHER THAN drawing all 64" is false twice over — there are no 64 rows,
+//     and it does draw them all.) So S3K is NOT an economy this file declines; it repaints
+//     its whole plane, exactly as this does.
+//   * THE RATE IS NOT FLAT. SSZ1's first pass uses the 2-row wrapper
+//     (`Draw_PlaneVertBottomUp`, :103427) and its second the 1-row one, and the cap is the
+//     `$480`-byte `Plane_buffer` (sonic3k.constants.asm:514) — about four block-rows — not
+//     CPU time. Aeon's BG_WIPE_ROWS_PER_FRAME is capped by the same resource for the same
+//     reason; see the reservation `ensure` above.
+//
+// ---- THE COUNTER-PRECEDENT, WHICH IS REAL AND IS ANSWERED RATHER THAN OMITTED ----
+// S3K's house order is BOTTOM-UP and FIXED (47 bottom-up call sites against 6 top-down),
+// seeded at `camY+$E0` regardless of the crossing's sign — SSZ1, ICZ1, ICZ2, AIZ1, CNZ1 all
+// do that, and every one of them triggers on a camera Y crossing with no horizontal
+// component, so the vertical case §4.3 had no answer for is S3K's NORMAL case.
+//
+// FLYING BATTERY IS THE EXCEPTION AND IT DOES TIE THE ORDER TO TRAVEL, on all four axes:
+// `FBZ1_BackgroundEvent_Index` (sonic3k.asm:108708-108718) has TopDown / BottomUp /
+// LeftRight / RightLeft entry points and `FBZ1_CheckBGChange` picks one per crossing. Seven
+// independent decision sites agree on the rule (:108978-108988, :109020-109031,
+// :109062-109073, :109110-109122, :109155-109168, :109182-109191, and FBZ2 at
+// :109784-109796): SEED AT THE EDGE YOU ARE TRAVELLING TOWARD AND WALK AWAY FROM IT.
+// Descending seeds the BOTTOM row and steps up. That is the opposite of §4.3's
+// "far edge, hidden rows first" — and on a descent it is also the opposite of the seed
+// chosen here.
+//
+// IT IS NOT ADOPTED, for two reasons that are about this plane rather than about taste:
+//
+//   1. ITS HORIZONTAL HALF NEEDS A COLUMN PRODUCER AND WE DELETED OURS. FBZ answers a
+//      horizontal crossing with a COLUMN sweep. Aeon's sweep is rows only (the column path
+//      returns in the big-levels parcel, over a block map). Adopting FBZ's vertical half
+//      alone would leave the horizontal case with no principled seed and reintroduce the
+//      direction byte for a rule that covers one of the two axes.
+//   2. WE HAVE A LEAD AND FBZ DOES NOT, and that changes which tail is worth having. FBZ's
+//      plane is 16 block-rows against a 15-row screen: essentially all of it is visible and
+//      there is no hidden tail to order. Aeon's window is 64 rows against
+//      BG_SCREEN_ROWS visible, with BG_STREAM_LEAD_ROWS hidden above and the rest hidden
+//      below, none of which the steady-state tracker ever revisits. On a DESCENT — the case
+//      that arrives without the player walking anywhere — the hidden rows BELOW are the ones
+//      about to be revealed and the hidden rows ABOVE are the ones leaving for good.
+//      "Top visible row, walking down, wrapping" orders the whole plane as
+//      visible -> about-to-be-revealed -> leaving, which is the right order for a descent
+//      and for a stationary window, and is merely late on an ascent's hidden rows (which the
+//      streamer is drawing at the top edge anyway). FBZ's seed has no such tail to get right.
+//
+// WHERE THE TWO AGREE, which is the part that matters: both repaint what the player is
+// looking at before what they are not. The disagreement is confined to the ORDER WITHIN the
+// visible span on a vertical entry, which lasts
+// ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) ticks — measured at 8, over which the screen
+// drifted 6 rows of 29, so every row visible at the arm was still visible at the end.
+//
+// NOBODY PAINTS OFF-SCREEN FIRST. Across all ten trees swept, not one does: S3K and S.C.E.
+// actively skip off-screen rows, Alien Soldier and Batman & Robin paint on-screen first by
+// construction. §4.3's hidden-rows-first sweep has no precedent in the corpus.
+//
+// AND ONE PRECEDENT FOR A PALETTE HOLD EXISTS, named because E2's row 3 stays cheap on
+// purpose: ICZ1 holds the old palette through TWO full sweeps and swaps on the frame the
+// second completes (sonic3k.asm:110249-110253, `ICZ1_SetIndoorPal`), about 16 frames. FBZ
+// and ICZ2 do the opposite — swap first, wipe after — and mitigate by changing only 8 of 16
+// colours. Alien Soldier offers a third: run the sweep with the display ON and mask it with
+// a concurrent palette FADE-IN. Aeon follows FBZ/ICZ2 (snap first) per the E2 verdict; the
+// other two are what row 3 would buy if the transient reads badly on a real fall.
+//
+// WHY A PLANE ROW IS STORED AND NOT A MAP ROW. During a fall the window is moving while
+// the sweep runs. A plane row is a physical nametable address and the map row it shows is
+// a function of BG_Plane_Top at the instant of the draw, so deriving the map row keeps
+// every draw correct for what that row is currently displaying. Storing a map row (or an
+// offset from the window top) does not: with the window advancing one row a frame and the
+// cursor advancing BG_WIPE_ROWS_PER_FRAME, the covered PLANE rows would step by more than
+// one and the sweep would leave holes. There is no hole in the plane-row form, only the
+// possibility of a row being drawn twice — once by the sweep and once by the streamer when
+// it enters the window — and both draw it from the same new blob.
+//
 // ---- WHAT THIS PROC DOES NOT DO, named so a green is not misread ----
-// It is the STEADY-STATE half only. A PRIME — the plane holding the wrong window
+// Its steady-state half is the steady state only. A PRIME — the plane holding the wrong window
 // outright — is not reachable from here at 2 rows a frame, and the one path that
 // can produce one is `Section_RedrawPlanes` (cache recovery, and the DEBUG warp).
 // THAT PATH NOW PRIMES THE WINDOW RATHER THAN ROWS 0..63 (BG-PLANE-WINDOW, closed
@@ -368,6 +482,39 @@ pub const BG_STREAM_LEAD_ROWS  = BG_STREAM_SPARE_ROWS / 2
 // The per-frame row budget, DERIVED from step 4's rate clamp and not tuned.
 pub const BG_STREAM_MAX_ROWS   = BG_VSCROLL_MAX_STEP / BG_STREAM_ROW_PX
 
+// ---- THE CROSSING WIPE's budget (regions part 2, step 6; spec §4.3) ----
+// How many rows the sweep may spend in one frame. E1 (2026-09-16) measured the plane
+// buffer's headroom and picked decision row 1 = 4; the arithmetic is RE-DERIVED below
+// rather than carried, because E1's own total was 536 + 528 = 1064 and it OMITTED the
+// steady-state streamer's share — correctly, at the time, since `Draw_BG_TileColumn` had
+// zero callers and `BG_Stream_Update` did not exist until step 5. It exists now and it
+// runs in the SAME frame as the wipe, so the real worst case is 536 + 264 + 528 = 1328.
+pub const BG_WIPE_ROWS_PER_FRAME = 4
+// The sweep covers every PLANE row exactly once — not every MAP row. See BG_Stream_Update's
+// wipe arm for why that is the invariant that survives the window moving mid-wipe.
+pub const BG_WIPE_TOTAL_ROWS     = PLANE_V_CELLS
+// Frames a complete sweep takes with no refusals. The gate derives its bound from this.
+pub const BG_WIPE_FRAMES         = (BG_WIPE_TOTAL_ROWS + BG_WIPE_ROWS_PER_FRAME - 1) / BG_WIPE_ROWS_PER_FRAME
+
+// ---- THE PLANE-BUFFER RESERVATION, derived from the producers' OWN reservations ----
+// Each number below is the byte figure the named routine adds to `Plane_Buffer_Ptr` before
+// its own overflow test, restated here so a producer that changes its entry shape and this
+// budget cannot drift apart silently.
+const BG_ROW_ENTRY_BYTES = 4 + PLANE_H_CELLS*2      // Draw_BG_TileRow      (engine/level/plane_buffer.emp)
+const FG_COL_ENTRY_BYTES = 8 + PLANE_V_CELLS*2      // Draw_TileColumn      (ditto)
+const FG_ROW_ENTRY_BYTES = 4 + PLANE_H_CELLS*2      // Draw_TileRow_FromCache (ditto)
+// The foreground's worst frame: the camera is capped at 16 px on each axis over an 8 px
+// cell, so at most two columns and two rows enter per frame (E1's derivation, re-spelled
+// from the two camera caps rather than quoted as "536").
+const FG_PEAK_BYTES      = 2 * FG_COL_ENTRY_BYTES + 2 * FG_ROW_ENTRY_BYTES
+const BG_PEAK_BYTES      = (BG_STREAM_MAX_ROWS + BG_WIPE_ROWS_PER_FRAME) * BG_ROW_ENTRY_BYTES
+ensure(FG_PEAK_BYTES + BG_PEAK_BYTES <= PLANE_BUFFER_SIZE - 2,
+       "engine/level/bg.emp: one frame can now ask the plane buffer for {FG_PEAK_BYTES} B of foreground (2 columns at {FG_COL_ENTRY_BYTES} + 2 rows at {FG_ROW_ENTRY_BYTES}) plus {BG_PEAK_BYTES} B of background ({BG_STREAM_MAX_ROWS} streamed + {BG_WIPE_ROWS_PER_FRAME} wiped rows at {BG_ROW_ENTRY_BYTES}), which is more than PLANE_BUFFER_SIZE - 2 = {PLANE_BUFFER_SIZE - 2}. NOTHING CRASHES IF THIS IS WRONG, which is why it is a build error: Draw_BG_TileRow REFUSES past the ceiling and the wipe cursor does not advance, so an over-budget frame shows up only as a wipe that takes longer than BG_WIPE_FRAMES ({BG_WIPE_FRAMES}) — and Draw_TileColumn's release arm drops a FOREGROUND column silently, which is a strip of level that is never redrawn. Lower BG_WIPE_ROWS_PER_FRAME (the wipe just takes more frames) or raise PLANE_BUFFER_SIZE")
+ensure(BG_WIPE_ROWS_PER_FRAME >= 1 && BG_WIPE_ROWS_PER_FRAME <= BG_WIPE_TOTAL_ROWS,
+       "engine/level/bg.emp: BG_WIPE_ROWS_PER_FRAME is {BG_WIPE_ROWS_PER_FRAME}, outside 1 .. {BG_WIPE_TOTAL_ROWS}. At 0 an armed wipe never retires its cursor and the plane holds a mix of two backgrounds forever; above the plane's own row count the `subq.b`/`beq` pair below would run the cursor past 0 and wrap it to 255")
+ensure(BG_WIPE_TOTAL_ROWS <= 255,
+       "engine/level/bg.emp: BG_Wipe_Cursor (engine/ram.emp) is a BYTE and BG_WIPE_TOTAL_ROWS is {BG_WIPE_TOTAL_ROWS}. `move.b #BG_WIPE_TOTAL_ROWS, BG_Wipe_Cursor` would truncate and the sweep would leave part of the plane holding the old background")
+
 ensure(BG_STREAM_SPARE_ROWS > 0,
        "engine/level/bg.emp: the Plane B ring holds {PLANE_V_CELLS} rows and the screen can touch {BG_SCREEN_ROWS} of them at once, so there is no slack at all (BG_STREAM_SPARE_ROWS = {BG_STREAM_SPARE_ROWS}). BG_Stream_Update's containment proof needs at least one spare row; at zero or below the plane cannot hold the visible window plus any lead and every streamed row would be one the screen is already showing")
 ensure(BG_STREAM_LEAD_ROWS >= 0 && BG_STREAM_LEAD_ROWS <= BG_STREAM_SPARE_ROWS,
@@ -381,10 +528,16 @@ ensure(BG_STREAM_MAX_ROWS >= 1,
 // BG_Stream_Update — move the Plane B window to follow this frame's BG scroll.
 //
 // In:  nothing. Reads Region_Current (the crossing's cache), that row's
-//      rg_bg_span, Parallax_Current_Vscroll_BG (map space, already clamped by
-//      Parallax_Step5_Vscroll THIS frame) and BG_Plane_Top.
-// Out: nothing. Appends up to BG_STREAM_MAX_ROWS row entries to Plane_Buffer and
-//      advances BG_Plane_Top by one per ADMITTED entry.
+//      rg_bg_layout and rg_bg_span, Parallax_Current_Vscroll_BG (map space, already
+//      clamped by Parallax_Step5_Vscroll THIS frame), BG_Plane_Layout and BG_Plane_Top.
+// Out: nothing. Appends up to BG_WIPE_ROWS_PER_FRAME + BG_STREAM_MAX_ROWS row entries to
+//      Plane_Buffer. Advances BG_Plane_Top by one per ADMITTED steady-state entry, and
+//      BG_Wipe_Row / BG_Wipe_Cursor by one per ADMITTED wipe entry.
+//
+// IT ALSO CARRIES THE CROSSING WIPE (step 6, §4.3), which is a second, independent job in
+// one proc and is said here rather than left to be discovered. The wipe arm runs FIRST and
+// ABOVE the span early-out; the reasoning for both, and for the level-triggered arm, is at
+// the arm itself.
 //
 // CALL IT AFTER Parallax_Update AND BEFORE VBlank. Both halves matter: the scroll
 // it reads is the one Step 5 just produced, and the row entries it appends drain
@@ -408,21 +561,37 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         cmpa.w  #0, a0
         beq     .done
 
-        // -- max_top = map rows - PLANE_V_CELLS. A 0 span is the act default (the
-        //    plane's own height) and a map no taller than the plane has a
-        //    one-position window, so both leave with the window where it is. --
+        // -- max_top = map rows - PLANE_V_CELLS, for THIS region. A 0 span is the act
+        //    default, whose map IS the plane and whose only legal window is 0; a map no
+        //    taller than the plane is the same case.
+        //
+        //    THIS USED TO BE TWO EARLY-OUTS (`beq .done` on a 0 span, `ble .done` on a map
+        //    no taller than the plane) AND STEP 6 HAD TO DELETE THEM. Their reasoning —
+        //    "a one-position window, so leave the window where it is" — is only true while
+        //    BG_Plane_Top is ALREADY at that one position. Cross OUT of a taller-map region
+        //    and it is not: the tracker is left at whatever top the tall map earned (up to
+        //    32 on the step-5 fixture) with a new map that has no such row. Before step 6
+        //    that was invisible — the streamer simply never moved again. With a wipe it is
+        //    not invisible at all: the sweep derives its source map row from BG_Plane_Top,
+        //    so a stale top makes it read PAST THE END of the new blob, one row at a time,
+        //    for the whole sweep. Falling through to the clamp costs release ~6 bytes and
+        //    leaves its behaviour identical (span 0 -> max_top 0 -> want_top 0 -> the
+        //    `cmp/beq` below still finds the window already there on every shipped row).
+        moveq   #0, d3                              // d3 = max_top, assumed 0
         move.w  Region.rg_bg_span(a0), d0           // (Region.rg_bg_span)(a0)
-        beq     .done                               // 0 = the act default
+        beq     .max_ok                             // 0 = the act default: the map IS the plane
         lsr.w   #3, d0                              // span px -> map rows (BG_STREAM_ROW_PX)
         subi.w  #PLANE_V_CELLS, d0
-        ble     .done                               // map is not taller than the plane
+        ble     .max_ok                             // map is not taller than the plane
         move.w  d0, d3                              // d3 = max_top
+    .max_ok:
 
         // -- want_top = clamp(vrow - LEAD, 0, max_top). The scroll is non-negative
         //    on every path (step 4's position clamp floors it at 0), so lsr is the
         //    right shift and the only sign question is the subtraction below. --
         move.w  Parallax_Current_Vscroll_BG, d6     // (Parallax_Current_Vscroll_BG).w
         lsr.w   #3, d6                              // -> the top visible MAP row
+        move.w  d6, d7                              // keep it: the wipe's start row wants it too
         subi.w  #BG_STREAM_LEAD_ROWS, d6
         bpl     .want_hi
         moveq   #0, d6                              // near the map top: no room for the lead
@@ -431,6 +600,140 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         ble     .want_ok
         move.w  d3, d6                              // near the map bottom: ditto
     .want_ok:
+
+        // ================= THE CROSSING WIPE (step 6, spec §4.3) =================
+        // Everything from here to `.stream` is the wipe. It sits ABOVE the steady state and
+        // BELOW the window arithmetic, and both halves of that placement are load-bearing:
+        // it needs `want_top` (see the arm), and it must not be gated on the span, because
+        // a region may name a DIFFERENT background of the SAME height (rg_bg_layout set,
+        // rg_bg_span 0 — legal, and what ojz_region() allows). Gated on the span it would be
+        // dead on exactly the second-layout showcase the spec's step 6 asks an author for.
+
+        // -- the region's EFFECTIVE layout: its own, or the act default. Same ladder and
+        //    same sentinel Draw_BG_TileRow and Section_RedrawPlanes use. --
+        movea.l Region.rg_bg_layout(a0), a1
+        cmpa.w  #0, a1
+        bne     .eff_ok
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        movea.l Act.act_bg_layout(a2), a1
+    .eff_ok:
+        move.l  a1, d0
+        cmp.l   BG_Plane_Layout, d0                 // (BG_Plane_Layout).w — what the plane HOLDS
+        beq     .wipe_spend                         // unchanged: the common case, every frame
+
+        // ---- ARM ----------------------------------------------------------------
+        // LEVEL-TRIGGERED HERE, NOT EDGE-TRIGGERED AT THE CROSSING, and that is a
+        // deliberate deviation from §4.3, which asks for a `BG_Region_Changed(a0)` call
+        // inserted into Parallax_CheckBoundary between Effects_InstallPreset and
+        // Parallax_StartTransition. THE REASON IS THE MODULE GRAPH: this file imports
+        // engine.parallax (BG_VSCROLL_ROW_PX / BG_VSCROLL_MAX_STEP, so that the streamer's
+        // budget is DERIVED from the rate clamp rather than restated), and the header of
+        // BG_Stream_Update records "engine.parallax does not import this module, so the
+        // edge is acyclic" as a designed property. A call the other way would close the
+        // cycle, and the alternatives — hosting the arm in plane_buffer.emp, or having the
+        // game loop detect the crossing itself — either move the background's identity out
+        // of the background's file or create the second private answer to "which region am
+        // I in" that step 3 refused.
+        //
+        // IT IS NOT A WEAKER TEST. `Region_Current` is written by the crossing and by
+        // nothing else, this proc runs once a frame strictly AFTER Parallax_Update (the
+        // call site is a `jbsr` pair in the game loop), and both synchronous Plane B
+        // writers set BG_Plane_Layout to what they blitted. So the comparison above is
+        // true on exactly the frames the crossing changed the answer, and it CANNOT
+        // disagree with the crossing because it reads the crossing's own output. It is
+        // also strictly better placed than the spec's site in one respect: the scroll it
+        // latches below is THIS frame's, because Parallax_Update has already run, where
+        // the §4.3 site would have read the previous frame's.
+        //
+        // WHAT IS NOT COMPARED, and why: §4.3 asks for "the layout pointer AND the tracked
+        // span". There is no tracked span in RAM and none is added. A span changes the
+        // WINDOW (max_top, below) and cannot change what any single map row contains, so a
+        // span-only change is the steady-state tracker's business and re-sweeping 64 rows
+        // for it would be 16 frames of redrawing the picture with itself.
+        //
+        // WHAT IS DELIBERATELY NOT DONE HERE: `st Parallax_Snap_Pending`, which §4.3 asks
+        // for "so the scroll does not lerp across two different pictures". Measured at this
+        // pin, it would not do that and would do something else. (1) The scroll it means is
+        // Parallax_Step5_Vscroll's, and that proc's `tst.b Parallax_Snap_Pending` is DEAD —
+        // Step 3's band loop clears the byte in the two instructions before its `jbra` into
+        // Step 5 (booked as PARALLAX-STEP5-SNAP-DEAD, and re-read here rather than carried).
+        // (2) What the flag DOES reach is Step 3's per-band `.snap_b`, which overrides the
+        // frames-remaining ramp Parallax_StartTransition staged from the author's
+        // `pcfg_transition` — a second authority for snap-versus-lerp at a crossing, which
+        // is the one thing StartTransition exists to be. (3) The band drift accumulator is
+        // added upstream of that test and is not reset by it, so the flag is not what
+        // d-43 ("a drifting background CONTINUES across a boundary rather than resetting",
+        // the owner's own words) forbids — but neither does anything here need it. Nothing
+        // in this wipe touches a drift accumulator, a band scroll or the BG scroll: it
+        // writes nametable rows and two tracker bytes.
+        move.l  d0, BG_Plane_Layout                 // (BG_Plane_Layout).w — the plane is now PROMISED this blob
+        // THE WINDOW SNAPS TO THE DESTINATION, and this is the second half of the fix the
+        // deleted early-outs above describe. A wipe is an ASYNCHRONOUS PRIME: every plane
+        // row is about to be rewritten, so the only window the tracker can usefully name is
+        // the one the sweep is drawing TOWARDS. Section_RedrawPlanes does exactly this for
+        // its synchronous prime — seed the top, then fill — and the symmetry is the point.
+        //
+        // It also makes the sweep's source rows in-bounds BY CONSTRUCTION: the map row for
+        // plane row p is derived as T + ((p - T) mod 64), which lies in [T, T+63], and
+        // want_top is clamped to [0, map_rows - 64], so every derived row is a row the new
+        // blob has. Leave the old top here and the cross-OUT case reads past the blob.
+        //
+        // The tracker does momentarily describe a window the plane does not yet hold. That
+        // is not a new lie — during a wipe the plane holds a MIX and no single window
+        // describes it — and naming the destination is the only statement that stays true
+        // at the end. Nothing but this proc reads BG_Plane_Top.
+        move.w  d6, BG_Plane_Top                    // (BG_Plane_Top).w — want_top, computed above
+        // THE START ROW: the top VISIBLE plane row. d7 is (vscroll >> 3), the top visible
+        // MAP row, kept from the window arithmetic above; the plane is a ring, so its low
+        // 6 bits ARE the plane row showing it — no window arithmetic at all.
+        move.w  d7, d0
+        andi.w  #PLANE_V_CELLS-1, d0                // -> the PLANE row showing it
+        move.b  d0, BG_Wipe_Row                     // (BG_Wipe_Row).w
+        move.b  #BG_WIPE_TOTAL_ROWS, BG_Wipe_Cursor // (BG_Wipe_Cursor).w
+
+        // ---- SPEND ---------------------------------------------------------------
+    .wipe_spend:
+        tst.b   BG_Wipe_Cursor                      // (BG_Wipe_Cursor).w
+        beq     .stream                             // no sweep in flight — the common case
+        moveq   #BG_WIPE_ROWS_PER_FRAME, d4         // rows this frame may buy
+    .wipe_loop:
+        // d1 = the MAP row plane row p is CURRENTLY showing, derived from the LIVE window:
+        //   m = T + ((p - T) mod PLANE_V_CELLS),  the unique m in [T, T+63] with m = p mod 64.
+        // Deriving it instead of storing it is what makes the sweep survive a window that
+        // moves mid-wipe — a FALL, which is the case §4.3 had no answer for. A stored map
+        // row goes stale the moment BG_Plane_Top advances; a stored PLANE row does not,
+        // because a plane row is a physical address and the map row it shows is a function
+        // of the window at the instant of the draw.
+        moveq   #0, d0
+        move.b  BG_Wipe_Row, d0                     // (BG_Wipe_Row).w — the plane row, 0..63
+        move.w  BG_Plane_Top, d1                    // (BG_Plane_Top).w — T
+        move.w  d0, d3
+        sub.w   d1, d3
+        andi.w  #PLANE_V_CELLS-1, d3                // (p - T) mod the ring
+        add.w   d3, d1                              // d1 = the map row
+        moveq   #0, d2                              // band X: part 2's bands are WRAP bands
+                                                    //   over a map exactly as wide as the
+                                                    //   plane, anchor structurally 0 — the
+                                                    //   same argument the streamer makes
+        jbsr    Draw_BG_TileRow                     // d0 = 1 admitted, 0 refused; a0 survives
+        tst.w   d0
+        beq     .stream                             // REFUSED: spend nothing, retry next frame.
+                                                    //   The cursor advances on 1 and only on 1
+                                                    //   — that contract is why this producer
+                                                    //   returns anything at all.
+        moveq   #0, d0
+        move.b  BG_Wipe_Row, d0
+        addq.w  #1, d0
+        andi.w  #PLANE_V_CELLS-1, d0                // walk DOWN the plane, wrapping
+        move.b  d0, BG_Wipe_Row                     // (BG_Wipe_Row).w
+        subq.b  #1, BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w
+        beq     .stream                             // the plane now holds the new picture
+        subq.w  #1, d4
+        bne     .wipe_loop
+    .stream:
+        // ================= END OF THE WIPE =================
+        // d6 = want_top, computed above the wipe (the arm needs it too).
+
         // -- direction and budget. THE ORDER HERE IS LOAD-BEARING: moveq writes the
         //    condition codes, so both moveq must precede the cmp whose flags the
         //    beq and the blt read. Written the other way round the blt tests the
@@ -510,11 +813,14 @@ ensure(BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS * 2,
 // ---- THE BG PLANE TRACKER's one-word clear, pinned (regions part 2 step 3) ----
 // Both synchronous writers of Plane B — BG_Init above and Section_RedrawPlanes
 // (engine/level/section.emp) — retire the wipe state with a single `clr.w
-// BG_Wipe_Cursor`, which is only "cursor AND direction" while the two bytes are
+// BG_Wipe_Cursor`, which is only "cursor AND resume row" while the two bytes are
 // adjacent in that order. A field inserted between them would not fail to build; it
-// would leave BG_Wipe_Dir holding whatever the previous act left there while the
-// cursor read 0, which is invisible until step 6 arms a sweep and then picks a
-// direction from a stale byte. Pinned rather than spelled as two `clr.b` because the
-// one-word form is what the two sites actually emit.
-ensure(extern("BG_Wipe_Dir") - extern("BG_Wipe_Cursor") == 1,
-       "engine/ram.emp's BG_Wipe_Cursor and BG_Wipe_Dir are no longer adjacent bytes in that order (BG_Wipe_Dir - BG_Wipe_Cursor is not 1). BOTH synchronous Plane B writers clear them with ONE `clr.w BG_Wipe_Cursor` — engine/level/bg.emp's BG_Init and engine/level/section.emp's Section_RedrawPlanes — so the pair must stay a word. Either restore the adjacency or respell both sites as two `clr.b`")
+// would leave BG_Wipe_Row holding whatever the previous act left there while the
+// cursor read 0. That is now WORSE than it was when this pin was written for
+// BG_Wipe_Dir, because the arm below writes the row byte and the cursor byte as two
+// separate instructions: a stale row byte survives only until the next arm, but a
+// `clr.w` that has stopped covering the row byte means a PRIME leaves a cursor of 0
+// beside a row the next sweep never chose. Pinned rather than spelled as two `clr.b`
+// because the one-word form is what the two sites actually emit.
+ensure(extern("BG_Wipe_Row") - extern("BG_Wipe_Cursor") == 1,
+       "engine/ram.emp's BG_Wipe_Cursor and BG_Wipe_Row are no longer adjacent bytes in that order (BG_Wipe_Row - BG_Wipe_Cursor is not 1). BOTH synchronous Plane B writers clear them with ONE `clr.w BG_Wipe_Cursor` — engine/level/bg.emp's BG_Init and engine/level/section.emp's Section_RedrawPlanes — so the pair must stay a word. Either restore the adjacency or respell both sites as two `clr.b`")

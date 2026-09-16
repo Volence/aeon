@@ -1,6 +1,7 @@
 // Deferred nametable plane buffer (§4.1)
 // Producers: Draw_TileColumn / Draw_TileRow_FromCache (game loop); Draw_BG_TileRow (plane B,
-// no caller until the regions part 2 tracker — the routine, not a live producer)
+// TWO live callers since regions part 2 step 6, both inside engine/level/bg.emp's
+// BG_Stream_Update: the steady-state row tracker (step 5) and the crossing wipe (step 6))
 // Consumer: VInt_DrawLevel (VBlank)
 
 module engine.plane_buffer in plane_buffer
