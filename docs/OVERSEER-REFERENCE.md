@@ -1787,3 +1787,11 @@ his go|…` for `hub`; `transcrib|relayed by the hub|…` for `owner`), re-runna
 regex over prose is keyed to spellings, so 5 is a LOWER BOUND and not a population** — an entry
 phrased differently is invisible to it, exactly as the in-enum sweep was blind to truth. Any future
 count here enumerates by what TOUCHES the value, or says out loud that it did not.
+
+⚠ **AND THE CAVEAT CASHED IN WITHIN THE HOUR: THE REAL FIGURE IS 25 OF 37, NOT 5, AND THE RATIO IS 7.3:1 NOT 4:1** (unfiltered read of every `answered` entry, no regex, 2026-09-16). **The numbers above are left standing because the correction is the artifact.** Sigil applied this caveat to their own count first, went from 5 to 8, and that is what sent me back.
+* **22 authority axis** — every single `by: "hub"` entry, because every hub ruling in this ledger was made under one of his delegations. My regex found 4.
+* **3 relay** (`d-34`, `SPRING-PAL-IDX9` ×2) — what `via` fixes. My regex found 1.
+* **3 with the provenance absent from `answered` itself** (`d-41` ×2, `NIGHT-REGION-LOOK`): `by: owner`, `said` absent, and how the answer arrived recorded only in `detail`. Weaker than sigil's *unauditable* class — the fact exists in the entry — but **the field that exists to carry it does not.** `d-41` is also sigil's `d-24` shape: its own detail admits his words are *"another session's paraphrase"*, not a heard statement. **And `NIGHT-REGION-LOOK` IS ONE I WROTE TODAY, hours into this very thread**, which is the finding rather than the footnote.
+* **9 clean.**
+
+**TWO CAUSES, and the first is the whole lesson: MY REGEX SEARCHED `did` AND NOT `said`.** Most of this ledger's authority basis lives in `said` — the ten `LS-*` rows carry it there verbatim and every one was invisible. Second: `d-48` says *"in your place"*, second person, against a pattern written for `in his place`. **A search keyed to one FIELD is the same defect as one keyed to one spelling, and I had just written the spelling caveat when I committed the field one.**
