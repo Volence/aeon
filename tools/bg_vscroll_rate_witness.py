@@ -471,7 +471,7 @@ async def run(args) -> int:
 
     sym = parse_lst(args.lst)
     for need in ("GameState_OJZScroll_Init", "GameState_OJZScroll_Update",
-                 "Camera_X", "Camera_Y", "Camera_Y_Max", "Region_Current",
+                 "Camera_X", "Camera_Y", "Camera_X_Max", "Camera_Y_Max", "Region_Current",
                  "Parallax_Current_Vscroll_BG", "Parallax_Current_Config",
                  "Parallax_Target_Config", "Parallax_Transition_Frames",
                  "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag",
@@ -528,10 +528,20 @@ async def run(args) -> int:
 
         # ---- leg C: the crossing route, right across the whole region table ---------------
         # The same traversal shape parallax_crossing_gate walks: hold RIGHT from the spawn
-        # until the camera centre is past the last row's right edge.
-        far = max(r["x1"] for r in rows)
-        legC = await leg_until(rig, "C", ["right"], lambda s: s["centre"][0] >= far, 8)
+        # until the camera stops moving. The stop test is `Camera_X >= Camera_X_Max` and NOT
+        # "the centre passed the last row's x1": the camera is clamped to
+        # act_width - SCREEN_WIDTH, so its centre tops out SCREEN_WIDTH/2 px SHORT of the act's
+        # right edge and an x1 test would spin for LEG_MAX_TICKS and report a stale route.
+        cam_x_max = await rd(b, sym["Camera_X_Max"], 2)
+        legC = await leg_until(rig, "C", ["right"], lambda s: s["cam_x"] >= cam_x_max, 8)
         report["C"] = check_leg(fails, K, "C (crossing route, held RIGHT)", legC)
+        report["C"]["camera_x_max"] = cam_x_max
+        if len(report["C"]["rows_visited"]) < 2:
+            raise SetupError(
+                f"leg C crossed no region boundary: it stayed in row(s) "
+                f"{report['C']['rows_visited']} for its whole traversal to Camera_X_Max = "
+                f"{cam_x_max}. The route is stale, and a green over one region says nothing "
+                "about a crossing. COULD NOT RUN.")
 
         # ---- leg D: "the shaft fall" — held DOWN in free flight, the camera's own ceiling --
         cam_y_max = await rd(b, sym["Camera_Y_Max"], 2)
