@@ -34480,3 +34480,36 @@ Method note for whoever re-runs it: the fall must be a REAL fall. In the DEBUG s
 boots into free flight at `PLAYER_DEBUG_FLY_SPEED` = 16 px/frame, which is already
 `CAM_MAX_Y_STEP`, so a free-flight descent is NOT the physics case E1 could not reach — press B
 first and let gravity do it, and confirm from the screen that the camera actually travelled.
+
+## TWO CARRIES FOR REGIONS PART 2 THAT MUST NOT LIVE IN A SESSION — banked 2026-09-16
+
+Both arrived by hub message during the 02:00Z session and are banked here **because a rule that
+lives only in a message is not in force for your successor** — this repo's standing lesson, and
+the whole reason handoff-18 exists. Neither is a finding of this lane's own; provenance is named
+so a later reader can weigh them rather than inherit them.
+
+1. **`Draw_BG_TileRow` IS WRITTEN BAND-AWARE FROM DAY ONE. THIS IS STEP 2's, NOT STEP 1's.**
+   Every band is WRAP at anchor 0 today, so the band lookup returns 0 and the behaviour is
+   identical; big levels' TRACK bands then need no rewrite of the streamer. **Step 1 adds no
+   reader at all**, so a band-aware instruction inside step 1's brief would be a rule arriving a
+   parcel early — the hub proposed it for step 1, this lane placed it at step 2, and the hub
+   accepted the placement (2026-09-16). Source: the part 2 spec §1a item 1 and §4.2; read them
+   at `git -C ../empyrean show origin/main:docs/superpowers/specs/2026-09-14-regions-part-2-design.md`,
+   never through the sibling path.
+
+2. **STEP 6 PLANS AGAINST 1064 B, NOT 536.** `Draw_BG_TileColumn` has zero call sites, so no frame
+   in this ROM emits a BG entry today and the wipe would be the plane buffer's **first BG
+   producer**: 536 (the measured FG peak) + 528 (the wipe's own) = 1064 of 1536. The wipe must
+   append AFTER the FG streamer with its own reservation guard, or `Draw_TileColumn` drops columns
+   **silently**. This is E1's finding, already under its own heading in
+   `docs/superpowers/2026-09-15-aeon-overseer-handoff-18.md`; it is repeated here because a handoff
+   doc is read once at a boot and this file is read at every planning phase.
+   **The trap it defuses:** "peak 536, headroom 1000" invites exactly the opposite inference. The
+   headroom is what the wipe SPENDS, not slack it leaves behind.
+
+**A third item, not a carry but a hazard this lane handed the hub and is recording against
+itself.** A purely additive record change — step 1 is one — can break sigil's `*_port` tests while
+all four build shapes are green, because a **new cross-seam NAME is invisible to a byte-count
+check**. Same class as a green gate indistinguishable from a disconnected one. Step 1's agent is
+instructed to STOP at the seam rather than land across it; the hub is folding the constraint into
+step 10's schema doc and will ask sigil what the cross-seam check is rather than inventing one.
