@@ -755,6 +755,20 @@ async def run(rom_path, lst_path):
         await run_crossing(rig, K, rom, sym, "down", v_start, above, B, eff(above), eff(B),
                            "VERTICAL", fails)
         await run_control(rig, K, rows, act_bg, ctl_start, c0, c1, "right", fails)
+    except GateError as e:
+        # A REFUSAL LATE IN THE RUN MUST NOT DISCARD THE REDS ALREADY COLLECTED, and it used
+        # to: `fails` was printed after this block, so a premise the gate would not measure
+        # past threw away every failing leg found before it and the whole run reported as a
+        # bare COULD NOT RUN. Found by mutation M3, which is RED on legs RATE and FINAL and
+        # reported none of it. A run with real reds is a FAILING run whatever else it could
+        # not reach, so reds take precedence over the refusal below — that is not rendering
+        # "could not measure" as green, it is refusing to render "measured and red" as
+        # "could not measure".
+        refusal = str(e)
+        if not fails:
+            raise
+        print("\n  REFUSED (a premise this gate will not measure past), after the legs below "
+              "had already gone red:\n    %s" % refusal)
     finally:
         await b.close()
         inst.reap()
