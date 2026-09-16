@@ -58,9 +58,16 @@
 module engine.bg in bg
 
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
-use engine.structs.{Act}
+use engine.constants.{SCREEN_HEIGHT}
+use engine.structs.{Act, Region}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 use engine.z80_bus.{z80_stopped}
+// Regions part 2 step 5. The streamer reads the clamped map-space BG scroll that
+// Parallax_Step5_Vscroll produced THIS frame, and its per-frame row budget is
+// derived from that step's rate clamp rather than chosen. engine.parallax does
+// not import this module, so the edge is acyclic.
+use engine.parallax.{BG_VSCROLL_ROW_PX, BG_VSCROLL_MAX_STEP}
+use engine.plane_buffer.{Draw_BG_TileRow}
 
 // `pub` because it is a CONTRACT, not an internal: the act's BG blob must be
 // exactly this long, and games/sonic4/data/levels/ojz/act1/act_assets.emp now
@@ -246,6 +253,196 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
     .skip_nt:
         move.w  (sp)+, sr               // restore interrupt mask
         movem.l (sp)+, a3
+        rts
+}
+
+// ===========================================================================
+// THE STEADY-STATE ROW STREAMER (regions part 2, step 5; spec §4.2, "Steady-state
+// streaming"). Plane B stops being the whole background picture and becomes a
+// 64-row WINDOW onto a taller map, exactly the way Plane A is already "a 64-cell
+// ring the world wraps through" (engine/level/section.emp).
+//
+// THE RING IS FREE, AND THAT IS THE ONE FACT TO READ FIRST. The VDP maps screen
+// line L to plane line (L + vscroll) mod PLANE_B_SPAN, so the plane row showing
+// map row m is ALWAYS m mod PLANE_V_CELLS — no extra arithmetic, no rebasing, no
+// mapping table. The whole of streaming is therefore one question: which 64
+// consecutive MAP rows does the plane currently hold? That number is
+// `BG_Plane_Top` and this proc is its only mover after the two synchronous blits
+// seed it.
+//
+// ---- THE WINDOW RULE, AND ITS CONTAINMENT PROOF ----
+//
+//   want_top = clamp( (vscroll >> 3) - BG_STREAM_LEAD_ROWS,  0,  map_rows - PLANE_V_CELLS )
+//
+// It is ANCHORED ON THE SCROLL, not hysteretic ("move only when a visible row
+// falls off"). Both keep the picture correct; the anchored form was chosen for
+// three reasons and the third is the one that matters:
+//   1. No direction state and no edge cases — one formula, both ways.
+//   2. The lead is centred, so there is slack in BOTH directions. A hysteretic
+//      tracker has ZERO slack in the direction of travel by construction: the row
+//      that must be drawn is the row that just became visible, so a single
+//      refused entry (plane buffer full that frame) is a garbage row ON SCREEN.
+//      With a centred lead a refusal is invisible and self-heals next frame.
+//   3. It absorbs a region crossing. Cross into a row whose map is taller and
+//      `max_top` jumps 0 -> 32 in one frame, so `want_top` can jump by up to the
+//      lead at once. The containment proof below holds at every intermediate
+//      `BG_Plane_Top` on the way, so the catch-up is invisible rather than being
+//      a tear that step 6's wipe has to hide.
+//
+// CONTAINMENT, derived (this is what the three `ensure`s below pin). The screen
+// shows map rows [vrow, vbot] where vrow = vscroll >> 3 and vbot <= vrow +
+// BG_SCREEN_ROWS - 1. The plane holds [top, top + PLANE_V_CELLS - 1]. Need
+// top <= vrow and top + PLANE_V_CELLS - 1 >= vbot, i.e.
+//     0 <= BG_STREAM_LEAD_ROWS <= PLANE_V_CELLS - BG_SCREEN_ROWS.
+// At the low clamp (top = 0): vrow <= LEAD, so vbot <= LEAD + ROWS-1 <= 63. At the
+// high clamp (top = map_rows - PLANE_V_CELLS): the largest legal vscroll is
+// span - SCREEN_HEIGHT (Parallax_Step5_Vscroll's position clamp), whose vbot is
+// exactly map_rows - 1 = top + PLANE_V_CELLS - 1. The two clamps meet the two
+// bounds EXACTLY, which is why the position clamp of step 4 had to land first.
+//
+// ---- WHY IT CANNOT FALL BEHIND, WHICH IS STEP 4's RATE CLAMP DOING THIS JOB ----
+// `want_top` is a monotone function of `vscroll` with slope 1/8, and step 4 bounds
+// |dvscroll| by BG_VSCROLL_MAX_STEP per frame. So |dwant_top| <= BG_VSCROLL_MAX_STEP
+// / BG_VSCROLL_ROW_PX = BG_STREAM_MAX_ROWS rows per frame, which is exactly this
+// proc's per-frame budget. The tracker therefore NEVER accumulates debt: it is not
+// "fast enough in practice", it is bounded by construction, and the `ensure` below
+// is what keeps the two constants tied together if either moves.
+//
+// ---- WHAT THIS PROC DOES NOT DO, named so a green is not misread ----
+// It is the STEADY-STATE half only. A PRIME — the plane holding the wrong window
+// outright — is not reachable from here at 2 rows a frame, and there is one path
+// that can produce one: `Section_RedrawPlanes` (cache recovery, and the DEBUG warp)
+// re-blits map rows 0..63 and re-seeds `BG_Plane_Top` to 0 whatever the scroll is.
+// On every map that is exactly the plane's height that is a no-op; on a TALLER map
+// with the scroll away from the top it leaves a wrong window that this proc walks
+// back at BG_STREAM_MAX_ROWS rows a frame. That is the BG-PLANE-WINDOW item booked
+// in docs/DEFERRED_WORK.md (step 3 opened it, step 8 makes it mandatory) and it is
+// NOT closed here: closing it means a windowed two-run blit at both writers, and
+// the number it needs does not exist at `BG_Init` (Parallax_Init runs after both
+// blits and zeroes the scroll, so a window computed there reads a stale value).
+// The step-5 gate procedure therefore flies the camera; it does not warp.
+// ===========================================================================
+
+// One nametable row in pixels. Taken from parallax rather than re-spelled: the
+// scroll this proc reads is stated in the same units, and BG_VSCROLL_ROW_PX
+// already carries the ensure tying it to the plane's own cell height.
+pub const BG_STREAM_ROW_PX   = BG_VSCROLL_ROW_PX
+// Map rows the screen can touch at once: 224/8 = 28 whole rows, plus one because
+// a window origin is not row-aligned, so 29 rows are partially visible at worst.
+pub const BG_SCREEN_ROWS     = SCREEN_HEIGHT / BG_STREAM_ROW_PX + 1
+// Rows the plane holds that the screen cannot show — the total slack available.
+pub const BG_STREAM_SPARE_ROWS = PLANE_V_CELLS - BG_SCREEN_ROWS
+// Half of it above the screen, the rest below. CENTRED, not maximal on either
+// side: see reason 2 and reason 3 in the header.
+pub const BG_STREAM_LEAD_ROWS  = BG_STREAM_SPARE_ROWS / 2
+// The per-frame row budget, DERIVED from step 4's rate clamp and not tuned.
+pub const BG_STREAM_MAX_ROWS   = BG_VSCROLL_MAX_STEP / BG_STREAM_ROW_PX
+
+ensure(BG_STREAM_SPARE_ROWS > 0,
+       "engine/level/bg.emp: the Plane B ring holds {PLANE_V_CELLS} rows and the screen can touch {BG_SCREEN_ROWS} of them at once, so there is no slack at all (BG_STREAM_SPARE_ROWS = {BG_STREAM_SPARE_ROWS}). BG_Stream_Update's containment proof needs at least one spare row; at zero or below the plane cannot hold the visible window plus any lead and every streamed row would be one the screen is already showing")
+ensure(BG_STREAM_LEAD_ROWS >= 0 && BG_STREAM_LEAD_ROWS <= BG_STREAM_SPARE_ROWS,
+       "engine/level/bg.emp: BG_STREAM_LEAD_ROWS is {BG_STREAM_LEAD_ROWS}, outside [0, {BG_STREAM_SPARE_ROWS}]. That range IS the containment proof in BG_Stream_Update's header: below 0 the window starts under the screen top and the topmost visible rows hold the wrong map row; above the spare the window ends above the screen bottom and the bottom rows do. Neither shows as a build error and both look like a torn background")
+ensure(BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX >= BG_VSCROLL_MAX_STEP,
+       "engine/level/bg.emp: BG_Stream_Update can move the window {BG_STREAM_MAX_ROWS} row(s) = {BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX} px a frame, but engine/level/parallax.emp's rate clamp lets the BG scroll move {BG_VSCROLL_MAX_STEP} px a frame. The tracker would fall further behind on every frame of a sustained vertical run and NEVER catch up — the window lags, the lead is eaten, and the background tears at the trailing edge with nothing in the build to say so. Either raise BG_VSCROLL_MAX_STEP_ROWS' partner here or lower the rate clamp")
+ensure(BG_STREAM_MAX_ROWS >= 1,
+       "engine/level/bg.emp: BG_STREAM_MAX_ROWS is {BG_STREAM_MAX_ROWS} — the streamer is allowed no rows at all, so BG_Plane_Top can never move and a map taller than the plane would show its first {PLANE_V_CELLS} rows forever while the scroll ran past them")
+
+// -----------------------------------------------
+// BG_Stream_Update — move the Plane B window to follow this frame's BG scroll.
+//
+// In:  nothing. Reads Region_Current (the crossing's cache), that row's
+//      rg_bg_span, Parallax_Current_Vscroll_BG (map space, already clamped by
+//      Parallax_Step5_Vscroll THIS frame) and BG_Plane_Top.
+// Out: nothing. Appends up to BG_STREAM_MAX_ROWS row entries to Plane_Buffer and
+//      advances BG_Plane_Top by one per ADMITTED entry.
+//
+// CALL IT AFTER Parallax_Update AND BEFORE VBlank. Both halves matter: the scroll
+// it reads is the one Step 5 just produced, and the row entries it appends drain
+// in the SAME VBlank as the VSRAM word (VInt_DrawLevel and Vscroll_Write are both
+// in the VBlank handler), so the new rows and the scroll that reveals them reach
+// the hardware together. A tracker run before Parallax_Update would be one frame
+// stale in a way the lead hides — which is worse than a tear, because it would
+// only appear when the lead was already spent.
+//
+// EVERY SHIPPED RELEASE ROW LEAVES EARLY, at the second test: all of OJZ act 1's
+// ten release rows take rg_bg_span = 0. The proc costs them 16 bytes of fetch and
+// an rts, and moves no window, which is what "nothing visible changes before step
+// 6" means on the release shape.
+// -----------------------------------------------
+pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
+        // -- the region, READ and not re-resolved: Parallax_CheckBoundary wrote
+        //    this cell earlier in the SAME frame, against the same camera. Null
+        //    until the first crossing resolves, and null means the act default,
+        //    which means the map is the plane, which means nothing to do. --
+        movea.l Region_Current, a0
+        cmpa.w  #0, a0
+        beq     .done
+
+        // -- max_top = map rows - PLANE_V_CELLS. A 0 span is the act default (the
+        //    plane's own height) and a map no taller than the plane has a
+        //    one-position window, so both leave with the window where it is. --
+        move.w  Region.rg_bg_span(a0), d0           // (Region.rg_bg_span)(a0)
+        beq     .done                               // 0 = the act default
+        lsr.w   #3, d0                              // span px -> map rows (BG_STREAM_ROW_PX)
+        subi.w  #PLANE_V_CELLS, d0
+        ble     .done                               // map is not taller than the plane
+        move.w  d0, d3                              // d3 = max_top
+
+        // -- want_top = clamp(vrow - LEAD, 0, max_top). The scroll is non-negative
+        //    on every path (step 4's position clamp floors it at 0), so lsr is the
+        //    right shift and the only sign question is the subtraction below. --
+        move.w  Parallax_Current_Vscroll_BG, d6     // (Parallax_Current_Vscroll_BG).w
+        lsr.w   #3, d6                              // -> the top visible MAP row
+        subi.w  #BG_STREAM_LEAD_ROWS, d6
+        bpl     .want_hi
+        moveq   #0, d6                              // near the map top: no room for the lead
+    .want_hi:
+        cmp.w   d3, d6
+        ble     .want_ok
+        move.w  d3, d6                              // near the map bottom: ditto
+    .want_ok:
+        // -- direction and budget. THE ORDER HERE IS LOAD-BEARING: moveq writes the
+        //    condition codes, so both moveq must precede the cmp whose flags the
+        //    beq and the blt read. Written the other way round the blt tests the
+        //    moveq's result and the streamer walks the window the wrong way. --
+        move.w  BG_Plane_Top, d4                    // (BG_Plane_Top).w — where it is
+        moveq   #BG_STREAM_MAX_ROWS, d5             // rows left to spend this frame
+        moveq   #1, d7                              // step: downward (top increasing)
+        cmp.w   d6, d4
+        beq     .done                               // already there — the common case
+        blt     .loop
+        moveq   #-1, d7                             // upward (top decreasing)
+    .loop:
+        // -- the map row ENTERING the window. Going down the window [T, T+63]
+        //    becomes [T+1, T+64], so the new row is T + PLANE_V_CELLS; going up it
+        //    becomes [T-1, T+62] and the new row is T - 1. --
+        move.w  d4, d1
+        tst.w   d7
+        bmi     .ent_up
+        addi.w  #PLANE_V_CELLS, d1
+        jbra    .ent_ok
+    .ent_up:
+        subq.w  #1, d1
+    .ent_ok:
+        move.w  d1, d0
+        andi.w  #PLANE_V_CELLS-1, d0                // plane row = map row mod the ring
+        moveq   #0, d2                              // the band's layout X: part 2's bands
+                                                    //   are all WRAP over a map exactly as
+                                                    //   wide as the plane, where the anchor
+                                                    //   is structurally 0 (Draw_BG_TileRow)
+        jbsr    Draw_BG_TileRow                     // d0 = 1 admitted, 0 refused
+        tst.w   d0
+        beq     .done                               // REFUSED: do not advance the window.
+                                                    //   The cursor advances on 1 and only on
+                                                    //   1 — that contract is the whole reason
+                                                    //   this producer returns anything.
+        add.w   d7, d4
+        move.w  d4, BG_Plane_Top                    // (BG_Plane_Top).w
+        cmp.w   d6, d4
+        beq     .done
+        subq.w  #1, d5
+        bne     .loop
+    .done:
         rts
 }
 
