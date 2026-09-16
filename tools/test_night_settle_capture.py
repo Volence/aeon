@@ -281,11 +281,24 @@ def test_the_tool_declares_every_extra_symbol_it_reads():
     assert read <= set(nsc.EXTRA_SYMBOLS), read - set(nsc.EXTRA_SYMBOLS)
 
 
+def test_check_mode_needs_no_emulator_symbol():
+    """--check must be reachable without any emulator import having to succeed at call time:
+    it is the half of the failure surface a headless session can exercise, and the half the
+    owner should run first on a new ROM/listing pair."""
+    src = Path(HERE, "night_settle_capture.py").read_text()
+    body = src.split("def premise(")[1].split("\nasync def run")[0]
+    for forbidden in ("BusClient", "aether_emulator", "rig.", "emulator/"):
+        assert forbidden not in body, (
+            f"premise() touches {forbidden!r} — --check would need an emulator, and the one "
+            "thing it is for is not needing one")
+    assert "premise(args.rom, args.lst)" in src.split("if args.check:")[1].split("try:")[0]
+
+
 def test_the_help_text_names_every_option_and_both_exit_codes():
     src = Path(HERE, "night_settle_capture.py").read_text()
     doc = nsc.__doc__
     assert "Exit 0" in doc and "2  COULD NOT RUN" in doc
-    for opt in ("--rom", "--lst", "--outdir", "--settled-frames"):
+    for opt in ("--rom", "--lst", "--outdir", "--settled-frames", "--check"):
         assert f'"{opt}"' in src, opt
     # every add_argument carries a help= (the owner drives this without reading the source)
     assert src.count("ap.add_argument(") == src.count("help=")

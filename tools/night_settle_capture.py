@@ -199,7 +199,14 @@ def build_report(args_rom: str, args_lst: str, rom_md5: str, edge: int, fade: di
     }
 
 
-async def run(args, sock) -> int:
+def premise(rom_path: str, lst_path: str) -> dict:
+    """Everything this capture needs to be true BEFORE an emulator is started, checked with
+    no emulator: the engine derivation, the symbols, and the act table's own geometry.
+
+    Pure and offline, which is what `--check` runs and what lets a non-emulator session (and
+    the offline test suite) exercise every refusal below against a real ROM + listing pair.
+    Every refusal NAMES the thing that moved: an empty run that looks like a finding is the
+    exact failure mode this parcel exists to remove."""
     facts = cs.derive_engine_facts(AEON)
     fly = rfw.src_const("games/sonic4/player/player_common.emp", "PLAYER_DEBUG_FLY_SPEED")
     half_w = rfw.src_const("engine/system/constants.emp", "CAM_SCREEN_HALF_W")
@@ -207,34 +214,35 @@ async def run(args, sock) -> int:
     edge = rfw.src_const("games/sonic4/data/levels/ojz/act1/act_descriptor.emp", "OJZ_NIGHT_X0")
     ep = rfw.preset_offsets()
 
-    sym = rfw.parse_lst(args.lst)
+    sym = rfw.parse_lst(lst_path)
     for need in ("GameState_OJZScroll_Init", "GameState_OJZScroll_Update", "Camera_X",
                  "Camera_Y", "Region_Current", "Pal_Fade_Frames", "Pal_Fade_Request",
                  "Pal_Active", "Pal_Target", "Palette_Buffer", "Logic_Tick", "Frame_Counter",
                  "Lag_Frame_Count", "OJZ_Act1_Descriptor") + EXTRA_SYMBOLS:
         if need not in sym:
-            raise rfw.SetupError(f"symbol {need} is not in {args.lst} — this tool needs the "
+            raise rfw.SetupError(f"symbol {need} is not in {lst_path} — this tool needs the "
                                  "sonic4 DEBUG listing")
 
-    rom = Path(args.rom).read_bytes()
-    rows = region_table.read_regions(rom, sym["OJZ_Act1_Descriptor"])
+    rom = Path(rom_path).read_bytes()
+    try:
+        rows = region_table.read_regions(rom, sym["OJZ_Act1_Descriptor"])
+    except region_table.LayoutError as e:
+        raise rfw.SetupError(str(e)) from e
 
     def u16(a): return int.from_bytes(rom[a:a + 2], "big")
     def u32(a): return int.from_bytes(rom[a:a + 4], "big")
     for r in rows:
-        p = r["effects"]
-        r["transition"] = u16(p + ep["ep_transition"])
-        r["pal_ptr"] = u32(p + ep["ep_pal"])
-        r["raster_ptr"] = u32(p + ep["ep_raster"])
+        pr = r["effects"]
+        r["transition"] = u16(pr + ep["ep_transition"])
+        r["pal_ptr"] = u32(pr + ep["ep_pal"])
+        r["raster_ptr"] = u32(pr + ep["ep_raster"])
         r["pal"] = [u16(r["pal_ptr"] + 2 * n) for n in range(48)]
 
-    # ---- the premise. Every refusal below names the thing that moved, because an empty run
-    # ---- that looks like a finding is the failure mode this whole parcel is about.
     y_c = 256                                   # the DEBUG spawn's flight line
     fade = next((r for r in rows if r["x0"] == edge and r["y0"] <= y_c <= r["y1"]), None)
     if fade is None:
         raise rfw.SetupError(
-            f"no region row in {args.rom} starts at x = {edge} (OJZ_NIGHT_X0) on the spawn's "
+            f"no region row in {rom_path} starts at x = {edge} (OJZ_NIGHT_X0) on the spawn's "
             f"flight line y = {y_c}. The night region has moved or left the act table "
             "(games/sonic4/data/levels/ojz/act1/act_descriptor.emp).")
     if fade["transition"] == 0:
@@ -260,6 +268,20 @@ async def run(args, sock) -> int:
             "perfectly stable frame to frame while the picture is not the palette. The "
             "settle predicate cannot see that, so this tool refuses rather than name frames "
             "it cannot vouch for. (capture_settle.py's header, last section.)")
+
+    d = rfw.channel_distance(left["pal"], fade["pal"])
+    return {"facts": facts, "fly": fly, "half_w": half_w, "half_h": half_h, "edge": edge,
+            "sym": sym, "rom": rom, "rows": rows, "fade": fade, "left": left,
+            "distance_from_the_left_regions_palette": d,
+            "k_arrival_predicted": (2 * d - 1) if d else 0,
+            "ceiling": None}
+
+
+async def run(args, sock) -> int:
+    pre = premise(args.rom, args.lst)
+    facts, fly, half_w, half_h = pre["facts"], pre["fly"], pre["half_w"], pre["half_h"]
+    edge, sym, rom, rows = pre["edge"], pre["sym"], pre["rom"], pre["rows"]
+    fade, left = pre["fade"], pre["left"]
 
     out = Path(args.outdir)
     out.mkdir(parents=True, exist_ok=True)
@@ -497,6 +519,14 @@ def main() -> int:
     ap.add_argument("--outdir", default="docs/captures/2026-09-16-night-settled",
                     help="where the frames, report.json and README.md go "
                          "(default: %(default)s). Created if absent.")
+    ap.add_argument("--check", action="store_true",
+                    help="run every premise this capture depends on and EXIT, without "
+                         "starting an emulator: the engine derivation N is read from, the "
+                         "symbols, the act's region table, and the four refusals (the night "
+                         "row exists at OJZ_NIGHT_X0, it arms a fade, its neighbour binds a "
+                         "different palette, it binds Raster_Program_None). Run this first "
+                         "on any new ROM/listing pair — it costs no emulator and it is the "
+                         "half of the failure surface a headless session can reach.")
     ap.add_argument("--settled-frames", type=int, default=3, metavar="N",
                     help="stop after N consecutive ticks whose verdict is `settled` "
                          "(default: %(default)s). More than one because a single settled "
@@ -506,6 +536,36 @@ def main() -> int:
     if args.settled_frames < 1:
         print("night_settle_capture: --settled-frames must be at least 1", file=sys.stderr)
         return 2
+    if args.check:
+        try:
+            pre = premise(args.rom, args.lst)
+        except (rfw.SetupError, cs.DerivationError) as e:
+            print(f"night_settle_capture --check: WOULD NOT RUN — {e}", file=sys.stderr)
+            return 2
+        f, fade, left = pre["facts"], pre["fade"], pre["left"]
+        cap = ceiling_ticks(f.fade_frames_const, f.stable_ticks, args.settled_frames)
+        print(f"night_settle_capture --check: every premise holds for {args.rom} / {args.lst}")
+        print(f"  night region      row {fade['index']}, x {fade['x0']}..{fade['x1']}, "
+              f"y {fade['y0']}..{fade['y1']}, ep_transition {fade['transition']}")
+        print(f"  left neighbour    row {left['index']}, x {left['x0']}..{left['x1']} "
+              "(a DIFFERENT ep_pal, so a colour does move)")
+        print(f"  raster program    Raster_Program_None — no mid-frame CRAM write to defeat "
+              "the settle predicate")
+        print(f"  channel distance  d = {pre['distance_from_the_left_regions_palette']} from "
+              "the left region's ep_pal, so the step rule predicts the palette arrives at "
+              f"compose k = {pre['k_arrival_predicted']}")
+        print(f"                    (this is a PREDICTION from the AUTHORED palettes. The run "
+              "measures d from the LIVE buffer at the arm and reports both; the NAMES never "
+              "come from either.)")
+        print(f"  settle window     N = {f.stable_ticks} consecutive identical-CRAM samples "
+              f"(PAL_FADE_FRAMES = {f.fade_frames_const}, mask ${f.chan_mask:04X})")
+        print(f"  ceiling           {cap} ticks past the arm = "
+              f"{cap * pre['fly']} px at {pre['fly']} px/tick, against a "
+              f"{fade['x1'] - fade['x0'] + 1} px region")
+        print("  NOT CHECKED HERE, and only a live run can: that these symbols read the "
+              "values they name, that the route still boots into free flight, and that the "
+              "screenshot is the frame this tool's header says it is.")
+        return 0
     try:
         # aether_emulator is a SYNC context manager spawned OUTSIDE asyncio.run — the proven
         # idiom for a headless one-shot capture (tools/e2_snap_capture.py, band_capture.py).
