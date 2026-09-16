@@ -34480,3 +34480,25 @@ Method note for whoever re-runs it: the fall must be a REAL fall. In the DEBUG s
 boots into free flight at `PLAYER_DEBUG_FLY_SPEED` = 16 px/frame, which is already
 `CAM_MAX_Y_STEP`, so a free-flight descent is NOT the physics case E1 could not reach — press B
 first and let gravity do it, and confirm from the screen that the camera actually travelled.
+
+## CITATION-LIVE-LINE — the `.emp:LINE` gate asks "is that line alive", not "is that the line" (found 2026-09-15, `parcel/regions-p2-step1`)
+
+`tools/test_citation_form.py::test_live_citations_resolve_to_something` failed on regions part 2
+step 1 with `docs/ART_PIPELINE_CONTRACT.md:965 cites engine/structs.emp:145 -- bare delimiter`.
+**The citation was already wrong before the parcel touched anything.** At `70c302ed`,
+`engine/structs.emp:145` was a Page-frame comment, not the `struct Sec` the prose says it names
+(`struct Sec` was at :194 there and is at :219 now). The gate passed on it because its predicate
+is `_dead()` — the cited line must not be blank or a bare delimiter. A comment is alive, so a
+citation that has drifted onto ANY live line is invisible to it. Step 1's comment block pushed
+this one two lines further, onto `}`, and only then did it go red.
+
+Fixed at the site the way the gate's own message prescribes (`engine/structs.emp`, `struct Sec`
+— cite by name), so nothing is outstanding for that one line. **What is booked is the gate's
+reach:** 340 live citations are checked for a referent and none for the RIGHT referent, so the
+population of silently-drifted line numbers in this tree is unmeasured and is not zero. A
+cheap strengthening exists for the subset that names a symbol in the same sentence — require the
+cited line to be inside that symbol's declaration — but it is not written, and nobody should read
+this gate's green as evidence that a line citation points where its prose says.
+
+**Not a blocker for anything; it is a sharpness defect in a gate that is otherwise doing real
+work** (it is the reason the drift surfaced at all).
