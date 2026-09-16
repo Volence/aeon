@@ -1,12 +1,6 @@
 {
-  "focus": "Building the background changeover when you cross between two areas -- the first thing this run that you will see.",
-  "inFlight": [
-    {
-      "what": "The backdrop repaint when the camera crosses into an area with a different sky, spread over frames instead of done in one jolt",
-      "where": "branch parcel/regions-p2-step6",
-      "agent": true
-    }
-  ],
+  "focus": "The backdrop now changes over when you cross between areas. Landed; the content to show it off does not exist yet.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,15 +8,8 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the agent returns and its work is judged and landed. Seeing the changeover is then yours or mine to fly.",
+  "nextBoundary": "Here. Nothing running, nothing half-applied. The next row is startable from the repo alone.",
   "queue": [
-    {
-      "id": "REGIONS-P2-STEP6",
-      "title": "The wipe when you cross between two regions -- the first step of this run where anything looks different on screen. Your snap-versus-fade answer unblocked it",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "REGIONS-EMIT-BINDINGS",
       "title": "Switch act 1 over to the editor's region file for real. The emitter landed and is wired but deliberately inert; this is the re-keying behind it, priced at 87 sites across 14 files",
@@ -52,7 +39,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T15:08:45Z"
+  "awaiting": "your eye on the changeover if you want it (route is in the log), though it is one column of tiles until a second backdrop is authored. Also still yours: the spring sound A/B from 09-09.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T16:05:23Z"
 }
