@@ -3703,9 +3703,11 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
                       f"and NO HEIGHT, so the one check only this generator can make — a "
                       f"span equals its referenced layout's height — has nothing to compare "
                       f"against, and a span is never authored by hand. And the region "
-                      f"emitter fills neither field: `render_region_table` writes rg_x0, "
-                      f"rg_x1, rg_y0, rg_y1 and rg_effects and refuses a row with a "
-                      f"non-default `bg` rather than lowering one. So a named layout would "
+                      f"emitter writes both fields as the ZERO SENTINEL and never from a "
+                      f"document: `render_region_table` spells every declared field of "
+                      f"`struct Region` (a literal takes no declaration defaults) and "
+                      f"refuses a row with a non-default `bg` rather than lowering one. "
+                      f"So a named layout would "
                       f"be accepted here and dropped — the `bgLayoutRef` failure the "
                       f"synthesis booked. Refused rather than accepted-and-dropped, so the "
                       f"author learns at the build instead of from a picture that never "
@@ -4071,14 +4073,37 @@ def region_struct_fields(repo: str = REPO) -> list:
     return re.findall(r"^\s*(\w+)\s*:", m.group(1), re.M)
 
 
-# The four geometry fields plus the effects binding: every column this emitter can fill
-# from a document TODAY. Checked against `struct Region`'s real field list, so an engine
-# rename refuses here instead of emitting a literal with a stale field name. The three
-# fields it does NOT write — `rg_parallax`, `rg_bg_layout`, `rg_bg_span` — each carry an
-# `= 0` default in the declaration, which is what makes omitting them legal; a row that
-# WANTS a non-default value for any of them is refused by `_refuse_unlowerable_bindings`
-# rather than quietly taking the default.
-REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects")
+# EVERY DECLARED FIELD OF `struct Region`, and the completeness is the point rather than
+# the list. Checked against the real declaration in both directions, so an engine RENAME
+# refuses here instead of emitting a literal with a stale field name, and an engine field
+# ADDED refuses here instead of emitting a literal that is missing one.
+#
+# ⚠ CORRECTED 2026-09-16 BY THE FIRST ASSEMBLY OF THIS TEXT, AND THE OLD COMMENT WAS A
+# MEASURED FALSEHOOD. It read: *"The three fields it does NOT write — `rg_parallax`,
+# `rg_bg_layout`, `rg_bg_span` — each carry an `= 0` default in the declaration, which is
+# what makes omitting them legal."* Omitting them is NOT legal. The emitter's own banner
+# said in capitals that nothing had ever assembled its output; the first act to flip put
+# it through sigil and got, per row, per omitted field:
+#
+#     [Error] [struct.missing-field] struct Region: field `rg_parallax` was not
+#     provided, give it a value, or write `rg_parallax: default` to take its
+#     declared default
+#
+# A declared `= 0` default is what lets a `comptime fn` PARAMETER be omitted at a call —
+# which is how `ojz_region(...)` reaches the same three fields — and it is not applied to
+# a struct LITERAL. 150 errors, 10 rows, exit 1.
+#
+# AND THE SPELLING THAT DIAGNOSTIC PRESCRIBES IS REFUSED BY THE NEXT ONE, in this module:
+# `rg_parallax: default` in the emitted (section-less, map.toml-absent) module answers
+# ``[Error] `Region` is not a declared struct, `rg_parallax: default` has no declared
+# default to take`` — while the identical spelling in the PLACED act descriptor builds and
+# takes the default. Both measured against sigil `7a32fa1c` on 2026-09-16. Which of the
+# two differences decides it (no `in <section>` clause, or absent from `map.toml`) is NOT
+# isolated here and is not this repo's to fix; it is reported to sigil. The emitter writes
+# explicit values, which is correct under either answer and is what a reader of a generated
+# table wants to see anyway.
+REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects",
+                         "rg_parallax", "rg_bg_layout", "rg_bg_span")
 
 
 def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
@@ -4105,7 +4130,9 @@ def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
         # THE BACKGROUND HALF, AND IT IS UNREACHABLE TODAY ON PURPOSE. `_check_region_bg`
         # refuses every `bg.layoutRef` but the act sentinel and every typed `span`, so no
         # row can reach here with a non-default background. It is written anyway because
-        # the emitter's row line fills FIVE parameters and the constructor takes seven: the
+        # the emitter's row line writes `rg_bg_layout: 0, rg_bg_span: 0` UNCONDITIONALLY —
+        # it has to write them at all (a struct literal takes no declaration default), and
+        # what it writes is the sentinel, never the document. So the
         # day that refusal opens (REGIONS-BG-GOLDEN-GAP), a named layout would be validated,
         # flattened, and then DROPPED HERE IN SILENCE — which is the `bgLayoutRef` failure
         # the synthesis booked, arriving one layer further in. A refusal that cannot fire is
@@ -4209,6 +4236,26 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
                 f"rows that cannot compile. Refusing here names the engine declaration; "
                 f"emitting anyway would name a generated file nobody edits. "
                 f"tools/region_table.py reads the same declaration for the ROM side.")
+    # THE OTHER DIRECTION, AND IT IS THE ONE THAT WAS MISSING WHEN THE EMITTED TEXT WOULD
+    # NOT ASSEMBLE. A struct literal must provide EVERY declared field — a declared `= 0`
+    # is a default for a comptime-fn PARAMETER, not for a literal (see the
+    # REGION_EMITTED_FIELDS banner for the 150-error measurement). So a field ADDED to the
+    # engine declaration and not taught to this emitter is not a smaller table, it is a
+    # table that cannot compile, discovered by whoever next flips an act rather than here.
+    # Derived from the declaration, never from a typed list: adding `rg_foo` to
+    # `struct Region` refuses this generator by name on the next bake.
+    unwritten = [f for f in fields if f not in REGION_EMITTED_FIELDS]
+    if unwritten:
+        _refuse("engine/structs.emp",
+                f"`pub struct Region` declares {', '.join(unwritten)}, which this "
+                f"generator does not write. A struct LITERAL must provide every declared "
+                f"field — the `= 0` in the declaration defaults a `comptime fn` parameter, "
+                f"not a literal's field, measured 2026-09-16 at the first assembly of an "
+                f"emitted region table (150 errors over 10 rows). Emitting anyway would "
+                f"produce a generated module that cannot compile, and the error would land "
+                f"on a file nobody edits. Teach REGION_EMITTED_FIELDS and the row line in "
+                f"`render_region_table` what the new field means, or give it a documented "
+                f"reason to be omitted.")
     _refuse_unlowerable_bindings(rows, doc_rel)
 
     prefix = names.cap.upper()                       # OJZ_ACT1
@@ -4235,9 +4282,14 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
     width = max((len(str(r["x1"])) for r in rows), default=1)
     pw = max((len(r["preset"]) for r in rows), default=1)
     for r in rows:
+        # EVERY DECLARED FIELD, EXPLICITLY — see the REGION_EMITTED_FIELDS banner. The
+        # three zeros are the engine's own sentinels ("defer to the preset's parallax",
+        # "show the act's background", "the act's own span"), written out rather than
+        # left to a declaration default a struct literal does not take.
         out.append(f"    Region{{ rg_x0: {r['x0']:>{width}}, rg_x1: {r['x1']:>{width}}, "
                    f"rg_y0: {r['y0']:>{width}}, rg_y1: {r['y1']:>{width}}, "
-                   f"rg_effects: {r['preset'] + ' },':<{pw + 3}}  "
+                   f"rg_effects: {r['preset'] + ',':<{pw + 1}} rg_parallax: 0, "
+                   f"rg_bg_layout: 0, rg_bg_span: 0 }},  "
                    f"// row {r['index']} — {r['id']}")
     out.append("]")
     out.append("")

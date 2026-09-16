@@ -679,7 +679,8 @@ class TestRegionTableEmitter(RegionSandbox):
         _path, text = self.emit()
         calls = re.findall(
             r"Region\{ rg_x0:\s*(\d+), rg_x1:\s*(\d+), rg_y0:\s*(\d+), "
-            r"rg_y1:\s*(\d+), rg_effects: (\w+) \},", text)
+            r"rg_y1:\s*(\d+), rg_effects: (\w+),\s*rg_parallax: 0, "
+            r"rg_bg_layout: 0, rg_bg_span: 0 \},", text)
         self.assertEqual(len(calls), len(golden_rows()))
         for call, want in zip(calls, golden_rows()):
             x0, x1, y0, y1, preset = call
@@ -821,6 +822,72 @@ class TestRegionTableEmitter(RegionSandbox):
         msg = str(cm.exception)
         self.assertIn("rg_x0", msg)
         self.assertIn("engine/structs.emp", msg)
+
+    def test_every_declared_region_field_is_written_by_every_row(self):
+        """A STRUCT LITERAL TAKES NO DECLARATION DEFAULTS, measured the hard way.
+
+        Until 2026-09-16 this emitter wrote five of `struct Region`'s eight fields and its
+        own banner explained that the other three "each carry an `= 0` default in the
+        declaration, which is what makes omitting them legal". Nothing had ever assembled
+        the text — the banner said so, in capitals — and when the first act flipped, sigil
+        answered with 150 `[struct.missing-field]` errors over ten rows. A declared `= 0`
+        defaults a `comptime fn` PARAMETER, which is how `ojz_region(...)` reaches the same
+        three fields; it does not default a literal's field.
+
+        THE EXPECTATION IS DERIVED FROM `engine/structs.emp`, never typed here: this reads
+        the declaration the way the generator does and requires every field of it to appear
+        in every emitted row. Add `rg_foo` to the engine struct and this fails, which is the
+        whole point — the old shape could not fail, because the list it checked against was
+        the same list it emitted from.
+        """
+        _path, text = self.emit()
+        fields = effects_gen.region_struct_fields(repo=self.repo)
+        self.assertGreaterEqual(len(fields), 5, "read no fields from the declaration — "
+                                                "a green here would be vacuous")
+        rows = [ln for ln in text.splitlines() if ln.lstrip().startswith("Region{")]
+        self.assertEqual(len(rows), len(golden_rows()))
+        # AGGREGATED, NOT SHORT-CIRCUITED, and the first draft of this test was the other
+        # way. A per-field `assertIn` inside the loop raises on the FIRST omission, so a
+        # subject missing four fields reported exactly as much as one missing one — the
+        # gate got no louder as the subject got more broken, which is the failure family
+        # this repo keeps finding in its own gates. Checked by mutation: dropping
+        # `rg_parallax` alone reports 10 misses, dropping `rg_y1` as well reports 20.
+        misses = [f"row {i}: `{f}`" for i, ln in enumerate(rows)
+                  for f in fields if f"{f}:" not in ln]
+        self.assertEqual(misses, [],
+                         f"{len(misses)} emitted field omission(s) across {len(rows)} "
+                         f"row(s); `pub struct Region` declares {len(fields)} field(s) and "
+                         f"a struct literal must provide every one of them. "
+                         f"{'; '.join(misses)}\nfirst row as emitted:\n{rows[0]}")
+
+    def test_an_added_engine_field_refuses_the_emission_by_name(self):
+        """The other direction of the same rule, proven by mutating the engine.
+
+        `test_the_struct_fields_are_READ_from_the_engine_not_assumed` proves a RENAMED
+        field refuses. A field ADDED is the case that produced the 150-error build: the
+        emitter went on writing the fields it knew and the result could not compile, on a
+        generated file nobody edits. The refusal has to name the engine declaration and the
+        new field.
+        """
+        eng = os.path.join(self.repo, "engine")
+        real = os.path.realpath(eng)
+        os.unlink(eng)
+        shutil.copytree(real, eng)
+        sp = os.path.join(eng, "structs.emp")
+        with open(sp) as f:
+            src = f.read()
+        self.assertIn("    rg_bg_span:          u16 = 0,", src)
+        with open(sp, "w") as f:
+            f.write(src.replace("    rg_bg_span:          u16 = 0,",
+                                "    rg_bg_span:          u16 = 0,\n"
+                                "    rg_probe_field:      u16 = 0,"))
+        self.write_doc(self.bare_doc())
+        with self.assertRaises(effects_gen.SceneShapeError) as cm:
+            effects_gen.generate_region_table(repo=self.repo)
+        msg = str(cm.exception)
+        self.assertIn("rg_probe_field", msg)
+        self.assertIn("engine/structs.emp", msg)
+        self.assertIn("every declared field", msg)
 
     def test_the_header_says_the_consumer_owes_the_per_row_checks(self):
         """A literal does not go through `ojz_region()`, so it carries none of its ensures.
