@@ -35096,9 +35096,18 @@ The run, in the foreground, with a single Oracle instance:
 export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
 export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
 DEBUG=1 ./build.sh                                   # s4.debug.bin + s4.debug.lst, paired
+python3 tools/night_settle_capture.py --check        # NO emulator: every ROM-side premise
 python3 tools/night_settle_capture.py                # defaults are the night edge
 echo "exit=$?"                                       # 0 settled · 2 could not run / did not settle
 ```
+
+`--check` first, always: it costs no emulator and it covers the whole ROM-side failure
+surface (the region row is where it is, it arms a fade rather than a snap, its neighbour
+binds a different palette, it binds `Raster_Program_None`). Measured against
+`s4.debug.bin` on 2026-09-16 it prints every premise holding, `d = 3` from the AUTHORED
+palettes and a predicted arrival at compose `k = 5`. What it CANNOT check, and what the
+foreground run is for: that those symbols read the values they name, that the route still
+boots into free flight, and that the screenshot is the frame the tool's header says it is.
 
 Exit 2 is **not** an absence of evidence when the ceiling is what stopped it: the frames and
 `report.json` are still written and nothing in them is named `settled`. That is a finding about
