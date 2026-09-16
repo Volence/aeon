@@ -9,6 +9,57 @@ act, so we have to figure out what to do for things like this!"* Several classic
 act card, no fade, no load screen. Each zone brings its own foreground art, background art, palettes
 and parallax.
 
+## 00. ⚠ THE GOAL WAS REFINED BY THE OWNER, 2026-09-16T19:54:03Z — READ THIS BEFORE THE DESIGN BELOW
+
+**Several sections below were written for the WRONG model** (zones in a row, linked by corridors). They are
+kept, not deleted, so the reasoning that changed is visible. **Every section marked REOPENED below is not
+to be implemented as written.**
+
+**His words, verbatim:** *"bg change within a zone for us too. So think about it this way, we have 1 act, 1
+continuous gameplay, and I should be able to get all of sonic 3 into it without stopping to switch zones or go
+to a new zone loading screen or anything. Backgroudns can switch when we go from say emerald hill to chemical
+plant, you can see chemical plant tiles on the ground while heading towards them in emerald hill, etc... Think
+of those zones just as how regions would function. If we wanted to stitch things interestingly, we could have
+chemical plant next to oil ocean and mystic cave below, so all 3 can potentiallyy be seen on fg but the bg is
+whichever region you're in currently. Make sense? We still want the region shapes however we want"*
+
+**The model, restated:**
+- **One act, continuous play, a whole game in it.** No zone switch and no loading screen, ever.
+- **A zone IS a region.** There is no separate zone concept for the engine to manage.
+- **Zones abut directly, with no corridor.** The foreground of a neighbouring zone is visible across the
+  boundary before you reach it, and at a junction **several zones' foreground can be on screen at once.**
+- **The background is whichever region the camera is in.** One background at a time.
+- **Region shapes are arbitrary.** A 2D patchwork, not a chain.
+- **A single zone can hold several background regions.**
+
+**What that reopens, and why:**
+
+- **D2 (build-time graph colouring) — REOPENED.** Its two-colour argument depended on the zones forming a
+  PATH. Arbitrary region shapes on a 2D map form a **planar** adjacency graph, which can need **up to four
+  colours** (four-colour theorem), i.e. about **94 tiles per slot**, below every measured S3K act background
+  (104-174). **The likely replacement (INFERRED, to design properly):** only **two** background themes are ever
+  resident at once (the current one and the one being loaded), so **two slots suffice for ANY topology** if a
+  theme's slot is chosen at RUNTIME. That needs a per-word **base offset** added at row-draw time. That is one
+  constant `add`, far cheaper than the foreground's page lookup plus refcount. It is Alien Soldier's load-time
+  rebasing, **which §6 rejected under the chain assumption.** That rejection is withdrawn pending the redesign.
+- **D4 (derived corridor length) — REOPENED.** There is no corridor; zones meet at a region boundary. The
+  preload must land before the camera centre crosses the boundary, triggered by approaching the edge.
+- **NEW OPEN PROBLEM — the next region is AMBIGUOUS at a junction.** From one region the camera may be heading
+  into any of several neighbours, and two slots can preload only **one** guess. Candidates: preload the region
+  whose edge is nearest in the direction of travel, re-preload when that changes, and fall back to the camera
+  hold (D3) on a wrong guess; or reserve a third slot at junctions. **This needs its own design and measurement.**
+- **D6 (foreground) — SHARPENED, not reopened.** The foreground never needs a zone concept. It is already one
+  globally deduplicated, spatially paged tile set streamed by camera position (the repo's own architecture
+  says so). **The budget question becomes: the working set at the DENSEST point on the whole map**, the worst
+  junction where several zones' foreground is visible at once. That is M-2, restated. At whole-game scale the
+  foreground **pinning policy** (pin a page used by 75% or more of sections) stops making sense, because nothing
+  is used by 75% of a game.
+- **D1 (per-theme residency), D3 (THE GATE) and D5a (position-driven fade) STAND.** None of them depended on
+  the chain. The gate matters more at a junction, not less.
+- **OC-2 (what the corridor looks like) — DISSOLVED.** No corridor.
+
+---
+
 ## 0. What this is, and a correction to how it was framed
 
 **This is not a new design. It is step (3) of `docs/research/2026-08-08-bg-seam-streaming.md` §4 —
