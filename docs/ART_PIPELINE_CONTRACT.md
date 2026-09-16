@@ -133,9 +133,9 @@ byte address = tile × 32):
 | 1000–1015 | | `ring_placeholder` | window | |
 | 1016–1019 | | `test_marker` | window | |
 | 1020–1023 | | `debug_lab_name` | window | 4 contiguous tiles = one 4×1 sprite piece |
-| 1024–1399 | `$8000`–`$AF7F` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
-| 1400–1447 | `$AF80`–`$B57F` | `waterline_strips` | window | 48 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
-| 1448–1471 | `$B580`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
+| 1024–1399 | `$8000`–`$AEFF` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
+| 1400–1447 | `$AF00`–`$B4FF` | `waterline_strips` | window | 48 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
+| 1448–1471 | `$B500`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
 | 1472–1491 | `$B800`–`$BA7F` | `sprite_table` | table | **the sprite attribute table**, reg `$05` |
 | 1492–1500 | | `tails_appendage` | window | |
 | 1501–1503 | | `debug_bganim_tag` | window | 3 contiguous tiles = one 3×1 piece |
@@ -148,7 +148,7 @@ byte address = tile × 32):
 `games/demo/vram.toml` declares the same engine regions at the same bases (`fg_art_pool`,
 `spare_nametable`, `bg_region`, `waterline_strips`, `sprite_table`, `hscroll_table`,
 `plane_a`, `plane_b`, `window_plane`); it replaces the sonic4 game regions with one
-`demo_obj` (992, 4 tiles) and a 1-tile `ring_placeholder`, and declares 4 `[[free]]` runs
+`demo_obj` (992, 4 tiles) and a 1-tile `ring_placeholder`, and declares 5 `[[free]]` runs
 totalling 163 tiles (`gen_vram_map: demo OK — 11 regions, 163 free tiles`).
 
 **Which regions are fixed vs. pooled vs. reserved:**
@@ -213,7 +213,7 @@ gen_vram_map: region 'fg_art_pool': tiles=800 violates quantum 64
 A successful run prints, to stdout:
 
 ```
-gen_vram_map: sonic4 OK — 22 regions, 1 free tiles
+gen_vram_map: sonic4 OK — 23 regions, 1 free tiles
 ```
 
 The **background tile budget** has its own refusal, in the importer rather than the map
@@ -397,7 +397,7 @@ shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
 
 ### 4.4 The background layout blob
 
-`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:52`) — a **full Plane B
+`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:51`) — a **full Plane B
 nametable**, all 64 rows live. Measured: `games/sonic4/data/generated/ojz/act1/zone_bg.bin`
 is exactly 8192 bytes.
 
