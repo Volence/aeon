@@ -310,10 +310,70 @@ def test_the_help_text_names_every_option_and_both_exit_codes():
     src = Path(HERE, "night_settle_capture.py").read_text()
     doc = nsc.__doc__
     assert "Exit 0" in doc and "2  COULD NOT RUN" in doc
-    for opt in ("--rom", "--lst", "--outdir", "--settled-frames", "--check"):
+    for opt in ("--rom", "--lst", "--outdir", "--settled-frames", "--check", "--force"):
         assert f'"{opt}"' in src, opt
     # every add_argument carries a help= (the owner drives this without reading the source)
     assert src.count("ap.add_argument(") == src.count("help=")
+
+
+# ------------------------------------------------------ the control is a RESULT
+#
+# The first live run (2026-09-16) certified ZERO control frames because the `buf` clause
+# falsely refused every pre-fade frame, and said so in one passing line -- "0 day-palette
+# controls" -- that two people read past. These rows exist so that state cannot ship quietly
+# again: a control count of zero means the predicate was never shown to be able to say
+# `settled` anywhere but on its own subject, which is not a detail of the run, it is a
+# statement about whether the run is evidence at all.
+
+def test_a_run_with_no_control_frames_says_so_in_the_report_and_the_readme():
+    rows, arm = simulate()
+    keep, _, _, f = drive(rows, arm)
+    # strip the pre-crossing frames: a run that certified only its subject
+    only_night = [r for r in keep if r["row"] == FADE_ROW["index"]]
+    rep = report_of(only_night, rows, arm, f)
+    assert rep["control_empty"] is True
+    assert rep["control_frames"] == []
+    md = nsc.readme(rep)
+    assert "CONTROL EMPTY" in md
+    assert "not evidence that the predicate can certify anything" in md
+    # the self-contradicting sentence the live run actually shipped must be impossible
+    assert "The 0 approach frame(s)" not in md
+
+
+def test_a_run_with_controls_does_not_raise_the_alarm_and_calls_them_a_baseline():
+    rows, arm = simulate()
+    keep, _, _, f = drive(rows, arm)
+    rep = report_of(keep, rows, arm, f)
+    assert rep["control_empty"] is False and rep["control_frames"]
+    md = nsc.readme(rep)
+    assert "CONTROL EMPTY" not in md
+    assert "baseline" in md            # they are the day reference, not only a control
+
+
+def test_the_alarm_is_wired_into_the_tools_own_stderr_and_not_only_the_readme():
+    """A README is read after the fact; the operator reads stderr. The live miss happened on
+    a single unremarkable stderr line, so the banner has to be in the stream too."""
+    src = Path(HERE, "night_settle_capture.py").read_text()
+    arm = src.split('if report["control_empty"]:')[1].split("else:")[0]
+    assert "CONTROL EMPTY" in arm
+    assert arm.count("print(") >= 6, "the alarm collapsed back into one passing line"
+
+
+def test_settled_night_frames_record_whether_the_target_comparison_actually_ran():
+    """A certified pre-fade frame is certified on weaker evidence than a certified post-fade
+    one. The report must say which is which rather than letting a reader assume."""
+    rows, arm = simulate()
+    keep, _, _, f = drive(rows, arm)
+    rep = report_of(keep, rows, arm, f)
+    compared = set(rep["settled_frames_with_target_compared"])
+    assert compared and compared <= set(rep["settled_frames"])
+    for t_ in rep["ticks"]:
+        assert "target_checked" in t_
+        if t_["settle_state"] == cs.SETTLED_WORD and t_["row"] != FADE_ROW["index"]:
+            assert t_["target_checked"] is False, (
+                "a pre-fade control cannot have compared against an unwritten Pal_Target")
+    md = nsc.readme(rep)
+    assert "target?" in md
 
 
 # ------------------------------------------------------------------ against the REAL ROM
@@ -404,3 +464,16 @@ def test_a_listing_without_the_extra_symbols_is_refused_by_name(tmp_path):
         cut.write_text("".join(lines))
         with pytest.raises(rfw.SetupError, match=name):
             nsc.premise(ROM, str(cut))
+
+
+def test_a_rerun_into_an_existing_capture_set_is_refused_by_default():
+    """A capture set stops being evidence the moment two runs share a directory: the PNGs are
+    named from state, so the first run's frames survive under the second run's README. The
+    refusal names the fix (a new --outdir) rather than just declining."""
+    src = Path(HERE, "night_settle_capture.py").read_text()
+    guard = src.split('if (out / "report.json").exists()')[1].split("out.mkdir")[0]
+    assert "args.force" in src.split('if (out / "report.json").exists()')[1][:60]
+    assert "--outdir at a new directory" in guard
+    assert "--force" in guard
+    # and the guard sits BEFORE the mkdir, or it would create the directory it refuses into
+    assert src.index('if (out / "report.json").exists()') < src.index("out.mkdir(parents=True")

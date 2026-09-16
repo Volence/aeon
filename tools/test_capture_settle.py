@@ -438,3 +438,45 @@ def test_an_unmeasured_row_is_unknown_and_never_green():
     assert v.word == cs.UNKNOWN_WORD
     assert not v.settled and not v.decided
     assert "carries no fade_frames" in " ".join(v.reasons)
+
+
+def test_a_refusal_never_names_a_mechanism_the_predicate_did_not_establish():
+    """The second half of the live defect, and the worse half: the `buf` refusal asserted
+    "the fade STOPPED rather than arrived" on a run where no fade had ever started. A red
+    naming a wrong cause is worse than a green meaning less than it looks, because it aims
+    the next person's search at a thing that is not there.
+
+    The property: that sentence may only appear where the predicate ESTABLISHED the fade
+    history it rests on, i.e. where the comparison actually ran."""
+    f = facts()
+    cases = []
+    # a genuinely stopped fade, with the history established
+    stopped = after_a_fade([row(fade_frames=0, buffer=list(DAY), cram=list(DAY),
+                                target=list(NIGHT))])
+    cases.append(cs.assess(stopped, f))
+    # the same-looking state with no fade ever observed
+    cases.append(cs.assess([row(buffer=list(DAY), cram=list(DAY), target=[0] * 48)] * 3, f))
+    # and after a snap, where the target is stale
+    cases.append(cs.assess(after_a_fade(
+        [row(fade_frames=0, pal_base_dirty=1, buffer=list(DAY), cram=list(DAY),
+             target=list(NIGHT))] +
+        [row(tick=300 + i, buffer=list(DAY), cram=list(DAY), target=list(NIGHT))
+         for i in range(f.stable_ticks)]), f))
+    assert cases[0].word == "buf" and cases[0].target_checked
+    assert cases[1].settled and cases[2].settled
+    for v in cases:
+        if "STOPPED rather than arrived" in " ".join(v.reasons):
+            assert v.target_checked, (
+                "a refusal claimed the fade stopped without having established that a fade "
+                "ran at all -- this is the 2026-09-16 diagnostic defect")
+    assert sum(1 for v in cases if "STOPPED rather than arrived" in " ".join(v.reasons)) == 1
+
+
+def test_target_authority_needs_both_a_fade_and_no_snap_since():
+    f = facts()
+    assert cs.target_authority([row()])[0] is False
+    assert cs.target_authority(after_a_fade([row()]))[0] is True
+    assert cs.target_authority(after_a_fade([row(pal_base_dirty=1), row()]))[0] is False
+    # the reasons are distinguishable, because they are different engine states
+    assert "has not been written" in cs.target_authority([row()])[1]
+    assert "stale" in cs.target_authority(after_a_fade([row(pal_base_dirty=1), row()]))[1]

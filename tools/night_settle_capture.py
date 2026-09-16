@@ -305,6 +305,18 @@ async def run(args, sock) -> int:
     fade, left = pre["fade"], pre["left"]
 
     out = Path(args.outdir)
+    # A RE-RUN MUST SUPERSEDE, NOT BLEND. This tool overwrites README.md and report.json but
+    # its PNGs are named from state, so a second run into the same directory leaves the first
+    # run's frames sitting beside the second's under a README that describes only the second.
+    # That is how a capture set stops being evidence. Refuse, and say where to put it.
+    if (out / "report.json").exists() and not args.force:
+        raise rfw.SetupError(
+            f"{out} already holds a report.json from an earlier run. This tool would rewrite "
+            "the README and the report but NOT remove that run's frames, which are named "
+            "from their own state — you would get two runs' PNGs under one README describing "
+            "one of them. Point --outdir at a new directory (the old set stays as the record "
+            "of what it recorded), or pass --force if you genuinely mean to overwrite in "
+            "place.")
     out.mkdir(parents=True, exist_ok=True)
 
     b = BusClient(socket_path=sock, client_id="nightsettle", client_name="night_settle_capture")
@@ -498,13 +510,23 @@ def readme(rep: dict) -> str:
         f"Crossing at Logic_Tick {rep['crossing_tick']}, camera centre x "
         f"{rep['crossing_centre_x']}. `k` counts ticks from there.",
         "",
-        "| k | tick | centre x | row | `Pal_Fade_Frames` | CRAM stable run | state | file |",
-        "|---:|---:|---:|---:|---:|---:|---|---|",
+        "`target?` is whether the 48-word `Palette_Buffer` vs `Pal_Target` comparison "
+        "actually ran on that tick. It can only run where `Pal_Target` is authoritative — a "
+        "fade has been seen in flight and no snap install since — because "
+        "`Palette_LoadPal`'s fade arm is its only writer and its snap arm never updates it. "
+        "A `settled` row with `target? no` is certified on the layer gates and CRAM "
+        "stability alone: strictly weaker evidence, a real certification, and not the same "
+        "one.",
+        "",
+        "| k | tick | centre x | row | `Pal_Fade_Frames` | CRAM stable run | target? | state "
+        "| file |",
+        "|---:|---:|---:|---:|---:|---:|:-:|---|---|",
     ]
     for r in rep["ticks"]:
         lines.append(f"| {r['k']:+d} | {r['tick']} | {r['centre_x']} | {r['row']} | "
-                     f"{r['fade_frames']} | {r['cram_stable_run']} | `{r['settle_state']}` | "
-                     f"`{r['png']}` |")
+                     f"{r['fade_frames']} | {r['cram_stable_run']} | "
+                     f"{'yes' if r.get('target_checked') else 'no'} | "
+                     f"`{r['settle_state']}` | `{r['png']}` |")
     lines += [""]
     if rep["settled"]:
         lines += [f"**{len(rep['settled_frames'])} frame(s) INSIDE THE NIGHT REGION are "
@@ -585,6 +607,12 @@ def main() -> int:
                          "%(default)s, relative to the working directory). Created if "
                          "absent. The tool WRITES README.md and report.json there: point it "
                          "somewhere new rather than at an existing capture set.")
+    ap.add_argument("--force", action="store_true",
+                    help="write into an --outdir that already holds a report.json. Refused "
+                         "by default: this tool's PNGs are named from state, so a second run "
+                         "into the same directory leaves the first run's frames beside the "
+                         "second's under a README describing only one of them. Prefer a new "
+                         "--outdir, which supersedes the old set without destroying it.")
     ap.add_argument("--check", action="store_true",
                     help="run every premise this capture depends on and EXIT, without "
                          "starting an emulator: the engine derivation N is read from, the "
