@@ -34717,7 +34717,60 @@ this gate's green as evidence that a line citation points where its prose says.
 **Not a blocker for anything; it is a sharpness defect in a gate that is otherwise doing real
 work** (it is the reason the drift surfaced at all).
 
-## THE CHOOSER RULING'S NAMING CONSTRAINT — derive the wrapper name from the region id (banked 2026-09-16, BEFORE the ruling)
+## ⚠ RULED 2026-09-16: NEITHER A NOR B. The choosers re-key to the PRESET RECORD, gating on AGREEMENT.
+
+**The ruling, and it is a third shape the agent proposed and flagged as its own rather than
+picking from the two it was handed.** The five preset-channel choosers (19 call sites inside
+hand-written records) re-key to the **preset record**, and the generator gates on **agreement
+rather than uniqueness**: two regions binding the same record and the same document is CORRECT
+by construction — that is the L-shape case, and it is what sharing a record means — and only a
+genuine **disagreement** is refused, naming both regions.
+
+**0 ROM bytes. 19 mechanical edits. No second class of emitted record. The contract is untouched.**
+
+**WHY NOT THE WRAPPER, and the deciding cost is not bytes.** Three of four shapes are a
+zero-byte delta on act 1; the wrapper's 92 "saved" bytes are the 92 it then spends. The real
+cost is a **new capability**: the wrapper asks `effects_gen.py` to read a hand-written
+`preset()` call out of `ojz_effects.emp` **and re-emit it**. Verified here rather than taken
+from the report: `preset_parallax_bindings` EXTRACTS the argument expression for inspection and
+`load_preset` reads a JSON document — **the generator has only ever pulled names and expressions
+out of that file and has never written one back.** And a mis-copied argument **still assembles**.
+That is a silent-wrongness surface bought for no byte saving.
+
+**WHY NOT "CHOOSERS MOVE TO THE ROW".** §5.2 blurs two populations — the *scene* chooser is
+already called from the region row, so re-keying it is mechanical, and only the five
+preset-channel choosers are hard. And the phrase has **two readings**: a cheap re-key (0 B,
+needing a gate that forbids L-shapes) versus the row carrying the channel (+4 B per pointer per
+row, colliding with `struct Region`'s own "NOTHING ELSE" comment, and **the only reading that
+falsifies schema line 43**). The ruled shape takes the cheap re-key's price without the
+L-shape prohibition, by gating on agreement instead of uniqueness.
+
+**CONSEQUENCE FOR THE CONTRACT: NO AMENDMENT IS NEEDED, and the hub is told.** Under the ruled
+shape the raster program remains **a channel of the record**, so `docs/AURORA_REGIONS_SCHEMA.md`
+line 43 and §3's "one fact, one home" stay TRUE. The amendment the hub specified and committed to
+is **not spent and not needed**; it stands ready if a later parcel moves the channel.
+
+**CONSEQUENCE FOR AURORA: their read-back cost is GONE, not paid.** There is no second class of
+record to distinguish, so nothing to key on and nothing to resolve.
+
+---
+
+## ~~THE CHOOSER RULING'S NAMING CONSTRAINT — derive the wrapper name from the region id~~ (banked 2026-09-16 BEFORE the ruling; **MOOT as of the ruling above — there are no wrappers**)
+
+**Kept, struck, and NOT deleted, because the reasoning outlives the option.** The constraint was
+banked ahead of the ruling it constrained, which was right; the ruling then took a shape with no
+wrappers in it, so there is nothing for it to constrain. **A constraint left standing against an
+option that was not taken is the stale-assertion failure this repo keeps finding** — hence the
+strike rather than silence.
+
+⚠ **The reusable half survives the option's death and is the reason this section is still here:**
+prefer a name **DERIVED from a required unique key** over a name that follows a **convention**. A
+convention is a *filter* and can be collided with by an author who does not know it exists; a
+derivation is a *check*, and a name that resolves to nothing becomes a finding rather than a
+stranger the filter tolerates. Same family as deriving a gate's expectation from source instead
+of copying it from a nearby pin. **Apply it the next time anything here generates a name.**
+
+### The original entry, for the record
 
 **Banked ahead of the ruling it constrains, because the lane that produced it was about to be
 cleared and it would otherwise have lived in a message.** Aurora's, at their `6c634a38`.
