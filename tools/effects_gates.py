@@ -261,6 +261,20 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # streamer's budget are derived from each other, so a row-0 prime at a row-0 scroll
         # stays correct. One oracle-aether process, four samples, ~2 minutes of emulated frames.
         ("bg_window", True, GATE_EMU_BUDGET),
+        # bg_wipe is the THIRD member of that same neighbourhood and the first one about a
+        # repaint rather than a position. bg_vscroll_rate grades how fast the BG scroll may
+        # move; bg_window grades which 64 map rows a SYNCHRONOUS prime leaves in the plane;
+        # this one grades the ASYNCHRONOUS one — the row sweep that runs when the camera
+        # crosses into a region naming a different background blob, which before regions part
+        # 2 step 6 never happened at all. It is the only gate in the tree that reads a
+        # HALF-REDRAWN plane, and it needs one: the two failures it exists for are a sweep
+        # that never arms and a cursor that advances past rows the producer refused, and the
+        # second is invisible once the sweep has finished. Both routes are flown, not warped
+        # (a warp takes the synchronous prime and retires the cursor, so it cannot produce a
+        # sweep at all), and the VERTICAL one exists because a fall changes region with no
+        # horizontal travel — REGIONS-VERTICAL-CROSSING-ON-LANDING — which is the case §4.3's
+        # entry-side rule had no answer for. Four headless boots, ~150 logic ticks each.
+        ("bg_wipe", True, GATE_EMU_BUDGET),
         # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
         # non-effects member: it is the section streamer's own invariant (a cell RECORDED
         # as written was actually written), and this lane is still the tree's only
@@ -1103,6 +1117,17 @@ def main() -> int:
                            "bg_window (BG-PLANE-WINDOW: the synchronous Plane B prime seeds "
                            "BG_Plane_Top to the window the live scroll selects and blits THAT "
                            "window, wrap and all, instead of map rows 0..63)",
+                           ok, msg, final=True))
+
+    if wanted("bg_wipe"):
+        ok, msg = run(["python3", str(AEON / "tools/bg_wipe_gate.py"),
+                       "--rom", rom, "--lst", lst], "bg_wipe")
+        results.append(row("bg_wipe",
+                           "bg_wipe (GATE BG-WIPE: crossing into a region whose rg_bg_layout "
+                           "names a different blob arms a row sweep, the sweep retires exactly "
+                           "BG_WIPE_ROWS_PER_FRAME rows a tick starting at the top VISIBLE "
+                           "plane row, every row the cursor claims is one the producer drew, "
+                           "and a crossing between two rows with the same layout arms nothing)",
                            ok, msg, final=True))
 
     if wanted("tile_cache_fill"):
