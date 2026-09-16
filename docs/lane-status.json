@@ -1,12 +1,6 @@
 {
-  "focus": "Step 5 is built and green on its branch. Running its gate on the real machine before it lands.",
-  "inFlight": [
-    {
-      "what": "The streaming background's own gate -- the half only a running machine can answer. The code is built and pushed to its branch already",
-      "where": "branch parcel/regions-p2-step5, gate run in the foreground",
-      "agent": false
-    }
-  ],
+  "focus": "Step 5 landed. Its gate found the one defect standing between the streaming background and a clean pass.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -19,19 +13,19 @@
       "since": "2026-09-16"
     }
   ],
-  "nextBoundary": "When step 5's gate answers and the parcel lands. The branch is pushed, so nothing is lost if this session ends first.",
+  "nextBoundary": "Now. Step 5 is merged, pushed, gated and logged; nothing is running.",
   "queue": [
     {
-      "id": "REGIONS-P2-STEP5",
-      "title": "The background becomes taller than one screen and streams in as you move. Steps 1 to 4 are landed and proved; the video-memory work you approved waits on this one being green",
-      "state": "doing",
-      "size": "L",
+      "id": "BG-PLANE-WINDOW",
+      "title": "The sky you have not scrolled through yet is still the old short picture. Re-scoped by step 5's gate run from a later tidy-up to the one thing blocking that step's own check",
+      "state": "next",
+      "size": "M",
       "blockedBy": null
     },
     {
       "id": "REGIONS-P2-STEP6",
       "title": "The wipe when you cross between two regions -- the first step of this run where anything looks different on screen. Your snap-versus-fade answer unblocked it",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -64,7 +58,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T11:31:01Z"
+  "awaiting": "Two things for your eye, both built: the spring sound A/B from 09-09, and the night colours -- my read is overcast dusk rather than moonlight, with two alternatives pictured beside it.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T11:47:39Z"
 }
