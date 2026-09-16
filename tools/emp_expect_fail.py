@@ -619,6 +619,27 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_vdp_base_residue.emp", "VDP base residue",
      f"the VRAM base {VDP_POISON_BASE} is not a multiple of its register's granule "
      f"{VDP_SPRITE_GRANULE}", 1),
+    # ---- Sec.sec_bg_layout IS DELETED, and naming it must stay a build error ----
+    # Regions part 2 step 3 (2026-09-16) moved the background from the section to the REGION
+    # and deleted the field. The step table asks for "build red if any `.emp` still names
+    # sec_bg_layout"; this row is the half a BUILD can carry, and its subject is the NAME on
+    # the type, not a string in a file. The other half — a name in a comment, a doc, or a
+    # generator — is tools/test_sec_bg_layout_is_deleted.py, which is broader and weaker (it
+    # greps; it cannot tell a live reference from a history note, so it allows neither).
+    #
+    # THE FRAGMENT IS SIGIL'S OWN DIAGNOSTIC, TRANSCRIBED FROM A MEASURED RUN, not guessed:
+    # `offsetof: struct Sec has no field sec_bg_layout`, 1 [Error], measured against the
+    # release sigil that builds this tree. It is NOT computed from a constant, because there
+    # is no constant to compute it from — the assertion is that a NAME does not resolve, and
+    # the only authority on the wording is the compiler. If sigil rewords that diagnostic
+    # this row goes red on the fragment and wants re-transcribing, which is the correct
+    # outcome: it means the lane stopped reading what it thought it was reading.
+    #
+    # WHAT A FAILURE OF THIS ROW MEANS, in the direction that matters: the poison BUILT
+    # CLEAN, i.e. `Sec` has a field called `sec_bg_layout` again. Then there are two
+    # authorities on which background a place shows, which is the condition step 3 removed.
+    (f"{POISON}/poison_sec_bg_layout.emp", "Sec.sec_bg_layout deleted",
+     "offsetof: struct Sec has no field sec_bg_layout", 1),
 ]
 
 

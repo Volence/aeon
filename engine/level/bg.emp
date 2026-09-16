@@ -5,12 +5,18 @@
 //                     relocated SAT at $B800; see BG_TILE_REGION_BYTES below),
 //                     then blits act_bg_layout into Plane B nametable. Both
 //                     happen once at level load.
-// T2/T3 (per-section): Section_RedrawPlanes (in section.emp) blits the section's
-//                      sec_bg_layout at level init / cache recovery only.
-//                      NULL sec_bg_layout = act-level T1 fallback. Teleports no
-//                      longer redraw — a per-section BG swap at the seam needs
-//                      the deferred mechanism in DEFERRED_WORK ("Per-section BG
-//                      layout swap at the seam").
+// PER-REGION:         Section_RedrawPlanes (in section.emp) blits the layout of
+//                     the REGION under the camera centre at level init and cache
+//                     recovery only, with Act.act_bg_layout as the fallback when
+//                     the region's rg_bg_layout is 0. Teleports no longer redraw.
+//
+// THE BACKGROUND BELONGS TO THE REGION, NOT TO THE SECTION (regions part 2,
+// step 3, 2026-09-16; spec §4.5). `Sec.sec_bg_layout` is DELETED — Sec 26 -> 22
+// bytes — and Section_RedrawPlanes now resolves through Region_Resolve on the
+// camera centre, the same point and the same query Parallax_CheckBoundary's
+// crossing and the init ladder's parallax boot select already use. Three private
+// answers to "which background" would have been three chances to disagree; the
+// 2026-08-26 precedence bug is what that looks like when it happens.
 //
 // Layout shape: each nametable layout is a raw 64x64 = 8192 bytes (full
 // Plane B nametable — the BG is 512px tall for vertical parallax; the
@@ -167,6 +173,39 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         movea.l Act.act_bg_layout(a3), a1
         cmpa.w  #0, a1
         beq     .skip_nt
+
+        // THE TRACKER SEED, AND WHY IT NAMES THE ACT DEFAULT AND NOT A REGION.
+        // The step-3 spec (§4.5, boot half) asks this routine to resolve the boot
+        // region first and blit THAT row's layout, on the stated premise that
+        // "Camera_Init precedes the boot select". That premise is true of the
+        // PARALLAX boot select and false of this routine, MEASURED at the one
+        // shipped ladder (games/sonic4/test/ojz_scroll_test.emp): `jbsr
+        // Level_LoadArt` — which tail-calls this proc from engine/level/load_art.emp
+        // — stands ~48 lines ABOVE `jbsr Camera_Init`, and Camera_Init is the only
+        // writer of Camera_X/Y before the plane fill. A Region_Resolve here would
+        // therefore query the camera centre of a camera that does not exist yet:
+        // (0,0) + half a screen after boot's RAM clear, or the PREVIOUS act's
+        // position on a re-entry. It would answer, it would answer wrongly, and
+        // today it would answer wrongly in a way no picture could show, because
+        // all ten of act 1's rows default their layout. That is the shape this
+        // parcel's step-2 sibling refused: an instrument that cannot produce the
+        // answer it claims to look for.
+        //
+        // Nothing is lost by declining. The display is still OFF here (this runs
+        // from Level_LoadArt, before display enable), and the region-aware blit —
+        // Section_RedrawPlanes, reached through Section_Plane_Dirty — runs later in
+        // the SAME init, after Camera_Init and after the DEBUG boot-position
+        // override, and re-seeds all four cells. So the first VISIBLE frame is the
+        // region's picture on every path, and the invariant the later steps rest on
+        // ("the tracker names the blob the plane holds") is true at every instant in
+        // between rather than from the second writer onwards.
+        //
+        // Booked in docs/DEFERRED_WORK.md as BG-BOOT-REGION-BLIT, which is also
+        // where the ordering fix belongs if a future act ever needs the FIRST blit
+        // to be the right one.
+        move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w — what the plane will hold
+        clr.w   BG_Plane_Top                    // (BG_Plane_Top).w — window top = map row 0
+        clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir, one word
         // Second consumer of the $2700 mask above. The mask is STILL load-bearing
         // after the row-major flip, and for the reason that outlived the
         // autoincrement excursion: the VInt handler repoints the VDP address
@@ -240,3 +279,15 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 // moved (measured 2026-09-11, M25/M26).
 ensure(BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS * 2,
        "BG LAYOUT SIZE (engine/level/bg.emp, 2026-09-11). engine/level/bg.emp's BG_LAYOUT_SIZE no longer matches the plane: it is {BG_LAYOUT_SIZE} bytes, and a full Plane B nametable is PLANE_H_CELLS x PLANE_V_CELLS x 2 = {PLANE_H_CELLS} x {PLANE_V_CELLS} x 2 = {PLANE_H_CELLS * PLANE_V_CELLS * 2}. THE SITE: `pub const BG_LAYOUT_SIZE = 64*64*2`, which BG_Init's nametable blit drains whole as one linear run, which Section_RedrawPlanes' plane-B blit drains the same way, which Draw_BG_TileRow (engine/level/plane_buffer.emp) reads one ROW of, and which games/sonic4/data/levels/ojz/act1/act_assets.emp uses as the embed type of OJZ_Act1_BG_Layout. IT IS NOW THE ONLY PIN IN THIS FILE: the two per-axis pins that stood beside it were deleted in regions part 2 step 2 with the three column-major literals they enumerated (see the family header above), so nothing fires beside this one any more and a plane-size move reaches this file through this message alone. WHAT THIS PIN DOES NOT COVER: the layout's ROW-MAJOR order, which no size can express — and which is exactly what a wrong-order blob would get wrong while passing this check; the count BG_Init and Section_RedrawPlanes spell from it (BG_LAYOUT_SIZE/4 - 1 and PLANE_H_CELLS * PLANE_V_CELLS / 2 - 1), which follow their constants; and the out-of-assembler writers of the blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see")
+
+// ---- THE BG PLANE TRACKER's one-word clear, pinned (regions part 2 step 3) ----
+// Both synchronous writers of Plane B — BG_Init above and Section_RedrawPlanes
+// (engine/level/section.emp) — retire the wipe state with a single `clr.w
+// BG_Wipe_Cursor`, which is only "cursor AND direction" while the two bytes are
+// adjacent in that order. A field inserted between them would not fail to build; it
+// would leave BG_Wipe_Dir holding whatever the previous act left there while the
+// cursor read 0, which is invisible until step 6 arms a sweep and then picks a
+// direction from a stale byte. Pinned rather than spelled as two `clr.b` because the
+// one-word form is what the two sites actually emit.
+ensure(extern("BG_Wipe_Dir") - extern("BG_Wipe_Cursor") == 1,
+       "engine/ram.emp's BG_Wipe_Cursor and BG_Wipe_Dir are no longer adjacent bytes in that order (BG_Wipe_Dir - BG_Wipe_Cursor is not 1). BOTH synchronous Plane B writers clear them with ONE `clr.w BG_Wipe_Cursor` — engine/level/bg.emp's BG_Init and engine/level/section.emp's Section_RedrawPlanes — so the pair must stay a word. Either restore the adjacency or respell both sites as two `clr.b`")

@@ -95,15 +95,17 @@ pub struct Act {
 // cache fills (engine/level/parallax.emp, the span-major rectangle) are untouched:
 //
 //   * rg_bg_layout — the nametable blob this region shows. 0 = the act default
-//     (Act.act_bg_layout), which is exactly Sec.sec_bg_layout's convention below and the
-//     reason act 1's ten rows compile with no change to their bindings.
+//     (Act.act_bg_layout). It inherited that convention from Sec.sec_bg_layout, which it has
+//     since REPLACED (step 3 deleted the field), and it is why act 1's ten rows compile with
+//     no change to their bindings.
 //   * rg_bg_span — the background map's HEIGHT in px, i.e. the modulus the derived BG
 //     scroll is clamped against once the row streamer exists. 0 = PLANE_B_SPAN, the
 //     plane's own height, which is what every region gets today.
 //
-// NOTHING READS EITHER FIELD YET, and that is deliberate rather than an oversight: step 1
-// is the record change alone, so the picture cannot move. The readers arrive with the row
-// streamer (step 2+). The per-row ensures that make an author's span legal live at the
+// STEP 3 GAVE rg_bg_layout ITS FIRST READER (2026-09-16): Section_RedrawPlanes resolves the
+// region under the camera CENTRE and blits that row's layout, which is what deleting
+// Sec.sec_bg_layout paid for. rg_bg_span still has none — the clamp that reads it is step 4 —
+// and that is the step boundary, not an oversight. The per-row ensures that make an author's span legal live at the
 // CALL SITE, in each act's own `ojz_region()`-style constructor, not here — a comptime
 // fn's ensures evaluate where it is called, which is what makes them live.
 //
@@ -126,9 +128,13 @@ pub struct Region (size: 22) {
     rg_effects:          *u8,           // $08 — EffectsPreset*; REQUIRED (see above)
     rg_parallax:         *u8 = 0,       // $0C — outranks the preset's ep_parallax; 0 = defer
                                         //       (Effects_ResolveParallax rung 1)
-    rg_bg_layout:        *u8 = 0,       // $10 — nametable blob; 0 = Act.act_bg_layout
+    rg_bg_layout:        *u8 = 0,       // $10 — nametable blob; 0 = Act.act_bg_layout.
+                                        //       READ by engine/level/section.emp's
+                                        //       Section_RedrawPlanes and by Draw_BG_TileRow
+                                        //       (engine/level/plane_buffer.emp).
     rg_bg_span:          u16 = 0,       // $14 — BG map height in px (the scroll modulus);
-                                        //       0 = PLANE_B_SPAN. No reader yet (step 1).
+                                        //       0 = PLANE_B_SPAN. No reader yet (the clamp
+                                        //       is step 4).
 }
 
 // -----------------------------------------------
@@ -185,12 +191,20 @@ pub struct PageFrame {
 }
 
 // -----------------------------------------------
-// Section Definition (§4) — 26 bytes ($1A), ROM table — STORAGE ONLY (painted-regions v1)
+// Section Definition (§4) — 22 bytes ($16), ROM table — STORAGE ONLY (painted-regions v1)
+//
+// 26 -> 22 ON 2026-09-16 (regions part 2, step 3; spec §4.1/§4.5): sec_bg_layout DELETED. The
+// background is the REGION's now — Region.rg_bg_layout, same 0-means-the-act-default convention
+// — because the scope a background belongs to is the same painted rectangle an EffectsPreset and
+// a parallax config belong to, not a grid cell. It had exactly ONE reader when it went
+// (engine/level/section.emp's Section_RedrawPlanes; the second, Draw_BG_TileColumn, was deleted
+// unused in step 2), and all nine of act 1's rows passed `default`, so no shipped picture moved.
+// 4 B x 9 sections = 36 ROM bytes. What is left is pure storage: blocks, objects, rings, the type
+// table and the dict — every remaining field is a pointer to bytes this section owns.
 //
 // 34 -> 26 ON 2026-09-13 (painted-regions v1, step 4): sec_parallax_config and sec_effects, the
 // section's IDENTITY binding, moved to the Region record above — a rectangle is the scope an
-// EffectsPreset is bound at now, not a grid cell. 8 B x 9 sections = 72 ROM bytes. What is left
-// is storage: blocks, objects, rings, the BG-layout override, the type table and the dict.
+// EffectsPreset is bound at now, not a grid cell. 8 B x 9 sections = 72 ROM bytes.
 //
 // 66 -> 34 ON 2026-09-04 (painted-regions audit row 3). Nine fields and the three
 // reserved pads were deleted: sec_plc, sec_pal, sec_raster_table, sec_pal_cycle,
@@ -220,10 +234,9 @@ pub struct Sec {
     sec_block_index:     *u8,           // $00 — 256-entry block index table
     sec_objects:         *u8,           // $04 — objentry list (dc.w -1 terminated)
     sec_rings:           *u8,           // $08 — X-sorted ring entries
-    sec_bg_layout:       *u8 = 0,       // $0C — NULL = use Act_act_bg_layout
-    sec_type_table:      *u8,           // $10 — dc.b count,pad; dc.l ObjDef×N
-    sec_block_dict:      *u8,           // $14 — raw dict region (LZ pre-seed)
-    sec_block_dict_len:  u16,           // $18 — dict bytes (768×K, K≤3)
+    sec_type_table:      *u8,           // $0C — dc.b count,pad; dc.l ObjDef×N
+    sec_block_dict:      *u8,           // $10 — raw dict region (LZ pre-seed)
+    sec_block_dict_len:  u16,           // $14 — dict bytes (768×K, K≤3)
 }
 
 // -----------------------------------------------

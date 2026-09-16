@@ -140,13 +140,13 @@ ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
 ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
        "grid_h axis extent breaks the signed-word camera clamp")
 // Section_GetSecPtrXY (engine/level/section.emp) indexes the Sec grid with
-// `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=26; adda.w SIGN-EXTENDS the word, so
+// `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=22; adda.w SIGN-EXTENDS the word, so
 // an act above $7FFF / 26 = 1260 flat sections wraps the pointer. MAX_ACT_SECTIONS
 // is the flat-section ceiling. The stride derives from the struct, so the
 // ceiling moves with Sec instead of staying pinned to whatever it is today, and
 // the message reports both operands rather than a baked-in limit. Note the
 // consumers still spell the stride as a literal under section.emp's
-// `ensure(sizeof(Sec) == 26)`, so a Sec change trips THAT first — this guard is
+// `ensure(sizeof(Sec) == 22)`, so a Sec change trips THAT first — this guard is
 // the ceiling's own net, not the stride's.
 ensure(MAX_ACT_SECTIONS * sizeof(Sec) <= $7FFF,
        "MAX_ACT_SECTIONS ({MAX_ACT_SECTIONS}) x sizeof(Sec) ({sizeof(Sec)}) exceeds $7FFF: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
@@ -225,7 +225,6 @@ comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Lab
         sec_block_index:      blocks,
         sec_objects:          objects,
         sec_rings:            rings,
-        sec_bg_layout:        default,      // NULL = zone-wide T1 BG
         sec_type_table:       type_table,
         sec_block_dict:       dict,
         sec_block_dict_len:   dict_len,

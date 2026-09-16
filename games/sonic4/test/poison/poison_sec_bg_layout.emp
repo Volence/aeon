@@ -1,0 +1,33 @@
+// games/sonic4/test/poison/poison_sec_bg_layout.emp — POISON (see README).
+//
+// TARGETS: the DELETION of `Sec.sec_bg_layout` (regions part 2, step 3, 2026-09-16).
+// The step table asks for "build red if any `.emp` still names `sec_bg_layout`". This is
+// the half of that a BUILD can carry: naming the field on the Sec type must be an error,
+// permanently, rather than an error today that quietly becomes legal again the day someone
+// re-adds a field with that name.
+//
+// EXPECTED FRAGMENT: see tools/emp_expect_fail.py's CASES row — the fragment is sigil's own
+// unknown-field diagnostic, transcribed from a measured run, NOT from a guess about its
+// wording.
+//
+// WHY `offsetof` AND NOT A `movea.l Sec.sec_bg_layout(a0), a1`. A poison module must
+// contribute zero bytes (README property 1 and the lane's own refusal of a byte-contributing
+// entry), so it cannot hold a proc. `offsetof` asks the identical question of the identical
+// type at comptime: "does Sec have a field called sec_bg_layout". If it ever does again, this
+// module builds clean and the lane reports the case as FAILED — which is the alarm.
+//
+// THE COMPARISON IS DELIBERATELY ONE THIS MODULE COULD NOT SATISFY EITHER WAY, and that is
+// not an accident to tidy up. The subject is whether the NAME resolves at all; the `== 12`
+// is only there because `offsetof` has to appear inside an expression. If the field came
+// back at offset 12 this module would go red on the `ensure` instead of on the name, with a
+// different message, and the lane's fragment check is what distinguishes the two outcomes.
+// Do not "fix" it to a tautology: a tautology would build clean the moment the field
+// returned, which is the one case this file exists to catch.
+//
+// Zero bytes, ensures-only, unreachable from any real entry — like every module here.
+module games.sonic4.test.poison.poison_sec_bg_layout
+
+use engine.structs.{Sec}
+
+ensure(offsetof(Sec, sec_bg_layout) == 12,
+       "POISON_SEC_BG_LAYOUT: `Sec.sec_bg_layout` resolved. The field was DELETED in regions part 2 step 3 — the background belongs to the REGION now (Region.rg_bg_layout, read by engine/level/section.emp's Section_RedrawPlanes and by Draw_BG_TileRow). If this message is the one you are reading, the name is back on the Sec type and the region seam has a second, competing authority")

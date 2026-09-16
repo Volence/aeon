@@ -9,10 +9,11 @@ use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
+use engine.constants.{CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H}   // Plane B resolves the REGION under the camera CENTRE (step 3)
 // Canopy-gap capture instrument (DEBUG only) — see Canopy_Probe at the foot of this file.
 use engine.constants.{SCREEN_LAST_COL_MAX, SCREEN_LAST_ROW_MAX, VDP_HV_COUNTER}
 use engine.constants.{CANOPY_C1, CANOPY_C4, CANOPY_PERSIST_FRAMES}
-use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
+use engine.structs.{Act, Sec, Region, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
 // SND_DMA_ACTIVE_SLOT (the 68k-side DMA-window flag slot) is a global linker
@@ -26,9 +27,18 @@ use engine.z80_bus.{z80_stopped}
 // Sec-Act layout all come from the shared engine.constants + engine.structs
 // modules (`use`d above), which carry the drift locks. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
-// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) = 26; the `ensure`
-// keeps 26 the real stride. (34 -> 26 on 2026-09-13, painted-regions v1: the two identity
+// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) = 22; the `ensure`
+// keeps 22 the real stride. (26 -> 22 on 2026-09-16, regions part 2 step 3: sec_bg_layout
+// moved to Region.rg_bg_layout. 34 -> 26 on 2026-09-13, painted-regions v1: the two identity
 // fields moved to Region. 66 -> 34 on 2026-09-04, painted-regions audit row 3.)
+//
+// ⚠ 22 IS NOT IN SIGIL'S mul_const ORACLE MULTIPLIER LIST AND 26 WAS (reported by the sigil
+// lane, 2026-09-16). Their lowering oracles — the tests that prove a chosen shift/add chain
+// actually computes the product — run over a hand-maintained multiplier set that contains 26
+// and not 22, so this stride moving is a PROOF quietly ceasing to cover the thing it names,
+// not a build that breaks. The remedy is sigil's (derive the set from the corpus) and is in
+// flight there; nothing in this tree is blocked on it. Recorded here because the next stride
+// change should ask the same question rather than rediscover it.
 //
 // What hardcoded the number used to be outside the assembler: tools/boot_override_gate.py
 // and tools/preset_lab_witness.py carried SEC_SIZE plus per-field offsets, and
@@ -39,7 +49,7 @@ use engine.z80_bus.{z80_stopped}
 // every in-engine stride spells #sizeof(Sec). The pin stays as the TRIPWIRE that makes a
 // Sec change re-ask that question — not as a claim that something depends on the number.
 // 
-ensure(sizeof(Sec) == 26, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved off 26. The walk spells #sizeof(Sec) so the STRIDE follows automatically. Since painted-regions v1 no out-of-assembler reader carries the Sec layout (the three gate tools that did now read the act's Region table through tools/region_table.py) — this pin is the tripwire that makes a Sec change re-ask whether one has appeared, and it keeps act_descriptor.emp's MAX_ACT_SECTIONS x sizeof(Sec) ceiling in view")
+ensure(sizeof(Sec) == 22, "Section_GetSecPtrXY's stride pin: sizeof(Sec) moved off 22. The walk spells #sizeof(Sec) so the STRIDE follows automatically. Since painted-regions v1 no out-of-assembler reader carries the Sec layout (the three gate tools that did now read the act's Region table through tools/region_table.py) — this pin is the tripwire that makes a Sec change re-ask whether one has appeared, and it keeps act_descriptor.emp's MAX_ACT_SECTIONS x sizeof(Sec) ceiling in view")
 // Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 26) sign-extends the word
 // offset: once flat × 26 crosses $7FFF the pointer wraps negative, capping an act
 // at $7FFF / 26 = 1260 sections. That ceiling is asserted at
@@ -252,8 +262,9 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1, d4) o
 // (a bus request is not a counting lock), so the caller would run the rest of
 // the storm believing it holds a bus it does not.
 //
-// In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B derives the
-//      on-screen section from the world camera for the BG layout ptr)
+// In:  none (reads Camera_X/Y, Cache_*, Current_Act_Ptr; Plane B resolves the
+//      REGION under the camera CENTRE for the BG layout ptr — Region_Resolve,
+//      the crossing's own query, with Act.act_bg_layout as the fallback)
 // Out: d5.w = max(start_world_col, Cache_Left_Col)          (tracker reset by caller)
 //      d7.w = min(start_world_col + 63, Cache_Head_Col)      (tracker reset by caller)
 //      i.e. EXACTLY the extent `.pla_fill` drew: the 64-column run from
@@ -475,27 +486,53 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             cmpi.w  #64, d3
             blt     .pla_fill
 
-            // -- Plane B: linear row-major write (BG layout is act-wide, not position-dependent) --
-            // Continuous-scroll: derive the on-screen section straight from the
-            // world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
-            // At level init the camera sits in the start section, so this returns the
-            // start section's BG.
-            movea.l Current_Act_Ptr, a2
+            // -- Plane B: THE REGION'S layout, linear row-major write --
+            // "The plane holds the current region's window" (regions part 2 step 3,
+            // spec §4.5). This replaced "BG layout is act-wide, not position-dependent",
+            // a comment the five lines under it had contradicted since the section-BG
+            // field landed (2026-08-29 findings audit row 46) — the lookup was per
+            // SECTION and is now per REGION, and this routine is still the only
+            // synchronous writer of Plane B.
+            //
+            // THE CAMERA CENTRE, AND THE SHARED QUERY, both deliberate. The centre is
+            // the point Parallax_CheckBoundary's crossing tests and the point the init
+            // ladder's parallax boot select resolves on, so the background, the preset
+            // and the parallax config cannot disagree about which region the camera is
+            // in. Region_Resolve is that one query: the 2026-08-26 precedence bug is
+            // what two private answers to the same question look like when they drift.
+            //
+            // Section_GetSecPtrXY is GONE from this routine and `Sec.sec_bg_layout` with
+            // it (the field is deleted; Sec 26 -> 22 B). The other caller — the entity
+            // window — keeps the proc alive.
             move.w  Camera_X, d2                    // world X px (16.16 high word)
-            moveq   #SECTION_SIZE_SHIFT, d0
-            asr.w   d0, d2 as GridX                 // d2.w = sec_x
+            addi.w  #CAM_SCREEN_HALF_W, d2          // -> the camera CENTRE
             move.w  Camera_Y, d3                    // world Y px
-            asr.w   d0, d3 as GridY                 // d3.w = sec_y
-            jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
-            beq     .plb_use_act_layout
-            movea.l Sec.sec_bg_layout(a0), a1
+            addi.w  #CAM_SCREEN_HALF_H, d3
+            jbsr    Region_Resolve                  // a0 = Region*, or 0 (clobbers d0/a2)
+            cmpa.w  #0, a0
+            beq     .plb_use_act_layout             // no row contains the centre (the act
+                                                    // constructor makes this unreachable)
+            movea.l Region.rg_bg_layout(a0), a1
             cmpa.w  #0, a1
             bne     .plb_have_layout
         .plb_use_act_layout:
-            movea.l Act.act_bg_layout(a2), a1       // T1 fallback to act-level BG
+            movea.l Current_Act_Ptr, a2
+            movea.l Act.act_bg_layout(a2), a1       // rg_bg_layout 0 = the act default
             cmpa.w  #0, a1
             beq     .plb_done
         .plb_have_layout:
+            // THE TRACKER SEED. The plane is about to hold exactly this blob, from map
+            // row 0, with no wipe in flight — a PRIME, never a sweep, which is what
+            // §4.5 asks of both the boot path and the warp path (both reach here through
+            // Section_Plane_Dirty). Written before the blit rather than after because a1
+            // is consumed by the copy loop; the two facts are established in the same
+            // breath either way, inside one IRQ-masked span, so nothing can observe them
+            // disagreeing. The cursor and the direction byte clear as ONE word — see the
+            // adjacency `ensure` at the foot of engine/level/bg.emp, which covers this
+            // site and BG_Init's identical one.
+            move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w
+            clr.w   BG_Plane_Top                    // (BG_Plane_Top).w — window top = map row 0
+            clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir
             // Linear blit (regions part 2 step 2, spec §4.2 option R). The layout
             // blob is ROW-MAJOR — blob[(row*64 + col)*2] — which is byte-for-byte
             // the Plane B nametable's own VRAM order, so the whole image drains as
