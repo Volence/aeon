@@ -76,18 +76,42 @@ violates and nothing would have caught it: *no act colour may go to `$0000` unle
 and the luminance retained must lie in a narrow band across all 48 entries.* A transform whose
 retention ranges 0% to 100% is not a night cast, and that is checkable without an eye.
 
-## NOT proven here, and it should not be assumed
+## The straggler question, MEASURED — and my own hypothesis was wrong
 
-**Which palette line the two full-daylight stragglers use** (the grass patch bottom-left in
-`t5-f272-settled.png`, the vine top-right in `t5-f312-sec4096.png`). Only ONE non-black act colour
-survives the transform bit-identical, which is too few to explain two visibly daylight elements, so
-the likely answer is that they are drawn from **palette line 0** — the shared character line, which
-the act's palette does not contain at all (`ojz_palette.bin` is 96 bytes: 48 entries, lines 1-3
-only). If that is what they are, **no change to `OJZ_Palette_Night` can touch them**, for exactly
-the reason Sonic keeps his day colours, and they belong to aurora's PALETTE-LINE0 card rather than
-to this ruling.
+An earlier revision of this note said the two full-daylight stragglers (the grass patch in
+`t5-f272-settled.png`, the vine in `t5-f312-sec4096.png`) were **probably palette line 0**, the
+shared character line, and therefore aurora's `PALETTE-LINE0` card rather than this ruling.
 
-**Settle it before acting on that part of the direction**, with one call per element rather than an
-argument: `emulator_pixel_attribution` on the straggler's pixel reports the winning layer, the cell
-palette and the CRAM index. Line 0 means the card; lines 1-3 means the transform, and this note's
-fix covers it.
+**That is refuted.** Measured, with the control established first:
+
+| frame | decodes to night palette | to line 0 | UNACCOUNTED |
+|---|---|---|---|
+| a freshly captured live night-region frame (the control) | **100.0%** | 0.0% | **0.0%** |
+| `t5-f272-settled.png` — the frame the ruling was measured from | 54.1% | **0.0%** | **45.9%** |
+
+**The control is what makes this readable.** A frame captured just now, in the night region on
+`s4.debug.bin`, decodes **100.0%** to `transform(ojz_palette.bin)` with nothing left over — so the
+decode and the intensity ramp are right, and an unaccounted fraction means something about the
+frame rather than about the method.
+
+Two things follow, and only two:
+
+1. **`t5-f272-settled.png` is not showing the settled night palette**, despite its name. Nearly
+   half its pixels are colours that are in neither palette, concentrated in the dirt ramp — which
+   is exactly where the ruling's channel means were taken.
+2. **The stragglers are NOT line 0.** Line 0 accounts for **0.0%** of that frame. Had the grass
+   patch been drawn in character colours it would have decoded as line 0 and it does not. So there
+   is nothing here to route to aurora, and the `PALETTE-LINE0` hypothesis is dead.
+
+**WHAT I AM NOT CLAIMING: the cause of the 45.9%.** Candidates are a mid-fade palette, VDP
+shadow/highlight, or something else. I wrote a test that appeared to show all of it lying on
+day→night fade curves — 100% explained, 0% residue — and **killed it on its own control: that test
+accepts 145 of the 512 possible 3-bit colours, 28% of the colour space.** A test that accepts a
+quarter of everything distinguishes nothing. The result was not implausible, it was *beautiful*,
+which is why implausibility could not have caught it.
+
+**What this means for anyone acting on the ruling:** the transform finding above stands, because it
+is derived from the source recipe and from CRAM read off a booted machine and never reads a
+capture. The *numeric* targets taken from these frames should be treated as acceptance checks on
+the result, never as inputs to the recipe — and **the frames should be re-captured settled before
+any colour detail is judged from them again.**
