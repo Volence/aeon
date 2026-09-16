@@ -3583,11 +3583,30 @@ REGION_BG_KEYS = ("layoutRef", "span")
 # DOCUMENT cannot express a whole record.
 PRESET_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
-# The two `bg.layoutRef` values the engine can honour today. Part 2 step 1 landed
-# `rg_bg_layout`/`rg_bg_span` on `struct Region` and NOTHING READS EITHER YET, so a document
-# naming a real layout would be baking a binding no consumer resolves — the `bgLayoutRef`
-# failure again. Refused until the engine consumes it (spec §5.3), rather than accepted and
-# dropped.
+# The two `bg.layoutRef` values the engine can honour today, and they mean THE SAME THING:
+# `"@act"` and null both say "this region shows the act's background", which is
+# `Region.rg_bg_layout = 0`. `_check_region_bg` collapses them to None — see its docstring for
+# why the collapse is here and not in a consumer.
+#
+# WHY A NAMED LAYOUT IS STILL REFUSED, RESTATED 2026-09-16 BECAUSE THE OLD REASON WENT STALE
+# THE SAME DAY IT WAS WRITTEN. This comment used to say "NOTHING READS EITHER YET". That was
+# true at part 2 step 1 and is FALSE for `rg_bg_layout` at this HEAD: step 3 (`17bf60fe`,
+# 2026-09-16) gave it two readers, `Section_RedrawPlanes` (engine/level/section.emp) and
+# `Draw_BG_TileRow` (engine/level/plane_buffer.emp). The refusal stands on three reasons that
+# ARE true here, each checked rather than remembered:
+#   1. NOTHING LOWERS THE DOCUMENT'S ROWS. `generate()` calls `check_mode_conflict` and stops;
+#      act 1's table is still hand-written in `act_descriptor.emp`. So a named layout has no
+#      path to `rg_bg_layout` at all — it would be accepted here and dropped, which is the
+#      `bgLayoutRef` failure the synthesis booked.
+#   2. NO LAYOUT ID CAN BE RESOLVED, TO A SYMBOL OR TO A HEIGHT. The layout library
+#      (`games/sonic4/data/editor/ojz_bglib.json`) carries `id` and `name` and nothing else,
+#      so the derived-span check this generator owes — "`span` equals the referenced layout's
+#      height" — has no height to compare against.
+#   3. `rg_bg_span` HAS NO READER (engine/structs.emp: the clamp that reads it is step 4), so
+#      a span would bind nothing even once a layout could be named.
+# Refused rather than accepted-and-dropped, so the author learns at the build instead of from
+# a picture that never changed. `tools/test_regions_doc.py`'s tripwire fails the day this
+# opens without the shared golden growing the non-default row it then owes.
 BG_ACT_SENTINEL = "@act"
 
 
@@ -3626,6 +3645,18 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
     generator's alone — and today it is unreachable, because every legal `layoutRef` is the
     act sentinel and no layout is named. Stated rather than silently skipped: the day
     `layoutRef` opens, the derived-span check is what that parcel owes.
+
+    THE SENTINEL IS COLLAPSED HERE, AT THE ONE CONVERSION SITE, and that is a decision rather
+    than tidiness (2026-09-16, the shared golden's `bg` half). The contract gives ONE engine
+    fact — "this region shows the act's background", `Region.rg_bg_layout = 0` — three legal
+    document spellings: `bg` absent, `bg.layoutRef` null, and `bg.layoutRef` `"@act"`. Carrying
+    `"@act"` through verbatim would hand every downstream reader two spellings of one fact to
+    re-collapse, and a reader that forgot would emit a pointer to a string. `region_flatten`'s
+    `to_inclusive` is the precedent: the document's form crosses into the engine's form once,
+    in one place, and after it the row means what the engine means. The shared golden pins the
+    collapse from BOTH sides of the seam — the aeon rows fixture states the engine fact, and
+    aurora reproduces it from the same document — which is the one thing about these two
+    fields the seam can check while every shipped row still defaults.
     """
     if bg is None:
         return {"layoutRef": None, "span": None}
@@ -3636,10 +3667,17 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
     layout = bg.get("layoutRef")
     if layout is not None and layout != BG_ACT_SENTINEL:
         _refuse(path, f"{where}: `bg.layoutRef` is {layout!r}. Only {BG_ACT_SENTINEL!r} and "
-                      f"null are accepted today: regions part 2 step 1 landed "
-                      f"`Region.rg_bg_layout` and NOTHING IN THE ENGINE READS IT YET, so a "
-                      f"named layout would bake a binding no consumer resolves — which is "
-                      f"the `bgLayoutRef` failure the synthesis booked. Refused rather than "
+                      f"null are accepted today, and NOT because nothing reads "
+                      f"`Region.rg_bg_layout` — step 3 gave it two readers "
+                      f"(Section_RedrawPlanes, Draw_BG_TileRow). Because NOTHING LOWERS THIS "
+                      f"DOCUMENT INTO A REGION TABLE: `generate()` stops at "
+                      f"`check_mode_conflict` and act 1's rows are hand-written in "
+                      f"act_descriptor.emp, so a named layout would be accepted here and "
+                      f"dropped on the floor — the `bgLayoutRef` failure the synthesis "
+                      f"booked. Two more hold even once an emitter exists: the layout "
+                      f"library carries no HEIGHT, so the derived-span check this generator "
+                      f"owes has nothing to compare against, and `rg_bg_span` has no engine "
+                      f"reader until step 4's clamp. Refused rather than "
                       f"accepted-and-dropped, so the author learns at the build instead of "
                       f"from a picture that never changed.")
     span = bg.get("span")
@@ -3657,7 +3695,8 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
                       f"layout's height (part 2 §6.2 item 1), so a value here is either "
                       f"redundant or wrong and the schema cannot tell which, because it "
                       f"never sees the layout.")
-    return {"layoutRef": layout, "span": None}
+    # The collapse (see the docstring): `"@act"` IS null, so the row states the engine fact.
+    return {"layoutRef": None if layout == BG_ACT_SENTINEL else layout, "span": None}
 
 
 def load_act_regions(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:

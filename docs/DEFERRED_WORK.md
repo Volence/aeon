@@ -34943,6 +34943,68 @@ claim that was true when written, that nothing re-checks.
 
 ## REGIONS-BG-GOLDEN-GAP (booked 2026-09-16, raised by the hub out of aurora's seam proof)
 
+### ⚠ HALF CLOSED 2026-09-16 (`parcel/regions-bg-golden`). The DEFAULT half is published; the NON-DEFAULT half is BLOCKED on three measured things, and the premise that this was a fixtures-only parcel is REFUTED.
+
+**Published (the default half).** The golden document now carries `bg` in all three of the
+contract's legal spellings — absent on eight rows, `"layoutRef": null` on `sec3`, `"layoutRef":
+"@act"` on `sec0` — and all ten rows of `ojz_act1.rows.json` carry `"bg": {"layoutRef": null,
+"span": null}`, hand-derived from `ojz_region()`'s declared defaults (`bg_layout: Label = 0,
+bg_span: int = 0`) and the fact that not one of the ten call sites passes either argument. The
+fixture is still row-for-row the shipped act; nothing golden-only was invented. What that pins
+across the seam is the **collapse**: three document spellings, one engine fact
+(`rg_bg_layout = 0`), and a flattener that copied `"@act"` through would put a STRING where the
+engine dereferences a POINTER. `tools/effects_gen.py` now performs that collapse at the one
+conversion site (it used to carry `"@act"` through verbatim).
+
+**AURORA MUST MIRROR TWO THINGS** (the quotable pair): *every row of `ojz_act1.rows.json` now
+carries a `bg` object with exactly the keys `layoutRef` and `span`, so a row comparison that does
+not emit one will fail until aurora adds it; and `bg.layoutRef` `"@act"` must be flattened to
+`null` — the sentinel and null and an absent `bg` are one engine value and the row states the
+engine value, not the document's spelling.*
+
+**NOT published, and it is the half the booking is about: no row exercises a NON-DEFAULT
+background.** A golden that only exercises the defaults would pass identically against a flattener
+that ignored both fields, so it is named here rather than counted. Three independent blockers,
+each measured at `9332c1af`, and any one of them is enough:
+
+1. **`tools/effects_gen.py` refuses a named `bg.layoutRef` outright**, because nothing lowers this
+   document into a region table — `generate()` stops at `check_mode_conflict` and act 1's rows are
+   hand-written. Opening it is production code in the generator and is the parcel the loader's own
+   docstring already assigns ("the day `layoutRef` opens, the derived-span check is what that
+   parcel owes"). **So this was never a fixtures-only parcel**, and the fields' existence plus the
+   schema's readiness was not sufficient.
+2. **No height exists to derive a span from.** `games/sonic4/data/editor/ojz_bglib.json` carries
+   `id` and `name` and nothing else. `AURORA_REGIONS_SCHEMA.md` §5 calls the golden "the single
+   correctness check on a derived field"; that check cannot be built on this side until a layout's
+   height is readable here. (The one layout blob on disk,
+   `ojz_bg_ingame-forest-v15-1786630615596.bin`, is 8192 B = 64×64 cells = **512 px = exactly
+   `PLANE_B_SPAN`**, so even with a height source the only shipped layout derives to the 0
+   sentinel. A span that differs from the plane needs a picture taller than the plane, which is
+   part 2's step 4/E3 work.)
+3. **CONTRACT FINDING, for the hub, not actionable from this repo:** every id in that library is
+   hyphenated and timestamped (`ingame-forest-v15-1786630615596`), and the contract's
+   `bg.layoutRef` pattern is `^(@act|[a-z][a-z0-9_]{0,31})$` — **no existing layout can be named in
+   a schema-legal document.** Either aurora mints region-era ids that match the pattern or the
+   pattern is amended; until one of those, a non-default golden can only name a layout that does
+   not exist, and then blocker 2 bites anyway. The schema was NOT edited from here.
+
+**The tripwire that keeps this from being rediscovered later.**
+`tools/test_regions_doc.py::TestBackgroundBinding::test_TRIPWIRE_opening_layoutRef_without_the_golden_fails_here`
+fails the day blocker 1 is lifted without the golden growing its non-default row, and its message
+names the fixture, the hand-derivation and this booking. Its weak arm is today's (while the refusal
+stands it asserts something trivial); the arm with teeth was proven by patching `_check_region_bg`
+to accept a named layout and watching it go red.
+
+**One stale sentence was corrected on the way past.** The refusal used to read "NOTHING IN THE
+ENGINE READS IT YET", which step 3 (`17bf60fe`, the same day) falsified — `Section_RedrawPlanes`
+and `Draw_BG_TileRow` both read `Region.rg_bg_layout`; it is `rg_bg_span` that still has no reader.
+The same stale claim stood in `act_descriptor.emp`'s bg comment and is corrected there too. A
+refusal whose stated reason is wrong sends the author to the wrong file.
+
+---
+
+**The original booking, unedited:**
+
 **The shared regions golden carries no `bg` block, so `layoutRef` and the derived span are untested
 across the seam.** Aurora proved its regions file against our golden this hour — all ten rows field
 for field plus `act`/`act_w`/`act_h`, two independently written flatteners, two languages, two
