@@ -76,9 +76,11 @@ use engine.effects.palette_dsl.{cycle_channel, cycle_script1, variant}
 // OJZ act 1's sections onto (engine/effects/preset.emp).
 use engine.effects.preset.{EffectsPreset, preset}
 // THE RASTER CHOOSER — the generated seam this file calls (EFFECTS-W1 item 1 step 5).
-// `ojz_act1_sec_raster(sec:, hand:)` is a `pub comptime fn` emitted for every act by
-// tools/effects_gen.py; it returns the `EditorRaster_*` program a section's sidecar
-// `rasterRef` names, or the caller's `hand:` when no sidecar names one. Today no sidecar
+// `ojz_act1_preset_raster(preset:, hand:)` is a `pub comptime fn` emitted for every act by
+// tools/effects_gen.py; it returns the `EditorRaster_*` program bound to THIS RECORD, or
+// the caller's `hand:` when nothing binds one. A record names itself with its generated
+// `<Record>_KEY` constant — shape B′, aeon `3fc9ffa5`, 2026-09-16; before that the key was
+// the SECTION INDEX. Today no sidecar
 // in this tree carries the key, so every call returns `hand` and the chooser is zero ROM
 // bytes — see the RASTER BINDING banner in the generated module.
 //
@@ -112,7 +114,7 @@ use engine.effects.preset.{EffectsPreset, preset}
 // same record, so the same `rasterRef` binds them. They are PER (sec, ch) for the variant
 // chooser's per-slot reason, and they return `int` rather than `Label` because a world Y and
 // a packed sweep word are values, not addresses.
-use games.sonic4.ojz_effects_editor_act1.{ojz_act1_sec_raster, ojz_act1_sec_cycle, ojz_act1_sec_variant, ojz_act1_sec_patch_world_y, ojz_act1_sec_patch_motion}
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_preset_raster, ojz_act1_preset_cycle, ojz_act1_preset_variant, ojz_act1_preset_patch_world_y, ojz_act1_preset_patch_motion, OJZ_Preset_Sec3_KEY, OJZ_Preset_Sec5_KEY, OJZ_Preset_Sec6_KEY}
 // THE REELS ASSOCIATION TABLE (EFFECTS-W1 item 10 step 4), from the same generated
 // module. A DATA import and not a chooser, unlike its five neighbours above, because
 // OJZ_Reels_Fill selects at RUNTIME rather than at comptime — the active scene is not
@@ -1607,9 +1609,9 @@ pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // 0 means CLEAR here, where in ep_raster it would mean "keep". The raster channel's
 // "always pass `hand:` explicitly" rule does not transfer, for exactly that reason.
 pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None,
-                                                  cycle: ojz_act1_sec_cycle(sec: 3, hand: OJZ_ShimmerCycle),
-                                                  variants: [ ojz_act1_sec_variant(sec: 3, slot: 0, hand: Variant_Water_Deep),
-                                                              ojz_act1_sec_variant(sec: 3, slot: 1) ])
+                                                  cycle: ojz_act1_preset_cycle(preset: OJZ_Preset_Sec3_KEY, hand: OJZ_ShimmerCycle),
+                                                  variants: [ ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 0, hand: Variant_Water_Deep),
+                                                              ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 1) ])
 pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 // SECTION 4 IS THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26). It is
 // OJZ_Preset_Plain in every other respect — same palette, same variant, no cycle — and
@@ -1637,12 +1639,20 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // channel that resolves to Raster_Program_None — and it exists ONLY so that section 5 has a
 // preset of its own to bind a `rasterRef` through.
 //
-// WHY A SPLIT IS NEEDED AT ALL: `Sec.sec_effects` (Region.rg_effects now) is a POINTER to a shared
-// record, and sections 5-8 all pointed at OJZ_Preset_Plain. The chooser is keyed on a
-// SECTION INDEX, so threading `ojz_act1_sec_raster(sec: 5, ...)` into the shared record
-// would have given sections 6, 7 and 8 the same band. The friction is `sec_effects`'s, not
-// this mechanism's — any per-section binding inherits it. Paid once, here: from now on a
+// WHY A SPLIT WAS NEEDED AT ALL: `Sec.sec_effects` (Region.rg_effects now) is a POINTER to
+// a shared record, and sections 5-8 all pointed at OJZ_Preset_Plain. The chooser was keyed
+// on a SECTION INDEX, so threading `ojz_act1_sec_raster(sec: 5, ...)` into the shared
+// record would have given sections 6, 7 and 8 the same band. Paid once, here: from now on a
 // band on section 5 is a JSON-only change.
+//
+// ⚠ THAT REASON EXPIRED ON 2026-09-16 AND THE SPLIT IS NOW A CHOICE, NOT A REQUIREMENT.
+// Shape B′ (aeon `3fc9ffa5`) re-keyed the chooser onto the RECORD, so a record shared by
+// several places gives all of them the SAME band — which is what sharing a record means.
+// The 92 bytes of deliberate duplication `OJZ_Preset_Sec5` and `OJZ_Preset_Sec6` cost are
+// no longer bought by anything, and retiring them back into OJZ_Preset_Plain is a content
+// decision nobody has taken. Left standing rather than quietly undone: the split is also
+// what makes sections 5 and 6 addressable independently, and unpicking it is a look change
+// with the owner's name on it. Booked in docs/DEFERRED_WORK.md under REGIONS-EMIT-BINDINGS.
 //
 // WHY SECTION 5 AND NOT SECTION 4: section 4 already owns its preset and would need no
 // split, but its raster channel carries the d-15 showcase (OJZ_DepthVSplit) and preset()'s
@@ -1694,7 +1704,8 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // records plus ParallaxConfig_OJZ_Underwater's anchor), and section 0 CANNOT bind an editor
 // preset document: a document must carry `bands` (hub
 // ruling Q1a), `bands` lowers to a raster program, `tools/effects_seam_gate.py` requires
-// every sidecar `rasterRef` to be threaded through `ojz_act1_sec_raster(sec: N)`, and
+// every sidecar `rasterRef` to be threaded through `ojz_act1_preset_raster(preset: X_KEY)`
+// by the record X that binds it, and
 // `preset()` makes `ep_raster` and `ep_patched` mutually exclusive. The three rules close
 // the door together. Section 5 was the only section a document could bind to at all — the
 // authoring path was proved end to end there — and giving it a raster CONSUMER (as
@@ -1716,7 +1727,7 @@ pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 // binds `patched:`, so opening a second document-bindable section cost nothing: it is the
 // same one-time split OJZ_Preset_Sec5's own paragraph above describes, paid again.)
 pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
-                                                  raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None),
+                                                  raster: ojz_act1_preset_raster(preset: OJZ_Preset_Sec5_KEY, hand: Raster_Program_None),
                                                   // d-53, owner 2026-09-03 ("Sure let's do it to see it?"): the one
                                                   // reversible word that gives channel 0 a CONSUMER. The gap named in
                                                   // the block above is structural, not a choice — section 5 is the only
@@ -1728,14 +1739,14 @@ pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
                                                   // state is d-53 option open_the_door, which needs no loan at all.
                                                   parallax: ParallaxConfig_OJZ_Underwater,
                                                   cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0],
-                                                  patch_world_ys: [ojz_act1_sec_patch_world_y(sec: 5, ch: 0, hand: PATCH_ANCHOR_NONE),
-                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 1, hand: PATCH_ANCHOR_NONE),
-                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 2, hand: PATCH_ANCHOR_NONE),
-                                                                   ojz_act1_sec_patch_world_y(sec: 5, ch: 3, hand: PATCH_ANCHOR_NONE)],
-                                                  patch_motion:   [ojz_act1_sec_patch_motion(sec: 5, ch: 0, hand: ANCHOR_MOTION_NONE),
-                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 1, hand: ANCHOR_MOTION_NONE),
-                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 2, hand: ANCHOR_MOTION_NONE),
-                                                                   ojz_act1_sec_patch_motion(sec: 5, ch: 3, hand: ANCHOR_MOTION_NONE)])
+                                                  patch_world_ys: [ojz_act1_preset_patch_world_y(preset: OJZ_Preset_Sec5_KEY, ch: 0, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_preset_patch_world_y(preset: OJZ_Preset_Sec5_KEY, ch: 1, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_preset_patch_world_y(preset: OJZ_Preset_Sec5_KEY, ch: 2, hand: PATCH_ANCHOR_NONE),
+                                                                   ojz_act1_preset_patch_world_y(preset: OJZ_Preset_Sec5_KEY, ch: 3, hand: PATCH_ANCHOR_NONE)],
+                                                  patch_motion:   [ojz_act1_preset_patch_motion(preset: OJZ_Preset_Sec5_KEY, ch: 0, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_preset_patch_motion(preset: OJZ_Preset_Sec5_KEY, ch: 1, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_preset_patch_motion(preset: OJZ_Preset_Sec5_KEY, ch: 2, hand: ANCHOR_MOTION_NONE),
+                                                                   ojz_act1_preset_patch_motion(preset: OJZ_Preset_Sec5_KEY, ch: 3, hand: ANCHOR_MOTION_NONE)])
 // SECTION 6 IS THE MID-FRAME BASE-SWAP'S REAL BINDING (EFFECTS-W1 item 11a's authorable
 // half, 2026-09-03). It is `OJZ_Preset_Plain` in every respect but one — same palette, same
 // variant, no cycle, no parallax/patch channels — and exists ONLY so that section 6 has a
@@ -1774,7 +1785,7 @@ pub data OJZ_Preset_Sec5:  EffectsPreset = preset(pal: OJZ_Palette,
 // mid-frame door stops being a DEBUG-only demo the moment a document, rather than a hotkey,
 // asks for it.
 pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
-                                                  raster: ojz_act1_sec_raster(sec: 6, hand: Raster_Program_None),
+                                                  raster: ojz_act1_preset_raster(preset: OJZ_Preset_Sec6_KEY, hand: Raster_Program_None),
                                                   cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 
 // SECTION 7 IS THE ACT'S SECOND SECTION WITH LIVE PATCH CHANNELS (EFFECTS-W1 item 9c
@@ -1804,10 +1815,12 @@ pub data OJZ_Preset_Sec6:  EffectsPreset = preset(pal: OJZ_Palette,
 //   * SECTION 7 HAS A SIDECAR. `games/sonic4/data/editor/ojz/act1/section_7.meta.json`
 //     landed at c1d0a6be, 2026-09-05, reading `"sceneRef": "ojz_act1_sec7_worldwater"`. The
 //     generated chooser carries `if sec == 7 { out = EditorSceneBinding_OJZ_Act1_Sec7 }`
-//     (effects_scenes.emp:346) and that binding is a real emitted record (:168,
+//     (ojz_act1_sec_scene's `sec == 7` arm in effects_scenes.emp) and that binding is a
+//     real emitted record (EditorSceneBinding_OJZ_Act1_Sec7 there,
 //     `lower3(EditorScenes_OJZ_Act1[2])`). So `ojz_act1_sec_scene(sec: 7)` does NOT return
 //     0: section 7 installs the editor scene `ojz_act1_sec7_worldwater` — 3 bands,
-//     v_factor 15, v_offset 288, no anchor (effects_scenes.emp:92-111) — at rung 1.
+//     v_factor 15, v_offset 288, no anchor (Scene_Editor_ojz_act1_sec7_worldwater in
+//     effects_scenes.emp) — at rung 1.
 //     The anchored-scene work this paragraph pointed a future author at is DONE.
 //   * OJZ_Preset_Sec0 STILL NAMES ParallaxConfig_OJZ_Underwater (:1517), but that naming is
 //     DEAD: section 0's own rung 1 is non-zero (chooser arm `if sec == 0`), and
@@ -2876,9 +2889,9 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 //   -------------------  --------  ----------------------  ---------------------------
 //   OJZ_TwoChannel       patched   SECTION 0               OJZ_Preset_Sec0 `patched:`
 //   OJZ_ShimmerCycle     cycle     SECTION 3               OJZ_Preset_Sec3 `cycle:` (via
-//                                                          ojz_act1_sec_cycle's `hand:`;
-//                                                          the chooser has no sec-3 arm,
-//                                                          so the hand argument wins)
+//                                                          ojz_act1_preset_cycle's `hand:`;
+//                                                          the chooser has no arm for
+//                                                          OJZ_Preset_Sec3, so `hand:` wins)
 //   OJZ_DepthVSplit      raster    SECTION 4               OJZ_Preset_Depth `raster:`
 //   OJZ_WorldWater       patched   SECTION 7               OJZ_Preset_Sec7 `patched:`
 //   -------------------  --------  ----------------------  ---------------------------
@@ -2949,7 +2962,8 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 // SECTIONS 5 AND 6 APPEAR IN NO ROW ABOVE, and that is correct rather than an omission:
 // their raster programs are EDITOR-AUTHORED and live in the generated tree
 // (EditorRaster_OJZ_Act1_ojz_sec5_showcase / _ojz_sec6_baseswap, reached through
-// `ojz_act1_sec_raster(sec: N)`). Section 8 binds OJZ_Preset_Plain and carries no raster
+// `ojz_act1_preset_raster(preset: <Record>_KEY)`). Section 8 binds OJZ_Preset_Plain and
+// carries no raster
 // program at all. So act 1's nine sections are fed by TWO authoring mechanisms with
 // nothing in either file marking the split, and sections 1, 2 and 3 have no
 // `section_N.meta.json` — they cannot be reached from the editor at all.

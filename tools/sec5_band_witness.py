@@ -25,7 +25,7 @@ WHAT IT MEASURES, AND WHAT IT DOES NOT.
 
 EVERY EXPECTATION IS DERIVED, NEVER TYPED. Band lines, the CRAM line/entry and the colour
 come from PARSING the preset document the sidecar names; the label the engine must have
-installed comes from the GENERATED chooser (`ojz_act1_sec_raster`) so a stale generated
+installed comes from the GENERATED chooser (`ojz_act1_preset_raster`) so a stale generated
 tree is caught rather than trusted; the section geometry comes from `SECTION_SIZE_SHIFT`,
 `SCREEN_WIDTH`/`SCREEN_HEIGHT` (engine/system/constants.emp) and `GRID_W`/`GRID_H`
 (the act descriptor). The base colour is the one thing no document states, so it is
@@ -82,7 +82,7 @@ PRESETS_DIR = os.path.join("games", "sonic4", "data", "editor", "effects", "pres
 GENERATED = os.path.join("games", "sonic4", "data", "generated", "ojz", "act1", "effects_scenes.emp")
 DESCRIPTOR = os.path.join("games", "sonic4", "data", "levels", "ojz", "act1", "act_descriptor.emp")
 CONSTANTS = os.path.join("engine", "system", "constants.emp")
-CHOOSER = "ojz_act1_sec_raster"
+CHOOSER = "ojz_act1_preset_raster"
 RASTER_REF_KEY = "rasterRef"            # empyrean AURORA_EFFECTS_SCHEMA §3.1; effects_gen.ACT_RASTER_REF_KEY
 ACTIVE_H = 224
 DEFAULT_LINES = "8,20,40,56,72,96,150"
@@ -171,14 +171,55 @@ def expectation(preset: dict, where: str) -> dict:
     }
 
 
+def section_record(repo: str, sec: int):
+    """The `EffectsPreset` record the descriptor's region row for `sec` installs, or None.
+
+    NEEDED SINCE SHAPE B′ (aeon `3fc9ffa5`, 2026-09-16): the generated raster chooser is
+    keyed on the RECORD, not on the section index, so a witness that asks "what does
+    section 5 get" has to make the section -> record hop itself. Read from the descriptor's
+    own rows, the way tools/effects_gen.py's `section_preset_symbols` does, rather than
+    typed — this witness's whole discipline is that every expectation is parsed."""
+    text = open(os.path.join(repo, DESCRIPTOR), encoding="utf-8").read()
+    text = re.sub(r"//[^\n]*", "", text)
+    for m in re.finditer(r"\bojz_region\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)", text):
+        body = m.group(1)
+        sm = re.search(r"\bsec:\s*(\d+)", body)
+        em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
+        if sm and em and int(sm.group(1)) == sec:
+            return em.group(1)
+    return None
+
+
 def chooser_binding(repo: str, sec: int):
-    """The label the GENERATED chooser binds for `sec`, or None. Read off the arm itself."""
+    """The label the GENERATED chooser binds for `sec`'s record, or None.
+
+    ⚠ TWO HOPS SINCE B′, and both are read rather than assumed. The arms are
+    `if preset == <ordinal>` and the ordinals only mean anything against the
+    `pub const <Record>_KEY = <ordinal>` block the SAME generated module emits — so this
+    reads that block, resolves the section to its record through the descriptor, and looks
+    the arm up by ordinal. A witness that went on matching `if sec == N` would have found
+    no arm and refused, which is loud; matching the ordinal N as if it were a section
+    would have been SILENT and wrong, which is why the ordinal is never used bare."""
     text = open(os.path.join(repo, GENERATED), encoding="utf-8").read()
     m = re.search(r"pub comptime fn " + CHOOSER + r"\(.*?\)\s*->\s*Label\s*\{(.*?)\n\}", text, re.S)
     if not m:
         raise refuse(f"could not find `{CHOOSER}` in {GENERATED}")
-    arms = dict((int(a), b) for a, b in re.findall(r"if sec == (\d+) \{ out = (\w+) \}", m.group(1)))
-    return arms.get(sec), arms
+    keys = {int(v): k for k, v in re.findall(r"^pub const (\w+)_KEY = (\d+)$", text, re.M)}
+    if not keys:
+        raise refuse(f"{GENERATED} declares no `<Record>_KEY` constants, so the chooser's "
+                     f"`if preset == <ordinal>` arms cannot be attributed to a record")
+    arms = {}
+    for a, b in re.findall(r"if preset == (\d+) \{ out = (\w+) \}", m.group(1)):
+        rec = keys.get(int(a))
+        if rec is None:
+            raise refuse(f"{GENERATED}'s {CHOOSER} has an arm on ordinal {a} that no "
+                         f"`<Record>_KEY` constant in the same file names")
+        arms[rec] = b
+    rec = section_record(repo, sec)
+    if rec is None:
+        raise refuse(f"no region row in {DESCRIPTOR} binds section {sec} to an `effects:` "
+                     f"record, so there is no key to look the chooser arm up by")
+    return arms.get(rec), arms
 
 
 # ----------------------------------------------------------------------------- bus helpers

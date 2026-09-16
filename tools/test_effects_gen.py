@@ -855,6 +855,93 @@ _OMITTED = object()
 
 
 # =============================================================================
+# THE EFFECTS LIBRARY EVERY SANDBOX NOW NEEDS — shape B′ (ruled aeon `3fc9ffa5`).
+# =============================================================================
+#
+# The five preset-channel choosers (`raster`, `patched`, `cycle`, `variant` and the two
+# `patch_*`) are keyed on the `EffectsPreset` RECORD, not on the section index: they are
+# called from inside the hand-written `preset()` records in the game's effects library,
+# and a record does not know which section or region row binds it. So `render_module`
+# mints one comptime `<Record>_KEY` per record the library declares — and REFUSES a
+# library it cannot read, because a library with no records is a chooser with no key to
+# compare. A sandbox that writes no library therefore no longer renders at all, which is
+# why these two writers exist and why the bases below call them.
+#
+# ONE RECORD PER SECTION is what the sandboxes bind, and that choice is what keeps the
+# tests below exactly as strong as they were: the owner->record map is then a BIJECTION,
+# so "section 3 and section 5 get different chooser rows" is still the claim being made,
+# spelled in the records those two sections bind. The one test whose PREMISE depended on
+# the map NOT being a bijection is re-aimed at its site and says so there.
+
+
+def _library_emp(records):
+    """A minimal effects library declaring `records`, in the shape the generator reads.
+
+    `effects_library_records` matches `pub data <Name>: EffectsPreset`, so that is what
+    this writes — the real `ojz_effects.emp`'s own spelling, not a mock of it. The
+    initializer is never parsed by anything under test here; what is read is the
+    declaration line.
+    """
+    return ("module games.sonic4.ojz_effects in ojz_effects\n" +
+            "".join(f"pub data {r}: EffectsPreset = preset(pal: OJZ_Palette)\n"
+                    for r in records))
+
+
+def _descriptor_emp(by_section):
+    """An act descriptor binding each section index to its `EffectsPreset` record.
+
+    The section->record edge is written in exactly ONE place in the tree — the
+    descriptor's own `effects:` beside its `sec:` — and `section_preset_symbols` is what
+    reads it. A sandbox that renders a `rasterRef` needs this file, because a binding
+    whose owner has no record is refused (it would otherwise be dropped in silence).
+    """
+    rows = "".join(f"    ojz_sec(sec: {i}, blocks: A, effects: {by_section[i]}),\n"
+                   for i in sorted(by_section))
+    return (f"pub data OJZ_Act1_Sections: [Sec; {len(by_section)}] = [\n"
+            f"{rows}]\n")
+
+
+def _preset_key(record, repo=None, names=None):
+    """The chooser ordinal the generator mints for one `EffectsPreset` record.
+
+    DERIVED THE WAY THE GENERATOR DERIVES IT — the record's index in
+    `sorted(effects_library_records(...))` — rather than typed. A typed ordinal would
+    agree with a generator that sorted by a different key, and it would have to be
+    re-typed at every site the day a fixture grows a record; this moves with the fixture
+    that produced it. Fails loudly for a record the library does not declare, because the
+    alternative is an expectation quietly pointing at the wrong arm.
+    """
+    repo = effects_gen.REPO if repo is None else repo
+    names = names or effects_gen.act_names(repo)
+    records = sorted(effects_gen.effects_library_records(names, repo))
+    if record not in records:
+        raise AssertionError(
+            f"{record!r} is not declared by the effects library this fixture wrote "
+            f"({', '.join(records) or '(none)'}), so it has no chooser ordinal and "
+            f"the expectation below would name an arm that cannot exist.")
+    return records.index(record)
+
+
+def _real_tree_record(sec):
+    """The `EffectsPreset` record the SHIPPED act descriptor binds to section `sec`.
+
+    For the blocks that render against the real repo rather than a sandbox — they pass no
+    `repo=`, so the library that mints the keys and the descriptor that carries the
+    section->record edge are both the shipped ones. Read at call time rather than typed,
+    so a descriptor edit moves the expectation with it instead of leaving it pointed at a
+    record that act no longer installs.
+    """
+    names = effects_gen.ActNames("ojz", "act1")
+    record = effects_gen.section_preset_symbols(names).get(sec)
+    if record is None:
+        raise AssertionError(
+            f"the shipped act descriptor binds no `EffectsPreset` record to section "
+            f"{sec}, so no chooser row can be keyed on it and this expectation has gone "
+            f"stale against the tree it reads.")
+    return record
+
+
+# =============================================================================
 # SLICE 5 — assignments, the generated module, and the always-emitted binding.
 #
 # Expectations here come from the CONTRACT (§2.2 for the assignment fields) and from
@@ -2566,6 +2653,12 @@ class TestPresetConverseControl(AssignmentBase):
 # =============================================================================
 # THE `rasterRef` ARM — the per-section raster binding (EFFECTS-W1 item 1, step 3)
 #
+# STILL PER-SECTION AT THE SIDECAR, PER-RECORD AT THE CHOOSER (shape B′, 2026-09-16).
+# Aurora writes `rasterRef` on a section, because a section is what an author paints;
+# the chooser row it becomes is keyed on the `EffectsPreset` record that section
+# installs, because the chooser is called from inside that record. `_rekey_bound_to_record`
+# is the seam between the two and `TestTheREKEYGatesOnAGREEMENT` is where it is tested.
+#
 # NOT ONE TEST BELOW SPELLS THE WIRE KEY. Every one reads
 # `effects_gen.ACT_RASTER_REF_KEY`, which is the single place in the tree the spelling
 # lives. That is not tidiness: the key was built against an UNADJUDICATED name for a
@@ -2578,12 +2671,54 @@ RASTER_KEY = effects_gen.ACT_RASTER_REF_KEY
 
 
 class RasterRefBase(AssignmentBase):
-    """AssignmentBase + the preset-document directory the raster refs resolve against."""
+    """AssignmentBase + the preset-document directory the raster refs resolve against,
+    + the effects library and act descriptor shape B′ made load-bearing.
+
+    The library and the descriptor are NOT decoration. Under B′ the channel choosers are
+    keyed on the `EffectsPreset` record, so rendering needs two facts a sidecar cannot
+    supply: which records exist (the library, which mints the keys) and which record each
+    section installs (the descriptor, which is the only place that edge is written). A
+    binding whose owner has no record is REFUSED rather than dropped, so a sandbox
+    without them cannot render at all.
+
+    One record per section, so the section->record map is a bijection and every
+    per-section distinction the subclasses assert survives the re-key intact.
+    """
 
     def setUp(self):
         super().setUp()
         self.presets = os.path.join(self.scenes, effects_gen.PRESET_SUBDIR)
         os.makedirs(self.presets)
+        self.records = {i: f"OJZ_Preset_Sec{i}"
+                        for i in range(effects_gen.act_section_count(self.repo))}
+        self.write_library(self.records.values())
+        self.write_descriptor(self.records)
+
+    def write_library(self, records):
+        lib = os.path.join(self.repo, "games", "sonic4", "data", "effects")
+        os.makedirs(lib, exist_ok=True)
+        with open(os.path.join(lib, "ojz_effects.emp"), "w") as f:
+            f.write(_library_emp(records))
+
+    def write_descriptor(self, by_section):
+        """Rewrite the section->record edge, and remember it so `key()` stays honest."""
+        self.records = dict(by_section)
+        desc = os.path.join(self.repo, "games", "sonic4", "data", "levels", "ojz",
+                            "act1")
+        os.makedirs(desc, exist_ok=True)
+        with open(os.path.join(desc, "act_descriptor.emp"), "w") as f:
+            f.write(_descriptor_emp(by_section))
+
+    def key(self, sec):
+        """The chooser ordinal for the record section `sec` binds, derived not typed.
+
+        A chooser row's key is the RECORD's ordinal in the library, and the section index
+        reaches it only through the descriptor this fixture wrote. Going through both
+        maps here is what makes the expectation a statement about the binding rather than
+        about a number that happens to match.
+        """
+        return _preset_key(self.records[sec], self.repo,
+                           effects_gen.act_names(self.repo))
 
     def write_preset(self, stem, **over):
         with open(os.path.join(self.presets, f"{stem}.json"), "w") as f:
@@ -2593,6 +2728,14 @@ class RasterRefBase(AssignmentBase):
         return effects_gen.load_section_raster_refs(self.repo)
 
     def render(self):
+        # `repo=` IS LOAD-BEARING NOW and was not before. Every other argument was already
+        # read out of the sandbox, but `render_module` itself took the default REPO — which
+        # cost nothing while the choosers were keyed on the section index, because it read
+        # nothing out of the repo on that path. Under shape B′ it reads two things: the
+        # effects library that mints the keys and the descriptor that says which record
+        # each section installs. Left at the default, every assertion below would be
+        # keyed on the SHIPPED tree's records while its bindings came from this fixture —
+        # a test that goes red when someone adds a preset record to act 1.
         return effects_gen.render_module(
             effects_gen.load_all_scenes(repo=self.repo),
             effects_gen.load_act_scene_ref(self.repo),
@@ -2600,7 +2743,8 @@ class RasterRefBase(AssignmentBase):
             effects_gen.act_section_count(self.repo),
             effects_gen.act_names(self.repo),
             effects_gen.load_all_presets(repo=self.repo),
-            self.refs())
+            self.refs(),
+            repo=self.repo)
 
     def arm_footprint(self, text):
         """Every character the CHANNEL BINDING arms contribute: banners + choosers.
@@ -2623,13 +2767,13 @@ class RasterRefBase(AssignmentBase):
         return text[start:]
 
     def chooser(self, text):
-        """The whole `sec_raster` function block, or a loud failure.
+        """The whole `preset_raster` function block, or a loud failure.
 
         Extracted rather than searched-for so the tests below can assert on its ENTIRE
         text: "the body is exactly the fallback" is a claim about what is absent, and a
         substring check cannot make it.
         """
-        head = f"pub comptime fn {effects_gen.act_names(self.repo).fn_sec_raster}("
+        head = f"pub comptime fn {effects_gen.act_names(self.repo).fn_preset_raster}("
         start = text.find(head)
         if start < 0:
             self.fail(f"the generated module carries no {head!r} — the raster chooser "
@@ -2721,13 +2865,21 @@ class TestRasterRefResolution(RasterRefBase):
             self.render()
 
     def test_a_bound_ref_emits_exactly_one_chooser_row(self):
+        """EXACTLY one row, keyed on the RECORD section 5 installs (shape B′).
+
+        The sidecar still names the document per SECTION; what changed is where that
+        binding lands — the chooser's arm compares the record's ordinal, because the
+        chooser is called from inside the record. One sidecar is still one row, and the
+        trailing `// <Record>` is the generator saying which record this arm is for.
+        """
         self.write_preset("ojz_ground_wash")
         self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
         names = effects_gen.act_names(self.repo)
         body = self.chooser(self.render())
-        rows = [l for l in body.splitlines() if l.strip().startswith("if sec ==")]
+        rows = [l for l in body.splitlines() if l.strip().startswith("if preset ==")]
         self.assertEqual(
-            rows, [f"    if sec == 5 {{ out = {names.raster('ojz_ground_wash')} }}"])
+            rows, [f"    if preset == {self.key(5)} {{ out = "
+                   f"{names.raster('ojz_ground_wash')} }}   // {self.records[5]}"])
 
     def test_the_raster_witness_counts_the_bindings(self):
         self.write_preset("ojz_ground_wash")
@@ -2737,10 +2889,94 @@ class TestRasterRefResolution(RasterRefBase):
         self.assertIn(f"pub equ {names.equ_raster_bindings} = 2", self.render())
 
 
+class TestTheREKEYGatesOnAGREEMENT(RasterRefBase):
+    """`_rekey_bound_to_record` — the seam where a per-SECTION sidecar becomes a
+    per-RECORD chooser row (shape B′, ruled aeon `3fc9ffa5`).
+
+    THE PREMISE THIS BLOCK REPLACES. Until 2026-09-16 the choosers were keyed on the
+    section index, and the fault that keying existed to prevent was two sections POINTING
+    AT ONE `EffectsPreset` record: `Sec.sec_effects` (now `Region.rg_effects`) is a
+    pointer, sections 5-8 all pointed at `OJZ_Preset_Plain`, and a band threaded into
+    that shared record would have landed on all four. That is why the tree carries
+    `OJZ_Preset_Sec5` and `OJZ_Preset_Sec6` as deliberate 92-byte splits off Plain, and
+    why "a shared preset cannot carry a section-keyed band" was a real thing to assert.
+
+    IT IS NOT A FAULT ANY MORE, and that is the ruling rather than a tolerance: the
+    chooser now compares the RECORD, so several owners naming one record get the same
+    channels — which is what sharing a record MEANS, and under the regions model it is how
+    one look is painted over two rectangles. What replaced it is a narrower fault this
+    block is aimed at instead: two owners naming one record and TWO DIFFERENT documents.
+    A record has ONE `ep_raster`, so one of those documents would be installed and the
+    other dropped in silence, which is the failure the old keying could not have.
+    """
+
+    SHARED = "OJZ_Preset_Shared"
+
+    def share(self, *sections):
+        """Point `sections` at one record, and declare only that record."""
+        self.write_library([self.SHARED])
+        self.write_descriptor({i: self.SHARED for i in sections})
+
+    def test_two_sections_sharing_a_record_AND_a_document_is_CORRECT(self):
+        """AGREEMENT, NOT UNIQUENESS. The two owners want the same look and say so with
+        the same document, so the re-key collapses them onto the record's ONE arm rather
+        than refusing — and the witness counts RECORDS bound, which is now what a binding
+        is. An implementation that gated on uniqueness would refuse this."""
+        self.share(3, 5)
+        self.write_preset("a_wash")
+        self.write_sidecar(3, {RASTER_KEY: "a_wash"})
+        self.write_sidecar(5, {RASTER_KEY: "a_wash"})
+        names = effects_gen.act_names(self.repo)
+        text = self.render()
+        rows = [l for l in self.chooser(text).splitlines()
+                if l.strip().startswith("if preset ==")]
+        self.assertEqual(
+            rows, [f"    if preset == {_preset_key(self.SHARED, self.repo)} "
+                   f"{{ out = {names.raster('a_wash')} }}   // {self.SHARED}"])
+        self.assertIn(f"pub equ {names.equ_raster_bindings} = 1", text)
+
+    def test_two_sections_binding_one_record_to_DIFFERENT_documents_is_REFUSED(self):
+        """The fault that replaced the old one, and the refusal has to name BOTH sides:
+        the author's own fix is to split the record, and they can only choose which one
+        to split if they are told which two sections disagreed and about what."""
+        self.share(3, 5)
+        self.write_preset("a_wash")
+        self.write_preset("b_wash")
+        self.write_sidecar(3, {RASTER_KEY: "a_wash"})
+        self.write_sidecar(5, {RASTER_KEY: "b_wash"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        for named in (self.SHARED, "section 3", "section 5", "a_wash", "b_wash"):
+            self.assertIn(named, msg,
+                          f"the disagreement refusal does not name {named!r}, so the "
+                          f"author cannot tell which binding to split.")
+        self.assertIn("Split the record", msg)
+        # and it says outright that the case above is NOT what it is refusing, because a
+        # reader who mis-reads this as "two sections may not share" splits a record the
+        # ruling says they should keep.
+        self.assertIn("sharing a record and a document is correct", msg)
+
+    def test_a_binding_whose_SECTION_HAS_NO_RECORD_is_REFUSED_not_dropped(self):
+        """The dropped-in-silence direction. A `rasterRef` on a section the descriptor
+        binds no `EffectsPreset` to has no arm to land in: the document's program would
+        sit in the ROM with nothing calling it and the section would render as though the
+        author had never made the assignment."""
+        self.share(3)                       # section 5 is deliberately left unbound
+        self.write_preset("a_wash")
+        self.write_sidecar(5, {RASTER_KEY: "a_wash"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("section 5", msg)
+        self.assertIn("a_wash", msg)
+        self.assertIn("EffectsPreset", msg)
+
+
 class TestTheChooserSplitsByARM(RasterRefBase):
     """ONE `rasterRef`, TWO CHOOSERS (contract §7.6). A `boundary` document lowers into
     `EffectsPreset.ep_patched`, which is a DIFFERENT `preset()` parameter, so it must
-    reach the section through `sec_patched` and must NOT appear in `sec_raster`.
+    reach the record through `preset_patched` and must NOT appear in `preset_raster`.
 
     THE FAILURE THIS BLOCK EXISTS FOR IS SILENT. A patched image threaded into `raster:`
     installs — it is a `[u16; N]` like any other program — but it is a padded body with
@@ -2754,7 +2990,7 @@ class TestTheChooserSplitsByARM(RasterRefBase):
 
     def patched_chooser(self, text):
         head = (f"pub comptime fn "
-                f"{effects_gen.act_names(self.repo).fn_sec_patched}(")
+                f"{effects_gen.act_names(self.repo).fn_preset_patched}(")
         start = text.find(head)
         if start < 0:
             self.fail(f"the generated module carries no {head!r} — the patched chooser "
@@ -2767,17 +3003,18 @@ class TestTheChooserSplitsByARM(RasterRefBase):
         has ONE path, always live, and never a conditional."""
         body = self.patched_chooser(self.render())
         self.assertIn("comptime var out = hand", body)
-        self.assertNotIn("if sec ==", body)
+        self.assertNotIn("if preset ==", body)
 
     def test_a_bound_boundary_reaches_the_PATCHED_chooser_and_not_the_raster_one(self):
         self.write_boundary_preset("ojz_water_edge")
         self.write_sidecar(5, {RASTER_KEY: "ojz_water_edge"})
         names = effects_gen.act_names(self.repo)
         text = self.render()
-        self.assertIn(f"    if sec == 5 {{ out = {names.patched('ojz_water_edge')} }}",
+        self.assertIn(f"    if preset == {self.key(5)} {{ out = "
+                      f"{names.patched('ojz_water_edge')} }}",
                       self.patched_chooser(text))
         raster_rows = [l for l in self.chooser(text).splitlines()
-                       if l.strip().startswith("if sec ==")]
+                       if l.strip().startswith("if preset ==")]
         self.assertEqual(raster_rows, [],
                          "a boundary document reached the RASTER chooser — it would be "
                          "threaded into `raster:` and never move.")
@@ -2789,23 +3026,30 @@ class TestTheChooserSplitsByARM(RasterRefBase):
         self.write_sidecar(5, {RASTER_KEY: "ojz_ground_wash"})
         names = effects_gen.act_names(self.repo)
         text = self.render()
-        self.assertIn(f"    if sec == 5 {{ out = {names.raster('ojz_ground_wash')} }}",
+        self.assertIn(f"    if preset == {self.key(5)} {{ out = "
+                      f"{names.raster('ojz_ground_wash')} }}",
                       self.chooser(text))
-        self.assertNotIn("if sec ==", self.patched_chooser(text))
+        self.assertNotIn("if preset ==", self.patched_chooser(text))
 
     def test_the_two_arms_coexist_on_different_sections(self):
+        """Two sections, two RECORDS, one arm each — and the records are what the two
+        arms now compare. The sections still differ; the descriptor is what carries that
+        difference into the choosers."""
         self.write_preset("ojz_ground_wash")
         self.write_boundary_preset("ojz_water_edge")
         self.write_sidecar(3, {RASTER_KEY: "ojz_ground_wash"})
         self.write_sidecar(5, {RASTER_KEY: "ojz_water_edge"})
         names = effects_gen.act_names(self.repo)
         text = self.render()
-        self.assertIn(f"if sec == 3 {{ out = {names.raster('ojz_ground_wash')} }}",
+        self.assertIn(f"if preset == {self.key(3)} {{ out = "
+                      f"{names.raster('ojz_ground_wash')} }}",
                       self.chooser(text))
-        self.assertNotIn("sec == 5", self.chooser(text))
-        self.assertIn(f"if sec == 5 {{ out = {names.patched('ojz_water_edge')} }}",
+        self.assertNotIn(f"if preset == {self.key(5)} {{", self.chooser(text))
+        self.assertIn(f"if preset == {self.key(5)} {{ out = "
+                      f"{names.patched('ojz_water_edge')} }}",
                       self.patched_chooser(text))
-        self.assertNotIn("sec == 3", self.patched_chooser(text))
+        self.assertNotIn(f"if preset == {self.key(3)} {{",
+                         self.patched_chooser(text))
 
     def test_the_bound_boundary_lowers_its_program_into_the_module(self):
         """The chooser is a Label reference; without the `pub data` behind it the module
@@ -2829,17 +3073,24 @@ class TestRasterArmIsINERT(RasterRefBase):
     """
 
     def test_no_ref_emits_a_chooser_whose_body_is_EXACTLY_the_fallback(self):
+        """The whole block, character for character — including its BOUNDS ENSURE, which
+        under shape B′ is about the LIBRARY and no longer about the act's grid. The
+        chooser takes a record ordinal, so "out of range" means "this act's effects
+        library does not declare that many records"; the section count it used to name
+        would be an unrelated number the caller cannot act on."""
         self.write_preset("ojz_ground_wash")
         names = effects_gen.act_names(self.repo)
-        sections = effects_gen.act_section_count(self.repo)
+        records = sorted(effects_gen.effects_library_records(names, self.repo))
         body = self.chooser(self.render())
         expected = (
-            f"pub comptime fn {names.fn_sec_raster}(sec: int, hand: Label = 0) "
+            f"pub comptime fn {names.fn_preset_raster}(preset: int, hand: Label = 0) "
             f"-> Label {{\n"
-            f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_raster}(sec: '
-            f'{{sec}}): this act has {sections} sections, so there is no binding slot '
-            f"for that index — the section preset and project.json's grid have drifted "
-            f'apart")\n'
+            f'    ensure(preset >= 0 && preset < {len(records)}, '
+            f'"{names.fn_preset_raster}(preset: {{preset}}): this act\'s effects '
+            f'library declares {len(records)} EffectsPreset record(s), so that is not '
+            f"one of them. Pass a `<Record>_KEY` constant from this module, never a "
+            f"bare integer — the key is DERIVED from the record name, so a misspelling "
+            f'is an unknown identifier at your call site")\n'
             f"    comptime var out = hand\n"
             f"    return out\n"
             f"}}")
@@ -2874,7 +3125,8 @@ class TestRasterArmIsINERT(RasterRefBase):
         for equ in (names.equ_raster_bindings, names.equ_cycle_bindings,
                     names.equ_variant_bindings):
             rest = rest.replace(f"pub equ {equ} = 0\n", "")
-        for token in (names.fn_sec_raster, names.fn_sec_cycle, names.fn_sec_variant,
+        for token in (names.fn_preset_raster, names.fn_preset_cycle,
+                      names.fn_preset_variant,
                       names.equ_raster_bindings, names.equ_cycle_bindings,
                       names.equ_variant_bindings, RASTER_KEY):
             self.assertNotIn(
@@ -3280,36 +3532,41 @@ class TestPaletteInTheGeneratedModule(RasterRefBase):
         A caller must have ONE path, never a conditional."""
         names = effects_gen.act_names(self.repo)
         out = self.render()
-        self.assertIn(f"pub comptime fn {names.fn_sec_cycle}(sec: int, hand: Label = 0)",
-                      out)
-        self.assertIn(f"pub comptime fn {names.fn_sec_variant}(sec: int, slot: int, "
+        self.assertIn(f"pub comptime fn {names.fn_preset_cycle}(preset: int, "
                       f"hand: Label = 0)", out)
+        self.assertIn(f"pub comptime fn {names.fn_preset_variant}(preset: int, "
+                      f"slot: int, hand: Label = 0)", out)
 
     def test_with_no_binding_both_chooser_bodies_are_EXACTLY_the_fallback(self):
         self.write_preset("a_wash", cycles=[_channel()],
                           variants=[{"shift_r": 1}, None])
         out = self.render()
         names = effects_gen.act_names(self.repo)
-        for fn in (names.fn_sec_cycle, names.fn_sec_variant):
+        for fn in (names.fn_preset_cycle, names.fn_preset_variant):
             body = out[out.index(f"pub comptime fn {fn}("):]
             body = body[:body.index("\n}") + 2]
-            self.assertNotIn("if sec ==", body,
+            self.assertNotIn("if preset ==", body,
                              f"{fn} carries a binding row with no sidecar naming a "
                              f"document — one `rasterRef` is the ONLY route into these "
                              f"choosers (ruling Q1).")
 
     def test_ONE_rasterRef_binds_EVERY_channel_the_document_carries(self):
         """Ruling Q1, and it is the whole reason there is no `cycleRef`. Binding the
-        document through the RASTER key must light up the cycle and variant choosers too."""
+        document through the RASTER key must light up the cycle and variant choosers too.
+
+        The rows are keyed on the record section 3 installs (shape B′), so this is also
+        the statement that ONE re-key feeds all three choosers: the raster, cycle and
+        variant arms name the same ordinal because they came from the same binding."""
         self.write_preset("a_wash", cycles=[_channel()],
                           variants=[{"shift_r": 1}, None])
         self.write_sidecar(3, {RASTER_KEY: "a_wash"})
         out = self.render()
-        self.assertIn("if sec == 3 { out = EditorRaster_OJZ_Act1_a_wash }", out)
-        self.assertIn("if sec == 3 { out = EditorCycle_OJZ_Act1_a_wash }", out)
-        self.assertIn("if sec == 3 && slot == 0 { out = EditorVariant_OJZ_Act1_a_wash_0 }",
-                      out)
-        self.assertIn("if sec == 3 && slot == 1 { out = 0 }", out)
+        key = self.key(3)
+        self.assertIn(f"if preset == {key} {{ out = EditorRaster_OJZ_Act1_a_wash }}", out)
+        self.assertIn(f"if preset == {key} {{ out = EditorCycle_OJZ_Act1_a_wash }}", out)
+        self.assertIn(f"if preset == {key} && slot == 0 "
+                      f"{{ out = EditorVariant_OJZ_Act1_a_wash_0 }}", out)
+        self.assertIn(f"if preset == {key} && slot == 1 {{ out = 0 }}", out)
 
     def test_a_bound_cycles_null_document_chooses_the_SENTINEL_and_never_zero(self):
         """Ruling Q2's OFF state. NULL cannot mean "off" while it also means "keep", which
@@ -3320,7 +3577,7 @@ class TestPaletteInTheGeneratedModule(RasterRefBase):
             json.dump(body, f)
         self.write_sidecar(3, {RASTER_KEY: "a_wash"})
         out = self.render()
-        self.assertIn("if sec == 3 { out = Pal_Cycle_None }", out)
+        self.assertIn(f"if preset == {self.key(3)} {{ out = Pal_Cycle_None }}", out)
         self.assertNotIn("EditorCycle_OJZ_Act1_a_wash", out)
 
     def test_the_slot_ensure_carries_an_INLINE_literal_for_the_call_site_rule(self):
@@ -3329,7 +3586,7 @@ class TestPaletteInTheGeneratedModule(RasterRefBase):
         at all (docs/EMP_PITFALLS.md §2, the SECTION_PIN precedent)."""
         out = self.render()
         names = effects_gen.act_names(self.repo)
-        body = out[out.index(f"pub comptime fn {names.fn_sec_variant}("):]
+        body = out[out.index(f"pub comptime fn {names.fn_preset_variant}("):]
         self.assertIn(f"slot < {effects_gen.PAL_MAX_VARIANTS}", body)
 
     def test_the_witnesses_count_the_bindings_of_EACH_channel_separately(self):
@@ -3894,19 +4151,34 @@ class TestPatchMotionIsForwardedVERBATIM(PatchShapeBase):
         appears — so this asserts the seed reaches generated text as the digits the author
         typed, for a value that would be unmistakable if scaled."""
         names = effects_gen.ActNames("ojz", "act1")
+        # The sidecar still binds per SECTION; the chooser row is keyed on the RECORD
+        # that section installs (shape B′), which the shipped descriptor is the only
+        # place to read. The digits under test — 224 — are untouched by any of that.
+        record = _real_tree_record(5)
+        key = _preset_key(record)
         module = effects_gen.render_module(
             {}, None, {}, 9, names,
             presets={"ojz_ground_wash": _preset(patch_world_ys=[224, None, None, None],
                                                 patch_motion=[_sweep(), None, None, None])},
             sec_raster_refs={5: "ojz_ground_wash"})
-        self.assertIn("if sec == 5 && ch == 0 { out = 224 }", module)
+        self.assertIn(f"if preset == {key} && ch == 0 {{ out = 224 }}   // {record}",
+                      module)
         self.assertNotIn("57344", module)
-        self.assertIn("if sec == 5 && ch == 0 { out = anchor_sweep(amp_shift: 4, "
-                      "period_shift: 1) }", module)
+        self.assertIn(f"if preset == {key} && ch == 0 {{ out = anchor_sweep("
+                      f"amp_shift: 4, period_shift: 1) }}   // {record}", module)
 
 
 class TestPatchChannelsInTheGeneratedModule(PatchShapeBase):
     def module(self, presets, refs):
+        """Rendered against the REAL repo, deliberately: no `repo=` is passed.
+
+        This block's subject is the generated TEXT of the two patch choosers, and the
+        documents it renders are handed in directly rather than written to disk — so the
+        only thing the repo supplies is what shape B′ needs, the effects library that
+        mints the keys and the descriptor that says which record a section installs.
+        `_real_tree_record` is how the expectations below read that same edge, so they
+        move with the tree instead of pinning an ordinal the tree could renumber.
+        """
         return effects_gen.render_module({}, None, {}, 9,
                                          effects_gen.ActNames("ojz", "act1"),
                                          presets=presets, sec_raster_refs=refs)
@@ -3916,10 +4188,12 @@ class TestPatchChannelsInTheGeneratedModule(PatchShapeBase):
         path whether or not editor content exists, and an UNCALLED `pub comptime fn` is an
         unelaborated one whose own ensures assert nothing."""
         module = self.module({}, {})
-        self.assertIn("pub comptime fn ojz_act1_sec_patch_world_y(sec: int, ch: int, "
-                      "hand: int = %d) -> int {" % effects_gen.PATCH_ANCHOR_NONE, module)
-        self.assertIn("pub comptime fn ojz_act1_sec_patch_motion(sec: int, ch: int, "
-                      "hand: int = %d) -> int {" % effects_gen.ANCHOR_MOTION_NONE, module)
+        self.assertIn("pub comptime fn ojz_act1_preset_patch_world_y(preset: int, "
+                      "ch: int, hand: int = %d) -> int {"
+                      % effects_gen.PATCH_ANCHOR_NONE, module)
+        self.assertIn("pub comptime fn ojz_act1_preset_patch_motion(preset: int, "
+                      "ch: int, hand: int = %d) -> int {"
+                      % effects_gen.ANCHOR_MOTION_NONE, module)
         self.assertIn("EditorPatch_OJZ_Act1_Bindings = 0", module)
 
     def test_the_defaults_are_the_SENTINELS_and_never_0_on_the_world_Y(self):
@@ -3935,16 +4209,20 @@ class TestPatchChannelsInTheGeneratedModule(PatchShapeBase):
         module = self.module(
             {"p": _preset(id="p", patch_world_ys=[None], patch_motion=[None])},
             {5: "p"})
-        self.assertIn("if sec == 5 && ch == 0 { out = PATCH_ANCHOR_NONE }", module)
-        self.assertIn("if sec == 5 && ch == 0 { out = ANCHOR_MOTION_NONE }", module)
+        key = _preset_key(_real_tree_record(5))
+        self.assertIn("if preset == %d && ch == 0 { out = PATCH_ANCHOR_NONE }" % key,
+                      module)
+        self.assertIn("if preset == %d && ch == 0 { out = ANCHOR_MOTION_NONE }" % key,
+                      module)
 
     def test_an_index_the_array_does_not_reach_emits_NO_ROW(self):
-        """That is how 'keep the section's hand-authored value' is spelled: no row, so the
+        """That is how 'keep the record's hand-authored value' is spelled: no row, so the
         chooser returns its `hand:` parameter."""
         module = self.module({"p": _preset(id="p", patch_world_ys=[224])}, {5: "p"})
-        self.assertIn("if sec == 5 && ch == 0 { out = 224 }", module)
+        key = _preset_key(_real_tree_record(5))
+        self.assertIn("if preset == %d && ch == 0 { out = 224 }" % key, module)
         for ch in (1, 2, 3):
-            self.assertNotIn("if sec == 5 && ch == %d" % ch, module)
+            self.assertNotIn("if preset == %d && ch == %d" % (key, ch), module)
 
     def test_the_witness_counts_a_document_carrying_EITHER_key(self):
         for key, value in (("patch_world_ys", [224]), ("patch_motion", [None])):
@@ -4052,20 +4330,30 @@ pub const REEL_COLS_PER_BAND  = 4
 
 
 class ReelsBase(AssignmentBase):
-    """AssignmentBase plus the two `.emp` surfaces the reels arm re-derives from.
+    """AssignmentBase plus the `.emp` surfaces the reels arm re-derives from.
 
     The constants module is written into every fixture because `reel_band_count`
     REFUSES rather than falling back on 5 — that refusal is itself under test below.
+
+    A DEFAULT EFFECTS LIBRARY is written for a reason that has nothing to do with reels:
+    since shape B′ (aeon `3fc9ffa5`) `render_module` mints one comptime key per
+    `EffectsPreset` record and refuses a library with none, so a sandbox without one
+    cannot render ANY module and every reels assertion below would be measuring that
+    refusal instead of the reels arm. The two records are the pair the rung refusals
+    below name in their own fixtures, so a test that overwrites this file is writing the
+    same vocabulary rather than a different one.
     """
 
     BANDS = 5
     RATES = [3, -5, 2, -4, 6]
+    LIB_RECORDS = ("OJZ_Preset_Sec0", "OJZ_Preset_Sec5")
 
     def setUp(self):
         super().setUp()
         self.config = os.path.join(self.repo, "games", "sonic4", "config")
         os.makedirs(self.config)
         self.write_constants()
+        self.write_effects_lib(_library_emp(self.LIB_RECORDS))
 
     def write_constants(self, bands=None):
         with open(os.path.join(self.config, "constants.emp"), "w") as f:
@@ -4327,8 +4615,9 @@ class TestReelsAliasIsAnAddressNotASpelling(ReelsBase):
     are refusals and not hygiene: `<stem>_sec_scene(sec: N)` is emitted as a
     `pub comptime fn -> Label` returning `EditorSceneBinding_<CAP>_SecN`, and the
     sibling raster chooser is ALREADY written in exactly that form in the shipped
-    `games/sonic4/data/effects/ojz_effects.emp`
-    (`raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None)`). An author
+    `games/sonic4/data/effects/ojz_effects.emp` (today
+    `raster: ojz_act1_preset_raster(preset: OJZ_Preset_Sec5_KEY, hand:
+    Raster_Program_None)`; the same call spelled `sec: 5` until shape B′). An author
     writing the parallax channel the way the file next to it writes the raster channel
     defeated the old refusal.
 

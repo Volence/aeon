@@ -314,13 +314,22 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // defaults: parallax 0, all-PATCH_ANCHOR_NONE, all-ANCHOR_MOTION_NONE), the
             // record at :1664-1684 differs in FOUR fields, all derived from source:
             //   raster:            EditorRaster_OJZ_Act1_ojz_sec5_showcase, via the
-            //                      `if sec == 5` arm at effects_scenes.emp:399  (Plain: none)
+            //                      `OJZ_Preset_Sec5` arm of effects_scenes.emp's
+            //                      ojz_act1_preset_raster              (Plain: none)
             //   parallax:          ParallaxConfig_OJZ_Underwater (:1675) — the d-53 LOAN, and
             //                      the act's ONLY LIVE install of that record, because
             //                      section 5 has no rung-1 arm while section 0 does
-            //   patch_world_ys[0]: 2272, via effects_scenes.emp:525    (Plain: PATCH_ANCHOR_NONE)
-            //   patch_motion[0]:   anchor_sweep(amp_shift: 4, period_shift: 1), via :536
-            //                                                        (Plain: ANCHOR_MOTION_NONE)
+            //   patch_world_ys[0]: 2272, via the same arm of
+            //                      ojz_act1_preset_patch_world_y  (Plain: PATCH_ANCHOR_NONE)
+            //   patch_motion[0]:   anchor_sweep(amp_shift: 4, period_shift: 1), via
+            //                      ojz_act1_preset_patch_motion (Plain: ANCHOR_MOTION_NONE)
+            // ⚠ CITED BY NAME AND NOT BY LINE, 2026-09-16. These were `effects_scenes.emp:399`
+            // / `:525` / `:536`; shape B′ added a 43-line preset-key block above them and every
+            // one of the three drifted in the same commit. tools/test_citation_form.py caught
+            // exactly one of the three (`:525`, which landed on a bare `}`) and the other two
+            // stayed GREEN pointing at the wrong lines, which is the CITATION-LIVE-LINE defect
+            // that booking names: the gate asks "is that line alive", not "is that the line".
+            // A generated file nobody edits is the worst possible thing to cite by line number.
             // Section 5 is where the act's row-remap waterline actually renders. That is an
             // owner-facing content fact, not a tidy: see ojz_effects.emp at OJZ_Preset_Sec5.
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
@@ -379,11 +388,13 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // THE SCENE HALF IS BOUND. `games/sonic4/data/editor/ojz/act1/section_7.meta.json`
             // landed at c1d0a6be, 2026-09-05, reading `"sceneRef": "ojz_act1_sec7_worldwater"`.
             // The generated chooser therefore carries `if sec == 7 { out =
-            // EditorSceneBinding_OJZ_Act1_Sec7 }` (effects_scenes.emp:346), and that binding
+            // EditorSceneBinding_OJZ_Act1_Sec7 }` (ojz_act1_sec_scene's `sec == 7` arm in
+            // effects_scenes.emp), and that binding
             // is a real emitted `pub data` record (:168 = lower3(EditorScenes_OJZ_Act1[2])).
             // `ojz_act1_sec_scene(sec: 7)` DOES NOT RETURN 0. Section 7 resolves at RUNG 1 to
             // the editor scene `ojz_act1_sec7_worldwater` — 3 bands, v_factor 15, v_offset
-            // 288, no anchor (effects_scenes.emp:92-111) — and the act default does NOT stand.
+            // 288, no anchor (Scene_Editor_ojz_act1_sec7_worldwater in effects_scenes.emp)
+            // — and the act default does NOT stand.
             // The anchored-scene authoring this note invited is what already happened.
             //
             // WHERE THE STALE SENTENCE TRAVELLED, recorded because it is the reason this

@@ -20,16 +20,26 @@ module games.sonic4.fixture_effects_editor_out_of_band in fixture_effects_editor
 
 use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
 
-pub comptime fn fx_act1_sec_patch_motion(sec: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
-    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_motion(sec: {sec}): this act has 9 sections")
+// ⚠ RE-KEYED 2026-09-16 BY SHAPE B′ (aeon `3fc9ffa5`). The generated preset-channel
+// choosers are keyed on the `EffectsPreset` RECORD, not on the section index, and each
+// generated module carries its own `pub const <Record>_KEY = <ordinal>` block that says
+// what the ordinals in its guards mean. This fixture carries one too, because
+// `preset_key_ordinals()` reads the mapping OUT OF THE MODULE IT IS SCANNING — so the
+// ordinal below is local to this file and does not have to match the shipped module's.
+// The RECORD NAME does have to be real: `bands_for_preset()` resolves it against
+// games/sonic4/data/effects/ojz_effects.emp, which is the whole point of the fixture.
+pub const OJZ_Preset_Sec0_KEY = 0
+
+pub comptime fn fx_act1_sec_patch_motion(preset: int, ch: int, hand: int = ANCHOR_MOTION_NONE) -> int {
+    ensure(preset >= 0 && preset < 10, "fx_act1_sec_patch_motion(preset: {preset}): this library declares 10 EffectsPreset record(s)")
     comptime var out = hand
-    if sec == 0 && ch == 1 { out = anchor_sweep(amp_shift: 7, period_shift: 1, phase: 0) }
+    if preset == 0 && ch == 1 { out = anchor_sweep(amp_shift: 7, period_shift: 1, phase: 0) }   // OJZ_Preset_Sec0
     return out
 }
 
-pub comptime fn fx_act1_sec_patch_world_y(sec: int, ch: int, hand: int = $7FFF) -> int {
-    ensure(sec >= 0 && sec < 9, "fx_act1_sec_patch_world_y(sec: {sec}): this act has 9 sections")
+pub comptime fn fx_act1_sec_patch_world_y(preset: int, ch: int, hand: int = $7FFF) -> int {
+    ensure(preset >= 0 && preset < 10, "fx_act1_sec_patch_world_y(preset: {preset}): this library declares 10 EffectsPreset record(s)")
     comptime var out = hand
-    if sec == 0 && ch == 1 { out = 366 }
+    if preset == 0 && ch == 1 { out = 366 }   // OJZ_Preset_Sec0
     return out
 }

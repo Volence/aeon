@@ -18,8 +18,18 @@ use engine.effects.raster_dsl.{anchor_sweep, ANCHOR_MOTION_NONE}
 // No `ch ==` anywhere: the channel is implied by the array position of the RESULT, which is
 // a shape the chooser arm cannot see and the array arm does not reach (this is not a
 // `patch_motion:` literal).
-pub comptime fn fx_act1_sec_patch_motion_table(sec: int) -> int {
+// ⚠ RE-KEYED 2026-09-16 BY SHAPE B′ (aeon `3fc9ffa5`). The generated preset-channel
+// choosers are keyed on the `EffectsPreset` RECORD, not on the section index, and each
+// generated module carries its own `pub const <Record>_KEY = <ordinal>` block that says
+// what the ordinals in its guards mean. This fixture carries one too, because
+// `preset_key_ordinals()` reads the mapping OUT OF THE MODULE IT IS SCANNING — so the
+// ordinal below is local to this file and does not have to match the shipped module's.
+// The RECORD NAME does have to be real: `bands_for_preset()` resolves it against
+// games/sonic4/data/effects/ojz_effects.emp, which is the whole point of the fixture.
+pub const OJZ_Preset_Sec0_KEY = 0
+
+pub comptime fn fx_act1_sec_patch_motion_table(preset: int) -> int {
     comptime var out = ANCHOR_MOTION_NONE
-    if sec == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }
+    if preset == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1, phase: 0) }   // OJZ_Preset_Sec0
     return out
 }

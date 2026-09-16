@@ -25,10 +25,18 @@ The check has two halves and only one of them is comptime-visible.
   COMPTIME (already done, not duplicated here). "Did the fold lose a fire?" Given a Scene
   value and a program built from it, `scene_vsplit_count(s)` is a real derived count and
   `<prog>.len == scene_vsplit_count(s)` states the invariant. Both live consumers already
-  carry that assertion: `games/sonic4/data/effects/ojz_effects.emp:1364` for
-  `Scene_Editor_ojz_act1_depth`, and the word-for-word twin comparison at :1175-1177 for
-  `Scene_VSplitWitness`. This file repeats NEITHER; a lint that restated a comptime guard
-  would be a second authority that can drift from the first.
+  carry that assertion: `games/sonic4/data/effects/ojz_effects.emp`'s
+  `OJZ_DEPTH_VSPLIT_PROG` ensure for `Scene_Editor_ojz_act1_depth`, and the word-for-word
+  twin comparison at `OJZ_VSRAM_VIA_SCENE` for `Scene_VSplitWitness`. This file repeats
+  NEITHER; a lint that restated a comptime guard would be a second authority that can drift
+  from the first.
+
+  (⚠ CITED BY NAME, 2026-09-16. These were `:1364` and `:1175-1177`, and a two-line edit
+  elsewhere in that file moved both. `tools/test_citation_form.py` caught the first — it
+  landed on a bare delimiter — and would NOT have caught the second, which landed on live
+  prose: the gate asks whether the cited line is ALIVE, not whether it is the RIGHT line.
+  That is the CITATION-LIVE-LINE defect in docs/DEFERRED_WORK.md, met for the second time in
+  one parcel.)
 
   NOT COMPTIME (this file). "Did ANYBODY call `scene_vsplit_fires` on this scene?" That is
   a cross-module fact, and .emp has no construct that can accumulate one:

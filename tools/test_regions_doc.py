@@ -1078,10 +1078,18 @@ class TestShippedTableMatchesGolden(unittest.TestCase):
     through `tools/region_table.py` — whose struct layout is parsed from `engine/structs.emp`
     rather than typed — so the comparison is against bytes nobody transcribed.
 
-    RELEASE SHAPE ONLY, and that is not a convenience. The DEBUG ROM carries an eleventh row
-    (`OJZ_E2_SNAP_ROWS`) and a shortened `sec2`, neither of which a closed regions document
-    can express; comparing against it would fail for a reason that is not a flattener defect.
-    The marker declares `s4.bin`/`s4.lst`, which only the plain `./build.sh` writes.
+    RELEASE SHAPE ONLY, and that is not a convenience. The DEBUG ROM carries TWO extra rows
+    and THREE shortened ones, none of which a closed regions document can express; comparing
+    against it would fail for a reason that is not a flattener defect. The marker declares
+    `s4.bin`/`s4.lst`, which only the plain `./build.sh` writes.
+
+    ⚠ THE COUNT WAS WRONG HERE UNTIL 2026-09-16 AND SO IS THE FIGURE IN `DEFERRED_WORK`.
+    This said "an eleventh row (`OJZ_E2_SNAP_ROWS`) and a shortened `sec2`" — singular on both
+    halves, and true when written. Regions part 2 step 5 added `OJZ_TALL_BG_ROWS`, a TWELFTH
+    row that carves the right end off rows 5 AND 8. Measured off the built images rather than
+    counted from source: release 10 rows x 22 B = 220 B, DEBUG 12 x 22 = 264 B (the booking's
+    "11 x 22 = 242" is the stale pair). The DEBUG shortenings are sec2 -> x1 5599, sec5 -> 5119
+    and sec8 -> 5119.
 
     MARKED needs_build (LS-1): the pre-build lane deselects it, the post-sigil lane runs it
     against the artifacts THIS invocation emitted. Absent artifacts => DEFERRED, never a
@@ -1103,9 +1111,10 @@ class TestShippedTableMatchesGolden(unittest.TestCase):
 
         self.assertEqual(len(rows), len(want),
                          f"the release ROM carries {len(rows)} region rows and the golden "
-                         f"has {len(want)}. Eleven means this is a DEBUG image (the E2 snap "
-                         f"fixture); anything else is a real disagreement and the FINDING "
-                         f"is which side is wrong, not which to adjust.")
+                         f"has {len(want)}. TWELVE means this is a DEBUG image (the E2 snap "
+                         f"fixture plus the tall-background row); anything else is a real "
+                         f"disagreement and the FINDING is which side is wrong, not which "
+                         f"to adjust.")
 
         # Geometry, row for row. Reported per row so a disagreement names the row AND the
         # axis rather than dumping two lists.

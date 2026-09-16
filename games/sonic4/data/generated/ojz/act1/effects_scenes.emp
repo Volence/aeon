@@ -326,6 +326,49 @@ pub equ EditorReels_OJZ_Act1_Bindings = 1
 ensure(9 <= MAX_ACT_SECTIONS,
        "this act declares 9 sections in project.json, past the engine's MAX_ACT_SECTIONS ceiling ({MAX_ACT_SECTIONS}) — the binding table has slots the section grid cannot address")
 
+// ===========================================================================
+// THE PRESET KEYS — one comptime ordinal per `EffectsPreset` record (shape B′)
+// ===========================================================================
+//
+// WHAT THEY ARE FOR. The five PRESET-CHANNEL choosers below (`raster`, `patched`,
+// `cycle`, `variant`, and the two `patch_*`) are called from inside the hand-written
+// `preset()` records in the game's effects library, and a record does not know which
+// SECTION or which REGION ROW binds it — it is a pointer that any number of them may
+// name. So the key those choosers take is the RECORD, and these constants are how a
+// record names itself at a comptime call.
+//
+// Ruled aeon `3fc9ffa5` ("NEITHER A NOR B — the choosers re-key to the PRESET RECORD,
+// gating on AGREEMENT"), priced in docs/superpowers/notes/2026-09-16-regions-loader-
+// golden.md §3.5. The scene chooser is NOT in this population: it is called from the
+// region row, which does know its own identity.
+//
+// WHY AN ORDINAL AND NOT THE RECORD SYMBOL ITSELF. docs/EMP_PITFALLS.md §12's
+// 2026-09-16 amendment: a `Label` in comptime supports `!= 0` and nothing else, and a
+// comparison that appears to read what it points at passes for a proposition AND its
+// exact negation. `if preset == OJZ_Preset_Sec5` would be an always-green arm, not a
+// decision. These are integers and the arms compare integers, which is the same
+// comparison the section-keyed arms always made.
+//
+// THE NAME IS DERIVED, NOT CONVENTIONAL: `<record>_KEY`, from a name that is required
+// and unique. A call site that misspells its record gets `unknown identifier` at the
+// call site. A convention would be a filter an author can collide with; a derivation is
+// a check whose failures are findings.
+//
+// ZERO ROM BYTES: a `const` emits nothing. Every key for every record the library
+// declares is minted, including records no document binds — a record that threads a
+// channel with only a `hand:` value still has to name itself.
+
+pub const OJZ_Preset_Depth_KEY = 0
+pub const OJZ_Preset_Night_KEY = 1
+pub const OJZ_Preset_Plain_KEY = 2
+pub const OJZ_Preset_Sec0_KEY = 3
+pub const OJZ_Preset_Sec1_KEY = 4
+pub const OJZ_Preset_Sec2_KEY = 5
+pub const OJZ_Preset_Sec3_KEY = 6
+pub const OJZ_Preset_Sec5_KEY = 7
+pub const OJZ_Preset_Sec6_KEY = 8
+pub const OJZ_Preset_Sec7_KEY = 9
+
 // =====================================================================
 // THE SCENE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
 //
@@ -393,11 +436,11 @@ pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
 //
 // With no `rasterRef` in any sidecar the body below is `return hand` and this whole
 // block is zero ROM bytes — a `pub comptime fn` emits nothing.
-pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_raster(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+pub comptime fn ojz_act1_preset_raster(preset: int, hand: Label = 0) -> Label {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_raster(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
     comptime var out = hand
-    if sec == 5 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }
-    if sec == 6 { out = EditorRaster_OJZ_Act1_ojz_sec6_baseswap }
+    if preset == 7 { out = EditorRaster_OJZ_Act1_ojz_sec5_showcase }   // OJZ_Preset_Sec5
+    if preset == 8 { out = EditorRaster_OJZ_Act1_ojz_sec6_baseswap }   // OJZ_Preset_Sec6
     return out
 }
 
@@ -439,8 +482,8 @@ pub comptime fn ojz_act1_sec_raster(sec: int, hand: Label = 0) -> Label {
 //
 // With no `boundary` document bound the body below is `return hand` and this whole block
 // is zero ROM bytes — a `pub comptime fn` emits nothing.
-pub comptime fn ojz_act1_sec_patched(sec: int, hand: Label = 0) -> Label {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patched(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+pub comptime fn ojz_act1_preset_patched(preset: int, hand: Label = 0) -> Label {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_patched(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
     comptime var out = hand
     return out
 }
@@ -468,15 +511,15 @@ pub comptime fn ojz_act1_sec_patched(sec: int, hand: Label = 0) -> Label {
 // With no document carrying either key the bodies below are `return out` over an
 // unmodified `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits
 // nothing.
-pub comptime fn ojz_act1_sec_cycle(sec: int, hand: Label = 0) -> Label {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_cycle(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
+pub comptime fn ojz_act1_preset_cycle(preset: int, hand: Label = 0) -> Label {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_cycle(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
     comptime var out = hand
     return out
 }
 
-pub comptime fn ojz_act1_sec_variant(sec: int, slot: int, hand: Label = 0) -> Label {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_variant(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
-    ensure(slot >= 0 && slot < 2, "ojz_act1_sec_variant(slot: {slot}): the engine has 2 palette variant staging slots (PAL_MAX_VARIANTS) — Palette_SetVariant masks the index with a power-of-two mask, so a higher slot would fold back onto slot 0")
+pub comptime fn ojz_act1_preset_variant(preset: int, slot: int, hand: Label = 0) -> Label {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_variant(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
+    ensure(slot >= 0 && slot < 2, "ojz_act1_preset_variant(slot: {slot}): the engine has 2 palette variant staging slots (PAL_MAX_VARIANTS) — Palette_SetVariant masks the index with a power-of-two mask, so a higher slot would fold back onto slot 0")
     comptime var out = hand
     return out
 }
@@ -518,24 +561,24 @@ pub comptime fn ojz_act1_sec_variant(sec: int, slot: int, hand: Label = 0) -> La
 //
 // With no document carrying either key the bodies below are `return out` over an unmodified
 // `hand`, and this whole block is zero ROM bytes — a `pub comptime fn` emits nothing.
-pub comptime fn ojz_act1_sec_patch_world_y(sec: int, ch: int, hand: int = 32767) -> int {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patch_world_y(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
-    ensure(ch >= 0 && ch < 4, "ojz_act1_sec_patch_world_y(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
+pub comptime fn ojz_act1_preset_patch_world_y(preset: int, ch: int, hand: int = 32767) -> int {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_patch_world_y(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
+    ensure(ch >= 0 && ch < 4, "ojz_act1_preset_patch_world_y(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
     comptime var out = hand
-    if sec == 5 && ch == 0 { out = 2272 }
-    if sec == 5 && ch == 1 { out = PATCH_ANCHOR_NONE }
-    if sec == 5 && ch == 2 { out = PATCH_ANCHOR_NONE }
-    if sec == 5 && ch == 3 { out = PATCH_ANCHOR_NONE }
+    if preset == 7 && ch == 0 { out = 2272 }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 1 { out = PATCH_ANCHOR_NONE }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 2 { out = PATCH_ANCHOR_NONE }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 3 { out = PATCH_ANCHOR_NONE }   // OJZ_Preset_Sec5
     return out
 }
 
-pub comptime fn ojz_act1_sec_patch_motion(sec: int, ch: int, hand: int = 0) -> int {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_patch_motion(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the section preset and project.json's grid have drifted apart")
-    ensure(ch >= 0 && ch < 4, "ojz_act1_sec_patch_motion(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
+pub comptime fn ojz_act1_preset_patch_motion(preset: int, ch: int, hand: int = 0) -> int {
+    ensure(preset >= 0 && preset < 10, "ojz_act1_preset_patch_motion(preset: {preset}): this act's effects library declares 10 EffectsPreset record(s), so that is not one of them. Pass a `<Record>_KEY` constant from this module, never a bare integer — the key is DERIVED from the record name, so a misspelling is an unknown identifier at your call site")
+    ensure(ch >= 0 && ch < 4, "ojz_act1_preset_patch_motion(ch: {ch}): the engine has 4 patch channels (RASTER_MAX_PATCH) — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, so a higher channel would fold back onto channel 0")
     comptime var out = hand
-    if sec == 5 && ch == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1) }
-    if sec == 5 && ch == 1 { out = ANCHOR_MOTION_NONE }
-    if sec == 5 && ch == 2 { out = ANCHOR_MOTION_NONE }
-    if sec == 5 && ch == 3 { out = ANCHOR_MOTION_NONE }
+    if preset == 7 && ch == 0 { out = anchor_sweep(amp_shift: 4, period_shift: 1) }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 1 { out = ANCHOR_MOTION_NONE }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 2 { out = ANCHOR_MOTION_NONE }   // OJZ_Preset_Sec5
+    if preset == 7 && ch == 3 { out = ANCHOR_MOTION_NONE }   // OJZ_Preset_Sec5
     return out
 }

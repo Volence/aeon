@@ -34783,7 +34783,24 @@ must be named `.emp.txt`, and any emitted `.emp` must declare a module.
 **A CORRECTION TO A FIGURE THE SPEC AND THE BUDGET VIEW BOTH CARRY:** `struct Region` is **22
 bytes**, not 16. The editor spec §2.1 read it at aeon `0dc0ff11` before regions part 2 step 1 added
 `rg_bg_layout` and `rg_bg_span`; its §6 row 3 ("16 per row") is stale with it. Act 1's release
-table is 10 × 22 = **220 bytes**, the DEBUG one 11 × 22 = 242.
+table is 10 × 22 = **220 bytes**, ~~the DEBUG one 11 × 22 = 242~~.
+
+> ⚠ **AND THE DEBUG HALF OF THAT CORRECTION WAS ITSELF STALE WHEN WRITTEN (re-measured
+> 2026-09-16, `parcel/regions-emit-bindings`). The DEBUG table is 12 × 22 = 264 bytes, not
+> 11 × 22 = 242.** Read out of the built images through `tools/region_table.py` rather than
+> counted from source, because counting from source is how the 11 got there: this section and
+> the ruling above it both describe **one** DEBUG delta (`OJZ_E2_SNAP_ROWS`, "an eleventh row",
+> "it also shortens `sec2`"), and regions part 2 step 5 added a **second** —
+> `OJZ_TALL_BG_ROWS`, the tall-background row — which carves the right end off rows 5 **and** 8.
+> So the real DEBUG shape is **two appended rows and THREE shortened ones**: sec2 → x1 5599,
+> sec5 → 5119, sec8 → 5119. Measured: `s4.bin` 10 rows, `s4.debug.bin` 12 rows.
+>
+> **THE CONSEQUENCE FOR THE HUB'S RULING, and it is a widening rather than a contradiction:**
+> the ruling's condition — the delta must be applied against a **NAMED** row with an `ensure`
+> that the row is what it expects — is unchanged and is now owed **three** times, not once.
+> The `<ACT>_ROW_<ID>` constants are still the mechanism. `tools/test_regions_doc.py`'s
+> "Eleven means this is a DEBUG image" message carried the same stale count and is corrected
+> at the site.
 
 ## CITATION-LIVE-LINE — the `.emp:LINE` gate asks "is that line alive", not "is that the line" (found 2026-09-15, `parcel/regions-p2-step1`)
 

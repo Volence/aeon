@@ -234,6 +234,15 @@ the pointer identity of `EditorSceneBinding_OJZ_Act1_Sec4`. With identity on reg
 such sidecar. **This blocks flipping act 1 into region mode** and it is asserted as a test so that
 the day it is fixed, the test fails and tells its author to delete it.
 
+> ⚠ **AMENDED 2026-09-16 by `parcel/regions-emit-bindings`: there are TWO extra DEBUG rows, not
+> one, and they shorten THREE release rows between them.** `OJZ_TALL_BG_ROWS` (regions part 2
+> step 5) is the twelfth, and it carves the right end off rows 5 and 8 the way the snap row
+> carves row 2. Measured off the built images: release 10 × 22 = 220 B, DEBUG 12 × 22 = **264**
+> B — this note's "11 × 22 = 242" is wrong on both factors. The ruling's named-row condition is
+> unchanged and is owed three times. Left in place below rather than rewritten, because a reader
+> coming from the ruling needs to find the sentence they remember before they find its
+> correction.
+
 **The DEBUG shape has an eleventh row a closed document cannot express.** `OJZ_E2_SNAP_ROWS` adds
 a look fixture at `x 5600..6143` under `DEBUG` and shortens `sec2` to `x1 = 5599` to make room. A
 `regions.json` has no shape key. So a generated table is release-shaped by construction, and the
