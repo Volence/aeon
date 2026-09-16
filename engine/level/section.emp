@@ -5,7 +5,7 @@
 
 module engine.section in section
 
-use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX_ACT_SECTIONS}
+use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX_ACT_SECTIONS, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
@@ -538,6 +538,58 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             move.w  Camera_Y, d3                    // world Y px
             addi.w  #CAM_SCREEN_HALF_H, d3
             jbsr    Region_Resolve                  // a0 = Region*, or 0 (clobbers d0/a2)
+            // ---- THE REGION'S TILES FIRST (region bg switch, task 2, 2026-09-16) ----
+            // The layout blitted below indexes the BG arena, so the arena must hold THIS
+            // region's tile blob before a single nametable word of it is written: the same
+            // tiles-before-layout order the asynchronous switch enforces in BG_Stream_Update,
+            // here inside one IRQ-masked storm. The effective blob is the region's own
+            // rg_bg_tiles, else Act.act_bg_tiles (the rg_bg_layout ladder's sentinel). Compared
+            // BY POINTER with what the arena holds, so the boot of a default region (BG_Init
+            // already loaded the act's blob) and a warp between regions sharing a blob copy
+            // nothing. This is what makes boot and the DEBUG warp into a region with its own
+            // art correct (Fable review finding 6; BG-BOOT-REGION-BLIT's route 1 stands:
+            // BG_Init still loads the act default first, and this replaces it only when the
+            // boot region differs, at the cost of a second blocking copy with the display off).
+            // It copies with the display ON on a warp: DEBUG-only, and booked (plan C9b).
+            movea.l Current_Act_Ptr, a2
+            movea.l Act.act_bg_tiles(a2), a1        // the act default
+            cmpa.w  #0, a0
+            beq     .plb_tiles_eff
+            move.l  Region.rg_bg_tiles(a0), d1
+            beq     .plb_tiles_eff                  // 0 = the act's own
+            movea.l d1, a1
+        .plb_tiles_eff:
+            cmpa.l  BG_Tiles_Current, a1            // (BG_Tiles_Current).w
+            beq     .plb_tiles_ok                   // the arena already holds this blob
+            move.l  a1, BG_Tiles_Current            // written before the copy consumes a1
+            cmpa.w  #0, a1
+            beq     .plb_tiles_ok                   // no blob at all: nothing to copy
+            jbsr    BG_UploadTiles                  // blocking; clobbers d1/a1-a2 (a0 survives)
+        .plb_tiles_ok:
+            // ---- CANCEL ANY ASYNCHRONOUS OVERWRITE (region bg switch, task 5; plan C9) ----
+            // The arena now holds BG_Tiles_Current outright, so an overwrite in flight is moot,
+            // and its queued chunks are WORSE than moot: left in the Deferrable queue they would
+            // land after this copy and scribble a different blob over tiles every tracker says
+            // are settled. Drop only the arena's writes (object DPLC and waterline entries keep
+            // their place; see DMA_Deferrable_DropDest), clear the target, and invalidate the
+            // band steps so any dropped band DMA re-sends. Unconditional: cheap, masked, and
+            // correct whether or not an overwrite was running.
+            move.l  a0, -(sp)
+            move.w  #BG_TILE_BASE_VRAM, d1
+            move.w  #BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32, d2
+            jbsr    DMA_Deferrable_DropDest         // clobbers d0/a0-a2
+            movea.l (sp)+, a0
+            clr.l   BG_Tiles_Target                 // (BG_Tiles_Target).w
+            clr.w   BG_Tiles_Offset                 // (BG_Tiles_Offset).w
+            // The band hold (plan C10): held exactly while the arena does not hold the act's
+            // own tiles, whose front slots are the bands'.
+            movea.l Current_Act_Ptr, a2
+            move.l  Act.act_bg_tiles(a2), d0
+            cmp.l   (BG_Tiles_Current).w, d0
+            sne     BG_Bands_Hold                   // (BG_Bands_Hold).w — $FF = held
+            moveq   #-1, d0
+            move.l  d0, BgAnim_LastStep             // (BgAnim_LastStep).w
+            move.l  d0, BgAnim_LastStep + 4         // (BgAnim_LastStep+4).w
             moveq   #0, d4                          // d4 = this map's height in px; 0 = the act default
             cmpa.w  #0, a0
             beq     .plb_use_act_layout             // no row contains the centre (the act

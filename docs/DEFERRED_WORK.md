@@ -35352,6 +35352,100 @@ precondition. Do that first and route 2 becomes a normal cleanup; skip it and ro
 This matters the day a region under an act's START POINT declares its own `rg_bg_layout`, which is
 the part-2 step 6 showcase's most likely shape.
 
+**UPDATE 2026-09-16 (region bg switch, task 2, `parcel/region-bg-switch`): the entry became
+BLOCKING and is now handled for tiles, with route 1 still standing.** Under the region bg switch a
+region can name its own TILE blob (`Region.rg_bg_tiles`), so a boot or warp into such a region that
+blitted its layout over the act's tiles would show garbage, not merely waste a blit (Fable review
+07, finding 6). `Section_RedrawPlanes` now resolves the region's effective tile blob before its
+layout and uploads it inside the same masked storm when it differs from `BG_Tiles_Current`
+(`BG_UploadTiles`, factored out of `BG_Init`). `BG_Init` is unchanged in shape: it still loads the
+act default and seeds the tile tracker, so the overseer's route-1 ruling stands and a boot into a
+region with its own tiles costs one extra blocking copy with the display off. Graded by GATE
+BG-SWITCH legs BOOT and WARP (`tools/bg_switch_gate.py`, in `tools/effects_gates.py`), red on the
+tree without the upload. The warp copies with the display ON (DEBUG only): see
+REGION-BG-SYNC-DISPLAY below.
+
+## REGION-BG-RESPAWN-CONTRACT: a respawn must reach `Section_Plane_Dirty` (booked 2026-09-16, `parcel/region-bg-switch`)
+
+There is no death/respawn system (`games/sonic4/player/player_common.emp`, "a placeholder until
+death/respawn exists"), and the only `Section_Plane_Dirty` setters are the boot ladder and
+`Debug_Warp_Consume` (`games/sonic4/test/ojz_scroll_test.emp`). The review's finding 6 names
+respawn beside boot and warp. **The contract for whoever builds one:** a respawn that places the
+camera must set `Section_Plane_Dirty` (or call the same redraw), because that path is now what
+loads the respawn region's own BG tiles before its layout. A respawn that only moves the camera
+and lets the streamer and the crossing catch up would take the ASYNCHRONOUS switch instead, which
+is correct but shows the old background over partly overwritten tiles for the overwrite's
+duration, uncovered.
+
+## REGION-BG-TILES-AUTHORING: a regions document cannot name a region's background tiles (booked 2026-09-16, `parcel/region-bg-switch`)
+
+The region bg switch's test content is a DEBUG-shape delta row (`OJZ_SHOWCASE_BG_ROWS` in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, art from Aurora's library entry
+`deep-forest-v15-marching-colonnade` via `tools/gen_region_bg_showcase.py`) because the document
+path does not exist: `bg.layoutRef` has no lowering (`tools/effects_gen.py` refuses every non-`@act`
+ref; empyrean `docs/AURORA_REGIONS_SCHEMA.md` records the lowering as open), and the contract schema
+(`empyrean contract/schema/aurora-regions.schema.json`, `bg` closed) has no key for tiles at all.
+Making a per-region background authorable is cross-repo: a schema key (empyrean), Aurora writing it,
+the generator lowering both refs to symbols (which inherits the open sanitisation question) and
+emitting `rg_bg_tiles`. Until then every release row takes the act's tiles and layout.
+
+## REGION-BG-COVER-WARNING: nothing computes how much foreground cover a crossing needs (booked 2026-09-16, `parcel/region-bg-switch`)
+
+Fable review 07 finding 3, and the banner's "v1 D4's CHECK should return as a build warning". Under
+the owner's rulings (R3: the designer covers the swap; no blank step) the old background is on
+screen over partly overwritten tiles for the whole overwrite, then the new picture sweeps in. The
+cover a crossing needs is about one screen plus (overwrite + visible repaint ticks) x the camera's
+per-tick cap on the entry axis. The durations are measured in
+`docs/research/megaact-bg-streaming/region-bg-switch-cost.md` (region bg switch task 7); the
+opaque-foreground extent per crossing is authoring data only Aurora and the level build can
+compute. Warn, not refuse (R5's shape).
+
+## REGION-BG-CAMERA-HOLD: hold the camera when authored cover is shorter than the switch (booked 2026-09-16, owner option)
+
+The owner's OC-3 answer ("Maybe hold, I guess we should see how long it is") under full overwrite.
+The mechanism would be `Camera_Art_Hold` holding the entry axis until `BG_Tiles_Current` settles.
+Controller ruling 2026-09-16: stays booked as the owner's option; not built.
+
+## REGION-BG-STREAMER-SUSPENSION-UNGRADED: no gate can see the overwrite suspending the row streamer (booked 2026-09-16, `parcel/region-bg-switch`)
+
+`BG_Stream_Update` returns from `.ow_wait` before BOTH the wipe and the steady-state streamer, so the
+streamer cannot paint a row of a layout whose tiles are arriving. The wipe half is graded by GATE
+BG-SWITCH's ORDER legs. The streamer half is NOT: the streamer only paints when `want_top` moves,
+`want_top` is clamped to `[0, map_rows - PLANE_V_CELLS]`, and the only DEBUG row that owns its tiles
+(the showcase) has a one-plane layout (`rg_bg_span` 0), so its window is fixed at 0 and the
+streamer paints nothing there with or without the suspension. Measured, not assumed: leg
+ORDER_VERTICAL prints it. Grading it needs a tiles-owning row whose layout is taller than the plane
+and a route that moves the BG scroll during the overwrite. The code is one `rts` shared with the
+graded half, which is why this is booked and not blocking.
+
+## REGION-BG-PER-REGION-BANDS: a region with its own BG tiles cannot animate bands (booked 2026-09-16, `parcel/region-bg-switch`)
+
+Fable review 07 finding 7. The region bg switch makes the switch SAFE with bands present
+(`BG_Bands_Hold`: bands pause while the arena does not hold the act's tiles and re-send their phase
+when it does again; GATE BG-SWITCH leg BANDS) and does not give a region bands of its own. That
+needs: a band table per region (a `Region` field or a table beside `rg_bg_tiles`), a RELEASE table
+selector (`BgAnim_Update` reaches `BgAnim_Table` with a fixed `lea` in release; `BgAnim_Table_Ptr`
+exists only in DEBUG), the importer emitting band records and banks per region blob, and the rule
+for a band whose driver phase must survive a switch. Not built because release ships no bands
+(OJZ act 1's `BgAnim_Table` is band count 0, `default_off`) and there is no per-region band content
+to design against.
+
+**Cross-repo note:** `BgAnim_Update` now reads `BG_Bands_Hold`, a new cross-seam RAM name. Sigil's
+`crates/sigil-cli/tests/bg_anim_port.rs` supplies bg_anim.emp's cross-seam address symbols by an
+explicit list (`BgAnim_LastStep`, `Logic_Tick`, ...) with pinned addresses, so that port test is
+expected to need the new name (and, since the region bg switch added 12 bytes of engine RAM ahead of
+`BgAnim_LastStep`, re-pinned addresses). Not run from this parcel: it is sigil's lane.
+
+## REGION-BG-SYNC-DISPLAY: the synchronous tile upload runs with the display on during a warp (booked 2026-09-16, `parcel/region-bg-switch`)
+
+`Section_RedrawPlanes` uploads a region's tile blob inside its masked storm. At boot the display is
+off; on a DEBUG warp it is on, so the old nametable is shown over arriving tiles for part of the
+storm. Batman & Robin's immediate-transfer handler clears the display-enable bit around the same
+kind of transfer (`interrupts.asm:585-622`, research slice 04). Not built because the only
+display-on caller is DEBUG, and doing it touches the VDP shadow-register contract (`Set_VDP_Reg`,
+CODING_CONVENTIONS §3.1 rule 5). Revisit the day a release path (a respawn, a cache recovery that
+actually fires) reaches `Section_Plane_Dirty` with the display on.
+
 ## `(size: N)` on `SpawnDesc` is not enforced — the same silent-declaration class, LIVE (reported by the sigil lane 2026-09-16, booked from `parcel/regions-p2-step3`)
 
 A `(size: N)` struct declaration in `.emp` is checked **only inside `layout_of_struct`**, i.e.

@@ -39,7 +39,7 @@ _SCALAR = {"u8": 1, "i8": 1, "u16": 2, "i16": 2, "u32": 4, "i32": 4}
 # last two: nothing in the ENGINE reads them yet, but this module is the out-of-assembler
 # reader and a row it hands back with the background half missing would be a half-read record.
 REGION_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects", "rg_parallax",
-                 "rg_bg_layout", "rg_bg_span")
+                 "rg_bg_layout", "rg_bg_span", "rg_bg_tiles")
 ACT_REGION_FIELDS = ("act_regions", "act_region_count")
 
 
@@ -145,6 +145,8 @@ def read_regions(rom: bytes, act_base: int, aeon: Path = AEON) -> list[dict]:
             # sentinel, never as an address or a height.
             "bg_layout": _u(rom, a + ro["rg_bg_layout"], 4),
             "bg_span": _u(rom, a + ro["rg_bg_span"], 2),
+            # Region bg switch (2026-09-16). 0 = the act's own tiles (Act.act_bg_tiles).
+            "bg_tiles": _u(rom, a + ro["rg_bg_tiles"], 4),
         })
     return rows
 

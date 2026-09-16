@@ -249,6 +249,16 @@ pub proc BgAnim_SetTable (a0: u32) clobbers(d0) {
 // -----------------------------------------------
 pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         movem.l a3-a4, -(sp)
+        // THE REGION BG SWITCH'S BAND HOLD (2026-09-16; plan call C10). A band's slots are the
+        // FRONT of the act-default tile blob, so while the BG arena holds a region's OWN tiles,
+        // or an overwrite is uploading them, a band DMA would scribble the act's animation over
+        // that region's art. engine/level/bg.emp sets the hold when an overwrite arms and clears
+        // it (and invalidates BgAnim_LastStep, so every band re-sends its current phase) when the
+        // act's own tiles are back; Section_RedrawPlanes recomputes it. A region with its own
+        // tiles therefore shows no band animation: per-region bands are booked
+        // (REGION-BG-PER-REGION-BANDS). Release OJZ act 1 ships no bands (band count 0).
+        tst.b   BG_Bands_Hold                   // (BG_Bands_Hold).w
+        bne     .exit
         // The table this frame. The plain shape has exactly one and reaches it with the
         // same `lea` it always did — no cell, no load, no release cost. The DEBUG shape
         // reads the selector, so the lab can put a view twin in front of the walk

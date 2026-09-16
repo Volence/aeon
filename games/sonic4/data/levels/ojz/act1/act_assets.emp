@@ -54,3 +54,29 @@ pub const BG_LAYOUT_TALL_SIZE = if DEBUG == 1 { BG_LAYOUT_TALL_ROWS * 64 * 2 } e
 ensure(BG_LAYOUT_TALL_ROWS * 64 * 2 > BG_LAYOUT_SIZE,
        "games/sonic4/data/levels/ojz/act1/act_assets.emp: the step-5 test map is {BG_LAYOUT_TALL_ROWS} rows = {BG_LAYOUT_TALL_ROWS * 64 * 2} bytes, which is NOT taller than a full plane ({BG_LAYOUT_SIZE} bytes). Its entire purpose is to be taller than the plane: at or below that height rg_bg_span's ceiling collapses back onto VSCROLL_BG_MAX, BG_Stream_Update's max_top is 0, and every step-5 gate goes green while measuring nothing")
 pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_tall_debug.bin") } else { [] }
+
+// ---- THE REGION BG SWITCH SHOWCASE (region bg switch, task 2; DEBUG ONLY) ----
+// A second background with its OWN TILES, so a crossing that overwrites the BG tile arena
+// and then repaints Plane B can be seen and gated. An instrument, not content: the picture
+// is Aurora's library entry `deep-forest-v15-marching-colonnade`, chosen because it is one of
+// the three entries whose tiles fit the static budget; the look is the owner's call.
+// tools/gen_region_bg_showcase.py writes both blobs and refuses anything that would make
+// the gates vacuous (tiles equal to the act's, or a layout naming a tile the blob lacks).
+//
+// TYPED, like the two layouts above, and the tile blob is typed too: both lengths are the
+// guard. The tile count is mirrored here as a literal (a comptime length of an embed is
+// not readable) and tools/test_gen_region_bg_showcase.py holds it to the blob, and the
+// static budget to vram.toml, so neither literal can drift silently.
+//
+// EVEN-LENGTH, so both land at even addresses after the even-length blobs before them:
+// the tile blob is a DMA SOURCE (engine/level/bg.emp's overwrite), and an odd source makes
+// the queue's `lsr.l #1` read one byte early. The overwrite also raise_errors on an odd
+// source in DEBUG.
+pub const BG_REGION_STATIC_TILE_BUDGET = 320                  // vram.toml bg_region tiles - band_reserve
+pub const BG_SHOWCASE_TILE_COUNT = 216
+pub const BG_SHOWCASE_TILES_SIZE = if DEBUG == 1 { 2 + BG_SHOWCASE_TILE_COUNT * 32 } else { 0 }
+pub const BG_SHOWCASE_LAYOUT_SIZE = if DEBUG == 1 { BG_LAYOUT_SIZE } else { 0 }
+ensure(BG_SHOWCASE_TILE_COUNT <= BG_REGION_STATIC_TILE_BUDGET,
+       "games/sonic4/data/levels/ojz/act1/act_assets.emp: the region showcase blob holds {BG_SHOWCASE_TILE_COUNT} tiles and a region's background may use at most the static budget, {BG_REGION_STATIC_TILE_BUDGET} (vram.toml bg_region tiles - band_reserve). The overwrite clamps at BG_TILE_CAPACITY at run time, but past the static budget the blob would eat the reserve the band importer keeps")
+pub data OJZ_Act1_BG_Showcase_Layout: [u8; BG_SHOWCASE_LAYOUT_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_showcase_debug.bin") } else { [] }
+pub data OJZ_Act1_BG_Showcase_Tiles: [u8; BG_SHOWCASE_TILES_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/bg_tiles_showcase_debug.bin") } else { [] }

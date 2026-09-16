@@ -820,7 +820,7 @@ class TestRegionTableEmitter(RegionSandbox):
         calls = re.findall(
             r"Region\{ rg_x0:\s*(\d+), rg_x1:\s*(\d+), rg_y0:\s*(\d+), "
             r"rg_y1:\s*(\d+), rg_effects: (\w+),\s*rg_parallax: (\w+),\s*"
-            r"rg_bg_layout: 0, rg_bg_span: 0 \},", text)
+            r"rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 \},", text)
         self.assertEqual(len(calls), len(golden_rows()))
         for call, want in zip(calls, golden_rows()):
             x0, x1, y0, y1, preset, par = call

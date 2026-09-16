@@ -4193,7 +4193,7 @@ def region_struct_fields(repo: str = REPO) -> list:
 # explicit values, which is correct under either answer and is what a reader of a generated
 # table wants to see anyway.
 REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects",
-                         "rg_parallax", "rg_bg_layout", "rg_bg_span")
+                         "rg_parallax", "rg_bg_layout", "rg_bg_span", "rg_bg_tiles")
 
 
 def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
@@ -4411,7 +4411,7 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
                    f"rg_y0: {r['y0']:>{width}}, rg_y1: {r['y1']:>{width}}, "
                    f"rg_effects: {r['preset'] + ',':<{pw + 1}} "
                    f"rg_parallax: {par + ',':<{bw + 1}} "
-                   f"rg_bg_layout: 0, rg_bg_span: 0 }},  "
+                   f"rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 }},  "
                    f"// row {r['index']} — {r['id']}")
     out.append("]")
     out.append("")

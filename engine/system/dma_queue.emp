@@ -8,7 +8,7 @@ module engine.dma_queue in dma_queue
 
 use engine.structs.{DMAEntry}
 use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL, DMA_ENQ_BYTE_CAP, DMA_IMPORTANT_SLOTS, DMA_DEFERRABLE_SLOTS}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg, vdp_comm, vdp_comm_addr}
 use engine.irq.{vblank}
 
 // Derived entry displacements (one-consumer usage detail — file-local per the
@@ -491,6 +491,143 @@ proc Drain_Budgeted_Queue (a0: *u8, a1: *u8, a2: *u8) clobbers(d0-d1/a0-a1/a3/a5
     .no_drain:
         rts
 }
+
+// -----------------------------------------------
+// dma_entry_dest — decode a queued entry's VRAM destination byte address into d0.w.
+//
+// The Command longword is `vdp_comm(addr, Vram, Dma)`: the address's low 14 bits sit in the
+// HIGH word's bits 13..0 (bits 15..14 there are CD1..CD0), and its top two bits sit in the LOW
+// word's bits 1..0. This is engine/vdp.emp's `vdp_comm_addr`, the comptime inverse, spelled as
+// instructions; the `ensure`s below pin the two against each other at the BG arena's edges.
+// The low word's byte offset is derived, never typed (`.field + N` does not compose in a
+// displacement, structs.emp row 1068).
+// -----------------------------------------------
+const DMA_CMD_HI = offsetof(DMAEntry, Command)
+const DMA_CMD_LO_BYTE = offsetof(DMAEntry, Command) + 3
+comptime fn dma_entry_dest(base: Reg) -> Code {
+    return asm {
+        move.w  {DMA_CMD_HI}({base}), d0
+        andi.w  #$3FFF, d0
+        btst    #1, {DMA_CMD_LO_BYTE}({base})
+        beq     .a15z
+        ori.w   #$8000, d0
+    .a15z:
+        btst    #0, {DMA_CMD_LO_BYTE}({base})
+        beq     .a14z
+        ori.w   #$4000, d0
+    .a14z:
+    }
+}
+ensure(vdp_comm_addr(vdp_comm($8000, VdpTarget.Vram, VdpOp.Dma)) == $8000 && vdp_comm_addr(vdp_comm($AEE0, VdpTarget.Vram, VdpOp.Dma)) == $AEE0 && vdp_comm_addr(vdp_comm($7FE0, VdpTarget.Vram, VdpOp.Dma)) == $7FE0 && vdp_comm_addr(vdp_comm($AF00, VdpTarget.Vram, VdpOp.Dma)) == $AF00,
+       "engine/system/dma_queue.emp: vdp_comm_addr no longer inverts vdp_comm for a VRAM DMA command at the BG arena's first byte ($8000), its last tile ($AEE0), and one address on each side ($7FE0, $AF00). dma_entry_dest decodes a queued entry's destination with the same scatter spelled as instructions; if the encoding moved, the region bg switch's completion test (DMA_Deferrable_DestPending) reads wrong destinations and can declare an overwrite finished while its chunks are still queued")
+
+// -----------------------------------------------
+// DMA_Deferrable_DestPending — is any queued Deferrable entry still writing [d1, d2)?
+//
+// In:  d1.w = first VRAM byte of the range, d2.w = one past its last byte (both unsigned)
+// Out: Z SET = no queued Deferrable entry has a destination in the range;
+//      Z CLEAR = at least one does
+// Clobbers: d0, a0-a1
+//
+// THE REGION BG SWITCH'S COMPLETION TEST (engine/level/bg.emp, BG_Stream_Update; plan
+// docs/superpowers/plans/2026-09-16-region-bg-switch.md, call C2 as amended). It asks about a
+// DESTINATION RANGE, not about the queue being empty, and that is the whole point: the
+// Deferrable queue also carries object DPLC art (Perform_DPLC_Deferrable — the insta-shield and
+// the spindash dust) and waterline art, so "empty" can stay false for as long as the player
+// animates, and an overwrite keyed to it would never complete. A destination test also covers
+// what "my own entry is gone" would miss: a chunk the core split into two entries at the 128 KB
+// source boundary, and a band DMA queued before the overwrite armed.
+//
+// MASKED, AND THAT IS LOAD-BEARING. Drain_Budgeted_Queue runs in VBlank and COMPACTS the
+// survivors toward the queue base. A VBlank landing mid-walk would move an unread entry BELOW
+// the walk cursor, where this loop would never see it, and answer "none pending" while an
+// arena write is still queued: the Icecap inversion, one layer down. At most
+// DMA_DEFERRABLE_SLOTS iterations with IRQs masked.
+// -----------------------------------------------
+pub proc DMA_Deferrable_DestPending (d1: u16, d2: u16) clobbers(d0/a0-a1) out(zero: none_pending) preserves(sr.mask) {
+        move.w  sr, -(sp)
+        move.w  #$2700, sr
+        lea     DMA_Deferrable, a0              // (DMA_Deferrable).w
+        movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w — first free
+    .walk:
+        cmpa.l  a1, a0
+        bhs     .none
+        dma_entry_dest(a0)
+        cmp.w   d1, d0
+        blo     .next
+        cmp.w   d2, d0
+        blo     .pending
+    .next:
+        lea     sizeof(DMAEntry)(a0), a0
+        jbra    .walk
+    .pending:
+        move.w  (sp)+, sr
+        andi.b  #$FB, ccr                       // Z CLEAR = an entry still writes the range
+        rts
+    .none:
+        move.w  (sp)+, sr
+        ori.b   #$04, ccr                       // Z SET = nothing queued writes the range
+        rts
+}
+
+// -----------------------------------------------
+// DMA_Deferrable_DropDest — remove every queued Deferrable entry whose destination is in
+// [d1, d2), keeping every other entry, in order.
+//
+// In:  d1.w = first VRAM byte of the range, d2.w = one past its last byte (both unsigned)
+// Out: none (DMA_Deferrable_Slot rewritten)
+// Clobbers: d0, a0-a2
+//
+// THE CALLER HOLDS THE INTERRUPT MASK: this compacts the queue the VBlank drain also compacts.
+//
+// The synchronous Plane B path (engine/level/section.emp, Section_RedrawPlanes) uses it to cancel
+// an asynchronous tile overwrite without dropping anything else (plan C9, as amended after the
+// controller review). A whole-queue reset would also drop ACCEPTED object DPLC entries
+// (Perform_DPLC_Deferrable commits `prev_frame` on acceptance and does not re-send that frame
+// until the animation moves on, so the insta-shield or the spindash dust would show stale tiles)
+// and an accepted waterline entry (Waterline_Art_LastRow is committed on acceptance too). Only
+// the arena's writes go: overwrite chunks, and any BgAnim band DMA, which re-sends once
+// BgAnim_LastStep is invalidated. Kept entries are copied whole (the register marker bytes
+// included), the same shape Drain_Budgeted_Queue's compaction uses.
+// -----------------------------------------------
+pub proc DMA_Deferrable_DropDest (d1: u16, d2: u16) clobbers(d0/a0-a2) {
+        if DEBUG == 1 {
+            move.w  sr, d0
+            andi.w  #$0700, d0
+            assert.w d0, hs, #$0600     // IPL >= 6: the VBlank drain cannot compact under us
+        }
+        lea     DMA_Deferrable, a0              // (DMA_Deferrable).w — read cursor
+        movea.l a0, a2                          // write cursor
+        movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w — first free
+    .walk:
+        cmpa.l  a1, a0
+        bhs     .end
+        dma_entry_dest(a0)
+        cmp.w   d1, d0
+        blo     .keep
+        cmp.w   d2, d0
+        blo     .drop
+    .keep:
+        cmpa.l  a0, a2
+        beq     .same
+        move.l  (a0)+, (a2)+
+        move.l  (a0)+, (a2)+
+        move.l  (a0)+, (a2)+
+        move.w  (a0)+, (a2)+
+        jbra    .walk
+    .same:
+        lea     sizeof(DMAEntry)(a0), a0
+        lea     sizeof(DMAEntry)(a2), a2
+        jbra    .walk
+    .drop:
+        lea     sizeof(DMAEntry)(a0), a0
+        jbra    .walk
+    .end:
+        move.w  a2, DMA_Deferrable_Slot         // (DMA_Deferrable_Slot).w
+        rts
+}
+ensure(sizeof(DMAEntry) == 3 * 4 + 2,
+       "engine/system/dma_queue.emp: DMA_Deferrable_DropDest copies a kept entry as three move.l and one move.w (14 bytes); DMAEntry is now {sizeof(DMAEntry)} bytes")
 
 // THE QUEUE'S RAM GEOMETRY (lens-sweep C2a-5, 2026-09-06). engine/ram.emp lays the
 // three sub-queues out between the DMA_Queue / DMA_Queue_End marks, and four routines

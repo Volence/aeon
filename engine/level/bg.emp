@@ -68,7 +68,7 @@ module engine.bg in bg
 
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
 // Step 6's plane-buffer reservation `ensure` is stated against the buffer's own size.
-use engine.constants.{PLANE_BUFFER_SIZE}
+use engine.constants.{PLANE_BUFFER_SIZE, DMA_BUDGET_NTSC}
 use engine.constants.{SCREEN_HEIGHT}
 use engine.structs.{Act, Region}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
@@ -141,60 +141,21 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         move.w  #$2700, sr
 
         // --- load BG tile blob into shared region at BG_TILE_BASE_VRAM ---
+        // THE TILE TRACKER SEED (region bg switch, 2026-09-16). What the arena will hold is
+        // the act default, and no overwrite is in flight. Seeded BEFORE the copy for the same
+        // reason BG_Plane_Layout is seeded before its blit (a1 is consumed by the copy), and
+        // unconditionally, so a null act blob records "holds nothing" rather than whatever the
+        // previous act left. The band hold is clear: the arena holds the act's own tiles, the
+        // ones its BgAnim bands animate.
         movea.l Act.act_bg_tiles(a3), a1
+        move.l  a1, BG_Tiles_Current            // (BG_Tiles_Current).w
+        clr.l   BG_Tiles_Target                 // (BG_Tiles_Target).w
+        clr.w   BG_Tiles_Offset                 // (BG_Tiles_Offset).w
+        clr.b   BG_Bands_Hold                   // (BG_Bands_Hold).w
         cmpa.w  #0, a1
         beq     .skip_tiles
-        move.w  (a1)+, d1               // d1.w = tile-bytes length (uncompressed)
-        beq     .skip_tiles
-        // Capacity guard (last line of defense): clamp the copy length to what the
-        // BG arena is DECLARED to own — BG_TILE_CAPACITY tiles, not the physical
-        // $8000..$B7FF run. Above the arena sit `waterline_strips` (48 tiles, item
-        // 9d) and then the SAT at $B800, and a blob longer than the declared
-        // capacity would overwrite the first before it ever reached the second.
-        // The build tools should keep BG art within budget (inject_editor_bg.py
-        // gates the final blob on the same constant); this is what guarantees no
-        // corruption of either neighbour if a generator gate drifts.
-        cmpi.w  #BG_TILE_CAPACITY_BYTES, d1
-        bls     .bg_len_ok
-        move.w  #BG_TILE_CAPACITY_BYTES, d1
-    .bg_len_ok:
-        // Tier-1 blit: copy the tile body a LONGWORD at a time (autoinc 2 keeps
-        // it linear in VRAM). The count is quartered, so the length guard must be
-        // RE-DERIVED — the parcel-6 word-count guard (lsr #1) does not survive the
-        // move.l translation, it just underflows on a different set of lengths.
-        //
-        // The clamp above bounds the copy from ABOVE. It does NOT bound it from
-        // below: a drifted length of 1..3 bytes passes the `beq` (nonzero) and the
-        // `bls` (in range), then lsr.w #2 -> 0 and subq -> $FFFF, and dbf would run
-        // 65,536 LONGWORDS = 256KB straight through the SAT and every other VRAM
-        // structure. Close it by taking the LONGWORD count FIRST and skipping on
-        // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
-        // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
-        // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
-        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
-        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
-        // 2026-08-05 — the old comment here credited only the injector, which
-        // runs solely when an editor override exists) and inject_editor_bg.py
-        // — so the drop never fires in practice; it is the last line of defense.
-        //
-        // Both counter ops sit ABOVE the z80_stopped bracket on purpose:
-        // .skip_tiles is past the bracket's release, so a guard branch taken from
-        // inside it would leave the Z80 halted for the rest of the level — the
-        // bracket refuses that shape outright (`[context.escape]`). Neither the
-        // bus request nor the VDP setup touches d1, so the hoist is free. (No
-        // assert on the drop: the debug expansion would push
-        // .skip_tiles past short-branch reach and force shape-dependent width
-        // pins — ledgered instead; the emitter always emits 32-byte multiples.)
-        lsr.w   #2, d1                  // longword count = bytes/4
-        beq     .skip_tiles             // 1..3-byte (sub-long) blob -> nothing to copy
-        subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
         with z80_stopped {
-            move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
-            move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
-            lea     VDP_DATA, a2            // (VDP_DATA).l
-        .tile_copy:
-            move.l  (a1)+, (a2)
-            dbf     d1, .tile_copy
+            jbsr    BG_UploadTiles              // blocking copy, guards inside; a1 consumed
         }
     .skip_tiles:
 
@@ -285,6 +246,83 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         movem.l (sp)+, a3
         rts
 }
+
+// BG_UploadTiles sits AFTER BG_Init on purpose: BG_Init is the `bg` section's head label,
+// and sigil's packing walk keys the section's declared alignment on that label
+// (`sigil_harness::section_align::DECLARED`). A new proc first in the file would rename the
+// head and fail the build with [layout.undeclared-alignment] (measured 2026-09-16).
+// -----------------------------------------------
+// BG_UploadTiles — blocking copy of one BG tile blob into the BG arena at BG_TILE_BASE_VRAM.
+//
+// In:  a1 = tile blob (BE u16 byte length + raw 4bpp tiles), nonzero
+// Out: none
+// Clobbers: d1, a1-a2
+//
+// THE CALLER OWNS THE POSTURE: interrupts masked (a VBlank mid-copy repoints the VDP address
+// and the rest of the blob sprays elsewhere) and the Z80 kept off the bus (BG_Init holds it
+// with `z80_stopped`; Section_RedrawPlanes' storm uses the SND_CTRL_DMA_ACTIVE flag bracket
+// under sound, or holds the bus without it). It does not record what it copied: the caller
+// writes BG_Tiles_Current, next to the decision that chose the blob.
+//
+// Factored out of BG_Init on 2026-09-16 (region bg switch, task 2) so the synchronous region
+// path copies through the SAME guards rather than a second copy of them. The guard commentary
+// below moved with the code.
+// -----------------------------------------------
+pub proc BG_UploadTiles (a1: *u8) clobbers(d1/a1-a2) {
+        if DEBUG == 1 {
+            move.w  sr, d1
+            andi.w  #$0700, d1
+            assert.w d1, hs, #$0600     // IPL >= 6: no VBlank can land mid-copy
+        }
+        move.w  (a1)+, d1               // d1.w = tile-bytes length (uncompressed)
+        beq     .done
+        // Capacity guard (last line of defense): clamp the copy length to what the
+        // BG arena is DECLARED to own — BG_TILE_CAPACITY tiles, not the physical
+        // $8000..$B7FF run. Above the arena sit `waterline_strips` (48 tiles, item
+        // 9d) and then the SAT at $B800, and a blob longer than the declared
+        // capacity would overwrite the first before it ever reached the second.
+        // The build tools should keep BG art within budget (inject_editor_bg.py
+        // gates the final blob on the same constant); this is what guarantees no
+        // corruption of either neighbour if a generator gate drifts.
+        cmpi.w  #BG_TILE_CAPACITY_BYTES, d1
+        bls     .bg_len_ok
+        move.w  #BG_TILE_CAPACITY_BYTES, d1
+    .bg_len_ok:
+        // Tier-1 blit: copy the tile body a LONGWORD at a time (autoinc 2 keeps
+        // it linear in VRAM). The count is quartered, so the length guard must be
+        // RE-DERIVED — the parcel-6 word-count guard (lsr #1) does not survive the
+        // move.l translation, it just underflows on a different set of lengths.
+        //
+        // The clamp above bounds the copy from ABOVE. It does NOT bound it from
+        // below: a drifted length of 1..3 bytes passes the `beq` (nonzero) and the
+        // `bls` (in range), then lsr.w #2 -> 0 and subq -> $FFFF, and dbf would run
+        // 65,536 LONGWORDS = 256KB straight through the SAT and every other VRAM
+        // structure. Close it by taking the LONGWORD count FIRST and skipping on
+        // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
+        // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
+        // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
+        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
+        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
+        // 2026-08-05) and inject_editor_bg.py, and tools/gen_region_bg_showcase.py
+        // refuses a non-32-byte-granular body — so the drop never fires in practice;
+        // it is the last line of defense.
+        //
+        // (The note that used to sit here about hoisting the counter ops above the
+        // `z80_stopped` bracket is moot inside this proc: the bracket is the caller's,
+        // so an early `rts` cannot leave the Z80 halted.)
+        lsr.w   #2, d1                  // longword count = bytes/4
+        beq     .done                   // 1..3-byte (sub-long) blob -> nothing to copy
+        subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
+        move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
+        move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
+        lea     VDP_DATA, a2            // (VDP_DATA).l
+    .tile_copy:
+        move.l  (a1)+, (a2)
+        dbf     d1, .tile_copy
+    .done:
+        rts
+}
+
 
 // ===========================================================================
 // THE STEADY-STATE ROW STREAMER (regions part 2, step 5; spec §4.2, "Steady-state
@@ -521,6 +559,36 @@ ensure(BG_STREAM_LEAD_ROWS >= 0 && BG_STREAM_LEAD_ROWS <= BG_STREAM_SPARE_ROWS,
        "engine/level/bg.emp: BG_STREAM_LEAD_ROWS is {BG_STREAM_LEAD_ROWS}, outside [0, {BG_STREAM_SPARE_ROWS}]. That range IS the containment proof in BG_Stream_Update's header: below 0 the window starts under the screen top and the topmost visible rows hold the wrong map row; above the spare the window ends above the screen bottom and the bottom rows do. Neither shows as a build error and both look like a torn background")
 ensure(BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX >= BG_VSCROLL_MAX_STEP,
        "engine/level/bg.emp: BG_Stream_Update can move the window {BG_STREAM_MAX_ROWS} row(s) = {BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX} px a frame, but engine/level/parallax.emp's rate clamp lets the BG scroll move {BG_VSCROLL_MAX_STEP} px a frame. The tracker would fall further behind on every frame of a sustained vertical run and NEVER catch up — the window lags, the lead is eaten, and the background tears at the trailing edge with nothing in the build to say so. Either raise BG_VSCROLL_MAX_STEP_ROWS' partner here or lower the rate clamp")
+// ---- THE TILE OVERWRITE'S CHUNK (region bg switch, task 3; plan call C3 as amended) ----
+// How many arena bytes one overwrite DMA carries. ONE chunk is outstanding at a time, so this is
+// also the per-frame upload rate. The value is DERIVED against the NTSC window's worst frame
+// and the derivation needs the GAME's own DMA riders (its DPLC peaks), which this engine file
+// cannot see: tools/test_bg_overwrite_chunk_budget.py computes it from source and fails the
+// build's pytest lane if this number no longer fits, or is not the largest 32-byte multiple
+// that does. The engine-side half is the `ensure` below.
+//
+// The window, as that test derives it: DMA_BUDGET_NTSC, minus the plane drain (the FOREGROUND
+// peak only, FG_PEAK_BYTES: the BG streamer and wipe are suspended for the whole overwrite, so
+// their rows cannot share a chunk's frame), minus the Critical queue's peak (4 palette lines,
+// the SAT, the HScroll table, and a full-CRAM raster ship), minus the Important queue's player
+// DPLC peak (Sonic + Tails + tail, the duo cast dplc_straddle reserves for), minus every other
+// ...and NOTHING for the other Deferrable producers (controller ruling 2026-09-16). The rule is
+// LIVENESS, not "never delay a peer": the chunk must fit on any frame where it is the only
+// Deferrable entry, or it could starve forever. Insta-shield and spindash-dust DPLC and waterline
+// art may slip a frame behind a chunk at the queue head — that is the Deferrable contract
+// ("budget-gated, can slip one frame"), and GATE BG-SWITCH leg TRAFFIC measures the slip. Act art
+// page landings are NOT charged either: they are the priority C1 chose, so a heavy streaming frame
+// just delays the chunk. The first derivation charged every Deferrable peak and gave 256 B
+// (27 ticks for a 216-tile blob); rejected for that reason.
+pub const BG_OVERWRITE_CHUNK_BYTES = 1824
+const BG_CRITICAL_PEAK_BYTES = 4 * 32 + 640 + 896 + 128   // pinned to BuildStaticDMA by the test above
+ensure(BG_OVERWRITE_CHUNK_BYTES >= 32 && BG_OVERWRITE_CHUNK_BYTES % 32 == 0,
+       "engine/level/bg.emp: BG_OVERWRITE_CHUNK_BYTES is {BG_OVERWRITE_CHUNK_BYTES}; an overwrite chunk must be a whole number of tiles (32 B) and at least one, or BG_Stream_Update's `andi.w #$FFFC` length and the offset arithmetic stop landing on tile boundaries")
+ensure(BG_OVERWRITE_CHUNK_BYTES <= DMA_BUDGET_NTSC - FG_PEAK_BYTES - BG_CRITICAL_PEAK_BYTES,
+       "engine/level/bg.emp: an overwrite chunk of {BG_OVERWRITE_CHUNK_BYTES} B does not fit the NTSC DMA window ({DMA_BUDGET_NTSC}) after the foreground plane-drain peak ({FG_PEAK_BYTES}) and the Critical peak ({BG_CRITICAL_PEAK_BYTES}), even before any game rider. It could then never drain on a worst frame, and because the drain stops at the first entry that does not fit, it would hold every Deferrable entry queued behind it too")
+ensure(BG_TILE_BASE_VRAM + BG_TILE_CAPACITY_BYTES <= $10000,
+       "engine/level/bg.emp: the BG arena ends past $FFFF; BG_Stream_Update's overwrite spells the chunk destination and the arena bound as WORDS")
+
 ensure(BG_STREAM_MAX_ROWS >= 1,
        "engine/level/bg.emp: BG_STREAM_MAX_ROWS is {BG_STREAM_MAX_ROWS} — the streamer is allowed no rows at all, so BG_Plane_Top can never move and a map taller than the plane would show its first {PLANE_V_CELLS} rows forever while the scroll ran past them")
 
@@ -560,6 +628,116 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         movea.l Region_Current, a0
         cmpa.w  #0, a0
         beq     .done
+
+        // ================= THE TILE OVERWRITE (region bg switch, 2026-09-16) =================
+        // Plan: docs/superpowers/plans/2026-09-16-region-bg-switch.md (tasks 3-4, calls C1-C8).
+        // It runs FIRST, above the wipe and the streamer, and it GATES both: while the BG arena
+        // does not hold this region's effective tile blob, this proc returns from `.ow_wait`
+        // before either can paint a row. That return is the whole ordering guarantee. A row
+        // painted from the new layout while its tiles are still arriving is S3K Icecap's
+        // failure (a layout switch gated on the layout being ready, not on its tiles).
+        //
+        // -- the region's EFFECTIVE tile blob: its own, or the act default (rg_bg_layout's
+        //    ladder and sentinel). Compared BY POINTER with what the arena holds. --
+        movea.l Region.rg_bg_tiles(a0), a1
+        cmpa.w  #0, a1
+        bne     .ow_eff
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        movea.l Act.act_bg_tiles(a2), a1
+    .ow_eff:
+        cmpa.l  BG_Tiles_Current, a1                // (BG_Tiles_Current).w
+        beq     .tiles_settled                      // the arena holds it: every frame, normally
+        cmpa.l  BG_Tiles_Target, a1                 // (BG_Tiles_Target).w
+        beq     .ow_spend                           // already uploading exactly this blob
+        // ---- ARM, or RETARGET (C8: the target changed mid-overwrite — restart at 0) ----
+        // Chunks already queued for an older target stay queued and land first (the queue is
+        // FIFO and compacts in order); the completion test below waits for every arena write
+        // to drain after THIS target's last chunk, so nothing stale can land after it.
+        move.l  a1, BG_Tiles_Target
+        clr.l   BG_Tiles_Current                    // the arena is now a PARTIAL blob
+        clr.w   BG_Tiles_Offset
+        // AN OVERWRITE ALWAYS ENDS IN A FULL REPAINT (C6), and a sweep in flight is cancelled
+        // (C7). Zeroing the plane tracker makes the wipe arm below compare unequal on the frame
+        // the tiles settle, whatever the layout pointer is, so it re-primes the window and
+        // repaints every plane row. Without it two cases go wrong: a sweep cancelled here for a
+        // region whose layout pointer EQUALS the one the plane was being swept to (the plane is
+        // left half old picture, half new, and nothing re-arms), and a tall map whose window
+        // went stale while the streamer was suspended. The cursor and resume row clear as one
+        // word (the adjacency `ensure` at the foot of this file).
+        clr.l   BG_Plane_Layout                     // (BG_Plane_Layout).w
+        clr.w   BG_Wipe_Cursor                      // (BG_Wipe_Cursor).w
+        // BANDS HOLD from the arm (C10): the arena is about to stop holding the act's tiles, whose
+        // front slots are the BgAnim bands'. engine/level/bg_anim.emp reads this.
+        st      BG_Bands_Hold                       // (BG_Bands_Hold).w
+    .ow_spend:
+        move.w  (a1), d3                            // blob length in bytes (BG_Init's header)
+        cmpi.w  #BG_TILE_CAPACITY_BYTES, d3
+        bls     .ow_len_ok
+        move.w  #BG_TILE_CAPACITY_BYTES, d3         // runtime clamp (C12), as BG_UploadTiles
+    .ow_len_ok:
+        andi.w  #$FFFC, d3                          // longword-granular, as BG_UploadTiles
+        // -- ONE OUTSTANDING CHUNK, AND COMPLETION, ARE THE SAME TEST (C2, as amended): no queued
+        //    Deferrable entry may still be writing the arena. Not "the queue is empty": object DPLC
+        //    art and waterline art share this queue, and an overwrite keyed to an empty queue
+        //    would never finish while the player animates. --
+        movem.l d3/a0-a1, -(sp)                     // movem leaves CCR alone on the way back
+        move.w  #BG_TILE_BASE_VRAM, d1
+        move.w  #BG_TILE_BASE_VRAM + BG_TILE_CAPACITY_BYTES, d2
+        jbsr    DMA_Deferrable_DestPending          // Z SET = nothing queued writes the arena
+        movem.l (sp)+, d3/a0-a1
+        bne     .ow_wait                            // a chunk (or a pre-arm band DMA) is still queued
+        move.w  BG_Tiles_Offset, d0                 // (BG_Tiles_Offset).w
+        cmp.w   d3, d0
+        bhs     .ow_complete                        // every chunk enqueued AND every one has landed
+        sub.w   d0, d3                              // bytes left
+        cmpi.w  #BG_OVERWRITE_CHUNK_BYTES, d3
+        bls     .ow_chunk_len
+        move.w  #BG_OVERWRITE_CHUNK_BYTES, d3
+    .ow_chunk_len:
+        moveq   #0, d1
+        move.w  d0, d1
+        addq.l  #2, d1
+        add.l   a1, d1                              // src = blob + 2 + offset (ROM)
+    if DEBUG == 1 {
+        // The queue's `lsr.l #1` word-source conversion drops bit 0: an odd blob address would
+        // DMA every chunk from one byte early (page_in.emp's raw-page precedent).
+        btst    #0, d1
+        beq     .ow_src_even
+        raise_error "BG_Stream_Update: region tile blob at an odd address (DMA source)"
+    .ow_src_even:
+    }
+        move.w  d0, d2
+        addi.w  #BG_TILE_BASE_VRAM, d2              // dest = arena + offset
+        movem.l d3/a0, -(sp)
+        jbsr    QueueDMA_Deferrable                 // carry SET = queue full / byte cap: retry
+        movem.l (sp)+, d3/a0
+        bcs     .ow_wait
+        add.w   d3, BG_Tiles_Offset                 // (BG_Tiles_Offset).w
+    .ow_wait:
+        // RETURNING HERE IS WHAT SUSPENDS THE WIPE AND THE STREAMER for the whole overwrite
+        // (C7). Moving this `rts` below the wipe arm is the Icecap failure, and the gate's
+        // ORDER legs exist to go red on exactly that edit.
+        rts
+    .ow_complete:
+        move.l  (BG_Tiles_Target).w, (BG_Tiles_Current).w   // the arena holds the target, landed
+        clr.l   BG_Tiles_Target
+        // BANDS RESUME only when the arena holds the ACT's tiles again (C10), and every band is
+        // made to re-send its current phase: the overwrite just laid phase-0 art over the band
+        // slots, and a band whose step did not change while held would otherwise never repaint.
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        move.l  Act.act_bg_tiles(a2), d0
+        cmp.l   (BG_Tiles_Current).w, d0
+        bne     .ow_bands_stay_held
+        clr.b   BG_Bands_Hold                       // (BG_Bands_Hold).w
+        moveq   #-1, d0
+        move.l  d0, BgAnim_LastStep                 // (BgAnim_LastStep).w
+        move.l  d0, BgAnim_LastStep + 4             // (BgAnim_LastStep+4).w — BGANIM_MAX_BANDS words
+    .ow_bands_stay_held:
+        // FALL THROUGH: the wipe arm below may fire on this same frame, which is correct —
+        // the last chunk was SENT in an earlier VBlank (observed above), and this frame's wipe
+        // rows drain in the next one.
+    .tiles_settled:
+        // ================= END OF THE TILE OVERWRITE =================
 
         // -- max_top = map rows - PLANE_V_CELLS, for THIS region. A 0 span is the act
         //    default, whose map IS the plane and whose only legal window is 0; a map no
