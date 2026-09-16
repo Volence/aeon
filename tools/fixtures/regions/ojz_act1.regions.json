@@ -1,0 +1,72 @@
+{
+  "act": "ojz_act1",
+  "regions": [
+    {
+      "id": "sec0",
+      "name": "Forest, upper left",
+      "preset": "OJZ_Preset_Sec0",
+      "rect": { "x": 0, "y": 0, "w": 2048, "h": 2048 },
+      "sceneRef": "ojz_act1_start"
+    },
+    {
+      "id": "sec1",
+      "name": "Forest, upper middle",
+      "preset": "OJZ_Preset_Sec1",
+      "rect": { "x": 2048, "y": 0, "w": 1352, "h": 2048 }
+    },
+    {
+      "id": "sec2",
+      "name": "Forest, upper right",
+      "preset": "OJZ_Preset_Sec2",
+      "rect": { "x": 4800, "y": 0, "w": 1344, "h": 2048 }
+    },
+    {
+      "id": "sec3",
+      "name": "Shimmer",
+      "preset": "OJZ_Preset_Sec3",
+      "rect": { "x": 0, "y": 2048, "w": 2048, "h": 2048 }
+    },
+    {
+      "id": "sec4",
+      "name": "Depth showcase",
+      "preset": "OJZ_Preset_Depth",
+      "rect": { "x": 2048, "y": 2048, "w": 2048, "h": 2048 },
+      "sceneRef": "ojz_act1_depth"
+    },
+    {
+      "id": "sec5",
+      "name": "Band showcase",
+      "preset": "OJZ_Preset_Sec5",
+      "rasterRef": "ojz_sec5_showcase",
+      "rect": { "x": 4096, "y": 2048, "w": 2048, "h": 2048 }
+    },
+    {
+      "id": "sec6",
+      "name": "Base swap",
+      "preset": "OJZ_Preset_Sec6",
+      "rasterRef": "ojz_sec6_baseswap",
+      "rect": { "x": 0, "y": 4096, "w": 2048, "h": 2048 }
+    },
+    {
+      "id": "sec7",
+      "name": "World water",
+      "preset": "OJZ_Preset_Sec7",
+      "rect": { "x": 2048, "y": 4096, "w": 2048, "h": 2048 },
+      "sceneRef": "ojz_act1_sec7_worldwater"
+    },
+    {
+      "id": "sec8",
+      "name": "Floor",
+      "preset": "OJZ_Preset_Plain",
+      "rect": { "x": 4096, "y": 4096, "w": 2048, "h": 2048 },
+      "sceneRef": "ojz_act1_floor"
+    },
+    {
+      "id": "night",
+      "name": "Night",
+      "preset": "OJZ_Preset_Night",
+      "rect": { "x": 3400, "y": 0, "w": 1400, "h": 2048 }
+    }
+  ],
+  "schema": 1
+}

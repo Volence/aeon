@@ -34636,6 +34636,65 @@ plane buffer (`Draw_BG_TileColumn`, zero call sites) and in the link-assert tall
 exists, nothing consumes it yet, and the consuming side is where the real number lives.** The hub
 recorded the same error against itself — it told the owner "empyrean's half of phase 2 is done",
 true of the step that landed and false of the seam that step feeds.
+
+### PART ONE LANDED 2026-09-16 (`parcel/regions-loader-golden`) — what is done and what is not
+
+**DONE.** `tools/region_flatten.py` (the geometry, the per-row rules, the hole locator),
+`effects_gen.load_act_regions` / `resolve_act_regions` / `act_region_rows` /
+`check_mode_conflict`, the shared golden at `tools/fixtures/regions/ojz_act1.{regions,rows}.json`,
+and `tools/test_regions_doc.py` (56 tests + `GATE ROWS-IDENTICAL` marked `needs_build`).
+**Act 1's ten release rows come back exactly** — geometry and bindings, row for row, against a
+rows fixture typed by hand from `act_descriptor.emp` rather than generated from the flattener.
+
+**THE SPEC'S §5.2 IS SUPERSEDED BY THE OWNER'S OWN RULING IN §8 OF THE SAME DOCUMENT**, and the
+LANDED SCHEMA implements the ruling, not §5.2. §5.2 writes out a painter's-order subtraction with
+a merge step; §8 records the owner overturning it on 2026-09-14 ("cut right away" — the editor
+trims on draw, so the file holds each region's own disjoint area and flattening becomes a CHECK).
+The schema at empyrean `c3f892f` has one `rect` per region, no `defaults`, no `bindings` wrapper,
+so §5.2's document cannot be written at all. §5.2's prose was never rewritten: **anyone reading it
+without reading §8 will implement the wrong model.** Full statement in `tools/region_flatten.py`'s
+header.
+
+**NOT DONE, and these are the SECOND PARCEL (emission + mode switching):**
+
+1. **Emission of the region table.** Blocked on item 2 and item 3 below, not on effort.
+2. **THE DEBUG SHAPE HAS AN ELEVENTH ROW A CLOSED DOCUMENT CANNOT EXPRESS.**
+   `OJZ_E2_SNAP_ROWS` adds a look fixture at x 5600..6143 in `DEBUG` and shortens `sec2` to
+   x1 = 5599 to make room (`OJZ_SEC2_X1`). A `regions.json` has no shape key and the schema is
+   closed, so a generated table is release-shaped by construction. Three ways out, none chosen
+   here: retire the E2 fixture, amend the schema, or let the descriptor apply the DEBUG delta on
+   top of a generated release table. **This is an owner/hub call with byte consequences.**
+3. **The chooser question (§5.2's last paragraph) is PRICED, NOT DECIDED** — see
+   `docs/superpowers/notes/2026-09-16-regions-loader-golden.md` for the full ledger. The short
+   form: the two shapes §5.2 names are under-specified and "the choosers move to the row" has two
+   readings with very different costs (0 ROM bytes with a new one-record-per-row gate, versus new
+   `Region` fields at 4 bytes per pointer per row, which is the reading that falsifies a landed
+   schema sentence).
+4. **A MIGRATED ACT 1 DOES NOT BAKE, and it has nothing to do with regions.** Measured in the
+   sandbox, not predicted: null every sidecar `sceneRef` (what `Migrate sections` does) and
+   `render_module` refuses, because `ojz_act1_depth.json` carries a `reels` key and the rung-1
+   rule requires some SECTION to bind that scene through a `sceneRef` sidecar — the reels table is
+   keyed on the pointer identity of `EditorSceneBinding_OJZ_Act1_Sec4`. With identity on regions
+   there is no such sidecar. **This blocks flipping act 1 into region mode** and it is asserted as
+   a test (`test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels`) so the day it is fixed
+   the test fails and tells its author to delete it.
+5. **The `bg.span` derived check is UNREACHABLE today and therefore untested.** `bg.layoutRef` is
+   refused for every value but `"@act"`/null while the engine has no consumer, so "a span must
+   equal its referenced layout's height" — the check only this generator can make — has nothing to
+   check. It is what the parcel that opens `layoutRef` owes.
+6. **The contract schema is not vendored here and there is no drift gate on it.** The golden was
+   validated against empyrean `origin/main`'s copy once, by hand (`jsonschema` 4.26, draft 2020-12,
+   **0 errors**, 2026-09-16); `jsonschema` is not a dependency of the pre-build tool lane and
+   making it one for this was judged the wrong trade. The loader's own closed-key checking is the
+   working gate. Re-run:
+   `git -C ../empyrean show origin/main:contract/schema/aurora-regions.schema.json` piped into a
+   validator against `tools/fixtures/regions/ojz_act1.regions.json`.
+
+**A CORRECTION TO A FIGURE THE SPEC AND THE BUDGET VIEW BOTH CARRY:** `struct Region` is **22
+bytes**, not 16. The editor spec §2.1 read it at aeon `0dc0ff11` before regions part 2 step 1 added
+`rg_bg_layout` and `rg_bg_span`; its §6 row 3 ("16 per row") is stale with it. Act 1's release
+table is 10 × 22 = **220 bytes**, the DEBUG one 11 × 22 = 242.
+
 ## CITATION-LIVE-LINE — the `.emp:LINE` gate asks "is that line alive", not "is that the line" (found 2026-09-15, `parcel/regions-p2-step1`)
 
 `tools/test_citation_form.py::test_live_citations_resolve_to_something` failed on regions part 2

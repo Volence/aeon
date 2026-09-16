@@ -37,9 +37,25 @@ def _to_py(expr: str) -> str:
     return expr
 
 
-def emp_consts(path: str | Path) -> dict[str, int]:
-    """{name: int} for every top-level const whose value folds to an int."""
+def emp_consts(path: str | Path, seed: dict[str, int] | None = None) -> dict[str, int]:
+    """{name: int} for every top-level const whose value folds to an int.
+
+    `seed` PRE-LOADS THE FOLDING SCOPE WITH NAMES FROM ANOTHER MODULE, and it exists
+    because the interesting derived constants in this tree are cross-file. A game's act
+    descriptor writes `const ACT_W = GRID_W << SECTION_SIZE_SHIFT` and
+    `const CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W`: every operand but
+    `GRID_W` lives in `engine/system/constants.emp`, so a same-file-only fold drops all
+    four camera-band constants and a caller that wants them has to RESTATE the arithmetic
+    in Python. That restatement is the failure this module's own header names — the
+    number stops coming from the authority the moment its formula does. Seeded, the
+    formula still comes from the `.emp` line and only the leaf values are imported.
+
+    The seed is read-only from the caller's point of view: the returned dict carries the
+    file's own consts only, so a caller cannot mistake an imported leaf for a declaration
+    in the file it asked about.
+    """
     vals: dict[str, int] = {}
+    scope: dict[str, int] = dict(seed or {})
     for line in Path(path).read_text(errors="replace").splitlines():
         m = _CONST.match(line)
         if not m:
@@ -48,9 +64,10 @@ def emp_consts(path: str | Path) -> dict[str, int]:
         if not re.fullmatch(r"[\w\s+\-*/()<>|&]+", expr):
             continue
         try:
-            v = eval(expr, {"__builtins__": {}}, dict(vals))  # noqa: S307 - closed env
+            v = eval(expr, {"__builtins__": {}}, dict(scope))  # noqa: S307 - closed env
         except Exception:
             continue
         if isinstance(v, int) and not isinstance(v, bool):
             vals[name] = v
+            scope[name] = v
     return vals
