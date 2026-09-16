@@ -36043,3 +36043,33 @@ line edit. **Whoever takes it: the control is the point, not the render.**
 reporting only the first fault, and `display_ab_gate` exiting 1 — "a real difference" — on a run
 that could not measure). That family is about a gate under-reporting a real fault. **This row is
 the other polarity: a gate reporting success over a population that cannot fail.**
+
+## DMA-BUDGET-PAL-LINE-COUNT: the PAL VBlank DMA budget uses the V30 blanking-line count, but aeon runs V28 (found 2026-09-16, megaact research slice 05)
+
+**Found by a research slice, verified by the controller at the code before booking.**
+`engine/system/constants.emp` (the DMA budget block above `DMA_BUDGET_NTSC`) derives the PAL window
+from **"PAL 72 blank lines"**. But `engine/system/boot.emp` writes `#$34` to VDP register 1
+(`VDP_Shadow_Table + VDP_MODE2_OFF`), and `engine/system/release_fault.emp` writes `$8134` — **bit 3
+(V30) is clear in both, and no write anywhere in `engine/` sets it.** So aeon runs **V28** (224 lines) on
+PAL, which has **313 − 224 = 89** non-picture lines (Kabuto) or **87** (Sega's Technical Overview table).
+**72 is approximately the V30 count** (Sega: 71).
+
+**Recomputed with aeon's own model** (488.6 cyc/line, 2.7 cyc/byte, × 0.89): 89 lines → **≈14,330 B**,
+against the shipped `DMA_BUDGET_PAL = 11648`. About **84 tiles a frame of PAL bandwidth unused.**
+
+**It is SAFE, not dangerous:** the budget is too SMALL, so it can never overrun into active display —
+it only wastes headroom. Nothing is on fire.
+
+**A second item that is a DISAGREEMENT, not a proven bug, and is booked as such.** The same comment
+assumes **2.7 cyc/byte** and **488.6 cyc/line**, labelled *"oracle cycle model, hardware-verified"*.
+Published hardware sources give **≈2.35 cyc/byte** (Kabuto: slow DMA at `words*4.7-6` cycles; Mask of
+Destiny: *"Every ~2.3 68K cycles, you lose one byte"*) and **≈480 cyc/line** (Kabuto), i.e. ≈204 B/line,
+which matches Sega's 205. Aeon's raw NTSC 6876 B is ≈11% under 38 × 204 = 7752. **Aeon's number is
+from its own emulator model and this repo has no real hardware**, so do not "correct" it toward the
+published figure without deciding which authority wins — the sources in the research note
+(`docs/research/megaact-bg-streaming/05-online-and-tech-demos.md` §2) also disagree among themselves on
+the NTSC blanking line count (36 vs 38).
+
+**Why it matters now rather than someday:** slice 05 found DMA bandwidth is **not** the bottleneck for
+zone streaming (a full Sonic 2 zone moves in 5-8 frames at aeon's 4096 B art budget). So this does not
+block the mega-act design. It is booked because it is a real, measured error in a load-bearing constant.
