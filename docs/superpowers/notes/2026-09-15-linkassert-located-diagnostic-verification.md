@@ -35,6 +35,46 @@ the wrong question.)
 
 `SIGIL_EMIT` = `emit_sound_blob`, md5 `8c874ce1f50d57f4841c5324329c2216`.
 
+
+## THE MULTI-FAILURE LEG — run 2026-09-16 at sigil's ask, and it was the leg that mattered
+
+The scope caveat below ("one failing LinkAssert per run") drew a real hole and sigil named it
+precisely: **their** harness proves the renderer emits every failing guard *when handed both*;
+**this note's** first run proves the real build path delivers *one*. Neither proved the real build
+path delivers **BOTH** — and that is exactly where the original defect lived. The old behaviour
+printed `first Some(Diagnostic{..})`, so **short-circuit-after-the-first is this fix's specific
+regression class**, and a single-failure run cannot see it: with one failure, a renderer that
+prints ALL and one that prints THE FIRST produce byte-identical output.
+
+Fixture: `games/sonic4/test/linkassert_probe/probe_multi.emp`, throwaway branch
+`throwaway/linkassert-fixture` `fe38648d`. Three link-time guards, two drifting, **distinct symbol
+pairs and distinct message tags** so two `[Error]` lines cannot be one line counted twice. Same
+binary, md5 `324d85d6ad5267a99bd57f118871ed1f`.
+
+| failing guards | `[Error]` lines | exit | header |
+|---|---|---|---|
+| 2 | **2** | 1 | `declared-chain drift guard FIRED: 2 error(s)` |
+| 1 (guard B made true) | **1** | 1 | `… 1 error(s)` |
+| 0 (both made true) | **0** | 0 | `checked: … 671 LinkAssert(s) decided at link` |
+
+Both drifting guards render, each located at its own line, each interpolating its own resolved
+number (5280 for the Object_RAM pair, 472 for the Palette_State pair). Zero `panicked at`. No ROM
+written. **`--check` and the full `-o` build path produced identical diagnostics**, so this is the
+real build path and not only the check path.
+
+**THE CONTROL THAT CAME FREE, AND IT IS THE BEST PART.** Guard C is a passing link-time guard, and
+it never appears in the failing runs. On its own that is ambiguous between two very different
+worlds: the renderer filters on FAILURE, or guard C was never evaluated at all. The all-pass run
+settles it without a further experiment — its tally reads **671** LinkAsserts against the **668**
+baseline, i.e. **+3**, so all three guards reached the link bucket, the passing one included.
+*Absence-from-the-output and never-having-run are the same artifact until something counts them,*
+which is this repo's recurring lesson arriving for free rather than at cost.
+
+**Still not tested, and deliberately, at sigil's own direction:** DEBUG and demo shapes. Same
+renderer, same code path, and the shape does not vary what a diagnostic looks like — sigil asked
+for the run to be spent on the multi-failure case instead of a sweep. That is their call on their
+own subject and it is recorded as theirs.
+
 ## RE-RUNNING THIS — added by the overseer at landing, because the note as written had no command in it
 
 **The note originally recorded a verdict nobody could re-run.** That is the defect this lane has a
