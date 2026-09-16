@@ -34908,3 +34908,35 @@ not have to rediscover that a vertical crossing is reachable. Nothing here block
 **Provenance worth keeping:** the hub's reader flagged frame `06` as possibly a mid-load capture
 — a defect that would have been real and serious. It was not one, and chasing it down is what
 surfaced the vertical crossing. The capture README's caption was wrong and is corrected there.
+
+## PRESET-NOTE-POINTS-AT-A-BLIND-INSTRUMENT (booked 2026-09-16, from the sigil lane)
+
+**`engine/effects/preset.emp:114` prescribes a mitigation that is structurally blind to the case
+it was written for.** That note records `EffectsPreset` having been declared `(size: 36)` against
+32 bytes of fields and going undetected for as long as its module was unreachable, and tells the
+next reader to check the `[module.unreachable]` census to catch the class.
+
+**The census cannot catch it.** It only names unreachable modules whose ensure count is nonzero.
+Sigil measured the live instance: `engine/objects/children.emp:84`, `pub struct SpawnDesc (size: 4)`,
+mutated to `(size: 41)`, **builds CLEAN under both `--game sonic4` and `--game demo`, exit 0**. Its
+module IS compiled — controlled for by appending `ensure(1 == 2)` and watching it fail at
+`children.emp:698` — but its only three consumers that write `data ...: SpawnDesc` literals, which
+is what would force the layout, all sit outside the sonic4 closure and all carry **zero** ensures.
+So the census names none of them and the absence reads as reachability. Sigil's agent walked into
+exactly that inference mid-investigation, caught itself, and re-grounded every reachability claim
+on the appended-`ensure` control instead.
+
+**A note that sends its reader to a blind instrument is worse than no note**, because it converts
+"I do not know" into "I checked". The fix is to correct the comment at `preset.emp:114` itself —
+where the wrong path leads — not only to book it here. It is CODE, so it needs a build; it rides
+the next parcel that builds this tree rather than a docs push.
+
+**The correct check, from sigil's seventeen probed shapes with positive controls beside each:** a
+declared `(size: N)` is verified **only when something forces that struct's layout**, which is
+narrower than "the module is in the use closure" — a struct declared in the entry module and never
+referenced is not a closure question at all and builds clean with its size off by 87. The
+zero-change remedy is a hand-written `ensure(sizeof(X) == N, ...)` beside the declaration, which
+FIRED in all four arms sigil probed.
+
+**Same class as the night palette's recipe comment and as the lapsed spec clause:** a standing
+claim that was true when written, that nothing re-checks.
