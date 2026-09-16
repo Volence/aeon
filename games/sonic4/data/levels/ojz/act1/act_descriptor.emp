@@ -454,9 +454,13 @@ const REGION_MIN_SPAN = 2 * CAM_MAX_Y_STEP
 // THE BACKGROUND PLACEMENT ARGUMENTS (regions part 2 step 1, spec §4.1). `bg_layout` names
 // this region's nametable blob and `bg_span` is that map's HEIGHT in px; both default to 0,
 // which means "the act's own" — Act.act_bg_layout and PLANE_B_SPAN respectively. Every row
-// in this act takes both defaults today and NOTHING IN THE ENGINE READS EITHER FIELD YET,
-// so these three ensures are the whole of step 1's behaviour: they are what makes an
-// illegal span a build error on the day a reader appears, rather than a wrong picture.
+// in this act takes both defaults today, so these three ensures still cost nothing here:
+// they are what makes an illegal span a build error rather than a wrong picture.
+//   CORRECTED 2026-09-16: this comment used to add "and NOTHING IN THE ENGINE READS EITHER
+//   FIELD YET". That was step 1's state and step 3 (`17bf60fe`, the same day) falsified half
+//   of it — `rg_bg_layout` has two readers now, Section_RedrawPlanes (engine/level/section.emp)
+//   and Draw_BG_TileRow (engine/level/plane_buffer.emp). It is `rg_bg_span` that still has
+//   none; the clamp that reads it is step 4. The ensures below are unchanged either way.
 //
 // WHY THE ZERO SENTINEL IS EXEMPT FROM THE HEIGHT FLOOR, and this is a correction to the
 // spec's own wording. §4.1 lists the three rules as "a multiple of 8, at least

@@ -21,6 +21,12 @@ WHAT A GREEN HERE DOES NOT MEAN, said so nobody reads it as more:
   * `bg.layoutRef` is refused for every value but the act sentinel, so the derived-span
     check (a span must equal its layout's height) is UNREACHABLE today and untested. It is
     what the parcel that opens `layoutRef` owes.
+  * THE GOLDEN'S `bg` PAIR IS THE DEFAULT HALF ONLY (2026-09-16). Every row's background is
+    the act's, so `TestSharedGolden` pins the one fact the seam can check while that is
+    true — that `bg` absent, `bg.layoutRef` null and `bg.layoutRef` `"@act"` all flatten to
+    the SAME row — and pins NOTHING about a region that names its own layout. That half is
+    blocked (REGIONS-BG-GOLDEN-GAP); `TestBackgroundBinding`'s tripwire is what stops it
+    from being forgotten, by failing the day the refusal above is lifted.
 
 RED-FIRST. Every refusal test below was written by taking the golden — a document that
 passes — and perturbing exactly one thing, which is the discipline `test_effects_gen.py`
@@ -58,7 +64,7 @@ ACT1_EDITOR = "games/sonic4/data/editor/ojz/act1"
 
 # The shared vocabulary the golden pins. NOT `.emp` symbol names: both repos have to be able
 # to check these, and aurora cannot resolve an EditorSceneBinding_* label.
-ROW_KEYS = ("index", "id", "x0", "x1", "y0", "y1", "preset", "sceneRef", "rasterRef")
+ROW_KEYS = ("index", "id", "x0", "x1", "y0", "y1", "preset", "sceneRef", "rasterRef", "bg")
 
 # Everything the sandbox borrows from the real tree by SYMLINK rather than copy: the effects
 # library, the scene and preset libraries, the descriptor whose `const` lines are the rules,
@@ -423,17 +429,101 @@ class TestRefResolution(RegionSandbox):
 # ---------------------------------------------------------------------------
 
 class TestBackgroundBinding(RegionSandbox):
-    def test_the_act_sentinel_and_null_are_accepted(self):
+    def test_all_three_spellings_of_the_act_default_flatten_to_one_row(self):
+        """The collapse, asserted over the spelling the golden does NOT already carry.
+
+        The golden itself ships `"@act"` on `sec0`, null on `sec3` and an absent `bg` on the
+        other eight, so `TestSharedGolden` already crosses all three. This moves the two
+        explicit spellings onto DIFFERENT rows and requires the same ten rows back, which is
+        what says the collapse is a rule and not a fact about two particular regions.
+        """
         doc = golden_doc()
-        doc["regions"][0]["bg"] = {"layoutRef": "@act"}
-        doc["regions"][1]["bg"] = {"layoutRef": None}
+        del doc["regions"][0]["bg"]                 # sec0: "@act" -> absent
+        del doc["regions"][3]["bg"]                 # sec3: null   -> absent
+        doc["regions"][5]["bg"] = {"layoutRef": None}
+        doc["regions"][9]["bg"] = {"layoutRef": "@act"}
         rows = self.rows(doc)
         self.assertEqual([{k: r[k] for k in ROW_KEYS} for r in rows], golden_rows())
 
-    def test_a_named_layout_is_refused_because_nothing_reads_it_yet(self):
+    def test_the_sentinel_does_not_reach_the_row_as_a_string(self):
+        """`"@act"` IS `rg_bg_layout = 0`, and the row must say the engine's fact.
+
+        Separated from the test above because the two fail for different reasons: that one
+        goes red if the collapse is applied inconsistently across spellings, this one goes
+        red if the collapse is not applied at all — a flattener that copied the sentinel
+        through would hand a consumer a STRING where the engine dereferences a POINTER, and
+        every row would still be "equal" to a fixture written the same wrong way.
+        """
+        rows = self.rows()
+        for r in rows:
+            self.assertIsNone(r["bg"]["layoutRef"],
+                              f"row {r['index']} ({r['id']}) carries "
+                              f"{r['bg']['layoutRef']!r} — the act default is null on the "
+                              f"row whatever the document spelled")
+            self.assertIsNone(r["bg"]["span"])
+        self.assertIn("@act", json.dumps(golden_doc()),
+                      "the golden document no longer spells the sentinel anywhere, so the "
+                      "assertion above is vacuous — restore an `@act` layoutRef or this "
+                      "test stops testing the collapse")
+
+    def test_a_named_layout_is_refused_and_the_reason_is_the_missing_EMITTER(self):
+        """The refusal stands; its stated REASON was corrected 2026-09-16.
+
+        It used to say "NOTHING IN THE ENGINE READS IT YET", which step 3 (`17bf60fe`, the
+        same day) made false: `Section_RedrawPlanes` and `Draw_BG_TileRow` both read
+        `Region.rg_bg_layout`. The refusal survives on a reason that is still true — nothing
+        lowers this document into a region table, so a named layout would be accepted and
+        dropped — and this test asserts the true sentence, because a refusal whose reason is
+        wrong sends the author to the wrong file.
+        """
         doc = golden_doc()
         doc["regions"][0]["bg"] = {"layoutRef": "ojz_cave"}
-        self.refuses(doc, "ojz_cave", "NOTHING IN THE ENGINE READS IT YET")
+        msg = self.refuses(doc, "ojz_cave", "NOTHING LOWERS THIS DOCUMENT")
+        self.assertNotIn("NOTHING IN THE ENGINE READS IT YET", msg)
+
+    def test_TRIPWIRE_opening_layoutRef_without_the_golden_fails_here(self):
+        """The day `bg.layoutRef` opens, the shared golden owes a non-default row.
+
+        WHY THIS EXISTS. `REGIONS-BG-GOLDEN-GAP` says a golden published before the engine
+        reads these fields out of the DOCUMENT costs one parcel and the same golden published
+        after costs a debugging session first. The golden's `bg` half is the DEFAULT half
+        only — no row names a layout, so nothing above would notice a flattener that got a
+        named layout wrong. This is what stops that from being discovered later.
+
+        WHAT IT WOULD ACCEPT AT RANDOM, stated because the weak arm is today's: while the
+        refusal stands, this asserts the golden carries no non-default row, which is trivial.
+        The arm with teeth is the other one, and it was proven by MUTATION rather than
+        argument — `_check_region_bg` was patched to accept a named layout and this test went
+        red naming the fixture. The subject is `_check_region_bg` itself, the single site that
+        refuses, so a later stage refusing for its own reasons cannot mask the opening.
+        """
+        try:
+            effects_gen._check_region_bg("(tripwire)", {"layoutRef": "ojz_cave"},
+                                         "regions[0]")
+        except effects_gen.SceneShapeError:
+            opened = False
+        else:
+            opened = True
+
+        non_default = [r for r in golden_rows()
+                       if r["bg"]["layoutRef"] is not None or r["bg"]["span"] is not None]
+        if opened:
+            self.assertTrue(non_default,
+                            "`bg.layoutRef` now ACCEPTS a named layout, and every row of "
+                            "tools/fixtures/regions/ojz_act1.rows.json still leaves "
+                            "rg_bg_layout/rg_bg_span at their defaults. The seam is now "
+                            "untested on exactly the values that just became expressible: "
+                            "give at least one region in ojz_act1.regions.json a `bg` with a "
+                            "named layoutRef and its derived span, hand-derive the matching "
+                            "row here, say in `_provenance` what is no longer a transcription "
+                            "of act_descriptor.emp, and tell aurora — their flattener has to "
+                            "reproduce the same two values. REGIONS-BG-GOLDEN-GAP in "
+                            "docs/DEFERRED_WORK.md is the booking.")
+        else:
+            self.assertEqual(non_default, [],
+                             "the golden carries a non-default `bg` row that the loader "
+                             "refuses — the fixture and the generator disagree about what a "
+                             "document may say, and the FINDING is which of them is wrong")
 
     def test_a_typed_span_is_refused_as_derived_and_never_authored(self):
         """Two rules at once, and the message says both: `ojz_region()`'s
@@ -700,14 +790,29 @@ class TestShippedTableMatchesGolden(unittest.TestCase):
                  for r in rows]
         self.assertIsNone(region_flatten.first_overlap(rects))
 
-        # The background half is the act default on every shipped row, which is what the
-        # golden says by carrying no `bg` at all. A non-zero here would mean part 2 grew a
-        # consumer and this fixture went stale.
+        # The background pair, DERIVED FROM THE GOLDEN'S OWN ROWS rather than pinned at
+        # (0, 0). Today every golden row says null/null and the expectation is 0/0 — the
+        # same numbers the old hardcoded line carried — but the day one row names a layout
+        # this comparison must not keep asserting the defaults and passing. A named layout
+        # cannot be checked against the ROM without the emitter's symbol resolution, so it
+        # fails LOUD here instead of silently weakening.
         for got, exp in zip(rows, want):
             with self.subTest(row=exp["index"], field="bg"):
-                self.assertEqual((got["bg_layout"], got["bg_span"]), (0, 0),
-                                 f"row {exp['index']} ({exp['id']}) carries a background "
-                                 f"binding the golden does not express")
+                if exp["bg"]["layoutRef"] is None:
+                    self.assertEqual((got["bg_layout"], got["bg_span"]), (0, 0),
+                                     f"row {exp['index']} ({exp['id']}) defers its "
+                                     f"background to the act in the golden "
+                                     f"(rg_bg_layout/rg_bg_span = 0/0) but the ROM row "
+                                     f"carries {got['bg_layout']:#x}/{got['bg_span']}")
+                else:
+                    self.fail(f"row {exp['index']} ({exp['id']}) names layout "
+                              f"{exp['bg']['layoutRef']!r} with span "
+                              f"{exp['bg']['span']!r}, and this ROM comparison has no way "
+                              f"to resolve a layout id to the blob address the row carries "
+                              f"({got['bg_layout']:#x}) — the emitter parcel owes that "
+                              f"resolution, exactly as it does for rg_parallax's "
+                              f"EditorSceneBinding_* names. A measurement that cannot be "
+                              f"made, not a pass.")
 
 
 if __name__ == "__main__":

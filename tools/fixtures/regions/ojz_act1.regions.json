@@ -2,6 +2,7 @@
   "act": "ojz_act1",
   "regions": [
     {
+      "bg": { "layoutRef": "@act" },
       "id": "sec0",
       "name": "Forest, upper left",
       "preset": "OJZ_Preset_Sec0",
@@ -21,6 +22,7 @@
       "rect": { "x": 4800, "y": 0, "w": 1344, "h": 2048 }
     },
     {
+      "bg": { "layoutRef": null },
       "id": "sec3",
       "name": "Shimmer",
       "preset": "OJZ_Preset_Sec3",
