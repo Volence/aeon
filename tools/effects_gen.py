@@ -425,7 +425,8 @@ _PRESET_DECL = re.compile(
 # PUBLISHED ACCESSOR. `<stem>_sec_scene(sec: N)` is emitted as a `pub comptime fn -> Label`
 # returning `EditorSceneBinding_<CAP>_SecN`, and the sibling chooser for the raster channel
 # is already written in exactly that form inside `games/sonic4/data/effects/ojz_effects.emp`
-# (`raster: ojz_act1_sec_raster(sec: 5, hand: Raster_Program_None)`). An author writing the
+# (`raster: ojz_act1_preset_raster(preset: OJZ_Preset_Sec5_KEY, hand: Raster_Program_None)`).
+# An author writing the
 # parallax channel the way the file next to it writes the raster channel defeated the
 # refusal silently.
 #
@@ -580,13 +581,82 @@ def preset_parallax_bindings(game: str = "sonic4", repo: str = REPO) -> list:
     return out
 
 
-def section_preset_symbols(names: "ActNames", repo: str = REPO) -> dict:
-    """{sidecar index: the EffectsPreset symbol the act descriptor binds to it}.
+def section_preset_symbols(names: "ActNames", repo: str = REPO,
+                           zone: int = 0, act: int = 0) -> dict:
+    """{section index: the EffectsPreset symbol whose look covers that section's place}.
 
-    Read from the act descriptor, which is the only place that edge is written down — a region
-    row's `effects:` beside its sidecar's `sec:` (painted-regions v1; a `Sec` row until then). Returns {} when the descriptor is absent — the caller then refuses
-    WITHOUT a section number rather than inventing one, and says so in the message.
+    LEGACY MODE reads it from the act descriptor, which is the only place that edge is
+    written down there — a region row's `effects:` beside its sidecar's `sec:`
+    (painted-regions v1; a `Sec` row until then). Returns {} when the descriptor is absent —
+    the caller then refuses WITHOUT a section number rather than inventing one, and says so.
+
+    ---- REGION MODE: THE SAME QUESTION, ASKED OF GEOMETRY (2026-09-16) ----
+
+    ⚠ IN REGION MODE THERE IS NO SECTION -> PRESET BINDING TO READ, AND THIS DOES NOT INVENT
+    ONE. Regions part 1 step 4 DELETED section identity on purpose (ARCH §4.2): a section is
+    storage, a region is identity, and the descriptor stops spelling `sec:` inside its rows.
+    So the edge six downstream tools ask for — `effects_seam_gate`, `test_anchor_sweep_band`,
+    `sec5_band_witness`, `lens_residue_raster_witness`, and this generator's own B′ re-key —
+    is simply not written down anywhere.
+
+    What those tools actually want is not an identity binding; it is *"what look is at the
+    place section N occupies"*, and that question still has an answer: **the region whose
+    rectangle contains the section's CENTRE.** That is a geometric probe of the shipped table,
+    derived from the document and the project grid, with no id convention anywhere in it — a
+    region called `night` is found the same way `sec0` is.
+
+    THREE PROPERTIES OF THIS CHOICE, stated because a reader will otherwise assume the old
+    meaning:
+      * It is **not** a binding and must not be read as one. Two sections can share a region
+        and one section can straddle several; the engine binds by camera CENTRE per frame,
+        which is the same rule this samples once per section.
+      * A section whose centre lands in NO region, or in more than one, gets **no entry** —
+        never a guess. Every consumer already treats a missing entry as "not evaluated".
+      * It is resolved against the **RELEASE** rows. The DEBUG deltas are applied by the
+        descriptor and a tool that read them would answer differently per build shape for a
+        question that is not shape-dependent.
+
+    **AND IT AGREES WITH THE LEGACY ANSWER FOR ALL NINE OF ACT 1'S SECTIONS**, which is not a
+    coincidence worth trusting silently — `tools/test_regions_doc.py` asserts the agreement
+    row for row, so the day a document is drawn that makes the two disagree, the finding is
+    which of them the consumer wanted rather than a silently changed number.
     """
+    if has_act_regions(repo, zone, act):
+        rows = act_region_rows(repo, zone, act, resolve=False)
+        entry, _zone = _act_entry(repo, zone, act)
+        gw, gh = entry["gridWidth"], entry["gridHeight"]
+        # The section size is the engine's, folded from its own constant rather than typed:
+        # a grid whose quantum this file guessed would put every centre in the wrong place
+        # and still produce a plausible-looking map.
+        consts = region_flatten.emp_consts(
+            pathlib.Path(repo) / "engine" / "system" / "constants.emp")
+        if "SECTION_SIZE_SHIFT" not in consts:
+            _refuse("engine/system/constants.emp",
+                    "no foldable `SECTION_SIZE_SHIFT`, so a section's centre in world "
+                    "pixels cannot be computed and the section -> look map would be "
+                    "invented. Refusing rather than defaulting a quantum.")
+        size = 1 << consts["SECTION_SIZE_SHIFT"]
+        out = {}
+        for i in range(gw * gh):
+            cx = (i % gw) * size + size // 2
+            cy = (i // gw) * size + size // 2
+            hit = [r for r in rows
+                   if r["x0"] <= cx <= r["x1"] and r["y0"] <= cy <= r["y1"]]
+            if len(hit) == 1:
+                out[i] = hit[0]["preset"]
+        return out
+
+    return section_preset_symbols_legacy(names, repo)
+
+
+def section_preset_symbols_legacy(names: "ActNames", repo: str = REPO) -> dict:
+    """The LEGACY arm of `section_preset_symbols`, split out so it can be tested as itself.
+
+    Kept a separate `pub`-shaped function rather than inlined, because its unit test feeds it
+    a synthetic descriptor: routed through the mode switch it would take the REGION branch
+    against the real repo and answer a different question entirely, which is what happened the
+    day act 1 flipped. A test whose subject is "does this parse pair `effects:` with `sec:`"
+    must reach that parse and nothing else."""
     path = names.descriptor_path(repo)
     if not os.path.isfile(path):
         return {}
@@ -3037,7 +3107,7 @@ def render_ramp_preset(path: str, preset: dict, names) -> str:
     `raster_ramp_program(...)` call, under the SAME `names.raster(pid)` label `bands`
     uses (EFFECTS-W1 DoD item 6, contract §7.4).
 
-    ONE LABEL, EITHER SHAPE — this is what lets `{names.fn_sec_raster}` stay the single
+    ONE LABEL, EITHER SHAPE — this is what lets `{names.fn_preset_raster}` stay the single
     chooser bands already uses (clause 5 of the CR, effects_gen.py's own
     `RASTER_BINDING_BANNER`): the chooser only ever reads `names.raster(pid)` as a `Label`
     and neither knows nor cares whether the bytes behind it are a `[u16; N]` compose or a
@@ -3151,7 +3221,7 @@ def render_boundary_preset(path: str, preset: dict, names) -> str:
     one label and one chooser precisely because the chooser reads a `Label` and does not
     care what is behind it. `boundary` lowers into the SIBLING field `ep_patched`, which is
     a DIFFERENT `preset()` parameter — so it needs its own label and its own chooser
-    (`names.fn_sec_patched`), and a section binding one must OMIT `raster:` from its
+    (`names.fn_preset_patched`), and a section binding one must OMIT `raster:` from its
     `preset()` call (NOT pass `hand: 0` — that spelling does not assemble; see
     PATCHED_BINDING_BANNER). Threading a patched image into `raster:` would install a padded body with no
     patch table: the boundary would sit at its authored line forever, with nothing anywhere
@@ -3561,26 +3631,42 @@ def act_section_count(repo: str = REPO, zone: int = 0, act: int = 0) -> int:
 # See the emitter banner further down for what it writes and the two things the assembler
 # decided about its shape.
 #
-# STILL INERT IN THIS TREE, and that is the honest headline: NO ACT HERE HAS A
-# `regions.json`. `check` prints "no region table owed (LEGACY mode)", `emit` writes
-# nothing, and act 1's ten rows stay hand-written in `act_descriptor.emp`. Nothing has
-# assembled a generated table.
+# ⚠ ACT 1 IS FLIPPED (2026-09-16, REGIONS-EMIT-BINDINGS). This block said "STILL INERT IN
+# THIS TREE ... NO ACT HERE HAS A `regions.json`", and every word of it is now false.
+# `games/sonic4/data/editor/ojz/act1/regions.json` IS act 1's identity; its ten rows are
+# lowered into `games/sonic4/data/generated/ojz/act1/regions.emp`, both build shapes assemble
+# that file, and every `section_N.meta.json` ref is nulled. The hand-written table in
+# `act_descriptor.emp` is gone; what is left there is the act's two BUILD-SHAPE deltas, the
+# per-row rule walk a generated table owes, and the whole-table guards.
 #
-# WHY ACT 1 IS NOT FLIPPED, measured rather than assumed
-# (docs/superpowers/notes/2026-09-16-regions-emit.md §1): flipping it means nulling the
-# sidecar refs, and every binding mechanism in the generated effects module is keyed on the
-# SECTION INDEX end to end. Drop the one refusal that currently stops the flip (the reels
-# rung-1 rule) and the bake SUCCEEDS with four scene bindings and fourteen chooser arms gone
-# to zero — a green build of a silently de-bound ROM. So that refusal is a load-bearing
-# guard, not an obstacle, and the re-key it fronts for is an L: booked as
-# REGIONS-EMIT-BINDINGS in `docs/DEFERRED_WORK.md`, together with B′ (ruling `3fc9ffa5`) and
-# the per-row-ensure walk a generated table owes.
+# ⚠ AND THE FLIP MOVED ZERO BYTES. `s4.bin` and `s4.debug.bin` are byte-identical across it
+# (67697504e36edc7224c419d1bea09992 / ff2b5728f12e24ecd77d0f8fce3249ad, both shapes, measured
+# against `a7b1cd2e`). That is the strongest form the "a 1:1 transcription must produce
+# byte-identical behaviour" proof strategy could take, and it is worth writing down because
+# nobody predicted it: the emitted rows are the same rows, the emitted bindings are the same
+# pointers, and the DEBUG deltas compose onto the generated array exactly as they composed
+# onto the typed one.
 #
-# THE TWO BLOCKERS THE OLD TEXT NAMED ARE BOTH RULED. The DEBUG-shape row stays out of the
-# document and rides as a descriptor-applied delta against a NAMED row (empyrean `a718ea7c`;
-# the `<ACT>_ROW_<ID>` constants the emitter writes are that mechanism). The choosers re-key
-# to the PRESET RECORD, gating on agreement — aeon `3fc9ffa5`, shape B′ — and that is
-# deliberately NOT in this parcel.
+# THE THREE THINGS THE OLD TEXT SAID WERE OWED, and where each one went:
+#   * THE SECTION -> ROW RE-KEY. Done. `render_module` takes a `regions` argument; when it is
+#     present the OWNER of a binding is a region row and everything downstream is the same
+#     code. See its own region note for the three visible differences.
+#   * B′, the preset-channel choosers keyed on the RECORD (aeon `3fc9ffa5`). Done, and landed
+#     one commit EARLIER than the flip, because it is mode-independent — which is what let it
+#     be proven byte-identical against a tree still in legacy mode.
+#   * THE PER-ROW ENSURE WALK a generated table owes, since its rows are struct literals that
+#     never went through `ojz_region()`. Done: `ojz_region_table_check()` in the descriptor,
+#     over the COMPOSED array so both shapes are covered.
+#
+# THE DEBUG-SHAPE DELTA rides as the hub ruled (empyrean `a718ea7c`): applied by the consumer
+# against a NAMED row, through the `<ACT>_ROW_<ID>` constants this emitter writes, with an
+# `ensure` on the row's geometry AND on the record it binds (the `<ACT>_ROW_<ID>_PRESET`
+# constants, which are integers precisely so that check can fail — see their banner).
+# ⚠ THE RULING SAYS "THE ROW" AND THERE ARE THREE OF THEM; see the descriptor's `ojz_cut_row`.
+#
+# LEGACY MODE IS UNCHANGED AND IS STILL THE DEFAULT. `games/demo` and every unmigrated act
+# have no document, take the same code path they took before regions existed, and the flip is
+# reversible with one `rm`.
 
 REGIONS_FILE = "regions.json"
 REGIONS_SCHEMA_VERSION = 1
@@ -3609,22 +3695,24 @@ PRESET_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 # `Region.rg_bg_layout = 0`. `_check_region_bg` collapses them to None — see its docstring for
 # why the collapse is here and not in a consumer.
 #
-# WHY A NAMED LAYOUT IS STILL REFUSED, RESTATED 2026-09-16 BECAUSE THE OLD REASON WENT STALE
-# THE SAME DAY IT WAS WRITTEN. This comment used to say "NOTHING READS EITHER YET". That was
-# true at part 2 step 1 and is FALSE for `rg_bg_layout` at this HEAD: step 3 (`17bf60fe`,
-# 2026-09-16) gave it two readers, `Section_RedrawPlanes` (engine/level/section.emp) and
-# `Draw_BG_TileRow` (engine/level/plane_buffer.emp). The refusal stands on three reasons that
-# ARE true here, each checked rather than remembered:
-#   1. NOTHING LOWERS THE DOCUMENT'S ROWS. `generate()` calls `check_mode_conflict` and stops;
-#      act 1's table is still hand-written in `act_descriptor.emp`. So a named layout has no
-#      path to `rg_bg_layout` at all — it would be accepted here and dropped, which is the
-#      `bgLayoutRef` failure the synthesis booked.
-#   2. NO LAYOUT ID CAN BE RESOLVED, TO A SYMBOL OR TO A HEIGHT. The layout library
+# WHY A NAMED LAYOUT IS STILL REFUSED. THIS LIST HAS NOW BEEN WRONG TWICE, AND THE PATTERN IS
+# WORTH MORE THAN THE CURRENT ANSWER: both times the reason that was actually load-bearing sat
+# BEHIND two easier ones that went stale, and nothing re-checked them because the refusal went
+# on being correct. It said "NOTHING READS EITHER YET" (false the same day for `rg_bg_layout`,
+# step 3 `17bf60fe`), then stood on three reasons of which two are now gone as well:
+#   1. ~~NOTHING LOWERS THE DOCUMENT'S ROWS~~ — FALSE as of 2026-09-16. Act 1 is in REGION
+#      mode and `render_region_table` lowers every row of its document.
+#   3. ~~`rg_bg_span` HAS NO READER~~ — was already false when written: step 4 (`d1390f1c`)
+#      landed the same day and `Parallax_Step5_Vscroll` reads it through `Region_Current`.
+#   2. **NO LAYOUT ID CAN BE RESOLVED, TO A SYMBOL OR TO A HEIGHT.** The layout library
 #      (`games/sonic4/data/editor/ojz_bglib.json`) carries `id` and `name` and nothing else,
 #      so the derived-span check this generator owes — "`span` equals the referenced layout's
-#      height" — has no height to compare against.
-#   3. `rg_bg_span` HAS NO READER (engine/structs.emp: the clamp that reads it is step 4), so
-#      a span would bind nothing even once a layout could be named.
+#      height" — has no height to compare against. **This is the whole of the reason now, and
+#      it was the whole of it all along.**
+# What the emitter does with the two fields is no longer "nothing": it writes them as the ZERO
+# SENTINEL on every row, unconditionally, because a struct literal must provide every declared
+# field. So a named layout would be validated, flattened, and then overwritten with 0 — the
+# `bgLayoutRef` failure the synthesis booked, arriving one layer deeper than before.
 # Refused rather than accepted-and-dropped, so the author learns at the build instead of from
 # a picture that never changed. `tools/test_regions_doc.py`'s tripwire fails the day this
 # opens without the shared golden growing the non-default row it then owes.
@@ -3703,9 +3791,11 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
                       f"and NO HEIGHT, so the one check only this generator can make — a "
                       f"span equals its referenced layout's height — has nothing to compare "
                       f"against, and a span is never authored by hand. And the region "
-                      f"emitter fills neither field: `render_region_table` writes rg_x0, "
-                      f"rg_x1, rg_y0, rg_y1 and rg_effects and refuses a row with a "
-                      f"non-default `bg` rather than lowering one. So a named layout would "
+                      f"emitter writes both fields as the ZERO SENTINEL and never from a "
+                      f"document: `render_region_table` spells every declared field of "
+                      f"`struct Region` (a literal takes no declaration defaults) and "
+                      f"refuses a row with a non-default `bg` rather than lowering one. "
+                      f"So a named layout would "
                       f"be accepted here and dropped — the `bgLayoutRef` failure the "
                       f"synthesis booked. Refused rather than accepted-and-dropped, so the "
                       f"author learns at the build instead of from a picture that never "
@@ -4030,13 +4120,15 @@ def act_region_rows(repo: str = REPO, zone: int = 0, act: int = 0,
 #     `render_module` re-keyed from section index to region row, which is the L this
 #     parcel measured and booked rather than attempted.
 #
-# ⚠ NOTHING HAS ASSEMBLED THIS TEXT. No act in this tree is in region mode, so the
-# emitter is inert here and its output has never been through sigil. Stated in capitals
-# because the gap is invisible from a green test run: `tools/test_regions_doc.py` proves
-# the TEXT is what the document says and that the call it writes matches the constructor
-# the descriptor actually declares, and it proves nothing about the assembler. The first
-# act to flip is what closes that, and it is the same parcel that answers the module
-# question above.
+# ⚠ THIS TEXT HAS NOW BEEN ASSEMBLED, AND THE FIRST ASSEMBLY FOUND A REAL FAULT. The
+# sentence here read "NOTHING HAS ASSEMBLED THIS TEXT ... the gap is invisible from a green
+# test run", and it was right about the gap: the rows it emitted named five of `struct
+# Region`'s eight fields, on the reasoned but false belief that a declared `= 0` defaults a
+# LITERAL's field. Put through sigil on 2026-09-16 that produced 150 `[struct.missing-field]`
+# errors over ten rows. The lesson generalises past this emitter and is why the caveat is
+# kept rather than deleted: a generator's tests can only ever prove the text is what the
+# INPUT says. Whether it is what the ASSEMBLER accepts is a different question, and only a
+# build answers it.
 
 
 # The `comptime fn ... -> Region` declaration in an act descriptor: the constructor this
@@ -4071,41 +4163,70 @@ def region_struct_fields(repo: str = REPO) -> list:
     return re.findall(r"^\s*(\w+)\s*:", m.group(1), re.M)
 
 
-# The four geometry fields plus the effects binding: every column this emitter can fill
-# from a document TODAY. Checked against `struct Region`'s real field list, so an engine
-# rename refuses here instead of emitting a literal with a stale field name. The three
-# fields it does NOT write — `rg_parallax`, `rg_bg_layout`, `rg_bg_span` — each carry an
-# `= 0` default in the declaration, which is what makes omitting them legal; a row that
-# WANTS a non-default value for any of them is refused by `_refuse_unlowerable_bindings`
-# rather than quietly taking the default.
-REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects")
+# EVERY DECLARED FIELD OF `struct Region`, and the completeness is the point rather than
+# the list. Checked against the real declaration in both directions, so an engine RENAME
+# refuses here instead of emitting a literal with a stale field name, and an engine field
+# ADDED refuses here instead of emitting a literal that is missing one.
+#
+# ⚠ CORRECTED 2026-09-16 BY THE FIRST ASSEMBLY OF THIS TEXT, AND THE OLD COMMENT WAS A
+# MEASURED FALSEHOOD. It read: *"The three fields it does NOT write — `rg_parallax`,
+# `rg_bg_layout`, `rg_bg_span` — each carry an `= 0` default in the declaration, which is
+# what makes omitting them legal."* Omitting them is NOT legal. The emitter's own banner
+# said in capitals that nothing had ever assembled its output; the first act to flip put
+# it through sigil and got, per row, per omitted field:
+#
+#     [Error] [struct.missing-field] struct Region: field `rg_parallax` was not
+#     provided, give it a value, or write `rg_parallax: default` to take its
+#     declared default
+#
+# A declared `= 0` default is what lets a `comptime fn` PARAMETER be omitted at a call —
+# which is how `ojz_region(...)` reaches the same three fields — and it is not applied to
+# a struct LITERAL. 150 errors, 10 rows, exit 1.
+#
+# AND THE SPELLING THAT DIAGNOSTIC PRESCRIBES IS REFUSED BY THE NEXT ONE, in this module:
+# `rg_parallax: default` in the emitted (section-less, map.toml-absent) module answers
+# ``[Error] `Region` is not a declared struct, `rg_parallax: default` has no declared
+# default to take`` — while the identical spelling in the PLACED act descriptor builds and
+# takes the default. Both measured against sigil `7a32fa1c` on 2026-09-16. Which of the
+# two differences decides it (no `in <section>` clause, or absent from `map.toml`) is NOT
+# isolated here and is not this repo's to fix; it is reported to sigil. The emitter writes
+# explicit values, which is correct under either answer and is what a reader of a generated
+# table wants to see anyway.
+REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects",
+                         "rg_parallax", "rg_bg_layout", "rg_bg_span")
 
 
 def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
-    """Refuse a document whose rows carry bindings this parcel cannot lower.
+    """Refuse a document whose rows name a BACKGROUND this generator cannot lower.
 
-    `sceneRef` and `rasterRef` reach the ROM through `render_module`'s binding half, which
-    is keyed on SECTION INDEX from top to bottom — `ActNames.binding_sec`, six
-    `<act>_sec_*` choosers whose arms are `if sec == N`, and a reels table keyed on the
-    pointer identity of a `_SecN` symbol. In region mode there are no section refs, so
-    every one of those populations comes out EMPTY: measured in the sandbox at
-    `docs/superpowers/notes/2026-09-16-regions-emit.md` §1.2 — four scene bindings and
-    fourteen chooser arms go to zero and the bake still succeeds.
+    ⚠ RENAMED IN SPIRIT, NOT IN NAME, 2026-09-16. This used to refuse `sceneRef` and
+    `rasterRef` too, and the reason was real: `render_module`'s binding half was keyed on the
+    SECTION INDEX end to end, so a region-mode act lowered every binding to NOTHING and a
+    green bake produced a silently de-bound ROM (measured, four scene bindings and fourteen
+    chooser arms to zero — `docs/superpowers/notes/2026-09-16-regions-emit.md` §1.2). That
+    re-key is REGIONS-EMIT-BINDINGS and it has landed, so the two ref refusals are spent
+    rather than relaxed and what is left is the background half alone.
 
-    So this refuses rather than emitting `parallax: 0`. A zero there is not a smaller
-    version of the right answer; it is the row silently losing its picture, which is
-    exactly the shape of failure the whole regions seam is built to make impossible.
+    The NAME is kept because the thing it does is unchanged: it is the last place a binding a
+    document carries can still be seen before it would be dropped without a sound.
     """
     offenders = []
     for r in rows:
-        for key in (ACT_SCENE_REF_KEY, ACT_RASTER_REF_KEY):
-            if r.get(key) is not None:
-                offenders.append(f"region {r['id']!r} (row {r['index']}) carries "
-                                 f"{key} = {r[key]!r}")
+        # ⚠ `sceneRef` AND `rasterRef` ARE LOWERED NOW (2026-09-16, REGIONS-EMIT-BINDINGS).
+        # This loop used to refuse both by name, because `render_module`'s binding half was
+        # keyed on the section index end to end and a region-mode act lowered every binding
+        # to NOTHING — emitting `parallax: 0` would have been the row silently losing its
+        # picture. That re-key has landed: a `sceneRef` becomes this row's `rg_parallax`
+        # pointer (rung 1) and a `rasterRef` reaches the record's channels through the
+        # preset-keyed choosers (shape B′). The refusal is not relaxed, it is SPENT — and
+        # `tools/test_regions_doc.py` asserts the golden, which carries six of them, now
+        # lowers rather than refusing.
         # THE BACKGROUND HALF, AND IT IS UNREACHABLE TODAY ON PURPOSE. `_check_region_bg`
         # refuses every `bg.layoutRef` but the act sentinel and every typed `span`, so no
         # row can reach here with a non-default background. It is written anyway because
-        # the emitter's row line fills FIVE parameters and the constructor takes seven: the
+        # the emitter's row line writes `rg_bg_layout: 0, rg_bg_span: 0` UNCONDITIONALLY —
+        # it has to write them at all (a struct literal takes no declaration default), and
+        # what it writes is the sentinel, never the document. So the
         # day that refusal opens (REGIONS-BG-GOLDEN-GAP), a named layout would be validated,
         # flattened, and then DROPPED HERE IN SILENCE — which is the `bgLayoutRef` failure
         # the synthesis booked, arriving one layer further in. A refusal that cannot fire is
@@ -4119,16 +4240,18 @@ def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
     if not offenders:
         return
     _refuse(where,
-            f"{len(offenders)} region(s) carry an editor binding this generator cannot "
-            f"lower yet: " + "; ".join(offenders) + ". `sceneRef` and `rasterRef` reach "
-            f"the ROM through the generated module's binding half, which is keyed on the "
-            f"SECTION INDEX end to end (EditorSceneBinding_*_SecN, the six `_sec_*` "
-            f"choosers, and a reels table keyed on a _SecN pointer). A region-mode act has "
-            f"no section refs, so those populations lower to NOTHING — and emitting "
-            f"`parallax: 0` here would spend that silence rather than report it. Booked as "
-            f"REGIONS-EMIT-BINDINGS in docs/DEFERRED_WORK.md, with the measurement, in "
-            f"docs/superpowers/notes/2026-09-16-regions-emit.md §1. Until it lands, a "
-            f"region-mode act may bind a `preset` and a background and nothing else.")
+            f"{len(offenders)} region(s) name a BACKGROUND this generator cannot lower: "
+            + "; ".join(offenders) + ". This emitter writes `rg_bg_layout` and `rg_bg_span` "
+            f"as the ZERO SENTINEL unconditionally — a struct literal must provide every "
+            f"declared field, so the question is never whether to write them but what to "
+            f"write, and what it writes is never the document. Accepting a named layout "
+            f"here would validate it, flatten it and DROP it in silence, which is the "
+            f"`bgLayoutRef` failure the synthesis booked arriving one layer further in. "
+            f"`_check_region_bg` refuses the same rows one layer earlier and for its own "
+            f"reason (nothing can derive a layout's HEIGHT — `ojz_bglib.json` carries `id` "
+            f"and `name` and no height); this is the floor under it, and "
+            f"tools/test_regions_doc.py's tripwire fails unless the two open together. "
+            f"Booked as REGIONS-BG-GOLDEN-GAP in docs/DEFERRED_WORK.md.")
 
 
 REGION_TABLE_HEADER = """\
@@ -4171,12 +4294,19 @@ REGION_TABLE_HEADER = """\
 // resolve its free names at the CALL SITE — see the emitter banner in
 // tools/effects_gen.py.
 //
-// ZERO BYTES: this module declares `const`s only and is placed in no section. The emitting
+// ACT 1'S CONSUMER HAS PAID IT: `ojz_region_table_check()` in act_descriptor.emp, over the
+// composed array. A SECOND act's descriptor owes its own — this debt is per consumer, not
+// per generator, and there is nothing here that can discharge it on a file's behalf.
+//
+// ZERO BYTES: this module declares `const`s only and is placed in no section (verified by
+// the first build that assembled it — it needs no `map.toml` entry). The emitting
 // `pub data` stays with the consumer.
 //
-// ⚠ NOTHING HAS ASSEMBLED THIS FILE. No act in this tree is in region mode, so the emitter
-// is inert and its output has never been through sigil. The first act to flip is what
-// closes that (REGIONS-EMIT-BINDINGS in docs/DEFERRED_WORK.md).
+// THIS FILE IS A BUILD INPUT. It is assembled in both shapes; the descriptor imports
+// the rows const below and composes this act's build-shape deltas onto it. The first
+// assembly of a generated region table (2026-09-16) found that a struct LITERAL takes no
+// declaration defaults — the rows below therefore spell EVERY declared field of `struct
+// Region`, and the three zeros are sentinels written on purpose, not fields left out.
 
 module {module}
 
@@ -4209,6 +4339,26 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
                 f"rows that cannot compile. Refusing here names the engine declaration; "
                 f"emitting anyway would name a generated file nobody edits. "
                 f"tools/region_table.py reads the same declaration for the ROM side.")
+    # THE OTHER DIRECTION, AND IT IS THE ONE THAT WAS MISSING WHEN THE EMITTED TEXT WOULD
+    # NOT ASSEMBLE. A struct literal must provide EVERY declared field — a declared `= 0`
+    # is a default for a comptime-fn PARAMETER, not for a literal (see the
+    # REGION_EMITTED_FIELDS banner for the 150-error measurement). So a field ADDED to the
+    # engine declaration and not taught to this emitter is not a smaller table, it is a
+    # table that cannot compile, discovered by whoever next flips an act rather than here.
+    # Derived from the declaration, never from a typed list: adding `rg_foo` to
+    # `struct Region` refuses this generator by name on the next bake.
+    unwritten = [f for f in fields if f not in REGION_EMITTED_FIELDS]
+    if unwritten:
+        _refuse("engine/structs.emp",
+                f"`pub struct Region` declares {', '.join(unwritten)}, which this "
+                f"generator does not write. A struct LITERAL must provide every declared "
+                f"field — the `= 0` in the declaration defaults a `comptime fn` parameter, "
+                f"not a literal's field, measured 2026-09-16 at the first assembly of an "
+                f"emitted region table (150 errors over 10 rows). Emitting anyway would "
+                f"produce a generated module that cannot compile, and the error would land "
+                f"on a file nobody edits. Teach REGION_EMITTED_FIELDS and the row line in "
+                f"`render_region_table` what the new field means, or give it a documented "
+                f"reason to be omitted.")
     _refuse_unlowerable_bindings(rows, doc_rel)
 
     prefix = names.cap.upper()                       # OJZ_ACT1
@@ -4231,13 +4381,37 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
         cap=names.cap, doc=doc_rel, count=len(rows), prefix=prefix, ctor=ctor,
         module=f"games.sonic4.{names.zone_id}_regions_{names.act_id}",
         zone=names.zone_id, presets=", ".join(presets))]
+    # THE SCENE BINDINGS THIS TABLE POINTS AT, imported by name from the generated effects
+    # module. A row's `rg_parallax` is Effects_ResolveParallax's RUNG 1 and it is a POINTER,
+    # not a call — the chooser that used to stand between the descriptor and this symbol does
+    # not exist in region mode (see `render_module`'s region note), because the row is the
+    # thing that knows its own identity. Derived from the rows, like the preset import above:
+    # a binding nothing in this table names is not imported.
+    bindings = sorted({names.binding_region(r["id"]) for r in rows
+                       if r.get(ACT_SCENE_REF_KEY) is not None})
+    # The preset KEYS the `_ROW_*_PRESET` constants below resolve through, and the scene
+    # bindings the rows point at — both `pub` in the generated effects module, both imported
+    # by name rather than as a glob (the seam's own rule).
+    keys = sorted({ActNames.preset_key(r["preset"]) for r in rows})
+    out.append(f"use {names.module}.{{{', '.join(bindings + keys)}}}")
+    out.append("")
     out.append(f"pub const {table}: [Region; {len(rows)}] = [")
     width = max((len(str(r["x1"])) for r in rows), default=1)
     pw = max((len(r["preset"]) for r in rows), default=1)
+    bw = max([len(names.binding_region(r["id"])) for r in rows
+              if r.get(ACT_SCENE_REF_KEY) is not None] + [1])
     for r in rows:
+        # EVERY DECLARED FIELD, EXPLICITLY — see the REGION_EMITTED_FIELDS banner. The
+        # three zeros are the engine's own sentinels ("defer to the preset's parallax",
+        # "show the act's background", "the act's own span"), written out rather than
+        # left to a declaration default a struct literal does not take.
+        par = (names.binding_region(r["id"]) if r.get(ACT_SCENE_REF_KEY) is not None
+               else "0")
         out.append(f"    Region{{ rg_x0: {r['x0']:>{width}}, rg_x1: {r['x1']:>{width}}, "
                    f"rg_y0: {r['y0']:>{width}}, rg_y1: {r['y1']:>{width}}, "
-                   f"rg_effects: {r['preset'] + ' },':<{pw + 3}}  "
+                   f"rg_effects: {r['preset'] + ',':<{pw + 1}} "
+                   f"rg_parallax: {par + ',':<{bw + 1}} "
+                   f"rg_bg_layout: 0, rg_bg_span: 0 }},  "
                    f"// row {r['index']} — {r['id']}")
     out.append("]")
     out.append("")
@@ -4246,6 +4420,23 @@ def render_region_table(rows: list, names: "ActNames", doc_rel: str,
     out.append("// these, never through a literal index.")
     for r in rows:
         out.append(f"pub const {prefix}_ROW_{r['id'].upper()} = {r['index']}")
+    out.append("")
+    out.append("// ...AND THE RECORD EACH ROW BINDS, as the record's own comptime KEY.")
+    out.append("// THE SECOND HALF OF THE RULING'S CONDITION, and it exists because the")
+    out.append("// first half cannot express it: the ruling requires a delta to `ensure`")
+    out.append("// that the row it cuts is `sec2` AT x1 6143 BINDING OJZ_Preset_Sec2, and")
+    out.append("// the index constant above says only WHICH ROW. The binding cannot be")
+    out.append("// checked by comparing `rg_effects` to a record: both sides are Labels,")
+    out.append("// and docs/EMP_PITFALLS.md section 12 measured that a Label supports")
+    out.append("// `!= 0` and nothing else — a proposition and its exact negation both")
+    out.append("// pass, so such an `ensure` could never fail. These are INTEGERS (shape")
+    out.append("// B-prime\'s preset keys), so the comparison is in-class and can genuinely go")
+    out.append("// red: this side is written from the DOCUMENT, the consumer's side is")
+    out.append("// written from what its delta EXPECTS, and a document that re-points a")
+    out.append("// region at another record moves one and not the other.")
+    for r in rows:
+        out.append(f"pub const {prefix}_ROW_{r['id'].upper()}_PRESET = "
+                   f"{ActNames.preset_key(r['preset'])}")
     return "\n".join(out) + "\n"
 
 
@@ -4312,26 +4503,26 @@ SectionChannel = collections.namedtuple(
 SECTION_CHANNELS = (
     # THE TWO ARMS, mutually exclusive by construction: a document's ONE raster program
     # lands in `ep_raster` or in `ep_patched`, never both (`preset()` asserts it).
-    SectionChannel("raster", None, "raster", "fn_sec_raster", None,
+    SectionChannel("raster", None, "raster", "fn_preset_raster", None,
                    lambda d: "boundary" not in d, lambda d: None,
                    "Raster_Program_None"),
-    SectionChannel("patched", "boundary", "patched", "fn_sec_patched", None,
+    SectionChannel("patched", "boundary", "patched", "fn_preset_patched", None,
                    lambda d: "boundary" in d, lambda d: None, None),
     # THE PALETTE CHANNELS (item 5).
-    SectionChannel("cycle", "cycles", "cycle", "fn_sec_cycle", None,
+    SectionChannel("cycle", "cycles", "cycle", "fn_preset_cycle", None,
                    lambda d: "cycles" in d, lambda d: None, "Pal_Cycle_None"),
-    SectionChannel("variant", "variants", "variants", "fn_sec_variant", "slot",
+    SectionChannel("variant", "variants", "variants", "fn_preset_variant", "slot",
                    lambda d: d.get("variants") is not None,
                    lambda d: range(len(d.get("variants") or [])), None),
     # THE PATCH CHANNELS (item 4). EITHER key binds the section to the patch WITNESS, but
     # each chooser's rows come from its OWN key, so each owes its own threading.
     SectionChannel("patch world-Y", "patch_world_ys", "patch_world_ys",
-                   "fn_sec_patch_world_y", "ch",
+                   "fn_preset_patch_world_y", "ch",
                    lambda d: "patch_world_ys" in d,
                    lambda d: range(len(d.get("patch_world_ys") or [])),
                    "PATCH_ANCHOR_NONE"),
     SectionChannel("patch motion", "patch_motion", "patch_motion",
-                   "fn_sec_patch_motion", "ch",
+                   "fn_preset_patch_motion", "ch",
                    lambda d: "patch_motion" in d,
                    lambda d: range(len(d.get("patch_motion") or [])),
                    "ANCHOR_MOTION_NONE"),
@@ -4391,12 +4582,12 @@ class ActNames:
         self.section = f"{zone_id}_effects_editor_{act_id}"
         self.fn_act_default = f"{stem}_act_default"
         self.fn_sec_scene = f"{stem}_sec_scene"
-        self.fn_sec_raster = f"{stem}_sec_raster"
+        self.fn_preset_raster = f"{stem}_preset_raster"
         # THE PATCHED CHANNEL (item 4's authoring half, contract §7.6). A SECOND chooser and
-        # not a widening of `fn_sec_raster`, because `ep_raster` and `ep_patched` are two
+        # not a widening of `fn_preset_raster`, because `ep_raster` and `ep_patched` are two
         # DIFFERENT `preset()` parameters and one Label cannot be handed to both — and
         # `preset()` asserts they are never both non-zero. See PATCHED_BINDING_BANNER.
-        self.fn_sec_patched = f"{stem}_sec_patched"
+        self.fn_preset_patched = f"{stem}_preset_patched"
         # The other two EffectsPreset channels (EFFECTS-W1 item 5). PER-SLOT for the
         # variant chooser, and that is a choice with a reason: ruling Q5's three states are
         # PER INDEX (absent keeps `hand:`, null clears, an object authors), and a single
@@ -4405,9 +4596,9 @@ class ActNames:
         # spells that as the word `hand`. The `[Label; 2]` form is proven to reach the ROM
         # (docs/superpowers/probes/2026-09-02-item5-comptime-probe.md, verdict Q1) and is
         # the tidier shape for a pair that always moves together; it is not this one.
-        self.fn_sec_cycle = f"{stem}_sec_cycle"
-        self.fn_sec_variant = f"{stem}_sec_variant"
-        # THE PATCH CHANNELS (EFFECTS-W1 item 4). Per-(sec, ch) for `fn_sec_variant`'s
+        self.fn_preset_cycle = f"{stem}_preset_cycle"
+        self.fn_preset_variant = f"{stem}_preset_variant"
+        # THE PATCH CHANNELS (EFFECTS-W1 item 4). Per-(sec, ch) for `fn_preset_variant`'s
         # reason exactly: the three states are PER INDEX, and a `-> [int; 4]` chooser would
         # have to express "keep the caller's hand value on channel 2 only" by indexing its
         # own `hand:` array parameter. A per-channel chooser spells that as the word `hand`.
@@ -4415,8 +4606,8 @@ class ActNames:
         # VALUES, not addresses — `ep_patch_world_ys` / `ep_patch_motion` are inline
         # `[u16; RASTER_MAX_PATCH]` fields for the reason preset.emp states (a Label carries
         # no length, so the array-length ensure would be unevaluable and silently pass).
-        self.fn_sec_patch_world_y = f"{stem}_sec_patch_world_y"
-        self.fn_sec_patch_motion = f"{stem}_sec_patch_motion"
+        self.fn_preset_patch_world_y = f"{stem}_preset_patch_world_y"
+        self.fn_preset_patch_motion = f"{stem}_preset_patch_motion"
         self.binding_default = f"EditorSceneBinding_{cap}_Default"
         self.scene_array = f"EditorScenes_{cap}"
         self.equ_scenes = f"EditorScenes_{cap}_Count"
@@ -4447,6 +4638,46 @@ class ActNames:
     def binding_sec(self, i: int) -> str:
         return f"EditorSceneBinding_{self.zone_id.upper()}_" \
                f"{self.act_id.capitalize()}_Sec{i}"
+
+    def binding_region(self, region_id: str) -> str:
+        """The scene-binding symbol for one REGION ROW (region mode).
+
+        DERIVED FROM THE REGION'S `id`, which the contract makes required and unique within
+        the act, rather than from its row INDEX. A row index is also unique, and it is the
+        wrong key: inserting a region renumbers every row after it, so an index-named symbol
+        would silently rebind. An id-named one cannot — rename the region and the symbol
+        disappears, which is a build error with the author's own word in it.
+
+        ⚠ IT PRODUCES THE SAME SPELLING `binding_sec` DOES FOR THE IDS act 1 HAPPENS TO USE
+        (`sec4` -> `EditorSceneBinding_OJZ_Act1_Sec4`), and that is a consequence rather than
+        a goal: the sanitisation is `_`-split-and-capitalise applied to whatever the document
+        says, so `ojz_preset_night` becomes `OjzPresetNight`. It is worth stating because the
+        coincidence is load-bearing in one place — `tools/depth_onset_probe.py` looks the
+        section-4 binding up BY NAME in the listing, and the flip leaves it working. The two
+        spellings can never collide, because an act is in exactly one mode.
+        """
+        return (f"EditorSceneBinding_{self.cap}_"
+                + "".join(p.capitalize() for p in region_id.split("_")))
+
+    @staticmethod
+    def preset_key(record: str) -> str:
+        """The comptime KEY constant for one `EffectsPreset` record (shape B′).
+
+        DERIVED FROM THE RECORD NAME, which is required and unique, rather than following
+        a convention — the generalisation `docs/DEFERRED_WORK.md` banked when the wrapper
+        option died: a convention is a FILTER and can be collided with by an author who
+        does not know it exists; a derivation is a CHECK, and a name that resolves to
+        nothing is a finding rather than a stranger the filter tolerates. A call site that
+        misspells its record gets `unknown identifier`, at the call site, by name.
+
+        WHY A KEY AND NOT THE RECORD ITSELF. `docs/EMP_PITFALLS.md` §12's 2026-09-16
+        amendment: a `Label` in comptime supports `!= 0` and NOTHING ELSE, and a spelling
+        that appears to read what it points at is a guard that can never fail. So
+        `if preset == OJZ_Preset_Sec5` inside a chooser would be the always-green shape,
+        not a decision. The key is an ordinal the generator mints and the arms compare as
+        integers, which is the same comparison the section-keyed arms always made.
+        """
+        return f"{record}_KEY"
 
     def raster(self, preset_id: str) -> str:
         """The emitted raster-program LABEL for one preset document.
@@ -4552,21 +4783,146 @@ def _lowering(path: str, scene: dict) -> tuple:
     return f"SceneCfg{n}", f"lower{n}"
 
 
+PRESET_KEY_BANNER = """\
+// ===========================================================================
+// THE PRESET KEYS — one comptime ordinal per `EffectsPreset` record (shape B′)
+// ===========================================================================
+//
+// WHAT THEY ARE FOR. The five PRESET-CHANNEL choosers below (`raster`, `patched`,
+// `cycle`, `variant`, and the two `patch_*`) are called from inside the hand-written
+// `preset()` records in the game's effects library, and a record does not know which
+// SECTION or which REGION ROW binds it — it is a pointer that any number of them may
+// name. So the key those choosers take is the RECORD, and these constants are how a
+// record names itself at a comptime call.
+//
+// Ruled aeon `3fc9ffa5` ("NEITHER A NOR B — the choosers re-key to the PRESET RECORD,
+// gating on AGREEMENT"), priced in docs/superpowers/notes/2026-09-16-regions-loader-
+// golden.md §3.5. The scene chooser is NOT in this population: it is called from the
+// region row, which does know its own identity.
+//
+// WHY AN ORDINAL AND NOT THE RECORD SYMBOL ITSELF. docs/EMP_PITFALLS.md §12's
+// 2026-09-16 amendment: a `Label` in comptime supports `!= 0` and nothing else, and a
+// comparison that appears to read what it points at passes for a proposition AND its
+// exact negation. `if preset == OJZ_Preset_Sec5` would be an always-green arm, not a
+// decision. These are integers and the arms compare integers, which is the same
+// comparison the section-keyed arms always made.
+//
+// THE NAME IS DERIVED, NOT CONVENTIONAL: `<record>_KEY`, from a name that is required
+// and unique. A call site that misspells its record gets `unknown identifier` at the
+// call site. A convention would be a filter an author can collide with; a derivation is
+// a check whose failures are findings.
+//
+// ZERO ROM BYTES: a `const` emits nothing. Every key for every record the library
+// declares is minted, including records no document binds — a record that threads a
+// channel with only a `hand:` value still has to name itself.
+"""
+
+
+def _rekey_bound_to_record(bound_by_owner: dict, owner_record: dict,
+                           owner_noun: str, where: str) -> dict:
+    """`{owner: document id}` -> `{EffectsPreset record: document id}`, shape B′.
+
+    THE GATE IS AGREEMENT, NOT UNIQUENESS, and that distinction is the whole of the
+    ruling. Two owners naming one record and one document is CORRECT by construction —
+    that is what sharing a record means, and under the regions model it is how an L-shaped
+    area is drawn (two rectangles, one look). Only a genuine DISAGREEMENT is refused, and
+    the refusal names both owners and both documents, because the author's own fix is to
+    split the record, which is what they meant.
+
+    `owner_record` maps each owner to the record it binds. An owner with no record is
+    refused rather than dropped: dropping it would take that owner's whole look out of the
+    ROM silently, which is the failure this seam exists to make impossible.
+    """
+    out, first = {}, {}
+    for owner in sorted(bound_by_owner):
+        doc = bound_by_owner[owner]
+        record = owner_record.get(owner)
+        if record is None:
+            _refuse(where,
+                    f"{owner_noun} {owner} binds preset document {doc!r}, but this "
+                    f"generator could not read which `EffectsPreset` record it installs. "
+                    f"The five preset-channel choosers are keyed on the RECORD (shape B′, "
+                    f"aeon `3fc9ffa5`), so a binding with no record has nowhere to land "
+                    f"and would be dropped in silence — the document's raster program "
+                    f"would sit in the ROM with nothing calling it.")
+        if record in out and out[record] != doc:
+            _refuse(where,
+                    f"two {owner_noun}s bind the SAME `EffectsPreset` record "
+                    f"{record!r} to DIFFERENT preset documents: {owner_noun} "
+                    f"{first[record]} -> {out[record]!r} and {owner_noun} {owner} -> "
+                    f"{doc!r}. A record is ONE set of channels — `ep_raster`, `ep_cycle`, "
+                    f"`ep_variants` and the patch arrays are fields of it — so the two "
+                    f"documents cannot both be installed by it and one of them would be "
+                    f"chosen silently. Two owners sharing a record and a document is "
+                    f"correct and is NOT refused; this is a genuine ambiguity. Split the "
+                    f"record: give one of them a record of its own, which is what naming "
+                    f"a second document already means.")
+        if record not in out:
+            first[record] = owner
+        out[record] = doc
+    return out
+
+
 def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                   names: ActNames, presets: dict = None,
-                  sec_raster_refs: dict = None, repo: str = REPO) -> str:
+                  sec_raster_refs: dict = None, repo: str = REPO,
+                  regions: list = None) -> str:
     """The whole generated `.emp` module, for any content state including none.
 
     Deterministic for a given input: scenes are walked in sorted-id order and the
     table registry emits in first-seen order, so a re-bake with unchanged inputs is
     byte-identical (which is what the build's drift gate compares).
+
+    ---- REGION MODE (`regions` is the flattened row list, not None) ----
+
+    THE OWNER OF A BINDING CHANGES AND NOTHING ELSE DOES. In legacy mode a binding is owned
+    by a SECTION and arrives through `section_N.meta.json`; in region mode it is owned by a
+    REGION ROW and arrives through `regions.json`. Both produce the same two maps — one scene
+    ref per owner, one raster ref per owner — and everything downstream of those two maps is
+    the same code. The visible differences are exactly three:
+
+      * the scene-binding symbols are named by the region's `id` (`binding_region`) instead
+        of by a section index (`binding_sec`);
+      * `<act>_sec_scene` is NOT EMITTED, because nothing calls it. The descriptor's region
+        table is generated in this mode and carries each row's binding as a `rg_parallax:`
+        POINTER, so there is no call site left — and an uncalled `pub comptime fn` is an
+        unelaborated one whose `ensure`s assert nothing (docs/EMP_PITFALLS.md §3). Emitting a
+        chooser nobody can call would be a scaffold wearing a seam's clothes;
+      * the preset-channel re-key (B′) takes its owner->record map from the document's own
+        `preset` key rather than from the descriptor.
     """
     # ---- resolve the assignments against the library, loudly ----
-    bound = {}                              # section index -> scene id
+    region_rows = {r["id"]: r for r in (regions or [])}
+    if regions is not None:
+        # REGION MODE. The sidecar maps must be empty here — `check_mode_conflict` refuses a
+        # tree where both carry identity, and it runs before this — so taking the document's
+        # refs is not a merge and cannot silently lose a sidecar's binding.
+        if sec_refs or sec_raster_refs:
+            _refuse(os.path.relpath(regions_path(repo), repo),
+                    f"this act is in REGION mode and {len(sec_refs) + len(sec_raster_refs or {})} "
+                    f"section sidecar ref(s) are still live at the point of emission. "
+                    f"`check_mode_conflict` should have refused this tree already; reaching "
+                    f"here means the two guards disagree, and merging the two sources is the "
+                    f"one thing §5.3 forbids by name.")
+        sec_refs = {r["id"]: r[ACT_SCENE_REF_KEY] for r in regions
+                    if r.get(ACT_SCENE_REF_KEY) is not None}
+        sec_raster_refs = {r["id"]: r[ACT_RASTER_REF_KEY] for r in regions
+                           if r.get(ACT_RASTER_REF_KEY) is not None}
+    owner_noun = "region" if regions is not None else "section"
+
+    def owner_where(o):
+        """The file an author edits to fix a binding on owner `o`."""
+        return (os.path.relpath(regions_path(repo), repo) + f": region {o!r}"
+                if regions is not None else f"section_{o}.meta.json")
+
+    def binding(o):
+        return names.binding_region(o) if regions is not None else names.binding_sec(o)
+
+    bound = {}                              # owner -> scene id
     for i in sorted(sec_refs):
         if sec_refs[i] not in scenes:
             raise SceneShapeError(
-                f"section_{i}.meta.json: sceneRef {sec_refs[i]!r} names no scene in "
+                f"{owner_where(i)}: sceneRef {sec_refs[i]!r} names no scene in "
                 f"{scene_dir()} — wave 1 is editor-library ids only, so a sceneRef "
                 f"cannot name a hand-authored `.emp` scene (design §4). Known ids: "
                 f"{', '.join(sorted(scenes)) or '(none)'}.")
@@ -4580,17 +4936,38 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     # construction: same class, same "names no X, here are the known ids" shape. A
     # `rasterRef` naming no document is an author's typo and the build is the last
     # place it can still be seen — after the bake it is simply a section with no band.
-    raster_bound = {}                       # section index -> preset id
+    raster_bound = {}                       # owner -> preset id
     for i in sorted(sec_raster_refs or {}):
         if (sec_raster_refs[i] not in (presets or {})):
             raise SceneShapeError(
-                f"section_{i}.meta.json: {ACT_RASTER_REF_KEY} "
+                f"{owner_where(i)}: {ACT_RASTER_REF_KEY} "
                 f"{sec_raster_refs[i]!r} names no preset document in "
                 f"{preset_dir()} — a {ACT_RASTER_REF_KEY} binds one Aurora-authored "
                 f"preset document's raster program, so it cannot name a "
                 f"hand-authored `.emp` program. Known ids: "
                 f"{', '.join(sorted(presets or {})) or '(none)'}.")
         raster_bound[i] = sec_raster_refs[i]
+
+    # ---- B′: THE PRESET-CHANNEL BINDINGS ARE KEYED ON THE RECORD, NOT THE OWNER ----
+    #
+    # Everything below this line that feeds a preset-channel chooser is `{record: document
+    # id}`. The five choosers are called from inside hand-written `preset()` records, and a
+    # record does not know which section or region row binds it — see PRESET_KEY_BANNER and
+    # ruling aeon `3fc9ffa5`. The SCENE half (`bound`) is untouched: the scene chooser is
+    # called from the region row, which does know its own identity.
+    #
+    # WHY THIS IS MODE-INDEPENDENT, and it is the reason B′ could land before the flip.
+    # Only the owner->record map changes with the mode: in LEGACY it is
+    # `section_preset_symbols` (the descriptor's own `effects:` beside its `sec:`), and in
+    # REGION mode it is the document's `preset` key. The re-key, the agreement gate, the
+    # emitted keys and the arms are the same code either way.
+    raster_bound = _rekey_bound_to_record(
+        raster_bound,
+        ({rid: r["preset"] for rid, r in region_rows.items()} if regions is not None
+         else section_preset_symbols(names, repo)),
+        owner_noun,
+        (os.path.relpath(regions_path(repo), repo) if regions is not None
+         else os.path.relpath(names.descriptor_path(repo), repo)))
 
     # ---- the OTHER TWO CHANNELS of the same documents (item 5) ----
     #
@@ -4686,13 +5063,13 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                         f"`{ACT_SCENE_REF_KEY}` sidecar, or drop the `{REELS_KEY}` key.")
             if not rung1:
                 _refuse(spath,
-                        f"scene {sid!r} carries a `{REELS_KEY}` key but no section binds "
-                        f"it with a `{ACT_SCENE_REF_KEY}` sidecar, so it is never "
+                        f"scene {sid!r} carries a `{REELS_KEY}` key but no {owner_noun} "
+                        f"binds it with a `{ACT_SCENE_REF_KEY}`, so it is never "
                         f"Effects_ResolveParallax's rung 1 and the binding table would "
-                        f"have no config pointer to key on. Reels bind to a SECTION's "
-                        f"lowered record, not to a scene in the library — assign the "
-                        f"scene to a section, or drop the key.")
-            emitted = {names.binding_sec(i) for i in rung1}
+                        f"have no config pointer to key on. Reels bind to a "
+                        f"{owner_noun.upper()}'s lowered record, not to a scene in the "
+                        f"library — assign the scene to a {owner_noun}, or drop the key.")
+            emitted = {binding(i) for i in rung1}
             # POINTER IDENTITY, and the four rules below are ordered so the ones that
             # DECIDE run before the one that gives up. See the `_PARALLAX_KEY` banner
             # for why an identifier comparison was the wrong instrument.
@@ -4898,7 +5275,7 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                        f"{lower}({names.scene_array}[{used.index(act_ref)}])")
         for i in sorted(bound):
             shape, lower = _lowering("", scenes[bound[i]])
-            out.append(f"pub data {names.binding_sec(i)}: {shape} = "
+            out.append(f"pub data {binding(i)}: {shape} = "
                        f"{lower}({names.scene_array}[{used.index(bound[i])}])")
         out.append("")
         # ---- THE DEFORM TABLES, AFTER THE BINDINGS AND NOT BEFORE THEM ----
@@ -5015,7 +5392,7 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     # generated bg_anim.emp's bank tables), which is why the idiom exists.
     pairs = []
     for i in sorted(reels_bound):
-        pairs.append(f'extern("{names.binding_sec(i)}"), '
+        pairs.append(f'extern("{binding(i)}"), '
                      f'extern("{names.reels(reels_bound[i])}")')
     pairs.append("0")
     bind_emit = f"REEL_BINDING_EMIT_LEN_{names.cap}"
@@ -5073,6 +5450,59 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     out.append(SECTION_PIN.format(sections=sections))
     out.append("")
 
+    # ---- (c2) THE PRESET KEYS (shape B′) — one ordinal per library record ----
+    #
+    # Every record the library DECLARES, not only the ones a document binds: a record that
+    # threads a channel with a hand value still has to name itself at the call. Sorted, so
+    # the bake is deterministic; the ordinals and the arms below are emitted from the same
+    # list in the same pass, so they cannot disagree with each other.
+    records = sorted(effects_library_records(names, repo))
+    if not records:
+        _refuse(f"games/sonic4/data/effects/{names.zone_id}_effects.emp",
+                "no `pub data <Name>: EffectsPreset` record found, so no preset key can be "
+                "minted and the five preset-channel choosers would have no key to compare. "
+                "An unreadable library must say so, never accept everything — the same rule "
+                "`section_preset_symbols`' own docstring states.")
+    # A COLLISION THE DERIVATION CAN ACTUALLY HAVE, refused rather than reasoned away: a
+    # record literally named `<other record>_KEY` would mint the same constant twice. It is
+    # the one way a derived name can still collide, it costs three lines to catch, and the
+    # alternative is a duplicate `const` whose error names a generated file nobody edits.
+    minted = {}
+    for r in records:
+        k = ActNames.preset_key(r)
+        if k in minted:
+            _refuse(f"games/sonic4/data/effects/{names.zone_id}_effects.emp",
+                    f"records {minted[k]!r} and {r!r} both derive the preset key {k!r}. "
+                    f"The key is `<record>_KEY` (shape B′), so a record named exactly "
+                    f"`<another record>_KEY` collides with it. Rename one of them.")
+        minted[k] = r
+    key_of = {r: i for i, r in enumerate(records)}
+
+    def _key(record: str) -> int:
+        """The ordinal for a record a binding names, refusing an unknown one.
+
+        A binding can only reach here through `_rekey_bound_to_record`, whose owner->record
+        map is read from the descriptor (legacy) or the document (region). Both of those
+        can name a record the library does not declare — a stale descriptor row, a document
+        written against a renamed record — and the arm that would be emitted for it is an
+        `if preset == <nothing>`. Refusing is the only honest answer; `resolve_act_regions`
+        makes the same refusal one layer up for the region-mode half, and this is the floor
+        under both.
+        """
+        if record not in key_of:
+            _refuse(f"games/sonic4/data/effects/{names.zone_id}_effects.emp",
+                    f"a preset-channel binding names the `EffectsPreset` record "
+                    f"{record!r}, which this library does not declare. Known records: "
+                    f"{', '.join(records)}. The five preset-channel choosers key on the "
+                    f"record (shape B′), so there is no ordinal to compare and the arm "
+                    f"would bind nothing.")
+        return key_of[record]
+
+    out.append(PRESET_KEY_BANNER)
+    for r in records:
+        out.append(f"pub const {ActNames.preset_key(r)} = {key_of[r]}")
+    out.append("")
+
     # ---- (d) THE BINDINGS — always emitted, both of them, every act ----
     out.append(BINDING_BANNER)
     out.append(f"pub comptime fn {names.fn_act_default}(hand: Label) -> Label {{")
@@ -5082,88 +5512,114 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         out.append("    return hand")
     out.append("}")
     out.append("")
-    out.append(f"pub comptime fn {names.fn_sec_scene}(sec: int, hand: Label = 0) -> Label {{")
-    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_scene}(sec: '
-               f'{{sec}}): this act has {sections} sections, so there is no binding '
-               f'slot for that index — the descriptor and project.json\'s grid have '
-               f'drifted apart")')
-    out.append("    comptime var out = hand")
-    for i in sorted(bound):
-        out.append(f"    if sec == {i} {{ out = {names.binding_sec(i)} }}")
-    out.append("    return out")
-    out.append("}")
-    out.append("")
+    # ⚠ THE SCENE CHOOSER IS EMITTED IN LEGACY MODE ONLY, and the asymmetry against the five
+    # preset-channel choosers below (which are emitted unconditionally, always) is the whole
+    # difference between the two populations. Those five are called from inside hand-written
+    # `preset()` records that exist in both modes. THIS one is called from the act
+    # descriptor's region rows — and in region mode those rows are GENERATED, and carry each
+    # row's binding as a `rg_parallax:` POINTER rather than as a call. So in region mode there
+    # is no call site left anywhere in the tree.
+    #
+    # Emitting it anyway would be worse than omitting it, not neutral: an uncalled
+    # `pub comptime fn` is never elaborated, so its own bounds `ensure` would assert nothing
+    # (docs/EMP_PITFALLS.md §3, the dead-guard entry), and `tools/effects_seam_gate.py`'s
+    # step 2 would go on requiring the descriptor to import and call a function that cannot
+    # be called — a gate demanding a spelling nobody can write, which is the
+    # RASTER-BOUNDARY-2 failure by another route. The gate has a region arm instead.
+    if regions is None:
+        out.append(f"pub comptime fn {names.fn_sec_scene}(sec: int, hand: Label = 0) -> Label {{")
+        out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_scene}(sec: '
+                   f'{{sec}}): this act has {sections} sections, so there is no binding '
+                   f'slot for that index — the descriptor and project.json\'s grid have '
+                   f'drifted apart")')
+        out.append("    comptime var out = hand")
+        for i in sorted(bound):
+            out.append(f"    if sec == {i} {{ out = {binding(i)} }}")
+        out.append("    return out")
+        out.append("}")
+        out.append("")
     out.append(RASTER_BINDING_BANNER)
-    out.append(f"pub comptime fn {names.fn_sec_raster}(sec: int, hand: Label = 0) "
+    out.append(f"pub comptime fn {names.fn_preset_raster}(preset: int, hand: Label = 0) "
                f"-> Label {{")
-    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_raster}(sec: '
-               f'{{sec}}): this act has {sections} sections, so there is no binding '
-               f'slot for that index — the section preset and project.json\'s grid '
-               f'have drifted apart")')
+    out.append(f'    ensure(preset >= 0 && preset < {len(records)}, "{names.fn_preset_raster}(preset: '
+               f'{{preset}}): this act\'s effects library declares {len(records)} '
+               f'EffectsPreset record(s), so that is not one of them. Pass a '
+               f'`<Record>_KEY` constant from this module, never a bare integer — the '
+               f'key is DERIVED from the record name, so a misspelling is an unknown '
+               f'identifier at your call site")')
     out.append("    comptime var out = hand")
-    for i in sorted(raster_prog_bound):
-        out.append(f"    if sec == {i} {{ out = {names.raster(raster_prog_bound[i])} }}")
+    for rec in sorted(raster_prog_bound):
+        out.append(f"    if preset == {_key(rec)} {{ out = "
+                   f"{names.raster(raster_prog_bound[rec])} }}   // {rec}")
     out.append("    return out")
     out.append("}")
     out.append("")
 
     out.append(PATCHED_BINDING_BANNER)
-    out.append(f"pub comptime fn {names.fn_sec_patched}(sec: int, hand: Label = 0) "
+    out.append(f"pub comptime fn {names.fn_preset_patched}(preset: int, hand: Label = 0) "
                f"-> Label {{")
-    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_patched}(sec: '
-               f'{{sec}}): this act has {sections} sections, so there is no binding '
-               f'slot for that index — the section preset and project.json\'s grid '
-               f'have drifted apart")')
+    out.append(f'    ensure(preset >= 0 && preset < {len(records)}, "{names.fn_preset_patched}(preset: '
+               f'{{preset}}): this act\'s effects library declares {len(records)} '
+               f'EffectsPreset record(s), so that is not one of them. Pass a '
+               f'`<Record>_KEY` constant from this module, never a bare integer — the '
+               f'key is DERIVED from the record name, so a misspelling is an unknown '
+               f'identifier at your call site")')
     out.append("    comptime var out = hand")
-    for i in sorted(patched_bound):
-        out.append(f"    if sec == {i} {{ out = {names.patched(patched_bound[i])} }}")
+    for rec in sorted(patched_bound):
+        out.append(f"    if preset == {_key(rec)} {{ out = "
+                   f"{names.patched(patched_bound[rec])} }}   // {rec}")
     out.append("    return out")
     out.append("}")
     out.append("")
 
     # ---- (e) THE OTHER TWO PRESET CHANNELS' CHOOSERS — always emitted (item 5) ----
     out.append(PALETTE_BINDING_BANNER)
-    out.append(f"pub comptime fn {names.fn_sec_cycle}(sec: int, hand: Label = 0) "
+    out.append(f"pub comptime fn {names.fn_preset_cycle}(preset: int, hand: Label = 0) "
                f"-> Label {{")
-    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_cycle}(sec: '
-               f'{{sec}}): this act has {sections} sections, so there is no binding '
-               f'slot for that index — the section preset and project.json\'s grid '
-               f'have drifted apart")')
+    out.append(f'    ensure(preset >= 0 && preset < {len(records)}, "{names.fn_preset_cycle}(preset: '
+               f'{{preset}}): this act\'s effects library declares {len(records)} '
+               f'EffectsPreset record(s), so that is not one of them. Pass a '
+               f'`<Record>_KEY` constant from this module, never a bare integer — the '
+               f'key is DERIVED from the record name, so a misspelling is an unknown '
+               f'identifier at your call site")')
     out.append("    comptime var out = hand")
-    for i in sorted(cycle_bound):
-        pid = cycle_bound[i]
+    for rec in sorted(cycle_bound):
+        pid = cycle_bound[rec]
         # `cycles: null` = OFF, and OFF is the engine's sentinel, never 0. `Pal_Cycle_None`
         # is a FREE NAME here and resolves at the CALL SITE (docs/EMP_PITFALLS.md §2) —
         # the same rule that makes `hand:` a parameter. The call site is the game's own
         # effects library, which already imports it for its hand-authored presets.
         target = (names.cycle(pid) if presets[pid]["cycles"] else "Pal_Cycle_None")
-        out.append(f"    if sec == {i} {{ out = {target} }}")
+        out.append(f"    if preset == {_key(rec)} {{ out = {target} }}   // {rec}")
     out.append("    return out")
     out.append("}")
     out.append("")
-    out.append(f"pub comptime fn {names.fn_sec_variant}(sec: int, slot: int, "
+    out.append(f"pub comptime fn {names.fn_preset_variant}(preset: int, slot: int, "
                f"hand: Label = 0) -> Label {{")
-    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_variant}(sec: '
-               f'{{sec}}): this act has {sections} sections, so there is no binding '
-               f'slot for that index — the section preset and project.json\'s grid '
-               f'have drifted apart")')
+    out.append(f'    ensure(preset >= 0 && preset < {len(records)}, "{names.fn_preset_variant}(preset: '
+               f'{{preset}}): this act\'s effects library declares {len(records)} '
+               f'EffectsPreset record(s), so that is not one of them. Pass a '
+               f'`<Record>_KEY` constant from this module, never a bare integer — the '
+               f'key is DERIVED from the record name, so a misspelling is an unknown '
+               f'identifier at your call site")')
     # The literal below is PAL_MAX_VARIANTS, inlined for SECTION_PIN's reason: a comptime
     # fn's free names resolve at the CALL SITE, so a named engine constant here would
     # resolve in the effects library's scope or silently not at all.
     out.append(f'    ensure(slot >= 0 && slot < {PAL_MAX_VARIANTS}, '
-               f'"{names.fn_sec_variant}(slot: {{slot}}): the engine has '
+               f'"{names.fn_preset_variant}(slot: {{slot}}): the engine has '
                f'{PAL_MAX_VARIANTS} palette variant staging slots (PAL_MAX_VARIANTS) — '
                f'Palette_SetVariant masks the index with a power-of-two mask, so a '
                f'higher slot would fold back onto slot 0")')
     out.append("    comptime var out = hand")
-    for i in sorted(variant_bound):
-        pid = variant_bound[i]
+    for rec in sorted(variant_bound):
+        pid = variant_bound[rec]
         for slot, v in enumerate(presets[pid]["variants"]):
             # A `null` slot CLEARS, and clear is 0 — the engine's own "unused slots
             # 0 = clear". An index the array does not reach emits no row at all, which
             # is how "keep the hand value" is spelled.
             target = "0" if v is None else names.variant(pid, slot)
-            out.append(f"    if sec == {i} && slot == {slot} {{ out = {target} }}")
+            out.append(f"    if preset == {_key(rec)} && slot == {slot} "
+                       f"{{ out = {target} }}   // {rec}")
     out.append("    return out")
     out.append("}")
 
@@ -5171,8 +5627,8 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
     out.append("")
     out.append(PATCH_BINDING_BANNER)
     for fn, key, sentinel, render in (
-            (names.fn_sec_patch_world_y, "patch_world_ys", PATCH_ANCHOR_NONE, None),
-            (names.fn_sec_patch_motion, "patch_motion", ANCHOR_MOTION_NONE,
+            (names.fn_preset_patch_world_y, "patch_world_ys", PATCH_ANCHOR_NONE, None),
+            (names.fn_preset_patch_motion, "patch_motion", ANCHOR_MOTION_NONE,
              render_patch_motion)):
         # THE DEFAULT IS THE SENTINEL AS A LITERAL, and both halves of that are deliberate.
         # It is the SENTINEL and not 0 because 0 is a real world Y — `anchor - Camera_Y` at
@@ -5186,12 +5642,14 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
         # COMPTIME_HELPERS member glob-injected into every placed module, so
         # PATCH_ANCHOR_NONE / ANCHOR_MOTION_NONE / anchor_sweep are ambient wherever this
         # module lands and wherever it is called from.
-        out.append(f"pub comptime fn {fn}(sec: int, ch: int, hand: int = {sentinel}) "
+        out.append(f"pub comptime fn {fn}(preset: int, ch: int, hand: int = {sentinel}) "
                    f"-> int {{")
-        out.append(f'    ensure(sec >= 0 && sec < {sections}, "{fn}(sec: '
-                   f'{{sec}}): this act has {sections} sections, so there is no binding '
-                   f'slot for that index — the section preset and project.json\'s grid '
-                   f'have drifted apart")')
+        out.append(f'    ensure(preset >= 0 && preset < {len(records)}, "{fn}(preset: '
+                   f'{{preset}}): this act\'s effects library declares {len(records)} '
+                   f'EffectsPreset record(s), so that is not one of them. Pass a '
+                   f'`<Record>_KEY` constant from this module, never a bare integer — the '
+                   f'key is DERIVED from the record name, so a misspelling is an unknown '
+                   f'identifier at your call site")')
         # RASTER_MAX_PATCH inlined for SECTION_PIN's reason, one channel over from the
         # variant chooser's PAL_MAX_VARIANTS: a named engine constant here would resolve in
         # the effects library's scope or silently not at all.
@@ -5201,8 +5659,8 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                    f'with RASTER_MAX_PATCH minus 1, so a higher channel would fold back '
                    f'onto channel 0")')
         out.append("    comptime var out = hand")
-        for i in sorted(patch_bound):
-            pid = patch_bound[i]
+        for rec in sorted(patch_bound):
+            pid = patch_bound[rec]
             for ch, v in enumerate(presets[pid].get(key) or []):
                 # `null` is the ENGINE SENTINEL and never 0, on both keys — the same rule
                 # `cycles: null -> Pal_Cycle_None` follows. An index the array does not
@@ -5219,7 +5677,8 @@ def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
                 else:
                     target = render(os.path.join(preset_dir(), pid + ".json"), v,
                                     f"{key}[{ch}]")
-                out.append(f"    if sec == {i} && ch == {ch} {{ out = {target} }}")
+                out.append(f"    if preset == {_key(rec)} && ch == {ch} "
+                           f"{{ out = {target} }}   // {rec}")
         out.append("    return out")
         out.append("}")
         out.append("")
@@ -5568,6 +6027,10 @@ def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
     # It does NOT emit the region table — that is the second parcel; see the block above
     # `REGIONS_FILE`.
     check_mode_conflict(repo, zone, act)
+    # REGION MODE IS DECIDED BY THE DOCUMENT'S PRESENCE AND NOTHING ELSE, here as everywhere
+    # else in this file. `act_region_rows` returns None in legacy mode, and `render_module`
+    # reads None as "the sidecars own the bindings" — so an act without a document takes a
+    # code path that is byte-for-byte the one it took before regions existed.
     return names.out_path(repo), render_module(
         load_all_scenes("sonic4", repo),
         load_act_scene_ref(repo, zone, act),
@@ -5576,7 +6039,8 @@ def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
         names,
         load_all_presets("sonic4", repo),
         load_section_raster_refs(repo, zone, act),
-        repo)
+        repo,
+        act_region_rows(repo, zone, act))
 
 
 def _atomic_write(path: str, text: str) -> None:

@@ -25,7 +25,7 @@ WHAT IT MEASURES, AND WHAT IT DOES NOT.
 
 EVERY EXPECTATION IS DERIVED, NEVER TYPED. Band lines, the CRAM line/entry and the colour
 come from PARSING the preset document the sidecar names; the label the engine must have
-installed comes from the GENERATED chooser (`ojz_act1_sec_raster`) so a stale generated
+installed comes from the GENERATED chooser (`ojz_act1_preset_raster`) so a stale generated
 tree is caught rather than trusted; the section geometry comes from `SECTION_SIZE_SHIFT`,
 `SCREEN_WIDTH`/`SCREEN_HEIGHT` (engine/system/constants.emp) and `GRID_W`/`GRID_H`
 (the act descriptor). The base colour is the one thing no document states, so it is
@@ -75,6 +75,7 @@ from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
 from fg_left_edge_capture import grab, write_png  # noqa: E402  (grab insists source == "raster")
 import region_table  # noqa: E402  (the one Region reader, painted-regions v1)
+import effects_gen  # noqa: E402  (the one mode switch and the one binding reader)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ACT_DIR = os.path.join("games", "sonic4", "data", "editor", "ojz", "act1")
@@ -82,7 +83,7 @@ PRESETS_DIR = os.path.join("games", "sonic4", "data", "editor", "effects", "pres
 GENERATED = os.path.join("games", "sonic4", "data", "generated", "ojz", "act1", "effects_scenes.emp")
 DESCRIPTOR = os.path.join("games", "sonic4", "data", "levels", "ojz", "act1", "act_descriptor.emp")
 CONSTANTS = os.path.join("engine", "system", "constants.emp")
-CHOOSER = "ojz_act1_sec_raster"
+CHOOSER = "ojz_act1_preset_raster"
 RASTER_REF_KEY = "rasterRef"            # empyrean AURORA_EFFECTS_SCHEMA §3.1; effects_gen.ACT_RASTER_REF_KEY
 ACTIVE_H = 224
 DEFAULT_LINES = "8,20,40,56,72,96,150"
@@ -126,10 +127,31 @@ def geometry(repo: str) -> dict:
 
 
 def sidecar_ref(repo: str, sec: int):
+    """(the preset document this section's place binds, the file that says so).
+
+    ⚠ TWO SOURCES SINCE 2026-09-16, and the region one is the live one for act 1. A binding
+    used to live on `section_N.meta.json`; in REGION mode the sidecars are nulled and it lives
+    on the REGION ROW whose rectangle covers that section, in `regions.json`. Reading only the
+    sidecar would have returned None here and sent this witness down its `--expect-unbound`
+    path — reporting a CONTROL result for a section that is in fact bound, which is the worst
+    available failure for an instrument: a confident answer to a question it stopped asking.
+
+    The section -> region hop is `effects_gen.section_preset_symbols`' (the region containing
+    the section's centre) followed by the document's own `rasterRef` for that region, so this
+    file invents no mapping of its own."""
     path = os.path.join(repo, ACT_DIR, f"section_{sec}.meta.json")
-    with open(path, encoding="utf-8") as fh:
-        doc = json.load(fh)
-    return doc.get(RASTER_REF_KEY), path
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if doc.get(RASTER_REF_KEY) is not None:
+            return doc[RASTER_REF_KEY], path
+    if effects_gen.has_act_regions(repo):
+        rec = section_record(repo, sec)
+        for r in effects_gen.act_region_rows(repo):
+            if r["preset"] == rec and r.get(RASTER_REF_KEY) is not None:
+                return r[RASTER_REF_KEY], effects_gen.regions_path(repo)
+        return None, effects_gen.regions_path(repo)
+    return None, path
 
 
 def load_preset(repo: str, pid: str) -> tuple[dict, str]:
@@ -171,14 +193,54 @@ def expectation(preset: dict, where: str) -> dict:
     }
 
 
+def section_record(repo: str, sec: int):
+    """The `EffectsPreset` record whose look covers section `sec`'s place, or None.
+
+    NEEDED SINCE SHAPE B′ (aeon `3fc9ffa5`): the generated raster chooser is keyed on the
+    RECORD, not on the section index, so a witness that asks "what does section 5 get" has to
+    make the section -> record hop itself.
+
+    ⚠ DELEGATED TO `effects_gen.section_preset_symbols` RATHER THAN PARSED HERE, after a first
+    version of this function read `ojz_region(.., effects: X, .. sec: N)` rows out of the
+    descriptor. Act 1 flipped to REGION mode the same day: its rows are generated and carry no
+    `sec:`, so that parse returned None and this witness quietly took its `--expect-unbound`
+    control path for a section that IS bound. One reader, two modes, and this file invents no
+    mapping of its own — which is also this file's standing discipline for every other
+    expectation it makes."""
+    return effects_gen.section_preset_symbols(
+        effects_gen.act_names(repo), repo).get(sec)
+
+
 def chooser_binding(repo: str, sec: int):
-    """The label the GENERATED chooser binds for `sec`, or None. Read off the arm itself."""
+    """The label the GENERATED chooser binds for `sec`'s record, or None.
+
+    ⚠ TWO HOPS SINCE B′, and both are read rather than assumed. The arms are
+    `if preset == <ordinal>` and the ordinals only mean anything against the
+    `pub const <Record>_KEY = <ordinal>` block the SAME generated module emits — so this
+    reads that block, resolves the section to its record through the descriptor, and looks
+    the arm up by ordinal. A witness that went on matching `if sec == N` would have found
+    no arm and refused, which is loud; matching the ordinal N as if it were a section
+    would have been SILENT and wrong, which is why the ordinal is never used bare."""
     text = open(os.path.join(repo, GENERATED), encoding="utf-8").read()
     m = re.search(r"pub comptime fn " + CHOOSER + r"\(.*?\)\s*->\s*Label\s*\{(.*?)\n\}", text, re.S)
     if not m:
         raise refuse(f"could not find `{CHOOSER}` in {GENERATED}")
-    arms = dict((int(a), b) for a, b in re.findall(r"if sec == (\d+) \{ out = (\w+) \}", m.group(1)))
-    return arms.get(sec), arms
+    keys = {int(v): k for k, v in re.findall(r"^pub const (\w+)_KEY = (\d+)$", text, re.M)}
+    if not keys:
+        raise refuse(f"{GENERATED} declares no `<Record>_KEY` constants, so the chooser's "
+                     f"`if preset == <ordinal>` arms cannot be attributed to a record")
+    arms = {}
+    for a, b in re.findall(r"if preset == (\d+) \{ out = (\w+) \}", m.group(1)):
+        rec = keys.get(int(a))
+        if rec is None:
+            raise refuse(f"{GENERATED}'s {CHOOSER} has an arm on ordinal {a} that no "
+                         f"`<Record>_KEY` constant in the same file names")
+        arms[rec] = b
+    rec = section_record(repo, sec)
+    if rec is None:
+        raise refuse(f"no region row in {DESCRIPTOR} binds section {sec} to an `effects:` "
+                     f"record, so there is no key to look the chooser arm up by")
+    return arms.get(rec), arms
 
 
 # ----------------------------------------------------------------------------- bus helpers

@@ -2375,7 +2375,8 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         // (ojz_effects.emp at `OJZ_Preset_Sec7`, act_descriptor.emp at `ojz_sec(sec: 7, ..)`),
         // and since c1d0a6be (2026-09-05) it
         // also carries `section_7.meta.json`, so `ojz_act1_sec_scene(sec: 7)` resolves at
-        // rung 1 to `EditorSceneBinding_OJZ_Act1_Sec7` (effects_scenes.emp:346). Two live
+        // rung 1 to `EditorSceneBinding_OJZ_Act1_Sec7` (ojz_act1_sec_scene's `sec == 7`
+        // arm in effects_scenes.emp). Two live
         // channels and a scene: the most-bound section in the act after section 0.
         //
         // WHY THE FOUR BYTES WERE NOT CHANGED, stated so the next reader does not assume it
@@ -2827,7 +2828,8 @@ proc Debug_BgAnimViewHotkey () clobbers(d0-d1/a0-a1) {
 //   * Section 7 DOES carry a rung-1 binding (Region.rg_parallax now). `section_7.meta.json` landed at
 //     c1d0a6be (2026-09-05), so the generated chooser has `if sec == 7` and
 //     `ojz_act1_sec_scene(sec: 7)` yields `EditorSceneBinding_OJZ_Act1_Sec7`
-//     (effects_scenes.emp:346, :168). Both 7 and 8 now resolve at rung 1.
+//     (ojz_act1_sec_scene's `sec == 7` arm and EditorSceneBinding_OJZ_Act1_Sec7, both in
+//     effects_scenes.emp). Both 7 and 8 now resolve at rung 1.
 //
 // THE ARGUMENT SURVIVES ITS EXAMPLE, and this is why the technique below was not changed:
 // reading `ep_parallax` off `a3` is wrong for a reason that never depended on 7 and 8 in

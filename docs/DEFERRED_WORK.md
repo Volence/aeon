@@ -34691,7 +34691,14 @@ remember before they find its correction.
    readings with very different costs (0 ROM bytes with a new one-record-per-row gate, versus new
    `Region` fields at 4 bytes per pointer per row, which is the reading that falsifies a landed
    schema sentence).
-4. **A MIGRATED ACT 1 DOES NOT BAKE, and it has nothing to do with regions.** Measured in the
+4. ~~**A MIGRATED ACT 1 DOES NOT BAKE, and it has nothing to do with regions.**~~ **FALSE AS OF
+   2026-09-16 — a migrated act 1 bakes, and keeps every binding its document names. The rung-1
+   reels rule is satisfied by the REGION that binds the scene, exactly as it used to be by the
+   sidecar, because the re-key changed only who owns a binding. The test that asserted the
+   refusal has been replaced by one that asserts what the refusal was protecting (a migrated act
+   bakes AND keeps its four scene bindings and its chooser arms) rather than deleted, so a tree
+   that relaxed the rule WITHOUT doing the re-key still fails.** The original, for its
+   measurement:** Measured in the
    sandbox, not predicted: null every sidecar `sceneRef` (what `Migrate sections` does) and
    `render_module` refuses, because `ojz_act1_depth.json` carries a `reels` key and the rung-1
    rule requires some SECTION to bind that scene through a `sceneRef` sidecar — the reels table is
@@ -34719,6 +34726,78 @@ remember before they find its correction.
    working gate. Re-run:
    `git -C ../empyrean show origin/main:contract/schema/aurora-regions.schema.json` piped into a
    validator against `tools/fixtures/regions/ojz_act1.regions.json`.
+
+## ~~REGIONS-EMIT-BINDINGS — the section→row re-key, and the three things that ride it~~ — **CLOSED 2026-09-16, `parcel/regions-emit-bindings`. ACT 1 IS IN REGION MODE AND THE FLIP MOVED ZERO BYTES.**
+
+> **WHAT LANDED, against the three pieces this booking named, in the order they landed.**
+>
+> **1/3 — the emitted table did not assemble, and nobody had found out.** Before any of the
+> re-keying, act 1's real geometry was put through sigil for the first time. 150
+> `[struct.missing-field]` errors over ten rows: the emitter wrote five of `struct Region`'s
+> eight fields on the reasoned belief that a declared `= 0` defaults a LITERAL's field. It does
+> not — it defaults a `comptime fn` PARAMETER, which is how `ojz_region(...)` reaches the same
+> three fields one file over, and that is presumably where the inference came from. The emitter
+> now writes every declared field and checks the declaration in BOTH directions (a field ADDED
+> to the engine struct refuses the bake by name; only a field RENAMED did before).
+> **⚠ AND THE SPELLING THE DIAGNOSTIC PRESCRIBES IS REFUSED BY THE NEXT DIAGNOSTIC** —
+> `rg_parallax: default` answers ``[Error] `Region` is not a declared struct`` in the emitted
+> (section-less, map.toml-absent) module while the identical spelling in the PLACED descriptor
+> builds and takes the default. Which of the two differences decides it was NOT isolated here.
+> **Reported to sigil; not worked around across the seam.**
+>
+> **2/3 — B′, and it is MODE-INDEPENDENT, which the booking did not say.** Only the owner→record
+> map changes with the mode (legacy: `section_preset_symbols`; region: the document's `preset`
+> key); the re-key, the agreement gate, the emitted `<Record>_KEY` ordinals and the arms are one
+> piece of code either way. So B′ landed a commit BEFORE the flip, against a tree still in legacy
+> mode, and was proven by both ROMs coming out byte-identical. **The key is an integer ordinal and
+> not the record symbol**, because EMP_PITFALLS §12's 2026-09-16 amendment makes
+> `if preset == OJZ_Preset_Sec5` an always-green arm rather than a decision.
+> **13 call sites, not 19** (counted on non-comment, non-import lines; 19 = 13 calls + 6 prose
+> mentions). Every call site's ENCLOSING record was checked against `section_preset_symbols`
+> before the edit, so the re-key is behaviour-preserving by construction and not only by bytes.
+>
+> **3/3 — the flip, and the per-row ensure walk.** `ojz_region_table_check()` in
+> `act_descriptor.emp` restates every one of `ojz_region()`'s per-row rules over the COMPOSED
+> array, which is what a table of struct literals owes. The DEBUG deltas ride as the hub ruled —
+> applied against a NAMED row, through the `<ACT>_ROW_<ID>` constants, with an `ensure` on the
+> row's geometry AND on the record it binds. The binding check needed a mechanism the booking did
+> not anticipate: the emitter also writes `<ACT>_ROW_<ID>_PRESET = <Record>_KEY`, an INTEGER,
+> because comparing `rg_effects` to a record compares two Labels and could never fail.
+>
+> **BYTES: ZERO. Both shapes byte-identical to `a7b1cd2e`** (`s4.bin`
+> 67697504e36edc7224c419d1bea09992 · `s4.debug.bin` ff2b5728f12e24ecd77d0f8fce3249ad). Nobody
+> predicted that — the two preceding parcels moved +92 and +102 — and it is the strongest form
+> the migration's own proof strategy ("nine rectangles equal to nine sections must produce
+> byte-identical BEHAVIOUR") could take. A display-level A/B was therefore not needed and would
+> have been circular; `tools/display_ab_gate.py` exists and is proven, for the next parcel that
+> does move bytes.
+>
+> **THE HINGE THE BOOKING DID NOT PRICE, and it is why this was an L.** Seven tools ask "what
+> look is at section N" — the seam gate, the anchor-sweep band file, `sec5_band_witness`,
+> `lens_residue_raster_witness`, the reachability lint, and the generator's own B′ re-key. Region
+> mode DELETED that edge (regions part 1 step 4). It was not re-introduced: `section_preset_symbols`
+> gained a region arm that answers the same question GEOMETRICALLY — the region whose rectangle
+> contains the section's CENTRE, against the RELEASE rows, no entry when ambiguous — and it
+> reproduces the legacy map for all nine of act 1's sections, asserted row for row. Every one of
+> those seven tools now routes through that one reader instead of keeping its own descriptor
+> parse, which is what made the blast radius survivable.
+>
+> **WHAT WENT SILENTLY WRONG AND WAS CAUGHT, worth more than the green:** four of the seven had a
+> private copy of that parse, and ALL FOUR returned `{}` on the flipped tree. Three failed loudly.
+> `test_anchor_sweep_band`'s `section_presets()` did not — its `if sm and em:` guard skipped every
+> row, nothing asserted the map was non-empty, and every band-fit bound would have lost its
+> subject while the file reported green. It was found by its own `instrument_blindness()` probe,
+> which is the reason that probe exists, and the probe itself needed a region arm to keep saying
+> anything at all.
+>
+> **STILL OPEN, and each is named where a reader will meet it:**
+> `REGIONS-BG-GOLDEN-GAP` (unchanged — a region still cannot name its own background, and the
+> emitter's refusal is now the only one of the three that remains); the sigil `field: default`
+> contradiction above; and `OJZ_Preset_Sec5`/`_Sec6`, the 92 bytes of hand duplication B′ makes
+> unnecessary — retiring them into `OJZ_Preset_Plain` is a look change with the owner's name on it
+> and nobody has taken it.
+
+### The original booking, kept for its measurements
 
 ## REGIONS-EMIT-BINDINGS — the section→row re-key, and the three things that ride it (booked 2026-09-16, `parcel/regions-emit`)
 
@@ -34783,7 +34862,24 @@ must be named `.emp.txt`, and any emitted `.emp` must declare a module.
 **A CORRECTION TO A FIGURE THE SPEC AND THE BUDGET VIEW BOTH CARRY:** `struct Region` is **22
 bytes**, not 16. The editor spec §2.1 read it at aeon `0dc0ff11` before regions part 2 step 1 added
 `rg_bg_layout` and `rg_bg_span`; its §6 row 3 ("16 per row") is stale with it. Act 1's release
-table is 10 × 22 = **220 bytes**, the DEBUG one 11 × 22 = 242.
+table is 10 × 22 = **220 bytes**, ~~the DEBUG one 11 × 22 = 242~~.
+
+> ⚠ **AND THE DEBUG HALF OF THAT CORRECTION WAS ITSELF STALE WHEN WRITTEN (re-measured
+> 2026-09-16, `parcel/regions-emit-bindings`). The DEBUG table is 12 × 22 = 264 bytes, not
+> 11 × 22 = 242.** Read out of the built images through `tools/region_table.py` rather than
+> counted from source, because counting from source is how the 11 got there: this section and
+> the ruling above it both describe **one** DEBUG delta (`OJZ_E2_SNAP_ROWS`, "an eleventh row",
+> "it also shortens `sec2`"), and regions part 2 step 5 added a **second** —
+> `OJZ_TALL_BG_ROWS`, the tall-background row — which carves the right end off rows 5 **and** 8.
+> So the real DEBUG shape is **two appended rows and THREE shortened ones**: sec2 → x1 5599,
+> sec5 → 5119, sec8 → 5119. Measured: `s4.bin` 10 rows, `s4.debug.bin` 12 rows.
+>
+> **THE CONSEQUENCE FOR THE HUB'S RULING, and it is a widening rather than a contradiction:**
+> the ruling's condition — the delta must be applied against a **NAMED** row with an `ensure`
+> that the row is what it expects — is unchanged and is now owed **three** times, not once.
+> The `<ACT>_ROW_<ID>` constants are still the mechanism. `tools/test_regions_doc.py`'s
+> "Eleven means this is a DEBUG image" message carried the same stale count and is corrected
+> at the site.
 
 ## CITATION-LIVE-LINE — the `.emp:LINE` gate asks "is that line alive", not "is that the line" (found 2026-09-15, `parcel/regions-p2-step1`)
 
@@ -34806,6 +34902,24 @@ this gate's green as evidence that a line citation points where its prose says.
 
 **Not a blocker for anything; it is a sharpness defect in a gate that is otherwise doing real
 work** (it is the reason the drift surfaced at all).
+
+> ⚠ **MEASURED AGAIN 2026-09-16 (`parcel/regions-emit-bindings`), AND THE POPULATION IS NOT
+> HYPOTHETICAL.** That parcel added 43 lines to `effects_scenes.emp` and two lines to
+> `ojz_effects.emp`. **Seven `.emp:LINE` citations across five files drifted. The gate caught
+> TWO of them** — the two that happened to land on a bare `}`. The other five landed on live
+> comment or prose lines and stayed GREEN pointing at the wrong place:
+> `effects_scenes.emp:346` (three separate citers, all naming the section-7 scene binding
+> arm, all now pointing at a comment 43 lines short) and `ojz_effects.emp:1175-1177` (a
+> `Scene_VSplitWitness` twin comparison). **So the ratio on a real edit was 2 caught to 5
+> missed, and the 5 were only found because the 2 sent someone looking.**
+>
+> All seven were re-cited BY NAME. The cheap strengthening this entry already proposed —
+> require a cited line to be inside the declaration of a symbol the same sentence names —
+> would have caught every one of the five, because every one of them names its symbol in the
+> surrounding prose. **And a rule worth more than the strengthening: a LINE citation into a
+> GENERATED file is the worst case of all**, because the file is re-emitted by a tool nobody
+> reads and its line numbers move whenever the generator's banner does. Four of the five
+> misses were of that kind.
 
 ## ⚠ RULED 2026-09-16: NEITHER A NOR B. The choosers re-key to the PRESET RECORD, gating on AGREEMENT.
 

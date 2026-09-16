@@ -145,29 +145,37 @@ def preset_records(src: str) -> dict:
 
 
 def raster_call_sites(src: str, fn: str) -> dict:
-    """{preset name: (sec index, whether a `hand:` argument was passed)}.
+    """{preset name: (the RECORD its `preset:` key names, whether `hand:` was passed)}.
 
     Only presets whose `raster:` channel is a call to the generated chooser appear.
     A preset that hands `raster:` a literal program is not a fault — most of them do,
-    and that is what an unbound section looks like.
+    and that is what an unbound record looks like.
+
+    ⚠ KEYED ON THE RECORD SINCE SHAPE B′ (aeon `3fc9ffa5`). The call is
+    `<fn>(preset: <Record>_KEY, ...)` and what this returns is `<Record>`, so the
+    invariant `chooser_call_faults` checks is SELF-KEYING: the record a call site names
+    must be the record the call site is inside. The old section-keyed invariant ("this
+    preset must belong to exactly one region row, and to that index") is GONE because the
+    hazard it guarded is gone: two rows sharing a record now share its channels, which is
+    what sharing a record means.
     """
     call_re = re.compile(r"raster\s*:\s*" + re.escape(fn) +
-                         r"\s*\(\s*sec\s*:\s*(\d+)\s*(,\s*hand\s*:)?")
+                         r"\s*\(\s*preset\s*:\s*(\w+)_KEY\s*(,\s*hand\s*:)?")
     out = {}
     for name, body in preset_records(src).items():
         m = call_re.search(body)
         if m:
-            out[name] = (int(m.group(1)), bool(m.group(2)))
+            out[name] = (m.group(1), bool(m.group(2)))
     return out
 
 
 def patched_call_sites(src: str, fn: str) -> dict:
-    """{preset name: (sec index, whether a `hand:` argument was passed)}, `patched:` arm.
+    """{preset name: (the RECORD its `preset:` key names, whether `hand:`)}, `patched:` arm.
 
     THE MIRROR OF `raster_call_sites`, ONE `preset()` PARAMETER OVER. `boundary` documents
     lower into `EffectsPreset.ep_patched` through `patched_program()`, which is a DIFFERENT
     `preset()` parameter from `raster:` — so they are chosen by a DIFFERENT generated
-    function (`names.fn_sec_patched`) and threaded at a different argument. A parse that
+    function (`names.fn_preset_patched`) and threaded at a different argument. A parse that
     lumped the two would report a patched binding as a raster one and vice versa, which is
     precisely the confusion this whole arm exists to end.
 
@@ -180,12 +188,12 @@ def patched_call_sites(src: str, fn: str) -> dict:
     section the chooser has no arm for.
     """
     call_re = re.compile(r"patched\s*:\s*" + re.escape(fn) +
-                         r"\s*\(\s*sec\s*:\s*(\d+)\s*(,\s*hand\s*:)?")
+                         r"\s*\(\s*preset\s*:\s*(\w+)_KEY\s*(,\s*hand\s*:)?")
     out = {}
     for name, body in preset_records(src).items():
         m = call_re.search(body)
         if m:
-            out[name] = (int(m.group(1)), bool(m.group(2)))
+            out[name] = (m.group(1), bool(m.group(2)))
     return out
 
 
@@ -206,7 +214,7 @@ def document_arm(preset: dict) -> str:
 
 
 def channel_call_sites(src: str, fn: str, index_param: str) -> dict:
-    """{preset name: {sec index: set of INDEX arguments}} for one chooser, matched BY NAME.
+    """{preset name: {RECORD keyed: set of INDEX arguments}} for one chooser, matched BY NAME.
 
     THE NON-ARM CHANNELS' PARSE, and it is deliberately parameter-BLIND where
     `raster_call_sites` / `patched_call_sites` are parameter-AWARE. Those two exist to tell
@@ -219,20 +227,20 @@ def channel_call_sites(src: str, fn: str, index_param: str) -> dict:
     not indexed records the sentinel index 0 so the callers can treat all six alike.
     """
     if index_param:
-        pat = re.compile(re.escape(fn) + r"\s*\(\s*sec\s*:\s*(\d+)\s*,\s*"
+        pat = re.compile(re.escape(fn) + r"\s*\(\s*preset\s*:\s*(\w+)_KEY\s*,\s*"
                          + re.escape(index_param) + r"\s*:\s*(\d+)")
     else:
-        pat = re.compile(re.escape(fn) + r"\s*\(\s*sec\s*:\s*(\d+)")
+        pat = re.compile(re.escape(fn) + r"\s*\(\s*preset\s*:\s*(\w+)_KEY")
     out = {}
     for name, body in preset_records(src).items():
         for m in pat.finditer(body):
-            sec = int(m.group(1))
+            keyed = m.group(1)
             idx = int(m.group(2)) if index_param else 0
-            out.setdefault(name, {}).setdefault(sec, set()).add(idx)
+            out.setdefault(name, {}).setdefault(keyed, set()).add(idx)
     return out
 
 
-def prescription(ch, fn: str, sec: int) -> str:
+def prescription(ch, fn: str, rec: str) -> str:
     """The `preset()` argument to WRITE for one owed channel, spelled as it assembles.
 
     A GATE MUST NEVER PRESCRIBE A SPELLING NOBODY CAN WRITE — the failure
@@ -240,7 +248,8 @@ def prescription(ch, fn: str, sec: int) -> str:
     parcels refused to add an arm at all. So every form below is COPIED from a record
     `games/sonic4/data/effects/ojz_effects.emp` already carries and this repo already
     assembles: `OJZ_Preset_Sec3` for `cycle:` and `variants:`, `OJZ_Preset_Sec5` for the
-    two patch arrays.
+    two patch arrays. Since shape B′ the key is the record's OWN `<Record>_KEY`, which is
+    what `chooser_call_faults` requires — so a prescription is always self-keyed.
 
     THE ARRAY LENGTH IS THE ENGINE'S, NOT THE DOCUMENT'S, and the difference is
     load-bearing. `preset()` ensures `variants.len == PAL_MAX_VARIANTS` and
@@ -250,13 +259,13 @@ def prescription(ch, fn: str, sec: int) -> str:
     of the array is still spelled, and the chooser returns their `hand:` untouched.
     """
     if ch.index_param is None:
-        return f"{ch.param}: {fn}(sec: {sec}, hand: {ch.hand})"
+        return f"{ch.param}: {fn}(preset: {rec}_KEY, hand: {ch.hand})"
     arity = (effects_gen.PAL_MAX_VARIANTS if ch.index_param == "slot"
              else effects_gen.RASTER_MAX_PATCH)
     hand = (f", hand: {ch.hand}" if ch.hand else
             ", hand: <the literal that slot carries today; a slot whose literal is 0 "
             "omits `hand:` — 0 CLEARS here, it does not mean \"keep\">")
-    args = ", ".join(f"{fn}(sec: {sec}, {ch.index_param}: {i}{hand})"
+    args = ", ".join(f"{fn}(preset: {rec}_KEY, {ch.index_param}: {i}{hand})"
                      for i in range(arity))
     return f"{ch.param}: [{args}]"
 
@@ -291,69 +300,77 @@ def descriptor_effects_bindings(desc: str) -> dict:
     return out
 
 
-def chooser_call_faults(calls: dict, bindings: dict, sections: int, fn: str,
+def chooser_call_faults(calls: dict, bindings: dict, records: set, fn: str,
                         channel: str) -> list:
     """The per-call-site invariants, shared by the `raster:` and `patched:` arms.
 
-    THE INVARIANT, in one sentence: a preset whose channel is chosen BY SECTION INDEX must
-    belong to exactly one region row, and to that index. `Region.rg_effects` (Sec.sec_effects
-    until painted-regions v1) is a POINTER to a possibly shared record, so threading `<fn>(sec: N)`
-    into a record two rows point at silently gives BOTH the band — the design's §3.3(b)
-    hazard, which has no other symptom. That hazard is a property of SECTION-KEYED CHOOSING,
-    not of the raster channel, so it applies identically to `patched:` and the check is
-    factored rather than copied (a copied check is the one that drifts).
+    ---- RE-AIMED 2026-09-16 BY SHAPE B′ (aeon `3fc9ffa5`), AND THE OLD INVARIANT IS GONE
+    RATHER THAN RELAXED ----
+
+    It read: *"a preset whose channel is chosen BY SECTION INDEX must belong to exactly one
+    region row, and to that index"*, and it guarded the design's §3.3(b) hazard —
+    `Region.rg_effects` is a POINTER to a possibly shared record, so threading
+    `<fn>(sec: N)` into a record two rows point at silently gave BOTH of them section N's
+    band. That hazard was a property of SECTION-KEYED CHOOSING and it no longer exists:
+    the chooser keys on the RECORD, so two rows sharing a record share its channels, which
+    is what sharing a record means and is how a non-rectangular area is drawn under the
+    regions model. The tree paid 92 bytes to work around the old rule by hand
+    (`OJZ_Preset_Sec5` and `OJZ_Preset_Sec6` exist only because of it); that is now a
+    choice rather than a requirement.
+
+    ---- THE INVARIANT THAT REPLACES IT: SELF-KEYING ----
+
+    A record threads its OWN key. `OJZ_Preset_Sec5` must pass `OJZ_Preset_Sec5_KEY`. The
+    fault it forbids is the same FAMILY as the old one — a record receiving another
+    record's band, with no symptom but the wrong picture — and it is strictly cheaper to
+    check: it is a property of one line, visible to its author, needing no descriptor and
+    no section grid. A gate that needed the section grid to decide a question about a
+    record was answering it at the wrong altitude, which is why the old one had three
+    sentences and this has one.
 
     `hand:` IS RASTER-ONLY, and the reason is in `patched_call_sites`' docstring: there is
     no `Patched_Program_None` to demand. The patched arm's own `hand:` case — a call site
-    for a section the chooser has no arm for — is checked in `seam_faults` instead, where
+    for a record the chooser has no arm for — is checked in `seam_faults` instead, where
     the arming is known.
     """
     faults = []
-    seen = {}
     for name in sorted(calls):
-        sec, has_hand = calls[name]
+        keyed, has_hand = calls[name]
         if channel == "raster" and not has_hand:
             faults.append(
-                f"{name} calls {fn}(sec: {sec}) with NO `hand:` argument. The "
+                f"{name} calls {fn}(preset: {keyed}_KEY) with NO `hand:` argument. The "
                 f"parameter defaults to 0, and 0 in ep_raster means \"keep\", not "
-                f"\"off\" (ARCH §7.12) — an unbound section would inherit the previous "
-                f"section's program instead of clearing it. Pass "
-                f"`hand: Raster_Program_None`. A section that binds `patched:` is the "
+                f"\"off\" (ARCH §7.12) — an unbound record would inherit the previously "
+                f"installed program instead of clearing it. Pass "
+                f"`hand: Raster_Program_None`. A record that binds `patched:` is the "
                 f"one exception, and it is NOT spelled `hand: 0`: that spelling does not "
                 f"assemble (`expected a label (a `Label` argument), got int` — a bare 0 "
-                f"is not a `Value::Label`, measured 2026-09-04). Such a section omits the "
+                f"is not a `Value::Label`, measured 2026-09-04). Such a record omits the "
                 f"`raster:` argument ALTOGETHER, letting preset()'s own un-class-checked "
                 f"`raster: Label = 0` default land the same 0 in ep_raster, and threads "
                 f"only the patched chooser. See docs/DEFERRED_WORK.md RASTER-BOUNDARY-1.")
-        if not 0 <= sec < sections:
+        if keyed != name:
             faults.append(
-                f"{name} calls {fn}(sec: {sec}) but this act has {sections} sections "
-                f"(0-{sections - 1}). The chooser's own `ensure` would catch it at "
-                f"build time; it is caught here so the message names the preset.")
-        if sec in seen:
+                f"{name} calls {fn}(preset: {keyed}_KEY) — it threads ANOTHER RECORD'S "
+                f"key. Since shape B′ the choosers are keyed on the `EffectsPreset` "
+                f"record, and a record must name itself: what comes back is the program "
+                f"bound to {keyed!r}, so every region that installs {name} would show "
+                f"{keyed!r}'s band. Write `preset: {name}_KEY`. (This is the successor to "
+                f"the section-keyed 'chooses on sec N but is bound by section M' fault, "
+                f"one altitude down: it is a property of this line alone.)")
+        elif records and keyed not in records:
             faults.append(
-                f"{name} and {seen[sec]} both choose on sec {sec} in the {channel} "
-                f"chooser. Two presets keyed on one section index means one of them can "
-                f"never receive its band.")
-        else:
-            seen[sec] = name
+                f"{name} calls {fn}(preset: {keyed}_KEY), and {keyed!r} is not an "
+                f"`EffectsPreset` record this library declares. The generator mints one "
+                f"`<Record>_KEY` per declared record, so this cannot assemble — it is "
+                f"caught here so the message names the channel and the record rather "
+                f"than an unknown identifier in a generated file.")
         owners = sorted(i for i, p in bindings.items() if p == name)
         if not owners:
             faults.append(
-                f"{name} threads the {channel} chooser but NO section binds it in "
+                f"{name} threads the {channel} chooser but NOTHING binds it in "
                 f"{DESCRIPTOR}. A preset nothing points at is a record the crossing "
                 f"never installs.")
-        elif owners != [sec]:
-            faults.append(
-                f"{name} chooses on sec {sec} but is bound by section(s) "
-                f"{owners} in {DESCRIPTOR}. "
-                + (f"A preset SHARED by {len(owners)} sections cannot carry a "
-                   f"section-keyed band: every one of them would get sec {sec}'s "
-                   f"program. Split it first (one 38-byte EffectsPreset per section "
-                   f"that needs its own channel)."
-                   if len(owners) > 1 else
-                   f"The index and the binding disagree, so this section would "
-                   f"receive another section's band."))
     return faults
 
 
@@ -406,47 +423,64 @@ def channel_faults(channel_calls: dict, bindings: dict, raster_refs: dict, prese
     a fault here.
     """
     faults = []
+    # WHO OWNS A REF, IN WORDS. The owner is a REGION ROW in region mode and a SECTION in
+    # legacy; the messages below name it, and an author sent to "section ojz_preset_night's
+    # sidecar" would go looking for a file that has nothing in it. Inferred from the keys
+    # rather than passed in, because every caller already has the right map and a seventh
+    # parameter threaded through four functions is a seventh thing to forget.
+    _owner_noun = "region" if any(isinstance(k, str) for k in raster_refs) else "section"
+    _ref_home = "row" if _owner_noun == "region" else "sidecar"
     for sec in sorted(raster_refs):
         doc = presets.get(raster_refs[sec])
         if doc is None:
             continue            # already faulted, loudly, in the arm partition below
         owner = bindings.get(sec)
-        where = (f"{owner}, the preset section {sec} binds in {DESCRIPTOR},"
-                 if owner else
-                 f"section {sec} binds NO `effects:` preset at all in {DESCRIPTOR}, so")
+        if owner is None:
+            faults.append(
+                f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {raster_refs[sec]!r}, but "
+                f"{DESCRIPTOR} says no `EffectsPreset` record installs that section. "
+                f"Since shape B′ the choosers key on the RECORD, so there is no key to "
+                f"thread and the document's channels have nowhere to land.")
+            continue
+        where = f"{owner}, the record section {sec} binds in {DESCRIPTOR},"
         for ch in effects_gen.document_channels(doc):
             if ch.channel in effects_gen.ARM_CHANNELS:
                 continue        # the arms have their own three sentences below
             fn = getattr(names, ch.names_attr)
             want = set(ch.indices(doc) or {0})
-            got = (channel_calls.get(ch.channel) or {}).get(owner, {}).get(sec, set())
+            # SELF-KEYED: `chooser_call_faults` requires a record to thread its OWN key,
+            # so the call map's inner key for `owner` is `owner`. Reading it that way
+            # rather than accepting any key is what stops a record that threads SOMEONE
+            # ELSE'S key from also satisfying this arm — the two faults would otherwise
+            # cancel and the pair would read green.
+            got = (channel_calls.get(ch.channel) or {}).get(owner, {}).get(owner, set())
             if not got:
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, whose "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {raster_refs[sec]!r}, whose "
                     f"document carries `{ch.key}` — so the generator emits {len(want)} "
-                    f"{ch.channel} binding row(s) for sec {sec} into {fn}. But {where} "
-                    f"threads {fn} for sec {sec} NOWHERE. One `rasterRef` binds the WHOLE "
-                    f"document (ruling Q1), so every key it carries owes its own chooser "
-                    f"at that section's `preset()` — a row nothing calls is a row nothing "
-                    f"reads, which presents to the author as an assignment that did "
-                    f"nothing, and this is what made the whole binding green and "
+                    f"{ch.channel} binding row(s) for {owner} into {fn}. But {where} "
+                    f"threads {fn}(preset: {owner}_KEY) NOWHERE. One `rasterRef` binds the "
+                    f"WHOLE document (ruling Q1), so every key it carries owes its own "
+                    f"chooser at that record's `preset()` — a row nothing calls is a row "
+                    f"nothing reads, which presents to the author as an assignment that "
+                    f"did nothing, and this is what made the whole binding green and "
                     f"byte-identical (Aurora, 2026-09-04). Write, inside that `preset()`:"
-                    f"\n      {prescription(ch, fn, sec)}")
+                    f"\n      {prescription(ch, fn, owner)}")
             elif want - got:
                 missing = sorted(want - got)
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {raster_refs[sec]!r}, whose "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {raster_refs[sec]!r}, whose "
                     f"document authors {ch.channel} {ch.index_param}(s) "
-                    f"{sorted(want)} — but {where} threads {fn} for sec {sec} only at "
-                    f"{ch.index_param} {sorted(got)}. The generator emits a row per index "
-                    f"the document's array reaches, so {ch.index_param} {missing} would be "
-                    f"emitted and never read. Thread every index:"
-                    f"\n      {prescription(ch, fn, sec)}")
+                    f"{sorted(want)} — but {where} threads {fn}(preset: {owner}_KEY) only "
+                    f"at {ch.index_param} {sorted(got)}. The generator emits a row per "
+                    f"index the document's array reaches, so {ch.index_param} {missing} "
+                    f"would be emitted and never read. Thread every index:"
+                    f"\n      {prescription(ch, fn, owner)}")
     return faults
 
 
 def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
-                bindings: dict, sections: int, raster_refs: dict, presets: dict,
+                bindings: dict, lib_records: set, raster_refs: dict, presets: dict,
                 names) -> list:
     """Every way the preset-binding seam can be wrong, as sentences. Empty == it holds.
 
@@ -516,7 +550,7 @@ def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
     growing argument list, and `channel_calls` carries the other four channels' call sites
     keyed by that same table's channel names. See `channel_faults` for what was green.
     """
-    fn, fn_patched = names.fn_sec_raster, names.fn_sec_patched
+    fn, fn_patched = names.fn_preset_raster, names.fn_preset_patched
     faults = []
     if not raster_calls:
         faults.append(
@@ -524,8 +558,8 @@ def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
             f"the chooser is generated for every act but nothing calls it, so no "
             f"section can carry an editor-authored raster band and every raster "
             f"channel is hand-typed again. Bind one section's preset through it.")
-    faults += chooser_call_faults(raster_calls, bindings, sections, fn, "raster")
-    faults += chooser_call_faults(patched_calls, bindings, sections, fn_patched,
+    faults += chooser_call_faults(raster_calls, bindings, lib_records, fn, "raster")
+    faults += chooser_call_faults(patched_calls, bindings, lib_records, fn_patched,
                                   "patched")
 
     for name in sorted(set(raster_calls) & set(patched_calls)):
@@ -536,8 +570,12 @@ def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
             f"Raster_Pending), so this record cannot build. A section binds ONE arm: the "
             f"one its document carries.")
 
-    raster_chosen = {sec: name for name, (sec, _h) in raster_calls.items()}
-    patched_chosen = {sec: name for name, (sec, _h) in patched_calls.items()}
+    # ⚠ KEYED ON THE RECORD SINCE B′: a call site's own record IS its key (self-keying
+    # is `chooser_call_faults`' invariant), so "which records thread this arm" is simply
+    # the call maps' key sets. The arm partition below asks that question of the record a
+    # section BINDS (`bindings[sec]`), one hop further than the old `sec in chosen`.
+    raster_chosen = set(raster_calls)
+    patched_chosen = set(patched_calls)
 
     # ---- THE ARM PARTITION: each `rasterRef` owes the chooser its DOCUMENT names ----
     #
@@ -547,77 +585,111 @@ def seam_faults(raster_calls: dict, patched_calls: dict, channel_calls: dict,
     # separately checkable from its verdict. The two wrong-arm directions do not even fail
     # the same way (one is silent-and-green, the other is build-fatal), so they get their
     # own sentences rather than a shared "wrong arm".
+    _owner_noun = "region" if any(isinstance(k, str) for k in raster_refs) else "section"
+    _ref_home = "row" if _owner_noun == "region" else "sidecar"
     for sec in sorted(raster_refs):
         pid = raster_refs[sec]
         doc = presets.get(pid)
         if doc is None:
             faults.append(
-                f"section {sec}'s sidecar names rasterRef {pid!r}, but no preset "
+                f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, but no preset "
                 f"document with that id loaded. This gate cannot tell which chooser "
                 f"that section owes without reading the document — it is the DOCUMENT "
                 f"that decides the arm (`boundary` lowers into ep_patched, everything "
                 f"else into ep_raster). Loud rather than assuming the raster arm.")
             continue
+        rec = bindings.get(sec)
+        if rec is None:
+            faults.append(
+                f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, but nothing in "
+                f"{DESCRIPTOR} says which `EffectsPreset` record that section installs. "
+                f"Since shape B′ the chooser is keyed on the RECORD, so without one this "
+                f"gate cannot name the `preset()` that owes the threading — and the "
+                f"generator's own `_rekey_bound_to_record` refuses the same tree.")
+            continue
         arm = document_arm(doc)
         if arm == "patched":
-            if sec in patched_chosen:
+            if rec in patched_chosen:
                 continue
-            if sec in raster_chosen:
+            if rec in raster_chosen:
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, which carries "
                     f"`boundary` — so it lowers through patched_program() into "
                     f"EffectsPreset.ep_patched and the generator puts it in "
-                    f"{fn_patched}'s table, NOT {fn}'s. But {raster_chosen[sec]} threads "
-                    f"{fn}(sec: {sec}) instead. THAT COMBINATION BUILDS AND DOES "
-                    f"NOTHING: the raster chooser has no arm for {sec}, so it returns "
+                    f"{fn_patched}'s table, NOT {fn}'s. But {rec} threads "
+                    f"{fn}(preset: {rec}_KEY) instead. THAT COMBINATION BUILDS AND DOES "
+                    f"NOTHING: the raster chooser has no arm for {rec}, so it returns "
                     f"the `hand:` program, ep_raster is set, the exclusivity ensure "
                     f"passes, and the authored boundary is never installed. Omit the "
                     f"`raster:` argument ALTOGETHER and thread "
-                    f"`patched: {fn_patched}(sec: {sec})`.")
+                    f"`patched: {fn_patched}(preset: {rec}_KEY)`.")
             else:
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, which carries "
                     f"`boundary` — so it owes a PATCHED binding — but no preset threads "
-                    f"{fn_patched}(sec: {sec}). Neither chooser reaches this section: "
+                    f"{fn_patched}(preset: {rec}_KEY). Neither chooser reaches this section: "
                     f"the generator would emit the binding row and nothing would read "
                     f"it, which presents to the author as an assignment that did "
                     f"nothing. Omit `raster:` from that section's preset() and thread "
-                    f"`patched: {fn_patched}(sec: {sec})`.")
+                    f"`patched: {fn_patched}(preset: {rec}_KEY)`.")
         else:
-            if sec in raster_chosen:
+            if rec in raster_chosen:
                 continue
-            if sec in patched_chosen:
+            if rec in patched_chosen:
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {pid!r}, which carries no "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, which carries no "
                     f"`boundary` key — so its program lowers into "
                     f"EffectsPreset.ep_raster and the generator puts it in {fn}'s table, "
-                    f"NOT {fn_patched}'s. But {patched_chosen[sec]} threads "
-                    f"{fn_patched}(sec: {sec}) instead. That does not assemble: the "
+                    f"NOT {fn_patched}'s. But {rec} threads "
+                    f"{fn_patched}(preset: {rec}_KEY) instead. That does not assemble: the "
                     f"patched chooser has no arm for {sec}, so it returns its int "
                     f"default and `preset(patched:)` refuses it (`expected a label (a "
                     f"`Label` argument), got int`). Thread "
-                    f"`raster: {fn}(sec: {sec}, hand: Raster_Program_None)`.")
+                    f"`raster: {fn}(preset: {rec}_KEY, hand: Raster_Program_None)`.")
             else:
                 faults.append(
-                    f"section {sec}'s sidecar names rasterRef {pid!r}, but no "
-                    f"preset threads {fn}(sec: {sec}) — the generator would emit the "
+                    f"{_owner_noun} {sec}'s {_ref_home} names rasterRef {pid!r}, but no "
+                    f"preset threads {fn}(preset: {rec}_KEY) — the generator would emit the "
                     f"binding row and nothing would read it, which presents to the author "
                     f"as an assignment that did nothing.")
 
     # ---- the patched arm's own `hand:` case, which needs the arming to be known ----
+    # ⚠ THIS LOOP WAS THE ONE PIECE OF THE B′ RE-KEY THAT WAS MISSED, and it is written up
+    # rather than silently corrected because all three of its faults were of the family this
+    # repo keeps finding. The re-key left `sec, has_hand = patched_calls[name]` reading a
+    # RECORD NAME into a variable called `sec` and then looking it up in `raster_refs`, which
+    # is keyed by SECTION INDEX:
+    #   1. `armed` became unconditionally False, so EVERY `patched:` call site without
+    #      `hand:` faulted — including a correctly armed one. That is precisely the
+    #      RASTER-BOUNDARY-2 failure this arm exists to avoid: a gate refusing the one
+    #      spelling an author can actually write.
+    #   2. the message interpolated `{rec}`, a LEAKED loop variable from the arm partition
+    #      above — `UnboundLocalError` when `raster_refs` is empty, and the LAST iteration's
+    #      unrelated record when it is not.
+    #   3. it said "section {sec}" while printing a record name.
+    # Latent on the real tree only because `patched_call_sites` is empty here today
+    # (OJZ_Preset_Sec0/Sec7 hand `patched:` a literal), so `--source-only` stayed green
+    # throughout. Found by the agent re-keying this gate's tests, which had no way to be
+    # green against it — the reason those tests exist on synthetic inputs at all.
     for name in sorted(patched_calls):
-        sec, has_hand = patched_calls[name]
-        pid = raster_refs.get(sec)
-        armed = pid is not None and document_arm(presets.get(pid, {})) == "patched"
+        keyed, has_hand = patched_calls[name]
+        # ARMED IS A QUESTION ABOUT THE RECORD, since the chooser's arms are. A record is
+        # armed when SOME owner binds a `boundary` document to it — read through the same
+        # owner->record edge the generator re-keys with, never by assuming the record's name
+        # encodes an index.
+        armed = any(document_arm(presets.get(pid, {})) == "patched"
+                    for sec, pid in raster_refs.items()
+                    if bindings.get(sec) == keyed)
         if not armed and not has_hand:
             faults.append(
-                f"{name} calls {fn_patched}(sec: {sec}) with NO `hand:` argument, and no "
-                f"sidecar binds a `boundary` document to section {sec} — so the chooser "
-                f"has no arm for it and returns its int default, which "
+                f"{name} calls {fn_patched}(preset: {keyed}_KEY) with NO `hand:` argument, "
+                f"and nothing binds a `boundary` document to the record {keyed!r} — so the "
+                f"chooser has no arm for it and returns its int default, which "
                 f"`preset(patched:)` refuses (`expected a label (a `Label` argument), "
-                f"got int`, measured 2026-09-04). Either bind a `boundary` document to "
-                f"section {sec}'s `rasterRef`, or pass a real hand-authored patched "
-                f"program as `hand:` — there is no `Patched_Program_None` to pass.")
+                f"got int`, measured 2026-09-04). Either bind a `boundary` document through "
+                f"a `rasterRef` on a place that installs {keyed!r}, or pass a real "
+                f"hand-authored patched program as `hand:` — there is no "
+                f"`Patched_Program_None` to pass.")
 
     # ---- the OTHER FOUR channels the same `rasterRef` binds; see `channel_faults` ----
     faults += channel_faults(channel_calls or {}, bindings, raster_refs, presets, names)
@@ -633,14 +705,116 @@ def threaded_line(raster_calls: dict, patched_calls: dict) -> str:
     choosers, and a line that hid the arm would read identically for a correct patched
     binding and a silently-dead raster one.
     """
-    parts = [f"raster {n}(sec: {raster_calls[n][0]})" for n in sorted(raster_calls)]
-    parts += [f"patched {n}(sec: {patched_calls[n][0]})" for n in sorted(patched_calls)]
+    parts = [f"raster {n}(preset: {raster_calls[n][0]}_KEY)" for n in sorted(raster_calls)]
+    parts += [f"patched {n}(preset: {patched_calls[n][0]}_KEY)"
+              for n in sorted(patched_calls)]
     return ", ".join(parts) if parts else "nothing threaded"
 
 
 def fail(msg: str) -> None:
     print(f"effects_seam_gate: FAIL — {msg}")
     sys.exit(1)
+
+
+def owner_maps(repo: str = None, desc: str = None) -> tuple:
+    """`(raster_refs, owner_records, region_mode)` — WHO owns a `rasterRef` in this tree.
+
+    ONE DERIVATION, TWO MODES, AND ONE PLACE TO GET IT WRONG. Legacy: the owner is a SECTION,
+    its ref comes from `section_N.meta.json` and the record it installs from the descriptor's
+    rows. Region: the owner is a REGION ROW and BOTH come from `regions.json`. Everything
+    downstream only ever asks "who owns this ref" and "what record does that owner install",
+    so the flip is invisible past this function — which is exactly why it is a function and
+    not two lines inlined in `main()`: the real-tree tests need the same pair, and when they
+    built it themselves they went silently empty the day act 1 flipped.
+    """
+    repo = REPO if repo is None else repo
+    region_mode = effects_gen.has_act_regions(repo)
+    if region_mode:
+        rows = effects_gen.act_region_rows(repo)
+        return ({r["id"]: r[effects_gen.ACT_RASTER_REF_KEY] for r in rows
+                 if r.get(effects_gen.ACT_RASTER_REF_KEY) is not None},
+                {r["id"]: r["preset"] for r in rows},
+                True)
+    if desc is None:
+        with open(os.path.join(repo, DESCRIPTOR)) as f:
+            desc = f.read()
+    return (effects_gen.load_section_raster_refs(repo),
+            descriptor_effects_bindings(desc),
+            False)
+
+
+def region_seam_faults(names, imported: set, code: str, fail) -> int:
+    """REGION MODE's half of step 2, and the count of bindings it proved reachable.
+
+    ---- WHAT THE SEAM IS IN THIS MODE ----
+
+    In legacy mode the seam is a CALL: the descriptor threads every sidecar index through
+    `<act>_sec_scene`, and step 2 counts the indices. In region mode there is no call — the
+    generated region table carries each bound row's scene binding as a `rg_parallax` POINTER,
+    which is the same edge one indirection shorter. So the three things to check are:
+
+      1. the descriptor imports the generated region table, by NAME and never as a glob (the
+         seam's standing rule) and actually spells the rows const. Without that import the
+         generated module has no `use`-closure edge and every guard in it is DEAD
+         (docs/EMP_PITFALLS.md §3) — the same failure the legacy arm's import check exists
+         for, one file over;
+      2. `<act>_sec_scene` is ABSENT from both the import and the generated module. Not
+         merely unused: an emitted-but-uncalled `pub comptime fn` is an unelaborated one
+         whose own bounds `ensure` asserts nothing, and a stale import of a symbol the
+         generator no longer emits does not assemble. Checked in both directions so "the
+         generator stopped emitting it" and "the descriptor stopped importing it" cannot pass
+         for each other;
+      3. every region the DOCUMENT gives a `sceneRef` reaches a `rg_parallax:` in the
+         generated table, and nothing else does. This is the region-mode successor to
+         `passed != list(range(sections))`: a missing binding is a region that can never carry
+         an editor scene, an extra one is a row bound to a scene its document does not name,
+         and neither has any other symptom. Derived from the document through the generator's
+         own reader, never from the table's text alone — a table checked against itself would
+         agree with itself.
+    """
+    rel = os.path.relpath(effects_gen.region_table_path(names, REPO), REPO)
+    rows = effects_gen.act_region_rows(REPO)
+    want = {r["id"] for r in rows if r.get(effects_gen.ACT_SCENE_REF_KEY) is not None}
+
+    if names.fn_sec_scene in imported:
+        fail(f"{DESCRIPTOR} imports {names.fn_sec_scene}, but this act is in REGION mode "
+             f"and the generator does not emit that chooser: a region row carries its scene "
+             f"binding as a `rg_parallax` pointer in {rel}, so there is no call site for it. "
+             f"A stale import of a symbol the generator no longer emits does not assemble.")
+    gen = effects_gen.generate(REPO)[1]
+    if names.fn_sec_scene in gen:
+        fail(f"the generated module still emits {names.fn_sec_scene} while this act is in "
+             f"REGION mode. Nothing can call it — an uncalled `pub comptime fn` is never "
+             f"elaborated, so its own bounds `ensure` asserts nothing.")
+
+    use_r = re.search(r"^\s*use\s+games\.sonic4\." + re.escape(names.zone_id)
+                      + r"_regions_" + re.escape(names.act_id)
+                      + r"\s*\.\s*(\*|\{([^}]*)\})", code, re.MULTILINE | re.DOTALL)
+    if not use_r:
+        fail(f"{DESCRIPTOR} carries no `use games.sonic4.{names.zone_id}_regions_"
+             f"{names.act_id}...` line, but this act is in REGION mode and its rows live in "
+             f"{rel}. That import IS the seam here and IS that module's only `use`-closure "
+             f"edge — without it every guard in the generated table is dead.")
+    if use_r.group(1) == "*":
+        fail(f"{DESCRIPTOR} imports the generated region table as a GLOB. Name list, never a "
+             f"glob — the same rule the effects seam's own import follows.")
+    table = f"{names.cap.upper()}_GENERATED_REGION_ROWS"
+    if table not in {n.strip() for n in use_r.group(2).split(",")}:
+        fail(f"{DESCRIPTOR} imports the generated region module but not `{table}`, which is "
+             f"the rows themselves. Whatever else it takes from there, without the rows this "
+             f"act's identity table is not the document's.")
+
+    text = effects_gen.generate_region_table(REPO)[1]
+    got = set(re.findall(r"rg_parallax:\s*(\w+),.*?//\s*row\s+\d+\s+—\s+(\S+)", text))
+    bound_ids = {rid for sym, rid in got if sym != "0"}
+    if bound_ids != want:
+        fail(f"{rel} binds `rg_parallax` on region(s) {sorted(bound_ids)}, but "
+             f"{os.path.relpath(effects_gen.regions_path(REPO), REPO)} gives a "
+             f"`{effects_gen.ACT_SCENE_REF_KEY}` to {sorted(want)}. A region in the document "
+             f"and not the table can never carry an editor scene; one in the table and not "
+             f"the document is a row bound to a scene nobody named. Neither has any other "
+             f"symptom.")
+    return len(want)
 
 
 def main() -> int:
@@ -689,36 +863,50 @@ def main() -> int:
              f"list, never a glob (wave-1 design §3, and docs/DEFERRED_WORK.md's "
              f"glob re-evaluation note).")
     imported = {n.strip() for n in use_m.group(2).split(",") if n.strip()}
-    missing = {names.fn_act_default, names.fn_sec_scene} - imported
+    region_mode = effects_gen.has_act_regions(REPO)
+    # BOTH BINDINGS ARE IMPORTED UNCONDITIONALLY — IN LEGACY MODE. The owner ruling
+    # (2026-08-22) is that the generator emits both for every act, so nothing legitimately
+    # disappears. In REGION mode the scene chooser genuinely does: each row carries its
+    # binding as a `rg_parallax` POINTER in the generated region table, so the chooser has no
+    # call site anywhere and `render_module` does not emit it (see its region note). This is
+    # the one thing that arm can legitimately lose, and it is checked in BOTH directions
+    # below rather than merely excused.
+    want = ({names.fn_act_default} if region_mode
+            else {names.fn_act_default, names.fn_sec_scene})
+    missing = want - imported
     if missing:
         fail(f"{DESCRIPTOR}'s seam import does not name {', '.join(sorted(missing))}. "
-             f"BOTH bindings are imported unconditionally — the generator emits both "
-             f"for every act (owner ruling 2026-08-22), so there is nothing to "
-             f"condition on and nothing that legitimately disappears.")
+             f"The generator emits it for every act, so there is nothing to condition on "
+             f"and nothing that legitimately disappears.")
     if f"{names.fn_act_default}(hand:" not in desc:
         fail(f"{DESCRIPTOR} imports {names.fn_act_default} but never calls it with "
              f"a `hand:` fallback — the act default would stop flowing through the "
              f"editor seam.")
-    if f"{names.fn_sec_scene}(sec:" not in desc:
-        fail(f"{DESCRIPTOR} imports {names.fn_sec_scene} but never calls it — no "
-             f"section can carry an editor-authored scene.")
-    # EVERY sidecar index reaches the binding, exactly once. Since painted-regions v1 the
-    # descriptor calls the scene chooser from its REGION rows (`parallax: <fn>(sec: N)`), so
-    # what has to be checked is the INDEX each of those call sites passes: a duplicated or
-    # missing `sec:` would leave a section's sidecar permanently unbindable (or bound to
-    # another row's scene) with no other symptom. Derived from project.json's grid, never
-    # typed; counted over the CALL with a literal index in comment-stripped source, so the
-    # chooser's declaration, a `sec: sec` pass-through and prose quoting a call cannot count.
     sections = effects_gen.act_section_count(REPO)
     code = re.sub(r"//[^\n]*", "", desc)
-    passed = sorted(int(n) for n in re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)", code))
-    if passed != list(range(sections)):
-        fail(f"{DESCRIPTOR}'s region rows pass sidecar indices {passed} to "
-             f"{names.fn_sec_scene}, but project.json's grid declares {sections} "
-             f"sections ({list(range(sections))}). A missing index is a section "
-             f"whose sidecar can never carry an editor scene; a duplicate is two rows "
-             f"sharing one binding slot. Neither has any other symptom.")
-    calls = len(passed)
+    if region_mode:
+        calls = region_seam_faults(names, imported, code, fail)
+    else:
+        if f"{names.fn_sec_scene}(sec:" not in desc:
+            fail(f"{DESCRIPTOR} imports {names.fn_sec_scene} but never calls it — no "
+                 f"section can carry an editor-authored scene.")
+        # EVERY sidecar index reaches the binding, exactly once. Since painted-regions v1 the
+        # descriptor calls the scene chooser from its REGION rows (`parallax: <fn>(sec: N)`),
+        # so what has to be checked is the INDEX each of those call sites passes: a duplicated
+        # or missing `sec:` would leave a section's sidecar permanently unbindable (or bound
+        # to another row's scene) with no other symptom. Derived from project.json's grid,
+        # never typed; counted over the CALL with a literal index in comment-stripped source,
+        # so the chooser's declaration, a `sec: sec` pass-through and prose quoting a call
+        # cannot count.
+        passed = sorted(int(n) for n in
+                        re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)", code))
+        if passed != list(range(sections)):
+            fail(f"{DESCRIPTOR}'s region rows pass sidecar indices {passed} to "
+                 f"{names.fn_sec_scene}, but project.json's grid declares {sections} "
+                 f"sections ({list(range(sections))}). A missing index is a section "
+                 f"whose sidecar can never carry an editor scene; a duplicate is two rows "
+                 f"sharing one binding slot. Neither has any other symptom.")
+        calls = len(passed)
 
     # ---- 2b. THE RASTER SEAM — a SECOND call site, in a different file ----
     #
@@ -746,9 +934,9 @@ def main() -> int:
         fail(f"{EFFECTS_LIB} imports {names.module} as a GLOB. Name list, never a "
              f"glob — same rule as the descriptor's seam.")
     lib_imported = {n.strip() for n in lib_use.group(2).split(",")}
-    if names.fn_sec_raster not in lib_imported:
+    if names.fn_preset_raster not in lib_imported:
         fail(f"{EFFECTS_LIB}'s import of {names.module} does not name "
-             f"{names.fn_sec_raster}. That function is the raster channel's whole "
+             f"{names.fn_preset_raster}. That function is the raster channel's whole "
              f"binding route.")
     # THE OTHER TWO PRESET CHANNELS (EFFECTS-W1 item 5), same silent-and-green shape.
     # `ep_cycle` and `ep_variants` are fields of the same record `ep_raster` is, and one
@@ -762,22 +950,22 @@ def main() -> int:
     # and `ep_patch_motion` are fields of the same record, one `rasterRef` binds them, and an
     # unimported or uncalled chooser makes a document's anchor authoring ROM nothing reads —
     # with no other symptom, because both choosers resolve to `hand` on an unbound section.
-    for fn, channel in ((names.fn_sec_cycle, "cycle"),
-                        (names.fn_sec_variant, "variant"),
-                        (names.fn_sec_patch_world_y, "patch world-Y"),
-                        (names.fn_sec_patch_motion, "patch motion")):
+    for fn, channel in ((names.fn_preset_cycle, "cycle"),
+                        (names.fn_preset_variant, "variant"),
+                        (names.fn_preset_patch_world_y, "patch world-Y"),
+                        (names.fn_preset_patch_motion, "patch motion")):
         if fn not in lib_imported:
             fail(f"{EFFECTS_LIB}'s import of {names.module} does not name {fn}. That "
                  f"function is the palette {channel} channel's whole binding route, and "
                  f"an unimported chooser cannot be called — so every document's "
                  f"`{channel}s` would be ROM nothing installs.")
-        if f"{fn}(sec:" not in lib:
+        if f"{fn}(preset:" not in lib:
             fail(f"{EFFECTS_LIB} imports {fn} but never calls it. The chooser is emitted "
                  f"for every act whether or not a document carries the key, so nothing "
                  f"legitimately stops calling it — and an uncalled `pub comptime fn` is "
                  f"never elaborated, which makes its own `ensure`s dead too.")
-    raster_calls = raster_call_sites(lib, names.fn_sec_raster)
-    patched_calls = patched_call_sites(lib, names.fn_sec_patched)
+    raster_calls = raster_call_sites(lib, names.fn_preset_raster)
+    patched_calls = patched_call_sites(lib, names.fn_preset_patched)
     # THE OTHER FOUR CHANNELS' CALL SITES, per preset and per index. Step 2b's loop above
     # only asks whether each chooser is imported and called SOMEWHERE in the act; this is
     # the per-section reading `channel_faults` needs, and the two are different questions
@@ -787,7 +975,13 @@ def main() -> int:
         ch.channel: channel_call_sites(lib, getattr(names, ch.names_attr), ch.index_param)
         for ch in effects_gen.SECTION_CHANNELS
         if ch.channel not in effects_gen.ARM_CHANNELS}
-    want_raster_refs = effects_gen.load_section_raster_refs(REPO)
+    # THE OWNER OF A `rasterRef`, WHICHEVER MODE THIS ACT IS IN. Legacy: a section, read
+    # from its sidecar, with the record it installs read from the descriptor. Region: a
+    # region row, with both read from the document — one file, one authority, and no hop
+    # through the section grid that region mode deleted (ARCH §4.2). Everything downstream
+    # of these two maps is mode-blind because it only ever asks "who owns this ref" and
+    # "what record does that owner install", and both questions survive the flip.
+    want_raster_refs, owner_records, _rm = owner_maps(REPO, desc)
     # THE DOCUMENTS, read HERE and not only in step 3, because which chooser a section owes
     # is a property of its DOCUMENT (`seam_faults`' design note (C)) and step 2b is the
     # `--source-only` half. Both are source reads, so this costs the fast loop nothing it
@@ -800,28 +994,28 @@ def main() -> int:
     # THE PATCHED CHOOSER'S IMPORT, and it is the ONE conditional import check here while
     # the five above are unconditional. The others are unconditional because every section
     # can call them (they all take a real `hand:` fallback), so nothing legitimately stops
-    # calling them. `fn_sec_patched` cannot be called at all until a `boundary` document
+    # calling them. `fn_preset_patched` cannot be called at all until a `boundary` document
     # arms a section: the chooser would return its int default and `preset(patched:)`
     # refuses it. Demanding the import (and the call) unconditionally would be a gate arm
     # requiring a spelling nobody can write — the failure docs/DEFERRED_WORK.md
     # RASTER-BOUNDARY-2 exists to name. So it is required exactly when it is buildable.
     patched_needed = sorted(sec for sec, pid in want_raster_refs.items()
                             if document_arm(want_presets.get(pid, {})) == "patched")
-    if (patched_needed or patched_calls) and names.fn_sec_patched not in lib_imported:
+    if (patched_needed or patched_calls) and names.fn_preset_patched not in lib_imported:
         fail(f"{EFFECTS_LIB}'s import of {names.module} does not name "
-             f"{names.fn_sec_patched}, but "
+             f"{names.fn_preset_patched}, but "
              + (f"section(s) {patched_needed} bind a `boundary` document"
                 if patched_needed else
                 f"a preset already threads it")
              + f". A `boundary` document lowers into EffectsPreset.ep_patched through a "
                f"DIFFERENT `preset()` parameter from `raster:`, so it is chosen by "
-               f"{names.fn_sec_patched} and an unimported chooser cannot be called — the "
+               f"{names.fn_preset_patched} and an unimported chooser cannot be called — the "
                f"authored boundary would be ROM nothing installs.")
     faults = seam_faults(raster_calls,
                          patched_calls,
                          channel_calls,
-                         descriptor_effects_bindings(desc),
-                         sections,
+                         owner_records,
+                         effects_gen.effects_library_records(names, REPO),
                          want_raster_refs,
                          want_presets,
                          names)
@@ -833,11 +1027,12 @@ def main() -> int:
     # that fires only when a bound document carries the key can be VACUOUS, and this repo's
     # rule is that a vacuous arm says so rather than reading green (the patched half's own
     # line below does exactly this). Derived from the documents, not from a nearby pin.
-    owed = sorted((sec, c.channel)
+    owed = sorted((str(sec), c.channel)
                   for sec, pid in want_raster_refs.items()
                   for c in effects_gen.document_channels(want_presets.get(pid, {}))
                   if c.channel not in effects_gen.ARM_CHANNELS)
-    owed_line = (", ".join(f"sec {s} {c}" for s, c in owed) if owed else
+    _noun = "region" if region_mode else "sec"
+    owed_line = (", ".join(f"{_noun} {s} {c}" for s, c in owed) if owed else
                  "NONE — the non-arm channel arm is VACUOUS in this tree and says so "
                  "rather than reading green")
 
@@ -847,8 +1042,8 @@ def main() -> int:
         # one — and this half deliberately runs BEFORE the artifact exists.
         print(f"effects_seam_gate: OK (--source-only) — seam spelling + preset binding "
               f"in {EFFECTS_LIB} [{threaded_line(raster_calls, patched_calls)}]; "
-              f"{calls} section call site(s), "
-              f"{len(want_raster_refs)} sidecar rasterRef(s) "
+              f"{calls} {'region scene binding(s)' if region_mode else 'section call site(s)'}, "
+              f"{len(want_raster_refs)} {'region' if region_mode else 'sidecar'} rasterRef(s) "
               f"({len(patched_needed)} on the patched arm); "
               f"non-arm channel threadings required and found: {owed_line}.")
         print("  NOT CHECKED here: the reachability witnesses and their values (step 3) "
@@ -872,7 +1067,20 @@ def main() -> int:
 
     scenes = effects_gen.load_all_scenes("sonic4", REPO)
     act_ref = effects_gen.load_act_scene_ref(REPO)
-    sec_refs = effects_gen.load_section_scene_refs(REPO)
+    # ⚠ THE SCENE HALF OWNS ITS REFS THE SAME WAY THE RASTER HALF DOES, AND FOR A WHILE IT DID
+    # NOT. This read `load_section_scene_refs` alone. In region mode those sidecars are nulled
+    # and the `sceneRef`s live on the region rows, so both expectations went to ZERO against a
+    # module correctly emitting four — and the gate refused the committed tree with a message
+    # telling its reader to re-bake, which could not have helped. Found by the agent re-keying
+    # this gate's own tests, not by any lane; `--source-only` (the FAST path) never reaches
+    # step 3, so the whole authoring loop stayed green on it.
+    #
+    # The other four witnesses were already mode-correct because they route through
+    # `owner_maps` + `_rekey_bound_to_record`. This is the same routing, one channel over.
+    sec_refs = ({r["id"]: r[effects_gen.ACT_SCENE_REF_KEY]
+                 for r in effects_gen.act_region_rows(REPO)
+                 if r.get(effects_gen.ACT_SCENE_REF_KEY) is not None} if region_mode
+                else effects_gen.load_section_scene_refs(REPO))
     # Derived from the editor inputs, not read from the generated module.
     want_bindings = len(sec_refs) + (1 if act_ref else 0)
     want_scenes = len(set(sec_refs.values()) | ({act_ref} if act_ref else set()))
@@ -886,7 +1094,25 @@ def main() -> int:
     # and carries no binding — which is a DIFFERENT observation from the symbol being
     # absent, and absence is what a dropped seam looks like. Derived from the sidecars
     # through the generator's own reader, never read out of the generated `.emp`.
-    want_raster = len(want_raster_refs)
+    #
+    # ⚠ COUNTED PER RECORD SINCE SHAPE B′ (aeon `3fc9ffa5`, 2026-09-16), AND THAT IS A
+    # CHANGE OF MEANING, NOT A RE-SPELLING. `render_module` re-keys its binding map from the
+    # sidecar to the `EffectsPreset` RECORD before it counts, so two sections that bind ONE
+    # record to ONE document now emit ONE binding row and the witness reads 1, where the
+    # section count would read 2. The two numbers are EQUAL on act 1 today (two sections,
+    # two distinct records), so a gate that went on counting sidecars would have stayed green
+    # here and gone red on the first act that shared a record — with a message telling its
+    # author to re-bake, which would not have helped. Derived through the generator's OWN
+    # re-key rather than re-implemented, so the two cannot disagree about what a binding is.
+    # ⚠ `owner_records`, NOT `section_preset_symbols` — the owner is a REGION in region mode
+    # and a SECTION in legacy, and `want_raster_refs` above is keyed the same way. Reaching
+    # for the section map here would look right and hit on nothing in region mode, leaving
+    # every witness expectation at zero against a module that emits two.
+    want_rec = effects_gen._rekey_bound_to_record(
+        want_raster_refs, owner_records, "region" if region_mode else "section",
+        (os.path.relpath(effects_gen.regions_path(REPO), REPO) if region_mode
+         else DESCRIPTOR))
+    want_raster = len(want_rec)
 
     # THE PALETTE WITNESSES (item 5), counted the same way and from the same sidecars:
     # one `rasterRef` binds the WHOLE document, so a section's cycle/variant binding is
@@ -897,14 +1123,14 @@ def main() -> int:
     # here as well, which was fine while only this step needed it; a second `load_all_presets`
     # now would be a second chance for the two halves of one gate to disagree about the
     # documents they are checking.
-    want_cycle = sum(1 for sec, pid in want_raster_refs.items()
+    want_cycle = sum(1 for rec, pid in want_rec.items()
                      if "cycles" in want_presets.get(pid, {}))
-    want_variant = sum(1 for sec, pid in want_raster_refs.items()
+    want_variant = sum(1 for rec, pid in want_rec.items()
                        if want_presets.get(pid, {}).get("variants") is not None)
     # THE PATCH WITNESS (item 4), counted the same way off the same sidecars. EITHER key
     # binds: a document may author only the world-Y seed (a boundary that sits somewhere new
     # but does not move) or, keeping the section's hand anchor, only the motion.
-    want_patch = sum(1 for sec, pid in want_raster_refs.items()
+    want_patch = sum(1 for rec, pid in want_rec.items()
                      if ("patch_world_ys" in want_presets.get(pid, {})
                          or "patch_motion" in want_presets.get(pid, {})))
 
@@ -937,11 +1163,12 @@ def main() -> int:
           f"{names.equ_cycle_bindings}={want_cycle}, "
           f"{names.equ_variant_bindings}={want_variant}, "
           f"{names.equ_patch_bindings}={want_patch}, "
-          f"{calls} section call site(s), {len(equs)} equates parsed from {lst})")
+          f"{calls} {'region scene binding(s)' if region_mode else 'section call site(s)'}, "
+          f"{len(equs)} equates parsed from {lst})")
     # The preset seam's own line — see `threaded_line` for why it names rather than counts.
     print(f"effects_seam_gate: OK — preset seam threaded in {EFFECTS_LIB} "
           f"[{threaded_line(raster_calls, patched_calls)}]; "
-          f"{len(want_raster_refs)} sidecar rasterRef(s)"
+          f"{len(want_raster_refs)} {'region' if region_mode else 'sidecar'} rasterRef(s)"
           + (" — the sidecar arm is VACUOUS today and says so rather than reading green"
              if not want_raster_refs else
              f", {len(patched_needed)} of them on the patched arm"

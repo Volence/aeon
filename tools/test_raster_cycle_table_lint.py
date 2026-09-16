@@ -126,13 +126,28 @@ def _read(path: Path) -> str:
 
 
 def bound_preset_ids() -> set[str]:
-    """Every preset id a section sidecar binds through `rasterRef`.
+    """Every preset id this act binds through `rasterRef`, in WHICHEVER mode it is in.
 
-    Read through `effects_gen`'s own loader, so this gate and the generator cannot
-    disagree about what a binding is, and NOTHING here spells the wire key — it lives
-    once, as `effects_gen.ACT_RASTER_REF_KEY`.
+    Read through `effects_gen`'s own readers, so this gate and the generator cannot disagree
+    about what a binding is, and NOTHING here spells the wire key — it lives once, as
+    `effects_gen.ACT_RASTER_REF_KEY`.
+
+    ⚠ THE OWNER OF A BINDING MOVED ON 2026-09-16 AND THIS READER WENT SILENTLY EMPTY.
+    It was `load_section_raster_refs` alone. Act 1 is in REGION mode now, its sidecars are
+    nulled, and the refs live in `regions.json` — so this returned the EMPTY SET and every
+    document a region binds was reported UNREACHABLE. That failure was loud, which is luck
+    rather than design: the same emptiness in the other direction (a gate asking "is anything
+    unbound") would have gone green having checked nothing. Both modes are read here, and the
+    union is taken rather than a branch, so an act that somehow carried both would be counted
+    rather than half-counted — `check_mode_conflict` refuses that tree anyway, and this gate
+    is not the place to re-litigate it.
     """
-    return set(effects_gen.load_section_raster_refs(repo=str(REPO)).values())
+    out = set(effects_gen.load_section_raster_refs(repo=str(REPO)).values())
+    if effects_gen.has_act_regions(repo=str(REPO)):
+        out |= {r[effects_gen.ACT_RASTER_REF_KEY]
+                for r in effects_gen.act_region_rows(repo=str(REPO))
+                if r.get(effects_gen.ACT_RASTER_REF_KEY) is not None}
+    return out
 
 
 def unreachable_presets(preset_ids, row_ids, bound_ids) -> list[str]:
@@ -248,8 +263,9 @@ def test_every_preset_document_is_REACHABLE():
         f"reachable by NOTHING: {orphans}. A preset document reaches the running game "
         f"through one of exactly two installers — a `dc.l` row in "
         f"{HOTKEY.name}'s `.raster_table` (the DEBUG lab chord), or a "
-        f"`{effects_gen.ACT_RASTER_REF_KEY}` in a section sidecar, which the generated "
-        f"chooser threads into that section's `preset()` call. With neither, the "
+        f"`{effects_gen.ACT_RASTER_REF_KEY}` on a REGION ROW (or, for an act still in "
+        f"legacy mode, on a section sidecar), which the generated chooser threads into "
+        f"that row's `preset()` record. With neither, the "
         f"program's bytes are in the ROM and no code path can ever point the raster "
         f"engine at them. Table rows name {sorted(rows)}; sidecar bindings name "
         f"{sorted(bound)}."

@@ -121,6 +121,9 @@ import unittest
 import collections
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys                                                        # noqa: E402
+sys.path.insert(0, os.path.join(AEON, "tools"))
+import effects_gen                                                # noqa: E402
 
 RASTER_DSL = os.path.join(AEON, "engine/effects/raster_dsl.emp")
 CONSTANTS = os.path.join(AEON, "engine/system/constants.emp")
@@ -295,28 +298,70 @@ def preset_patched_programs():
 
 
 def section_presets():
-    """{sidecar index: the preset name the region row keyed on it names}, from act_descriptor.emp.
+    """{section index: the EffectsPreset whose look covers that section's place}.
 
-    The generated arm's sweeps are keyed on a SECTION sidecar (`sec: N` at the chooser site),
-    and since painted-regions v1 the preset a sidecar's place installs is named by the REGION
-    row whose `parallax:` binding carries that same `sec: N`. This is the one edge that crosses
-    out of the effects library, and it is read rather than assumed for the same reason
-    everything else here is."""
-    src = _blank(_read(DESCRIPTOR))
-    out = {}
-    for m in re.finditer(r"\bojz_region\s*\(", src):
-        body, _ = _balanced(src, m.end() - 1)
-        sm = re.search(r"\bsec:\s*(\d+)", body)
-        em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
-        if sm and em:
-            out[int(sm.group(1))] = em.group(1)
+    ⚠ DELEGATED TO `effects_gen.section_preset_symbols` ON 2026-09-16 RATHER THAN PARSED HERE,
+    and the delegation is the fix, not a tidy-up. This used to read
+    `ojz_region(.., effects: X, parallax: ..(sec: N))` rows straight out of the descriptor.
+    Act 1 is now in REGION mode: its rows are generated from the editor's document and carry
+    no `sec:` at all, so that parse returned `{}` — and it returned it SILENTLY, because the
+    loop's `if sm and em:` simply skipped every row. Nothing asserted the map was non-empty,
+    so the section -> preset edge would have vanished and every band-fit bound downstream
+    would have lost its subject while the file went on reporting green.
+
+    One implementation, two modes: in legacy it reads the descriptor exactly as this did; in
+    region mode it asks which region's rectangle contains the section's centre. A second
+    parser here would be a second thing to forget on the next flip."""
+    out = effects_gen.section_preset_symbols(effects_gen.act_names(AEON), AEON)
+    if not out:
+        raise AssertionError(
+            "effects_gen.section_preset_symbols resolved NO section to a preset. Every "
+            "band-fit bound in this file is keyed on that edge, so an empty map is an "
+            "instrument that has gone blind — never a tree with nothing to check.")
     return out
 
 
-def _sweep_section(s):
-    """The section a scanned sweep is authored for, or None. Chooser sites carry it."""
-    m = re.search(r"sec:\s*(\d+)", s.site)
-    return int(m.group(1)) if m else None
+def preset_key_ordinals(path):
+    """{ordinal: EffectsPreset record} from a generated module's own `<Record>_KEY` consts.
+
+    ⚠ THE GENERATED CHOOSERS ARE KEYED ON THE RECORD SINCE SHAPE B′ (aeon `3fc9ffa5`,
+    2026-09-16). Their guards are `preset == <ordinal>`, not `sec == N`, and the ordinal is
+    only meaningful against the `pub const <Record>_KEY = <ordinal>` block the SAME module
+    emits — which is why this reads it from `path` rather than recomputing it. A scanner
+    that went on looking for `sec ==` did not fail: it found no guard, attributed every
+    sweep to section `*`, and every band-fit bound went UNEVALUATED. That is the silent
+    half of this re-key and it is why this function exists.
+    """
+    return {int(v): k for k, v in
+            re.findall(r"^pub const (\w+)_KEY = (\d+)$", _blank(_read(path)), re.M)}
+
+
+def _sweep_preset(s):
+    """The `EffectsPreset` RECORD a scanned sweep is authored for, or None.
+
+    Chooser sites carry it since B′ (`<fn>(preset: <Record>_KEY, ch: N)`); an `array`-shaped
+    sweep is written inside the record itself and its `site` IS the record name."""
+    if s.shape == "array":
+        return s.site
+    m = re.search(r"preset:\s*(\w+)_KEY", s.site)
+    return m.group(1) if m else None
+
+
+def _sweep_section(s, sections=None):
+    """The section a scanned sweep is authored for, or None.
+
+    DERIVED, since B′, rather than read off the site: the site names a RECORD and the
+    section is whichever one the descriptor binds that record to. A record bound by more
+    than one section has no single section, and this returns None for it rather than
+    picking — the seeded-headroom bound needs "the camera of the section this sweep is in",
+    and a shared record does not have one. None is reported as NOT EVALUATED upstream,
+    never as passed."""
+    rec = _sweep_preset(s)
+    if rec is None:
+        return None
+    sections = section_presets() if sections is None else sections
+    owners = [i for i, name in sections.items() if name == rec]
+    return owners[0] if len(owners) == 1 else None
 
 
 def bands_for_preset(name, progs=None, presets=None):
@@ -357,20 +402,17 @@ def bands_for_sweep(s, progs=None, presets=None, sections=None):
     """({channel: (lo, hi)}, provenance) for ONE scanned sweep, resolved the way the RUNTIME
     resolves it: the sweep's section installs a preset, the preset installs a patched program,
     and that program's `patchable()` records are the only bands that sweep can ever move."""
-    sections = section_presets() if sections is None else sections
-    if s.shape == "array":
-        return bands_for_preset(s.site, progs, presets)
-    sec = _sweep_section(s)
-    if sec is None:
-        return {}, ("the site %r names no section, so no preset and no program can be "
-                    "resolved for it" % s.site), False
-    name = sections.get(sec)
+    # ⚠ NO SECTION HOP SINCE B′. The site names the RECORD outright, so the old two-step
+    # (site -> `sec: N` -> the descriptor's region row -> `effects:`) is gone, and with it
+    # the one place this reader could go blind without saying so: a descriptor that stopped
+    # spelling `sec:` used to make every sweep resolve to no preset. The record IS the key
+    # the runtime installs on, so this is the shorter AND the more faithful resolution.
+    name = _sweep_preset(s)
     if name is None:
-        return {}, ("no `ojz_region(.., effects: .., parallax: ..(sec: %d))` row in %s, so that "
-                    "sidecar binds no preset this reader can see"
-                    % (sec, os.path.relpath(DESCRIPTOR, AEON))), False
+        return {}, ("the site %r names no `preset: <Record>_KEY`, so no preset and no "
+                    "program can be resolved for it" % s.site), False
     bands, why, has_prog = bands_for_preset(name, progs, presets)
-    return bands, "section %d -> %s" % (sec, why), has_prog
+    return bands, why, has_prog
 
 
 def patchable_bands():
@@ -646,11 +688,16 @@ def _chooser_sweeps(path, blanked, claimed):
                 if q:
                     chm = int(q.group(1))
                     break
-            secm = None
+            # ⚠ `preset == <ordinal>` SINCE B′, resolved through the module's own
+            # `<Record>_KEY` block (see `preset_key_ordinals`). An ordinal with no constant
+            # is left as None and the site reads `preset: *`, which every bound upstream
+            # reports as NOT EVALUATED — never as fine.
+            ords = preset_key_ordinals(path)
+            recm = None
             for g in reversed(guards):
-                q = re.search(r"\bsec\s*==\s*(\d+)", g)
+                q = re.search(r"\bpreset\s*==\s*(\d+)", g)
                 if q:
-                    secm = int(q.group(1))
+                    recm = ords.get(int(q.group(1)))
                     break
             if a is None:
                 found.append((None, Unresolved(
@@ -663,8 +710,9 @@ def _chooser_sweeps(path, blanked, claimed):
                     "is nothing to associate a patchable band with",
                     ("in %s, guards %r" % (fns[-1] if fns else "<file scope>", guards))[:200])))
             else:
-                site = "%s(sec: %s, ch: %d)" % (fns[-1] if fns else "<file scope>",
-                                                secm if secm is not None else "*", chm)
+                site = "%s(preset: %s, ch: %d)" % (
+                    fns[-1] if fns else "<file scope>",
+                    (recm + "_KEY") if recm is not None else "*", chm)
                 found.append((Sweep(path, "chooser", site, chm, int(a.group(1)),
                                     int(a.group(2)), int(a.group(3) or 0), i), None))
             i = end
@@ -790,6 +838,42 @@ def instrument_blindness():
     # The count stays over the bare SPELLING and not over the reader's own pattern, because a
     # probe that matched the reader's pattern could never disagree with it. _blank() empties
     # string literals, so ojz_region()'s own ensure messages cannot count as rows.
+    # ⚠ REGION MODE ACCOUNTS AGAINST THE DOCUMENT, NOT THE DESCRIPTOR (2026-09-16). Act 1's
+    # rows are generated now and the descriptor carries only its two build-shape deltas, which
+    # name no `sec:` — so the row accounting below counts ZERO and this probe fired, correctly
+    # saying the reader had lost its source and wrongly naming the descriptor as the reason.
+    #
+    # The region-mode probe is the same SHAPE — a reader compared against the plain text of
+    # its own source — one file over: `section_preset_symbols` resolves a section by asking
+    # which region's rectangle contains its centre, and the act descriptor's own coverage
+    # `ensure` (the rows tile the act, with no overlap) makes exactly one region contain every
+    # point. So a section that fails to resolve is a READER fault, never a content state, and
+    # the accounting is against the project grid's own section count. It gets no weaker as
+    # content is removed, which is the property this whole block is organised around.
+    if effects_gen.has_act_regions(AEON):
+        sections = section_presets()
+        want = effects_gen.act_section_count(AEON)
+        doc = os.path.relpath(effects_gen.regions_path(AEON), AEON)
+        if len(sections) != want:
+            out.append(
+                "section_preset_symbols() resolved %d of this act's %d sections against %s "
+                "(%r). The region table tiles the act with no overlap — its own `ensure`s say "
+                "so — so EVERY section centre lies in exactly one region and a missing entry "
+                "is this reader failing, not a document with a hole."
+                % (len(sections), want, doc, sorted(sections)))
+        elif sorted(sections) != list(range(want)):
+            out.append(
+                "section_preset_symbols() resolved %d entries against %s but they are not the "
+                "contiguous range 0..%d — got %r."
+                % (len(sections), doc, want - 1, sorted(sections)))
+        elif SPAWN_SECTION not in sections:
+            out.append(
+                "section_preset_symbols() no longer resolves the SPAWN SECTION %d against %s. "
+                "That is the ONLY section SPAWN_CAMERA_Y (%d) is the camera for, so the "
+                "seeded-headroom bound cannot be evaluated for any sweep at all once this is "
+                "true — and it would look exactly like a tree that authors no sweeps there."
+                % (SPAWN_SECTION, doc, SPAWN_CAMERA_Y))
+        return out + _probe_parse()
     desc = _blank(_read(DESCRIPTOR))
     calls = [m for m in re.finditer(r"\bojz_region\s*\(", desc)
              if not re.search(r"\bfn\s+$", desc[:m.start()])]
@@ -837,6 +921,17 @@ def instrument_blindness():
             % (SPAWN_SECTION, os.path.relpath(DESCRIPTOR, AEON), SPAWN_CAMERA_Y))
 
     # ---- PROBE 2: PARSE ----
+    out += _probe_parse()
+    return out
+
+
+def _probe_parse():
+    """PROBE 2, factored out so BOTH modes' probe-1 arms end with the same second half.
+
+    Split from `instrument_blindness` when region mode gave probe 1 two arms: a probe that
+    only ran on one of them would be a hole that opens exactly when the tree changes shape,
+    which is the kind of hole this whole block exists to close."""
+    out = []
     # scan_module() raises if it cannot account for every `anchor_sweep(` occurrence, so
     # calling it IS the occurrence-accounting probe; the comparison below is the second half,
     # aimed at authored_sweeps() specifically because that is the reader the seeded bound uses.
@@ -944,14 +1039,20 @@ def chooser_seeds(path):
     not by itself a violation — it is the reason the seeded-headroom bound is reported as NOT
     APPLIED rather than silently passed."""
     blanked = _blank(_read(path))
+    ords = preset_key_ordinals(path)
     seeds = {}
     for m in re.finditer(r"\bif\b([^{}]*?)\{([^{}]*?)\}", blanked, re.S):
         cond, body = m.group(1), m.group(2)
         c = re.search(r"\bch\s*==\s*(\d+)", cond)
-        s = re.search(r"\bsec\s*==\s*(\d+)", cond)
+        # ⚠ `preset == <ordinal>` since B′ — the same re-key the scanner reads, and it has
+        # to move WITH it: a seed key that stayed section-shaped while the sweep key became
+        # record-shaped would never match, and every seeded-headroom bound would report NOT
+        # APPLIED while looking exactly like a tree that legitimately authors no seed.
+        s = re.search(r"\bpreset\s*==\s*(\d+)", cond)
         v = re.search(r"\bout\s*=\s*(-?\d+)\s*$", body.strip())
         if c and v:
-            seeds[(int(s.group(1)) if s else None, int(c.group(1)))] = int(v.group(1))
+            rec = ords.get(int(s.group(1))) if s else None
+            seeds[(rec, int(c.group(1)))] = int(v.group(1))
     return seeds
 
 
@@ -981,16 +1082,27 @@ def headroom_violations(sweeps, seeds_by_path, amp=None):
             unevaluated.append(s)
             continue
         seed = seeds_by_path.get(s.path, {})
+        rec = _sweep_preset(s)
         key = None
         for k in seed:
-            if k[1] == s.channel and ("sec: %s" % k[0]) in s.site:
+            # ⚠ MATCHED ON THE RECORD SINCE B′, not on a `sec: N` substring of the site.
+            # The substring form was also a latent near-miss — "sec: 1" is a substring of
+            # "sec: 12" — which the record form cannot have, because it compares whole
+            # names for equality.
+            if k[1] == s.channel and k[0] is not None and k[0] == rec:
                 key = k
                 break
         # THE CAMERA HAS TO BELONG TO THE SECTION, or the bound is arithmetic about a place
         # the sweep is not. SPAWN_CAMERA_Y is the act spawn's camera and the act spawn is in
         # SPAWN_SECTION; a sweep authored on any other section is reported as not evaluated
         # rather than judged against it. See the SPAWN_SECTION note above.
-        if key is not None and key[0] is not None and key[0] != SPAWN_SECTION:
+        #
+        # SINCE B′ the sweep names a RECORD, so "is this the spawn section's sweep" is asked
+        # of the record the spawn section binds. A record bound by NO section, or by more
+        # than one, has no single camera and is NOT EVALUATED — which is the honest answer
+        # and not a pass.
+        spawn_rec = sections.get(SPAWN_SECTION)
+        if key is not None and rec is not None and rec != spawn_rec:
             unevaluated.append(s)
             continue
         if key is None:
