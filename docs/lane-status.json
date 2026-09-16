@@ -7,7 +7,7 @@
       "agent": true
     },
     {
-      "what": "Region background switch: writing the build plan, then implementing after review",
+      "what": "Region background switch: plan reviewed (one false premise sent back), now building it step by step",
       "where": "branch parcel/region-bg-switch (agent worktree)",
       "agent": true
     }
@@ -19,7 +19,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the switch's build plan comes back for review, before any engine code changes.",
+  "nextBoundary": "When the background switch is built, gated and landed, or the agent stops at a clean commit.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -66,5 +66,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T20:54:24Z"
+  "updatedAt": "2026-09-16T21:08:09Z"
 }
