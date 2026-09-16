@@ -1611,3 +1611,36 @@ go red), and *before trusting a test that PASSED, ask what it would accept at ra
 its green means something). The second exists because a vacuous test here returned a result that
 was not implausible — it was beautiful, 100% explained with zero residue — and its control showed
 it accepted 28% of the entire colour space.
+
+### The worked example of that question, and it is better than the rule it answers (sigil, 2026-09-16)
+
+The multiplier-list finding above got a resolution the same night, and it is the exemplar for
+"what would have caught this, and does it exist yet?" — because the answer sigil built was **not a
+checker.**
+
+The hazard as reported: their multiply-lowering oracles executed over a **hand-maintained** set of
+multipliers; `26` was in it, `22` was not; this repo's step 3 took `sizeof(Sec)` 26 → 22 and both
+`mul_const` sites **re-encoded to ×22 at the same size** — the multiply did not disappear, so a
+live stride moved out of the proven set with nothing going red.
+
+The rule that first suggested itself, and which the hub banked: *a change that moves a constant any
+proof, oracle, fixture list or golden executes over must name that list and say whether the new
+constant is in it.* That rule is sound and it is **second best**, because it makes every future
+stride change owe a message, and an obligation that must be remembered is the same class of thing
+as the list that must be maintained.
+
+**What sigil did instead** (`46a98749`, "sweep the multiplier domain instead of listing it"):
+`every_multiplier()` became `0..=MUL_U16_IMM_MAX` — **the same named constant the assembler's own
+accept check uses**. The oracle's set and the admitted set are now one declaration, so a stride
+nobody has measured is covered the moment the assembler accepts it. The list did not get corrected;
+**it stopped existing.**
+
+**The test to carry forward:** when a standing claim rots, ask whether the fix removes the need to
+remember, or adds one. A rule that says *tell the other lane when X moves* leaves the failure mode
+intact and renames it. Sigil's own framing, and it is the sharpest line of it: *if you are ever
+tempted to send that message, the fact that you would have to is the bug.*
+
+**Corollary, against this lane's own report:** I relayed "22 is not in your list, so the hole has a
+live instance in the shipping game" **four hours after they had deleted the list.** The measurement
+was right and the conclusion drawn from it was stale — a peer's state is not a thing to infer from
+their last message about it.
