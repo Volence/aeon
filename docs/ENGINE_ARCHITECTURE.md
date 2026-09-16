@@ -2434,6 +2434,26 @@ So a `Region` field is free in ROM until it changes the stride's *form*, and the
 paid at every stride site rather than in the table — which is invisible in the table's own
 arithmetic and is the number to check before the next field lands.
 
+**⚠ AND THE +20 IS A PURCHASE, NOT A LEAK — completed 2026-09-16 from sigil, whose side of the
+wall this is.** The sentence above is right about the mechanism and was incomplete about the
+meaning, which matters because "the price is paid at every stride site" reads as a regression to
+be recovered. It is not. `crates/sigil-frontend-emp/src/mul_lower.rs` prices every candidate
+lowering off the M68000UM cycle table (`sigil_isa::m68k_cycles`, the same classifier the
+cycle-budget walk uses) and picks by **fewest cycles first, then fewest bytes**, with the
+tie-break lengths coming from the encoder rather than a shadow table. **A `mulu.w` was available
+and would have been SMALLER.** The shift-add chain won on cycles, so the +10 a site is the cost
+model spending bytes to buy time, deliberately and deterministically. There is something on the
+other side of the price.
+
+**The lever, if those 20 bytes are ever wanted back, is OURS and it is the stride — not sigil's
+lowering.** Put `sizeof(Region)` back on a power of two and the chain collapses to a shift.
+**Priced here so nobody re-derives it under pressure: it is a LOSS today.** 22 → 32 B costs
++10 B per row against a 10-row release table (+100) and an 11-row debug table (+110), to recover
+20 B of code — net **+80 / +90 ROM**, in exchange for the cycles at two sites that are DEBUG-only
+emissions in the release shape. **Rejected for now, and the arithmetic is what makes it a
+decision rather than a habit:** the trade inverts if the stride sites multiply or move into a
+per-frame path, and it worsens as the table grows. Re-derive it, do not inherit this row.
+
 Two rows naming the same preset ARE one region for every purpose the engine has (nothing reads a region id), so an L-shape is two rows and an arch is three. **The cost of a shape is its row count, never its area.**
 
 **The crossing** (`Parallax_CheckBoundary`, `engine/level/parallax.emp`) tests the camera CENTRE — `Camera_X + CAM_SCREEN_HALF_W`, `Camera_Y + CAM_SCREEN_HALF_H` — against the live rectangle cached in RAM (`Region_Cur_X0/X1/Y0/Y1`, outside `Parallax_State`): four unsigned compares a frame, no shifts, no pointer chase. On a miss, `Region_Resolve` scans the act's table linearly for the first containing row (rows never overlap, so first is only); the cache is refilled with two `move.l` (spelled `Region.rg_x0:l(a0)` — sigil refuses a bare `.l` on a 2-byte field, and `:l` is its declared-overlay form); `Region_Current` records the `Region*` (an observable the gates poll; no engine logic reads it); and the one total-binding install runs, `Effects_InstallPreset` then `Parallax_StartTransition`. No containing row keeps everything — unreachable on an act that builds (see the invariants). `Parallax_Init` and the DEBUG warp write the sentinel `$FFFF/$0000` (a rectangle nothing is inside) so the next test rescans; on first boot the Work-RAM clear already leaves an empty cache, and there is no runtime act-reload path (the init runs only as `Game.entry`, after a reset). On a DEBUG warp that lands inside the region already cached the sentinel is NOT load-bearing for identity (measured, step 5: with it removed the cached rectangle keeps the right region and nothing installs); what it buys is a re-install of the region's channels after something else changed them, at the price of a redundant install — with a fading preset, a fade toward the palette already showing.
