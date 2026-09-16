@@ -636,3 +636,73 @@ on `camera` or `contradiction` the run exits 2 with the trace attached.
 **Still owed and it is the controller's:** the two ROM-side mutations (revert the rate clamp;
 revert the position clamp) have never run, so nothing has yet shown the gate goes red when the
 *subject* breaks.
+
+## ADDENDUM 5 — the blocker was my predicate, at the boundary, and the trace settled it offline
+
+The exit-code fix worked on its first real test and blocked on **leg S**, not leg D. It is not an
+engine finding. **I reproduced it with no emulator, from the printed trace alone:**
+
+| step | gap | backlog | verdict (before) |
+|---|---|---|---|
+| S130 | −48 | −48 | `backlog` ✓ |
+| S131 | −32 | −32 | `backlog` ✓ |
+| S132 | **−16** | **−16** | **`contradiction`** ✗ |
+
+**The sign hypothesis is refuted; the boundary reading is right.** Mid-ratchet steps classify
+correctly in *both* directions — the mirror-image upward ratchet behaves identically and now has
+a fixture proving it. The defect is the final step alone, where the value sits exactly one bound
+from the target.
+
+### Why it is not a contradiction — the reason, not an exemption
+
+At `|gap| == step_max` the clamped and the unclamped results are **the same value**:
+`prev + sign(gap)·step_max == prev + gap == target`. No observation can distinguish them, so
+there is nothing for one to contradict. A genuine contradiction needs the move to **exceed** what
+the model says was needed, i.e. `|gap| < step_max`. The predicate is now strict `<`, which
+narrows it by exactly the one value where it was **provably vacuous**.
+
+And the released step becomes `backlog` **positively**: the term test went from `>` to `>=`,
+because a term of exactly the bound produces a move at the bound by itself and so explains the
+bind with no second contributor. `>` was leaving the last step of *every* ratchet unattributed —
+**the two fixes are the same mistake at two sites**, not one fix plus a patch to make a case pass.
+
+### The populations that had never been exercised
+
+A downward backlog and an exactly-one-bound-remaining step: neither existed in any fixture. Both
+now do, in both directions, plus a pin that a **genuine** contradiction still blocks after the
+narrowing (`|gap|` 0 and 8 both still exit 2). Red-proven, control last, 24 passed: reverting the
+contradiction test to `<=` → RED; reverting the term test to `>` → RED; **emptying the
+contradiction predicate entirely → RED**, which is what proves the narrowing did not gut it.
+
+### ⚠ A THIRD FIXTURE OF MINE WAS WRONG WHILE THE CODE WAS RIGHT
+
+I wrote 272 where the act's arithmetic gives 177. That is three times across two rounds — a lock
+config given `v_offset` 0, camera fixtures whose `v_center` drove the target negative, and now
+this. **The pattern is clear enough to name: my test DATA is the weak point, not the logic.** The
+practice that catches it is the one that caught all three — computing the expected value out loud
+against the act's real numbers before asserting it — and the new fixture derives its `v_offset`
+from `REACH` and `STEP` rather than carrying a number I believed.
+
+### What worked, recorded because it is the point
+
+The instrument **blocked on its own subject and printed the evidence to settle it**, and the
+evidence was sufficient to diagnose the defect offline, with no emulator and no second run. The
+previous shape — pass while advising someone to go looking — could not have done that. The trace
+also named its own leg, which is what stopped a misreading of one leg's histogram from becoming a
+wrong report.
+
+That is five instances in this parcel of one failure family, and the last one is the fix for the
+other four: three greens consistent with the mechanism never running, one non-green that read as
+green, and one blocker that was a boundary error in the blocker itself — caught because it had to
+show its work.
+
+### Where step 4 stands
+
+Both discriminators have fired. A1/A3 green at invocation granularity. Leg D's single bound step
+is `backlog` — the clamp doing its job. Leg S's step 132 is `backlog` too, under a predicate that
+now has a stated reason and three red-proofs. **No open observation remains that the instrument
+cannot attribute.**
+
+**Still owed, and it is the controller's:** the two subject-side mutations (revert the rate clamp;
+revert the position clamp) have never run, so nothing has yet shown the gate goes red when the
+*subject* breaks.
