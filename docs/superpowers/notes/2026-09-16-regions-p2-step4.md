@@ -117,8 +117,9 @@ in `tools/demo_specialization_witness.py`. The spec's 20-30 was low mostly becau
 count the fallback ceiling: the clamp now loads a ceiling into a register through a
 two-condition ladder (null pointer, zero span) before it can compare anything.
 
-**Four canonical shapes, both revisions, all exit 0.** Base `57b8a1c3`, after `2e34c9ba`
-(this parcel's tip). Wall clock across the runs `up 7:17` to `up 7:58`, load average 4.6 to
+**Four canonical shapes, both revisions, all exit 0.** Base `57b8a1c3`; the AFTER shapes were
+built at `e8e68224` (the last commit that touches anything the assembler reads — everything
+after it is `tools/` and `docs/`, which move no bytes; that is asserted below, not assumed). Wall clock across the runs `up 7:17` to `up 7:58`, load average 4.6 to
 18.1 (several parallel sessions on this box), so elapsed times are context, not a benchmark.
 
 | shape | base size | base md5 | after size | after md5 | Δ |
