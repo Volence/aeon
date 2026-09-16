@@ -37,9 +37,12 @@ It is NECESSARY and it is not SUFFICIENT. Read out of engine/effects/palette.emp
      nothing whatever about them.
   2. A COUNT OF 0 CAN MEAN "NEVER STARTED", AND IT CAN MEAN "CANCELLED". `Palette_LoadPal`'s
      snap arm does `clr.b Pal_Fade_Frames` (palette.emp:296) — a snap install cancels a fade
-     in flight. A frame sampled one tick after such a cancel reads 0 with the buffer NOT on
-     the palette the cancelled fade was heading for. Hence the separate buffer-vs-target
-     clause below: it distinguishes "arrived" from "stopped".
+     in flight. What keeps a half-stepped buffer out of a certified frame is NOT the
+     buffer-vs-target comparison (see the `Pal_Target` section below for why that comparison
+     cannot always run): the same snap arm also sets `Pal_Base_Dirty`, and the next
+     `Palette_Compose` overwrites lines 1-3 wholesale from `Pal_Base`. So `Pal_Base_Dirty ==
+     0` — clause 3 — is exactly the observable that says the cancel's replacement copy has
+     landed, and a cancelled fade leaves no intermediate behind it once it reads 0.
   3. THE BUFFER IS NOT CRAM. `Palette_Compose` runs in the MAIN LOOP (engine/system/
      game_loop.emp, after the state dispatch); `Enqueue_Dirty_Buffers` runs in the NEXT
      VBlank (engine/system/vblank.emp) and only then does a DMA carry lines 1-3 to CRAM. A
@@ -64,13 +67,63 @@ that fails NAMES THE FRAME, so a filename says not only that it is unsettled but
           `Palette_Compose` itself tests for the layers that move lines 1-3:
           `tst.b Pal_Base_Dirty`, `btst #1, Pal_Active` (PAL_ACT_CYCLE), `tst.b Pal_Op`
   buf     `Palette_Buffer` lines 1-3 == `Pal_Target`, under `Palette_DoFade`'s own
-          `$0EEE` channel mask  (arrived, not merely stopped)
+          `$0EEE` channel mask -- **ONLY WHERE `Pal_Target` IS AUTHORITATIVE**, see below
   cram    CRAM lines 1-3 == `Palette_Buffer` lines 1-3  (the DMA has landed)
   lag     the last N samples each advanced Logic_Tick by exactly 1 and took no lag frame
   hold    CRAM lines 1-3 identical across the last N samples
 
 All seven -> `settled`. A clause whose inputs are absent from the row is UNDECIDABLE and the
 frame is named `unknown`: never `settled`, and never quietly treated as a pass.
+
+WHEN `Pal_Target` MEANS ANYTHING, and the defect that taught it (live run 2026-09-16)
+--------------------------------------------------------------------------------------
+The first real run named all four day-palette control frames `buf` and certified none of
+them, on a palette that had been bit-identical in CRAM for 194 consecutive samples. The
+`buf` clause reported "42 of 48 words differ from Pal_Target" and blamed
+`Palette_LoadPal`'s snap arm cancelling a fade -- **a mechanism that had not occurred**. No
+fade had run at all that session. `Pal_Target` was 48 words of `$0000`, never written.
+
+`Pal_Target` has EXACTLY ONE WRITER in the whole tree: `Palette_LoadPal`'s `.load_target`
+arm (engine/effects/palette.emp:302; the other two references, :597 and :619, are
+`Palette_DoFade` READING it). So it says what the most recent FADE install intended, and it
+is silent -- not wrong, silent -- in two reachable states:
+
+  * **never written.** No fade has run this session, so it is zeros. Every frame before the
+    act's first fade edge is in this state. That is the state the live run was in.
+  * **stale after a snap.** `Palette_LoadPal`'s snap arm copies into `Pal_Base` and NEVER
+    touches `Pal_Target`, so after any snap install the field still holds the previous
+    fade's target. This is reachable in the same act and the same held direction: leaving
+    the night region at x = 4800 snaps back to forest, and every frame after that would
+    have been refused the same way. **The unset case was the instance; the premise was
+    wrong in general.**
+
+So the comparison is gated on the target being AUTHORITATIVE, decided from the observed
+series alone and never from an assumption about what happened before sampling began: a fade
+was seen in flight (`Pal_Fade_Frames != 0`) at some earlier sample, and no `Pal_Base_Dirty`
+has been seen set since. Where that does not hold the clause is NOT APPLICABLE -- recorded
+as such, never a refusal, and `Verdict.target_checked` says which frames got the full
+48-word comparison so nobody reads a certified pre-fade frame as carrying it.
+
+WHAT CARRIES THE SOUNDNESS INSTEAD, since `buf` no longer runs everywhere. `buf` was never
+the thing keeping a half-stepped buffer out; clauses 1-3 are, and they are exhaustive over
+the WRITERS rather than over the symptoms. The engine already maintains that enumeration:
+the frame-top palette committer census in `engine/system/buffers.emp` (2026-08-17, spec §8
+CLAIM 7), pinned by a comptime `ensure` at 14 entries and by
+`tools/test_palette_census_lint.py`. Read against it, every writer of lines 1-3 reachable in
+a running game state is guarded by a flag one of clauses 1-3 reads:
+
+  census 0  Palette_Compose base copy   guarded by `Pal_Base_Dirty`, which it clears
+  census 1  Palette_RotateSpan          called only by Palette_DoCycle, guarded PAL_ACT_CYCLE
+  census 2  Palette_DoFade              guarded by `Pal_Fade_Frames != 0`
+  census 3  Palette_DoOperator          guarded by `Pal_Op != 0`
+  census 4  Player_RefreshPhysics       line 0 only (the character line)
+  census 6  the T15 sky marker          `move.w d1, Palette_Buffer` -- line 0 entry 0 only
+  census 5, 7, 8, 9                     per-game *_Init states, run once before the loop
+  census 10-13                          the VBlank ship boundary and readers
+
+`derive_engine_facts()` pins that census's length, so ADDING a writer breaks the build's own
+`ensure` and this module's derivation together, and the next person re-reads the table above
+instead of inheriting a claim.
 
 N IS DERIVED, NOT CHOSEN
 ------------------------
@@ -150,6 +203,12 @@ class DerivationError(Exception):
 COMPOSE_TO_CRAM_TICKS = 1
 #: Ticks between CRAM holding a palette and a paused screenshot showing a frame drawn with it.
 CRAM_TO_CAPTURED_FRAME_TICKS = 1
+
+#: The engine's frame-top palette committer census length (engine/system/buffers.emp,
+#: 2026-08-17). Clauses 1-3 are sound because every lines-1-3 writer it enumerates is guarded
+#: by a flag they read; if the census moves, that reading has to be redone. Pinned, not
+#: read-and-accepted: a bumped number with an unguarded new writer is exactly the silent case.
+PAL_COMMITTER_CENSUS = 14
 
 
 @dataclass(frozen=True)
@@ -274,6 +333,34 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
                   "a 0 count alone cannot tell `arrived` from `stopped`",
                   "engine/effects/palette.emp, proc Palette_LoadPal snap arm"))
 
+    # The WRITER enumeration clauses 1-3 rest on, taken from the engine's own census rather
+    # than re-derived privately here. buffers.emp pins it with a comptime `ensure` and
+    # tools/test_palette_census_lint.py lints it, so a new writer of Palette_Buffer already
+    # breaks the build; pinning the same number here makes it break this module's derivation
+    # in the same change, and the next person re-reads the guard table in the header instead
+    # of inheriting a claim about code they have not looked at.
+    buf = _src(aeon, "engine/system/buffers.emp")
+    m = re.search(r"ensure\(pal_committer_census\(\)\s*==\s*(\d+)", buf)
+    if not m:
+        raise DerivationError(
+            "engine/system/buffers.emp no longer pins `pal_committer_census()`. That census "
+            "is the enumeration of every writer of Palette_Buffer, and clauses 1-3 are sound "
+            "only because every lines-1-3 writer in it is guarded by a flag they read. "
+            "Re-read the census and this module's header before certifying another frame.")
+    census = int(m.group(1))
+    if census != PAL_COMMITTER_CENSUS:
+        raise DerivationError(
+            f"the frame-top palette committer census is now {census} entries, not "
+            f"{PAL_COMMITTER_CENSUS}. A writer of Palette_Buffer was added or removed. Read "
+            "the census table in engine/system/buffers.emp against the guard table in this "
+            "module's header: if the new writer of lines 1-3 is not gated by Pal_Base_Dirty, "
+            "PAL_ACT_CYCLE, Pal_Fade_Frames or Pal_Op, the `settled` word is no longer sound "
+            "and needs a new clause, not a bumped number.")
+    cites.append((f"every writer of Palette_Buffer is enumerated by the frame-top palette "
+                  f"committer census ({census} entries), and every lines-1-3 writer in it is "
+                  "guarded by a flag clauses 1-3 read",
+                  "engine/system/buffers.emp, pal_committer_census"))
+
     n = COMPOSE_TO_CRAM_TICKS + CRAM_TO_CAPTURED_FRAME_TICKS + 1
     cites.append((f"N = {COMPOSE_TO_CRAM_TICKS} (compose -> CRAM) + "
                   f"{CRAM_TO_CAPTURED_FRAME_TICKS} (CRAM -> the completed frame a paused "
@@ -296,6 +383,41 @@ class Verdict:
     decided: bool                # every clause could be evaluated at all
     reasons: tuple = field(default_factory=tuple)
     stable_run: int = 0          # consecutive samples, ending here, with identical CRAM
+    #: did the `buf` clause actually compare the 48 words against Pal_Target? False means
+    #: the target was NOT AUTHORITATIVE here (no fade seen yet, or a snap since), so this
+    #: frame is certified on clauses 1-3 + 5-7 alone. A certified pre-fade frame carries
+    #: strictly weaker evidence than a certified post-fade one and must not be read as
+    #: though it carried the same.
+    target_checked: bool = False
+    target_note: str = ""
+
+
+def target_authority(series) -> tuple[bool, str]:
+    """Is `Pal_Target` authoritative at series[-1], decided from the observed series alone?
+
+    True iff a fade was seen IN FLIGHT at some earlier sample and no `Pal_Base_Dirty` has
+    been seen set since — i.e. the fade layer is the last layer to have set the palette, so
+    its target is what the engine intends.
+
+    Nothing here assumes anything about what happened before sampling began. A fade that ran
+    and was cancelled before the first sample reads as "not authoritative", which SKIPS the
+    comparison rather than refusing on it: the conservative direction for a clause whose
+    premise cannot be established is silence, not a refusal naming a cause it cannot see.
+    Clauses 1-3 are what keep a half-stepped buffer out; see this module's header."""
+    seen_fade = None
+    for i, s in enumerate(series):
+        if s.get("fade_frames"):
+            seen_fade = i
+    if seen_fade is None:
+        return False, ("no cross-fade has been observed in flight in this run, so Pal_Target "
+                       "has not been written (Palette_LoadPal's fade arm is its only writer) "
+                       "and comparing against it would refuse on 48 words of $0000")
+    for s in series[seen_fade + 1:]:
+        if s.get("pal_base_dirty"):
+            return False, ("a snap install was observed after the last fade (Pal_Base_Dirty "
+                           "set), and Palette_LoadPal's snap arm never updates Pal_Target, "
+                           "so the field is stale")
+    return True, ""
 
 
 def _masked(words, mask):
@@ -358,19 +480,25 @@ def assess(series, facts: EngineFacts) -> Verdict:
     if live:
         return Verdict("layer", False, True, tuple(live), _stable_run(series, mask))
 
-    # 4 -- buf
+    # 4 -- buf, ONLY where Pal_Target is authoritative (see this module's header). Where it
+    # is not, the comparison is skipped and recorded — never turned into a refusal whose
+    # stated cause did not happen.
     if (miss := _missing(row, "buffer", "target")):
         return undec("buf", miss)
-    if _masked(row["buffer"], mask) != _masked(row["target"], mask):
+    authority, why_not = target_authority(series)
+    if authority and _masked(row["buffer"], mask) != _masked(row["target"], mask):
         bad = [i for i in range(len(row["buffer"]))
                if (row["buffer"][i] ^ row["target"][i]) & mask]
         return Verdict("buf", False, True,
-                       (f"{len(bad)} of {len(row['buffer'])} words of Palette_Buffer lines "
-                        f"1-3 differ from Pal_Target under ${mask:04X}, first at line "
-                        f"{bad[0] // 16 + 1} entry {bad[0] % 16}: ${row['buffer'][bad[0]]:04X} "
-                        f"vs ${row['target'][bad[0]]:04X}. The fade STOPPED rather than "
-                        "arrived (Palette_LoadPal's snap arm clears the count)",),
-                       _stable_run(series, mask))
+                       (f"a fade was observed in flight and has closed with no snap since, "
+                        f"so Pal_Target is the palette the engine intends — and {len(bad)} of "
+                        f"{len(row['buffer'])} words of Palette_Buffer lines 1-3 still differ "
+                        f"from it under ${mask:04X}, first at line {bad[0] // 16 + 1} entry "
+                        f"{bad[0] % 16}: ${row['buffer'][bad[0]]:04X} vs "
+                        f"${row['target'][bad[0]]:04X}. The fade STOPPED rather than arrived",),
+                       _stable_run(series, mask), target_checked=True)
+
+    tc = dict(target_checked=authority, target_note=why_not)
 
     # 5 -- cram
     if (miss := _missing(row, "cram")):
@@ -384,7 +512,7 @@ def assess(series, facts: EngineFacts) -> Verdict:
                         f"{bad[0] % 16}: ${row['cram'][bad[0]]:04X} vs "
                         f"${row['buffer'][bad[0]]:04X}. The compose has not reached CRAM "
                         "yet (Enqueue_Dirty_Buffers runs in the next VBlank)",),
-                       _stable_run(series, mask))
+                       _stable_run(series, mask), **tc)
 
     # 6 -- lag
     window = series[-facts.stable_ticks:]
@@ -392,7 +520,7 @@ def assess(series, facts: EngineFacts) -> Verdict:
         return Verdict("hold", False, True,
                        (f"only {len(window)} sample(s) taken; {facts.stable_ticks} consecutive "
                         "are required before a frame may be called settled",),
-                       _stable_run(series, mask))
+                       _stable_run(series, mask), **tc)
     for s in window[1:]:
         if s.get("dtick") is None or s.get("lag") is None:
             return undec("lag", ["dtick/lag over the stability window"])
@@ -407,7 +535,7 @@ def assess(series, facts: EngineFacts) -> Verdict:
             why.append(f"Lag_Frame_Count moved {len(lagged)} time(s) inside the window, so a "
                        "logic tick spanned more than one video frame and the compose-to-frame "
                        "mapping N is derived from does not hold across it")
-        return Verdict("lag", False, True, tuple(why), _stable_run(series, mask))
+        return Verdict("lag", False, True, tuple(why), _stable_run(series, mask), **tc)
 
     # 7 -- hold
     run = _stable_run(series, mask)
@@ -415,11 +543,16 @@ def assess(series, facts: EngineFacts) -> Verdict:
         return Verdict("hold", False, True,
                        (f"CRAM lines 1-3 have been identical for {run} consecutive sample(s); "
                         f"{facts.stable_ticks} are required (see this module's derivation of "
-                        "N)",), run)
+                        "N)",), run, **tc)
 
-    return Verdict(SETTLED_WORD, True, True,
-                   (f"all seven clauses held from a live read, with CRAM identical across "
-                    f"the last {run} samples",), run)
+    held = (f"every applicable clause held from a live read, with CRAM identical across the "
+            f"last {run} samples")
+    if authority:
+        held += ", and Palette_Buffer lines 1-3 were compared word for word against Pal_Target"
+    else:
+        held += (". The Pal_Target comparison was NOT APPLICABLE and did not run: " + why_not +
+                 ". This frame is certified on the layer gates and on CRAM stability alone")
+    return Verdict(SETTLED_WORD, True, True, (held,), run, **tc)
 
 
 def _stable_run(series, mask) -> int:

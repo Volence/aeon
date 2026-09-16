@@ -64,12 +64,20 @@ def simulate(n_pre=6, n_post=24, arm_at=10, tick0=260, cx0=3300, fly=16):
     """A run of state rows across the fade edge, CRAM lagging the buffer by one tick.
 
     `arm_at` is the index of the crossing tick (k = 0), i.e. the first tick the night region
-    is current and the tick whose own compose is the fade's k = 1."""
+    is current and the tick whose own compose is the fade's k = 1.
+
+    ⚠ `Pal_Target` IS ZEROS BEFORE THE ARM, AND THAT LINE IS LOAD-BEARING.
+    `Palette_LoadPal`'s fade arm is the field's only writer, so before the act's first fade
+    it has never been written. The first version of this fixture set it to DAY on the
+    pre-crossing rows -- modelling a value the engine does not hold -- and that single
+    assumption is what hid the live defect of 2026-09-16: the shipped `buf` clause refused
+    every day-palette control frame and three tests over this fixture stayed green, because
+    the fixture disagreed with the machine. Do not "tidy" this back to DAY."""
     F = rfw.src_const("engine/effects/palette.emp", "PAL_FADE_FRAMES")
     rows = []
     for i in range(arm_at + n_post):
         if i < arm_at:
-            buf, pf, tgt, row = list(DAY), 0, list(DAY), 1
+            buf, pf, tgt, row = list(DAY), 0, [0] * 48, 1
         else:
             buf, pf = rfw.fade_model(DAY, NIGHT, i - arm_at + 1, F)
             tgt, row = list(NIGHT), FADE_ROW["index"]

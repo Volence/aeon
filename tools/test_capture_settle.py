@@ -71,6 +71,17 @@ def settled_series(n=8, **kw):
     return [row(tick=100 + i, k=i, **kw) for i in range(n)]
 
 
+def after_a_fade(rows):
+    """Prepend two ticks of a fade IN FLIGHT, so `Pal_Target` is authoritative over `rows`.
+
+    The `buf` clause only compares where the observed history says Pal_Target means
+    something: a fade seen in flight, and no snap install since. A test whose subject IS
+    that comparison has to establish it, exactly as a real run does by crossing the edge."""
+    pre = [row(tick=90 + i, k=-9 + i, fade_frames=15 - i, buffer=list(DAY), cram=list(DAY))
+           for i in range(2)]
+    return pre + rows
+
+
 # ------------------------------------------------------------------ the derivation
 
 def test_n_is_three_and_carries_its_derivation():
@@ -84,7 +95,17 @@ def test_n_is_three_and_carries_its_derivation():
         assert src in joined, f"N's derivation does not cite {src}"
 
 
+#: Every engine file derive_engine_facts() reads. Listed once so a new source added to the
+#: derivation lands in the mutation sweep too, instead of the sweep copying a tree the
+#: derivation then reads OUT OF the real repo behind its back.
+DERIVATION_SOURCES = ("engine/system/game_loop.emp", "engine/system/vblank.emp",
+                      "engine/effects/palette.emp", "engine/system/buffers.emp")
+
+
 @pytest.mark.parametrize("rel,old,new,what", [
+    ("engine/system/buffers.emp", "ensure(pal_committer_census() == 14",
+     "ensure(pal_committer_census() == 15",
+     "the frame-top palette committer census clauses 1-3's exhaustiveness rests on"),
     ("engine/system/game_loop.emp", "jbsr    Palette_Compose", "jbsr    Palette_Composed",
      "the compose call GameLoop's ordering term is read from"),
     ("engine/system/vblank.emp", "jbsr    Enqueue_Dirty_Buffers", "jbsr    Enqueue_Dirty_Buffer",
@@ -100,8 +121,7 @@ def test_the_derivation_refuses_when_its_source_moves(tmp_path, rel, old, new, w
     """N may not outlive the engine ordering it is derived from. Proven by MUTATING that
     ordering on disk (in a copy: the committed tree is never written) and watching the
     derivation refuse rather than return a stale 3."""
-    for f in ("engine/system/game_loop.emp", "engine/system/vblank.emp",
-              "engine/effects/palette.emp"):
+    for f in DERIVATION_SOURCES:
         dst = tmp_path / f
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(os.path.join(AEON, f), dst)
@@ -181,26 +201,63 @@ def test_the_old_sets_table_cannot_support_a_settled_claim_for_any_row():
 
 def test_the_tracer_entry_reaching_night_is_not_the_palette_arriving():
     """The exact mistake, isolated: counter 0, tracer on its night value, 47 other words
-    still short. The predicate must refuse, and it must refuse on the PALETTE, not on the
-    counter -- clause 1 passes here."""
+    still short, and a fade genuinely observed in flight just before -- so `Pal_Target` IS
+    authoritative and the comparison runs. The predicate must refuse, and on the PALETTE,
+    not on the counter; clause 1 passes here."""
     mid = list(DAY)
     mid[16 + 2] = NIGHT[16 + 2]          # CRAM line 1 entry 2, the 2026-09-13 tracer
     r = row(buffer=mid, cram=mid, target=list(NIGHT))
-    v = cs.assess([r], facts())
+    v = cs.assess(after_a_fade([r]), facts())
     assert not v.settled
     assert v.word == "buf", v.reasons
-    assert "differ from Pal_Target" in " ".join(v.reasons)
+    assert v.target_checked
+    assert "differ from it" in " ".join(v.reasons)
+
+
+def test_the_same_row_without_an_observed_fade_is_not_refused_on_a_target_that_means_nothing():
+    """THE LIVE DEFECT OF 2026-09-16, as a row. Identical state, minus the observed fade:
+    `Pal_Target` has never been written (Palette_LoadPal's fade arm is its only writer), so
+    comparing against it would refuse 48 words of $0000 and blame a cancelled fade that
+    never happened. The comparison must not run, and the frame must certify."""
+    r = row(buffer=list(DAY), cram=list(DAY), target=[0] * 48)
+    v = cs.assess([r] * 3, facts())
+    assert v.settled, v.reasons
+    assert not v.target_checked
+    assert "has not been written" in v.target_note
+    # and the old FALSE CAUSE must appear nowhere in what it tells the reader
+    assert "snap arm" not in " ".join(v.reasons)
 
 
 # ------------------------------------------------------------------ the clauses
 
-def test_a_snap_cancelled_fade_reads_zero_and_is_still_not_settled():
-    """Palette_LoadPal's snap arm clears the count. A frame one tick later reads 0 with the
-    buffer nowhere near the cancelled fade's target -- `Pal_Fade_Frames == 0` alone would
-    call that settled."""
-    v = cs.assess([row(fade_frames=0, buffer=list(DAY), cram=list(DAY), target=list(NIGHT))],
-                  facts())
-    assert v.word == "buf" and not v.settled
+def test_a_snap_cancelled_fade_is_caught_by_the_PENDING_BASE_COPY_not_by_the_target():
+    """RE-DERIVED 2026-09-16, because this test's original premise was WRONG.
+
+    It used to assert that a snap-cancelled fade is caught by the buffer-vs-target
+    comparison. It is not, and cannot be: `Palette_LoadPal`'s snap arm does not only
+    `clr.b Pal_Fade_Frames`, it also loads `Pal_Base` and sets `Pal_Base_Dirty`, and the
+    next `Palette_Compose` overwrites lines 1-3 wholesale from that base. So:
+
+      * while the copy is PENDING, `Pal_Base_Dirty` is set and clause 3 refuses -- that is
+        the real guard, and the only window in which an intermediate buffer is observable;
+      * once it has landed the buffer is a COMPLETE palette and `Pal_Target` is stale (the
+        snap arm never updates it), so comparing against it would refuse a frame that is
+        genuinely settled -- the same false refusal the live run hit, by its other route."""
+    f = facts()
+    pending = after_a_fade([row(fade_frames=0, pal_base_dirty=1, buffer=list(DAY),
+                                cram=list(DAY), target=list(NIGHT))])
+    v = cs.assess(pending, f)
+    assert v.word == "layer" and not v.settled
+    assert "one-shot copy" in " ".join(v.reasons)
+
+    landed = after_a_fade([row(fade_frames=0, pal_base_dirty=1, buffer=list(DAY),
+                               cram=list(DAY), target=list(NIGHT))] +
+                          [row(tick=200 + i, fade_frames=0, buffer=list(DAY), cram=list(DAY),
+                               target=list(NIGHT)) for i in range(f.stable_ticks)])
+    v = cs.assess(landed, f)
+    assert v.settled, v.reasons
+    assert not v.target_checked
+    assert "stale" in v.target_note
 
 
 def test_an_armed_request_is_not_settled():
@@ -286,43 +343,57 @@ def test_a_lag_tick_inside_the_window_refuses():
 
 # ------------------------------------------------------------------ the naming property
 
-def _grid_verdict(f, kw):
-    series = settled_series(f.stable_ticks)
-    for s in series:
-        s.update(kw)
-    return cs.assess(series, f)
+AXES = {
+    "fade_frames": [0, 1, 11],
+    "fade_request": [0, 1],
+    "pal_op": [0, 3],
+    "pal_base_dirty": [0, 1],
+    "buffer": [list(NIGHT), list(DAY)],
+    "cram": [list(NIGHT), list(DAY)],
+}
 
 
-def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_settled():
-    """The property, over a grid rather than over examples: for every combination of the
-    clause inputs, the produced NAME contains `settled` exactly when assess() settled."""
+@pytest.mark.parametrize("authoritative,expected_settled", [(True, 1), (False, 2)])
+def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_settled(
+        authoritative, expected_settled):
+    """The property over a grid rather than over examples: the produced NAME contains
+    `settled` exactly when assess() settled -- run twice, once with `Pal_Target`
+    authoritative and once without, because the gating is now part of the answer.
+
+    THE TWO COUNTS ARE THE GATING, and they are derived rather than observed. Every row's
+    `target` is NIGHT. With a fade observed in flight the `buf` comparison runs, so the only
+    settled corner is the one whose buffer is also NIGHT: 1 of 96. Without one the
+    comparison is not applicable, so both the all-NIGHT and the all-DAY corners settle -- a
+    stable day palette before the act's first fade is exactly the live 2026-09-16 case: 2 of
+    96. If those two numbers are ever equal, the gate has stopped gating."""
     f = facts()
-    axes = {
-        "fade_frames": [0, 1, 11],
-        "fade_request": [0, 1],
-        "pal_op": [0, 3],
-        "pal_base_dirty": [0, 1],
-        "buffer": [list(NIGHT), list(DAY)],
-        "cram": [list(NIGHT), list(DAY)],
-    }
-    keys = list(axes)
+    settled_kw = []
     n = 0
-    for combo in itertools.product(*(axes[k] for k in keys)):
-        kw = dict(zip(keys, combo))
+    for combo in itertools.product(*(AXES[k] for k in AXES)):
+        kw = dict(zip(AXES, combo))
         series = settled_series(f.stable_ticks)
         for s in series:
             s.update(kw)
-        v = cs.assess(series, f)
+        v = cs.assess(after_a_fade(series) if authoritative else series, f)
         name = cs.frame_name("in", series[-1], v)
         assert (cs.SETTLED_WORD in name) == v.settled, (kw, v.word, name)
+        if v.settled:
+            settled_kw.append(kw)
         n += 1
     assert n == 96, n
-    # NOT VACUOUS IN EITHER DIRECTION. A grid whose every cell refuses would pass the
-    # assertion above while proving nothing, so the two arms are counted.
-    settled = sum(1 for combo in itertools.product(*(axes[k] for k in keys))
-                  if _grid_verdict(f, dict(zip(keys, combo))).settled)
-    assert settled == 1, settled          # exactly the all-night, all-quiet corner
-    assert n - settled == 95
+    # NOT VACUOUS IN EITHER DIRECTION: a grid whose every cell refused would pass the
+    # assertion above while proving nothing, so both arms are counted.
+    assert len(settled_kw) == expected_settled, [
+        {k: ("NIGHT" if v == list(NIGHT) else "DAY" if v == list(DAY) else v)
+         for k, v in kw.items()} for kw in settled_kw]
+    assert n - len(settled_kw) == 96 - expected_settled
+    for kw in settled_kw:
+        assert kw["fade_frames"] == 0 and kw["fade_request"] == 0
+        assert kw["pal_op"] == 0 and kw["pal_base_dirty"] == 0
+        assert kw["buffer"] == kw["cram"]
+    if authoritative:
+        assert all(kw["buffer"] == list(NIGHT) for kw in settled_kw), (
+            "with Pal_Target authoritative, a buffer that is not the target must refuse")
 
 
 def test_frame_name_refuses_a_forged_settled_verdict():

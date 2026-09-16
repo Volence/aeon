@@ -164,6 +164,11 @@ def enrich(kept: list[dict], verdicts: dict, k0: int) -> tuple[list[dict], list[
         r["settle_decided"] = v.decided
         r["settle_reasons"] = list(v.reasons)
         r["cram_stable_run"] = v.stable_run
+        # Which frames got the full 48-word Palette_Buffer-vs-Pal_Target comparison. A
+        # certified frame with this False is certified on strictly weaker evidence (the
+        # layer gates + CRAM stability), because Pal_Target was not authoritative there.
+        r["target_checked"] = v.target_checked
+        r["target_note"] = v.target_note
     return keep, dropped
 
 
@@ -201,6 +206,16 @@ def build_report(args_rom: str, args_lst: str, rom_md5: str, edge: int, fade: di
         "stopped_because": stopped,
         "settled_frames": [r["png"] for r in settled_frames],
         "control_frames": [r["png"] for r in control_frames],
+        # THE CONTROL IS A RESULT, NOT A BY-PRODUCT (live run 2026-09-16). The first real
+        # run produced ZERO controls because the `buf` clause falsely refused every
+        # pre-fade frame, the summary said "0 day-palette controls" in passing, and nobody
+        # read it. A control count of zero means the predicate was never shown to be
+        # capable of saying `settled` anywhere but on the subject, so this run is not
+        # evidence that it can. It is a named top-level field, a loud stderr block and a
+        # README banner -- three places, because one was demonstrably passed over.
+        "control_empty": not control_frames,
+        "settled_frames_with_target_compared":
+            [r["png"] for r in settled_frames if r.get("target_checked")],
         "ticks": [public(r) for r in keep],
     }
 
@@ -393,8 +408,35 @@ async def run(args, sock) -> int:
         print(f"  k={r['k']:+4d} t={r['tick']:5d} cx={r['centre_x']:5d} row={r['row']} "
               f"pf={r['fade_frames']:2d} -> {r['settle_state']}", file=sys.stderr)
     print(f"{len(keep)} frames in {out}; {len(settled_frames)} inside the night region "
-          f"named `{cs.SETTLED_WORD}` ({len(report['control_frames'])} day-palette controls "
-          "before the crossing also settled)", file=sys.stderr)
+          f"named `{cs.SETTLED_WORD}`, of which "
+          f"{len(report['settled_frames_with_target_compared'])} also passed the 48-word "
+          "Palette_Buffer-vs-Pal_Target comparison", file=sys.stderr)
+    if report["control_empty"]:
+        print("", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        print("CONTROL EMPTY — this run certified 0 frames outside the night region.",
+              file=sys.stderr)
+        print("  The approach frames before the crossing are the BASELINE the night colour",
+              file=sys.stderr)
+        print("  is judged against, AND the control that the predicate can say "
+              f"`{cs.SETTLED_WORD}` at all", file=sys.stderr)
+        print("  somewhere other than on its subject. Zero of them means this run is NOT",
+              file=sys.stderr)
+        print("  evidence that the predicate can certify anything: a predicate that only",
+              file=sys.stderr)
+        print("  ever certifies the thing you are looking for has not been shown to refuse",
+              file=sys.stderr)
+        print("  for a reason. Read the `settle_reasons` of the k < 0 rows in report.json",
+              file=sys.stderr)
+        print("  BEFORE using the night frames. This exact state shipped once, on "
+              "2026-09-16,", file=sys.stderr)
+        print("  as one line reading `0 day-palette controls` that two people passed over.",
+              file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+    else:
+        print(f"  control: {len(report['control_frames'])} frame(s) outside the night region "
+              f"also certified — the predicate is not vacuously false on this run",
+              file=sys.stderr)
     if stopped is not None:
         print(f"night_settle_capture: DID NOT SETTLE — {stopped}", file=sys.stderr)
         print("The frames and report ARE written, and none of them is named "
@@ -468,12 +510,27 @@ def readme(rep: dict) -> str:
         lines += [f"**{len(rep['settled_frames'])} frame(s) INSIDE THE NIGHT REGION are "
                   f"named `{cs.SETTLED_WORD}`** and they are the only ones any night colour "
                   "measurement may be taken from: " +
-                  ", ".join(f"`{n}`" for n in rep["settled_frames"]) + ".", "",
-                  f"The {len(rep['control_frames'])} approach frame(s) before the crossing "
-                  f"are also named `{cs.SETTLED_WORD}` — correctly, on the DAY palette. They "
-                  "are the control that the predicate is not vacuously false, and they are "
-                  "NOT night evidence. The region row in each name (`r` field) is what tells "
-                  "the two apart.", ""]
+                  ", ".join(f"`{n}`" for n in rep["settled_frames"]) + ". "
+                  f"{len(rep['settled_frames_with_target_compared'])} of them also passed "
+                  "the 48-word `Pal_Target` comparison.", ""]
+        if rep["control_empty"]:
+            lines += ["⚠ **CONTROL EMPTY — read this before using the frames above.** This "
+                      "run certified **zero** frames outside the night region. The approach "
+                      "frames are both the day-palette BASELINE the night colour is judged "
+                      "against and the control that the predicate can say "
+                      f"`{cs.SETTLED_WORD}` somewhere other than on its own subject. With "
+                      "none, this run is not evidence that the predicate can certify "
+                      "anything: read the `settle_reasons` of the `k < 0` rows in "
+                      "`report.json` and find out why they were refused before trusting the "
+                      "night frames.", ""]
+        else:
+            lines += [f"The {len(rep['control_frames'])} approach frame(s) before the "
+                      f"crossing are also named `{cs.SETTLED_WORD}` — correctly, on the DAY "
+                      "palette. They are two things at once: the **baseline** any night "
+                      "colour measurement should be compared against, and the **control** "
+                      "that the predicate is not vacuously false. They are NOT night "
+                      "evidence. The region row in each name (`r` field) tells them apart.",
+                      ""]
     else:
         lines += ["⚠ **THE FADE DID NOT SETTLE INSIDE THIS RUN.** " +
                   str(rep["stopped_because"]) + f" **No frame inside the night region is "
