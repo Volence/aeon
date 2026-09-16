@@ -259,7 +259,7 @@ def pcfg_offsets() -> dict[str, int]:
     return out
 
 
-def warp_consumer_shape_check() -> None:
+def warp_consumer_shape_check(text: str | None = None) -> None:
     """Refuse to run if `Debug_Warp_Consume` no longer contains the second `Parallax_Update`.
 
     Leg W samples per INVOCATION precisely because a warp tick contains two of them — the
@@ -269,7 +269,11 @@ def warp_consumer_shape_check() -> None:
     confidently describes a mechanism that has gone.
     """
     rel = "games/sonic4/test/ojz_scroll_test.emp"
-    txt = (AEON / rel).read_text()
+    # `text` exists so a test can feed DOCTORED source and prove this check is LIVE. Without it
+    # the only assertion possible is "it does not raise on a good tree", which a check gutted to
+    # look at nothing also satisfies — measured: a mutation emptying the loop below left the test
+    # GREEN, which is a runner defect and not a pass (invariant 8c).
+    txt = (AEON / rel).read_text() if text is None else text
     m = re.search(r"proc Debug_Warp_Consume\s*\(\)[^{]*\{(.*?)^\}", txt, re.M | re.S)
     if not m:
         raise SetupError(f"cannot find `proc Debug_Warp_Consume` in {rel}")
@@ -288,10 +292,10 @@ def warp_consumer_shape_check() -> None:
             "granularity argument rests on that and must be re-read.")
 
 
-def step5_shape_check() -> None:
+def step5_shape_check(text: str | None = None) -> None:
     """Refuse to model a Parallax_Step5_Vscroll whose clamp no longer reads the way clamp_model()
     transcribes it. The model is only as good as this match."""
-    txt = (AEON / "engine/level/parallax.emp").read_text()
+    txt = (AEON / "engine/level/parallax.emp").read_text() if text is None else text
     m = re.search(r"proc Parallax_Step5_Vscroll\s*\(\)[^{]*\{(.*?)^\}", txt, re.M | re.S)
     if not m:
         raise SetupError("cannot find `proc Parallax_Step5_Vscroll` in engine/level/parallax.emp")

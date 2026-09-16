@@ -329,8 +329,39 @@ class TestGranularity:
         assert r["bound_at_a_change"] == 1 and r["bound_in_steady_state"] == 0
 
 
-def test_the_warp_consumer_still_runs_a_second_parallax_update():
-    """leg_step5's whole justification is that a warp tick contains TWO Parallax_Update calls.
-    If that stops being true the witness's explanation of its own sampling is wrong, so the
-    witness refuses — and this pins that the refusal is wired to the real source."""
-    W.warp_consumer_shape_check()          # raises SetupError if the shape has gone
+class TestSourceShapeChecksAreLive:
+    """⚠ THESE HAVE A POSITIVE *AND* A NEGATIVE ARM, and the negative arm is the whole point.
+
+    The first version of the warp test only called `warp_consumer_shape_check()` and asserted it
+    did not raise. A mutation that emptied the check's search loop — making it look at nothing at
+    all — left that test GREEN. That is a runner defect, not a pass: a check asserting "the tree
+    is fine" is satisfied by a check that cannot see the tree. Both functions now take doctored
+    `text` so the refusal itself can be exercised."""
+
+    def test_the_warp_consumer_check_refuses_source_with_the_second_update_removed(self):
+        good = open(os.path.join(AEON, "games/sonic4/test/ojz_scroll_test.emp")).read()
+        W.warp_consumer_shape_check(good)                       # positive: the real tree passes
+        gutted = good.replace("jbsr    Parallax_Update", "jbsr    Nothing_At_All")
+        assert gutted != good, "the substitution matched nothing — the probe is not probing"
+        with pytest.raises(W.SetupError) as e:
+            W.warp_consumer_shape_check(gutted)
+        assert "Parallax_Update" in str(e.value)
+
+    def test_the_warp_consumer_check_refuses_a_frame_top_that_stopped_calling_it(self):
+        good = open(os.path.join(AEON, "games/sonic4/test/ojz_scroll_test.emp")).read()
+        moved = good.replace("if DEBUG == 1 {\n                jbsr    Debug_Warp_Consume",
+                             "if DEBUG == 1 {\n                jbsr    Something_Else")
+        assert moved != good, "the substitution matched nothing — the probe is not probing"
+        with pytest.raises(W.SetupError) as e:
+            W.warp_consumer_shape_check(moved)
+        assert "frame top" in str(e.value)
+
+    def test_the_step5_check_refuses_a_clamp_whose_instructions_changed(self):
+        good = open(os.path.join(AEON, "engine/level/parallax.emp")).read()
+        W.step5_shape_check(good)                               # positive: the real tree passes
+        gutted = good.replace("move.w  Region.rg_bg_span(a1), d0",
+                              "move.w  Region.rg_x0(a1), d0")
+        assert gutted != good, "the substitution matched nothing — the probe is not probing"
+        with pytest.raises(W.SetupError) as e:
+            W.step5_shape_check(gutted)
+        assert "clamp_model" in str(e.value)
