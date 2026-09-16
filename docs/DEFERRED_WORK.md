@@ -36073,3 +36073,11 @@ the NTSC blanking line count (36 vs 38).
 **Why it matters now rather than someday:** slice 05 found DMA bandwidth is **not** the bottleneck for
 zone streaming (a full Sonic 2 zone moves in 5-8 frames at aeon's 4096 B art budget). So this does not
 block the mega-act design. It is booked because it is a real, measured error in a load-bearing constant.
+
+## STITCHED-ACT-PAGE-ORDER: the page pipeline's tile ORDER, not the pool's capacity, overflows the 80x60 cache window on stitched classic zones (found 2026-09-16T21:36:32Z, M-B, `research/megaact-mb-window-pageset`)
+
+**Report:** `docs/research/megaact-bg-streaming/08-m-b-window-page-set.md`; tool `tools/megaact_window_pageset.py` (its `control` subcommand reproduces the committed OJZ act 1 bake cell-for-cell, 589,824 cells, re-run by the controller at merge: ok, rc 0).
+
+MEASURED, counts are camera windows through the unmodified dedupe/order/page/pin functions: S2 seams fit at 12 and 10 frames; S3K seams go over in 11 of 90 pairs at 12 (worst 15); three-zone junctions go over in 6/24 (S2, worst 17) and 24/32 (S3K, worst 21); all 10 S3K zones in one row: 4.67% of windows over at 12, 16.14% at 10. **But no window holds more than 452 distinct tiles (8 pages if packed well)**, so the fix to try is the ORDERING, and its effect is unmeasured. Per-window bound only; no single order has been shown to meet it everywhere.
+
+Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SECTIONS` 48; (b) CNZ1 alone at 10 frames pins 10 pages and leaves 0 evictable, which bears on REGIONS-P2-STEP7's 12 -> 10 lever; (c) `constants.emp:470` and `ENGINE_ARCHITECTURE.md:5488` say OJZ pins 4 pages, the committed manifest pins 5 (`[0,1,7,8,9]`), prose not yet corrected. **Not covered:** object art, BG, animated tiles, transient demand from stalled columns, eviction order in motion, and whether over-budget reaches the camera hold at runtime (M-E still owed).
