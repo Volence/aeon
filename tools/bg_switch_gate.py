@@ -572,6 +572,30 @@ async def leg_traffic(rig, F, K, fails):
                         "queue-empty completion test would not be discriminated")
     print(f"  TRAFFIC: queue non-empty at {busy} of {len(samples)} samples; "
           f"{sum(appended)} synthetic entries appended")
+    # THE PEER SLIP (controller ruling 2026-09-16: the chunk is sized for liveness, and a
+    # Deferrable peer may slip behind it). Measured: at each sample (taken after that tick's
+    # append, before its VBlank) the number of synthetic entries queued is how many VBlanks the
+    # OLDEST one will have waited if it is sent in this frame's VBlank, so its maximum over the
+    # run is the peer wait W in frames (1 = sent in the VBlank of the frame it was enqueued).
+    # Derived bound: the drain is FIFO and stops at the first entry that does not fit, and one
+    # chunk is outstanding at a time. The chunk enqueued THIS frame sits BEHIND this frame's
+    # peer (BG_Stream_Update runs after the top-of-Update append), so only a chunk left over
+    # from an earlier VBlank can be ahead of a peer. With H = the longest run of consecutive
+    # samples showing a leftover arena write, a peer waits at most H + 1 frames. A peer can
+    # also fail to fit on its own (window exhausted by other riders); the traffic entry is 32 B
+    # on calm free-flight frames, where that is not the case, so a W above H + 1 is red.
+    wait = max((sum(1 for e in s["queue"] if e[0] == dest) for s in samples), default=0)
+    runs, cur = [], 0
+    for s in samples:
+        cur = cur + 1 if s["arena_entries"] else 0
+        runs.append(cur)
+    held = max(runs, default=0)
+    if wait > held + 1:
+        fails.append(f"TRAFFIC peer slip: a synthetic Deferrable entry waited {wait} frames from "
+                     f"enqueue to send; the longest leftover chunk run was {held} frame(s), so "
+                     f"the FIFO-behind-one-chunk mechanism allows at most {held + 1}")
+    print(f"  TRAFFIC peer slip: measured max wait {wait} frame(s) from enqueue to send; longest "
+          f"run of a chunk left over at the queue head {held}; derived bound {held + 1}")
     # Slack: the synthetic entry is 32 B per frame against a window thousands of bytes wide.
     check_transport(samples, i_in, F, K, "TRAFFIC", fails, slack=2)
 
@@ -1002,7 +1026,12 @@ async def leg_warp_mid(rig, F, K, fails):
     before = await rig.queue()
     await rig.warp(F.left_centre)
     after = await sample_ow(rig, F, K, with_arena=False)
+    # Kept = still queued, OR already SENT (it landed on the free tile). With the liveness-sized
+    # chunk the starved window (CHUNK - 2 B) still admits a 32 B entry, so it can legitimately
+    # drain in the warp frame's VBlank; a DROPPED entry is neither queued nor ever lands.
     kept = [e for e in after["queue"] if e[0] == dest]
+    if not kept and await read_vram(rig.b, dest, 32) == want:
+        kept = ["sent"]
     if not kept:
         fails.append(f"WARP_MID: the synthetic non-arena entry (dest ${dest:04X}) is gone from the "
                      f"queue after the warp; the cancel dropped an entry that does not write the "
@@ -1129,9 +1158,9 @@ async def leg_bands(rig, F, K, fails):
         s = await sample_ow(rig, F, K, with_arena=False)
         if out is None and s["region"] == F.left["addr"]:
             out = i
-        if out is not None and i - out == 4:
+        if out is not None and i - out == 1:
             await rig.hold(None)
-        if (out is not None and i - out > 6 and not poked and s["current"] == 0
+        if (out is not None and i - out >= 3 and not poked and s["current"] == 0
                 and s["target"] == F.act_tiles_ptr
                 and 0 < len(F.A_tiles) - s["offset"] <= K.CHUNK and not s["arena_entries"]):
             camx = (await rd(rig.b, sym["Camera_X"], 4)) >> 16
