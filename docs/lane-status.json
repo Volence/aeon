@@ -1,8 +1,8 @@
 {
-  "focus": "Building region background switching; the foreground measurement is in and points at how art is grouped into pages.",
+  "focus": "Region background switching is built and passing its checks; tuning how fast it loads before landing it.",
   "inFlight": [
     {
-      "what": "Region background switch: plan reviewed (one false premise sent back), now building it step by step",
+      "what": "Region background switch: built and green; resizing its upload chunk so a switch takes a few frames, not 27, then re-checking",
       "where": "branch parcel/region-bg-switch (agent worktree)",
       "agent": true
     }
@@ -14,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the background switch is built, gated and landed, or its agent stops at a clean commit. The foreground measurement is landed.",
+  "nextBoundary": "After the chunk resize is re-verified and the switch lands; then you get a DEBUG ROM to look at it.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -68,5 +68,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T21:46:49Z"
+  "updatedAt": "2026-09-16T23:13:12Z"
 }
