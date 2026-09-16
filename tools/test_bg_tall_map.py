@@ -271,13 +271,15 @@ class BgTallMap(unittest.TestCase):
             f"reporting about only the first.")
         row = tall[0]
 
+        # NO SEPARATE `ceiling != VSCROLL_BG_MAX` ASSERTION HERE, DELIBERATELY, AND THE REASON IS
+        # WORTH THE SENTENCE. One was written and DELETED before this file landed: with
+        # old_ceiling = PLANE_V_CELLS*8 - SCREEN_HEIGHT and the predicate above already requiring
+        # bg_span > PLANE_V_CELLS*8, `bg_span - SCREEN_HEIGHT > old_ceiling` follows by
+        # subtraction and the assertion could never fire. A check that cannot fail is the vacuity
+        # this file is about, and shipping one inside the gate against vacuity would have been
+        # the joke version of it. The implication IS the coverage; the predicate above is where
+        # it is enforced.
         new_ceiling = row["bg_span"] - k["SCREEN_HEIGHT"]
-        self.assertNotEqual(
-            new_ceiling, old_ceiling,
-            f"region row {row['index']} declares span {row['bg_span']}, whose clamp ceiling "
-            f"{new_ceiling} is IDENTICAL to VSCROLL_BG_MAX ({old_ceiling}). The step-4 clamp and "
-            f"the code it replaced would behave the same everywhere, which is the vacuity this "
-            f"whole parcel exists to end.")
 
         # ---- LEG 2: the map is real, and its rows are distinguishable ----
         self.assertTrue(os.path.isfile(TALL_BLOB), f"{TALL_BLOB} is missing")
