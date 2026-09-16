@@ -315,3 +315,36 @@ commit**, which is the check on the claim that `ensure` messages cost zero ROM b
   `debugger.asm` names either. The byte change above is the pairing obligation, not a name.
 * **`Draw_BG_TileRow` has no caller**, and that is the step boundary, not an omission. Steps 3-6
   supply it: the region-aware blits, the clamp, the tracker, the wipe.
+
+## GATE BG-NT-IDENTICAL — RUN BY THE OVERSEER, 2026-09-16. PASSES.
+
+Run in the foreground because agents must not touch an emulator. **All 8192 bytes of the
+Plane B nametable, `$E000`–`$FFFF`, at frame 120, no input.**
+
+| leg | comparison | result |
+|---|---|---|
+| **the gate** | BEFORE == AFTER | **EQUAL** |
+| 2 | AFTER == `zone_bg.bin` | **EQUAL** |
+| 3 | BEFORE == `zone_bg.bin` | **EQUAL** |
+
+All three md5 `b853015d37105ab899ff11705482061d`.
+
+- **BEFORE** = the frozen pre-step-2 `s4.debug.bin` (846894 B, md5 `01295a2407078afd9b8a45645e443010`, built at master `8756007f`), kept at `/home/volence/sonic_hacks/.aeon-bgnt-baseline/` with its procedure.
+- **AFTER** = the merged tree's `s4.debug.bin` (846856 B), merge `6e3ef98a`, `landing_build.sh` `finished=0`.
+
+**Leg 3 is the one worth having and it was not in the plan.** The agent offered legs 1 and 2 and correctly labelled its blob prediction *source-derived, not an observation*. Observing BEFORE against the regenerated blob turns that arithmetic into a measurement: the OLD blit's output really was the new blob's content, so the transpose was not merely *computed* correctly, it *was* what the old ROM put on the hardware.
+
+## ⚠ BOTH REWRITTEN BLITS ARE COVERED, AND THAT WAS CHECKED RATHER THAN ASSUMED
+
+The capture is at frame 120. `Section_RedrawPlanes` — the second rewritten blit — was assumed to run only at init and cache recovery, which would have left the boot capture proving `BG_Init` alone. **Settled by breakpoint: it is reached at frame 65**, well before the capture, so the frame-120 image is the product of both rewritten routines.
+
+**Still uncovered: `Section_RedrawPlanes`' CACHE-RECOVERY path**, which the warp reaches. Booked, not claimed.
+
+## ⚠ THE WARP LEG IS **NOT RUN**, AND THE ATTEMPT IS RECORDED BECAUSE IT NEARLY PASSED VACUOUSLY
+
+Attempted through the §4.12 mailbox (`Warp_Req_X`, `Warp_Req_Y`, then `Warp_Req_Flag`).
+
+1. **First attempt wrote the flag as a WORD.** `Debug_Warp_Consume` does `tst.b Warp_Req_Flag`, so a word `1` puts the byte at the flag's own address at `$00` and the consumer branches straight to `.done`.
+2. **Rewritten as a byte, the flag was STILL `$01` ten frames later** — unconsumed. Not diagnosed further.
+
+**What saved this from being reported as a pass: reading the completion ack before reading the picture.** Plane B is drawn once and never rebased, so a no-op warp leaves the nametable *identical* — which is exactly the expected PASS. **A warp that never happened and a warp that changed nothing produce the same bytes**, and only the flag distinguishes them. Anyone resuming this: **assert `Warp_Req_Flag` cleared before believing any nametable read**, and see `PROCEDURE.md` for the capture recipe.
