@@ -1112,19 +1112,30 @@ def build_report(game="s2", quick=False, log=print):
     return report
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("command", choices=["report", "control"])
+USAGE = """Usage:
+    python3 tools/megaact_window_pageset.py control
+    python3 tools/megaact_window_pageset.py report --game {s2,s3k} [--json PATH] [--quick]"""
+
+
+def _mode_control(rest):
+    if rest:
+        print(f"ERROR: unknown argument {rest[0]!r}")
+        print(USAGE)
+        sys.exit(1)
+    c, _ = load_constants()
+    derive_window(c)
+    ctl = control_ojz(c)
+    print(json.dumps(ctl, indent=2))
+    return 0 if ctl["ok"] else 1
+
+
+def _mode_report(rest):
+    # the one WRITING mode: --json PATH writes the evidence file
+    ap = argparse.ArgumentParser(prog="megaact_window_pageset.py report")
     ap.add_argument("--json", metavar="PATH")
     ap.add_argument("--quick", action="store_true", help="4 zones, coarse offsets (smoke run)")
     ap.add_argument("--game", choices=sorted(GAMES), default="s2")
-    args = ap.parse_args(argv)
-    if args.command == "control":
-        c, _ = load_constants()
-        derive_window(c)
-        ctl = control_ojz(c)
-        print(json.dumps(ctl, indent=2))
-        return 0 if ctl["ok"] else 1
+    args = ap.parse_args(rest)
     rep = build_report(game=args.game, quick=args.quick, log=lambda m: print(m, flush=True))
     if args.json:
         with open(args.json, "w") as fh:
@@ -1135,6 +1146,25 @@ def main(argv=None):
         return 2
     print("finished=ok")
     return 0
+
+
+# ONE list of legal modes, and it is the dispatch table (LS-15d shape,
+# tools/test_cli_dispatch_refuses.py). An unknown or missing mode prints usage
+# and exits 1 BEFORE any handler; nothing is a default.
+MODES = {
+    "control": _mode_control,
+    "report": _mode_report,
+}
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    mode = args[0] if args else None
+    handler = MODES.get(mode)
+    if handler is None:
+        print(USAGE)
+        sys.exit(1)
+    return handler(args[1:])
 
 
 if __name__ == "__main__":
