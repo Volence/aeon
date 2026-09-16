@@ -12,11 +12,6 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "NIGHT-REGION-LOOK",
-      "what": "The night colours are fixed and built. Which of three looks you want is a call only your eye makes; they are pictured side by side.",
-      "since": "2026-09-16"
     }
   ],
   "nextBoundary": "When that agent returns and its work is judged and landed. The machine-side check after it is mine to run.",
@@ -66,5 +61,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T13:11:48Z"
+  "updatedAt": "2026-09-16T13:15:16Z"
 }

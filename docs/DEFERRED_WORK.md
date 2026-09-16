@@ -35551,7 +35551,11 @@ re-checked. It is now the executable definition of the array, so it cannot be st
 from `ojz_palette.bin` the build stops. The *class* those entries point at is unchanged and the
 pointer should be re-aimed at a live instance the next time one of them is touched.
 
-### RIDER 1 — the look is not settled, and no still can settle it
+### RIDER 1 — CLOSED 2026-09-16T13:14:32Z BY THE OWNER: keep what landed
+
+**He chose `as-built`** — the option this lane recommended — from the three on the contact sheet. So `4/6` is the shipped look, nothing in the ROM changed, and the two alternatives below stay unbuilt. **What that buys, and it is the reason the recommendation went this way:** the 76% retention ceiling and the non-zero floor stay *enforceable at build time*, which neither alternative would have allowed. **Read the two paragraphs below as the rejected options and their prices, not as live proposals** — taking either one later is a deliberate decision to give up a machine-checked guarantee, and RIDER 3 still governs how (re-derive the fourteen pins, never re-type them). Decision ledger: `docs/decisions.jsonl`, the `NIGHT-REGION-LOOK` entry carrying `answered`.
+
+⚠ **His answer is scoped to the LOOK and nothing else.** RIDER 2 below is untouched by it and is still open: he has not seen the fade's midway frames under this grade, and a still cannot show them.
 
 Every figure in the parcel is a still or a derivation. Whether `4/6` reads as "the forest after
 dark" at 60 Hz is the owner's call on a running ROM. Aeon's own read of the contact sheet: it

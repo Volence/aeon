@@ -1,3 +1,11 @@
+> **ANSWERED 2026-09-16T13:14:32Z — the owner chose panel `as-built` (`4/6`), the one in the
+> ROM.** This sheet is now a RECORD of a decision that has been made, not a sheet to pick from.
+> The other two panels are the rejected options and their prices; each would have cost a
+> build-time guarantee, which is why the recommendation went the way it did. Ledger:
+> `docs/decisions.jsonl`, the `NIGHT-REGION-LOOK` entry carrying `answered`. His answer is
+> scoped to the LOOK only — the fade between the two palettes, which this sheet says it
+> cannot show, is still unjudged.
+
 # ⚠ THESE ARE NOT CAPTURES. They are DERIVED images, and the derivation is exact.
 
 Every panel in `options.png` except the first is one certified DAY capture —
