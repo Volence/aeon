@@ -853,15 +853,35 @@ const OJZ_ACT1_ROWS_CUT5 = ojz_cut_row(OJZ_ACT1_ROWS_CUT2, OJZ_ACT1_ROW_SEC5, OJ
 const OJZ_ACT1_ROWS_CUT8 = ojz_cut_row(OJZ_ACT1_ROWS_CUT5, OJZ_ACT1_ROW_SEC8, OJZ_SEC8_X1, OJZ_ACT1_ROW_SEC8_PRESET, OJZ_Preset_Plain_KEY)
 const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT8 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS
 
+// ojz_region_table_fault_count() — HOW MANY rows break a rule, beside WHICH one does.
+//
+// ⚠ THE WALK ABOVE RETURNS THE FIRST FAULT AND GETS NO LOUDER AS THE TABLE GETS WORSE. A
+// table with one bad row and a table with every row bad report the same single code, which is
+// the failure family this repo keeps finding in its own gates: the instrument going quiet
+// exactly when the subject is most broken. A `comptime fn` cannot carry a message out, so the
+// remedy is a second number — the count — and the ensure below prints both.
+//
+// MEASURED, not intended (2026-09-16, on the generated table, rows no build-shape delta
+// touches): one bad row reports "1 of 12", three report "3 of 12".
+comptime fn ojz_region_table_fault_count(r: array) -> int {
+    comptime var n: int = 0
+    for i in 0..r.len {
+        if ojz_region_table_check([ r[i] ]) != -1 { n = n + 1 }
+    }
+    return n
+}
+
 // THE PER-ROW RULES, over every row of both shapes. See ojz_region_table_check()'s banner
 // for why a generated row needs them restated at all.
+const OJZ_ACT1_REGION_ROW_FAULTS = ojz_region_table_fault_count(OJZ_ACT1_REGION_ROWS)
+const OJZ_ACT1_REGION_ROW_TOTAL = OJZ_ACT1_REGION_ROWS.len
 const OJZ_ACT1_REGION_ROW_FAULT = ojz_region_table_check(OJZ_ACT1_REGION_ROWS)
 // Decoded into two consts rather than interpolated as arithmetic: an `ensure` message
 // interpolates a NAME, and `{X / 16}` is not one.
 const OJZ_ACT1_REGION_FAULT_ROW = OJZ_ACT1_REGION_ROW_FAULT / 16
 const OJZ_ACT1_REGION_FAULT_RULE = OJZ_ACT1_REGION_ROW_FAULT % 16
 ensure(OJZ_ACT1_REGION_ROW_FAULT == -1,
-       "OJZ act 1 region row {OJZ_ACT1_REGION_FAULT_ROW} breaks per-row rule {OJZ_ACT1_REGION_FAULT_RULE} — 0 null effects, 1 inverted rect, 2 past the act, 3 narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN}), 4 an interior X edge outside the camera centre's band [{CENTRE_X_MIN}, {CENTRE_X_MAX}], 5 the same on Y [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}], 6 bg_span off the {BG_SPAN_ROW_PX} px row grid, 7 bg_span below the {SCREEN_HEIGHT} px screen, 8 bg_span on a row with no layout. These are ojz_region()'s own rules; a generated row is a struct literal and never went through it")
+       "OJZ act 1: {OJZ_ACT1_REGION_ROW_FAULTS} of {OJZ_ACT1_REGION_ROW_TOTAL} region rows break a per-row rule; the FIRST is row {OJZ_ACT1_REGION_FAULT_ROW}, rule {OJZ_ACT1_REGION_FAULT_RULE} — 0 null effects, 1 inverted rect, 2 past the act, 3 narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN}), 4 an interior X edge outside the camera centre's band [{CENTRE_X_MIN}, {CENTRE_X_MAX}], 5 the same on Y [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}], 6 bg_span off the {BG_SPAN_ROW_PX} px row grid, 7 bg_span below the {SCREEN_HEIGHT} px screen, 8 bg_span on a row with no layout. These are ojz_region()'s own rules; a generated row is a struct literal and never went through it")
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
 // coverage, given every row is inside the act (ojz_region's own ensure): disjoint pieces
