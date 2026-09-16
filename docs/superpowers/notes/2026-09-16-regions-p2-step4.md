@@ -293,3 +293,101 @@ whose instructions no longer read the way `clamp_model()` transcribes them.
   `BG_VSCROLL_*` constants are all engine-side; nothing in `map.toml`, either
   `game_root.asm`, or `debugger.asm` names any of them. The byte change is the sigil pairing
   obligation, not a name.
+
+## ADDENDUM — the first live run, 2026-09-16 (controller ran it; this lane still saw no emulator)
+
+BG-RATE refused at setup on its first execution, exit 2, no leg run:
+*"warping x=5984 from y=0 to y=2047 moves the target BG scroll by only 0 px"*.
+
+### The 0 was CORRECT, and settling that came before re-aiming
+
+Re-aiming first would have hidden a modelling bug behind a passing leg, so the question was
+answered before anything moved. **`target_scroll` is right.** It transcribes
+`Parallax_Step5_Vscroll`'s `cmpi.b #15 / beq .v_locked` arm: at `pcfg_v_factor_bg == 15` the BG
+scroll IS `v_offset`, camera-independent, by design. A jump of 0 over 2047 px of camera travel
+is the correct answer *about that config*.
+
+Read out of the built ROM (`s4.debug.bin`), OJZ act 1's eleven rows resolve to:
+
+| rows | effective config | v_factor | derived jump over the row's camera-Y travel |
+|---|---|---|---|
+| 0, 4, 7, 8 | `$1486e` / `$1492c` / `$149ea` / `$14a68` | **15 (lock)** | **0 — correct** |
+| 1, 2, 9, 10 | act default `$134e8` | 3 | 241 |
+| 3, 5 | `$134e8` / `$13586` | 3 | 255 |
+| 6 | `$134e8` | 3 | 242 |
+
+### The actual defect was a MIXTURE, not just an inherited column
+
+The leg read the **active config at the inherited camera position** — the bottom-right, row 8,
+locked — while taking the **y endpoints from a different row** (`region_at(rows, wx, 0)` = row
+10). It priced a config the warp would never install. And x = 5984 lands in the DEBUG-only
+`OJZ_Preset_NightSnap` row, so the leg's discriminating power was being decided by an E2 snap
+artifact with nothing to do with step 4 — your point 1, and it is worse than "inherited": the
+comment claiming "derived, not picked" was true of the y and false of the x, which is exactly
+the shape of comment that stops a reader looking.
+
+### What replaces it
+
+`plan_vertical_leg()` walks the act's rows in table order, computes each row's **camera-Y**
+window (the row's span shifted by `HALF_H`, because `Region_Resolve` tests the CENTRE,
+intersected with the engine's own `Camera_Y_Max`) and a probe column at the row's middle clamped
+to `Camera_X_Max`, warps there, and then **asks the engine** which config is live
+(`Parallax_Current_Config` / `_Target_Config` out of RAM). `Effects_ResolveParallax`'s rungs are
+**not** restated — a witness that restated them could disagree with the ROM and call it a pass.
+First qualifying row wins; the scan is reported; if none qualifies it raises naming **every**
+candidate and why, because "this act has no vertically responsive region" is a finding about the
+act, not a tool giving up.
+
+On this act the live scan probes row 0 (rejected, LOCKED, with that word in the message) and
+row 1 (CHOSEN, jump 241 > 32) and stops. Leg S's derived poke in row 1: reach 177, span 368
+(rounded down to the 8-px grid `ojz_region()` requires), ceiling 144 — comfortably inside
+`(0, 288)` and 33 px below the reach.
+
+### Legs are now independently blockable, and a blocked run says what it is not
+
+Your ruling taken. `SetupError` = the instrument is wrong, abort everything. `LegBlocked` = one
+leg, named with its reason, others still run, **still exit 2**. C and D need nothing from W or
+S; W and S share one precondition and are coupled to each other only. A blocked run now prints
+which legs ran *and* the sentence that stops them being read as evidence: **A1/A2/A3 over
+ordinary motion produce identical numbers on a tree with the rate clamp removed**, because in
+ordinary play the target never moves more than the bound. `--skip-poke` now exits 2 rather than
+passing with a note.
+
+### The aim is now testable without an emulator, and red-proven
+
+`tools/test_bg_vscroll_rate_aim.py`, 9 tests. The aim became two **pure** functions
+(`candidate_window`, `jump_verdict`) precisely so it could be; the untestable middle step is
+"ask the engine", deliberately. Eight synthetic tests pin the decision rules — including that
+the lock arm gets its **own** message and is not lumped in with "too small", because the two
+diagnoses have opposite fixes. One `needs_build` test reads the real act table and pins that the
+population contains **both** locked rows and a qualifying one, which is exactly the asymmetry
+that makes a table scan necessary. **It would have caught the original defect without an
+emulator.**
+
+Red-proven, control run LAST (green, 9 passed):
+
+| mutation | result |
+|---|---|
+| the LOCK arm deleted (`if False`) | RED — `test_the_lock_sentinel_is_named_and_not_lumped_in_with_too_small` |
+| the window becomes the ROW's, not the CAMERA's | RED — `test_the_window_is_the_cameras_not_the_rows` |
+| the threshold loosened `<=` → `<` | RED — `test_the_threshold_is_strict_and_derived` |
+| every row rejected on geometry | RED — 3 tests **including the real-act arm**, which proves that arm asserts |
+
+### ⚠ And I walked into the trap I wrote down in step 3's note
+
+My first red-proof attempt restored between mutations with
+`git checkout HEAD -- tools/bg_vscroll_rate_witness.py` — and HEAD did not yet contain the
+rewrite, so the restore **deleted the whole thing**. Step 3's note says, in my own words:
+*"Commit the artifact BEFORE red-proving it; 'restore from a committed baseline' is only a
+restore if the baseline contains the work."* Third instance of applying a rule outward and not
+inward. Worse, the control in that first attempt was **also** red and I nearly read it as a
+finding rather than as the tell that the tree had been gutted — a control that fails the same
+way as every mutation is not a control, it is a wrecked bed. The work was reconstructed and
+re-verified; the re-aim was committed **before** the second, successful red-proof.
+
+### Lanes after the re-aim
+
+`pytest tools -m "not needs_build"`: **2761 passed, 2 skipped, 17 deselected, 143 subtests,
+exit 0** (was 2753/16 — the 8 new synthetic tests, and the real-act one deselected as
+`needs_build`). Nothing here touched a `.emp` file, so the ROMs are unchanged from the figures
+above.
