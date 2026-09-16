@@ -1750,3 +1750,40 @@ the others is not a result.** This file already carried that as a hub-side findi
 keyed to one spelling. This is the same rule landing on the lane that wrote it down — the
 author-shaped hole again: applied where I was the author of the query, skipped where I was the
 subject of it.
+
+### RULED 2026-09-16T13:26:59Z BY THE HUB — `by` keeps one meaning, `via` carries the relay
+
+**Read it at the artifact, never from this pointer:** `contract/DECISIONS.md` rule **8g**, empyrean
+`9fda52f` (verified here as an ancestor of `origin/main` AND as the commit that introduced it to
+that path by `log -- contract/DECISIONS.md`, not merely one containing it).
+
+**What this lane does from now on, which is all a boot needs:**
+* `by` is unchanged — `owner` | `hub` | `lane` — and means exactly one thing: **whose decision this
+  is.** **Never qualify it in prose.** Enum value, or omit it.
+* `via` is a new OPTIONAL companion, soft enum (`hub` | `lane`), absent by default: **who carried
+  the decision when that was not the decider.** The relay case is `"by": "owner", "via": "hub"`.
+* **NO BACKFILL. Existing entries are not to be touched** — that is 8g's own instruction and the
+  reason a companion beat widening. `d-34` stays exactly as written.
+* **Writable from today.** The hub verified in dominion's reader that the `answered` object is
+  assembled from named keys with no strict-key check, so an unknown field is ignored and `via`
+  lights up retroactively whenever Dominion implements it. Widening could not have done that.
+
+**Two halves it deliberately does NOT solve, named so a future session does not file them as gaps:**
+1. The three meanings inside `by: "hub"` (ruled in his place under standing delegation and
+   overturnable · ruled on his explicit go · confirming an earlier hub ruling) are a **different
+   axis** — the AUTHORITY a non-owner ruled under, not the path the answer took. Declined as
+   speculative coupling with no consumer; stays in `did` prose. **Measured here afterwards and it is
+   the COMMON case, not the corner one: 4 of this lane's 5 sit on that axis and only `d-34` is the
+   relay `via` fixes.** That does not refute the ruling — its reason was consumer-absence, not
+   volume — but it means prose carries the majority of this lane's instances, and if he ever asks
+   *"which hub rulings are provisional and want my review"* it is 4 of 5 here.
+2. The conformance check. **Booked as empyrean's `ANSWERED-CONFORMANCE-CHECK`, explicitly NOT
+   ours** — a gate built six times is the six-private-fixes outcome wearing a tool's clothes.
+   **Do not spend parcel context on it.**
+
+⚠ **AND THE METHOD CAVEAT, because this thread produced three spelling-keyed counts in a row.**
+This lane's 5 came from a regex over `did` prose (`in his place|under the standing delegation|on
+his go|…` for `hub`; `transcrib|relayed by the hub|…` for `owner`), re-runnable and auditable. **A
+regex over prose is keyed to spellings, so 5 is a LOWER BOUND and not a population** — an entry
+phrased differently is invisible to it, exactly as the in-enum sweep was blind to truth. Any future
+count here enumerates by what TOUCHES the value, or says out loud that it did not.
