@@ -64,7 +64,7 @@
       "sceneRef": "ojz_act1_floor"
     },
     {
-      "id": "night",
+      "id": "ojz_preset_night",
       "name": "Night",
       "preset": "OJZ_Preset_Night",
       "rect": { "x": 3400, "y": 0, "w": 1400, "h": 2048 }

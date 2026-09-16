@@ -66,6 +66,13 @@ ACT1_EDITOR = "games/sonic4/data/editor/ojz/act1"
 # to check these, and aurora cannot resolve an EditorSceneBinding_* label.
 ROW_KEYS = ("index", "id", "x0", "x1", "y0", "y1", "preset", "sceneRef", "rasterRef", "bg")
 
+# Row 9's id, ruled rather than chosen: a KEY-LESS row's id is its `preset` symbol lowercased
+# (empyrean `a718ea7c`, `docs/AURORA_REGIONS_SCHEMA.md`). Named once here so a test that looks
+# the row up and a test that requires a refusal to NAME it cannot drift apart — and so the
+# `assertIn` near-miss at `test_an_overlap_is_refused_and_names_both_regions` has one place to
+# be fixed rather than two.
+NIGHT_ID = "ojz_preset_night"
+
 # Everything the sandbox borrows from the real tree by SYMLINK rather than copy: the effects
 # library, the scene and preset libraries, the descriptor whose `const` lines are the rules,
 # and the engine constants they fold against. Only the act's editor directory is a real copy,
@@ -169,12 +176,40 @@ class TestSharedGolden(RegionSandbox):
         If someone "tidies" the golden onto the section grid, every other test here still
         passes and the fixture silently stops exercising the thing it exists for.
         """
-        night = next(r for r in self.rows() if r["id"] == "night")
+        night = next(r for r in self.rows() if r["id"] == NIGHT_ID)
         section = 1 << 11
         self.assertLess(night["x0"], 2 * section)
         self.assertGreaterEqual(night["x1"], 2 * section)
         self.assertNotEqual(night["x0"] % section, 0)
         self.assertNotEqual((night["x1"] + 1) % section, 0)
+
+    def test_the_key_less_rows_id_is_its_preset_symbol_lowercased(self):
+        """The hub's id ruling, asserted with the expectation DERIVED from the document.
+
+        Ruled 2026-09-16T10:5xZ, empyrean `a718ea7c`, `docs/AURORA_REGIONS_SCHEMA.md`, "A
+        KEY-LESS ROW'S ID IS ITS PRESET SYMBOL, LOWERCASED". Rows 0-8 are keyed to sections
+        and keep `sec0`..`sec8`; row 9 is key-less, so its id is minted from its preset.
+
+        THE EXPECTATION IS COMPUTED FROM THE ROW'S OWN `preset` FIELD, never typed beside it.
+        Typing `ojz_preset_night` on both sides would pass against a fixture where somebody
+        had changed the preset and forgotten the id, which is precisely the drift the ruling
+        names as its own accepted cost (a rename leaves the id bound to another preset) and
+        so the one thing worth pinning at the moment of writing.
+
+        AEON DOES NOT IMPLEMENT THE SANITISATION and this test is not a place to start: the
+        minting is Aurora's migration's, written once, and a second implementation here is a
+        drift source rather than a check. The row's preset carries no character outside
+        `[a-z0-9_]` once lowercased, so `.lower()` IS the rule for this input and the parts
+        of it that do not bite (the fold, the strip, the truncation) are deliberately
+        untested here rather than half-reimplemented.
+        """
+        night = next(r for r in golden_rows() if r["id"] == NIGHT_ID)
+        self.assertEqual(night["id"], night["preset"].lower())
+        self.assertTrue(len(night["id"]) <= 32, "the schema pattern caps an id at 32")
+        # And the label the ruling makes a CONDITION of itself: the ugly id is only
+        # acceptable because nothing legible is lost.
+        doc_region = next(r for r in golden_doc()["regions"] if r["id"] == NIGHT_ID)
+        self.assertEqual(doc_region["name"], "Night")
 
     def test_the_golden_document_and_rows_files_agree_on_their_act(self):
         with open(GOLDEN_ROWS) as f:
@@ -547,8 +582,13 @@ class TestBackgroundBinding(RegionSandbox):
 class TestRowRules(RegionSandbox):
     def test_an_overlap_is_refused_and_names_both_regions(self):
         doc = golden_doc()
-        doc["regions"][1]["rect"]["w"] += 64       # sec1 eats into night
-        self.refuses(doc, "sec1", "night", "overlap", resolve=False)
+        doc["regions"][1]["rect"]["w"] += 64       # sec1 eats into the night region
+        # ⚠ `NIGHT_ID` AND NOT THE BARE WORD, and the reason is a near-miss worth recording:
+        # `refuses` uses `assertIn`, and "night" is a SUBSTRING of "ojz_preset_night", so
+        # this assertion would have gone on passing un-edited through the id ruling while
+        # no longer naming the id the author has to go and find. A green that survives the
+        # change it was supposed to track is the failure mode, not the rename.
+        self.refuses(doc, "sec1", NIGHT_ID, "overlap", resolve=False)
 
     def test_a_hole_is_refused_and_names_the_uncovered_rectangle(self):
         doc = golden_doc()
