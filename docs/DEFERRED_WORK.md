@@ -35195,7 +35195,8 @@ standing rule against.
 | **B. DEBUG-only extra region row with a non-zero span** | +22 B in the DEBUG act table, `act_region_count` +1, the act's tiling proof re-cut around a new rectangle, a test fixture baked permanently into game data, and it can only ever test the DEBUG shape | a discriminator, in DEBUG only |
 | **C. patch a ROM COPY on disk and boot it** | ~30 lines in the witness, one extra headless boot, zero ROM bytes, zero act edits | a discriminator on **any** shape and **any** row, including release-shape rows that route B cannot reach |
 
-**C is taken.** It is cheaper on every axis and the evidence is strictly stronger:
+**C is the METHOD, not a workaround and not the fallback we settled for** (owner correction,
+2026-09-16). It is cheaper on every axis AND the evidence is strictly stronger:
 `AetherInstance.start()` already byte-compares the WHOLE 4 MB cart against the file on every
 spawn (`assert_cart_matches_disk`, `CART_WINDOW = 0x400000`), so the patched word is proven
 present in the emulator's cart by a full-image comparison — where the live poke would have had a
@@ -35214,9 +35215,13 @@ given and copes. That cost was largely imaginary. Route B's real costs are the t
 table above (a permanent fixture in game data, a re-cut tiling proof, and DEBUG-only reach), and
 they are enough on their own; the one I leaned on was not.
 
-**Route B stays booked, not dead.** It becomes the answer if route C ever fails — an emulator
-that refuses an arbitrary ROM path, a provenance gate that rejects an unrecognised image, or a
-boot-time checksum appearing in this ROM.
+**Route B stays booked, not dead** — but as a contingency, not as the thing C stands in for. It
+becomes the answer only if route C ever stops working: an emulator that refuses an arbitrary ROM
+path, a provenance gate that rejects an unrecognised image, or a boot-time checksum appearing in
+this ROM. Nothing about C reads as a compromise: a full-image cart comparison on every spawn is
+better evidence than a single-word readback, and patching a copy generalises to any shape and any
+row, including release-shape rows a DEBUG-only extra region could never reach. Whoever writes
+about this next: do not call it a workaround.
 
 **WHEN IT CLOSES:** the first act (or the first mega-act section, per the tech-demo goal) whose
 background map is not 512 px tall. At that point the span stops being a sentinel everywhere and the

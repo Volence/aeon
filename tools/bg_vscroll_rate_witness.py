@@ -380,8 +380,10 @@ def why_it_bound(prev_src, src, v_prev, step_max):
     THE TWO SURPRISING ANSWERS, and only these two block:
       * `camera` with the config UNCHANGED — at the shipped v_factor 3 a 16 px camera step is
         2 px of BG scroll, so a camera term over the bound contradicts the derivation;
-      * `contradiction` — the value moved exactly the bound while the model says the target was
-        already within reach. Impossible while A3 is green, which is why it deserves a name.
+      * `contradiction` — the value moved the full bound while the model says a SMALLER move
+        would have reached the target. Impossible while A3 is green, which is why it deserves a
+        name. Strictly smaller: at exactly one bound of gap the clamped and unclamped results are
+        the same value, so there is nothing to contradict (see the note at the test below).
     `config`, `backlog` and `combined` are the clamp doing its job: a target that jumped at a
     crossing, the ratchet that follows one, and two ordinary terms adding up.
     """
@@ -392,13 +394,28 @@ def why_it_bound(prev_src, src, v_prev, step_max):
     cfg_same = (prev_src["cfg"] or {}).get("ptr") == (src["cfg"] or {}).get("ptr")
     terms = {"d_cfg": d_cfg, "d_cam": d_cam, "backlog": backlog}
     gap = t_now - v_prev
-    big = [k for k, v in terms.items() if abs(v) > step_max]
+    # A TERM OF EXACTLY THE BOUND IS SUFFICIENT, so this is `>=` and not `>`. A gap of exactly
+    # `step_max` produces a move of exactly `step_max`, which IS a step at the bound — a term
+    # that size explains the bind by itself and needs no second contributor. `>` left the LAST
+    # step of every ratchet unattributed, which is how the boundary defect below stayed hidden.
+    big = [k for k, v in terms.items() if abs(v) >= step_max]
     # THE DECOMPOSITION IS EXACT, so "no single term is big" is not a mystery — it is a SUM, and
     # calling it unexplained (as my first draft did) would have flagged ordinary arithmetic and
-    # taught a reader to ignore the flag. The real contradiction is the other one: the value moved
-    # exactly the bound while the model says the target was already within reach. That cannot
-    # happen while A3 is green, which is precisely why it is worth a name and a blocker.
-    if abs(gap) <= step_max:
+    # taught a reader to ignore the flag.
+    #
+    # ⚠ AND THE CONTRADICTION TEST IS STRICT `<`, NOT `<=`, WHICH IS A CORRECTION. Measured on
+    # leg S's downward ratchet (48 -> 32 -> 16 -> 0 against a target of 0, row 4's vertical lock):
+    # the mid-ratchet steps classified as `backlog` correctly, in both signs, and only the FINAL
+    # step — where the value sits exactly one bound from the target — came out `contradiction`.
+    #
+    # It is not one. At |gap| == step_max the clamped and the unclamped results are THE SAME
+    # VALUE: `prev + sign(gap) * step_max == prev + gap == target`. There is nothing for the
+    # observation to contradict, because no observation can distinguish the two. A genuine
+    # contradiction needs the move to EXCEED what the model says was needed, which is |gap| <
+    # step_max. This narrows `contradiction` by exactly the one value where it was provably
+    # vacuous — it is not an exception taught to the predicate to make a case pass, and the step
+    # it releases becomes `backlog` POSITIVELY, by the `>=` above, not by exemption.
+    if abs(gap) < step_max:
         why = "contradiction"
     elif not big:
         why = "combined"

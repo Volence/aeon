@@ -373,6 +373,63 @@ class TestGranularity:
         assert r["bound_by"]["combined"] == 1, r["bound_at"]
         assert not r["bound_at"][0]["blocking"]
 
+    def test_a_downward_ratchet_including_its_FINAL_step_is_backlog(self):
+        """THE REGRESSION FOR LEG S STEP 132, reconstructed from the printed trace.
+
+        Leg S's descent leaves the patched row into row 4, a vertical-lock row whose v_offset is
+        0, so the stored value walks DOWN to the target: 48 -> 32 -> 16 -> 0, sixteen a step.
+        Two populations had never been exercised before that run: a downward backlog (every
+        earlier case was positive) and a step where the value sits EXACTLY one bound from the
+        target. The mid-ratchet steps were always fine in both signs — the sign handling was
+        never wrong — but the final step came out `contradiction`, and it is not one: at
+        |gap| == step_max the clamped and unclamped results are the same value, so nothing can
+        distinguish them and there is nothing to contradict.
+        """
+        lock4 = dict(cfg_ptr=0x1492C, v_factor=15, v_center=0, v_offset=0, region=0x18AE0)
+        ratchet = [sample(48, 2016, **lock4), sample(32, 2032, **lock4),
+                   sample(16, 2048, **lock4), sample(0, 2064, **lock4)]
+        r = W.check_leg([], K, "S", ratchet, granularity="tick")
+        assert r["bound_by"]["backlog"] == 3, r["bound_at"]
+        assert r["bound_by"]["contradiction"] == 0
+        assert not any(x["blocking"] for x in r["bound_at"]), (
+            "the FINAL step of a ratchet blocked — that is the leg-S step-132 defect")
+        assert all(x["backlog"] < 0 for x in r["bound_at"]), "this fixture is not downward"
+
+    def test_an_upward_ratchet_final_step_is_backlog_too(self):
+        """The mirror of the above. The defect was in the boundary, not the sign, so the upward
+        final step must behave identically — and neither direction had a fixture before."""
+        up = [sample(0, 2016, v_factor=15, v_center=0, v_offset=48, ceiling=288),
+              sample(16, 2032, v_factor=15, v_center=0, v_offset=48, ceiling=288),
+              sample(32, 2048, v_factor=15, v_center=0, v_offset=48, ceiling=288),
+              sample(48, 2064, v_factor=15, v_center=0, v_offset=48, ceiling=288)]
+        r = W.check_leg([], K, "S", up, granularity="tick")
+        assert r["bound_by"]["backlog"] == 3, r["bound_at"]
+        assert not any(x["blocking"] for x in r["bound_at"])
+        assert all(x["backlog"] > 0 for x in r["bound_at"]), "this fixture is not upward"
+
+    def test_a_genuine_contradiction_still_blocks_after_the_boundary_fix(self):
+        """The narrowing must not have emptied the predicate. A move of the full bound when the
+        model says a SMALLER move reaches the target is still impossible while A3 is green."""
+        for prev_v, note in ((0, "target already reached"), (8, "half a bound away")):
+            contra = [sample(prev_v, 512, **DEFAULT), sample(prev_v + STEP, 512, **DEFAULT)]
+            r = W.check_leg([], K, "X", contra, granularity="tick")
+            assert r["bound_by"]["contradiction"] == 1, (note, r["bound_at"])
+            assert r["bound_at"][0]["blocking"], note
+
+    def test_a_term_of_exactly_the_bound_attributes_rather_than_falling_through(self):
+        """`big` is `>=`, not `>`. A term of exactly the bound produces a move at the bound by
+        itself, so it explains the bind — and `>` is what left every ratchet's last step
+        unattributed and hid the boundary defect."""
+        # DERIVED, not picked, because two earlier fixtures in this file were wrong while the
+        # code was right: at camY 1935 the act default gives ((1935 - 512) >> 3) = REACH = 177,
+        # so a lock row whose v_offset is REACH + STEP makes d_cfg exactly one bound, and a value
+        # already caught up at REACH makes the backlog exactly 0.
+        lock = dict(cfg_ptr=0x14A68, v_factor=15, v_center=0, v_offset=REACH + STEP)
+        crossing = [sample(REACH, 1935, **DEFAULT), sample(REACH + STEP, 1935, **lock)]
+        r = W.check_leg([], K, "X", crossing, granularity="tick")
+        assert r["bound_by"]["config"] == 1, r["bound_at"]
+        assert r["bound_at"][0]["d_cfg"] == STEP
+
     def test_a_blocking_observation_carries_its_own_trace(self):
         """The old code printed "read the trace before accepting this run" and exited 0. It now
         carries the trace, so nobody has to go and find it."""
