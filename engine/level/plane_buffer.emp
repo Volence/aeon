@@ -662,6 +662,36 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
             move.w  sr, d0
             andi.w  #$0700, d0
             assert.w d0, hs, #$0600     // IPL >= 6: VBlank context, no re-entry
+
+            // THE HIGH-WATER LATCH (engine/ram.emp, Plane_Buffer_Peak). This is the ONE
+            // point in the frame where Plane_Buffer_Ptr is the frame's total: everything
+            // that appends has run, and the .done below is about to zero it. Sampled
+            // anywhere else it is a partial sum.
+            //
+            // NOT AN `assert`, deliberately. An assert answers "did it overflow", and the
+            // answer to that is already known and useless — the streamer's four loops in
+            // engine/level/section.emp refuse to start an entry that would not fit, so the
+            // pointer cannot pass PLANE_BUFFER_SIZE and an assert on it would be VACUOUS
+            // (a guard that can never fire). The open question is the one a bound cannot
+            // answer: how much of the buffer a real frame actually uses, which is what a
+            // second consumer — the REGIONS-P2 background wipe — may have. So: a latch,
+            // which reports, rather than a guard, which would not.
+            //
+            // Engine logic never reads this cell; a client zeroes it to open a window and
+            // reads it to close one (tools/plane_buffer_peak_probe.py).
+            //
+            // d0 is in this proc's declared clobber set and the assert above already used
+            // it. The `bls` (unsigned) is the right test: the pointer is a byte offset,
+            // never negative. Cost, both branches: MOVE.W (xxx).W,Dn 12 + CMP.W (xxx).W,Dn
+            // 12 + BLS.B 10 taken = 34 cycles on the common path, + MOVE.W Dn,(xxx).W 12
+            // and 8 for the untaken branch = 44 on a new peak. Once per frame, ~0.03% of a
+            // 128,010-cycle NTSC frame, DEBUG shape only — proven zero in release by ROM
+            // equality, not by this arithmetic.
+            move.w  Plane_Buffer_Ptr, d0
+            cmp.w   Plane_Buffer_Peak, d0
+            bls     .no_new_plane_peak
+            move.w  d0, Plane_Buffer_Peak
+        .no_new_plane_peak:
         }
         lea     VDP_DATA, a6
         lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
