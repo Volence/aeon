@@ -834,25 +834,6 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    Camera_X and Current_Act_Ptr are valid) --
         jbsr    Tile_Cache_Init
 
-        // -- synchronous plane fill: trigger Section_RedrawPlanes before display
-        //    on so the nametable is fully populated from frame 1.
-        //    WARP TWIN: Debug_Warp_Consume below repeats this two-line pair (and
-        //    the Parallax boundary resolution further down). Both sites are
-        //    ladders over the same pub procs; extracting the pair into a shared
-        //    proc was rejected for this parcel because it would move RELEASE bytes
-        //    and the parcel's hard gate is a byte-identical release ROM. If that
-        //    constraint ever lifts, these are the two lines to hoist. Without this,
-        //    Section_UpdateColumns gradually fills over ~3 frames, causing a
-        //    visible snap when starting at non-zero X. --
-        //    Section_RedrawPlanes owns its own Z80 posture in both build shapes
-        //    (flag bracket with sound on, whole-storm bus hold with sound off),
-        //    so this call is deliberately BARE — matching the per-frame call
-        //    below. A caller-side bus hold here would be a FALSE lock:
-        //    RedrawPlanes' internal flag bracket releases it on the way in, so
-        //    the storm would run unheld anyway.
-        st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
-        jbsr    Section_UpdateColumns
-
         // -- parallax init: the start REGION's parallax_config (painted-regions v1).
         //    Chosen by the CAMERA CENTRE, the same point Parallax_CheckBoundary tests, so
         //    the first painted frame and the first crossing test select the same region by
@@ -892,6 +873,44 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         movea.l Act.act_parallax_config(a0), a0
 .init_have_config:
         jbsr    Parallax_Init
+
+        // -- synchronous plane fill: trigger Section_RedrawPlanes before display
+        //    on so the nametable is fully populated from frame 1.
+        //
+        //    ⚠ IT STANDS BELOW `jbsr Parallax_Init` AND THAT ORDER IS LOAD-BEARING
+        //    (BG-PLANE-WINDOW, closed 2026-09-16). Section_RedrawPlanes' Plane B half
+        //    primes the WINDOW `Parallax_Current_Vscroll_BG` selects, not map rows 0..63,
+        //    and that cell lives INSIDE `Parallax_State` — the span `Parallax_Init`'s zero
+        //    loop wipes. Run the pair ABOVE the init, as this ladder did until this parcel,
+        //    and the prime reads the previous act's scroll or boot garbage and blits the
+        //    WRONG window, which is worse than the stale-but-harmless row 0 it used to blit.
+        //    Below the init the cell is real: `Parallax_Init` zeroes it and its own tail
+        //    `Parallax_Update` re-derives it from this act's camera, and the rate clamp
+        //    bounds anything the second `Parallax_Update` below adds to 16 px = 2 rows,
+        //    inside the streamer's 17-row lead. THE WARP LADDER NEEDS NO SUCH HOIST AND HAS
+        //    NO `Parallax_Init` TO HOIST: its scroll is live across the teleport by the rate
+        //    clamp's own design. `tools/test_bg_plane_window.py` grades this order, because
+        //    neither routine can see it from the inside.
+        //
+        //    WARP TWIN: Debug_Warp_Consume below repeats this two-line pair (and
+        //    the Parallax boundary resolution further down). Both sites are
+        //    ladders over the same pub procs; extracting the pair into a shared
+        //    proc was rejected for the step-2 parcel because it would move RELEASE
+        //    bytes and that parcel's hard gate was a byte-identical release ROM. If
+        //    that constraint ever lifts, these are the two lines to hoist — but note
+        //    they now sit at DIFFERENT points of the two ladders relative to the
+        //    parallax calls, so a shared proc would have to take the ordering with it.
+        //    Without this pair, Section_UpdateColumns gradually fills over ~3 frames,
+        //    causing a visible snap when starting at non-zero X. --
+        //    Section_RedrawPlanes owns its own Z80 posture in both build shapes
+        //    (flag bracket with sound on, whole-storm bus hold with sound off),
+        //    so this call is deliberately BARE — matching the per-frame call
+        //    below. A caller-side bus hold here would be a FALSE lock:
+        //    RedrawPlanes' internal flag bracket releases it on the way in, so
+        //    the storm would run unheld anyway.
+        st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
+        jbsr    Section_UpdateColumns
+
         jbsr    BgAnim_Init
 
         // -- prime HScroll/VScroll buffers so the first frame displays with
@@ -1804,13 +1823,17 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         jbsr    Parallax_CheckBoundary
         jbsr    BgAnim_Init
         jbsr    Parallax_Update
-        // -- regions part 2 step 5. NOTE what this does NOT fix: step 7 above
-        //    re-blitted rows 0..63 and re-seeded BG_Plane_Top to 0, while the rate
-        //    clamp leaves the scroll near its PRE-warp value. On a map taller than
-        //    the plane that is a wrong window this can only walk back at
-        //    BG_STREAM_MAX_ROWS a frame — the BG-PLANE-WINDOW item in
-        //    docs/DEFERRED_WORK.md, owned by step 8. Called here anyway because
-        //    starting the walk one frame earlier is strictly better than not. --
+        // -- regions part 2 step 5. WHAT STEP 6 ABOVE NOW LEAVES IT (BG-PLANE-WINDOW,
+        //    closed 2026-09-16): Section_RedrawPlanes primes the WINDOW the live scroll
+        //    selects and seeds BG_Plane_Top to it, so on a map taller than the plane this
+        //    call finds the tracker already where it belongs and moves nothing, instead of
+        //    walking back a wrong row-0 window at BG_STREAM_MAX_ROWS a frame. The scroll it
+        //    reads is live here WITHOUT any reordering of this ladder — step 4's rate clamp
+        //    deliberately holds it near its pre-warp value across a teleport, which is the
+        //    same property that makes the walk-back bounded.
+        //    STILL OPEN AND NOT THIS: the scroll then ratchets to its post-warp target 16 px
+        //    a frame with no prime exemption (BG-RATE-PRIME-EXEMPTION), and the parallax
+        //    BANDS alias against plane space on a taller map (BG-BAND-PLANE-ANCHOR). --
         jbsr    BG_Stream_Update
 
         // -- 8. ACK, and it must be the last write: the client polls this byte to

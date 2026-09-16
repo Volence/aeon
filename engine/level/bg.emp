@@ -74,6 +74,17 @@ use engine.plane_buffer.{Draw_BG_TileRow}
 // types its embed with it so a wrong-sized blob is an `array length mismatch` at
 // build time rather than a transposed background at runtime (tools lens sweep D6).
 pub const BG_LAYOUT_SIZE  = 64*64*2     // 8192 bytes (full Plane B nametable)
+// BG-PLANE-WINDOW (2026-09-16). This `ensure` is what lets `BG_Init` below keep a
+// whole-image blit and a `clr.w BG_Plane_Top` while `Section_RedrawPlanes` grew a
+// windowed one. The ACT DEFAULT layout is exactly one plane, so its only legal window is
+// rows 0..PLANE_V_CELLS-1 and its only legal seed is 0 — and BG_Init cannot compute any
+// other, because it runs from `Level_LoadArt`, which stands ABOVE `Camera_Init`, so no
+// camera, no region and no scroll exist yet (BG-BOOT-REGION-BLIT). That made the seed
+// correct-by-a-sentence; it is now correct-by-a-build-error. The REGION layouts
+// (`Region.rg_bg_layout`) are NOT covered by this and are exactly the ones that can be
+// taller — they are typed by their own size and windowed at the other blit.
+ensure(BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS * 2,
+       "engine/level/bg.emp: BG_LAYOUT_SIZE is {BG_LAYOUT_SIZE} bytes but the Plane B nametable is PLANE_H_CELLS x PLANE_V_CELLS x 2 = {PLANE_H_CELLS * PLANE_V_CELLS * 2}. The act default layout is the ONE background image no writer windows: BG_Init drains it whole and seeds BG_Plane_Top to the constant 0, which is correct only while the image IS the plane. If the act default may now be a different height, BG_Init needs the windowed prime Section_RedrawPlanes has — and it cannot have one, because it runs before Camera_Init and no scroll exists at that site. Either restore the equality or move the act-default blit below the camera")
 // The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
 // sprite attr table at $B800 — so $8000..$B7FF = 448 tiles is the PHYSICAL run.
 // It is no longer the clamp: the top of that run has been carved away by other
@@ -210,6 +221,14 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // Booked in docs/DEFERRED_WORK.md as BG-BOOT-REGION-BLIT, which is also
         // where the ordering fix belongs if a future act ever needs the FIRST blit
         // to be the right one.
+        // THE SEED IS THE CONSTANT 0 HERE, AND IT IS PROVED RATHER THAN ASSUMED
+        // (BG-PLANE-WINDOW, closed 2026-09-16). Section_RedrawPlanes' Plane B half now
+        // primes the WINDOW the scroll selects; this one does not, because the image it
+        // blits is the ACT DEFAULT, typed `[u8; BG_LAYOUT_SIZE]`, and the `ensure` beside
+        // BG_LAYOUT_SIZE above pins that to exactly one plane. Rows 0..PLANE_V_CELLS-1 are
+        // therefore the whole map and 0 is the only window there is. It could not compute a
+        // different one in any case: the ordering fact recorded below (Level_LoadArt stands
+        // above Camera_Init) means no camera, no region and no scroll exist at this site.
         move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w — what the plane will hold
         clr.w   BG_Plane_Top                    // (BG_Plane_Top).w — window top = map row 0
         clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir, one word
@@ -310,17 +329,19 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 //
 // ---- WHAT THIS PROC DOES NOT DO, named so a green is not misread ----
 // It is the STEADY-STATE half only. A PRIME — the plane holding the wrong window
-// outright — is not reachable from here at 2 rows a frame, and there is one path
-// that can produce one: `Section_RedrawPlanes` (cache recovery, and the DEBUG warp)
-// re-blits map rows 0..63 and re-seeds `BG_Plane_Top` to 0 whatever the scroll is.
-// On every map that is exactly the plane's height that is a no-op; on a TALLER map
-// with the scroll away from the top it leaves a wrong window that this proc walks
-// back at BG_STREAM_MAX_ROWS rows a frame. That is the BG-PLANE-WINDOW item booked
-// in docs/DEFERRED_WORK.md (step 3 opened it, step 8 makes it mandatory) and it is
-// NOT closed here: closing it means a windowed two-run blit at both writers, and
-// the number it needs does not exist at `BG_Init` (Parallax_Init runs after both
-// blits and zeroes the scroll, so a window computed there reads a stale value).
-// The step-5 gate procedure therefore flies the camera; it does not warp.
+// outright — is not reachable from here at 2 rows a frame, and the one path that
+// can produce one is `Section_RedrawPlanes` (cache recovery, and the DEBUG warp).
+// THAT PATH NOW PRIMES THE WINDOW RATHER THAN ROWS 0..63 (BG-PLANE-WINDOW, closed
+// 2026-09-16): it restates the `want_top` rule above against
+// `Parallax_Current_Vscroll_BG`, seeds `BG_Plane_Top` to it and blits the window as
+// two runs, so this proc finds the tracker already where the scroll wants it and
+// moves nothing. The number it needs is live on both ladders because
+// `Parallax_Init` now stands ABOVE the boot `st Section_Plane_Dirty` pair; the warp
+// ladder needed no change, since the rate clamp deliberately holds the scroll near
+// its pre-warp value across a teleport. WHAT IS STILL OPEN AND IS NOT THIS: the
+// scroll itself ratchets to its post-warp target at BG_VSCROLL_MAX_STEP a frame with
+// no prime exemption (BG-RATE-PRIME-EXEMPTION), and the parallax BANDS alias against
+// plane space on a taller map (BG-BAND-PLANE-ANCHOR). Neither is the nametable.
 // ===========================================================================
 
 // One nametable row in pixels. Taken from parallax rather than re-spelled: the
