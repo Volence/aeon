@@ -34513,3 +34513,47 @@ all four build shapes are green, because a **new cross-seam NAME is invisible to
 check**. Same class as a green gate indistinguishable from a disconnected one. Step 1's agent is
 instructed to STOP at the seam rather than land across it; the hub is folding the constraint into
 step 10's schema doc and will ask sigil what the cross-seam check is rather than inventing one.
+
+## REGIONS-GOLDEN-GAP — the tools parcel nobody had booked, and it gates aurora's codec test (booked 2026-09-16)
+
+**Found by aurora, relayed by the hub, and VERIFIED FIRSTHAND HERE at `f9413014` rather than taken
+from the report:** `load_act_regions` has **zero** matches anywhere in this tree, and `regions.json`
+appears only in `docs/DEFERRED_WORK.md`, `docs/research/2026-09-09-regions-study-reground.md`,
+`docs/superpowers/designs/2026-09-09-regions-v1-design.md`, and two forward-looking comments in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp` (:428, :532). *(The hub's relay said four
+docs; this lane counts three plus the `.emp`. The substantive claim is confirmed exactly; the count
+is noted only so nobody re-derives it and thinks they have found a discrepancy that matters.)*
+
+**WHAT IS MISSING IS AEON'S:** `load_act_regions()` plus flattening, the region-table emission with
+its whole-table `ensure`s, mode-by-file-presence, the sidecar refusal, **and the shared golden
+fixture** carrying act 1's ten rows including the night region, so the straddle is the case both
+sides prove. It is **step 2 of the AURORA REGIONS EDITOR spec**
+(`empyrean docs/superpowers/specs/2026-09-14-aurora-regions-editor-design.md`), whose own line 682
+says step 2's golden is what step 4 tests against — and step 4 is aurora's codec.
+
+**WHAT IT BLOCKS, and why it is a booking rather than a surprise in a week:** until this parcel
+exists, a green aurora codec parcel is green against empyrean's schema vectors and aurora's own
+round-trip properties and **NOT against a tested seam**. Aurora said so before shipping rather than
+after. Booked at the hub as `REGIONS-GOLDEN-GAP`, `blockedBy` this parcel.
+
+**SEQUENCING, this lane's call:** it waits until REGIONS-P2 step 1 lands, because step 1's parcel
+already touches `tools/region_table.py` and `tools/test_region_table.py` and two agents in one file
+is a merge this lane would rather not referee. Not reordered ahead of step 1; not deferred past it.
+
+⚠ **THE STEP NUMBERS COLLIDE ACROSS TWO SPECS AND THE COLLISION IS LIVE. ALWAYS NAME THE SPEC.**
+Part 2's step 10 **is** the editor spec's step 1 (the schema, landed at empyrean `c3f892f`). The
+editor spec's step 2 is the tools work above, which part 2 mentions only in prose at §6.3. So
+"step 2" names two unrelated pieces of work depending on which document the speaker last read —
+the hub nearly told aurora they were wrong about this tree on exactly that confusion. Both specs
+now carry a warning at the top of their step tables.
+
+**TWO THINGS IN THE LANDED SCHEMA THIS GENERATOR WILL CARE ABOUT** (`contract/schema/aurora-regions.schema.json`
++ `docs/AURORA_REGIONS_SCHEMA.md` at empyrean `c3f892f`): the document is **closed at every level**;
+and **`bg.span` is DERIVED from the referenced layout's height and never typed** — a check only this
+generator can make, because the schema never sees the layout.
+
+**The shape worth carrying past this row**, and it is the same one this repo found tonight in the
+plane buffer (`Draw_BG_TileColumn`, zero call sites) and in the link-assert tally: **the artifact
+exists, nothing consumes it yet, and the consuming side is where the real number lives.** The hub
+recorded the same error against itself — it told the owner "empyrean's half of phase 2 is done",
+true of the step that landed and false of the seam that step feeds.
