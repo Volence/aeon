@@ -2020,8 +2020,7 @@ comptime fn ojz_e2_plain(pal: Label) -> EffectsPreset {
 }
 
 const OJZ_PRESET_NIGHT_SNAP_LEN = if DEBUG == 1 { 1 } else { 0 }
-pub data OJZ_Preset_NightSnap: [EffectsPreset; OJZ_PRESET_NIGHT_SNAP_LEN] =
-    if DEBUG == 1 { [ ojz_e2_plain(OJZ_Palette_Night) ] } else { [] }
+pub data OJZ_Preset_NightSnap: [EffectsPreset; OJZ_PRESET_NIGHT_SNAP_LEN] = if DEBUG == 1 { [ ojz_e2_plain(OJZ_Palette_Night) ] } else { [] }
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
