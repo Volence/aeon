@@ -90,19 +90,52 @@ Sigil's own `check_only_census.rs` cannot catch it either, because it asserts th
 against the same derivation — a check that computes its expectation the way the subject computes
 it is not a check.
 
-**A NARROWING THIS LANE OFFERS, AS REASONING AND NOT AS A MEASUREMENT.** The residual worry is that
-`--extra-entry`'s load path might collect asserts without folding them. But guards A and B are in
-that same module, loaded the same way, and were OBSERVED to fold — they rendered real resolved
-numbers (5280, 472) that only `resolve_layout` can supply. So "this load path collects without
-folding" is refuted for that path outright. What stays unobserved is narrower: whether folding is
-per-assert complete WITHIN such a module, since a passing assert that silently failed to fold and
-one that folded to true are the same artifact. Offered to sigil to judge against their source;
-this lane has not measured it and does not claim it.
+**RESOLVED 2026-09-16, STRUCTURALLY, AND THE GROUND IS BETTER THAN EITHER LANE FIRST HAD.**
+This lane offered a narrowing as reasoning: guards A and B live in the same `--extra-entry`
+module, loaded the same way, and were OBSERVED to fold (they rendered 5280 and 472, numbers only
+`resolve_layout` can supply), so "this load path collects without folding" is refuted for that
+path. Sigil then read their own source and found the ground is **structural, not observational**,
+and holds for every load path rather than the one observed. Their line numbers, so a reader can
+check the reading rather than accept it:
 
-**Still not tested, and deliberately, at sigil's own direction:** DEBUG and demo shapes. Same
-renderer, same code path, and the shape does not vary what a diagnostic looks like — sigil asked
-for the run to be spent on the multi-failure case instead of a sweep. That is their call on their
-own subject and it is recorded as theirs.
+- **The fold is unconditional.** `crates/sigil-link/src/lib.rs:427` — the Condition loop is
+  `for a in asserts.iter().filter(|a| a.kind == AssertKind::Condition)` and calls
+  `a.cond.fold(&lookup)` on every one. No early exit, no skip, no branch before the fold. The three
+  outcomes follow it, never precede it.
+- **It is the same list the census counts.** `crates/sigil-harness/src/native.rs`, inside
+  `resolve_chained`: `check_link_asserts(&resolved, &stubs, &link_asserts)` at :3906 and
+  `GuardCensus::from_verdict(comptime_guards, &link_asserts, &inapplicable)` at :3913 — one
+  binding destructured from `build_emp`, not shadowed, filtered or rebuilt between the two uses.
+- **The subtraction's arity is one-to-one by construction.** The Poison arm splits two ways. The
+  silent `continue` fires only when every unresolved leaf is in `refused`, and `refused` is filled
+  by the `ExternDefined` loop, which pushes an `EXTERN_UNKNOWN_ID` for each — and
+  `declared_chain_drift_verdict:2188` returns `Err` on any of those before it partitions, so a
+  silent continue and a census are mutually exclusive. The **allowlisted-inapplicable** branch is
+  the separate fall-through, pushing one *"references symbol(s) … not defined in this link"*
+  diagnostic **per Condition assert**, which `:2195` partitions on. One inapplicable assert, one
+  inapplicable diagnostic, so `conditions - inapplicable.len()` cannot overcount.
+
+**HOW IT GOT THERE IS THE PART WORTH KEEPING, AND IT IS NOT A STORY ABOUT EITHER LANE BEING
+CLEVER.** Sigil's first version of this argument asserted the mutual exclusivity from the one
+Poison branch they had read, and was right by luck about the branch they had not. This lane's
+questions were: *are the census's list and the fold loop's list the same object*, and *the
+allowlisted-inapplicable population is exactly the shape your argument needs not to exist* — the
+second of which came from THIS note's own green run printing `0 LinkAssert(s) inapplicable
+(… allowlisted)`, i.e. from the one population where the question could not arise. **The zero was
+the clue precisely because it was a zero.** Sigil read the allowlist branch on that question and
+found it strengthens the subtraction rather than threatening it.
+
+**And the rule that produced those questions is the transferable part: an against-interest
+correction that happens to FAVOUR you gets checked one layer down, not banked.** The asymmetry is
+that a correction simplifying your board is the one you examine least. Applied here, the
+discriminator this whole note is about — an instrument must be able to produce a different answer
+than its subject would — was aimed at an ARGUMENT rather than at an instrument, and caught the
+same class of defect.
+
+**What survives: `GUARD-CENSUS-DERIVED-NOT-OBSERVED` is purely HARDENING.** Nothing is miscounted
+today and sigil has no path that produces a wrong number. The residual is that the one-to-one
+arity and the mutual exclusivity are properties of two loops that nothing asserts, so a refactor
+could break either silently while the field comment keeps claiming an observation nobody makes.
 
 ## RE-RUNNING THIS — added by the overseer at landing, because the note as written had no command in it
 
