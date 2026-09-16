@@ -1,10 +1,10 @@
 {
-  "focus": "The background starts being taller than one screen. Two parcels landed this morning; the night colours wait on your eye.",
+  "focus": "Step 5 is built and green on its branch. Running its gate on the real machine before it lands.",
   "inFlight": [
     {
-      "what": "Making the background taller than the screen and streaming it in as you move -- the step the video-memory work waits on",
-      "where": "branch parcel/regions-p2-step5",
-      "agent": true
+      "what": "The streaming background's own gate -- the half only a running machine can answer. The code is built and pushed to its branch already",
+      "where": "branch parcel/regions-p2-step5, gate run in the foreground",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -19,7 +19,7 @@
       "since": "2026-09-16"
     }
   ],
-  "nextBoundary": "When the streaming parcel lands. Until then a rotation costs the running agent's work.",
+  "nextBoundary": "When step 5's gate answers and the parcel lands. The branch is pushed, so nothing is lost if this session ends first.",
   "queue": [
     {
       "id": "REGIONS-P2-STEP5",
@@ -64,7 +64,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "Two things for your eye, both built: the spring sound A/B from 09-09, and the night colours -- my read is overcast dusk rather than moonlight, with two alternatives pictured beside it.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T11:14:23Z"
+  "updatedAt": "2026-09-16T11:31:01Z"
 }
