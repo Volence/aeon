@@ -48,8 +48,8 @@ below is organised around not letting the measurement be fake.
 | wiring at the three `jbsr Parallax_Update` sites (boot, per-frame, warp) | `games/sonic4/test/ojz_scroll_test.emp` |
 | the 96-row DEBUG-only map (12288 B) + its generator with a non-vacuity assert | `tools/gen_tall_bg_test.py`, `games/sonic4/data/generated/ojz/act1/zone_bg_tall_debug.bin` |
 | the DEBUG-gated embed, typed by its size | `games/sonic4/data/levels/ojz/act1/act_assets.emp` |
-| the DEBUG-only region row, carved out of row 5 | `games/sonic4/data/levels/ojz/act1/act_descriptor.emp` |
-| GATE BG-TALL, ROM-side: five legs, **five red-first proofs**, three tests green | `tools/test_bg_tall_map.py` |
+| the DEBUG-only region row, carved out of rows 5 AND 8 | `games/sonic4/data/levels/ojz/act1/act_descriptor.emp` |
+| GATE BG-TALL, ROM-side: six legs, **six red-first proofs**, three tests green | `tools/test_bg_tall_map.py` |
 | two lanes my own insertion broke, fixed at the FORM | `tools/test_lab_index_lint.py`, `engine/level/parallax.emp`, `engine/ram.emp` |
 | a DANGLING citation replaced with a re-verified primary source | `engine/level/plane_buffer.emp` |
 | doc sync + three bookings | `docs/ENGINE_ARCHITECTURE.md`, `docs/DEFERRED_WORK.md` |
@@ -206,9 +206,31 @@ first and had to re-derive.
   tiling proof. Its scroll tops out at **191**, below both ceilings, so the two clamps could never
   disagree there and the cheap option was the vacuous one.
 
-So: **a new DEBUG-only row at x 5120..6143, y 2048..4095**, carved out of row 5's right end by
-exactly the mechanism `OJZ_E2_SNAP_ROWS` uses on row 2's. Scroll ranges 192..448 across it: the
-old clamp **binds at 288**, the new one (544) does not. That gap is the measurement.
+So: **a new DEBUG-only row at x 5120..6143, y 2048..6143**, carved out of the right end of rows
+5 AND 8 by exactly the mechanism `OJZ_E2_SNAP_ROWS` uses on row 2's.
+
+### ⚠ AND THE FIRST CUT OF IT WAS HALF A TEST, which I found by deriving rather than by trusting a green
+
+The rectangle was `y 2048..4095` at first — one section row, one carve. It reaches raw BG scroll
+**192..447**, which is enough to make the two clamps **disagree** (the old ceiling 288 binds, the
+new 544 does not), and leg 3 measured that disagreement honestly: 26 window tops against 13.
+**But 447 < 544, so the NEW ceiling was never once the thing that stopped the scroll.** Testing a
+clamp only where it does not clamp leaves the line that does the clamping ungraded — and that line
+is step 4's entire subject. It also left step 4's own BG-RATE gate vacuous for the same reason,
+which is the thing this parcel was supposed to end.
+
+Extending to `y 2048..6143` reaches raw scroll **703**, so the new ceiling binds over the last
+~1280 px of camera travel while the window tops still sweep 7..32.
+
+| rectangle | raw scroll | old ceiling 288 binds | new ceiling 544 binds |
+|---|---|---|---|
+| y 2048..4095 (first cut) | 192..447 | YES | **NO** |
+| y 2048..6143 (shipped) | 192..703 | YES | **YES**, from camera Y 4864 |
+
+**Leg 3b is kept SEPARATE from leg 3 deliberately.** "The two clamps disagree" and "the new
+ceiling actually constrains" are different claims, and the first can be true while the second is
+false — which is exactly the state this fixture was in. A single merged assertion would have gone
+green on it.
 
 It reuses row 8's shipped `OJZ_Preset_Plain`, so palette, raster program and variants under the
 rectangle are a shipped look and the **only** thing that differs from its neighbour is the
@@ -232,7 +254,7 @@ row carries a span.
 
 ---
 
-## GATE BG-TALL, ROM-SIDE — five legs, and what each accepts
+## GATE BG-TALL, ROM-SIDE — six legs, and what each accepts
 
 `tools/test_bg_tall_map.py`. The subject is not "does the streamer work"; it is the prior question
 that has been silently answered NO for four steps: **is there anything on this tree that the new
@@ -243,6 +265,7 @@ code behaves differently on than the old code would?**
 | 1 | a DEBUG region row declares `rg_bg_span > PLANE_B_SPAN` | spans in (512, ∞). **Refuses the entire space every earlier tree occupied**, including the "honest" 512 |
 | 2 | that row's layout is the committed 12288-byte blob (md5) **and its 96 rows are pairwise distinct** | — |
 | 3 | the window tops the tracker visits, computed from the ROM's own bytes, differ between the new and old ceilings | nothing on any earlier tree, where both are `{0}` and equal |
+| 3b | the new ceiling is REACHED, i.e. some camera Y in the region drives raw scroll above it | rectangles that reach past the ceiling. **Refuses this parcel's own first cut** |
 | 4 | release carries no span and no part of the blob | — |
 | 5 | `BG_Stream_Update` is the target of a real `jsr abs.l` **or** `bsr.w` in the image | — |
 
@@ -253,6 +276,7 @@ row 11 [x 5120..6143, y 2048..4095] span 768 (96 rows), cfg 0x134e8
        v_factor 3 v_center 512 v_offset 0, lead 17, max_top 32
   window tops NEW ceiling 544: 7..32 (26 distinct)
   window tops OLD ceiling 288: 7..19 (13 distinct)
+  raw vscroll reaches 703; the NEW ceiling 544 BINDS from camera Y 4864 (leg 3b)
 ```
 
 Twenty-six against thirteen. Leg 5: `BG_Stream_Update` at `0xa6ca`, **3 call sites**.
@@ -263,7 +287,7 @@ the day a section moved. It counts `bsr.w` too.
 
 **WHAT A GREEN DOES NOT SAY, and it is the sentence that matters.** Nothing about the picture.
 Every leg reads ROM bytes and arithmetic over them; not one observes the VDP. **A build that
-computes the right window and writes it to the wrong VRAM address passes all five.**
+computes the right window and writes it to the wrong VRAM address passes all six.**
 
 ### An assertion I wrote and then deleted
 
@@ -305,6 +329,7 @@ not more.
 | M2 | blob row 64 := row 0, **then rebuilt** (crc `326fc5ba`) | yes | leg 2 RED: `map rows [(0, 64)] are byte-identical` — and the md5 leg PASSING is what proves the mutation reached the ROM |
 | M4 | the three `jbsr BG_Stream_Update` commented out, rebuilt (crc `d35dc887`, len 847138) | yes | leg 5 RED: `0 not greater than or equal to 1 ... NOTHING in the ROM calls it` |
 | M5 | `if DEBUG == 1` → `if 1 == 1` on all four gates, release rebuilt (crc `c28c5bdb`, len 820772) | yes | leg 4 RED: `release region rows declare non-zero spans [(10, 768)]` |
+| M6 | the tall row's `y1` back to 4095 **and** row 8's carve reverted (the tiling proof needs them together), rebuilt — **crc `936ac15c`, byte-identical to this parcel's own pre-extension build**, which is what proves the mutation reproduced that state exactly | yes | leg 3b RED: `the new ceiling 544 is never REACHED ... the largest raw scroll ... is 447` |
 
 **M5 was run twice and the first attempt is recorded because it nearly passed as evidence.** My
 marker comment `//MUT` was appended *inline*, which swallowed the rest of each `.emp` line; the
@@ -399,6 +424,8 @@ cannot see it; that gate reads `X.emp:N`, not doc paths. Replaced with the prima
 |---|---|---|---|
 | `s4.bin` | 820606 | 820746 | **+140** |
 | `s4.debug.bin` | 846986 | 847156 | **+170** |
+
+DEBUG crc `0f3962d8`, release crc `a8d0d512` at the final tip.
 
 **The DEBUG shape grew +170 while gaining a 12288-byte blob, and I chased that rather than
 reasoning about it.** The blob IS in the ROM: `OJZ_Act1_BG_Layout_Tall` is at `$29750`, the next
