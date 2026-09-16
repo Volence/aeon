@@ -1644,3 +1644,66 @@ tempted to send that message, the fact that you would have to is the bug.*
 live instance in the shipping game" **four hours after they had deleted the list.** The measurement
 was right and the conclusion drawn from it was stale — a peer's state is not a thing to infer from
 their last message about it.
+
+## An inherited blocker: re-measure it, and know what it is a fact ABOUT (2026-09-16)
+
+**The rule this refines** (aurora's, empyrean `40e3535`): an agent's environment findings are
+measurements of a BASE, and the base moves when the controller lands in parallel. Aurora's agent
+reported that its harness could not go green from a linked worktree, reproduced it at its base,
+and correctly refused to route around it — while aurora's own commit had already closed it. **The
+agent said nothing false and had no instrument that could have caught it.** From inside the branch,
+the merge has not happened. **The controller owns the re-measure because the agent structurally
+cannot.**
+
+**The discriminator, measured here the same night on two returned refusals:**
+
+* **Subject-side** — a fact about the ROM or the engine. Falsified only by subject changes.
+  Tonight: BG-RATE refusing because a warp across 2047 px of camera moved the BG scroll 0 px on
+  the column it landed on; the night capture refusing because `Pal_Target` is 48 words of zero
+  before any fade has run.
+* **Environment-side** — a fact about the tree's configuration, the toolchain, the harness.
+  **Falsified by anything, including a commit nobody thought was related** — which is exactly why
+  another lane's landing repairs it invisibly.
+
+Environment-side needs the re-measure unconditionally; subject-side needs it when the landing
+touched the subject.
+
+**⚠ AND THE CLAUSE THAT KEEPS THIS FROM ROTTING, which is the load-bearing half: deciding which
+class a finding is in is ITSELF a judgement you can get wrong, and the command is cheaper than the
+judgement.** A discriminator that saves a cheap command is not worth the judgement it costs. Use it
+to know what you are looking at, **never to skip the look.** Run it regardless:
+
+```sh
+git fetch -q origin && git log --oneline <agent's base>..origin/master
+git diff --name-only <agent's base>..origin/master
+```
+
+Measured instance: the base HAD moved — by one commit, one file, and only its docstring (the
+diff's sole non-comment line was a closing `"""`). The null result was worth more than a hit: it
+established that both refusals were real rather than leaving it assumed. The follow-up that made
+it a measurement rather than a shrug was checking whether either tool **imports** that file, rather
+than reasoning that a docstring cannot matter.
+
+## Open a fix list by naming what the gate got RIGHT (2026-09-16)
+
+When returned work contains a gate that **refused** — exit 2, COULD NOT RUN, a named vacuous leg —
+say so first, explicitly, before the defects.
+
+**This is not politeness and the cost of skipping it is invisible forever.** An agent that reads
+*"your gate refused and here are three defects"* learns to build gates that do not refuse, and **a
+gate that never fires looks exactly like a gate with nothing to catch.** Oracle measured that price
+the same night: a fixture was the named lock for a defect it could never detect, and its NAME is
+what stopped anyone checking it.
+
+Tonight's instances, both accepted by their agents without argument: BG-RATE's setup refusal
+(`WITNESS_EXIT=2`, no leg executed) was the tool working, and the three findings were about AIM —
+the warp column was `cam_x + HALF_W`, inherited from wherever prior legs left the camera, under a
+comment reading "Derived, not picked". The night capture's `buf` refusal was conservative in the
+right direction and still wrong, because it had the evidence to certify (`buffer == cram` held) and
+refused on an unset field.
+
+**The same practice applies to the returned PACKET, not only the dispatch** (aurora, independently,
+the same night): amend a stale finding **as an amendment, never as a criticism**, because the
+agent's refusal to route around a blocker was correct and must not read as an error. Two lanes
+converged on one practice from opposite ends of the same loop without seeing each other's version;
+banked together at empyrean `b2d1934` for that reason.
