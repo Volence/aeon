@@ -1,6 +1,12 @@
 {
-  "focus": "Region background switching is landed; it is ready for you to fly in the DEBUG build.",
-  "inFlight": [],
+  "focus": "Finding a way to group foreground art so whole Sonic 2/3 zones fit side by side; the background switch awaits your look.",
+  "inFlight": [
+    {
+      "what": "Trying better ways to group foreground art into pages so a stitched Sonic 2/3 act fits, measured on the same maps",
+      "where": "branch research/stitched-act-page-order (agent worktree)",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything is landed and pushed and nothing is running.",
+  "nextBoundary": "When the page-grouping report comes back and is reviewed. No game bytes change in this step.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -20,7 +26,7 @@
     {
       "id": "STITCHED-ACT-PAGE-ORDER",
       "title": "Regroup foreground art into pages so a stitched Sonic 2/3 act fits the cache: the art fits, the current grouping does not. Measure a better order first",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -48,7 +54,7 @@
     {
       "id": "LS-13b",
       "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -61,6 +67,6 @@
     }
   ],
   "awaiting": "your look at the region background switch in the DEBUG ROM (crc f95b1eb4); the spring sound A/B from 09-09 is still yours too",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T23:38:03Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T23:39:32Z"
 }
