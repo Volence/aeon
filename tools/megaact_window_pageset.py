@@ -255,9 +255,50 @@ class Zone:
 _zone_cache = {}
 
 
+def _chunk_tiles(chunks, blocks):
+    """chunk id -> 16x16 tile words, through the REAL chunk_get_tile_word."""
+    tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
+    out = np.zeros((len(chunks), tpc, tpc), dtype=np.uint16)
+    for ci, ch in enumerate(chunks):
+        for tr in range(tpc):
+            for tc in range(tpc):
+                out[ci, tr, tc] = ojz_strip_gen.chunk_get_tile_word(ch, blocks, tc, tr)
+    return out
+
+
+def _crop(name, full, art, xs, xe, ys, ye, extra=None):
+    """Crop a zone's full FG nametable to its camera-reachable LevelSize box."""
+    tile = 8
+    x0 = max(0, xs) // tile
+    x1 = min(full.shape[1], -(-(xe + 320) // tile))
+    y0 = max(0, ys) // tile
+    y1 = min(full.shape[0], -(-(ye + 224) // tile))
+    words = full[y0:y1, x0:x1].copy()
+    n_art = len(art) // 32
+    oob = int(np.count_nonzero((words & 0x7FF) >= n_art))
+    if oob:
+        raise SystemExit(f"{name}: {oob} words reference tiles past the {n_art}-tile art blob")
+    box = {"level_size_px": [xs, xe, ys, ye], "crop_tiles": [x0, x1, y0, y1],
+           "ystart_clamped": ys < 0}
+    if extra:
+        box.update(extra)
+    return Zone(name, words, np.zeros(words.shape, dtype=bool), box, bytes(art), n_art)
+
+
 def load_zone(name):
     if name in _zone_cache:
         return _zone_cache[name]
+    if name in S2_ZONES:
+        z = _load_s2(name)
+    elif name in S3K_ZONES:
+        z = _load_s3k(name)
+    else:
+        raise SystemExit(f"unknown zone {name!r}")
+    _zone_cache[name] = z
+    return z
+
+
+def _load_s2(name):
     root = s2disasm_root()
     s2asm = open(os.path.join(root, "s2.asm"), "r", errors="replace").read()
     s2const = open(os.path.join(root, "s2.constants.asm"), "r", errors="replace").read()
@@ -293,35 +334,129 @@ def load_zone(name):
     if len(layout) != 0x1000:
         raise SystemExit(f"{lay_n}: layout decoded to {len(layout)} bytes, expected $1000")
 
-    # chunk -> 16x16 tile words, through the REAL chunk_get_tile_word
     tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
-    chunk_tiles = np.zeros((len(chunks), tpc, tpc), dtype=np.uint16)
-    for ci, ch in enumerate(chunks):
-        for tr in range(tpc):
-            for tc in range(tpc):
-                chunk_tiles[ci, tr, tc] = ojz_strip_gen.chunk_get_tile_word(ch, blocks, tc, tr)
-
     lay = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[0::2]   # FG rows
-    full = chunk_tiles[lay]                       # (16, 128, 16, 16)
+    full = _chunk_tiles(chunks, blocks)[lay]       # (16, 128, 16, 16)
     full = full.transpose(0, 2, 1, 3).reshape(16 * tpc, 128 * tpc)
+    xs, xe, ys, ye = parse_level_sizes(s2asm)[(size_key, 1)]
+    return _crop(name, full, art, xs, xe, ys, ye, {"game": "Sonic 2", "layout": lay_n})
 
-    sizes = parse_level_sizes(s2asm)
-    xs, xe, ys, ye = sizes[(size_key, 1)]
-    tile = 8
-    x0 = xs // tile
-    x1 = min(full.shape[1], -(-(xe + 320) // tile))
-    y0 = max(0, ys) // tile
-    y1 = min(full.shape[0], -(-(ye + 224) // tile))
-    words = full[y0:y1, x0:x1].copy()
-    void = np.zeros(words.shape, dtype=bool)
-    n_art = len(art) // 32
-    oob = int(np.count_nonzero((words & 0x7FF) >= n_art))
-    if oob:
-        raise SystemExit(f"{name}: {oob} words reference tiles past the {n_art}-tile art blob")
-    z = Zone(name, words, void, {"level_size_px": [xs, xe, ys, ye],
-                                 "crop_tiles": [x0, x1, y0, y1],
-                                 "ystart_clamped": ys < 0}, bytes(art), n_art)
-    _zone_cache[name] = z
+
+# ---------------------------------------------------------------------------
+# Sonic 3 & Knuckles donor loading
+# ---------------------------------------------------------------------------
+
+# name -> (LevelLoadBlock row comment, LevelSizes comment, LevelPtrs layout label).
+# Every file is resolved from sonic3k.asm by label (`Label:` then `binclude`).
+S3K_ZONES = {
+    "AIZ2": ("ANGEL ISLAND ZONE ACT 2", "AIZ2", "Layout_AIZ2"),
+    "HCZ1": ("HYDROCITY ZONE ACT 1", "HCZ1", "Layout_HCZ1"),
+    "MGZ1": ("MARBLE GARDEN ZONE ACT 1", "MGZ1", "Layout_MGZ1"),
+    "CNZ1": ("CARNIVAL NIGHT ZONE ACT 1", "CNZ1", "Layout_CNZ1"),
+    "FBZ1": ("FLYING BATTERY ZONE ACT 1", "FBZ1", "Layout_FBZ1"),
+    "ICZ1": ("ICECAP ZONE ACT 1", "ICZ1", "Layout_ICZ1"),
+    "LBZ1": ("LAUNCH BASE ZONE ACT 1", "LBZ1", "Layout_LBZ1"),
+    "MHZ1": ("MUSHROOM HILL ZONE ACT 1", "MHZ1", "Layout_MHZ1"),
+    "SOZ1": ("SANDOPOLIS ZONE ACT 1", "SOZ1", "Layout_SOZ1"),
+    "LRZ1": ("LAVA REEF ZONE ACT 1", "LRZ1", "Layout_LRZ1"),
+}
+
+
+def skdisasm_dir():
+    root = ojz_common.skdisasm_root()
+    if not os.path.isfile(os.path.join(root, "sonic3k.asm")):
+        raise SystemExit(f"skdisasm donor not found at {root} (set AEON_SKDISASM_DIR)")
+    return root
+
+
+def kosm_decompress(data):
+    """Kosinski-moduled, per sonic3k.asm Process_Kos_Module_Queue(_Init): a u16
+    uncompressed size ($A000 means $8000), then Kosinski modules, each next module
+    starting at the previous one's end rounded up to a $10 boundary FROM ITS START."""
+    size = struct.unpack(">H", data[:2])[0]
+    if size == 0xA000:
+        size = 0x8000
+    pos = 2
+    out = bytearray()
+    while len(out) < size:
+        start = pos
+        dec, end = ojz_common.kos_decompress(data, pos)
+        if not dec:
+            raise SystemExit("KosM module decoded empty before the header size was reached")
+        out += dec
+        pos = end + ((start - end) & 0xF)
+    if len(out) != size:
+        raise SystemExit(f"KosM decoded {len(out)} bytes, header says {size}")
+    return bytes(out)
+
+
+def _load_s3k(name):
+    root = skdisasm_dir()
+    asm = open(os.path.join(root, "sonic3k.asm"), "r", errors="replace").read()
+    row_comment, size_tag, layout_label = S3K_ZONES[name]
+
+    # The S3 half's data lives in `Lockon S3/LockOn Data.asm` (sonic3k.asm only
+    # carries `ds.b` placeholders for it via LockOn Pointers.asm).
+    lockon = open(os.path.join(root, "Lockon S3", "LockOn Data.asm"), "r", errors="replace").read()
+
+    def binclude(label):
+        for text in (asm, lockon):
+            m = re.search(r"^" + re.escape(label) + r':\s*binclude\s+"([^"]+)"', text, re.M)
+            if m:
+                return os.path.join(root, m.group(1))
+        raise SystemExit(f"skdisasm: no `{label}:` binclude in sonic3k.asm or LockOn Data.asm")
+
+    row = re.search(r"^\s*levartptrs\s+(.+?);\s*" + re.escape(row_comment) + r"\s*$", asm, re.M)
+    if not row:
+        raise SystemExit(f"sonic3k.asm LevelLoadBlock: no row `{row_comment}`")
+    f = [x.strip() for x in row.group(1).split(",")]
+    tiles_p, tiles_s, b16_p, b16_s, b128_p, b128_s = f[3:9]
+
+    # LoadLevelLoadBlock: primary 8x8 at VRAM 0, secondary at (primary size), unless same label
+    art = bytearray(kosm_decompress(_read(binclude(tiles_p))))
+    if tiles_s != tiles_p:
+        art += kosm_decompress(_read(binclude(tiles_s)))
+    # LoadLevelLoadBlock2: Kos_Decomp primary then secondary into one buffer (a1 continues)
+    raw16, _ = ojz_common.kos_decompress(_read(binclude(b16_p)))
+    if b16_s != b16_p:
+        raw16 += ojz_common.kos_decompress(_read(binclude(b16_s)))[0]
+    raw128, _ = ojz_common.kos_decompress(_read(binclude(b128_p)))
+    if b128_s != b128_p:
+        raw128 += ojz_common.kos_decompress(_read(binclude(b128_s)))[0]
+    blocks = [list(struct.unpack_from(">4H", raw16, i)) for i in range(0, len(raw16) // 8 * 8, 8)]
+    words128 = struct.unpack(f">{len(raw128) // 2}H", raw128[:len(raw128) // 2 * 2])
+    chunks = [list(words128[i:i + 64]) for i in range(0, len(words128) // 64 * 64, 64)]
+
+    lay = _read(binclude(layout_label))
+    fg_w, _bg_w, fg_h, _bg_h = struct.unpack(">4H", lay[:8])
+    rows = []
+    for r in range(fg_h):
+        ptr = struct.unpack(">H", lay[8 + 4 * r:10 + 4 * r])[0] - 0x8000
+        rows.append(list(lay[ptr:ptr + fg_w]))
+    lay_arr = np.array(rows, dtype=np.int64)
+    if lay_arr.max() >= len(chunks):
+        raise SystemExit(f"{name}: layout names chunk {lay_arr.max()} of {len(chunks)}")
+    tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
+    full = _chunk_tiles(chunks, blocks)[lay_arr]
+    full = full.transpose(0, 2, 1, 3).reshape(fg_h * tpc, fg_w * tpc)
+
+    m = re.search(r"^\s*dc\.w\s+(.+?);\s*" + re.escape(size_tag) + r"\s*$", asm, re.M)
+    if not m:
+        raise SystemExit(f"sonic3k.asm LevelSizes: no row `{size_tag}`")
+    xs, xe, ys, ye = [int(v.strip().replace("$", "0x"), 0) for v in m.group(1).split(",")]
+    z = _crop(name, full, art, xs, xe, ys, ye,
+              {"game": "Sonic 3 & Knuckles", "layout_chunks_wh": [fg_w, fg_h],
+               "xend_is_placeholder_6000": xe >= 0x6000})
+    # xend $6000 is a placeholder the resize events narrow at runtime; the layout's
+    # own painted extent bounds the box. Trim trailing all-tile-0 columns, keeping
+    # one screen width of the empty edge.
+    nz = np.nonzero((z.words & 0x7FF).any(axis=0))[0]
+    keep_extra = 320 // 8
+    if nz.size and nz[-1] + 1 + keep_extra < z.words.shape[1]:
+        keep = int(nz[-1] + 1 + keep_extra)
+        z.box["trimmed_empty_cols_to"] = keep
+        z.words = z.words[:, :keep].copy()
+        z.void = z.void[:, :keep].copy()
     return z
 
 
@@ -706,19 +841,23 @@ def pair_act(a, b, st, b_row_offset=0):
     return Act(f"{a}|{b}", [(za, 0, 0), (zb, za.words.shape[1], b_row_offset)], st)
 
 
-def junction_act(a, b, cz, st):
+def junction_act(a, b, cz, st, section_align=False):
     """T-junction: A top-left, B top-right, bottoms aligned; C directly below,
-    horizontally centred on the A|B seam."""
+    horizontally centred on the A|B seam. `section_align` pushes the junction
+    row down to the next section boundary (256 tiles), so C starts its own
+    section row instead of sharing one with A and B."""
     za, zb, zc = load_zone(a), load_zone(b), load_zone(cz)
     h0 = max(za.words.shape[0], zb.words.shape[0])
+    if section_align:
+        h0 = -(-h0 // st) * st
     seam = za.words.shape[1]
     c_col = seam - zc.words.shape[1] // 2
     shift = max(0, -c_col)               # keep every placement at a non-negative column
-    return Act(f"{a}|{b} over {cz}", [
+    return Act(f"{a}|{b} over {cz}" + (" [section-aligned]" if section_align else ""), [
         (za, shift, h0 - za.words.shape[0]),
         (zb, shift + seam, h0 - zb.words.shape[0]),
         (zc, c_col + shift, h0),
-    ], st), {"seam_col": seam + shift, "junction_row": h0}
+    ], st), {"seam_col": seam + shift, "junction_row": h0, "section_aligned": section_align}
 
 
 def chain_act(names, st):
@@ -742,7 +881,15 @@ def headline(res, frames_list, cls):
             "pages": res["pages"], "pinned": len(res["pinned_pages"])}
 
 
-def build_report(quick=False, log=print):
+GAMES = {
+    "s2": {"zones": lambda: list(S2_ZONES), "quick": ["EHZ", "ARZ", "MCZ", "HTZ"],
+           "chain": ["EHZ", "CPZ", "ARZ", "CNZ", "HTZ", "MCZ", "OOZ", "MTZ"]},
+    "s3k": {"zones": lambda: list(S3K_ZONES), "quick": ["MHZ1", "LBZ1", "CNZ1", "ICZ1"],
+            "chain": ["AIZ2", "HCZ1", "MGZ1", "CNZ1", "FBZ1", "ICZ1", "LBZ1", "MHZ1", "SOZ1", "LRZ1"]},
+}
+
+
+def build_report(game="s2", quick=False, log=print):
     c, origin = load_constants()
     frames_list = [c["PAGE_FRAMES"], OWNER_LEVER_FRAMES]
     F, L = frames_list
@@ -764,10 +911,10 @@ def build_report(quick=False, log=print):
         report["refused"] = "OJZ glue control failed — no donor number is trustworthy"
         return report
 
-    zones = list(S2_ZONES)
-    if quick:
-        zones = ["EHZ", "ARZ", "MCZ", "HTZ"]
-    donor = {"s2disasm": s2disasm_root(), "zones": {}}
+    g = GAMES[game]
+    zones = g["quick"] if quick else g["zones"]()
+    report["game"] = game
+    donor = {"root": s2disasm_root() if game == "s2" else skdisasm_dir(), "zones": {}}
     for zn in zones:
         z = load_zone(zn)
         donor["zones"][zn] = {"box_tiles_wh": list(z.words.shape[::-1]), **z.box,
@@ -850,14 +997,16 @@ def build_report(quick=False, log=print):
             if cz not in (a, b):
                 triples.append((a, b, cz))
     ca, cb = calm_pair["act"].split("|")
-    calm_c = next(z for z in (["OOZ", "CNZ", "EHZ", "HTZ"] + zones) if z not in (ca, cb) and z in zones)
-    triples.append((ca, cb, calm_c))
+    for cz in zones:
+        if cz not in (ca, cb):
+            triples.append((ca, cb, cz))
     seen = set()
     for a, b, cz in triples:
-        if (a, b, cz) in seen:
+      for align in (False, True):
+        if (a, b, cz, align) in seen:
             continue
-        seen.add((a, b, cz))
-        act, geo = junction_act(a, b, cz, st)
+        seen.add((a, b, cz, align))
+        act, geo = junction_act(a, b, cz, st, section_align=align)
         r = measure_act(act, c, frames_list)
         rr = strip_arrays(r)
         rr["junction_geometry"] = geo
@@ -872,7 +1021,7 @@ def build_report(quick=False, log=print):
     # ---- whole-game chain (the owner's real shape, one row) ----
     if not quick:
         log("chain of all zones ...")
-        order = ["EHZ", "CPZ", "ARZ", "CNZ", "HTZ", "MCZ", "OOZ", "MTZ"]
+        order = g["chain"]
         r = measure_act(chain_act(order, st), c, frames_list)
         report["chain"] = strip_arrays(r)
         s = r["needed"]["seam_two_plus_zones"]
@@ -893,6 +1042,7 @@ def main(argv=None):
     ap.add_argument("command", choices=["report", "control"])
     ap.add_argument("--json", metavar="PATH")
     ap.add_argument("--quick", action="store_true", help="4 zones, coarse offsets (smoke run)")
+    ap.add_argument("--game", choices=sorted(GAMES), default="s2")
     args = ap.parse_args(argv)
     if args.command == "control":
         c, _ = load_constants()
@@ -900,7 +1050,7 @@ def main(argv=None):
         ctl = control_ojz(c)
         print(json.dumps(ctl, indent=2))
         return 0 if ctl["ok"] else 1
-    rep = build_report(quick=args.quick, log=lambda m: print(m, flush=True))
+    rep = build_report(game=args.game, quick=args.quick, log=lambda m: print(m, flush=True))
     if args.json:
         with open(args.json, "w") as fh:
             json.dump(rep, fh, indent=1)
