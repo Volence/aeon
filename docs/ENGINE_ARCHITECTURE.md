@@ -1735,7 +1735,7 @@ The Genesis VDP has completely separate planes — Plane A and Plane B have inde
 | 2. Per-section layout | Different BG arrangement | Shared BG tile region (zone-wide, fixed) | 256 slots reserved | Visual variety with existing BG art |
 | 3. Per-section art+layout | Different BG tiles+layout | Section's A.3 art group | Pool tiles | Unique BG (mountain skyline, etc.) |
 
-**Shared BG tile region (T1/T2):** A fixed VRAM range — base slot 1024, byte address $8000 (`BG_TILE_BASE_VRAM`) — is reserved for BG-only tile art. The relocated SAT at $B800 is the hard ceiling, so usable BG space is $8000-$B7FF = **448 tiles** (14 KB), `BG_TILE_CAPACITY` in constants.asm; OJZ Act 1 uses ~340. The engine doesn't read this constant; only the build tools gate on it (`tools/ojz_strip_gen.py`, `tools/inject_editor_bg.py`). Loaded **once** at level init and **never** overwritten by section transitions. BG tiles must remain at consistent VRAM slots across all section transitions for the BG nametable's tile-index references to stay valid — the same residency guarantee the FG act pool relies on.
+**Shared BG tile region (T1/T2):** A fixed VRAM range — base slot 1024, byte address $8000 (`BG_TILE_BASE_VRAM`) — is reserved for BG-only tile art. The physical run below the relocated SAT at $B800 is $8000-$B7FF; the arena OWNS `BG_TILE_CAPACITY` of it (engine/system/constants.emp; the live value, and the carves above it, are in `docs/generated/vram-map-sonic4.md` — no figure is restated here, the old "448 tiles / OJZ uses ~340" sentence went stale twice). The act default blob is loaded at level init. **Corrected 2026-09-16 (region bg switch): the arena IS overwritten mid-act** when the camera enters a region whose `rg_bg_tiles` names a different blob, and back again — see "The tile overwrite" under Section entry integration below. Section transitions alone never touch it. The engine reads `BG_TILE_CAPACITY` as a copy clamp; the build tools gate on the static budget (`tools/inject_editor_bg.py`, `tools/gen_region_bg_showcase.py`).
 
 T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer). T2 reuses the same region — only the per-section nametable changes. T3 folds its unique BG tile art into the section's contribution to the global act art pool, so each T3 section gets unique BG tile art at the cost of additional pool budget pressure.
 
@@ -1787,7 +1787,7 @@ $0000-$B7FF  UNIFIED ART POOL (tiles $000-$5BF, 1,472 tiles). Globally-deduped,
              the pool fits the frame budget, streamed on demand past it; continuous
              scroll performs no per-section art swap (§2.3).
                · FG act tile art (paged residency cache, frame-allocated)
-               · shared BG tile region (base $8000 / tile $400; T1/T2, loaded once)
+               · shared BG tile region (base $8000 / tile $400; act blob at load; a region with its own tiles overwrites it)
                · character DPLC window ($7800 / tile $3C0, DMA'd per frame)
                · permanent tiles — HUD, rings, monitors
 $B800-$BFFF  SAT ($B800) + HScroll ($BC00) — tiles $5C0-$5FF, below Plane A
