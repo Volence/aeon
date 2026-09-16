@@ -669,10 +669,20 @@ const OJZ_E2_SNAP_ROWS_LEN = OJZ_E2_SNAP_ROWS.len
 //     which is `v_factor 3 / v_center 512 / v_offset 0`. The BG moves at 1/8 the camera.
 //   * THE CAMERA MUST REACH HIGH Y. With v_center 512 and v_factor 3 the BG scroll is
 //     (camY - 512) >> 3, so beating the OLD ceiling (VSCROLL_BG_MAX = 288) needs camY >
-//     2816. That rules out the whole y 0..2047 band — including the DEBUG row that
-//     already exists, OJZ_E2_SNAP_ROWS, whose scroll tops out at 191 and could never
-//     make the two clamps disagree. y 2048..4095 gives scroll 192..448: the old clamp
-//     BINDS at 288, the new one (768 - 224 = 544) does not. That gap IS the measurement.
+//     2816, and beating the NEW one (768 - 224 = 544) needs camY > 4864. That rules out
+//     the whole y 0..2047 band — including the DEBUG row that already exists,
+//     OJZ_E2_SNAP_ROWS, whose scroll tops out at 191 and could never make the two clamps
+//     disagree at all.
+//   * AND IT SPANS TWO SECTION ROWS, y 2048..6143, WHICH IT DID NOT IN THE FIRST DRAFT.
+//     Cut at y 2048..4095 the rectangle reaches raw scroll 192..447, and that is enough
+//     to make the two clamps DISAGREE (the old one binds at 288, the new one does not)
+//     but NOT enough to exercise the new ceiling as a BINDING constraint — 447 < 544, so
+//     the new number would never once be the thing that stopped the scroll. Testing a
+//     clamp only where it does not clamp is half a test. Extending to y 6143 reaches raw
+//     scroll 703, so the new ceiling binds over the last ~1280 px of camera travel while
+//     the window tops still sweep 7..32. Both halves of step 4 are then under the camera
+//     path, which is also what makes step 4's own BG-RATE gate non-vacuous for the first
+//     time. It costs one more carve: rows 5 AND 8 give up their right end in DEBUG.
 //
 // It reuses OJZ_Preset_Plain — row 8's shipped preset — rather than authoring one, so
 // the palette, raster program and variants under this rectangle are a shipped look and
@@ -681,8 +691,9 @@ const OJZ_TALL_X0 = 5120
 // Row 5 gives up its right end to the tall region in the DEBUG shape and keeps all of it
 // in release. Single-level `if` in value position on purpose — EMP_PITFALLS §1.
 const OJZ_SEC5_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { 6143 }
+const OJZ_SEC8_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { 6143 }
 const OJZ_TALL_BG_ROWS: array = if DEBUG == 1 {
-    [ ojz_region(x0: OJZ_TALL_X0, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Plain,
+    [ ojz_region(x0: OJZ_TALL_X0, x1: 6143, y0: 2048, y1: 6143, effects: OJZ_Preset_Plain,
                  bg_layout: OJZ_Act1_BG_Layout_Tall, bg_span: BG_LAYOUT_TALL_SPAN) ]
 } else { [] }
 const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
@@ -706,7 +717,7 @@ const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = [
     ojz_region(x0: 4096, x1: OJZ_SEC5_X1, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  parallax: ojz_act1_sec_scene(sec: 5)),
     ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  parallax: ojz_act1_sec_scene(sec: 6)),
     ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  parallax: ojz_act1_sec_scene(sec: 7)),
-    ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
+    ojz_region(x0: 4096, x1: OJZ_SEC8_X1, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
     // row 9 — the night region (see the block above OJZ_NIGHT_X0)
     ojz_region(x0: OJZ_NIGHT_X0, x1: OJZ_NIGHT_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Night),
 ] ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS

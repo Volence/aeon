@@ -193,14 +193,20 @@ def _tops_visited(rom, row, cfg, k, ceiling):
     max_top = max(0, map_rows - plane_rows)
 
     tops = set()
+    bound_at = None          # the first camera Y at which the ceiling is what STOPS the scroll
+    raw_hi = None
     for cam_y in range(row["y0"], row["y1"] + 1):
-        v = ((cam_y - v_center) >> v_factor) + v_offset
-        v = 0 if v < 0 else (ceiling if v > ceiling else v)
+        raw = ((cam_y - v_center) >> v_factor) + v_offset
+        raw_hi = raw if raw_hi is None else max(raw_hi, raw)
+        if raw > ceiling and bound_at is None:
+            bound_at = cam_y
+        v = 0 if raw < 0 else (ceiling if raw > ceiling else raw)
         want = (v >> 3) - lead
         want = 0 if want < 0 else (max_top if want > max_top else want)
         tops.add(want)
     return tops, dict(v_factor=v_factor, v_center=v_center, v_offset=v_offset,
-                      lead=lead, map_rows=map_rows, max_top=max_top)
+                      lead=lead, map_rows=map_rows, max_top=max_top,
+                      raw_vscroll_max=raw_hi, ceiling=ceiling, ceiling_binds_at=bound_at)
 
 
 def _calls_to(rom, target):
@@ -336,6 +342,23 @@ class BgTallMap(unittest.TestCase):
             f"to the SAME set of window tops, {sorted(new_tops)}. The clamp change is then "
             f"unobservable here too, and this gate would be measuring nothing. "
             f"Mapping: {info}.")
+        # ---- LEG 3b: THE NEW CEILING IS EXERCISED AS A CONSTRAINT, not merely as a number ----
+        # Added after the first cut of this fixture was found to be half a test. A rectangle
+        # that only makes the two ceilings DISAGREE proves the clamp changed; it does not prove
+        # the NEW ceiling ever stops anything. Testing a clamp only where it does not clamp
+        # leaves the one line that does the clamping ungraded — and that line is step 4's whole
+        # subject. The region has to reach a raw scroll ABOVE the new ceiling.
+        self.assertIsNotNone(
+            info["ceiling_binds_at"],
+            f"the new ceiling {new_ceiling} is never REACHED inside region {row['index']}: the "
+            f"largest raw scroll the camera can produce over camera Y {row['y0']}..{row['y1']} "
+            f"is {info['raw_vscroll_max']}. The two clamps may still disagree (the old one binds "
+            f"and the new one does not), which is why this is a SEPARATE leg — but no camera "
+            f"path then puts the new ceiling on the deciding side of a compare, so "
+            f"Parallax_Step5_Vscroll's `cmp.w d3,d2 / move.w d3,d2` arm is never taken with the "
+            f"region-derived value and step 4's BG-RATE gate stays vacuous. Mapping: {info}. "
+            f"Extend the region's Y range (the fixture reaches the new ceiling only above "
+            f"camera Y {(new_ceiling << info['v_factor']) + info['v_center']}).")
         print(f"\nBG-TALL leg 3: row {row['index']} [x {row['x0']}..{row['x1']}, "
               f"y {row['y0']}..{row['y1']}] span {row['bg_span']} ({info['map_rows']} rows), "
               f"cfg {cfg:#x} v_factor {info['v_factor']} v_center {info['v_center']} "
@@ -343,7 +366,9 @@ class BgTallMap(unittest.TestCase):
               f"  window tops NEW ceiling {new_ceiling}: {min(new_tops)}..{max(new_tops)} "
               f"({len(new_tops)} distinct)\n"
               f"  window tops OLD ceiling {old_ceiling}: {min(old_tops)}..{max(old_tops)} "
-              f"({len(old_tops)} distinct)")
+              f"({len(old_tops)} distinct)\n"
+              f"  raw vscroll reaches {info['raw_vscroll_max']}; the NEW ceiling {new_ceiling} "
+              f"BINDS from camera Y {info['ceiling_binds_at']} (leg 3b)")
 
     # ---- LEG 5: the tracker is CALLED ----
     @pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
