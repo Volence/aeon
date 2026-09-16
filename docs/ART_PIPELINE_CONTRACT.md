@@ -406,11 +406,19 @@ shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
 **Byte order is ROW-MAJOR** (since regions part 2 step 2, 2026-09-15): `blob[(row*64 +
 col)*2]`; each row's 64 columns are contiguous, row stride = 64 cols × 2 B = 128
 (`engine/level/bg.emp`, the header's "Layout shape"). That is byte-for-byte the Plane B
-nametable's own VRAM order, so both full-plane blits — `BG_Init` and
-`Section_RedrawPlanes` — are a single linear `move.l` run at the default autoincrement
-`$02`, and one plane ROW is a contiguous 64-word gather (`Draw_BG_TileRow`,
-`engine/level/plane_buffer.emp`). `tools/inject_editor_bg.py` no longer transposes: it
-emits the editor's own order.
+nametable's own VRAM order, so a run of consecutive MAP rows is a single linear `move.l`
+run at the default autoincrement `$02`, and one plane ROW is a contiguous 64-word gather
+(`Draw_BG_TileRow`, `engine/level/plane_buffer.emp`). `tools/inject_editor_bg.py` no
+longer transposes: it emits the editor's own order.
+
+⚠ **THE TWO BLITS STOPPED BEING THE SAME SHAPE WHEN BG-PLANE-WINDOW CLOSED (2026-09-16).**
+`BG_Init` is still one linear run: its source is `Act.act_bg_layout`, which this section's
+own `BG_LAYOUT_SIZE` pins to exactly one plane, so the image IS the window.
+`Section_RedrawPlanes` blits the `PLANE_V_CELLS`-row window the live BG scroll selects out
+of a **region** layout (`Region.rg_bg_layout`) that may be TALLER than the plane, and that
+is **two** runs — the plane is a ring, so the window wraps while the source does not. At a
+window top of 0, which is every act whose map is the plane's height, the second run is
+empty and the first is byte-for-byte the old single run.
 
 It was column-major until that step, for one consumer — `Draw_BG_TileColumn`, which had
 zero callers for its whole life and was deleted with the flip. Part 2 streams the other

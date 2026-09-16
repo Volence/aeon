@@ -5,10 +5,12 @@
 //                     relocated SAT at $B800; see BG_TILE_REGION_BYTES below),
 //                     then blits act_bg_layout into Plane B nametable. Both
 //                     happen once at level load.
-// PER-REGION:         Section_RedrawPlanes (in section.emp) blits the layout of
-//                     the REGION under the camera centre at level init and cache
-//                     recovery only, with Act.act_bg_layout as the fallback when
-//                     the region's rg_bg_layout is 0. Teleports no longer redraw.
+// PER-REGION:         Section_RedrawPlanes (in section.emp) blits the WINDOW of
+//                     the REGION's layout that the live BG scroll selects, at
+//                     level init and cache recovery only, with Act.act_bg_layout
+//                     as the fallback when the region's rg_bg_layout is 0. It
+//                     seeds BG_Plane_Top to that window (BG-PLANE-WINDOW,
+//                     2026-09-16). Teleports no longer redraw.
 //
 // THE BACKGROUND BELONGS TO THE REGION, NOT TO THE SECTION (regions part 2,
 // step 3, 2026-09-16; spec §4.5). `Sec.sec_bg_layout` is DELETED — Sec 26 -> 22
@@ -39,13 +41,20 @@
 // at a region crossing sweeps row by row. Against a column-major blob a row
 // producer is a 64-read strided gather at stride 128 — about twice the cost,
 // on every streamed row, forever — while the two live blits had to be rewritten
-// under part 2 regardless (after the plane shrink neither can drain a whole
-// 8192-byte layout into a 4096-byte plane; each blits a WINDOW of
-// PLANE_V_CELLS rows, which is a row loop by nature).
+// under part 2 regardless. HALF OF THAT HAS NOW HAPPENED: BG-PLANE-WINDOW
+// (2026-09-16) made Section_RedrawPlanes blit a WINDOW of PLANE_V_CELLS rows
+// rather than the head of the image — as two linear runs, not the row loop this
+// comment predicted, precisely because row-major makes a run of consecutive map
+// rows contiguous. Step 8's plane shrink still forces the same on BG_Init, which
+// today is exempt because its source is exactly one plane.
 //
-// ALL 64 ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime maintainers of
-// Plane B cover the full plane — BG_Init and Section_RedrawPlanes each drain
-// the whole BG_LAYOUT_SIZE image. The old 32-row maintainer limit silently
+// ALL 64 PLANE ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime
+// maintainers of Plane B cover the full plane, and since BG-PLANE-WINDOW closed
+// (2026-09-16) they do it differently: BG_Init drains the whole
+// BG_LAYOUT_SIZE image (its source IS the plane, `ensure`d beside that constant),
+// while Section_RedrawPlanes blits the PLANE_V_CELLS-row WINDOW the live BG
+// scroll selects out of a region layout that may be taller — two runs, summing
+// to PLANE_V_CELLS rows by construction. The old 32-row maintainer limit silently
 // half-reverted any BG art above row 31 on a redraw; that was NOT
 // hypothetical: the shipped OJZ override carries real art in rows 32-63, and
 // the full-plane vscroll wrap (v_factor_bg with a 512px plane) puts those
