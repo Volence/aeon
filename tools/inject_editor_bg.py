@@ -1324,20 +1324,28 @@ def main(act=None):
     assert len(tiles) <= BG_TILE_CAPACITY, f'{len(tiles)} tiles exceeds BG capacity {BG_TILE_CAPACITY}'
 
     # nametable: local -> VRAM-absolute indices, preserving pal/pri/flip bits.
-    # This is the editor->engine boundary: the editor layout is ROW-MAJOR
-    # (idx = row*64 + col), the engine reads COLUMN-MAJOR (blob[col*128 + row*2]
-    # — column-contiguous, 64 rows per column). Transpose here so every engine
-    # consumer (BG_Init, Section_RedrawPlanes' Plane B blit, Draw_BG_TileColumn)
-    # gathers a column with sequential reads. See engine/level/bg.emp header.
+    #
+    # THE TRANSPOSE IS GONE (regions part 2, step 2 — option R of the spec's §4.2).
+    # This used to be the editor->engine boundary where a ROW-MAJOR editor layout
+    # (idx = row*64 + col) was transposed into a COLUMN-MAJOR blob
+    # (blob[col*128 + row*2]) because every engine consumer gathered a plane COLUMN.
+    # Under part 2 the engine streams plane ROWS — a background can be taller than
+    # the plane, and the wipe at a region crossing repaints row by row — so the
+    # column producer (`Draw_BG_TileColumn`, zero callers, deleted in the same step)
+    # is gone and both remaining blits are row loops.
+    #
+    # The blob is therefore ROW-MAJOR now: blob[(row*64 + col)*2], which is the
+    # editor's own order AND the Plane B nametable's own VRAM order, so a full-plane
+    # blit is a straight linear copy and a row entry is a contiguous 64-word run.
+    # ojz_strip_gen.emit_zone_bg_layout already emitted row-major (its output was
+    # always overwritten here); the two producers now agree instead of disagreeing.
     COLS, ROWS = 64, 64
     nt = bytearray(COLS * ROWS * 2)
-    for col in range(COLS):
-        for row in range(ROWS):
-            word = layout[row * COLS + col]
-            if word != 0:
-                idx = word & 0x7FF
-                word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
-            struct.pack_into('>H', nt, (col * ROWS + row) * 2, word)
+    for i, word in enumerate(layout):
+        if word != 0:
+            idx = word & 0x7FF
+            word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
+        struct.pack_into('>H', nt, i * 2, word)
     with open(os.path.join(out_dir, 'zone_bg.bin'), 'wb') as f:
         f.write(nt)
 

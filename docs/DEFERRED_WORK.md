@@ -34805,3 +34805,72 @@ rectangle is one row** makes the id a legal name.
 a name that follows a convention.** A convention is a filter and can be collided with; a
 derivation is a check and its failures are findings. Same family as deriving a gate's expectation
 from source rather than copying it from a nearby pin.
+## BG row streamer: wide-map stride and wrap (booked 2026-09-16, `parcel/regions-p2-step2`)
+
+`Draw_BG_TileRow` (`engine/level/plane_buffer.emp`) reads its source as
+`layout + band_x*2 + map_row * PLANE_H_CELLS*2` and emits one contiguous `PLANE_H_CELLS`-word
+run. Both halves of that assume the map is **exactly as wide as the plane**, which is true of
+every part-2 background and false for the wide banded backgrounds the big-levels parcel is
+about (measured reference: Sky Sanctuary act 1's background is 60 x 22 chunks, about
+7680 x 2816 px — part 2 covers the HEIGHT only).
+
+Two changes are needed together, and NEITHER is written because neither has a data shape to be
+written against yet:
+
+1. **Row stride becomes the map's width**, not `PLANE_H_CELLS*2`. Today it is the `lsl.w #7`
+   pinned by this file's horizontal plane-wrap `ensure`.
+2. **The gather wraps modulo the map width** — two runs split at the wrap, with a `move.l` run
+   plus an odd-word tail on each, the shape `Draw_TileRow_FromCache`'s `.emit_row_run` already
+   has for the tile cache. Today it is one aligned run because a 64-cell map against a 64-cell
+   plane cannot wrap.
+
+At that size a raw nametable is about 675 KB, so a wide-and-tall background also needs a block
+or chunk layout like the foreground's rather than a raw blob — which is why this is booked
+against big levels and not against part 2's remaining steps. `Draw_BG_TileColumn`, deleted in
+step 2 with zero callers, is the other half of the same future work and returns there over the
+block map, per the part-2 spec's §1a item 2.
+
+## BG-STREAM-VDEFORM: the exclusion has no `ensure`, and the obvious `ensure` is silently vacuous (found 2026-09-16, `parcel/regions-p2-step2`)
+
+The part-2 spec §4.2 asks for a **build-time `ensure`** refusing the combination "a region that
+streams its background AND names a per-column vertical deform table", and for it to be inverted
+once. **It is not expressible at the site where it belongs, and the spelling it invites is worse
+than absent.** Measured against the sigil release binary that builds this tree
+(`md5(SIGIL_BUILD) = 324d85d6ad5267a99bd57f118871ed1f`), control run FIRST:
+
+| at `ojz_region()`, act 1's ten real rows | result |
+|---|---|
+| `ensure(1 == 0, …)` — the control | **RED**, 55 times |
+| `ensure(parallax_config.pcfg_v_deform_table_bg(parallax) == 12345, …)` | GREEN |
+| `ensure(parallax_config.pcfg_v_deform_table_bg(parallax) != 12345, …)` — its exact negation | GREEN |
+
+A proposition and its negation both passing means the condition is not being decided at all.
+`Region.rg_parallax` arrives as a `Label`; `.emp` has no comptime dereference of one (a label
+supports `!= 0` and nothing else — `docs/EMP_PITFALLS.md` §12) and `extern()` cannot read ROM
+contents (§5). So the half of the fact that lives in the parallax config is invisible at the
+only site where `bg_layout` / `bg_span` are known, and the scene DSL, which does know about
+`v_deform`, knows nothing about regions.
+
+**Shipped instead:** `tools/test_bg_stream_vdeform_exclusion.py`, a `needs_build` pytest over
+`s4.bin` + `s4.lst` that reads a region row and the config it resolves to as bytes and refuses
+the pair. Proven red by binding the night region to `ParallaxConfig_Rocking` with a layout and a
+span, rebuilding (the ROM's md5 moved, so the runner graded the mutation and not a stale image),
+and restoring.
+
+**What would make it an `ensure`, in rising order of cost:**
+
+1. `tools/effects_gen.py` emits a comptime twin beside `ojz_act1_sec_scene(sec:)` — say
+   `ojz_act1_sec_scene_v_deform(sec:) -> int` — and `ojz_region()` takes the sec index it
+   already has in the row's sidecar binding. Cheapest, but it touches the generated editor seam.
+2. `ojz_region()` takes an explicit `bg_vdeform:` declaration and the pytest above becomes the
+   cross-check that the declaration matches the image (the "two independent statements" shape
+   this repo uses for struct offset comments). Honest but author-facing.
+3. Sigil grows a comptime read of a `Label`'s pointee for records it placed itself. Largest, and
+   the only one that generalises.
+
+**Separately and more urgently, this is a sigil finding, not just a parcel one:** a comparison
+against a field-access-through-a-`Label` inside an `ensure` answers TRUE to everything with no
+diagnostic, in a compiler that since `6a8b3ecd` refuses cross-class `==` precisely to stop that
+class of permanently-vacuous guard. It is the §12 "always GREEN" sign, unrefused, in a spelling
+an author would reach for first. Reported to the sigil lane; recorded here because the next
+author to read §4.2 will try exactly that line.

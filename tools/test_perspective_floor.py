@@ -522,8 +522,9 @@ def test_baked_plane_b_carries_the_generated_band():
     test_committed_override_carries_the_generated_band above compares the
     generator against `editor_bg_override.json` — the editor-side SOURCE. This
     arm goes one stage further down the pipeline and decodes what the build
-    actually consumes: `zone_bg.bin` (the 64x64 nametable, COLUMN-major, with
-    BG_TILE_BASE_SLOT already folded into every non-zero word) and
+    actually consumes: `zone_bg.bin` (the 64x64 nametable, ROW-major since
+    regions part 2 step 2, with BG_TILE_BASE_SLOT already folded into every
+    non-zero word) and
     `bg_tiles.bin` (a 2-byte BE blob LENGTH then 4bpp tile data). The build reads
     games/sonic4/data/generated/ DIRECTLY — prebuild.sh is a no-op — so these
     two files are the plane the ROM ships.
@@ -570,8 +571,10 @@ def test_baked_plane_b_carries_the_generated_band():
         for iy in range(8):
             want = px[ri * 8 + iy]
             for cx in range(pfg.PLANE_COLS):
-                # COLUMN-major: inject_editor_bg.py packs at (col*ROWS + row)*2
-                w = struct.unpack_from(">H", nt, (cx * pfg.PLANE_ROWS + cy) * 2)[0]
+                # ROW-major: inject_editor_bg.py packs at (row*COLS + col)*2,
+                # which is the Plane B nametable's own VRAM order (the transpose
+                # was deleted in regions part 2 step 2).
+                w = struct.unpack_from(">H", nt, (cy * pfg.PLANE_COLS + cx) * 2)[0]
                 idx = (w & 0x7FF) - BG_TILE_BASE_SLOT
                 assert 0 <= idx < count, (
                     "plane cell (%d,%d) addresses VRAM tile %d, which is %d "

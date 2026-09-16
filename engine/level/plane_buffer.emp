@@ -1,5 +1,6 @@
 // Deferred nametable plane buffer (§4.1)
-// Producers: Draw_TileColumn / Draw_TileRow_FromCache (game loop)
+// Producers: Draw_TileColumn / Draw_TileRow_FromCache (game loop); Draw_BG_TileRow (plane B,
+// no caller until the regions part 2 tracker — the routine, not a live producer)
 // Consumer: VInt_DrawLevel (VBlank)
 
 module engine.plane_buffer in plane_buffer
@@ -9,16 +10,18 @@ use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, 
 // Canopy-gap capture instrument (DEBUG only) — the visible-viewport extents the C4 test
 // measures the row anchor against, and the fire code it reports.
 use engine.constants.{SCREEN_LAST_COL_MAX, SCREEN_LAST_ROW_MAX, CANOPY_C4}
-use engine.structs.{Act, Sec}
+use engine.structs.{Act, Region}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 use engine.irq.{vblank}
 
 const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.
 const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set = column mode (word drain), clear = row mode (longword drain)
 
-// ---- Sec / Act field access comes from the shared engine.structs module
-// (`Sec.sec_bg_layout(a0)` / `Act.act_bg_layout(a2)`) — no file-local offset
-// mirrors (that class is extinct). ----
+// ---- Region / Act field access comes from the shared engine.structs module
+// (`Region.rg_bg_layout(a0)` / `Act.act_bg_layout(a2)`) — no file-local offset
+// mirrors (that class is extinct). `Sec` left this file with Draw_BG_TileColumn:
+// the background's identity is a REGION's, not a grid cell's, since painted
+// regions v1 moved that binding. ----
 
 // NOTE: VInt_DrawLevel's two drain heads build the VDP write-command longword
 // from a VRAM byte address via engine.vdp's shared `vdp_comm_reg(reg,
@@ -556,65 +559,126 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 }
 
 // -----------------------------------------------
-// Draw_BG_TileColumn — append one tile column strip to Plane_Buffer for plane B (§4.2).
-// In:  d0.w = target VDP nametable column (0–63)
-//      d1.w = section tile column index (0..63)
-//      a0   = section def pointer (uses Sec_sec_bg_layout, Act fallback if NULL)
-// Out: none (silently drops if buffer full)
-// Clobbers: d0–d3, a1–a2
-// Note: plane B is 64×64 tiles; the strip covers ALL 64 rows (NEW-5,
-//       2026-08-05 — 32-row strips silently half-reverted BG art above row 31).
-//       Strip = 64 words; header = $8000 | (64-1) = $803F. Source layout is
-//       COLUMN-MAJOR 64×64 — col N's 64 row words are contiguous at byte offset
-//       N*128, so the gather is a sequential move.l run, not a strided read.
-//       ZERO CALLERS TODAY (2026-06-23 audit) — widened so it is correct when
-//       the deferred per-section-BG-swap work wires it.
+// Draw_BG_TileRow — append one tile ROW entry to Plane_Buffer for plane B.
+//
+// Regions part 2, step 2 (spec §4.2). It REPLACES `Draw_BG_TileColumn`, which
+// had zero callers for its whole life and is deleted in this step; the column
+// path returns in the big-levels parcel over a block map, not over this raw
+// blob, so nothing is being kept warm here.
+//
+// In:  d0.w = target plane row (0 .. PLANE_V_CELLS-1)
+//      d1.w = source map row (0-based into the layout; may exceed the plane's
+//             row count once a region declares a span taller than the plane)
+//      d2.w = the band's layout X, in CELLS — see THE BAND'S X below
+//      a0   = *Region (uses Region.rg_bg_layout, Act fallback when 0)
+// Out: d0.w = 1 the entry was admitted, 0 it was REFUSED
+// Clobbers: d1-d3, a1-a2
+//
+// IT RETURNS WHETHER IT WAS ADMITTED, and that is the one deliberate difference
+// from the column producer it replaces. `Draw_BG_TileColumn` "silently drops if
+// buffer full", which is fine for a producer nobody tracks and WRONG for the
+// wipe cursor of §4.3: a cursor that advanced past a row whose entry never
+// landed would leave one row of the old picture in the new background forever,
+// with nothing to notice. The cursor advances on `1` and only on `1`.
+//
+// A refusal has two causes and the caller cannot tell them apart, deliberately:
+// the plane buffer is full THIS frame (retry next frame), or neither the region
+// nor the act names a layout at all (retry never). Both mean "this row did not
+// land", which is the only thing a cursor may act on; a caller that wants the
+// second case to be impossible should refuse the region at build time.
+//
+// THE BAND'S X (spec §1a item 1, "write the row streamer band-aware from day
+// one"). S3K gives each horizontal band of the background its own camera, and a
+// streamed row reads the layout at the X of the band the row falls in
+// (`Get_DeformDrawPosVert`; docs/research/2026-09-14-s3k-wide-background-bands.md
+// §5). Part 2's bands are all WRAP bands over a map exactly as wide as the
+// plane, and for those the anchor is structurally ZERO — writing a row at column
+// offset k and scrolling the plane by k are the same picture, so 0 is the
+// canonical choice and is what both full-plane blits already do.
+//
+// SO THE X IS AN ARGUMENT AND NOT AN INTERNAL LOOKUP, which is a deliberate
+// DEVIATION from §4.2's `(d0, d1, a0)` signature and is worth the sentence. The
+// spec asks for "one band lookup per streamed row" inside this routine. There is
+// nothing here to look up: no band record carries an X anchor at this pin
+// (`band_entry` is a fixed 10-byte legacy record that sigil harvests ambiently
+// and that "must never gain a field" — engine/level/parallax.emp), and a band's
+// live Plane-B scroll is NOT the answer either, since the HScroll already applies
+// it and adding it here would double it. A resolve loop written today could only
+// end in a constant 0, which is an instrument that cannot produce the non-zero
+// answer it claims to look for. Carrying the X as an INPUT keeps the source
+// arithmetic — and therefore the routine — final: big levels' TRACK bands supply
+// a real anchor from the tracker, which is where the band knowledge lives, and
+// this routine does not change.
+//
+// WHAT BIG LEVELS STILL ADDS HERE, named so it is not mistaken for finished: a
+// map WIDER than the plane makes the row stride the map's width rather than
+// PLANE_H_CELLS*2, and makes the PLANE_H_CELLS-word gather wrap modulo that
+// width — two runs, not one. Neither is written today because neither has a data
+// shape to be written against; see docs/DEFERRED_WORK.md, "BG row streamer:
+// wide-map stride and wrap".
+//
+// Row entry shape (VInt_DrawLevel's row mode): header word = the row's VRAM byte
+// address, count word = longwords-1 with bit 15 CLEAR, then PLANE_H_CELLS words.
+// Entry size 4 + PLANE_H_CELLS*2 = the same 132 bytes the column entry took, so
+// E1's plane-buffer headroom arithmetic carries over unchanged.
+//
+// The `lsl.w #7` on the MAP row caps the reachable map at 512 rows (4096 px);
+// the spec's tallest measured reference background, Sky Sanctuary act 1, is 352.
 // -----------------------------------------------
-pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
-        // -- overflow check (entry size = 4 + 64*2 = 132 bytes) --
-        move.w  Plane_Buffer_Ptr, d2
-        addi.w  #4 + 64*2, d2
-        cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
-        bhi     .done
+pub proc Draw_BG_TileRow (d0: u16, d1: u16, d2: u16, a0: *Region) clobbers(d1-d3/a1-a2) out(d0: u16) {
+        // -- overflow check (entry size = 4 + PLANE_H_CELLS*2 bytes). d3, not d2:
+        //    d2 carries the band X in and must survive to the source arithmetic. --
+        move.w  Plane_Buffer_Ptr, d3
+        addi.w  #4 + PLANE_H_CELLS*2, d3
+        cmpi.w  #PLANE_BUFFER_SIZE - 2, d3
+        bhi     .refused
 
-        // -- get source: sec_bg_layout. Fall back to act default if NULL. --
-        movea.l Sec.sec_bg_layout(a0), a1
+        // -- source: the REGION's layout. Fall back to the act default if 0,
+        //    which is Region.rg_bg_layout's documented sentinel. --
+        movea.l Region.rg_bg_layout(a0), a1
         cmpa.w  #0, a1
         bne     .have_layout
         movea.l Current_Act_Ptr, a2
         movea.l Act.act_bg_layout(a2), a1
         cmpa.w  #0, a1
-        beq     .done
+        beq     .refused
     .have_layout:
-        // -- a1 = layout base; advance by (col * 128) to the top of the column --
-        //    (column-major: the column's 64 rows are contiguous from here) --
-        move.w  d1, d3
-        lsl.w   #7, d3                          // col * 128 (column stride)
-        adda.w  d3, a1
+        // -- a1 = layout base + band X + map row. ROW-MAJOR: the row's
+        //    PLANE_H_CELLS words are contiguous from there, so the gather below is
+        //    a sequential move.l run and not a stride-128 scatter read. --
+        add.w   d2, d2                          // band X: cells -> bytes
+        adda.w  d2, a1
+        move.w  d1, d2
+        lsl.w   #7, d2                          // map row * PLANE_H_CELLS*2 (row stride)
+        adda.w  d2, a1
 
         // -- write buffer header --
         lea     Plane_Buffer, a2
         adda.w  Plane_Buffer_Ptr, a2
-        add.w   d0, d0
+        lsl.w   #7, d0                          // plane row * PLANE_H_CELLS*2
         addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d0
         move.w  d0, (a2)+
-        move.w  #PLANE_ENTRY_COL_FLAG | (64 - 1), (a2)+   // column write, 64 words - 1
+        move.w  #PLANE_H_CELLS/2 - 1, (a2)+     // ROW write (bit 15 clear), longwords - 1
 
-        // -- copy 64 words (rows 0..63), column-contiguous, paired as move.l:
-        //    32 longwords = 64 words. Source and dest are word-even (even layout
-        //    base + 128-byte column stride; even buffer) — all move.l needs. --
-        moveq   #32-1, d3
+        // -- copy PLANE_H_CELLS words as PLANE_H_CELLS/2 longwords. Source and
+        //    dest are word-even throughout (even layout base + an even row stride
+        //    + an even band offset; even buffer base + a 132-byte entry stride + a
+        //    4-byte header), which is all move.l needs. --
+        moveq   #PLANE_H_CELLS/2 - 1, d2
     .copy:
         move.l  (a1)+, (a2)+
-        dbf     d3, .copy
+        dbf     d2, .copy
 
-        // -- zero terminator + buffer pointer update --
+        // -- zero terminator + buffer pointer update. d3 already holds the
+        //    advanced pointer from the overflow check; re-deriving it would be a
+        //    second authority on the entry size. --
         move.w  #0, (a2)
-        move.w  Plane_Buffer_Ptr, d2
-        addi.w  #4 + 64*2, d2
-        move.w  d2, Plane_Buffer_Ptr
+        move.w  d3, Plane_Buffer_Ptr
+        moveq   #1, d0                          // ADMITTED
+        rts
 
-    .done:
+    .refused:
+        moveq   #0, d0
         rts
 }
 
@@ -751,9 +815,24 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
 
 // ---- THE PLANE-WRAP FAMILY, pinned across ALL its members (lens-sweep B1-2 / LS-8a) ----
 // Same family as engine/level/section.emp's pair, enumerated the same way (by what TOUCHES
-// the plane size, not by grepping `#63`): 13 code sites here, 6 horizontal and 7 vertical,
+// the plane size, not by grepping `#63`): 10 code sites here, 8 horizontal and 2 vertical,
 // pinned per axis because both axes are 64 today.
+//
+// IT WAS 13 (6 + 7) UNTIL REGIONS PART 2 STEP 2. `Draw_BG_TileColumn` is deleted and
+// `Draw_BG_TileRow` replaces it: the five VERTICAL sites the column producer owned (a column
+// stride of PLANE_V_CELLS*2 into a column-major blob, a PLANE_V_CELLS-word header count, a
+// PLANE_V_CELLS/2 copy count and two PLANE_V_CELLS-sized entry reservations) are gone, and
+// the row producer's two new sites are HORIZONTAL (`lsl.w #7` twice — the row stride
+// PLANE_H_CELLS*2, once into the layout and once into the plane). Everything else it spells
+// — the entry size, the header count, the copy count — follows PLANE_H_CELLS and needs no
+// pin. Two conjuncts left the vertical ensure with those sites (see its own note); an
+// `ensure` term whose site no longer exists cannot fail on the change it names.
 ensure(PLANE_H_CELLS == 64 && PLANE_H_CELLS - 1 == 63 && (~(PLANE_H_CELLS - 1)) & $FFFF == $FFC0 && PLANE_H_CELLS * 2 == 1 << 7,
-       "PLANE-WRAP FAMILY, HORIZONTAL AXIS (lens-sweep B1-2 / LS-8a). PLANE_H_CELLS is now {PLANE_H_CELLS}, but engine/level/plane_buffer.emp hand-spells a 64-column plane at 6 sites. Derived: plane col = world col & (PLANE_H_CELLS-1) = & {PLANE_H_CELLS - 1}; the first world col of a plane-aligned run is world col & ~(PLANE_H_CELLS-1) = & {(~(PLANE_H_CELLS - 1)) & $FFFF}; and one nametable ROW is PLANE_H_CELLS*2 = {PLANE_H_CELLS * 2} bytes, the `lsl.w #7` row scale and the $80 column-write autoincrement. THE SITES: Draw_TileColumn: `lsl.w #7` (start_nt_row x 128); Draw_TileRow_FromCache: `lsl.w #7` (row x 128), `andi.w #$FFC0` (leg-1 start A = R & ~63), `andi.w #63` (leg-1 length), `subi.w #63` (leg-2 start R-63); VInt_DrawLevel: `move.w #$8F80` (COL-entry autoincrement). WHAT THIS PIN DOES NOT COVER: this file's 7 vertical sites (the PLANE_V_CELLS pin beside this one); the 20 sites in engine/level/section.emp, pinned there; VDP register $10, pinned at the end of engine/system/constants.emp. That pin is evaluated in the RAM-harvest pass, which stops the build BEFORE this file is reached, so after a plane-size change it is the first and only message, and this pin appears once the register byte has been re-encoded (measured); engine/level/bg.emp's plane-B blit and BG_LAYOUT_SIZE = 64*64*2, pinned at the end of that file; the sites already spelled from PLANE_H_CELLS (the entry-size reservations, `moveq #PLANE_H_CELLS` in Draw_TileRow_FromCache, the Canopy shadow), which follow the constant; and VInt_DrawLevel's odd-word-tail note that a word past row 63 lands at $E000, which is the VRAM layout (VRAM_PLANE_A + the plane's byte size) and not a literal this pin can see")
-ensure(PLANE_V_CELLS == 64 && PLANE_V_CELLS - 1 == 63 && PLANE_V_CELLS * 2 == 1 << 7 && PLANE_V_CELLS / 2 - 1 == 32 - 1,
-       "PLANE-WRAP FAMILY, VERTICAL AXIS (lens-sweep B1-2 / LS-8a). PLANE_V_CELLS is now {PLANE_V_CELLS}, but engine/level/plane_buffer.emp hand-spells a 64-row plane at 7 sites. Derived: plane row = world row & (PLANE_V_CELLS-1) = & {PLANE_V_CELLS - 1}; a full column is PLANE_V_CELLS = {PLANE_V_CELLS} words, header count PLANE_V_CELLS-1, PLANE_V_CELLS/2 = {PLANE_V_CELLS / 2} longwords, a 4 + PLANE_V_CELLS*2 = {4 + PLANE_V_CELLS * 2}-byte buffer entry; and the BG layout is column-major with PLANE_V_CELLS rows, so its column stride is PLANE_V_CELLS*2 = {PLANE_V_CELLS * 2} bytes (`lsl.w #7`). THE SITES: Draw_TileColumn: `andi.w #63` (Cache_Top_Row to start_nt_row), `move.w #64` (rows_A); Draw_BG_TileColumn: `addi.w #4 + 64*2` (overflow check), `lsl.w #7` (col x 128 into the layout), `PLANE_ENTRY_COL_FLAG | (64 - 1)` (header), `moveq #32-1` (copy count), `addi.w #4 + 64*2` (pointer advance). WHAT THIS PIN DOES NOT COVER: this file's 6 horizontal sites (the PLANE_H_CELLS pin beside this one); the 20 sites in engine/level/section.emp, pinned there; VDP register $10, pinned at the end of engine/system/constants.emp. That pin is evaluated in the RAM-harvest pass, which stops the build BEFORE this file is reached, so after a plane-size change it is the first and only message, and this pin appears once the register byte has been re-encoded (measured); engine/level/bg.emp's BG_LAYOUT_SIZE = 64*64*2, the layout format Draw_BG_TileColumn reads, pinned at the end of that file; and the sites already spelled from PLANE_V_CELLS (Draw_TileColumn's entry-size reservation and pointer advance), which follow the constant")
+       "PLANE-WRAP FAMILY, HORIZONTAL AXIS (lens-sweep B1-2 / LS-8a). PLANE_H_CELLS is now {PLANE_H_CELLS}, but engine/level/plane_buffer.emp hand-spells a 64-column plane at 8 sites. Derived: plane col = world col & (PLANE_H_CELLS-1) = & {PLANE_H_CELLS - 1}; the first world col of a plane-aligned run is world col & ~(PLANE_H_CELLS-1) = & {(~(PLANE_H_CELLS - 1)) & $FFFF}; and one nametable ROW is PLANE_H_CELLS*2 = {PLANE_H_CELLS * 2} bytes, the `lsl.w #7` row scale and the $80 column-write autoincrement. THE SITES: Draw_TileColumn: `lsl.w #7` (start_nt_row x 128); Draw_BG_TileRow: `lsl.w #7` (map row x 128, the ROW-MAJOR layout's row stride) and `lsl.w #7` (plane row x 128, the nametable's row stride); Draw_TileRow_FromCache: `lsl.w #7` (row x 128), `andi.w #$FFC0` (leg-1 start A = R & ~63), `andi.w #63` (leg-1 length), `subi.w #63` (leg-2 start R-63); VInt_DrawLevel: `move.w #$8F80` (COL-entry autoincrement). WHAT THIS PIN DOES NOT COVER: this file's 2 vertical sites (the PLANE_V_CELLS pin beside this one); the 17 sites in engine/level/section.emp, pinned there; VDP register $10, pinned at the end of engine/system/constants.emp. That pin is evaluated in the RAM-harvest pass, which stops the build BEFORE this file is reached, so after a plane-size change it is the first and only message, and this pin appears once the register byte has been re-encoded (measured); engine/level/bg.emp's plane-B blit and BG_LAYOUT_SIZE = 64*64*2, pinned at the end of that file; the sites already spelled from PLANE_H_CELLS (the entry-size reservations, `moveq #PLANE_H_CELLS` in Draw_TileRow_FromCache, the Canopy shadow), which follow the constant; and VInt_DrawLevel's odd-word-tail note that a word past row 63 lands at $E000, which is the VRAM layout (VRAM_PLANE_A + the plane's byte size) and not a literal this pin can see")
+// TWO CONJUNCTS WERE DROPPED HERE IN REGIONS PART 2 STEP 2, with the sites that justified
+// them: `PLANE_V_CELLS * 2 == 1 << 7` (Draw_BG_TileColumn's column stride into a
+// column-major layout) and `PLANE_V_CELLS / 2 - 1 == 32 - 1` (its longword copy count). The
+// layout is row-major now and the column producer is deleted, so nothing in this file spells
+// either quantity. Keeping them would have made this pin louder and no truer.
+ensure(PLANE_V_CELLS == 64 && PLANE_V_CELLS - 1 == 63,
+       "PLANE-WRAP FAMILY, VERTICAL AXIS (lens-sweep B1-2 / LS-8a). PLANE_V_CELLS is now {PLANE_V_CELLS}, but engine/level/plane_buffer.emp hand-spells a 64-row plane at 2 sites. Derived: plane row = world row & (PLANE_V_CELLS-1) = & {PLANE_V_CELLS - 1}, and a full plane column is PLANE_V_CELLS = {PLANE_V_CELLS} rows. THE SITES: Draw_TileColumn: `andi.w #63` (Cache_Top_Row to start_nt_row), `move.w #64` (rows_A). Draw_BG_TileColumn's five vertical sites went with it in regions part 2 step 2; its replacement Draw_BG_TileRow has NO vertical site (a row entry's every literal follows PLANE_H_CELLS). WHAT THIS PIN DOES NOT COVER: this file's 8 horizontal sites (the PLANE_H_CELLS pin beside this one); the 17 sites in engine/level/section.emp, pinned there; VDP register $10, pinned at the end of engine/system/constants.emp. That pin is evaluated in the RAM-harvest pass, which stops the build BEFORE this file is reached, so after a plane-size change it is the first and only message, and this pin appears once the register byte has been re-encoded (measured); engine/level/bg.emp's BG_LAYOUT_SIZE = 64*64*2, the layout format Draw_BG_TileRow reads, pinned at the end of that file; and the sites already spelled from PLANE_V_CELLS (Draw_TileColumn's entry-size reservation and pointer advance), which follow the constant")
