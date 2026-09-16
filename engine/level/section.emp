@@ -616,11 +616,11 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             // THE TRACKER SEED. Written before the blit rather than after because a1 is
             // consumed by the copy loops; the two facts are established in the same breath
             // either way, inside one IRQ-masked span, so nothing can observe them disagreeing.
-            // The cursor and the direction byte clear as ONE word — see the adjacency `ensure`
+            // The cursor and the resume-row byte clear as ONE word — see the adjacency `ensure`
             // at the foot of engine/level/bg.emp, which covers this site and BG_Init's.
             move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w
             move.w  d2, BG_Plane_Top                // (BG_Plane_Top).w — the WINDOW, not a constant 0
-            clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir
+            clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + resume row
             moveq   #0, d0
             move.w  d2, d0
             lsl.l   #PLANE_ROW_SHIFT, d0

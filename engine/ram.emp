@@ -621,12 +621,26 @@ pub vars upper_ram {
     // the word tail), so these cells cannot join it by placement — only by someone adding
     // them, and the spec's §4.6 note says what that would have to look like (this pointer
     // normalised to a row index into Act.act_regions, never the address). The two value
-    // cells MAY be folded the day they vary; at this pin BG_Plane_Top and the cursor are
-    // always 0, and folding a constant is coverage that cannot fail.
+    // cells MAY be folded the day they vary; BG_Plane_Top varies from step 5 and the cursor
+    // and row byte from step 6, so "folding a constant is coverage that cannot fail" is no
+    // longer the reason they are out — the reason is now only that nobody has asked for
+    // stream-desync detection in a replay.
     BG_Plane_Layout:        u32,        // the layout blob Plane B currently holds (0 = none)
     BG_Plane_Top:           u16,        // map row held at the top of the streamed window
     BG_Wipe_Cursor:         u8,         // rows left in a §4.3 wipe; 0 = none (primed, not swept)
-    BG_Wipe_Dir:            u8,         // sweep direction sign; meaningless while the cursor is 0
+    BG_Wipe_Row:            u8,         // the next PLANE row (0..PLANE_V_CELLS-1) the sweep will
+                                        //   draw; meaningless while the cursor is 0
+    // THE SECOND BYTE WAS `BG_Wipe_Dir` UNTIL STEP 6 LANDED IT, and the rename is the design
+    // call of that step rather than a tidy-up. §4.3 asked for "the sweep direction sign, from
+    // the crossing axis", which presumes a row sweep has an entry side. It does not: a row
+    // spans the whole plane width, so a HORIZONTAL crossing changes nothing about which rows
+    // the screen shows and carries no row-order information at all, and a FALL enters from
+    // above with no horizontal component to take a sign from (booked as
+    // REGIONS-VERTICAL-CROSSING-ON-LANDING before this step). The sweep is therefore FIXED —
+    // it starts at the top VISIBLE plane row and walks down, wrapping — so a direction byte
+    // would have held one value forever. What the sweep does need is a resume point, which is
+    // what this byte now is. See engine/level/bg.emp, BG_Stream_Update's wipe arm, for the
+    // whole argument and for why a PLANE row rather than a map row is the thing that is stored.
 
     // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
     // (engine/effects/raster.emp). Its span is cross-checked there by an
