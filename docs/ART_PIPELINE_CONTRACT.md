@@ -62,16 +62,16 @@ The boot register table writes VDP registers `$00`–`$17`. The values that cons
 
 | reg | boot value | meaning |
 |---|---|---|
-| `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:320`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:908`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
+| `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:334`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:902`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
 | `$0A` | `$FF` | HInt counter — raster programs rewrite this per fire (§8) |
 | `$0B` | `$00` at boot | **at runtime the engine writes `%11` (per-line HScroll) unconditionally**, plus bit 2 for per-column VSRAM when the scene attaches a column table — `engine/level/parallax.emp`'s `Parallax_StartTransition` (`.update_mode`) and `Parallax_Update` (after `.config_resolved`) |
-| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:554`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
+| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:592`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
 | `$0F` | `$02` | autoincrement 2 |
 | `$10` | `$11` | **scroll planes are 64 × 64 cells** (512 × 512 px) |
 | `$11`/`$12` | `$00` | **window plane disabled** |
 
 Screen: `SCREEN_WIDTH = 320`, `SCREEN_HEIGHT = 224`
-(`engine/system/constants.emp:483-484`).
+(`engine/system/constants.emp:535-536`).
 
 **Shadow-register invariant that matters to anyone authoring an effect.**
 `Flush_VDP_Shadow` (`engine/system/vdp_init.emp`) re-blits *every* shadowed register
@@ -87,8 +87,8 @@ port.
 ### 2.1 Tile format
 
 8 × 8 pixels, 4 bits per pixel, **32 bytes per tile** — `TILE_SIZE = 32`
-(`engine/system/constants.emp:690`). VRAM is 64 KB = **2048 tiles**
-(`TOTAL_TILES = 2048`, `tools/gen_vram_map.py:39`).
+(`engine/system/constants.emp:728`). VRAM is 64 KB = **2048 tiles**
+(`TOTAL_TILES = 2048`, `tools/gen_vram_map.py:41`).
 
 Pixel index 0 is the transparent index on this hardware. Where every layer is
 transparent the VDP shows the backdrop colour, which this engine leaves at reg `$07` =
@@ -267,8 +267,10 @@ CRAM is 4 lines × 16 entries × 1 word = 128 bytes. Ownership, from
 `engine/effects/palette.emp` (the "LINE-0 INVARIANT" block) and
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`:
 
-* **Line 0 — the character.** Written by `Player_ApplyCharacter` from
-  `CharacterDef.cd_palette`. **The level must never write it.** A section load that
+* **Line 0 — the character.** Written by `Player_RefreshPhysics` from
+  `CharacterDef.cd_palette` (`games/sonic4/player/player_common.emp`, the copy at its
+  `.pal_copy` tail). *(Not `Player_ApplyCharacter` — that name appears only inside two
+  engine comments and names no routine in the tree.)* **The level must never write it.** A section load that
   touched line 0 would revert the active character's colours on every boundary crossing.
 * **Lines 1–3 — the level.** A section palette is exactly **96 bytes = lines 1–3**.
   `engine/effects/palette.emp` is the single runtime writer of these three lines.
@@ -353,7 +355,7 @@ Two mechanisms, both driven from the section's `EffectsPreset`
 (`engine/effects/preset.emp:57`):
 
 * `ep_cycle` — a palette-cycle script; up to `PAL_CYCLE_MAX_CHANNELS = 4` channels per
-  script (`engine/effects/palette.emp:76`)
+  script (`engine/effects/palette.emp:77`)
 * `ep_variants` — a `[*u8; 2]` array of variant descriptors, unused slots must be 0
 
 Both fields are **required, not defaulted**: `ep_cycle` "0 illegal, use `Pal_Cycle_None`".
@@ -368,8 +370,8 @@ Reg `$10` = `$11` in `engine/system/boot_data.emp`'s register table → **both s
 planes are 64 × 64 cells = 512 × 512 pixels**, for every act and both games. This is a
 boot-time setting; there is no per-act or per-game plane size in this engine, and both
 `vram.toml` files declare `plane_a`/`plane_b` at the same 256-tile (`$2000`-byte) bases.
-`PLANE_H_CELLS = 64` and `PLANE_V_CELLS = 64` (`engine/system/constants.emp:483` and
-`:595`) are the engine-side names.
+`PLANE_H_CELLS = 64` and `PLANE_V_CELLS = 64` (`engine/system/constants.emp:521` and
+`:633`) are the engine-side names.
 
 The window plane is declared in the map at `$F000` but is **disabled** (regs `$11`/`$12`
 = 0). `games/sonic4/vram.toml` says why it cannot simply be turned on: with 64 × 64
@@ -387,12 +389,12 @@ V-flip / H-flip / tile index).
 | | Plane A | Plane B |
 |---|---|---|
 | role | **foreground** — the playable terrain | **background** |
-| art comes from | `fg_art_pool` (tiles 0–767), streamed | `bg_region` (tiles 1024–1423), loaded once at level init |
+| art comes from | `fg_art_pool` (tiles 0–767), streamed | `bg_region` (tiles 1024–1399), loaded once at level init |
 | nametable content | built per column/row from the tile cache as the camera moves | one act-wide blob blitted once, plus per-section overrides |
 
 Roles can be **swapped at runtime** — `Parallax_Set_Roles_Swapped(d0)` in
 `engine/level/parallax.emp`, gated on the scene capability `CAP_ROLE_SWAP` (`$0400`,
-`engine/level/scene_dsl.emp:342`). It writes the two base registers through the settled
+`engine/level/scene_dsl.emp:348`). It writes the two base registers through the settled
 shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
 
 ### 4.4 The background layout blob
@@ -422,7 +424,7 @@ blob is correct only because the injector happens to run second.
 ### 4.5 The background tile blob
 
 `games/sonic4/data/generated/ojz/act1/bg_tiles.bin`, measured on this tree: **10 242
-bytes**. Format (`engine/level/bg.emp:37-38`, verified against the file):
+bytes**. Format (`engine/level/bg.emp:36-37`, verified against the file):
 
 ```
 2-byte big-endian byte-length header, then raw 4bpp tiles
@@ -500,8 +502,8 @@ $02 rate_shift  u16   step = driver_value >> rate_shift
 $04 step_mask   u16   pattern period along the axis in px, minus 1
 $06 col_shift   u16   log2 of the ROTATION UNIT in bytes
 $08 tile_count  u16
-$0A vram_dest   u32   VRAM byte address of the band's first slot
-$0E banks       [*u8; 8]   bank0..bank7, pre-shifted art, 1 px per bank
+$0A vram_dest   u16   VRAM byte address of the band's first slot (VramAddr = u16)
+$0C banks       [*u8; 8]   bank0..bank7, pre-shifted art, 1 px per bank
 ```
 
 Verified against the shipped generated file: `_BgAnim_Band0_hdr` is
