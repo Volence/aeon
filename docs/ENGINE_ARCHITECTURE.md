@@ -2420,18 +2420,28 @@ Region — 22 bytes (engine/structs.emp), span-major so each axis is one move.l:
     dc.l    rg_effects           ; +$08: EffectsPreset* — REQUIRED (no default; ojz_region() also ensures != 0)
     dc.l    rg_parallax          ; +$0C: parallax_config* — rung 1 of Effects_ResolveParallax; 0 = defer
     dc.l    rg_bg_layout         ; +$10: nametable blob*; 0 = Act.act_bg_layout (part 2 step 1)
-    dc.w    rg_bg_span           ; +$14: BG map height in px, the scroll modulus; 0 = PLANE_B_SPAN
+    dc.w    rg_bg_span           ; +$14: BG map height in px, the scroll CEILING; 0 = PLANE_B_SPAN
 ```
 
-**The last two fields have NO READER YET (regions part 2 step 1, 2026-09-15).** They were
-appended — no older offset moved, so the crossing's two `move.l` cache fills are untouched —
-and they are inert: the background is still blitted once at load from the act-wide blob, and
-step 1 changed no pixel. `ojz_region()` ensures a written span is a multiple of 8 and at least
-`SCREEN_HEIGHT`, and refuses a span on a row that names no layout of its own; **0 is the
-sentinel in both fields and is exempt from the height floor**, which is what lets act 1's ten
-rows keep their existing bindings. The readers arrive with the row streamer. Out-of-assembler,
+**Both of the last two fields now have readers (part 2 steps 3 and 4, 2026-09-16; they were
+appended inert in step 1, so no older offset moved and the crossing's two `move.l` cache fills
+were never touched).** `rg_bg_layout` is read by `Section_RedrawPlanes`, which resolves the
+region under the camera CENTRE and blits that row's layout (step 3, which is what deleting
+`Sec.sec_bg_layout` paid for). `rg_bg_span` is read by `Parallax_Step5_Vscroll`'s BG V-scroll
+clamp, which bounds the scroll to `[0, rg_bg_span - SCREEN_HEIGHT]` and reaches the row through
+`Region_Current` rather than a second `Region_Resolve` (step 4; see §4.6, "The BG V-scroll clamp").
+`ojz_region()` ensures a written span is a multiple of 8 and at least `SCREEN_HEIGHT`, and refuses
+a span on a row that names no layout of its own; **0 is the sentinel in both fields and is exempt
+from the height floor**, which is what lets act 1's ten rows keep their existing bindings.
+
+⚠ **Both readers are live and NEITHER is exercised by a shipped row.** All ten of act 1's regions
+(eleven in DEBUG) leave both fields at 0, so every frame takes the act-default fallback on both
+paths and the engine behaves exactly as it did before either step. The first row that authors a
+layout or a span is the first thing that can tell the new code from the old; until then the gates
+for both steps need a constructed subject (step 3's discriminator is a breakpoint on the resolve,
+step 4's is a ROM poke — see `tools/bg_vscroll_rate_witness.py`). Out-of-assembler,
 `tools/region_table.py` returns both fields and its test pins the pair as the record's LAST two.
-Spec: empyrean `docs/superpowers/specs/2026-09-14-regions-part-2-design.md` §4.1.
+Spec: empyrean `docs/superpowers/specs/2026-09-14-regions-part-2-design.md` §4.1 / §4.4.
 
 **The record's size is a code cost, not only a data cost** (measured in the same parcel): every
 `mul_const.w dN, #sizeof(Region)` site re-elects when the stride stops being a power of two.
@@ -2600,6 +2610,38 @@ The dispatch lives in `Player_LevelBound` (bottom guard); `EDGE_CLAMP` is byte-f
 
 - **Timer** (bit 7 clear, the only mode before 2026-09-04): `phase += speed` each frame. A free-running counter with nothing anchoring it. Right where the phase *is* the motion (the `Rocking` family).
 - **Screen-anchored** (bit 7 set, EFFECTS-W1 F3): nothing accumulates. The phase is **derived from `Camera_X` every frame** as `V_FLOOR_CENTER_IDX - apex_column`, so the attached curve's apex lands on a chosen screen pixel. Bits 3-0 are a *lean gain*: a left-shift on the camera's per-frame X delta, lerped (`VP_LEAN_LERP_SHIFT`) and clamped (`VP_LEAN_MAX`, 48 px = ±3 column-pairs) around `VP_SCREEN_CENTER_X`. Gain 0 pins the apex dead centre. Authored as `SceneVDeform.ScreenFloor(table, lean_gain, shift)`. No multiply or divide anywhere on the path.
+
+**The BG V-scroll clamp — position and rate (regions part 2 step 4, 2026-09-16).** The whole-plane
+value above is bounded twice, once per frame, at the single site every consumer of the BG vertical
+origin reads it from (`Parallax_Step5_Vscroll`, immediately before the store to
+`Parallax_Current_Vscroll_BG`; Step 4a's rotation modulus, Step 5b's per-column base and the deform
+phase all take it from there).
+
+- **Position, in MAP space.** `0 <= v <= rg_bg_span - SCREEN_HEIGHT`, where `rg_bg_span` is the
+  background map's height in pixels read from the region `Region_Current` names, and a row that
+  leaves the field at 0 falls back to `VSCROLL_BG_MAX = PLANE_B_SPAN - SCREEN_HEIGHT` (288). Until
+  step 4 the ceiling was `VSCROLL_BG_MAX` unconditionally — a question about the PLANE, i.e. which
+  origins keep the 224 visible lines inside one pass of the 512-line nametable without crossing the
+  wrap seam. Once Plane B is a window onto a streamed map that question changes: there is no seam to
+  avoid, only art to run out of. **The region is READ, not re-resolved** —
+  `Parallax_CheckBoundary` caches the `Region*` at every crossing and runs earlier in the same frame
+  than `Parallax_Update`, so the clamp pays no second `Region_Resolve` scan. `Region_Current` is
+  therefore on a per-frame path now and is no longer "an observable engine logic never reads".
+- **Rate.** `|v_new - v_prev| <= BG_VSCROLL_MAX_STEP`, applied after the snap-or-lerp, the bob and
+  the position clamp. 16 px = `BG_VSCROLL_MAX_STEP_ROWS` (2) × the plane's own cell height, which is
+  derived from `PLANE_B_SPAN / PLANE_B_CELL_ROWS` rather than typed. Every pixel the V-scroll moves
+  is nametable rows the row streamer must draw, so bounding the scroll is what bounds the draw —
+  this is the engine's replacement for asking level design to keep vertical transitions slow. A
+  region crossing into a SHORTER map therefore walks the scroll down to the new ceiling two rows a
+  frame rather than snapping.
+- **What it costs today, stated because it is invisible otherwise:** a DEBUG warp's scroll now
+  ratchets to its new value at 16 px/frame (the plane itself is still re-primed synchronously). The
+  obvious exemption signal, `Parallax_Snap_Pending`, is *not available at this site* — Step 3's band
+  loop clears it immediately before tail-calling Step 5 — so no exemption was invented. Booked as
+  BG-RATE-PRIME-EXEMPTION.
+- **Gate:** `tools/bg_vscroll_rate_witness.py` (BG-RATE), in the `tools/effects_gates.py` lane.
+  ⚠ Every shipped region row leaves `rg_bg_span` at 0, so the position half is exercised only
+  through that witness's ROM-poke leg.
 
 **A per-column V-scroll table is indexed by SCREEN column, never by plane column** — VSRAM's twenty H40 entries each own a fixed 16-px slice *of the display*, and a plane's H-scroll slides art past those stationary slots rather than carrying them. That is why the screen-anchored mode exists at all: a vanishing point has no world coordinate to be anchored to through this table, so it is placed in viewport space and re-derived every frame. The curve it reads (`v_column_floor_screen`) is correspondingly **full-range and fixed-slope**: all 256 entries are real samples symmetric about index 128, so the 20-entry read window is a correct cone slice at any phase. The older `v_column_floor(center, max_offset)` is kept for the editor JSON path but is *not* suitable for a moving apex — it clamps its index at 39 (entries 40..255 are one constant) and its `/ center` normalisation makes the arm's slope a function of where the apex sits, i.e. a floor whose pitch changes as the point moves.
 

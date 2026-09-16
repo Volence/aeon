@@ -35082,3 +35082,86 @@ the window. Two later steps make it real and each supplies the missing number:
 
 Whoever writes it: the destination wraps modulo `PLANE_V_CELLS` while the source does not, so it
 is the two-run shape `Draw_TileRow_FromCache`'s `.emit_row_run` already has, not one `move.l` run.
+
+## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4)
+
+Step 4 added `|new - Parallax_Current_Vscroll_BG| <= BG_VSCROLL_MAX_STEP` (16 px) immediately before
+the store in `Parallax_Step5_Vscroll`. It bounds the row streamer's per-frame work, which is exactly
+what the spec asks for, and it also bounds a case the spec does not discuss: a **prime**, where the
+plane's whole picture is redrawn synchronously and the scroll has no rows to stream at all.
+
+**The measured consequence.** A DEBUG warp teleports the camera; `Section_RedrawPlanes` re-primes
+Plane B in one IRQ-masked burst; and the BG V-scroll then ratchets to its new value at 16 px a frame
+— up to 18 frames of visible slide for a full-height jump on a 512-px map. Nothing is incorrect; it
+is a cosmetic artefact in a DEBUG-only path, and the ratchet is bounded and self-terminating.
+
+**Why no exemption was built, which is the part worth carrying.** The obvious signal is
+`Parallax_Snap_Pending`, and it is **not available at this site** — see PARALLAX-STEP5-SNAP-DEAD
+below. Inventing a private "this frame is a prime" flag would have been a second authority for a
+question step 6 (the wipe) will have a real answer to, and this repo's standing lesson is that a
+second private answer to one question is how the 2026-08-26 precedence bug shipped. So the ratchet
+is left visible and named rather than papered over.
+
+**WHEN IT BITES:** step 6, when the wipe gives the engine a real "the plane is being rebuilt" state.
+At that point the exemption is one test against a flag that already means what it needs to mean.
+Until then, anyone surprised by a sliding background after a warp should read this row rather than
+suspect the streamer.
+
+**Alternative that was NOT taken and its price:** exempt on `Parallax_Transition_Frames == 0 &&
+camera moved more than N`, i.e. infer the prime from the camera delta. Rejected for the reason
+above — it is a heuristic standing in for a state the engine will shortly hold explicitly — and
+because it would make the rate clamp's behaviour depend on a threshold nobody derived.
+
+## PARALLAX-STEP5-SNAP-DEAD — `Parallax_Step5_Vscroll`'s snap test reads a byte Step 3 already cleared (found 2026-09-16, NOT introduced by step 4)
+
+`Parallax_Step5_Vscroll` opens its BG arm with `tst.b Parallax_Snap_Pending / bne .v_snap`. That
+test can never be taken. The proc has **exactly one caller** — the `jbra Parallax_Step5_Vscroll` at
+the foot of Step 3's band loop — and the instruction immediately above that `jbra` is
+`clr.b Parallax_Snap_Pending`. So the byte is consumed by Step 3 and reads 0 on every path into
+Step 5.
+
+**What that actually changes, stated rather than implied.** Step 3 DOES honour the flag: it reads it
+per band before clearing it, so a warp or an instant install still snaps the per-band scroll words.
+What is lost is the whole-plane BG scroll's snap: with `CAP_TRANSITIONS` declared (sonic4's
+`SCANLINE_CAPS` = `$0FDE` includes `$0010`), Step 5 falls through to `tst.b
+Parallax_Transition_Frames` and **lerps** if a transition happens to be in flight on the same frame
+as a camera jump. The window is narrow — a crossing and a warp on one frame — which is presumably
+why nobody has seen it.
+
+**Two candidate fixes, neither obviously right, which is why this is booked and not done:**
+1. Move `clr.b Parallax_Snap_Pending` from Step 3's tail to Step 5's `.v_snap` arm. Cheapest, but it
+   changes Step 3's documented contract ("one-shot, consumed by this Update") and puts the clear on
+   a path that also has a `.v_locked` arm not going through `.v_snap`.
+2. Have Step 3 stash the flag in a register or a second cell for Step 5. Costs a cell or a
+   convention for the sake of one branch.
+
+**Not this parcel's subject**, and it matters to step 4 only as the reason BG-RATE-PRIME-EXEMPTION
+above could not simply test the flag. Whoever takes it: the fix is worth about three instructions
+and the argument is worth more than the fix.
+
+## THE STEP-4 CLAMP'S POSITION HALF IS LIVE AND UNEXERCISED — no shipped region row authors an `rg_bg_span` (booked 2026-09-16)
+
+`Region.rg_bg_span` got its first reader in step 4: the BG V-scroll clamp bounds the scroll to
+`rg_bg_span - SCREEN_HEIGHT`, falling back to `VSCROLL_BG_MAX` on a 0. **Every region row in the
+tree leaves it at 0** — ten in act 1's release table, eleven in DEBUG — so the fallback is taken on
+every frame of every shipped act and the engine's behaviour is byte-identical to the pre-step-4
+clamp. Authoring the honest value does not help either: the map IS the plane today, so an honest
+`rg_bg_span` would be `PLANE_B_SPAN` = 512, whose ceiling is `512 - 224 = 288 = VSCROLL_BG_MAX`, the
+same number. **There is no authored value that distinguishes the two clamps until a map is a
+different height from the plane**, which is step 5/6/8's business.
+
+Consequences, both of which are already acted on:
+* `tools/bg_vscroll_rate_witness.py`'s legs C/D/W would pass identically with the position change
+  reverted, and the witness says so in its own header and in a printed FINDING on every run. Its
+  leg S pokes a row's `rg_bg_span` in the emulator's ROM image to a derived value and asserts the
+  scroll settles at the poked ceiling instead of `VSCROLL_BG_MAX`. That is the only discriminator
+  the tree has, it costs zero ROM bytes, and it exits 2 (never 0) if the server refuses the write.
+* The alternative considered and NOT taken: a DEBUG-only eleventh region row carrying a non-zero
+  span. It costs a row in `OJZ_Act1_Regions` (+22 B, plus `act_region_count`), it has to keep the
+  act's tiling proof true, and it changes the DEBUG shape's region geometry — so it would make the
+  DEBUG and release tables differ in a way every other region gate would have to be taught about,
+  to buy what a free ROM poke already buys. Revisit only if the poke turns out to be refused.
+
+**WHEN IT CLOSES:** the first act (or the first mega-act section, per the tech-demo goal) whose
+background map is not 512 px tall. At that point the span stops being a sentinel everywhere and the
+clamp's two halves become distinguishable in ordinary play.

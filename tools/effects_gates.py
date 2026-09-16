@@ -65,6 +65,14 @@ WHAT IT RUNS
      FLIGHT cancels it (a snap) or retargets it from the live buffer (a fade). Its default run
      could not join the lane until the defect it found (a fade surviving a snap install) was
      fixed, because asserting that was red.
+  9b. the BG V-scroll clamp — `bg_vscroll_rate_witness` (regions part 2, step 4's gate BG-RATE;
+     joined 2026-09-16). It samples `Parallax_Current_Vscroll_BG` once per logic tick over the
+     crossing route, a full-speed descent and a warp, and asserts no tick moves it more than
+     BG_VSCROLL_MAX_STEP, that it never leaves the ceiling the current region's `rg_bg_span`
+     derives, and that the whole clamp matches a model built from the ACTIVE config's own
+     fields. ⚠ Its position half is only testable through a ROM POKE, because every shipped
+     region row leaves `rg_bg_span` at 0 and therefore takes the act-default fallback — see the
+     witness's own header, which names what a green there cannot distinguish.
 
 Gates 6 and 7 boot no emulator, but they need a listing, so they cannot go in build.sh either
 (build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
@@ -233,6 +241,14 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # flight (fade-fix, 2026-09-13). One oracle-aether process, several boots; the budget is
         # the lane's ordinary wedge ceiling, not a performance assertion.
         ("region_fade", True, GATE_EMU_BUDGET),
+        # bg_vscroll_rate is regions part 2 step 4's gate (BG-RATE), and it sits in this
+        # neighbourhood because it reads the SAME cached Region* the two gates above produce:
+        # Parallax_CheckBoundary writes Region_Current at a crossing, and the BG V-scroll clamp
+        # reads it every frame for the region's map height. It also carries a ROM-POKE leg (a
+        # region row's rg_bg_span forced to a distinguishable value), which is the only thing in
+        # the tree that can tell step 4's position clamp from the fallback it takes on every
+        # shipped row. A server that refuses the poke makes that leg exit 2, never 0.
+        ("bg_vscroll_rate", True, GATE_EMU_BUDGET),
         # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
         # non-effects member: it is the section streamer's own invariant (a cell RECORDED
         # as written was actually written), and this lane is still the tree's only
@@ -1057,6 +1073,15 @@ def main() -> int:
                            "region_fade (the palette cross-fade at the night region's edge follows "
                            "Palette_DoFade's step rule word for word, and an install that meets a "
                            "fade in flight cancels it or retargets it from the live buffer)",
+                           ok, msg, final=True))
+
+    if wanted("bg_vscroll_rate"):
+        ok, msg = run(["python3", str(AEON / "tools/bg_vscroll_rate_witness.py"),
+                       "--rom", rom, "--lst", lst], "bg_vscroll_rate")
+        results.append(row("bg_vscroll_rate",
+                           "bg_vscroll_rate (BG-RATE: the BG V-scroll never moves more than "
+                           "BG_VSCROLL_MAX_STEP in a tick, stays inside the ceiling the current "
+                           "REGION's rg_bg_span derives, and a poked span moves that ceiling)",
                            ok, msg, final=True))
 
     if wanted("tile_cache_fill"):
