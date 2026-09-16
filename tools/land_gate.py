@@ -118,6 +118,10 @@ RULES: tuple = (
      "TestEditorRasterPresetsDoc: the preset block covers every row"),
     ("docs/EFFECTS_LAB.md", CHECKED, ("tools/test_lab_index_lint.py",),
      "the effects lab page lists the same words as the lab index"),
+    ("docs/ART_PIPELINE_CONTRACT.md", CHECKED, ("tools/test_art_pipeline_contract.py",),
+     "the hand-copied VRAM table and the budget constants it restates must equal the "
+     "generated vram_map mirror; it went stale on BG_TILE_CAPACITY in the same week "
+     "EFFECTS_CONSUMER_CONTRACT.md did, from the same carve, ungated"),
     ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py"),
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),

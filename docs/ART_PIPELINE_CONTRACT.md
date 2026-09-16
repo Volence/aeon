@@ -62,16 +62,16 @@ The boot register table writes VDP registers `$00`–`$17`. The values that cons
 
 | reg | boot value | meaning |
 |---|---|---|
-| `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:320`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:908`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
+| `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:334`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:902`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
 | `$0A` | `$FF` | HInt counter — raster programs rewrite this per fire (§8) |
 | `$0B` | `$00` at boot | **at runtime the engine writes `%11` (per-line HScroll) unconditionally**, plus bit 2 for per-column VSRAM when the scene attaches a column table — `engine/level/parallax.emp`'s `Parallax_StartTransition` (`.update_mode`) and `Parallax_Update` (after `.config_resolved`) |
-| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:554`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
+| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:592`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
 | `$0F` | `$02` | autoincrement 2 |
 | `$10` | `$11` | **scroll planes are 64 × 64 cells** (512 × 512 px) |
 | `$11`/`$12` | `$00` | **window plane disabled** |
 
 Screen: `SCREEN_WIDTH = 320`, `SCREEN_HEIGHT = 224`
-(`engine/system/constants.emp:483-484`).
+(`engine/system/constants.emp:535-536`).
 
 **Shadow-register invariant that matters to anyone authoring an effect.**
 `Flush_VDP_Shadow` (`engine/system/vdp_init.emp`) re-blits *every* shadowed register
@@ -87,8 +87,8 @@ port.
 ### 2.1 Tile format
 
 8 × 8 pixels, 4 bits per pixel, **32 bytes per tile** — `TILE_SIZE = 32`
-(`engine/system/constants.emp:690`). VRAM is 64 KB = **2048 tiles**
-(`TOTAL_TILES = 2048`, `tools/gen_vram_map.py:39`).
+(`engine/system/constants.emp:728`). VRAM is 64 KB = **2048 tiles**
+(`TOTAL_TILES = 2048`, `tools/gen_vram_map.py:41`).
 
 Pixel index 0 is the transparent index on this hardware. Where every layer is
 transparent the VDP shows the backdrop colour, which this engine leaves at reg `$07` =
@@ -133,9 +133,9 @@ byte address = tile × 32):
 | 1000–1015 | | `ring_placeholder` | window | |
 | 1016–1019 | | `test_marker` | window | |
 | 1020–1023 | | `debug_lab_name` | window | 4 contiguous tiles = one 4×1 sprite piece |
-| 1024–1399 | `$8000`–`$AF7F` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
-| 1400–1447 | `$AF80`–`$B57F` | `waterline_strips` | window | 48 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
-| 1448–1471 | `$B580`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
+| 1024–1399 | `$8000`–`$AEFF` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
+| 1400–1447 | `$AF00`–`$B4FF` | `waterline_strips` | window | 48 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
+| 1448–1471 | `$B500`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
 | 1472–1491 | `$B800`–`$BA7F` | `sprite_table` | table | **the sprite attribute table**, reg `$05` |
 | 1492–1500 | | `tails_appendage` | window | |
 | 1501–1503 | | `debug_bganim_tag` | window | 3 contiguous tiles = one 3×1 piece |
@@ -148,7 +148,7 @@ byte address = tile × 32):
 `games/demo/vram.toml` declares the same engine regions at the same bases (`fg_art_pool`,
 `spare_nametable`, `bg_region`, `waterline_strips`, `sprite_table`, `hscroll_table`,
 `plane_a`, `plane_b`, `window_plane`); it replaces the sonic4 game regions with one
-`demo_obj` (992, 4 tiles) and a 1-tile `ring_placeholder`, and declares 4 `[[free]]` runs
+`demo_obj` (992, 4 tiles) and a 1-tile `ring_placeholder`, and declares 5 `[[free]]` runs
 totalling 163 tiles (`gen_vram_map: demo OK — 11 regions, 163 free tiles`).
 
 **Which regions are fixed vs. pooled vs. reserved:**
@@ -213,7 +213,7 @@ gen_vram_map: region 'fg_art_pool': tiles=800 violates quantum 64
 A successful run prints, to stdout:
 
 ```
-gen_vram_map: sonic4 OK — 22 regions, 1 free tiles
+gen_vram_map: sonic4 OK — 23 regions, 1 free tiles
 ```
 
 The **background tile budget** has its own refusal, in the importer rather than the map
@@ -222,15 +222,15 @@ generator. `tools/png_to_bg_override.py::check_tile_budget`, run at
 
 ```
 ERROR: 321 unique tiles > 320 static budget.
-  bg_region holds 400 tiles, of which band_reserve = 80 are withheld
-  for BgAnim band art, leaving 400 - 80 = 320 for this import.
+  bg_region holds 376 tiles, of which band_reserve = 56 are withheld
+  for BgAnim band art, leaving 376 - 56 = 320 for this import.
   Simplify the art by 1 unique tiles (flatter / more repetitive),
   or lower band_reserve in games/sonic4/vram.toml and regenerate — that is
   the animation-vs-detail trade, and spending it here costs band space.
 ```
 
 Those three numbers come from `tools/vram_map.py`, generated from the TOML:
-`BG_TILE_CAPACITY = 400`, `BG_BAND_RESERVE = 80`, `BG_STATIC_TILE_BUDGET = 320`.
+`BG_TILE_CAPACITY = 376`, `BG_BAND_RESERVE = 56`, `BG_STATIC_TILE_BUDGET = 320`.
 
 ### 2.5 Reuse and flips
 
@@ -267,8 +267,10 @@ CRAM is 4 lines × 16 entries × 1 word = 128 bytes. Ownership, from
 `engine/effects/palette.emp` (the "LINE-0 INVARIANT" block) and
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`:
 
-* **Line 0 — the character.** Written by `Player_ApplyCharacter` from
-  `CharacterDef.cd_palette`. **The level must never write it.** A section load that
+* **Line 0 — the character.** Written by `Player_RefreshPhysics` from
+  `CharacterDef.cd_palette` (`games/sonic4/player/player_common.emp`, the copy at its
+  `.pal_copy` tail). *(Not `Player_ApplyCharacter` — that name appears only inside two
+  engine comments and names no routine in the tree.)* **The level must never write it.** A section load that
   touched line 0 would revert the active character's colours on every boundary crossing.
 * **Lines 1–3 — the level.** A section palette is exactly **96 bytes = lines 1–3**.
   `engine/effects/palette.emp` is the single runtime writer of these three lines.
@@ -353,7 +355,7 @@ Two mechanisms, both driven from the section's `EffectsPreset`
 (`engine/effects/preset.emp:57`):
 
 * `ep_cycle` — a palette-cycle script; up to `PAL_CYCLE_MAX_CHANNELS = 4` channels per
-  script (`engine/effects/palette.emp:76`)
+  script (`engine/effects/palette.emp:77`)
 * `ep_variants` — a `[*u8; 2]` array of variant descriptors, unused slots must be 0
 
 Both fields are **required, not defaulted**: `ep_cycle` "0 illegal, use `Pal_Cycle_None`".
@@ -368,8 +370,8 @@ Reg `$10` = `$11` in `engine/system/boot_data.emp`'s register table → **both s
 planes are 64 × 64 cells = 512 × 512 pixels**, for every act and both games. This is a
 boot-time setting; there is no per-act or per-game plane size in this engine, and both
 `vram.toml` files declare `plane_a`/`plane_b` at the same 256-tile (`$2000`-byte) bases.
-`PLANE_H_CELLS = 64` and `PLANE_V_CELLS = 64` (`engine/system/constants.emp:483` and
-`:595`) are the engine-side names.
+`PLANE_H_CELLS = 64` and `PLANE_V_CELLS = 64` (`engine/system/constants.emp:521` and
+`:633`) are the engine-side names.
 
 The window plane is declared in the map at `$F000` but is **disabled** (regs `$11`/`$12`
 = 0). `games/sonic4/vram.toml` says why it cannot simply be turned on: with 64 × 64
@@ -387,17 +389,17 @@ V-flip / H-flip / tile index).
 | | Plane A | Plane B |
 |---|---|---|
 | role | **foreground** — the playable terrain | **background** |
-| art comes from | `fg_art_pool` (tiles 0–767), streamed | `bg_region` (tiles 1024–1423), loaded once at level init |
+| art comes from | `fg_art_pool` (tiles 0–767), streamed | `bg_region` (tiles 1024–1399), loaded once at level init |
 | nametable content | built per column/row from the tile cache as the camera moves | one act-wide blob blitted once, plus per-section overrides |
 
 Roles can be **swapped at runtime** — `Parallax_Set_Roles_Swapped(d0)` in
 `engine/level/parallax.emp`, gated on the scene capability `CAP_ROLE_SWAP` (`$0400`,
-`engine/level/scene_dsl.emp:342`). It writes the two base registers through the settled
+`engine/level/scene_dsl.emp:348`). It writes the two base registers through the settled
 shadow door (`Set_VDP_Reg`), so it is a whole-frame swap.
 
 ### 4.4 The background layout blob
 
-`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:52`) — a **full Plane B
+`BG_LAYOUT_SIZE = 64*64*2 = 8192` bytes (`engine/level/bg.emp:51`) — a **full Plane B
 nametable**, all 64 rows live. Measured: `games/sonic4/data/generated/ojz/act1/zone_bg.bin`
 is exactly 8192 bytes.
 
@@ -422,21 +424,21 @@ blob is correct only because the injector happens to run second.
 ### 4.5 The background tile blob
 
 `games/sonic4/data/generated/ojz/act1/bg_tiles.bin`, measured on this tree: **10 242
-bytes**. Format (`engine/level/bg.emp:37-38`, verified against the file):
+bytes**. Format (`engine/level/bg.emp:36-37`, verified against the file):
 
 ```
 2-byte big-endian byte-length header, then raw 4bpp tiles
 ```
 
 Header word reads `$2800` = 10 240; payload is 10 240 bytes = **320 tiles**. That is
-inside `BG_TILE_CAPACITY = 400` with the 80-tile `band_reserve` unspent, which is why a
+inside `BG_TILE_CAPACITY = 376` with the 56-tile `band_reserve` unspent, which is why a
 BgAnim band can be inserted today.
 
 Nametable indices in the layout are **VRAM-absolute**, rebased at generation time by
-`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:609`) — the editor's blob-local
+`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:647`) — the editor's blob-local
 indices are converted by `tools/inject_editor_bg.py`.
 
-`BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 800` bytes; the clamp is
+`BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 032` bytes; the clamp is
 the *declared capacity*, not the physical `$8000..$B7FF` run, because the top 48 slots are
 the `waterline_strips` region. A maximal blob clamped to the physical run would spray over
 the waterline art.
@@ -500,8 +502,8 @@ $02 rate_shift  u16   step = driver_value >> rate_shift
 $04 step_mask   u16   pattern period along the axis in px, minus 1
 $06 col_shift   u16   log2 of the ROTATION UNIT in bytes
 $08 tile_count  u16
-$0A vram_dest   u32   VRAM byte address of the band's first slot
-$0E banks       [*u8; 8]   bank0..bank7, pre-shifted art, 1 px per bank
+$0A vram_dest   u16   VRAM byte address of the band's first slot (VramAddr = u16)
+$0C banks       [*u8; 8]   bank0..bank7, pre-shifted art, 1 px per bank
 ```
 
 Verified against the shipped generated file: `_BgAnim_Band0_hdr` is
@@ -563,7 +565,7 @@ characters (`games/sonic4/vram.toml`, `debug_lab_name`).
 
 | asset | mappings | DPLC | frames |
 |---|---|---|---|
-| Sonic | `data/mappings/sonic.bin` 7 296 B | `data/dplc/optimized/sonic.bin` 2 244 B | **224** |
+| Sonic | `data/mappings/sonic.bin` 7 296 B | `data/dplc/optimized/sonic.bin` 2 242 B | **224** |
 | Knuckles | `data/mappings/knuckles.bin` 7 592 B | `data/dplc/knuckles.bin` 2 400 B | **251** |
 | Tails | `data/mappings/tails.bin` 7 152 B | `data/dplc/optimized/tails.bin` 1 658 B | **251** |
 | Tails' tails | `data/mappings/tails_tail.bin` 712 B | `data/dplc/optimized/tails_tail.bin` 268 B | 45 |
@@ -634,7 +636,20 @@ matters: several assets legitimately use their last frame, so written `<=` the g
 be green on a real overrun, and written `<` on a wrongly-derived maximum it would be red
 on correct art. Its `--selftest` proves both directions per table.
 
-Run on `s4.bin` / `s4.lst` from this tree, exit 0:
+⚠ **THE TABLE BELOW IS NOT A FRESH GATE RUN, and said it was until 2026-09-15.** It was
+published as "run on `s4.bin` / `s4.lst` from this tree, exit 0". It cannot have been: the
+`Ani_Spring` row describes the spring as it was BEFORE the 2026-09-07 side-spring sheet, and a
+run against this tree would have read the shipped four-entry table. Corrected 2026-09-15 by
+reading SOURCE, not by running the gate — `offsets Ani_Spring` has four entries (Idle, Fire,
+IdleH, FireH) at `games/sonic4/objects/test_solid.emp`, the highest frame byte any of them
+names is `SPRING_FRAME_EXTEND_H = 5`, and `offsets Map_Spring` has six frames. Margin is still
+0 (6 - 1 - 5). **The `max reachable` cell is left explicitly un-derived**: that column is the
+gate's tilt/bank/direct-write model over the BUILT ROM, and no `s4*.bin` / `s4*.lst` exists in
+the tree this correction was made in. `tools/anim_frame_bound.py`'s own docstring carries the
+same stale "spring 2/3" and is NOT fixed here. **Re-run the gate and paste its real output
+over this whole table** — and when you do, restore a provenance line that says which ROM.
+
+The other nine rows were re-derived from source on 2026-09-15 and agreed:
 
 | anim table | mappings | anims | max script byte | max reachable | frames | **margin** |
 |---|---|---|---|---|---|---|
@@ -644,7 +659,7 @@ Run on `s4.bin` / `s4.lst` from this tree, exit 0:
 | `Ani_Knuckles` | `Map_Knuckles` | 24 | `$DE` | `$DE` | 251 | 28 |
 | `Ani_RingSparkle` | `Map_RingSparkle` | 1 | `$03` | `$03` | 4 | **0** |
 | `Ani_Sonic` | `Map_Sonic` | 24 | `$C4` | `$C4` | 224 | 27 |
-| `Ani_Spring` | `Map_Spring` | 2 | `$02` | `$02` | 3 | **0** |
+| `Ani_Spring` | `Map_Spring` | 4 | `$05` | ⚠ not re-derived | 6 | **0** |
 | `Ani_Tails` | `Map_Tails` | 24 | `$B4` | `$B4` | 251 | 70 |
 | `Ani_TailsAppendage` | `Map_TailsAppendage` | 24 | `$28` | `$28` | 45 | 4 |
 
@@ -685,7 +700,7 @@ Measured sheet sizes on this tree (uncompressed 4bpp, 32 B/tile):
 
 | sheet | bytes | tiles | headroom to 4096 |
 |---|---|---|---|
-| `art/optimized/characters/sonic.bin` | 101 056 | 3 158 | 938 |
+| `art/optimized/characters/sonic.bin` | 101 536 | 3 173 | 923 |
 | `art/optimized/characters/knuckles.bin` | 130 944 | **4 092** | **4** |
 | `art/optimized/characters/tails.bin` | 116 320 | 3 635 | 461 |
 | `art/optimized/characters/tails_tail.bin` | 8 896 | 278 | |
@@ -774,11 +789,15 @@ If you are coming from a Sonic 1/2/3 disassembly, the words do not map across. *
 no 16×16-pixel block table and no 128×128-pixel chunk table in this engine.**
 
 Positive control, run on this tree: a case-insensitive search for `chunk` across
-`engine/**/*.emp` exits 1 (no matches), and the same search across `games/**/*.emp` also
-exits 1; a search for `128x128` / `128 x 128` across both exits 1. As a control that the
+`engine/**/*.emp` exits 1 (no matches). **The same search across `games/**/*.emp` does NOT exit
+1** — it matches one file, `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, twice, both
+times in COMMENT prose about grid alignment ("no block or chunk grid lines"). The conclusion
+survives (no chunk table exists) but the control as stated was false, and a positive control
+that is itself wrong is worse than none; a search for `128x128` / `128 x 128` across both exits 1. As a control that the
 search machinery works, `BLOCK_TILE_SIZE` returns 12 matches in
-`engine/system/constants.emp` alone. The word `chunk` **does** survive in `tools/` — about
-twenty files — but always as the *donor* vocabulary: `ojz_common.load_chunk_map` and
+`engine/system/constants.emp` alone. The word `chunk` **does** survive in `tools/` — **37
+files**, measured 2026-09-15, not the "about twenty" this line said — but always as the *donor*
+vocabulary: `ojz_common.load_chunk_map` and
 `collision_pipeline.bake_cell` parse sonic_hack's Sonic 2 data at import time, and that
 shape never reaches the ROM.
 
@@ -926,23 +945,37 @@ into the per-plane space.
 
 A 16 px collision row samples the **top tile row** of the pair (even rows only).
 
-Two hard refusals in that bake, both raising rather than warning:
+**One** hard refusal in `bake_plane_cell`, not two — this said two until 2026-09-15:
 
 * **`XOVER == 3` is reserved and raises.** 3 is the value a producer that *clamps* into a
   2-bit field lands on, so it is made the loudest value rather than the quietest.
-* **A self-mark raises** — a plane-A word carrying `XOVER_TO_A`, or plane-B carrying
-  `XOVER_TO_B`, provably does nothing (you must already be on a plane to read its mark),
-  so it is treated as authoring intent that silently fails.
+* **A self-mark does NOT raise.** `tools/collision_pipeline.py` says so in its own words:
+  "RULE R2 (refuse a self-mark: a plane-A cell marked TO_A) IS NOT IMPLEMENTED, and the
+  reason is STRUCTURAL rather than unfinished: this function is handed one plane's word at
+  a time and takes no plane parameter, so it cannot ask whether a mark points at the plane
+  being baked." Nothing leaks today because every shipped mark is a two-way pair, checked
+  across both planes by `tools/collision_xover_census.py` — **an unguarded door, not a
+  hole.** Pairing is unenforceable here for the same reason. Do not rely on the bake to
+  catch a self-mark.
 
-If `section_N.collattr.bin` is the wrong length the bake **warns and ignores the editor
-collision for that section** rather than failing:
+If `section_N.collattr.bin` is the wrong length the bake **REFUSES** — it raises, and the
+build stops. This document said the opposite ("warns and ignores the editor collision for
+that section") until 2026-09-15, and the warning text it quoted no longer exists anywhere
+in `tools/`. The soft fallback was deliberately deleted on 2026-09-12 (`ojz_strip_gen.py`,
+gap lens sweep F1) for exactly the reason the old paragraph then went on to warn about:
 
 ```
-  WARNING: {path_a} is {len}B, expected {expect}; ignoring editor collision for sec {N}
+  {path_a} is {len} bytes, expected {expect} (a {W}x{W} grid of 16-bit cell words).
+  Refusing to bake sec {N}: the old fallback treated a wrong-sized collision file as
+  'no editor collision' and shipped the section as ALL AIR. ...
 ```
 
-That is a soft failure and worth knowing about: wrong-sized collision does not stop a
-build, it silently reverts a section to air.
+A wrong-sized plane-B file is refused the same way (sweep F5) rather than being replaced
+by a mirror of plane A; an ABSENT plane-B file still mirrors, which is a section authored
+on one plane. **The hazard the next three paragraphs describe is therefore CLOSED**, and
+they are kept only as the record of why the refusal exists: wrong-sized collision used to
+not stop a
+build, it silently reverted a section to air. It does now.
 
 ### 6.8 Objects and rings
 
@@ -962,24 +995,32 @@ buffer**; the shipped act's worst 2×2-block pressure is 20.
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp` builds one `Act` record naming the
 grid, the start position, the act-wide BG blob and tile blob, the parallax config, the
 paged art pool table, the per-section local maps, an edge mode and a per-act art byte
-budget. Each of the nine sections is a `Sec` record (`engine/structs.emp`, `struct Sec`):
+budget. Each of the nine sections is a `Sec` record (`engine/structs.emp`, `struct Sec`) — **26
+bytes, seven fields**:
 
 ```
 $00 sec_block_index      *u8   the 256-entry block index table
 $04 sec_objects          *u8   object list ($FFFF-terminated)
 $08 sec_rings            *u8   X-sorted ring entries
-$0C sec_parallax_config  *u8   0 = defer to the preset / act default
-$10 sec_bg_layout        *u8   0 = use the act-wide BG
-$14 sec_type_table       *u8   count, pad, then ObjDef pointers
-$18 sec_block_dict       *u8   raw dict region (LZ pre-seed)
-$1C sec_effects          *u8   EffectsPreset* — REQUIRED, no default
-$20 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
+$0C sec_bg_layout        *u8   0 = use the act-wide BG
+$10 sec_type_table       *u8   count, pad, then ObjDef pointers
+$14 sec_block_dict       *u8   raw dict region (LZ pre-seed)
+$18 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
 ```
 
-`sec_effects` is required deliberately: `Effects_InstallPreset` dereferences it without
-testing, and the only null test is inside `if DEBUG == 1` — so an omitted binding would
-compile clean, ship, and send the release build into the 68000 vector table. Dropping the
-default makes the omission a build error in every shape at zero ROM cost.
+⚠ **This table listed a NINE-field, 34-byte record until 2026-09-15, and every offset from
+`$0C` down was wrong.** `Sec` went 34 -> 26 on 2026-09-13 (painted-regions v1, step 4):
+`sec_parallax_config` and `sec_effects` **left `Sec` entirely** and moved to the `Region`
+record. A reader laying out a section by that table put `sec_type_table` where
+`sec_bg_layout` lives. Nothing in this document flagged it, because a record layout is not
+a restated constant and no gate looks at one.
+
+The argument the old text attached to `sec_effects` is intact, but it now belongs to
+`Region.rg_effects` (`engine/structs.emp:104`, in the 16-byte `Region` at `:99`): that field
+has no `= 0` default, and **the omission is the guard** — `Effects_InstallPreset` dereferences
+it without testing, and the only null test is inside `if DEBUG == 1`, so an omitted binding
+would compile clean, ship, and send the release build into the 68000 vector table. Dropping
+the default makes the omission a build error in every shape at zero ROM cost.
 
 ---
 
@@ -995,7 +1036,7 @@ default makes the omission a build error in every shape at zero ROM cost.
 | **none** | all sprite art, all palettes, both nametable blobs, all collision tables | — |
 
 Every compressed art blob starts with a **4-byte wrapper**
-(`engine/system/constants.emp:341-346`):
+(`engine/system/constants.emp:378-384`):
 
 ```
 u16 BE  uncompressed size
@@ -1032,7 +1073,7 @@ dictionary entry. The deepest shipped use is a 768-byte block slot plus a 2 304-
 
 **Art pool paging.** `ART_POOL_PAGE_TILES = 64`, so a page is
 `ART_POOL_PAGE_BYTES = 2048` bytes. The manifest is a stride-`sizeof(PageManifest)` array
-(`engine/structs.emp:71`):
+(`engine/structs.emp:115`):
 
 ```
 $00 pm_source  *u8   page blob pointer (ZX0 wrapper, or raw payload)
@@ -1112,24 +1153,39 @@ warning: 14 warnings, module.path-mismatch 14; SIGIL_WARNINGS=full to list
 error: native build (sonic4 plain): build_program: 1 error(s);
   [Error] stream_cram: 4 colours exceeds RASTER_BURST_MAX_CRAM (3) — the per-fire CYCLE
   budget for the CHEAP burst class, not a FIFO limit. […] @ Span { source: SourceId(11),
-  start: 19879, end: 20899 }
+  start: 19939, end: 20959 }
 ```
 
 Recognise: `error: native build (<game> <shape>): build_program: N error(s);` followed by
 one `[Error] <the guard's own message> @ Span { … }` per failure.
 
-**A second failure road exists and looks nothing like that one.** An `ensure` whose
+**A second failure road exists and used to look nothing like that one.** An `ensure` whose
 condition contains `extern(...)` — every cross-namespace constant mirror and every
-RAM-reservation span, 135 sites — is lowered to a link assert, evaluated after layout, and
-reported as:
+RAM-reservation span, a family of **well over a hundred sites** — is lowered to a link
+assert, evaluated after layout, and reported under its own header:
 
 ```
-declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+declared-chain drift guard FIRED: N error(s):
 ```
 
-with **no `[Error]` token anywhere** (`tools/emp_expect_fail.py`, which documents both
-formats because the difference silently voided a whole test family). If you are grepping a
-build log for failures, grep for both.
+⚠ **Two things in this paragraph were wrong on 2026-09-15 and are corrected here.**
+
+* **The count.** It said "135 sites", a figure `tools/emp_expect_fail.py` still restates.
+  `docs/DEFERRED_WORK.md` (LS-16c) retracted it in this repo's own record: *"THE FAMILY IS
+  139 SITES IN 23 FILES TODAY, NOT 135. It drifted in two days, which is the argument for
+  the runner existing."* **No number is written here on purpose.** A count that moves every
+  few days does not belong restated in prose; ask
+  `tools/test_extern_guard_reachability.py`, which is the per-commit runner, and treat any
+  figure you find in a comment as a date-stamp rather than a fact.
+* **The shape of the report.** It said the link-assert road carries **no `[Error]` token
+  anywhere**, and told you to grep for both forms because of it. Sigil fixed that renderer
+  in `82838687`: a link-assert failure now renders *through the same renderer*, WITH the
+  `[Error]` token and a `file:line:col` prefix the old `first Some(Diagnostic { .. })` form
+  never carried — confirmed against the installed binary (`af35fa56`), not inferred from
+  ancestry. **Grepping for `[Error]` alone no longer misses this family.** The advice to
+  grep for both is still harmless, but its stated reason is obsolete: what distinguishes
+  the two roads today is the HEADER (`build_program:` vs `declared-chain drift guard
+  FIRED:`), not the presence of a token.
 
 Guards you will meet as an asset producer, and what each does *not* cover — each of these
 states its own limits in its message, and the limits are as load-bearing as the check:
@@ -1165,7 +1221,7 @@ record is the total binding — every channel arrives through it
 ```
 $00 ep_pal            *u8    REQUIRED — the preset CARRIES the base palette
 $04 ep_parallax       *u8    0 = defer to the act default (the one legal 0);
-                             a non-zero Sec.sec_parallax_config outranks it
+                             a non-zero Region.rg_parallax outranks it
 $08 ep_raster         *u8    static raster program; 0 is ILLEGAL — use
                              Raster_Program_None
 $0C ep_patched        *u8    patched template (water / world-anchored gradient);
@@ -1177,7 +1233,7 @@ $24 ep_transition     u16             cross-fade arm
 $26 ep_patch_motion   [u16; 4]        one packed SWEEP word per patch channel
 ```
 
-`RASTER_MAX_PATCH = 4` (`engine/effects/raster_dsl.emp:2131`) is what sizes the two
+`RASTER_MAX_PATCH = 4` (`engine/effects/raster_dsl.emp:2135`) is what sizes the two
 4-entry arrays. The two inline arrays are inline, not pointers, deliberately: a `Label`
 carries no length, so an `ensure` comparing one against an integer is unevaluable and
 passes silently.
@@ -1235,7 +1291,7 @@ header:
   M−1. The comptime constructors own that −1 so authors think in screen lines.
 
 Bounds: `RASTER_MIN_FIRE_LINE = 3`, `RASTER_MAX_FIRE_LINE = 223`,
-`RASTER_BUF_SIZE = 128` bytes = 64 words (`engine/effects/raster.emp:363, 1718-1719`).
+`RASTER_BUF_SIZE = 128` bytes = 64 words (`engine/effects/raster.emp:363, 1761-1762`).
 
 Opcodes (`engine/effects/raster.emp`), with their argument layouts:
 
@@ -1330,7 +1386,7 @@ for the mailbox, and the mailbox is not in the release shape.
 
 ### 8.6 VBlank ordering
 
-From `engine/system/vblank.emp:157-209`, in order:
+From `engine/system/vblank.emp:157-298`, in order:
 
 ```
 Raster_VBlank            <-- MUST precede the flush
@@ -1480,7 +1536,7 @@ Consequences for a tool:
 
 A sonic4 `./build.sh` assembles the *demo* game to evaluate its link-time guards (some
 `ensure`s are gated `when = "sound_off"` and are dead in every sonic4 shape). That assemble
-writes to **a scratch path, deliberately** (`build.sh:818-860`).
+writes to **a scratch path, deliberately** (`build.sh:1160-1221`).
 
 The reason is a false-pass mechanism worth understanding: writing real demo artifacts there
 would give `demo.bin` / `demo.lst` a fresh mtime **from a sonic4 invocation**, and the
@@ -1536,13 +1592,38 @@ Listed so you ask rather than infer:
   through a loop — no loop exists in OJZ act 1. Those are different claims and only the
   first has evidence.
 
-### One discrepancy found between this repo's docs and its source
+### One discrepancy found between this repo's docs and its source — half since fixed upstream, and THIS document then became the next victim
 
-`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1 describes `inject_editor_bg.py`'s `tiles` key as
-`len(tiles) <= BG_TILE_CAPACITY` **"(448, imported from the vram_map mirror `:24`)"**. Both
-halves are wrong on this tree: the mirror (`tools/vram_map.py`, generated from
-`games/sonic4/vram.toml`) gives `BG_TILE_CAPACITY = 400`, and the import is at
-`tools/inject_editor_bg.py:36`, not `:24`. The *mechanism* the sentence describes — one
-authority, imported from the generated mirror — is correct and is what the code does. This
-is exactly the failure mode this document's opening rule exists to avoid: read the mirror,
-not the sentence about the mirror.
+**As first written, this section read:** `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1 describes
+`inject_editor_bg.py`'s `tiles` key as `len(tiles) <= BG_TILE_CAPACITY`
+**"(448, imported from the vram_map mirror `:24`)"**, and both halves are wrong.
+
+**Re-checked 2026-09-15 against source. The capacity half is FIXED; the citation half is not,
+and a third error has appeared that the original sentence did not have.**
+
+* **The capacity: fixed upstream.** `bf82f166` corrected that row to **376** on 2026-09-08 and,
+  more importantly, put a gate behind it —
+  `tools/test_bg_emit.py::TestTheContractStatesLiveValues` now parses every constant the
+  consumer contract restates beside its name and fails the BUILD on drift. That document is
+  vendored by aurora, so it was the one worth gating first.
+* **The citation: still wrong, and now wrong twice over.** The row still says `:24`. There is no
+  reading of `:24` that is true today: `tools/vram_map.py:24` is the `sprite_table` region row
+  (the capacity is at `:35`), and the import in `tools/inject_editor_bg.py` is at **`:40`**.
+  The earlier version of this section asserted `:36` — that has drifted too. **A line number is
+  a figure like any other and rots at the same rate**; prefer naming the symbol.
+* **And this document was the next victim.** `docs/ART_PIPELINE_CONTRACT.md` is NOT covered by
+  that gate. Between 2026-09-08 and 2026-09-15 it stated the BG tile capacity as 400 at four
+  sites (the live value is 376), the band reserve as 80 (it is 56), and a clamp derived from
+  the capacity as 12 800 bytes (it is 12 032) — and its VRAM map table's byte-address column
+  still described a 380-tile arena. All corrected in this same edit, and **gated afterwards**
+  by `tools/test_art_pipeline_contract.py`, the sibling this section argued for. The lesson is
+  not "that other document was careless": **a gate scoped to one file leaves every unscoped
+  file exactly as exposed as the gated one was before the gate.**
+
+  *(Deliberately, no live-looking restatement appears in the paragraph above: the stale values
+  are named in prose rather than written as `NAME = n`, because a drift gate cannot tell a
+  historical quotation from a current claim and should not have to.)*
+
+The *mechanism* the original sentence describes — one authority, imported from the generated
+mirror — is correct and is what the code does. This is exactly the failure mode this
+document's opening rule exists to avoid: read the mirror, not the sentence about the mirror.
