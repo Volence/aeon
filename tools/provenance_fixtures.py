@@ -24,7 +24,23 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class NoAssembler(RuntimeError):
     """SIGIL_BUILD is unset or not executable. Callers FAIL on it, never skip: build.sh
-    requires the assembler, and a skip would read "measured nothing" as a green dot."""
+    requires the assembler, and a skip would read "measured nothing" as a green dot.
+
+    OBSERVED FIRING, 2026-09-16, and that is why this note exists rather than an assertion
+    that it would. The aeon overseer ran `pytest tools -m "not needs_build"` three times on
+    master: once with SIGIL_BUILD exported inline (2754 passed, exit 0), then twice more
+    from fresh shells, where the harness does not persist env — 4 failed, 55 errors, every
+    one of them this exception. It read as a master regression on a tree that was green.
+
+    So this path is a PROVEN-FIRES guard, not an asserted one, and the run that proved it is
+    its positive control. The counterfactual is the whole point: had these tests skipped on a
+    missing assembler, that session would have read 2699 passed / exit 0 and reported an
+    all-clear it had no evidence for — the shape of every wrong all-clear this suite has
+    produced. A green dot and an absent measurement are the same pixel.
+
+    If you are here because this fired: check `echo $SIGIL_BUILD` in the SAME shell as the
+    run before concluding anything about the tree.
+    """
 
 
 def sigil():
