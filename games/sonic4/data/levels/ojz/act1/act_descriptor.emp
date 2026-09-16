@@ -506,7 +506,7 @@ const BG_SPAN_ROW_PX = 8            // one nametable row: the streamer's quantum
 // ojz_region() — one Region row, with every per-row invariant checked HERE, at the call
 // site (a comptime fn's ensures evaluate where it is called, which is what makes them live).
 comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, parallax: Label = 0,
-                       bg_layout: Label = 0, bg_span: int = 0) -> Region {
+                       bg_layout: Label = 0, bg_span: int = 0, bg_tiles: Label = 0) -> Region {
     // A label beside 0 is the one cross-kind comparison sigil keeps DEFINED (EMP_PITFALLS
     // §12): a real label is never 0, so this is false exactly for a written zero.
     ensure(effects != 0,
@@ -546,7 +546,8 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, paral
     ensure(bg_layout != 0 || bg_span == 0,
            "ojz_region(x0: {x0}, y0: {y0}): bg_span {bg_span} is written on a row whose bg_layout is 0. A row with no layout of its own shows the act's background, whose height is the act's fact — name a layout too, or leave bg_span 0")
     return Region{ rg_x0: x0, rg_x1: x1, rg_y0: y0, rg_y1: y1, rg_effects: effects,
-                   rg_parallax: parallax, rg_bg_layout: bg_layout, rg_bg_span: bg_span }
+                   rg_parallax: parallax, rg_bg_layout: bg_layout, rg_bg_span: bg_span,
+                   rg_bg_tiles: bg_tiles }
 }
 
 // The first overlapping pair as `i * 1000 + j` (i < j), or -1 when no two rows share a
@@ -790,7 +791,8 @@ comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key
             out = out ++ [ Region{ rg_x0: r[i].rg_x0, rg_x1: x1,
                                    rg_y0: r[i].rg_y0, rg_y1: r[i].rg_y1,
                                    rg_effects: r[i].rg_effects, rg_parallax: r[i].rg_parallax,
-                                   rg_bg_layout: r[i].rg_bg_layout, rg_bg_span: r[i].rg_bg_span } ]
+                                   rg_bg_layout: r[i].rg_bg_layout, rg_bg_span: r[i].rg_bg_span,
+                                   rg_bg_tiles: r[i].rg_bg_tiles } ]
         } else {
             out = out ++ [ r[i] ]
         }

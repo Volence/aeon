@@ -642,6 +642,28 @@ pub vars upper_ram {
     // what this byte now is. See engine/level/bg.emp, BG_Stream_Update's wipe arm, for the
     // whole argument and for why a PLANE row rather than a map row is the thing that is stored.
 
+    // REGION BG SWITCH (2026-09-16) — THE BG TILE TRACKER: which tile blob the BG ARENA
+    // (BG_TILE_BASE_VRAM, BG_TILE_CAPACITY tiles) currently HOLDS, and the overwrite in
+    // flight. The layout tracker above says what Plane B's nametable holds; these say what
+    // the tiles those words index are. Plan: docs/superpowers/plans/2026-09-16-region-bg-switch.md.
+    //
+    //   BG_Tiles_Current — the blob VRAM holds. 0 = a PARTIAL blob (an overwrite is running),
+    //                      so it never compares equal to any region's effective blob.
+    //   BG_Tiles_Target  — the blob being uploaded; 0 = no overwrite in flight.
+    //   BG_Tiles_Offset  — bytes of the target already ENQUEUED (not landed; landing is
+    //                      observed separately, see BG_Stream_Update).
+    //   BG_Bands_Hold    — nonzero while BgAnim bands must not write the arena (the arena
+    //                      does not hold the act-default tiles their slots animate).
+    //
+    // Outside Parallax_State for the reason the layout tracker is: the synchronous blit
+    // seeds them before Parallax_Init runs on the boot ladder. POINTERS, so not in
+    // Replay_Hash (engine/system/replay.emp's warning applies unchanged).
+    BG_Tiles_Current:       u32,
+    BG_Tiles_Target:        u32,
+    BG_Tiles_Offset:        u16,
+    BG_Bands_Hold:          u8,
+    pad(1),                             // pad to even (BG_Bands_Hold is 1 odd byte)
+
     // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
     // (engine/effects/raster.emp). Its span is cross-checked there by an
     // `ensure` against RASTER_STATE_SIZE, so a drift on either side fails the

@@ -82,13 +82,35 @@ def test_the_background_fields_are_appended_last_and_the_rectangle_is_still_two_
     assert off["rg_x0"] % 4 == 0 and off["rg_y0"] % 4 == 0, (
         f"a move.l cache fill starts at ${off['rg_x0']:02X} / ${off['rg_y0']:02X}; an odd "
         "base would address-error on 68000")
-    assert list(off)[-2:] == ["rg_bg_layout", "rg_bg_span"], (
-        f"struct Region's last two fields are {list(off)[-2:]}; the background pair was "
-        "APPENDED (regions part 2 step 1) so that no older offset moved. A field inserted "
-        "before them slides rg_effects and rg_parallax under every reader")
-    assert off["rg_bg_span"] + 2 == size, (
-        f"rg_bg_span at ${off['rg_bg_span']:02X} + 2 is not the {size}-byte record size — "
+    assert list(off)[-3:] == ["rg_bg_layout", "rg_bg_span", "rg_bg_tiles"], (
+        f"struct Region's last three fields are {list(off)[-3:]}; the background pair was "
+        "APPENDED (regions part 2 step 1) and the tile blob after it (region bg switch, "
+        "2026-09-16) so that no older offset moved. A field inserted before them slides "
+        "rg_effects and rg_parallax under every reader")
+    assert off["rg_bg_tiles"] + 4 == size, (
+        f"rg_bg_tiles at ${off['rg_bg_tiles']:02X} + 4 is not the {size}-byte record size — "
         "something follows the field this test believes is last")
+
+
+def test_region_record_carries_bg_tiles_at_offset_22():
+    """Region bg switch, task 1: a region names its own background TILE blob.
+
+    `rg_bg_tiles` is a pointer (the blob: 2-byte length + raw tiles; 0 = Act.act_bg_tiles),
+    appended at $16 directly after `rg_bg_span` ($14, u16), which makes the record 26 bytes.
+    The offsets come from the parser (the declaration checked against its own `// $HH`
+    comments); this test adds that the field EXISTS, is a pointer defaulting to 0, and sits
+    where appending puts it.
+    """
+    off, size = rt.region_layout()
+    assert "rg_bg_tiles" in off, f"struct Region declares no rg_bg_tiles; fields: {list(off)}"
+    assert off["rg_bg_tiles"] == off["rg_bg_span"] + 2 == 0x16, (
+        f"rg_bg_tiles is at ${off.get('rg_bg_tiles', -1):02X}; appended after rg_bg_span "
+        f"(${off['rg_bg_span']:02X}, u16) it must be $16")
+    text = (rt.AEON / rt.STRUCTS).read_text()
+    assert re.search(r"^\s*rg_bg_tiles\s*:\s*\*u8\s*=\s*0\s*,", text, re.M), (
+        "rg_bg_tiles must be `*u8 = 0`: a pointer whose 0 means the act default, the same "
+        "sentinel convention as rg_bg_layout")
+    assert size == 26, f"sizeof(Region) is {size}; with rg_bg_tiles appended it is 26"
 
 
 def _row(i, x0, x1, y0, y1):
@@ -96,7 +118,8 @@ def _row(i, x0, x1, y0, y1):
     # and a hand-typed size here would go stale the next time a field is appended.
     stride = rt.region_layout()[1]
     return {"index": i, "addr": 0x1000 + stride * i, "x0": x0, "x1": x1, "y0": y0, "y1": y1,
-            "effects": 0x2000 + i, "parallax": 0, "bg_layout": 0, "bg_span": 0}
+            "effects": 0x2000 + i, "parallax": 0, "bg_layout": 0, "bg_span": 0,
+            "bg_tiles": 0}
 
 
 def test_region_at_restates_region_resolve():
