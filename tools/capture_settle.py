@@ -60,8 +60,9 @@ that fails NAMES THE FRAME, so a filename says not only that it is unsettled but
 
   fading  `Pal_Fade_Frames == 0`
   armed   `Pal_Fade_Request == 0`         (a fade armed to start on the next load)
-  layer   no other palette layer is live  (`Pal_Active` base/cycle/op bits, `Pal_Op`,
-                                           `Pal_Cycle_Script`)
+  layer   no other palette layer is live -- and it tests EXACTLY the three gates
+          `Palette_Compose` itself tests for the layers that move lines 1-3:
+          `tst.b Pal_Base_Dirty`, `btst #1, Pal_Active` (PAL_ACT_CYCLE), `tst.b Pal_Op`
   buf     `Palette_Buffer` lines 1-3 == `Pal_Target`, under `Palette_DoFade`'s own
           `$0EEE` channel mask  (arrived, not merely stopped)
   cram    CRAM lines 1-3 == `Palette_Buffer` lines 1-3  (the DMA has landed)
@@ -91,6 +92,22 @@ N = COMPOSE_TO_CRAM_TICKS + CRAM_TO_CAPTURED_FRAME_TICKS + 1 = 3.
 `derive_engine_facts()` re-reads those three orderings out of the engine source on every
 run and REFUSES if any has moved, so N cannot outlive its derivation. Changing the game
 loop makes this module loud, not wrong.
+
+WHY THAT COVERS THE FRAME THE PNG ACTUALLY SHOWS, which is the whole point and is worth
+spelling out because it is one step removed from every read. A CRAM read at sample i shows
+compose(i-1); the PNG at sample i shows compose(i-2). Clauses 1-5 at sample i are therefore
+statements about compose(i-1), one compose LATER than the picture. Clause 7 closes the gap:
+CRAM identical across samples i-2, i-1, i means compose(i-3), compose(i-2) and compose(i-1)
+all produced the same lines 1-3, and compose(i-2) is exactly what the PNG shows. So the
+picture's colours are the settled palette, with a settled compose on each side of it -- not
+because the naming was careful, but because the window was sized to reach it.
+
+A NOTE ON WHAT IS NOT A CLAUSE, because a clause that can never pass is worse than an absent
+one. `Pal_Cycle_Script` is NOT tested against zero: in steady state it holds a non-zero
+pointer to the `Pal_Cycle_None` sentinel (engine/effects/palette.emp, `pub data
+Pal_Cycle_None`), which TOTAL BINDING requires, so a `!= 0` clause would refuse every frame
+forever and this tool could never emit the word it exists to emit. The engine's own gate is
+the PAL_ACT_CYCLE bit, and that is what the `layer` clause reads.
 
 WHAT THIS MODULE STILL CANNOT DO. It cannot see a mid-frame CRAM write: a raster program
 with an `OP_PAL_REGION` writes CRAM during the scan, so a read at one point in the frame is
@@ -139,7 +156,7 @@ CRAM_TO_CAPTURED_FRAME_TICKS = 1
 class EngineFacts:
     """Everything the predicate needs that comes from the engine rather than from a read."""
     stable_ticks: int            # N
-    moving_bits: int             # Pal_Active bits meaning "a layer that moves lines 1-3"
+    cycle_bit: int               # PAL_ACT_CYCLE — the bit Palette_Compose btst's for cycling
     chan_mask: int               # Palette_DoFade's own comparison mask
     fade_frames_const: int       # PAL_FADE_FRAMES, for the report's model cross-check
     citations: tuple             # (claim, where) pairs, printed into every report
@@ -214,6 +231,23 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
                   "lines 1-3, so Pal_Fade_Frames == 0 settles ONE of four",
                   "engine/effects/palette.emp, proc Palette_Compose"))
 
+    # The cycling gate, taken from the INSTRUCTION rather than from the constant alone: the
+    # `layer` clause must read the same bit Palette_Compose branches on, and a constant
+    # renumbered without the btst (or the other way round) must be loud, not silent.
+    cycle_bit = _const(aeon, "engine/effects/palette.emp", "PAL_ACT_CYCLE")
+    if cycle_bit == 0 or (cycle_bit & (cycle_bit - 1)):
+        raise DerivationError(f"PAL_ACT_CYCLE = {cycle_bit:#b} is not a single bit")
+    want = cycle_bit.bit_length() - 1
+    if not re.search(rf"btst\s+#{want},\s*Pal_Active\s+beq", cbody):
+        raise DerivationError(
+            f"Palette_Compose's cycling gate is not `btst #{want}, Pal_Active` even though "
+            f"PAL_ACT_CYCLE = {cycle_bit:#07b}. The `layer` clause reads the bit the engine "
+            "branches on; one of the two has moved.")
+    cites.append((f"the cycling layer's own gate is `btst #{want}, Pal_Active`, so the "
+                  "`layer` clause tests that bit and NOT Pal_Cycle_Script, which holds the "
+                  "non-zero Pal_Cycle_None sentinel in steady state",
+                  "engine/effects/palette.emp, Palette_Compose `.cycling`"))
+
     fade = re.search(r"proc Palette_DoFade\s*\(\)[^{]*\{(.*?)^\}", pal, re.M | re.S)
     if not fade:
         raise DerivationError("cannot find `proc Palette_DoFade` in engine/effects/palette.emp")
@@ -240,15 +274,12 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
                   "a 0 count alone cannot tell `arrived` from `stopped`",
                   "engine/effects/palette.emp, proc Palette_LoadPal snap arm"))
 
-    moving = (_const(aeon, "engine/effects/palette.emp", "PAL_ACT_BASE") |
-              _const(aeon, "engine/effects/palette.emp", "PAL_ACT_CYCLE") |
-              _const(aeon, "engine/effects/palette.emp", "PAL_ACT_OP"))
     n = COMPOSE_TO_CRAM_TICKS + CRAM_TO_CAPTURED_FRAME_TICKS + 1
     cites.append((f"N = {COMPOSE_TO_CRAM_TICKS} (compose -> CRAM) + "
                   f"{CRAM_TO_CAPTURED_FRAME_TICKS} (CRAM -> the completed frame a paused "
                   f"screenshot returns) + 1 (N samples span N-1 intervals) = {n}",
                   "this module's header"))
-    return EngineFacts(stable_ticks=n, moving_bits=moving, chan_mask=chan_mask,
+    return EngineFacts(stable_ticks=n, cycle_bit=cycle_bit, chan_mask=chan_mask,
                        fade_frames_const=_const(aeon, "engine/effects/palette.emp",
                                                 "PAL_FADE_FRAMES"),
                        citations=tuple(cites))
@@ -311,18 +342,19 @@ def assess(series, facts: EngineFacts) -> Verdict:
                        ("Pal_Fade_Request is set: the next Palette_LoadPal will start a "
                         "cross-fade rather than snap",), _stable_run(series, mask))
 
-    # 3 -- layer
-    if (miss := _missing(row, "pal_active", "pal_op", "pal_cycle_script")):
+    # 3 -- layer. The three gates Palette_Compose itself branches on for the layers that
+    # move lines 1-3. NOT `Pal_Cycle_Script != 0`: see this module's header.
+    if (miss := _missing(row, "pal_base_dirty", "pal_active", "pal_op")):
         return undec("layer", miss)
     live = []
-    if row["pal_active"] & facts.moving_bits:
-        live.append(f"Pal_Active = {row['pal_active']:#07b} has a base/cycle/operator bit set "
-                    f"(mask {facts.moving_bits:#07b})")
+    if row["pal_base_dirty"]:
+        live.append(f"Pal_Base_Dirty = {row['pal_base_dirty']} (a freshly loaded base awaits "
+                    "its one-shot copy into lines 1-3)")
+    if row["pal_active"] & facts.cycle_bit:
+        live.append(f"Pal_Active = {row['pal_active']:#07b} has PAL_ACT_CYCLE "
+                    f"({facts.cycle_bit:#07b}) set: a cycling script is running")
     if row["pal_op"]:
         live.append(f"Pal_Op = {row['pal_op']} (a global operator is running)")
-    if row["pal_cycle_script"]:
-        live.append(f"Pal_Cycle_Script = {row['pal_cycle_script']:#010x} (a cycling script "
-                    "is installed)")
     if live:
         return Verdict("layer", False, True, tuple(live), _stable_run(series, mask))
 

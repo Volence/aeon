@@ -61,7 +61,7 @@ def facts():
 def row(**kw):
     """A fully-measured, fully-settled row on the NIGHT palette, with overrides."""
     base = dict(k=0, tick=100, centre_x=3488, row=9, dtick=1, lag=0,
-                fade_frames=0, fade_request=0, pal_active=0, pal_op=0, pal_cycle_script=0,
+                fade_frames=0, fade_request=0, pal_active=0, pal_op=0, pal_base_dirty=0,
                 buffer=list(NIGHT), target=list(NIGHT), cram=list(NIGHT))
     base.update(kw)
     return base
@@ -93,6 +93,8 @@ def test_n_is_three_and_carries_its_derivation():
      "the cycling layer the `layer` clause enumerates"),
     ("engine/effects/palette.emp", "beq   .arrived", "beq   .got_there",
      "Palette_DoFade's arrival test the `$0EEE` mask is read from"),
+    ("engine/effects/palette.emp", "btst    #1, Pal_Active", "btst    #3, Pal_Active",
+     "the cycling gate the `layer` clause reads, renumbered away from PAL_ACT_CYCLE"),
 ])
 def test_the_derivation_refuses_when_its_source_moves(tmp_path, rel, old, new, what):
     """N may not outlive the engine ordering it is derived from. Proven by MUTATING that
@@ -206,9 +208,9 @@ def test_an_armed_request_is_not_settled():
 
 
 @pytest.mark.parametrize("kw,word", [
-    ({"pal_op": 2}, "layer"),
-    ({"pal_cycle_script": 0x00120034}, "layer"),
-    ({"pal_active": 0b00010}, "layer"),       # PAL_ACT_CYCLE
+    ({"pal_op": 2}, "layer"),                 # tst.b Pal_Op
+    ({"pal_base_dirty": 1}, "layer"),         # tst.b Pal_Base_Dirty
+    ({"pal_active": 0b00010}, "layer"),       # btst #1, Pal_Active -- PAL_ACT_CYCLE
 ])
 def test_another_palette_layer_moving_is_not_settled(kw, word):
     """Pal_Fade_Frames == 0 settles ONE of the four layers Palette_Compose runs."""
@@ -217,12 +219,26 @@ def test_another_palette_layer_moving_is_not_settled(kw, word):
     assert cs.assess(series, facts()).word == word
 
 
+def test_the_cycle_clause_reads_the_bit_and_not_the_script_pointer():
+    """THE VACUOUS-CLAUSE TRAP, pinned. `Pal_Cycle_Script` holds a non-zero pointer to the
+    Pal_Cycle_None sentinel whenever cycling is OFF, so a `!= 0` clause would refuse every
+    frame ever captured and this tool could never emit `settled` at all. The engine's own
+    gate is PAL_ACT_CYCLE; a row carrying a live sentinel pointer must still settle."""
+    f = facts()
+    assert f.cycle_bit == 0b00010
+    series = settled_series(f.stable_ticks)
+    for s in series:
+        s["pal_cycle_script"] = 0x00FF1234       # a Pal_Cycle_None-shaped pointer
+    assert cs.assess(series, f).settled, (
+        "a non-zero Pal_Cycle_Script with PAL_ACT_CYCLE clear must NOT block settling")
+
+
 def test_a_variant_derive_alone_does_not_block_settling():
     """PAL_ACT_VARIANT derives into Pal_Variant_Stage, not into lines 1-3, so it is
-    deliberately NOT in the moving set. If it ever starts writing the buffer this row is
-    where the decision was made."""
+    deliberately NOT tested. If it ever starts writing the buffer this row is where the
+    decision was made."""
     f = facts()
-    assert not (f.moving_bits & 0b10000)
+    assert not (f.cycle_bit & 0b10000)
     series = settled_series(4)
     for s in series:
         s["pal_active"] = 0b10000
@@ -285,7 +301,7 @@ def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_sett
         "fade_frames": [0, 1, 11],
         "fade_request": [0, 1],
         "pal_op": [0, 3],
-        "pal_cycle_script": [0, 0x1234],
+        "pal_base_dirty": [0, 1],
         "buffer": [list(NIGHT), list(DAY)],
         "cram": [list(NIGHT), list(DAY)],
     }
