@@ -1,9 +1,14 @@
 {
-  "focus": "Region backgrounds: measuring whether the busiest spot of a stitched Sonic 2/3 map fits the foreground art cache.",
+  "focus": "Building region background switching, as you asked: a build plan first, then the switch itself.",
   "inFlight": [
     {
       "what": "M-B: the foreground cache window's page count along a real stitched zone seam and a three-zone junction (tool-only)",
       "where": "agent worktree off master 2bf765f4",
+      "agent": true
+    },
+    {
+      "what": "Region background switch: writing the build plan, then implementing after review",
+      "where": "branch parcel/region-bg-switch (agent worktree)",
       "agent": true
     }
   ],
@@ -14,11 +19,11 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the M-B report is committed and reviewed; it decides whether the Sonic 2/3 one-act stress test can exist.",
+  "nextBoundary": "When the switch's build plan comes back for review, before any engine code changes.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Region backgrounds switch by overwrite then repaint behind your cover. Measuring first whether the densest stitched-map spot fits the foreground cache",
+      "title": "Region backgrounds: implementing the switch (overwrite the tiles, then repaint behind your cover). Plan first, then build. The foreground budget is measured in parallel",
       "state": "doing",
       "size": "L",
       "blockedBy": null
@@ -61,5 +66,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T20:47:49Z"
+  "updatedAt": "2026-09-16T20:54:24Z"
 }
