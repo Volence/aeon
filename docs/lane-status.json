@@ -1,69 +1,45 @@
 {
-  "focus": "Part 2 of the region plan: the video-memory answer is in, and the last two checks before building are running.",
+  "focus": "The background starts being taller than one screen. Two parcels landed this morning; the night colours wait on your eye.",
   "inFlight": [
     {
-      "what": "E1: how much room the crossing leaves for repainting the backdrop",
-      "where": "branch parcel/regions-p2-e1",
-      "agent": true
-    },
-    {
-      "what": "E2: the fixture for the colour-over-old-backdrop look question",
-      "where": "branch parcel/regions-p2-e2",
+      "what": "Making the background taller than the screen and streaming it in as you move -- the step the video-memory work waits on",
+      "where": "branch parcel/regions-p2-step5",
       "agent": true
     }
   ],
   "blockedOnOwner": [
     {
-      "id": "REGIONS-P2-FIRST-SHOWCASE",
-      "what": "What the first visible version of the region backdrop work should be: a taller backdrop (free, structural) or a second layout from existing tiles (needs drawing time). A genuinely different picture is ruled out by measurement.",
-      "since": "2026-09-16"
-    },
-    {
       "id": "SP6-MODULATION-DIVERGENCE",
-      "what": "The spring sound A/B you asked to hear is built and waiting in the spring-timing-ab folder with a README; it needs only your ear.",
+      "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
     },
     {
       "id": "NIGHT-REGION-LOOK",
-      "what": "The new night stretch of the first level: keep its first-draft colours, tone them down, or go back to forest colours?",
-      "since": "2026-09-14"
+      "what": "The night colours are fixed and built. Which of three looks you want is a call only your eye makes; they are pictured side by side.",
+      "since": "2026-09-16"
     }
   ],
-  "nextBoundary": "When E1 and E2 report and land. Then steps 1 to 6 of the plan, which is a longer arc.",
+  "nextBoundary": "When the streaming parcel lands. Until then a rotation costs the running agent's work.",
   "queue": [
     {
-      "id": "REGIONS-P2-E1",
-      "title": "How much room the crossing leaves for repainting the backdrop a few rows a frame",
+      "id": "REGIONS-P2-STEP5",
+      "title": "The background becomes taller than one screen and streams in as you move. Steps 1 to 4 are landed and proved; the video-memory work you approved waits on this one being green",
       "state": "doing",
-      "size": "S",
+      "size": "L",
       "blockedBy": null
     },
     {
-      "id": "REGIONS-P2-E2",
-      "title": "Fixture for: does a new colour set over the old backdrop read as a transition or a glitch",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "REGIONS-P2-Q4",
-      "title": "What the first thing you actually SEE from part 2 should be: a taller backdrop, or a second layout drawn from the tiles we already have",
+      "id": "REGIONS-P2-STEP6",
+      "title": "The wipe when you cross between two regions -- the first step of this run where anything looks different on screen. Your snap-versus-fade answer unblocked it",
       "state": "next",
-      "size": "S",
-      "blockedBy": "owner: measured and ready for you; a genuinely different picture is ruled out (needs about twice the room that exists)"
+      "size": "M",
+      "blockedBy": null
     },
     {
-      "id": "REGIONS-P2-STEPS",
-      "title": "Then steps 1 to 6 of the region plan in order; nothing visible changes until step 6",
+      "id": "REGIONS-EMIT-BINDINGS",
+      "title": "Switch act 1 over to the editor's region file for real. The emitter landed and is wired but deliberately inert; this is the re-keying behind it, priced at 87 sites across 14 files",
       "state": "open",
       "size": "L",
-      "blockedBy": "the two experiments above"
-    },
-    {
-      "id": "SIGIL-LINKASSERT-FIXTURE",
-      "title": "Prove the assembler reports a link-time check failure properly instead of crashing",
-      "state": "open",
-      "size": "S",
       "blockedBy": null
     },
     {
@@ -71,59 +47,24 @@
       "title": "The spring sound A/B you asked to hear: built on 09-09, waiting for your listen",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "owner: the A/B is built; it needs your ear"
-    },
-    {
-      "id": "NIGHT-REGION-LOOK",
-      "title": "The night stretch's colours: keep, tone down, or go back to forest",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "owner"
-    },
-    {
-      "id": "LOOPS-P-LOOK",
-      "title": "One ride round the loop: front/behind on each arc, the apex, the insta-shield",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "owner"
-    },
-    {
-      "id": "CTRL-3b-GUARD",
-      "title": "Stop a shared check quietly becoming build-specific",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "FADE-P2",
-      "title": "Make each colour-fade step about twice as cheap; the maths is already proven",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "DOCFIX-CAPACITY",
-      "title": "Four places in the art pipeline doc quote a video-memory budget that moved",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
+      "blockedBy": "decision card SP6-MODULATION-DIVERGENCE"
     },
     {
       "id": "LS-13b",
       "title": "Boot's hand-written pause of the sound chip: cheaper to fix than we thought",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil (a language design they will propose to you first)"
+      "blockedBy": "sigil, row EMP-Z80-HOLD-INTERLEAVE-FORM: the language design is unwritten. A look from you is a gate at the end, not in front of it"
     },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "parked by your word: revisit another time"
+      "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Two things for your eye, both built: the spring sound A/B from 09-09, and the night colours -- my read is overcast dusk rather than moonlight, with two alternatives pictured beside it.",
   "atBoundary": false,
-  "updatedAt": "2026-09-16T00:07:04Z"
+  "updatedAt": "2026-09-16T10:43:41Z"
 }
