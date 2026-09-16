@@ -1,106 +1,129 @@
 {
-  "focus": "Loops now read as loops. Three things want your eyes on one ride, whenever you like.",
-  "inFlight": [],
-  "blockedOnOwner": [
+  "focus": "Part 2 of the region plan: the video-memory answer is in, and the last two checks before building are running.",
+  "inFlight": [
     {
-      "id": "VRAM-FOR-OBJECTS",
-      "what": "How far to go on getting video memory back for objects. Three levers, measured, and they add up rather than compete. My recommendation gets you about 384 tiles back - objects from 152 to roughly 536 - and the work that unlocks it is the same background streamer the region plan already needs. The option I recommend AGAINST would get you 512 but quietly kills two effects items you asked for.",
-      "since": "2026-09-09"
+      "what": "E1: how much room the crossing leaves for repainting the backdrop",
+      "where": "branch parcel/regions-p2-e1",
+      "agent": true
     },
     {
-      "id": "SPRING-PAL-IDX9",
-      "what": "The last 184 pixels of the red spring still shift colour under Knuckles - the coil's mid-tone. Every palette slot is spoken for on both sides so it cannot be relabelled away. Cheap option: the spring drops its fifth grey onto a neighbouring shade (that slot is one Sonic uses for three pixels in his whole sheet). The alternative changes Knuckles himself across about 646 of his 4092 tiles, which I would avoid.",
-      "since": "2026-09-09"
+      "what": "E2: the fixture for the colour-over-old-backdrop look question",
+      "where": "branch parcel/regions-p2-e2",
+      "agent": true
     }
   ],
-  "nextBoundary": "Now - everything is pushed and nothing is half-applied.",
+  "blockedOnOwner": [
+    {
+      "id": "REGIONS-P2-FIRST-SHOWCASE",
+      "what": "What the first visible version of the region backdrop work should be: a taller backdrop (free, structural) or a second layout from existing tiles (needs drawing time). A genuinely different picture is ruled out by measurement.",
+      "since": "2026-09-16"
+    },
+    {
+      "id": "SP6-MODULATION-DIVERGENCE",
+      "what": "The spring sound A/B you asked to hear is built and waiting in the spring-timing-ab folder with a README; it needs only your ear.",
+      "since": "2026-09-09"
+    },
+    {
+      "id": "NIGHT-REGION-LOOK",
+      "what": "The new night stretch of the first level: keep its first-draft colours, tone them down, or go back to forest colours?",
+      "since": "2026-09-14"
+    }
+  ],
+  "nextBoundary": "When E1 and E2 report and land. Then steps 1 to 6 of the plan, which is a longer arc.",
   "queue": [
     {
-      "id": "LOOPS-P-LOOK",
-      "title": "One ride round the loop: front/behind on each arc, the apex, the insta-shield",
-      "state": "next",
+      "id": "REGIONS-P2-E1",
+      "title": "How much room the crossing leaves for repainting the backdrop a few rows a frame",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "your eyes"
-    },
-    {
-      "id": "SECTION-EFFECTS-VISUAL",
-      "title": "The visual half of the section/effects cleanup - three schemes priced, every pixel choice is yours",
-      "state": "next",
-      "size": "M",
-      "blockedBy": "your call"
-    },
-    {
-      "id": "CONTENT-PINNING-FIX",
-      "title": "Thirty checks require particular content to exist; the worst leaves the demo game shipping an unverified declaration",
-      "state": "open",
-      "size": "L",
       "blockedBy": null
     },
     {
-      "id": "LENS-LEDGER-RULE",
-      "title": "Review ledger: rule in force and the sift is DONE (2 findings were open only on paper). Residual: V-7's structural gap and C1b-2's rotted coordinate",
+      "id": "REGIONS-P2-E2",
+      "title": "Fixture for: does a new colour set over the old backdrop read as a transition or a glitch",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "REGIONS-P2-Q4",
+      "title": "What the first thing you actually SEE from part 2 should be: a taller backdrop, or a second layout drawn from the tiles we already have",
+      "state": "next",
+      "size": "S",
+      "blockedBy": "owner: measured and ready for you; a genuinely different picture is ruled out (needs about twice the room that exists)"
+    },
+    {
+      "id": "REGIONS-P2-STEPS",
+      "title": "Then steps 1 to 6 of the region plan in order; nothing visible changes until step 6",
+      "state": "open",
+      "size": "L",
+      "blockedBy": "the two experiments above"
+    },
+    {
+      "id": "SIGIL-LINKASSERT-FIXTURE",
+      "title": "Prove the assembler reports a link-time check failure properly instead of crashing",
       "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "SP-6",
-      "title": "Mid-stream instrument change: DONE and measured at -1 byte; waits on your ear for the spring's sound and on a one-line sigil pin",
+      "title": "The spring sound A/B you asked to hear: built on 09-09, waiting for your listen",
       "state": "blocked",
       "size": "M",
+      "blockedBy": "owner: the A/B is built; it needs your ear"
+    },
+    {
+      "id": "NIGHT-REGION-LOOK",
+      "title": "The night stretch's colours: keep, tone down, or go back to forest",
+      "state": "blocked",
+      "size": "S",
       "blockedBy": "owner"
     },
     {
-      "id": "VRAM-NEIGHBOURHOOD",
-      "title": "Re-cut the video memory map so objects have room -- now an OUTPUT of the region plan rather than a question in front of it",
+      "id": "LOOPS-P-LOOK",
+      "title": "One ride round the loop: front/behind on each arc, the apex, the insta-shield",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "owner"
+    },
+    {
+      "id": "CTRL-3b-GUARD",
+      "title": "Stop a shared check quietly becoming build-specific",
       "state": "open",
-      "size": "L",
+      "size": "S",
       "blockedBy": null
     },
     {
-      "id": "REGIONS-PLAN",
-      "title": "Region plan: the v1 spec is written and landed; building it now waits on your call, and the background half waits on video memory",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": "owner"
+      "id": "FADE-P2",
+      "title": "Make each colour-fade step about twice as cheap; the maths is already proven",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     },
     {
-      "id": "ENGINE-SEAM-AUDIT",
-      "title": "Audit the engine for Sonic-specific mechanisms that should sit on the game side; reading only, no moving",
-      "state": "blocked",
-      "size": "L",
-      "blockedBy": "owner"
+      "id": "DOCFIX-CAPACITY",
+      "title": "Four places in the art pipeline doc quote a video-memory budget that moved",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     },
     {
       "id": "LS-13b",
-      "title": "Boot's hand-spelled bus hold has no pairing proof; the assembler's bus net cannot see a register-indirect destination",
+      "title": "Boot's hand-written pause of the sound chip: cheaper to fix than we thought",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil"
-    },
-    {
-      "id": "LS-10a",
-      "title": "Runtime confirmation that the eight skipped object slots stay empty -- the one route static analysis cannot close",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "oracle"
-    },
-    {
-      "id": "F09-SHIP",
-      "title": "The level-art repair: 19 destroyed tiles rebuilt as Sonic 3 shapes under our palette",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "owner"
+      "blockedBy": "sigil (a language design they will propose to you first)"
     },
     {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "owner"
+      "blockedBy": "parked by your word: revisit another time"
     }
   ],
-  "awaiting": "one ride round a loop to check the depth swap looks right; and the section/effects visual choices, which are yours",
-  "atBoundary": true,
-  "updatedAt": "2026-09-10T05:43:36Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T00:07:04Z"
 }
