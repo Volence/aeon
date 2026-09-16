@@ -306,3 +306,93 @@ def test_the_help_text_names_every_option_and_both_exit_codes():
         assert f'"{opt}"' in src, opt
     # every add_argument carries a help= (the owner drives this without reading the source)
     assert src.count("ap.add_argument(") == src.count("help=")
+
+
+# ------------------------------------------------------------------ against the REAL ROM
+#
+# These are the only rows here that touch a build artifact, and they are what makes the
+# offline half more than a simulation: `premise()` is the whole ROM-side failure surface, and
+# with --check it can be exercised without an emulator. Each refusal is proved by DOCTORING A
+# COPY of the real ROM -- the committed artifact is never written -- so a green is a statement
+# about the shipped bytes and a red names which premise stopped being true.
+
+ROM = os.path.join(AEON, "s4.debug.bin")
+LST = os.path.join(AEON, "s4.debug.lst")
+
+
+def _ep_offsets():
+    return rfw.preset_offsets()
+
+
+def _doctor(tmp_path, field: str, value: int, width: int = 4):
+    """A copy of s4.debug.bin with the NIGHT region's preset field overwritten."""
+    pre = nsc.premise(ROM, LST)
+    at = pre["fade"]["effects"] + _ep_offsets()[field]
+    data = bytearray(Path(ROM).read_bytes())
+    data[at:at + width] = value.to_bytes(width, "big")
+    out = tmp_path / "doctored.bin"
+    out.write_bytes(bytes(data))
+    return str(out), at
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_the_premise_holds_on_the_shipped_debug_rom():
+    """The subject is actually in the ROM: a fading night region at OJZ_NIGHT_X0, a neighbour
+    with a different palette, and no raster program to write CRAM mid-scan."""
+    pre = nsc.premise(ROM, LST)
+    edge = rfw.src_const("games/sonic4/data/levels/ojz/act1/act_descriptor.emp", "OJZ_NIGHT_X0")
+    assert pre["fade"]["x0"] == edge and pre["fade"]["transition"] != 0
+    assert pre["left"]["pal"] != pre["fade"]["pal"]
+    assert pre["fade"]["raster_ptr"] == pre["sym"]["Raster_Program_None"]
+    # the ceiling has to fit inside the region at flight speed or the wrong refusal fires
+    cap = nsc.ceiling_ticks(pre["facts"].fade_frames_const, pre["facts"].stable_ticks, 3)
+    assert cap * pre["fly"] < (pre["fade"]["x1"] - pre["fade"]["x0"] + 1)
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_a_night_region_that_snaps_is_refused_not_captured(tmp_path):
+    """ep_transition 0 means the palette SNAPS, and there is nothing to watch settle. Proven
+    by zeroing that field in a COPY of the shipped ROM."""
+    doctored, at = _doctor(tmp_path, "ep_transition", 0, width=2)
+    assert Path(doctored).read_bytes()[at:at + 2] == b"\x00\x00", "the mutation did not land"
+    with pytest.raises(rfw.SetupError, match="SNAPS"):
+        nsc.premise(doctored, LST)
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_a_night_region_bound_to_a_raster_program_is_refused(tmp_path):
+    """A raster program can write CRAM DURING the scan, so one CRAM read is a mixture of two
+    palettes and can be perfectly stable frame to frame while the picture is not the palette.
+    The settle predicate cannot see through that, so the tool must refuse rather than name
+    frames it cannot vouch for. Proven by retargeting ep_raster in a COPY."""
+    pre = nsc.premise(ROM, LST)
+    other = pre["sym"]["Raster_Program_None"] + 0x100
+    doctored, at = _doctor(tmp_path, "ep_raster", other)
+    assert int.from_bytes(Path(doctored).read_bytes()[at:at + 4], "big") == other
+    with pytest.raises(rfw.SetupError, match="Raster_Program_None"):
+        nsc.premise(doctored, LST)
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_a_night_region_sharing_its_neighbours_palette_is_refused(tmp_path):
+    """Nothing changes colour, so there is no fade to watch. Proven by pointing ep_pal at the
+    LEFT region's palette in a COPY."""
+    pre = nsc.premise(ROM, LST)
+    doctored, at = _doctor(tmp_path, "ep_pal", pre["left"]["pal_ptr"])
+    assert int.from_bytes(Path(doctored).read_bytes()[at:at + 4], "big") == pre["left"]["pal_ptr"]
+    with pytest.raises(rfw.SetupError, match="SAME ep_pal"):
+        nsc.premise(doctored, LST)
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_a_listing_without_the_extra_symbols_is_refused_by_name(tmp_path):
+    """A symbol read without being declared becomes a KeyError mid-walk. Proven by deleting
+    each declared extra symbol's line from a COPY of the listing."""
+    text = Path(LST).read_text(errors="replace")
+    for name in nsc.EXTRA_SYMBOLS:
+        lines = [ln for ln in text.splitlines(True) if name not in ln]
+        assert len(lines) < len(text.splitlines(True)), f"{name} is not in the listing at all"
+        cut = tmp_path / f"no-{name}.lst"
+        cut.write_text("".join(lines))
+        with pytest.raises(rfw.SetupError, match=name):
+            nsc.premise(ROM, str(cut))
