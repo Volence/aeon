@@ -34965,6 +34965,21 @@ class of permanently-vacuous guard. It is the §12 "always GREEN" sign, unrefuse
 an author would reach for first. Reported to the sigil lane; recorded here because the next
 author to read §4.2 will try exactly that line.
 
+### ⚠ THE EXCLUSION IS A CHOICE, NOT A NECESSITY — S3K SHIPS THE COMBINATION (found 2026-09-16, regions part 2 step 5's reference sweep)
+
+This entry, and `engine/level/bg.emp`'s and the spec's wording around it, read as though a
+streamed background and a per-column vertical deform were incompatible. **They are not. S3K does
+both.** `DrawTilesVDeform2` (`skdisasm/sonic3k.asm:103328`) is used by **LRZ3** with
+`moveq #$14,d5` = 20 vertical bands, and each band carries its OWN rounded-Y tracker, its own
+delta and its own double-update decision — so the plane streams while the deform reads it.
+
+That gives the price, which this booking previously did not have: **one tracker per band (20
+bands = 40 bytes of RAM) and up to 20 PARTIAL row draws a frame**, against aeon's 20-column
+v_deform. What aeon rejects is therefore a cost, not an impossibility, and the refusal in
+`tools/test_bg_stream_vdeform_exclusion.py` should be read as "not paid for yet" rather than
+"cannot be done". Whoever revisits it: the S3K routine is the worked example and the 40 bytes is
+the floor, not the estimate.
+
 ## REGIONS-VERTICAL-CROSSING-ON-LANDING (booked 2026-09-16, from the E2 capture set)
 
 **A region crossing that nobody designed, in a capture set built to show one.** The E2 set
@@ -35237,6 +35252,38 @@ the window. Two later steps make it real and each supplies the missing number:
 
 Whoever writes it: the destination wraps modulo `PLANE_V_CELLS` while the source does not, so it
 is the two-run shape `Draw_TileRow_FromCache`'s `.emit_row_run` already has, not one `move.l` run.
+
+### ⚠ UPDATED 2026-09-16 BY REGIONS PART 2 STEP 5 — THIS IS NOW A REACHABLE WRONG PICTURE, NOT ONLY A FUTURE ONE
+
+Step 5 landed the steady-state tracker and a DEBUG-only map TALLER than the plane, which turns
+this from "costs nothing at this pin" into a live hole with a named trigger:
+
+**`Section_RedrawPlanes` (cache recovery, and the DEBUG warp) re-blits map rows 0..63 and
+re-seeds `BG_Plane_Top` to 0 whatever the scroll is.** On a map exactly the plane's height —
+every RELEASE row — that is a no-op and nothing changes. On the step-5 tall map with the scroll
+away from the top it leaves the plane holding the WRONG WINDOW, and `BG_Stream_Update` can only
+walk it back at `BG_STREAM_MAX_ROWS` = 2 rows a frame: up to 16 frames of wrong background after
+a warp into that region. The step-5 gate procedure therefore FLIES the camera and does not warp,
+and that restriction is a symptom of this item, not a property of the gate.
+
+**Why step 5 did not close it, stated as the blocker rather than as a preference.** The window
+start row would have to be computed at the blit from `Parallax_Current_Vscroll_BG`, and at
+`BG_Init` that value is STALE — `Parallax_Init` runs after both blits and zeroes the cell, so a
+window computed there reads the previous act's scroll (or boot garbage), blits the wrong 64 rows,
+and then the tracker has to walk back from a wrong seed instead of a merely stale one. That is
+worse than today, not better. Closing this properly means EITHER moving `Parallax_Init` above the
+blits on both ladders, or giving the blits a scroll input the ladder passes explicitly.
+
+**The reference sweep says every engine that streams does exactly this, so the shape is not in
+doubt** (10 disassemblies, 2026-09-16): S3K pairs `Reset_TileOffsetPositionEff` (force-sync the
+tracker) with `Refresh_PlaneFull`; Vectorman resets both trackers AFTER its full refresh
+(`:2937-2938`); Ristar runs its ordinary producer 16 times with the display off. **Force-syncing
+the tracker at a prime is not optional in any of them** — without it the next frame emits a bogus
+delta. Aeon already force-syncs (`clr.w BG_Plane_Top` at both writers); what is missing is only
+that the seed is the constant 0 rather than the window the scroll selects, and that the blit
+sources rows 0..63 rather than that window.
+
+**Step 8 (`PLANE_V_CELLS` 64 -> 32) still makes it mandatory** and nothing above changes that.
 
 ## The night-settle capture set: FIRST RUN TAKEN and superseded; the RE-RUN is outstanding (booked 2026-09-16, `parcel/night-settle-capture`)
 
@@ -35536,3 +35583,112 @@ the night one (all of it shared colours), so it is not a night-region frame at a
 `docs/captures/2026-09-15-regions-p2-e2/README.md` already carries a 2026-09-16 correction
 measured on the running ROM — landing drops the camera to y 3034 and the night region is
 y 0..2047, so the resolved row becomes section 5's. Nothing to route onward.
+
+## BG-TALL: the nametable half of the step-5 gate is UNMEASURED (booked 2026-09-16, `parcel/regions-p2-step5`)
+
+Regions part 2 step 5's own gate, per the spec's step table, is: *"scrolling the full 96 rows
+shows no tear and the nametable holds the expected rows at three sampled scroll values."* That
+needs an emulator and **no agent may touch one** (MCP deadlocks from background agents), so it is
+outstanding. `tools/test_bg_tall_map.py` is the ROM-SIDE half and is green; it reads region rows,
+blob bytes, the resolved parallax mapping and call encodings, and **not one leg observes the VDP**.
+A build that computes the right window and writes it to the wrong VRAM address passes all of it.
+
+**The foreground procedure, with every expectation DERIVED from the built ROM rather than typed:**
+
+```sh
+export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+DEBUG=1 ./build.sh
+python3 -m pytest tools/test_bg_tall_map.py -q -s   # prints the derived table below
+```
+
+At the pin (`s4.debug.bin`, crc `936ac15c`) the printed table reads:
+
+| | |
+|---|---|
+| tall region | row 11, x 5120..6143, y 2048..4095 |
+| span / map | 768 px = 96 rows; blob at ROM `$29750`, 12288 B, md5 `1bdb5d88dd32530c476078a5f66824a3` |
+| parallax | config `$134E8` (`ParallaxConfig_OJZ_Default`), v_factor 3, v_center 512, v_offset 0 |
+| window | lead 17 rows, max_top 32 |
+| window tops visited, NEW ceiling 544 | 7..32 (26 distinct) |
+| window tops visited, OLD ceiling 288 | 7..19 (13 distinct) |
+
+**What to do on the machine.** Fly (DEBUG free flight; **do NOT warp** — see BG-PLANE-WINDOW
+above, a warp re-seeds the window to row 0 and the tracker needs up to 16 frames to walk back)
+into x 5120..6143 and traverse camera Y from 2048 to 4095. At three camera Y values compute
+`vscroll = clamp(((camY - 512) >> 3), 0, 544)` and `top = clamp((vscroll >> 3) - 17, 0, 32)`, then
+read Plane B at `$E000` and assert that for every map row `m` in `[top, top+63]`, the 128 bytes at
+`$E000 + (m & 63)*128` equal `zone_bg_tall_debug.bin[m*128 : m*128+128]`. **The blob's 96 rows are
+pairwise distinct by construction** (`tools/gen_tall_bg_test.py` asserts it), so that comparison
+identifies the map row uniquely — which is the whole reason the marker cell exists.
+
+**The three legs worth having, in order of what they buy:**
+
+1. **The window moved at all.** `BG_Plane_Top` (`engine/ram.emp`) is non-zero and changes as the
+   camera descends. If it never leaves 0, the tracker is not running and every other reading is
+   about the boot blit.
+2. **The plane holds the rows the tracker claims.** The comparison above, at three scroll values.
+   This is the gate.
+3. **The rate cap actually caps.** Log `Parallax_Current_Vscroll_BG` per frame across the
+   traversal and assert no step exceeds `BG_VSCROLL_MAX_STEP` = 16, and that `BG_Plane_Top` never
+   moves more than 2 rows in a frame. This is also step 4's outstanding BG-RATE gate, which has
+   never been run and which this act's camera path is the first thing able to exercise
+   non-vacuously — before step 5 there was no region whose clamp could bind.
+
+**⚠ AND A SECOND THING NOT TO REPORT AS A STREAMING DEFECT.** The BG scroll sits at its ceiling
+544 for every camera Y from 4864 to 6143, and 544 masked into plane space is line 32, so Step 4a
+selects parallax band 0 where the map says band 3 — the horizon snaps. That is
+**BG-BAND-PLANE-ANCHOR** below, it is not the streamer, and the nametable is correct there.
+
+**A warning about reading a pass.** Plane B at boot already holds map rows 0..63 of a blob whose
+first 64 rows ARE the shipped background. So in the region's upper reaches a correct streamer and
+a dead one produce the same picture. Only camera Y above roughly 2816 (where `top` exceeds 0 by
+more than the lead absorbs, and where the OLD ceiling would have clamped) separates them. **Sample
+at the BOTTOM of the region, not the top.**
+
+## BG-BAND-PLANE-ANCHOR: parallax band tops are PLANE lines, and a map taller than the plane aliases them (found 2026-09-16, `parcel/regions-p2-step5`)
+
+**Reachable today, in the DEBUG shape, inside step 5's own test region.** Not a defect this parcel
+introduced — `Parallax_Step5_Vscroll`'s Step 4a band rotation has masked with
+`and.w #PLANE_B_SPAN-1` since long before regions — but step 5 is the first thing that can drive
+the masked value past a full turn of the ring, so it is the first time the aliasing is observable.
+
+**The mechanism.** Step 4a computes `vs = Parallax_Current_Vscroll_BG & (PLANE_B_SPAN - 1)` and
+calls it *"the plane LINE at the screen top"*, then finds the band containing `vs` and rebases
+every band's top to a screen line from there. That is exactly right while the background map IS
+the plane, because plane line and map line are then the same number. **Once the map is taller, the
+band tops stay anchored in PLANE space while the art moves through the ring**, so the band pattern
+repeats every `PLANE_B_SPAN` px of map.
+
+**Derived from source, not observed** (`OJZ_Default`'s four layers at world Y 512/1024/3072/3584
+under `v_center 512 / v_factor 3` — `games/sonic4/data/effects/ojz_scenes.emp`):
+
+| BG scroll | masked plane line | band selected |
+|---|---|---|
+| 192 | 192 | 1 |
+| 447 | 447 | 3 |
+| 511 | 511 | 3 |
+| **512** | **0** | **0** |
+| 544 | 32 | 0 |
+
+Band tops are `[0, 64, 320, 384]`. **The selection jumps 3 → 0 as the scroll crosses 512**, which
+on screen is the parallax horizon snapping.
+
+**Where it bites right now.** Step 5's DEBUG test region (act 1 row 11, x 5120..6143,
+y 2048..6143, span 768) has a clamp ceiling of 544, and the scroll sits AT 544 for every camera Y
+from 4864 to 6143. So the bottom ~1280 px of that region runs with band 0 selected where the map
+says band 3. **Anyone running the BG-TALL foreground procedure will see it and should not report it
+as a streaming defect** — the nametable is correct there; it is the horizontal band rates that are
+wrong. The `docs/DEFERRED_WORK.md` BG-TALL entry carries the same warning.
+
+**What the fix is, and why it is not this parcel's.** The band table wants its tops in MAP space,
+with `vs` derived from the unmasked map-space scroll and the mask applied only where a genuine
+plane coordinate is needed (the VSRAM word, which the VDP wraps for free anyway). That is a change
+to the parallax band model, it touches every scene's authored tops, and it interacts with the
+per-band anchors — a design item, not a line edit. It belongs with step 8 (the plane shrink makes
+it strictly worse: a 32-row plane aliases every 256 px) or with big levels' TRACK bands, whichever
+reaches it first.
+
+**Do not "fix" it by shortening the test map.** Capping the fixture at 88 rows would put the
+ceiling at 480 and hide the aliasing, which is the wrong trade: the map's height is the spec's
+number and the aliasing is information the next two steps need.

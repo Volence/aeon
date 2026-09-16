@@ -105,13 +105,22 @@ _ROW = re.compile(r"^\s*dc\.b\s+([^/\n]+?)\s*(?://.*)?$", re.M)
 _DC_L = re.compile(r"^\s*dc\.l\s+([^/\n]+?)\s*(?://.*)?$", re.M)
 _ACT_REGION_ARITY = re.compile(r"^pub\s+data\s+\w+\s*:\s*\[\s*Region\s*;\s*([^\]\n]+?)\s*\]", re.M)
 # The two arity spellings this lint accepts, and NOTHING else. A bare integer, or an
-# integer plus ONE name that a DEBUG-gated `const <NAME> = <something>.len` makes zero in
-# the release shape (REGIONS-P2 E2 added the second form: the act table gained a row that
-# exists only in the DEBUG ROM). The bound this lint wants is the MINIMUM over shapes,
+# integer plus ONE OR MORE names that a DEBUG-gated `const <NAME> = <something>.len` makes
+# zero in the release shape (REGIONS-P2 E2 added the second form: the act table gained a row
+# that exists only in the DEBUG ROM). The bound this lint wants is the MINIMUM over shapes,
 # because a `.lab_index` PRESET row has to index a real region in EVERY shape — so the
-# literal base is the right answer for both forms, and the added term is CHECKED to be the
+# literal base is the right answer for both forms, and each added term is CHECKED to be the
 # DEBUG-only kind rather than assumed. Anything else is a loud refusal, not a guess.
-_ACT_REGION_ARITY_SUM = re.compile(r"^(\d+)\s*\+\s*(\w+)$")
+#
+# WIDENED FROM EXACTLY ONE ADDED TERM TO ONE-OR-MORE, regions part 2 step 5 (2026-09-16),
+# which added a SECOND DEBUG-only region row (the tall-map fixture) beside OJZ_E2_SNAP_ROWS.
+# THIS IS NOT A LOOSENING, and that distinction is the reason for the comment: the proof
+# obligation is PER TERM and is unchanged — every name in the sum still has to carry its own
+# `const NAME = <rows>.len` and its own `if DEBUG == 1 { .. } else { [] }` witness below, and
+# a term that cannot show both is still a refusal. What widened is the arithmetic, not the
+# evidence: N terms now need N proofs where one term needed one.
+_ACT_REGION_ARITY_SUM = re.compile(r"^(\d+)((?:\s*\+\s*\w+)+)$")
+_ACT_REGION_ARITY_TERM = re.compile(r"\+\s*(\w+)")
 
 
 
@@ -256,29 +265,35 @@ def act_region_count() -> int:
     if s is None:
         raise AssertionError(
             f"{ACT.name}: the region table's arity is `{arity}`, which this lint cannot bound. "
-            "It reads a bare integer, or `<integer> + <NAME>` where NAME is a DEBUG-only row "
-            "count. A preset row's sub-index indexes that table in every shape, so an arity "
-            "this lint cannot resolve must not pass."
+            "It reads a bare integer, or `<integer> + <NAME> [+ <NAME> ...]` where every NAME is "
+            "a DEBUG-only row count. A preset row's sub-index indexes that table in every shape, "
+            "so an arity this lint cannot resolve must not pass."
         )
-    base, name = int(s.group(1)), s.group(2)
-    # The added term must be zero in the RELEASE shape, and that has to be read out of the
+    base = int(s.group(1))
+    names = _ACT_REGION_ARITY_TERM.findall(s.group(2))
+    assert names, (
+        f"{ACT.name}: the region table's arity `{arity}` matched the sum form but yielded no "
+        "added terms to check — the two patterns have drifted apart and this lint would be "
+        "returning the base without proving anything about the rest of the expression.")
+    # EVERY added term must be zero in the RELEASE shape, and that has to be read out of the
     # source rather than trusted: `const NAME = <rows>.len` whose <rows> is the
     # `if DEBUG == 1 { [ .. ] } else { [] }` shape. An empty `else` branch is the proof.
-    decl = re.search(rf"^const\s+{re.escape(name)}\s*=\s*(\w+)\.len\s*$", src, re.M)
-    assert decl is not None, (
-        f"{ACT.name}: the region table's arity adds `{name}`, but no `const {name} = "
-        "<rows>.len` declares it. This lint bounds preset rows by the RELEASE row count and "
-        "cannot prove the added term is zero there."
-    )
-    rows = decl.group(1)
-    gated = re.search(rf"^const\s+{re.escape(rows)}\s*:\s*array\s*=\s*if\s+DEBUG\s*==\s*1\s*\{{"
-                      rf".*?\}}\s*else\s*\{{\s*\[\s*\]\s*\}}", src, re.M | re.S)
-    assert gated is not None, (
-        f"{ACT.name}: `{rows}` is not the `if DEBUG == 1 {{ .. }} else {{ [] }}` shape, so this "
-        f"lint cannot prove `{name}` is 0 in the release shape. The bound a `.lab_index` PRESET "
-        "row must satisfy is the MINIMUM row count over shapes; without that proof there is no "
-        "minimum to bound it by."
-    )
+    for name in names:
+        decl = re.search(rf"^const\s+{re.escape(name)}\s*=\s*(\w+)\.len\s*$", src, re.M)
+        assert decl is not None, (
+            f"{ACT.name}: the region table's arity adds `{name}`, but no `const {name} = "
+            "<rows>.len` declares it. This lint bounds preset rows by the RELEASE row count and "
+            "cannot prove the added term is zero there."
+        )
+        rows = decl.group(1)
+        gated = re.search(rf"^const\s+{re.escape(rows)}\s*:\s*array\s*=\s*if\s+DEBUG\s*==\s*1\s*\{{"
+                          rf".*?\}}\s*else\s*\{{\s*\[\s*\]\s*\}}", src, re.M | re.S)
+        assert gated is not None, (
+            f"{ACT.name}: `{rows}` is not the `if DEBUG == 1 {{ .. }} else {{ [] }}` shape, so "
+            f"this lint cannot prove `{name}` is 0 in the release shape. The bound a "
+            "`.lab_index` PRESET row must satisfy is the MINIMUM row count over shapes; without "
+            "that proof there is no minimum to bound it by."
+        )
     return base
 
 

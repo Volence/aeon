@@ -582,9 +582,11 @@ pub vars upper_ram {
     // EVERY FRAME to reach `Region.rg_bg_span`, the region's background map height — the
     // ceiling the scroll is bounded against (spec §4.4). That is deliberate and it is the
     // cheap half of the design: the crossing already resolved the region earlier in the same
-    // frame (`Parallax_CheckBoundary` at games/sonic4/test/ojz_scroll_test.emp:1207,
-    // `Parallax_Update` at :1382), so the clamp reads the answer instead of paying a second
-    // linear `Region_Resolve` scan for it.
+    // frame — in games/sonic4/test/ojz_scroll_test.emp's GameState_OJZScroll_Update the
+    // `jbsr Parallax_CheckBoundary` stands above the `jbsr Parallax_Update`, BY NAME because
+    // the line numbers that stood here went stale when regions part 2 step 5 inserted
+    // `jbsr BG_Stream_Update` into that ladder — so the clamp reads the answer instead of
+    // paying a second linear `Region_Resolve` scan for it.
     //
     // WHAT THAT MEANS FOR ANYONE MOVING THIS CELL: it is now on a per-frame path, and a stale
     // or wrongly-typed value here does not merely confuse a witness — it moves the background.

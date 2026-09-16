@@ -590,8 +590,18 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 // THE BAND'S X (spec §1a item 1, "write the row streamer band-aware from day
 // one"). S3K gives each horizontal band of the background its own camera, and a
 // streamed row reads the layout at the X of the band the row falls in
-// (`Get_DeformDrawPosVert`; docs/research/2026-09-14-s3k-wide-background-bands.md
-// §5). Part 2's bands are all WRAP bands over a map exactly as wide as the
+// (`Get_DeformDrawPosVert`, skdisasm/sonic3k.asm; RE-VERIFIED firsthand at
+// sonic3k.asm:103289-103308 on 2026-09-16 during regions part 2 step 5's
+// reference sweep). THE CITATION THAT STOOD HERE WAS DANGLING and is replaced
+// by the primary source: it named docs/research/2026-09-14-s3k-wide-background-
+// bands.md, a file that DOES NOT EXIST in this tree and that `git log --all
+// --diff-filter=A` finds no commit ever adding. The CLAIM was correct — S3K
+// really does read the layout at the band's own X per streamed row — which is
+// why nothing ever caught it: a wrong pointer to a true fact reads as evidence.
+// Also directly confirmed there: SSZ1's second background streams rows at a
+// CONSTANT layout X of $1C00 (sonic3k.asm:116538) while SSZ2 uses
+// `moveq #0,d1` (:118011), so "a constant anchor per region, supplied by the
+// caller" is exactly the shipped shape and not an invention of this signature. Part 2's bands are all WRAP bands over a map exactly as wide as the
 // plane, and for those the anchor is structurally ZERO — writing a row at column
 // offset k and scrolling the plane by k are the same picture, so 0 is the
 // canonical choice and is what both full-plane blits already do.
