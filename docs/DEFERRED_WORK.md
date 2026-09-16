@@ -35777,3 +35777,29 @@ reaches it first.
 **Do not "fix" it by shortening the test map.** Capping the fixture at 88 rows would put the
 ceiling at 480 and hide the aliasing, which is the wrong trade: the map's height is the spec's
 number and the aliasing is information the next two steps need.
+
+
+## BG-TALL-FIXTURE-SCAFFOLD: the DEBUG tall background and its marker column must not become permanent (booked 2026-09-16, from the owner's own sighting)
+
+**The owner saw it and asked, which is the reason this is booked rather than assumed harmless.**
+Flying the tall region on `s4.debug.bin` he reported *"a little band of discoloration"* — a
+one-cell-wide vertical stripe of incoherent foliage/flower tiles that slides across the screen and
+wraps.
+
+**It is not a defect. It is `tools/gen_tall_bg_test.py`'s ROW MARKER**: cell 0 of every row carries
+tile `BG_TILE_BASE + row` (1024 + row), so no two of the 96 map rows are byte-identical. The
+generator ASSERTS that pairwise-distinctness and refuses to emit otherwise, because the plane is a
+64-row ring and rows 64..95 are copies of rows 32..63 — **without the marker, "the streamer moved
+the window" and "the streamer did nothing" read IDENTICAL over most of the map**, and BG-TALL's
+leg 2 would be vacuous. So the marker is load-bearing for the gate, not decoration.
+
+**What is booked is its LIFETIME, not its existence.** It ships in every DEBUG build today and is
+visible to anyone flying act 1 between x 5120..6143. It is scaffolding for a step-5 fixture and
+should leave with the fixture when real content replaces it. **Nothing currently says so, and a
+DEBUG-only artifact that nobody has booked for removal is how scaffolding becomes permanent** —
+the owner noticing it before any of us did is the evidence that it reads as a defect to a fresh
+eye.
+
+**Do not remove it while the fixture stands**: it is what makes BG-TALL answerable, and deleting it
+would silently turn that gate vacuous rather than red. Whoever retires the tall fixture retires
+both together, and BG-TALL's procedure goes with them.

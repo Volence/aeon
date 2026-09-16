@@ -221,6 +221,34 @@ inherited emulator's `romPath` names the last tree that mattered.** Read it at b
 Not all of that work was wasted — the redone gate run closed a leg the predecessor had explicitly
 left open — but that was luck, not method, and this file's standing lesson is that luck is not one.
 
+### ⚠ AND ITS OTHER HALF, MEASURED 2026-09-16 AND THE COST LANDED ON THE OWNER: THE STALE ARTIFACT
+
+The rule above is about a stale **ref**. There is a second, worse one: **a push from a landing
+worktree does not rebuild the main checkout's ROM either**, and `aeon/s4.debug.bin` is the file
+every emulator on this machine has open.
+
+**What happened.** BG-PLANE-WINDOW landed at `2165fb14` from `.aeon-land-bgwin`. The owner was
+asked to fly the tall region and check it. He did — **on `crc 0f3962d8`, the PRE-FIX ROM**, and
+asked whether he was in the right place. He was not testing the wrong place; he was testing the
+wrong BUILD, and nothing on his screen could have told him. Caught only because his question
+prompted a `ps` for which ROM his emulator had open.
+
+**The distinction, and it is sigil's phrasing on arriving at the same thing independently: the
+LANDED code and the code a person builds or runs by hand are two different questions, and a push
+answers only the first.** A lane that has verified a landing has verified nothing about the
+artifact under a live test.
+
+**So, before asking ANYONE — the owner especially — to look at something on a running ROM:**
+```sh
+git -C . rev-parse --short HEAD                 # the checkout they will build from
+python3 -c "import zlib;d=open('s4.debug.bin','rb').read();print('%08x %d'%(zlib.crc32(d)&0xffffffff,len(d)))"
+```
+and compare that CRC against the one the landing build printed. If they differ, install the ROM
+built from that exact commit (or rebuild) **before** the ask, and say which CRC they are running.
+Related: [[reference_oracle_emulator_mcp]]'s standing *"check `romBytes` vs disk BEFORE any
+measurement"* — the same trap one layer out, where the stale artifact is on DISK rather than in
+the emulator's memory.
+
 ## The queue
 
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
