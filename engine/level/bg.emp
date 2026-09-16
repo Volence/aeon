@@ -661,6 +661,9 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         // word (the adjacency `ensure` at the foot of this file).
         clr.l   BG_Plane_Layout                     // (BG_Plane_Layout).w
         clr.w   BG_Wipe_Cursor                      // (BG_Wipe_Cursor).w
+        // BANDS HOLD from the arm (C10): the arena is about to stop holding the act's tiles, whose
+        // front slots are the BgAnim bands'. engine/level/bg_anim.emp reads this.
+        st      BG_Bands_Hold                       // (BG_Bands_Hold).w
     .ow_spend:
         move.w  (a1), d3                            // blob length in bytes (BG_Init's header)
         cmpi.w  #BG_TILE_CAPACITY_BYTES, d3
@@ -713,6 +716,18 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
     .ow_complete:
         move.l  (BG_Tiles_Target).w, (BG_Tiles_Current).w   // the arena holds the target, landed
         clr.l   BG_Tiles_Target
+        // BANDS RESUME only when the arena holds the ACT's tiles again (C10), and every band is
+        // made to re-send its current phase: the overwrite just laid phase-0 art over the band
+        // slots, and a band whose step did not change while held would otherwise never repaint.
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        move.l  Act.act_bg_tiles(a2), d0
+        cmp.l   (BG_Tiles_Current).w, d0
+        bne     .ow_bands_stay_held
+        clr.b   BG_Bands_Hold                       // (BG_Bands_Hold).w
+        moveq   #-1, d0
+        move.l  d0, BgAnim_LastStep                 // (BgAnim_LastStep).w
+        move.l  d0, BgAnim_LastStep + 4             // (BgAnim_LastStep+4).w — BGANIM_MAX_BANDS words
+    .ow_bands_stay_held:
         // FALL THROUGH: the wipe arm below may fire on this same frame, which is correct —
         // the last chunk was SENT in an earlier VBlank (observed above), and this frame's wipe
         // rows drain in the next one.

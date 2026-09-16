@@ -1031,11 +1031,205 @@ async def leg_warp_mid(rig, F, K, fails):
           f"arena {'==' if arena == F.A_tiles else '!='} act tiles after release")
 
 
+async def band_record(rig, name):
+    """A DEBUG band-table view out of the ROM: count word, then the first 44-byte bganim_band
+    record (driver, rate_shift, step_mask, col_shift, tile_count, vram_dest, 8 bank pointers)."""
+    at = rig.sym[name]
+    rom = rig.rom
+    n = int.from_bytes(rom[at:at + 2], "big")
+    if n < 1:
+        raise GateError(f"{name} holds {n} bands")
+    w = [int.from_bytes(rom[at + 2 + 2 * i:at + 4 + 2 * i], "big") for i in range(6)]
+    banks = [int.from_bytes(rom[at + 14 + 4 * i:at + 18 + 4 * i], "big") for i in range(8)]
+    return {"addr": at, "driver": w[0], "rate_shift": w[1], "step_mask": w[2], "col_shift": w[3],
+            "tiles": w[4], "dest": w[5], "banks": banks}
+
+
+async def set_band_table(rig, name):
+    await _c(rig.b, "emulator/write_memory", {"addr": hex(rig.sym["BgAnim_Table_Ptr"]),
+                                              "value": rig.sym[name], "width": 4})
+    for off in (0, 4):
+        await _c(rig.b, "emulator/write_memory", {"addr": hex(rig.sym["BgAnim_LastStep"] + off),
+                                                  "value": 0xFFFFFFFF, "width": 4})
+
+
+def band_phase_art(rig, rec, step):
+    """What bg_anim.emp's two DMAs leave in the band's slots for `step` (header's rule)."""
+    total = rec["tiles"] * 32
+    fine = step & 7
+    shift = (step >> 3) << rec["col_shift"]
+    bank = rig.rom[rec["banks"][fine]:rec["banks"][fine] + total]
+    return bank[shift:] + bank[:shift]
+
+
+async def leg_bands(rig, F, K, fails):
+    """no_band_write_lands_in_the_arena_while_a_region_with_its_own_tiles_is_resident_and_bands_resync
+
+    Two band views from the DEBUG lab's own tables (BgAnim_View_T, timer-driven; BgAnim_View_H,
+    camera-X-driven), pointed at through BgAnim_Table_Ptr as the lab does. (1) With View_T bands
+    write every few ticks: positive control first. Cross into the subject; once its tiles and
+    sweep settle, the arena must equal the subject's blob on every tick of a band period, twice.
+    (2) Switch to View_H while inside, fly back out and STOP. At the tick the last act chunk is
+    about to be enqueued, set BgAnim_LastStep[0] to the step the still camera selects (so a band
+    that is NOT invalidated at completion has no step change to re-send on). After settling, the
+    band slots must hold that step's phase art."""
+    sym = rig.sym
+    T = await band_record(rig, "BgAnim_View_T")
+    H = await band_record(rig, "BgAnim_View_H")
+    if T["dest"] != K.BG_TILE_BASE_VRAM or H["dest"] != K.BG_TILE_BASE_VRAM:
+        raise GateError("BANDS: the lab's band views do not start at the BG arena")
+    nb = T["tiles"] * 32
+    run_up = 8 * K.FLY
+    await rig.boot((F.S["x0"] - run_up, F.centre[1]))
+    for _ in range(4):
+        await rig.tick()
+    await set_band_table(rig, "BgAnim_View_T")
+    seen = set()
+    for _ in range(4 * (1 << T["rate_shift"])):
+        await rig.tick()
+        seen.add(await read_vram(rig.b, K.BG_TILE_BASE_VRAM, nb))
+    if len(seen) < 2:
+        raise GateError("BANDS control: with View_T selected the band slots never changed; the "
+                        "bands are not running and the leg cannot see them")
+    print(f"  BANDS control: View_T wrote {len(seen)} distinct band images in "
+          f"{4 << T['rate_shift']} ticks")
+    # (1) cross in, settle, watch.
+    await rig.hold("right")
+    inside, settled_at = None, None
+    for i in range(200):
+        s = await sample_ow(rig, F, K, with_arena=False)
+        if inside is None and s["region"] == F.S["addr"]:
+            inside = i
+        if inside is not None and i - inside == 8:
+            await rig.hold(None)
+        if s["current"] == F.S["bg_tiles"] and s["cursor"] == 0 and i > (inside or 0) + 8:
+            settled_at = i
+            break
+        await rig.tick()
+    await rig.hold(None)
+    if settled_at is None:
+        raise GateError("BANDS: the subject never settled")
+    period = 2 << T["rate_shift"]
+    for k in range(2 * period):
+        arena = await read_vram(rig.b, K.BG_TILE_BASE_VRAM, len(F.S_tiles))
+        if arena != F.S_tiles:
+            bad = sum(1 for i in range(0, nb, 32) if arena[i:i + 32] != F.S_tiles[i:i + 32])
+            fails.append(f"BANDS: {k} ticks after the subject settled, {bad} of {T['tiles']} band "
+                         f"slots no longer hold the subject's tiles — a band DMA wrote the arena "
+                         f"while it held a region's own art")
+            break
+        await rig.tick()
+    else:
+        print(f"  BANDS hold: arena == subject tiles for {2 * period} ticks with View_T running")
+    # (2) resync.
+    await set_band_table(rig, "BgAnim_View_H")
+    await rig.hold("left")
+    out, poked, done = None, False, None
+    for i in range(300):
+        s = await sample_ow(rig, F, K, with_arena=False)
+        if out is None and s["region"] == F.left["addr"]:
+            out = i
+        if out is not None and i - out == 4:
+            await rig.hold(None)
+        if (out is not None and i - out > 6 and not poked and s["current"] == 0
+                and s["target"] == F.act_tiles_ptr
+                and 0 < len(F.A_tiles) - s["offset"] <= K.CHUNK and not s["arena_entries"]):
+            camx = (await rd(rig.b, sym["Camera_X"], 4)) >> 16
+            step = (camx >> H["rate_shift"]) & H["step_mask"]
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(sym["BgAnim_LastStep"]),
+                                                      "value": step, "width": 2})
+            poked = step
+        if poked is not False and s["current"] == F.act_tiles_ptr:
+            done = i
+            break
+        await rig.tick()
+    await rig.hold(None)
+    if poked is False or done is None:
+        raise GateError(f"BANDS resync: never reached the act's last chunk with the camera still "
+                        f"(out {out}, poked {poked}, done {done})")
+    for _ in range(3):
+        await rig.tick()
+    camx = (await rd(rig.b, sym["Camera_X"], 4)) >> 16
+    step = (camx >> H["rate_shift"]) & H["step_mask"]
+    want = band_phase_art(rig, H, step)
+    static = F.A_tiles[:nb]
+    if want == static:
+        raise GateError(f"BANDS resync: step {step}'s phase art equals the act's static front "
+                        f"tiles, so a band that never re-sent reads the same")
+    got = await read_vram(rig.b, K.BG_TILE_BASE_VRAM, nb)
+    if step != poked:
+        raise GateError(f"BANDS resync: the camera moved after the poke (step {poked} -> {step})")
+    if got != want:
+        what = "the act's static (phase-0) art" if got == static else "neither"
+        fails.append(f"BANDS resync: back on the act's tiles with the camera still at step {step}, "
+                     f"the band slots hold {what}, not step {step}'s phase art — the bands were "
+                     f"not made to re-send when the hold released")
+    print(f"  BANDS resync: step {step}, band slots {'==' if got == want else '!='} phase art")
+
+
 LEGS = {"boot": leg_boot, "warp": leg_warp, "warp_mid": leg_warp_mid, "transport": leg_transport,
         "transport_starved": leg_transport_starved, "traffic": leg_traffic,
         "order": leg_order, "order_starved": leg_order_starved,
         "order_vertical": leg_order_vertical, "reentrant": leg_reentrant,
-        "control": leg_control, "poison": leg_poison}
+        "control": leg_control, "poison": leg_poison, "bands": leg_bands}
+
+
+async def _measure_route(rig, F, K, start, button, axis, tag):
+    """M-A on one route: ticks from the crossing to (a) the arena settled, (b) every VISIBLE plane
+    row holding the subject's layout, (c) the sweep retired. Also counts VBlanks (Frame_Counter)
+    across the same span so lag is reported, not assumed away."""
+    sym = rig.sym
+    C = "engine/system/constants.emp"
+    screen_h = _const(C, "SCREEN_HEIGHT")
+    row_px = 8
+    vis_rows = screen_h // row_px + 1                 # engine/level/bg.emp BG_SCREEN_ROWS
+    st = {"in": None, "settled": None, "visible": None, "retired": None, "f0": None}
+    new_rows = rows_of(F.S_layout, K)
+    cam_path = []
+
+    async def script(i, S):
+        s = S[-1]
+        cam = ((await rd(rig.b, sym["Camera_X"], 4)) >> 16, (await rd(rig.b, sym["Camera_Y"], 4)) >> 16)
+        cam_path.append(cam)
+        if st["in"] is None and s["region"] == F.S["addr"]:
+            st["in"] = i
+            st["f0"] = await rd(rig.b, sym["Frame_Counter"], 2)
+        if st["in"] is not None:
+            if st["settled"] is None and s["current"] == F.S["bg_tiles"]:
+                st["settled"] = i
+            if st["settled"] is not None and st["visible"] is None:
+                vs = await rd(rig.b, sym["Parallax_Current_Vscroll_BG"], 2)
+                top = (vs >> 3) & (K.PLANE_V_CELLS - 1)
+                prow = rows_of(s["plane"], K)
+                if all(prow[(top + k) % K.PLANE_V_CELLS] == new_rows[(top + k) % K.PLANE_V_CELLS]
+                       for k in range(vis_rows)):
+                    st["visible"] = i
+            if st["settled"] is not None and st["retired"] is None and s["cursor"] == 0 \
+                    and i > st["settled"]:
+                st["retired"] = i
+                st["f1"] = await rd(rig.b, sym["Frame_Counter"], 2)
+                return None, True
+        return (button if st["in"] is None or i - st["in"] < 8 else None), False
+
+    await drive(rig, F, K, start, script, 300, tag)
+    vblanks = (st["f1"] - st["f0"]) & 0xFFFF
+    ticks = st["retired"] - st["in"]
+    moved = cam_path[st["in"] + 8][axis] - cam_path[st["in"]][axis] if len(cam_path) > st["in"] + 8 else None
+    print(f"  {tag}: crossing at tick {st['in']}; arena settled +{st['settled'] - st['in']} ticks; "
+          f"all {vis_rows} visible rows repainted +{st['visible'] - st['in']} ticks; sweep retired "
+          f"+{ticks} ticks ({vblanks} VBlanks over the same span, lag frames = {vblanks - ticks}); "
+          f"camera moved {moved} px on its axis in the first 8 ticks inside")
+    return st
+
+
+async def leg_measure(rig, F, K, fails):
+    """M-A, measurement only (no assertions): run with --legs measure."""
+    run_up = 8 * K.FLY
+    await _measure_route(rig, F, K, (F.S["x0"] - run_up, F.centre[1]), "right", 0, "M-A HORIZONTAL")
+    await _measure_route(rig, F, K, (F.centre[0], F.S["y0"] - run_up), "down", 1, "M-A VERTICAL")
+
+
+MEASURE = {"measure": leg_measure}
 
 
 class open_rig:
@@ -1081,7 +1275,8 @@ async def run(rom_path, lst_path, only):
             "Camera_Y", "BG_Tiles_Current", "BG_Tiles_Target", "BG_Tiles_Offset",
             "BG_Plane_Layout", "BG_Wipe_Cursor", "OJZ_Act1_Descriptor", "Region_Current",
             "DMA_Deferrable", "DMA_Deferrable_Slot", "DMA_Deferrable_End",
-            "Static_Sprite_DMA", "DMA_Budget_Default")
+            "Static_Sprite_DMA", "DMA_Budget_Default", "BgAnim_Table_Ptr", "BgAnim_LastStep",
+            "BgAnim_View_T", "BgAnim_View_H", "Frame_Counter", "Parallax_Current_Vscroll_BG")
     for nm in need:
         if nm not in sym:
             raise GateError(f"`{nm}` is not in {lst_path} — not the sonic4 DEBUG listing this "
@@ -1100,8 +1295,8 @@ async def run(rom_path, lst_path, only):
     try:
         async with open_rig(rom_path, lst_path, sym, K) as rig:
             rig.rom_path, rig.lst_path, rig.rom = rom_path, lst_path, rom
-            for name, fn in LEGS.items():
-                if only and name not in only:
+            for name, fn in {**LEGS, **MEASURE}.items():
+                if (only and name not in only) or (not only and name in MEASURE):
                     continue
                 print(f"  -- leg {name.upper()}")
                 await fn(rig, F, K, fails)

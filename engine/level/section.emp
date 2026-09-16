@@ -581,6 +581,12 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             movea.l (sp)+, a0
             clr.l   BG_Tiles_Target                 // (BG_Tiles_Target).w
             clr.w   BG_Tiles_Offset                 // (BG_Tiles_Offset).w
+            // The band hold (plan C10): held exactly while the arena does not hold the act's
+            // own tiles, whose front slots are the bands'.
+            movea.l Current_Act_Ptr, a2
+            move.l  Act.act_bg_tiles(a2), d0
+            cmp.l   (BG_Tiles_Current).w, d0
+            sne     BG_Bands_Hold                   // (BG_Bands_Hold).w — $FF = held
             moveq   #-1, d0
             move.l  d0, BgAnim_LastStep             // (BgAnim_LastStep).w
             move.l  d0, BgAnim_LastStep + 4         // (BgAnim_LastStep+4).w

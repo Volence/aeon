@@ -35418,6 +35418,24 @@ ORDER_VERTICAL prints it. Grading it needs a tiles-owning row whose layout is ta
 and a route that moves the BG scroll during the overwrite. The code is one `rts` shared with the
 graded half, which is why this is booked and not blocking.
 
+## REGION-BG-PER-REGION-BANDS: a region with its own BG tiles cannot animate bands (booked 2026-09-16, `parcel/region-bg-switch`)
+
+Fable review 07 finding 7. The region bg switch makes the switch SAFE with bands present
+(`BG_Bands_Hold`: bands pause while the arena does not hold the act's tiles and re-send their phase
+when it does again; GATE BG-SWITCH leg BANDS) and does not give a region bands of its own. That
+needs: a band table per region (a `Region` field or a table beside `rg_bg_tiles`), a RELEASE table
+selector (`BgAnim_Update` reaches `BgAnim_Table` with a fixed `lea` in release; `BgAnim_Table_Ptr`
+exists only in DEBUG), the importer emitting band records and banks per region blob, and the rule
+for a band whose driver phase must survive a switch. Not built because release ships no bands
+(OJZ act 1's `BgAnim_Table` is band count 0, `default_off`) and there is no per-region band content
+to design against.
+
+**Cross-repo note:** `BgAnim_Update` now reads `BG_Bands_Hold`, a new cross-seam RAM name. Sigil's
+`crates/sigil-cli/tests/bg_anim_port.rs` supplies bg_anim.emp's cross-seam address symbols by an
+explicit list (`BgAnim_LastStep`, `Logic_Tick`, ...) with pinned addresses, so that port test is
+expected to need the new name (and, since the region bg switch added 12 bytes of engine RAM ahead of
+`BgAnim_LastStep`, re-pinned addresses). Not run from this parcel: it is sigil's lane.
+
 ## REGION-BG-SYNC-DISPLAY: the synchronous tile upload runs with the display on during a warp (booked 2026-09-16, `parcel/region-bg-switch`)
 
 `Section_RedrawPlanes` uploads a region's tile blob inside its masked storm. At boot the display is
