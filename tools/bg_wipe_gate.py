@@ -543,10 +543,13 @@ async def run_midsweep(rig, K, rom, button, start_at, row_from, row_to, eff_from
                      f"half-redrawn plane to read. Both legs are unreached BECAUSE the "
                      f"feature is absent.")
         return
-    if arm["cursor"] != K.WIPE_TOTAL - K.WIPE_ROWS:
-        raise GateError(f"{tag}: the second pass over the same route armed differently "
-                        f"(cursor {arm['cursor']}, wanted {K.WIPE_TOTAL - K.WIPE_ROWS}) — the "
-                        f"two passes are not the same experiment")
+    # NOT a premise check against the EXPECTED arm value. That was tried and it was wrong:
+    # leg ARM already grades the value, so a tree whose arm is merely WRONG (rather than
+    # absent) aborted this pass at exit 2 and lost legs COVERED and VISIBLE — the gate got
+    # QUIETER on a real defect. Found by mutation M3. All this pass needs is that a sweep
+    # exists to read; whatever cursor it arms with, the covered set is derived from the two
+    # tracker bytes and graded against the VDP.
+    print(f"  {tag}: second pass armed at cursor {arm['cursor']}")
 
     for _ in range(K.VIS_TICKS):
         await rig.tick()
