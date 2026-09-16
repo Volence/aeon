@@ -34595,10 +34595,25 @@ sides prove. It is **step 2 of the AURORA REGIONS EDITOR spec**
 (`empyrean docs/superpowers/specs/2026-09-14-aurora-regions-editor-design.md`), whose own line 682
 says step 2's golden is what step 4 tests against — and step 4 is aurora's codec.
 
-**WHAT IT BLOCKS, and why it is a booking rather than a surprise in a week:** until this parcel
-exists, a green aurora codec parcel is green against empyrean's schema vectors and aurora's own
-round-trip properties and **NOT against a tested seam**. Aurora said so before shipping rather than
-after. Booked at the hub as `REGIONS-GOLDEN-GAP`, `blockedBy` this parcel.
+**WHAT IT BLOCKS — AND THE ANSWER IS NOTHING, CORRECTED 2026-09-16 BY AURORA ITSELF.** This row
+was booked from a hub relay saying aurora's codec was blocked on it, and **this lane repeated that
+into a dispatch brief and into a message to aurora before checking it with them.** Aurora's
+correction, in their words: their codec parcel is scoped to vendoring the hub's schema, the
+read/write half, the ten contract vectors and a drift gate, it is running, and *"nothing of mine is
+waiting on it"*; they will add a **conformance leg** against the golden when it lands, and
+explicitly asked that the second part not be thinned on their account.
+
+**What IS true, and it is the whole value of the row, is weaker than "blocks" and worth more than
+"nice to have":** a codec green against its own vectors and its own round-trip properties is **not
+green against a tested seam** — both sides can agree with themselves while disagreeing with each
+other, and only a shared golden can see that. Aurora said so before shipping rather than after.
+
+⚠ **THE METHOD FAILURE IS THE PART TO KEEP, because it is this lane's own and it is the third
+instance of one shape tonight.** A dependency claim about ANOTHER LANE'S work reached a brief
+without the one cheap check that could refute it: asking that lane. Same family as
+`reference_cross_repo_claims_never_meet_a_test` — a claim about a peer's tree or a peer's plan
+never meets a test in ours, so it propagates at full confidence. **Ask the lane. It costs one
+message and the answer is authoritative in a way no grep of their tree can be.**
 
 **SEQUENCING, this lane's call:** it waits until REGIONS-P2 step 1 lands, because step 1's parcel
 already touches `tools/region_table.py` and `tools/test_region_table.py` and two agents in one file
