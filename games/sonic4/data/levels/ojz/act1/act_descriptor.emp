@@ -36,7 +36,7 @@ use engine.structs.{Act, Sec, Region}
 // (AND AS OF 2026-09-05 it is ONE: section 7 took OJZ_Preset_Sec7 for item 9c's live patch
 // channels, so OJZ_Preset_Plain is section 8's alone. The record is still SHARED-SHAPED and
 // stays that way — a ninth section would point at it — but nothing shares it today.)
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7, OJZ_Preset_Night}
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7, OJZ_Preset_Night, OJZ_Preset_NightSnap}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -538,6 +538,70 @@ ensure((OJZ_NIGHT_X0 & ((1 << SECTION_SIZE_SHIFT) - 1)) != 0 && ((OJZ_NIGHT_X1 +
 ensure(OJZ_NIGHT_X0 < (2 << SECTION_SIZE_SHIFT) && OJZ_NIGHT_X1 >= (2 << SECTION_SIZE_SHIFT),
        "the night region must STRADDLE the section line at x = {2 << SECTION_SIZE_SHIFT}: the witness (tools/region_fade_witness.py) proves that a section line inside a region changes nothing, and needs one to cross")
 
+// -----------------------------------------------
+// REGIONS-P2 E2 — THE SNAP EDGE. A DEBUG-SHAPE LOOK FIXTURE, NOT CONTENT.
+//
+// The night region above meets its neighbours with a CROSS-FADE on the way in. E2 asks the
+// other half of the same look question: with the background art unchanged, does the same
+// 48-entry palette swap read as a transition or as a GLITCH when it lands in one frame?
+// So this cuts a second night rectangle out of the top row whose preset does NOT arm the
+// fade (`OJZ_Preset_NightSnap`, ojz_effects.emp — row 2's own argument list with one
+// different palette and nothing else), and the DEBUG ROM then carries BOTH crossings on one
+// held RIGHT: the fade at x = 3400 and the snap at x = 5600, over the same art, minutes
+// apart. That is the comparison the judgement needs and two different ROMs could not give.
+//
+// WHY x = 5600 AND NOT THE 3400 EDGE ITSELF. The obvious fixture — take `transition:` off
+// OJZ_Preset_Night — would REPLACE the fade rather than sit beside it, and it would take
+// tools/region_fade_witness.py's whole premise with it (E0: exactly one row in the table
+// arms the fade). A second edge keeps the shipped fade fixture and its witness intact.
+//
+// WHY THE FAR RIGHT OF ROW 2, AND NOT ANY OTHER EDGE IN THE ACT. Three constraints leave
+// exactly one place:
+//   * NO CONFOUND. The two presets meeting at the edge must differ in `ep_pal` ALONE, or the
+//     owner is judging a colour question against a raster/cycle/water change. Only
+//     OJZ_Preset_Sec1 / _Sec2 / _Plain are that plain, and of those only Sec1 and Sec2 are in
+//     the top row where a held RIGHT from the spawn reaches them.
+//   * NOT ROW 1, EITHER END. Row 1's left edge (x = 2048) is the crossing region_fade_witness
+//     asserts changes no colour (E6); its right edge is the fade edge itself, whose premise
+//     is that the region to the fade's left binds a DIFFERENT ep_pal (E0).
+//   * CLEAR OF THE WITNESS'S ROUTE. That walk's right-most leg stops at
+//     `fade.x1 + 2 = 4801` plus MARGIN_TICKS (24) x PLAYER_DEBUG_FLY_SPEED (16) = x 5185,
+//     one more sample at most. 5600 leaves ~400 px — 25 ticks — of margin beyond it.
+// 5600 is also off every grid the act has: not a multiple of the 2048 section size, nor of
+// 256, nor of 128, so no chunk or block line coincides with it either.
+//
+// THE RELEASE TABLE IS UNTOUCHED. With DEBUG == 0 the extra row is `[]` and row 2 keeps
+// x1 = 6143, so `OJZ_ACT1_REGION_ROWS` is the same ten rows, `act_region_count` is the same
+// 10, and OJZ_Preset_NightSnap emits zero bytes. The only release-shape change this parcel
+// can make is the symbol NAME in the deb2 appendix past EndOfRom (build.sh's header, the
+// 2026-09-04 correction) — measured in the parcel note.
+// -----------------------------------------------
+const OJZ_SNAP_X0 = 5600                     // inclusive left edge of the E2 snap region
+ensure((OJZ_SNAP_X0 & ((1 << SECTION_SIZE_SHIFT) - 1)) != 0,
+       "the E2 snap edge ({OJZ_SNAP_X0}) must lie OFF the section grid, like the night region's own edges — an edge on a multiple of the section size would be a section edge again and the look being judged would be confounded with a streaming seam")
+// The witness's right-most sample, derived from ITS OWN constants rather than quoted: the
+// out leg stops once the centre reaches fade.x1 + 2 and then runs MARGIN_TICKS more ticks at
+// PLAYER_DEBUG_FLY_SPEED. One extra tick of slack for the sample taken on the stopping tick.
+const OJZ_FADE_WITNESS_MAX_X = (OJZ_NIGHT_X1 + 2) + (24 + 1) * 16
+ensure(OJZ_SNAP_X0 > OJZ_FADE_WITNESS_MAX_X,
+       "the E2 snap edge ({OJZ_SNAP_X0}) is at or left of where tools/region_fade_witness.py's out leg reaches ({OJZ_FADE_WITNESS_MAX_X}). That walk would fly into the snap region and the night palette would be under samples its assertions assume are the day one")
+// Row 2 gives up its right end to the snap region in the DEBUG shape and keeps all of it in
+// release. Single-level `if` in value position on purpose — EMP_PITFALLS §1.
+const OJZ_SEC2_X1 = if DEBUG == 1 { OJZ_SNAP_X0 - 1 } else { 6143 }
+const OJZ_E2_SNAP_ROWS: array = if DEBUG == 1 {
+    [ ojz_region(x0: OJZ_SNAP_X0, x1: 6143, y0: 0, y1: 2047, effects: OJZ_Preset_NightSnap) ]
+} else { [] }
+// Release 10, DEBUG 11. Every whole-table guard below reads the rows themselves, so both
+// shapes are checked for overlap and exact coverage without either count being typed twice.
+//
+// THE `pub data` LINE AT THE END OF THIS FILE SPELLS ITS ARITY `10 + OJZ_E2_SNAP_ROWS_LEN`
+// RATHER THAN THIS NAME, AND THAT IS FOR A READER OUTSIDE THE ASSEMBLER. The literal is the
+// RELEASE row count, which is the count a `.lab_index` PRESET row must be inside in EVERY
+// shape; tools/test_lab_index_lint.py reads that base off this declaration and proves the
+// added term is zero in release. See that file's `_ACT_REGION_ARITY`.
+const OJZ_E2_SNAP_ROWS_LEN = OJZ_E2_SNAP_ROWS.len
+const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN
+
 // THE ROWS — ONE SOURCE. The guards below read this const and the emitted table IS this
 // const, so the rows checked are the rows shipped (design §10.5: a hand-written table gets
 // the same protection a generated one would).
@@ -546,10 +610,10 @@ ensure(OJZ_NIGHT_X0 < (2 << SECTION_SIZE_SHIFT) && OJZ_NIGHT_X1 >= (2 << SECTION
 // APPENDED as row 9, so every region index a tool or the effects lab's PRESET rows already
 // name keeps meaning the same preset (games/sonic4/test/ojz_scroll_test.emp's `.lab_index`
 // gained one row for region 9). Rows 1 and 2 are no longer whole sections.
-const OJZ_ACT1_REGION_ROWS: [Region; 10] = [
+const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = [
     ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  parallax: ojz_act1_sec_scene(sec: 0)),
     ojz_region(x0: 2048, x1: OJZ_NIGHT_X0 - 1, y0: 0, y1: 2047, effects: OJZ_Preset_Sec1,  parallax: ojz_act1_sec_scene(sec: 1)),
-    ojz_region(x0: OJZ_NIGHT_X1 + 1, x1: 6143, y0: 0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
+    ojz_region(x0: OJZ_NIGHT_X1 + 1, x1: OJZ_SEC2_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
     ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  parallax: ojz_act1_sec_scene(sec: 3)),
     ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, parallax: ojz_act1_sec_scene(sec: 4)),
     ojz_region(x0: 4096, x1: 6143, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  parallax: ojz_act1_sec_scene(sec: 5)),
@@ -558,7 +622,7 @@ const OJZ_ACT1_REGION_ROWS: [Region; 10] = [
     ojz_region(x0: 4096, x1: 6143, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
     // row 9 — the night region (see the block above OJZ_NIGHT_X0)
     ojz_region(x0: OJZ_NIGHT_X0, x1: OJZ_NIGHT_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Night),
-]
+] ++ OJZ_E2_SNAP_ROWS
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
 // coverage, given every row is inside the act (ojz_region's own ensure): disjoint pieces
@@ -575,4 +639,4 @@ ensure(OJZ_ACT1_REGION_OVERLAP == -1,
 ensure(OJZ_ACT1_REGION_AREA == ACT_W * ACT_H,
        "OJZ act 1 region rows do not tile the act: their areas sum to {OJZ_ACT1_REGION_AREA} px², the act is {ACT_W} x {ACT_H}. A hole is a place with no identity")
 
-pub data OJZ_Act1_Regions: [Region; 10] = OJZ_ACT1_REGION_ROWS
+pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN] = OJZ_ACT1_REGION_ROWS

@@ -1975,6 +1975,55 @@ pub data OJZ_Preset_Night: EffectsPreset = preset(pal: OJZ_Palette_Night, raster
                                                   transition: 1)
 
 // ===========================================================================
+// THE SNAP TWIN — REGIONS-P2 E2. A DEBUG-SHAPE LOOK FIXTURE, NOT CONTENT.
+//
+// E2 asks a LOOK question and nothing else: with the background art UNCHANGED (OJZ act 1's
+// day tiles), does a full 48-entry palette swap that SNAPS in one frame read as a
+// transition, or as a glitch? The fade already exists and is already judged — it is
+// `OJZ_Preset_Night` above, at the x = 3400 edge. This record is that record with the
+// cross-fade arm taken OFF, so the owner can see the same two palettes meet with no lerp.
+//
+// ---- THE ONLY VARIABLE IS COLOUR, AND THAT IS STRUCTURAL --------------------
+// `ojz_e2_plain()` below is the ONE argument list. `OJZ_Preset_NightSnap` is that fn applied
+// to the night palette; the region it is cut out of (row 2, `OJZ_Preset_Sec2`) is the same
+// fn's argument list applied to the day palette. The claim "these two presets differ in
+// `ep_pal` and in nothing else" is therefore a property of a shared constructor rather than
+// of two argument lists somebody eyeballed — and it is checked a second way, on the emitted
+// bytes, in docs/superpowers/notes/2026-09-15-regions-p2-e2.md.
+//
+// `transition:` IS NOT PASSED, and the omission IS the fixture. preset()'s default is 0,
+// Effects_InstallPreset reads `tst.w EffectsPreset.ep_transition` and arms Palette_ArmFade
+// only when it is non-zero, so a 0 here is a SNAP — the palette is copied straight into
+// Pal_Base and composed on the very next tick.
+//
+// ⚠ `ep_transition`, NOT `pcfg_transition`. They are two different fields on two different
+// records with OPPOSITE polarity, and confusing them is the obvious way to build this
+// fixture backwards:
+//   * EffectsPreset.ep_transition (engine/effects/preset.emp:67) — u16, PALETTE. 0 = SNAP,
+//     non-zero = cross-fade. This is the one E2 is about.
+//   * ParallaxConfig.pcfg_transition (engine/structs.emp:273) — u8, SCROLL OFFSETS.
+//     0 = smooth lerp, 1 = instant snap. Nothing to do with colour, and irrelevant here
+//     anyway: this preset and row 2's bind no parallax config at all, so both rows resolve
+//     to the same act default and no parallax transition is started at the edge.
+//
+// ---- THE EMISSION IS DEBUG-GATED, FOR OJZ_BandDemo'S REASON EXACTLY ---------
+// Zero words in the release shape. The region row that names it (act_descriptor.emp,
+// OJZ_E2_SNAP_ROWS) is DEBUG-gated by the same define, so the release act table is the ten
+// rows it has always been and nothing in the release ROM can reach this record.
+// ===========================================================================
+
+// ONE argument list, two palettes. Everything that is not `pal` is fixed here, so the two
+// presets across the E2 edge cannot drift apart without this line moving.
+comptime fn ojz_e2_plain(pal: Label) -> EffectsPreset {
+    return preset(pal: pal, raster: Raster_Program_None, cycle: Pal_Cycle_None,
+                  variants: [Variant_Water_Deep, 0])
+}
+
+const OJZ_PRESET_NIGHT_SNAP_LEN = if DEBUG == 1 { 1 } else { 0 }
+pub data OJZ_Preset_NightSnap: [EffectsPreset; OJZ_PRESET_NIGHT_SNAP_LEN] =
+    if DEBUG == 1 { [ ojz_e2_plain(OJZ_Palette_Night) ] } else { [] }
+
+// ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
 // program, which is exactly what the Phase-3 design declared out of scope for Parcel C
 // ("two independently patched effects in one section — Raster_Buf_B is single").
