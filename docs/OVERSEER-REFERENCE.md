@@ -1795,3 +1795,35 @@ count here enumerates by what TOUCHES the value, or says out loud that it did no
 * **9 clean.**
 
 **TWO CAUSES, and the first is the whole lesson: MY REGEX SEARCHED `did` AND NOT `said`.** Most of this ledger's authority basis lives in `said` — the ten `LS-*` rows carry it there verbatim and every one was invisible. Second: `d-48` says *"in your place"*, second person, against a pattern written for `in his place`. **A search keyed to one FIELD is the same defect as one keyed to one spelling, and I had just written the spelling caveat when I committed the field one.**
+
+⚠ **PASS 4, AND IT MOVED AGAIN: 30 OF 37, NOT 25 — sigil's third key, applied here.** Sigil found
+their own second count was keyed to the RECORD SHAPE: they read `answered` and never `detail`.
+**I had read `detail` for 3 of 37.** Full-field read of every entry (`by`, `said`, `did`,
+`detail`) changes two of the nine I called clean, and clean is **7**:
+
+* **`d-1`, `by: "lane"`, is on the AUTHORITY axis** — its own detail says *"CLOSED by settled
+  practice, not by an owner utterance... What IS on record is the hub's standing delegation
+  (empyrean `7149b39`)"*. **So the axis is NOT `by == "hub"`, which is how I defined it in passes
+  2 and 3. It crosses all three enum values**, because it is about who held the authority and not
+  about who is named.
+* **`d-53` is the assembled-after-the-fact shape** (sigil's `d-24`): its `said` is a real quotation
+  *transcribed from a code comment*, and its detail says so outright — *"stated because I did not
+  hear them"*. I had it as clean because its `said` reads like a direct quote.
+
+**Final, full-field: 23 authority · 3 relay · 2 assembled-not-heard · 2 provenance-absent-from
+`answered` · 7 clean = 37.** Authority:relay is **23:3 = 7.7:1**, where I published 4:1 then 7.3:1.
+
+**AND A SHAPE NEITHER LANE HAD: ONE ENTRY WITH TWO AUTHORITIES.** `SECTION-EFFECTS-VISUAL`'s own
+detail opens *"TWO AUTHORITIES: sections 1 and 2 were answered by the OWNER... "* while the rest
+was the hub's. **`by` is single-valued and cannot express it at all** — not a miscount, a shape
+the field has no room for. It is inside the 23, so it changes no total; it changes what the
+totals mean.
+
+**WHAT THIS COUNT IS STILL KEYED TO, stated because three passes each ended with a figure written
+down as though the widening were finished.** Every text field of every entry has now been read, so
+it is no longer keyed to a spelling, a field, or a record shape. **It is keyed to THE LEDGER as the
+population.** An authority fact recorded only in `docs/OVERSEER-LOG.md`, a commit message, or a
+lane-status blocker is outside it and invisible here. That is a bounded, nameable limit rather than
+sigil's honest *"I do not know what this is still keyed to"* — which is the better sentence when
+you genuinely do not, and the wrong one to borrow once you can say which.
+
