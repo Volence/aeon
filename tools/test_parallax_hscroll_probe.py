@@ -123,7 +123,10 @@ class TestAnchorOverlay(unittest.TestCase):
         self.assertEqual(sh.dsb, [NO_DEFORM, NO_DEFORM, 2, 2, 2])
         self.assertEqual(sh.dsa, [NO_DEFORM] * 5)
         # The split entry INHERITS its parent's scroll words — the surface changes where the
-        # wave starts, not how the layer scrolls (parallax.emp:963-983).
+        # wave starts, not how the layer scrolls (engine/level/parallax.emp,
+        # `Parallax_Step4_Fill`'s Step 4b anchored split, which copies the WHOLE band record).
+        # RE-CITED BY NAME 2026-09-16: `parallax.emp:963-983` had drifted onto the
+        # VSCROLL_COL_SHIFT / perspective-curve ensures and named nothing of the split.
         self.assertEqual(sh.scroll_a, [13, 10, 10, 11, 12])
         self.assertEqual(sh.scroll_b, [23, 20, 20, 21, 22])
 
@@ -216,7 +219,10 @@ class TestDeriveHscroll(unittest.TestCase):
     def test_bg_sampling_uses_phase_plus_vscroll_plus_line_mod_256(self):
         # BG index = (Parallax_Deform_Phase_BG + band_phase + Vscroll_BG + line) & $FF, sample
         # sign-extended and arithmetic-shifted right by band_deform_shift_b, added to the band's
-        # scroll word (parallax.emp:1352-1379). Table[i] = i - 128 makes the sample readable:
+        # scroll word (engine/level/parallax.emp, `Parallax_Fill_PerLine`'s BG phase base —
+        # the `add.w Parallax_Deform_Phase_BG, d2` / `add.w Parallax_Current_Vscroll_BG, d2`
+        # pair). RE-CITED BY NAME 2026-09-16: `parallax.emp:1352-1379` had drifted onto
+        # Parallax_StartTransition's store-ordering note. Table[i] = i - 128 makes the sample readable:
         # at phase 10, vscroll 0, line 0 -> index 10 -> sample -118 -> >> 2 = -30 (arithmetic,
         # so it floors: -118 >> 2 == -30). Base -48 -> -78.
         tab = bytes(((i - 128) & 0xFF) for i in range(256))

@@ -32,8 +32,11 @@ with it. That consistency is the whole design and it has one equation.
 THE ONE EQUATION
 ================
 The scene DSL's per-layer `curve` ramps Plane B's scroll factor linearly across
-the layer's screen span (engine/level/parallax.emp:1962-2052, re-derived in
-tools/curve_probe.py:210-255). Author `fb: FACTOR_0` at the layer top and
+the layer's screen span (engine/level/parallax.emp, `Parallax_Step4_Fill`'s
+`.cap_factor_curve_hoist` span, re-derived in tools/curve_probe.py:210-255).
+RE-CITED BY NAME 2026-09-16: the line range this carried (`:1962-2052`) had
+drifted onto Parallax_Update's band-drift accumulator and named nothing of the
+curve. Author `fb: FACTOR_0` at the layer top and
 `curve: To(F)` at its bottom and the plane offset at depth row dy becomes
 
     S(dy) = camX * F * dy / span                                            (1)
