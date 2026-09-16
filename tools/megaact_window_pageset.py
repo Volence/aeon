@@ -67,15 +67,30 @@ The sweep enumerates every distinct window a camera in the act's bounding
 rectangle can produce (all camera X/Y, which is tile granularity by
 construction: the window depends only on floor(cam/8)).
 
+  * Sonic 3 & Knuckles donor loading (`--game s3k`): LevelLoadBlock rows and
+    label bincludes from skdisasm (the S3 half through `Lockon S3/LockOn
+    Data.asm`), 8x8 art as KosM primary + secondary appended at the primary's
+    size, blocks/chunks as Kosinski primary + secondary concatenated, the FG
+    rows of the uncompressed layout via its row-pointer table, LevelSizes for
+    the box; xend $6000 placeholders fall back to the layout width, and
+    trailing all-tile-0 columns beyond one screen are trimmed.
+
+ALSO REPORTED per window: distinct non-blank tiles and ceil(tiles/64), a lower
+bound on frames for ANY 64-tile paging of that one window. It is a per-window
+bound, not a proof that one global order meets it everywhere.
+
 NOT COVERED: object/sprite art, the BG plane, animated tiles as separate
 art, transient frame demand (a published-but-unreferenced demand page, an
 in-flight decode, a stalled column whose old words still hold references),
 and eviction ORDER under motion. The static page-set count is a NECESSARY
 condition for no soft-lock, not a sufficient one.
 
-Usage:
+Usage (numpy required; donors resolved through suite_paths, or
+AEON_S2DISASM_DIR / AEON_SKDISASM_DIR):
     python3 tools/megaact_window_pageset.py control
-    python3 tools/megaact_window_pageset.py report [--json PATH] [--quick]
+    python3 tools/megaact_window_pageset.py report --game s2  [--json PATH] [--quick]
+    python3 tools/megaact_window_pageset.py report --game s3k [--json PATH] [--quick]
+Measured wall time on the dev box (2026-09-16): s2 ~1.7 min, s3k ~9.4 min.
 """
 
 import argparse
@@ -1113,7 +1128,7 @@ def main(argv=None):
     rep = build_report(game=args.game, quick=args.quick, log=lambda m: print(m, flush=True))
     if args.json:
         with open(args.json, "w") as fh:
-            json.dump(rep, fh, indent=1)
+            json.dump(rep, fh, separators=(",", ":"))   # compact: the committed evidence files are large
             fh.write("\n")
     if "refused" in rep:
         print("REFUSED:", rep["refused"])
