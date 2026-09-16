@@ -27,3 +27,30 @@ pub data BGND_Palette       = embed("art/palettes/SonicAndTails.bin")
 // `array length mismatch` at build time instead of garbage on screen.
 pub data OJZ_Act1_BG_Layout: [u8; BG_LAYOUT_SIZE] = embed("games/sonic4/data/generated/ojz/act1/zone_bg.bin")
 pub data OJZ_Act1_BG_Tiles  = embed("games/sonic4/data/generated/ojz/act1/bg_tiles.bin")
+
+// ---- THE TALL TEST MAP (regions part 2 step 5; spec step-table row 5) ----
+// DEBUG ONLY, and the `if` is what makes that true rather than a comment: in the
+// release shape this is a zero-length array and the 12 KB never reaches the ROM.
+// The same gating shape OJZ_Preset_NightSnap uses (games/sonic4/data/effects/
+// ojz_effects.emp), for the same reason.
+//
+// WHY A SECOND LAYOUT EXISTS. Until a background map is a DIFFERENT HEIGHT from the
+// plane, two landed steps are indistinguishable from the code they replaced:
+// Draw_BG_TileRow (step 2) has no row to stream, and the region-derived position
+// clamp (step 4) can only ever compute PLANE_B_SPAN - SCREEN_HEIGHT = 288, which is
+// the VSCROLL_BG_MAX it replaced. 96 rows makes the span 768 and the ceiling 544 —
+// a value the pre-step-4 code could not produce on any authored input. This map is
+// the discriminator for both.
+//
+// TYPED, like its sibling above and for the same reason: the length IS the guard.
+// tools/gen_tall_bg_test.py writes the blob and asserts its 96 rows are pairwise
+// distinct (the BG-TALL gate reads plane row m mod 64 and asks which MAP row it
+// holds — a question with no answer if two rows are equal); this annotation is what
+// stops a stale or half-written blob from becoming a wrong picture instead of a
+// build error.
+pub const BG_LAYOUT_TALL_ROWS = 96
+pub const BG_LAYOUT_TALL_SPAN = BG_LAYOUT_TALL_ROWS * 8      // px — the authored rg_bg_span
+pub const BG_LAYOUT_TALL_SIZE = if DEBUG == 1 { BG_LAYOUT_TALL_ROWS * 64 * 2 } else { 0 }
+ensure(BG_LAYOUT_TALL_ROWS * 64 * 2 > BG_LAYOUT_SIZE,
+       "games/sonic4/data/levels/ojz/act1/act_assets.emp: the step-5 test map is {BG_LAYOUT_TALL_ROWS} rows = {BG_LAYOUT_TALL_ROWS * 64 * 2} bytes, which is NOT taller than a full plane ({BG_LAYOUT_SIZE} bytes). Its entire purpose is to be taller than the plane: at or below that height rg_bg_span's ceiling collapses back onto VSCROLL_BG_MAX, BG_Stream_Update's max_top is 0, and every step-5 gate goes green while measuring nothing")
+pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_tall_debug.bin") } else { [] }
