@@ -518,3 +518,60 @@ children were killed by PID after the parent, and checked gone.
 booking). Proven rather than asserted: both sonic4 shapes rebuilt afterwards to md5
 `3cff4dff276500386e9ca905635a074b` and `5e6fd073a665a6a609d9e754b74ee8b3` — identical to the
 graded ones.
+
+---
+
+## GATE BG-TALL — RUN ON THE MACHINE BY THE CONTROLLER, 2026-09-16. VERDICT: SPLIT.
+
+Run against `s4.debug.bin` built from this branch at `05b01765` (847156 B, crc `0f3962d8`),
+oracle repointed off an inherited ROM from a stale landing worktree first — `romFreshness`
+verified byte-identical before any reading was taken. **Flown, not warped**, per the procedure:
+free flight right to camera X 5600, then down into the region. No warp at any point.
+
+**Leg 1 — the window moved. PASS, and exactly.** `BG_Plane_Top` = **8** at camera Y 2160.
+Derived, not read off: `vscroll = clamp((2160-512)>>3, 0, 544)` = 206, `top = clamp((206>>3)-17,
+0, 32)` = 8. After descending to the next sample it read **21**. The tracker is running and
+tracks the camera.
+
+**Leg 2 — the plane holds the rows the tracker claims. PASSES ON EVERY ROW THE STREAMER WROTE,
+FAILS ON EVERY ROW THE BOOT BLIT WROTE — and that failure is BG-PLANE-WINDOW, which this parcel
+booked and deliberately did not close.**
+
+| window | plane row | expected map row | what is actually there |
+|---|---|---|---|
+| top = 8 | 0..7 | 64..71 | tall-map rows **64..71**, exact, 8/8 |
+| top = 8 | 8 | 8 | **shipped `zone_bg.bin` row 8**, exact — matches NO tall-map row |
+| top = 21 | 8 | 72 | tall-map row **72**, exact — matches NO shipped row |
+
+The third line is the discriminator and it is decisive: the same plane address holds boot content
+before the window reaches it and the correct streamed row after, with each identified uniquely
+against two different blobs. **The streamer is correct.** What fails is that
+`Section_RedrawPlanes` blits the SHIPPED 64-row background at boot, and the streamer only ever
+writes a row as the window advances past it — so rows the window has held since boot are shipped
+content, forever.
+
+⚠ **THE PARCEL BOOKED THE DEFECT AND TAGGED THE GATE AND DID NOT CONNECT THEM.** BG-PLANE-WINDOW
+is booked "step 8 owns it"; GATE BG-TALL is tagged "unmeasured, needs a machine". **The first is
+exactly why the second cannot pass as written.** A gate whose spec says *every* row in `[top,
+top+63]` is unpassable while any row in that range was written by the boot blit. That is not a
+new defect — it is two known things whose product nobody had computed.
+
+**Leg 3 — the rate cap. NOT PROVEN, and not claimed.** Only a 2-frame sample was taken and
+`BG_Plane_Top` was stationary across it, which is consistent with the bound and tests nothing.
+The full per-frame traversal log is still outstanding, and it is also step 4's BG-RATE gate,
+which has still never been run.
+
+**RATIFIED DEVIATION (controller, 2026-09-16):** step 5 lands with leg 2 split and leg 3
+outstanding, because the step's substance — the streamer — is proven by the strongest evidence
+available, leg 2's failure lies entirely in rows the streamer never touches, and holding step 5
+does not fix BG-PLANE-WINDOW (whose in-parcel fix has a stated blocker: `Parallax_Init` runs
+after both blits and zeroes the scroll, so a window computed at `BG_Init` seeds wrong rather than
+merely stale). **BG-PLANE-WINDOW is re-scoped by this run: it is no longer a step-8 tidy-up, it
+is the one thing standing between step 5 and its own named gate.**
+
+**Two stale numbers in the booked procedure, corrected from the built ROM rather than trusted:**
+the table gave the tall region as y 2048..**4095** and the ceiling as binding from camera Y
+**4864**. Regenerated at this build: y 2048..**6143**, ceiling binds from camera Y **4872**. The
+table was pinned at crc `936ac15c`, which this parcel's own report identifies as the
+PRE-extension build — so the procedure shipped describing a fixture one revision older than the
+one it was written for.
