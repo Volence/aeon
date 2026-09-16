@@ -480,6 +480,59 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # 100 again. That is the pin measuring placement, not code, and it is a property of
 # `lst_proc_sizes` rather than of this parcel — the honest fix is a proc-END symbol, which is
 # a tools change and not this branch's business. Booked, not silently absorbed.
+# RE-DERIVATION LOG — 2026-09-16, REGIONS PART 2 STEP 4 (`parcel/regions-p2-step4`, the
+# derived-scroll clamp). The pin FAILED and was right to. ONE row moved:
+# Parallax_Step5_Vscroll, demo 120 -> 170 (+50), sonic4 362 -> 412 (+50). DERIVED FROM THE
+# SOURCE CHANGE BEFORE ANY LISTING WAS READ, and the two agree exactly.
+#
+# The clamp at `.v_bob_none` is UNGATED — it sits in the instruction stream outside every
+# `if (Game.SCANLINE_CAPS & CAP_*)` block, for the same reason the 2026-08-29 scroll clamp and
+# the 2026-08-30 bob above it are: it is an engine invariant, not a per-game capability. So it
+# emits identically in a game with a zero mask, and the delta is the same in both fixtures.
+#
+# REMOVED — the whole of the old position clamp (18 B, the 2026-08-29 row above):
+#     tst.w   d2                          2
+#     bge     .v_clamp_hi                 2   (bra.s reach)
+#     moveq   #0, d2                      2
+#     jbra    .v_pack_store               2   (bra.s reach)
+#     cmpi.w  #VSCROLL_BG_MAX, d2         4
+#     ble     .v_pack_store               2
+#     move.w  #VSCROLL_BG_MAX, d2         4
+#                                      = 18 B
+# ADDED — the region-derived ceiling, the same two-sided position clamp against a REGISTER
+# ceiling, and the rate clamp:
+#     move.w  #VSCROLL_BG_MAX, d3         4   the act-default ceiling
+#     move.l  Region_Current, d0          4   (abs.w — engine RAM)
+#     beq     .v_have_ceiling             2
+#     movea.l d0, a1                      2
+#     move.w  Region.rg_bg_span(a1), d0   4   ((d16,An), $14)
+#     beq     .v_have_ceiling             2
+#     move.w  d0, d3                      2
+#     subi.w  #SCREEN_HEIGHT, d3          4
+#     tst.w   d2                          2
+#     bge     .v_clamp_hi                 2
+#     moveq   #0, d2                      2
+#     jbra    .v_rate                     2
+#     cmp.w   d3, d2                      2   register ceiling, so 2 and not cmpi's 4
+#     ble     .v_rate                     2
+#     move.w  d3, d2                      2   likewise
+#     move.w  Parallax_Current_Vscroll_BG, d0  4   (abs.w) — the previous value
+#     sub.w   d0, d2                      2
+#     cmp.w   #BG_VSCROLL_MAX_STEP, d2    4
+#     ble     .v_rate_lo                  2
+#     move.w  #BG_VSCROLL_MAX_STEP, d2    4
+#     jbra    .v_rate_add                 2
+#     cmp.w   #-BG_VSCROLL_MAX_STEP, d2   4
+#     bge     .v_rate_add                 2
+#     move.w  #-BG_VSCROLL_MAX_STEP, d2   4
+#     add.w   d0, d2                      2
+#                                      = 68 B, in BOTH games.  68 - 18 = +50.
+#
+# The other twelve rows are unchanged — measured, not assumed: the full head-to-next-head
+# differential over the sonic4 debug listings, base against this parcel, printed exactly TWO
+# non-zero rows, and the second is not code: `Sound_GetComm` 17772 -> 17722 (-50) is the
+# placer-pad row that absorbed the +50, which is why `EndOfRom` is $0C1254 in BOTH listings
+# and the 68000 image is exactly the same length. Same mechanism the step-3 log recorded.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
@@ -489,7 +542,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
-    "Parallax_Step5_Vscroll":   120,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 280 — re-measurable now that tools/scene_spans.py's phased-VMA fix landed; it read as 64 before that fix, truncated at SoundTablesZ80_Head's $8000 VMA)
+    "Parallax_Step5_Vscroll":   170,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
     "Parallax_Update":          260,   # CAP_ROLE_SWAP              (sonic4 290). 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the

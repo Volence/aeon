@@ -723,6 +723,31 @@ pub const VSCROLL_BG_MAX = PLANE_B_SPAN - SCREEN_HEIGHT
 ensure(VSCROLL_BG_MAX > 0,
        "PLANE_B_SPAN {PLANE_B_SPAN} is not taller than SCREEN_HEIGHT {SCREEN_HEIGHT}, so there is no Plane-B window origin that avoids the vertical wrap seam and Step 5's BG V-scroll clamp has an empty range to clamp into")
 
+// ---- BG_VSCROLL_MAX_STEP — how far the BG V-scroll may travel in ONE frame ----
+//
+// REGIONS PART 2, STEP 4 (spec §4.4). VSCROLL_BG_MAX above bounds WHERE the window may sit;
+// this bounds HOW FAST it may get there, and the two exist for opposite reasons. The position
+// ceiling is about art running out. The rate ceiling is about WORK: once the BG plane is a
+// streamed ring (steps 5 and 6) every pixel the V-scroll moves is nametable rows the row
+// tracker has to draw, and a scroll that teleports 200 px in a frame asks for 25 rows in one
+// VBlank. Bounding the scroll is what bounds the draw, and the spec's whole point is that
+// this is the ENGINE's answer in place of a level-design door rule: no author has to promise
+// that a vertical transition is slow, because the engine will not let it be fast.
+//
+// TWO ROWS, AND THE TWO IS THE ONLY PICKED NUMBER HERE. `BG_VSCROLL_ROW_PX` is derived —
+// it is the plane's own cell height, PLANE_B_SPAN / PLANE_B_CELL_ROWS, so a plane geometry
+// change carries it — and the step is stated in ROWS because rows are the unit the streamer
+// bills in. The spec names 16 px; 2 x 8 is that number with its reason attached. If the
+// budget ever becomes "N rows a frame" from the wipe's side (BG_WIPE_ROWS_PER_FRAME, step 6),
+// this is the constant that should be derived FROM it rather than agreeing with it by hand.
+pub const BG_VSCROLL_ROW_PX        = PLANE_B_SPAN / PLANE_B_CELL_ROWS
+pub const BG_VSCROLL_MAX_STEP_ROWS = 2
+pub const BG_VSCROLL_MAX_STEP      = BG_VSCROLL_MAX_STEP_ROWS * BG_VSCROLL_ROW_PX
+ensure(BG_VSCROLL_ROW_PX == 8,
+       "engine/level/parallax.emp: PLANE_B_SPAN {PLANE_B_SPAN} over PLANE_B_CELL_ROWS {PLANE_B_CELL_ROWS} is {BG_VSCROLL_ROW_PX} px a row, not the 8 a VDP nametable cell is. Either the two constants have drifted apart or the cell size is not 8 any more — and BG_VSCROLL_MAX_STEP is stated in ROWS, so a wrong row height silently retunes Step 5's rate clamp")
+ensure(BG_VSCROLL_MAX_STEP > 0 && BG_VSCROLL_MAX_STEP < SCREEN_HEIGHT,
+       "engine/level/parallax.emp: BG_VSCROLL_MAX_STEP is {BG_VSCROLL_MAX_STEP} px, outside 1 .. SCREEN_HEIGHT-1 ({SCREEN_HEIGHT}). At 0 the BG V-scroll can never move at all; at a full screen or more the clamp admits a jump that repaints the whole visible plane in one frame, which is the per-frame streamer work this constant exists to bound")
+
 // ---- THE SCENE-LEVEL VERTICAL BOB (EFFECTS-W1 item 7) — its bounds, DERIVED ----
 //
 // Step 5's `.v_pack` adds `Sine_Table[(tick >> p) & (BOB_SINE_ENTRIES-1)] >> a` to the BG
@@ -2614,6 +2639,18 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         asr.w   d2, d0
         add.w   parallax_config.pcfg_v_offset(a0), d0     // d0 = target_b
 
+        // ⚠ THIS TEST IS ALREADY DEAD AND WAS BEFORE STEP 4 — recorded here because step 4's
+        // rate clamp below would otherwise look like it had an exemption available that it
+        // does not. `Parallax_Step5_Vscroll` has exactly ONE caller, the `jbra` at the foot of
+        // Step 3's band loop, and the two instructions immediately above that `jbra` are
+        // `clr.b Parallax_Snap_Pending` and a comment. So the byte is consumed by Step 3 and
+        // this `tst.b` reads 0 on every path into this proc. Consequence: a warp or an instant
+        // install that sets the flag still snaps the BANDS (Step 3 reads it before clearing),
+        // but the whole-plane BG scroll below falls through to the CAP_TRANSITIONS test and
+        // LERPS if a transition happens to be in flight. Not fixed here — it is neither step
+        // 4's subject nor a regression step 4 introduces — but booked in DEFERRED_WORK as
+        // PARALLAX-STEP5-SNAP-DEAD, with the two candidate fixes and the reason the choice is
+        // not obvious (moving the `clr.b` past the tail call changes Step 3's contract).
         tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
         bne     .v_snap
         // CAP_TRANSITIONS span (P2 §3.3). Transition_Frames can only be nonzero
@@ -2756,8 +2793,12 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         add.w   d4, d2
     .v_bob_none:
         // ---- THE PLANE-B WINDOW CLAMP (PARALLAX-SCROLL-CLAMP) ----
-        // Bound the BG V-scroll to [0, VSCROLL_BG_MAX] — the window origins whose 224 lines
-        // lie inside one pass of the 512-line plane (derivation at VSCROLL_BG_MAX above).
+        // Bound the BG V-scroll to [0, ceiling] — where the ceiling is the current REGION's
+        // `rg_bg_span - SCREEN_HEIGHT` when the row names a span, and VSCROLL_BG_MAX when it
+        // does not (regions part 2, §4.4; `rg_bg_span == 0` means "the act default", the same
+        // convention `rg_bg_layout` uses one field along). Before part 2 the ceiling was
+        // VSCROLL_BG_MAX unconditionally — the window origins whose 224 lines lie inside one
+        // pass of the 512-line plane (derivation at VSCROLL_BG_MAX above).
         // A scene that outruns its HEIGHT x DEPTH budget now shows the BACKGROUND STICKING
         // at the top or bottom of its art: visible, obviously wrong, and attributable to the
         // v_factor/act-height pair that produced it, instead of a wrap seam that reads as a
@@ -2784,16 +2825,104 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // mechanism rather than a failure, and a word wrap is invisible there anyway
         // (65536 mod PLANE_B_SPAN == 0). Plane A is clamped on neither axis — it is the
         // STREAMED plane, a ring the world wraps through by construction.
+        //
+        // ---- (a) THE CEILING IS NOW MAP-SPACE AND REGION-DERIVED (part 2 §4.4) ----
+        //
+        // WHY IT MOVED, in the spec's own sentence: on a streamed ring there is no seam to
+        // avoid, only art to run out of. VSCROLL_BG_MAX answers "which window origins keep the
+        // 224 visible lines inside one pass of the PLANE" — a question about video memory, and
+        // the right one while the plane holds the whole background image. Once Plane B is a
+        // 64-row window onto a taller (or shorter) MAP, the question becomes "which origins
+        // keep the visible lines inside the MAP", and only the region's own row knows how tall
+        // its map is. `rg_bg_span` is that height in pixels; the legal origins are
+        // [0, rg_bg_span - SCREEN_HEIGHT] by exactly the derivation VSCROLL_BG_MAX carries
+        // above, with the map's height substituted for the plane's.
+        //
+        // THE REGION IS READ, NOT RE-RESOLVED, and that is the point of it. `Region_Current`
+        // is the Region* `Parallax_CheckBoundary` caches on every crossing, and the ordering is
+        // not a hope: on the one shipped ladder `Parallax_CheckBoundary` runs at
+        // games/sonic4/test/ojz_scroll_test.emp:1207 and `Parallax_Update` — which tail-chains
+        // into this proc — at :1382, so the pointer this reads was refreshed EARLIER IN THE
+        // SAME FRAME, against the same camera. Re-resolving here would be a fourth private
+        // answer to the one question step 3 existed to consolidate, and it would be a SLOWER
+        // one: `Region_Resolve` is a linear scan over the act's rows, per frame, for a value
+        // the crossing already computed.
+        //
+        // THE ONE STALENESS WINDOW, named rather than waved at: `Parallax_CheckBoundary` leaves
+        // `Region_Current` alone when `Region_Resolve` returns 0 (no row contains the centre),
+        // so on such a frame this reads the previous row. That is its documented robustness
+        // net — an act whose rows tile it cannot produce the case, and the act constructor
+        // proves the tiling — and the failure it yields is one frame of the neighbouring row's
+        // ceiling, which the rate clamp below bounds anyway.
+        //
+        // NULL IS THE FALLBACK AND SO IS ZERO, for different reasons and to the same place.
+        // `Region_Current` is 0 until the first crossing resolves (`Parallax_Init` clears it),
+        // and `rg_bg_span` is 0 on every row that does not author one. Both mean "use the act
+        // default", which at this pin is the plane, which is VSCROLL_BG_MAX.
+        move.w  #VSCROLL_BG_MAX, d3                 // d3 = the ceiling; act default
+        move.l  Region_Current, d0                  // (Region_Current).w — the crossing's cache
+        beq     .v_have_ceiling                     // nothing resolved yet
+        movea.l d0, a1
+        move.w  Region.rg_bg_span(a1), d0           // (Region.rg_bg_span)(a1)
+        beq     .v_have_ceiling                     // 0 = the act default
+        move.w  d0, d3
+        subi.w  #SCREEN_HEIGHT, d3                  // the map's last fully-visible origin
+    .v_have_ceiling:
         tst.w   d2
         bge     .v_clamp_hi
-        moveq   #0, d2                              // above the art — stick at the plane top
-        jbra    .v_pack_store
+        moveq   #0, d2                              // above the art — stick at the map top
+        jbra    .v_rate
     .v_clamp_hi:
-        cmpi.w  #VSCROLL_BG_MAX, d2
-        ble     .v_pack_store
-        move.w  #VSCROLL_BG_MAX, d2                 // below the art — stick at the last
-                                                    //   seam-free window origin
-    .v_pack_store:
+        cmp.w   d3, d2
+        ble     .v_rate
+        move.w  d3, d2                              // below the art — stick at the last
+                                                    //   fully-visible window origin
+    .v_rate:
+        // ---- (b) THE RATE CLAMP (part 2 §4.4) ----
+        //
+        // |new - previous| <= BG_VSCROLL_MAX_STEP, AFTER the snap-or-lerp and the bob and the
+        // position clamp, and immediately BEFORE the store — so it governs every path into
+        // this value and nothing downstream can see an unbounded step. What it buys is stated
+        // at BG_VSCROLL_MAX_STEP: it is the bound on the row streamer's per-frame work, and
+        // the engine-side replacement for asking level design to keep vertical transitions
+        // slow.
+        //
+        // CLAMP THE STEP, THEN RE-ADD, rather than clamping the destination: it is four bytes
+        // smaller, and it says what the constant means (a distance, not a position). The
+        // subtraction cannot overflow — both operands have been through the position clamp, so
+        // each is in [0, ceiling] and the difference fits a word with room to spare.
+        //
+        // A SHRINKING CEILING IS HANDLED BY CONSTRUCTION AND IS WORTH SAYING OUT LOUD. Cross
+        // into a region whose map is shorter and the previous scroll can sit ABOVE the new
+        // ceiling; the position clamp pulls the target down to it, and this then walks the
+        // stored value down 16 px a frame until it arrives. That descent is the clamp doing
+        // its job, not fighting it — the rows uncovered on the way are exactly the rows the
+        // streamer has to draw, and they arrive two at a time.
+        //
+        // WHAT IT ALSO RATE-LIMITS, AND IS NOT YET PAIRED WITH. A DEBUG warp teleports the
+        // camera; the plane is re-primed synchronously (`Section_RedrawPlanes`) but the SCROLL
+        // now ratchets to its new value at 16 px a frame — up to 18 frames of visible slide
+        // after a warp to the far end of a 512-px map. `Parallax_Snap_Pending` is the obvious
+        // exemption signal and it is NOT AVAILABLE HERE: Step 3's band loop consumes it
+        // (`clr.b Parallax_Snap_Pending`) immediately before its `jbra` into this proc, so the
+        // `tst.b` at the top of this routine already reads 0 on every path (see the note
+        // there). Rather than invent a private "this frame is a prime" flag — a second
+        // authority for a question step 6 will have a real answer to — the ratchet is left
+        // visible and booked in DEFERRED_WORK as BG-RATE-PRIME-EXEMPTION.
+        move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
+        sub.w   d0, d2                              // d2 = the step this frame wants
+        cmp.w   #BG_VSCROLL_MAX_STEP, d2
+        ble     .v_rate_lo
+        move.w  #BG_VSCROLL_MAX_STEP, d2
+        jbra    .v_rate_add
+    .v_rate_lo:
+        cmp.w   #-BG_VSCROLL_MAX_STEP, d2
+        bge     .v_rate_add
+        move.w  #-BG_VSCROLL_MAX_STEP, d2
+    .v_rate_add:
+        add.w   d0, d2                              // previous + the bounded step
+        // (`.v_pack_store` was the label here until step 4; the two branches that reached it
+        //  now stop at `.v_rate`, so the store is a plain fallthrough and the label is gone.)
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)

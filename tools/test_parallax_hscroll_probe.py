@@ -49,7 +49,11 @@ def mkcfg(tops, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
 
 class TestLayout(unittest.TestCase):
     def test_buffer_size_matches_ram_declaration(self):
-        # engine/ram.emp:277 — `Hscroll_Buffer: [u8; 896]`, 224 lines x 4 bytes.
+        # engine/ram.emp, the `Hscroll_Buffer: [u8; 896]` declaration — 224 lines x 4 bytes.
+        # RE-CITED BY NAME 2026-09-16 and it is the ninth of these: the old `:277` pointed at
+        # `Cache_Spec_Blocked`, and it was already doing so at 57b8a1c3 — this parcel's ram.emp
+        # edit is at ~565 and cannot have moved it. I had written in the step-4 note that this
+        # one 'was checked and left'; checking it properly is what found it.
         self.assertEqual(HSCROLL_BYTES, 896)
         self.assertEqual(HSCROLL_LINES * 4, HSCROLL_BYTES)
 
@@ -66,7 +70,14 @@ class TestLayout(unittest.TestCase):
 
 
 class TestShadowRotation(unittest.TestCase):
-    """Step 4a — engine/level/parallax.emp:695-778."""
+    """Step 4a — engine/level/parallax.emp, `Parallax_Step4_Fill`'s "Step 4a: WORLD-Y
+    RE-GLUE" block (the `.find_k` rotation and the plane-line rebase).
+
+    RE-CITED BY NAME 2026-09-16: the line range this carried had drifted out of the proc
+    entirely and pointed into the module's constant block. It was NOT failing the citation
+    gate — a wrong line that happens to land on code is invisible to it — which is exactly
+    why CODING_CONVENTIONS asks for the symbol name instead.
+    """
 
     def test_vs_zero_is_the_identity(self):
         # No unit conversion survives: a plane line at vs = 0 IS the screen line.
@@ -109,7 +120,8 @@ class TestShadowRotation(unittest.TestCase):
 
 
 class TestAnchorOverlay(unittest.TestCase):
-    """Step 4b — engine/level/parallax.emp:895-1001."""
+    """Step 4b — engine/level/parallax.emp, `Parallax_Step4_Fill`'s "Step 4b: world-anchored
+    deform overlay (Parcel W)" block. RE-CITED BY NAME 2026-09-16, see TestShadowRotation."""
 
     def test_split_inserts_one_band_and_overrides_the_shifts_below(self):
         # Continuing the rotation above with L = 80: the last shadow top <= 80 is 48, so k = 1,
@@ -123,7 +135,12 @@ class TestAnchorOverlay(unittest.TestCase):
         self.assertEqual(sh.dsb, [NO_DEFORM, NO_DEFORM, 2, 2, 2])
         self.assertEqual(sh.dsa, [NO_DEFORM] * 5)
         # The split entry INHERITS its parent's scroll words — the surface changes where the
-        # wave starts, not how the layer scrolls (parallax.emp:963-983).
+        # wave starts, not how the layer scrolls (engine/level/parallax.emp,
+        # `Parallax_Step4_Fill`'s Step 4b anchored split, which copies the WHOLE band record).
+        # RE-CITED BY NAME 2026-09-16: that comment's old line range in the same file
+        # (`:963-983`, spelled without the file prefix here so this note is not itself a
+        # live citation) had drifted onto the
+        # VSCROLL_COL_SHIFT / perspective-curve ensures and named nothing of the split.
         self.assertEqual(sh.scroll_a, [13, 10, 10, 11, 12])
         self.assertEqual(sh.scroll_b, [23, 20, 20, 21, 22])
 
@@ -135,7 +152,9 @@ class TestAnchorOverlay(unittest.TestCase):
 
 
 class TestAnchorResolution(unittest.TestCase):
-    """resolve_anchor_line — engine/level/parallax.emp:810-893."""
+    """resolve_anchor_line — engine/level/parallax.emp, `Parallax_Step4_Fill`'s `.anchor_*`
+    ladder inside Step 4b (the `Raster_GetChannelBand` call and the clamp around it).
+    RE-CITED BY NAME 2026-09-16, see TestShadowRotation."""
 
     def _tab(self, ch, lo, hi, count=1):
         b = bytearray(count.to_bytes(2, "big"))
@@ -151,14 +170,17 @@ class TestAnchorResolution(unittest.TestCase):
 
     def test_off_the_top_splits_at_line_zero_and_is_not_band_clamped(self):
         # L <= 0 is answered by `.anchor_top` BEFORE Raster_GetChannelBand is consulted
-        # (parallax.emp:825-838): the palette side covers the whole screen from the frame top,
+        # (engine/level/parallax.emp, the `.anchor_*` ladder in `Parallax_Step4_Fill`'s Step 4b;
+        # RE-CITED BY NAME 2026-09-16 — the old `:825-838` was already pointing at the vertical
+        # bob's constant block, not at this): the palette side covers the whole screen from the frame top,
         # so clamping here too would make the two disagree across exactly those rows.
         cfg = mkcfg([0], anchor=0)
         L, _ = resolve_anchor_line(cfg, [u16(-96), 0, 0, 0], self._tab(0, 40, 200))
         self.assertEqual(L, 0)
 
     def test_below_the_band_floor_clamps_up(self):
-        # fire lines -> screen lines is +1 on both bounds (parallax.emp:858-859).
+        # fire lines -> screen lines is +1 on both bounds (same `.anchor_*` ladder; the old
+        # `:858-859` pointed at a bob `ensure`).
         cfg = mkcfg([0], anchor=0)
         L, why = resolve_anchor_line(cfg, [20, 0, 0, 0], self._tab(0, 40, 200))
         self.assertEqual(L, 41)
@@ -216,7 +238,11 @@ class TestDeriveHscroll(unittest.TestCase):
     def test_bg_sampling_uses_phase_plus_vscroll_plus_line_mod_256(self):
         # BG index = (Parallax_Deform_Phase_BG + band_phase + Vscroll_BG + line) & $FF, sample
         # sign-extended and arithmetic-shifted right by band_deform_shift_b, added to the band's
-        # scroll word (parallax.emp:1352-1379). Table[i] = i - 128 makes the sample readable:
+        # scroll word (engine/level/parallax.emp, `Parallax_Fill_PerLine`'s BG phase base —
+        # the `add.w Parallax_Deform_Phase_BG, d2` / `add.w Parallax_Current_Vscroll_BG, d2`
+        # pair). RE-CITED BY NAME 2026-09-16: the old line range (`:1352-1379`, prefix
+        # dropped on purpose) had drifted onto
+        # Parallax_StartTransition's store-ordering note. Table[i] = i - 128 makes the sample readable:
         # at phase 10, vscroll 0, line 0 -> index 10 -> sample -118 -> >> 2 = -30 (arithmetic,
         # so it floors: -118 >> 2 == -30). Base -48 -> -78.
         tab = bytes(((i - 128) & 0xFF) for i in range(256))

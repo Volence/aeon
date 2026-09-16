@@ -98,14 +98,23 @@ pub struct Act {
 //     (Act.act_bg_layout). It inherited that convention from Sec.sec_bg_layout, which it has
 //     since REPLACED (step 3 deleted the field), and it is why act 1's ten rows compile with
 //     no change to their bindings.
-//   * rg_bg_span — the background map's HEIGHT in px, i.e. the modulus the derived BG
-//     scroll is clamped against once the row streamer exists. 0 = PLANE_B_SPAN, the
-//     plane's own height, which is what every region gets today.
+//   * rg_bg_span — the background map's HEIGHT in px, i.e. the ceiling the derived BG
+//     scroll is clamped against. 0 = PLANE_B_SPAN, the plane's own height, which is what
+//     every region gets today.
 //
-// STEP 3 GAVE rg_bg_layout ITS FIRST READER (2026-09-16): Section_RedrawPlanes resolves the
-// region under the camera CENTRE and blits that row's layout, which is what deleting
-// Sec.sec_bg_layout paid for. rg_bg_span still has none — the clamp that reads it is step 4 —
-// and that is the step boundary, not an oversight. The per-row ensures that make an author's span legal live at the
+// BOTH FIELDS NOW HAVE READERS (step 3 and step 4, 2026-09-16). rg_bg_layout:
+// Section_RedrawPlanes resolves the region under the camera CENTRE and blits that row's
+// layout, which is what deleting Sec.sec_bg_layout paid for. rg_bg_span: STEP 4 gave it its
+// first and so far only reader — Parallax_Step5_Vscroll's BG V-scroll clamp bounds the scroll
+// to [0, rg_bg_span - SCREEN_HEIGHT], falling back to VSCROLL_BG_MAX on a 0. It reaches the
+// row through Region_Current (the crossing's cache), not through a second Region_Resolve.
+//
+// ⚠ THAT READER IS LIVE BUT IT IS NOT EXERCISED BY ANY SHIPPED ROW: all ten of act 1's
+// regions (eleven in DEBUG) leave rg_bg_span at 0, so every frame takes the fallback and the
+// clamp behaves exactly as it did before step 4. The first row that authors a span is the
+// first thing that can tell the two apart. Stated here because a field with a reader nothing
+// reaches is the same shape of trap as a field with no reader at all.
+// The per-row ensures that make an author's span legal live at the
 // CALL SITE, in each act's own `ojz_region()`-style constructor, not here — a comptime
 // fn's ensures evaluate where it is called, which is what makes them live.
 //
@@ -132,9 +141,11 @@ pub struct Region (size: 22) {
                                         //       READ by engine/level/section.emp's
                                         //       Section_RedrawPlanes and by Draw_BG_TileRow
                                         //       (engine/level/plane_buffer.emp).
-    rg_bg_span:          u16 = 0,       // $14 — BG map height in px (the scroll modulus);
-                                        //       0 = PLANE_B_SPAN. No reader yet (the clamp
-                                        //       is step 4).
+    rg_bg_span:          u16 = 0,       // $14 — BG map height in px (the scroll ceiling);
+                                        //       0 = PLANE_B_SPAN. READ by
+                                        //       engine/level/parallax.emp's
+                                        //       Parallax_Step5_Vscroll (the BG V-scroll
+                                        //       clamp, step 4), through Region_Current.
 }
 // A `(size: N)` DECLARATION IS NOT CHECKED BY ANY PASS THAT WALKS DECLARED STRUCTS — it is
 // verified only inside `layout_of_struct`, i.e. only when something in the build FORCES this

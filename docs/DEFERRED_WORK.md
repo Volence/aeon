@@ -35251,3 +35251,146 @@ is ever wanted, the cheap fix is for the snap arm to clear a `Pal_Target_Valid` 
 the base into `Pal_Target` as it copies it into `Pal_Base`), costing a few bytes and making the
 field self-describing. Not done here: this parcel had no engine subject, and adding a RAM byte
 to serve a tool would be the wrong direction.
+## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4)
+
+Step 4 added `|new - Parallax_Current_Vscroll_BG| <= BG_VSCROLL_MAX_STEP` (16 px) immediately before
+the store in `Parallax_Step5_Vscroll`. It bounds the row streamer's per-frame work, which is exactly
+what the spec asks for, and it also bounds a case the spec does not discuss: a **prime**, where the
+plane's whole picture is redrawn synchronously and the scroll has no rows to stream at all.
+
+**The measured consequence — now MEASURED, not estimated (2026-09-16, BG-RATE leg W).** A DEBUG
+warp teleports the camera; `Section_RedrawPlanes` re-primes Plane B in one IRQ-masked burst; and the
+BG V-scroll then ratchets to its new value 16 px at a time. The observed case: a warp inside region
+row 1 whose derived target jump is **177 px** produced **0 → 32 on the warp tick, then nine
+consecutive ticks at exactly 16 px**, then the remaining 1 — about **11 logic ticks, ~0.18 s at
+60 Hz**, of background sliding after the picture itself is already correct. Nothing is incorrect; it
+is a cosmetic artefact in a DEBUG-only path, bounded and self-terminating. The booking STANDS, with
+a number instead of an estimate.
+
+⚠ **THE 32 ON THE WARP TICK IS NOT A CLAMP FAILURE, and the reason is worth carrying** because it
+is the shape of this whole family of artefact. A warp tick runs `Parallax_Update` **TWICE** —
+`Debug_Warp_Consume` runs at the frame top and ends with `jbsr Parallax_CheckBoundary` + `jbsr
+Parallax_Update` to prime HScroll/VSRAM, and then the same frame's body runs both again. Two
+correctly clamped 16 px stores in one tick. The arithmetic conserves exactly: 32 + 9×16 = 176, plus
+a final 1, equals the 177 the target moved — every pixel accounted for and none skipped, which a
+bypassed clamp could not produce. So the ratchet booked here is ~11 ticks and not ~18: the prime's
+own extra `Parallax_Update` buys back one step.
+
+**A consequence for whoever closes this at step 6:** an exemption keyed to "the plane is being
+rebuilt" will have to decide whether it exempts BOTH of the warp tick's invocations or only the
+consumer's. They are not the same frame of picture.
+
+**Why no exemption was built, which is the part worth carrying.** The obvious signal is
+`Parallax_Snap_Pending`, and it is **not available at this site** — see PARALLAX-STEP5-SNAP-DEAD
+below. Inventing a private "this frame is a prime" flag would have been a second authority for a
+question step 6 (the wipe) will have a real answer to, and this repo's standing lesson is that a
+second private answer to one question is how the 2026-08-26 precedence bug shipped. So the ratchet
+is left visible and named rather than papered over.
+
+**WHEN IT BITES:** step 6, when the wipe gives the engine a real "the plane is being rebuilt" state.
+At that point the exemption is one test against a flag that already means what it needs to mean.
+Until then, anyone surprised by a sliding background after a warp should read this row rather than
+suspect the streamer.
+
+**Alternative that was NOT taken and its price:** exempt on `Parallax_Transition_Frames == 0 &&
+camera moved more than N`, i.e. infer the prime from the camera delta. Rejected for the reason
+above — it is a heuristic standing in for a state the engine will shortly hold explicitly — and
+because it would make the rate clamp's behaviour depend on a threshold nobody derived.
+
+## PARALLAX-STEP5-SNAP-DEAD — `Parallax_Step5_Vscroll`'s snap test reads a byte Step 3 already cleared (found 2026-09-16, NOT introduced by step 4)
+
+`Parallax_Step5_Vscroll` opens its BG arm with `tst.b Parallax_Snap_Pending / bne .v_snap`. That
+test can never be taken. The proc has **exactly one caller** — the `jbra Parallax_Step5_Vscroll` at
+the foot of Step 3's band loop — and the instruction immediately above that `jbra` is
+`clr.b Parallax_Snap_Pending`. So the byte is consumed by Step 3 and reads 0 on every path into
+Step 5.
+
+**What that actually changes, stated rather than implied.** Step 3 DOES honour the flag: it reads it
+per band before clearing it, so a warp or an instant install still snaps the per-band scroll words.
+What is lost is the whole-plane BG scroll's snap: with `CAP_TRANSITIONS` declared (sonic4's
+`SCANLINE_CAPS` = `$0FDE` includes `$0010`), Step 5 falls through to `tst.b
+Parallax_Transition_Frames` and **lerps** if a transition happens to be in flight on the same frame
+as a camera jump. The window is narrow — a crossing and a warp on one frame — which is presumably
+why nobody has seen it.
+
+**Two candidate fixes, neither obviously right, which is why this is booked and not done:**
+1. Move `clr.b Parallax_Snap_Pending` from Step 3's tail to Step 5's `.v_snap` arm. Cheapest, but it
+   changes Step 3's documented contract ("one-shot, consumed by this Update") and puts the clear on
+   a path that also has a `.v_locked` arm not going through `.v_snap`.
+2. Have Step 3 stash the flag in a register or a second cell for Step 5. Costs a cell or a
+   convention for the sake of one branch.
+
+**Not this parcel's subject**, and it matters to step 4 only as the reason BG-RATE-PRIME-EXEMPTION
+above could not simply test the flag. Whoever takes it: the fix is worth about three instructions
+and the argument is worth more than the fix.
+
+## THE STEP-4 CLAMP'S POSITION HALF IS LIVE AND UNEXERCISED — no shipped region row authors an `rg_bg_span` (booked 2026-09-16)
+
+`Region.rg_bg_span` got its first reader in step 4: the BG V-scroll clamp bounds the scroll to
+`rg_bg_span - SCREEN_HEIGHT`, falling back to `VSCROLL_BG_MAX` on a 0. **Every region row in the
+tree leaves it at 0** — ten in act 1's release table, eleven in DEBUG — so the fallback is taken on
+every frame of every shipped act and the engine's behaviour is byte-identical to the pre-step-4
+clamp. Authoring the honest value does not help either: the map IS the plane today, so an honest
+`rg_bg_span` would be `PLANE_B_SPAN` = 512, whose ceiling is `512 - 224 = 288 = VSCROLL_BG_MAX`, the
+same number. **There is no authored value that distinguishes the two clamps until a map is a
+different height from the plane**, which is step 5/6/8's business.
+
+Consequences, both of which are already acted on:
+* `tools/bg_vscroll_rate_witness.py`'s legs C/D/W would pass identically with the position change
+  reverted — and so would its A3, which models the clamp but is only exercised where the clamp
+  would act. The witness says so in its own header and prints it on every run; a run without
+  leg S now exits 2 with the words "NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN
+  THIS TREE CAN".
+* Leg S is that discriminator, and it works by **patching `rg_bg_span` in a COPY OF THE ROM ON
+  DISK** and booting that in its own emulator instance.
+
+### ⚠ RE-DERIVED 2026-09-16 — THE LIVE POKE IS REFUSED, so the argument that rejected the
+### alternative had to be rebuilt rather than carried forward
+
+This row originally said leg S "pokes a row's `rg_bg_span` in the emulator's ROM image" and
+rejected the DEBUG-extra-region alternative on the grounds that the poke was free. **Measured on
+the first live run: the Rust core refuses it.** `[-32004] 0x00018AC8: only the work-RAM window
+($E00000-$FFFFFF) is writable; ROM and I/O writes are refused`. The mechanism the rejection
+rested on does not exist, so the arithmetic built on it is void — keeping the "we don't need the
+alternative" half of an argument whose other half has died is exactly the move this tree has a
+standing rule against.
+
+**Three routes, re-costed from scratch:**
+
+| route | cost | what it buys |
+|---|---|---|
+| **A. live `write_memory` poke** | — | **IMPOSSIBLE.** Refused by the core by design, not a bug to work around. |
+| **B. DEBUG-only extra region row with a non-zero span** | +22 B in the DEBUG act table, `act_region_count` +1, the act's tiling proof re-cut around a new rectangle, a test fixture baked permanently into game data, and it can only ever test the DEBUG shape | a discriminator, in DEBUG only |
+| **C. patch a ROM COPY on disk and boot it** | ~30 lines in the witness, one extra headless boot, zero ROM bytes, zero act edits | a discriminator on **any** shape and **any** row, including release-shape rows that route B cannot reach |
+
+**C is the METHOD, not a workaround and not the fallback we settled for** (owner correction,
+2026-09-16). It is cheaper on every axis AND the evidence is strictly stronger:
+`AetherInstance.start()` already byte-compares the WHOLE 4 MB cart against the file on every
+spawn (`assert_cart_matches_disk`, `CART_WINDOW = 0x400000`), so the patched word is proven
+present in the emulator's cart by a full-image comparison — where the live poke would have had a
+single-word readback. Two blockers were checked and are clear: this ROM does not verify its own
+header checksum at boot (the `Checksum` word at `$18E` has no engine reader), and the spawn
+check compares against the path passed in, not a canonical name. The patch site's ROM address is
+its file offset, which is proven by the witness's own static table read rather than assumed, and
+`tools/test_bg_vscroll_rate_aim.py` exercises that arithmetic with no emulator at all.
+
+**AND MY ORIGINAL COST ARGUMENT AGAINST ROUTE B WAS PARTLY WRONG, which is worth recording
+because it nearly survived on the strength of a conclusion that happened to be right.** It said
+route B "would make the DEBUG and release tables differ in a way every other region gate would
+have to be taught about". The DEBUG table **already** differs — `OJZ_E2_SNAP_ROWS` adds an
+eleventh row in DEBUG only — and every region gate already reads the table out of the ROM it is
+given and copes. That cost was largely imaginary. Route B's real costs are the three in the
+table above (a permanent fixture in game data, a re-cut tiling proof, and DEBUG-only reach), and
+they are enough on their own; the one I leaned on was not.
+
+**Route B stays booked, not dead** — but as a contingency, not as the thing C stands in for. It
+becomes the answer only if route C ever stops working: an emulator that refuses an arbitrary ROM
+path, a provenance gate that rejects an unrecognised image, or a boot-time checksum appearing in
+this ROM. Nothing about C reads as a compromise: a full-image cart comparison on every spawn is
+better evidence than a single-word readback, and patching a copy generalises to any shape and any
+row, including release-shape rows a DEBUG-only extra region could never reach. Whoever writes
+about this next: do not call it a workaround.
+
+**WHEN IT CLOSES:** the first act (or the first mega-act section, per the tech-demo goal) whose
+background map is not 512 px tall. At that point the span stops being a sentinel everywhere and the
+clamp's two halves become distinguishable in ordinary play.
