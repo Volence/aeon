@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""test_capture_settle — the offline half of the night-settle capture: prove that a frame
+cannot be NAMED settled unless the predicate said so from a live read, and prove it on the
+real case rather than on a hypothetical.
+
+THE REAL CASE IS `t5-f272-settled.png` (docs/captures/2026-09-13-regions-p2-night/). It was
+named by hand, it is mid-fade (45.9% of its pixels decode to neither palette —
+docs/superpowers/notes/2026-09-16-night-palette-mechanism.md), and the refutation was in the
+capture set's OWN table one column over: `Pal_Fade_Frames` = 11.
+
+So the rows below are not invented. `old_set_rows()` PARSES that README's table, and the
+first two tests run its recorded state through the shipped predicate. If someone edits that
+table these tests re-read it; if someone removes it they go red naming it. The point is not
+that a made-up row with a non-zero counter is refused — it is that THE ROW THAT WAS ACTUALLY
+MISNAMED is refused, by the same function the capture tool names frames with.
+
+WHAT THE OFFLINE HALF CANNOT DO, said here rather than in a report nobody re-reads: it
+never touches an emulator, so it proves the PREDICATE and the NAMING, not the reads that
+feed them. That a live `Pal_Fade_Frames` read lands on the right address, that CRAM comes
+back 48 words, that the screenshot is the frame the header says it is -- none of that is
+here. tools/night_settle_capture.py's own refusals are what carry those, and they can only
+be exercised in a foreground run against a real Oracle.
+"""
+from __future__ import annotations
+
+import itertools
+import os
+import re
+import shutil
+import sys
+
+import pytest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+AEON = os.path.dirname(HERE)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import capture_settle as cs  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+OLD_SET = os.path.join(AEON, "docs", "captures", "2026-09-13-regions-p2-night", "README.md")
+
+#: A day palette and its night transform, 48 words apiece, built by the recipe
+#: games/sonic4/data/effects/ojz_effects.emp states above OJZ_Palette_Night: red -3,
+#: green -2, blue 0, each channel clamped to 0..7. Any two distinct palettes would do for
+#: the mechanics; these are the real pair's arithmetic so the distances are the real ones.
+def _mk(word_r, word_g, word_b):
+    return (word_b << 9) | (word_g << 5) | (word_r << 1)
+
+
+DAY = [_mk((i * 5) % 8, (i * 3) % 8, (i * 7) % 8) for i in range(48)]
+NIGHT = [_mk(max(0, ((i * 5) % 8) - 3), max(0, ((i * 3) % 8) - 2), (i * 7) % 8)
+         for i in range(48)]
+
+
+def facts():
+    return cs.derive_engine_facts(Path(AEON))
+
+
+def row(**kw):
+    """A fully-measured, fully-settled row on the NIGHT palette, with overrides."""
+    base = dict(k=0, tick=100, centre_x=3488, row=9, dtick=1, lag=0,
+                fade_frames=0, fade_request=0, pal_active=0, pal_op=0, pal_cycle_script=0,
+                buffer=list(NIGHT), target=list(NIGHT), cram=list(NIGHT))
+    base.update(kw)
+    return base
+
+
+def settled_series(n=8, **kw):
+    return [row(tick=100 + i, k=i, **kw) for i in range(n)]
+
+
+# ------------------------------------------------------------------ the derivation
+
+def test_n_is_three_and_carries_its_derivation():
+    f = facts()
+    assert f.stable_ticks == (cs.COMPOSE_TO_CRAM_TICKS + cs.CRAM_TO_CAPTURED_FRAME_TICKS + 1)
+    assert f.stable_ticks == 3
+    assert f.chan_mask == 0x0EEE, "the mask must come from Palette_DoFade's own arrival test"
+    # every term of N names where it came from
+    joined = " ".join(c[1] for c in f.citations)
+    for src in ("game_loop.emp", "vblank.emp", "palette.emp"):
+        assert src in joined, f"N's derivation does not cite {src}"
+
+
+@pytest.mark.parametrize("rel,old,new,what", [
+    ("engine/system/game_loop.emp", "jbsr    Palette_Compose", "jbsr    Palette_Composed",
+     "the compose call GameLoop's ordering term is read from"),
+    ("engine/system/vblank.emp", "jbsr    Enqueue_Dirty_Buffers", "jbsr    Enqueue_Dirty_Buffer",
+     "the VBlank enqueue the compose->CRAM latency is read from"),
+    ("engine/effects/palette.emp", "jbsr    Palette_DoCycle", "jbsr    Palette_DoCycling",
+     "the cycling layer the `layer` clause enumerates"),
+    ("engine/effects/palette.emp", "beq   .arrived", "beq   .got_there",
+     "Palette_DoFade's arrival test the `$0EEE` mask is read from"),
+])
+def test_the_derivation_refuses_when_its_source_moves(tmp_path, rel, old, new, what):
+    """N may not outlive the engine ordering it is derived from. Proven by MUTATING that
+    ordering on disk (in a copy: the committed tree is never written) and watching the
+    derivation refuse rather than return a stale 3."""
+    for f in ("engine/system/game_loop.emp", "engine/system/vblank.emp",
+              "engine/effects/palette.emp"):
+        dst = tmp_path / f
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(os.path.join(AEON, f), dst)
+    assert cs.derive_engine_facts(tmp_path).stable_ticks == 3, "the copy must derive first"
+
+    target = tmp_path / rel
+    text = target.read_text()
+    assert old in text, f"{rel} no longer contains {old!r} — re-derive this mutation"
+    target.write_text(text.replace(old, new))   # EVERY occurrence: one left behind
+                                            # would leave the derivation green
+    with pytest.raises(cs.DerivationError):
+        cs.derive_engine_facts(tmp_path)
+
+
+# ------------------------------------------------------------------ the real case
+
+def old_set_rows():
+    """The 2026-09-13 capture set's own table, parsed out of its README.
+
+    Columns: file | frame | centre x | Pal_Fade_Frames | CRAM 1:2 | prose."""
+    text = Path(OLD_SET).read_text()
+    out = []
+    for m in re.finditer(r"^\|\s*`(t5-[^`]+\.png)`\s*\|\s*(\d+)\s*\|\s*~?(\d+)\s*\|"
+                         r"\s*(\d+)\s*\|\s*`\$([0-9A-Fa-f]{4})`\s*\|", text, re.M):
+        out.append({"png": m.group(1), "frame": int(m.group(2)), "centre_x": int(m.group(3)),
+                    "fade_frames": int(m.group(4)), "tracer": int(m.group(5), 16)})
+    assert out, f"no state table parsed out of {OLD_SET} — the case these tests are about is gone"
+    return out
+
+
+def test_the_misnamed_frame_is_named_fading_by_this_tool():
+    """THE PROPERTY, on the frame that actually carried the wrong word.
+
+    The tool is given exactly what the 2026-09-13 set recorded for that frame, and asked for
+    a filename. It must not be able to produce one containing `settled`."""
+    rows = old_set_rows()
+    f272 = next((r for r in rows if r["png"] == "t5-f272-settled.png"), None)
+    assert f272 is not None, "t5-f272-settled.png is no longer in the old set's table"
+    assert f272["fade_frames"] == 11, "the README's own counter column has changed"
+
+    live = row(k=5, tick=f272["frame"], centre_x=f272["centre_x"], row=9,
+               fade_frames=f272["fade_frames"])
+    v = cs.assess([live], facts())
+    assert not v.settled
+    assert v.word == "fading"
+    assert "Pal_Fade_Frames = 11" in " ".join(v.reasons)
+
+    name = cs.frame_name("in", live, v)
+    assert cs.SETTLED_WORD not in name, name
+    assert name == "in-k+005-t00272-cx3488-r09-pf11-fading.png", name
+
+
+def test_the_old_sets_table_cannot_support_a_settled_claim_for_any_row():
+    """Not one row of that table is enough to call a frame settled -- the refutation for
+    f272, and for the rest the fact that the hand method never took the reads the predicate
+    needs. A tracer entry and a counter are not a palette."""
+    f = facts()
+    verdicts = {}
+    for r in old_set_rows():
+        # everything the hand method recorded, and nothing it did not
+        live = {"k": 0, "tick": r["frame"], "centre_x": r["centre_x"], "row": None,
+                "fade_frames": r["fade_frames"]}
+        verdicts[r["png"]] = cs.assess([live], f)
+    assert verdicts, "the table parsed empty"
+    for png, v in verdicts.items():
+        assert not v.settled, f"{png} was called settled from the hand table's columns"
+        assert v.word != cs.SETTLED_WORD, png
+    # f272 is REFUSED on the evidence present; the others are UNDECIDABLE for want of reads
+    assert verdicts["t5-f272-settled.png"].decided is True
+    assert verdicts["t5-f272-settled.png"].word == "fading"
+    undecided = [p for p, v in verdicts.items() if not v.decided]
+    assert "t5-f312-sec4096.png" in undecided, (
+        "a row whose counter is 0 but whose only palette evidence is ONE tracer entry must "
+        "be UNDECIDABLE, not settled: Palette_DoFade steps all 48 words and a near word "
+        "arrives early")
+
+
+def test_the_tracer_entry_reaching_night_is_not_the_palette_arriving():
+    """The exact mistake, isolated: counter 0, tracer on its night value, 47 other words
+    still short. The predicate must refuse, and it must refuse on the PALETTE, not on the
+    counter -- clause 1 passes here."""
+    mid = list(DAY)
+    mid[16 + 2] = NIGHT[16 + 2]          # CRAM line 1 entry 2, the 2026-09-13 tracer
+    r = row(buffer=mid, cram=mid, target=list(NIGHT))
+    v = cs.assess([r], facts())
+    assert not v.settled
+    assert v.word == "buf", v.reasons
+    assert "differ from Pal_Target" in " ".join(v.reasons)
+
+
+# ------------------------------------------------------------------ the clauses
+
+def test_a_snap_cancelled_fade_reads_zero_and_is_still_not_settled():
+    """Palette_LoadPal's snap arm clears the count. A frame one tick later reads 0 with the
+    buffer nowhere near the cancelled fade's target -- `Pal_Fade_Frames == 0` alone would
+    call that settled."""
+    v = cs.assess([row(fade_frames=0, buffer=list(DAY), cram=list(DAY), target=list(NIGHT))],
+                  facts())
+    assert v.word == "buf" and not v.settled
+
+
+def test_an_armed_request_is_not_settled():
+    assert cs.assess([row(fade_request=1)], facts()).word == "armed"
+
+
+@pytest.mark.parametrize("kw,word", [
+    ({"pal_op": 2}, "layer"),
+    ({"pal_cycle_script": 0x00120034}, "layer"),
+    ({"pal_active": 0b00010}, "layer"),       # PAL_ACT_CYCLE
+])
+def test_another_palette_layer_moving_is_not_settled(kw, word):
+    """Pal_Fade_Frames == 0 settles ONE of the four layers Palette_Compose runs."""
+    series = settled_series(4)
+    series[-1].update(kw)
+    assert cs.assess(series, facts()).word == word
+
+
+def test_a_variant_derive_alone_does_not_block_settling():
+    """PAL_ACT_VARIANT derives into Pal_Variant_Stage, not into lines 1-3, so it is
+    deliberately NOT in the moving set. If it ever starts writing the buffer this row is
+    where the decision was made."""
+    f = facts()
+    assert not (f.moving_bits & 0b10000)
+    series = settled_series(4)
+    for s in series:
+        s["pal_active"] = 0b10000
+    assert cs.assess(series, f).settled
+
+
+def test_cram_behind_the_buffer_is_not_settled():
+    """The compose landed; the VBlank DMA has not. One tick of latency, and the picture is
+    still the old palette."""
+    v = cs.assess([row(buffer=list(NIGHT), target=list(NIGHT), cram=list(DAY))], facts())
+    assert v.word == "cram" and not v.settled
+
+
+def test_the_derived_number_of_stable_ticks_is_enforced():
+    f = facts()
+    for n in range(1, f.stable_ticks):
+        v = cs.assess(settled_series(n), f)
+        assert not v.settled, f"{n} stable sample(s) must not settle; N = {f.stable_ticks}"
+        assert v.word == "hold"
+    v = cs.assess(settled_series(f.stable_ticks), f)
+    assert v.settled and v.word == cs.SETTLED_WORD
+    assert v.stable_run == f.stable_ticks
+
+
+def test_a_cram_change_inside_the_window_restarts_the_run():
+    f = facts()
+    series = settled_series(f.stable_ticks)
+    moved = list(NIGHT)
+    moved[0] ^= 0x0002
+    series[-2]["cram"] = moved
+    v = cs.assess(series, f)
+    assert not v.settled and v.word == "hold" and v.stable_run == 1
+
+
+def test_a_lag_tick_inside_the_window_refuses():
+    f = facts()
+    series = settled_series(f.stable_ticks + 1)
+    series[-1]["lag"] = 1
+    v = cs.assess(series, f)
+    assert not v.settled and v.word == "lag"
+    series = settled_series(f.stable_ticks + 1)
+    series[-1]["dtick"] = 2
+    assert cs.assess(series, f).word == "lag"
+
+
+# ------------------------------------------------------------------ the naming property
+
+def _grid_verdict(f, kw):
+    series = settled_series(f.stable_ticks)
+    for s in series:
+        s.update(kw)
+    return cs.assess(series, f)
+
+
+def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_settled():
+    """The property, over a grid rather than over examples: for every combination of the
+    clause inputs, the produced NAME contains `settled` exactly when assess() settled."""
+    f = facts()
+    axes = {
+        "fade_frames": [0, 1, 11],
+        "fade_request": [0, 1],
+        "pal_op": [0, 3],
+        "pal_cycle_script": [0, 0x1234],
+        "buffer": [list(NIGHT), list(DAY)],
+        "cram": [list(NIGHT), list(DAY)],
+    }
+    keys = list(axes)
+    n = 0
+    for combo in itertools.product(*(axes[k] for k in keys)):
+        kw = dict(zip(keys, combo))
+        series = settled_series(f.stable_ticks)
+        for s in series:
+            s.update(kw)
+        v = cs.assess(series, f)
+        name = cs.frame_name("in", series[-1], v)
+        assert (cs.SETTLED_WORD in name) == v.settled, (kw, v.word, name)
+        n += 1
+    assert n == 96, n
+    # NOT VACUOUS IN EITHER DIRECTION. A grid whose every cell refuses would pass the
+    # assertion above while proving nothing, so the two arms are counted.
+    settled = sum(1 for combo in itertools.product(*(axes[k] for k in keys))
+                  if _grid_verdict(f, dict(zip(keys, combo))).settled)
+    assert settled == 1, settled          # exactly the all-night, all-quiet corner
+    assert n - settled == 95
+
+
+def test_frame_name_refuses_a_forged_settled_verdict():
+    forged = cs.Verdict(cs.SETTLED_WORD, settled=False, decided=True)
+    with pytest.raises(ValueError, match="refusing to name"):
+        cs.frame_name("in", row(), forged)
+
+
+def test_frame_name_refuses_a_row_missing_the_state_it_names():
+    v = cs.assess(settled_series(3), facts())
+    for missing in ("k", "tick", "centre_x", "fade_frames"):
+        r = row()
+        r[missing] = None
+        with pytest.raises(ValueError, match=missing):
+            cs.frame_name("in", r, v)
+
+
+def test_settled_is_not_a_substring_of_any_refusal_word():
+    """`unsettled` would have been -- and a glob for `*settled*` would then have swept up
+    exactly the frames this whole exercise exists to keep out of an evidence base."""
+    f = facts()
+    words = set()
+    for kw in ({"fade_frames": 9}, {"fade_request": 1}, {"pal_op": 1},
+               {"buffer": list(DAY)}, {"cram": list(DAY)}):
+        series = settled_series(f.stable_ticks)
+        for s in series:
+            s.update(kw)
+        words.add(cs.assess(series, f).word)
+    words.add(cs.assess([{"tick": 1}], f).word)                       # unknown
+    words.add(cs.assess(settled_series(1), f).word)                   # hold
+    s = settled_series(f.stable_ticks)
+    s[-1]["dtick"] = 3
+    words.add(cs.assess(s, f).word)                                   # lag
+    assert len(words) >= 6, words
+    for w in words:
+        assert cs.SETTLED_WORD not in w, w
+        assert w not in cs.SETTLED_WORD, w
+
+
+def test_an_unmeasured_row_is_unknown_and_never_green():
+    v = cs.assess([{"tick": 4, "k": 0, "centre_x": 0, "fade_frames": None}], facts())
+    assert v.word == cs.UNKNOWN_WORD
+    assert not v.settled and not v.decided
+    assert "carries no fade_frames" in " ".join(v.reasons)
