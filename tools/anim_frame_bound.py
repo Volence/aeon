@@ -25,10 +25,24 @@ A table of N frames has valid indices 0..N-1, so the bound is
 
 Six of the ten tables shipped today sit at margin ZERO because their last frame
 is legitimately used (dust charge 6/7, dust puff 3/4, particle 2/3, sparkle 3/4,
-spring 2/3, insta-shield 7/8). Written `<=` this gate would be green on a real
+spring 5/6, insta-shield 7/8). Written `<=` this gate would be green on a real
 overrun; written `<` on a wrongly-derived maximum it would be red on correct
 assets. `--selftest` proves BOTH directions per table: the shipped last frame
 stays green, and that frame plus one goes red.
+
+    SPRING CORRECTED 2026-09-16, from this tool's own output rather than from
+    source: it read `spring 2/3`, and a real run reports `Ani_Spring` script
+    `$05` against 6 frames -- 5/6. The row predates the 2026-09-07 side-spring
+    sheet, which took the table from three entries to four. Run:
+    `anim_frame_bound.py --lst s4.lst --rom s4.bin`, exit 0, on the release
+    artifacts of aeon `cdf438bd`.
+
+    `particle 2/3` in that same list is NOT re-derived and is left alone:
+    `Ani_Particle` ships only in `s4.debug` and this tool reports it as
+    DECLARED-and-absent on the release image, so the run above is silent about
+    it. Deliberately not "fixed" to match its neighbour -- a figure that merely
+    keeps bad company is not thereby wrong, and the whole reason this docstring
+    drifted is that nobody re-derived the one that was.
 
 WHY IT READS THE BUILT ROM AND NOT THE SOURCE
 ---------------------------------------------
