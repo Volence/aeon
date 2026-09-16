@@ -34874,3 +34874,37 @@ diagnostic, in a compiler that since `6a8b3ecd` refuses cross-class `==` precise
 class of permanently-vacuous guard. It is the §12 "always GREEN" sign, unrefused, in a spelling
 an author would reach for first. Reported to the sigil lane; recorded here because the next
 author to read §4.2 will try exactly that line.
+
+## REGIONS-VERTICAL-CROSSING-ON-LANDING (booked 2026-09-16, from the E2 capture set)
+
+**A region crossing that nobody designed, in a capture set built to show one.** The E2 set
+(`docs/captures/2026-09-15-regions-p2-e2/`) was run as a single hold of RIGHT through the fade
+edge at x 3400 and the snap edge at x 5600. Its frames `06` and `07` are in a THIRD region, and
+the crossing that took them there is VERTICAL: leaving free flight drops the camera out of the
+night region's y band.
+
+**Measured**, on `s4.debug.bin` at aeon `675ff528`, reading `Region_Cur_*` out of RAM either
+side rather than reading the pictures:
+
+| | resolved region | camera |
+|---|---|---|
+| free flight, warped to (5700, 1000) | x 5600..6143, y **0..2047** (the E2 snap row) | y 1000 |
+| after B, fall and land | x 4096..6143, y **2048..4095** (section 5's row) | x 5540, **y 3034** |
+
+**Why it is booked rather than fixed.** Nothing is wrong today: no region streams, both regions
+share one tile set, and the only visible consequence is a palette and scenery change that is
+correct for the region the camera is actually in.
+
+**Why it stops being free at step 6.** The row wipe creates the half-redrawn condition, and §4.3
+specifies a sweep that walks from the **entry side**. A fall enters from ABOVE with no horizontal
+travel at all, so "entry side" has to have a vertical answer, and the 4.4 rate clamp has to bound
+a descent that is not a walk. `CAM_MAX_Y_STEP` is 16 px/frame and DEBUG free flight moves at
+exactly that, so the fastest vertical entry is already at the clamp's ceiling.
+
+**What to do with it:** §3 reserves a second, shorter look for the step-6 transient. That look
+should cover a FALL as well as a walk, and this booking exists so the person arranging it does
+not have to rediscover that a vertical crossing is reachable. Nothing here blocks steps 3 to 5.
+
+**Provenance worth keeping:** the hub's reader flagged frame `06` as possibly a mid-load capture
+— a defect that would have been real and serious. It was not one, and chasing it down is what
+surfaced the vertical crossing. The capture README's caption was wrong and is corrected there.
