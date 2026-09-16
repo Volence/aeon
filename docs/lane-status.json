@@ -1,6 +1,12 @@
 {
-  "focus": "The design for streaming backgrounds between zones is drafted and waiting for your review. Nothing is built.",
-  "inFlight": [],
+  "focus": "The background-switching design is rewritten around your rulings. A Fable agent is reviewing whether we're on track.",
+  "inFlight": [
+    {
+      "what": "An independent Fable review of the region background-switching design, checking whether the decisions are sound",
+      "where": "read-only review",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. The research and the draft are committed; nothing is running and nothing is half-applied.",
+  "nextBoundary": "When the Fable review returns and I bring you its findings. Nothing is being built.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Backgrounds must stream like the foreground does, for Sonic 2 or 3 in one act. A design already exists from 08-08 and today's crossing repaint is half of it; a real Sonic 2 zone's art alone is about as big as the whole foreground pool",
-      "state": "next",
+      "title": "Region backgrounds switch by full overwrite (blank, overwrite, repaint), so every region gets the whole background block. Direction ruled by you; under Fable review before any planning",
+      "state": "doing",
       "size": "L",
       "blockedBy": null
     },
@@ -53,7 +59,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "whether to run the design-draft audit before planning, now that your four calls are in. Also still yours: the spring sound A/B from 09-09.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T19:35:12Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T20:15:37Z"
 }
