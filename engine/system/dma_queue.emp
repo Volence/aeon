@@ -570,6 +570,65 @@ pub proc DMA_Deferrable_DestPending (d1: u16, d2: u16) clobbers(d0/a0-a1) out(ze
         rts
 }
 
+// -----------------------------------------------
+// DMA_Deferrable_DropDest — remove every queued Deferrable entry whose destination is in
+// [d1, d2), keeping every other entry, in order.
+//
+// In:  d1.w = first VRAM byte of the range, d2.w = one past its last byte (both unsigned)
+// Out: none (DMA_Deferrable_Slot rewritten)
+// Clobbers: d0, a0-a2
+//
+// THE CALLER HOLDS THE INTERRUPT MASK: this compacts the queue the VBlank drain also compacts.
+//
+// The synchronous Plane B path (engine/level/section.emp, Section_RedrawPlanes) uses it to cancel
+// an asynchronous tile overwrite without dropping anything else (plan C9, as amended after the
+// controller review). A whole-queue reset would also drop ACCEPTED object DPLC entries
+// (Perform_DPLC_Deferrable commits `prev_frame` on acceptance and does not re-send that frame
+// until the animation moves on, so the insta-shield or the spindash dust would show stale tiles)
+// and an accepted waterline entry (Waterline_Art_LastRow is committed on acceptance too). Only
+// the arena's writes go: overwrite chunks, and any BgAnim band DMA, which re-sends once
+// BgAnim_LastStep is invalidated. Kept entries are copied whole (the register marker bytes
+// included), the same shape Drain_Budgeted_Queue's compaction uses.
+// -----------------------------------------------
+pub proc DMA_Deferrable_DropDest (d1: u16, d2: u16) clobbers(d0/a0-a2) {
+        if DEBUG == 1 {
+            move.w  sr, d0
+            andi.w  #$0700, d0
+            assert.w d0, hs, #$0600     // IPL >= 6: the VBlank drain cannot compact under us
+        }
+        lea     DMA_Deferrable, a0              // (DMA_Deferrable).w — read cursor
+        movea.l a0, a2                          // write cursor
+        movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w — first free
+    .walk:
+        cmpa.l  a1, a0
+        bhs     .end
+        dma_entry_dest(a0)
+        cmp.w   d1, d0
+        blo     .keep
+        cmp.w   d2, d0
+        blo     .drop
+    .keep:
+        cmpa.l  a0, a2
+        beq     .same
+        move.l  (a0)+, (a2)+
+        move.l  (a0)+, (a2)+
+        move.l  (a0)+, (a2)+
+        move.w  (a0)+, (a2)+
+        jbra    .walk
+    .same:
+        lea     sizeof(DMAEntry)(a0), a0
+        lea     sizeof(DMAEntry)(a2), a2
+        jbra    .walk
+    .drop:
+        lea     sizeof(DMAEntry)(a0), a0
+        jbra    .walk
+    .end:
+        move.w  a2, DMA_Deferrable_Slot         // (DMA_Deferrable_Slot).w
+        rts
+}
+ensure(sizeof(DMAEntry) == 3 * 4 + 2,
+       "engine/system/dma_queue.emp: DMA_Deferrable_DropDest copies a kept entry as three move.l and one move.w (14 bytes); DMAEntry is now {sizeof(DMAEntry)} bytes")
+
 // THE QUEUE'S RAM GEOMETRY (lens-sweep C2a-5, 2026-09-06). engine/ram.emp lays the
 // three sub-queues out between the DMA_Queue / DMA_Queue_End marks, and four routines
 // in two files read that layout as a fact: Init_DMA_Queue pre-fills the VDP register

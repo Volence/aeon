@@ -518,15 +518,21 @@ async def leg_transport(rig, F, K, fails):
     check_transport(samples, i_in, F, K, "TRANSPORT", fails, slack=0)
 
 
-async def leg_traffic(rig, F, K, fails):
-    sym = rig.sym
-    cmd_sat = await rd(rig.b, sym["Static_Sprite_DMA"] + K.DMA_ENTRY["Command"], 4)
+async def synthetic_cmd_base(rig, K, tag):
+    """The VRAM-DMA command with its address bits cleared, derived from the booted machine's own
+    static SAT entry. READ AFTER A BOOT: before one, that RAM holds whatever the previous run left
+    (measured: $BDC96A93 read before a boot, $78000082 after), which once produced synthetic
+    entries addressed to the wrong tile."""
+    cmd_sat = await rd(rig.b, rig.sym["Static_Sprite_DMA"] + K.DMA_ENTRY["Command"], 4)
     sat = _const("engine/system/constants.emp", "VRAM_SPRITE_TABLE")
     if vdp_addr(cmd_sat) != sat:
-        raise GateError(f"TRAFFIC: Static_Sprite_DMA's command decodes to "
+        raise GateError(f"{tag}: Static_Sprite_DMA's command decodes to "
                         f"${vdp_addr(cmd_sat):04X}, not VRAM_SPRITE_TABLE ${sat:04X}; the "
                         f"synthetic entry's command cannot be derived from it")
-    cmd_base = cmd_sat ^ vdp_delta(sat)
+    return cmd_sat ^ vdp_delta(sat)
+
+
+async def leg_traffic(rig, F, K, fails):
     dest = K.FREE_TILE * 32
     src = F.S["bg_tiles"] + 2 + 32                   # an even ROM address with real art
     want = F.S_tiles[32:64]
@@ -535,6 +541,7 @@ async def leg_traffic(rig, F, K, fails):
     await rig.boot((F.left_centre[0], F.left_centre[1]))
     for _ in range(4):
         await rig.tick()
+    cmd_base = await synthetic_cmd_base(rig, K, "TRAFFIC")
     before = await read_vram(rig.b, dest, 32)
     if before == want:
         raise GateError(f"TRAFFIC: free tile {K.FREE_TILE} already holds the synthetic "
@@ -949,7 +956,82 @@ async def leg_poison(rig, F, K, fails):
           f"{st['left']} (cursor the tick before: {samples[st['left'] - 1]['cursor']}), settled at {st['settled']}")
 
 
-LEGS = {"boot": leg_boot, "warp": leg_warp, "transport": leg_transport,
+async def leg_warp_mid(rig, F, K, fails):
+    """a_warp_during_an_overwrite_leaves_vram_holding_the_warp_targets_tiles_and_keeps_other_entries
+
+    Cross into the subject with the window starved (a subject chunk held in the queue), append one
+    synthetic NON-arena Deferrable entry (TRAFFIC's producer), warp to the act-default neighbour,
+    then release the window. After the warp: the synthetic entry is still queued; after release it
+    lands on the free tile; the arena ends holding the act's FULL tile blob (a held subject chunk
+    landing after the synchronous copy would break it) and the trackers agree."""
+    sym = rig.sym
+    dest = K.FREE_TILE * 32
+    src = F.S["bg_tiles"] + 2 + 64                   # a different 32 B than TRAFFIC's control
+    want = F.S_tiles[64:96]
+    addr = sym["DMA_Budget_Default"]
+    run_up = 8 * K.FLY
+    await rig.boot((F.S["x0"] - run_up, F.centre[1]))
+    for _ in range(4):
+        await rig.tick()
+    cmd_base = await synthetic_cmd_base(rig, K, "WARP_MID")
+    if await read_vram(rig.b, dest, 32) == want:
+        raise GateError("WARP_MID: the free tile already holds the synthetic source bytes")
+    saved = await rd(rig.b, addr, 2)
+    await rig.hold("right")
+    inside = False
+    for i in range(80):
+        s = await sample_ow(rig, F, K, with_arena=False)
+        if s["region"] == F.S["addr"] and s["offset"] >= 2 * K.CHUNK and not inside:
+            inside = True
+            await rig.hold(None)
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+                                                      "width": 2})
+            await rig.tick()
+            await rig.tick()
+            break
+        await rig.tick()
+    await rig.hold(None)
+    if not inside:
+        raise GateError("WARP_MID: never reached two chunks inside the subject row")
+    s = await sample_ow(rig, F, K, with_arena=False)
+    if not s["arena_entries"]:
+        raise GateError("WARP_MID: no subject chunk is held in the queue before the warp; the leg "
+                        "cannot tell a cancelled overwrite from a finished one")
+    if not await rig.append_synthetic(src, dest, cmd_base):
+        raise GateError("WARP_MID: the Deferrable queue was full")
+    before = await rig.queue()
+    await rig.warp(F.left_centre)
+    after = await sample_ow(rig, F, K, with_arena=False)
+    kept = [e for e in after["queue"] if e[0] == dest]
+    if not kept:
+        fails.append(f"WARP_MID: the synthetic non-arena entry (dest ${dest:04X}) is gone from the "
+                     f"queue after the warp; the cancel dropped an entry that does not write the "
+                     f"BG arena (queue before {[hex(e[0]) for e in before]}, after "
+                     f"{[hex(e[0]) for e in after['queue']]})")
+    if after["arena_entries"]:
+        fails.append(f"WARP_MID: {len(after['arena_entries'])} arena write(s) still queued after "
+                     f"the warp's synchronous copy")
+    if after["target"] or after["current"] != F.act_tiles_ptr:
+        fails.append(f"WARP_MID: after the warp target=${after['target']:06X} "
+                     f"current=${after['current']:06X}; want 0 and the act's blob")
+    await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": saved, "width": 2})
+    for _ in range(-(-len(F.S_tiles) // K.CHUNK) + 4):
+        await rig.tick()
+    arena = await read_vram(rig.b, K.BG_TILE_BASE_VRAM, len(F.A_tiles))
+    if arena != F.A_tiles:
+        bad = sum(1 for i in range(0, len(F.A_tiles), 32) if arena[i:i + 32] != F.A_tiles[i:i + 32])
+        fails.append(f"WARP_MID: after the window was released {bad} of {len(F.A_tiles) // 32} arena "
+                     f"tiles differ from the act's blob — a held subject chunk landed after the "
+                     f"warp's synchronous copy")
+    landed = await read_vram(rig.b, dest, 32)
+    if kept and landed != want:
+        fails.append("WARP_MID: the kept synthetic entry never landed on the free tile")
+    print(f"  WARP_MID: {len(s['arena_entries'])} subject chunk(s) held at the warp; after it "
+          f"{len(after['arena_entries'])} arena write(s) and {len(kept)} synthetic entry kept; "
+          f"arena {'==' if arena == F.A_tiles else '!='} act tiles after release")
+
+
+LEGS = {"boot": leg_boot, "warp": leg_warp, "warp_mid": leg_warp_mid, "transport": leg_transport,
         "transport_starved": leg_transport_starved, "traffic": leg_traffic,
         "order": leg_order, "order_starved": leg_order_starved,
         "order_vertical": leg_order_vertical, "reentrant": leg_reentrant,
