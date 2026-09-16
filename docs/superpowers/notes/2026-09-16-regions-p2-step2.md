@@ -254,6 +254,40 @@ the appendix carrying the renamed symbol itself (`Draw_BG_TileColumn` → `Draw_
 characters shorter). **I did not decompose the remaining tail bytes further, and the -38 is the
 number to quote.**
 
+## `tools/landing_build.sh` — the pre-merge check, exit 0
+
+Run at HEAD `8bae4fa2` (the last commit of this parcel), detached, polled on a marker I wrote:
+
+```
+finished=0
+land-gate: STAMP WRITTEN key=296cb04edffecdb6 head=8bae4fa22099
+EXIT_s4=0          size=820477  secs=245
+EXIT_s4.debug=0    size=846856  secs=20
+EXIT_demo.debug=0  size=103606  secs=3
+EXIT_needs_build=0
+46f2e4e5390c4627b84a298a2dc4a311  s4.bin
+317e18245cb1ed9eaf9ffd40dab7fe98  s4.debug.bin
+623c01672e168f7ac94e71474c5c8fa7  demo.debug.bin
+sigil 0.1.0 (700177b1)   md5(SIGIL_BUILD)=324d85d6ad5267a99bd57f118871ed1f
+```
+
+Lanes, aggregate totals: pre-build `pytest tools -m "not needs_build"` **2694 passed, 2 skipped,
+15 deselected, 140 subtests passed**; `emp_expect_fail` **55/55 cases (53 comptime + 2 link)**;
+`needs_build` lane **14 ran, 0 deferred, 0 failed, 1 EXEMPTED**
+(`test_deb2_appendix[demo.bin]` — a shape this caller does not build). `demo.bin` built
+separately at the same HEAD: exit 0, 97173 B, `f8d51cb8a4308c6af53a5dc102e70fa8`.
+
+**A FIRST landing_build run of this parcel was KILLED and is not evidence.** I stopped it
+mid-lane on purpose, because while it was running I found two `ensure` MESSAGE strings that
+still described the deleted column path (`bg.emp`'s BG_LAYOUT_SIZE pin, `plane_buffer.emp`'s
+horizontal-site count). Editing during a run would have left the stamp grading a tree I was not
+about to commit; killing and re-running after the fix was cheaper than either. It wrote no
+`lb.done` marker and I did not read its partial log as a pass.
+
+**The md5s above are byte-identical to the four canonical builds I ran BEFORE that pin-message
+commit**, which is the check on the claim that `ensure` messages cost zero ROM bytes — including
+`demo.bin`, rebuilt afterwards to the same md5 rather than assumed.
+
 ## Lanes
 
 * Pre-build `pytest tools -m "not needs_build"`: **2693 passed, 2 skipped, 15 deselected, 140
