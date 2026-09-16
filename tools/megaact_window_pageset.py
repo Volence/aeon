@@ -559,7 +559,7 @@ def run_pipeline(act, c):
         "local_palette_max": local_palette_max,
         "local_palette_refusals": local_palette_refusals,
         "per_section_global_sets": per_section_global_sets,
-        "canon_grid": canon,
+        "glob_grid": glob,
     }
 
 
@@ -596,6 +596,47 @@ def presence_counts(grid, labels, cols, rows, lefts, tops, weight_mask=None):
         s = ii[t + rows, l + cols] - ii[t, l + cols] - ii[t + rows, l] + ii[t, l]
         counts += (s > 0)
     return counts
+
+
+def distinct_tiles_per_window(glob, lefts, tops, cols, rows):
+    """out[ti, li] = number of distinct NON-BLANK global tiles in the window.
+
+    Per top band: each (tile, column) occurrence, de-duplicated per column,
+    counts +1 for every window left l in [max(prev_col(tile)+1, col-cols+1), col],
+    where prev_col is the previous column in the band holding the same tile.
+    A difference array + cumsum turns that into per-left counts. The independent
+    control is `window_tiles_bruteforce`."""
+    H, W = glob.shape
+    padded = np.zeros((H + rows, W + cols), dtype=np.int64)
+    padded[:H, :W] = glob
+    Wp = W + cols
+    out = np.zeros((len(tops), len(lefts)), dtype=np.int32)
+    for ti, t in enumerate(tops.tolist()):
+        band = padded[t:t + rows, :]
+        col_idx = np.broadcast_to(np.arange(Wp), band.shape)
+        tile = band.ravel()
+        col = col_idx.ravel()
+        keep = tile != 0
+        key = np.unique(tile[keep] * Wp + col[keep])          # sorted by (tile, col), deduped
+        tk, ck = key // Wp, key % Wp
+        prev = np.empty_like(ck)
+        prev[0] = -1
+        prev[1:] = np.where(tk[1:] == tk[:-1], ck[:-1], -1)
+        lo = np.maximum(prev + 1, ck - cols + 1)
+        lo = np.maximum(lo, 0)
+        hi = ck
+        diff = np.zeros(Wp + 1, dtype=np.int64)
+        valid = lo <= hi
+        np.add.at(diff, lo[valid], 1)
+        np.add.at(diff, hi[valid] + 1, -1)
+        per_left = np.cumsum(diff)[:Wp]
+        out[ti, :] = per_left[lefts]
+    return out
+
+
+def window_tiles_bruteforce(glob, left, top, cols, rows):
+    v = glob[top:top + rows, left:left + cols].ravel()
+    return int(np.unique(v[v != 0]).size)
 
 
 def window_page_set_bruteforce(page_grid, left, top, cols, rows):
@@ -663,6 +704,7 @@ def measure_act(act, c, frames_list, want_positions=True):
     t0 = time.time()
     pipe = run_pipeline(act, c)
     pg = pipe["page_grid"]
+    glob = pipe["glob_grid"]
     cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
     lefts, tops, max_cx, max_cy = camera_windows(c, act.content_w, act.content_h)
     pinned = set(pipe["pinned"])
@@ -672,6 +714,8 @@ def measure_act(act, c, frames_list, want_positions=True):
     needed = unpinned_ref + len(pinned)
     zones_present = presence_counts(act.zone_id, list(range(len(act.zones))), cols, rows, lefts, tops)
     reach = reachable_mask(act, c, lefts, tops)
+    tiles = distinct_tiles_per_window(glob, lefts, tops, cols, rows)
+    page_floor = -(-tiles // c["ART_POOL_PAGE_TILES"])
 
     classes = {
         "all": None,
@@ -698,12 +742,15 @@ def measure_act(act, c, frames_list, want_positions=True):
         "camera_range_px": [max_cx, max_cy],
         "windows": int(len(lefts) * len(tops)),
         "needed": {}, "needed_reachable": {}, "referenced_only": {},
+        "distinct_tiles": {}, "any_order_page_floor": {},
     }
     for cname, m in classes.items():
         res["needed"][cname] = summarise(needed, frames_list, m)
         rm = reach if m is None else (reach & m)
         res["needed_reachable"][cname] = summarise(needed, frames_list, rm)
         res["referenced_only"][cname] = summarise(referenced, frames_list, m)
+        res["distinct_tiles"][cname] = summarise(tiles, [], m)
+        res["any_order_page_floor"][cname] = summarise(page_floor, frames_list, m)
     if want_positions:
         worst = {}
         for cname, m in classes.items():
@@ -729,7 +776,7 @@ def measure_act(act, c, frames_list, want_positions=True):
             }
         res["worst"] = worst
     res["elapsed_s"] = round(time.time() - t0, 2)
-    res["_arrays"] = (pg, lefts, tops, needed, pinned)
+    res["_arrays"] = (pg, lefts, tops, needed, pinned, glob, tiles)
     return res
 
 
@@ -744,7 +791,7 @@ def strip_arrays(res):
 def control_counting(c, res, samples=200, seed=1):
     """presence_counts (integral images, numpy) vs a pure-Python direct scan, on
     random windows AND on every class's peak window."""
-    pg, lefts, tops, needed, pinned = res["_arrays"]
+    pg, lefts, tops, needed, pinned, glob, tiles = res["_arrays"]
     rnd = random.Random(seed)
     cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
     picks = [(rnd.randrange(len(tops)), rnd.randrange(len(lefts))) for _ in range(samples)]
@@ -759,6 +806,10 @@ def control_counting(c, res, samples=200, seed=1):
         if want != int(needed[ti, li]):
             bad.append({"top": int(tops[ti]), "left": int(lefts[li]),
                         "integral": int(needed[ti, li]), "bruteforce": want})
+        wt = window_tiles_bruteforce(glob, int(lefts[li]), int(tops[ti]), cols, rows)
+        if wt != int(tiles[ti, li]):
+            bad.append({"top": int(tops[ti]), "left": int(lefts[li]),
+                        "tiles_sweep": int(tiles[ti, li]), "tiles_bruteforce": wt})
     return {"windows_checked": len(picks), "mismatches": bad}
 
 
@@ -878,7 +929,9 @@ def headline(res, frames_list, cls):
             "p50": n["p50"], "p90": n["p90"],
             **{f"over_{f}": n[f"over_{f}"] for f in frames_list},
             **{f"over_{f}_pct": n[f"over_{f}_pct"] for f in frames_list},
-            "pages": res["pages"], "pinned": len(res["pinned_pages"])}
+            "pages": res["pages"], "pinned": len(res["pinned_pages"]),
+            "distinct_tiles_max": res["distinct_tiles"][cls]["max"],
+            "any_order_page_floor_max": res["any_order_page_floor"][cls]["max"]}
 
 
 GAMES = {
@@ -952,7 +1005,9 @@ def build_report(game="s2", quick=False, log=print):
             pairs[f"{a}|{b}"] = strip_arrays(r)
             s = r["needed"]["seam_two_plus_zones"]
             log(f"  {a}|{b}: pages={r['pages']:3} pinned={len(r['pinned_pages'])} seam max={s['max']:3} "
-                f"p50={s['p50']:5.1f} over{F}={s[f'over_{F}']}/{s['positions']} over{L}={s[f'over_{L}']}")
+                f"p50={s['p50']:5.1f} over{F}={s[f'over_{F}']}/{s['positions']} over{L}={s[f'over_{L}']} "
+                f"| tiles max={r['distinct_tiles']['seam_two_plus_zones']['max']} "
+                f"any-order floor max={r['any_order_page_floor']['seam_two_plus_zones']['max']}")
     report["pairs"] = pairs
 
     ranked = sorted(pairs.values(), key=lambda r: (r["needed"]["seam_two_plus_zones"]["max"],
@@ -1015,7 +1070,8 @@ def build_report(game="s2", quick=False, log=print):
         s = r["needed"]["seam_two_plus_zones"]
         log(f"  {act.name}: pages={r['pages']} pinned={len(r['pinned_pages'])} "
             f"junction max={j.get('max')} over{F}={j.get(f'over_{F}')}/{j.get('positions')} "
-            f"| seam max={s.get('max')}")
+            f"| seam max={s.get('max')} | junction tiles max={r['distinct_tiles']['junction_three_plus_zones'].get('max')} "
+            f"floor max={r['any_order_page_floor']['junction_three_plus_zones'].get('max')}")
     report["junctions"] = junctions
 
     # ---- whole-game chain (the owner's real shape, one row) ----
@@ -1027,7 +1083,9 @@ def build_report(game="s2", quick=False, log=print):
         s = r["needed"]["seam_two_plus_zones"]
         i = r["needed"]["interior_one_zone"]
         log(f"  chain: sections={r['sections']} pages={r['pages']} pinned={len(r['pinned_pages'])} "
-            f"seam max={s['max']} interior max={i['max']} over{F} all={r['needed']['all'][f'over_{F}_pct']}%")
+            f"seam max={s['max']} interior max={i['max']} over{F} all={r['needed']['all'][f'over_{F}_pct']}% "
+            f"over{L} all={r['needed']['all'][f'over_{L}_pct']}% | tiles max={r['distinct_tiles']['all']['max']} "
+            f"floor max={r['any_order_page_floor']['all']['max']}")
 
     report["headlines"] = {
         "worst_pair_seam": headline(worst_pair, frames_list, "seam_two_plus_zones"),
