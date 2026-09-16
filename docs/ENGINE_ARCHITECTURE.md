@@ -2454,6 +2454,14 @@ emissions in the release shape. **Rejected for now, and the arithmetic is what m
 decision rather than a habit:** the trade inverts if the stride sites multiply or move into a
 per-frame path, and it worsens as the table grows. Re-derive it, do not inherit this row.
 
+**A third inverter, SPECULATIVE and attributed, recorded only because it would DELETE the
+question rather than answer it** (sigil, 2026-09-16, offered as a note and explicitly not a
+request): the condition is not only *"more stride sites"* but *"the stride survives as a multiply
+at all"*. **An offset table indexed by ordinal has no stride and no multiply.** A future
+data-table shape could therefore retire this whole row instead of choosing a side of it. It is on
+sigil's own data-table list, **it does not exist**, and **nothing here is held for it** — written
+down so a successor meeting the trade knows there is a third door, not so anyone waits at it.
+
 Two rows naming the same preset ARE one region for every purpose the engine has (nothing reads a region id), so an L-shape is two rows and an arch is three. **The cost of a shape is its row count, never its area.**
 
 **The crossing** (`Parallax_CheckBoundary`, `engine/level/parallax.emp`) tests the camera CENTRE — `Camera_X + CAM_SCREEN_HALF_W`, `Camera_Y + CAM_SCREEN_HALF_H` — against the live rectangle cached in RAM (`Region_Cur_X0/X1/Y0/Y1`, outside `Parallax_State`): four unsigned compares a frame, no shifts, no pointer chase. On a miss, `Region_Resolve` scans the act's table linearly for the first containing row (rows never overlap, so first is only); the cache is refilled with two `move.l` (spelled `Region.rg_x0:l(a0)` — sigil refuses a bare `.l` on a 2-byte field, and `:l` is its declared-overlay form); `Region_Current` records the `Region*` (an observable the gates poll; no engine logic reads it); and the one total-binding install runs, `Effects_InstallPreset` then `Parallax_StartTransition`. No containing row keeps everything — unreachable on an act that builds (see the invariants). `Parallax_Init` and the DEBUG warp write the sentinel `$FFFF/$0000` (a rectangle nothing is inside) so the next test rescans; on first boot the Work-RAM clear already leaves an empty cache, and there is no runtime act-reload path (the init runs only as `Game.entry`, after a reset). On a DEBUG warp that lands inside the region already cached the sentinel is NOT load-bearing for identity (measured, step 5: with it removed the cached rectangle keeps the right region and nothing installs); what it buys is a re-install of the region's channels after something else changed them, at the price of a redundant install — with a fading preset, a fade toward the palette already showing.
