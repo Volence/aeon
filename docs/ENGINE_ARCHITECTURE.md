@@ -2423,9 +2423,16 @@ Spec: empyrean `docs/superpowers/specs/2026-09-14-regions-part-2-design.md` §4.
 
 **The record's size is a code cost, not only a data cost** (measured in the same parcel): every
 `mul_const.w dN, #sizeof(Region)` site re-elects when the stride stops being a power of two.
-The two sites in `games/sonic4/test/ojz_scroll_test.emp` grew 10 bytes each, and that +20 is the
-whole of the DEBUG ROM's growth — the table's own +66 B landed in existing padding ahead of the
-fixed data-bank base at `$A8000`.
+Measured, both shapes, by diffing the listings' full symbol maps:
+
+| shape | ROM total | where it went |
+|---|---|---|
+| `s4.bin` (release) | 820515 -> 820515, **+0** | the table's +60 B is the only placement change, and it lands in padding that already existed ahead of the fixed data-bank base at `$A8000`. No code moved: the two `mul_const #sizeof(Region)` sites are DEBUG-only emissions |
+| `s4.debug.bin` | 846874 -> 846894, **+20** | the table's +66 B lands in the same padding; the +20 is entirely those two sites, +10 each, where a single shift became a shift-add chain |
+
+So a `Region` field is free in ROM until it changes the stride's *form*, and then the price is
+paid at every stride site rather than in the table — which is invisible in the table's own
+arithmetic and is the number to check before the next field lands.
 
 Two rows naming the same preset ARE one region for every purpose the engine has (nothing reads a region id), so an L-shape is two rows and an arch is three. **The cost of a shape is its row count, never its area.**
 

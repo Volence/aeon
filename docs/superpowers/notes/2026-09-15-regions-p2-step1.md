@@ -147,33 +147,60 @@ Restored; 7 passed.
 
 ## What the bytes did, and a cost worth knowing before step 8
 
-DEBUG shape, measured by diffing the two builds' listing symbol maps (3157 symbols, same set
-in both):
+Measured by building the parcel's tree and the `70c302ed` baseline with the same toolchain and
+diffing the listings' FULL symbol maps (identical symbol sets in both shapes: 3157 DEBUG, 2549
+release), not by reading a size line and attributing the difference.
 
-| what | delta |
-|---|---|
-| `OJZ_Act1_Regions` table | **+66 B** ($18AC2..$18BB4 = 242 = 11 rows x 22; was 11 x 16 = 176) |
-| everything between the table and the data-bank base at `$A8000` | shifts +66, then back to +0 |
-| `Debug_LabCycleHotkey` resolve | **+10 B** |
-| `Debug_PresetReadout_Show` resolve | **+10 B** |
-| **total ROM** | **+20 B** (846874 -> 846894) |
+| shape | ROM total | what actually moved |
+|---|---|---|
+| `s4.bin` (release) | 820515 -> 820515, **+0 B** | `OJZ_Act1_Regions` +60 B (10 rows x 6), everything to `$A8000` shifts +60 and comes back to +0 there. **No code moved at all.** |
+| `s4.debug.bin` | 846874 -> 846894, **+20 B** | table +66 B (11 rows — the shape carries the E2 snap row), same absorption; then `Debug_LabCycleHotkey` +10 B and `Debug_PresetReadout_Show` +10 B |
 
-**The table's 66 bytes cost nothing** — they landed in padding that already existed ahead of a
-fixed bank base. The whole of the ROM's growth is the two `mul_const.w dN, #sizeof(Region)`
-sites, where a power-of-two stride stopped being one and the macro re-elected from a single
-shift to a shift-add chain. That is the part to carry into the later steps: **changing this
-record's SIZE is a code cost at every stride site, not only a data cost**, and it is invisible
-in the table's own arithmetic. Release is 10 rows (+60 B of table) and does not carry the two
-DEBUG resolves.
+**The table's bytes cost nothing in either shape** — they land in padding that already existed
+ahead of a fixed bank base. The whole of the DEBUG ROM's growth is the two `mul_const.w dN,
+#sizeof(Region)` sites, where a power-of-two stride stopped being one and the macro re-elected
+from a single shift to a shift-add chain. Neither site emits in release (their inner labels are
+absent from `s4.lst` — the bodies are DEBUG-only), which is why release moved zero bytes.
+
+**Carry this into the later steps:** changing this record's SIZE is a code cost at every stride
+site, not only a data cost, and the table's own arithmetic cannot see it.
+
+*Correction made before this note shipped, recorded because the wrong version was already
+written down:* the first draft said release "does not carry the two DEBUG resolves" on the
+strength of the path `games/sonic4/test/`. `Debug_LabCycleHotkey:` **is** in the release
+listing, so that reasoning was wrong even though its conclusion survived — the bodies are
+DEBUG-gated, not the file. The release figure above is measured, not inferred from the DEBUG
+one.
 
 The stale comment at the first of those sites ("sizeof(Region) is 16, so mul_const elects a
 shift ... 160 bytes") was repaired in the same commit; both halves of it were false the moment
 the record grew.
 
-## Build shapes
+## Build shapes — all four green
 
-See the parcel's final commit message for the `tools/landing_build.sh` exit code and the
-fourth shape's result.
+`tools/landing_build.sh` at HEAD `f5e55cb0`, assembler sigil `700177b1`
+(`md5(SIGIL_BUILD)=324d85d6ad5267a99bd57f118871ed1f`), `finished=0`, STAMP WRITTEN:
+
+| shape | exit | size | md5 |
+|---|---|---|---|
+| `s4.bin` | 0 | 820515 | `b9f9698cca305eca8c8a25b9da05657d` |
+| `s4.debug.bin` | 0 | 846894 | `01295a2407078afd9b8a45645e443010` |
+| `demo.debug.bin` | 0 | 103642 | `10e87f9c44406e6b996c88d9b1f3e0a9` |
+| `demo.bin` (the shape `landing_build.sh` does not build; `./build.sh demo`) | 0 | 97209 | `bffe70c4eefbc116be8835784df92dd1` |
+
+Lanes, aggregate totals: pre-build `pytest tools -m "not needs_build"` **2689 passed, 2
+skipped, 14 deselected, 140 subtests passed**; `emp_expect_fail` 5 passed / 9 skipped;
+`needs_build` lane **13 ran, 0 deferred, 0 failed, 1 EXEMPTED** (`test_deb2_appendix[demo.bin]`
+— a shape this caller does not build, graded by the `./build.sh demo` above, which ran it: "1
+passed, 13 skipped").
+
+**The first `landing_build.sh` run of this parcel exited 2 and is NOT evidence, and the reason
+is worth repeating to whoever runs it next.** All three shapes built green in that run, but I
+committed the docs WHILE it was running, so HEAD moved under it and the gate refused to stamp:
+`NO STAMP: HEAD MOVED during the run (959e8be0 -> f5e55cb0). The run graded a tree that is no
+longer HEAD; nothing it printed is evidence for either commit.` That is the gate doing exactly
+its job — three green shapes and a printed md5 block look identical either way. Commit before
+you start it, not during.
 
 ## Open / not done here
 
