@@ -13,8 +13,13 @@ which carries the `needs_build` marker and compares the golden against the table
 a BUILT ROM.
 
 WHAT A GREEN HERE DOES NOT MEAN, said so nobody reads it as more:
-  * Nothing in the build emits these rows. `generate()` calls `check_mode_conflict` and
-    stops; act 1's table is still hand-written. The emitter is a second parcel.
+  * ⚠ NOTHING HAS ASSEMBLED THE EMITTED TEXT. `TestRegionTableEmitter` proves the `.emp`
+    module is what the document says; no act in this tree is in region mode, so sigil has
+    never seen a generated region table. The first act to flip is what closes that
+    (REGIONS-EMIT-BINDINGS) — see that class's own docstring.
+  * Act 1's rows are still hand-written in `act_descriptor.emp`, and the emitter does not
+    change that. It is wired into `effects_gen.py`'s `emit`/`check` and returns None on
+    every act here.
   * No act in this repo has a `regions.json`, so every region-mode test below builds its
     own sandbox. The real tree exercises exactly one of these paths: the legacy arm, which
     `TestLegacyModeUnchanged` pins.
@@ -299,10 +304,18 @@ class TestModeConflict(RegionSandbox):
     def test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels(self):
         """The finding above, asserted rather than left in a comment.
 
-        It is written as a test so that the day the second parcel fixes the rung-1 rule,
-        THIS test fails and tells its author to delete it — rather than the tree quietly
-        gaining a capability nobody recorded. The assertion is on the message, because a
-        bake that failed for some other reason would prove nothing about this one."""
+        ⚠ THE SECOND PARCEL CAME AND DELIBERATELY DID NOT FIX IT (2026-09-16), so this
+        test is unchanged and the reason is now written down. Removing the rung-1 rule was
+        MEASURED in this sandbox: the bake then SUCCEEDS, emitting zero scene bindings
+        where the shipped module has four and zero chooser arms where it has fourteen —
+        a green build of a silently de-bound ROM. The refusal is the only thing standing
+        between a migrated act 1 and that, so it is a guard to be replaced (by the
+        section->row re-key, REGIONS-EMIT-BINDINGS) and never one to be relaxed.
+
+        It is still written as a test so that the day the re-key lands, THIS test fails and
+        tells its author to delete it — rather than the tree quietly gaining a capability
+        nobody recorded. The assertion is on the message, because a bake that failed for
+        some other reason would prove nothing about this one."""
         self.write_doc(golden_doc())
         with self.assertRaises(effects_gen.SceneShapeError) as cm:
             effects_gen.generate(repo=self.repo)
@@ -514,20 +527,32 @@ class TestBackgroundBinding(RegionSandbox):
                       "assertion above is vacuous — restore an `@act` layoutRef or this "
                       "test stops testing the collapse")
 
-    def test_a_named_layout_is_refused_and_the_reason_is_the_missing_EMITTER(self):
-        """The refusal stands; its stated REASON was corrected 2026-09-16.
+    def test_a_named_layout_is_refused_and_the_reason_is_the_undERIVABLE_span(self):
+        """The refusal stands; its stated REASON has now been corrected TWICE in one day.
 
-        It used to say "NOTHING IN THE ENGINE READS IT YET", which step 3 (`17bf60fe`, the
-        same day) made false: `Section_RedrawPlanes` and `Draw_BG_TileRow` both read
-        `Region.rg_bg_layout`. The refusal survives on a reason that is still true — nothing
-        lowers this document into a region table, so a named layout would be accepted and
-        dropped — and this test asserts the true sentence, because a refusal whose reason is
-        wrong sends the author to the wrong file.
+        Round 1: it said "NOTHING IN THE ENGINE READS IT YET", which step 3 (`17bf60fe`)
+        made false for `rg_bg_layout`. Round 2 (the emitter parcel): the replacement leaned
+        on "nothing lowers this document into a region table", which the emitter falsified,
+        AND on "`rg_bg_span` has no engine reader until step 4's clamp", which step 4 had
+        ALREADY falsified before the sentence was written.
+
+        What is left is the reason that was load-bearing all along and was never checked
+        because two easier ones were in front of it: `ojz_bglib.json` carries `id` and
+        `name` and NO HEIGHT, so the derived-span check this generator owes has nothing to
+        derive from. That one is measured, not remembered.
         """
         doc = golden_doc()
         doc["regions"][0]["bg"] = {"layoutRef": "ojz_cave"}
-        msg = self.refuses(doc, "ojz_cave", "NOTHING LOWERS THIS DOCUMENT")
+        msg = self.refuses(doc, "ojz_cave", "NO HEIGHT")
         self.assertNotIn("NOTHING IN THE ENGINE READS IT YET", msg)
+        # ...and not the SECOND stale sentence either. "nothing lowers this document" was
+        # true when written and the emitter parcel falsified it; "rg_bg_span has no engine
+        # reader" was falsified the same day it was written, by step 4's clamp. Both are
+        # asserted absent, because a refusal whose reason is wrong sends the author to the
+        # wrong file, and a reason that USED to be right is the hardest kind to notice.
+        self.assertNotIn("NOTHING LOWERS THIS DOCUMENT", msg)
+        self.assertNotIn("no engine reader", msg)
+        self.assertIn("Parallax_Step5_Vscroll", msg)
 
     def test_TRIPWIRE_opening_layoutRef_without_the_golden_fails_here(self):
         """The day `bg.layoutRef` opens, the shared golden owes a non-default row.
@@ -552,6 +577,28 @@ class TestBackgroundBinding(RegionSandbox):
             opened = False
         else:
             opened = True
+
+        # THE EMITTER IS THE SECOND SITE THAT MUST MOVE (added 2026-09-16), and it is a
+        # site the original tripwire could not have known about. `render_region_table`
+        # writes five of `struct Region`'s eight fields and refuses a non-default `bg`
+        # rather than lowering one, so opening `_check_region_bg` alone would let a named
+        # layout be validated, flattened, and DROPPED AT EMISSION — the same failure one
+        # layer further in, and invisible to the assertion below.
+        try:
+            effects_gen._refuse_unlowerable_bindings(
+                [{"id": "x", "index": 0, "sceneRef": None, "rasterRef": None,
+                  "bg": {"layoutRef": "ojz_cave", "span": 2048}}], "(tripwire)")
+        except effects_gen.SceneShapeError:
+            emitter_drops_it = False
+        else:
+            emitter_drops_it = True
+        if opened:
+            self.assertFalse(
+                emitter_drops_it,
+                "`bg.layoutRef` now ACCEPTS a named layout and `render_region_table` still "
+                "emits no `rg_bg_layout`/`rg_bg_span`, so a named layout is validated, "
+                "flattened and then dropped at emission. Open both sites together or "
+                "neither: REGIONS-BG-GOLDEN-GAP in docs/DEFERRED_WORK.md.")
 
         non_default = [r for r in golden_rows()
                        if r["bg"]["layoutRef"] is not None or r["bg"]["span"] is not None]
