@@ -13,9 +13,9 @@
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Backgrounds must stream like the foreground does, for Sonic 2 or 3 in one act. A design already exists from 08-08 and today's crossing repaint is half of it; a real Sonic 2 zone's art alone is about as big as the whole foreground pool",
-      "state": "blocked",
+      "state": "next",
       "size": "L",
-      "blockedBy": "your review of the draft, plus four calls in it only you can make"
+      "blockedBy": null
     },
     {
       "id": "REGIONS-P2-STEP7",
@@ -53,7 +53,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "your review of the background-streaming design draft (docs/superpowers/specs/2026-09-16-megaact-bg-streaming-design.md) and its four calls: palette at a crossing, what the corridor looks like, holding the camera if art is late, own project or part of regions. Also still yours: the spring sound A/B from 09-09.",
+  "awaiting": "whether to run the design-draft audit before planning, now that your four calls are in. Also still yours: the spring sound A/B from 09-09.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T19:19:10Z"
+  "updatedAt": "2026-09-16T19:35:12Z"
 }

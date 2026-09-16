@@ -227,6 +227,57 @@ so it should be confirmed rather than assumed.
 
 ## 5. Owner calls
 
+> **ANSWERED 2026-09-16T19:35:12Z by the owner, in session.** His words are quoted verbatim under each call; the
+> original options are kept below them so the reasoning survives.
+
+**OC-1 answered.** *"Maybe we can have an option to choose? I was thinking previously if we had sections have
+different palettes, as you got half way through one it would start fading to the next. Maybe we should have a
+fade to option or snap when switching option?"*
+- **The snap-or-fade option already exists, per region**, verified in code: `ep_transition` on presets
+  (`engine/effects/preset.emp:67`) and `pcfg_transition` on parallax configs (`engine/structs.emp:355`, *"0 =
+  smooth lerp (default), 1 = instant snap"*). So a zone crossing chooses snap or fade the same way a region
+  crossing does today. **No new option is needed for that part.**
+- **NEW, and it is the better idea: a POSITION-driven fade.** Today's fade runs on a timer, `PAL_FADE_FRAMES` =
+  16 (`engine/effects/palette.emp:307`). His idea ties fade progress to **how far through the crossing the
+  camera is**, starting partway through the outgoing section. This fits a seamless showcase better than the
+  timer, for two reasons (INFERRED, to test):
+  1. **It reverses.** A timed fade finishes even if the player walks back out, leaving the wrong palette. A
+     position-driven fade un-fades as you retreat.
+  2. **It makes the corridor and the fade the same distance**, which answers much of OC-2 at the same time.
+  **Booked as design item D5a** (below). Not designed yet.
+
+**OC-2 answered.** *"Idk that shoul dddepend no?"* — **the corridor is authored per crossing, not fixed by
+the engine.** The engine's part stays D4: it computes and **enforces the minimum length**, and refuses a
+corridor that is too short. What it looks like is content, decided zone by zone.
+
+**OC-3 answered, conditionally.** *"Maybe hold, I guess we should see how long it is."* — **hold the camera
+if the art is late, pending a measurement of how long the hold actually is.** Booked as **M-4** below. If
+it turns out long enough to feel bad, this reopens.
+
+**OC-4 answered.** *"Part of regions."* — **this is part of the regions project, not its own.** The hub has
+been told, so it can update the project record.
+
+---
+
+### D5a. Position-driven palette fade across a crossing (the owner's idea, booked, not designed)
+
+Blend the outgoing and incoming palettes by the camera's progress through a crossing span, instead of over a
+fixed number of frames. **Open questions for its own design:** which axis drives progress when a crossing can
+be entered from the side or from above (the same entry-side problem step 6 had to solve for the wipe); how
+it composes with the existing cycle, operator and variant stages of `Palette_Compose`; and how it lines up
+with the 16-frame wipe when the camera stops mid-crossing. **The existing per-region snap/fade option should
+stay alongside it**, as a third choice rather than a replacement.
+
+### M-4. How long the camera hold actually lasts (from OC-3)
+
+Measure the frames between reaching a crossing and the incoming theme becoming resident, at top speed, with
+raw-form theme pages and the foreground's own art traffic competing for the same budget. An emulator
+measurement, not a derivation. It decides whether OC-3's hold stands.
+
+---
+
+*The calls as originally put, kept for the reasoning:*
+
 **OC-1. Palette at a zone crossing.** Snap, 16-frame fade in lockstep with the wipe, or a corridor
 authored in colours both zones share? A look call. **Leaning: the lockstep fade**, because it reuses
 existing machinery and matches the wipe's duration. It still needs his eye on a running ROM.
