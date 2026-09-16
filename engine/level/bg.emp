@@ -491,13 +491,53 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         cmpa.w  #0, a0
         beq     .done
 
+        // -- max_top = map rows - PLANE_V_CELLS, for THIS region. A 0 span is the act
+        //    default, whose map IS the plane and whose only legal window is 0; a map no
+        //    taller than the plane is the same case.
+        //
+        //    THIS USED TO BE TWO EARLY-OUTS (`beq .done` on a 0 span, `ble .done` on a map
+        //    no taller than the plane) AND STEP 6 HAD TO DELETE THEM. Their reasoning —
+        //    "a one-position window, so leave the window where it is" — is only true while
+        //    BG_Plane_Top is ALREADY at that one position. Cross OUT of a taller-map region
+        //    and it is not: the tracker is left at whatever top the tall map earned (up to
+        //    32 on the step-5 fixture) with a new map that has no such row. Before step 6
+        //    that was invisible — the streamer simply never moved again. With a wipe it is
+        //    not invisible at all: the sweep derives its source map row from BG_Plane_Top,
+        //    so a stale top makes it read PAST THE END of the new blob, one row at a time,
+        //    for the whole sweep. Falling through to the clamp costs release ~6 bytes and
+        //    leaves its behaviour identical (span 0 -> max_top 0 -> want_top 0 -> the
+        //    `cmp/beq` below still finds the window already there on every shipped row).
+        moveq   #0, d3                              // d3 = max_top, assumed 0
+        move.w  Region.rg_bg_span(a0), d0           // (Region.rg_bg_span)(a0)
+        beq     .max_ok                             // 0 = the act default: the map IS the plane
+        lsr.w   #3, d0                              // span px -> map rows (BG_STREAM_ROW_PX)
+        subi.w  #PLANE_V_CELLS, d0
+        ble     .max_ok                             // map is not taller than the plane
+        move.w  d0, d3                              // d3 = max_top
+    .max_ok:
+
+        // -- want_top = clamp(vrow - LEAD, 0, max_top). The scroll is non-negative
+        //    on every path (step 4's position clamp floors it at 0), so lsr is the
+        //    right shift and the only sign question is the subtraction below. --
+        move.w  Parallax_Current_Vscroll_BG, d6     // (Parallax_Current_Vscroll_BG).w
+        lsr.w   #3, d6                              // -> the top visible MAP row
+        move.w  d6, d7                              // keep it: the wipe's start row wants it too
+        subi.w  #BG_STREAM_LEAD_ROWS, d6
+        bpl     .want_hi
+        moveq   #0, d6                              // near the map top: no room for the lead
+    .want_hi:
+        cmp.w   d3, d6
+        ble     .want_ok
+        move.w  d3, d6                              // near the map bottom: ditto
+    .want_ok:
+
         // ================= THE CROSSING WIPE (step 6, spec §4.3) =================
-        // Everything from here to `.stream` is the wipe. It sits ABOVE the span test
-        // because the span test is not its question: a region may name a DIFFERENT
-        // background of the SAME height (rg_bg_layout set, rg_bg_span 0 — legal, and what
-        // ojz_region() allows), and that region's crossing must still repaint the plane.
-        // Put the wipe below the span test and it would be dead on exactly the showcase
-        // the spec's step 6 asks an author to write.
+        // Everything from here to `.stream` is the wipe. It sits ABOVE the steady state and
+        // BELOW the window arithmetic, and both halves of that placement are load-bearing:
+        // it needs `want_top` (see the arm), and it must not be gated on the span, because
+        // a region may name a DIFFERENT background of the SAME height (rg_bg_layout set,
+        // rg_bg_span 0 — legal, and what ojz_region() allows). Gated on the span it would be
+        // dead on exactly the second-layout showcase the spec's step 6 asks an author for.
 
         // -- the region's EFFECTIVE layout: its own, or the act default. Same ladder and
         //    same sentinel Draw_BG_TileRow and Section_RedrawPlanes use. --
@@ -557,13 +597,26 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         // in this wipe touches a drift accumulator, a band scroll or the BG scroll: it
         // writes nametable rows and two tracker bytes.
         move.l  d0, BG_Plane_Layout                 // (BG_Plane_Layout).w — the plane is now PROMISED this blob
-        // THE START ROW: the top VISIBLE plane row. `Parallax_Current_Vscroll_BG` is
-        // map-space and non-negative (step 4's position clamp floors it at 0), so
-        // (vscroll >> 3) is the top visible MAP row and its low 6 bits are the plane row
-        // showing it — the plane is a ring, so plane row = map row mod PLANE_V_CELLS with
-        // no window arithmetic at all.
-        move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w
-        lsr.w   #3, d0                              // -> top visible MAP row (BG_STREAM_ROW_PX)
+        // THE WINDOW SNAPS TO THE DESTINATION, and this is the second half of the fix the
+        // deleted early-outs above describe. A wipe is an ASYNCHRONOUS PRIME: every plane
+        // row is about to be rewritten, so the only window the tracker can usefully name is
+        // the one the sweep is drawing TOWARDS. Section_RedrawPlanes does exactly this for
+        // its synchronous prime — seed the top, then fill — and the symmetry is the point.
+        //
+        // It also makes the sweep's source rows in-bounds BY CONSTRUCTION: the map row for
+        // plane row p is derived as T + ((p - T) mod 64), which lies in [T, T+63], and
+        // want_top is clamped to [0, map_rows - 64], so every derived row is a row the new
+        // blob has. Leave the old top here and the cross-OUT case reads past the blob.
+        //
+        // The tracker does momentarily describe a window the plane does not yet hold. That
+        // is not a new lie — during a wipe the plane holds a MIX and no single window
+        // describes it — and naming the destination is the only statement that stays true
+        // at the end. Nothing but this proc reads BG_Plane_Top.
+        move.w  d6, BG_Plane_Top                    // (BG_Plane_Top).w — want_top, computed above
+        // THE START ROW: the top VISIBLE plane row. d7 is (vscroll >> 3), the top visible
+        // MAP row, kept from the window arithmetic above; the plane is a ring, so its low
+        // 6 bits ARE the plane row showing it — no window arithmetic at all.
+        move.w  d7, d0
         andi.w  #PLANE_V_CELLS-1, d0                // -> the PLANE row showing it
         move.b  d0, BG_Wipe_Row                     // (BG_Wipe_Row).w
         move.b  #BG_WIPE_TOTAL_ROWS, BG_Wipe_Cursor // (BG_Wipe_Cursor).w
@@ -609,30 +662,8 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         bne     .wipe_loop
     .stream:
         // ================= END OF THE WIPE =================
+        // d6 = want_top, computed above the wipe (the arm needs it too).
 
-        // -- max_top = map rows - PLANE_V_CELLS. A 0 span is the act default (the
-        //    plane's own height) and a map no taller than the plane has a
-        //    one-position window, so both leave with the window where it is. --
-        move.w  Region.rg_bg_span(a0), d0           // (Region.rg_bg_span)(a0)
-        beq     .done                               // 0 = the act default
-        lsr.w   #3, d0                              // span px -> map rows (BG_STREAM_ROW_PX)
-        subi.w  #PLANE_V_CELLS, d0
-        ble     .done                               // map is not taller than the plane
-        move.w  d0, d3                              // d3 = max_top
-
-        // -- want_top = clamp(vrow - LEAD, 0, max_top). The scroll is non-negative
-        //    on every path (step 4's position clamp floors it at 0), so lsr is the
-        //    right shift and the only sign question is the subtraction below. --
-        move.w  Parallax_Current_Vscroll_BG, d6     // (Parallax_Current_Vscroll_BG).w
-        lsr.w   #3, d6                              // -> the top visible MAP row
-        subi.w  #BG_STREAM_LEAD_ROWS, d6
-        bpl     .want_hi
-        moveq   #0, d6                              // near the map top: no room for the lead
-    .want_hi:
-        cmp.w   d3, d6
-        ble     .want_ok
-        move.w  d3, d6                              // near the map bottom: ditto
-    .want_ok:
         // -- direction and budget. THE ORDER HERE IS LOAD-BEARING: moveq writes the
         //    condition codes, so both moveq must precede the cmp whose flags the
         //    beq and the blt read. Written the other way round the blt tests the
