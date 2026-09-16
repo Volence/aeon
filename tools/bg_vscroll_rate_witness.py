@@ -44,8 +44,10 @@ WHAT IS ASSERTED (exit 1 on any failure):
       the unclamped target to move more than 2 * BG_VSCROLL_MAX_STEP, there is a run of at
       least two consecutive ticks whose |step| is EXACTLY BG_VSCROLL_MAX_STEP. Without the
       rate clamp the jump completes in one tick and no such run exists, so A4 is red on a tree
-      with (b) reverted. The warp distance is derived from the act's own geometry, never
-      picked, and the leg refuses (exit 2) if the derived jump is too small to bind.
+      with (b) reverted. BOTH THE COLUMN AND THE ENDPOINTS ARE CHOSEN FROM THE ACT'S OWN REGION
+      TABLE by `plan_vertical_leg()`, which probes rows in order, asks the ENGINE which config
+      is live in each, and takes the first whose derived jump qualifies — see that function's
+      header for why it exists and for the vertical-lock rows it correctly rejects.
   A5  THE POSITION DISCRIMINATOR (leg S, ROM poke). With the row under the camera's
       rg_bg_span poked to SPAN_TEST (derived so SPAN_TEST - SCREEN_HEIGHT is strictly below
       VSCROLL_BG_MAX and strictly reachable), a descent inside that row settles with
@@ -77,11 +79,19 @@ agents deadlock the emulator MCP). It has never been executed. Its first run is 
 foreground job, and so is its red-first proof — see the MUTATIONS block at the foot of this file
 for the two one-line reverts that must make it red, and which leg each one must break.
 
+LEGS ARE INDEPENDENTLY BLOCKABLE (coordinator ruling, 2026-09-16). A SetupError means the
+INSTRUMENT is wrong and aborts everything. A LegBlocked stops ONE leg: the others still run and
+still report, the blocked leg is named with its reason, and the run exits 2 — because a leg that
+could not run is not a leg that passed. C and D need nothing from W or S; W and S share one
+precondition (a region whose config responds to the camera vertically) and are genuinely coupled
+to each other, which the first live run demonstrated the hard way.
+
 Usage:
     python3 tools/bg_vscroll_rate_witness.py [--rom s4.debug.bin] [--lst s4.debug.lst]
                                              [--skip-poke] [--json]
-Exit: 0 every assertion held · 1 an assertion failed · 2 could not measure (setup error, a
-refused ROM poke included — never rendered as a pass).
+Exit: 0 every assertion held AND every leg ran · 1 an assertion failed · 2 the instrument could
+not measure, or one or more legs could not run (a refused ROM poke, an act with no vertically
+responsive region, --skip-poke) — never rendered as a pass.
 """
 from __future__ import annotations
 
@@ -110,7 +120,15 @@ SETTLE_TICKS = 40            # ticks held after a jump before the value must hav
 
 
 class SetupError(Exception):
-    """The measurement could not be made. Exit 2 — never a pass and never a verdict."""
+    """The INSTRUMENT is wrong — a missing symbol, a server that will not answer, a proc whose
+    shape no longer matches the model. Nothing measured under it is worth reading, so it aborts
+    the whole run. Exit 2 — never a pass and never a verdict."""
+
+
+class LegBlocked(Exception):
+    """ONE leg could not be run. Every other leg still runs and still reports; the blocked leg is
+    named with its reason; the run still exits 2. A leg that could not run is not a leg that
+    passed, and rendering it as one is the failure this whole tool exists to avoid."""
 
 
 # ---- source-derived constants -------------------------------------------------------------
@@ -370,6 +388,146 @@ class Rig:
                 "lag": await rd(b, sym["Lag_Frame_Count"], 4)}
 
 
+def candidate_window(r, K, cam_x_max, cam_y_max):
+    """The geometry half of `plan_vertical_leg`'s per-row decision, PURE so it can be tested
+    without an emulator (tools/test_bg_vscroll_rate_aim.py does, against the real act table).
+
+    Returns (record, probe_camera_x, cam_y_lo, cam_y_hi). The record carries a "verdict" key ONLY
+    when the row is rejected on geometry alone; a row that survives has no verdict yet and still
+    has to be probed for its live config.
+
+    THE WINDOW IS THE CAMERA'S, NOT THE ROW'S. `Region_Resolve` tests the camera CENTRE, so the
+    camera Ys whose centre lies inside the row are [y0 - HALF_H, y1 - HALF_H] — intersected with
+    the engine's own clamp [0, Camera_Y_Max], which is why a row at the act's floor can have a
+    legal rectangle and no travel at all.
+    """
+    half_w, half_h = K["HALF_W"], K["HALF_H"]
+    cy_lo = max(0, r["y0"] - half_h)
+    cy_hi = min(cam_y_max, r["y1"] - half_h)
+    cx = min(max((r["x0"] + r["x1"]) // 2 - half_w, 0), cam_x_max)
+    rec = {"row": r["index"], "x": [r["x0"], r["x1"]], "y": [r["y0"], r["y1"]],
+           "probe_x": cx + half_w, "cam_y": [cy_lo, cy_hi]}
+    if cy_hi - cy_lo < 1:
+        rec["verdict"] = ("REJECTED: no camera-Y travel with the centre inside this row "
+                          f"(window {cy_lo}..{cy_hi} against Camera_Y_Max {cam_y_max})")
+    elif not r["x0"] <= cx + half_w <= r["x1"]:
+        rec["verdict"] = ("REJECTED: the camera cannot centre inside this row's X span "
+                          f"(best centre {cx + half_w} against Camera_X_Max {cam_x_max})")
+    return rec, cx, cy_lo, cy_hi
+
+
+def jump_verdict(rec, cfg, cy_lo, cy_hi, step_max):
+    """The arithmetic half of the same decision, PURE for the same reason. Writes rec["verdict"]
+    and returns the derived jump.
+
+    THE LOCK ARM IS NAMED, NOT LUMPED IN WITH "too small". A config at pcfg_v_factor_bg == 15 has
+    a jump of exactly 0 however far the camera travels, and that is `Parallax_Step5_Vscroll`'s
+    documented lock sentinel behaving correctly — not a modelling failure and not a marginal
+    region. A reader who sees "0 px over 2047 px of camera" needs to be told which of those two
+    it is, because the fixes are opposite: re-aim, or fix the model.
+    """
+    jump = abs(target_scroll(cy_hi, cfg) - target_scroll(cy_lo, cfg))
+    rec["derived_jump"] = jump
+    if cfg["v_factor"] == 15:
+        rec["verdict"] = (
+            "REJECTED: this region's config is the VERTICAL LOCK sentinel "
+            f"(pcfg_v_factor_bg == 15), so its BG scroll is pinned to v_offset "
+            f"{s16(cfg['v_offset'])} and does not respond to the camera at all. The jump of "
+            f"{jump} here is CORRECT, not a modelling failure.")
+    elif jump <= 2 * step_max:
+        rec["verdict"] = (f"REJECTED: derived jump {jump} px over camera Y {cy_lo}..{cy_hi} "
+                          f"does not exceed 2 * {step_max} = {2 * step_max}, so the rate clamp "
+                          "could not be forced to the bound for two consecutive ticks")
+    else:
+        rec["verdict"] = "CHOSEN"
+    return jump
+
+
+async def warp_to(b, sym, rig: "Rig", x: int, y: int, tick: bool = True) -> None:
+    """Fill the DEBUG warp mailbox and (by default) spend the one long tick that consumes it.
+    `tick=False` leaves the mailbox armed for a caller that wants to sample the pre-warp frame
+    first — leg W does, because the step ACROSS the warp is the one A1 is about."""
+    for nm, v, w in (("Warp_Req_X", x, 2), ("Warp_Req_Y", y, 2), ("Warp_Req_Flag", 1, 1)):
+        await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
+    if tick:
+        await rig.tick(WARP_MAX_FRAMES)
+
+
+async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, step_max, report):
+    """Choose the region legs W and S run in, FROM THE ACT'S OWN TABLE.
+
+    WHY THIS EXISTS, and it is a defect this tool shipped with (found on its first live run,
+    2026-09-16). Leg W used to take its column from `Camera_X` as the earlier legs happened to
+    leave it — `wx = here["cam_x"] + HALF_W` — under a comment that said "derived, not picked".
+    That was true of the y endpoints and FALSE of the x. Worse, it read the ACTIVE CONFIG at that
+    inherited position while taking the y endpoints from `region_at(rows, wx, 0)`, a DIFFERENT
+    row. On OJZ act 1 the earlier legs end at the bottom-right, in a region whose config is the
+    vertical LOCK (`pcfg_v_factor_bg == 15`), so the derived jump came out 0 px over 2047 px of
+    camera travel and the leg refused. The refusal was right; the aim was not, and neither was
+    the mixture of two rows' facts in one calculation.
+
+    ⚠ THE 0 WAS NOT A MODELLING BUG, and that had to be settled before re-aiming — re-aiming
+    first would have hidden one behind a passing leg. `target_scroll` transcribes
+    `Parallax_Step5_Vscroll`'s `cmpi.b #15 / beq .v_locked` arm: at v_factor 15 the BG scroll IS
+    `v_offset`, camera-independent, by design. A jump of 0 there is the correct answer about a
+    correctly-modelled region. Verified against the act's own table at this pin: four rows author
+    v_factor 15, every other row resolves to a config with v_factor 3, and
+    tools/test_bg_vscroll_rate_aim.py pins that the population contains both kinds.
+
+    WHAT THIS DOES INSTEAD. Walk the act's rows in table order. For each, compute the camera-Y
+    window whose CENTRE lies inside the row (intersected with the engine's own `Camera_Y_Max`
+    clamp) and a probe column at the row's middle (clamped to `Camera_X_Max`), warp there, and
+    then ASK THE ENGINE which parallax config is live — `Parallax_Current_Config` /
+    `Parallax_Target_Config`, read out of RAM. `Effects_ResolveParallax`'s three rungs are NOT
+    restated here; a second private answer to that question is the defect the regions work exists
+    to delete, and a witness that restated it could disagree with the engine and call that a pass.
+
+    Returns the first row whose derived jump exceeds `2 * step_max`, with the scan recorded. If
+    none does, raises LegBlocked naming EVERY candidate and why it was rejected — because "this
+    act has no vertically responsive region wide enough to force the clamp" is a real finding
+    about the act, and it should read as one rather than as a tool that gave up.
+    """
+    scan: list[dict] = []
+    for r in rows:
+        rec, cx, cy_lo, cy_hi = candidate_window(r, K, cam_x_max, cam_y_max)
+        scan.append(rec)
+        if "verdict" in rec:
+            continue
+        await warp_to(b, sym, rig, rec["probe_x"], cy_lo + K["HALF_H"])
+        flag = await rd(b, sym["Warp_Req_Flag"], 1)
+        s = await rig.sample(f"probe{r['index']}")
+        if flag:
+            rec["verdict"] = f"REJECTED: Warp_Req_Flag still {flag} — the warp was not consumed"
+            continue
+        if s["region"] != r["addr"]:
+            rec["verdict"] = (f"REJECTED: the warp landed with Region_Current on row {s['row']}, "
+                              f"not this one (camera centre {s['centre']})")
+            continue
+        if s["cfg"] is None:
+            rec["verdict"] = "REJECTED: no parallax_config is live after the warp"
+            continue
+        cfg = s["cfg"]
+        rec.update({"cfg": hex(cfg["ptr"]), "v_factor": cfg["v_factor"],
+                    "v_center": s16(cfg["v_center"]), "v_offset": s16(cfg["v_offset"]),
+                    "landed_cam_y": s["cam_y"]})
+        jump = jump_verdict(rec, cfg, cy_lo, cy_hi, step_max)
+        if rec["verdict"] != "CHOSEN":
+            continue
+        report["W_scan"] = scan
+        report["W_scan_unprobed"] = [x["index"] for x in rows[r["index"] + 1:]]
+        return {"row": r, "x": rec["probe_x"], "cam_y_lo": cy_lo, "cam_y_hi": cy_hi,
+                "cfg": cfg, "jump": jump}
+    report["W_scan"] = scan
+    report["W_scan_unprobed"] = []
+    raise LegBlocked(
+        "NO REGION IN THIS ACT CAN FORCE THE RATE CLAMP, and that is a finding about the act, "
+        f"not a tool failure. All {len(rows)} rows were probed and every one was rejected:\n  "
+        + "\n  ".join(f"row {x['row']} {x['x']}x{x['y']}: {x['verdict']}" for x in scan)
+        + f"\nA qualifying row needs a config with pcfg_v_factor_bg != 15 and a derived target "
+          f"jump over 2 * {step_max} = {2 * step_max} px across the camera-Y travel available "
+          "inside its own rectangle.")
+
+
 async def leg(rig: Rig, tag: str, buttons, ticks: int, first_tick_frames: int | None = None):
     await rig.hold(buttons)
     out = [await rig.sample(f"{tag}0")]
@@ -526,140 +684,175 @@ async def run(args) -> int:
         report["spawn"] = {"centre": s0["centre"], "v": s0["v"], "row": s0["row"],
                            "cfg": None if s0["cfg"] is None else hex(s0["cfg"]["ptr"])}
 
-        # ---- leg C: the crossing route, right across the whole region table ---------------
-        # The same traversal shape parallax_crossing_gate walks: hold RIGHT from the spawn
-        # until the camera stops moving. The stop test is `Camera_X >= Camera_X_Max` and NOT
-        # "the centre passed the last row's x1": the camera is clamped to
-        # act_width - SCREEN_WIDTH, so its centre tops out SCREEN_WIDTH/2 px SHORT of the act's
-        # right edge and an x1 test would spin for LEG_MAX_TICKS and report a stale route.
+        # ---- the legs, each INDEPENDENTLY BLOCKABLE (coordinator ruling 2026-09-16) ----
+        #
+        # A `SetupError` still aborts the whole run: it means the INSTRUMENT is wrong, and nothing
+        # measured under it is worth reading. A `LegBlocked` aborts ONE leg. The leg is reported
+        # by name with its reason, every other leg still runs and still reports, and the run still
+        # exits 2 — a leg that could not run is not a leg that passed.
+        #
+        # WHY THAT IS THE RIGHT SPLIT AND NOT SIMPLY MORE OUTPUT: C and D measure A1/A2/A3 over
+        # ordinary motion and need nothing from W or S. W and S share ONE precondition — a region
+        # whose parallax config actually responds to the camera vertically — so they are genuinely
+        # coupled to each other and to nothing else. The first live run proved that coupling
+        # matters: the bottom-right region is vertically LOCKED, and a leg planned from wherever
+        # the camera happened to stop inherits that.
         cam_x_max = await rd(b, sym["Camera_X_Max"], 2)
-        legC = await leg_until(rig, "C", ["right"], lambda s: s["cam_x"] >= cam_x_max, 8)
-        report["C"] = check_leg(fails, K, "C (crossing route, held RIGHT)", legC)
-        report["C"]["camera_x_max"] = cam_x_max
-        if len(report["C"]["rows_visited"]) < 2:
-            raise SetupError(
-                f"leg C crossed no region boundary: it stayed in row(s) "
-                f"{report['C']['rows_visited']} for its whole traversal to Camera_X_Max = "
-                f"{cam_x_max}. The route is stale, and a green over one region says nothing "
-                "about a crossing. COULD NOT RUN.")
+        cam_y_max = await rd(b, sym["Camera_Y_Max"], 2)
+        report["camera_max"] = {"x": cam_x_max, "y": cam_y_max}
+        blocked: list[tuple[str, str]] = []
+
+        async def run_leg(name, body):
+            try:
+                await body()
+            except LegBlocked as e:
+                blocked.append((name, str(e)))
+                report[name] = {"could_not_run": str(e)}
+
+        # ---- leg C: the crossing route, right across the whole region table ---------------
+        # Hold RIGHT from the spawn until the camera stops moving. The stop test is
+        # `Camera_X >= Camera_X_Max` and NOT "the centre passed the last row's x1": the camera is
+        # clamped to act_width - SCREEN_WIDTH, so its centre tops out SCREEN_WIDTH/2 px SHORT of
+        # the act's right edge and an x1 test would spin for LEG_MAX_TICKS.
+        async def _legC():
+            legC = await leg_until(rig, "C", ["right"], lambda s: s["cam_x"] >= cam_x_max, 8)
+            report["C"] = check_leg(fails, K, "C (crossing route, held RIGHT)", legC)
+            report["C"]["camera_x_max"] = cam_x_max
+            if len(report["C"]["rows_visited"]) < 2:
+                raise LegBlocked(
+                    f"it crossed no region boundary: it stayed in row(s) "
+                    f"{report['C']['rows_visited']} for its whole traversal to Camera_X_Max = "
+                    f"{cam_x_max}. A green over one region says nothing about a crossing.")
+        await run_leg("C", _legC)
 
         # ---- leg D: "the shaft fall" — held DOWN in free flight, the camera's own ceiling --
-        cam_y_max = await rd(b, sym["Camera_Y_Max"], 2)
-        legD = await leg_until(rig, "D", ["down"],
-                               lambda s: s["cam_y"] >= cam_y_max, 8)
-        report["D"] = check_leg(fails, K, "D (descent, held DOWN)", legD)
-        report["D"]["camera_y_max"] = cam_y_max
-        report["D"]["fly_speed_px_per_frame"] = K["PLAYER_DEBUG_FLY_SPEED"]
-        findings.append(
-            f"D: the descent at PLAYER_DEBUG_FLY_SPEED = {K['PLAYER_DEBUG_FLY_SPEED']} px/frame "
-            f"(the camera's own per-frame ceiling — see the header) moved the BG scroll by at "
-            f"most {report['D']['worst_step']} px in a tick against a bound of {step_max}. "
-            + ("The clamp never bound, which is the expected NEGATIVE CONTROL: it does not fire "
-               "in ordinary play." if report['D']['worst_step'] < step_max else
-               "The clamp BOUND during an ordinary descent — that is not what the shipped "
-               "v_factor predicts and is worth reading before accepting this run."))
+        async def _legD():
+            legD = await leg_until(rig, "D", ["down"], lambda s: s["cam_y"] >= cam_y_max, 8)
+            report["D"] = check_leg(fails, K, "D (descent, held DOWN)", legD)
+            report["D"]["camera_y_max"] = cam_y_max
+            report["D"]["fly_speed_px_per_frame"] = K["PLAYER_DEBUG_FLY_SPEED"]
+            findings.append(
+                f"D: the descent at PLAYER_DEBUG_FLY_SPEED = {K['PLAYER_DEBUG_FLY_SPEED']} "
+                f"px/frame (the camera's own per-frame ceiling — see the header) moved the BG "
+                f"scroll by at most {report['D']['worst_step']} px in a tick against a bound of "
+                f"{step_max}. "
+                + ("The clamp never bound, which is the expected NEGATIVE CONTROL: it does not "
+                   "fire in ordinary play." if report["D"]["worst_step"] < step_max else
+                   "The clamp BOUND during an ordinary descent — that is not what the shipped "
+                   "v_factor predicts and is worth reading before accepting this run."))
+        await run_leg("D", _legD)
+
+        # ---- the shared precondition for W and S: a vertically RESPONSIVE region ----------
+        plan = None
+
+        async def _plan():
+            nonlocal plan
+            plan = await plan_vertical_leg(rig, b, sym, rows, K, cam_x_max, cam_y_max,
+                                           step_max, report)
+            findings.append(
+                f"W/S aim: region row {plan['row']['index']} "
+                f"[{plan['row']['x0']}..{plan['row']['x1']}]x[{plan['row']['y0']}.."
+                f"{plan['row']['y1']}] at x={plan['x']}, camera Y {plan['cam_y_lo']}.."
+                f"{plan['cam_y_hi']}, config {plan['cfg']['ptr']:#x} "
+                f"(v_factor {plan['cfg']['v_factor']}, v_center {s16(plan['cfg']['v_center'])}, "
+                f"v_offset {s16(plan['cfg']['v_offset'])}) -> derived target jump "
+                f"{plan['jump']} px, needs > {2 * step_max}. Chosen from the act's own table, "
+                "not inherited from wherever the earlier legs left the camera.")
+        await run_leg("W_plan", _plan)
 
         # ---- leg W: the rate DISCRIMINATOR — a DEBUG warp that must ratchet ---------------
-        # Derived, not picked: warp from the top of the act to the bottom of the SAME region
-        # column, so the target scroll jumps by (dy >> v_factor). Refuse if that jump is too
-        # small for the clamp to bind for two consecutive ticks.
-        here = await rig.sample("pre_warp")
-        if here["cfg"] is None:
-            raise SetupError("no parallax_config is active before the warp leg — cannot derive "
-                             "the jump the warp has to produce")
-        wx = here["cam_x"] + K["HALF_W"]
-        row_hi = region_table.region_at(rows, wx, 0) or rows[0]
-        y_top, y_bot = row_hi["y0"], min(row_hi["y1"], cam_y_max)
-        jump = abs(target_scroll(y_bot, here["cfg"]) - target_scroll(y_top, here["cfg"]))
-        report["W_plan"] = {"x": wx, "from_y": y_top, "to_y": y_bot, "derived_target_jump": jump,
-                            "needs_more_than": 2 * step_max}
-        if jump <= 2 * step_max:
-            raise SetupError(
-                f"the warp leg cannot discriminate on this act: warping x={wx} from y={y_top} to "
-                f"y={y_bot} moves the target BG scroll by only {jump} px, and the rate clamp "
-                f"needs a jump over 2 * {step_max} = {2 * step_max} to be forced to the bound "
-                "for two consecutive ticks. A4 would be vacuous, so this is COULD NOT RUN, not "
-                "a pass. Re-aim the warp or raise the act's height x depth.")
-        for nm, v, w in (("Warp_Req_X", wx, 2), ("Warp_Req_Y", y_top, 2), ("Warp_Req_Flag", 1, 1)):
-            await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
-        await rig.tick(WARP_MAX_FRAMES)
-        for _ in range(SETTLE_TICKS):
-            await rig.tick()
-        for nm, v, w in (("Warp_Req_X", wx, 2), ("Warp_Req_Y", y_bot, 2), ("Warp_Req_Flag", 1, 1)):
-            await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
-        legW = await leg(rig, "W", None, SETTLE_TICKS, first_tick_frames=WARP_MAX_FRAMES)
-        flag = await rd(b, sym["Warp_Req_Flag"], 1)
-        if flag:
-            raise SetupError(f"Warp_Req_Flag is still {flag} after the warp tick — the warp never "
-                             "happened, and a warp that never happened looks exactly like a warp "
-                             "that changed nothing")
-        report["W"] = check_leg(fails, K, "W (warp ratchet)", legW)
-        run_at_bound = longest_run_at(report["W"]["steps"], step_max)
-        report["W"]["longest_run_at_the_bound"] = run_at_bound
-        if run_at_bound < 2:                                               # A4
-            fails.append(
-                f"A4: after a warp whose derived target jump is {jump} px (> 2 * {step_max}), the "
-                f"longest run of consecutive ticks stepping exactly {step_max} px is "
-                f"{run_at_bound}. The rate clamp did not bind, so leg W's green is vacuous and "
-                f"A1 is untested. Steps observed: {report['W']['steps'][:12]}")
-        else:
-            findings.append(f"A4: the warp forced the rate clamp to the bound for {run_at_bound} "
-                            f"consecutive ticks at exactly {step_max} px — this is the leg that "
-                            "is red with the rate clamp reverted.")
+        async def _legW():
+            if plan is None:
+                raise LegBlocked("no region qualified for the vertical legs — see W_plan.")
+            half_h = K["HALF_H"]
+            wx, y_top, y_bot = plan["x"], plan["cam_y_lo"] + half_h, plan["cam_y_hi"] + half_h
+            await warp_to(b, sym, rig, wx, y_top)
+            for _ in range(SETTLE_TICKS):
+                await rig.tick()
+            await warp_to(b, sym, rig, wx, y_bot, tick=False)
+            legW = await leg(rig, "W", None, SETTLE_TICKS, first_tick_frames=WARP_MAX_FRAMES)
+            flag = await rd(b, sym["Warp_Req_Flag"], 1)
+            if flag:
+                raise LegBlocked(
+                    f"Warp_Req_Flag is still {flag} after the warp tick — the warp never "
+                    "happened, and a warp that never happened looks exactly like a warp that "
+                    "changed nothing.")
+            report["W"] = check_leg(fails, K, "W (warp ratchet)", legW)
+            report["W"].update({"x": wx, "from_player_y": y_top, "to_player_y": y_bot,
+                                "derived_target_jump": plan["jump"],
+                                "needs_more_than": 2 * step_max})
+            run_at_bound = longest_run_at(report["W"]["steps"], step_max)
+            report["W"]["longest_run_at_the_bound"] = run_at_bound
+            if run_at_bound < 2:                                               # A4
+                fails.append(
+                    f"A4: after a warp whose derived target jump is {plan['jump']} px "
+                    f"(> 2 * {step_max}), the longest run of consecutive ticks stepping exactly "
+                    f"{step_max} px is {run_at_bound}. The rate clamp did not bind, so leg W's "
+                    f"green is vacuous and A1 is untested. Steps: {report['W']['steps'][:12]}")
+            else:
+                findings.append(
+                    f"A4: the warp forced the rate clamp to the bound for {run_at_bound} "
+                    f"consecutive ticks at exactly {step_max} px — this is the leg that is red "
+                    "with the rate clamp reverted.")
+        await run_leg("W", _legW)
 
         # ---- leg S: the position DISCRIMINATOR — poke a row's rg_bg_span in ROM -----------
-        if args.skip_poke:
-            findings.append("S: SKIPPED by --skip-poke. Nothing in this run tested step 4's "
-                            "POSITION change; the verdict covers the rate clamp only.")
-            report["S"] = {"skipped": True}
-        else:
+        async def _legS():
+            if args.skip_poke:
+                raise LegBlocked(
+                    "SKIPPED by --skip-poke. Nothing in this run tested step 4's POSITION "
+                    "change; the verdict covers the rate clamp only.")
+            if plan is None:
+                raise LegBlocked("no region qualified for the vertical legs — see W_plan.")
+            half_h = K["HALF_H"]
+            row, cfg = plan["row"], plan["cfg"]
             ro, _ = region_table.region_layout()
-            row = row_hi
             span_addr = row["addr"] + ro["rg_bg_span"]
-            # DERIVED so the observation is impossible on the pre-step-4 code: a ceiling
-            # strictly below VSCROLL_BG_MAX, and strictly above 0, that the act can actually
-            # reach (the unclamped target at the act's floor must exceed it).
-            span_test = K["SCREEN_HEIGHT"] + K["VSCROLL_BG_MAX"] // 2
+            # DERIVED so the observation is impossible on the pre-step-4 code, and derived from
+            # THIS region's own reach rather than from a fraction of VSCROLL_BG_MAX: the ceiling
+            # has to be strictly below what the act can actually drive the scroll to, or the
+            # scroll never presses against it and a pass would mean nothing. One clear
+            # BG_VSCROLL_MAX_STEP of margin, and the span rounded DOWN to the 8-px grid because
+            # `ojz_region()` refuses a span off it (a partial row nothing can draw).
+            reachable = target_scroll(plan["cam_y_hi"], cfg)
+            span_test = ((K["SCREEN_HEIGHT"] + max(0, reachable - 2 * step_max)) // 8) * 8
             want_ceiling = span_test - K["SCREEN_HEIGHT"]
-            reachable = target_scroll(y_bot, here["cfg"])
-            if not 0 < want_ceiling < K["VSCROLL_BG_MAX"] or reachable <= want_ceiling:
-                raise SetupError(
-                    f"leg S cannot discriminate: a poked span of {span_test} gives a ceiling of "
+            if not 0 < want_ceiling < K["VSCROLL_BG_MAX"] or reachable - step_max <= want_ceiling:
+                raise LegBlocked(
+                    f"it cannot discriminate in row {row['index']}: the scroll reaches "
+                    f"{reachable} there, so a poked span of {span_test} gives a ceiling of "
                     f"{want_ceiling}, which must be strictly inside (0, {K['VSCROLL_BG_MAX']}) "
-                    f"AND strictly below the target the act's floor produces ({reachable}). "
-                    "COULD NOT RUN, not a pass.")
+                    f"AND at least {step_max} below the reach.")
             await _c(b, "emulator/write_memory",
                      {"addr": hex(span_addr), "value": span_test, "width": 2})
             back = await rd(b, span_addr, 2)
             if back != span_test:
-                raise SetupError(
-                    f"the ROM poke did not stick: wrote {span_test} to region row {row['index']}'s "
-                    f"rg_bg_span at {span_addr:#x}, read back {back}. The server will not write "
-                    "the ROM image, so the POSITION half of step 4 is UNTESTED by this run. "
-                    "COULD NOT RUN — never report this as a pass.")
+                raise LegBlocked(
+                    f"the ROM poke did not stick: wrote {span_test} to region row "
+                    f"{row['index']}'s rg_bg_span at {span_addr:#x}, read back {back}. The "
+                    "server will not write the ROM image, so the POSITION half of step 4 is "
+                    "UNTESTED by this run.")
             rig.span_override[row["addr"]] = span_test
-            for nm, v, w in (("Warp_Req_X", wx, 2), ("Warp_Req_Y", y_top, 2),
-                             ("Warp_Req_Flag", 1, 1)):
-                await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
-            await rig.tick(WARP_MAX_FRAMES)
-            legS = await leg_until(rig, "S", ["down"], lambda s: s["cam_y"] >= y_bot, 24)
+            await warp_to(b, sym, rig, plan["x"], plan["cam_y_lo"] + half_h)
+            legS = await leg_until(rig, "S", ["down"],
+                                   lambda s: s["cam_y"] >= plan["cam_y_hi"], 24)
             report["S"] = check_leg(fails, K, "S (poked span, descent)", legS)
             report["S"].update({"row": row["index"], "span_addr": hex(span_addr),
                                 "span_test": span_test, "derived_ceiling": want_ceiling,
+                                "reach_without_the_poke": reachable,
                                 "vscroll_bg_max": K["VSCROLL_BG_MAX"]})
             inside = [s for s in legS if s["region"] == row["addr"]]
             if not inside:
-                raise SetupError(f"leg S never had Region_Current on the poked row "
-                                 f"{row['index']} — the descent left the row, so nothing here "
-                                 "measured the poked span. COULD NOT RUN.")
+                raise LegBlocked(
+                    f"Region_Current was never on the poked row {row['index']} during the "
+                    "descent, so nothing here measured the poked span.")
             settled = inside[-1]["v"]
             over = [s["tag"] for s in inside if s["v"] > want_ceiling]
             if over:                                                        # A5
                 fails.append(
-                    f"A5: with region row {row['index']}'s rg_bg_span poked to {span_test}, the BG "
-                    f"scroll rose above the derived ceiling {want_ceiling} on "
-                    f"{len(over)} sample(s) ({over[:5]}). The position clamp is not reading "
-                    "rg_bg_span.")
+                    f"A5: with region row {row['index']}'s rg_bg_span poked to {span_test}, the "
+                    f"BG scroll rose above the derived ceiling {want_ceiling} on {len(over)} "
+                    f"sample(s) ({over[:5]}). The position clamp is not reading rg_bg_span.")
             if settled != want_ceiling:
                 fails.append(
                     f"A5: with rg_bg_span poked to {span_test}, the descent settled at "
@@ -672,8 +865,10 @@ async def run(args) -> int:
                 findings.append(
                     f"A5: with row {row['index']}'s rg_bg_span poked to {span_test}, the descent "
                     f"settled at {settled} = rg_bg_span - SCREEN_HEIGHT, NOT at VSCROLL_BG_MAX = "
-                    f"{K['VSCROLL_BG_MAX']}. This is the leg that is red with the position "
-                    "change reverted.")
+                    f"{K['VSCROLL_BG_MAX']} (which it reaches at {reachable} unpoked). This is "
+                    "the leg that is red with the position change reverted.")
+        await run_leg("S", _legS)
+        report["blocked"] = [{"leg": n, "why": w} for n, w in blocked]
     finally:
         try:
             await b.close()
@@ -696,19 +891,51 @@ def finish(args, report, fails, findings) -> int:
               f"of {len(report['rows'])}")
         for key in ("C", "D", "W", "S"):
             g = report.get(key)
-            if not g or g.get("skipped"):
+            if not g:
+                continue
+            if "could_not_run" in g:
+                print(f"  {key}: COULD NOT RUN — {g['could_not_run'].splitlines()[0]}")
                 continue
             print(f"  {g['leg']}: {g['ticks']} ticks, v {g['v_first']} -> {g['v_last']} "
                   f"(min {g['v_min']}, max {g['v_max']}), worst step {g['worst_step']}, "
                   f"{g['ticks_at_the_bound']} tick(s) at the bound, {g['modelled_ticks']} "
                   f"modelled ({g['model_mismatches']} mismatched), rows {g['rows_visited']}")
+        for r in report.get("W_scan", []):
+            print(f"  scan row {r['row']} {r['x']}x{r['y']} "
+                  + (f"cfg {r['cfg']} v_factor {r['v_factor']} jump {r.get('derived_jump')}: "
+                     if "cfg" in r else "")
+                  + r.get("verdict", "(not probed)"))
+        if report.get("W_scan_unprobed"):
+            print(f"  scan stopped at the first qualifying row; rows "
+                  f"{report['W_scan_unprobed']} were not probed")
         for f in findings:
             print(f"FINDING {f}")
+    blocked = report.get("blocked", [])
     if fails:
         print("FAIL:", file=sys.stderr)
         for f in fails:
             print(f"  - {f}", file=sys.stderr)
+        if blocked:
+            print(f"  (and {len(blocked)} leg(s) could not run: "
+                  f"{', '.join(n['leg'] for n in blocked)})", file=sys.stderr)
         return 1
+    if blocked:
+        # NEVER 0 HERE. The legs that can be blocked include both DISCRIMINATORS, and A1/A2/A3
+        # over ordinary motion cannot stand in for either: in ordinary play the target never
+        # moves more than the bound, so a tree with the rate clamp REMOVED produces identical
+        # numbers on legs C and D — including under A3, which models the clamp but is only
+        # exercised where the clamp would act.
+        print("COULD NOT RUN:", file=sys.stderr)
+        for n in blocked:
+            print(f"  - leg {n['leg']}: {n['why']}", file=sys.stderr)
+        ran = [k for k in ("C", "D", "W", "S")
+               if k in report and "could_not_run" not in report[k]]
+        print(f"\n  {len(ran)} leg(s) DID run and their assertions held "
+              f"({', '.join(ran) or 'none'}), and that is reported above rather than thrown "
+              "away. It is NOT evidence about either half of step 4 unless W and S are among "
+              "them: A4 (the rate discriminator) and A5 (the position discriminator) are the "
+              "only legs that can tell this clamp from its absence.", file=sys.stderr)
+        return 2
     print("bg_vscroll_rate_witness: PASS")
     return 0
 
@@ -719,8 +946,9 @@ def main() -> int:
     ap.add_argument("--rom", default=str(AEON / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
     ap.add_argument("--skip-poke", action="store_true",
-                    help="skip leg S (the ROM poke). The run then tests the RATE clamp only, "
-                         "says so in its findings, and is NOT evidence about the position clamp.")
+                    help="skip leg S (the ROM poke). The other legs still run and still report, "
+                         "but the run exits 2, not 0: without leg S nothing has tested step 4's "
+                         "POSITION change and a green would be a lie about it.")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     try:
