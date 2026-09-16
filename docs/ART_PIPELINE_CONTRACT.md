@@ -565,7 +565,7 @@ characters (`games/sonic4/vram.toml`, `debug_lab_name`).
 
 | asset | mappings | DPLC | frames |
 |---|---|---|---|
-| Sonic | `data/mappings/sonic.bin` 7 296 B | `data/dplc/optimized/sonic.bin` 2 244 B | **224** |
+| Sonic | `data/mappings/sonic.bin` 7 296 B | `data/dplc/optimized/sonic.bin` 2 242 B | **224** |
 | Knuckles | `data/mappings/knuckles.bin` 7 592 B | `data/dplc/knuckles.bin` 2 400 B | **251** |
 | Tails | `data/mappings/tails.bin` 7 152 B | `data/dplc/optimized/tails.bin` 1 658 B | **251** |
 | Tails' tails | `data/mappings/tails_tail.bin` 712 B | `data/dplc/optimized/tails_tail.bin` 268 B | 45 |
@@ -636,7 +636,20 @@ matters: several assets legitimately use their last frame, so written `<=` the g
 be green on a real overrun, and written `<` on a wrongly-derived maximum it would be red
 on correct art. Its `--selftest` proves both directions per table.
 
-Run on `s4.bin` / `s4.lst` from this tree, exit 0:
+⚠ **THE TABLE BELOW IS NOT A FRESH GATE RUN, and said it was until 2026-09-15.** It was
+published as "run on `s4.bin` / `s4.lst` from this tree, exit 0". It cannot have been: the
+`Ani_Spring` row describes the spring as it was BEFORE the 2026-09-07 side-spring sheet, and a
+run against this tree would have read the shipped four-entry table. Corrected 2026-09-15 by
+reading SOURCE, not by running the gate — `offsets Ani_Spring` has four entries (Idle, Fire,
+IdleH, FireH) at `games/sonic4/objects/test_solid.emp`, the highest frame byte any of them
+names is `SPRING_FRAME_EXTEND_H = 5`, and `offsets Map_Spring` has six frames. Margin is still
+0 (6 - 1 - 5). **The `max reachable` cell is left explicitly un-derived**: that column is the
+gate's tilt/bank/direct-write model over the BUILT ROM, and no `s4*.bin` / `s4*.lst` exists in
+the tree this correction was made in. `tools/anim_frame_bound.py`'s own docstring carries the
+same stale "spring 2/3" and is NOT fixed here. **Re-run the gate and paste its real output
+over this whole table** — and when you do, restore a provenance line that says which ROM.
+
+The other nine rows were re-derived from source on 2026-09-15 and agreed:
 
 | anim table | mappings | anims | max script byte | max reachable | frames | **margin** |
 |---|---|---|---|---|---|---|
@@ -646,7 +659,7 @@ Run on `s4.bin` / `s4.lst` from this tree, exit 0:
 | `Ani_Knuckles` | `Map_Knuckles` | 24 | `$DE` | `$DE` | 251 | 28 |
 | `Ani_RingSparkle` | `Map_RingSparkle` | 1 | `$03` | `$03` | 4 | **0** |
 | `Ani_Sonic` | `Map_Sonic` | 24 | `$C4` | `$C4` | 224 | 27 |
-| `Ani_Spring` | `Map_Spring` | 2 | `$02` | `$02` | 3 | **0** |
+| `Ani_Spring` | `Map_Spring` | 4 | `$05` | ⚠ not re-derived | 6 | **0** |
 | `Ani_Tails` | `Map_Tails` | 24 | `$B4` | `$B4` | 251 | 70 |
 | `Ani_TailsAppendage` | `Map_TailsAppendage` | 24 | `$28` | `$28` | 45 | 4 |
 
@@ -687,7 +700,7 @@ Measured sheet sizes on this tree (uncompressed 4bpp, 32 B/tile):
 
 | sheet | bytes | tiles | headroom to 4096 |
 |---|---|---|---|
-| `art/optimized/characters/sonic.bin` | 101 056 | 3 158 | 938 |
+| `art/optimized/characters/sonic.bin` | 101 536 | 3 173 | 923 |
 | `art/optimized/characters/knuckles.bin` | 130 944 | **4 092** | **4** |
 | `art/optimized/characters/tails.bin` | 116 320 | 3 635 | 461 |
 | `art/optimized/characters/tails_tail.bin` | 8 896 | 278 | |
@@ -776,11 +789,15 @@ If you are coming from a Sonic 1/2/3 disassembly, the words do not map across. *
 no 16×16-pixel block table and no 128×128-pixel chunk table in this engine.**
 
 Positive control, run on this tree: a case-insensitive search for `chunk` across
-`engine/**/*.emp` exits 1 (no matches), and the same search across `games/**/*.emp` also
-exits 1; a search for `128x128` / `128 x 128` across both exits 1. As a control that the
+`engine/**/*.emp` exits 1 (no matches). **The same search across `games/**/*.emp` does NOT exit
+1** — it matches one file, `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, twice, both
+times in COMMENT prose about grid alignment ("no block or chunk grid lines"). The conclusion
+survives (no chunk table exists) but the control as stated was false, and a positive control
+that is itself wrong is worse than none; a search for `128x128` / `128 x 128` across both exits 1. As a control that the
 search machinery works, `BLOCK_TILE_SIZE` returns 12 matches in
-`engine/system/constants.emp` alone. The word `chunk` **does** survive in `tools/` — about
-twenty files — but always as the *donor* vocabulary: `ojz_common.load_chunk_map` and
+`engine/system/constants.emp` alone. The word `chunk` **does** survive in `tools/` — **37
+files**, measured 2026-09-15, not the "about twenty" this line said — but always as the *donor*
+vocabulary: `ojz_common.load_chunk_map` and
 `collision_pipeline.bake_cell` parse sonic_hack's Sonic 2 data at import time, and that
 shape never reaches the ROM.
 
@@ -928,23 +945,37 @@ into the per-plane space.
 
 A 16 px collision row samples the **top tile row** of the pair (even rows only).
 
-Two hard refusals in that bake, both raising rather than warning:
+**One** hard refusal in `bake_plane_cell`, not two — this said two until 2026-09-15:
 
 * **`XOVER == 3` is reserved and raises.** 3 is the value a producer that *clamps* into a
   2-bit field lands on, so it is made the loudest value rather than the quietest.
-* **A self-mark raises** — a plane-A word carrying `XOVER_TO_A`, or plane-B carrying
-  `XOVER_TO_B`, provably does nothing (you must already be on a plane to read its mark),
-  so it is treated as authoring intent that silently fails.
+* **A self-mark does NOT raise.** `tools/collision_pipeline.py` says so in its own words:
+  "RULE R2 (refuse a self-mark: a plane-A cell marked TO_A) IS NOT IMPLEMENTED, and the
+  reason is STRUCTURAL rather than unfinished: this function is handed one plane's word at
+  a time and takes no plane parameter, so it cannot ask whether a mark points at the plane
+  being baked." Nothing leaks today because every shipped mark is a two-way pair, checked
+  across both planes by `tools/collision_xover_census.py` — **an unguarded door, not a
+  hole.** Pairing is unenforceable here for the same reason. Do not rely on the bake to
+  catch a self-mark.
 
-If `section_N.collattr.bin` is the wrong length the bake **warns and ignores the editor
-collision for that section** rather than failing:
+If `section_N.collattr.bin` is the wrong length the bake **REFUSES** — it raises, and the
+build stops. This document said the opposite ("warns and ignores the editor collision for
+that section") until 2026-09-15, and the warning text it quoted no longer exists anywhere
+in `tools/`. The soft fallback was deliberately deleted on 2026-09-12 (`ojz_strip_gen.py`,
+gap lens sweep F1) for exactly the reason the old paragraph then went on to warn about:
 
 ```
-  WARNING: {path_a} is {len}B, expected {expect}; ignoring editor collision for sec {N}
+  {path_a} is {len} bytes, expected {expect} (a {W}x{W} grid of 16-bit cell words).
+  Refusing to bake sec {N}: the old fallback treated a wrong-sized collision file as
+  'no editor collision' and shipped the section as ALL AIR. ...
 ```
 
-That is a soft failure and worth knowing about: wrong-sized collision does not stop a
-build, it silently reverts a section to air.
+A wrong-sized plane-B file is refused the same way (sweep F5) rather than being replaced
+by a mirror of plane A; an ABSENT plane-B file still mirrors, which is a section authored
+on one plane. **The hazard the next three paragraphs describe is therefore CLOSED**, and
+they are kept only as the record of why the refusal exists: wrong-sized collision used to
+not stop a
+build, it silently reverted a section to air. It does now.
 
 ### 6.8 Objects and rings
 
@@ -964,24 +995,32 @@ buffer**; the shipped act's worst 2×2-block pressure is 20.
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp` builds one `Act` record naming the
 grid, the start position, the act-wide BG blob and tile blob, the parallax config, the
 paged art pool table, the per-section local maps, an edge mode and a per-act art byte
-budget. Each of the nine sections is a `Sec` record (`engine/structs.emp:145`):
+budget. Each of the nine sections is a `Sec` record (`engine/structs.emp:194`) — **26 bytes, seven
+fields**:
 
 ```
 $00 sec_block_index      *u8   the 256-entry block index table
 $04 sec_objects          *u8   object list ($FFFF-terminated)
 $08 sec_rings            *u8   X-sorted ring entries
-$0C sec_parallax_config  *u8   0 = defer to the preset / act default
-$10 sec_bg_layout        *u8   0 = use the act-wide BG
-$14 sec_type_table       *u8   count, pad, then ObjDef pointers
-$18 sec_block_dict       *u8   raw dict region (LZ pre-seed)
-$1C sec_effects          *u8   EffectsPreset* — REQUIRED, no default
-$20 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
+$0C sec_bg_layout        *u8   0 = use the act-wide BG
+$10 sec_type_table       *u8   count, pad, then ObjDef pointers
+$14 sec_block_dict       *u8   raw dict region (LZ pre-seed)
+$18 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
 ```
 
-`sec_effects` is required deliberately: `Effects_InstallPreset` dereferences it without
-testing, and the only null test is inside `if DEBUG == 1` — so an omitted binding would
-compile clean, ship, and send the release build into the 68000 vector table. Dropping the
-default makes the omission a build error in every shape at zero ROM cost.
+⚠ **This table listed a NINE-field, 34-byte record until 2026-09-15, and every offset from
+`$0C` down was wrong.** `Sec` went 34 -> 26 on 2026-09-13 (painted-regions v1, step 4):
+`sec_parallax_config` and `sec_effects` **left `Sec` entirely** and moved to the `Region`
+record. A reader laying out a section by that table put `sec_type_table` where
+`sec_bg_layout` lives. Nothing in this document flagged it, because a record layout is not
+a restated constant and no gate looks at one.
+
+The argument the old text attached to `sec_effects` is intact, but it now belongs to
+`Region.rg_effects` (`engine/structs.emp:104`, in the 16-byte `Region` at `:99`): that field
+has no `= 0` default, and **the omission is the guard** — `Effects_InstallPreset` dereferences
+it without testing, and the only null test is inside `if DEBUG == 1`, so an omitted binding
+would compile clean, ship, and send the release build into the 68000 vector table. Dropping
+the default makes the omission a build error in every shape at zero ROM cost.
 
 ---
 
@@ -997,7 +1036,7 @@ default makes the omission a build error in every shape at zero ROM cost.
 | **none** | all sprite art, all palettes, both nametable blobs, all collision tables | — |
 
 Every compressed art blob starts with a **4-byte wrapper**
-(`engine/system/constants.emp:341-346`):
+(`engine/system/constants.emp:378-384`):
 
 ```
 u16 BE  uncompressed size
@@ -1034,7 +1073,7 @@ dictionary entry. The deepest shipped use is a 768-byte block slot plus a 2 304-
 
 **Art pool paging.** `ART_POOL_PAGE_TILES = 64`, so a page is
 `ART_POOL_PAGE_BYTES = 2048` bytes. The manifest is a stride-`sizeof(PageManifest)` array
-(`engine/structs.emp:71`):
+(`engine/structs.emp:115`):
 
 ```
 $00 pm_source  *u8   page blob pointer (ZX0 wrapper, or raw payload)
@@ -1114,24 +1153,39 @@ warning: 14 warnings, module.path-mismatch 14; SIGIL_WARNINGS=full to list
 error: native build (sonic4 plain): build_program: 1 error(s);
   [Error] stream_cram: 4 colours exceeds RASTER_BURST_MAX_CRAM (3) — the per-fire CYCLE
   budget for the CHEAP burst class, not a FIFO limit. […] @ Span { source: SourceId(11),
-  start: 19879, end: 20899 }
+  start: 19939, end: 20959 }
 ```
 
 Recognise: `error: native build (<game> <shape>): build_program: N error(s);` followed by
 one `[Error] <the guard's own message> @ Span { … }` per failure.
 
-**A second failure road exists and looks nothing like that one.** An `ensure` whose
+**A second failure road exists and used to look nothing like that one.** An `ensure` whose
 condition contains `extern(...)` — every cross-namespace constant mirror and every
-RAM-reservation span, 135 sites — is lowered to a link assert, evaluated after layout, and
-reported as:
+RAM-reservation span, a family of **well over a hundred sites** — is lowered to a link
+assert, evaluated after layout, and reported under its own header:
 
 ```
-declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
+declared-chain drift guard FIRED: N error(s):
 ```
 
-with **no `[Error]` token anywhere** (`tools/emp_expect_fail.py`, which documents both
-formats because the difference silently voided a whole test family). If you are grepping a
-build log for failures, grep for both.
+⚠ **Two things in this paragraph were wrong on 2026-09-15 and are corrected here.**
+
+* **The count.** It said "135 sites", a figure `tools/emp_expect_fail.py` still restates.
+  `docs/DEFERRED_WORK.md` (LS-16c) retracted it in this repo's own record: *"THE FAMILY IS
+  139 SITES IN 23 FILES TODAY, NOT 135. It drifted in two days, which is the argument for
+  the runner existing."* **No number is written here on purpose.** A count that moves every
+  few days does not belong restated in prose; ask
+  `tools/test_extern_guard_reachability.py`, which is the per-commit runner, and treat any
+  figure you find in a comment as a date-stamp rather than a fact.
+* **The shape of the report.** It said the link-assert road carries **no `[Error]` token
+  anywhere**, and told you to grep for both forms because of it. Sigil fixed that renderer
+  in `82838687`: a link-assert failure now renders *through the same renderer*, WITH the
+  `[Error]` token and a `file:line:col` prefix the old `first Some(Diagnostic { .. })` form
+  never carried — confirmed against the installed binary (`af35fa56`), not inferred from
+  ancestry. **Grepping for `[Error]` alone no longer misses this family.** The advice to
+  grep for both is still harmless, but its stated reason is obsolete: what distinguishes
+  the two roads today is the HEADER (`build_program:` vs `declared-chain drift guard
+  FIRED:`), not the presence of a token.
 
 Guards you will meet as an asset producer, and what each does *not* cover — each of these
 states its own limits in its message, and the limits are as load-bearing as the check:
@@ -1167,7 +1221,7 @@ record is the total binding — every channel arrives through it
 ```
 $00 ep_pal            *u8    REQUIRED — the preset CARRIES the base palette
 $04 ep_parallax       *u8    0 = defer to the act default (the one legal 0);
-                             a non-zero Sec.sec_parallax_config outranks it
+                             a non-zero Region.rg_parallax outranks it
 $08 ep_raster         *u8    static raster program; 0 is ILLEGAL — use
                              Raster_Program_None
 $0C ep_patched        *u8    patched template (water / world-anchored gradient);
@@ -1179,7 +1233,7 @@ $24 ep_transition     u16             cross-fade arm
 $26 ep_patch_motion   [u16; 4]        one packed SWEEP word per patch channel
 ```
 
-`RASTER_MAX_PATCH = 4` (`engine/effects/raster_dsl.emp:2131`) is what sizes the two
+`RASTER_MAX_PATCH = 4` (`engine/effects/raster_dsl.emp:2135`) is what sizes the two
 4-entry arrays. The two inline arrays are inline, not pointers, deliberately: a `Label`
 carries no length, so an `ensure` comparing one against an integer is unevaluable and
 passes silently.
@@ -1237,7 +1291,7 @@ header:
   M−1. The comptime constructors own that −1 so authors think in screen lines.
 
 Bounds: `RASTER_MIN_FIRE_LINE = 3`, `RASTER_MAX_FIRE_LINE = 223`,
-`RASTER_BUF_SIZE = 128` bytes = 64 words (`engine/effects/raster.emp:363, 1718-1719`).
+`RASTER_BUF_SIZE = 128` bytes = 64 words (`engine/effects/raster.emp:363, 1761-1762`).
 
 Opcodes (`engine/effects/raster.emp`), with their argument layouts:
 
@@ -1332,7 +1386,7 @@ for the mailbox, and the mailbox is not in the release shape.
 
 ### 8.6 VBlank ordering
 
-From `engine/system/vblank.emp:157-209`, in order:
+From `engine/system/vblank.emp:157-298`, in order:
 
 ```
 Raster_VBlank            <-- MUST precede the flush
@@ -1482,7 +1536,7 @@ Consequences for a tool:
 
 A sonic4 `./build.sh` assembles the *demo* game to evaluate its link-time guards (some
 `ensure`s are gated `when = "sound_off"` and are dead in every sonic4 shape). That assemble
-writes to **a scratch path, deliberately** (`build.sh:818-860`).
+writes to **a scratch path, deliberately** (`build.sh:1160-1221`).
 
 The reason is a false-pass mechanism worth understanding: writing real demo artifacts there
 would give `demo.bin` / `demo.lst` a fresh mtime **from a sonic4 invocation**, and the
