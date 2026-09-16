@@ -1,12 +1,6 @@
 {
-  "focus": "Region background switching is built and passing its checks; tuning how fast it loads before landing it.",
-  "inFlight": [
-    {
-      "what": "Region background switch: built and green; resizing its upload chunk so a switch takes a few frames, not 27, then re-checking",
-      "where": "branch parcel/region-bg-switch (agent worktree)",
-      "agent": true
-    }
-  ],
+  "focus": "Region background switching is landed; it is ready for you to fly in the DEBUG build.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "After the chunk resize is re-verified and the switch lands; then you get a DEBUG ROM to look at it.",
+  "nextBoundary": "Here. Everything is landed and pushed and nothing is running.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Region backgrounds: implementing the switch (overwrite the tiles, then repaint behind your cover). Plan first, then build. The foreground budget is measured in parallel",
-      "state": "doing",
+      "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
@@ -66,7 +60,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T23:13:12Z"
+  "awaiting": "your look at the region background switch in the DEBUG ROM (crc f95b1eb4); the spring sound A/B from 09-09 is still yours too",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T23:38:03Z"
 }
