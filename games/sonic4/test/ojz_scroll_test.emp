@@ -2204,9 +2204,13 @@ proc Debug_LabCycleHotkey () clobbers(d0-d4/a0-a3) {
         cmp.w   Act.act_region_count(a2), d4
         bhs     .done                           // this act has no such region
 
-        // The Region*: the table base plus index × record size. sizeof(Region) is 16, so
-        // mul_const elects a shift, and adda.w's sign extension is safe because the index is
-        // a lab row's sub-index, which the lint bounds by PRESET_CYCLE_MAX (10) — 160 bytes.
+        // The Region*: the table base plus index × record size. sizeof(Region) is 22 since
+        // regions part 2 step 1 appended rg_bg_layout/rg_bg_span (was 16), so mul_const now
+        // elects a shift-add chain rather than the single shift a power of two got — the
+        // election is the macro's, which is why this site spells the stride and not the
+        // instruction. adda.w's sign extension is safe because the index is a lab row's
+        // sub-index, which the lint bounds by PRESET_CYCLE_MAX (10) — 220 bytes, still far
+        // inside the positive half of a word.
         movea.l Act.act_regions(a2), a0
         move.w  d4, d0
         mul_const.w d0, #sizeof(Region), d2     // d0 = region × the Region stride (d2 scratch)

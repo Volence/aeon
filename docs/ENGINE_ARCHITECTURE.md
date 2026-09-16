@@ -2402,12 +2402,37 @@ A surviving field's 0 means "defer / none", never "keep current".
 A **region** is an inclusive world-pixel rectangle that names an identity record — the `EffectsPreset` (§7.12) — and, optionally, a parallax config that outranks the preset's own. The act descriptor gains `act_regions` (`*u8` → `[Region; act_region_count]`, +$28) and `act_region_count` (u16, +$2C, required, ≥ 1); `Act` is 46 bytes. Storage stays per section (§4.2); only identity moved.
 
 ```
-Region — 16 bytes (engine/structs.emp), span-major so each axis is one move.l:
+Region — 22 bytes (engine/structs.emp), span-major so each axis is one move.l:
     dc.w    rg_x0, rg_x1         ; +$00/$02: inclusive X span, world px
     dc.w    rg_y0, rg_y1         ; +$04/$06: inclusive Y span
     dc.l    rg_effects           ; +$08: EffectsPreset* — REQUIRED (no default; ojz_region() also ensures != 0)
     dc.l    rg_parallax          ; +$0C: parallax_config* — rung 1 of Effects_ResolveParallax; 0 = defer
+    dc.l    rg_bg_layout         ; +$10: nametable blob*; 0 = Act.act_bg_layout (part 2 step 1)
+    dc.w    rg_bg_span           ; +$14: BG map height in px, the scroll modulus; 0 = PLANE_B_SPAN
 ```
+
+**The last two fields have NO READER YET (regions part 2 step 1, 2026-09-15).** They were
+appended — no older offset moved, so the crossing's two `move.l` cache fills are untouched —
+and they are inert: the background is still blitted once at load from the act-wide blob, and
+step 1 changed no pixel. `ojz_region()` ensures a written span is a multiple of 8 and at least
+`SCREEN_HEIGHT`, and refuses a span on a row that names no layout of its own; **0 is the
+sentinel in both fields and is exempt from the height floor**, which is what lets act 1's ten
+rows keep their existing bindings. The readers arrive with the row streamer. Out-of-assembler,
+`tools/region_table.py` returns both fields and its test pins the pair as the record's LAST two.
+Spec: empyrean `docs/superpowers/specs/2026-09-14-regions-part-2-design.md` §4.1.
+
+**The record's size is a code cost, not only a data cost** (measured in the same parcel): every
+`mul_const.w dN, #sizeof(Region)` site re-elects when the stride stops being a power of two.
+Measured, both shapes, by diffing the listings' full symbol maps:
+
+| shape | ROM total | where it went |
+|---|---|---|
+| `s4.bin` (release) | 820515 -> 820515, **+0** | the table's +60 B is the only placement change, and it lands in padding that already existed ahead of the fixed data-bank base at `$A8000`. No code moved: the two `mul_const #sizeof(Region)` sites are DEBUG-only emissions |
+| `s4.debug.bin` | 846874 -> 846894, **+20** | the table's +66 B lands in the same padding; the +20 is entirely those two sites, +10 each, where a single shift became a shift-add chain |
+
+So a `Region` field is free in ROM until it changes the stride's *form*, and then the price is
+paid at every stride site rather than in the table — which is invisible in the table's own
+arithmetic and is the number to check before the next field lands.
 
 Two rows naming the same preset ARE one region for every purpose the engine has (nothing reads a region id), so an L-shape is two rows and an arch is three. **The cost of a shape is its row count, never its area.**
 
