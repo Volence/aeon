@@ -257,3 +257,80 @@ def test_patching_rg_bg_span_on_disk_hits_exactly_the_right_two_bytes():
     assert ro["rg_bg_span"] == 20 and off == target["addr"] + 20, (
         f"rg_bg_span moved to offset {ro['rg_bg_span']}; leg S's patch site is derived from "
         "region_layout() so it follows, but the note and the witness header quote 20/$14")
+
+
+# ---- the granularity split, from the run that went red ---------------------------------------
+
+def sample(v, cam_y, *, dtick=1, region=0x18AC0, cfg_ptr=0x134E8, v_factor=3, ceiling=288,
+           tag="t"):
+    return {"tag": tag, "v": v, "cam_y": cam_y, "cam_x": 0, "dtick": dtick, "logic_tick": 0,
+            "region": region, "row": 1, "span": 0, "ceiling": ceiling, "trans": 0,
+            "centre": (0, 0), "lag": 0,
+            "cfg": {"ptr": cfg_ptr, "v_factor": v_factor, "v_center": 512, "v_offset": 0,
+                    "bob": 0}}
+
+
+class TestGranularity:
+    """THE REGRESSION FOR THE THIRD LIVE RUN. Leg W reported `tick 1 moved ... by 32 px`, which
+    is exactly 2 x BG_VSCROLL_MAX_STEP against an unclamped target of 177. A warp tick runs
+    Parallax_Update TWICE (Debug_Warp_Consume primes, then the frame body runs), so per-tick
+    sampling attributes two correctly-clamped stores to one tick. These pin that the two
+    granularities disagree in exactly that way and that only the per-tick one is fooled."""
+
+    def test_per_tick_sampling_reads_two_clamped_stores_as_one_illegal_step(self):
+        fails = []
+        # camY 1935 -> target 177; the store sequence 0, 32 is what a warp tick LOOKS like when
+        # only its endpoints are sampled.
+        W.check_leg(fails, K, "W", [sample(0, 1935), sample(32, 1935)], granularity="tick")
+        assert any("A1" in f and "32 px" in f for f in fails), fails
+        assert any(f"past BG_VSCROLL_MAX_STEP = {STEP}" in f for f in fails), fails
+
+    def test_per_invocation_sampling_sees_two_legal_stores(self):
+        """The same 32 px of travel, sampled once per Parallax_Update, is two 16 px steps and
+        breaks nothing. This is the fix, and it TIGHTENS: it asserts on what the clamp bounds."""
+        fails = []
+        r = W.check_leg(fails, K, "W", [sample(0, 1935), sample(16, 1935), sample(32, 1935)],
+                        granularity="step5")
+        assert fails == [], fails
+        assert r["worst_step"] == STEP and r["ticks_at_the_bound"] == 2
+
+    def test_a3_pairs_the_camera_with_the_store_it_produced_and_the_pairing_differs(self):
+        """Per TICK the value at i was produced by the camera sampled at i; per INVOCATION the
+        entry sample reads the PREVIOUS store, so v[i] pairs with cam[i-1]. Getting this
+        backwards models the wrong frame, so it is pinned rather than commented."""
+        # cam 1935 -> target 177, clamped to +16 from 0; cam 0 -> target -64, clamped to 0.
+        per_tick = [sample(0, 0), sample(16, 1935)]
+        fails = []
+        W.check_leg(fails, K, "T", per_tick, granularity="tick")
+        assert fails == [], fails                       # v[1]=16 from cam[1]=1935: correct
+        fails = []
+        W.check_leg(fails, K, "S", per_tick, granularity="step5")
+        assert any("A3" in f for f in fails), (
+            "step5 mode accepted a pairing only the tick mode makes true, so the two modes are "
+            "not actually distinguishing which camera produced the store")
+
+    def test_a_multi_tick_interval_BLOCKS_rather_than_reporting_a_giant_step(self):
+        """A lag tick or a missed Update entry read as one step is exactly how a working clamp
+        looks broken. The tick-mode leg refuses instead of reporting."""
+        with pytest.raises(W.LegBlocked) as e:
+            W.check_leg([], K, "C", [sample(0, 0), sample(32, 1935, dtick=2)],
+                        granularity="tick")
+        assert "not exactly one logic tick" in str(e.value)
+
+    def test_bound_steps_are_classified_by_whether_the_region_changed(self):
+        """FINDING D's answer. A bound step at a region/config change is the clamp doing its job
+        on a target that jumped; a bound step in steady state is a claim about the v_factor."""
+        steady = [sample(0, 1935), sample(16, 1935)]
+        r = W.check_leg([], K, "D", steady, granularity="tick")
+        assert r["bound_in_steady_state"] == 1 and r["bound_at_a_change"] == 0
+        crossing = [sample(0, 1935), sample(16, 1935, region=0x18AD6, cfg_ptr=0x14A68,
+                                            v_factor=15)]
+        r = W.check_leg([], K, "D", crossing, granularity="tick")
+        assert r["bound_at_a_change"] == 1 and r["bound_in_steady_state"] == 0
+
+
+def test_the_warp_consumer_still_runs_a_second_parallax_update():
+    """leg_step5's whole justification is that a warp tick contains TWO Parallax_Update calls.
+    If that stops being true the witness's explanation of its own sampling is wrong, so the
+    witness refuses — and this pins that the refusal is wired to the real source."""
+    W.warp_consumer_shape_check()          # raises SetupError if the shape has gone

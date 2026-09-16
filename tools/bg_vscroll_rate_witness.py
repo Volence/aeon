@@ -259,6 +259,35 @@ def pcfg_offsets() -> dict[str, int]:
     return out
 
 
+def warp_consumer_shape_check() -> None:
+    """Refuse to run if `Debug_Warp_Consume` no longer contains the second `Parallax_Update`.
+
+    Leg W samples per INVOCATION precisely because a warp tick contains two of them — the
+    consumer's own priming call plus the frame body's. That is a structural fact about the game's
+    init ladder, and the moment it stops being true this witness's explanation of its own
+    sampling choice becomes wrong. Cheap to pin, and the failure it prevents is a comment that
+    confidently describes a mechanism that has gone.
+    """
+    rel = "games/sonic4/test/ojz_scroll_test.emp"
+    txt = (AEON / rel).read_text()
+    m = re.search(r"proc Debug_Warp_Consume\s*\(\)[^{]*\{(.*?)^\}", txt, re.M | re.S)
+    if not m:
+        raise SetupError(f"cannot find `proc Debug_Warp_Consume` in {rel}")
+    body = re.sub(r"//[^\n]*", "", m.group(1))
+    for want in (r"jbsr\s+Parallax_CheckBoundary", r"jbsr\s+Parallax_Update"):
+        if not re.search(want, body):
+            raise SetupError(
+                f"Debug_Warp_Consume no longer contains /{want}/. Leg W samples per "
+                "Parallax_Update invocation BECAUSE a warp tick runs two of them; if the "
+                "consumer has stopped priming, re-read the path and update leg_step5's header "
+                "before trusting leg W's granularity.")
+    if not re.search(r"if DEBUG == 1 \{\s*jbsr\s+Debug_Warp_Consume", txt):
+        raise SetupError(
+            "GameState_OJZScroll_Update no longer calls Debug_Warp_Consume at its frame top, so "
+            "a warp is no longer inside the same logic tick as the frame body — leg W's "
+            "granularity argument rests on that and must be re-read.")
+
+
 def step5_shape_check() -> None:
     """Refuse to model a Parallax_Step5_Vscroll whose clamp no longer reads the way clamp_model()
     transcribes it. The model is only as good as this match."""
@@ -339,6 +368,7 @@ class Rig:
     def __init__(self, b, sym, rows, rom, K):
         self.b, self.sym, self.rows, self.rom, self.K = b, sym, rows, rom, K
         self.upd = sym["GameState_OJZScroll_Update"]
+        self.tick_prev = None
         self.index = {r["addr"]: r["index"] for r in rows}
         self.by_addr = {r["addr"]: r for r in rows}
         self.span_override: dict[int, int] = {}   # row addr -> poked rg_bg_span (leg S)
@@ -385,7 +415,10 @@ class Rig:
         tgt = await rd(b, sym["Parallax_Target_Config"], 4)
         row = self.by_addr.get(region)
         span = self.span_override.get(region, row["bg_span"] if row else 0)
-        return {"tag": tag,
+        lt = await rd(b, sym["Logic_Tick"], 4)
+        dtick = None if self.tick_prev is None else lt - self.tick_prev
+        self.tick_prev = lt
+        return {"tag": tag, "logic_tick": lt, "dtick": dtick,
                 "cam_x": cam_x, "cam_y": cam_y,
                 "centre": (cam_x + self.K["HALF_W"], cam_y + self.K["HALF_H"]),
                 "v": s16(await rd(b, sym["Parallax_Current_Vscroll_BG"], 2)),
@@ -539,6 +572,47 @@ async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, s
           "inside its own rectangle.")
 
 
+async def leg_step5(rig: Rig, tag: str, n: int, max_frames: int):
+    """Sample at PARALLAX_STEP5 granularity instead of per logic tick — i.e. once per invocation
+    of the routine that owns the clamp.
+
+    WHY THIS EXISTS (measured 2026-09-16, the third live run). Leg W reported a 32 px step on its
+    warp tick and A1/A3 went red. 32 is exactly 2 x BG_VSCROLL_MAX_STEP, and the unclamped target
+    was 177 — so a bypassed clamp would have landed on 177, not on precisely double the bound.
+    The cause is in the ENGINE'S SHAPE, not in the clamp: `Debug_Warp_Consume` runs at the TOP of
+    `GameState_OJZScroll_Update` and ends with `jbsr Parallax_CheckBoundary` + `jbsr
+    Parallax_Update` ("the final Parallax_Update primes HScroll/VSRAM"), and then the SAME frame's
+    normal body runs both again. So a warp tick contains TWO Parallax_Update calls, two correctly
+    clamped 16 px stores, and a rig that samples once per tick attributes both to one tick.
+
+    THE ARITHMETIC CONSERVES, which is the decisive check and it uses the failing run's own
+    numbers: target 177, observed 0 -> 32, then NINE consecutive ticks at exactly 16 = 144.
+    32 + 144 = 176, and the last tick takes the remaining 1. Every pixel is accounted for and
+    none is skipped. A bypass does not produce a run of nine.
+
+    SO THE FIX IS IN THE SAMPLING, AND IT TIGHTENS RATHER THAN LOOSENS. The clamp's guarantee is
+    per INVOCATION, not per tick; a per-tick bound follows from it but is weaker. This samples the
+    thing the clamp actually bounds. A1 was NOT relaxed to admit 32 on the first tick — that is
+    the shape that produces a gate which passes because it was taught to.
+
+    HOW IT READS THE STORES. It stops at `Parallax_Step5_Vscroll`'s ENTRY, where
+    `Parallax_Current_Vscroll_BG` still holds what the PREVIOUS invocation stored. So consecutive
+    entries are consecutive STORES, and the delta between two of them is exactly one clamped step.
+    The camera read at entry k is the one invocation k is about to use, which is why the model
+    arm pairs `v[k+1]` with `cam[k]` — see `check_leg(granularity="step5")`.
+    """
+    addr = hex(rig.sym["Parallax_Step5_Vscroll"])
+    out = []
+    for i in range(n):
+        r = await _c(rig.b, "emulator/run_to", {"addr": addr, "maxFrames": max_frames})
+        if not r.get("reached"):
+            raise LegBlocked(f"leg `{tag}` did not reach Parallax_Step5_Vscroll within "
+                             f"{max_frames} frames on sample {i}: {r}")
+        out.append(await rig.sample(f"{tag}{i}"))
+        await _c(rig.b, "emulator/step", {})       # off the entry so the next run_to advances
+    return out
+
+
 async def leg(rig: Rig, tag: str, buttons, ticks: int, first_tick_frames: int | None = None):
     await rig.hold(buttons)
     out = [await rig.sample(f"{tag}0")]
@@ -569,21 +643,53 @@ async def leg_until(rig: Rig, tag: str, buttons, done, margin: int):
 
 # ---- the verdict ---------------------------------------------------------------------------
 
-def check_leg(fails: list[str], K: dict, name: str, samples: list[dict]) -> dict:
-    """A1 + A2 + A3 over one leg. Returns the leg's summary row."""
+def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
+              granularity: str = "tick") -> dict:
+    """A1 + A2 + A3 over one leg. Returns the leg's summary row.
+
+    GRANULARITY is not cosmetic. "tick" samples once per logic tick at the game-state Update
+    entry; "step5" samples once per `Parallax_Step5_Vscroll` invocation, which is what the clamp
+    actually bounds. They differ on exactly one path and it is a real one: a DEBUG warp tick runs
+    Parallax_Update TWICE (Debug_Warp_Consume's own call at the frame top, then the frame body's),
+    so a per-tick sample sees two clamped stores as one step. See `leg_step5`.
+
+    In "tick" mode every interval MUST be exactly one logic tick, and the leg is blocked if not —
+    every per-tick assertion here assumes it, and a lag tick or a missed Update entry would make
+    A1 read a multi-tick move as a single step. That guard is why the two cases above can be told
+    apart by data rather than by argument.
+    """
     step_max = K["BG_VSCROLL_MAX_STEP"]
-    steps, worst, binds = [], 0, 0
+    unit = "tick" if granularity == "tick" else "invocation"
+    if granularity == "tick":
+        bad = [(i, s["dtick"]) for i, s in enumerate(samples)
+               if i and s["dtick"] is not None and s["dtick"] != 1]
+        if bad:
+            raise LegBlocked(
+                f"{len(bad)} sample interval(s) in this leg are not exactly one logic tick "
+                f"({bad[:6]}), so every per-tick assertion here would be measuring something "
+                "other than a tick. Blocked rather than reported: a multi-tick interval read as "
+                "one step is precisely how a working clamp looks broken.")
+    steps, worst, binds, bound_at = [], 0, 0, []
     for i in range(1, len(samples)):
         d = samples[i]["v"] - samples[i - 1]["v"]
         steps.append(d)
         worst = max(worst, abs(d))
         if abs(d) == step_max:
             binds += 1
+            # WHY IT BOUND, classified rather than left for the reader: a bound step at a region
+            # or config CHANGE is the clamp doing its job on a target that jumped; a bound step
+            # in steady state is a claim about the shipped v_factor.
+            a_, b_ = samples[i - 1], samples[i]
+            changed = (a_["region"] != b_["region"]
+                       or (a_["cfg"] or {}).get("ptr") != (b_["cfg"] or {}).get("ptr"))
+            bound_at.append({"i": i, "at_change": bool(changed),
+                             "row": [a_["row"], b_["row"]]})
         if abs(d) > step_max:                                              # A1
-            fails.append(f"A1 {name}: tick {i} moved Parallax_Current_Vscroll_BG by {d} px "
+            fails.append(f"A1 {name}: {unit} {i} moved Parallax_Current_Vscroll_BG by {d} px "
                          f"({samples[i-1]['v']} -> {samples[i]['v']}), past BG_VSCROLL_MAX_STEP "
                          f"= {step_max}. Camera Y {samples[i-1]['cam_y']} -> "
-                         f"{samples[i]['cam_y']}, region row {samples[i]['row']}")
+                         f"{samples[i]['cam_y']}, region row {samples[i]['row']}"
+                         + (f", dtick {samples[i]['dtick']}" if granularity == "tick" else ""))
     for i, s in enumerate(samples):                                        # A2
         if not 0 <= s["v"] <= s["ceiling"]:
             fails.append(f"A2 {name}: sample {i} has Parallax_Current_Vscroll_BG = {s['v']}, "
@@ -593,25 +699,36 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict]) -> dict
     modelled = mismatched = 0
     for i in range(1, len(samples)):                                       # A3
         a, s = samples[i - 1], samples[i]
-        if s["trans"] or a["trans"] or s["cfg"] is None:
+        # WHICH CAMERA PRODUCED THIS STORE depends on the granularity, and getting it backwards
+        # would model the wrong frame. Per TICK: the value at tick i was computed from the camera
+        # as it stood at the end of tick i-1, which is the camera sampled at tick i's entry — so
+        # pair v[i] with cam[i]. Per INVOCATION: the entry sample reads the PREVIOUS invocation's
+        # store, and the camera it reads is the one THIS invocation is about to use — so v[i]
+        # pairs with cam[i-1].
+        src = s if granularity == "tick" else a
+        if s["trans"] or a["trans"] or src["cfg"] is None:
             continue           # the lerp arm and a config this witness cannot read: rate only
-        if s["cfg"]["bob"]:
-            raise SetupError(f"the active parallax_config at {s['cfg']['ptr']:#x} authors a bob "
-                             f"(pcfg_bob = {s['cfg']['bob']:#04x}); target_scroll() does not "
-                             "model the sine term. Teach it before trusting any verdict here")
+        if src["cfg"]["bob"]:
+            raise SetupError(f"the active parallax_config at {src['cfg']['ptr']:#x} authors a "
+                             f"bob (pcfg_bob = {src['cfg']['bob']:#04x}); target_scroll() does "
+                             "not model the sine term. Teach it before trusting any verdict here")
         modelled += 1
-        want = clamp_model(target_scroll(s["cam_y"], s["cfg"]), a["v"], s["ceiling"], step_max)
+        want = clamp_model(target_scroll(src["cam_y"], src["cfg"]), a["v"], src["ceiling"],
+                           step_max)
         if want != s["v"]:
             mismatched += 1
             if mismatched <= 3:
                 fails.append(
-                    f"A3 {name}: tick {i}: Parallax_Current_Vscroll_BG is {s['v']}, the clamp "
-                    f"model says {want}. camY {s['cam_y']}, config {s['cfg']['ptr']:#x} "
-                    f"(v_factor {s['cfg']['v_factor']}, v_center {s16(s['cfg']['v_center'])}, "
-                    f"v_offset {s16(s['cfg']['v_offset'])}) -> target "
-                    f"{target_scroll(s['cam_y'], s['cfg'])}; previous {a['v']}, ceiling "
-                    f"{s['ceiling']} (row {s['row']}, span {s['span']})")
-    return {"leg": name, "ticks": len(samples) - 1, "v_first": samples[0]["v"],
+                    f"A3 {name}: {unit} {i}: Parallax_Current_Vscroll_BG is {s['v']}, the clamp "
+                    f"model says {want}. camY {src['cam_y']}, config {src['cfg']['ptr']:#x} "
+                    f"(v_factor {src['cfg']['v_factor']}, v_center {s16(src['cfg']['v_center'])},"
+                    f" v_offset {s16(src['cfg']['v_offset'])}) -> target "
+                    f"{target_scroll(src['cam_y'], src['cfg'])}; previous {a['v']}, ceiling "
+                    f"{src['ceiling']} (row {src['row']}, span {src['span']})")
+    return {"leg": name, "granularity": granularity, "bound_at": bound_at,
+            "bound_at_a_change": sum(1 for x in bound_at if x["at_change"]),
+            "bound_in_steady_state": sum(1 for x in bound_at if not x["at_change"]),
+            "ticks": len(samples) - 1, "v_first": samples[0]["v"],
             "v_last": samples[-1]["v"], "v_min": min(s["v"] for s in samples),
             "v_max": max(s["v"] for s in samples), "worst_step": worst,
             "ticks_at_the_bound": binds, "modelled_ticks": modelled,
@@ -636,6 +753,7 @@ async def run(args) -> int:
     K["HALF_W"], K["HALF_H"] = K["CAM_SCREEN_HALF_W"], K["CAM_SCREEN_HALF_H"]
     K["pcfg"] = pcfg_offsets()
     step5_shape_check()
+    warp_consumer_shape_check()
     step_max = K["BG_VSCROLL_MAX_STEP"]
 
     sym = parse_lst(args.lst)
@@ -643,7 +761,7 @@ async def run(args) -> int:
                  "Camera_X", "Camera_Y", "Camera_X_Max", "Camera_Y_Max", "Region_Current",
                  "Parallax_Current_Vscroll_BG", "Parallax_Current_Config",
                  "Parallax_Target_Config", "Parallax_Transition_Frames",
-                 "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag",
+                 "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Logic_Tick",
                  "Lag_Frame_Count", "OJZ_Act1_Descriptor", "Parallax_Step5_Vscroll"):
         if need not in sym:
             raise SetupError(f"symbol {need} is not in {args.lst} — this witness needs the "
@@ -759,10 +877,22 @@ async def run(args) -> int:
                 f"px/frame (the camera's own per-frame ceiling — see the header) moved the BG "
                 f"scroll by at most {report['D']['worst_step']} px in a tick against a bound of "
                 f"{step_max}. "
-                + ("The clamp never bound, which is the expected NEGATIVE CONTROL: it does not "
-                   "fire in ordinary play." if report["D"]["worst_step"] < step_max else
-                   "The clamp BOUND during an ordinary descent — that is not what the shipped "
-                   "v_factor predicts and is worth reading before accepting this run."))
+                + (f"The clamp never bound, which is the expected NEGATIVE CONTROL: it does "
+                   "not fire in ordinary play."
+                   if not report["D"]["bound_at"] else
+                   f"It bound {len(report['D']['bound_at'])} time(s): "
+                   f"{report['D']['bound_at_a_change']} at a region or config CHANGE and "
+                   f"{report['D']['bound_in_steady_state']} in steady state. A bound step at a "
+                   "change is the clamp doing its job on a target that jumped — this route "
+                   f"crosses rows {report['D']['rows_visited']}, and rows whose config is the "
+                   "vertical lock make the target jump to a fixed v_offset. A bound step in "
+                   "STEADY STATE would be the real surprise, because the shipped v_factor turns "
+                   f"a {K['PLAYER_DEBUG_FLY_SPEED']} px/frame camera into a few px of BG scroll."
+                   + (" There are none, so D is still a clean negative control for steady-state "
+                      "motion and simply is not one across crossings."
+                      if report["D"]["bound_in_steady_state"] == 0 else
+                      " THERE ARE SOME, and that contradicts the derivation — read the trace "
+                      "before accepting this run.")))
         await run_leg("D", _legD)
 
         # ---- the shared precondition for W and S: a vertically RESPONSIVE region ----------
@@ -793,15 +923,24 @@ async def run(args) -> int:
             for _ in range(SETTLE_TICKS):
                 await rig.tick()
             await warp_to(b, sym, rig, wx, y_bot, tick=False)
-            legW = await leg(rig, "W", None, SETTLE_TICKS, first_tick_frames=WARP_MAX_FRAMES)
+            # PER INVOCATION, NOT PER TICK — see leg_step5's header. The warp tick runs
+            # Parallax_Update twice, so per-tick sampling reports two clamped stores as one
+            # 32 px step and A1 goes red on a clamp that is working. Enough samples to cover
+            # the whole ratchet with margin: one store per BG_VSCROLL_MAX_STEP of the jump.
+            n = plan["jump"] // step_max + 8
+            legW = await leg_step5(rig, "W", n, WARP_MAX_FRAMES)
             flag = await rd(b, sym["Warp_Req_Flag"], 1)
             if flag:
                 raise LegBlocked(
                     f"Warp_Req_Flag is still {flag} after the warp tick — the warp never "
                     "happened, and a warp that never happened looks exactly like a warp that "
                     "changed nothing.")
-            report["W"] = check_leg(fails, K, "W (warp ratchet)", legW)
+            report["W"] = check_leg(fails, K, "W (warp ratchet, per Parallax_Update)", legW,
+                                    granularity="step5")
             report["W"].update({"x": wx, "from_player_y": y_top, "to_player_y": y_bot,
+                                "samples_requested": n,
+                                "logic_ticks_spanned": legW[-1]["logic_tick"]
+                                                       - legW[0]["logic_tick"],
                                 "derived_target_jump": plan["jump"],
                                 "needs_more_than": 2 * step_max})
             run_at_bound = longest_run_at(report["W"]["steps"], step_max)
@@ -809,14 +948,23 @@ async def run(args) -> int:
             if run_at_bound < 2:                                               # A4
                 fails.append(
                     f"A4: after a warp whose derived target jump is {plan['jump']} px "
-                    f"(> 2 * {step_max}), the longest run of consecutive ticks stepping exactly "
-                    f"{step_max} px is {run_at_bound}. The rate clamp did not bind, so leg W's "
-                    f"green is vacuous and A1 is untested. Steps: {report['W']['steps'][:12]}")
+                    f"(> 2 * {step_max}), the longest run of consecutive INVOCATIONS stepping "
+                    f"exactly {step_max} px is {run_at_bound}. The rate clamp did not bind, so "
+                    f"leg W's green is vacuous and A1 is untested. Steps: "
+                    f"{report['W']['steps'][:12]}")
             else:
+                # THE CONSERVATION CHECK, reported beside the run because it is what separates
+                # "the clamp bound" from "the clamp was skipped and the numbers happen to look
+                # tidy": the ratchet's total travel must equal the derived jump, give or take the
+                # final partial step. A bypass reaches the target in one store and has no run.
+                travel = legW[-1]["v"] - legW[0]["v"]
                 findings.append(
                     f"A4: the warp forced the rate clamp to the bound for {run_at_bound} "
-                    f"consecutive ticks at exactly {step_max} px — this is the leg that is red "
-                    "with the rate clamp reverted.")
+                    f"consecutive Parallax_Update invocations at exactly {step_max} px — this is "
+                    "the leg that is red with the rate clamp reverted. Conservation: the ratchet "
+                    f"travelled {travel} px over {len(legW) - 1} invocations "
+                    f"({report['W']['logic_ticks_spanned']} logic ticks) against a derived jump "
+                    f"of {plan['jump']}; every pixel is accounted for and none skipped.")
         await run_leg("W", _legW)
 
         # ---- leg S: the position DISCRIMINATOR — a PATCHED ROM, not a live poke ----------
