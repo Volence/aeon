@@ -249,6 +249,18 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # the tree that can tell step 4's position clamp from the fallback it takes on every
         # shipped row. A server that refuses the poke makes that leg exit 2, never 0.
         ("bg_vscroll_rate", True, GATE_EMU_BUDGET),
+        # bg_window is bg_vscroll_rate's other half and sits immediately beside it, because the
+        # two grade the SAME pair of numbers from opposite ends: that gate asserts the BG
+        # V-scroll moves no faster than BG_VSCROLL_MAX_STEP, this one asserts the Plane B
+        # WINDOW the synchronous prime writes is the one that scroll selects. They are not
+        # redundant and the asymmetry is the point — a rate-clamped scroll with a prime that
+        # re-seeds to row 0 is exactly the BG-PLANE-WINDOW defect, and bg_vscroll_rate is green
+        # on it. It drives the DEBUG warp mailbox TWICE (settle at the tall region's ceiling,
+        # then a second warp inside the same region so the scroll is HIGH across the prime),
+        # because a warp from a LOW scroll cannot discriminate: the rate clamp and the row
+        # streamer's budget are derived from each other, so a row-0 prime at a row-0 scroll
+        # stays correct. One oracle-aether process, four samples, ~2 minutes of emulated frames.
+        ("bg_window", True, GATE_EMU_BUDGET),
         # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
         # non-effects member: it is the section streamer's own invariant (a cell RECORDED
         # as written was actually written), and this lane is still the tree's only
@@ -1082,6 +1094,15 @@ def main() -> int:
                            "bg_vscroll_rate (BG-RATE: the BG V-scroll never moves more than "
                            "BG_VSCROLL_MAX_STEP in a tick, stays inside the ceiling the current "
                            "REGION's rg_bg_span derives, and a poked span moves that ceiling)",
+                           ok, msg, final=True))
+
+    if wanted("bg_window"):
+        ok, msg = run(["python3", str(AEON / "tools/bg_window_gate.py"),
+                       "--rom", rom, "--lst", lst], "bg_window")
+        results.append(row("bg_window",
+                           "bg_window (BG-PLANE-WINDOW: the synchronous Plane B prime seeds "
+                           "BG_Plane_Top to the window the live scroll selects and blits THAT "
+                           "window, wrap and all, instead of map rows 0..63)",
                            ok, msg, final=True))
 
     if wanted("tile_cache_fill"):

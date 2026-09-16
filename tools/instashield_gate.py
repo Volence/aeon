@@ -19,7 +19,11 @@ stays byte-identical across the insta-shield change (measured), because every ai
 press in the two fixtures was already made from a real jump; and it cannot reach
 Ability_TailsFlight AT ALL, because Character_ID is boot-zero (CHAR_SONIC) and its only
 writer, Debug_CharacterHotkey, stands down for INPUT_PLAYBACK and INPUT_RECORD alike
-(ojz_scroll_test.emp:1057-1058). A gate over recorded play therefore cannot see the half
+(the "THE REPLAY GUARD IS LOAD-BEARING HERE" note on Debug_CharacterHotkey in
+games/sonic4/test/ojz_scroll_test.emp -- cited by NAME because the `:1057-1058` that stood
+here had drifted onto an unrelated comment about latching Camera_Y, and had done so before
+the parcel that noticed it: verified against 8954b9bd).
+A gate over recorded play therefore cannot see the half
 of the behaviour that moved, so the subject here is the ROUTINE,
 taken from the ROM as bytes:
 

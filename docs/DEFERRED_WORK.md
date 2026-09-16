@@ -35230,7 +35230,60 @@ read the absence as evidence of reachability, caught itself, and re-grounded eve
 claim on the appended-`ensure` control instead. That note in `preset.emp` was NOT edited by step
 3; whoever closes this item should re-read it and decide whether it needs the caveat.
 
-## BG plane window start row: `Section_RedrawPlanes` blits the whole image, not a window (booked 2026-09-16, `parcel/regions-p2-step3`)
+## ✅ CLOSED 2026-09-16 (`parcel/bg-plane-window`) — BG plane window start row: `Section_RedrawPlanes` blits the whole image, not a window (booked 2026-09-16, `parcel/regions-p2-step3`)
+
+**WHAT LANDED.** `Section_RedrawPlanes`' Plane B half restates `BG_Stream_Update`'s own window
+rule — `want_top = clamp((vscroll >> 3) - BG_STREAM_LEAD_ROWS, 0, map_rows - PLANE_V_CELLS)` —
+against `Parallax_Current_Vscroll_BG`, seeds `BG_Plane_Top` to it, and blits that window as the
+**two-run** shape this booking predicted: the destination wraps modulo `PLANE_V_CELLS` and the
+source does not, so `[top, top+63]` lands as plane rows `p..63` then `0..p-1` with
+`p = top mod PLANE_V_CELLS`. At `p = 0` run 2 is empty and run 1 is the whole image, at the same
+VDP address with the same count — which is why no release picture moves.
+
+**THE DESIGN CALL, AND WHY OPTION (a) AS BOOKED WAS NOT EXECUTABLE.** This item offered two ways
+out: move `Parallax_Init` above the blits **on both ladders**, or pass the blits a scroll
+explicitly. (a) is undefined on the warp ladder: **`Debug_Warp_Consume` has no `Parallax_Init`.**
+Its step 7 is `Parallax_CheckBoundary` + `BgAnim_Init` + `Parallax_Update`, and the init is
+deliberately absent there (it would re-seed the region sentinel that makes the destination read
+as a crossing). And the warp ladder needed no hoist at all: **step 4's rate clamp deliberately
+holds the BG scroll near its pre-warp value across a teleport**, so the live cell at the prime IS
+the value the next displayed frame uses, to within `BG_VSCROLL_MAX_STEP` = 16 px = 2 rows, which
+the 17-row lead absorbs. Measured: warp into the tall region with the scroll at its 544 ceiling
+and the scroll is still 544 at the prime.
+
+So the hoist landed on the **boot ladder only** — `jbsr Parallax_Init` (with its config-resolve
+block) now stands ABOVE the `st Section_Plane_Dirty` / `jbsr Section_UpdateColumns` pair.
+`Parallax_Current_Vscroll_BG` lives INSIDE `Parallax_State`, the span `Parallax_Init`'s zero loop
+wipes, and `Parallax_Init` tail-calls `Parallax_Update`, so below it the cell is this act's.
+Option (b) was **rejected**: `Section_RedrawPlanes` is reached through the `Section_Plane_Dirty`
+flag rather than by a direct call, so an explicit input means a new RAM cell (or a game-side
+write to an engine-owned parallax cell) carrying a number the engine can already read correctly
+once the ordering is right — a second authority for a question that already has one.
+
+**`BG_Init` DELIBERATELY DID NOT GET THE WINDOW**, against this item's own "both blits" wording,
+and the reason is now a build error rather than a sentence: it blits `Act.act_bg_layout`, typed
+`[u8; BG_LAYOUT_SIZE]`, and a new `ensure` pins `BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS
+* 2`. Rows 0..63 ARE its whole map and 0 IS its only legal window. It also could not compute
+another: it runs from `Level_LoadArt`, which stands ABOVE `Camera_Init`, so no camera, no region
+and no scroll exist at that site on any ladder (**BG-BOOT-REGION-BLIT**, still open and unchanged).
+
+**GATES.** `tools/bg_window_gate.py` — headless `oracle-aether`, two warps, reads `BG_Plane_Top`
+and Plane B at `$E000`; wired into `tools/effects_gates.py` as `bg_window` (and therefore into
+`aeon-effects-gates.timer`'s nightly). Red-first against the unmodified base `8954b9bd`:
+`BG_Plane_Top` = 4 against `want_top` = 32, and 32 of 64 plane rows holding the wrong map row.
+`tools/test_bg_plane_window.py` — the source half, three legs, pinning the ladder order the
+emulator cannot see (the boot prime's correct window is 0 on every reachable path, so a boot
+sample passes either way).
+
+**STILL OPEN, AND NEITHER IS THIS:** **BG-RATE-PRIME-EXEMPTION** (the scroll ratchets to its
+post-warp target 16 px a frame with no prime exemption, so a warp still slides even though the
+nametable is now right) and **BG-BAND-PLANE-ANCHOR** (the parallax band tops alias against plane
+space on a taller map). Step 8's `PLANE_V_CELLS` 64 → 32 shrink still needs the window, and now
+has it.
+
+### The original booking, kept for the derivation
+
+
 
 §4.5 asks the two blits to write "a WINDOW of `PLANE_V_CELLS` rows starting at the row the scroll
 selects". Step 3 did not, and the reason is that the number does not exist yet at either site:
@@ -35284,6 +35337,12 @@ that the seed is the constant 0 rather than the window the scroll selects, and t
 sources rows 0..63 rather than that window.
 
 **Step 8 (`PLANE_V_CELLS` 64 -> 32) still makes it mandatory** and nothing above changes that.
+
+> **⚠ THE PARAGRAPH ABOVE IS SUPERSEDED BY THE CLOSE AT THE HEAD OF THIS ITEM.** Its statement of
+> the blocker — "*closing this properly means EITHER moving `Parallax_Init` above the blits on
+> both ladders, or giving the blits a scroll input*" — was measured wrong on one half:
+> **the warp ladder has no `Parallax_Init` to move, and needs none.** Kept as written because it
+> is the reasoning that produced the close, not because it is still accurate.
 
 ## The night-settle capture set: FIRST RUN TAKEN and superseded; the RE-RUN is outstanding (booked 2026-09-16, `parcel/night-settle-capture`)
 
@@ -35606,20 +35665,37 @@ DEBUG=1 ./build.sh
 python3 -m pytest tools/test_bg_tall_map.py -q -s   # prints the derived table below
 ```
 
-At the pin (`s4.debug.bin`, crc `936ac15c`) the printed table reads:
+**⚠ THE TABLE BELOW WAS REGENERATED 2026-09-16 (`parcel/bg-plane-window`) FROM THE BUILT ROM.**
+Two earlier rows were stale, and both had been pinned at a pre-extension build: the region extent
+read `y 2048..4095` when the row's own `rg_y1` is **6143**, and the ceiling-binds-at camera Y was
+not carried at all. Regenerate rather than quote: the arithmetic below is
+`python3 -m pytest tools/test_bg_tall_map.py -q -s`'s own printout and the numbers move with the
+tree.
+
+At the regeneration pin (`s4.debug.bin`, crc `908b2077`, 847248 B) it reads:
 
 | | |
 |---|---|
-| tall region | row 11, x 5120..6143, y 2048..4095 |
-| span / map | 768 px = 96 rows; blob at ROM `$29750`, 12288 B, md5 `1bdb5d88dd32530c476078a5f66824a3` |
+| tall region | row 11, x 5120..6143, **y 2048..6143** |
+| span / map | 768 px = 96 rows; blob at ROM `$29750`, 12288 B, md5 `1bdb5d88dd32530c476078a5f66824a3` (identical to the committed file) |
 | parallax | config `$134E8` (`ParallaxConfig_OJZ_Default`), v_factor 3, v_center 512, v_offset 0 |
 | window | lead 17 rows, max_top 32 |
-| window tops visited, NEW ceiling 544 | 7..32 (26 distinct) |
-| window tops visited, OLD ceiling 288 | 7..19 (13 distinct) |
+| window tops visited, NEW ceiling 544 | 7..32 (26 distinct); the ceiling first CUTS at camera Y **4872** |
+| window tops visited, OLD ceiling 288 | 7..19 (13 distinct); that ceiling first cuts at camera Y 2824 |
 
-**What to do on the machine.** Fly (DEBUG free flight; **do NOT warp** — see BG-PLANE-WINDOW
-above, a warp re-seeds the window to row 0 and the tracker needs up to 16 frames to walk back)
-into x 5120..6143 and traverse camera Y from 2048 to 4095. At three camera Y values compute
+**⚠ THE "DO NOT WARP" RESTRICTION IS LIFTED (BG-PLANE-WINDOW closed, 2026-09-16).** It was a
+symptom of that item and it is gone with it: `Section_RedrawPlanes` now primes the WINDOW the
+live scroll selects, so a warp into the tall region leaves `BG_Plane_Top` where the scroll wants
+it rather than at 0. Measured by `tools/bg_window_gate.py` on this build: at the prime after a
+warp with the scroll at 544, `BG_Plane_Top` = 32 = `want_top`, and every one of the 64 plane rows
+holds the map row the window names. **Leg 2 is therefore reachable by warping**, which is far
+cheaper than flying the traverse — and flying still exercises the steady state, which warping
+does not, so the procedure below keeps the flight for legs 1 and 3. What a warp still does NOT
+fix is the SCROLL: it ratchets to its post-warp target at 16 px a frame (BG-RATE-PRIME-EXEMPTION),
+so the picture is right while the position slides. Do not read that slide as a streaming defect.
+
+**What to do on the machine.** Fly (DEBUG free flight) into x 5120..6143 and traverse camera Y
+from 2048 to 6143. At three camera Y values compute
 `vscroll = clamp(((camY - 512) >> 3), 0, 544)` and `top = clamp((vscroll >> 3) - 17, 0, 32)`, then
 read Plane B at `$E000` and assert that for every map row `m` in `[top, top+63]`, the 128 bytes at
 `$E000 + (m & 63)*128` equal `zone_bg_tall_debug.bin[m*128 : m*128+128]`. **The blob's 96 rows are
@@ -35640,7 +35716,9 @@ identifies the map row uniquely — which is the whole reason the marker cell ex
    non-vacuously — before step 5 there was no region whose clamp could bind.
 
 **⚠ AND A SECOND THING NOT TO REPORT AS A STREAMING DEFECT.** The BG scroll sits at its ceiling
-544 for every camera Y from 4864 to 6143, and 544 masked into plane space is line 32, so Step 4a
+544 for every camera Y from 4864 to 6143 (4864 is where the raw scroll REACHES 544; the clamp
+first has to CUT at 4872 — two different questions, and the gate table above answers the second),
+and 544 masked into plane space is line 32, so Step 4a
 selects parallax band 0 where the map says band 3 — the horizon snaps. That is
 **BG-BAND-PLANE-ANCHOR** below, it is not the streamer, and the nametable is correct there.
 
@@ -35680,10 +35758,13 @@ on screen is the parallax horizon snapping.
 
 **Where it bites right now.** Step 5's DEBUG test region (act 1 row 11, x 5120..6143,
 y 2048..6143, span 768) has a clamp ceiling of 544, and the scroll sits AT 544 for every camera Y
-from 4864 to 6143. So the bottom ~1280 px of that region runs with band 0 selected where the map
-says band 3. **Anyone running the BG-TALL foreground procedure will see it and should not report it
+from 4864 to 6143 (the clamp first CUTS at 4872; 4864 is where the raw scroll reaches the ceiling
+exactly). So the bottom ~1280 px of that region runs with band 0 selected where the map says
+band 3. **Anyone running the BG-TALL foreground procedure will see it and should not report it
 as a streaming defect** — the nametable is correct there; it is the horizontal band rates that are
-wrong. The `docs/DEFERRED_WORK.md` BG-TALL entry carries the same warning.
+wrong. The BG-TALL entry above carries the same warning. **BG-PLANE-WINDOW's close (2026-09-16)
+does not touch this and makes it slightly easier to meet**, because a warp into the region is now
+a legitimate way to reach it.
 
 **What the fix is, and why it is not this parcel's.** The band table wants its tops in MAP space,
 with `vs` derived from the unmasked map-space scroll and the mask applied only where a genuine

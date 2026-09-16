@@ -16,6 +16,22 @@ use engine.constants.{CANOPY_C1, CANOPY_C4, CANOPY_PERSIST_FRAMES}
 use engine.structs.{Act, Sec, Region, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
+// BG-PLANE-WINDOW (2026-09-16). The synchronous Plane B prime below writes the WINDOW the
+// scroll selects, by BG_Stream_Update's own rule rather than by a second private copy of it.
+// engine.bg does not import this module (it imports engine.constants / engine.parallax /
+// engine.plane_buffer), so the edge is acyclic.
+//
+// ⚠ THE WHOLE DERIVATION CHAIN IS IMPORTED, NOT JUST THE ONE NAME THIS FILE SPELLS, and
+// that is the language rather than a style choice: a `const`'s definition is re-elaborated
+// in the IMPORTING scope, so every free name inside it must resolve HERE (EMP_PITFALLS
+// "free names resolve at the CALL SITE"). Importing `BG_STREAM_LEAD_ROWS` alone is a hard
+// build error reported against engine/level/bg.emp's own line — measured, 2026-09-16 —
+// and the fix is to bring its ancestors with it, not to re-spell the number.
+//   BG_STREAM_LEAD_ROWS <- BG_STREAM_SPARE_ROWS <- BG_SCREEN_ROWS <- BG_STREAM_ROW_PX
+//                       <- BG_VSCROLL_ROW_PX <- PLANE_B_SPAN <- PLANE_B_CELL_ROWS
+use engine.constants.{SCREEN_HEIGHT}
+use engine.parallax.{PLANE_B_CELL_ROWS, PLANE_B_SPAN, BG_VSCROLL_ROW_PX}
+use engine.bg.{BG_STREAM_ROW_PX, BG_SCREEN_ROWS, BG_STREAM_SPARE_ROWS, BG_STREAM_LEAD_ROWS}
 // SND_DMA_ACTIVE_SLOT (the 68k-side DMA-window flag slot) is a global linker
 // symbol defined by engine.vblank; referenced bare below for the poke-storm bracket.
 
@@ -281,6 +297,19 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1, d4) o
 //   (the tail clamp's flags escape) — the QueueDMA_Deferrable / Sound_DrainSfxRing
 //   split.
 // -----------------------------------------------
+// ---- THE PLANE B ROW GEOMETRY, AS SHIFTS (BG-PLANE-WINDOW, 2026-09-16) ----
+// The windowed prime scales a ROW INDEX into a byte offset twice — once for the source
+// (map row -> blob offset) and once for the destination (plane row -> VRAM offset) — and
+// once more into a longword count. All three are powers of two, so they are shifts:
+// CODING_CONVENTIONS §2.1 refuses a casual `mulu` and a power-of-two scale is the case it
+// names first. Spelled as named shift counts, not literals, and pinned below so a plane
+// geometry change is a build error rather than a background that blits at the wrong stride.
+const PLANE_ROW_BYTES      = PLANE_H_CELLS * 2      // one nametable row in bytes (64 cells x 2 B)
+const PLANE_ROW_SHIFT      = 7                      // log2(PLANE_ROW_BYTES)
+const PLANE_ROW_LONG_SHIFT = 5                      // log2(PLANE_ROW_BYTES / 4)
+ensure(PLANE_ROW_BYTES == (1 << PLANE_ROW_SHIFT) && PLANE_ROW_BYTES / 4 == (1 << PLANE_ROW_LONG_SHIFT),
+       "engine/level/section.emp: the Plane B row stride is PLANE_H_CELLS * 2 = {PLANE_ROW_BYTES} bytes, which is not 1 << PLANE_ROW_SHIFT ({PLANE_ROW_SHIFT}) or whose quarter is not 1 << PLANE_ROW_LONG_SHIFT ({PLANE_ROW_LONG_SHIFT}). Section_RedrawPlanes' windowed prime spells both scales as those shift counts, so a drifted geometry would blit the right window at the wrong stride — a background that is subtly and consistently wrong, with nothing in the build to say so. Derived: a nametable cell is one WORD, so a row of PLANE_H_CELLS cells is PLANE_H_CELLS * 2 bytes and a quarter of that is its longword count. Respell both shifts, or give PLANE_H_CELLS a power-of-two value again")
+
 pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7: u16) preserves(sr.mask) {
         // LS-8 stride pin. The cache source pointer below is built with
         // `mul_const.w d1, #160, d2` — origin_row x the row stride IN BYTES, i.e.
@@ -509,53 +538,137 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             move.w  Camera_Y, d3                    // world Y px
             addi.w  #CAM_SCREEN_HALF_H, d3
             jbsr    Region_Resolve                  // a0 = Region*, or 0 (clobbers d0/a2)
+            moveq   #0, d4                          // d4 = this map's height in px; 0 = the act default
             cmpa.w  #0, a0
             beq     .plb_use_act_layout             // no row contains the centre (the act
                                                     // constructor makes this unreachable)
             movea.l Region.rg_bg_layout(a0), a1
             cmpa.w  #0, a1
-            bne     .plb_have_layout
+            beq     .plb_use_act_layout
+            // THE SPAN IS READ ONLY ON THE ARM THAT ALSO TOOK THE REGION'S OWN BLOB, and
+            // that pairing is the point rather than a convenience. `rg_bg_span` describes
+            // the height of `rg_bg_layout`; a row that declares a span but no layout falls
+            // back to the ACT default, whose image is exactly one plane by contract, and
+            // honouring the span there would window a 64-row blob as if it were taller and
+            // read past its end. One field cannot describe the other field's replacement.
+            move.w  Region.rg_bg_span(a0), d4       // (Region.rg_bg_span)(a0)
+            jbra    .plb_have_layout
         .plb_use_act_layout:
             movea.l Current_Act_Ptr, a2
             movea.l Act.act_bg_layout(a2), a1       // rg_bg_layout 0 = the act default
             cmpa.w  #0, a1
             beq     .plb_done
         .plb_have_layout:
-            // THE TRACKER SEED. The plane is about to hold exactly this blob, from map
-            // row 0, with no wipe in flight — a PRIME, never a sweep, which is what
-            // §4.5 asks of both the boot path and the warp path (both reach here through
-            // Section_Plane_Dirty). Written before the blit rather than after because a1
-            // is consumed by the copy loop; the two facts are established in the same
-            // breath either way, inside one IRQ-masked span, so nothing can observe them
-            // disagreeing. The cursor and the direction byte clear as ONE word — see the
-            // adjacency `ensure` at the foot of engine/level/bg.emp, which covers this
-            // site and BG_Init's identical one.
+            // ---- THE WINDOW, AND WHY IT IS NOT ROWS 0..63 (BG-PLANE-WINDOW, closed 2026-09-16) ----
+            //
+            // This is a PRIME: the plane is about to hold 64 consecutive MAP rows outright,
+            // with no wipe in flight, which is what §4.5 asks of both the boot path and the
+            // warp path (both reach here through Section_Plane_Dirty). What it must NOT do is
+            // assume those rows are 0..63. On a map exactly the plane's height they are — and
+            // that is EVERY RELEASE ROW, which is why this change moves no release picture —
+            // but on a taller map the rows the screen is showing are the ones the SCROLL
+            // selects, and priming to row 0 leaves the plane holding a wrong picture that
+            // BG_Stream_Update can only walk back at BG_STREAM_MAX_ROWS = 2 rows a frame.
+            // Measured on the unfixed tree by tools/bg_window_gate.py: a warp inside the
+            // step-5 tall region with the scroll at its 544 ceiling left 32 of 64 plane rows
+            // holding the wrong map row and took 14 frames to recover.
+            //
+            // THE RULE IS BG_Stream_Update's, RESTATED RATHER THAN RE-INVENTED — one
+            // authority for "which window does this scroll select", the same discipline step 3
+            // applied to "which background does this camera select":
+            //     want_top = clamp((vscroll >> 3) - BG_STREAM_LEAD_ROWS, 0, map_rows - PLANE_V_CELLS)
+            //
+            // THE SCROLL IT READS IS LIVE ON BOTH LADDERS, AND THAT IS AN ORDERING FACT THE
+            // CALLER OWNS. `Parallax_Current_Vscroll_BG` governs the next displayed frame to
+            // within the rate clamp's 16 px = 2 rows, which the 17-row lead absorbs. On the
+            // WARP ladder it is already live when the prime fires (step 6 stands above step 7,
+            // and the rate clamp deliberately holds the scroll near its pre-warp value across
+            // a teleport). On the BOOT ladder it is live only because `Parallax_Init` — the
+            // one writer that zeroes `Parallax_State`, which this cell is inside — now stands
+            // ABOVE the `st Section_Plane_Dirty` pair rather than below it. That hoist is this
+            // item's other half; without it this read would see the previous act's scroll or
+            // boot garbage and prime the WRONG window rather than a stale-but-harmless 0.
+            // tools/test_bg_plane_window.py grades the ladder order, because nothing here can.
+            //
+            // BG_Init IS DELIBERATELY NOT GIVEN THIS TREATMENT and it is not an omission: it
+            // blits `Act.act_bg_layout`, typed `[u8; BG_LAYOUT_SIZE]` = exactly one plane, so
+            // rows 0..63 ARE its whole map and 0 IS its only legal window — now an `ensure` in
+            // engine/level/bg.emp rather than a sentence. It also runs from `Level_LoadArt`,
+            // which stands ABOVE `Camera_Init`, so no camera, no region and no scroll exist
+            // yet at that site on any ladder (BG-BOOT-REGION-BLIT).
+            move.w  d4, d3
+            lsr.w   #3, d3                          // span px -> map rows (BG_STREAM_ROW_PX)
+            subi.w  #PLANE_V_CELLS, d3
+            bgt     .plb_max_ok
+            moveq   #0, d3                          // act default, or a map no taller than the
+                                                    //   plane: a one-position window
+        .plb_max_ok:                                // d3 = max_top
+            move.w  Parallax_Current_Vscroll_BG, d2 // (Parallax_Current_Vscroll_BG).w
+            lsr.w   #3, d2                          // -> the top visible MAP row
+            subi.w  #BG_STREAM_LEAD_ROWS, d2
+            bpl     .plb_top_hi
+            moveq   #0, d2                          // near the map top: no room for the lead
+        .plb_top_hi:
+            cmp.w   d3, d2
+            ble     .plb_top_ok
+            move.w  d3, d2                          // near the map bottom: ditto
+        .plb_top_ok:                                // d2 = top, the first MAP row of the window
+            // THE TRACKER SEED. Written before the blit rather than after because a1 is
+            // consumed by the copy loops; the two facts are established in the same breath
+            // either way, inside one IRQ-masked span, so nothing can observe them disagreeing.
+            // The cursor and the direction byte clear as ONE word — see the adjacency `ensure`
+            // at the foot of engine/level/bg.emp, which covers this site and BG_Init's.
             move.l  a1, BG_Plane_Layout             // (BG_Plane_Layout).w
-            clr.w   BG_Plane_Top                    // (BG_Plane_Top).w — window top = map row 0
+            move.w  d2, BG_Plane_Top                // (BG_Plane_Top).w — the WINDOW, not a constant 0
             clr.w   BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — cursor + dir
-            // Linear blit (regions part 2 step 2, spec §4.2 option R). The layout
-            // blob is ROW-MAJOR — blob[(row*64 + col)*2] — which is byte-for-byte
-            // the Plane B nametable's own VRAM order, so the whole image drains as
-            // ONE autoinc-$02 move.l run behind ONE command setup. The 64
-            // per-column setups and the $8F80 excursion the column-major blit
-            // needed are both gone; the storm shrinks back toward ~3 frames.
+            moveq   #0, d0
+            move.w  d2, d0
+            lsl.l   #PLANE_ROW_SHIFT, d0
+            adda.l  d0, a1                          // a1 = &blob[top][0] — the window's first row
+            // ---- TWO RUNS, BECAUSE THE DESTINATION WRAPS AND THE SOURCE DOES NOT ----
+            // The layout blob is ROW-MAJOR (blob[(row*64 + col)*2]), byte-for-byte the Plane B
+            // nametable's own VRAM order, so a run of consecutive MAP rows is one linear
+            // autoinc-$02 move.l run — regions part 2 step 2, spec §4.2 option R. But the plane
+            // is a 64-row RING: map row m is shown by plane row m mod PLANE_V_CELLS. So the
+            // window [top, top+63] lands as plane rows p..63 followed by plane rows 0..p-1,
+            // where p = top mod PLANE_V_CELLS, and the source runs straight through both.
             //
-            // ALL 64 ROWS ARE STILL LIVE (NEW-5, 2026-08-05: the maintainers used
-            // to stop at 32 rows, silently half-reverting any BG art in rows 32-63,
-            // which shipped OJZ art carries and the full-plane vscroll wrap shows
-            // on screen). A whole-image drain cannot regress that by construction.
+            // AT p = 0 RUN 2 IS EMPTY AND RUN 1 IS THE WHOLE IMAGE — byte-for-byte the single
+            // linear run this site had before, at the same VDP address, with the same count.
+            // That is not a happy accident, it is why every release shape's Plane B contents
+            // are unchanged: every release row leaves rg_bg_span 0, so max_top is 0, so top is
+            // 0, so p is 0.
             //
-            // The count is the plane's own geometry — PLANE_H_CELLS *
-            // PLANE_V_CELLS / 2 longwords — so it FOLLOWS the constants and needs
-            // no pin. The blob is a full-plane image by contract; engine/level/
-            // bg.emp's BG_LAYOUT_SIZE ensure is what ties the two facts together.
-            // 2047 is past a moveq's signed byte, hence move.w.
-            move.w  #$8F02, (a5)                    // autoincrement 2 (one cell) for the linear run
-            move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), (a5)
-            move.w  #PLANE_H_CELLS * PLANE_V_CELLS / 2 - 1, d2
+            // ALL 64 ROWS ARE STILL LIVE (NEW-5, 2026-08-05: the maintainers used to stop at
+            // 32 rows, silently half-reverting any BG art in rows 32-63, which shipped OJZ art
+            // carries and the full-plane vscroll wrap shows on screen). The two runs sum to
+            // PLANE_V_CELLS rows by construction, so a whole-plane drain cannot regress.
+            move.w  d2, d1
+            andi.w  #PLANE_V_CELLS-1, d1            // d1 = p, the window's first PLANE row
+            moveq   #PLANE_V_CELLS, d4
+            sub.w   d1, d4                          // d4 = rows in run 1 (1 .. PLANE_V_CELLS)
+            move.w  #$8F02, (a5)                    // autoincrement 2 (one cell) for both runs
+            moveq   #0, d0
+            move.w  d1, d0
+            lsl.l   #PLANE_ROW_SHIFT, d0
+            addi.l  #VRAM_PLANE_B_BYTES, d0
+            vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write)
+            move.l  d0, (a5)
+            move.w  d4, d2
+            lsl.w   #PLANE_ROW_LONG_SHIFT, d2       // rows -> longwords
+            subq.w  #1, d2                          // dbf counter (safe: run 1 is >= 1 row)
         .plb_word:
             move.l  (a1)+, (a6)
             dbf     d2, .plb_word
+            tst.w   d1
+            beq     .plb_done                       // p = 0: the window did not wrap, run 2 is empty
+            move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), (a5)
+            move.w  d1, d2
+            lsl.w   #PLANE_ROW_LONG_SHIFT, d2
+            subq.w  #1, d2                          // dbf counter (safe: reached only when p >= 1)
+        .plb_wrap:
+            move.l  (a1)+, (a6)
+            dbf     d2, .plb_wrap
         .plb_done:
             // Restore default autoincrement (matches VInt_DrawLevel cleanup)
             move.w  #$8F02, (a5)
