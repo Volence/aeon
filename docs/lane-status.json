@@ -14,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the background switch is built, gated and landed, or the agent stops at a clean commit.",
+  "nextBoundary": "When the background switch is built, gated and landed, or its agent stops at a clean commit. The foreground measurement is landed.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -68,5 +68,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T21:36:32Z"
+  "updatedAt": "2026-09-16T21:46:49Z"
 }
