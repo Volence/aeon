@@ -20,6 +20,14 @@ THE EXPECTATION IS DERIVED. The tick at which the simulated run first settles is
 here: it is computed from PAL_FADE_FRAMES, from the step rule's odd-count parity, from the
 channel distance of the constructed palette pair, and from N. If any of those move, the
 derived expectation moves with them and the test still means what it says.
+
+WHICH MEANS THIS FILE DOES NOT PIN N, and a reader must not expect it to. Measured
+2026-09-16: setting `CRAM_TO_CAPTURED_FRAME_TICKS = 0` leaves every row here GREEN, because
+the expectation moves with the constant -- exactly what "derive it" buys and exactly what it
+costs. The ABSOLUTE pin (`stable_ticks == 3`, and each ordering the terms are read from) is
+tools/test_capture_settle.py::test_n_is_three_and_carries_its_derivation and its mutation
+rows, where that same edit is red. Deriving here and pinning there is the split on purpose;
+do not "fix" this file by typing a 3 into it.
 """
 from __future__ import annotations
 
