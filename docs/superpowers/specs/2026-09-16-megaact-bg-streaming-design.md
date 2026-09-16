@@ -9,6 +9,34 @@ act, so we have to figure out what to do for things like this!"* Several classic
 act card, no fade, no load screen. Each zone brings its own foreground art, background art, palettes
 and parallax.
 
+## 000. UNDER DISCUSSION 2026-09-16T20:01:10Z — the owner's direction, NOT yet ruled; do not implement from this
+
+**Why regions matter (his words):** *"eventually when we start sonic 4 this means that one act can have like a
+cave region, a tree top region, a deep jungle region, and they can feel like completelyy different areas all
+within the same act ... That's why the extremes of zones as regions for our test comes into playy."* **So
+the Sonic 2/3 act is the STRESS TEST, not the product.** The product is varied regions inside Sonic 4 acts.
+
+**His proposals, verbatim, pending his confirmation of direction:**
+1. Densest spot over budget: *"it should warn us in aurora and then if we ignore it I guess nothing right?"*
+2. *"how long would it take to, when we cross regions, just completely overwrite the bg tiles in vram?
+   Instead of splitting it up ... if we have to go split it should bve the one you're in and the one you're
+   *closest to*, not necessarily headed too"*
+3. *"Corridor might be fine anyway for bg to save the jarring 'all of a sudden different bg'. That's on the
+   artist/level designer to just cover up"*
+4. Junctions: *"This might be solved by whatever you're closer to right? ... the bg should be covered up by
+   designer so whenever yyou get past that part it should have the correct bg in."*
+
+**A HARD LIMIT this raises, verified in code, that none of his proposals can design away:** the engine writes
+CRAM **lines 1-3 only** for level art; line 0 belongs to the character (`engine/effects/palette.emp` header,
+LINE-0 INVARIANT). **So all level art on screen, foreground and background, shares 45 colours.** Two zones
+whose foregrounds need different palettes **cannot both show correct colours on the same scanlines.**
+**Stacked vertically they can:** aeon's raster system writes CRAM per screen band (`raster_dsl.emp`,
+`stream_cram`, `band(top, bot, ...)`), so a zone above and a zone below can each keep their colours on their
+own lines. **Side by side on the same lines, they must share 45 colours.** This bites the Sonic 2/3 stress
+test with real art; Sonic 4's authored regions can be designed to share palettes and avoid it.
+
+---
+
 ## 00. ⚠ THE GOAL WAS REFINED BY THE OWNER, 2026-09-16T19:54:03Z — READ THIS BEFORE THE DESIGN BELOW
 
 **Several sections below were written for the WRONG model** (zones in a row, linked by corridors). They are
