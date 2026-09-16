@@ -1,6 +1,12 @@
 {
-  "focus": "Region backgrounds: overwrite then repaint behind your cover, no blank. Next is measuring the densest spot on the map.",
-  "inFlight": [],
+  "focus": "Region backgrounds: measuring whether the busiest spot of a stitched Sonic 2/3 map fits the foreground art cache.",
+  "inFlight": [
+    {
+      "what": "M-B: the foreground cache window's page count along a real stitched zone seam and a three-zone junction (tool-only)",
+      "where": "agent worktree off master 2bf765f4",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Review committed, design corrected at the source, handoff 19 written. Nothing is running.",
+  "nextBoundary": "When the M-B report is committed and reviewed; it decides whether the Sonic 2/3 one-act stress test can exist.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Region backgrounds switch by full overwrite (blank, overwrite, repaint), so every region gets the whole background block. Direction ruled by you; under Fable review before any planning",
-      "state": "next",
+      "title": "Region backgrounds switch by overwrite then repaint behind your cover. Measuring first whether the densest stitched-map spot fits the foreground cache",
+      "state": "doing",
       "size": "L",
       "blockedBy": null
     },
@@ -53,7 +59,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "nothing new; this lane is at about 700k of 1M context and should be cleared. Still yours: the spring sound A/B from 09-09.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T20:44:58Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T20:47:49Z"
 }
