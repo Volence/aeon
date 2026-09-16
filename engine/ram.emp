@@ -1201,12 +1201,20 @@ pub vars upper_ram {
     // build only ever elaborates one shape. So it is stated with its referent and its
     // date, and re-derived the same way — subtract Engine_RAM_End in the two `.lst`s:
     //
-    //   MEASURED 2026-09-07.  s4.lst  Engine_RAM_End = $FFFFBB8C
-    //                    s4.debug.lst Engine_RAM_End = $FFFFEC46   ->  $30BA = 12,474 B
-    //   (demo.lst $FFFFB842 / demo.debug.lst $FFFFE8FC gives the same $30BA, as it must:
-    //    every divergent block is engine-side.)
+    //   RE-MEASURED 2026-09-15.  s4.lst  Engine_RAM_End = $FFFFBB98
+    //                       s4.debug.lst Engine_RAM_End = $FFFFEC54   ->  $30BC = 12,476 B
+    //   (was $FFFFBB8C / $FFFFEC46 -> $30BA = 12,474 B on 2026-09-07; the two bytes are the
+    //    plane-buffer peak latch at the tail of this file, added by REGIONS-P2 E1.)
     //
-    // The seven `if DEBUG == 1 @shape_divergent` groups, sized by adjacent-symbol
+    //   DEMO IS NO LONGER THE SAME NUMBER, and the line that said it was is corrected here
+    //   rather than deleted: demo.lst $FFFFB6A2 / demo.debug.lst $FFFFE5FE -> $2F5C =
+    //   12,124 B, which is 12,476 - 352. Every divergent block is still engine-side; what
+    //   changed is that ONE of them is now sized per game — the live-effects parallax
+    //   scratch shrank to demo's 10-byte band record when GAME_SCANLINE_CAPS landed
+    //   (2026-09-13, see the block's own note), so demo's copy is 352 B smaller than
+    //   sonic4's. The old parenthetical predates that parcel and had been wrong since.
+    //
+    // The eight `if DEBUG == 1 @shape_divergent` groups, sized by adjacent-symbol
     // difference in s4.debug.lst, sum to exactly that:
     //     142  profiler block      (DMA_Bytes_ThisFrame .. Player_1)
     //  10,244  replay recorder     (Replay_Record_Idx .. Sprite_Owner)
@@ -1214,9 +1222,10 @@ pub vars upper_ram {
     //   1,372  canopy-gap capture  (Canopy_ColW .. Dbg_DMA_Straddle_All)
     //       8  DMA straddle counters
     //       4  BgAnim_Table_Ptr
-    //     544  live-effects parallax scratch (Parallax_Scratch_Config .. Engine_RAM_End)
+    //     544  live-effects parallax scratch (Parallax_Scratch_Config ..)  [sonic4; demo 192]
+    //       2  Plane_Buffer_Peak   (.. Engine_RAM_End)
     //  ------
-    //  12,474  = the measured delta. A closed sum is the control on the enumeration.
+    //  12,476  = the measured delta. A closed sum is the control on the enumeration.
     //
     // THIS PARAGRAPH USED TO SAY 10,280, counting the profiler block as 36 and omitting
     // Sprite_Owner, the canopy instrument, the straddle counters, BgAnim_Table_Ptr and
@@ -1722,6 +1731,33 @@ pub vars upper_ram {
         mark Parallax_Scratch_Config_End,
         Parallax_Scratch_Arm:   u8,     // nonzero = install the scratch; engine clears
         pad(1),                         // keep Engine_RAM_End (and all game RAM) even
+    }
+
+    // --- Plane_Buffer high-water latch (engine/level/plane_buffer.emp, DEBUG only) ---
+    // The maximum `Plane_Buffer_Ptr` ever seen at `VInt_DrawLevel`'s entry, i.e. the
+    // frame's occupancy BEFORE the drain zeroes the cursor. Written by that proc and by
+    // nothing else; engine logic never reads it. A client zeroes it to start a window.
+    //
+    // WHY A LATCH AND NOT A SAMPLE. `tools/plane_buffer_headroom_probe.py` (d2c3dff0)
+    // answers the same question by STOPPING at VInt_DrawLevel and reading the cursor. That
+    // is a LOWER BOUND by construction: its loop is `play_input(1 frame)` then
+    // `run_to(VInt_DrawLevel)`, the `run_to` consumes frames of its own on which the pad is
+    // not held, and a frame whose stop is not reached is tallied as a miss and discarded.
+    // The peak of the frames you happened to stop on is not the peak. This cell is written
+    // on EVERY frame, so the number a client reads out covers the frames it never saw —
+    // which is the whole point when the question is "what is the worst case".
+    //
+    // WHY IT IS HERE AND NOT BESIDE Plane_Buffer_Ptr, which is where REGIONS-P2 E1's brief
+    // asked for it: every `@shape_divergent` group in this file is at the RAM TAIL
+    // deliberately, so that a DEBUG-shape addition ripples ZERO existing engine-RAM
+    // addresses and moves only Engine_RAM_End and the game RAM chained after it. Beside
+    // Plane_Buffer_Ptr (~line 928) it would instead slide every engine-RAM field below it
+    // in the DEBUG shape — hundreds of addresses, in the one shape every gate and witness
+    // in tools/ reads. The cell is reached by absolute long/word addressing from one proc;
+    // there is no locality to lose, exactly as the Sprite_Owner block above argues for the
+    // same deviation from its own booking.
+    if DEBUG == 1 @shape_divergent {
+        Plane_Buffer_Peak:      u16,    // max Plane_Buffer_Ptr at VInt_DrawLevel entry
     }
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
