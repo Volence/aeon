@@ -1707,3 +1707,46 @@ the same night): amend a stale finding **as an amendment, never as a criticism**
 agent's refusal to route around a blocker was correct and must not read as an error. Two lanes
 converged on one practice from opposite ends of the same loop without seeing each other's version;
 banked together at empyrean `b2d1934` for that reason.
+
+## A "clean" sweep reports which QUESTION it asked, and in-enum is not true (2026-09-16, this lane's own, against its own report)
+
+Raised sigil's `answered.by` as out-of-enum (`"owner, direct in this lane's session"`, against
+`contract/DECISIONS.md` rule 8d's `owner | hub | lane`), and told them **"my 37 came back clean"**
+on the strength of a sweep written that minute. **That sweep asked whether my values are IN the
+enum. It could not ask whether they are TRUE, and a clean result from it reads as coverage.**
+
+Re-run against the truth question, `docs/decisions.jsonl` at `b565e6f2`: 37 `answered` entries,
+`lane` 4 · `owner` 11 · `hub` 22, every one in-enum and defensible. **And `by: "hub"` alone is
+carrying three different things** — the hub ruling in his place under the standing sleep-mode
+delegation, provisional and overturnable (`relayout-magnitude`, `d-48`, `d-49`); the hub ruling on
+his explicit go for that one question (`d-51`, `d-52`); the hub confirming an earlier hub ruling
+(`LS-13`) — **each recoverable only from `did` prose.** **And `d-34` is the fourth meaning:**
+`by: "owner"`, `said: "d-34 I think we fix"` (his words), `did` opening *"Transcribed by the hub at
+empyrean 7a1717f"*. He decided, the hub carried it, and the relay survives nowhere a reader can
+aggregate.
+
+**The pair is the finding, because the two lanes failed in OPPOSITE directions on one fact.**
+Sigil qualified the value and lost the field; this lane used the bare value and lost the
+distinction. **Sigil's at least raises an issue on the console. This lane's is undetectable by any
+reader — so the worse of the two was the one sitting behind a report of cleanliness.** Sigil's
+generalisation, adopted: **the careful spelling is the lossy one.**
+
+**NO GATE IN EITHER LANE SEES THIS FIELD.** `tools/decisions_conformance.py` — the predicate this
+repo's own land-gate runs on every push — **never mentions `answered` at all** (`grep -c answered`
+= 0); sigil's `scripts/ledger_gate.py` is blind the same way. Nothing would have gone red on any
+of the ten instances between the two lanes.
+
+**Deliberately NOT fixed here, and the restraint is the point.** A gate built per-lane *is* the
+six-lanes-solving-it-privately outcome wearing a tool's clothes. It went to the hub as ONE question
+with a recommendation (do not widen `by` — the ledgers are append-only and widening makes every
+committed `owner` line retroactively ambiguous; add an optional `via` instead, which leaves every
+existing line true and needs no backfill) and with *"not worth it is a real answer I would bank"*
+stated. **If the hub rules, the check belongs once, in the shared tooling the contract owns.**
+Also in force: CUT THE CEREMONY clause (3) — lanes work DoD items and the bug tier, and ledger
+metadata is neither.
+
+**The transferable bar: a sweep reports which spelling of the defect it tested, and its silence on
+the others is not a result.** This file already carried that as a hub-side finding about sweeps
+keyed to one spelling. This is the same rule landing on the lane that wrote it down — the
+author-shaped hole again: applied where I was the author of the query, skipped where I was the
+subject of it.
