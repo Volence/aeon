@@ -1,6 +1,12 @@
 {
-  "focus": "The streaming sky now draws the part you are actually looking at. It is landed and you are flying it.",
-  "inFlight": [],
+  "focus": "Building the background changeover when you cross between two areas -- the first thing this run that you will see.",
+  "inFlight": [
+    {
+      "what": "The backdrop repaint when the camera crosses into an area with a different sky, spread over frames instead of done in one jolt",
+      "where": "branch parcel/regions-p2-step6",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,19 +14,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here, once your flythrough verdict is in. Nothing is running and nothing is half-applied.",
+  "nextBoundary": "When the agent returns and its work is judged and landed. Seeing the changeover is then yours or mine to fly.",
   "queue": [
     {
       "id": "REGIONS-P2-STEP6",
       "title": "The wipe when you cross between two regions -- the first step of this run where anything looks different on screen. Your snap-versus-fade answer unblocked it",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "REGIONS-EMIT-BINDINGS",
       "title": "Switch act 1 over to the editor's region file for real. The emitter landed and is wired but deliberately inert; this is the re-keying behind it, priced at 87 sites across 14 files",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
@@ -46,7 +52,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "your eye on the flythrough -- does the sky tear or lurch as it streams. Also still yours: the spring sound A/B from 09-09.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T15:02:15Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T15:08:45Z"
 }
