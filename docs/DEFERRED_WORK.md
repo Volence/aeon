@@ -34657,3 +34657,39 @@ this gate's green as evidence that a line citation points where its prose says.
 
 **Not a blocker for anything; it is a sharpness defect in a gate that is otherwise doing real
 work** (it is the reason the drift surfaced at all).
+
+## THE CHOOSER RULING'S NAMING CONSTRAINT — derive the wrapper name from the region id (banked 2026-09-16, BEFORE the ruling)
+
+**Banked ahead of the ruling it constrains, because the lane that produced it was about to be
+cleared and it would otherwise have lived in a message.** Aurora's, at their `6c634a38`.
+
+**The open question** (editor spec §5.2's last paragraph, which SURVIVES §8's supersession — that
+supersession names steps 1 to 3 and is silent after step 4, and the underlying problem is live
+independent of it, since two regions can still name the same `preset`): the parallax and raster
+choosers are called from inside hand-written `preset()` records with a SECTION index, so a record
+bound to two regions carries one region's channels. Shapes: **a per-region wrapper record**, or
+**the choosers move to the row**. Engine numbers pending; not ruled.
+
+**IF THE RULING IS THE WRAPPER, THE NAME IS DERIVED FROM THE REGION ID. NOT A PREFIX.**
+Aurora first asked for "a prefix or a marker I can key on" and then **amended their own ask to
+something stronger**, which is the part worth keeping:
+
+- A **prefix convention can be collided with** by an author who names a record the same way — the
+  exact hazard behind the original request. *"You can tell by looking"* reads as working until it
+  does not.
+- **`id` is already `required` in `$defs/region` and unique within the act** (verified here at
+  `contract/schema/aurora-regions.schema.json`, `origin/main`: `required: [id, rect, preset]`).
+  A name **derived from a required unique key cannot be collided with.**
+- It converts aurora's read-back from a **filter into a CHECK**: resolve a wrapper's id back to a
+  region, and **a wrapper that resolves to no region is itself a finding** rather than a stranger
+  tolerated by a pattern match.
+
+**Costs this side nothing extra** — the wrapper needs *a* name either way — and it is only
+available because of the Q1 ruling: under the superseded subtraction model one region could
+decompose into many rows, so a per-row name could not be the region id. **One region is one
+rectangle is one row** makes the id a legal name.
+
+⚠ **The generalisation is the reusable half: prefer a name DERIVED from a required unique key over
+a name that follows a convention.** A convention is a filter and can be collided with; a
+derivation is a check and its failures are findings. Same family as deriving a gate's expectation
+from source rather than copying it from a nearby pin.
