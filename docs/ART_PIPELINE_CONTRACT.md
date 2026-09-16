@@ -222,15 +222,15 @@ generator. `tools/png_to_bg_override.py::check_tile_budget`, run at
 
 ```
 ERROR: 321 unique tiles > 320 static budget.
-  bg_region holds 400 tiles, of which band_reserve = 80 are withheld
-  for BgAnim band art, leaving 400 - 80 = 320 for this import.
+  bg_region holds 376 tiles, of which band_reserve = 56 are withheld
+  for BgAnim band art, leaving 376 - 56 = 320 for this import.
   Simplify the art by 1 unique tiles (flatter / more repetitive),
   or lower band_reserve in games/sonic4/vram.toml and regenerate — that is
   the animation-vs-detail trade, and spending it here costs band space.
 ```
 
 Those three numbers come from `tools/vram_map.py`, generated from the TOML:
-`BG_TILE_CAPACITY = 400`, `BG_BAND_RESERVE = 80`, `BG_STATIC_TILE_BUDGET = 320`.
+`BG_TILE_CAPACITY = 376`, `BG_BAND_RESERVE = 56`, `BG_STATIC_TILE_BUDGET = 320`.
 
 ### 2.5 Reuse and flips
 
@@ -429,14 +429,14 @@ bytes**. Format (`engine/level/bg.emp:37-38`, verified against the file):
 ```
 
 Header word reads `$2800` = 10 240; payload is 10 240 bytes = **320 tiles**. That is
-inside `BG_TILE_CAPACITY = 400` with the 80-tile `band_reserve` unspent, which is why a
+inside `BG_TILE_CAPACITY = 376` with the 56-tile `band_reserve` unspent, which is why a
 BgAnim band can be inserted today.
 
 Nametable indices in the layout are **VRAM-absolute**, rebased at generation time by
-`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:609`) — the editor's blob-local
+`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:647`) — the editor's blob-local
 indices are converted by `tools/inject_editor_bg.py`.
 
-`BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 800` bytes; the clamp is
+`BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 032` bytes; the clamp is
 the *declared capacity*, not the physical `$8000..$B7FF` run, because the top 48 slots are
 the `waterline_strips` region. A maximal blob clamped to the physical run would spray over
 the waterline art.
@@ -1536,13 +1536,32 @@ Listed so you ask rather than infer:
   through a loop — no loop exists in OJZ act 1. Those are different claims and only the
   first has evidence.
 
-### One discrepancy found between this repo's docs and its source
+### One discrepancy found between this repo's docs and its source — half since fixed upstream, and THIS document then became the next victim
 
-`tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1 describes `inject_editor_bg.py`'s `tiles` key as
-`len(tiles) <= BG_TILE_CAPACITY` **"(448, imported from the vram_map mirror `:24`)"**. Both
-halves are wrong on this tree: the mirror (`tools/vram_map.py`, generated from
-`games/sonic4/vram.toml`) gives `BG_TILE_CAPACITY = 400`, and the import is at
-`tools/inject_editor_bg.py:36`, not `:24`. The *mechanism* the sentence describes — one
-authority, imported from the generated mirror — is correct and is what the code does. This
-is exactly the failure mode this document's opening rule exists to avoid: read the mirror,
-not the sentence about the mirror.
+**As first written, this section read:** `tools/EFFECTS_CONSUMER_CONTRACT.md` §1.1 describes
+`inject_editor_bg.py`'s `tiles` key as `len(tiles) <= BG_TILE_CAPACITY`
+**"(448, imported from the vram_map mirror `:24`)"**, and both halves are wrong.
+
+**Re-checked 2026-09-15 against source. The capacity half is FIXED; the citation half is not,
+and a third error has appeared that the original sentence did not have.**
+
+* **The capacity: fixed upstream.** `bf82f166` corrected that row to **376** on 2026-09-08 and,
+  more importantly, put a gate behind it —
+  `tools/test_bg_emit.py::TestTheContractStatesLiveValues` now parses every constant the
+  consumer contract restates beside its name and fails the BUILD on drift. That document is
+  vendored by aurora, so it was the one worth gating first.
+* **The citation: still wrong, and now wrong twice over.** The row still says `:24`. There is no
+  reading of `:24` that is true today: `tools/vram_map.py:24` is the `sprite_table` region row
+  (the capacity is at `:35`), and the import in `tools/inject_editor_bg.py` is at **`:40`**.
+  The earlier version of this section asserted `:36` — that has drifted too. **A line number is
+  a figure like any other and rots at the same rate**; prefer naming the symbol.
+* **And this document was the next victim.** `docs/ART_PIPELINE_CONTRACT.md` is NOT covered by
+  that gate, and between 2026-09-08 and 2026-09-15 it carried `BG_TILE_CAPACITY = 400` at four
+  sites, an 80-tile `band_reserve` that is 56, and a derived `BG_TILE_CAPACITY * 32 = 12 800`
+  that is 12 032 — corrected in this same edit. The lesson is not "that other document was
+  careless": **a gate scoped to one file leaves every unscoped file exactly as exposed as the
+  gated one was before the gate.**
+
+The *mechanism* the original sentence describes — one authority, imported from the generated
+mirror — is correct and is what the code does. This is exactly the failure mode this
+document's opening rule exists to avoid: read the mirror, not the sentence about the mirror.
