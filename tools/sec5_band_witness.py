@@ -75,6 +75,7 @@ from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
 from fg_left_edge_capture import grab, write_png  # noqa: E402  (grab insists source == "raster")
 import region_table  # noqa: E402  (the one Region reader, painted-regions v1)
+import effects_gen  # noqa: E402  (the one mode switch and the one binding reader)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ACT_DIR = os.path.join("games", "sonic4", "data", "editor", "ojz", "act1")
@@ -126,10 +127,31 @@ def geometry(repo: str) -> dict:
 
 
 def sidecar_ref(repo: str, sec: int):
+    """(the preset document this section's place binds, the file that says so).
+
+    ⚠ TWO SOURCES SINCE 2026-09-16, and the region one is the live one for act 1. A binding
+    used to live on `section_N.meta.json`; in REGION mode the sidecars are nulled and it lives
+    on the REGION ROW whose rectangle covers that section, in `regions.json`. Reading only the
+    sidecar would have returned None here and sent this witness down its `--expect-unbound`
+    path — reporting a CONTROL result for a section that is in fact bound, which is the worst
+    available failure for an instrument: a confident answer to a question it stopped asking.
+
+    The section -> region hop is `effects_gen.section_preset_symbols`' (the region containing
+    the section's centre) followed by the document's own `rasterRef` for that region, so this
+    file invents no mapping of its own."""
     path = os.path.join(repo, ACT_DIR, f"section_{sec}.meta.json")
-    with open(path, encoding="utf-8") as fh:
-        doc = json.load(fh)
-    return doc.get(RASTER_REF_KEY), path
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if doc.get(RASTER_REF_KEY) is not None:
+            return doc[RASTER_REF_KEY], path
+    if effects_gen.has_act_regions(repo):
+        rec = section_record(repo, sec)
+        for r in effects_gen.act_region_rows(repo):
+            if r["preset"] == rec and r.get(RASTER_REF_KEY) is not None:
+                return r[RASTER_REF_KEY], effects_gen.regions_path(repo)
+        return None, effects_gen.regions_path(repo)
+    return None, path
 
 
 def load_preset(repo: str, pid: str) -> tuple[dict, str]:
@@ -172,22 +194,21 @@ def expectation(preset: dict, where: str) -> dict:
 
 
 def section_record(repo: str, sec: int):
-    """The `EffectsPreset` record the descriptor's region row for `sec` installs, or None.
+    """The `EffectsPreset` record whose look covers section `sec`'s place, or None.
 
-    NEEDED SINCE SHAPE B′ (aeon `3fc9ffa5`, 2026-09-16): the generated raster chooser is
-    keyed on the RECORD, not on the section index, so a witness that asks "what does
-    section 5 get" has to make the section -> record hop itself. Read from the descriptor's
-    own rows, the way tools/effects_gen.py's `section_preset_symbols` does, rather than
-    typed — this witness's whole discipline is that every expectation is parsed."""
-    text = open(os.path.join(repo, DESCRIPTOR), encoding="utf-8").read()
-    text = re.sub(r"//[^\n]*", "", text)
-    for m in re.finditer(r"\bojz_region\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)", text):
-        body = m.group(1)
-        sm = re.search(r"\bsec:\s*(\d+)", body)
-        em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
-        if sm and em and int(sm.group(1)) == sec:
-            return em.group(1)
-    return None
+    NEEDED SINCE SHAPE B′ (aeon `3fc9ffa5`): the generated raster chooser is keyed on the
+    RECORD, not on the section index, so a witness that asks "what does section 5 get" has to
+    make the section -> record hop itself.
+
+    ⚠ DELEGATED TO `effects_gen.section_preset_symbols` RATHER THAN PARSED HERE, after a first
+    version of this function read `ojz_region(.., effects: X, .. sec: N)` rows out of the
+    descriptor. Act 1 flipped to REGION mode the same day: its rows are generated and carry no
+    `sec:`, so that parse returned None and this witness quietly took its `--expect-unbound`
+    control path for a section that IS bound. One reader, two modes, and this file invents no
+    mapping of its own — which is also this file's standing discipline for every other
+    expectation it makes."""
+    return effects_gen.section_preset_symbols(
+        effects_gen.act_names(repo), repo).get(sec)
 
 
 def chooser_binding(repo: str, sec: int):

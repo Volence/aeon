@@ -28,9 +28,34 @@ tests below are unchanged for that reason.) Two consequences run through this fi
     to that index"; it is now SELF-KEYING — a record must thread its OWN key. The two
     tests whose premise died with that (the two `SHARED preset` ones) carry a comment
     at their site recording what they used to assert and why it is no longer a fault.
+
+OJZ ACT 1 IS IN REGION MODE SINCE 2026-09-16, AND THAT MOVED THE OWNER OF A BINDING.
+`games/sonic4/data/editor/ojz/act1/regions.json` now carries the act's identity as ten
+rectangles, and every `section_N.meta.json`'s `sceneRef`/`rasterRef` is null. So:
+
+  * the OWNER of a `rasterRef` is a REGION ID (`"sec5"`, `"ojz_preset_night"`), not a
+    section index, and the record that owner installs comes from the same document
+    rather than from the descriptor's rows;
+  * `effects_gen.load_section_raster_refs` and
+    `effects_seam_gate.descriptor_effects_bindings` both return `{}` against this tree —
+    they are the LEGACY halves of that pair and are still tested as themselves
+    (`TestDescriptorBindingParse`) on synthetic input;
+  * `<act>_sec_scene` is not emitted at all: a region row carries its scene binding as
+    an `rg_parallax` pointer in the generated region table, one indirection shorter than
+    a call.
+
+EVERY REAL-TREE TEST BELOW TAKES ITS OWNER PAIR FROM `effects_seam_gate.owner_maps()`,
+which is the gate's ONE derivation of "who owns this ref" and "what record does that
+owner install", correct in both modes. That is a rule and not a convenience: the five
+real-tree tests that went red on the flip each built that pair themselves, and what they
+did was not fail — they went SILENTLY EMPTY, asserting `[] == []` about a tree they had
+stopped describing. `seam_faults` handed nothing returns nothing. A test that keeps its
+own copy of the derivation is a test that can stop having a subject without saying so.
 """
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -59,6 +84,39 @@ def real_channel_calls(lib: str, names) -> dict:
                 lib, getattr(names, ch.names_attr), ch.index_param)
             for ch in effects_gen.SECTION_CHANNELS
             if ch.channel not in effects_gen.ARM_CHANNELS}
+
+
+def shadow_repo(dst: str, rel: str, text: str) -> str:
+    """A throwaway repo root identical to this one except for ONE file, by symlink.
+
+    WHY A SANDBOX AND NOT AN EDIT. `test_a_broken_raster_binding_FAILS_it` has to break
+    the seam the way an author breaks it — by writing a `rasterRef` into the editor
+    document — and then watch the REAL gate refuse. Editing the committed
+    `regions.json` in place and restoring it in a `finally` would leave a window in which
+    a parallel session's read, or a crash, sees a tree this test invented; and a tree a
+    test invented is exactly what the repo's rules about content forbid.
+
+    HOW IT WORKS, AND WHY IT IS THE REAL GATE AND NOT A STUB. The gate finds its repo as
+    `dirname(abspath(__file__))/..`, and `abspath` does NOT resolve symlinks — so a
+    directory whose every entry is a symlink back to this repo, with the one file of
+    interest written for real, IS a repo root as far as the gate is concerned. Only the
+    directories on the path down to that file are materialised; everything else at each
+    level is a symlink, so nothing is copied and nothing outside `dst` is written.
+
+    `.git` is deliberately not mirrored: the gate reads none of it, and a sandbox that
+    looked like a checkout would invite a tool to write into the real one.
+    """
+    src, cur = REPO, dst
+    for part in rel.split("/"):
+        os.makedirs(cur, exist_ok=True)
+        for name in os.listdir(src):
+            if name == part or name == ".git":
+                continue
+            os.symlink(os.path.join(src, name), os.path.join(cur, name))
+        src, cur = os.path.join(src, part), os.path.join(cur, part)
+    with open(cur, "w") as f:
+        f.write(text)
+    return dst
 
 
 class TestEquParse(unittest.TestCase):
@@ -144,21 +202,73 @@ class TestGateAgainstTheRealTree(unittest.TestCase):
             os.unlink(path)
 
     def test_the_committed_seam_and_the_committed_generated_module_agree(self):
-        """The source half of the gate, run against the real tree: the descriptor's
-        import is a NAME LIST naming BOTH bindings, and every section index 0..N-1
-        reaches the binding exactly once. No build needed."""
+        """The source half of the gate, run against the real tree. No build needed.
+
+        ---- RE-AIMED 2026-09-16 BY THE REGION FLIP, AND THE OLD HALF HAD NO SUBJECT ----
+
+        It asserted the LEGACY seam: the import is a name list naming BOTH bindings, and
+        every section index 0..N-1 reaches `<act>_sec_scene(sec: N)` exactly once. OJZ act
+        1 is in REGION mode now — section identity is deleted (ARCH §4.2), the generator
+        emits no scene chooser at all, and each region row carries its scene binding as an
+        `rg_parallax` POINTER in the generated region table. So the second half did not
+        weaken, it stopped having a subject: it compared `[]` against `[0..8]` because
+        there are no `sec:` call sites left in the descriptor to count.
+
+        ---- THE SUCCESSOR IS THE SAME INVARIANT OVER THE NEW OWNER ----
+
+        "Every storage unit's scene binding reaches the seam exactly once, no more and no
+        fewer" becomes "every region the DOCUMENT gives a `sceneRef` reaches an
+        `rg_parallax:` in the generated table, and nothing else does" — keyed on the
+        document's regions where the old one was keyed on project.json's grid. Together
+        with "the section-keyed chooser is absent from BOTH the import and the generated
+        module" (checked in both directions so "the generator stopped emitting it" and
+        "the descriptor stopped importing it" cannot pass for each other) that is
+        `effects_seam_gate.region_seam_faults`, and this test CALLS it rather than
+        re-spelling it: a second copy of the derivation is the thing that went silently
+        empty on the flip. The `fail` it is handed RAISES, which is what the real gate's
+        `sys.exit(1)` means one process down — so a broken seam surfaces here as the
+        gate's own sentence.
+
+        THE MODE IS READ, NEVER ASSUMED, and it comes from `owner_maps()` like every other
+        ownership question in this file. The legacy arm is kept live for the next act that
+        has not flipped; the content fact "act 1 is in region mode" is asserted by
+        `TestRasterSeamAgainstTheRealTree`, where content assertions live.
+        """
         names = effects_gen.act_names(REPO)
         with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
             desc = f.read()
         self.assertIn(f"use {names.module}.{{", desc)
         self.assertNotIn(f"use {names.module}.*", desc)
         self.assertIn(names.fn_act_default, desc)
-        self.assertIn(names.fn_sec_scene, desc)
         import re
+        use_m = re.search(r"^\s*use\s+" + re.escape(names.module) + r"\s*\.\s*\{([^}]*)\}",
+                          desc, re.MULTILINE)
+        self.assertIsNotNone(use_m, "the descriptor's seam import is not a name list")
+        imported = {n.strip() for n in use_m.group(1).split(",") if n.strip()}
+        self.assertIn(names.fn_act_default, imported)
         code = re.sub(r"//[^\n]*", "", desc)
-        passed = sorted(int(n) for n in
-                        re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)", code))
-        self.assertEqual(passed, list(range(effects_gen.act_section_count(REPO))))
+
+        # ⚠ THE MODE COMES FROM `owner_maps`, THE GATE'S ONE DERIVATION — see the module
+        # docstring. Asking `has_act_regions` here would be a second copy of the switch,
+        # and a second copy is what let five tests below stop describing the tree.
+        _refs, _owner_records, region_mode = effects_seam_gate.owner_maps()
+        if region_mode:
+            def raise_fail(msg):
+                raise AssertionError(msg)
+            bound = effects_seam_gate.region_seam_faults(
+                names, imported, code, raise_fail)
+            # NON-VACUITY, stated rather than implied: `region_seam_faults` is satisfied by
+            # a document that binds NOTHING, and a seam that binds nothing is the state
+            # this whole gate exists to tell from a working one.
+            self.assertTrue(
+                bound, "no region carries a sceneRef — the editor scene seam binds "
+                       "nothing, so the check above passed on an empty set")
+        else:
+            self.assertIn(names.fn_sec_scene, desc)
+            passed = sorted(int(n) for n in
+                            re.findall(re.escape(names.fn_sec_scene) + r"\(sec:\s*(\d+)",
+                                       code))
+            self.assertEqual(passed, list(range(effects_gen.act_section_count(REPO))))
 
 
 class TestPresetRecordParse(unittest.TestCase):
@@ -988,91 +1098,145 @@ class TestAuroraNoChooserCase(unittest.TestCase):
 
 
 class TestRasterSeamAgainstTheRealTree(unittest.TestCase):
-    """The committed effects library really does thread the chooser. No build needed."""
+    """The committed effects library really does thread the chooser. No build needed.
 
-    def test_the_committed_effects_library_threads_the_chooser_for_one_owned_section(self):
+    RE-AIMED 2026-09-16 BY THE REGION FLIP. These three used to build the pair
+    `(rasterRef by owner, record by owner)` themselves, out of
+    `load_section_raster_refs` + `descriptor_effects_bindings` — the LEGACY halves. Act 1
+    flipped to region mode, both halves went to `{}`, and none of the three failed for the
+    right reason: `seam_faults` handed two empty maps returns `[]`, and "the bound owners
+    are exactly the threaded ones" compared an empty set against the threaded records and
+    agreed with itself. They now take that pair from `effects_seam_gate.owner_maps()`,
+    which is the gate's ONE derivation of it and is correct in both modes — see the module
+    docstring for why that is a rule here and not a tidy-up.
+    """
+
+    def test_the_committed_effects_library_threads_the_chooser_for_every_bound_owner(self):
+        """The whole of `seam_faults` against the real tree, on the real owner pair.
+
+        Renamed from `..._for_one_owned_section`: the owner of a `rasterRef` is a REGION
+        id in this tree, and a test name that still said `section` would be describing the
+        legacy shape while checking the region one.
+        """
         names = effects_gen.act_names(REPO)
         with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
             lib = f.read()
-        with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
-            desc = f.read()
+        # ⚠ `owner_maps`, NOT the two legacy loaders — see the class docstring. Built by
+        # hand here, this pair was two empty dicts the day act 1 flipped and this
+        # assertion passed against a tree it had stopped reading.
+        raster_refs, owner_records, _mode = effects_seam_gate.owner_maps()
         calls = effects_seam_gate.raster_call_sites(lib, names.fn_preset_raster)
         self.assertTrue(calls, "no preset threads the raster chooser")
+        self.assertTrue(raster_refs,
+                        "nothing in this act binds a rasterRef, so `seam_faults` is being "
+                        "asked about an empty set and cannot fail")
         self.assertEqual(
             effects_seam_gate.seam_faults(
                 calls,
                 effects_seam_gate.patched_call_sites(lib, names.fn_preset_patched),
                 real_channel_calls(lib, names),
-                effects_seam_gate.descriptor_effects_bindings(desc),
+                owner_records,
                 effects_gen.effects_library_records(names, REPO),
-                effects_gen.load_section_raster_refs(REPO),
+                raster_refs,
                 effects_gen.load_all_presets("sonic4", REPO),
                 names),
             [])
 
-    def test_the_bound_sections_are_exactly_the_threaded_ones(self):
-        """Step 5's precondition was `no sidecar carries a rasterRef`, and its own
-        docstring said this test is the one step 6 must change DELIBERATELY. Step 6
-        landed `ojz_sec5_showcase` on section 5, so the precondition is now false by
-        design and asserting it would be asserting the absence of the feature.
+    def test_the_bound_owners_are_exactly_the_threaded_ones(self):
+        """Every owner that BINDS a rasterRef installs a record some preset THREADS a
+        chooser for. Successor to `test_the_bound_sections_are_exactly_the_threaded_ones`
+        (named under that spelling in docs/DEFERRED_WORK.md's step-6 band witness, where
+        its red is part of the control-ROM evidence).
 
-        WHAT REPLACES IT IS NOT `{5: ...}` TYPED IN. The invariant that actually
-        matters is the one the seam gate exists for: every section that BINDS a
-        rasterRef must be a section some preset THREADS the chooser for. Typing the
-        expected dict would pin today's content and go stale the first time an author
-        binds a second section; deriving it from the call sites cannot. The literal
-        that remains is the section index, and it is cross-checked against the
-        threaded set rather than standing alone.
+        Step 5's precondition was `no sidecar carries a rasterRef`, and its own docstring
+        said this test is the one step 6 must change DELIBERATELY. Step 6 landed
+        `ojz_sec5_showcase`, so the precondition is false by design and asserting it would
+        be asserting the absence of the feature.
 
-        BOTH CHOOSERS COUNT AS THREADED (2026-09-04). `threaded` was the raster call
-        sites alone, which was the same blindness the gate itself carried: the first
-        `boundary` document bound would have failed this test for being spelled
-        correctly. The union is derived from the two parses, not typed.
+        WHAT REPLACES IT IS NOT `{5: ...}` TYPED IN. The invariant that matters is the one
+        the seam gate exists for: a binding nothing threads is a binding the generator
+        emits and nothing reads, which presents to the author as an assignment that did
+        nothing. Typing the expected owners would pin today's content and go stale the
+        first time an author binds another one; deriving them cannot.
 
-        THE JOIN IS THE DESCRIPTOR'S SINCE SHAPE B′. A call site no longer names a
-        section, so "is this section threaded" is no longer a set membership on the
-        parses alone: it is "does the RECORD the descriptor binds to this section thread
-        a chooser". The extra hop is the descriptor's region rows, read through the
-        gate's own parse rather than typed, so the invariant is still derived end to
-        end — and it is now a stronger statement than the old one, because a section
-        bound to a record that threads nothing is caught even when some OTHER record
-        threads a chooser."""
-        bound = effects_gen.load_section_raster_refs(REPO)
-        self.assertTrue(bound, "no sidecar carries a rasterRef — step 6's band is gone")
+        BOTH CHOOSERS COUNT AS THREADED (2026-09-04). `threaded` was the raster call sites
+        alone, which was the same blindness the gate itself carried: the first `boundary`
+        document bound would have failed this test for being spelled correctly. The union
+        is derived from the two parses, not typed.
+
+        THE JOIN IS THE OWNER->RECORD EDGE SINCE SHAPE B′, AND ITS OWNER IS A REGION SINCE
+        THE FLIP. A call site names a RECORD, so "is this binding threaded" is "does the
+        record its OWNER installs thread a chooser" — and who the owner is, and which
+        record it installs, is `owner_maps()`'s answer rather than this test's. It is a
+        stronger statement than the old one either way: an owner bound to a record that
+        threads nothing is caught even when some OTHER record threads a chooser. The
+        literal `[5, 6]` is gone entirely; nothing here names an owner at all."""
+        raster_refs, owner_records, _mode = effects_seam_gate.owner_maps()
+        self.assertTrue(raster_refs,
+                        "nothing binds a rasterRef — step 6's band is gone")
 
         names = effects_gen.act_names(REPO)
         with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
             lib = f.read()
-        with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
-            bindings = effects_seam_gate.descriptor_effects_bindings(f.read())
         threaded = set(effects_seam_gate.raster_call_sites(lib, names.fn_preset_raster))
         threaded |= set(effects_seam_gate.patched_call_sites(
             lib, names.fn_preset_patched))
-        unwired = sorted(sec for sec in bound if bindings.get(sec) not in threaded)
+        unwired = sorted(o for o in raster_refs if owner_records.get(o) not in threaded)
         self.assertFalse(
             unwired,
-            f"sections {unwired} bind a rasterRef, but the record each one installs "
-            f"({[bindings.get(s) for s in unwired]}) threads NEITHER chooser — the "
+            f"{unwired} bind a rasterRef, but the record each one installs "
+            f"({[owner_records.get(o) for o in unwired]}) threads NEITHER chooser — the "
             f"generator emits the binding and nothing reads it, which presents to the "
             f"author as an assignment that did nothing")
 
-    def test_section_5_and_6_are_the_bound_ones_and_their_ids_are_the_shipped_documents(self):
+    def test_the_bound_owners_are_the_regions_the_DOCUMENT_gives_a_rasterRef(self):
         """The content assertion, kept separate from the invariant above so a content
-        change cannot look like a mechanism failure. Section 5 was the owner's ruling
-        (the 38-byte split that evicts nothing); section 6 joined it at EFFECTS-W1 item
-        11a's authorable half (the same split, paid again, for `base_swap`). The id must
-        name a document that really ships, which is what the reachability lint would
-        otherwise catch late."""
-        bound = effects_gen.load_section_raster_refs(REPO)
-        self.assertEqual(sorted(bound), [5, 6],
-                         f"the bound sections are {sorted(bound)}, not [5, 6]")
-        presets = effects_gen.load_preset_documents(REPO) \
-            if hasattr(effects_gen, "load_preset_documents") else None
-        if presets is not None:
-            self.assertIn(bound[5], presets,
-                          f"section 5 binds {bound[5]!r}, which names no shipped preset document")
-            self.assertIn(bound[6], presets,
-                          f"section 6 binds {bound[6]!r}, which names no shipped preset document")
+        change cannot look like a mechanism failure.
+
+        RE-AIMED 2026-09-16, AND THE LITERAL IS GONE RATHER THAN MOVED. It read
+        `sorted(load_section_raster_refs(REPO)) == [5, 6]` — section 5 was the owner's
+        ruling (the 38-byte split that evicts nothing), section 6 joined it at EFFECTS-W1
+        item 11a's authorable half. Act 1 is in REGION mode now: those sidecars are
+        nulled, and the same two bindings live on the region rows `sec5` and `sec6`. The
+        successor does not type `["sec5", "sec6"]` either — rule 4 of the re-aim: the
+        expectation is READ OUT OF THE DOCUMENT (`regions.json`, parsed here as raw JSON)
+        and compared against what `owner_maps()` reports. The two are genuinely different
+        paths to the same fact — the document's own text, versus the loader chain
+        `load_act_regions` -> `resolve_act_regions` -> `region_flatten.flatten` that
+        `owner_maps` goes through — so this is a cross-check and not a tautology, and it
+        catches a flatten that drops or invents a binding.
+
+        THE MODE IS PART OF THE CONTENT and is asserted here, in the one place content
+        assertions live: "OJZ act 1 is in region mode" is a fact about the game exactly as
+        "sections 5 and 6 are the bound ones" was. The mechanism tests above read the mode
+        and follow it; this one pins it, so flipping an act back cannot pass silently.
+
+        The ids must still name documents that really ship — the half the reachability
+        lint would otherwise catch late — and each bound owner must install a record,
+        without which shape B′'s choosers have no key to thread."""
+        raster_refs, owner_records, region_mode = effects_seam_gate.owner_maps()
+        self.assertTrue(
+            region_mode,
+            "OJZ act 1 is in LEGACY mode; this content assertion is written for the "
+            "region document and its successor for sidecars is the old `[5, 6]` pin")
+        with open(effects_gen.regions_path(REPO)) as f:
+            doc = json.load(f)
+        want = {r["id"]: r[effects_gen.ACT_RASTER_REF_KEY] for r in doc["regions"]
+                if r.get(effects_gen.ACT_RASTER_REF_KEY) is not None}
+        self.assertTrue(want, "no region in the document carries a rasterRef")
+        self.assertEqual(raster_refs, want,
+                         "the gate's owner map and the document disagree about which "
+                         "regions bind a preset document")
+
+        shipped = effects_gen.load_all_presets("sonic4", REPO)
+        for rid, pid in sorted(want.items()):
+            self.assertIn(pid, shipped,
+                          f"region {rid!r} binds {pid!r}, which names no shipped preset "
+                          f"document")
+            self.assertIn(rid, owner_records,
+                          f"region {rid!r} binds {pid!r} but installs no `EffectsPreset` "
+                          f"record — since shape B′ the choosers key on the record, so "
+                          f"the document's channels would have nowhere to land")
 
 
 class TestSourceOnlyMode(unittest.TestCase):
@@ -1129,39 +1293,104 @@ class TestSourceOnlyMode(unittest.TestCase):
         self.assertIn("canonical", p.stdout)
 
     def test_a_broken_raster_binding_FAILS_it(self):
-        """The class FAST was blind to, driven through the same code path the flag
-        takes. `seam_faults` is the only thing between the sidecars and the
-        gate's exit code, so a fault here is a `--source-only` refusal there.
+        """The class FAST was blind to, driven end to end through the flag itself.
 
-        THE UNWIRED SECTION IS CHOSEN THROUGH THE DESCRIPTOR SINCE SHAPE B′: a chooser
-        call names a RECORD, so "a section no preset threads the chooser for" is a
-        section whose region row installs a record that appears in neither call map.
-        Derived from the two parses and the descriptor, never typed, so it still finds a
-        live section on the day someone threads a chooser into another record."""
+        ---- RE-AIMED 2026-09-16, AND THE OLD MUTATION HAD STOPPED MUTATING ANYTHING ----
+
+        It broke the seam by adding a key to the dict `load_section_raster_refs` returns —
+        a section sidecar's `rasterRef` — and called `seam_faults` in process, on the
+        argument that `seam_faults` is the only thing between that dict and the gate's
+        exit code. Act 1 is in REGION mode now: the sidecars carry nothing, that loader
+        returns `{}`, and the mutation had nothing to mutate. It did not silently pass
+        only because the derivation it used to pick its victim ran out of candidates.
+
+        ---- WHAT IT DOES NOW: THE AUTHOR'S OWN CLICK, AND THE REAL GATE ----
+
+        The region-mode equivalent of "an author binds a raster program to a place no
+        preset threads the chooser for" is a `rasterRef` written onto a region row in
+        `regions.json`. So that is the mutation, written into a SANDBOX repo root
+        (`shadow_repo` — symlinks, one real file, nothing in this tree touched), and what
+        observes it is `effects_seam_gate.py --source-only` as a subprocess: the flag's
+        own code path, its own exit code, its own refusal sentence. That is strictly
+        MORE than the old in-process call proved, which is the direction a re-aim has to
+        move: it no longer argues that a fault equals a refusal, it watches the refusal.
+
+        THE CONTROL RUNS FIRST, on the same sandbox mechanism with the document
+        re-serialised and otherwise unchanged. Without it a red proves nothing — a
+        sandbox that could not run the gate at all would fail identically, and "the
+        mutation caused this" would be the one thing the test did not establish.
+
+        THE VICTIM IS DERIVED, NEVER TYPED: an owner that binds nothing today and whose
+        record appears in neither call map, chosen through `owner_maps()` like every other
+        ownership question here. The document it is given is a SHIPPED one, so the gate
+        loads it and classifies its arm for real instead of stopping at "no such
+        document" — a different and separately-tested refusal.
+        """
         names = effects_gen.act_names(REPO)
         with open(os.path.join(REPO, effects_seam_gate.EFFECTS_LIB)) as f:
             lib = f.read()
-        calls = effects_seam_gate.raster_call_sites(lib, names.fn_preset_raster)
-        patched = effects_seam_gate.patched_call_sites(lib, names.fn_preset_patched)
-        threaded = set(calls) | set(patched)
-        with open(os.path.join(REPO, effects_seam_gate.DESCRIPTOR)) as f:
-            bindings = effects_seam_gate.descriptor_effects_bindings(f.read())
-        refs = dict(effects_gen.load_section_raster_refs(REPO))
-        unwired = next(s for s in sorted(bindings)
-                       if s not in refs and bindings[s] not in threaded)
-        refs[unwired] = "cold_test_band"          # the click Aurora offers
-        presets = dict(effects_gen.load_all_presets("sonic4", REPO))
-        presets["cold_test_band"] = {"bands": []}  # a RASTER-arm document
-        faults = effects_seam_gate.seam_faults(
-            calls, patched, real_channel_calls(lib, names), bindings,
-            effects_gen.effects_library_records(names, REPO), refs, presets, names)
-        self.assertTrue(faults, f"binding section {unwired} raised no fault")
-        self.assertIn(f"section {unwired}'s sidecar names rasterRef 'cold_test_band'",
-                      faults[0])
+        threaded = set(effects_seam_gate.raster_call_sites(lib, names.fn_preset_raster))
+        threaded |= set(effects_seam_gate.patched_call_sites(lib,
+                                                             names.fn_preset_patched))
+        # ⚠ `owner_maps` — the gate's one derivation of who owns what. Picking the victim
+        # off `load_section_raster_refs` + `descriptor_effects_bindings` is what left this
+        # test with no candidate at all on the day act 1 flipped.
+        raster_refs, owner_records, region_mode = effects_seam_gate.owner_maps()
+        self.assertTrue(region_mode,
+                        "this act is in legacy mode; the mutation below writes a region "
+                        "document the gate would not read")
+        victim = next(o for o in sorted(owner_records)
+                      if o not in raster_refs and owner_records[o] not in threaded)
+        # A raster-arm document that really ships, so the gate reaches the arm partition
+        # instead of refusing at "no preset document with that id loaded".
+        donor = next(pid for pid, doc in
+                     sorted(effects_gen.load_all_presets("sonic4", REPO).items())
+                     if effects_seam_gate.document_arm(doc) == "raster")
+
+        with open(effects_gen.regions_path(REPO)) as f:
+            doc = json.load(f)
+        control = self.run_sandboxed(doc)
+        self.assertEqual(control.returncode, 0,
+                         f"the CONTROL sandbox is already red, so a red below would not "
+                         f"be the mutation:\n{control.stdout}{control.stderr}")
+
+        for row in doc["regions"]:
+            if row["id"] == victim:
+                row[effects_gen.ACT_RASTER_REF_KEY] = donor   # the click Aurora offers
+        broken = self.run_sandboxed(doc)
+        self.assertEqual(broken.returncode, 1,
+                         f"binding {victim!r} to {donor!r} raised no refusal:\n"
+                         f"{broken.stdout}{broken.stderr}")
+        self.assertIn("effects_seam_gate: FAIL", broken.stdout)
+        # ⚠ "row", NOT "sidecar". The owner of a `rasterRef` is a REGION ROW in region mode
+        # and the gate's messages say so — an author sent to "section ojz_preset_night's
+        # sidecar" would go looking for a file with nothing in it. This pins the message the
+        # author actually reads, which is the point of asserting on it at all; the noun is
+        # derived by the gate from the owner keys, so it moves with the mode.
+        self.assertIn(f"{victim}'s row names rasterRef {donor!r}", broken.stdout)
+        self.assertIn(f"region {victim}", broken.stdout)
         # ...and the reason names the record that owes the threading, which is the only
-        # thing the author can act on: the section index no longer appears in the call.
-        self.assertIn(f"{names.fn_preset_raster}(preset: {bindings[unwired]}_KEY)",
-                      faults[0])
+        # thing the author can act on: no owner id appears in the call it prescribes.
+        self.assertIn(
+            f"no preset threads {names.fn_preset_raster}"
+            f"(preset: {owner_records[victim]}_KEY)", broken.stdout)
+
+    def run_sandboxed(self, doc):
+        """`--source-only` against a repo root whose `regions.json` is `doc`.
+
+        The document is re-serialised both times — control and mutation — so the only
+        difference between the two runs is the row this test edited, and not the
+        formatting of the file it wrote."""
+        sandbox = tempfile.mkdtemp(prefix="seam_gate_sandbox_")
+        try:
+            rel = os.path.relpath(effects_gen.regions_path(REPO), REPO)
+            shadow_repo(sandbox, rel, json.dumps(doc, indent=2))
+            return subprocess.run(
+                [sys.executable, os.path.join(sandbox, "tools", "effects_seam_gate.py"),
+                 "--source-only"],
+                capture_output=True, text=True, cwd=sandbox)
+        finally:
+            shutil.rmtree(sandbox, ignore_errors=True)
 
 
 class TestBoundaryFixtureClassification(unittest.TestCase):

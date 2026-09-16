@@ -200,7 +200,7 @@ pub data EditorSceneBinding_OJZ_Act1_Sec8: SceneCfg3 = lower3(EditorScenes_OJZ_A
 // re-derived from constants.emp) and leaves the values to sigil.
 const REEL_RATE_EMIT_LEN_OJZ_Act1 = if DEBUG == 1 { REEL_BAND_COUNT } else { 0 }
 
-// section(s) 4 <- scene ojz_act1_depth: [3, -5, 2, -4, 6] px/frame, left to right
+// section(s) sec4 <- scene ojz_act1_depth: [3, -5, 2, -4, 6] px/frame, left to right
 const EditorReelsSrc_OJZ_Act1_ojz_act1_depth = [3, -5, 2, -4, 6]
 const EditorReelsOk_OJZ_Act1_ojz_act1_depth = reel_rates_ok(EditorReelsSrc_OJZ_Act1_ojz_act1_depth, REEL_BAND_COUNT)
 ensure(EditorReelsOk_OJZ_Act1_ojz_act1_depth == REEL_BAND_COUNT,
@@ -379,16 +379,6 @@ pub const OJZ_Preset_Sec7_KEY = 9
 // =====================================================================
 pub comptime fn ojz_act1_act_default(hand: Label) -> Label {
     return hand
-}
-
-pub comptime fn ojz_act1_sec_scene(sec: int, hand: Label = 0) -> Label {
-    ensure(sec >= 0 && sec < 9, "ojz_act1_sec_scene(sec: {sec}): this act has 9 sections, so there is no binding slot for that index — the descriptor and project.json's grid have drifted apart")
-    comptime var out = hand
-    if sec == 0 { out = EditorSceneBinding_OJZ_Act1_Sec0 }
-    if sec == 4 { out = EditorSceneBinding_OJZ_Act1_Sec4 }
-    if sec == 7 { out = EditorSceneBinding_OJZ_Act1_Sec7 }
-    if sec == 8 { out = EditorSceneBinding_OJZ_Act1_Sec8 }
-    return out
 }
 
 // ---- THE RASTER BINDING — the seam the GAME'S EFFECTS LIBRARY calls ----

@@ -121,6 +121,9 @@ import unittest
 import collections
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys                                                        # noqa: E402
+sys.path.insert(0, os.path.join(AEON, "tools"))
+import effects_gen                                                # noqa: E402
 
 RASTER_DSL = os.path.join(AEON, "engine/effects/raster_dsl.emp")
 CONSTANTS = os.path.join(AEON, "engine/system/constants.emp")
@@ -295,21 +298,26 @@ def preset_patched_programs():
 
 
 def section_presets():
-    """{sidecar index: the preset name the region row keyed on it names}, from act_descriptor.emp.
+    """{section index: the EffectsPreset whose look covers that section's place}.
 
-    The generated arm's sweeps are keyed on a SECTION sidecar (`sec: N` at the chooser site),
-    and since painted-regions v1 the preset a sidecar's place installs is named by the REGION
-    row whose `parallax:` binding carries that same `sec: N`. This is the one edge that crosses
-    out of the effects library, and it is read rather than assumed for the same reason
-    everything else here is."""
-    src = _blank(_read(DESCRIPTOR))
-    out = {}
-    for m in re.finditer(r"\bojz_region\s*\(", src):
-        body, _ = _balanced(src, m.end() - 1)
-        sm = re.search(r"\bsec:\s*(\d+)", body)
-        em = re.search(r"\beffects:\s*([A-Za-z_]\w*)", body)
-        if sm and em:
-            out[int(sm.group(1))] = em.group(1)
+    ⚠ DELEGATED TO `effects_gen.section_preset_symbols` ON 2026-09-16 RATHER THAN PARSED HERE,
+    and the delegation is the fix, not a tidy-up. This used to read
+    `ojz_region(.., effects: X, parallax: ..(sec: N))` rows straight out of the descriptor.
+    Act 1 is now in REGION mode: its rows are generated from the editor's document and carry
+    no `sec:` at all, so that parse returned `{}` — and it returned it SILENTLY, because the
+    loop's `if sm and em:` simply skipped every row. Nothing asserted the map was non-empty,
+    so the section -> preset edge would have vanished and every band-fit bound downstream
+    would have lost its subject while the file went on reporting green.
+
+    One implementation, two modes: in legacy it reads the descriptor exactly as this did; in
+    region mode it asks which region's rectangle contains the section's centre. A second
+    parser here would be a second thing to forget on the next flip."""
+    out = effects_gen.section_preset_symbols(effects_gen.act_names(AEON), AEON)
+    if not out:
+        raise AssertionError(
+            "effects_gen.section_preset_symbols resolved NO section to a preset. Every "
+            "band-fit bound in this file is keyed on that edge, so an empty map is an "
+            "instrument that has gone blind — never a tree with nothing to check.")
     return out
 
 
@@ -830,6 +838,42 @@ def instrument_blindness():
     # The count stays over the bare SPELLING and not over the reader's own pattern, because a
     # probe that matched the reader's pattern could never disagree with it. _blank() empties
     # string literals, so ojz_region()'s own ensure messages cannot count as rows.
+    # ⚠ REGION MODE ACCOUNTS AGAINST THE DOCUMENT, NOT THE DESCRIPTOR (2026-09-16). Act 1's
+    # rows are generated now and the descriptor carries only its two build-shape deltas, which
+    # name no `sec:` — so the row accounting below counts ZERO and this probe fired, correctly
+    # saying the reader had lost its source and wrongly naming the descriptor as the reason.
+    #
+    # The region-mode probe is the same SHAPE — a reader compared against the plain text of
+    # its own source — one file over: `section_preset_symbols` resolves a section by asking
+    # which region's rectangle contains its centre, and the act descriptor's own coverage
+    # `ensure` (the rows tile the act, with no overlap) makes exactly one region contain every
+    # point. So a section that fails to resolve is a READER fault, never a content state, and
+    # the accounting is against the project grid's own section count. It gets no weaker as
+    # content is removed, which is the property this whole block is organised around.
+    if effects_gen.has_act_regions(AEON):
+        sections = section_presets()
+        want = effects_gen.act_section_count(AEON)
+        doc = os.path.relpath(effects_gen.regions_path(AEON), AEON)
+        if len(sections) != want:
+            out.append(
+                "section_preset_symbols() resolved %d of this act's %d sections against %s "
+                "(%r). The region table tiles the act with no overlap — its own `ensure`s say "
+                "so — so EVERY section centre lies in exactly one region and a missing entry "
+                "is this reader failing, not a document with a hole."
+                % (len(sections), want, doc, sorted(sections)))
+        elif sorted(sections) != list(range(want)):
+            out.append(
+                "section_preset_symbols() resolved %d entries against %s but they are not the "
+                "contiguous range 0..%d — got %r."
+                % (len(sections), doc, want - 1, sorted(sections)))
+        elif SPAWN_SECTION not in sections:
+            out.append(
+                "section_preset_symbols() no longer resolves the SPAWN SECTION %d against %s. "
+                "That is the ONLY section SPAWN_CAMERA_Y (%d) is the camera for, so the "
+                "seeded-headroom bound cannot be evaluated for any sweep at all once this is "
+                "true — and it would look exactly like a tree that authors no sweeps there."
+                % (SPAWN_SECTION, doc, SPAWN_CAMERA_Y))
+        return out + _probe_parse()
     desc = _blank(_read(DESCRIPTOR))
     calls = [m for m in re.finditer(r"\bojz_region\s*\(", desc)
              if not re.search(r"\bfn\s+$", desc[:m.start()])]
@@ -877,6 +921,17 @@ def instrument_blindness():
             % (SPAWN_SECTION, os.path.relpath(DESCRIPTOR, AEON), SPAWN_CAMERA_Y))
 
     # ---- PROBE 2: PARSE ----
+    out += _probe_parse()
+    return out
+
+
+def _probe_parse():
+    """PROBE 2, factored out so BOTH modes' probe-1 arms end with the same second half.
+
+    Split from `instrument_blindness` when region mode gave probe 1 two arms: a probe that
+    only ran on one of them would be a hole that opens exactly when the tree changes shape,
+    which is the kind of hole this whole block exists to close."""
+    out = []
     # scan_module() raises if it cannot account for every `anchor_sweep(` occurrence, so
     # calling it IS the occurrence-accounting probe; the comparison below is the second half,
     # aimed at authored_sweeps() specifically because that is the reader the seeded bound uses.

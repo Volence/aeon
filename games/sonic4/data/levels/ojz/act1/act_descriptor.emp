@@ -68,7 +68,18 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, SCENE_ACT_SPAN_Y}
 // (measured on this seam, 2026-08-22: an `ensure(1 == 0)` there built clean with an
 // unchanged CRC). tools/effects_seam_gate.py pins that this edge is live by reading
 // the generated module's witness equates out of the build's own listing.
-use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default, ojz_act1_sec_scene}
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}
+// THE REGION TABLE, LOWERED FROM THE EDITOR'S DOCUMENT (2026-09-16, REGIONS-EMIT-BINDINGS).
+// `ojz_act1_sec_scene` is NOT imported and no longer exists: in region mode each row carries
+// its scene binding as a `rg_parallax` POINTER, so the chooser that stood between this file
+// and those symbols has no call site and is not emitted. `ojz_act1_act_default` stays — the
+// act default is not a row's property and is still resolved through the seam.
+use games.sonic4.ojz_regions_act1.{OJZ_ACT1_GENERATED_REGION_ROWS,
+                                   OJZ_ACT1_ROW_SEC2, OJZ_ACT1_ROW_SEC5, OJZ_ACT1_ROW_SEC8,
+                                   OJZ_ACT1_ROW_SEC2_PRESET, OJZ_ACT1_ROW_SEC5_PRESET,
+                                   OJZ_ACT1_ROW_SEC8_PRESET}
+use games.sonic4.ojz_effects_editor_act1.{OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec5_KEY,
+                                          OJZ_Preset_Plain_KEY}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -711,27 +722,146 @@ const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
 
 const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN
 
-// THE ROWS — ONE SOURCE. The guards below read this const and the emitted table IS this
-// const, so the rows checked are the rows shipped (design §10.5: a hand-written table gets
-// the same protection a generated one would).
+// THE ROWS — ONE SOURCE, AND SINCE 2026-09-16 THAT SOURCE IS THE EDITOR'S DOCUMENT.
+// `games/sonic4/data/editor/ojz/act1/regions.json` is act 1's identity, lowered by
+// tools/effects_gen.py into games/sonic4/data/generated/ojz/act1/regions.emp. The ten rows
+// that used to be typed here are gone; what is left is this file's two DEBUG deltas, the
+// per-row rules, and the whole-table guards.
 //
-// ROW ORDER: rows 0-8 stay the nine sections' rows in flat-id order and the night region is
-// APPENDED as row 9, so every region index a tool or the effects lab's PRESET rows already
-// name keeps meaning the same preset (games/sonic4/test/ojz_scroll_test.emp's `.lab_index`
-// gained one row for region 9). Rows 1 and 2 are no longer whole sections.
-const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = [
-    ojz_region(x0:    0, x1: 2047, y0:    0, y1: 2047, effects: OJZ_Preset_Sec0,  parallax: ojz_act1_sec_scene(sec: 0)),
-    ojz_region(x0: 2048, x1: OJZ_NIGHT_X0 - 1, y0: 0, y1: 2047, effects: OJZ_Preset_Sec1,  parallax: ojz_act1_sec_scene(sec: 1)),
-    ojz_region(x0: OJZ_NIGHT_X1 + 1, x1: OJZ_SEC2_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Sec2,  parallax: ojz_act1_sec_scene(sec: 2)),
-    ojz_region(x0:    0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,  parallax: ojz_act1_sec_scene(sec: 3)),
-    ojz_region(x0: 2048, x1: 4095, y0: 2048, y1: 4095, effects: OJZ_Preset_Depth, parallax: ojz_act1_sec_scene(sec: 4)),
-    ojz_region(x0: 4096, x1: OJZ_SEC5_X1, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec5,  parallax: ojz_act1_sec_scene(sec: 5)),
-    ojz_region(x0:    0, x1: 2047, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec6,  parallax: ojz_act1_sec_scene(sec: 6)),
-    ojz_region(x0: 2048, x1: 4095, y0: 4096, y1: 6143, effects: OJZ_Preset_Sec7,  parallax: ojz_act1_sec_scene(sec: 7)),
-    ojz_region(x0: 4096, x1: OJZ_SEC8_X1, y0: 4096, y1: 6143, effects: OJZ_Preset_Plain, parallax: ojz_act1_sec_scene(sec: 8)),
-    // row 9 — the night region (see the block above OJZ_NIGHT_X0)
-    ojz_region(x0: OJZ_NIGHT_X0, x1: OJZ_NIGHT_X1, y0: 0, y1: 2047, effects: OJZ_Preset_Night),
-] ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS
+// ⚠ A GENERATED ROW DID NOT GO THROUGH `ojz_region()`, so it carries NONE of that
+// constructor's per-row ensures. That is a real loss, not a technicality — the minimum span,
+// the reachable-centre band and the three background rules all live in it — and
+// `ojz_region_table_check()` below is the table walk that pays it back. See its own banner.
+//
+// ROW ORDER is the DOCUMENT's order and the document preserves the old one: rows 0-8 are the
+// nine sections' rows in flat-id order and the night region is row 9, so every region index a
+// tool or the effects lab's PRESET rows already name keeps meaning the same preset
+// (games/sonic4/test/ojz_scroll_test.emp's `.lab_index`). Rows 1 and 2 are not whole sections.
+
+// ojz_cut_row() — the DEBUG delta's SHORTENING half, applied against a NAMED row.
+//
+// THE HUB'S RULING (empyrean `a718ea7c`) MAKES THIS SHAPE A CONDITION, not a preference:
+// the delta is not a pure append, it also takes the right end off a row to make room, so the
+// consumer must name the row it cuts and `ensure` that row is what it expects — never a
+// positional index — so that a document edit which moves or renames that region FAILS THE
+// BUILD instead of silently cutting a different one.
+//
+// ⚠ THE RULING SAYS "THE ROW" AND THERE ARE THREE. Its text names `sec2` at x1 6143 binding
+// OJZ_Preset_Sec2, which was the whole of the DEBUG delta when it was written; regions part 2
+// step 5 added the tall-background row, which carves rows 5 AND 8 as well. The condition is
+// unchanged and is simply owed three times — which is why this is a FUNCTION rather than
+// three hand-written rows.
+//
+// WHAT IT CHECKS, and why the binding check is an integer and not a record:
+//   * the row is where the document says (`row:` is a generated `<ACT>_ROW_<ID>` constant —
+//     rename the region and the name disappears, move it and the value changes);
+//   * it still reaches the act's right edge, so the cut is a cut and not a silent widening
+//     of a row someone else already shortened;
+//   * `preset_key:` — the row binds the record the delta was written for. It CANNOT be
+//     spelled `r[row].rg_effects == OJZ_Preset_Sec2`: both sides are Labels and
+//     docs/EMP_PITFALLS.md §12's 2026-09-16 amendment measured that a Label in comptime
+//     supports `!= 0` and nothing else, so a proposition AND its exact negation both pass.
+//     The generated `<ACT>_ROW_<ID>_PRESET` constants are the record's shape-B′ integer KEY,
+//     written from the DOCUMENT, and this argument is written from what the delta EXPECTS —
+//     two different places, so the comparison can genuinely go red.
+comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key: int) -> array {
+    ensure(row >= 0 && row < r.len,
+           "ojz_cut_row(row: {row}): the table has {r.len} rows. The row constants are generated from the document's ids, so an out-of-range one means the document lost the region this delta cuts")
+    ensure(was_preset == preset_key,
+           "ojz_cut_row(row: {row}): that row binds preset key {was_preset} and this delta was written for key {preset_key}. The document has re-pointed the region at another EffectsPreset record, so the cut would take the right end off a look nobody asked to shorten")
+    ensure(r[row].rg_x1 == ACT_W - 1,
+           "ojz_cut_row(row: {row}): that row already ends at x1 {r[row].rg_x1}, not the act's right edge ({ACT_W} - 1). A DEBUG delta CARVES a row that reaches the edge; applied to one that does not, it would either widen it or cut a second bite out of a row another delta already took")
+    // NEVER WIDENS — and `<=` rather than `<` is the whole subtlety of this line. A delta is
+    // shape-conditional: in RELEASE every OJZ_SEC*_X1 is ACT_W - 1, so the cut is a legal
+    // NO-OP and a strict `<` here refuses the release shape outright (measured: 18 errors,
+    // 2026-09-16, the first build of this block). What must never happen is the other
+    // direction — a delta that WIDENS a row past where the document put it.
+    //
+    // ⚠ AND "THE CUT SILENTLY DID NOTHING IN DEBUG" IS NOT LEFT UNGUARDED BY THE WEAKER
+    // COMPARISON; it is guarded one level up and more strongly. If a cut failed to happen
+    // while its appended row still did, the carved row and the added row would SHARE PIXELS,
+    // and OJZ_ACT1_REGION_OVERLAP (below) reports the first overlapping pair. A local ensure
+    // could only have checked the arithmetic; the whole-table one checks the consequence.
+    ensure(x1 <= r[row].rg_x1,
+           "ojz_cut_row(row: {row}): the new x1 {x1} is RIGHT of the current {r[row].rg_x1}. A build-shape delta may only take a row's right end away, never give it more than the document did")
+    comptime var out: array = []
+    for i in 0..r.len {
+        if i == row {
+            out = out ++ [ Region{ rg_x0: r[i].rg_x0, rg_x1: x1,
+                                   rg_y0: r[i].rg_y0, rg_y1: r[i].rg_y1,
+                                   rg_effects: r[i].rg_effects, rg_parallax: r[i].rg_parallax,
+                                   rg_bg_layout: r[i].rg_bg_layout, rg_bg_span: r[i].rg_bg_span } ]
+        } else {
+            out = out ++ [ r[i] ]
+        }
+    }
+    return out
+}
+
+// ojz_region_table_check() — THE PER-ROW RULES A GENERATED TABLE OWES.
+//
+// ⚠ THIS IS NOT A SECOND SET OF RULES. It is `ojz_region()`'s own ensures, restated over a
+// row the constructor never saw, and it exists because a generated row is a struct LITERAL.
+// Why a literal and not a call: `ojz_region()` is not `pub`, and docs/EMP_PITFALLS.md §2
+// makes a cross-module `comptime fn`'s free names resolve at the CALL SITE — `ojz_region`'s
+// body reads a dozen of this file's own consts (ACT_W, CENTRE_X_MIN, REGION_MIN_SPAN, ...)
+// and the pitfall's measured hazard is the PARTIAL case, where some names are in scope and
+// the fn neither errors nor works. So the constructor cannot travel to the generator, and the
+// checks come back to the rows instead.
+//
+// IT RUNS OVER THE COMPOSED ARRAY, which is what makes both build shapes checked without
+// either row count being typed twice — the same reason `region_first_overlap` and
+// `region_area_sum` below read the composed const rather than the generated one. The DEBUG
+// rows go through `ojz_region()` as well, so they are checked twice; that is cheap (a
+// comptime fn emits nothing) and it is the right way round — no row is checked zero times.
+//
+// It returns the FIRST offending row as `row * 16 + rule`, or -1. A code rather than a
+// message because a comptime fn cannot carry one out; the ensure below decodes it, and the
+// rule numbers are the order of `ojz_region()`'s own ensures so a reader can go and find the
+// sentence. The background rules are 6-8 and are UNREACHABLE today (the emitter writes both
+// background fields as the zero sentinel, always) — written anyway, because the day
+// REGIONS-BG-GOLDEN-GAP opens they are the difference between a checked row and a dropped one.
+comptime fn ojz_region_table_check(r: array) -> int {
+    for i in 0..r.len {
+        if r[i].rg_effects == 0 { return i * 16 + 0 }
+        if r[i].rg_x0 > r[i].rg_x1 || r[i].rg_y0 > r[i].rg_y1 { return i * 16 + 1 }
+        if r[i].rg_x1 >= ACT_W || r[i].rg_y1 >= ACT_H { return i * 16 + 2 }
+        if r[i].rg_x1 - r[i].rg_x0 + 1 < REGION_MIN_SPAN { return i * 16 + 3 }
+        if r[i].rg_y1 - r[i].rg_y0 + 1 < REGION_MIN_SPAN { return i * 16 + 3 }
+        if r[i].rg_x0 != 0 && (r[i].rg_x0 - 1 < CENTRE_X_MIN || r[i].rg_x0 > CENTRE_X_MAX) { return i * 16 + 4 }
+        if r[i].rg_x1 != ACT_W - 1 && (r[i].rg_x1 < CENTRE_X_MIN || r[i].rg_x1 + 1 > CENTRE_X_MAX) { return i * 16 + 4 }
+        if r[i].rg_y0 != 0 && (r[i].rg_y0 - 1 < CENTRE_Y_MIN || r[i].rg_y0 > CENTRE_Y_MAX) { return i * 16 + 5 }
+        if r[i].rg_y1 != ACT_H - 1 && (r[i].rg_y1 < CENTRE_Y_MIN || r[i].rg_y1 + 1 > CENTRE_Y_MAX) { return i * 16 + 5 }
+        if r[i].rg_bg_span % BG_SPAN_ROW_PX != 0 { return i * 16 + 6 }
+        if r[i].rg_bg_span != 0 && r[i].rg_bg_span < SCREEN_HEIGHT { return i * 16 + 7 }
+        if r[i].rg_bg_layout == 0 && r[i].rg_bg_span != 0 { return i * 16 + 8 }
+    }
+    return -1
+}
+
+// THE COMPOSITION. Release: the document's ten rows, untouched — every cut is a no-op
+// because OJZ_SEC{2,5,8}_X1 are all ACT_W - 1 in that shape, and both delta arrays are empty.
+// DEBUG: three rows carved and two appended. Written as a chain rather than as twelve typed
+// rows precisely so the release shape and the DEBUG shape cannot disagree about anything but
+// the deltas themselves.
+// ONE CUT PER LINE, AND THE LINE BREAKS ARE NOT STYLE. An initializer must begin on its
+// declaration's own line (the E2 fix, `8fd994c7`), and a chained call written across lines
+// with a leading `++` on the next one is `expected an expression, found Newline` — measured
+// here, 2026-09-16, on the first draft of this block.
+const OJZ_ACT1_ROWS_CUT2 = ojz_cut_row(OJZ_ACT1_GENERATED_REGION_ROWS, OJZ_ACT1_ROW_SEC2, OJZ_SEC2_X1, OJZ_ACT1_ROW_SEC2_PRESET, OJZ_Preset_Sec2_KEY)
+const OJZ_ACT1_ROWS_CUT5 = ojz_cut_row(OJZ_ACT1_ROWS_CUT2, OJZ_ACT1_ROW_SEC5, OJZ_SEC5_X1, OJZ_ACT1_ROW_SEC5_PRESET, OJZ_Preset_Sec5_KEY)
+const OJZ_ACT1_ROWS_CUT8 = ojz_cut_row(OJZ_ACT1_ROWS_CUT5, OJZ_ACT1_ROW_SEC8, OJZ_SEC8_X1, OJZ_ACT1_ROW_SEC8_PRESET, OJZ_Preset_Plain_KEY)
+const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT8 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS
+
+// THE PER-ROW RULES, over every row of both shapes. See ojz_region_table_check()'s banner
+// for why a generated row needs them restated at all.
+const OJZ_ACT1_REGION_ROW_FAULT = ojz_region_table_check(OJZ_ACT1_REGION_ROWS)
+// Decoded into two consts rather than interpolated as arithmetic: an `ensure` message
+// interpolates a NAME, and `{X / 16}` is not one.
+const OJZ_ACT1_REGION_FAULT_ROW = OJZ_ACT1_REGION_ROW_FAULT / 16
+const OJZ_ACT1_REGION_FAULT_RULE = OJZ_ACT1_REGION_ROW_FAULT % 16
+ensure(OJZ_ACT1_REGION_ROW_FAULT == -1,
+       "OJZ act 1 region row {OJZ_ACT1_REGION_FAULT_ROW} breaks per-row rule {OJZ_ACT1_REGION_FAULT_RULE} — 0 null effects, 1 inverted rect, 2 past the act, 3 narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN}), 4 an interior X edge outside the camera centre's band [{CENTRE_X_MIN}, {CENTRE_X_MAX}], 5 the same on Y [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}], 6 bg_span off the {BG_SPAN_ROW_PX} px row grid, 7 bg_span below the {SCREEN_HEIGHT} px screen, 8 bg_span on a row with no layout. These are ojz_region()'s own rules; a generated row is a struct literal and never went through it")
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
 // coverage, given every row is inside the act (ojz_region's own ensure): disjoint pieces

@@ -4930,5 +4930,10 @@ def test_section_preset_symbols_pairs_within_one_call(tmp_path):
         "    ojz_region(x0: 0, effects: OJZ_Preset_Sec5, parallax: ojz_act1_sec_scene(sec: 5)),\n"
         "    ojz_region(x0: 9, effects: OJZ_Preset_Two, parallax: pick(sec: 1, other: f(sec: 2))),\n"
         "]\n")
-    got = effects_gen.section_preset_symbols(_DescriptorAt(str(desc)))
+    # THE LEGACY ARM BY NAME, since the flip (2026-09-16). `section_preset_symbols` is the
+    # MODE SWITCH now, and with act 1 in region mode it would answer this synthetic descriptor
+    # by probing the real act's document instead of parsing the text handed to it — a test
+    # whose subject silently became a different function. The parse this test is about is
+    # `section_preset_symbols_legacy`, and naming it is the fix.
+    got = effects_gen.section_preset_symbols_legacy(_DescriptorAt(str(desc)))
     assert got == {0: "OJZ_Preset_Sec0", 5: "OJZ_Preset_Sec5"}, got

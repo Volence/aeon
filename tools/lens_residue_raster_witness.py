@@ -69,6 +69,7 @@ sys.path.insert(0, str(TOOLS))
 
 from aether_instance import aether_emulator, read_bytes, write_bytes  # noqa: E402
 from aether import BusClient  # noqa: E402
+import effects_gen  # noqa: E402  (the one section -> look reader, both modes)
 
 WITNESSED = "WITNESSED"
 NOT_WITNESSED = "NOT WITNESSED"
@@ -1083,20 +1084,32 @@ def _top_split(s: str) -> list:
 
 
 def section_preset(build: Build, sec: int) -> tuple:
-    """(GRID_W, the EffectsPreset the region row keyed on sidecar `sec` names), from OJZ act
-    1's act descriptor. Since painted-regions v1 a REGION row binds the preset and names its
-    sidecar as `parallax: ojz_act1_sec_scene(sec: N)`; act 1's rows transcribe its sections
-    1:1, so that sidecar is the section this witness is about. The row is found by that call,
-    never by position, and refused unless exactly one single-line row carries it."""
+    """(GRID_W, the EffectsPreset whose look covers section `sec`'s place).
+
+    ⚠ THE ROW-BY-`sec:` PARSE THAT USED TO LIVE HERE IS GONE (2026-09-16). It read
+    `ojz_region(.., effects: X, parallax: ..(sec: N))` out of the act descriptor and refused
+    unless exactly one row carried the call. Act 1 is in REGION mode: its rows are generated
+    from the editor's document and carry no `sec:` at all, so that parse found ZERO rows and
+    this witness refused — loudly, which is the right way to fail, but for a reason that names
+    a spelling rather than the thing that changed.
+
+    `effects_gen.section_preset_symbols` is the one reader of that edge in both modes, so the
+    mapping is asked of it rather than re-derived here. GRID_W is still read from the
+    descriptor THROUGH `build.source`, which is what keeps this witness's numbers provably
+    those of the build it is measuring — and the descriptor still declares it.
+    """
     text = _strip_comments(build.source(OJZ_ACT1).decode("utf-8", "replace"))
     gw = re.search(r"^\s*const\s+GRID_W\s*=\s*(\d+)", text, re.M)
-    rows = [ln for ln in re.findall(r"ojz_region\([^\n]*\)", text)
-            if re.search(rf"\(sec:\s*{sec}\)", ln) and "effects:" in ln]
-    if not gw or len(rows) != 1:
-        raise CouldNotRun(f"{OJZ_ACT1}: no GRID_W, or {len(rows)} `ojz_region(.., "
-                          f"parallax: ..(sec: {sec}))` row(s) where exactly one was wanted")
-    m = re.search(r"\beffects:\s*(\w+)", rows[0])
-    return int(gw.group(1)), m.group(1)
+    if not gw:
+        raise CouldNotRun(f"{OJZ_ACT1}: no foldable `const GRID_W`, so this witness cannot "
+                          f"place a section in the act at all")
+    preset = effects_gen.section_preset_symbols(
+        effects_gen.act_names(str(ROOT)), str(ROOT)).get(sec)
+    if preset is None:
+        raise CouldNotRun(f"nothing resolves section {sec} to an EffectsPreset record — in "
+                          f"region mode that means no single region rectangle contains that "
+                          f"section's centre, and this witness has no look to measure")
+    return int(gw.group(1)), preset
 
 
 def preset_fields(build: Build, preset: str) -> dict:

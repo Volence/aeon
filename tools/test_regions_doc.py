@@ -12,17 +12,27 @@ fixtures only — no ROM, no emulator, no assembler — except `TestShippedTable
 which carries the `needs_build` marker and compares the golden against the table read out of
 a BUILT ROM.
 
+⚠ ACT 1 IS IN REGION MODE (2026-09-16, REGIONS-EMIT-BINDINGS). The three bullets that stood
+here said the opposite — "nothing has assembled the emitted text", "act 1's rows are still
+hand-written", "no act in this repo has a `regions.json`" — and all three are now false. The
+act's identity IS `games/sonic4/data/editor/ojz/act1/regions.json`, its rows are lowered into
+`games/sonic4/data/generated/ojz/act1/regions.emp`, and both build shapes assemble that file.
+The flip moved zero ROM bytes.
+
 WHAT A GREEN HERE DOES NOT MEAN, said so nobody reads it as more:
-  * ⚠ NOTHING HAS ASSEMBLED THE EMITTED TEXT. `TestRegionTableEmitter` proves the `.emp`
-    module is what the document says; no act in this tree is in region mode, so sigil has
-    never seen a generated region table. The first act to flip is what closes that
-    (REGIONS-EMIT-BINDINGS) — see that class's own docstring.
-  * Act 1's rows are still hand-written in `act_descriptor.emp`, and the emitter does not
-    change that. It is wired into `effects_gen.py`'s `emit`/`check` and returns None on
-    every act here.
-  * No act in this repo has a `regions.json`, so every region-mode test below builds its
-    own sandbox. The real tree exercises exactly one of these paths: the legacy arm, which
-    `TestLegacyModeUnchanged` pins.
+  * ⚠ THESE TESTS READ TEXT, NOT BYTES, and the first assembly proved that gap is real: the
+    emitter's rows were five-field struct literals, every test here was green, and sigil
+    answered with 150 `[struct.missing-field]` errors. That the text ASSEMBLES is the build's
+    verdict; that the ROM's rows are the golden's rows is `TestShippedTableMatchesGolden`'s,
+    which reads the image.
+  * The LEGACY arm is still live and is still the default — `games/demo` and every unmigrated
+    act take it. It is exercised in a sandbox with the document removed, which is what a
+    legacy act IS; `TestRealTreeIsInRegionMode` pins which arm the shipped tree takes, so a
+    sandbox test cannot quietly become the only thing describing this repo.
+  * Every region-mode test below still builds its own sandbox and writes its own document.
+    `RegionSandbox.setUp` REMOVES the copied `regions.json` for that reason: without it every
+    sandbox arrived carrying act 1's real document and the legacy-mode assertions were being
+    made against a tree that was already in region mode.
   * `bg.layoutRef` is refused for every value but the act sentinel, so the derived-span
     check (a span must equal its layout's height) is UNREACHABLE today and untested. It is
     what the parcel that opens `layoutRef` owes.
@@ -132,6 +142,16 @@ class RegionSandbox(unittest.TestCase):
         # testing the mode conflict instead of whatever it meant to test.
         for f in glob.glob(os.path.join(self.act_dir, "section_*.meta.json")):
             os.remove(f)
+        # ⚠ AND THE SHIPPED DOCUMENT IS REMOVED TOO, SINCE THE FLIP (2026-09-16). The act
+        # directory is COPIED from the real tree, and the real tree now carries a
+        # `regions.json` — so every sandbox arrived pre-populated with act 1's real document
+        # and the tests that write their own were editing on top of it. Worse, the tests that
+        # assert LEGACY mode (`has_act_regions()` false) were asserting against a tree that
+        # was in region mode before they touched it. Each test writes the document it means
+        # to test, or writes none; the sandbox supplies neither.
+        doc = os.path.join(self.act_dir, effects_gen.REGIONS_FILE)
+        if os.path.isfile(doc):
+            os.remove(doc)
 
     def tearDown(self):
         self.tmpdir.cleanup()
@@ -240,13 +260,101 @@ class TestSharedGolden(RegionSandbox):
 # MODE
 # ---------------------------------------------------------------------------
 
-class TestLegacyModeUnchanged(unittest.TestCase):
-    """The arm the real tree takes, and the one that makes this parcel reversible."""
+class TestTheSectionLookProbeAgreesWithTheLegacyAnswER(unittest.TestCase):
+    """`section_preset_symbols`' REGION arm reproduces what the LEGACY arm used to say.
 
-    def test_absent_document_is_legacy_mode_and_not_an_error(self):
-        self.assertFalse(effects_gen.has_act_regions())
-        self.assertIsNone(effects_gen.load_act_regions())
-        self.assertIsNone(effects_gen.act_region_rows())
+    THE HINGE THE FLIP TURNED ON. Seven tools ask "what look is at section N" — the seam gate,
+    the anchor-sweep band file, `sec5_band_witness`, `lens_residue_raster_witness`, the
+    reachability lint, and the generator's own B′ re-key. Region mode DELETED the edge those
+    tools were reading (regions part 1 step 4 removed section identity on purpose), so the
+    region arm answers the same question GEOMETRICALLY instead: which region's rectangle
+    contains the section's centre.
+
+    ⚠ IT IS NOT A BINDING AND MUST NOT BE READ AS ONE. A section can straddle several regions
+    and several sections can share one; what makes the probe legitimate is that the engine
+    resolves identity by camera CENTRE per frame, and this samples that same rule once per
+    section. What makes it SAFE is that it yields no entry when a section's centre is not in
+    exactly one region, and every consumer treats a missing entry as "not evaluated".
+
+    THE AGREEMENT IS ASSERTED AND NOT ASSUMED, row for row, because "it happens to match
+    today" is the kind of sentence that decays without an author. The LEGACY expectation is
+    read with `section_preset_symbols_legacy` against the descriptor AS IT WAS BEFORE THE FLIP
+    — out of git, at the parcel's base — so this is a comparison against a real historical
+    answer and not against the same function agreeing with itself.
+    """
+
+    BASE = "a7b1cd2e"          # the parcel's base: act 1 still hand-written, still legacy
+
+    def test_every_section_resolves_to_the_record_the_hand_table_bound_it_to(self):
+        import subprocess
+        if not effects_gen.has_act_regions():
+            self.skipTest("act 1 is in legacy mode; the two arms are the same code path")
+        rel = "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
+        p = subprocess.run(["git", "-C", AEON, "show", f"{self.BASE}:{rel}"],
+                           capture_output=True, text=True)
+        if p.returncode != 0:
+            self.skipTest(f"{self.BASE} is not in this repository (a shallow clone or a "
+                          f"rewritten history) — this comparison needs the pre-flip "
+                          f"descriptor and will not invent one")
+        with tempfile.TemporaryDirectory() as d:
+            old = os.path.join(d, "act_descriptor.emp")
+            with open(old, "w") as f:
+                f.write(p.stdout)
+
+            class _At:
+                def descriptor_path(self, _repo):
+                    return old
+            legacy = effects_gen.section_preset_symbols_legacy(_At())
+        self.assertEqual(len(legacy), effects_gen.act_section_count(),
+                         f"the pre-flip descriptor at {self.BASE} resolved {len(legacy)} "
+                         f"sections, not this act's {effects_gen.act_section_count()} — the "
+                         f"baseline this compares against is itself unreadable, so a match "
+                         f"would mean nothing")
+        region = effects_gen.section_preset_symbols(effects_gen.act_names())
+        self.assertEqual(region, legacy,
+                         "the region arm's section -> record map is not the one act 1's "
+                         "hand-written table bound. The FINDING is which of them the "
+                         "consumers wanted, not which to adjust: seven tools read this edge.")
+
+
+class TestRealTreeIsInRegionMode(unittest.TestCase):
+    """⚠ WAS `TestLegacyModeUnchanged`, AND THE RENAME IS THE FLIP (2026-09-16).
+
+    It read "the arm the real tree takes, and the one that makes this parcel reversible", and
+    asserted `has_act_regions()` FALSE. Act 1 now has a document, so that assertion is exactly
+    backwards — and it is renamed rather than deleted because the fact it pinned still matters
+    and has simply changed sign: this suite must know which mode the shipped tree is in, or
+    every sandbox below is testing a path nothing takes.
+
+    THE LEGACY ARM IS NOT LEFT UNTESTED. It is the arm `games/demo` and every unmigrated act
+    take, and `TestRegionTableEmitter::test_legacy_mode_emits_nothing_and_that_is_not_an_error`
+    exercises it in a sandbox with the document removed, which is what a legacy act IS.
+    Reversibility is likewise unchanged and is still one `rm`: delete the document and the
+    generator takes the same code path it took before regions existed.
+    """
+
+    def test_the_shipped_act_is_in_region_mode_and_its_rows_come_from_the_document(self):
+        self.assertTrue(effects_gen.has_act_regions(),
+                        "act 1 has no regions.json — the flip is not in this tree, and every "
+                        "region-mode assertion in this file is about a path nothing takes")
+        doc = effects_gen.load_act_regions()
+        self.assertIsNotNone(doc)
+        rows = effects_gen.act_region_rows()
+        self.assertEqual([r["id"] for r in rows], [r["id"] for r in golden_rows()],
+                         "the shipped act's rows are not the shared golden's rows, in order")
+
+    def test_no_section_sidecar_still_carries_identity(self):
+        """The other half of the flip, and the half that would fail SILENTLY.
+
+        `check_mode_conflict` refuses a tree where both sources carry identity — but it is a
+        REFUSAL, so it only speaks when it fires. This asserts the state it defends, so a
+        merge or a half-applied editor save that re-added a `sceneRef` is a named test failure
+        rather than a build error whose message is about something else.
+        """
+        for key in (effects_gen.ACT_SCENE_REF_KEY, effects_gen.ACT_RASTER_REF_KEY):
+            self.assertEqual(effects_gen._load_section_refs(key), {},
+                             f"a section sidecar still carries {key} while act 1 is in "
+                             f"region mode — two sources of truth for one fact")
 
     def test_generate_is_byte_identical_to_the_committed_module(self):
         """The regions code changed `generate()`; this proves it changed no output.
@@ -301,28 +409,59 @@ class TestModeConflict(RegionSandbox):
                        "rasterRef": None, "sceneRef": None}, f)
         effects_gen.check_mode_conflict(repo=self.repo)   # no raise
 
-    def test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels(self):
-        """The finding above, asserted rather than left in a comment.
+    def test_a_migrated_act_BAKES_and_keeps_every_binding_the_document_names(self):
+        """⚠ THIS TEST TOLD ITS AUTHOR TO DELETE IT, AND THIS IS WHAT REPLACED IT INSTEAD.
 
-        ⚠ THE SECOND PARCEL CAME AND DELIBERATELY DID NOT FIX IT (2026-09-16), so this
-        test is unchanged and the reason is now written down. Removing the rung-1 rule was
-        MEASURED in this sandbox: the bake then SUCCEEDS, emitting zero scene bindings
-        where the shipped module has four and zero chooser arms where it has fourteen —
-        a green build of a silently de-bound ROM. The refusal is the only thing standing
-        between a migrated act 1 and that, so it is a guard to be replaced (by the
-        section->row re-key, REGIONS-EMIT-BINDINGS) and never one to be relaxed.
+        It was `test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels`, and it
+        asserted a REFUSAL: a migrated act would not bake, because `render_module`'s rung-1
+        reels rule requires some SECTION to bind `ojz_act1_depth` through a sidecar, and a
+        migrated act has no sidecars. Its docstring said "the day the re-key lands, THIS test
+        fails and tells its author to delete it — rather than the tree quietly gaining a
+        capability nobody recorded". The re-key is REGIONS-EMIT-BINDINGS and it has landed.
 
-        It is still written as a test so that the day the re-key lands, THIS test fails and
-        tells its author to delete it — rather than the tree quietly gaining a capability
-        nobody recorded. The assertion is on the message, because a bake that failed for
-        some other reason would prove nothing about this one."""
+        DELETING IT OUTRIGHT WOULD HAVE THROWN AWAY THE MEASUREMENT THAT MADE IT WORTH
+        WRITING. The refusal was never about reels; it was the last thing standing between a
+        migrated act and a GREEN BUILD OF A SILENTLY DE-BOUND ROM — measured in this same
+        sandbox at `docs/superpowers/notes/2026-09-16-regions-emit.md` §1.2: drop the rule
+        alone and the bake succeeds with FOUR scene bindings and FOURTEEN chooser arms gone to
+        zero. So the successor asserts the thing the refusal was protecting: a migrated act
+        bakes AND keeps every binding its document names. A tree that relaxed the rule without
+        doing the re-key passes the old test's deletion and fails this one.
+        """
         self.write_doc(golden_doc())
-        with self.assertRaises(effects_gen.SceneShapeError) as cm:
-            effects_gen.generate(repo=self.repo)
-        msg = str(cm.exception)
-        self.assertIn("reels", msg)
-        self.assertIn("ojz_act1_depth", msg)
-        self.assertIn("sceneRef", msg)
+        _path, text = effects_gen.generate(repo=self.repo)
+        doc = golden_doc()
+
+        # (1) EVERY `sceneRef` IN THE DOCUMENT REACHES A LOWERED BINDING RECORD. Derived from
+        # the document, never typed: the count that made the old measurement frightening was
+        # four, and four is what this reads out of the golden rather than what it asserts.
+        names = effects_gen.act_names(repo=self.repo)
+        want = [r["id"] for r in doc["regions"]
+                if r.get(effects_gen.ACT_SCENE_REF_KEY) is not None]
+        self.assertTrue(want, "the golden binds no scene at all, so this test would pass "
+                              "against a generator that emits nothing")
+        for rid in want:
+            self.assertIn(f"pub data {names.binding_region(rid)}: ", text,
+                          f"region {rid!r} names a {effects_gen.ACT_SCENE_REF_KEY} and the "
+                          f"generated module lowers no binding record for it")
+
+        # (2) THE REELS TABLE IS STILL KEYED ON ONE OF THEM. `ojz_act1_depth` carries the
+        # `reels` key and it is the region `sec4` that binds it; the association table pairs
+        # that binding's ADDRESS with the reel rates, so the rung-1 rule is satisfied by a
+        # REGION now instead of by a sidecar. This is the exact sentence the old refusal said
+        # could not be true.
+        self.assertIn(f'extern("{names.binding_region("sec4")}")', text)
+
+        # (3) THE CHOOSER ARMS SURVIVED. Fourteen was the shipped count when the loss was
+        # measured; asserting a number would pin content, so this asserts the PROPERTY the
+        # number stood for — every preset-channel chooser that has a document behind it has
+        # an arm, and none of them degenerated to `comptime var out = hand; return out`.
+        for rid in [r["id"] for r in doc["regions"]
+                    if r.get(effects_gen.ACT_RASTER_REF_KEY) is not None]:
+            rec = next(r["preset"] for r in doc["regions"] if r["id"] == rid)
+            self.assertIn(f"// {rec}", text,
+                          f"region {rid!r} binds a raster document to {rec} and no chooser "
+                          f"arm in the generated module names that record")
 
     def test_the_guard_is_inert_without_a_document(self):
         """No `regions.json` means the sidecars are read exactly as today."""
@@ -642,31 +781,31 @@ class TestBackgroundBinding(RegionSandbox):
 class TestRegionTableEmitter(RegionSandbox):
     """`render_region_table` + `generate_region_table` — the rows as `.emp` text.
 
-    ⚠ WHAT NO TEST BELOW PROVES, said first because a green run hides it completely:
-    NOTHING HAS ASSEMBLED THIS TEXT. No act in this tree is in region mode, so the
-    emitter is inert in every build and its output has never been through sigil. These
-    tests prove the text is what the document says, that the call it writes matches the
-    constructor `act_descriptor.emp` actually declares, and that a binding it cannot
-    lower is refused rather than dropped. The assembler's verdict is owed by the parcel
-    that flips the first act (REGIONS-EMIT-BINDINGS).
+    ⚠ THE SENTENCE THAT STOOD HERE IS NOW FALSE, AND THAT IS THE HEADLINE (2026-09-16).
+    It read: *"NOTHING HAS ASSEMBLED THIS TEXT. No act in this tree is in region mode, so the
+    emitter is inert in every build and its output has never been through sigil."* Act 1 is in
+    region mode; `games/sonic4/data/generated/ojz/act1/regions.emp` is a build input, and both
+    shapes assemble it. The first assembly found a real fault these tests could not have seen
+    — a struct literal takes no declaration defaults, so the five-field rows sigil was handed
+    produced 150 errors (see `test_every_declared_region_field_is_written_by_every_row`).
+
+    WHAT A GREEN HERE STILL DOES NOT MEAN: these tests read TEXT. That the text assembles is
+    the build's verdict, and that the ROM's rows are the golden's rows is
+    `TestShippedTableMatchesGolden`'s, which reads bytes out of the image.
     """
 
-    def bare_doc(self):
-        """The golden with every editor binding removed — the shape the emitter accepts.
-
-        Not a second fixture: it is the golden, so the geometry under test is still act
-        1's real geometry including the straddling night region. Stripping is what makes
-        it emittable, and `test_the_golden_itself_is_refused_for_its_bindings` pins that
-        the strip is load-bearing rather than cosmetic.
-        """
-        doc = copy.deepcopy(golden_doc())
-        for r in doc["regions"]:
-            r.pop("sceneRef", None)
-            r.pop("rasterRef", None)
-        return doc
-
     def emit(self, doc=None):
-        self.write_doc(self.bare_doc() if doc is None else doc)
+        """The golden document, whole, lowered.
+
+        ⚠ IT USED TO BE `self.bare_doc()` — the golden with every `sceneRef` and `rasterRef`
+        STRIPPED — because the emitter refused a binding it could not lower. That refusal is
+        spent (REGIONS-EMIT-BINDINGS), and the stripping went with it: a fixture that removed
+        six of the document's ten interesting facts before testing it would now be hiding the
+        half this parcel added. The committed `.emp.txt` golden is therefore the WHOLE
+        document's output, bindings included, which is also what makes it comparable by eye
+        with the real generated artifact.
+        """
+        self.write_doc(golden_doc() if doc is None else doc)
         return effects_gen.generate_region_table(repo=self.repo)
 
     def test_the_emitted_rows_are_the_golden_rows(self):
@@ -677,16 +816,24 @@ class TestRegionTableEmitter(RegionSandbox):
         change and should not read as one.
         """
         _path, text = self.emit()
+        names = effects_gen.act_names(repo=self.repo)
         calls = re.findall(
             r"Region\{ rg_x0:\s*(\d+), rg_x1:\s*(\d+), rg_y0:\s*(\d+), "
-            r"rg_y1:\s*(\d+), rg_effects: (\w+),\s*rg_parallax: 0, "
+            r"rg_y1:\s*(\d+), rg_effects: (\w+),\s*rg_parallax: (\w+),\s*"
             r"rg_bg_layout: 0, rg_bg_span: 0 \},", text)
         self.assertEqual(len(calls), len(golden_rows()))
         for call, want in zip(calls, golden_rows()):
-            x0, x1, y0, y1, preset = call
-            self.assertEqual((int(x0), int(x1), int(y0), int(y1), preset),
+            x0, x1, y0, y1, preset, par = call
+            # THE PARALLAX COLUMN IS PART OF THE ROW NOW (REGIONS-EMIT-BINDINGS), so it is
+            # compared with the rest rather than pattern-matched as a constant `0`. The
+            # expectation is DERIVED from the golden's own `sceneRef` — typing the symbol
+            # beside the row would pass against a generator that emitted the same wrong
+            # binding for every row.
+            want_par = (names.binding_region(want["id"])
+                        if want.get("sceneRef") is not None else "0")
+            self.assertEqual((int(x0), int(x1), int(y0), int(y1), preset, par),
                              (want["x0"], want["x1"], want["y0"], want["y1"],
-                              want["preset"]),
+                              want["preset"], want_par),
                              f"emitted row {want['index']} ({want['id']}) disagrees with "
                              f"the shared golden")
 
@@ -729,21 +876,40 @@ class TestRegionTableEmitter(RegionSandbox):
         self.assertIn("release_shape_only",
                       json.load(open(GOLDEN_ROWS))["_provenance"])
 
-    def test_the_golden_itself_is_refused_for_its_bindings(self):
-        """`sceneRef`/`rasterRef` are REFUSED, never emitted as `parallax: 0`.
+    def test_the_golden_LOWERS_its_bindings_instead_of_being_refused(self):
+        """⚠ WAS `test_the_golden_itself_is_refused_for_its_bindings`, AND THE REFUSAL IT
+        PINNED IS SPENT (2026-09-16), NOT RELAXED.
 
-        This is the parcel's stop condition made executable. Six of act 1's ten regions
-        carry a binding, and lowering one needs the binding half of `render_module`
-        re-keyed from section index to region row — measured as an L and booked. A
-        zero here would be the row silently losing its picture.
+        It read: *"`sceneRef`/`rasterRef` are REFUSED, never emitted as `parallax: 0`. This is
+        the parcel's stop condition made executable."* That was right: `render_module`'s
+        binding half was keyed on the section index end to end, so a region-mode act lowered
+        every binding to NOTHING and a zero here would have been the row silently losing its
+        picture. REGIONS-EMIT-BINDINGS re-keyed it, so the six bindings the golden carries now
+        have somewhere to land.
+
+        THE SUCCESSOR IS THE SAME ASSERTION WITH THE SIGN FLIPPED, and it is written to fail
+        against the one outcome the old refusal existed to prevent: a `sceneRef` that lowers
+        to `rg_parallax: 0`. A test that only checked "no exception" would pass against
+        exactly that.
         """
         self.write_doc(golden_doc())
-        with self.assertRaises(effects_gen.SceneShapeError) as cm:
-            effects_gen.generate_region_table(repo=self.repo)
-        msg = str(cm.exception)
-        for frag in ("sceneRef", "rasterRef", "REGIONS-EMIT-BINDINGS",
-                     "'sec0'", "'sec5'"):
-            self.assertIn(frag, msg, f"refusal did not name {frag!r}:\n{msg}")
+        _path, text = effects_gen.generate_region_table(repo=self.repo)
+        names = effects_gen.act_names(repo=self.repo)
+        rows = golden_rows()
+        bound = [r for r in rows if r.get("sceneRef") is not None]
+        self.assertTrue(bound, "the golden binds no scene, so this test has no subject")
+        for want in rows:
+            line = next(ln for ln in text.splitlines()
+                        if ln.lstrip().startswith("Region{")
+                        and ln.rstrip().endswith(f"— {want['id']}"))
+            expect = (names.binding_region(want["id"]) if want.get("sceneRef") is not None
+                      else "0")
+            self.assertIn(f"rg_parallax: {expect}", line,
+                          f"row {want['index']} ({want['id']}) should carry "
+                          f"rg_parallax: {expect}\n{line}")
+        # And the RASTER half, which reaches the ROM through the record's channels rather
+        # than through this table — so the table must NOT have grown a column for it.
+        self.assertNotIn("rg_raster", text)
 
     def test_legacy_mode_emits_nothing_and_that_is_not_an_error(self):
         """`None`, never an empty file. The whole mode decision, and today's answer for
@@ -758,7 +924,7 @@ class TestRegionTableEmitter(RegionSandbox):
         self.assertIsNone(effects_gen.generate_region_table(repo=self.repo))
         # ...and the same call with a document present is NOT None, so the assertion above
         # is not passing because the emitter is broken in some other way.
-        self.write_doc(self.bare_doc())
+        self.write_doc(golden_doc())
         self.assertIsNotNone(effects_gen.generate_region_table(repo=self.repo))
 
     def test_the_emitted_module_declares_itself(self):
@@ -816,7 +982,7 @@ class TestRegionTableEmitter(RegionSandbox):
         self.assertIn("rg_x0:", src)
         with open(sp, "w") as f:
             f.write(src.replace("rg_x0:", "rg_left:"))
-        self.write_doc(self.bare_doc())
+        self.write_doc(golden_doc())
         with self.assertRaises(effects_gen.SceneShapeError) as cm:
             effects_gen.generate_region_table(repo=self.repo)
         msg = str(cm.exception)
@@ -881,7 +1047,7 @@ class TestRegionTableEmitter(RegionSandbox):
             f.write(src.replace("    rg_bg_span:          u16 = 0,",
                                 "    rg_bg_span:          u16 = 0,\n"
                                 "    rg_probe_field:      u16 = 0,"))
-        self.write_doc(self.bare_doc())
+        self.write_doc(golden_doc())
         with self.assertRaises(effects_gen.SceneShapeError) as cm:
             effects_gen.generate_region_table(repo=self.repo)
         msg = str(cm.exception)
@@ -897,8 +1063,22 @@ class TestRegionTableEmitter(RegionSandbox):
         """
         _path, text = self.emit()
         self.assertIn("ojz_region()", text)
-        self.assertIn("REGIONS-EMIT-BINDINGS", text)
-        self.assertIn("NOTHING HAS ASSEMBLED THIS FILE", text)
+        # ⚠ WAS `assertIn("REGIONS-EMIT-BINDINGS")`, THE BOOKING THAT OWED THE WALK. The
+        # walk has landed (`ojz_region_table_check` in act_descriptor.emp), so pointing a
+        # reader at a closed booking would send them to a section that says the work is done
+        # without saying where it went. The header now names the walk itself, and this asserts
+        # the CONSUMER'S obligation is still stated — the debt is per consumer, so a second
+        # act's descriptor owes its own and the sentence must survive act 1 paying it.
+        self.assertIn("TABLE WALK", text)
+        self.assertIn("ojz_region_table_check", text)
+        # ⚠ WAS `assertIn("NOTHING HAS ASSEMBLED THIS FILE")`, AND THAT SENTENCE IS NOW A
+        # LIE THE HEADER MUST NOT TELL. Act 1 is in region mode and this module is a build
+        # input in both shapes. Asserting the old caveat would have kept a warning alive that
+        # sends its reader looking for a gap that has closed — and the assertion would have
+        # been the thing keeping it there. What the header must still say is WHY the rows are
+        # literals, because that is the fact the consumer's obligation follows from.
+        self.assertIn("struct LITERAL takes no", text)
+        self.assertIn("BUILD INPUT", text)
 
 
 # ---------------------------------------------------------------------------
