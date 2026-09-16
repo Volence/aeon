@@ -34401,3 +34401,54 @@ mid-fade snap install (E8) and a mid-fade fade install (E9), and runs in `tools/
   pop back and the fade resume from there. `Palette_SetOp` has no caller today.
 - **A cycle and a fade in one region.** The fade pulls rotated entries back toward the un-rotated target until
   arrival (the backstop close covers a buffer that never arrives). No fading preset binds a cycle today.
+
+## FOUR DOC/COMMENT FIGURES THAT DISAGREE WITH SOURCE — booked 2026-09-15, three CONFIRMED here, one settled beyond its booking
+
+Handed over by the hub from the part 2 and big-levels reads (none blocks step 0), plus what E3
+and this lane verified firsthand. **Each row says what was checked and what was NOT**, because
+three of the four were booked from reading two lines against each other.
+
+1. **WINDOW PLANE, THE 128-TILE DISAGREEMENT — NOT VERIFIED HERE, belongs to step 8.** The VRAM
+   card's "about 384 tiles" assumes BOTH freed plane runs; the replan design's Option C text says
+   the window "keeps its `$F000` base"
+   (`docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md:415-420`). Those disagree by
+   128 tiles. Under a 32-row Plane B, `$F000-$FFFF` stops being an overlay, so the second 128 comes
+   only if the window rebases into `$D000` or keeps overlaying Plane B. **Settle from `vram.toml`
+   plus the window plane's register fold. It decides what step 8 can promise objects**, so it is
+   answered before step 8 quotes a number to the owner, not after.
+
+2. **`constants.emp:470` UNDERCOUNTS THE PINNED PAGES — CONFIRMED FIRSTHAND 2026-09-15.** The
+   comment reads "4 pinned pages 0/1/8/9"; `games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.json`
+   pins **FIVE**, indices **0/1/7/8/9** (read out of the manifest: 10 pages, `pinned` true on those
+   five). That changes the STRESS_EVICT fixture's dynamic frame count from 5 to 4 and may be part of
+   why clamp 9 reads marginal. Big levels books the fix as step A2 with a DEBUG `ensure` beside it.
+
+3. **`ART_PIPELINE_CONTRACT.md`'s CAPACITY IS STALE AT FOUR LINES, ITS RESERVE IS STALE, AND ITS
+   THIRD FIGURE SURVIVED BY ACCIDENT — settled 2026-09-15, beyond what the hub booked.** The hub
+   booked line 233's `BG_TILE_CAPACITY = 400` from two lines read against each other, and
+   explicitly refused to call the 80-tile `band_reserve` stale without checking. Checked now:
+   - **capacity:** 400 is wrong at **lines 225, 233, 432 and 1544** — four sites, not one. Source of
+     truth is `engine/system/constants.emp:648`, `pub const BG_TILE_CAPACITY = 376`.
+   - **reserve: THE NAME IS ALIVE AND THE VALUE IS STALE.** `band_reserve` still exists under exactly
+     that name at `games/sonic4/vram.toml:228`, and `BG_BAND_RESERVE` at `tools/vram_map.py:36`,
+     both at **56**, not 80. So "is the reserve still a thing" and "is 80 right" have opposite
+     answers, which is why the hub was right not to collapse them.
+   - **`BG_STATIC_TILE_BUDGET = 320` on that same line is STILL CORRECT**, because capacity and
+     reserve each shrank by 24 (`vram.toml:224-231` states the intent: the 48 came out of the
+     RESERVE, not out of the shipped background). **Two stale figures and one accidentally-surviving
+     one in a single sentence** — do not "fix" the 320.
+   - Not fixed here; this is a booking, and the contract doc's other figures were NOT audited.
+
+4. **152 vs 142 OBJECT TILES — NOT RECONCILED.** The VRAM card and the object-art research disagree;
+   only the generated VRAM map's "1 free tile" line was re-read. Whichever is right, the two
+   documents cannot both stay.
+
+### AND A CAUTION ABOUT THE FOREST'S 320, which is the shape all four rows share
+
+E3 re-derived the forest at **320**, agreeing with the carried figure at
+`docs/superpowers/designs/2026-09-03-vram-replan-item0-design.md:359`. **They agree about DIFFERENT
+OBJECTS.** The shipped `editor_bg_override.json` blob and a fresh import of `ojz_forest_flowers.png`
+both total 320 **yet share only 199 tiles**, because `tools/forest_bg_gen.py` later rewrote `layout`
+and `tiles`. Three separate 320s — shipped blob, fresh import, static budget — coincide. **An
+agreeing number is not thereby one established fact**, and this is the same defect the four rows
+above are made of: a figure quoted onward until nobody knows which object it measured.
