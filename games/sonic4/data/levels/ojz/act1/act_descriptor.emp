@@ -452,9 +452,26 @@ const CENTRE_Y_MAX = ACT_H - SCREEN_HEIGHT + CAM_SCREEN_HALF_H
 // also 16) is file-local there and cannot be read from here.
 const REGION_MIN_SPAN = 2 * CAM_MAX_Y_STEP
 
+// THE BACKGROUND PLACEMENT ARGUMENTS (regions part 2 step 1, spec §4.1). `bg_layout` names
+// this region's nametable blob and `bg_span` is that map's HEIGHT in px; both default to 0,
+// which means "the act's own" — Act.act_bg_layout and PLANE_B_SPAN respectively. Every row
+// in this act takes both defaults today and NOTHING IN THE ENGINE READS EITHER FIELD YET,
+// so these three ensures are the whole of step 1's behaviour: they are what makes an
+// illegal span a build error on the day a reader appears, rather than a wrong picture.
+//
+// WHY THE ZERO SENTINEL IS EXEMPT FROM THE HEIGHT FLOOR, and this is a correction to the
+// spec's own wording. §4.1 lists the three rules as "a multiple of 8, at least
+// SCREEN_HEIGHT, and, when rg_bg_layout is 0, equal to 0". Read as three unconditional
+// conjuncts those are UNSATISFIABLE for a defaulted row — 0 is not >= SCREEN_HEIGHT — and
+// the same spec row requires act 1's ten defaulted rows to compile unchanged. So the floor
+// is written against a SPAN THAT IS PRESENT (`bg_span == 0 || ...`); 0 is the sentinel, not
+// a height. The multiple-of-8 rule needs no such exemption because 0 already satisfies it.
+const BG_SPAN_ROW_PX = 8            // one nametable row: the streamer's quantum (8 px cells)
+
 // ojz_region() — one Region row, with every per-row invariant checked HERE, at the call
 // site (a comptime fn's ensures evaluate where it is called, which is what makes them live).
-comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, parallax: Label = 0) -> Region {
+comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, parallax: Label = 0,
+                       bg_layout: Label = 0, bg_span: int = 0) -> Region {
     // A label beside 0 is the one cross-kind comparison sigil keeps DEFINED (EMP_PITFALLS
     // §12): a real label is never 0, so this is false exactly for a written zero.
     ensure(effects != 0,
@@ -475,8 +492,26 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, paral
            "ojz_region(y0: {y0}): an interior TOP edge outside the camera centre's reachable band [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}] can never be crossed")
     ensure(y1 == ACT_H - 1 || (y1 >= CENTRE_Y_MIN && y1 + 1 <= CENTRE_Y_MAX),
            "ojz_region(y1: {y1}): an interior BOTTOM edge outside the camera centre's reachable band [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}] can never be crossed")
+    // -- the background placement, regions part 2 step 1 (spec §4.1) --
+    // (1) A SPAN IS A WHOLE NUMBER OF NAMETABLE ROWS. The row streamer's quantum is one
+    //     8 px cell row, so a span off that grid would leave a final partial row that no
+    //     row entry can address. 0 (the sentinel) already satisfies this.
+    ensure(bg_span % BG_SPAN_ROW_PX == 0,
+           "ojz_region(x0: {x0}, y0: {y0}): bg_span {bg_span} is not a multiple of {BG_SPAN_ROW_PX} px. The background scrolls and streams in whole nametable rows, so a span off that grid ends in a partial row nothing can draw")
+    // (2) A SPAN MUST COVER THE SCREEN. The clamp the span becomes is
+    //     `0 .. bg_span - SCREEN_HEIGHT`; a span below SCREEN_HEIGHT makes that range
+    //     empty and the bottom of the screen would show whatever follows the map.
+    ensure(bg_span == 0 || bg_span >= SCREEN_HEIGHT,
+           "ojz_region(x0: {x0}, y0: {y0}): bg_span {bg_span} is shorter than the {SCREEN_HEIGHT} px screen, so the scroll clamp `0 .. bg_span - {SCREEN_HEIGHT}` is empty and the map cannot fill the display. Write 0 to mean the act default (PLANE_B_SPAN), never a height below the screen")
+    // (3) NO SPAN WITHOUT A LAYOUT. A row that defers the picture to the act cannot also
+    //     claim a height: the act default's height is the ACT's fact, not the row's, and a
+    //     span written beside layout 0 would be silently ignored by every future reader.
+    //     `bg_layout != 0` is the label-beside-0 form EMP_PITFALLS §12 keeps DEFINED, and
+    //     it is the same spelling the `effects != 0` guard above uses.
+    ensure(bg_layout != 0 || bg_span == 0,
+           "ojz_region(x0: {x0}, y0: {y0}): bg_span {bg_span} is written on a row whose bg_layout is 0. A row with no layout of its own shows the act's background, whose height is the act's fact — name a layout too, or leave bg_span 0")
     return Region{ rg_x0: x0, rg_x1: x1, rg_y0: y0, rg_y1: y1, rg_effects: effects,
-                   rg_parallax: parallax }
+                   rg_parallax: parallax, rg_bg_layout: bg_layout, rg_bg_span: bg_span }
 }
 
 // The first overlapping pair as `i * 1000 + j` (i < j), or -1 when no two rows share a
