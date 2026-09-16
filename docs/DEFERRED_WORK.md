@@ -35548,14 +35548,19 @@ own extra `Parallax_Update` buys back one step.
 
 **A consequence for whoever closes this at step 6:** an exemption keyed to "the plane is being
 rebuilt" will have to decide whether it exempts BOTH of the warp tick's invocations or only the
-consumer's. They are not the same frame of picture.
+consumer's. They are not the same frame of picture. (**Still live, and still unanswered:** step 6 did
+not produce a "the plane is being rebuilt" flag at all — see the ⚠ block below — so whoever does
+build one still owes this question an answer.)
 
 **Why no exemption was built, which is the part worth carrying.** The obvious signal is
 `Parallax_Snap_Pending`, and it is **not available at this site** — see PARALLAX-STEP5-SNAP-DEAD
 below. Inventing a private "this frame is a prime" flag would have been a second authority for a
-question step 6 (the wipe) will have a real answer to, and this repo's standing lesson is that a
+question step 6 (the wipe) was expected to answer, and this repo's standing lesson is that a
 second private answer to one question is how the 2026-08-26 precedence bug shipped. So the ratchet
-is left visible and named rather than papered over.
+is left visible and named rather than papered over. (**That expectation turned out to be wrong and
+the refusal turned out to be right anyway** — see the ⚠ block below, written when step 6 landed.
+The sentence originally read "will have a real answer to"; it is corrected here rather than only
+contradicted three paragraphs down.)
 
 **WHEN IT BITES:** step 6, when the wipe gives the engine a real "the plane is being rebuilt" state.
 At that point the exemption is one test against a flag that already means what it needs to mean.
