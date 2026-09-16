@@ -141,60 +141,21 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         move.w  #$2700, sr
 
         // --- load BG tile blob into shared region at BG_TILE_BASE_VRAM ---
+        // THE TILE TRACKER SEED (region bg switch, 2026-09-16). What the arena will hold is
+        // the act default, and no overwrite is in flight. Seeded BEFORE the copy for the same
+        // reason BG_Plane_Layout is seeded before its blit (a1 is consumed by the copy), and
+        // unconditionally, so a null act blob records "holds nothing" rather than whatever the
+        // previous act left. The band hold is clear: the arena holds the act's own tiles, the
+        // ones its BgAnim bands animate.
         movea.l Act.act_bg_tiles(a3), a1
+        move.l  a1, BG_Tiles_Current            // (BG_Tiles_Current).w
+        clr.l   BG_Tiles_Target                 // (BG_Tiles_Target).w
+        clr.w   BG_Tiles_Offset                 // (BG_Tiles_Offset).w
+        clr.b   BG_Bands_Hold                   // (BG_Bands_Hold).w
         cmpa.w  #0, a1
         beq     .skip_tiles
-        move.w  (a1)+, d1               // d1.w = tile-bytes length (uncompressed)
-        beq     .skip_tiles
-        // Capacity guard (last line of defense): clamp the copy length to what the
-        // BG arena is DECLARED to own — BG_TILE_CAPACITY tiles, not the physical
-        // $8000..$B7FF run. Above the arena sit `waterline_strips` (48 tiles, item
-        // 9d) and then the SAT at $B800, and a blob longer than the declared
-        // capacity would overwrite the first before it ever reached the second.
-        // The build tools should keep BG art within budget (inject_editor_bg.py
-        // gates the final blob on the same constant); this is what guarantees no
-        // corruption of either neighbour if a generator gate drifts.
-        cmpi.w  #BG_TILE_CAPACITY_BYTES, d1
-        bls     .bg_len_ok
-        move.w  #BG_TILE_CAPACITY_BYTES, d1
-    .bg_len_ok:
-        // Tier-1 blit: copy the tile body a LONGWORD at a time (autoinc 2 keeps
-        // it linear in VRAM). The count is quartered, so the length guard must be
-        // RE-DERIVED — the parcel-6 word-count guard (lsr #1) does not survive the
-        // move.l translation, it just underflows on a different set of lengths.
-        //
-        // The clamp above bounds the copy from ABOVE. It does NOT bound it from
-        // below: a drifted length of 1..3 bytes passes the `beq` (nonzero) and the
-        // `bls` (in range), then lsr.w #2 -> 0 and subq -> $FFFF, and dbf would run
-        // 65,536 LONGWORDS = 256KB straight through the SAT and every other VRAM
-        // structure. Close it by taking the LONGWORD count FIRST and skipping on
-        // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
-        // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
-        // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
-        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
-        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
-        // 2026-08-05 — the old comment here credited only the injector, which
-        // runs solely when an editor override exists) and inject_editor_bg.py
-        // — so the drop never fires in practice; it is the last line of defense.
-        //
-        // Both counter ops sit ABOVE the z80_stopped bracket on purpose:
-        // .skip_tiles is past the bracket's release, so a guard branch taken from
-        // inside it would leave the Z80 halted for the rest of the level — the
-        // bracket refuses that shape outright (`[context.escape]`). Neither the
-        // bus request nor the VDP setup touches d1, so the hoist is free. (No
-        // assert on the drop: the debug expansion would push
-        // .skip_tiles past short-branch reach and force shape-dependent width
-        // pins — ledgered instead; the emitter always emits 32-byte multiples.)
-        lsr.w   #2, d1                  // longword count = bytes/4
-        beq     .skip_tiles             // 1..3-byte (sub-long) blob -> nothing to copy
-        subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
         with z80_stopped {
-            move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
-            move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
-            lea     VDP_DATA, a2            // (VDP_DATA).l
-        .tile_copy:
-            move.l  (a1)+, (a2)
-            dbf     d1, .tile_copy
+            jbsr    BG_UploadTiles              // blocking copy, guards inside; a1 consumed
         }
     .skip_tiles:
 
@@ -285,6 +246,83 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         movem.l (sp)+, a3
         rts
 }
+
+// BG_UploadTiles sits AFTER BG_Init on purpose: BG_Init is the `bg` section's head label,
+// and sigil's packing walk keys the section's declared alignment on that label
+// (`sigil_harness::section_align::DECLARED`). A new proc first in the file would rename the
+// head and fail the build with [layout.undeclared-alignment] (measured 2026-09-16).
+// -----------------------------------------------
+// BG_UploadTiles — blocking copy of one BG tile blob into the BG arena at BG_TILE_BASE_VRAM.
+//
+// In:  a1 = tile blob (BE u16 byte length + raw 4bpp tiles), nonzero
+// Out: none
+// Clobbers: d1, a1-a2
+//
+// THE CALLER OWNS THE POSTURE: interrupts masked (a VBlank mid-copy repoints the VDP address
+// and the rest of the blob sprays elsewhere) and the Z80 kept off the bus (BG_Init holds it
+// with `z80_stopped`; Section_RedrawPlanes' storm uses the SND_CTRL_DMA_ACTIVE flag bracket
+// under sound, or holds the bus without it). It does not record what it copied: the caller
+// writes BG_Tiles_Current, next to the decision that chose the blob.
+//
+// Factored out of BG_Init on 2026-09-16 (region bg switch, task 2) so the synchronous region
+// path copies through the SAME guards rather than a second copy of them. The guard commentary
+// below moved with the code.
+// -----------------------------------------------
+pub proc BG_UploadTiles (a1: *u8) clobbers(d1/a1-a2) {
+        if DEBUG == 1 {
+            move.w  sr, d1
+            andi.w  #$0700, d1
+            assert.w d1, hs, #$0600     // IPL >= 6: no VBlank can land mid-copy
+        }
+        move.w  (a1)+, d1               // d1.w = tile-bytes length (uncompressed)
+        beq     .done
+        // Capacity guard (last line of defense): clamp the copy length to what the
+        // BG arena is DECLARED to own — BG_TILE_CAPACITY tiles, not the physical
+        // $8000..$B7FF run. Above the arena sit `waterline_strips` (48 tiles, item
+        // 9d) and then the SAT at $B800, and a blob longer than the declared
+        // capacity would overwrite the first before it ever reached the second.
+        // The build tools should keep BG art within budget (inject_editor_bg.py
+        // gates the final blob on the same constant); this is what guarantees no
+        // corruption of either neighbour if a generator gate drifts.
+        cmpi.w  #BG_TILE_CAPACITY_BYTES, d1
+        bls     .bg_len_ok
+        move.w  #BG_TILE_CAPACITY_BYTES, d1
+    .bg_len_ok:
+        // Tier-1 blit: copy the tile body a LONGWORD at a time (autoinc 2 keeps
+        // it linear in VRAM). The count is quartered, so the length guard must be
+        // RE-DERIVED — the parcel-6 word-count guard (lsr #1) does not survive the
+        // move.l translation, it just underflows on a different set of lengths.
+        //
+        // The clamp above bounds the copy from ABOVE. It does NOT bound it from
+        // below: a drifted length of 1..3 bytes passes the `beq` (nonzero) and the
+        // `bls` (in range), then lsr.w #2 -> 0 and subq -> $FFFF, and dbf would run
+        // 65,536 LONGWORDS = 256KB straight through the SAT and every other VRAM
+        // structure. Close it by taking the LONGWORD count FIRST and skipping on
+        // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
+        // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
+        // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
+        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
+        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
+        // 2026-08-05) and inject_editor_bg.py, and tools/gen_region_bg_showcase.py
+        // refuses a non-32-byte-granular body — so the drop never fires in practice;
+        // it is the last line of defense.
+        //
+        // (The note that used to sit here about hoisting the counter ops above the
+        // `z80_stopped` bracket is moot inside this proc: the bracket is the caller's,
+        // so an early `rts` cannot leave the Z80 halted.)
+        lsr.w   #2, d1                  // longword count = bytes/4
+        beq     .done                   // 1..3-byte (sub-long) blob -> nothing to copy
+        subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
+        move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
+        move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
+        lea     VDP_DATA, a2            // (VDP_DATA).l
+    .tile_copy:
+        move.l  (a1)+, (a2)
+        dbf     d1, .tile_copy
+    .done:
+        rts
+}
+
 
 // ===========================================================================
 // THE STEADY-STATE ROW STREAMER (regions part 2, step 5; spec §4.2, "Steady-state

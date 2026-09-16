@@ -1038,6 +1038,25 @@ def validate_band_coherence(anims, tiles):
         cursor += n
 
 
+def rebase_layout(layout):
+    """Editor-local 64x64 layout words -> the engine's Plane B blob (ROW-MAJOR, 8192 B).
+
+    Each nonzero word's 11-bit tile index is rebased by BG_TILE_BASE_SLOT, keeping its
+    palette/priority/flip bits; word 0 stays 0 (FG tile 0, transparent). Factored out of
+    main() on 2026-09-16 so tools/gen_region_bg_showcase.py lowers a library entry with the
+    SAME rule, not a copy of it (region bg switch, task 2); main()'s output is unchanged.
+    """
+    COLS, ROWS = 64, 64
+    assert len(layout) == COLS * ROWS, f'layout must be {COLS}x{ROWS} words, got {len(layout)}'
+    nt = bytearray(COLS * ROWS * 2)
+    for i, word in enumerate(layout):
+        if word != 0:
+            idx = word & 0x7FF
+            word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
+        struct.pack_into('>H', nt, i * 2, word)
+    return bytes(nt)
+
+
 def main(act=None):
     """Bake one act's editor background. `act` is a `BgActNames`.
 
@@ -1339,13 +1358,7 @@ def main(act=None):
     # blit is a straight linear copy and a row entry is a contiguous 64-word run.
     # ojz_strip_gen.emit_zone_bg_layout already emitted row-major (its output was
     # always overwritten here); the two producers now agree instead of disagreeing.
-    COLS, ROWS = 64, 64
-    nt = bytearray(COLS * ROWS * 2)
-    for i, word in enumerate(layout):
-        if word != 0:
-            idx = word & 0x7FF
-            word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
-        struct.pack_into('>H', nt, i * 2, word)
+    nt = rebase_layout(layout)
     with open(os.path.join(out_dir, 'zone_bg.bin'), 'wb') as f:
         f.write(nt)
 

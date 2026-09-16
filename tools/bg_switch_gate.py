@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""GATE BG-SWITCH — a region whose background names its OWN TILES must show those tiles, and the
+Plane B layout that indexes them must never reach the screen before they have landed.
+
+Region bg switch (plan docs/superpowers/plans/2026-09-16-region-bg-switch.md). The owner's
+ruling: a switch is a FULL OVERWRITE of the BG tile arena, then a repaint, and the repaint must
+not start until the overwrite completes, enforced by the sequence and not by timing. S3K's
+Icecap Zone is the failure shape this gate exists to refuse: a layout switch gated on the
+layout being ready rather than on the tiles it references being resident.
+
+THE SUBJECT, DERIVED: the one region row in the ROM's own table whose `rg_bg_tiles` is
+nonzero (the DEBUG showcase row, games/sonic4/data/levels/ojz/act1/act_descriptor.emp). Its
+tile blob and layout blob are READ OUT OF THE ROM at the row's pointers, the act default's out
+of `Act.act_bg_tiles` / `Act.act_bg_layout`, and every VRAM comparison is against those bytes.
+Constants are parsed out of the engine sources. Nothing is typed from a table.
+
+LEGS (each names what it asserts):
+
+  BOOT   boot_inside_a_region_with_its_own_tiles_shows_those_tiles
+         Boot with the camera centre in the subject row. At the first Update: the BG tile
+         arena holds the subject's tile blob, BG_Tiles_Current names it, and Plane B holds
+         the subject's layout.
+  WARP   warp_into_a_region_with_its_own_tiles_uploads_them_before_the_first_update
+         Boot in an act-default neighbour, warp into the subject row, and at the first Update
+         after the ack assert the same three; then warp back OUT and assert the act default's
+         tiles and layout are back.
+
+WHAT A GREEN HERE DOES NOT SAY: nothing about a WALKED crossing (the asynchronous overwrite and
+its ordering are the later legs), and nothing about how the switch LOOKS.
+
+Exit: 0 PASS · 1 FAIL · 2 COULD NOT RUN (a premise the gate refuses to measure past).
+"""
+import argparse
+import asyncio
+import os
+import re
+import sys
+from pathlib import Path
+
+AEON = Path(os.environ.get("AEON_DIR",
+                           Path(__file__).resolve().parent.parent)).resolve()
+sys.path.insert(0, str(AEON / "tools"))
+from suite_paths import add_client_path                            # noqa: E402
+add_client_path()
+from aether import BusClient                                       # noqa: E402
+from aether_instance import (AetherInstance, SpawnError,           # noqa: E402
+                             WrongServerError, read_bytes, unprefix)
+from raster_cost_probe import parse_lst                            # noqa: E402
+import region_table                                                # noqa: E402
+
+BOOT_MAX_FRAMES = 1200
+TICK_MAX_FRAMES = 30
+ACK_MAX_TICKS = 240
+
+
+class GateError(RuntimeError):
+    """A premise this gate refuses to measure past — exit 2, never a pass."""
+
+
+class Failure(RuntimeError):
+    """A real red — exit 1."""
+
+
+# ---------------------------------------------------------------------------
+# Constants, each re-derived from the source that declares it.
+# ---------------------------------------------------------------------------
+def _const(rel, name):
+    text = (AEON / rel).read_text(errors="replace")
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*(?::\s*\w+\s*)?=\s*"
+                  rf"(\$[0-9A-Fa-f]+|\d+)\s*(?://|$)", text, re.M)
+    if not m:
+        raise GateError(f"{rel} no longer declares `const {name} = <int>`; every expectation "
+                        f"in tools/bg_switch_gate.py is derived from it")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+class Consts:
+    def __init__(self):
+        C = "engine/system/constants.emp"
+        self.PLANE_H_CELLS = _const(C, "PLANE_H_CELLS")
+        self.PLANE_V_CELLS = _const(C, "PLANE_V_CELLS")
+        self.VRAM_PLANE_B = _const(C, "VRAM_PLANE_B_BYTES") if self._has(C, "VRAM_PLANE_B_BYTES") \
+            else None
+        self.BG_TILE_BASE_VRAM = _const(C, "BG_TILE_BASE_VRAM")
+        self.BG_TILE_CAPACITY = _const(C, "BG_TILE_CAPACITY")
+        self.HALF_W = _const(C, "CAM_SCREEN_HALF_W")
+        self.HALF_H = _const(C, "CAM_SCREEN_HALF_H")
+        self.FLY = _const("games/sonic4/player/player_common.emp", "PLAYER_DEBUG_FLY_SPEED")
+        self.PLANE_BYTES = self.PLANE_H_CELLS * self.PLANE_V_CELLS * 2
+        if self.VRAM_PLANE_B is None:
+            raise GateError("engine/system/constants.emp declares no VRAM_PLANE_B_BYTES")
+
+    @staticmethod
+    def _has(rel, name):
+        return re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\b",
+                         (AEON / rel).read_text(errors="replace"), re.M) is not None
+
+
+# ---------------------------------------------------------------------------
+async def _c(b, method, params=None, timeout=180.0):
+    return await asyncio.wait_for(b.call(method, params or {}), timeout=timeout)
+
+
+async def rd(b, addr, width):
+    return int(await read_bytes(b, addr, width), 16)
+
+
+async def read_vram(b, addr, n):
+    out = bytearray()
+    for off in range(0, n, 4096):
+        k = min(4096, n - off)
+        r = await _c(b, "emulator/read_vram", {"addr": hex(addr + off), "len": k})
+        h = unprefix(r["bytes"])
+        if len(h) != k * 2:
+            raise GateError(f"short VRAM read at ${addr + off:04X}: {len(h)} hex chars, "
+                            f"wanted {k * 2}")
+        out += bytes.fromhex(h)
+    return bytes(out)
+
+
+def blob_at(rom, ptr, what):
+    if ptr == 0 or ptr + 2 > len(rom):
+        raise GateError(f"{what} pointer ${ptr:06X} is not inside the {len(rom)}-byte ROM")
+    n = int.from_bytes(rom[ptr:ptr + 2], "big")
+    if ptr + 2 + n > len(rom):
+        raise GateError(f"{what} at ${ptr:06X} declares {n} B, past the end of the ROM")
+    return rom[ptr + 2:ptr + 2 + n]
+
+
+class Rig:
+    """One logic tick at a time, sampled at the top of the game state's Update."""
+
+    def __init__(self, b, sym, K):
+        self.b, self.sym, self.K = b, sym, K
+        self.upd = sym["GameState_OJZScroll_Update"]
+
+    async def boot(self, at):
+        b, sym = self.b, self.sym
+        await _c(b, "emulator/reset", {})
+        r = await _c(b, "emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Init"]),
+                                            "maxFrames": BOOT_MAX_FRAMES})
+        if not r.get("reached"):
+            raise GateError(f"run_to GameState_OJZScroll_Init never reached it: {r}")
+        for nm, v, w in (("Boot_At_X", at[0], 2), ("Boot_At_Y", at[1], 2),
+                         ("Boot_At_Flag", 1, 1)):
+            await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
+        r = await _c(b, "emulator/run_to", {"addr": hex(self.upd), "maxFrames": BOOT_MAX_FRAMES})
+        if not r.get("reached"):
+            raise GateError(f"run_to GameState_OJZScroll_Update never reached it: {r}")
+
+    async def tick(self):
+        await _c(self.b, "emulator/step", {})
+        r = await _c(self.b, "emulator/run_to", {"addr": hex(self.upd),
+                                                 "maxFrames": TICK_MAX_FRAMES})
+        if not r.get("reached"):
+            raise GateError(f"the game state's Update did not come round within "
+                            f"{TICK_MAX_FRAMES} frames: {r}")
+
+    async def warp(self, at):
+        b, sym = self.b, self.sym
+        for nm, v, w in (("Warp_Req_X", at[0], 2), ("Warp_Req_Y", at[1], 2),
+                         ("Warp_Req_Flag", 1, 1)):
+            await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
+        for i in range(ACK_MAX_TICKS):
+            await self.tick()
+            if await rd(b, sym["Warp_Req_Flag"], 1) == 0:
+                return i + 1
+        raise GateError(f"Warp_Req_Flag never cleared in {ACK_MAX_TICKS} ticks — the warp did "
+                        f"not happen, so every sample after it would be the sample before it")
+
+    async def centre_region(self, rows):
+        K = self.K
+        cx = (await rd(self.b, self.sym["Camera_X"], 4)) >> 16
+        cy = (await rd(self.b, self.sym["Camera_Y"], 4)) >> 16
+        return region_table.region_at(rows, cx + K.HALF_W, cy + K.HALF_H), (cx, cy)
+
+
+# ---------------------------------------------------------------------------
+class Fixture:
+    def __init__(self, rom, sym, K):
+        self.rows = region_table.read_regions(rom, sym["OJZ_Act1_Descriptor"])
+        act_off, _ = region_table.struct_layout("Act")
+        d = sym["OJZ_Act1_Descriptor"]
+        u32 = lambda a: int.from_bytes(rom[a:a + 4], "big")     # noqa: E731
+        self.act_layout_ptr = u32(d + act_off["act_bg_layout"])
+        self.act_tiles_ptr = u32(d + act_off["act_bg_tiles"])
+        subj = [r for r in self.rows if r["bg_tiles"]]
+        if len(subj) != 1:
+            raise GateError(
+                f"this ROM has {len(subj)} region rows naming their own rg_bg_tiles "
+                f"({[r['index'] for r in subj]}); this gate's routes assume exactly one (the "
+                f"DEBUG showcase row). The RELEASE listing has none, and there is nothing to "
+                f"measure there.")
+        S = self.S = subj[0]
+        if not S["bg_layout"]:
+            raise GateError(f"the subject row {S['index']} names tiles but no layout, so its "
+                            f"picture is the act layout over different art — not this "
+                            f"gate's fixture")
+        self.S_tiles = blob_at(rom, S["bg_tiles"], "the subject's rg_bg_tiles")
+        self.A_tiles = blob_at(rom, self.act_tiles_ptr, "Act.act_bg_tiles")
+        self.S_layout = rom[S["bg_layout"]:S["bg_layout"] + K.PLANE_BYTES]
+        self.A_layout = rom[self.act_layout_ptr:self.act_layout_ptr + K.PLANE_BYTES]
+        if S["bg_span"] and S["bg_span"] != K.PLANE_V_CELLS * 8:
+            raise GateError("the subject row authors a span; this gate's plane comparison "
+                            "assumes a one-plane layout (window top 0)")
+        if self.S_tiles[:len(self.A_tiles)] == self.A_tiles[:len(self.S_tiles)]:
+            raise GateError("the subject's tiles and the act's agree over their common "
+                            "length, so a VRAM read cannot tell them apart")
+        if self.S_layout == self.A_layout:
+            raise GateError("the subject's layout equals the act's")
+        # Routes, derived from the row's own rectangle and its act-default neighbours.
+        self.centre = ((S["x0"] + S["x1"]) // 2, (S["y0"] + S["y1"]) // 2)
+        left = region_table.region_at(self.rows, S["x0"] - 1, self.centre[1])
+        above = region_table.region_at(self.rows, self.centre[0], S["y0"] - 1)
+        for nm, r in (("left of", left), ("above", above)):
+            if r is None or r["bg_tiles"] or r["bg_layout"]:
+                raise GateError(f"the row {nm} the subject is not an act-default row "
+                                f"({None if r is None else r['index']}), so the crossing "
+                                f"routes this gate derives have no default side")
+        self.left, self.above = left, above
+        self.left_centre = ((left["x0"] + left["x1"]) // 2, self.centre[1])
+
+
+async def assert_holds(rig, F, K, which, label, fails):
+    """The three facts a settled switch owes: arena tiles, the tile tracker, Plane B."""
+    b, sym = rig.b, rig.sym
+    tiles, layout, ptr = ((F.S_tiles, F.S_layout, F.S["bg_tiles"]) if which == "subject"
+                          else (F.A_tiles, F.A_layout, F.act_tiles_ptr))
+    arena = await read_vram(b, K.BG_TILE_BASE_VRAM, len(tiles))
+    if arena != tiles:
+        bad = sum(1 for i in range(0, len(tiles), 32) if arena[i:i + 32] != tiles[i:i + 32])
+        fails.append(f"{label}: the BG tile arena does not hold the {which}'s tile blob — "
+                     f"{bad} of {len(tiles) // 32} tiles differ")
+    cur = await rd(b, sym["BG_Tiles_Current"], 4)
+    if cur != ptr:
+        fails.append(f"{label}: BG_Tiles_Current is ${cur:06X}, not the {which}'s blob "
+                     f"${ptr:06X}")
+    plane = await read_vram(b, K.VRAM_PLANE_B, K.PLANE_BYTES)
+    if plane != layout:
+        row = K.PLANE_H_CELLS * 2
+        bad = sum(1 for p in range(K.PLANE_V_CELLS)
+                  if plane[p * row:(p + 1) * row] != layout[p * row:(p + 1) * row])
+        fails.append(f"{label}: Plane B does not hold the {which}'s layout — {bad} of "
+                     f"{K.PLANE_V_CELLS} rows differ")
+    print(f"  {label}: arena {'==' if arena == tiles else '!='} {which} tiles, "
+          f"Current ${cur:06X}, plane {'==' if plane == layout else '!='} {which} layout")
+
+
+async def leg_boot(rig, F, K, fails):
+    await rig.boot(F.centre)
+    reg, cam = await rig.centre_region(F.rows)
+    if reg is None or reg["index"] != F.S["index"]:
+        raise GateError(f"BOOT: booted at {F.centre}, camera {cam}, but the camera centre "
+                        f"resolves to row {None if reg is None else reg['index']}, not the "
+                        f"subject row {F.S['index']}")
+    await assert_holds(rig, F, K, "subject", "BOOT", fails)
+
+
+async def leg_warp(rig, F, K, fails):
+    await rig.boot(F.left_centre)
+    for _ in range(4):
+        await rig.tick()
+    await assert_holds(rig, F, K, "act", "WARP (control, before)", fails)
+    n = await rig.warp(F.centre)
+    reg, cam = await rig.centre_region(F.rows)
+    if reg is None or reg["index"] != F.S["index"]:
+        raise GateError(f"WARP: warped to {F.centre} (ack after {n} ticks), camera {cam}, "
+                        f"but the centre resolves to row {None if reg is None else reg['index']}")
+    await assert_holds(rig, F, K, "subject", "WARP in", fails)
+    await rig.warp(F.left_centre)
+    await assert_holds(rig, F, K, "act", "WARP out", fails)
+
+
+LEGS = {"boot": leg_boot, "warp": leg_warp}
+
+
+async def run(rom_path, lst_path, only):
+    rom = Path(rom_path).read_bytes()
+    K = Consts()
+    sym = parse_lst(lst_path)
+    need = ("GameState_OJZScroll_Init", "GameState_OJZScroll_Update", "Boot_At_X", "Boot_At_Y",
+            "Boot_At_Flag", "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Camera_X",
+            "Camera_Y", "BG_Tiles_Current", "BG_Tiles_Target", "BG_Tiles_Offset",
+            "BG_Plane_Layout", "BG_Wipe_Cursor", "OJZ_Act1_Descriptor")
+    for nm in need:
+        if nm not in sym:
+            raise GateError(f"`{nm}` is not in {lst_path} — not the sonic4 DEBUG listing this "
+                            f"gate reads")
+    F = Fixture(rom, sym, K)
+    print("GATE BG-SWITCH — a region's own tiles must be resident before its layout is shown")
+    print(f"  ROM {rom_path} ({len(rom)} bytes)")
+    print(f"  subject row {F.S['index']} [x {F.S['x0']}..{F.S['x1']}, y {F.S['y0']}..{F.S['y1']}]"
+          f" tiles ${F.S['bg_tiles']:06X} ({len(F.S_tiles) // 32} tiles) layout "
+          f"${F.S['bg_layout']:06X}; act tiles ${F.act_tiles_ptr:06X} "
+          f"({len(F.A_tiles) // 32} tiles)")
+    print(f"  neighbours: left row {F.left['index']}, above row {F.above['index']}")
+
+    inst = AetherInstance(rom_path, symbols=lst_path)
+    try:
+        sock = await asyncio.to_thread(inst.start)
+    except (SpawnError, WrongServerError) as e:
+        raise GateError(str(e)) from e
+    b = BusClient(socket_path=sock, client_id="bgswitch", client_name="bg_switch_gate")
+    fails = []
+    ran = []
+    try:
+        await b.connect()
+        for m in ("emulator/step", "emulator/run_to", "emulator/hold", "emulator/release_all",
+                  "emulator/read_vram", "emulator/read_memory", "emulator/write_memory",
+                  "emulator/reset"):
+            if not b.supports(m):
+                raise GateError(f"the server does not advertise `{m}`")
+        await _c(b, "emulator/load_symbols", {"path": lst_path})
+        rig = Rig(b, sym, K)
+        for name, fn in LEGS.items():
+            if only and name not in only:
+                continue
+            print(f"  -- leg {name.upper()}")
+            await fn(rig, F, K, fails)
+            ran.append(name)
+    except GateError as e:
+        if not fails:
+            raise
+        print(f"\n  REFUSED after reds were already collected:\n    {e}")
+    finally:
+        await b.close()
+        inst.reap()
+
+    print()
+    for f in fails:
+        print(f"  FAIL  {f}")
+    print(f"legs run: {len(ran)} ({', '.join(ran)})")
+    print(f"VERDICT: {'PASS' if not fails else 'FAIL'} ({len(fails)} failing assertions)")
+    if fails:
+        raise Failure(f"{len(fails)} assertions red")
+    if only and set(only) - set(ran):
+        raise GateError(f"asked for legs {sorted(set(only) - set(ran))}, which do not exist")
+
+
+async def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--rom", default=str(AEON / "s4.debug.bin"))
+    ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
+    ap.add_argument("--legs", default="", help="comma-separated subset of legs")
+    a = ap.parse_args()
+    only = [x.strip() for x in a.legs.split(",") if x.strip()]
+    try:
+        await run(a.rom, a.lst, only)
+    except GateError as e:
+        print(f"COULD NOT RUN: {e}")
+        return 2
+    except Failure:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

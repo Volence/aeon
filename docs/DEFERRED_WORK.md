@@ -35352,6 +35352,53 @@ precondition. Do that first and route 2 becomes a normal cleanup; skip it and ro
 This matters the day a region under an act's START POINT declares its own `rg_bg_layout`, which is
 the part-2 step 6 showcase's most likely shape.
 
+**UPDATE 2026-09-16 (region bg switch, task 2, `parcel/region-bg-switch`): the entry became
+BLOCKING and is now handled for tiles, with route 1 still standing.** Under the region bg switch a
+region can name its own TILE blob (`Region.rg_bg_tiles`), so a boot or warp into such a region that
+blitted its layout over the act's tiles would show garbage, not merely waste a blit (Fable review
+07, finding 6). `Section_RedrawPlanes` now resolves the region's effective tile blob before its
+layout and uploads it inside the same masked storm when it differs from `BG_Tiles_Current`
+(`BG_UploadTiles`, factored out of `BG_Init`). `BG_Init` is unchanged in shape: it still loads the
+act default and seeds the tile tracker, so the overseer's route-1 ruling stands and a boot into a
+region with its own tiles costs one extra blocking copy with the display off. Graded by GATE
+BG-SWITCH legs BOOT and WARP (`tools/bg_switch_gate.py`, in `tools/effects_gates.py`), red on the
+tree without the upload. The warp copies with the display ON (DEBUG only): see
+REGION-BG-SYNC-DISPLAY below.
+
+## REGION-BG-RESPAWN-CONTRACT: a respawn must reach `Section_Plane_Dirty` (booked 2026-09-16, `parcel/region-bg-switch`)
+
+There is no death/respawn system (`games/sonic4/player/player_common.emp`, "a placeholder until
+death/respawn exists"), and the only `Section_Plane_Dirty` setters are the boot ladder and
+`Debug_Warp_Consume` (`games/sonic4/test/ojz_scroll_test.emp`). The review's finding 6 names
+respawn beside boot and warp. **The contract for whoever builds one:** a respawn that places the
+camera must set `Section_Plane_Dirty` (or call the same redraw), because that path is now what
+loads the respawn region's own BG tiles before its layout. A respawn that only moves the camera
+and lets the streamer and the crossing catch up would take the ASYNCHRONOUS switch instead, which
+is correct but shows the old background over partly overwritten tiles for the overwrite's
+duration, uncovered.
+
+## REGION-BG-TILES-AUTHORING: a regions document cannot name a region's background tiles (booked 2026-09-16, `parcel/region-bg-switch`)
+
+The region bg switch's test content is a DEBUG-shape delta row (`OJZ_SHOWCASE_BG_ROWS` in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, art from Aurora's library entry
+`deep-forest-v15-marching-colonnade` via `tools/gen_region_bg_showcase.py`) because the document
+path does not exist: `bg.layoutRef` has no lowering (`tools/effects_gen.py` refuses every non-`@act`
+ref; empyrean `docs/AURORA_REGIONS_SCHEMA.md` records the lowering as open), and the contract schema
+(`empyrean contract/schema/aurora-regions.schema.json`, `bg` closed) has no key for tiles at all.
+Making a per-region background authorable is cross-repo: a schema key (empyrean), Aurora writing it,
+the generator lowering both refs to symbols (which inherits the open sanitisation question) and
+emitting `rg_bg_tiles`. Until then every release row takes the act's tiles and layout.
+
+## REGION-BG-SYNC-DISPLAY: the synchronous tile upload runs with the display on during a warp (booked 2026-09-16, `parcel/region-bg-switch`)
+
+`Section_RedrawPlanes` uploads a region's tile blob inside its masked storm. At boot the display is
+off; on a DEBUG warp it is on, so the old nametable is shown over arriving tiles for part of the
+storm. Batman & Robin's immediate-transfer handler clears the display-enable bit around the same
+kind of transfer (`interrupts.asm:585-622`, research slice 04). Not built because the only
+display-on caller is DEBUG, and doing it touches the VDP shadow-register contract (`Set_VDP_Reg`,
+CODING_CONVENTIONS §3.1 rule 5). Revisit the day a release path (a respawn, a cache recovery that
+actually fires) reaches `Section_Plane_Dirty` with the display on.
+
 ## `(size: N)` on `SpawnDesc` is not enforced — the same silent-declaration class, LIVE (reported by the sigil lane 2026-09-16, booked from `parcel/regions-p2-step3`)
 
 A `(size: N)` struct declaration in `.emp` is checked **only inside `layout_of_struct`**, i.e.

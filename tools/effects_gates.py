@@ -275,6 +275,14 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # horizontal travel — REGIONS-VERTICAL-CROSSING-ON-LANDING — which is the case §4.3's
         # entry-side rule had no answer for. Four headless boots, ~150 logic ticks each.
         ("bg_wipe", True, GATE_EMU_BUDGET),
+        # bg_switch is the FOURTH member and the one about TILES rather than nametable words
+        # (region bg switch, 2026-09-16; plan docs/superpowers/plans/2026-09-16-region-bg-
+        # switch.md). bg_wipe grades a repaint between two layouts that index the SAME tile
+        # blob; this one grades a region whose background names its own tile blob: the BG
+        # arena must hold those tiles before any nametable word of its layout is shown, on
+        # boot, on a warp, and (later legs) on a walked crossing, where the S3K Icecap failure
+        # (layout switched before its tiles landed) is what its ordering legs exist to refuse.
+        ("bg_switch", True, GATE_EMU_BUDGET),
         # tile_cache_fill rides here for warp_mailbox's stated reason and is the third
         # non-effects member: it is the section streamer's own invariant (a cell RECORDED
         # as written was actually written), and this lane is still the tree's only
@@ -1128,6 +1136,16 @@ def main() -> int:
                            "BG_WIPE_ROWS_PER_FRAME rows a tick starting at the top VISIBLE "
                            "plane row, every row the cursor claims is one the producer drew, "
                            "and a crossing between two rows with the same layout arms nothing)",
+                           ok, msg, final=True))
+
+    if wanted("bg_switch"):
+        ok, msg = run(["python3", str(AEON / "tools/bg_switch_gate.py"),
+                       "--rom", rom, "--lst", lst], "bg_switch")
+        results.append(row("bg_switch",
+                           "bg_switch (GATE BG-SWITCH: a region whose background names its own "
+                           "tile blob shows those tiles and its layout together — the BG arena "
+                           "holds the region's tiles and BG_Tiles_Current names them — on boot "
+                           "and on a warp in and out)",
                            ok, msg, final=True))
 
     if wanted("tile_cache_fill"):

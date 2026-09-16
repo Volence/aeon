@@ -76,10 +76,11 @@ use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}
 // act default is not a row's property and is still resolved through the seam.
 use games.sonic4.ojz_regions_act1.{OJZ_ACT1_GENERATED_REGION_ROWS,
                                    OJZ_ACT1_ROW_SEC2, OJZ_ACT1_ROW_SEC5, OJZ_ACT1_ROW_SEC8,
+                                   OJZ_ACT1_ROW_SEC3,
                                    OJZ_ACT1_ROW_SEC2_PRESET, OJZ_ACT1_ROW_SEC5_PRESET,
-                                   OJZ_ACT1_ROW_SEC8_PRESET}
+                                   OJZ_ACT1_ROW_SEC8_PRESET, OJZ_ACT1_ROW_SEC3_PRESET}
 use games.sonic4.ojz_effects_editor_act1.{OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec5_KEY,
-                                          OJZ_Preset_Plain_KEY}
+                                          OJZ_Preset_Plain_KEY, OJZ_Preset_Sec3_KEY}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -721,7 +722,35 @@ const OJZ_TALL_BG_ROWS: array = if DEBUG == 1 {
 } else { [] }
 const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
 
-const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN
+// ---- THE REGION BG SWITCH SHOWCASE ROW (region bg switch, task 2) ----
+// DEBUG ONLY, carved out of row `sec3`'s right half the way the two rows above carve theirs.
+// The one region in the act whose background names its OWN TILES (rg_bg_tiles) as well as
+// its own layout, so crossing into it is an overwrite of the BG tile arena followed by a
+// repaint, and crossing out is the same back to the act's tiles. It reuses row sec3's preset,
+// so the palette, raster and parallax under it are a shipped look and the ONLY difference
+// from its neighbour is the background.
+//
+// WHY THIS RECTANGLE (x 1024..2047, y 2048..4095), derived from what the switch's gate needs
+// and from what the other gates walk:
+//   * an act-default neighbour on a VERTICAL edge (sec3's left half, x 1023|1024) and on a
+//     HORIZONTAL edge (sec0 above, y 2047|2048), so both a horizontal and a vertical crossing
+//     exist;
+//   * off every existing gate route that is typed rather than derived: the E2 fade and snap
+//     witnesses fly y 256 (the top band), the tall row is x >= 5120, and the registered gates
+//     that pick a fixture read it from this table (bg_wipe/bg_window select the row with a
+//     SPAN, which this row does not have);
+//   * interior edges inside the camera-centre bands, spans far above REGION_MIN_SPAN
+//     (ojz_region()'s own ensures check both here, at the call).
+// Plan: docs/superpowers/plans/2026-09-16-region-bg-switch.md, calls C11/C11b.
+const OJZ_SHOWCASE_X0 = 1024
+const OJZ_SEC3_X1 = if DEBUG == 1 { OJZ_SHOWCASE_X0 - 1 } else { 2047 }
+const OJZ_SHOWCASE_BG_ROWS: array = if DEBUG == 1 {
+    [ ojz_region(x0: OJZ_SHOWCASE_X0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,
+                 bg_layout: OJZ_Act1_BG_Showcase_Layout, bg_tiles: OJZ_Act1_BG_Showcase_Tiles) ]
+} else { [] }
+const OJZ_SHOWCASE_BG_ROWS_LEN = OJZ_SHOWCASE_BG_ROWS.len
+
+const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN
 
 // THE ROWS — ONE SOURCE, AND SINCE 2026-09-16 THAT SOURCE IS THE EDITOR'S DOCUMENT.
 // `games/sonic4/data/editor/ojz/act1/regions.json` is act 1's identity, lowered by
@@ -765,13 +794,20 @@ const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_L
 //     The generated `<ACT>_ROW_<ID>_PRESET` constants are the record's shape-B′ integer KEY,
 //     written from the DOCUMENT, and this argument is written from what the delta EXPECTS —
 //     two different places, so the comparison can genuinely go red.
-comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key: int) -> array {
+//
+// `was_x1` (region bg switch, 2026-09-16): the x1 the delta EXPECTS the row to end at before
+// the cut. It defaults to -1, meaning the act's right edge, which is the only case the first
+// three cuts need. The showcase cut takes the right half off row `sec3`, which ends at an
+// INTERIOR edge (x1 2047), so it names that value explicitly and the check stays exactly as
+// strict: "the row still ends where this delta was written against", not "anything goes".
+comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key: int, was_x1: int = -1) -> array {
+    let expect_x1 = if was_x1 < 0 { ACT_W - 1 } else { was_x1 }
     ensure(row >= 0 && row < r.len,
            "ojz_cut_row(row: {row}): the table has {r.len} rows. The row constants are generated from the document's ids, so an out-of-range one means the document lost the region this delta cuts")
     ensure(was_preset == preset_key,
            "ojz_cut_row(row: {row}): that row binds preset key {was_preset} and this delta was written for key {preset_key}. The document has re-pointed the region at another EffectsPreset record, so the cut would take the right end off a look nobody asked to shorten")
-    ensure(r[row].rg_x1 == ACT_W - 1,
-           "ojz_cut_row(row: {row}): that row already ends at x1 {r[row].rg_x1}, not the act's right edge ({ACT_W} - 1). A DEBUG delta CARVES a row that reaches the edge; applied to one that does not, it would either widen it or cut a second bite out of a row another delta already took")
+    ensure(r[row].rg_x1 == expect_x1,
+           "ojz_cut_row(row: {row}): that row already ends at x1 {r[row].rg_x1}, not the {expect_x1} this delta was written against (the act's right edge, {ACT_W} - 1, unless `was_x1` names an interior edge). A DEBUG delta CARVES a row whose end it knows; applied to one that ends elsewhere, it would either widen it or cut a second bite out of a row another delta already took")
     // NEVER WIDENS — and `<=` rather than `<` is the whole subtlety of this line. A delta is
     // shape-conditional: in RELEASE every OJZ_SEC*_X1 is ACT_W - 1, so the cut is a legal
     // NO-OP and a strict `<` here refuses the release shape outright (measured: 18 errors,
@@ -853,7 +889,8 @@ comptime fn ojz_region_table_check(r: array) -> int {
 const OJZ_ACT1_ROWS_CUT2 = ojz_cut_row(OJZ_ACT1_GENERATED_REGION_ROWS, OJZ_ACT1_ROW_SEC2, OJZ_SEC2_X1, OJZ_ACT1_ROW_SEC2_PRESET, OJZ_Preset_Sec2_KEY)
 const OJZ_ACT1_ROWS_CUT5 = ojz_cut_row(OJZ_ACT1_ROWS_CUT2, OJZ_ACT1_ROW_SEC5, OJZ_SEC5_X1, OJZ_ACT1_ROW_SEC5_PRESET, OJZ_Preset_Sec5_KEY)
 const OJZ_ACT1_ROWS_CUT8 = ojz_cut_row(OJZ_ACT1_ROWS_CUT5, OJZ_ACT1_ROW_SEC8, OJZ_SEC8_X1, OJZ_ACT1_ROW_SEC8_PRESET, OJZ_Preset_Plain_KEY)
-const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT8 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS
+const OJZ_ACT1_ROWS_CUT3 = ojz_cut_row(OJZ_ACT1_ROWS_CUT8, OJZ_ACT1_ROW_SEC3, OJZ_SEC3_X1, OJZ_ACT1_ROW_SEC3_PRESET, OJZ_Preset_Sec3_KEY, was_x1: 2047)
+const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT3 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS ++ OJZ_SHOWCASE_BG_ROWS
 
 // ojz_region_table_fault_count() — HOW MANY rows break a rule, beside WHICH one does.
 //
@@ -900,4 +937,4 @@ ensure(OJZ_ACT1_REGION_OVERLAP == -1,
 ensure(OJZ_ACT1_REGION_AREA == ACT_W * ACT_H,
        "OJZ act 1 region rows do not tile the act: their areas sum to {OJZ_ACT1_REGION_AREA} px², the act is {ACT_W} x {ACT_H}. A hole is a place with no identity")
 
-pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN] = OJZ_ACT1_REGION_ROWS
+pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN] = OJZ_ACT1_REGION_ROWS

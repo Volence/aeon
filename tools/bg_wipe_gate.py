@@ -647,14 +647,22 @@ def pick_fixture(rows, act_bg_layout, K):
     def eff(r):
         return r["bg_layout"] or act_bg_layout
 
-    tall = [r for r in rows if r["bg_layout"]]
+    # THE FIXTURE IS THE ROW WITH A SPAN, NOT "THE ROW WITH A LAYOUT" (region bg switch task 2,
+    # 2026-09-16). This used to select every row naming its own rg_bg_layout and require exactly
+    # one; the region bg switch's DEBUG showcase row names a layout too (and its own TILES), so
+    # the old rule would refuse to run. The step-5 tall row is the only row authoring a
+    # rg_bg_span, which is what this gate's window arithmetic needs anyway, and it keeps the act
+    # default's TILES, so this gate still measures the wipe alone and not the overwrite (that is
+    # tools/bg_switch_gate.py's job).
+    tall = [r for r in rows if r["bg_layout"] and r["bg_span"] and not r.get("bg_tiles")]
     if len(tall) != 1:
         raise GateError(
-            "this ROM has %d region rows naming their own rg_bg_layout, and this gate's route "
-            "derivation assumes exactly one (the step-5 tall DEBUG row). Rows: %s. Either this "
-            "is the RELEASE listing — in which case no crossing in the act changes the "
-            "background and there is nothing here to measure — or a second layout has been "
-            "authored and the route must be named explicitly."
+            "this ROM has %d region rows naming their own rg_bg_layout AND a rg_bg_span while "
+            "keeping the act's tiles, and this gate's route derivation assumes exactly one (the "
+            "step-5 tall DEBUG row). Rows: %s. Either this is the RELEASE listing — in which "
+            "case no crossing in the act changes the background and there is nothing here to "
+            "measure — or a second such layout has been authored and the route must be named "
+            "explicitly."
             % (len(tall), [r["index"] for r in tall]))
     B = tall[0]
     y_mid = (B["y0"] + B["y1"]) // 2
