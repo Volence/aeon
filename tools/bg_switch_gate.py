@@ -25,8 +25,21 @@ LEGS (each names what it asserts):
          after the ack assert the same three; then warp back OUT and assert the act default's
          tiles and layout are back.
 
-WHAT A GREEN HERE DOES NOT SAY: nothing about a WALKED crossing (the asynchronous overwrite and
-its ordering are the later legs), and nothing about how the switch LOOKS.
+  TRANSPORT  crossing_into_a_region_with_its_own_tiles_uploads_its_whole_blob_in_bounded_frames
+         Fly RIGHT across the subject's left edge. The overwrite arms on the first sample inside;
+         at most one chunk (2 entries if split) is ever queued; no chunk is enqueued while an
+         arena write was still queued the tick before; BG_Tiles_Current names the blob only when
+         VRAM holds it; completion within ceil(len/CHUNK)+2 ticks.
+  TRANSPORT_STARVED  transport_under_a_starved_window_keeps_one_chunk_outstanding_and_completes
+         The same, with DMA_Budget_Default poked below one chunk for STARVE_TICKS ticks once two
+         chunks have gone, so a chunk is HELD in the queue. The only leg that can see the
+         one-outstanding rule: on a calm frame every chunk drains in its own VBlank.
+  TRAFFIC  the_overwrite_completes_while_another_producer_enqueues_a_deferrable_entry_every_frame
+         A synthetic 32 B Deferrable entry to the map's free tile, appended every tick (positive
+         control first). Red against a global queue-empty completion test (the draft's C2).
+
+WHAT A GREEN HERE DOES NOT SAY: nothing about how the switch LOOKS, and (until the ORDER legs)
+nothing about whether Plane B is painted before the tiles land.
 
 Exit: 0 PASS · 1 FAIL · 2 COULD NOT RUN (a premise the gate refuses to measure past).
 """
@@ -382,7 +395,7 @@ async def sample_ow(rig, F, K, with_arena=True):
     return s
 
 
-async def cross_into_subject(rig, F, K, per_tick=None, tag="CROSS"):
+async def cross_into_subject(rig, F, K, per_tick=None, tag="CROSS", on_sample=None):
     """Boot in the left neighbour, hold RIGHT until the camera centre's region is the subject
     row, then keep holding while `per_tick` samples, until the overwrite completes or the walk
     budget runs out. Returns (samples, index of the first sample inside the subject)."""
@@ -407,6 +420,8 @@ async def cross_into_subject(rig, F, K, per_tick=None, tag="CROSS"):
                 await per_tick(i)
             s = await sample_ow(rig, F, K)
             samples.append(s)
+            if on_sample is not None:
+                on_sample["last"] = s
             if i_in is None and s["region"] == F.S["addr"]:
                 i_in = i
                 budget = i + STOP_AFTER + 4 * (-(-len(F.S_tiles) // K.CHUNK)) + 16
@@ -531,8 +546,63 @@ async def leg_traffic(rig, F, K, fails):
     check_transport(samples, i_in, F, K, "TRAFFIC", fails, slack=2)
 
 
+STARVE_TICKS = 6
+
+
+class Starver:
+    """Holds the DMA window below one chunk for STARVE_TICKS ticks, once, starting at the first
+    tick `when(sample)` is true: the budget poke of plan call C13. DMA_Budget_Default seeds
+    DMA_Budget_Remaining at the top of every VInt_Level, so a value below the chunk keeps an
+    enqueued chunk in the Deferrable queue for as long as it is held."""
+
+    def __init__(self, rig, K, when):
+        self.rig, self.K, self.when = rig, K, when
+        self.addr = rig.sym["DMA_Budget_Default"]
+        self.saved = None
+        self.start = None
+        self.ticks = 0
+
+    async def step(self, i, last_sample):
+        b = self.rig.b
+        if self.start is None and last_sample is not None and self.when(last_sample):
+            self.saved = await rd(b, self.addr, 2)
+            await _c(b, "emulator/write_memory", {"addr": hex(self.addr),
+                                                  "value": self.K.CHUNK - 2, "width": 2})
+            self.start = i
+        elif self.start is not None and self.saved is not None:
+            self.ticks += 1
+            if self.ticks >= STARVE_TICKS:
+                await _c(b, "emulator/write_memory", {"addr": hex(self.addr),
+                                                      "value": self.saved, "width": 2})
+                self.saved = None
+
+
+async def leg_transport_starved(rig, F, K, fails):
+    """transport_under_a_starved_window_keeps_one_chunk_outstanding_and_completes_after_release"""
+    holder = {"last": None}
+    st = Starver(rig, K, lambda s: s["offset"] >= 2 * K.CHUNK)
+
+    async def per_tick(i):
+        await st.step(i, holder["last"])
+
+
+    samples, i_in = await cross_into_subject(rig, F, K, per_tick=per_tick,
+                                             tag="TRANSPORT-STARVED", on_sample=holder)
+    if st.start is None:
+        raise GateError("TRANSPORT-STARVED: the offset never reached two chunks, so the window "
+                        "was never starved and the leg measured nothing")
+    held = samples[st.start + 1:st.start + STARVE_TICKS]
+    if not any(s["arena_entries"] for s in held):
+        raise GateError("TRANSPORT-STARVED: no arena write stayed queued during the starved "
+                        "window; the poke did not hold a chunk and the leg is not discriminating")
+    print(f"  TRANSPORT-STARVED: window starved for {STARVE_TICKS} ticks from sample {st.start}; "
+          f"arena entries queued at {sum(1 for s in held if s['arena_entries'])} of "
+          f"{len(held)} held samples")
+    check_transport(samples, i_in, F, K, "TRANSPORT-STARVED", fails, slack=STARVE_TICKS + 2)
+
+
 LEGS = {"boot": leg_boot, "warp": leg_warp, "transport": leg_transport,
-        "traffic": leg_traffic}
+        "transport_starved": leg_transport_starved, "traffic": leg_traffic}
 
 
 async def run(rom_path, lst_path, only):
