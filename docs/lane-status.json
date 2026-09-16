@@ -1,6 +1,37 @@
 {
-  "focus": "Working out how backgrounds stream between zones, which your Sonic 2 or 3 in one act showcase depends on.",
-  "inFlight": [],
+  "focus": "Researching how to stream backgrounds between zones for Sonic 2 or 3 in one act. Six research slices running.",
+  "inFlight": [
+    {
+      "what": "How Sonic 3 & Knuckles and Sonic 2 swap zone art mid-level",
+      "where": "read-only research",
+      "agent": true
+    },
+    {
+      "what": "How S.C.E. and our old sonic_hack handle level art loading",
+      "where": "read-only research",
+      "agent": true
+    },
+    {
+      "what": "Vectorman, Gunstar Heroes and Alien Soldier on live art swaps",
+      "where": "read-only research",
+      "agent": true
+    },
+    {
+      "what": "Batman & Robin, Thunder Force IV and Ristar on stage scenery changes",
+      "where": "read-only research",
+      "agent": true
+    },
+    {
+      "what": "Hardware limits, homebrew and tech demos from online sources",
+      "where": "read-only research",
+      "agent": true
+    },
+    {
+      "what": "What aeon already has, and modern techniques mapped onto it",
+      "where": "read-only research",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +39,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Nothing running, nothing half-applied.",
+  "nextBoundary": "When all six research slices return and are committed. Then I draft the design and bring it to you before anything is built.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Backgrounds must stream like the foreground already does, for Sonic 2 or 3 in one act. Today's crossing repaint is half of it; loading and evicting background tiles is the other half",
-      "state": "next",
+      "state": "doing",
       "size": "L",
       "blockedBy": null
     },
@@ -53,7 +84,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "whether to start the design pass for streaming backgrounds between zones -- research first, then a draft for you to review. Also still yours: the spring sound A/B from 09-09.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-16T18:42:37Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-16T19:00:35Z"
 }
