@@ -64,6 +64,13 @@ KNOWN = {
         "a witness tool run by hand, naming its own evidence image",
     ("tools/tilt_frame_static_audit.py", "docs/witness/f7-frame-09-defect.png"):
         "the same witness tool",
+    ("tools/e2_snap_capture.py", "docs/captures/2026-09-15-regions-p2-e2"):
+        "the E2 palette-snap capture, run BY HAND in the foreground (it boots an emulator, "
+        "which is why no agent and no gate may run it); the directory is where it writes its "
+        "per-tick PNG evidence. Evidence that it never runs in a build, derived 2026-09-15 at "
+        "the E2 landing: a grep over *.py/*.sh/*.toml/*.cfg/*.ini finds no caller but its own "
+        "definition, build.sh names it 0 times, and it is absent from effects_gates.py's gate "
+        "schedule (the 18 gates that run are listed in that run's own OK line)",
 }
 
 #: The gate's own files name docs paths as DATA (the RULES table, scratch-repository
