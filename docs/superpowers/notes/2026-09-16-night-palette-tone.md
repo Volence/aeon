@@ -137,15 +137,33 @@ was actually wrong was the retention **spread**, and both ends of it moved:
 | 12 | `$00EE` | 256 | 66% | 57% | (the 16x16 free-flight cursor, not content) |
 | 21 | `$026A` | 17692 | 38% | 64% | the dominant dirt tone |
 
-The 100% entries are `(1,0,0)` and `(0,1,0)`: a 3-bit channel already at its dimmest non-black
-step has nowhere dimmer to go, so they keep 100% **by arithmetic necessity**, and they are
-precisely the canopy and trunk darks the ruling wanted lifted out of black. A pin asserts that
-the 100% class contains nothing else.
+The 100% class has exactly four members — `$0002` (1,0,0), `$0020` (0,1,0) at two indices, and
+`$0202` (1,0,1) — and every one of them is a colour whose lit channels are already at the dimmest
+non-black step their scale allows. They keep 100% **by arithmetic necessity**, not by escaping the
+grade, and they are precisely the canopy and trunk darks the ruling wanted lifted out of black. A
+pin asserts the class contains nothing else, and the pytest lane asserts it entry by entry.
 
 **Also worth recording: part of the "full daylight" impression was the mid-fade frame.** The
 grass patch in `t5-f272` renders as `(3,5,3)` and `(1,4,1)` — one red rung above the settled
 `(2,5,3)` and `(0,4,1)` — so it looked paler and warmer in that capture than it ever was on
 a settled frame.
+
+### The three collapsed pairs, named
+
+The merge budget is 3 (39 distinct day colours -> 36 distinct night ones). It is a budget rather
+than a zero because 39 distinct colours cannot all stay distinct inside a darker box of a 3-bit
+cube. Which three, with their area in the certified day frame:
+
+| night colour | day colours that collapse into it | areas |
+|---|---|---|
+| `(36,36,72)` | `$0624` idx 38, `$0444` idx 9 | 0 px, 0 px |
+| `(0,72,72)` | `$0460` idx 27/35, `$0680` idx 36 | **1166 px**, 0 px |
+| `(72,36,109)` | `$0828` idx 39, `$0848` idx 40 | 0 px, 0 px |
+
+Two pairs are invisible in every frame of the v2 set; the third pairs a drawn colour with an
+undrawn one. So no art edge that is actually drawn in these captures stops being an edge. **That
+is evidence about these frames and not about the act** — a section this run never entered could
+draw `$0680` beside `$0460`, and nothing offline can see it. The pin is a canary for exactly that.
 
 **And the property that makes this structural rather than a touch-up:** retention over
 darkenable colours is capped at **76%**. No element can stay at daylight, because no element
@@ -265,6 +283,36 @@ TRANSFORMS they admit, not what fraction of colours:
   distinguish WHICH entries carry the blue.** A grade that put all its blue into one entry and
   none into the rest would read the same 406. Nothing here covers that; the contact sheet does,
   by eye.
+
+---
+
+### The landing evidence
+
+`./tools/landing_build.sh` — the ruled pre-merge check — **exit 0, `finished=0`**, 2026-09-16,
+`head=b49d1e973608`, land-gate stamp `key=544d20cb4c2d2717`. (Wall clock: launched 06:23:56,
+`uptime` load average 2.97 at launch.)
+
+| lane | result |
+|---|---|
+| shapes built (`LANDING_SHAPES`) | `s4` crc `bc7d8b85` len 820606 · `s4.debug` crc `a70d90f6` len 846986 · `demo.debug` crc `915cfd0f` len 103742 |
+| pre-build `pytest tools -m "not needs_build"` | **2840 passed, 2 skipped**, 25 deselected, 143 subtests passed, 86.19 s |
+| `emp_expect_fail` | **56/56** cases (54 comptime + 2 link) |
+| post-build `needs_build_lane` | **24 ran, 0 deferred, 0 failed, 1 EXEMPTED** (`test_deb2_appendix[demo.bin]`, a shape this caller does not build) |
+
+Both new `needs_build` rows RAN rather than deferred:
+`test_night_palette_grade.TestRomCarriesTheGrade::test_rom_words_are_the_derived_grade` and
+`...::test_rom_words_are_not_the_day_palette`.
+
+**One shape is not in that list and it is the script's own declared choice, not an omission**:
+`demo` plain. The hub's 2026-09-14 CTRL-3 pick A drops it from the pre-merge check because every
+Sonic 4 build assembles it for placement; `./build.sh demo` and the nightly still build it. Said
+here because the parcel brief asked for four shapes and this check runs three by design.
+
+**The effects-gate ritual does not bind this parcel** (`tools/effects_gates.py` is required for
+`engine/effects/*`, `engine/level/bg_anim.emp`, `engine/system/buffers.emp`; the change is in
+`games/sonic4/data/effects/` and moves 48 data words, no engine code). It also boots a headless
+emulator, which this lane may not do. If the controller wants it belt-and-braces it is a
+foreground run.
 
 ---
 
