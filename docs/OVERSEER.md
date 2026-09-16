@@ -195,6 +195,32 @@ treats it as a prerequisite has the order backwards.
 **Sequencing he is working to:** the section/effects cleanup as newly defined, then regions. **He is deciding
 to start regions on the strength of that cleanup being the last thing**, so do not grow it.
 
+## ⚠ FIRST COMMAND OF EVERY BOOT: `git fetch origin` IN THIS TREE, BEFORE READING `git log master`
+
+**The local `master` ref does not move when your own predecessor lands.** A lane lands from a
+worktree and pushes `HEAD:master`; the main checkout's `master` stays wherever it was. A fresh
+session reading `git log --oneline -5 master` therefore sees a tree that is real, coherent and
+stale, **and nothing about it looks wrong.**
+
+**Measured 2026-09-16, and the cost was about an hour.** This lane booted, read local master at
+`5e554179`, concluded regions step 2 was unlanded, opened a landing worktree, resolved a merge
+conflict, ran a full `landing_build.sh` and wrote a gate note — and then the push was REFUSED as
+non-fast-forward. Step 2 had been merged at `6e3ef98a` and pushed an hour earlier by the session
+that was cleared.
+
+**What caught it was the PUSH REFUSAL, not any reasoning**, and that is the part worth keeping:
+the mechanical gate saw what the reading could not, and nothing else in the sequence would have.
+It is also the counterexample to any claim that gates only catch what someone already suspected.
+
+**Two clues were in front of it and both were misread.** `lane-status.json` said an agent was in
+flight — but an agent does not survive the `/clear` that started you, so **"in flight" in a file
+written before a rotation means "finished, unread"**, never "running". And the inherited oracle
+instance was already pointing at `.aeon-land-0916`, the predecessor's landing worktree: **an
+inherited emulator's `romPath` names the last tree that mattered.** Read it at boot.
+
+Not all of that work was wasted — the redone gate run closed a leg the predecessor had explicitly
+left open — but that was luck, not method, and this file's standing lesson is that luck is not one.
+
 ## The queue
 
 > ### RESUME BRIEF FOR THE NEXT AEON SESSION (first written 2026-08-30T00:38Z; **partly superseded, revised 2026-08-30T09:07Z** — read the strikes, they are the point)
