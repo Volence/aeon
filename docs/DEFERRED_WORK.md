@@ -34452,3 +34452,31 @@ both total 320 **yet share only 199 tiles**, because `tools/forest_bg_gen.py` la
 and `tiles`. Three separate 320s — shipped blob, fresh import, static budget — coincide. **An
 agreeing number is not thereby one established fact**, and this is the same defect the four rows
 above are made of: a figure quoted onward until nobody knows which object it measured.
+
+## E1's SHAFT-FALL FALSIFIER: RUN, AND IT HELD — 264 B, with a rest control at 0 (controller, 2026-09-15)
+
+E1 argued its worst-case bound from two clamps rather than driving it, and TAGGED the physics
+fall for the controller instead of claiming it. **Run on the merged tree's `s4.debug.bin`
+(`ec513055`, md5 `9250a9af…`), Oracle MCP, ROM freshness verified against disk before measuring:**
+
+| leg | frames | `Plane_Buffer_Peak` | |
+|---|---|---|---|
+| physics fall (out of free flight via B, gravity only) | 240 | **264 B** (`0x0108`) | at the predicted bound |
+| **rest control**, same duration, same spot | 240 | **0** (`0x0000`) | the instrument is live, not stuck |
+
+**Prediction was <= 264 B; anything above 536 would have refuted the derivation AND the rate
+recommendation with it. Neither happened, so `BG_WIPE_ROWS_PER_FRAME = 4` stands** and the spec
+may drop "PROVISIONAL".
+
+**The rest control is the part that makes this a measurement rather than a coincidence.** 264 is
+exactly 2 rows x 132 B, which is precisely the number the derivation predicts — and a latch stuck
+at a constant, or one that accumulates from any motion at all, would have produced an equally
+tidy-looking agreement. Zero at rest over the same 240 frames rules both out. *(This is the
+lane's own standing bar applied inward: a clean constant is a suspected confound until you vary
+what would hold it fixed. The predicted value arriving exactly is confirmation, and confirmation
+is the weakest evidence available — the control is what turns it into a measurement.)*
+
+Method note for whoever re-runs it: the fall must be a REAL fall. In the DEBUG shape the player
+boots into free flight at `PLAYER_DEBUG_FLY_SPEED` = 16 px/frame, which is already
+`CAM_MAX_Y_STEP`, so a free-flight descent is NOT the physics case E1 could not reach — press B
+first and let gravity do it, and confirm from the screen that the camera actually travelled.
