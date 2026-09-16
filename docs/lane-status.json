@@ -1,12 +1,7 @@
 {
-  "focus": "The Fable review says we're on track but must reorder, and it found I told you something wrong about over-budget spots.",
+  "focus": "Region backgrounds: overwrite then repaint behind your cover, no blank. Next is measuring the densest spot on the map.",
   "inFlight": [],
   "blockedOnOwner": [
-    {
-      "id": "FG-OVERBUDGET-SOFTLOCK",
-      "what": "A spot needing more foreground art than fits locks up the finished game rather than stuttering, as I told you. Your earlier call was made on that wrong account.",
-      "since": "2026-09-16"
-    },
     {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
@@ -18,9 +13,9 @@
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds switch by full overwrite (blank, overwrite, repaint), so every region gets the whole background block. Direction ruled by you; under Fable review before any planning",
-      "state": "blocked",
+      "state": "next",
       "size": "L",
-      "blockedBy": "your decision again on over-budget spots: they soft-lock in release, they do not stutter"
+      "blockedBy": null
     },
     {
       "id": "REGIONS-P2-STEP7",
@@ -58,7 +53,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "a fresh look at over-budget foreground spots: they soft-lock in release rather than stutter, so your 'warn and let it exist' call was made on wrong information. Also: this lane is at 694k of 1M context and should be cleared. Still yours: the spring sound A/B.",
+  "awaiting": "nothing new; this lane is at about 700k of 1M context and should be cleared. Still yours: the spring sound A/B from 09-09.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T20:26:53Z"
+  "updatedAt": "2026-09-16T20:44:58Z"
 }

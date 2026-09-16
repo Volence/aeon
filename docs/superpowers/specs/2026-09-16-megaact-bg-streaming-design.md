@@ -44,6 +44,16 @@ background, but the plan must be reordered.** The sections below are NOT yet rew
 - **Hysteresis belongs at the crossing** (where palette and parallax also swap), not at the background alone.
 - **BgAnim has no table selector in release.**
 
+**OWNER, 2026-09-16T20:44:58Z, on the blank step — challenged, and the controller agrees; it is dropped by default:** *"is there a
+reason to go blank screen first? If it's blank it looks messed up anyway and is that just taking extra steps/time?"*
+The blank's ONLY purpose is what shows if the background is VISIBLE during the switch (flat colour instead of the old
+layout scrambled across half-overwritten tiles). **R3 already makes the switch covered by foreground, and behind cover
+neither is seen, so the blank is pure cost** — and it was the expensive, undesigned part (2-16 of the review's 13-27
+frames, no transport, and an uncovered blank shows the character's colour 0). **§3.1 becomes: overwrite, then repaint,
+behind authored cover.** What survives unchanged, and is the actual Icecap fix: **the repaint must not start until the
+overwrite completes.** The blank may return only as an opt-in for a crossing deliberately left uncovered.
+**FG-OVERBUDGET-SOFTLOCK answered: warn and let the game recover** (*"probably 1"* — a lean, recorded as said).
+
 **Reordered next steps:** M-B FIRST (the 80×60 window's page set along a stitched real-zone seam and at a three-zone
 junction — tool-only, and it decides whether the stress test can exist at all), M-E (confirm the release soft-lock),
 choose the blank transport, THEN M-A as the full three-step sequence under a worst-case fall.
