@@ -582,6 +582,36 @@ pub vars upper_ram {
     Region_Cur_Y1:          u16,
     Region_Current:         u32,
 
+    // Regions part 2, step 3 (spec §4.2's RAM block) — THE BG PLANE TRACKER: what
+    // Plane B is currently HOLDING, as opposed to what the act or the region says it
+    // should hold. Eight bytes. Nothing streams yet, so at this pin the first two cells
+    // are only ever written by the two synchronous blits (engine/level/bg.emp's BG_Init
+    // and engine/level/section.emp's Section_RedrawPlanes) and the last two are only ever
+    // zero; the readers and the other writers arrive with the tracker (step 5) and the
+    // wipe (step 6). They are seeded NOW because the invariant the later steps rest on is
+    // "the tracker always names the blob the plane holds", and an invariant established
+    // one step after its first writer is an invariant with a hole in it.
+    //
+    // HERE, AND NOT INSIDE Parallax_State/_End, AND IT IS LOAD-BEARING RATHER THAN
+    // TIDINESS: on the one shipped init ladder the plane blit runs BEFORE Parallax_Init
+    // (games/sonic4/test/ojz_scroll_test.emp — the synchronous Section_UpdateColumns pair
+    // precedes the Parallax_Init/BgAnim_Init pair), so a cell inside that span would be
+    // seeded by the blit and then zeroed by Parallax_Init's PARALLAX_STATE_LONGS loop a
+    // few calls later. Same reason Region_Cur_* and Parallax_Roles_Swapped sit out here.
+    //
+    // BG_Plane_Layout IS A POINTER AND IS DELIBERATELY NOT IN Replay_Hash. See
+    // engine/system/replay.emp's header warning: a pointer folded raw silently re-poisons
+    // every recorded fixture. The hashed set is a NAMED enumeration (`.hash_table` plus
+    // the word tail), so these cells cannot join it by placement — only by someone adding
+    // them, and the spec's §4.6 note says what that would have to look like (this pointer
+    // normalised to a row index into Act.act_regions, never the address). The two value
+    // cells MAY be folded the day they vary; at this pin BG_Plane_Top and the cursor are
+    // always 0, and folding a constant is coverage that cannot fail.
+    BG_Plane_Layout:        u32,        // the layout blob Plane B currently holds (0 = none)
+    BG_Plane_Top:           u16,        // map row held at the top of the streamed window
+    BG_Wipe_Cursor:         u8,         // rows left in a §4.3 wipe; 0 = none (primed, not swept)
+    BG_Wipe_Dir:            u8,         // sweep direction sign; meaningless while the cursor is 0
+
     // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
     // (engine/effects/raster.emp). Its span is cross-checked there by an
     // `ensure` against RASTER_STATE_SIZE, so a drift on either side fails the

@@ -650,14 +650,21 @@ act_bg_layout:       *u8,           // $0E — zone-wide Plane B layout (T1 defa
 act_bg_tiles:        *u8,           // $12 — zone-wide Plane B tile blob
 ```
 
-The `Sec` (section) descriptor carries **one** of them:
+The **`Region`** record carries **one** of them:
 
 ```
-sec_bg_layout:       *u8 = 0,       // $10 — NULL = use Act_act_bg_layout
+rg_bg_layout:        *u8 = 0,       // $10 — 0 = use Act_act_bg_layout
 ```
 
-There is **no `sec_bg_tiles`**. That is not an omission in this document — the field does
-not exist. `Sec` has a layout override and no tile override.
+There is **no `rg_bg_tiles`**. That is not an omission in this document — the field does
+not exist. A region has a layout override and no tile override; a background made of
+DIFFERENT ART is per-region tile paging and belongs to the big-levels parcel.
+
+⚠ **THIS WAS `Sec.sec_bg_layout` UNTIL 2026-09-16** (regions part 2, step 3), when the field
+was deleted and the override moved to the `Region` record — the same rectangle scope the
+`EffectsPreset` and the parallax config already hang off. `Sec` is 22 bytes now and is pure
+storage. Everything §A3.3 says below about the override being DORMANT is still true; only
+the record it lives in changed.
 
 `engine/level/bg.emp`'s own header states the split:
 
@@ -671,24 +678,30 @@ per seam, or per frame.
 
 ### A3.3 The nametable override exists, and is dormant
 
-`sec_bg_layout` is genuinely read. Two consumers:
+`rg_bg_layout` is genuinely read. Two consumers, both reached by symbol rather than by
+line number, because both moved under this parcel:
 
-* `engine/level/plane_buffer.emp:529` — `movea.l Sec.sec_bg_layout(a0), a1`, with the
-  documented behaviour *"Fall back to act default if NULL"*
-* `engine/level/section.emp:441` — the same read inside `Section_RedrawPlanes`
+* `Section_RedrawPlanes` (`engine/level/section.emp`) — the Plane B half resolves the region
+  under the camera centre and reads `Region.rg_bg_layout`, falling back to
+  `Act.act_bg_layout` when it is 0
+* `Draw_BG_TileRow` (`engine/level/plane_buffer.emp`) — the row streamer, with the identical
+  fallback; it has **no caller yet** (regions part 2 step 2 landed it deliberately callerless;
+  its callers are the tracker of step 5 and the wipe of step 6)
+
+⚠ **THE COUNT OF TWO WAS BRIEFLY WRONG IN BOTH DIRECTIONS AND IS WORTH THE SENTENCE.** The
+two consumers this paragraph used to name were `Draw_BG_TileColumn` and
+`Section_RedrawPlanes`; step 2 DELETED the column producer (zero callers for its whole life)
+and added the row producer in its place, and step 3 then repointed the surviving one at the
+region. Neither edit passed through this document at the time. Read the symbols, not the line
+numbers.
 
 But three things make it dormant on the shipped act:
 
-**1. No section sets it, and no section *can*.** The act's section constructor in
-`games/sonic4/data/levels/ojz/act1/act_descriptor.emp` hard-codes it:
-
-```
-sec_bg_layout:        default,      // NULL = zone-wide T1 BG
-```
-
-`sec_bg_layout` is not a parameter of `ojz_sec(...)`. All 9 sections of OJZ act 1 are
-therefore NULL, and adding a per-section layout means editing the constructor, not the
-data.
+**1. No region sets it.** All ten region rows of OJZ act 1 take `rg_bg_layout`'s 0 default
+(`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`'s `ojz_region()` does not pass it),
+so every one of them shows `Act.act_bg_layout`. Authoring a second background means giving
+one row a layout — which is what the part-2 spec's step 6 showcase does — not editing a
+constructor.
 
 **2. The consumer fires at level init and cache recovery only.** `Section_RedrawPlanes`
 has one call site, in `Section_UpdateColumns`, behind a flag:
@@ -1036,11 +1049,12 @@ this is its companion and does not repeat it.
   mapping each pooled tile back through the paged VRAM manifest to the nametable cells
   that place it; that was not done. The background rows *are* per-line, because the BG
   nametable indexes its blob directly.
-* **Whether `sec_bg_layout` has ever been exercised.** Established that the field is read
-  by two consumers, that no section of the shipped act sets it, and that its consumer
-  fires only behind a flag set at level init and by the DEBUG warp. **Not** established:
-  whether a per-section layout has ever been baked and run, in this tree or a previous
-  one. If you need per-section nametables, ask before assuming the path is warm.
+* **Whether a per-place background override has ever been exercised.** Established that
+  `Region.rg_bg_layout` (`Sec.sec_bg_layout` before 2026-09-16) is read by two consumers,
+  that no row of the shipped act sets it, and that the live consumer fires only behind a flag
+  set at level init and by the DEBUG warp. **Not** established: whether a non-default layout
+  has ever been baked and run, in this tree or a previous one. If you need one, ask before
+  assuming the path is warm.
 * **What the off-canonical sigil profiles place.** Unchanged from the main contract's §10.
   This addendum's figures were read from source and from the committed generated tree; the
   four-shape build at the end of this parcel confirms only that documentation changed no

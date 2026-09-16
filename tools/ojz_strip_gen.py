@@ -2236,8 +2236,12 @@ def generate(stress_uniquify=0):
     ojz_master_layout_path = os.path.join(LAYOUT_DIR, "OJZ_1.bin")
     bg_layout = load_bg_layout(ojz_master_layout_path)
 
-    # Zone-wide BG (col_offset=0) — used by act_bg_layout AND any section whose
-    # sec_bg_layout is NULL (T1 fallback handled in BG_RedrawForSection).
+    # Zone-wide BG (col_offset=0) — used by act_bg_layout AND by every REGION row whose
+    # rg_bg_layout is 0, which is all ten of act 1's (the T1 fallback lives in
+    # Section_RedrawPlanes' Plane B half). It said "any section whose sec_bg_layout is NULL
+    # ... handled in BG_RedrawForSection" until 2026-09-16 and BOTH halves of that were dead:
+    # BG_RedrawForSection was deleted long before, and Sec.sec_bg_layout went with regions
+    # part 2 step 3 — the background belongs to the region now.
     bg_nt_zone = build_bg_nametable_words(bg_layout, bg_chunks, bg_blocks, col_offset=0)
 
     # Shared BG tile blob — references only the zone layout's tiles. When real

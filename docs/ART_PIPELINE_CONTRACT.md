@@ -1027,21 +1027,29 @@ bytes, seven fields**:
 $00 sec_block_index      *u8   the 256-entry block index table
 $04 sec_objects          *u8   object list ($FFFF-terminated)
 $08 sec_rings            *u8   X-sorted ring entries
-$0C sec_bg_layout        *u8   0 = use the act-wide BG
-$10 sec_type_table       *u8   count, pad, then ObjDef pointers
-$14 sec_block_dict       *u8   raw dict region (LZ pre-seed)
-$18 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
+$0C sec_type_table       *u8   count, pad, then ObjDef pointers
+$10 sec_block_dict       *u8   raw dict region (LZ pre-seed)
+$14 sec_block_dict_len   u16   dict bytes (768 x K, K <= 3)
 ```
+
+⚠ **AND IT MOVED AGAIN ON 2026-09-16** (regions part 2, step 3): `Sec` went 26 -> 22 and
+`sec_bg_layout` **left `Sec` entirely**, the same way the two identity fields did a fortnight
+earlier. The background of a place is `Region.rg_bg_layout` now — 0 still means the act-wide
+`Act.act_bg_layout` — resolved by `Section_RedrawPlanes` through `Region_Resolve` on the
+camera centre. Every offset from `$0C` down moved by 4 again. A reader laying out a section
+by the pre-2026-09-16 table puts `sec_type_table` where nothing lives.
 
 ⚠ **This table listed a NINE-field, 34-byte record until 2026-09-15, and every offset from
 `$0C` down was wrong.** `Sec` went 34 -> 26 on 2026-09-13 (painted-regions v1, step 4):
 `sec_parallax_config` and `sec_effects` **left `Sec` entirely** and moved to the `Region`
 record. A reader laying out a section by that table put `sec_type_table` where
-`sec_bg_layout` lives. Nothing in this document flagged it, because a record layout is not
+`sec_bg_layout` lived. Nothing in this document flagged it, because a record layout is not
 a restated constant and no gate looks at one.
 
 The argument the old text attached to `sec_effects` is intact, but it now belongs to
-`Region.rg_effects` (`engine/structs.emp:104`, in the 16-byte `Region` at `:99`): that field
+`Region.rg_effects` (the `rg_effects` field of `pub struct Region` in `engine/structs.emp`,
+cited by NAME because that record has gained two fields since this paragraph was written and
+is 22 bytes now, not 16): that field
 has no `= 0` default, and **the omission is the guard** — `Effects_InstallPreset` dereferences
 it without testing, and the only null test is inside `if DEBUG == 1`, so an omitted binding
 would compile clean, ship, and send the release build into the 68000 vector table. Dropping

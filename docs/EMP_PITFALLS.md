@@ -512,3 +512,44 @@ looks like.
 fails at the fn that broke it instead of at whoever eventually emitted the result. (Sigil's
 `docs/EMP_PITFALLS_EQUALITY.md` §13 at `3aa6f24028b0d4eed5d9602d4b4a0afee3bc06ea` for the
 compiler-side scope.)
+
+## 14. A field read as `Struct.field(aN)` does NOT check that the field exists
+
+**Trap:** deleting a field from a struct does not turn its readers into field errors. The
+`Struct.field(aN)` displacement form — the everyday spelling for reading a record through an
+address register — survives elaboration whatever `field` is. The build still goes red, but
+through a gate that names an instruction COUNT and no identifier, so the author has to find
+the deleted name themselves.
+
+Measured 2026-09-16 on `parcel/regions-p2-step3` against the release sigil that builds this
+tree, deleting `Sec.sec_bg_layout`, with the **control run last** so it is a control and not
+the subject:
+
+| probe | result |
+|---|---|
+| `offsetof(Sec, sec_bg_layout)` — a poison, reachable via `--extra-entry` | **RED**: `[Error] offsetof: struct Sec has no field sec_bg_layout`, 1 error |
+| `movea.l Sec.sec_bg_layout(a0), a1` in a REACHABLE module (`engine/level/section.emp`) | **RED**, but `error: the contract closure DROPPED 1 instruction(s)` — **no field diagnostic anywhere** |
+| the same line in an UNREACHABLE module | **RED**, same message |
+| CONTROL: the same unreachable module reading `Sec.sec_objects(a0)` | **GREEN**, exit 0, no drop |
+
+So the two spellings take different roads: `offsetof` resolves the field name and refuses;
+the displacement form does not resolve it at all and is caught downstream by the
+contract-closure analysis noticing an instruction it cannot read. The tree is SAFE in every
+case — this is not a silent miscompile, and nothing was measured with `CONTRACTS=0`, which
+`build.sh` refuses to pair with `FAST=1` — but the diagnostic is oblique enough to cost real
+time on a struct edit that touches many readers.
+
+**Two consequences worth acting on:**
+
+1. **To make a deleted name refusable BY NAME, write `offsetof`, not a read.** That is what
+   `games/sonic4/test/poison/poison_sec_bg_layout.emp` does, registered in
+   `tools/emp_expect_fail.py`, so "this field stays deleted" is graded on every canonical
+   build with the compiler's own words.
+2. **Do not reason from "it built, so the field must exist".** The inverse is the one that
+   holds: it did not build. If a struct edit produces `the contract closure DROPPED N
+   instruction(s)` and the named proc is one you did not touch, look for a field name you
+   removed, not for a lowering bug.
+
+Related but distinct: §3 (guards in unreachable modules are dead) is about `ensure`s never
+being EVALUATED. This is about a name never being RESOLVED, and it happens in reachable
+modules too.
