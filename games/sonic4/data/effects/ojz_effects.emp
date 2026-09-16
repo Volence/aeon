@@ -2010,7 +2010,7 @@ const NIGHT_BLUE_8  = 6     // blue — "three quarters", and the ONLY asymmetry
 // THE BLUE LEAN IS STRUCTURAL, not emergent. Under the old subtraction the lean was an accident
 // of which channel happened to have the smallest subtrahend; here it is this one inequality.
 ensure(NIGHT_BLUE_8 > NIGHT_LIGHT_8,
-       "the night grade's blue lean is gone: NIGHT_BLUE_8 ({NIGHT_BLUE_8}) must exceed NIGHT_LIGHT_8 ({NIGHT_LIGHT_8}) or the transform is a plain uniform dim with no colour of its own. DOES NOT COVER: how MUCH lean (the aggregate blue-share pin below), nor whether the lean is visible at any particular scale")
+       "the night grade's blue lean is gone: NIGHT_BLUE_8 ({NIGHT_BLUE_8}) must exceed NIGHT_LIGHT_8 ({NIGHT_LIGHT_8}) or the transform is a plain uniform dim with no colour of its own. DOES NOT COVER: how MUCH lean — that is the three-row blue-share block below, which measures the shipped grade against a NO-LEAN CONTROL rather than against the day palette, because rounding alone moves the share by 4 permille")
 ensure(NIGHT_LIGHT_8 > 0 && NIGHT_BLUE_8 < 8,
        "the night grade must actually darken and must not brighten: NIGHT_LIGHT_8 ({NIGHT_LIGHT_8}) > 0 and NIGHT_BLUE_8 ({NIGHT_BLUE_8}) < 8")
 
@@ -2021,6 +2021,14 @@ ensure(_ojz_day_pal.len == 96,
        "OJZ_Palette is {_ojz_day_pal.len} bytes; the night grade reads exactly 96 (48 words = CRAM lines 1-3)")
 
 // One 3-bit channel: scale by s8/8, round half up, never leave a lit channel dark.
+//
+// ⚠ THE FLOOR IS REDUNDANT AT THE SHIPPED SCALE AND IS NOT DEAD CODE. Measured (2026-09-16,
+// red-first sweep M3 in the parcel note): delete it with NIGHT_LIGHT_8 = 4 and the build stays
+// GREEN, because round-half-up already carries v = 1 to (4 + 4) / 8 = 1. It becomes load-bearing
+// the moment the owner turns the knob down — at s8 = 3, v = 1 folds to (3 + 4) / 8 = 0 and four
+// colours go black. The same deletion at s8 = 3 is sweep M7 and reports 3 new blacks and 9 dead
+// channels. So a reader who deletes this line "because nothing fires on it" removes the guard
+// rail from exactly the direction the look is most likely to be tuned.
 comptime fn night_channel(v: int, s8: int) -> int {
     comptime var n = (v * s8 + 4) / 8
     if v > 0 && n < 1 { n = 1 }
@@ -2151,16 +2159,28 @@ comptime fn night_ret_pct_max(src: Data, lit_floor: int) -> int {
 }
 
 // P5 — the blue lean, MEASURED on the palette rather than only declared on the constants.
-// Sum of blue channel over sum of all channels, in permille. `as_night` 0 reads the day
-// palette, 1 reads its night image.
-comptime fn night_blue_permille(src: Data, as_night: int) -> int {
+// Sum of blue channel over sum of all channels, in permille, under an ARBITRARY pair of
+// scales — which is what lets the pins below establish a control instead of comparing the
+// grade against the day palette and calling the difference "the lean".
+//
+// THE CONTROL MATTERS AND IT COST ME A WRONG CLAIM (2026-09-16). This guard first compared
+// the graded palette (406) against the DAY palette (337) and read the 69-permille gap as the
+// lean. It is not: scale blue by exactly the same factor as red and green — no lean at all —
+// and the share still rises to 341, because rounding half up and the non-zero floor both act
+// most strongly on the SMALLEST channel values, and in this art blue is usually the smallest.
+// Four of those 69 permille are the rounding, not the design. The lean is 406 against 341.
+// `night_channel(v, 8)` is the identity (verified: (v * 8 + 4) / 8 == v for v in 0..7), so
+// passing 8, 8 reads the day palette through the same code path as every other row.
+comptime fn night_blue_permille(src: Data, s8rg: int, s8b: int) -> int {
     comptime var blue = 0
     comptime var all = 0
     for i in 0..48 {
         comptime var w = night_src_word(src, i)
-        if as_night == 1 { w = night_word(w) }
-        blue = blue + ((w >> 9) & 7)
-        all = all + ((w >> 1) & 7) + ((w >> 5) & 7) + ((w >> 9) & 7)
+        comptime var r = night_channel((w >> 1) & 7, s8rg)
+        comptime var g = night_channel((w >> 5) & 7, s8rg)
+        comptime var b = night_channel((w >> 9) & 7, s8b)
+        blue = blue + b
+        all = all + r + g + b
     }
     return blue * 1000 / all
 }
@@ -2217,13 +2237,18 @@ ensure(night_ret_pct_max(_ojz_day_pal, 2) == 76,
 ensure(night_ret_pct_max(_ojz_day_pal, 1) == 100,
        "the 100% class is not where it should be: entries whose every lit channel is already at the bottom rung keep 100% by arithmetic necessity (a 3-bit channel at 1 has no dimmer non-black value), and this palette has four of them — $0002, $0020 twice, $0202. {night_ret_pct_max(_ojz_day_pal, 1)}% instead means the floor or the rungs moved")
 
-// THE LEAN, measured. Day 337 permille, night 406 — blue's share of the palette's total light
-// rises by about a fifth. Both numbers are pinned because asserting only the inequality would
-// hold just as well for a lean of one part in a thousand.
-ensure(night_blue_permille(_ojz_day_pal, 0) == 337,
-       "the DAY palette's blue share is {night_blue_permille(_ojz_day_pal, 0)} permille, not 337 — the art changed under this pin, so re-derive the night figure below rather than nudging it")
-ensure(night_blue_permille(_ojz_day_pal, 1) == 406,
-       "the night grade's blue share is {night_blue_permille(_ojz_day_pal, 1)} permille, not 406. Day is 337, so the lean must be ABOVE that; a value at or under 337 means NIGHT_BLUE_8 stopped leading NIGHT_LIGHT_8 in effect even if the inequality above still holds on paper")
+// THE LEAN, measured, against its own control. Three rows and the middle one is the point:
+//   337  the day palette, read through the identity scale (8, 8)
+//   341  the SAME grade with blue scaled like red and green — NO lean, and the share still rises
+//   406  the shipped grade
+// Asserting only "night > day" would have been satisfied by 341, i.e. by a transform with no
+// lean in it at all. The pin that means something is the third against the second.
+ensure(night_blue_permille(_ojz_day_pal, 8, 8) == 337,
+       "the DAY palette's blue share is {night_blue_permille(_ojz_day_pal, 8, 8)} permille, not 337 — the act art changed under this pin, so re-derive the two rows below rather than nudging them")
+ensure(night_blue_permille(_ojz_day_pal, NIGHT_LIGHT_8, NIGHT_LIGHT_8) == 341,
+       "the NO-LEAN CONTROL reads {night_blue_permille(_ojz_day_pal, NIGHT_LIGHT_8, NIGHT_LIGHT_8)} permille, not 341. This row is a scale with blue treated exactly like red and green; its whole job is to be the thing the shipped grade is compared against, so that rounding's own small blue bias is not counted as design")
+ensure(night_blue_permille(_ojz_day_pal, NIGHT_LIGHT_8, NIGHT_BLUE_8) == 406,
+       "the night grade's blue share is {night_blue_permille(_ojz_day_pal, NIGHT_LIGHT_8, NIGHT_BLUE_8)} permille, not 406. The no-lean control above is 341, so the lean is what lies ABOVE 341 — a value near 341 means NIGHT_BLUE_8 has stopped leading NIGHT_LIGHT_8 in effect even if the inequality at the top of this block still holds on paper")
 
 // THE MERGE BUDGET. 39 distinct day colours, 36 distinct night ones: three pairs collapse, and
 // none of the three is visible in the certified captures (two involve entries with zero pixels
