@@ -1,5 +1,5 @@
 {
-  "focus": "Act 1 reads its areas from your editor now. Three things are startable and none of them waits on anyone.",
+  "focus": "Working out how backgrounds stream between zones, which your Sonic 2 or 3 in one act showcase depends on.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -11,18 +11,25 @@
   "nextBoundary": "Here. Nothing running, nothing half-applied.",
   "queue": [
     {
+      "id": "MEGAACT-BG-STREAMING",
+      "title": "Backgrounds must stream like the foreground already does, for Sonic 2 or 3 in one act. Today's crossing repaint is half of it; loading and evicting background tiles is the other half",
+      "state": "next",
+      "size": "L",
+      "blockedBy": null
+    },
+    {
       "id": "REGIONS-P2-STEP7",
       "title": "Video memory, lever 1: shrink the foreground art cache so objects get room. He ruled this plan in his own words and scoped it inside regions; both levers are already priced here",
-      "state": "next",
+      "state": "open",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "held, not blocked: you set the showcase as S2 or S3 in one act, and a background that loads once cannot do that. Carving video memory for one zone right before designing for many risks carving it twice"
     },
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Video memory, lever 2: halve the scroll plane, which also makes the background window mandatory rather than optional. Takes lever 1 first",
       "state": "open",
       "size": "L",
-      "blockedBy": null
+      "blockedBy": "held, not blocked: you set the showcase as S2 or S3 in one act, and a background that loads once cannot do that. Carving video memory for one zone right before designing for many risks carving it twice"
     },
     {
       "id": "SP-6",
@@ -46,7 +53,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "which of three to take next -- the two video-memory levers that give objects room on screen, or the boot sound-chip fix that sigil unblocked today. Also still yours: the spring sound A/B from 09-09.",
+  "awaiting": "whether to start the design pass for streaming backgrounds between zones -- research first, then a draft for you to review. Also still yours: the spring sound A/B from 09-09.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T18:13:14Z"
+  "updatedAt": "2026-09-16T18:42:37Z"
 }
