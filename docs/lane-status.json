@@ -1,5 +1,5 @@
 {
-  "focus": "Act 1 now reads its areas from the editor's own file. The two halves can no longer drift apart.",
+  "focus": "Act 1 reads its areas from your editor now. Three things are startable and none of them waits on anyone.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -11,6 +11,20 @@
   "nextBoundary": "Here. Nothing running, nothing half-applied.",
   "queue": [
     {
+      "id": "REGIONS-P2-STEP7",
+      "title": "Video memory, lever 1: shrink the foreground art cache so objects get room. He ruled this plan in his own words and scoped it inside regions; both levers are already priced here",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "REGIONS-P2-STEP8",
+      "title": "Video memory, lever 2: halve the scroll plane, which also makes the background window mandatory rather than optional. Takes lever 1 first",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null
+    },
+    {
       "id": "SP-6",
       "title": "The spring sound A/B you asked to hear: built on 09-09, waiting for your listen",
       "state": "blocked",
@@ -20,7 +34,7 @@
     {
       "id": "LS-13b",
       "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -32,7 +46,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "nothing from you right now. Still on your desk from before: the spring sound A/B from 09-09.",
+  "awaiting": "which of three to take next -- the two video-memory levers that give objects room on screen, or the boot sound-chip fix that sigil unblocked today. Also still yours: the spring sound A/B from 09-09.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T17:51:19Z"
+  "updatedAt": "2026-09-16T18:13:14Z"
 }
