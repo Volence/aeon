@@ -82,12 +82,29 @@ added without renumbering stops that gate rather than silently sliding every rea
 | $00 | long | `sec_block_index` | ROM pointer to 256-entry block index table. NULL = empty section. |
 | $04 | long | `sec_objects` | ROM pointer to compact object entries (X-sorted) |
 | $08 | long | `sec_rings` | ROM pointer to ring list (`dc.w X, Y` pairs) |
-| $0C | long | `sec_parallax_config` | Parallax config pointer; outranks the preset's `ep_parallax`. 0 = defer (`Effects_ResolveParallax`) |
-| $10 | long | `sec_bg_layout` | Plane B layout pointer (NULL = use `Act.act_bg_layout`) |
-| $14 | long | `sec_type_table` | Type table pointer: `dc.b count, pad; dc.l ObjDef * N` |
-| $18 | long | `sec_block_dict` | Raw block-dictionary pointer (block blob + index size; LZ window pre-seed) |
-| $1C | long | `sec_effects` | `EffectsPreset*` — **REQUIRED, no default**. Every per-section visual channel (palette, cycle, variants, raster, parallax) binds through this one pointer. |
-| $20 | word | `sec_block_dict_len` | Dict bytes (768 × K, K ≤ 3, word-even; 0 = no dict) |
+| $0C | long | `sec_type_table` | Type table pointer: `dc.b count, pad; dc.l ObjDef * N` |
+| $10 | long | `sec_block_dict` | Raw block-dictionary pointer (block blob + index size; LZ window pre-seed) |
+| $14 | word | `sec_block_dict_len` | Dict bytes (768 × K, K ≤ 3, word-even; 0 = no dict) |
+
+`sizeof(Sec)` = 22 (`$16`). The record is PURE STORAGE: every field is a pointer to bytes this
+section owns, or the length of one. Nothing about a section's IDENTITY lives here.
+
+⚠ **THIS TABLE WAS THREE DELETIONS OUT OF DATE UNTIL 2026-09-16, and a reader laying out a
+section by it put every field from `$0C` down in the wrong place.** Two rounds are involved and
+they are separate events:
+
+* **2026-09-13, painted-regions v1 step 4** — `sec_parallax_config` and `sec_effects`, the
+  section's IDENTITY binding, left `Sec` for the `Region` record (`rg_parallax`, `rg_effects`).
+  The scope an `EffectsPreset` is bound at is a painted world-pixel rectangle now, not a grid
+  cell. `Sec` 34 -> 26.
+* **2026-09-16, regions part 2 step 3** — `sec_bg_layout` followed them, for the same reason:
+  the background of a place is `Region.rg_bg_layout` (0 still means `Act.act_bg_layout`),
+  resolved by `Section_RedrawPlanes` through `Region_Resolve` on the camera centre. `Sec`
+  26 -> 22.
+
+**An editor that writes section rows must read `engine/structs.emp`, not this table.** The
+record has moved twice in four days without this document noticing either time, and no gate
+looks at a record layout.
 
 ### What is NOT in this struct any more
 
@@ -111,11 +128,14 @@ A zero means "defer / none", never "keep whatever the previous section had". Tha
 belonged to the deleted per-field installers and is exactly what the total-binding preset exists
 to remove.
 
-- `sec_parallax_config = 0`: defer to the preset's `ep_parallax`, then `Act.act_parallax_config`
-- `sec_bg_layout = 0`: use `Act.act_bg_layout`
 - `sec_block_index = 0`: empty section (no geometry) — `Section_GetSecPtrXY` treats it as out-of-grid
-- `sec_effects = 0`: **not legal, and not constructible** — the field has no default and neither
-  does `ojz_sec()`'s `effects:` argument, so an omitted binding fails the build in every shape
+- `sec_block_dict = 0` / `sec_block_dict_len = 0`: no dictionary for this section
+
+The three zero conventions this list used to carry now belong to the `Region` record and are
+stated there: `rg_parallax = 0` defers to the preset's `ep_parallax` then
+`Act.act_parallax_config`; `rg_bg_layout = 0` uses `Act.act_bg_layout`; `rg_effects = 0` is
+**not legal and not constructible** — the field has no default and `ojz_region()`'s `effects:`
+argument has none either, so an omitted binding fails the build in every shape.
 
 ### Example (one row of the 3x3 section table)
 
@@ -123,17 +143,20 @@ Sections are not hand-assembled as `dc.l` runs; they flow through one validating
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp`, which is where a new act should start:
 
 ```
-ojz_sec(sec: 0, blocks: OJZ_Sec0_Blocks,
+ojz_sec(blocks: OJZ_Sec0_Blocks,
         objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
         type_table: OJZ_Sec0_TypeTable,
-        effects: OJZ_Preset_Sec0,
         dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
         dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
 ```
 
-`sec_parallax_config` is not an argument: it is filled by `ojz_act1_sec_scene(sec: N)`, the
-generated editor-binding function, so a section's parallax comes from its Aurora sidecar rather
-than from this file.
+**`sec:`, `effects:` and the background are not arguments of `ojz_sec()`**, and this example
+carried two of them long after they were removed — check it against the file rather than
+copying it. A section row is storage and its index in the table IS its flat id. The identity
+and the background of a place come from the act's REGION table (`OJZ_ACT1_REGION_ROWS`, at the
+end of the same file): each `ojz_region()` row names its `effects:` preset, its `parallax:`
+(usually `ojz_act1_sec_scene(sec: N)`, the generated editor-binding function, so parallax comes
+from an Aurora sidecar) and, when it wants one, its own `bg_layout:` / `bg_span:`.
 
 ---
 

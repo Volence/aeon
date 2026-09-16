@@ -34874,3 +34874,94 @@ diagnostic, in a compiler that since `6a8b3ecd` refuses cross-class `==` precise
 class of permanently-vacuous guard. It is the §12 "always GREEN" sign, unrefused, in a spelling
 an author would reach for first. Reported to the sigil lane; recorded here because the next
 author to read §4.2 will try exactly that line.
+
+## BG-BOOT-REGION-BLIT: `BG_Init` runs before the camera exists, so the FIRST Plane B blit cannot be region-aware (found 2026-09-16, `parcel/regions-p2-step3`)
+
+The part-2 spec's §4.5 asks `BG_Init` to "resolve the boot region first (`Region_Resolve` on the
+start camera centre; `Camera_Init` precedes the boot select)". **The premise is true of the
+PARALLAX boot select and false of `BG_Init`.** Measured at the one shipped init ladder
+(`games/sonic4/test/ojz_scroll_test.emp`): `jbsr Level_LoadArt`, which tail-calls `BG_Init`
+(`engine/level/load_art.emp`, the `jbra BG_Init` at the end of the act load), stands ABOVE
+`jbsr Camera_Init` — and `Camera_Init` is the only writer of `Camera_X`/`Camera_Y` before the
+plane fill. `Current_Act_Ptr` IS live by then (`Level_LoadArt` sets it at its top), so a
+`Region_Resolve` there would not crash; it would query the camera centre of a camera that does
+not exist, i.e. `(0,0) + (CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H)` after boot's RAM clear, or the
+PREVIOUS act's position on a re-entry. It would answer, answer wrongly, and today answer wrongly
+invisibly, because all ten of act 1's region rows default their layout.
+
+**What step 3 shipped instead:** `BG_Init` blits `Act.act_bg_layout` as before and seeds the BG
+plane tracker with what it actually blitted; `Section_RedrawPlanes` — later in the SAME init,
+after `Camera_Init` and after the DEBUG boot-position override, still before display-on — does
+the region-aware blit and re-seeds. So the first VISIBLE frame is the region's picture on every
+path, and "the tracker names the blob the plane holds" is true at every instant rather than from
+the second writer onwards. The cost is one wasted 8192-byte blit at load on any act that ever
+authors a non-default layout under its start point.
+
+**Three ways out, rising in cost, none of them step 3's:**
+
+1. **Leave it.** The wasted blit is at load, with the display off, on a path that already spends
+   ~21 ms holding the Z80 bus. Nothing is wrong except the duplication.
+2. **Move the nametable blit out of `BG_Init` entirely**, leaving it the BG *tile* loader, and let
+   `Section_RedrawPlanes` be the only writer of the Plane B nametable. Cleanest by the
+   one-authority rule and it deletes a whole blit — but it makes the picture depend on a flag
+   (`Section_Plane_Dirty`) being set on every boot path, where today a path that forgot would
+   still show the act background. Wants the boot-path enumeration doing first.
+3. **Reorder the ladder** so `Camera_Init` precedes `Level_LoadArt`. Camera_Init is a pure
+   function of the act descriptor, so the move is mechanically legal — but the DEBUG boot-position
+   override (§4.12b) sits after `Player_Init`/`InitObjectRAM`, so "the camera the author asked
+   for" is still not available at `BG_Init` time without moving those too. Largest, and it buys
+   only what (2) buys.
+
+This matters the day a region under an act's START POINT declares its own `rg_bg_layout`, which is
+the part-2 step 6 showcase's most likely shape.
+
+## `(size: N)` on `SpawnDesc` is not enforced — the same silent-declaration class, LIVE (reported by the sigil lane 2026-09-16, booked from `parcel/regions-p2-step3`)
+
+A `(size: N)` struct declaration in `.emp` is checked **only inside `layout_of_struct`**, i.e.
+only when something in the build FORCES that struct's layout. No pass walks declared structs and
+verifies their sizes. Sigil probed seventeen shapes with a positive control beside each: a struct
+declared in the entry module and never referenced builds **CLEAN with its size off by 87**, exit
+0, no diagnostic; importing it by name and never using it is silent too.
+
+**Live here:** `engine/objects/children.emp:84`, `pub struct SpawnDesc (size: 4)`. Mutated to
+`(size: 41)` it builds clean under **both** `--game sonic4` and `--game demo`. Its module IS
+compiled — proven by appending `ensure(1 == 2)` and watching the build fail — but its only
+consumers that write `data ...: SpawnDesc` literals live outside the sonic4 closure. Eight of the
+tree's nine integer `(size: N)` declarations are genuinely enforced; that one is not.
+
+**The remedy is one line and needs nothing from sigil:** `ensure(sizeof(SpawnDesc) == 4, "...")`
+beside the declaration. A hand-written `ensure` fired in all four arms sigil probed it in, and
+costs zero ROM bytes. `Region` and `Sec` got theirs in step 3 (`engine/structs.emp`, both proven
+red by mutation); `SpawnDesc` did NOT, deliberately — a different engine file is not that
+parcel's subject and folding it in would have muddied its byte accounting.
+
+⚠ **THE `[module.unreachable]` CENSUS CANNOT FIND THIS CLASS, from either end.**
+`engine/effects/preset.emp:114` prescribes checking that census to catch exactly this, and it
+does not work here: the census only names unreachable modules whose **ensure count is nonzero**,
+and all three of `SpawnDesc`'s consumers carry zero ensures. Sigil's agent walked into that trap,
+read the absence as evidence of reachability, caught itself, and re-grounded every reachability
+claim on the appended-`ensure` control instead. That note in `preset.emp` was NOT edited by step
+3; whoever closes this item should re-read it and decide whether it needs the caveat.
+
+## BG plane window start row: `Section_RedrawPlanes` blits the whole image, not a window (booked 2026-09-16, `parcel/regions-p2-step3`)
+
+§4.5 asks the two blits to write "a WINDOW of `PLANE_V_CELLS` rows starting at the row the scroll
+selects". Step 3 did not, and the reason is that the number does not exist yet at either site:
+the scroll in question is `Parallax_Current_Vscroll_BG`, and **`Parallax_Init` runs AFTER both
+blits** on the shipped ladder (the synchronous `Section_UpdateColumns` pair precedes the
+`Parallax_Init` / `BgAnim_Init` pair in `games/sonic4/test/ojz_scroll_test.emp`, and the warp
+ladder's step 6 precedes its step 7 the same way). A window start row computed at either blit
+today could only ever read 0 — step 2's finding-2 shape exactly: an instrument that cannot
+produce the non-zero answer it claims to look for.
+
+It costs nothing at this pin because the map height IS the plane height (`rg_bg_span` 0 =
+`PLANE_B_SPAN` = `PLANE_V_CELLS * 8`), so the window is rows 0..63 and the whole-image blit **is**
+the window. Two later steps make it real and each supplies the missing number:
+
+* **Step 5 (the tracker)** owns `BG_Plane_Top` and is the first thing that can say which map row
+  the plane's top row holds.
+* **Step 8 (`PLANE_V_CELLS` 64 -> 32)** makes it mandatory: neither blit can drain an 8192-byte
+  layout into a 4096-byte plane, so each must blit a window, and the wrap makes it two runs.
+
+Whoever writes it: the destination wraps modulo `PLANE_V_CELLS` while the source does not, so it
+is the two-run shape `Draw_TileRow_FromCache`'s `.emit_row_run` already has, not one `move.l` run.
