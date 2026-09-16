@@ -57,9 +57,46 @@ def test_the_act_region_fields_are_appended_last():
     assert ao["act_region_count"] == ao["act_regions"] + 4
 
 
+def test_the_background_fields_are_appended_last_and_the_rectangle_is_still_two_move_l():
+    """Regions part 2 step 1's whole claim: the two background fields were APPENDED, so no
+    offset an existing reader depends on moved.
+
+    Both halves are derived from the mechanism rather than copied off the declaration:
+
+      * `Parallax_CheckBoundary` fills its RAM cache with TWO `move.l` because the record is
+        span-major — so the four rectangle words must be the first four fields, contiguous,
+        and the two longword reads must start long-ALIGNED. That is what makes "the fields
+        were appended" load-bearing rather than tidy.
+      * The background pair must be the LAST two fields. Anywhere else and every offset after
+        it slides, which is the failure this test exists to name.
+    """
+    off, size = rt.region_layout()
+    rect = ("rg_x0", "rg_x1", "rg_y0", "rg_y1")
+    assert list(off)[:4] == list(rect), (
+        f"struct Region no longer opens with the rectangle {rect}; it opens with "
+        f"{list(off)[:4]}. The crossing's cache fill is two move.l over exactly those words")
+    for n, prev in zip(rect[1:], rect):
+        assert off[n] == off[prev] + 2, (
+            f"`{n}` is at ${off[n]:02X}, not two bytes after `{prev}` (${off[prev]:02X}) — "
+            "the rectangle is no longer four contiguous words")
+    assert off["rg_x0"] % 4 == 0 and off["rg_y0"] % 4 == 0, (
+        f"a move.l cache fill starts at ${off['rg_x0']:02X} / ${off['rg_y0']:02X}; an odd "
+        "base would address-error on 68000")
+    assert list(off)[-2:] == ["rg_bg_layout", "rg_bg_span"], (
+        f"struct Region's last two fields are {list(off)[-2:]}; the background pair was "
+        "APPENDED (regions part 2 step 1) so that no older offset moved. A field inserted "
+        "before them slides rg_effects and rg_parallax under every reader")
+    assert off["rg_bg_span"] + 2 == size, (
+        f"rg_bg_span at ${off['rg_bg_span']:02X} + 2 is not the {size}-byte record size — "
+        "something follows the field this test believes is last")
+
+
 def _row(i, x0, x1, y0, y1):
-    return {"index": i, "addr": 0x1000 + 16 * i, "x0": x0, "x1": x1, "y0": y0, "y1": y1,
-            "effects": 0x2000 + i, "parallax": 0}
+    # The stride is the record's own, parsed, not a literal: this fixture states the layout
+    # and a hand-typed size here would go stale the next time a field is appended.
+    stride = rt.region_layout()[1]
+    return {"index": i, "addr": 0x1000 + stride * i, "x0": x0, "x1": x1, "y0": y0, "y1": y1,
+            "effects": 0x2000 + i, "parallax": 0, "bg_layout": 0, "bg_span": 0}
 
 
 def test_region_at_restates_region_resolve():

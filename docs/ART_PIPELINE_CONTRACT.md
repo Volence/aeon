@@ -962,7 +962,7 @@ buffer**; the shipped act's worst 2×2-block pressure is 20.
 `games/sonic4/data/levels/ojz/act1/act_descriptor.emp` builds one `Act` record naming the
 grid, the start position, the act-wide BG blob and tile blob, the parallax config, the
 paged art pool table, the per-section local maps, an edge mode and a per-act art byte
-budget. Each of the nine sections is a `Sec` record (`engine/structs.emp:145`):
+budget. Each of the nine sections is a `Sec` record (`engine/structs.emp`, `struct Sec`):
 
 ```
 $00 sec_block_index      *u8   the 256-entry block index table

@@ -32,7 +32,14 @@ _SCALAR = {"u8": 1, "i8": 1, "u16": 2, "i16": 2, "u32": 4, "i32": 4}
 
 # The fields every consumer of this module reads, by name. A rename in structs.emp makes
 # `region_layout` refuse naming the missing field, rather than every consumer KeyError-ing.
-REGION_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects", "rg_parallax")
+#
+# tools/test_region_table.py asserts this list EQUALS the declaration's field order, not that
+# it is contained in it, which is why a field appended to `struct Region` lands here in the
+# same change rather than being silently unread. Regions part 2 step 1 (2026-09-15) added the
+# last two: nothing in the ENGINE reads them yet, but this module is the out-of-assembler
+# reader and a row it hands back with the background half missing would be a half-read record.
+REGION_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects", "rg_parallax",
+                 "rg_bg_layout", "rg_bg_span")
 ACT_REGION_FIELDS = ("act_regions", "act_region_count")
 
 
@@ -133,6 +140,11 @@ def read_regions(rom: bytes, act_base: int, aeon: Path = AEON) -> list[dict]:
             "y0": _u(rom, a + ro["rg_y0"], 2), "y1": _u(rom, a + ro["rg_y1"], 2),
             "effects": _u(rom, a + ro["rg_effects"], 4),
             "parallax": _u(rom, a + ro["rg_parallax"], 4),
+            # Regions part 2 step 1. 0 in either means "the act's own" — the layout defaults
+            # to Act.act_bg_layout and the span to PLANE_B_SPAN — so a caller reads 0 as the
+            # sentinel, never as an address or a height.
+            "bg_layout": _u(rom, a + ro["rg_bg_layout"], 4),
+            "bg_span": _u(rom, a + ro["rg_bg_span"], 2),
         })
     return rows
 
