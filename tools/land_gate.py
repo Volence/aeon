@@ -122,6 +122,18 @@ RULES: tuple = (
      "the hand-copied VRAM table and the budget constants it restates must equal the "
      "generated vram_map mirror; it went stale on BG_TILE_CAPACITY in the same week "
      "EFFECTS_CONSUMER_CONTRACT.md did, from the same carve, ungated"),
+    ("docs/captures/2026-09-13-regions-p2-night/README.md", CHECKED,
+     ("tools/test_capture_settle.py",),
+     "that capture set's state table IS the fixture for the settle predicate: "
+     "test_capture_settle parses its rows and asserts the frame named `t5-f272-settled.png` "
+     "(Pal_Fade_Frames = 11) cannot be named settled. Editing the table changes what the "
+     "test reads, so a push that touches it must run the test"),
+    ("docs/captures/2026-09-16-night-settled/report.json", CHECKED,
+     ("tools/test_capture_settle.py",),
+     "a real per-tick read of a booted s4.debug.bin across the night edge, replayed by "
+     "test_capture_settle as the regression fixture for the 2026-09-16 `buf` defect: the "
+     "night verdicts must stay unchanged and the day controls must stop being refused. "
+     "Editing the report changes what the test replays"),
     ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py"),
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),

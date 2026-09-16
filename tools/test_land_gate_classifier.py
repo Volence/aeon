@@ -71,6 +71,15 @@ KNOWN = {
         "the E2 landing: a grep over *.py/*.sh/*.toml/*.cfg/*.ini finds no caller but its own "
         "definition, build.sh names it 0 times, and it is absent from effects_gates.py's gate "
         "schedule (the 18 gates that run are listed in that run's own OK line)",
+    ("tools/night_settle_capture.py", "docs/captures/2026-09-16-night-settled"):
+        "the night-region FADE capture, run BY HAND in the foreground (it boots an emulator, "
+        "so no agent and no gate may run it); the directory is its --outdir default, a WRITE "
+        "destination it mkdir's and never reads. Evidence that it never runs in a build, "
+        "derived 2026-09-16 rather than copied from the e2 row above: a grep over "
+        "*.py/*.sh/*.toml/*.cfg/*.ini finds the name in four files, all of them this tool, "
+        "its own two test modules (which IMPORT it in-process and shell out to nothing) and "
+        "capture_settle.py's header prose; build.sh, tools/effects_gates.py, "
+        "tools/landing_build.sh and tools/nightly_effects_gates.sh name it 0 times each",
 }
 
 #: The gate's own files name docs paths as DATA (the RULES table, scratch-repository
