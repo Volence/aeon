@@ -572,10 +572,15 @@ ensure(BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX >= BG_VSCROLL_MAX_STEP,
 // their rows cannot share a chunk's frame), minus the Critical queue's peak (4 palette lines,
 // the SAT, the HScroll table, and a full-CRAM raster ship), minus the Important queue's player
 // DPLC peak (Sonic + Tails + tail, the duo cast dplc_straddle reserves for), minus every other
-// Deferrable producer's peak that can sit AHEAD of the chunk in the FIFO (insta-shield and
-// spindash-dust DPLC, waterline art). Act art page landings are NOT charged: they are the
-// priority C1 chose, so a heavy streaming frame just delays the chunk.
-pub const BG_OVERWRITE_CHUNK_BYTES = 256
+// ...and NOTHING for the other Deferrable producers (controller ruling 2026-09-16). The rule is
+// LIVENESS, not "never delay a peer": the chunk must fit on any frame where it is the only
+// Deferrable entry, or it could starve forever. Insta-shield and spindash-dust DPLC and waterline
+// art may slip a frame behind a chunk at the queue head — that is the Deferrable contract
+// ("budget-gated, can slip one frame"), and GATE BG-SWITCH leg TRAFFIC measures the slip. Act art
+// page landings are NOT charged either: they are the priority C1 chose, so a heavy streaming frame
+// just delays the chunk. The first derivation charged every Deferrable peak and gave 256 B
+// (27 ticks for a 216-tile blob); rejected for that reason.
+pub const BG_OVERWRITE_CHUNK_BYTES = 1824
 const BG_CRITICAL_PEAK_BYTES = 4 * 32 + 640 + 896 + 128   // pinned to BuildStaticDMA by the test above
 ensure(BG_OVERWRITE_CHUNK_BYTES >= 32 && BG_OVERWRITE_CHUNK_BYTES % 32 == 0,
        "engine/level/bg.emp: BG_OVERWRITE_CHUNK_BYTES is {BG_OVERWRITE_CHUNK_BYTES}; an overwrite chunk must be a whole number of tiles (32 B) and at least one, or BG_Stream_Update's `andi.w #$FFFC` length and the offset arithmetic stop landing on tile boundaries")

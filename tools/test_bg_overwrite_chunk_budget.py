@@ -1,27 +1,33 @@
 """BG_OVERWRITE_CHUNK_BYTES — the region bg switch's per-frame upload chunk — is DERIVED, and
 this test is where the derivation lives (plan docs/superpowers/plans/2026-09-16-region-bg-
-switch.md, call C3 as amended after the controller review found the Deferrable queue has more
-producers than BgAnim).
+switch.md, call C3; controller ruling 2026-09-16 on what the chunk must guarantee).
 
-The chunk must drain on the NTSC window's WORST frame, because the budgeted drain stops at the
-first entry that does not fit and would then also hold every Deferrable entry queued behind it
-(object DPLC art included). So:
+THE RULE IS LIVENESS. `Drain_Budgeted_Queue` (engine/system/dma_queue.emp) is strictly FIFO and
+stops at the first entry that does not fit. A chunk at the head of the Deferrable queue therefore
+DELAYS the Deferrable entries behind it, and that delay is the Deferrable contract ("budget-gated,
+can slip one frame", engine/objects/dplc.emp, Perform_DPLC_Deferrable). What the chunk must
+guarantee is that it fits on ANY frame where it is the only Deferrable entry, or it could starve
+forever. So:
 
   chunk <= DMA_BUDGET_NTSC
            - FG plane-drain peak       (engine/level/bg.emp FG_PEAK_BYTES; the BG streamer and
                                         wipe are suspended while chunks are queued)
-           - Critical peak             (BuildStaticDMA's 4 palette lines + SAT + HScroll, read
-                                        by tools/dma_defer_headroom.py's own reader, plus a
-                                        full-CRAM raster ship, 64 colours x 2 B)
-           - Important player DPLC peak (the duo cast dplc_straddle reserves for: Sonic + Tails +
-                                        Tails' appendage)
-           - Deferrable producers that can sit AHEAD of the chunk: insta-shield DPLC peak,
-             spindash-dust DPLC peak, waterline art (WATERLINE_STRIPS x H x ROW_BYTES)
+           - Critical peak             (BuildStaticDMA's 4 palette lines + SAT + HScroll, read by
+                                        tools/dma_defer_headroom.py's own reader)
+           - a full-CRAM raster ship   (64 colours x 2 B; Critical, unbudgeted)
+           - the Important queue's player-art peak (the duo cast dplc_straddle reserves for:
+                                        Sonic + Tails + Tails' appendage, or Knuckles if larger)
 
-and the committed value must be the LARGEST whole-tile (32 B) multiple that fits: smaller is a
-slower switch than the budget pays for, larger can starve. Every input is read from source or
-from the shipped DPLC blobs; nothing is typed here. If the residual cannot hold one tile the test
-fails loudly: that is a budget the design cannot meet, not a number to shrink.
+and the committed value is the LARGEST whole-tile (32 B) multiple that fits.
+
+DELIBERATELY NOT CHARGED, each for a reason:
+  * the other Deferrable producers — insta-shield and spindash-dust DPLC, waterline art. They may
+    slip behind a chunk; GATE BG-SWITCH leg TRAFFIC measures that slip. Charging them gave 256 B,
+    rejected by the ruling above.
+  * act art page landings on the Important queue — the priority plan call C1 chose; a heavy
+    streaming frame delays the chunk, it does not overrun anything.
+
+If the bound cannot hold one tile the test fails loudly: a budget the design cannot meet.
 """
 import re
 from pathlib import Path
@@ -66,19 +72,15 @@ def _derive():
            + _dplc_peak_bytes("games/sonic4/data/characters/tails_data.emp", "_dplc_tail"))
     knux = _dplc_peak_bytes("games/sonic4/data/characters/knuckles_data.emp", "_dplc_knux")
     important = max(duo, knux)
-    insta = _dplc_peak_bytes("games/sonic4/player/player_instashield.emp", "_dplc_insta")
-    dust = _dplc_peak_bytes("games/sonic4/data/dust_data.emp", "_dplc_dust")
-    pdsl = REPO / "engine/level/parallax_dsl.emp"
-    waterline = _emp_const(pdsl, "WATERLINE_DST_BYTES")
     budget = H._const("DMA_BUDGET_NTSC")
-    residual = budget - fg_peak - critical - ship - important - insta - dust - waterline
+    residual = budget - fg_peak - critical - ship - important
     parts = dict(budget=budget, fg_peak=fg_peak, critical=critical, ship=ship,
-                 important=important, insta=insta, dust=dust, waterline=waterline,
+                 important=important,
                  residual=residual)
     return parts
 
 
-def test_overwrite_chunk_is_the_largest_whole_tile_multiple_that_drains_on_the_worst_ntsc_frame():
+def test_overwrite_chunk_is_the_largest_whole_tile_multiple_that_fits_when_it_is_the_only_deferrable_entry():
     p = _derive()
     tile = H._const("TILE_SIZE")
     assert p["residual"] >= tile, (
