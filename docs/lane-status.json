@@ -14,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When that agent returns and its work is judged and landed. The machine-side check after it is mine to run.",
+  "nextBoundary": "When the agent returns and its work is judged and landed. The machine-side check after it is mine to run. \u26a0 The machine is at load 31 with swap in use (was 7 an hour ago) and a peer lost three background gate runs to it in this window, so ANY gate result collected around now is re-checked against a leg count before it is believed \u2014 a killed run aggregates clean.",
   "queue": [
     {
       "id": "BG-PLANE-WINDOW",
@@ -61,5 +61,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T13:20:40Z"
+  "updatedAt": "2026-09-16T13:43:01Z"
 }
