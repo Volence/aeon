@@ -1951,26 +1951,288 @@ pub data OJZ_Preset_Sec7:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ
 // The fade is armed by the DESTINATION's preset, so it runs on the way IN (from either side) and
 // the neighbours, whose presets leave it 0, SNAP back on the way out.
 //
-// ⚠ THE LOOK IS PARKED FOR THE OWNER. OJZ_Palette_Night is a legible default, not a design: every
-// colour of OJZ_Palette (games/sonic4/data/generated/ojz/act1/ojz_palette.bin, lines 1-3) with its
-// 3-bit channels moved by red -3, green -2, blue 0, each clamped to 0..7 — the same darker, bluer
-// cast on every line, so the level reads as moonlit rather than recoloured. Line 1 carries the
-// rings' gold, so the rings dim with it. To regenerate after OJZ_Palette changes, or to try a
-// different cast, rerun the one transform over the .bin:
-//
-//   python3 -c "import sys;d=open('games/sonic4/data/generated/ojz/act1/ojz_palette.bin','rb').read();c=lambda v:max(0,min(7,v));print(', '.join('$%04X'%((c(((w>>1)&7)-3)<<1)|(c(((w>>5)&7)-2)<<5)|(c((w>>9)&7)<<9)) for w in (int.from_bytes(d[i:i+2],'big') for i in range(0,96,2))))"
-//
-// REVERSIBLE IN ONE WORD: `pal: OJZ_Palette` in OJZ_Preset_Night puts the old colours back with the
-// region and the fade kept; deleting the region row (act_descriptor.emp) puts everything back.
 // ===========================================================================
-pub data OJZ_Palette_Night: [u16; 48] = [
-    // line 1
-    $0000, $0000, $0E20, $0A40, $0E40, $0000, $0EA8, $0A64, $0842, $0400, $0620, $0E40, $00A8, $0042, $0E62, $0E84,
-    // line 2
-    $0000, $0000, $0800, $0200, $0202, $0224, $0446, $0668, $0000, $0000, $0200, $0420, $0460, $0440, $0280, $06A4,
-    // line 3
-    $0000, $0000, $0200, $0420, $0640, $0200, $0600, $0802, $0802, $0860, $0000, $0C46, $0C08, $0E08, $0E48, $0E88,
-]
+// THE NIGHT GRADE — a TRANSFORM with asserted properties, not a parked default.
+// NIGHT-REGION-LOOK, 2026-09-16. docs/superpowers/notes/2026-09-16-night-palette-tone.md.
+//
+// The banner that stood here said the look was "a legible default, not a design", and the
+// recipe under it was a CONSTANT PER-CHANNEL SUBTRACTION (red -3, green -2, blue 0, clamped).
+// The hub ruled that look down on measured channel means; the mechanism is one arithmetic
+// error and it is derivable from this line alone, without a capture:
+//
+//   A SUBTRACTION IS A HUE ROTATION, NOT A DARKENING. Ratios survive a multiply; they do not
+//   survive a subtraction, and the damage is inversely proportional to where a channel starts.
+//   Measured over these 48 colours, the subtraction kept between 0% and 100% of an entry's
+//   luminance depending on its HUE: four colours were clamped to literal $0000 (the canopy and
+//   trunk darks — silhouettes did not dim, they ceased to exist, and the canopy+trunk band went
+//   from 63.6% black pixels to 75.1%), the dirt ramp swung from hue 27 deg to hue 336 deg with
+//   its saturation nearly intact (the wine-red the owner saw), and one pure blue came through
+//   bit-identical because blue was subtracted 0.
+//
+// ---- WHAT REPLACES IT: half the light, three quarters of the blue -----------------------
+// A per-channel MULTIPLICATIVE scale in eighths, with round-half-up, a floor that keeps any
+// non-zero channel non-zero, and exactly one asymmetry — blue is scaled less than red and green,
+// which IS the blue lean. Two constants; the owner moves the whole look by moving them.
+//
+// R and G share one scale ON PURPOSE. Equal scales mean the red:green ratio is EXACTLY preserved
+// on every colour, so no warm colour can rotate toward magenta however dark it is taken. The
+// wine-red is not "reduced" here, it is structurally unreachable.
+//
+// THE ROUNDING RUNGS, derived, because every property below follows from them and nothing else.
+// With n = (v * s8 + 4) / 8 floored at 1 for v > 0:
+//   s8 = 4 (R, G):  v 1..7 -> 1 1 2 2 3 3 4   ratios 1.00 .50 .67 .50 .60 .50 .57
+//   s8 = 6 (B):     v 1..7 -> 1 2 2 3 4 5 5   ratios 1.00 1.00 .67 .75 .80 .83 .71
+// Every rung is <= 1.00, so NOTHING BRIGHTENS; every rung is >= 1 for v >= 1, so NOTHING DIES.
+// The 1.00 rungs are only at the bottom of each channel — a 3-bit channel already at 1 has no
+// dimmer non-black value, so an entry made entirely of bottom rungs keeps 100% by arithmetic
+// necessity, not by accident. Four entries are in that class and they are named in the pins.
+//
+// MEASURED AGAINST THE CERTIFIED CAPTURES (docs/captures/2026-09-16-night-settled-v2, the set
+// whose filenames carry the machine's own settle verdict), on the DAY frame's art recoloured
+// through this map so the art is held fixed and only the palette varies:
+//   canopy+trunk black-pixel fraction   day .636  subtraction .751  THIS .636  (no silhouette lost)
+//   canopy+trunk mean value             day 28.8  subtraction 12.9  THIS 17.3
+//   dirt ramp hue / saturation          day 27 deg .76   subtraction 336 deg .55   THIS 21 deg .57
+//   area-weighted blue share            day .146  subtraction .339  THIS .222
+// The hub's ruling asked for canopy+trunk mean value 20-22; that is not reachable together with
+// a real darkening on a 3-bit palette (the note has the scan), and 17.3 is what the crush fix
+// alone buys. Raising it means raising NIGHT_LIGHT_8, which brightens everything.
+//
+// REVERSIBLE IN ONE WORD, still: `pal: OJZ_Palette` in OJZ_Preset_Night puts the day colours back
+// with the region and the fade kept; deleting the region row (act_descriptor.emp) puts everything
+// back. And the look is now tunable in TWO NUMBERS rather than by regenerating a literal table.
+// ===========================================================================
+
+// The two knobs. Eighths of the day value each channel keeps.
+const NIGHT_LIGHT_8 = 4     // red and green — "half the light"
+const NIGHT_BLUE_8  = 6     // blue — "three quarters", and the ONLY asymmetry in the transform
+
+// THE BLUE LEAN IS STRUCTURAL, not emergent. Under the old subtraction the lean was an accident
+// of which channel happened to have the smallest subtrahend; here it is this one inequality.
+ensure(NIGHT_BLUE_8 > NIGHT_LIGHT_8,
+       "the night grade's blue lean is gone: NIGHT_BLUE_8 ({NIGHT_BLUE_8}) must exceed NIGHT_LIGHT_8 ({NIGHT_LIGHT_8}) or the transform is a plain uniform dim with no colour of its own. DOES NOT COVER: how MUCH lean (the aggregate blue-share pin below), nor whether the lean is visible at any particular scale")
+ensure(NIGHT_LIGHT_8 > 0 && NIGHT_BLUE_8 < 8,
+       "the night grade must actually darken and must not brighten: NIGHT_LIGHT_8 ({NIGHT_LIGHT_8}) > 0 and NIGHT_BLUE_8 ({NIGHT_BLUE_8}) < 8")
+
+// The day palette, read at comptime only. `const` + embed contributes no bytes — the ROM copy is
+// act_assets.emp's `pub data OJZ_Palette`, and this reads the same file so the two cannot drift.
+const _ojz_day_pal = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
+ensure(_ojz_day_pal.len == 96,
+       "OJZ_Palette is {_ojz_day_pal.len} bytes; the night grade reads exactly 96 (48 words = CRAM lines 1-3)")
+
+// One 3-bit channel: scale by s8/8, round half up, never leave a lit channel dark.
+comptime fn night_channel(v: int, s8: int) -> int {
+    comptime var n = (v * s8 + 4) / 8
+    if v > 0 && n < 1 { n = 1 }
+    if n > 7 { n = 7 }
+    return n
+}
+
+// One CRAM word: 0000 BBB0 GGG0 RRR0.
+comptime fn night_word(w: int) -> int {
+    comptime var acc = night_channel((w >> 1) & 7, NIGHT_LIGHT_8) << 1
+    acc = acc | (night_channel((w >> 5) & 7, NIGHT_LIGHT_8) << 5)
+    acc = acc | (night_channel((w >> 9) & 7, NIGHT_BLUE_8) << 9)
+    return acc
+}
+
+comptime fn night_palette(src: Data) -> [u16; 48] {
+    return comptime for i in 0..48 {
+        night_word((src[i << 1] << 8) | src[(i << 1) + 1])
+    }
+}
+
+pub data OJZ_Palette_Night: [u16; 48] = night_palette(_ojz_day_pal)
+
+// ---------------------------------------------------------------------------
+// THE PROPERTIES, ASSERTED. Zero bytes, comptime, and they run on EVERY build of every
+// shape because this module is reachable from OJZ_Preset_Night, which the act binds.
+//
+// The old table had no properties at all, and that is exactly why a transform whose
+// luminance retention ranged 0% to 100% shipped and had to be found by eye. Each guard
+// below names what it does NOT cover, because between them they still cannot say whether
+// the result looks good — only that it is a grade rather than a rotation.
+// ---------------------------------------------------------------------------
+
+comptime fn night_src_word(src: Data, i: int) -> int {
+    return (src[i << 1] << 8) | src[(i << 1) + 1]
+}
+
+// Perceived weight of a 3-bit colour: Rec.601 luma over the CRAM ramp, which is linear in
+// the channel value (v * 255 / 7), so the 3-bit value can carry the weights directly.
+comptime fn night_lum3(w: int) -> int {
+    return 77 * ((w >> 1) & 7) + 151 * ((w >> 5) & 7) + 28 * ((w >> 9) & 7)
+}
+
+comptime fn night_lit_entries(src: Data) -> int {
+    comptime var n = 0
+    for i in 0..48 {
+        if night_src_word(src, i) != 0 { n = n + 1 }
+    }
+    return n
+}
+
+// P1 — THE HUB'S RULED PROPERTY, both directions. The set of black entries must be
+// IDENTICAL day and night: a new black is a silhouette deleted (the four the subtraction
+// crushed), and a black that stops being black is the backdrop changing colour.
+comptime fn night_black_set_mismatches(src: Data) -> int {
+    comptime var n = 0
+    for i in 0..48 {
+        comptime var d = night_src_word(src, i)
+        comptime var w = night_word(d)
+        if d == 0 && w != 0 { n = n + 1 }
+        if d != 0 && w == 0 { n = n + 1 }
+    }
+    return n
+}
+
+// P2 — stronger than P1 and the reason silhouettes survive per-channel, not just per-colour:
+// a channel that was lit stays lit. P1 follows from it; both are stated because P1 is the
+// ruled one and P2 is what actually does the work.
+comptime fn night_dead_channels(src: Data) -> int {
+    comptime var n = 0
+    for i in 0..48 {
+        comptime var d = night_src_word(src, i)
+        comptime var w = night_word(d)
+        if ((d >> 1) & 7) > 0 && ((w >> 1) & 7) == 0 { n = n + 1 }
+        if ((d >> 5) & 7) > 0 && ((w >> 5) & 7) == 0 { n = n + 1 }
+        if ((d >> 9) & 7) > 0 && ((w >> 9) & 7) == 0 { n = n + 1 }
+    }
+    return n
+}
+
+// P3 — night is never brighter than day, channel by channel. Without this "night" has no
+// meaning: a tint added to the shadows would read as fog, and the retention band alone
+// cannot see it (a rise in one channel can hide under a fall in another).
+comptime fn night_brighter_channels(src: Data) -> int {
+    comptime var n = 0
+    for i in 0..48 {
+        comptime var d = night_src_word(src, i)
+        comptime var w = night_word(d)
+        if ((w >> 1) & 7) > ((d >> 1) & 7) { n = n + 1 }
+        if ((w >> 5) & 7) > ((d >> 5) & 7) { n = n + 1 }
+        if ((w >> 9) & 7) > ((d >> 9) & 7) { n = n + 1 }
+    }
+    return n
+}
+
+// P4 — THE BAND. `lit_floor` restricts to entries with a channel of 2 or more, i.e. the ones
+// that HAVE room to be darkened; an entry whose every lit channel is already at 1 (blue: 2)
+// keeps 100% because a 3-bit channel has nowhere dimmer to go, and counting those in the band
+// would make the band meaningless rather than make the transform better.
+comptime fn night_ret_pct_min(src: Data, lit_floor: int) -> int {
+    comptime var m = 1000
+    for i in 0..48 {
+        comptime var d = night_src_word(src, i)
+        comptime var top = (d >> 1) & 7
+        if ((d >> 5) & 7) > top { top = (d >> 5) & 7 }
+        if ((d >> 9) & 7) > top { top = (d >> 9) & 7 }
+        if d != 0 && top >= lit_floor {
+            comptime var p = night_lum3(night_word(d)) * 100 / night_lum3(d)
+            if p < m { m = p }
+        }
+    }
+    return m
+}
+
+comptime fn night_ret_pct_max(src: Data, lit_floor: int) -> int {
+    comptime var m = 0
+    for i in 0..48 {
+        comptime var d = night_src_word(src, i)
+        comptime var top = (d >> 1) & 7
+        if ((d >> 5) & 7) > top { top = (d >> 5) & 7 }
+        if ((d >> 9) & 7) > top { top = (d >> 9) & 7 }
+        if d != 0 && top >= lit_floor {
+            comptime var p = night_lum3(night_word(d)) * 100 / night_lum3(d)
+            if p > m { m = p }
+        }
+    }
+    return m
+}
+
+// P5 — the blue lean, MEASURED on the palette rather than only declared on the constants.
+// Sum of blue channel over sum of all channels, in permille. `as_night` 0 reads the day
+// palette, 1 reads its night image.
+comptime fn night_blue_permille(src: Data, as_night: int) -> int {
+    comptime var blue = 0
+    comptime var all = 0
+    for i in 0..48 {
+        comptime var w = night_src_word(src, i)
+        if as_night == 1 { w = night_word(w) }
+        blue = blue + ((w >> 9) & 7)
+        all = all + ((w >> 1) & 7) + ((w >> 5) & 7) + ((w >> 9) & 7)
+    }
+    return blue * 1000 / all
+}
+
+// P6 — the SILHOUETTE MERGE BUDGET. Two day colours that differ and share one night colour is
+// an edge in the art that stops being an edge. Some collapse is forced — 39 distinct colours
+// cannot all stay distinct inside a darker box of a 3-bit cube — so this is a budget with a
+// number, not a zero, and the number is a canary: it moving means the art's colour structure
+// changed, which is a thing to LOOK at rather than a thing to auto-accept.
+comptime fn night_distinct(src: Data, as_night: int) -> int {
+    comptime var n = 0
+    for i in 0..48 {
+        comptime var wi = night_src_word(src, i)
+        if as_night == 1 { wi = night_word(wi) }
+        comptime var seen = 0
+        for j in 0..48 {
+            if j < i {
+                comptime var wj = night_src_word(src, j)
+                if as_night == 1 { wj = night_word(wj) }
+                if wj == wi { seen = 1 }
+            }
+        }
+        if seen == 0 { n = n + 1 }
+    }
+    return n
+}
+
+// ---- the pins --------------------------------------------------------------
+// ANTI-VACUITY FIRST. Every count below is "how many entries are wrong", so a palette the
+// guards could not read at all reports zero wrong and passes. 42 is 48 words minus the six
+// that are $0000 in the day palette (line 1 slots 0-1, line 2 slots 0 and 8, line 3 slots 0-1).
+ensure(night_lit_entries(_ojz_day_pal) == 42,
+       "the night grade is judging {night_lit_entries(_ojz_day_pal)} lit day colours, not the 42 OJZ_Palette has — every guard below counts FAULTS, so a palette that read as all-black would pass all of them silently. Re-derive the pins if the day art legitimately changed")
+
+ensure(night_black_set_mismatches(_ojz_day_pal) == 0,
+       "{night_black_set_mismatches(_ojz_day_pal)} entr(ies) cross the black line: a day colour became $0000 (a silhouette deleted — this is the failure the subtraction shipped, four times) or a day $0000 stopped being black (the backdrop changed colour). DOES NOT COVER: colours that merge with each OTHER rather than with black — that is the merge budget below")
+
+ensure(night_dead_channels(_ojz_day_pal) == 0,
+       "{night_dead_channels(_ojz_day_pal)} lit channel(s) go dark. The floor in night_channel exists to make this impossible for any scale in 1..8, so a non-zero here means the floor was removed or the scale left that range. DOES NOT COVER: a channel that survives at 1 when it should have survived at 3 — that is the retention band")
+
+ensure(night_brighter_channels(_ojz_day_pal) == 0,
+       "{night_brighter_channels(_ojz_day_pal)} channel(s) are BRIGHTER at night than by day. Every rounding rung is <= 1.00 by construction for s8 <= 8, so this fires when a lean was added as an OFFSET rather than as a scale — the shadow-lift variant the parcel note records and did not take")
+
+// THE BAND, over entries that have room to darken (a channel of 2 or more).
+// 50 is DERIVED: the worst rung of s8 = 4 is v -> v/2 exactly, at every even v. Nothing can
+// retain less. 76 is MEASURED on this palette and is a canary with a meaning: the derived
+// ceiling is 100 (a hypothetical $0400, blue 2, would sit there), so 76 says no colour in
+// THIS art is one of those. If it climbs, a near-minimal colour entered the palette and will
+// look untouched at night beside neighbours at half brightness.
+ensure(night_ret_pct_min(_ojz_day_pal, 2) == 50,
+       "night retention floor is {night_ret_pct_min(_ojz_day_pal, 2)}%, not the derived 50% (s8 = {NIGHT_LIGHT_8}: an even channel halves exactly and nothing goes lower)")
+ensure(night_ret_pct_max(_ojz_day_pal, 2) == 76,
+       "night retention ceiling over darkenable colours is {night_ret_pct_max(_ojz_day_pal, 2)}%, not the 76% this art measures. The DERIVED ceiling is 100 — a colour all of whose lit channels sit on a bottom rung keeps everything — so a climb here means such a colour entered the act palette and will read as full daylight in the night region, which is exactly the straggler the ruling named. Re-derive, do not re-pin")
+ensure(night_ret_pct_max(_ojz_day_pal, 1) == 100,
+       "the 100% class is not where it should be: entries whose every lit channel is already at the bottom rung keep 100% by arithmetic necessity (a 3-bit channel at 1 has no dimmer non-black value), and this palette has four of them — $0002, $0020 twice, $0202. {night_ret_pct_max(_ojz_day_pal, 1)}% instead means the floor or the rungs moved")
+
+// THE LEAN, measured. Day 337 permille, night 406 — blue's share of the palette's total light
+// rises by about a fifth. Both numbers are pinned because asserting only the inequality would
+// hold just as well for a lean of one part in a thousand.
+ensure(night_blue_permille(_ojz_day_pal, 0) == 337,
+       "the DAY palette's blue share is {night_blue_permille(_ojz_day_pal, 0)} permille, not 337 — the art changed under this pin, so re-derive the night figure below rather than nudging it")
+ensure(night_blue_permille(_ojz_day_pal, 1) == 406,
+       "the night grade's blue share is {night_blue_permille(_ojz_day_pal, 1)} permille, not 406. Day is 337, so the lean must be ABOVE that; a value at or under 337 means NIGHT_BLUE_8 stopped leading NIGHT_LIGHT_8 in effect even if the inequality above still holds on paper")
+
+// THE MERGE BUDGET. 39 distinct day colours, 36 distinct night ones: three pairs collapse, and
+// none of the three is visible in the certified captures (two involve entries with zero pixels
+// on screen in every frame of docs/captures/2026-09-16-night-settled-v2, the third pairs a drawn
+// colour with an undrawn one). The note carries the three pairs by index.
+ensure(night_distinct(_ojz_day_pal, 0) == 39,
+       "OJZ_Palette has {night_distinct(_ojz_day_pal, 0)} distinct colours, not the 39 the merge budget below is measured against")
+ensure(night_distinct(_ojz_day_pal, 1) == 36,
+       "the night grade collapses OJZ_Palette's 39 distinct colours to {night_distinct(_ojz_day_pal, 1)}, not 36 — three pairs is the authored budget. FEWER distinct colours means an art edge has stopped being an edge somewhere new; MORE means the day palette gained separation and the budget should be re-derived. DOES NOT COVER: WHICH colours merged, nor whether the merged pair is ever drawn adjacent — offline pixel evidence for the shipped three is in the parcel note")
 pub data OJZ_Preset_Night: EffectsPreset = preset(pal: OJZ_Palette_Night, raster: Raster_Program_None, cycle: Pal_Cycle_None, variants: [Variant_Water_Deep, 0],
                                                   transition: 1)
 
