@@ -55,9 +55,19 @@ UNREADABLE file fails the bake. "Degrade gracefully" must not collapse those two
 import collections
 import json
 import os
+import pathlib
 import re
+import sys
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+# The regions seam's pure geometry + rule checks. A SEPARATE MODULE and not more of this
+# file, because it is the arithmetic the shared golden pins and the one aurora's TypeScript
+# side has to agree with, so it wants to be readable without 5000 lines of effects bake
+# around it — and because it touches no filesystem, which is what lets the fixture tests run
+# it with no act on disk.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import region_flatten                                            # noqa: E402
 
 # Scene ids are symbol-safe because they become `.emp` label components
 # (`EditorScene_Act1_Sec0`-style). Pattern is design Q-d.
@@ -3518,6 +3528,393 @@ def act_section_count(repo: str = REPO, zone: int = 0, act: int = 0) -> int:
 
 
 # ===========================================================================
+# THE REGIONS DOCUMENT — identity by rectangle, the sidecars' successor
+# ===========================================================================
+#
+# ONE FILE PER ACT, `{dataPath}regions.json`, beside the `section_N.*` files this tool
+# already reads. Contract: `contract/schema/aurora-regions.schema.json` + the prose at
+# `docs/AURORA_REGIONS_SCHEMA.md`, empyrean `c3f892f`/`ad03bd7`.
+#
+# MODE BY FILE PRESENCE, and that is what makes this reversible. No `regions.json` means
+# LEGACY mode: the sidecars are read exactly as they were, the act descriptor's hand-written
+# region table stays, and nothing below runs. `games/demo` and every act without a document
+# build byte-for-byte unchanged. A document present means REGION mode, and then a sidecar
+# still carrying identity is a REFUSAL naming it (`check_mode_conflict`) — never a merge,
+# because two sources of truth for one fact is the state that produced the `bgLayoutRef`
+# lie the synthesis booked.
+#
+# ⚠ THE SPEC'S §5.2 AND THE OWNER'S RULING DISAGREE, AND THE RULING WINS. See the header of
+# `tools/region_flatten.py` for the full statement; the short form is that §5.2 describes a
+# painter's-order subtraction that §8 of the same document overturned on 2026-09-14 ("cut
+# right away"), and that the LANDED schema implements the ruling — one `rect` per region, no
+# `defaults`, no `bindings` wrapper — so the superseded model cannot even be written down in
+# the file format. Flattening is a CHECK here, not a subtraction.
+#
+# WHAT THIS DOES NOT DO YET, said plainly so a green run is not read as more than it is:
+# NOTHING CONSUMES THE ROWS. `load_act_regions` + `region_flatten.flatten` produce the table
+# and `generate()` does not emit it; act 1's ten rows stay hand-written in
+# `act_descriptor.emp`. The emission and the deletion of the hand constant are a SECOND
+# parcel, blocked on two things this one deliberately did not decide: the DEBUG-shape rows
+# (`OJZ_E2_SNAP_ROWS`, which a closed document cannot express) and the owner's ruling on
+# where the per-row raster/cycle/variant choosers live. Both are booked in
+# `docs/DEFERRED_WORK.md` under REGIONS-GOLDEN-GAP. The first consumer of these rows is that
+# parcel's emitter; the first consumer TODAY is `tools/test_regions_doc.py`, which proves the
+# rows equal the shipped table.
+
+REGIONS_FILE = "regions.json"
+REGIONS_SCHEMA_VERSION = 1
+
+# The contract's key sets, spelled per level. CLOSED AT EVERY LEVEL (the schema's own word):
+# `unevaluatedProperties: false` on the document, on a region, on `rect` and on `bg`. This is
+# the one place this generator is STRICTER than it is with the section sidecars, and the
+# asymmetry is deliberate and is the contract's: a sidecar is Aurora's own document and grows
+# keys aeon does not read, so `_load_section_refs` deliberately applies no unknown-key check;
+# `regions.json` is a SHARED contract artifact, so an unknown key here is a schema amendment
+# that has not happened, exactly as it is for a scene or a preset document.
+REGIONS_DOC_KEYS = ("schema", "act", "regions")
+REGION_KEYS = ("id", "rect", "preset", "rasterRef", "sceneRef", "bg", "name")
+REGION_RECT_KEYS = ("x", "y", "w", "h")
+REGION_BG_KEYS = ("layoutRef", "span")
+
+# `preset` is an `.emp` RECORD name, not an editor id, so it takes the symbol regex and not
+# `SCENE_ID_RE`. Ruling Q8 (empyrean `c3f892f`): a region binds a record name the generator
+# validates against the game's own effects library, the way `section_preset_symbols` validates
+# today, because `Region.rg_effects` is a required pointer to an `EffectsPreset` and a preset
+# DOCUMENT cannot express a whole record.
+PRESET_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+# The two `bg.layoutRef` values the engine can honour today. Part 2 step 1 landed
+# `rg_bg_layout`/`rg_bg_span` on `struct Region` and NOTHING READS EITHER YET, so a document
+# naming a real layout would be baking a binding no consumer resolves — the `bgLayoutRef`
+# failure again. Refused until the engine consumes it (spec §5.3), rather than accepted and
+# dropped.
+BG_ACT_SENTINEL = "@act"
+
+
+def regions_path(repo: str = REPO, zone: int = 0, act: int = 0) -> str:
+    """`{dataPath}regions.json` for one act. Existence is the MODE SWITCH, not an error."""
+    entry, _zone = _act_entry(repo, zone, act)
+    return os.path.join(repo, entry["dataPath"], REGIONS_FILE)
+
+
+def has_act_regions(repo: str = REPO, zone: int = 0, act: int = 0) -> bool:
+    """True when this act is in REGION mode. The whole of the mode decision."""
+    return os.path.isfile(regions_path(repo, zone, act))
+
+
+def _region_ref(path: str, value, where: str, key: str):
+    """One optional editor-library ref on a region: an id string, None, or a refusal.
+
+    `_scene_ref`'s rules over a region instead of a section, and it calls straight through
+    to it rather than restating them: a numeric ref is refused for the same measured reason
+    (Aurora's parser nulls a non-string SILENTLY, so it would present as an assignment that
+    did not stick) and the id regex is the same one, because these ids become the same `.emp`
+    symbol components on the same path.
+    """
+    return _scene_ref(path, value, where, key)
+
+
+def _check_region_bg(path: str, bg, where: str) -> dict:
+    """The `bg` object: shape-checked, and refused for any value the engine cannot honour.
+
+    THE SPAN RULE IS DERIVED FROM `ojz_region()`'s OWN ENSURE AND NOT FROM THE SCHEMA, which
+    is the point of doing it here at all. The schema can say `span` is an integer >= 1; it
+    cannot say the two things that matter, that a span may not be typed beside no layout
+    (the descriptor's third bg ensure, `bg_layout != 0 || bg_span == 0` — a row deferring the
+    picture to the act cannot also claim a height) and that a span must EQUAL the referenced
+    layout's height. The schema never sees the layout, so that second check is this
+    generator's alone — and today it is unreachable, because every legal `layoutRef` is the
+    act sentinel and no layout is named. Stated rather than silently skipped: the day
+    `layoutRef` opens, the derived-span check is what that parcel owes.
+    """
+    if bg is None:
+        return {"layoutRef": None, "span": None}
+    if not isinstance(bg, dict):
+        _refuse(path, f"{where}: `bg` must be an object or absent, got "
+                      f"{type(bg).__name__}")
+    _check_keys(path, bg, REGION_BG_KEYS, (), None, f"{where} `bg`")
+    layout = bg.get("layoutRef")
+    if layout is not None and layout != BG_ACT_SENTINEL:
+        _refuse(path, f"{where}: `bg.layoutRef` is {layout!r}. Only {BG_ACT_SENTINEL!r} and "
+                      f"null are accepted today: regions part 2 step 1 landed "
+                      f"`Region.rg_bg_layout` and NOTHING IN THE ENGINE READS IT YET, so a "
+                      f"named layout would bake a binding no consumer resolves — which is "
+                      f"the `bgLayoutRef` failure the synthesis booked. Refused rather than "
+                      f"accepted-and-dropped, so the author learns at the build instead of "
+                      f"from a picture that never changed.")
+    span = bg.get("span")
+    if span is not None:
+        if not isinstance(span, int) or isinstance(span, bool):
+            _refuse(path, f"{where}: `bg.span` must be an integer or absent, got "
+                          f"{type(span).__name__} ({span!r})")
+        # `ojz_region()`'s third bg ensure, restated: no span without a layout.
+        _refuse(path, f"{where}: `bg.span` is {span} on a region whose `bg.layoutRef` is "
+                      f"{layout!r}. A region with no layout of its own shows the act's "
+                      f"background, whose height is the ACT's fact and not the region's — "
+                      f"`ojz_region()` spells the same rule as "
+                      f"`ensure(bg_layout != 0 || bg_span == 0, ...)`. And a span is never "
+                      f"typed by hand in any case: it is DERIVED from the referenced "
+                      f"layout's height (part 2 §6.2 item 1), so a value here is either "
+                      f"redundant or wrong and the schema cannot tell which, because it "
+                      f"never sees the layout.")
+    return {"layoutRef": layout, "span": None}
+
+
+def load_act_regions(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
+    """The act's regions document, shape-checked and normalised. None when absent.
+
+    `_load_section_refs`' shape over ONE file, and the missing/unreadable split is the same
+    one and carries the same weight: an ABSENT `regions.json` is legacy mode and is not an
+    error, while a `regions.json` that exists and does not parse fails the bake loudly.
+    "Degrade gracefully" must not collapse those two — absent means "this act was never
+    migrated" and unreadable means "this act's identity is unknown", and shipping the second
+    as the first would build a ROM whose regions came from a stale hand table nobody checked.
+
+    Returns `{"act": str, "regions": [...]}` with every optional key NORMALISED TO AN
+    EXPLICIT None, so a caller comparing rows cannot pass by reading a missing key as a null
+    through `.get`. Refs are validated for shape only here; resolution against the scene and
+    preset libraries is `resolve_act_regions`, so a caller can flatten geometry without a
+    library on disk.
+    """
+    path = regions_path(repo, zone, act)
+    if not os.path.isfile(path):
+        return None                       # absent = legacy mode. NOT an error.
+    with open(path, "r") as f:            # unreadable = raises. Deliberate.
+        doc = json.load(f)
+
+    if not isinstance(doc, dict):
+        _refuse(path, f"top level must be a JSON object, got {type(doc).__name__}")
+    _check_keys(path, doc, REGIONS_DOC_KEYS, (), None, "regions document")
+    for required in REGIONS_DOC_KEYS:
+        if required not in doc:
+            _refuse(path, f"no `{required}` key. The contract makes all three required; a "
+                          f"missing key is a shape error and never a silent default.")
+    if doc["schema"] != REGIONS_SCHEMA_VERSION:
+        _refuse(path, f"`schema` is {doc['schema']!r}, this generator implements "
+                      f"{REGIONS_SCHEMA_VERSION}. Refusing rather than guessing at a version "
+                      f"it was not built against.")
+
+    entry, zone_entry = _act_entry(repo, zone, act)
+    expect_act = f"{zone_entry['id']}_{entry['id']}"
+    if not isinstance(doc["act"], str) or not SCENE_ID_RE.match(doc["act"]):
+        _refuse(path, f"`act` is {doc['act']!r}, which is not a legal id "
+                      f"({SCENE_ID_RE.pattern}).")
+    if doc["act"] != expect_act:
+        _refuse(path, f"`act` is {doc['act']!r} but this file sits in act "
+                      f"{expect_act!r}'s dataPath ({entry['dataPath']}). A document that "
+                      f"names a different act is a copy that landed in the wrong directory, "
+                      f"and it would silently give this act another act's identity.")
+
+    regions = doc["regions"]
+    if not isinstance(regions, list):
+        _refuse(path, f"`regions` must be an array, got {type(regions).__name__}")
+    if not regions:
+        _refuse(path, "`regions` is empty. Every pixel of the act needs an identity, so an "
+                      "empty list cannot cover it — the coverage check would refuse it one "
+                      "step later with a less useful message. If the intent is 'this act "
+                      "has no regions document', delete the file: absence is legacy mode.")
+
+    out, seen = [], {}
+    for i, reg in enumerate(regions):
+        where = f"regions[{i}]"
+        if not isinstance(reg, dict):
+            _refuse(path, f"{where} must be an object, got {type(reg).__name__}")
+        _check_keys(path, reg, REGION_KEYS, (), None, where)
+        for required in ("id", "rect", "preset"):
+            if required not in reg:
+                _refuse(path, f"{where} has no `{required}`. id/rect/preset are the three "
+                              f"required keys: `Region.rg_effects` has NO default in the "
+                              f"engine, so an omitted preset is the omission the missing "
+                              f"default is there to catch.")
+        rid = reg["id"]
+        if not isinstance(rid, str) or not SCENE_ID_RE.match(rid):
+            _refuse(path, f"{where}: `id` {rid!r} is not a legal region id "
+                          f"({SCENE_ID_RE.pattern}) — ids become `.emp` symbol components "
+                          f"and comment labels on the emitted rows.")
+        if rid in seen:
+            _refuse(path, f"{where}: duplicate id {rid!r}, already used by regions"
+                          f"[{seen[rid]}]. Ids are the handle the editor, the generator and "
+                          f"every refusal message use to name one region; two regions "
+                          f"answering to one name make every such message ambiguous.")
+        seen[rid] = i
+
+        preset = reg["preset"]
+        if not isinstance(preset, str) or not PRESET_SYMBOL_RE.match(preset):
+            _refuse(path, f"{where}: `preset` {preset!r} is not a legal `.emp` record name "
+                          f"({PRESET_SYMBOL_RE.pattern}). Ruling Q8: a region binds the "
+                          f"RECORD NAME of an EffectsPreset in the game's own effects "
+                          f"library, never a preset-document id.")
+
+        rect = reg["rect"]
+        if not isinstance(rect, dict):
+            _refuse(path, f"{where}: `rect` must be an object, got {type(rect).__name__}")
+        _check_keys(path, rect, REGION_RECT_KEYS, (), None, f"{where} `rect`")
+        for k in REGION_RECT_KEYS:
+            if k not in rect:
+                _refuse(path, f"{where} `rect` has no `{k}`. The rect is the exclusive "
+                              f"top-left-plus-size form an author reads off a marquee; all "
+                              f"four are required and the generator converts to the engine's "
+                              f"inclusive bounds.")
+            v = rect[k]
+            if not isinstance(v, int) or isinstance(v, bool):
+                _refuse(path, f"{where} `rect.{k}` must be an integer, got "
+                              f"{type(v).__name__} ({v!r}). World pixels are whole; a float "
+                              f"here would be rounded somewhere and the two sides would "
+                              f"round differently.")
+        if rect["w"] < 1 or rect["h"] < 1:
+            _refuse(path, f"{where} `rect` is {rect['w']}x{rect['h']}. `w`/`h` are SIZES, so "
+                          f"the smallest legal rectangle is 1x1 — a second corner written "
+                          f"here would silently become a size.")
+        if rect["x"] < 0 or rect["y"] < 0:
+            _refuse(path, f"{where} `rect` starts at ({rect['x']}, {rect['y']}); world "
+                          f"pixels start at 0.")
+
+        out.append({
+            "index": i,
+            "id": rid,
+            "name": reg.get("name"),
+            "preset": preset,
+            "rect": {k: rect[k] for k in REGION_RECT_KEYS},
+            "sceneRef": _region_ref(path, reg.get("sceneRef"), where, ACT_SCENE_REF_KEY),
+            "rasterRef": _region_ref(path, reg.get("rasterRef"), where, ACT_RASTER_REF_KEY),
+            "bg": _check_region_bg(path, reg.get("bg"), where),
+        })
+    return {"act": doc["act"], "path": path, "regions": out}
+
+
+def check_mode_conflict(repo: str = REPO, zone: int = 0, act: int = 0) -> None:
+    """Refuse a tree where BOTH the document and a sidecar carry identity (spec §5.3).
+
+    THE HALF STATE IS THE ONE THAT MUST NOT BUILD. Aurora's `migrate-sections` writes
+    `regions.json` and nulls every sidecar's refs in one undoable command, so the only ways
+    to reach a tree with both are a half-applied save, a merge that took one side of each,
+    or a hand edit. Every one of those is a tree where two files claim the same fact, and
+    picking either would be a MERGE — the thing §5.3 forbids by name, because whichever
+    source lost would go on looking authoritative in the editor.
+
+    Inert on a tree with no `regions.json`, which today is every act in this repo. That is
+    what it is FOR: it is the guard that makes the migration moment safe, and it is wired
+    into `generate()` now rather than shipped with the emitter later, so the first act to
+    grow a document meets the refusal instead of a silently ignored sidecar.
+    """
+    if not has_act_regions(repo, zone, act):
+        return
+    doc_path = os.path.relpath(regions_path(repo, zone, act), repo)
+    offenders = []
+    for key in (ACT_SCENE_REF_KEY, ACT_RASTER_REF_KEY):
+        for sec, ref in sorted(_load_section_refs(key, repo, zone, act).items()):
+            offenders.append(f"section_{sec}.meta.json carries {key} = {ref!r}")
+    if offenders:
+        entry, _zone = _act_entry(repo, zone, act)
+        _refuse(doc_path,
+                "this act is in REGION mode (the document above exists) and "
+                f"{len(offenders)} section sidecar(s) still carry identity: "
+                + "; ".join(offenders) +
+                f". They are two sources of truth for one fact and the generator will not "
+                f"pick between them — run Aurora's `Migrate sections` on "
+                f"{entry['id']}, which writes the document and nulls every sidecar ref in "
+                f"one undoable command. Nulling them by hand works too; deleting "
+                f"{REGIONS_FILE} returns the act to legacy mode.")
+
+
+def effects_library_records(names: "ActNames", repo: str = REPO) -> set:
+    """Every `EffectsPreset` RECORD NAME the game's effects library declares.
+
+    The vocabulary a region's `preset` is validated against (ruling Q8). Read from the
+    library's own `pub data <Name>: EffectsPreset = ...` declarations, which is where the
+    records are written, rather than from the descriptor — the descriptor names only the
+    records act 1 happens to bind today, so validating against it would refuse a legal
+    record the moment an author pointed a region at one nothing else uses.
+
+    An absent library returns the empty set and the caller refuses NAMING the missing file,
+    on `section_preset_symbols`' precedent: a resolver that cannot see its vocabulary must
+    say so, never accept everything.
+    """
+    path = os.path.join(repo, "games", "sonic4", "data", "effects",
+                        f"{names.zone_id}_effects.emp")
+    if not os.path.isfile(path):
+        return set()
+    with open(path, "r") as f:
+        src = _strip_line_comments(f.read())
+    return set(re.findall(r"^\s*(?:pub\s+)?data\s+(\w+)\s*:\s*EffectsPreset\b", src, re.M))
+
+
+def resolve_act_regions(doc: dict, scenes: dict, presets: dict, names: "ActNames",
+                        repo: str = REPO) -> dict:
+    """Resolve every region's refs against the libraries, loudly (spec §2.5 rule 3).
+
+    The scene and raster halves are the SAME resolution `render_module` does for the
+    sidecars — same class, same "names no X, known ids: ..." shape — re-aimed from a section
+    index at a region id, because the message has to send the author to the thing they can
+    edit. The preset half is new and is ruling Q8's: a record name checked against the game's
+    effects library, the way `section_preset_symbols` checks today.
+
+    Mutates nothing; returns the same document with each region's refs confirmed. Unknown
+    means REFUSED, never dropped: after the bake an unresolvable ref is simply a region with
+    no band, and the build is the last place it can still be seen.
+    """
+    records = effects_library_records(names, repo)
+    lib = os.path.relpath(os.path.join(repo, "games", "sonic4", "data", "effects",
+                                       f"{names.zone_id}_effects.emp"), repo)
+    if not records:
+        raise SceneShapeError(
+            f"{doc['path']}: cannot read the effects library {lib}, so no region's "
+            f"`preset` can be checked against it. Refusing rather than accepting every "
+            f"name: a resolver that cannot see its vocabulary accepts typos silently.")
+    for reg in doc["regions"]:
+        who = f"{doc['path']}: region {reg['id']!r}"
+        if reg["preset"] not in records:
+            raise SceneShapeError(
+                f"{who}: `preset` {reg['preset']!r} names no EffectsPreset record in "
+                f"{lib}. Ruling Q8 binds a region to a hand-authored record, so this must "
+                f"be a name that library declares. Known records: "
+                f"{', '.join(sorted(records)) or '(none)'}.")
+        if reg["sceneRef"] is not None and reg["sceneRef"] not in scenes:
+            raise SceneShapeError(
+                f"{who}: {ACT_SCENE_REF_KEY} {reg['sceneRef']!r} names no scene in "
+                f"{scene_dir()} — editor-library ids only, so a {ACT_SCENE_REF_KEY} cannot "
+                f"name a hand-authored `.emp` scene. Known ids: "
+                f"{', '.join(sorted(scenes)) or '(none)'}.")
+        if reg["rasterRef"] is not None and reg["rasterRef"] not in (presets or {}):
+            raise SceneShapeError(
+                f"{who}: {ACT_RASTER_REF_KEY} {reg['rasterRef']!r} names no preset document "
+                f"in {preset_dir()} — it binds one Aurora-authored preset document, so it "
+                f"cannot name a hand-authored `.emp` program. Known ids: "
+                f"{', '.join(sorted(presets or {})) or '(none)'}.")
+    return doc
+
+
+def act_region_rows(repo: str = REPO, zone: int = 0, act: int = 0,
+                    resolve: bool = True) -> list:
+    """The act's Region rows from its document, or None in legacy mode.
+
+    The whole seam in one call: load, resolve, flatten, check. `resolve=False` skips the
+    library resolution for a caller that only wants geometry (the shared golden's own
+    fixture has no library beside it).
+
+    ⚠ NOTHING IN THE BUILD CONSUMES THIS YET, BY DESIGN. `generate()` calls
+    `check_mode_conflict` and not this, so a document present in the tree is validated for
+    conflict but its rows are not emitted; act 1's table stays hand-written. The emitter is
+    the second parcel — see the block above `REGIONS_FILE` for what blocks it. Today's only
+    caller is `tools/test_regions_doc.py`.
+    """
+    doc = load_act_regions(repo, zone, act)
+    if doc is None:
+        return None
+    names = act_names(repo, zone, act)
+    if resolve:
+        resolve_act_regions(doc, load_all_scenes("sonic4", repo),
+                            load_all_presets("sonic4", repo), names, repo)
+    bounds = region_flatten.act_bounds(
+        os.path.relpath(names.descriptor_path(repo), repo), aeon=pathlib.Path(repo))
+    try:
+        return region_flatten.flatten(doc["regions"], bounds,
+                                      where=os.path.relpath(doc["path"], repo))
+    except region_flatten.RuleError as e:
+        raise SceneShapeError(str(e)) from e
+
+
+# ===========================================================================
 # THE PER-SECTION CHOOSER CHANNELS, AS ONE TABLE
 # ===========================================================================
 #
@@ -4813,6 +5210,13 @@ PATCHED_BINDING_BANNER = """\
 def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
     """(output path, module text) for one act. Reads only; writes nothing."""
     names = act_names(repo, zone, act)
+    # THE MODE GUARD RUNS FIRST AND IS THE ONLY REGIONS WORK IN THE BUILD PATH TODAY.
+    # It is inert on every act in this repo (none has a `regions.json`) and it is here
+    # anyway: it is the refusal that makes the migration moment safe, and a guard that
+    # lands with the emitter would arrive one parcel after the first tree that needs it.
+    # It does NOT emit the region table — that is the second parcel; see the block above
+    # `REGIONS_FILE`.
+    check_mode_conflict(repo, zone, act)
     return names.out_path(repo), render_module(
         load_all_scenes("sonic4", repo),
         load_act_scene_ref(repo, zone, act),
