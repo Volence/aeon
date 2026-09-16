@@ -262,12 +262,21 @@ def test_patching_rg_bg_span_on_disk_hits_exactly_the_right_two_bytes():
 # ---- the granularity split, from the run that went red ---------------------------------------
 
 def sample(v, cam_y, *, dtick=1, region=0x18AC0, cfg_ptr=0x134E8, v_factor=3, ceiling=288,
-           tag="t"):
+           v_center=512, v_offset=0, tag="t"):
     return {"tag": tag, "v": v, "cam_y": cam_y, "cam_x": 0, "dtick": dtick, "logic_tick": 0,
             "region": region, "row": 1, "span": 0, "ceiling": ceiling, "trans": 0,
             "centre": (0, 0), "lag": 0,
-            "cfg": {"ptr": cfg_ptr, "v_factor": v_factor, "v_center": 512, "v_offset": 0,
-                    "bob": 0}}
+            "cfg": {"ptr": cfg_ptr, "v_factor": v_factor, "v_center": v_center,
+                    "v_offset": v_offset, "bob": 0}}
+
+
+# OJZ act 1's two real config shapes, so the fixtures below are the act's arithmetic and not
+# invented numbers: the act default (v_factor 3, v_center 512, v_offset 0) and a vertical-lock
+# row (v_factor 15, v_offset 288 — the scroll pinned camera-independently).
+DEFAULT = dict(cfg_ptr=0x134E8, v_factor=3, v_center=512, v_offset=0)
+LOCK = dict(cfg_ptr=0x14A68, v_factor=15, v_center=0, v_offset=288, region=0x18AD6)
+# camY 1935 under DEFAULT gives ((1935 - 512) >> 3) = 177, which is the act's real reach.
+REACH = 177
 
 
 class TestGranularity:
@@ -317,16 +326,66 @@ class TestGranularity:
                         granularity="tick")
         assert "not exactly one logic tick" in str(e.value)
 
-    def test_bound_steps_are_classified_by_whether_the_region_changed(self):
-        """FINDING D's answer. A bound step at a region/config change is the clamp doing its job
-        on a target that jumped; a bound step in steady state is a claim about the v_factor."""
-        steady = [sample(0, 1935), sample(16, 1935)]
-        r = W.check_leg([], K, "D", steady, granularity="tick")
-        assert r["bound_in_steady_state"] == 1 and r["bound_at_a_change"] == 0
-        crossing = [sample(0, 1935), sample(16, 1935, region=0x18AD6, cfg_ptr=0x14A68,
-                                            v_factor=15)]
+    def test_bound_steps_are_attributed_by_exact_decomposition(self):
+        """FINDING D's answer, and the REGRESSION for the classifier that produced it.
+
+        The first version compared the region/config pointers of two ADJACENT samples and called
+        everything else "steady state". That cannot see a BACKLOG, so a ratchet's later steps
+        were labelled steady-state while the crossing that caused them sat steps earlier — which
+        is exactly the ambiguity the controller raised. `why_it_bound` decomposes the gap into
+        d_cfg + d_cam + backlog with no remainder, so the three cases separate."""
+        # a crossing into a vertical-lock row: caught up at 177, the target jumps to 288
+        crossing = [sample(REACH, 1935, **DEFAULT),
+                    sample(REACH + STEP, 1935, **LOCK)]
         r = W.check_leg([], K, "D", crossing, granularity="tick")
-        assert r["bound_at_a_change"] == 1 and r["bound_in_steady_state"] == 0
+        assert r["bound_by"]["config"] == 1, r["bound_at"]
+        assert not any(x["blocking"] for x in r["bound_at"])
+        # the ratchet AFTER it: pointers equal across every step, but the value is still behind
+        ratchet = [sample(REACH, 1935, **LOCK),
+                   sample(REACH + STEP, 1935, **LOCK),
+                   sample(REACH + 2 * STEP, 1935, **LOCK)]
+        r = W.check_leg([], K, "D", ratchet, granularity="tick")
+        assert r["bound_by"]["backlog"] == 2, r["bound_at"]
+        assert r["bound_by"]["camera"] == 0
+        assert not any(x["blocking"] for x in r["bound_at"]), (
+            "a ratchet is the clamp doing its job and must not block — the OLD classifier "
+            "called these steady-state, which is the mislabelling this test exists for")
+
+    def test_only_two_answers_block_and_they_are_the_two_that_contradict_the_derivation(self):
+        # camera term over the bound with the config UNCHANGED: contradicts v_factor 3
+        big_cam = [sample(0, 0, v_factor=0, v_center=0, ceiling=4000),
+                   sample(STEP, 400, v_factor=0, v_center=0, ceiling=4000)]
+        r = W.check_leg([], K, "D", big_cam, granularity="tick")
+        assert r["bound_by"]["camera"] == 1, r["bound_at"]
+        assert r["bound_at"][0]["blocking"]
+        # a bind the model says was unnecessary: impossible while A3 is green. camY 512 under
+        # the act default gives target 0, so a 16 px move needed no clamping at all.
+        contra = [sample(0, 512, **DEFAULT), sample(STEP, 512, **DEFAULT)]
+        r = W.check_leg([], K, "D", contra, granularity="tick")
+        assert r["bound_by"]["contradiction"] == 1, r["bound_at"]
+        assert r["bound_at"][0]["blocking"]
+        # two ordinary terms ADDING UP is arithmetic, not a mystery, and must not block —
+        # flagging it would teach a reader to ignore the flag. Target 1000 -> 1010 (d_cam 10)
+        # with the value 10 behind (backlog 10): gap 20, no single term over 16.
+        comb = [sample(990, 1000, v_factor=0, v_center=0, ceiling=4000),
+                sample(990 + STEP, 1010, v_factor=0, v_center=0, ceiling=4000)]
+        r = W.check_leg([], K, "D", comb, granularity="tick")
+        assert r["bound_by"]["combined"] == 1, r["bound_at"]
+        assert not r["bound_at"][0]["blocking"]
+
+    def test_a_blocking_observation_carries_its_own_trace(self):
+        """The old code printed "read the trace before accepting this run" and exited 0. It now
+        carries the trace, so nobody has to go and find it."""
+        big_cam = [sample(0, 0, v_factor=0, v_center=0, ceiling=4000),
+                   sample(STEP, 400, v_factor=0, v_center=0, ceiling=4000),
+                   sample(2 * STEP, 800, v_factor=0, v_center=0, ceiling=4000)]
+        r = W.check_leg([], K, "D", big_cam, granularity="tick")
+        obs = r["blocking_observations"]
+        assert obs and obs[0]["trace"], "a blocking observation shipped without its trace"
+        assert {"tag", "v", "cam_y", "row"} <= set(obs[0]["trace"][0])
+        d = obs[0]["decomposition"]
+        assert d["gap"] == d["d_cfg"] + d["d_cam"] + d["backlog"], (
+            "the decomposition does not sum to the gap — it is supposed to be exact")
 
 
 class TestSourceShapeChecksAreLive:

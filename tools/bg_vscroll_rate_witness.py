@@ -97,9 +97,16 @@ to each other, which the first live run demonstrated the hard way.
 Usage:
     python3 tools/bg_vscroll_rate_witness.py [--rom s4.debug.bin] [--lst s4.debug.lst]
                                              [--skip-poke] [--json]
-Exit: 0 every assertion held AND every leg ran · 1 an assertion failed · 2 the instrument could
-not measure, or one or more legs could not run (a refused ROM poke, an act with no vertically
-responsive region, --skip-poke) — never rendered as a pass.
+Exit: 0 every assertion held, every leg ran, AND every bound step is attributable · 1 an
+assertion failed · 2 the instrument could not measure, one or more legs could not run (a refused
+ROM poke, an act with no vertically responsive region, --skip-poke), OR a bound step has no
+attributable cause — never rendered as a pass.
+
+⚠ THE EXIT CODE AND THE PROSE MUST AGREE, and they did not once. A run printed "read the trace
+before accepting this run" and exited 0. An exit code is what gets pasted into merge evidence, so
+that combination tells a tired reader the opposite of what the words say. Anything this tool
+believes must be read before acceptance now exits 2 AND prints the trace itself, and the word
+PASS is not printed at all in that case.
 """
 from __future__ import annotations
 
@@ -343,6 +350,70 @@ def target_scroll(cam_y: int, cfg: dict) -> int:
     d = s16(cam_y - cfg["v_center"])
     d = d >> cfg["v_factor"]
     return s16(d + cfg["v_offset"])
+
+
+def clamp_pos(target: int, ceiling: int) -> int:
+    """The POSITION half of the clamp alone — `clamp_model` without the rate arm."""
+    return 0 if target < 0 else (ceiling if target > ceiling else target)
+
+
+def why_it_bound(prev_src, src, v_prev, step_max):
+    """WHY did the clamp bind on this step? Decomposed EXACTLY, not guessed.
+
+    The gap the clamp had to close is `clamped_target_now - v_prev`, and it decomposes into three
+    terms with no remainder:
+
+        d_cfg      the target moved because the CONFIG changed  (same camera, new config)
+        d_cam      the target moved because the CAMERA moved    (new camera, new config)
+        backlog    the stored value was ALREADY behind the target before this step
+
+        gap = d_cfg + d_cam + backlog          (identically)
+
+    THIS EXISTS BECAUSE A GUESS WAS REFUTED. Leg D reported one bound step, classified by the
+    first version of this code as "steady state" purely because the region/config pointers were
+    equal ACROSS that one step. The coordinator's hypothesis was that a ratchet's later ticks get
+    that label while the jump that caused them sits ticks earlier — which the old classifier
+    could not tell apart, because comparing two adjacent samples cannot see a backlog. This can:
+    a ratchet shows up as `backlog`, a crossing as `d_cfg`, and a camera that genuinely moved the
+    target a long way as `d_cam`.
+
+    THE TWO SURPRISING ANSWERS, and only these two block:
+      * `camera` with the config UNCHANGED — at the shipped v_factor 3 a 16 px camera step is
+        2 px of BG scroll, so a camera term over the bound contradicts the derivation;
+      * `contradiction` — the value moved exactly the bound while the model says the target was
+        already within reach. Impossible while A3 is green, which is why it deserves a name.
+    `config`, `backlog` and `combined` are the clamp doing its job: a target that jumped at a
+    crossing, the ratchet that follows one, and two ordinary terms adding up.
+    """
+    t_prev = clamp_pos(target_scroll(prev_src["cam_y"], prev_src["cfg"]), prev_src["ceiling"])
+    t_mixed = clamp_pos(target_scroll(prev_src["cam_y"], src["cfg"]), src["ceiling"])
+    t_now = clamp_pos(target_scroll(src["cam_y"], src["cfg"]), src["ceiling"])
+    d_cfg, d_cam, backlog = t_mixed - t_prev, t_now - t_mixed, t_prev - v_prev
+    cfg_same = (prev_src["cfg"] or {}).get("ptr") == (src["cfg"] or {}).get("ptr")
+    terms = {"d_cfg": d_cfg, "d_cam": d_cam, "backlog": backlog}
+    gap = t_now - v_prev
+    big = [k for k, v in terms.items() if abs(v) > step_max]
+    # THE DECOMPOSITION IS EXACT, so "no single term is big" is not a mystery — it is a SUM, and
+    # calling it unexplained (as my first draft did) would have flagged ordinary arithmetic and
+    # taught a reader to ignore the flag. The real contradiction is the other one: the value moved
+    # exactly the bound while the model says the target was already within reach. That cannot
+    # happen while A3 is green, which is precisely why it is worth a name and a blocker.
+    if abs(gap) <= step_max:
+        why = "contradiction"
+    elif not big:
+        why = "combined"
+    else:
+        why = {"d_cfg": "config", "d_cam": "camera",
+               "backlog": "backlog"}[max(big, key=lambda k: abs(terms[k]))]
+    return {"why": why, "cfg_unchanged": cfg_same, "gap": gap, **terms,
+            "target_now": t_now, "target_prev": t_prev, "v_prev": v_prev,
+            "cam": [prev_src["cam_y"], src["cam_y"]],
+            "cfg": [hex((prev_src["cfg"] or {}).get("ptr", 0)),
+                    hex((src["cfg"] or {}).get("ptr", 0))],
+            "row": [prev_src["row"], src["row"]],
+            # The two answers nobody may wave through: a bind the model says was unnecessary,
+            # and a camera term over the bound with the config unchanged.
+            "blocking": why == "contradiction" or (why == "camera" and cfg_same)}
 
 
 def clamp_model(target: int, prev: int, ceiling: int, max_step: int) -> int:
@@ -674,20 +745,39 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                 "other than a tick. Blocked rather than reported: a multi-tick interval read as "
                 "one step is precisely how a working clamp looks broken.")
     steps, worst, binds, bound_at = [], 0, 0, []
+    blocking: list[dict] = []
     for i in range(1, len(samples)):
         d = samples[i]["v"] - samples[i - 1]["v"]
         steps.append(d)
         worst = max(worst, abs(d))
         if abs(d) == step_max:
             binds += 1
-            # WHY IT BOUND, classified rather than left for the reader: a bound step at a region
-            # or config CHANGE is the clamp doing its job on a target that jumped; a bound step
-            # in steady state is a claim about the shipped v_factor.
-            a_, b_ = samples[i - 1], samples[i]
-            changed = (a_["region"] != b_["region"]
-                       or (a_["cfg"] or {}).get("ptr") != (b_["cfg"] or {}).get("ptr"))
-            bound_at.append({"i": i, "at_change": bool(changed),
-                             "row": [a_["row"], b_["row"]]})
+            # WHY IT BOUND, DECOMPOSED EXACTLY rather than inferred from two adjacent pointers.
+            # The first version of this compared samples[i-1] and samples[i] for a region/config
+            # change and called everything else "steady state"; that cannot see a BACKLOG, so a
+            # ratchet's later steps were labelled steady-state and the label was off by the
+            # length of the ratchet. See why_it_bound().
+            src_i = samples[i] if granularity == "tick" else samples[i - 1]
+            src_h = samples[i - 1] if granularity == "tick" else (
+                samples[i - 2] if i >= 2 else None)
+            if src_h is None or src_i["cfg"] is None or src_h["cfg"] is None:
+                bound_at.append({"i": i, "why": "unmodelled",
+                                 "note": "no config or no earlier sample to decompose against",
+                                 "blocking": False})
+            else:
+                w = why_it_bound(src_h, src_i, samples[i - 1]["v"], step_max)
+                w["i"] = i
+                bound_at.append(w)
+                if w["blocking"]:
+                    lo, hi = max(0, i - 3), min(len(samples), i + 4)
+                    blocking.append({
+                        "leg": name, "i": i, "why": w["why"], "decomposition": w,
+                        # THE TRACE, DUMPED. The old code printed "read the trace before
+                        # accepting this run" and exited 0 — telling a tired reader the opposite
+                        # of what the exit code said. It now carries the trace itself.
+                        "trace": [{k: s[k] for k in ("tag", "v", "cam_y", "row", "region",
+                                                     "trans", "ceiling", "dtick")}
+                                  for s in samples[lo:hi]]})
         if abs(d) > step_max:                                              # A1
             fails.append(f"A1 {name}: {unit} {i} moved Parallax_Current_Vscroll_BG by {d} px "
                          f"({samples[i-1]['v']} -> {samples[i]['v']}), past BG_VSCROLL_MAX_STEP "
@@ -730,8 +820,10 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                     f"{target_scroll(src['cam_y'], src['cfg'])}; previous {a['v']}, ceiling "
                     f"{src['ceiling']} (row {src['row']}, span {src['span']})")
     return {"leg": name, "granularity": granularity, "bound_at": bound_at,
-            "bound_at_a_change": sum(1 for x in bound_at if x["at_change"]),
-            "bound_in_steady_state": sum(1 for x in bound_at if not x["at_change"]),
+            "blocking_observations": blocking,
+            "bound_by": {k: sum(1 for x in bound_at if x.get("why") == k)
+                         for k in ("config", "camera", "backlog", "combined",
+                                   "contradiction", "unmodelled")},
             "ticks": len(samples) - 1, "v_first": samples[0]["v"],
             "v_last": samples[-1]["v"], "v_min": min(s["v"] for s in samples),
             "v_max": max(s["v"] for s in samples), "worst_step": worst,
@@ -884,19 +976,14 @@ async def run(args) -> int:
                 + (f"The clamp never bound, which is the expected NEGATIVE CONTROL: it does "
                    "not fire in ordinary play."
                    if not report["D"]["bound_at"] else
-                   f"It bound {len(report['D']['bound_at'])} time(s): "
-                   f"{report['D']['bound_at_a_change']} at a region or config CHANGE and "
-                   f"{report['D']['bound_in_steady_state']} in steady state. A bound step at a "
-                   "change is the clamp doing its job on a target that jumped — this route "
-                   f"crosses rows {report['D']['rows_visited']}, and rows whose config is the "
-                   "vertical lock make the target jump to a fixed v_offset. A bound step in "
-                   "STEADY STATE would be the real surprise, because the shipped v_factor turns "
-                   f"a {K['PLAYER_DEBUG_FLY_SPEED']} px/frame camera into a few px of BG scroll."
-                   + (" There are none, so D is still a clean negative control for steady-state "
-                      "motion and simply is not one across crossings."
-                      if report["D"]["bound_in_steady_state"] == 0 else
-                      " THERE ARE SOME, and that contradicts the derivation — read the trace "
-                      "before accepting this run.")))
+                   f"It bound {len(report['D']['bound_at'])} time(s), attributed by exact "
+                   f"decomposition (see why_it_bound): {report['D']['bound_by']}. `config` and "
+                   "`backlog` are the clamp doing its job — a target that jumped at a crossing, "
+                   "and the ratchet that follows it. `camera` with the config unchanged and "
+                   "`unexplained` are the two that contradict the derivation, because the "
+                   f"shipped v_factor turns a {K['PLAYER_DEBUG_FLY_SPEED']} px/frame camera "
+                   "into a few px of BG scroll — and either of those makes this run exit 2 with "
+                   "the surrounding trace PRINTED, not exit 0 with advice to go and read it."))
         await run_leg("D", _legD)
 
         # ---- the shared precondition for W and S: a vertically RESPONSIVE region ----------
@@ -1107,6 +1194,8 @@ async def run(args) -> int:
                     "with the position change reverted.")
         await run_leg("S", _legS)
         report["blocked"] = [{"leg": n, "why": w} for n, w in blocked]
+        report["unexplained"] = [o for k in ("C", "D", "W", "S")
+                                 for o in report.get(k, {}).get("blocking_observations", [])]
     finally:
         try:
             await b.close()
@@ -1149,6 +1238,22 @@ def finish(args, report, fails, findings) -> int:
         for f in findings:
             print(f"FINDING {f}")
     blocked = report.get("blocked", [])
+    unexplained = report.get("unexplained", [])
+    if unexplained and not args.json:
+        print("UNEXPLAINED OBSERVATION(S) — the trace, not advice to go and find it:",
+              file=sys.stderr)
+        for o in unexplained:
+            d = o["decomposition"]
+            print(f"  - leg {o['leg']} step {o['i']}: the clamp bound and the cause is "
+                  f"`{o['why']}`. gap {d['gap']} = d_cfg {d['d_cfg']} + d_cam {d['d_cam']} + "
+                  f"backlog {d['backlog']}; camera {d['cam']}, config {d['cfg']} "
+                  f"({'unchanged' if d['cfg_unchanged'] else 'CHANGED'}), rows {d['row']}, "
+                  f"target {d['target_prev']} -> {d['target_now']}, previous value {d['v_prev']}",
+                  file=sys.stderr)
+            for s in o["trace"]:
+                print(f"      {s['tag']}: v={s['v']:<5} camY={s['cam_y']:<5} row={s['row']} "
+                      f"region={s['region']:#x} trans={s['trans']} ceiling={s['ceiling']} "
+                      f"dtick={s['dtick']}", file=sys.stderr)
     if fails:
         print("FAIL:", file=sys.stderr)
         for f in fails:
@@ -1156,6 +1261,9 @@ def finish(args, report, fails, findings) -> int:
         if blocked:
             print(f"  (and {len(blocked)} leg(s) could not run: "
                   f"{', '.join(n['leg'] for n in blocked)})", file=sys.stderr)
+        if unexplained:
+            print(f"  (and {len(unexplained)} unattributable bound step(s), above)",
+                  file=sys.stderr)
         return 1
     if blocked:
         # NEVER 0 HERE. The legs that can be blocked include both DISCRIMINATORS, and A1/A2/A3
@@ -1181,6 +1289,16 @@ def finish(args, report, fails, findings) -> int:
                   "other leg takes the act-default fallback and would pass unchanged with step "
                   "4's position change reverted. This is not a partial pass; it is no evidence "
                   "about change (a) at all.", file=sys.stderr)
+        return 2
+    if unexplained:
+        # NOT A PASS, AND THE WORD IS NOT PRINTED. A run whose own prose says "read this before
+        # accepting it" while exiting 0 tells a tired reader the opposite of what the exit code
+        # says — and the exit code is what gets pasted into merge evidence. Every assertion held
+        # AND something happened the model cannot attribute to a named cause. Those are two
+        # different facts and this says both.
+        print(f"bg_vscroll_rate_witness: NOT ACCEPTED — every assertion held, but "
+              f"{len(unexplained)} bound step(s) have no attributable cause (see above). "
+              "This is not a failure of the clamp and it is not green.", file=sys.stderr)
         return 2
     print("bg_vscroll_rate_witness: PASS")
     return 0
