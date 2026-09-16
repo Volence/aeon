@@ -291,7 +291,11 @@ def test_check_mode_needs_no_emulator_symbol():
         assert forbidden not in body, (
             f"premise() touches {forbidden!r} — --check would need an emulator, and the one "
             "thing it is for is not needing one")
-    assert "premise(args.rom, args.lst)" in src.split("if args.check:")[1].split("try:")[0]
+    # and --check's own arm calls it and returns without ever reaching the emulator block
+    arm = src.split("if args.check:")[1].split("return 0")[0]
+    assert "premise(args.rom, args.lst)" in arm
+    for forbidden in ("BusClient", "aether_emulator", "asyncio.run"):
+        assert forbidden not in arm, forbidden
 
 
 def test_the_help_text_names_every_option_and_both_exit_codes():
