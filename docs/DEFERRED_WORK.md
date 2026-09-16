@@ -34655,15 +34655,36 @@ so §5.2's document cannot be written at all. §5.2's prose was never rewritten:
 without reading §8 will implement the wrong model.** Full statement in `tools/region_flatten.py`'s
 header.
 
+### PART TWO LANDED 2026-09-16 (`parcel/regions-emit`) — items 1, 2 and 4 re-answered below
+
+**Read items 1-6 below as PART ONE'S statement of them.** Item 1 is done, item 2 is ruled, item 3
+is ruled and deliberately deferred, and **item 4 is the one that changed meaning** — it is not the
+obstacle it reads as. The re-answers are in `REGIONS-EMIT-BINDINGS` immediately after this section
+and in `docs/superpowers/notes/2026-09-16-regions-emit.md`. The list is left standing rather than
+edited in place because a reader coming from the loader parcel needs to find the sentence they
+remember before they find its correction.
+
 **NOT DONE, and these are the SECOND PARCEL (emission + mode switching):**
 
 1. **Emission of the region table.** Blocked on item 2 and item 3 below, not on effort.
+   > **DONE 2026-09-16.** `effects_gen.render_region_table` / `generate_region_table` emit a
+   > `.emp` module of `Region{...}` literals plus a `<ACT>_ROW_<ID>` index constant per row,
+   > wired into `emit`/`check`. INERT here — no act has a `regions.json` — and **nothing has
+   > assembled the emitted text.**
 2. **THE DEBUG SHAPE HAS AN ELEVENTH ROW A CLOSED DOCUMENT CANNOT EXPRESS.**
    `OJZ_E2_SNAP_ROWS` adds a look fixture at x 5600..6143 in `DEBUG` and shortens `sec2` to
    x1 = 5599 to make room (`OJZ_SEC2_X1`). A `regions.json` has no shape key and the schema is
    closed, so a generated table is release-shaped by construction. Three ways out, none chosen
    here: retire the E2 fixture, amend the schema, or let the descriptor apply the DEBUG delta on
    top of a generated release table. **This is an owner/hub call with byte consequences.**
+   > **RULED 2026-09-16T05:28:50Z, empyrean `a718ea7c`, `docs/AURORA_REGIONS_SCHEMA.md`, "The
+   > schema stays CLOSED, and the DEBUG eleventh row is a build-time delta": the DELTA (the third
+   > arm). The schema is NOT amended.** Its added condition is load-bearing: the delta is not a
+   > pure append — it also shortens `sec2` — so it must be applied against a **NAMED** row with an
+   > `ensure` that the row is `sec2` at x1 = 6143 binding `OJZ_Preset_Sec2`. The emitter's
+   > `<ACT>_ROW_<ID>` constants are that mechanism, and its header points at the golden fixture's
+   > `release_shape_only` note, which the same ruling asked for. The descriptor half is owed by
+   > the parcel that flips an act.
 3. **The chooser question (§5.2's last paragraph) is PRICED, NOT DECIDED** — see
    `docs/superpowers/notes/2026-09-16-regions-loader-golden.md` for the full ledger. The short
    form: the two shapes §5.2 names are under-specified and "the choosers move to the row" has two
@@ -34678,6 +34699,15 @@ header.
    there is no such sidecar. **This blocks flipping act 1 into region mode** and it is asserted as
    a test (`test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels`) so the day it is fixed
    the test fails and tells its author to delete it.
+   > ⚠ **RE-MEASURED 2026-09-16 AND THE SEVERITY IS BACKWARDS.** The sentence above reads as an
+   > obstacle. It is a **guard**. Remove the reels key in the sandbox — the only named blocker,
+   > nothing else changed — and the migrated bake **SUCCEEDS**, emitting **0** scene bindings
+   > where the shipped module has **4** and **0** chooser arms where it has **14** (module 541
+   > lines / 33 691 B → 384 / 25 712; diff 11 hunks, −169/+12). The six raster/cycle/variant
+   > programs are still emitted with nothing binding them, so `OJZ_Preset_Sec5`'s raster channel
+   > goes null and the band showcase leaves the ROM. **So relaxing the rung-1 rule alone is the
+   > worst available move**: it converts a loud refusal into a quiet content loss. The real work
+   > is `REGIONS-EMIT-BINDINGS`, below.
 5. **The `bg.span` derived check is UNREACHABLE today and therefore untested.** `bg.layoutRef` is
    refused for every value but `"@act"`/null while the engine has no consumer, so "a span must
    equal its referenced layout's height" — the check only this generator can make — has nothing to
@@ -34689,6 +34719,66 @@ header.
    working gate. Re-run:
    `git -C ../empyrean show origin/main:contract/schema/aurora-regions.schema.json` piped into a
    validator against `tools/fixtures/regions/ojz_act1.regions.json`.
+
+## REGIONS-EMIT-BINDINGS — the section→row re-key, and the three things that ride it (booked 2026-09-16, `parcel/regions-emit`)
+
+**WHAT IT IS.** Flipping an act into region mode requires the binding half of
+`tools/effects_gen.py`'s `render_module` to be re-keyed from the SECTION INDEX to the REGION ROW.
+It is keyed on the section end to end: `ActNames.binding_sec` mints
+`EditorSceneBinding_<CAP>_Sec<i>`; six `pub comptime fn <act>_sec_*(sec: int, …)` choosers have
+`if sec == N` arms and an `ensure(sec >= 0 && sec < <section count>)`; `EditorReelBindings_<CAP>`
+keys on the pointer identity of a `_SecN` symbol; and seven `{section index: …}` maps
+(`bound`, `raster_bound`, `cycle_bound`, `variant_bound`, `patch_bound`, `patched_bound`,
+`reels_bound`) carry the population.
+
+**THE MEASUREMENT THAT SIZES IT** (`docs/superpowers/notes/2026-09-16-regions-emit.md` §1):
+in region mode every one of those populations is EMPTY, and the only thing that says so is the
+reels rung-1 refusal. Remove it and the bake is green with 4 scene bindings and 14 chooser arms
+gone. **87 reference sites across 14 files** outside the generated module name
+`ojz_act1_sec_*` / `EditorSceneBinding_OJZ_Act1_Sec*` — `ojz_effects.emp` (26),
+`act_descriptor.emp` (17), `test_effects_seam_gate.py` (11), `test_effects_gen.py` (11),
+`effects_gen.py` (5), `depth_onset_probe.py` (4), `ojz_scroll_test.emp` (4), and seven more with
+1-2 each. There is a reader on aurora's side of the seam too —
+`src/core/formats/effects/section-wiring.ts`, named in empyrean `a718ea7c` — which is a citation
+of a ruling, not a claim about their working tree, and is the hub's to confirm.
+
+**THREE PIECES, AND ONLY THE FIRST TWO ARE ONE PIECE.**
+
+1. **Scene bindings + the reels table.** Same `bound` map, so they move together. The reels table
+   keys on a pointer, so a row-keyed symbol works identically; only the population changes.
+2. **B′ — the five preset-channel choosers re-key to the PRESET RECORD, gating on agreement**
+   (ruled aeon `3fc9ffa5`; priced in `docs/superpowers/notes/2026-09-16-regions-loader-golden.md`
+   §3.5). 19 call sites, all in `games/sonic4/data/effects/ojz_effects.emp`. **Deliberately kept
+   out of `parcel/regions-emit` by the controller**, because the night-palette parcel was landing
+   in that same file the same night (`OJZ_Palette_Night`, :1966) and two agents in one file is a
+   merge nobody wanted to referee. **Without B′, a flip that lands only piece 1 still drops the
+   raster/cycle/variant/patch bindings** — so piece 1 is not shippable alone against act 1.
+   What was learned while in the area, worth more now than cold: the scene chooser is already
+   called from the region ROW (`act_descriptor.emp` passes `parallax: ojz_act1_sec_scene(sec: N)`
+   inside `ojz_region(...)`), so its re-key is mechanical and independent; it is the five
+   preset-channel choosers, called from inside hand-written `preset()` records that do not know
+   which row binds them, that are the whole of the difficulty. B′'s refusal — two regions naming
+   one record with DIFFERENT documents — is the only new gate it needs, and it names both regions.
+3. **The per-row ensure walk the generated table owes.** New, found by this parcel.
+   `render_region_table` emits `Region{...}` LITERALS and not `ojz_region(...)` calls, because the
+   constructor is not `pub` and because `docs/EMP_PITFALLS.md` §2 makes a cross-module `comptime
+   fn` resolve its free names at the CALL SITE — `ojz_region`'s body reads a dozen of the
+   descriptor's own consts, and the pitfall's measured hazard is the PARTIAL case where the fn
+   neither errors nor works. **So a generated table carries none of the minimum-span, reachable-
+   centre-band or background ensures.** The consumer owes a table walk in the shape
+   `region_first_overlap` / `region_area_sum` already have in the same file. This is a rewrite of
+   known rules, not a new design — but it is not free and it must land WITH the flip, not after.
+
+**ALSO OWED BY THE FLIP:** the generated module's placement (it declares `const`s only and sits in
+no section, so it may need no `map.toml` entry — unverified), and the first assembly of any
+generated region table. **Nothing has assembled the emitted text**: no act in this tree is in
+region mode, so sigil has never seen one.
+
+**A CONSTRAINT MEASURED HERE THAT ANY FUTURE GENERATOR IN THIS TREE INHERITS:** `sigil build`
+PARSES EVERY `.emp` IN THE TREE, wherever it sits. A module-less `.emp` test fixture — never
+emitted, never placed, never imported — took the plain demo build to exit 1 and 50 tests in
+`test_artifact_provenance.py` / `test_provenance_consumers.py` with it. Committed `.emp` fixtures
+must be named `.emp.txt`, and any emitted `.emp` must declare a module.
 
 **A CORRECTION TO A FIGURE THE SPEC AND THE BUDGET VIEW BOTH CARRY:** `struct Region` is **22
 bytes**, not 16. The editor spec §2.1 read it at aeon `0dc0ff11` before regions part 2 step 1 added

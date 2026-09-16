@@ -3550,16 +3550,37 @@ def act_section_count(repo: str = REPO, zone: int = 0, act: int = 0) -> int:
 # `defaults`, no `bindings` wrapper — so the superseded model cannot even be written down in
 # the file format. Flattening is a CHECK here, not a subtraction.
 #
-# WHAT THIS DOES NOT DO YET, said plainly so a green run is not read as more than it is:
-# NOTHING CONSUMES THE ROWS. `load_act_regions` + `region_flatten.flatten` produce the table
-# and `generate()` does not emit it; act 1's ten rows stay hand-written in
-# `act_descriptor.emp`. The emission and the deletion of the hand constant are a SECOND
-# parcel, blocked on two things this one deliberately did not decide: the DEBUG-shape rows
-# (`OJZ_E2_SNAP_ROWS`, which a closed document cannot express) and the owner's ruling on
-# where the per-row raster/cycle/variant choosers live. Both are booked in
-# `docs/DEFERRED_WORK.md` under REGIONS-GOLDEN-GAP. The first consumer of these rows is that
-# parcel's emitter; the first consumer TODAY is `tools/test_regions_doc.py`, which proves the
-# rows equal the shipped table.
+# WHAT CONSUMES THE ROWS, AND WHAT STILL DOES NOT — REWRITTEN 2026-09-16 BY THE EMITTER
+# PARCEL, WHICH IS THE PARCEL THE OLD TEXT SAID WAS COMING. It read "NOTHING CONSUMES THE
+# ROWS", and it named two blockers; both have been ruled on and a THIRD, which it did not
+# name, is what actually decides the shape below. Replaced rather than appended to, because
+# a comment telling a reader their work is blocked, when it is not, costs more than silence.
+#
+# EMITTED: `render_region_table` lowers these rows into a `.emp` module of `Region{...}`
+# literals, and `generate_region_table` is wired into this tool's `emit` and `check` modes.
+# See the emitter banner further down for what it writes and the two things the assembler
+# decided about its shape.
+#
+# STILL INERT IN THIS TREE, and that is the honest headline: NO ACT HERE HAS A
+# `regions.json`. `check` prints "no region table owed (LEGACY mode)", `emit` writes
+# nothing, and act 1's ten rows stay hand-written in `act_descriptor.emp`. Nothing has
+# assembled a generated table.
+#
+# WHY ACT 1 IS NOT FLIPPED, measured rather than assumed
+# (docs/superpowers/notes/2026-09-16-regions-emit.md §1): flipping it means nulling the
+# sidecar refs, and every binding mechanism in the generated effects module is keyed on the
+# SECTION INDEX end to end. Drop the one refusal that currently stops the flip (the reels
+# rung-1 rule) and the bake SUCCEEDS with four scene bindings and fourteen chooser arms gone
+# to zero — a green build of a silently de-bound ROM. So that refusal is a load-bearing
+# guard, not an obstacle, and the re-key it fronts for is an L: booked as
+# REGIONS-EMIT-BINDINGS in `docs/DEFERRED_WORK.md`, together with B′ (ruling `3fc9ffa5`) and
+# the per-row-ensure walk a generated table owes.
+#
+# THE TWO BLOCKERS THE OLD TEXT NAMED ARE BOTH RULED. The DEBUG-shape row stays out of the
+# document and rides as a descriptor-applied delta against a NAMED row (empyrean `a718ea7c`;
+# the `<ACT>_ROW_<ID>` constants the emitter writes are that mechanism). The choosers re-key
+# to the PRESET RECORD, gating on agreement — aeon `3fc9ffa5`, shape B′ — and that is
+# deliberately NOT in this parcel.
 
 REGIONS_FILE = "regions.json"
 REGIONS_SCHEMA_VERSION = 1
@@ -3666,20 +3687,29 @@ def _check_region_bg(path: str, bg, where: str) -> dict:
     _check_keys(path, bg, REGION_BG_KEYS, (), None, f"{where} `bg`")
     layout = bg.get("layoutRef")
     if layout is not None and layout != BG_ACT_SENTINEL:
+        # ⚠ THE THREE REASONS WERE RE-ANSWERED IN FULL 2026-09-16, NOT PATCHED WHERE THE
+        # EMITTER TOUCHED THEM. Two of the three were stale, and only one of the two was
+        # this parcel's doing: "nothing lowers this document" (the emitter does now) and
+        # "`rg_bg_span` has no engine reader until step 4's clamp" — which step 4 landed
+        # the SAME DAY the old text was written (Parallax_Step5_Vscroll, through
+        # Region_Current). Re-checked at their artifacts rather than remembered.
         _refuse(path, f"{where}: `bg.layoutRef` is {layout!r}. Only {BG_ACT_SENTINEL!r} and "
-                      f"null are accepted today, and NOT because nothing reads "
-                      f"`Region.rg_bg_layout` — step 3 gave it two readers "
-                      f"(Section_RedrawPlanes, Draw_BG_TileRow). Because NOTHING LOWERS THIS "
-                      f"DOCUMENT INTO A REGION TABLE: `generate()` stops at "
-                      f"`check_mode_conflict` and act 1's rows are hand-written in "
-                      f"act_descriptor.emp, so a named layout would be accepted here and "
-                      f"dropped on the floor — the `bgLayoutRef` failure the synthesis "
-                      f"booked. Two more hold even once an emitter exists: the layout "
-                      f"library carries no HEIGHT, so the derived-span check this generator "
-                      f"owes has nothing to compare against, and `rg_bg_span` has no engine "
-                      f"reader until step 4's clamp. Refused rather than "
-                      f"accepted-and-dropped, so the author learns at the build instead of "
-                      f"from a picture that never changed.")
+                      f"null are accepted today, and NOT because nothing reads these two "
+                      f"fields — BOTH have engine readers now: `rg_bg_layout` has "
+                      f"Section_RedrawPlanes and Draw_BG_TileRow (step 3), and `rg_bg_span` "
+                      f"has Parallax_Step5_Vscroll's BG V-scroll clamp (step 4). The reason "
+                      f"is that NOTHING CAN DERIVE THE SPAN: the layout library "
+                      f"(games/sonic4/data/editor/ojz_bglib.json) carries `id` and `name` "
+                      f"and NO HEIGHT, so the one check only this generator can make — a "
+                      f"span equals its referenced layout's height — has nothing to compare "
+                      f"against, and a span is never authored by hand. And the region "
+                      f"emitter fills neither field: `render_region_table` writes rg_x0, "
+                      f"rg_x1, rg_y0, rg_y1 and rg_effects and refuses a row with a "
+                      f"non-default `bg` rather than lowering one. So a named layout would "
+                      f"be accepted here and dropped — the `bgLayoutRef` failure the "
+                      f"synthesis booked. Refused rather than accepted-and-dropped, so the "
+                      f"author learns at the build instead of from a picture that never "
+                      f"changed. Booked: REGIONS-BG-GOLDEN-GAP.")
     span = bg.get("span")
     if span is not None:
         if not isinstance(span, int) or isinstance(span, bool):
@@ -3931,11 +3961,11 @@ def act_region_rows(repo: str = REPO, zone: int = 0, act: int = 0,
     library resolution for a caller that only wants geometry (the shared golden's own
     fixture has no library beside it).
 
-    ⚠ NOTHING IN THE BUILD CONSUMES THIS YET, BY DESIGN. `generate()` calls
-    `check_mode_conflict` and not this, so a document present in the tree is validated for
-    conflict but its rows are not emitted; act 1's table stays hand-written. The emitter is
-    the second parcel — see the block above `REGIONS_FILE` for what blocks it. Today's only
-    caller is `tools/test_regions_doc.py`.
+    ⚠ INERT IN THIS TREE, WHICH IS NOT THE SAME AS UNCONSUMED (rewritten 2026-09-16). This
+    IS consumed now: `generate_region_table` calls it and lowers the rows to `.emp`, and
+    this tool's `emit`/`check` modes call that. But no act here has a `regions.json`, so
+    every one of those paths returns None and act 1's table stays hand-written. See the
+    block above `REGIONS_FILE` for why act 1 is not flipped (REGIONS-EMIT-BINDINGS).
     """
     doc = load_act_regions(repo, zone, act)
     if doc is None:
@@ -3951,6 +3981,288 @@ def act_region_rows(repo: str = REPO, zone: int = 0, act: int = 0,
                                       where=os.path.relpath(doc["path"], repo))
     except region_flatten.RuleError as e:
         raise SceneShapeError(str(e)) from e
+
+
+# ===========================================================================
+# THE EMITTER — the document's rows as `.emp` text
+# ===========================================================================
+#
+# WHAT THIS PRODUCES AND WHAT IT DELIBERATELY DOES NOT. It lowers a flattened
+# `regions.json` into the act descriptor's OWN constructor calls: one
+# `<stem>_region(x0: ..., y0: ..., effects: ...)` per row, in document order, plus an
+# id -> row-index constant per row. It does not emit a `module` line, a `pub data`, or
+# the whole-table `ensure`s, and every one of those omissions is a decision:
+#
+#   * A REAL `module` LINE, AND IT IS THE ONE THING HERE THE ASSEMBLER HAS ALREADY RULED
+#     ON. The first draft of this emitter wrote a module-less FRAGMENT, on the theory that
+#     the descriptor would consume it inside its own module. Sigil refused it — and not on
+#     the flip, which is what makes it worth writing down: `sigil build` PARSES EVERY
+#     `.emp` IN THE TREE, so a module-less file anywhere is a build error everywhere.
+#     Measured 2026-09-16: the committed test FIXTURE alone (never emitted, never placed,
+#     never imported) took the plain demo build to exit 1 with `error: file must start with
+#     a "module" declaration` against the fixture's own path, and took 50 tests in
+#     `test_artifact_provenance.py` and `test_provenance_consumers.py` down with it. So:
+#     the emitted table is a MODULE, the committed fixture is named `.emp.txt` and not
+#     `.emp` (a fixture the assembler parses is a fixture compiled into every build), and
+#     `test_the_emitted_module_declares_itself` is the gate whose red is that measurement.
+#   * `Region{...}` LITERALS, NOT `ojz_region(...)` CALLS, AND THAT IS FORCED. The
+#     descriptor's constructor is not `pub` and could not be imported; even if it were,
+#     `docs/EMP_PITFALLS.md` §2 says a `comptime fn`'s free names resolve at the CALL SITE,
+#     and `ojz_region`'s body reads a dozen of that file's own consts (ACT_W, CENTRE_X_MIN,
+#     REGION_MIN_SPAN, ...). A cross-module call would need every one imported alongside
+#     it, and the pitfall's measured hazard is the PARTIAL case: with some names in scope
+#     the fn does not error and does not work.
+#     ⚠ SO A GENERATED TABLE DOES NOT GET `ojz_region()`'s PER-ROW ENSURES, and that is a
+#     real loss rather than a technicality: the minimum span, the reachable-centre band and
+#     the three background rules all live in that constructor. The consumer owes a TABLE
+#     WALK that re-checks them — the shape `region_first_overlap` and `region_area_sum`
+#     already have in the same file, which is why this is a rewrite of known rules and not
+#     a new idea. Booked under REGIONS-EMIT-BINDINGS, and said in the emitted header too,
+#     where the person wiring it up will be looking.
+#   * NO `pub data`, so this fragment emits ZERO BYTES on its own. The descriptor keeps
+#     the emitting declaration and the whole-table guards (non-overlap, exact coverage),
+#     which is what lets the DEBUG delta compose with a generated release table at all:
+#     the guards read the COMPOSED array, so both shapes stay checked without either
+#     count being typed twice. That composition is the hub's ruling (empyrean `a718ea7c`,
+#     "The schema stays CLOSED, and the DEBUG eleventh row is a build-time delta").
+#   * NO BINDINGS. A row carrying `sceneRef` or `rasterRef` is REFUSED, by name — see
+#     `_refuse_unlowerable_bindings`. Lowering one needs the binding half of
+#     `render_module` re-keyed from section index to region row, which is the L this
+#     parcel measured and booked rather than attempted.
+#
+# ⚠ NOTHING HAS ASSEMBLED THIS TEXT. No act in this tree is in region mode, so the
+# emitter is inert here and its output has never been through sigil. Stated in capitals
+# because the gap is invisible from a green test run: `tools/test_regions_doc.py` proves
+# the TEXT is what the document says and that the call it writes matches the constructor
+# the descriptor actually declares, and it proves nothing about the assembler. The first
+# act to flip is what closes that, and it is the same parcel that answers the module
+# question above.
+
+
+# The `comptime fn ... -> Region` declaration in an act descriptor: the constructor this
+# emitter writes calls to. The pattern anchors on the RETURN TYPE and not on a name
+# convention, so a descriptor that renames its constructor is still found and one that has
+# no Region constructor is refused rather than guessed at.
+def region_struct_fields(repo: str = REPO) -> list:
+    """The declared field names of `pub struct Region`, in declaration order.
+
+    READ FROM `engine/structs.emp`, NEVER TYPED, and it is the one structural check a
+    generator with no assembler can still make. The emitted rows are struct literals with
+    NAMED fields, so a field renamed or removed in the engine makes every emitted row
+    uncompilable; reading the declaration turns that into a refusal HERE, naming the engine
+    file, instead of a mystery in a generated file nobody edits.
+
+    `tools/region_table.py` parses the same declaration for the ROM-side reader, so a field
+    added to `struct Region` lands in both halves or in neither.
+    """
+    path = os.path.join(repo, "engine", "structs.emp")
+    if not os.path.isfile(path):
+        _refuse("engine/structs.emp",
+                "the engine struct declarations are missing, so `struct Region`'s fields "
+                "cannot be read. Refusing rather than falling back to a typed list — a "
+                "typed list is exactly what goes stale the day a field is added.")
+    with open(path, "r") as f:
+        src = _strip_line_comments(f.read())
+    m = re.search(r"pub\s+struct\s+Region\s*\([^)]*\)\s*\{(.*?)\n\}", src, re.S)
+    if not m:
+        _refuse("engine/structs.emp",
+                "no `pub struct Region (...) { ... }` declaration found, so the emitted "
+                "rows have no field names to write.")
+    return re.findall(r"^\s*(\w+)\s*:", m.group(1), re.M)
+
+
+# The four geometry fields plus the effects binding: every column this emitter can fill
+# from a document TODAY. Checked against `struct Region`'s real field list, so an engine
+# rename refuses here instead of emitting a literal with a stale field name. The three
+# fields it does NOT write — `rg_parallax`, `rg_bg_layout`, `rg_bg_span` — each carry an
+# `= 0` default in the declaration, which is what makes omitting them legal; a row that
+# WANTS a non-default value for any of them is refused by `_refuse_unlowerable_bindings`
+# rather than quietly taking the default.
+REGION_EMITTED_FIELDS = ("rg_x0", "rg_x1", "rg_y0", "rg_y1", "rg_effects")
+
+
+def _refuse_unlowerable_bindings(rows: list, where: str) -> None:
+    """Refuse a document whose rows carry bindings this parcel cannot lower.
+
+    `sceneRef` and `rasterRef` reach the ROM through `render_module`'s binding half, which
+    is keyed on SECTION INDEX from top to bottom — `ActNames.binding_sec`, six
+    `<act>_sec_*` choosers whose arms are `if sec == N`, and a reels table keyed on the
+    pointer identity of a `_SecN` symbol. In region mode there are no section refs, so
+    every one of those populations comes out EMPTY: measured in the sandbox at
+    `docs/superpowers/notes/2026-09-16-regions-emit.md` §1.2 — four scene bindings and
+    fourteen chooser arms go to zero and the bake still succeeds.
+
+    So this refuses rather than emitting `parallax: 0`. A zero there is not a smaller
+    version of the right answer; it is the row silently losing its picture, which is
+    exactly the shape of failure the whole regions seam is built to make impossible.
+    """
+    offenders = []
+    for r in rows:
+        for key in (ACT_SCENE_REF_KEY, ACT_RASTER_REF_KEY):
+            if r.get(key) is not None:
+                offenders.append(f"region {r['id']!r} (row {r['index']}) carries "
+                                 f"{key} = {r[key]!r}")
+        # THE BACKGROUND HALF, AND IT IS UNREACHABLE TODAY ON PURPOSE. `_check_region_bg`
+        # refuses every `bg.layoutRef` but the act sentinel and every typed `span`, so no
+        # row can reach here with a non-default background. It is written anyway because
+        # the emitter's row line fills FIVE parameters and the constructor takes seven: the
+        # day that refusal opens (REGIONS-BG-GOLDEN-GAP), a named layout would be validated,
+        # flattened, and then DROPPED HERE IN SILENCE — which is the `bgLayoutRef` failure
+        # the synthesis booked, arriving one layer further in. A refusal that cannot fire is
+        # cheap; the silent drop it forecloses is not. `tools/test_regions_doc.py`'s
+        # tripwire asserts both halves move together.
+        bg = r.get("bg") or {}
+        if bg.get("layoutRef") is not None or bg.get("span") is not None:
+            offenders.append(f"region {r['id']!r} (row {r['index']}) carries a non-default "
+                             f"`bg` ({bg!r}), and this emitter fills neither `bg_layout` "
+                             f"nor `bg_span` — REGIONS-BG-GOLDEN-GAP")
+    if not offenders:
+        return
+    _refuse(where,
+            f"{len(offenders)} region(s) carry an editor binding this generator cannot "
+            f"lower yet: " + "; ".join(offenders) + ". `sceneRef` and `rasterRef` reach "
+            f"the ROM through the generated module's binding half, which is keyed on the "
+            f"SECTION INDEX end to end (EditorSceneBinding_*_SecN, the six `_sec_*` "
+            f"choosers, and a reels table keyed on a _SecN pointer). A region-mode act has "
+            f"no section refs, so those populations lower to NOTHING — and emitting "
+            f"`parallax: 0` here would spend that silence rather than report it. Booked as "
+            f"REGIONS-EMIT-BINDINGS in docs/DEFERRED_WORK.md, with the measurement, in "
+            f"docs/superpowers/notes/2026-09-16-regions-emit.md §1. Until it lands, a "
+            f"region-mode act may bind a `preset` and a background and nothing else.")
+
+
+REGION_TABLE_HEADER = """\
+// AUTO-GENERATED by tools/effects_gen.py — DO NOT EDIT.
+//
+// {cap}'s Region table, lowered from
+// {doc} ({count} region(s), DOCUMENT ORDER).
+// Contract: contract/schema/aurora-regions.schema.json + docs/AURORA_REGIONS_SCHEMA.md
+// (empyrean). The flattening rules are tools/region_flatten.py; the shared golden both
+// repos check against is tools/fixtures/regions/ojz_act1.{{regions,rows}}.json.
+//
+// ⚠ THIS IS THE RELEASE TABLE AND IT IS NOT THE WHOLE TRUTH ABOUT A DEBUG ROM.
+// A regions document is CLOSED and carries no shape key — an Aurora author has no DEBUG
+// and no release — so a build-shape row cannot be written in it and is not emitted here.
+// Ruled by the hub 2026-09-16T05:28:50Z (empyrean `a718ea7c`,
+// docs/AURORA_REGIONS_SCHEMA.md, "The schema stays CLOSED, and the DEBUG eleventh row is
+// a build-time delta"). The ruling accepts one consequence and asks that it be pointed at
+// from here rather than rediscovered: anyone diffing this table against a DEBUG ROM finds
+// a row they cannot account for. The standing statement of it is the `release_shape_only`
+// note in tools/fixtures/regions/ojz_act1.rows.json's `_provenance` — READ THAT BEFORE
+// CONCLUDING THIS TABLE IS WRONG.
+//
+// THE DELTA IS APPLIED BY THE CONSUMER, AGAINST A NAMED ROW. It is not a pure append: it
+// also shortens a row's right edge to make room. So the ruling requires the consumer to
+// name the row it cuts and `ensure` that row is what it expects — never a positional
+// index — so that a document edit which moves or renames that region FAILS THE BUILD
+// instead of silently cutting a different one. The `{prefix}_ROW_*` constants below are
+// that mechanism: each is a row INDEX addressed by its document `id`, so a renamed region
+// deletes the name the consumer's ensure reads, and a moved one changes its value.
+//
+// ⚠ WHAT THE CONSUMER OWES, AND IT IS NOT OPTIONAL. These rows are struct LITERALS, so
+// they did NOT go through `{ctor}()` and carry NONE of its per-row ensures — the minimum
+// span, the reachable-centre band, and the three background rules. A generated table is
+// exactly as unchecked as a hand-typed one until something re-checks it. The consumer owes
+// a TABLE WALK in the same shape as `region_first_overlap` / `region_area_sum`, which
+// already walk a row array in that file, plus the whole-table guards (non-overlap, exact
+// coverage) applied to the COMPOSED array so both build shapes stay checked without
+// either row count being typed twice. Why a literal and not a call: `{ctor}()` is not
+// `pub`, and docs/EMP_PITFALLS.md section 2 makes a cross-module `comptime fn` call
+// resolve its free names at the CALL SITE — see the emitter banner in
+// tools/effects_gen.py.
+//
+// ZERO BYTES: this module declares `const`s only and is placed in no section. The emitting
+// `pub data` stays with the consumer.
+//
+// ⚠ NOTHING HAS ASSEMBLED THIS FILE. No act in this tree is in region mode, so the emitter
+// is inert and its output has never been through sigil. The first act to flip is what
+// closes that (REGIONS-EMIT-BINDINGS in docs/DEFERRED_WORK.md).
+
+module {module}
+
+use engine.structs.{{Region}}
+use games.sonic4.{zone}_effects.{{{presets}}}
+"""
+
+
+def region_table_path(names: "ActNames", repo: str = REPO) -> str:
+    """Beside the generated effects module, one file per act."""
+    return os.path.join(repo, "games", "sonic4", "data", "generated",
+                        names.zone_id, names.act_id, "regions.emp")
+
+
+def render_region_table(rows: list, names: "ActNames", doc_rel: str,
+                        repo: str = REPO) -> str:
+    """The `.emp` module for one act's region table. Pure: reads declarations, no writes.
+
+    Deterministic for a given input — rows come out in document order, which
+    `region_flatten.flatten` fixes — so a re-bake over an unchanged document is
+    byte-identical and the drift gate compares something real.
+    """
+    fields = region_struct_fields(repo)
+    missing = [f for f in REGION_EMITTED_FIELDS if f not in fields]
+    if missing:
+        _refuse("engine/structs.emp",
+                f"`pub struct Region` no longer declares {', '.join(missing)}. This "
+                f"generator writes exactly {', '.join(REGION_EMITTED_FIELDS)} as NAMED "
+                f"fields of a struct literal, so a renamed or removed field would produce "
+                f"rows that cannot compile. Refusing here names the engine declaration; "
+                f"emitting anyway would name a generated file nobody edits. "
+                f"tools/region_table.py reads the same declaration for the ROM side.")
+    _refuse_unlowerable_bindings(rows, doc_rel)
+
+    prefix = names.cap.upper()                       # OJZ_ACT1
+    table = f"{prefix}_GENERATED_REGION_ROWS"
+    # The presets this act's document actually binds, sorted and de-duplicated: the import
+    # list is derived from the rows, so a record no region names is not imported and a
+    # region naming a record the library does not declare was already refused upstream by
+    # `resolve_act_regions`.
+    presets = sorted({r["preset"] for r in rows})
+    # The constructor's name is READ rather than assumed, for the header's prose only —
+    # the rows below do not call it (see the banner). A descriptor with none is not an
+    # error here: the sentence degrades, the table does not.
+    ctor = "the act descriptor's Region constructor"
+    m = re.search(r"comptime\s+fn\s+(\w+)\s*\([^)]*\)\s*->\s*Region\b",
+                  _strip_line_comments(open(names.descriptor_path(repo)).read())
+                  if os.path.isfile(names.descriptor_path(repo)) else "")
+    if m:
+        ctor = m.group(1)
+    out = [REGION_TABLE_HEADER.format(
+        cap=names.cap, doc=doc_rel, count=len(rows), prefix=prefix, ctor=ctor,
+        module=f"games.sonic4.{names.zone_id}_regions_{names.act_id}",
+        zone=names.zone_id, presets=", ".join(presets))]
+    out.append(f"pub const {table}: [Region; {len(rows)}] = [")
+    width = max((len(str(r["x1"])) for r in rows), default=1)
+    pw = max((len(r["preset"]) for r in rows), default=1)
+    for r in rows:
+        out.append(f"    Region{{ rg_x0: {r['x0']:>{width}}, rg_x1: {r['x1']:>{width}}, "
+                   f"rg_y0: {r['y0']:>{width}}, rg_y1: {r['y1']:>{width}}, "
+                   f"rg_effects: {r['preset'] + ' },':<{pw + 3}}  "
+                   f"// row {r['index']} — {r['id']}")
+    out.append("]")
+    out.append("")
+    out.append("// ROW INDEX BY DOCUMENT id — the named-row mechanism the DEBUG-delta")
+    out.append("// ruling requires. A consumer's delta addresses a row through one of")
+    out.append("// these, never through a literal index.")
+    for r in rows:
+        out.append(f"pub const {prefix}_ROW_{r['id'].upper()} = {r['index']}")
+    return "\n".join(out) + "\n"
+
+
+def generate_region_table(repo: str = REPO, zone: int = 0, act: int = 0):
+    """`(path, text)` for an act in REGION mode, or None in legacy mode.
+
+    None is not a failure and must never be rendered as an empty artifact: it is the whole
+    of the mode decision, and today it is the answer for every act in this repo. A caller
+    that wrote a file on None would create a committed artifact with no inputs behind it.
+    """
+    doc = load_act_regions(repo, zone, act)
+    if doc is None:
+        return None
+    rows = act_region_rows(repo, zone, act)
+    names = act_names(repo, zone, act)
+    return (region_table_path(names, repo),
+            render_region_table(rows, names, os.path.relpath(doc["path"], repo), repo))
 
 
 # ===========================================================================
@@ -5311,6 +5623,21 @@ if __name__ == "__main__":
             band_path, band_text = channel_bands_path(), render_channel_bands()
             _atomic_write(band_path, band_text)
             print(f"effects_gen: wrote {os.path.relpath(band_path, REPO)}")
+            # THE REGION TABLE. `None` is LEGACY MODE and is the answer for every act in
+            # this repo today, so the line below is what a normal run prints. It is said
+            # out loud rather than skipped silently: "no output" and "nothing to output"
+            # look identical in a log, and this is a generator whose whole mode decision
+            # is a file's presence.
+            rt = generate_region_table()
+            if rt is None:
+                print("effects_gen: no region table — this act is in LEGACY mode "
+                      f"(no {REGIONS_FILE}); its rows stay hand-written in "
+                      "act_descriptor.emp")
+            else:
+                rt_path, rt_text = rt
+                os.makedirs(os.path.dirname(rt_path), exist_ok=True)
+                _atomic_write(rt_path, rt_text)
+                print(f"effects_gen: wrote {os.path.relpath(rt_path, REPO)}")
         elif cmd == "check":
             # THE DRIFT GATE. Regenerate in memory and compare against the committed
             # artifact — the generated tree is a committed input to the build, so
@@ -5364,6 +5691,40 @@ if __name__ == "__main__":
             print("effects_gen: OK — generated effects module matches its inputs")
             print(f"effects_gen: OK — channel-band sidecar matches the effects library "
                   f"({len(json.loads(band_text)['channels'])} banded channel(s))")
+            # THE REGION TABLE RIDES THE SAME DRIFT GATE, and its LEGACY arm is a real
+            # check rather than a skip: a committed `regions.emp` beside an act with no
+            # document is an artifact with no inputs behind it — the state a deleted
+            # document or a half-applied revert leaves — and the descriptor would go on
+            # compiling against a table nothing regenerates.
+            rt = generate_region_table()
+            rt_path = region_table_path(act_names())
+            rt_rel = os.path.relpath(rt_path, REPO)
+            if rt is None:
+                if os.path.isfile(rt_path):
+                    print(f"effects_gen: STALE — {rt_rel} exists but this act is in "
+                          f"LEGACY mode (no {REGIONS_FILE}), so nothing generates it any "
+                          f"more and nothing checks what it says.")
+                    print(f"  Delete {rt_rel}, or restore the act's {REGIONS_FILE}.")
+                    sys.exit(1)
+                print("effects_gen: OK — no region table owed (LEGACY mode: this act has "
+                      f"no {REGIONS_FILE})")
+            else:
+                _, rt_text = rt
+                if not os.path.isfile(rt_path):
+                    print(f"effects_gen: MISSING — {rt_rel} does not exist, and this act "
+                          f"is in REGION mode.")
+                    print("  Run `python3 tools/effects_gen.py emit` and commit it.")
+                    sys.exit(1)
+                with open(rt_path, "r") as f:
+                    have_rt = f.read()
+                if have_rt != rt_text:
+                    print(f"effects_gen: DRIFT — {rt_rel} is not what "
+                          f"{REGIONS_FILE} generates.")
+                    print("  Run tools/regenerate-level.sh (or `python3 "
+                          "tools/effects_gen.py emit`) and commit the result.")
+                    sys.exit(1)
+                print(f"effects_gen: OK — region table matches its document "
+                      f"({len(act_region_rows())} row(s))")
         elif cmd == "shapes":
             found = load_all_scenes()
             presets = load_all_presets()

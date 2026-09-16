@@ -13,8 +13,13 @@ which carries the `needs_build` marker and compares the golden against the table
 a BUILT ROM.
 
 WHAT A GREEN HERE DOES NOT MEAN, said so nobody reads it as more:
-  * Nothing in the build emits these rows. `generate()` calls `check_mode_conflict` and
-    stops; act 1's table is still hand-written. The emitter is a second parcel.
+  * ⚠ NOTHING HAS ASSEMBLED THE EMITTED TEXT. `TestRegionTableEmitter` proves the `.emp`
+    module is what the document says; no act in this tree is in region mode, so sigil has
+    never seen a generated region table. The first act to flip is what closes that
+    (REGIONS-EMIT-BINDINGS) — see that class's own docstring.
+  * Act 1's rows are still hand-written in `act_descriptor.emp`, and the emitter does not
+    change that. It is wired into `effects_gen.py`'s `emit`/`check` and returns None on
+    every act here.
   * No act in this repo has a `regions.json`, so every region-mode test below builds its
     own sandbox. The real tree exercises exactly one of these paths: the legacy arm, which
     `TestLegacyModeUnchanged` pins.
@@ -43,6 +48,7 @@ import copy
 import glob
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -59,12 +65,31 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(AEON, "tools", "fixtures", "regions")
 GOLDEN_DOC = os.path.join(FIXTURES, "ojz_act1.regions.json")
 GOLDEN_ROWS = os.path.join(FIXTURES, "ojz_act1.rows.json")
+# The emitter's own golden: the `.emp` module the BINDING-FREE golden document lowers to.
+# Committed so a header caveat, a `_ROW_*` constant or a row cannot go missing without a
+# diff to review.
+#
+# ⚠ THE `.emp.txt` SUFFIX IS LOAD-BEARING AND WAS MEASURED, NOT CHOSEN FOR TIDINESS.
+# `sigil build` PARSES EVERY `.emp` IN THE TREE, wherever it sits — this fixture is never
+# emitted, never placed and never imported, and while it was named `.emp` it took the plain
+# demo build to exit 1 (`error: file must start with a `module` declaration`) and 50 tests
+# in test_artifact_provenance.py / test_provenance_consumers.py down with it. A test
+# fixture that is legal `.emp` would be worse, not better: it would be silently compiled
+# into every build. Keep the suffix.
+GOLDEN_EMP = os.path.join(FIXTURES, "ojz_act1.regions.emp.txt")
 ACT1_DESCRIPTOR = "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
 ACT1_EDITOR = "games/sonic4/data/editor/ojz/act1"
 
 # The shared vocabulary the golden pins. NOT `.emp` symbol names: both repos have to be able
 # to check these, and aurora cannot resolve an EditorSceneBinding_* label.
 ROW_KEYS = ("index", "id", "x0", "x1", "y0", "y1", "preset", "sceneRef", "rasterRef", "bg")
+
+# Row 9's id, ruled rather than chosen: a KEY-LESS row's id is its `preset` symbol lowercased
+# (empyrean `a718ea7c`, `docs/AURORA_REGIONS_SCHEMA.md`). Named once here so a test that looks
+# the row up and a test that requires a refusal to NAME it cannot drift apart — and so the
+# `assertIn` near-miss at `test_an_overlap_is_refused_and_names_both_regions` has one place to
+# be fixed rather than two.
+NIGHT_ID = "ojz_preset_night"
 
 # Everything the sandbox borrows from the real tree by SYMLINK rather than copy: the effects
 # library, the scene and preset libraries, the descriptor whose `const` lines are the rules,
@@ -169,12 +194,40 @@ class TestSharedGolden(RegionSandbox):
         If someone "tidies" the golden onto the section grid, every other test here still
         passes and the fixture silently stops exercising the thing it exists for.
         """
-        night = next(r for r in self.rows() if r["id"] == "night")
+        night = next(r for r in self.rows() if r["id"] == NIGHT_ID)
         section = 1 << 11
         self.assertLess(night["x0"], 2 * section)
         self.assertGreaterEqual(night["x1"], 2 * section)
         self.assertNotEqual(night["x0"] % section, 0)
         self.assertNotEqual((night["x1"] + 1) % section, 0)
+
+    def test_the_key_less_rows_id_is_its_preset_symbol_lowercased(self):
+        """The hub's id ruling, asserted with the expectation DERIVED from the document.
+
+        Ruled 2026-09-16T10:5xZ, empyrean `a718ea7c`, `docs/AURORA_REGIONS_SCHEMA.md`, "A
+        KEY-LESS ROW'S ID IS ITS PRESET SYMBOL, LOWERCASED". Rows 0-8 are keyed to sections
+        and keep `sec0`..`sec8`; row 9 is key-less, so its id is minted from its preset.
+
+        THE EXPECTATION IS COMPUTED FROM THE ROW'S OWN `preset` FIELD, never typed beside it.
+        Typing `ojz_preset_night` on both sides would pass against a fixture where somebody
+        had changed the preset and forgotten the id, which is precisely the drift the ruling
+        names as its own accepted cost (a rename leaves the id bound to another preset) and
+        so the one thing worth pinning at the moment of writing.
+
+        AEON DOES NOT IMPLEMENT THE SANITISATION and this test is not a place to start: the
+        minting is Aurora's migration's, written once, and a second implementation here is a
+        drift source rather than a check. The row's preset carries no character outside
+        `[a-z0-9_]` once lowercased, so `.lower()` IS the rule for this input and the parts
+        of it that do not bite (the fold, the strip, the truncation) are deliberately
+        untested here rather than half-reimplemented.
+        """
+        night = next(r for r in golden_rows() if r["id"] == NIGHT_ID)
+        self.assertEqual(night["id"], night["preset"].lower())
+        self.assertTrue(len(night["id"]) <= 32, "the schema pattern caps an id at 32")
+        # And the label the ruling makes a CONDITION of itself: the ugly id is only
+        # acceptable because nothing legible is lost.
+        doc_region = next(r for r in golden_doc()["regions"] if r["id"] == NIGHT_ID)
+        self.assertEqual(doc_region["name"], "Night")
 
     def test_the_golden_document_and_rows_files_agree_on_their_act(self):
         with open(GOLDEN_ROWS) as f:
@@ -251,10 +304,18 @@ class TestModeConflict(RegionSandbox):
     def test_a_migrated_act_does_not_bake_yet_and_the_reason_is_reels(self):
         """The finding above, asserted rather than left in a comment.
 
-        It is written as a test so that the day the second parcel fixes the rung-1 rule,
-        THIS test fails and tells its author to delete it — rather than the tree quietly
-        gaining a capability nobody recorded. The assertion is on the message, because a
-        bake that failed for some other reason would prove nothing about this one."""
+        ⚠ THE SECOND PARCEL CAME AND DELIBERATELY DID NOT FIX IT (2026-09-16), so this
+        test is unchanged and the reason is now written down. Removing the rung-1 rule was
+        MEASURED in this sandbox: the bake then SUCCEEDS, emitting zero scene bindings
+        where the shipped module has four and zero chooser arms where it has fourteen —
+        a green build of a silently de-bound ROM. The refusal is the only thing standing
+        between a migrated act 1 and that, so it is a guard to be replaced (by the
+        section->row re-key, REGIONS-EMIT-BINDINGS) and never one to be relaxed.
+
+        It is still written as a test so that the day the re-key lands, THIS test fails and
+        tells its author to delete it — rather than the tree quietly gaining a capability
+        nobody recorded. The assertion is on the message, because a bake that failed for
+        some other reason would prove nothing about this one."""
         self.write_doc(golden_doc())
         with self.assertRaises(effects_gen.SceneShapeError) as cm:
             effects_gen.generate(repo=self.repo)
@@ -466,20 +527,32 @@ class TestBackgroundBinding(RegionSandbox):
                       "assertion above is vacuous — restore an `@act` layoutRef or this "
                       "test stops testing the collapse")
 
-    def test_a_named_layout_is_refused_and_the_reason_is_the_missing_EMITTER(self):
-        """The refusal stands; its stated REASON was corrected 2026-09-16.
+    def test_a_named_layout_is_refused_and_the_reason_is_the_undERIVABLE_span(self):
+        """The refusal stands; its stated REASON has now been corrected TWICE in one day.
 
-        It used to say "NOTHING IN THE ENGINE READS IT YET", which step 3 (`17bf60fe`, the
-        same day) made false: `Section_RedrawPlanes` and `Draw_BG_TileRow` both read
-        `Region.rg_bg_layout`. The refusal survives on a reason that is still true — nothing
-        lowers this document into a region table, so a named layout would be accepted and
-        dropped — and this test asserts the true sentence, because a refusal whose reason is
-        wrong sends the author to the wrong file.
+        Round 1: it said "NOTHING IN THE ENGINE READS IT YET", which step 3 (`17bf60fe`)
+        made false for `rg_bg_layout`. Round 2 (the emitter parcel): the replacement leaned
+        on "nothing lowers this document into a region table", which the emitter falsified,
+        AND on "`rg_bg_span` has no engine reader until step 4's clamp", which step 4 had
+        ALREADY falsified before the sentence was written.
+
+        What is left is the reason that was load-bearing all along and was never checked
+        because two easier ones were in front of it: `ojz_bglib.json` carries `id` and
+        `name` and NO HEIGHT, so the derived-span check this generator owes has nothing to
+        derive from. That one is measured, not remembered.
         """
         doc = golden_doc()
         doc["regions"][0]["bg"] = {"layoutRef": "ojz_cave"}
-        msg = self.refuses(doc, "ojz_cave", "NOTHING LOWERS THIS DOCUMENT")
+        msg = self.refuses(doc, "ojz_cave", "NO HEIGHT")
         self.assertNotIn("NOTHING IN THE ENGINE READS IT YET", msg)
+        # ...and not the SECOND stale sentence either. "nothing lowers this document" was
+        # true when written and the emitter parcel falsified it; "rg_bg_span has no engine
+        # reader" was falsified the same day it was written, by step 4's clamp. Both are
+        # asserted absent, because a refusal whose reason is wrong sends the author to the
+        # wrong file, and a reason that USED to be right is the hardest kind to notice.
+        self.assertNotIn("NOTHING LOWERS THIS DOCUMENT", msg)
+        self.assertNotIn("no engine reader", msg)
+        self.assertIn("Parallax_Step5_Vscroll", msg)
 
     def test_TRIPWIRE_opening_layoutRef_without_the_golden_fails_here(self):
         """The day `bg.layoutRef` opens, the shared golden owes a non-default row.
@@ -504,6 +577,28 @@ class TestBackgroundBinding(RegionSandbox):
             opened = False
         else:
             opened = True
+
+        # THE EMITTER IS THE SECOND SITE THAT MUST MOVE (added 2026-09-16), and it is a
+        # site the original tripwire could not have known about. `render_region_table`
+        # writes five of `struct Region`'s eight fields and refuses a non-default `bg`
+        # rather than lowering one, so opening `_check_region_bg` alone would let a named
+        # layout be validated, flattened, and DROPPED AT EMISSION — the same failure one
+        # layer further in, and invisible to the assertion below.
+        try:
+            effects_gen._refuse_unlowerable_bindings(
+                [{"id": "x", "index": 0, "sceneRef": None, "rasterRef": None,
+                  "bg": {"layoutRef": "ojz_cave", "span": 2048}}], "(tripwire)")
+        except effects_gen.SceneShapeError:
+            emitter_drops_it = False
+        else:
+            emitter_drops_it = True
+        if opened:
+            self.assertFalse(
+                emitter_drops_it,
+                "`bg.layoutRef` now ACCEPTS a named layout and `render_region_table` still "
+                "emits no `rg_bg_layout`/`rg_bg_span`, so a named layout is validated, "
+                "flattened and then dropped at emission. Open both sites together or "
+                "neither: REGIONS-BG-GOLDEN-GAP in docs/DEFERRED_WORK.md.")
 
         non_default = [r for r in golden_rows()
                        if r["bg"]["layoutRef"] is not None or r["bg"]["span"] is not None]
@@ -541,14 +636,218 @@ class TestBackgroundBinding(RegionSandbox):
 
 
 # ---------------------------------------------------------------------------
+# THE EMITTER
+# ---------------------------------------------------------------------------
+
+class TestRegionTableEmitter(RegionSandbox):
+    """`render_region_table` + `generate_region_table` — the rows as `.emp` text.
+
+    ⚠ WHAT NO TEST BELOW PROVES, said first because a green run hides it completely:
+    NOTHING HAS ASSEMBLED THIS TEXT. No act in this tree is in region mode, so the
+    emitter is inert in every build and its output has never been through sigil. These
+    tests prove the text is what the document says, that the call it writes matches the
+    constructor `act_descriptor.emp` actually declares, and that a binding it cannot
+    lower is refused rather than dropped. The assembler's verdict is owed by the parcel
+    that flips the first act (REGIONS-EMIT-BINDINGS).
+    """
+
+    def bare_doc(self):
+        """The golden with every editor binding removed — the shape the emitter accepts.
+
+        Not a second fixture: it is the golden, so the geometry under test is still act
+        1's real geometry including the straddling night region. Stripping is what makes
+        it emittable, and `test_the_golden_itself_is_refused_for_its_bindings` pins that
+        the strip is load-bearing rather than cosmetic.
+        """
+        doc = copy.deepcopy(golden_doc())
+        for r in doc["regions"]:
+            r.pop("sceneRef", None)
+            r.pop("rasterRef", None)
+        return doc
+
+    def emit(self, doc=None):
+        self.write_doc(self.bare_doc() if doc is None else doc)
+        return effects_gen.generate_region_table(repo=self.repo)
+
+    def test_the_emitted_rows_are_the_golden_rows(self):
+        """The acceptance test: every emitted call carries the golden's own numbers.
+
+        Parsed back out of the text rather than compared as a string, so the assertion is
+        about the ROWS and not about spacing — a formatting change is not a content
+        change and should not read as one.
+        """
+        _path, text = self.emit()
+        calls = re.findall(
+            r"Region\{ rg_x0:\s*(\d+), rg_x1:\s*(\d+), rg_y0:\s*(\d+), "
+            r"rg_y1:\s*(\d+), rg_effects: (\w+) \},", text)
+        self.assertEqual(len(calls), len(golden_rows()))
+        for call, want in zip(calls, golden_rows()):
+            x0, x1, y0, y1, preset = call
+            self.assertEqual((int(x0), int(x1), int(y0), int(y1), preset),
+                             (want["x0"], want["x1"], want["y0"], want["y1"],
+                              want["preset"]),
+                             f"emitted row {want['index']} ({want['id']}) disagrees with "
+                             f"the shared golden")
+
+    def test_the_emitted_text_is_the_committed_golden_fragment(self):
+        """Byte-for-byte against a committed `.emp`, which is what a drift gate compares.
+
+        The row test above is about VALUES and would pass through a header rewrite, a
+        lost caveat, or a dropped `_ROW_*` constant. This one is about the artifact. The
+        fixture is REGENERATED by `python3 tools/effects_gen.py emit` for a region-mode
+        act, so when it legitimately changes the diff is the review.
+        """
+        _path, text = self.emit()
+        with open(GOLDEN_EMP) as f:
+            self.assertEqual(text, f.read())
+
+    def test_every_row_gets_an_index_constant_named_by_its_document_id(self):
+        """The DEBUG-delta ruling's named-row mechanism (empyrean `a718ea7c`).
+
+        The delta shortens `sec2`, so the descriptor has to address that row by NAME. A
+        renamed region deletes the constant its ensure reads; a moved one changes its
+        value. Both fail the build, which is the whole point of the condition.
+        """
+        _path, text = self.emit()
+        for row in golden_rows():
+            self.assertIn(f"const OJZ_ACT1_ROW_{row['id'].upper()} = {row['index']}",
+                          text)
+        # The row the ruling names, spelled out: it is row 2 and it ends at the grid edge.
+        self.assertIn("const OJZ_ACT1_ROW_SEC2 = 2", text)
+
+    def test_the_header_points_at_the_release_shape_only_note(self):
+        """A CONDITION of the DEBUG-delta ruling, not decoration: *"the emitter should
+        point at that note from the generated table's header."*
+
+        Asserted on the fixture's real path, so moving or renaming the golden without
+        updating the header fails here rather than leaving a dangling pointer in a
+        generated file nobody edits."""
+        _path, text = self.emit()
+        self.assertIn("release_shape_only", text)
+        self.assertIn("tools/fixtures/regions/ojz_act1.rows.json", text)
+        self.assertIn("release_shape_only",
+                      json.load(open(GOLDEN_ROWS))["_provenance"])
+
+    def test_the_golden_itself_is_refused_for_its_bindings(self):
+        """`sceneRef`/`rasterRef` are REFUSED, never emitted as `parallax: 0`.
+
+        This is the parcel's stop condition made executable. Six of act 1's ten regions
+        carry a binding, and lowering one needs the binding half of `render_module`
+        re-keyed from section index to region row — measured as an L and booked. A
+        zero here would be the row silently losing its picture.
+        """
+        self.write_doc(golden_doc())
+        with self.assertRaises(effects_gen.SceneShapeError) as cm:
+            effects_gen.generate_region_table(repo=self.repo)
+        msg = str(cm.exception)
+        for frag in ("sceneRef", "rasterRef", "REGIONS-EMIT-BINDINGS",
+                     "'sec0'", "'sec5'"):
+            self.assertIn(frag, msg, f"refusal did not name {frag!r}:\n{msg}")
+
+    def test_legacy_mode_emits_nothing_and_that_is_not_an_error(self):
+        """`None`, never an empty file. The whole mode decision, and today's answer for
+        every act in this repo.
+
+        The sandbox writes no document until a test asks for one, so this asserts against
+        the tree as `setUp` leaves it — and it checks the presence guard positively first,
+        because "returned None" and "returned None for the wrong reason" are the same
+        value.
+        """
+        self.assertFalse(effects_gen.has_act_regions(repo=self.repo))
+        self.assertIsNone(effects_gen.generate_region_table(repo=self.repo))
+        # ...and the same call with a document present is NOT None, so the assertion above
+        # is not passing because the emitter is broken in some other way.
+        self.write_doc(self.bare_doc())
+        self.assertIsNotNone(effects_gen.generate_region_table(repo=self.repo))
+
+    def test_the_emitted_module_declares_itself(self):
+        """THE GATE WHOSE RED WAS AN ACTUAL BUILD FAILURE, not a contrived mutation.
+
+        The emitter's first draft wrote a module-less fragment. `sigil build` parses every
+        `.emp` in the tree, so the committed FIXTURE alone — never emitted, never placed,
+        never imported — took the plain demo build to exit 1 with `error: file must start
+        with a `module` declaration` and 50 tests in test_artifact_provenance.py /
+        test_provenance_consumers.py with it. This asserts the shape that measurement
+        forced, on the emitted TEXT, so the emitter can never reintroduce it.
+
+        The module name is DERIVED from the act's own ids (`ActNames`), the way the
+        generated effects module's is, so a second act cannot collide with this one.
+        """
+        _path, text = self.emit()
+        lines = [ln for ln in text.splitlines()
+                 if ln.strip() and not ln.lstrip().startswith("//")]
+        self.assertTrue(lines[0].startswith("module "),
+                        f"the first non-comment line must be a `module` declaration, "
+                        f"got {lines[0]!r}")
+        names = effects_gen.act_names(repo=self.repo)
+        self.assertEqual(lines[0],
+                         f"module games.sonic4.{names.zone_id}_regions_{names.act_id}")
+
+    def test_the_imports_are_derived_from_the_rows_not_from_the_library(self):
+        """Every preset the rows bind is imported, and nothing else is.
+
+        Importing the whole effects library would work and would hide a real fault: a row
+        binding a record that vanished. `resolve_act_regions` refuses that upstream, and
+        this keeps the emitted import list an honest statement of what the table names.
+        """
+        _path, text = self.emit()
+        line = next(ln for ln in text.splitlines()
+                    if ln.startswith("use games.sonic4.") and "_effects.{" in ln)
+        imported = [s.strip() for s in line.split("{")[1].rstrip("}").split(",")]
+        self.assertEqual(imported, sorted({r["preset"] for r in golden_rows()}))
+
+    def test_the_struct_fields_are_READ_from_the_engine_not_assumed(self):
+        """The one structural check a generator with no assembler can make.
+
+        The literal's field names come from `engine/structs.emp`'s own `pub struct Region`
+        declaration. Proven by renaming a field in a copy of the engine and requiring the
+        emission to REFUSE — a test that only asserted the string `rg_x0` would pass
+        against a hard-coded list.
+        """
+        # The sandbox symlinks `engine`; swap in a real copy to edit.
+        eng = os.path.join(self.repo, "engine")
+        real = os.path.realpath(eng)
+        os.unlink(eng)
+        shutil.copytree(real, eng)
+        sp = os.path.join(eng, "structs.emp")
+        with open(sp) as f:
+            src = f.read()
+        self.assertIn("rg_x0:", src)
+        with open(sp, "w") as f:
+            f.write(src.replace("rg_x0:", "rg_left:"))
+        self.write_doc(self.bare_doc())
+        with self.assertRaises(effects_gen.SceneShapeError) as cm:
+            effects_gen.generate_region_table(repo=self.repo)
+        msg = str(cm.exception)
+        self.assertIn("rg_x0", msg)
+        self.assertIn("engine/structs.emp", msg)
+
+    def test_the_header_says_the_consumer_owes_the_per_row_checks(self):
+        """A literal does not go through `ojz_region()`, so it carries none of its ensures.
+
+        That is a real loss and the emitted file has to say so where the person wiring it
+        up will read it — not only in a note they may never open.
+        """
+        _path, text = self.emit()
+        self.assertIn("ojz_region()", text)
+        self.assertIn("REGIONS-EMIT-BINDINGS", text)
+        self.assertIn("NOTHING HAS ASSEMBLED THIS FILE", text)
+
+
+# ---------------------------------------------------------------------------
 # THE PER-ROW AND WHOLE-TABLE RULES
 # ---------------------------------------------------------------------------
 
 class TestRowRules(RegionSandbox):
     def test_an_overlap_is_refused_and_names_both_regions(self):
         doc = golden_doc()
-        doc["regions"][1]["rect"]["w"] += 64       # sec1 eats into night
-        self.refuses(doc, "sec1", "night", "overlap", resolve=False)
+        doc["regions"][1]["rect"]["w"] += 64       # sec1 eats into the night region
+        # ⚠ `NIGHT_ID` AND NOT THE BARE WORD, and the reason is a near-miss worth recording:
+        # `refuses` uses `assertIn`, and "night" is a SUBSTRING of "ojz_preset_night", so
+        # this assertion would have gone on passing un-edited through the id ruling while
+        # no longer naming the id the author has to go and find. A green that survives the
+        # change it was supposed to track is the failure mode, not the rename.
+        self.refuses(doc, "sec1", NIGHT_ID, "overlap", resolve=False)
 
     def test_a_hole_is_refused_and_names_the_uncovered_rectangle(self):
         doc = golden_doc()
