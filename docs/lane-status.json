@@ -43,7 +43,7 @@
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Backgrounds must stream like the foreground already does, for Sonic 2 or 3 in one act. Today's crossing repaint is half of it; loading and evicting background tiles is the other half",
+      "title": "Backgrounds must stream like the foreground does, for Sonic 2 or 3 in one act. A design already exists from 08-08 and today's crossing repaint is half of it; a real Sonic 2 zone's art alone is about as big as the whole foreground pool",
       "state": "doing",
       "size": "L",
       "blockedBy": null
@@ -86,5 +86,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T19:00:35Z"
+  "updatedAt": "2026-09-16T19:09:51Z"
 }
