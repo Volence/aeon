@@ -1,12 +1,6 @@
 {
-  "focus": "Switching act 1 to read its areas from the editor's own file, so the two halves cannot drift apart.",
-  "inFlight": [
-    {
-      "what": "The re-keying that lets act 1 read its areas from the editor file instead of hand-written engine source -- nothing should look different",
-      "where": "branch parcel/regions-emit-bindings",
-      "agent": true
-    }
-  ],
+  "focus": "Act 1 now reads its areas from the editor's own file. The two halves can no longer drift apart.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,15 +8,8 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the agent returns and its work is judged. It is three pieces that must land together, so a partial is a stop, not a shippable half.",
+  "nextBoundary": "Here. Nothing running, nothing half-applied.",
   "queue": [
-    {
-      "id": "REGIONS-EMIT-BINDINGS",
-      "title": "Switch act 1 over to the editor's region file for real. The emitter landed and is wired but deliberately inert; this is the re-keying behind it, priced at 87 sites across 14 files",
-      "state": "doing",
-      "size": "L",
-      "blockedBy": null
-    },
     {
       "id": "SP-6",
       "title": "The spring sound A/B you asked to hear: built on 09-09, waiting for your listen",
@@ -45,7 +32,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T16:15:39Z"
+  "awaiting": "nothing from you right now. Still on your desk from before: the spring sound A/B from 09-09.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T17:51:19Z"
 }
