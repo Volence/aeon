@@ -35001,6 +35001,19 @@ path, and "the tracker names the blob the plane holds" is true at every instant 
 the second writer onwards. The cost is one wasted 8192-byte blit at load on any act that ever
 authors a non-default layout under its start point.
 
+**⚠ RULED BY THE OVERSEER 2026-09-16: ROUTE 2 IS REFUSED, ROUTE 1 STANDS (leave it).** The agent
+asked for route 2 to be overruled if I disagreed, and I do — on its own stated reason. Making
+`Section_RedrawPlanes` the only writer is cleaner by the one-authority rule and deletes a blit, but
+it makes the picture depend on `Section_Plane_Dirty` being set on every boot path, and **nobody has
+enumerated those paths.** Today a path that forgot still shows the act background; under route 2 a
+path that forgets shows NOTHING. That trades a visible, harmless duplication for an invisible,
+conditional blank screen whose trigger set is unknown — and an unenumerated set is exactly what
+this repo's own rule says you cannot reason about from names or diagnostics. The wasted blit is at
+load, display off, on a path already holding the Z80 bus for ~21 ms.
+
+**What would change the ruling:** the boot-path enumeration the agent named as route 2's
+precondition. Do that first and route 2 becomes a normal cleanup; skip it and route 2 is a bet.
+
 **Three ways out, rising in cost, none of them step 3's:**
 
 1. **Leave it.** The wasted blit is at load, with the display off, on a path that already spends
