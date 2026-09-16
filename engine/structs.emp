@@ -136,6 +136,30 @@ pub struct Region (size: 22) {
                                         //       0 = PLANE_B_SPAN. No reader yet (the clamp
                                         //       is step 4).
 }
+// A `(size: N)` DECLARATION IS NOT CHECKED BY ANY PASS THAT WALKS DECLARED STRUCTS — it is
+// verified only inside `layout_of_struct`, i.e. only when something in the build FORCES this
+// struct's layout. Measured by the sigil lane over seventeen shapes with a positive control
+// beside each: a struct declared in the entry module and never referenced builds CLEAN with
+// its size off by 87, exit 0, no diagnostic; importing it by name and never using it is
+// silent too. For `Region` at aeon `c283b95b`, `sizeof(Region)` is spelled in exactly three
+// places — engine/level/parallax.emp's `lea sizeof(Region)(a0), a0` and two
+// `mul_const.w d0, #sizeof(Region)` sites in games/sonic4/test/ojz_scroll_test.emp — and in
+// the SHIPPING closure that leaves the one `lea` as the entire reason the declaration is
+// enforced at all. Respell that stride as a constant in some future tidy-up and the
+// declaration goes silent with nothing anywhere going red.
+//
+// THIS `ensure` IS THE ZERO-COST REMEDY and it does not depend on anything else forcing the
+// layout, because spelling `sizeof(Region)` here IS that force. Proven red by mutation (a
+// field widened u16 -> u32 with the declaration moved to match, so the declaration check
+// PASSED and this line was the only thing left to fail); it costs zero ROM bytes, measured
+// as a byte-identical debug ROM across adding it.
+//
+// The same class is LIVE in this tree at engine/objects/children.emp's
+// `pub struct SpawnDesc (size: 4)`, which builds clean mutated to `(size: 41)` under both
+// games. Booked in docs/DEFERRED_WORK.md rather than fixed here — different file, different
+// parcel's subject.
+ensure(sizeof(Region) == 22,
+       "engine/structs.emp: sizeof(Region) is {sizeof(Region)}, and the record is 22 bytes. The `(size: ...)` declaration above is NOT self-checking: sigil verifies it only inside layout_of_struct, i.e. only when something in the build forces this struct's layout, and in the shipping closure that is ONE site (engine/level/parallax.emp's `lea sizeof(Region)(a0), a0` in Region_Resolve). This `ensure` is what makes the size a build-time fact independent of that site. If you meant to change the record, change the declaration and this line together, and re-read Parallax_CheckBoundary's two span-major `move.l` cache fills — they read x0:x1 and y0:y1 as pairs and assume the first four fields' order")
 
 // -----------------------------------------------
 // Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.
@@ -238,6 +262,15 @@ pub struct Sec {
     sec_block_dict:      *u8,           // $10 — raw dict region (LZ pre-seed)
     sec_block_dict_len:  u16,           // $14 — dict bytes (768×K, K≤3)
 }
+// The Region twin of the note above, for the same reason and with one difference: `Sec`
+// carries no `(size: N)` declaration at all, so there is no declared number to go silent —
+// this `ensure` is the only place the 22 is written down as a FACT rather than implied by
+// the fields. Its two out-of-module twins (engine/level/section.emp and
+// engine/level/tile_cache.emp) pin the same number at the two `mul_const.w #sizeof(Sec)`
+// stride sites; this one stands beside the declaration so that a field edit meets the number
+// in the same file it is editing. Proven red by mutation, in isolation from the twins.
+ensure(sizeof(Sec) == 22,
+       "engine/structs.emp: sizeof(Sec) is {sizeof(Sec)}, not 22. A field was added or removed above. THREE things follow the size and none of them will tell you: the two `mul_const.w dN, #sizeof(Sec)` strides (engine/level/section.emp's Section_GetSecPtrXY and engine/level/tile_cache.emp's TileCache_DecompressBlock, each with its own copy of this pin), and act_descriptor.emp's MAX_ACT_SECTIONS x sizeof(Sec) <= $7FFF ceiling, which is what keeps Section_GetSecPtrXY's sign-extending `adda.w` from wrapping. Also re-ask the question the two twins exist to force: has an OUT-OF-ASSEMBLER reader of the Sec layout appeared? There was none as of 2026-09-16")
 
 // -----------------------------------------------
 // DMA Queue Entry (§1.2) — 14 bytes, RAM queue slots
