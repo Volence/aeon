@@ -2921,8 +2921,18 @@ pub proc OJZ_Reels_Fill () clobbers(d0-d5/a0-a2) {
 //                                                          from the gap to this symbol.
 //                                                          Unbound, but NOT free.
 //   OJZ_WaterRaster      raster    NO SECTION              its hand install was deleted in
-//                                                          P-b Task 6; the program was not
-//                                                          (ojz_scroll_test.emp:929)
+//                                                          P-b Task 6; the program was not.
+//                                                          The note that says so is the
+//                                                          "hand install of OJZ_WaterRaster
+//                                                          ... is GONE" block inside
+//                                                          GameState_OJZScroll_Init
+//                                                          (ojz_scroll_test.emp). CITED BY
+//                                                          NAME: the `:929` that stood here
+//                                                          had already drifted onto an
+//                                                          unrelated line before the parcel
+//                                                          that noticed it (verified against
+//                                                          8954b9bd), which is what a line
+//                                                          number buys you.
 //   OJZ_TestVsram        raster    NO SECTION              gate fixture (the P3 VSRAM proof)
 //   OJZ_TestRamp         ramp      NO SECTION              gate fixture that never renders.
 //                                                          games/sonic4/config/game.emp:111
