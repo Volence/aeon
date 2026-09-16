@@ -1,37 +1,6 @@
 {
-  "focus": "Researching how to stream backgrounds between zones for Sonic 2 or 3 in one act. Six research slices running.",
-  "inFlight": [
-    {
-      "what": "How Sonic 3 & Knuckles and Sonic 2 swap zone art mid-level",
-      "where": "read-only research",
-      "agent": true
-    },
-    {
-      "what": "How S.C.E. and our old sonic_hack handle level art loading",
-      "where": "read-only research",
-      "agent": true
-    },
-    {
-      "what": "Vectorman, Gunstar Heroes and Alien Soldier on live art swaps",
-      "where": "read-only research",
-      "agent": true
-    },
-    {
-      "what": "Batman & Robin, Thunder Force IV and Ristar on stage scenery changes",
-      "where": "read-only research",
-      "agent": true
-    },
-    {
-      "what": "Hardware limits, homebrew and tech demos from online sources",
-      "where": "read-only research",
-      "agent": true
-    },
-    {
-      "what": "What aeon already has, and modern techniques mapped onto it",
-      "where": "read-only research",
-      "agent": true
-    }
-  ],
+  "focus": "The design for streaming backgrounds between zones is drafted and waiting for your review. Nothing is built.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -39,14 +8,14 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When all six research slices return and are committed. Then I draft the design and bring it to you before anything is built.",
+  "nextBoundary": "Here. The research and the draft are committed; nothing is running and nothing is half-applied.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Backgrounds must stream like the foreground does, for Sonic 2 or 3 in one act. A design already exists from 08-08 and today's crossing repaint is half of it; a real Sonic 2 zone's art alone is about as big as the whole foreground pool",
-      "state": "doing",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null
+      "blockedBy": "your review of the draft, plus four calls in it only you can make"
     },
     {
       "id": "REGIONS-P2-STEP7",
@@ -84,7 +53,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T19:09:51Z"
+  "awaiting": "your review of the background-streaming design draft (docs/superpowers/specs/2026-09-16-megaact-bg-streaming-design.md) and its four calls: palette at a crossing, what the corridor looks like, holding the camera if art is late, own project or part of regions. Also still yours: the spring sound A/B from 09-09.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T19:19:10Z"
 }
