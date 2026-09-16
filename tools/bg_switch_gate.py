@@ -38,8 +38,31 @@ LEGS (each names what it asserts):
          A synthetic 32 B Deferrable entry to the map's free tile, appended every tick (positive
          control first). Red against a global queue-empty completion test (the draft's C2).
 
-WHAT A GREEN HERE DOES NOT SAY: nothing about how the switch LOOKS, and (until the ORDER legs)
-nothing about whether Plane B is painted before the tiles land.
+  ORDER  no_plane_b_row_shows_the_new_layout_before_vram_holds_the_new_tiles
+         Every tick: no Plane B row holding a (discriminating) row of the subject's layout while
+         the arena does not hold its tiles; the wipe cursor arms strictly after the tracker names
+         the tiles; the settled plane and arena are the subject's.
+  ORDER_STARVED  ...even_when_the_last_chunk_is_held_in_the_queue
+         The window is starved from the tick that enqueues the LAST chunk, for a whole sweep's
+         worth of ticks: while it is queued, BG_Tiles_Current and the cursor must stay 0. The leg
+         that sees the Icecap inversion (completion taken without waiting for the last chunk).
+  ORDER_VERTICAL  a_vertical_crossing_paints_no_new_layout_row_before_its_tiles_land
+         ORDER on a DOWNWARD entry. It does NOT grade the streamer's suspension: the subject's
+         layout is one plane tall, so the streamer's window is fixed at 0 and it paints nothing.
+  REENTRANT  reversing_across_the_edge_mid_overwrite_retargets_and_settles_on_the_act_tiles
+         Enter with the window starved (a chunk held), fly back out; the target names the act's
+         tiles on the reverse crossing, and the run settles on the act's full tile blob and
+         layout (no stale subject chunk lands after them). A timeout is FAIL, not COULD NOT RUN.
+  CONTROL  a_crossing_between_two_act_default_rows_arms_no_overwrite
+  POISON  an_overwrite_that_cancels_a_sweep_still_ends_with_the_whole_plane_repainted
+         On a COPY of the ROM whose left neighbour is patched to show the subject's layout over
+         the act's tiles: cancel the subject's sweep mid-flight by flying into that neighbour; the
+         settled plane must be the subject's layout on every row. The only case where zeroing
+         BG_Plane_Layout at the arm (plan C6) is what repaints the plane.
+
+WHAT A GREEN HERE DOES NOT SAY: nothing about how the switch LOOKS, and nothing about the
+steady-state streamer's suspension on a TALL map (no tiles-owning row in the DEBUG table has a
+span; booked in docs/DEFERRED_WORK.md, REGION-BG-STREAMER-SUSPENSION-UNGRADED).
 
 Exit: 0 PASS · 1 FAIL · 2 COULD NOT RUN (a premise the gate refuses to measure past).
 """
@@ -601,8 +624,370 @@ async def leg_transport_starved(rig, F, K, fails):
     check_transport(samples, i_in, F, K, "TRANSPORT-STARVED", fails, slack=STARVE_TICKS + 2)
 
 
+# ---------------------------------------------------------------------------
+# TASK 4 — the ORDERING legs. Each samples Plane B and the arena every tick.
+# ---------------------------------------------------------------------------
+ROW = None   # set from K in the helpers below
+
+
+async def drive(rig, F, K, start, script, max_ticks, tag):
+    """Boot at `start`, settle, then one tick at a time: `await script(i, samples)` returns
+    (button-or-None, done). Every sample carries the plane, the arena and the trackers."""
+    await rig.boot(start)
+    for _ in range(4):
+        await rig.tick()
+    samples, held = [], "unset"
+    try:
+        for i in range(max_ticks):
+            s = await sample_ow(rig, F, K)
+            s["plane"] = await read_vram(rig.b, K.VRAM_PLANE_B, K.PLANE_BYTES)
+            s["region_row"] = next((r["index"] for r in F.rows if r["addr"] == s["region"]), None)
+            samples.append(s)
+            button, done = await script(i, samples)
+            if done:
+                return samples
+            if button != held:
+                await rig.hold(button)
+                held = button
+            await rig.tick()
+    finally:
+        await rig.hold(None)
+    raise GateError(f"{tag}: the route did not finish in {max_ticks} ticks (last region row "
+                    f"{samples[-1]['region_row']}, target ${samples[-1]['target']:06X}, current "
+                    f"${samples[-1]['current']:06X}, cursor {samples[-1]['cursor']})")
+
+
+def rows_of(blob, K):
+    n = K.PLANE_H_CELLS * 2
+    return [blob[p * n:(p + 1) * n] for p in range(K.PLANE_V_CELLS)]
+
+
+def check_order(samples, F, K, label, fails, new_layout, new_tiles, old_layout):
+    """THE ORDERING INVARIANT: on no sampled tick may a Plane B row hold a row of the NEW
+    layout (one that differs from the OLD layout's same row) while the arena does not hold the
+    NEW tiles; and the sweep may not arm before the tiles are named current."""
+    new_rows, old_rows = rows_of(new_layout, K), rows_of(old_layout, K)
+    discriminating = [p for p in range(K.PLANE_V_CELLS) if new_rows[p] != old_rows[p]]
+    if not discriminating:
+        raise GateError(f"{label}: the new and old layouts agree on every plane row")
+    first_bad = None
+    for k, s in enumerate(samples):
+        prow = rows_of(s["plane"], K)
+        shown = [p for p in discriminating if prow[p] == new_rows[p]]
+        if shown and s["arena"][:len(new_tiles)] != new_tiles:
+            if first_bad is None:
+                first_bad = (k, shown)
+    if first_bad:
+        k, shown = first_bad
+        fails.append(f"{label}: at tick {k} Plane B shows {len(shown)} row(s) of the new layout "
+                     f"(first plane row {shown[0]}) while the BG arena does not hold the new "
+                     f"tiles — the repaint ran ahead of the overwrite")
+    done = next((k for k, s in enumerate(samples) if s["current"] == F.S["bg_tiles"]), None)
+    armed = next((k for k, s in enumerate(samples) if s["cursor"]), None)
+    if armed is not None and (done is None or armed < done):
+        fails.append(f"{label}: the wipe cursor armed at tick {armed}, "
+                     f"{'before' if done is not None else 'and'} the tile tracker named the new "
+                     f"blob{' at tick %d' % done if done is not None else ' never'}")
+    return done, armed
+
+
+async def leg_order(rig, F, K, fails):
+    """no_plane_b_row_shows_the_new_layout_before_vram_holds_the_new_tiles"""
+    run_up = 8 * K.FLY
+    start = (F.S["x0"] - run_up, F.centre[1])
+    state = {"in": None, "done": None}
+
+    async def script(i, S):
+        s = S[-1]
+        if state["in"] is None and s["region"] == F.S["addr"]:
+            state["in"] = i
+        if s["current"] == F.S["bg_tiles"] and state["done"] is None:
+            state["done"] = i
+        if state["done"] is not None and s["cursor"] == 0 and i > state["done"] + 1:
+            return None, True
+        button = "right" if state["in"] is None or i - state["in"] < 8 else None
+        return button, False
+
+    samples = await drive(rig, F, K, start, script, 200, "ORDER")
+    check_order(samples, F, K, "ORDER", fails, F.S_layout, F.S_tiles, F.A_layout)
+    end = samples[-1]
+    if end["plane"] != F.S_layout or end["arena"] != F.S_tiles:
+        fails.append("ORDER: after the sweep retired, Plane B / the arena do not hold the subject's "
+                     "layout / tiles")
+    print(f"  ORDER: entered at tick {state['in']}, tiles settled at {state['done']}, sweep "
+          f"retired by {len(samples) - 1}")
+
+
+async def leg_order_starved(rig, F, K, fails):
+    """no_plane_b_row_shows_the_new_layout_even_when_the_last_chunk_is_held_in_the_queue"""
+    run_up = 8 * K.FLY
+    start = (F.S["x0"] - run_up, F.centre[1])
+    state = {"in": None, "done": None, "hold_from": None, "saved": None}
+    addr = rig.sym["DMA_Budget_Default"]
+    HOLD = K.WIPE_FRAMES
+
+    async def script(i, S):
+        s = S[-1]
+        if state["in"] is None and s["region"] == F.S["addr"]:
+            state["in"] = i
+        # Starve from the tick whose update will enqueue the LAST chunk (at most one chunk left,
+        # nothing queued): the poke is read at the top of THIS frame's VBlank, so the last chunk
+        # is held in the queue — the exact window the Icecap inversion needs. Sampled at the top
+        # of Update, "every byte already enqueued" would be one VBlank too late: that chunk has
+        # already drained.
+        if (state["hold_from"] is None and state["in"] is not None
+                and s["target"] == F.S["bg_tiles"] and s["current"] == 0
+                and 0 < len(F.S_tiles) - s["offset"] <= K.CHUNK and not s["arena_entries"]):
+            state["saved"] = await rd(rig.b, addr, 2)
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+                                                      "width": 2})
+            state["hold_from"] = i
+        if state["hold_from"] is not None and state["saved"] is not None \
+                and i - state["hold_from"] >= HOLD:
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": state["saved"],
+                                                      "width": 2})
+            state["saved"] = None
+        if s["current"] == F.S["bg_tiles"] and state["done"] is None:
+            state["done"] = i
+        if state["done"] is not None and s["cursor"] == 0 and i > state["done"] + 1:
+            return None, True
+        return ("right" if state["in"] is None or i - state["in"] < 8 else None), False
+
+    samples = await drive(rig, F, K, start, script, 260, "ORDER_STARVED")
+    if state["hold_from"] is None:
+        raise GateError("ORDER_STARVED: the last chunk was never observed in flight, so nothing "
+                        "was starved")
+    h = state["hold_from"]
+    held = samples[h + 1:h + HOLD]
+    if not any(s["arena_entries"] for s in held):
+        raise GateError("ORDER_STARVED: no arena write stayed queued while starved; the leg "
+                        "did not hold the last chunk and cannot discriminate")
+    for k, s in enumerate(held, start=h + 1):
+        if s["arena_entries"] and (s["current"] or s["cursor"]):
+            fails.append(f"ORDER_STARVED tick {k}: the last chunk is still queued but "
+                         f"BG_Tiles_Current=${s['current']:06X}, BG_Wipe_Cursor={s['cursor']}")
+            break
+    check_order(samples, F, K, "ORDER_STARVED", fails, F.S_layout, F.S_tiles, F.A_layout)
+    print(f"  ORDER_STARVED: last chunk held from tick {h} for {HOLD} ticks; arena write queued at "
+          f"{sum(1 for s in held if s['arena_entries'])} of {len(held)} held samples; settled "
+          f"at {state['done']}")
+
+
+async def leg_order_vertical(rig, F, K, fails):
+    """a_vertical_crossing_paints_no_new_layout_row_before_its_tiles_land"""
+    run_up = 8 * K.FLY
+    start = (F.centre[0], F.S["y0"] - run_up)
+    state = {"in": None, "done": None}
+
+    async def script(i, S):
+        s = S[-1]
+        if state["in"] is None and s["region"] == F.S["addr"]:
+            state["in"] = i
+        if s["current"] == F.S["bg_tiles"] and state["done"] is None:
+            state["done"] = i
+        if state["done"] is not None and s["cursor"] == 0 and i > state["done"] + 1:
+            return None, True
+        return ("down" if state["in"] is None or i - state["in"] < 8 else None), False
+
+    samples = await drive(rig, F, K, start, script, 200, "ORDER_VERTICAL")
+    vs = {s.get("vscroll") for s in samples}
+    check_order(samples, F, K, "ORDER_VERTICAL", fails, F.S_layout, F.S_tiles, F.A_layout)
+    # WHAT THIS LEG CANNOT GRADE, measured rather than assumed: the steady-state streamer only
+    # paints when want_top moves, and want_top is clamped to [0, map_rows - PLANE_V_CELLS]. The
+    # subject's layout is one plane tall (rg_bg_span 0), so want_top is 0 on every frame and the
+    # streamer paints nothing on this route whether or not the overwrite suspends it.
+    print(f"  ORDER_VERTICAL: entered at {state['in']}, settled at {state['done']} (subject span "
+          f"{F.S['bg_span']}: the streamer's window is fixed at 0 here, so this leg grades the "
+          f"wipe's ordering on a vertical entry, NOT the streamer's suspension)")
+
+
+async def leg_reentrant(rig, F, K, fails):
+    """reversing_across_the_edge_mid_overwrite_retargets_and_settles_on_the_act_tiles"""
+    run_up = 8 * K.FLY
+    start = (F.S["x0"] - run_up, F.centre[1])
+    st = {"in": None, "back": None, "retarget": None, "saved": None, "settled": None}
+    addr = rig.sym["DMA_Budget_Default"]
+
+    async def script(i, S):
+        s = S[-1]
+        if st["in"] is None and s["region"] == F.S["addr"]:
+            st["in"] = i
+            st["saved"] = await rd(rig.b, addr, 2)             # starve: hold a chunk queued
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+                                                      "width": 2})
+        if st["in"] is not None and st["back"] is None and s["region"] == F.left["addr"]:
+            st["back"] = i
+        if st["back"] is not None and st["retarget"] is None and s["target"] == F.act_tiles_ptr:
+            st["retarget"] = i
+        if st["back"] is not None and st["saved"] is not None and i - st["back"] >= 2:
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": st["saved"],
+                                                      "width": 2})
+            st["saved"] = None
+        if (st["back"] is not None and s["current"] == F.act_tiles_ptr and s["cursor"] == 0
+                and s["target"] == 0):
+            st["settled"] = i
+            return None, True
+        if st["in"] is None:
+            return "right", False
+        if st["back"] is None:
+            return ("right" if i - st["in"] < 4 else "left"), False
+        return None, False
+
+    bound = 40 + 2 * (-(-len(F.S_tiles) // K.CHUNK)) + K.WIPE_FRAMES
+    samples = await drive(rig, F, K, start, script, bound + 80, "REENTRANT")
+    if st["back"] is None:
+        raise GateError("REENTRANT: the route never came back out of the subject row")
+    mid = samples[st["back"]]
+    if mid["current"] == F.S["bg_tiles"]:
+        raise GateError("REENTRANT: the forward overwrite had already completed when the camera "
+                        "came back out; the reversal was not mid-overwrite")
+    if st["retarget"] is None or st["retarget"] > st["back"]:
+        fails.append(f"REENTRANT: the reverse crossing was sampled at tick {st['back']} but the "
+                     f"target named the act's tiles only at {st['retarget']}")
+    end = samples[-1]
+    if end["arena"][:len(F.S_tiles)] != F.A_tiles[:len(F.S_tiles)] or \
+            end["plane"] != F.A_layout:
+        fails.append("REENTRANT: after settling, the arena does not hold the act's tiles or Plane "
+                     "B does not hold the act's layout")
+    full = await read_vram(rig.b, K.BG_TILE_BASE_VRAM, len(F.A_tiles))
+    if full != F.A_tiles:
+        fails.append("REENTRANT: after settling, the full act tile blob is not in the arena (a "
+                     "stale showcase chunk landed after the act's)")
+    print(f"  REENTRANT: in at {st['in']}, back out at {st['back']} (offset "
+          f"{mid['offset']} of {len(F.S_tiles)}), retarget seen at {st['retarget']}, settled at "
+          f"{st['settled']}")
+
+
+async def leg_control(rig, F, K, fails):
+    """a_crossing_between_two_act_default_rows_arms_no_overwrite"""
+    run_up = 8 * K.FLY
+    x = (F.left["x0"] + F.left["x1"]) // 2
+    start = (x, F.left["y0"] + run_up)
+    above = region_table.region_at(F.rows, x, F.left["y0"] - 1)
+    if above is None or above["bg_tiles"] or above["bg_layout"]:
+        raise GateError("CONTROL: the row above the left neighbour is not act-default")
+    st = {"out": None}
+
+    async def script(i, S):
+        s = S[-1]
+        if st["out"] is None and s["region"] == above["addr"]:
+            st["out"] = i
+        if st["out"] is not None and i - st["out"] >= 8:
+            return None, True
+        return "up", False
+
+    samples = await drive(rig, F, K, start, script, 200, "CONTROL")
+    bad = [k for k, s in enumerate(samples) if s["target"] or s["offset"] or not s["current"]]
+    if bad:
+        fails.append(f"CONTROL: crossing row {F.left['index']} -> row {above['index']} (both act "
+                     f"default) touched the tile tracker at ticks {bad[:4]}")
+    print(f"  CONTROL: row {F.left['index']} -> row {above['index']}, {len(samples)} ticks, tracker "
+          f"untouched: {not bad}")
+
+
+async def leg_poison(rig, F, K, fails):
+    """an_overwrite_that_cancels_a_sweep_still_ends_with_the_whole_plane_repainted
+
+    The one case where C6 (zero BG_Plane_Layout at arm) is the only thing that repaints the plane:
+    a sweep for layout L is cancelled by an overwrite for a region whose layout pointer IS L. It
+    needs a second row showing the subject's layout with DIFFERENT tiles, which the shipped DEBUG
+    table does not have, so this leg patches a COPY of the ROM on disk: the left neighbour's
+    rg_bg_layout := the subject's layout (its tiles stay the act's). Route: fly DOWN from the row
+    above into the subject near its left edge, let the tiles settle and the sweep start, then fly
+    LEFT into the patched neighbour mid-sweep."""
+    import tempfile
+    ro, _ = region_table.region_layout()
+    L = F.left
+    off = L["addr"] + ro["rg_bg_layout"]
+    image = bytearray(rig.rom)
+    image[off:off + 4] = F.S["bg_layout"].to_bytes(4, "big")
+    tmp = tempfile.mkdtemp(prefix="bgswitch-poison-")
+    patched = Path(tmp) / Path(rig.rom_path).name
+    patched.write_bytes(bytes(image))
+    x = F.S["x0"] + 3 * K.FLY
+    above = region_table.region_at(F.rows, x, F.S["y0"] - 1)
+    start = (x, F.S["y0"] - 8 * K.FLY)
+    st = {"in": None, "sweep": None, "left": None, "settled": None}
+    async with open_rig(str(patched), rig.lst_path, rig.sym, K) as r2:
+        live = bytes.fromhex(await read_bytes(r2.b, off, 4))
+        if int.from_bytes(live, "big") != F.S["bg_layout"]:
+            raise GateError(f"POISON: the emulator's cart holds ${live.hex()} at {off:#x}, not the "
+                            f"patched layout pointer")
+
+        async def script(i, S):
+            s = S[-1]
+            if st["in"] is None and s["region"] == F.S["addr"]:
+                st["in"] = i
+            if st["in"] is not None and st["sweep"] is None and s["cursor"] and \
+                    s["current"] == F.S["bg_tiles"]:
+                st["sweep"] = i
+            if st["sweep"] is not None and st["left"] is None and s["region"] == L["addr"]:
+                st["left"] = i
+            if (st["left"] is not None and s["current"] == F.act_tiles_ptr and s["cursor"] == 0
+                    and i > st["left"] + 2):
+                st["settled"] = i
+                return None, True
+            if st["in"] is None:
+                return "down", False
+            if st["sweep"] is None:
+                return None, False
+            if st["left"] is None:
+                return "left", False
+            return None, False
+
+        samples = await drive(r2, F, K, start, script, 300, "POISON")
+    if st["left"] is None or samples[st["left"] - 1]["cursor"] == 0:  # the tick BEFORE: the arm clears the cursor in the crossing frame
+        raise GateError(f"POISON: the camera entered the patched neighbour at tick {st['left']} "
+                        f"with no sweep in flight; the leg did not cancel a sweep")
+    end = samples[-1]
+    if end["plane"] != F.S_layout:
+        bad = sum(1 for a, b in zip(rows_of(end["plane"], K), rows_of(F.S_layout, K)) if a != b)
+        fails.append(f"POISON: after the overwrite back to the act's tiles settled, {bad} of "
+                     f"{K.PLANE_V_CELLS} Plane B rows do not hold the patched neighbour's layout "
+                     f"(the subject's) — the cancelled sweep was never re-armed")
+    print(f"  POISON: in at {st['in']}, sweep at {st['sweep']}, into patched neighbour at "
+          f"{st['left']} (cursor the tick before: {samples[st['left'] - 1]['cursor']}), settled at {st['settled']}")
+
+
 LEGS = {"boot": leg_boot, "warp": leg_warp, "transport": leg_transport,
-        "transport_starved": leg_transport_starved, "traffic": leg_traffic}
+        "transport_starved": leg_transport_starved, "traffic": leg_traffic,
+        "order": leg_order, "order_starved": leg_order_starved,
+        "order_vertical": leg_order_vertical, "reentrant": leg_reentrant,
+        "control": leg_control, "poison": leg_poison}
+
+
+class open_rig:
+    """One headless oracle-aether instance on `rom_path`, as a Rig. Reaped on exit."""
+
+    def __init__(self, rom_path, lst_path, sym, K):
+        self.args = (rom_path, lst_path, sym, K)
+        self.inst = self.b = None
+
+    async def __aenter__(self):
+        rom_path, lst_path, sym, K = self.args
+        self.inst = AetherInstance(rom_path, symbols=lst_path)
+        try:
+            sock = await asyncio.to_thread(self.inst.start)
+        except (SpawnError, WrongServerError) as e:
+            raise GateError(str(e)) from e
+        self.b = BusClient(socket_path=sock, client_id="bgswitch", client_name="bg_switch_gate")
+        await self.b.connect()
+        for m in ("emulator/step", "emulator/run_to", "emulator/hold", "emulator/release_all",
+                  "emulator/read_vram", "emulator/read_memory", "emulator/write_memory",
+                  "emulator/reset"):
+            if not self.b.supports(m):
+                raise GateError(f"the server does not advertise `{m}`")
+        await _c(self.b, "emulator/load_symbols", {"path": lst_path})
+        return Rig(self.b, sym, K)
+
+    async def __aexit__(self, *exc):
+        try:
+            if self.b is not None:
+                await self.b.close()
+        finally:
+            if self.inst is not None:
+                self.inst.reap()
+        return False
 
 
 async def run(rom_path, lst_path, only):
@@ -628,36 +1013,21 @@ async def run(rom_path, lst_path, only):
           f"({len(F.A_tiles) // 32} tiles)")
     print(f"  neighbours: left row {F.left['index']}, above row {F.above['index']}")
 
-    inst = AetherInstance(rom_path, symbols=lst_path)
-    try:
-        sock = await asyncio.to_thread(inst.start)
-    except (SpawnError, WrongServerError) as e:
-        raise GateError(str(e)) from e
-    b = BusClient(socket_path=sock, client_id="bgswitch", client_name="bg_switch_gate")
     fails = []
     ran = []
     try:
-        await b.connect()
-        for m in ("emulator/step", "emulator/run_to", "emulator/hold", "emulator/release_all",
-                  "emulator/read_vram", "emulator/read_memory", "emulator/write_memory",
-                  "emulator/reset"):
-            if not b.supports(m):
-                raise GateError(f"the server does not advertise `{m}`")
-        await _c(b, "emulator/load_symbols", {"path": lst_path})
-        rig = Rig(b, sym, K)
-        for name, fn in LEGS.items():
-            if only and name not in only:
-                continue
-            print(f"  -- leg {name.upper()}")
-            await fn(rig, F, K, fails)
-            ran.append(name)
+        async with open_rig(rom_path, lst_path, sym, K) as rig:
+            rig.rom_path, rig.lst_path, rig.rom = rom_path, lst_path, rom
+            for name, fn in LEGS.items():
+                if only and name not in only:
+                    continue
+                print(f"  -- leg {name.upper()}")
+                await fn(rig, F, K, fails)
+                ran.append(name)
     except GateError as e:
         if not fails:
             raise
         print(f"\n  REFUSED after reds were already collected:\n    {e}")
-    finally:
-        await b.close()
-        inst.reap()
 
     print()
     for f in fails:

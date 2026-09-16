@@ -35389,6 +35389,35 @@ Making a per-region background authorable is cross-repo: a schema key (empyrean)
 the generator lowering both refs to symbols (which inherits the open sanitisation question) and
 emitting `rg_bg_tiles`. Until then every release row takes the act's tiles and layout.
 
+## REGION-BG-COVER-WARNING: nothing computes how much foreground cover a crossing needs (booked 2026-09-16, `parcel/region-bg-switch`)
+
+Fable review 07 finding 3, and the banner's "v1 D4's CHECK should return as a build warning". Under
+the owner's rulings (R3: the designer covers the swap; no blank step) the old background is on
+screen over partly overwritten tiles for the whole overwrite, then the new picture sweeps in. The
+cover a crossing needs is about one screen plus (overwrite + visible repaint ticks) x the camera's
+per-tick cap on the entry axis. The durations are measured in
+`docs/research/megaact-bg-streaming/region-bg-switch-cost.md` (region bg switch task 7); the
+opaque-foreground extent per crossing is authoring data only Aurora and the level build can
+compute. Warn, not refuse (R5's shape).
+
+## REGION-BG-CAMERA-HOLD: hold the camera when authored cover is shorter than the switch (booked 2026-09-16, owner option)
+
+The owner's OC-3 answer ("Maybe hold, I guess we should see how long it is") under full overwrite.
+The mechanism would be `Camera_Art_Hold` holding the entry axis until `BG_Tiles_Current` settles.
+Controller ruling 2026-09-16: stays booked as the owner's option; not built.
+
+## REGION-BG-STREAMER-SUSPENSION-UNGRADED: no gate can see the overwrite suspending the row streamer (booked 2026-09-16, `parcel/region-bg-switch`)
+
+`BG_Stream_Update` returns from `.ow_wait` before BOTH the wipe and the steady-state streamer, so the
+streamer cannot paint a row of a layout whose tiles are arriving. The wipe half is graded by GATE
+BG-SWITCH's ORDER legs. The streamer half is NOT: the streamer only paints when `want_top` moves,
+`want_top` is clamped to `[0, map_rows - PLANE_V_CELLS]`, and the only DEBUG row that owns its tiles
+(the showcase) has a one-plane layout (`rg_bg_span` 0), so its window is fixed at 0 and the
+streamer paints nothing there with or without the suspension. Measured, not assumed: leg
+ORDER_VERTICAL prints it. Grading it needs a tiles-owning row whose layout is taller than the plane
+and a route that moves the BG scroll during the overwrite. The code is one `rts` shared with the
+graded half, which is why this is booked and not blocking.
+
 ## REGION-BG-SYNC-DISPLAY: the synchronous tile upload runs with the display on during a warp (booked 2026-09-16, `parcel/region-bg-switch`)
 
 `Section_RedrawPlanes` uploads a region's tile blob inside its masked storm. At boot the display is

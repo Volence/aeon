@@ -651,6 +651,16 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         move.l  a1, BG_Tiles_Target
         clr.l   BG_Tiles_Current                    // the arena is now a PARTIAL blob
         clr.w   BG_Tiles_Offset
+        // AN OVERWRITE ALWAYS ENDS IN A FULL REPAINT (C6), and a sweep in flight is cancelled
+        // (C7). Zeroing the plane tracker makes the wipe arm below compare unequal on the frame
+        // the tiles settle, whatever the layout pointer is, so it re-primes the window and
+        // repaints every plane row. Without it two cases go wrong: a sweep cancelled here for a
+        // region whose layout pointer EQUALS the one the plane was being swept to (the plane is
+        // left half old picture, half new, and nothing re-arms), and a tall map whose window
+        // went stale while the streamer was suspended. The cursor and resume row clear as one
+        // word (the adjacency `ensure` at the foot of this file).
+        clr.l   BG_Plane_Layout                     // (BG_Plane_Layout).w
+        clr.w   BG_Wipe_Cursor                      // (BG_Wipe_Cursor).w
     .ow_spend:
         move.w  (a1), d3                            // blob length in bytes (BG_Init's header)
         cmpi.w  #BG_TILE_CAPACITY_BYTES, d3
