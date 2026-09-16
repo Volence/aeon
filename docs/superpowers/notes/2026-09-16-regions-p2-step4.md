@@ -391,3 +391,86 @@ re-verified; the re-aim was committed **before** the second, successful red-proo
 exit 0** (was 2753/16 — the 8 new synthetic tests, and the real-act one deselected as
 `needs_build`). Nothing here touched a `.emp` file, so the ROMs are unchanged from the figures
 above.
+
+## ADDENDUM 2 — the second live run: leg S's live poke is impossible, and that is a better answer
+
+The controller ran the re-aimed witness. **The aim works** — and leg S then died on the question
+I had tagged: *"does the Rust core honour a ROM write? It fails loud, so it is safe to try."*
+
+```
+[-32004] 0x00018AC8: only the work-RAM window ($E00000-$FFFFFF) is writable;
+         ROM and I/O writes are refused
+```
+
+It was safe to try, and it does not. `$18AC8` is inside the region table, which is ROM.
+
+### 1. It failed loud but not CLASSIFIED, and the guard was one line too late
+
+My readback guard sat *after* the write, so a designed-for refusal arrived as an unhandled
+traceback — bypassing the whole LegBlocked/SetupError vocabulary I had just built to make "which
+legs ran" readable. **I did not move the guard one line up.** `run_leg` now catches `BusError`
+alongside `LegBlocked`, so any bus refusal in any leg becomes a named COULD NOT RUN row carrying
+the bus's own message. A guard that only covers the refusal I happened to hit is the same defect
+one call site along.
+
+### 2. The rejection of the DEBUG-extra-region alternative was void, and re-deriving it found my
+### own argument was partly wrong
+
+That rejection rested on "leg S's poke is free". The poke does not exist, so the arithmetic was
+void. Re-costed from scratch in `DEFERRED_WORK`, three routes:
+
+| route | cost | buys |
+|---|---|---|
+| A. live poke | — | **impossible**, refused by design |
+| B. DEBUG-only extra region row | +22 B, `act_region_count` +1, a re-cut tiling proof, a fixture baked into game data, DEBUG-shape only | a discriminator, in DEBUG only |
+| C. patch a ROM copy on disk | ~30 lines, one extra headless boot, zero ROM bytes, zero act edits | a discriminator on any shape and any row |
+
+**C taken; B stays booked as the fallback if C ever fails.** And the part worth carrying: my
+original argument against B claimed it "would make the DEBUG and release tables differ in a way
+every other region gate would have to be taught about". **The DEBUG table already differs** —
+`OJZ_E2_SNAP_ROWS` adds row 10 in DEBUG only — and every region gate already reads the table out
+of the ROM it is handed and copes. That cost was largely imaginary. B's real costs were the
+other three, and they were enough on their own; the one I leaned on was not. A right conclusion
+resting partly on a wrong premise survives until somebody re-derives it, which is precisely what
+happened here.
+
+### 3. Route C is not a workaround — it is stronger evidence, by more than was claimed for it
+
+`AetherInstance.start()` already runs `assert_cart_matches_disk` with `CART_WINDOW = 0x400000`:
+it reads the **whole 4 MB cart** back off the bus and byte-compares it against the file, on every
+spawn. So the patched word is proven present in the emulator's cart by a full-image comparison,
+for free — where the live poke would have had a single-word readback. Leg S also reads the word
+back by its own address so the verdict can name it, and it runs in its **own instance**, because
+its subject is a different act and running C/D/W against the patched cart would move the ceilings
+A2 and A3 assert against.
+
+**The two blockers, checked rather than hoped:**
+* **Checksum** — `Checksum` at `$18E` is a data word in `games/sonic4/config/header.emp`, folded
+  by sigil post-pipeline. No engine code reads it; this ROM does not verify itself at boot, so a
+  two-byte data patch boots exactly as the pristine image does.
+* **Provenance** — the spawn check compares against the path passed in, not a canonical name, so
+  a patched temp file verifies against itself. The deb2 appendix is past `EndOfRom` and untouched;
+  the `.lst` is untouched, so every symbol still resolves.
+* **Address == file offset** — not assumed. Proven by the witness's own static read: the region
+  table is read out of the file with `rom[addr:...]` using `Act.act_regions` addresses and yields
+  the act's real eleven rows.
+
+### The arithmetic is now tested with no emulator, and red-proven
+
+`test_patching_rg_bg_span_on_disk_hits_exactly_the_right_two_bytes` patches a copy, reads the
+table back out of the **patched image** with the witness's own reader, and requires: the chosen
+row's span is the patched value, every other row byte-identical, exactly two bytes changed, and
+the offset pinned at 20/`$14`. Red-proven, control last (10 passed):
+
+| mutation | result |
+|---|---|
+| aim at `rg_bg_layout` instead | RED |
+| treat the ROM address as if it were not the file offset (+2) | RED |
+| patch four bytes instead of two | RED |
+
+### Where step 4 stands, stated plainly
+
+Change **(b)**, the rate clamp, has a discriminator that has not yet run to completion (leg W).
+Change **(a)**, the position clamp, has exactly one discriminator in the entire tree (leg S), and
+it has never run. A run missing either now says which half went untested, in the output, in those
+words. Nothing here claims either half is verified.

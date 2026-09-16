@@ -35152,15 +35152,54 @@ different height from the plane**, which is step 5/6/8's business.
 
 Consequences, both of which are already acted on:
 * `tools/bg_vscroll_rate_witness.py`'s legs C/D/W would pass identically with the position change
-  reverted, and the witness says so in its own header and in a printed FINDING on every run. Its
-  leg S pokes a row's `rg_bg_span` in the emulator's ROM image to a derived value and asserts the
-  scroll settles at the poked ceiling instead of `VSCROLL_BG_MAX`. That is the only discriminator
-  the tree has, it costs zero ROM bytes, and it exits 2 (never 0) if the server refuses the write.
-* The alternative considered and NOT taken: a DEBUG-only eleventh region row carrying a non-zero
-  span. It costs a row in `OJZ_Act1_Regions` (+22 B, plus `act_region_count`), it has to keep the
-  act's tiling proof true, and it changes the DEBUG shape's region geometry — so it would make the
-  DEBUG and release tables differ in a way every other region gate would have to be taught about,
-  to buy what a free ROM poke already buys. Revisit only if the poke turns out to be refused.
+  reverted — and so would its A3, which models the clamp but is only exercised where the clamp
+  would act. The witness says so in its own header and prints it on every run; a run without
+  leg S now exits 2 with the words "NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN
+  THIS TREE CAN".
+* Leg S is that discriminator, and it works by **patching `rg_bg_span` in a COPY OF THE ROM ON
+  DISK** and booting that in its own emulator instance.
+
+### ⚠ RE-DERIVED 2026-09-16 — THE LIVE POKE IS REFUSED, so the argument that rejected the
+### alternative had to be rebuilt rather than carried forward
+
+This row originally said leg S "pokes a row's `rg_bg_span` in the emulator's ROM image" and
+rejected the DEBUG-extra-region alternative on the grounds that the poke was free. **Measured on
+the first live run: the Rust core refuses it.** `[-32004] 0x00018AC8: only the work-RAM window
+($E00000-$FFFFFF) is writable; ROM and I/O writes are refused`. The mechanism the rejection
+rested on does not exist, so the arithmetic built on it is void — keeping the "we don't need the
+alternative" half of an argument whose other half has died is exactly the move this tree has a
+standing rule against.
+
+**Three routes, re-costed from scratch:**
+
+| route | cost | what it buys |
+|---|---|---|
+| **A. live `write_memory` poke** | — | **IMPOSSIBLE.** Refused by the core by design, not a bug to work around. |
+| **B. DEBUG-only extra region row with a non-zero span** | +22 B in the DEBUG act table, `act_region_count` +1, the act's tiling proof re-cut around a new rectangle, a test fixture baked permanently into game data, and it can only ever test the DEBUG shape | a discriminator, in DEBUG only |
+| **C. patch a ROM COPY on disk and boot it** | ~30 lines in the witness, one extra headless boot, zero ROM bytes, zero act edits | a discriminator on **any** shape and **any** row, including release-shape rows that route B cannot reach |
+
+**C is taken.** It is cheaper on every axis and the evidence is strictly stronger:
+`AetherInstance.start()` already byte-compares the WHOLE 4 MB cart against the file on every
+spawn (`assert_cart_matches_disk`, `CART_WINDOW = 0x400000`), so the patched word is proven
+present in the emulator's cart by a full-image comparison — where the live poke would have had a
+single-word readback. Two blockers were checked and are clear: this ROM does not verify its own
+header checksum at boot (the `Checksum` word at `$18E` has no engine reader), and the spawn
+check compares against the path passed in, not a canonical name. The patch site's ROM address is
+its file offset, which is proven by the witness's own static table read rather than assumed, and
+`tools/test_bg_vscroll_rate_aim.py` exercises that arithmetic with no emulator at all.
+
+**AND MY ORIGINAL COST ARGUMENT AGAINST ROUTE B WAS PARTLY WRONG, which is worth recording
+because it nearly survived on the strength of a conclusion that happened to be right.** It said
+route B "would make the DEBUG and release tables differ in a way every other region gate would
+have to be taught about". The DEBUG table **already** differs — `OJZ_E2_SNAP_ROWS` adds an
+eleventh row in DEBUG only — and every region gate already reads the table out of the ROM it is
+given and copes. That cost was largely imaginary. Route B's real costs are the three in the
+table above (a permanent fixture in game data, a re-cut tiling proof, and DEBUG-only reach), and
+they are enough on their own; the one I leaned on was not.
+
+**Route B stays booked, not dead.** It becomes the answer if route C ever fails — an emulator
+that refuses an arbitrary ROM path, a provenance gate that rejects an unrecognised image, or a
+boot-time checksum appearing in this ROM.
 
 **WHEN IT CLOSES:** the first act (or the first mega-act section, per the tech-demo goal) whose
 background map is not 512 px tall. At that point the span stops being a sentinel everywhere and the
