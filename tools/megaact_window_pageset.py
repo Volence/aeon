@@ -618,6 +618,8 @@ def distinct_tiles_per_window(glob, lefts, tops, cols, rows):
         col = col_idx.ravel()
         keep = tile != 0
         key = np.unique(tile[keep] * Wp + col[keep])          # sorted by (tile, col), deduped
+        if key.size == 0:                                     # an all-blank band
+            continue                                          # out[ti, :] stays 0
         tk, ck = key // Wp, key % Wp
         prev = np.empty_like(ck)
         prev[0] = -1
