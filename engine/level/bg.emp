@@ -14,21 +14,33 @@
 //
 // Layout shape: each nametable layout is a raw 64x64 = 8192 bytes (full
 // Plane B nametable — the BG is 512px tall for vertical parallax; the
-// injector zero-pads 32-row layouts). Byte order is COLUMN-MAJOR:
-// blob[col*128 + row*2] — each column's 64 rows are contiguous (column stride
-// = 64 rows * 2 B = 128). tools/inject_editor_bg.py transposes the row-major
-// editor layout into this order at the editor->engine boundary. Every consumer
-// here reads it column-wise: BG_Init and Section_RedrawPlanes' Plane B blit set
-// the VDP address per column with autoinc $80 (one move.l = two vertically-
-// adjacent cells); Draw_BG_TileColumn gathers a column as a sequential move.l
-// run. The row-major intermediate ojz_strip_gen.py emits is ALWAYS overwritten
-// by the injector, so it never reaches the engine.
+// injector zero-pads 32-row layouts). Byte order is ROW-MAJOR:
+// blob[(row*64 + col)*2] — each row's 64 columns are contiguous (row stride
+// = 64 cols * 2 B = 128), which is BYTE-FOR-BYTE THE PLANE B NAMETABLE'S OWN
+// VRAM ORDER. So a full-plane blit is one linear move.l run at autoinc $02
+// (BG_Init below; Section_RedrawPlanes' Plane B half is the same run), and one
+// plane ROW is a contiguous 64-word gather (Draw_BG_TileRow, engine/level/
+// plane_buffer.emp). Both out-of-assembler writers now emit this order
+// directly — tools/ojz_strip_gen.py always did, and tools/inject_editor_bg.py
+// (which overwrites strip_gen's intermediate) stopped transposing.
 //
-// ALL 64 ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime maintainers
-// of Plane B now cover the full plane — Section_RedrawPlanes blits 32 move.l
-// per column (rows 0..63) and Draw_BG_TileColumn emits 64-word strips
-// (header $8000|63) — matching BG_Init below. The old 32-row maintainer limit
-// silently half-reverted any BG art above row 31 on a redraw; that was NOT
+// IT WAS COLUMN-MAJOR UNTIL REGIONS PART 2, STEP 2 (2026-09-15), and the flip
+// is option R of that spec's §4.2. Column contiguity existed for one consumer,
+// `Draw_BG_TileColumn`, which had ZERO callers for its whole life and is
+// deleted in the same step; the column path returns in the big-levels parcel
+// over a block map, not over this raw blob. What part 2 needs is the other
+// axis: a background taller than the plane streams in by ROW, and the repaint
+// at a region crossing sweeps row by row. Against a column-major blob a row
+// producer is a 64-read strided gather at stride 128 — about twice the cost,
+// on every streamed row, forever — while the two live blits had to be rewritten
+// under part 2 regardless (after the plane shrink neither can drain a whole
+// 8192-byte layout into a 4096-byte plane; each blits a WINDOW of
+// PLANE_V_CELLS rows, which is a row loop by nature).
+//
+// ALL 64 ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime maintainers of
+// Plane B cover the full plane — BG_Init and Section_RedrawPlanes each drain
+// the whole BG_LAYOUT_SIZE image. The old 32-row maintainer limit silently
+// half-reverted any BG art above row 31 on a redraw; that was NOT
 // hypothetical: the shipped OJZ override carries real art in rows 32-63, and
 // the full-plane vscroll wrap (v_factor_bg with a 512px plane) puts those
 // rows on screen, including at spawn. The 512px vertical headroom the shape
@@ -41,7 +53,7 @@ module engine.bg in bg
 
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
 use engine.structs.{Act}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 use engine.z80_bus.{z80_stopped}
 
 // `pub` because it is a CONTRACT, not an internal: the act's BG blob must be
@@ -155,47 +167,42 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         movea.l Act.act_bg_layout(a3), a1
         cmpa.w  #0, a1
         beq     .skip_nt
-        // Second consumer of the $2700 mask above: the blit takes an
-        // autoincrement excursion ($8F80 direct to VDP_CTRL, $8F02 restored at
-        // the end) that bypasses the VDP shadow, and Flush_VDP_Shadow re-blits
-        // reg $0F from that shadow every VBlank. A VBlank landing inside the
-        // excursion would restore $02 under this loop and the remaining column
-        // writes would stride by 2 instead of $80.
+        // Second consumer of the $2700 mask above. The mask is STILL load-bearing
+        // after the row-major flip, and for the reason that outlived the
+        // autoincrement excursion: the VInt handler repoints the VDP address
+        // register, so a VBlank landing inside this 8192-byte blocking copy sends
+        // the remainder of the image to whatever address the handler left behind.
+        // (The excursion itself is gone — the blit now runs at the default autoinc
+        // $02 from first word to last, so Flush_VDP_Shadow's every-VBlank reg $0F
+        // re-blit can no longer contradict it. That removes one of the two hazards
+        // the mask covers, not both.)
         if DEBUG == 1 {
             move.w  sr, d0
             andi.w  #$0700, d0
-            assert.w d0, hs, #$0600     // IPL >= 6: no VBlank can land mid-excursion
+            assert.w d0, hs, #$0600     // IPL >= 6: no VBlank can land mid-copy
         }
         with z80_stopped {
-            // Column-major blit: the layout blob is column-contiguous
-            // (blob[col*128 + row*2], 64 rows/column). Per column, point the VDP at
-            // the column's top cell and drain all 64 rows with autoinc $80 — one
-            // move.l = two vertically-adjacent cells = two adjacent source words.
-            // 32 move.l per column × 64 columns = 2048 longwords = the full 8192 B.
-            // The 64 command setups are init-only. No length guard needed: the
-            // geometry is the compile-time constant BG_LAYOUT_SIZE, never derived
-            // from blob data, so the sub-word underflow that bites the tile blit
-            // above cannot occur — the layout blob is a fixed 8192 B image by
-            // contract. The 64×32-longword geometry below IS BG_LAYOUT_SIZE
-            // (64 cols × 64 rows × 2 B = 64 × 32 longwords); keep them in lockstep.
-            move.w  #$8F80, VDP_CTRL       // (VDP_CTRL).l — autoincrement $80 (column stride)
+            // ROW-MAJOR blit, and it is a straight linear copy: the layout blob's
+            // byte order (blob[(row*64 + col)*2]) IS the Plane B nametable's VRAM
+            // order, so the whole BG_LAYOUT_SIZE image drains as one autoinc-$02
+            // move.l run with a single VDP command setup. The 64 per-column command
+            // setups the column-major blit needed are gone with it.
+            //
+            // No length guard needed: the geometry is the compile-time constant
+            // BG_LAYOUT_SIZE, never derived from blob data, so the sub-longword
+            // underflow that bites the tile blit above cannot occur — the layout
+            // blob is a fixed 8192 B image by contract (act_assets.emp types the
+            // embed with BG_LAYOUT_SIZE, so a wrong-sized blob is a build error).
+            //
+            // The count is BG_LAYOUT_SIZE/4 - 1 = 2047, which is past a moveq's
+            // signed byte, so it loads with a move.w. Do not "optimise" it back.
+            move.w  #$8F02, VDP_CTRL       // (VDP_CTRL).l — autoincrement 2 (one cell)
+            move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
             lea     VDP_DATA, a2           // (VDP_DATA).l
-            moveq   #0, d1                 // d1 = column index 0..63
-        .nt_col:
-            moveq   #0, d0
-            move.w  d1, d0
-            add.w   d0, d0                 // d0 = col*2 (byte offset of row 0)
-            addi.l  #VRAM_PLANE_B_BYTES, d0
-            vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write)
-            move.l  d0, VDP_CTRL          // set VDP address to this column's top cell
-            moveq   #32-1, d0             // 32 longwords = 64 words = rows 0..63
-        .nt_row:
+            move.w  #BG_LAYOUT_SIZE/4 - 1, d0
+        .nt_copy:
             move.l  (a1)+, (a2)
-            dbf     d0, .nt_row
-            addq.w  #1, d1
-            cmpi.w  #64, d1
-            blt     .nt_col
-            move.w  #$8F02, VDP_CTRL      // restore default autoincrement = 2
+            dbf     d0, .nt_copy
         }
     .skip_nt:
         move.w  (sp)+, sr               // restore interrupt mask
@@ -215,16 +222,21 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 // The LS-8a plane-wrap pins at the end of engine/level/section.emp and plane_buffer.emp named
 // this file as hand-spelling the same PLANE_H_CELLS x PLANE_V_CELLS geometry, unpinned. The
 // sites were enumerated by what TOUCHES the plane size (every constant and instruction whose
-// value must move if the plane does, read over the whole file), not by grepping a literal:
-// BG_LAYOUT_SIZE (both axes); BG_Init's nametable blit `move.w #$8F80` and `cmpi.w #64`
-// (horizontal) and `moveq #32-1` (vertical). 4 sites. Pinned per axis for the LS-8 reason:
-// both axes are 64 today, so a site written against the wrong one is invisible until one moves.
-// BG_LAYOUT_SIZE has its OWN pin because it depends on both axes: the first version folded it
-// into both axis pins, and then a vertical-only move (and a layout-only move) fired the
-// HORIZONTAL message too, which blamed an axis that had not moved (measured 2026-09-11, M25/M26).
-ensure(PLANE_H_CELLS == 64 && PLANE_H_CELLS * 2 == $80,
-       "PLANE GEOMETRY, HORIZONTAL AXIS (engine/level/bg.emp, 2026-09-11). PLANE_H_CELLS is now {PLANE_H_CELLS}, but engine/level/bg.emp hand-spells a 64-column plane at 2 sites in BG_Init's nametable blit. Derived: the plane is PLANE_H_CELLS = {PLANE_H_CELLS} columns, and one nametable ROW is PLANE_H_CELLS*2 = {PLANE_H_CELLS * 2} bytes, the autoincrement a column-major blit steps down by. THE SITES: BG_Init `move.w #$8F80` (the blit's autoincrement, one row) and `cmpi.w #64` (.nt_col column count). WHAT THIS PIN DOES NOT COVER: BG_LAYOUT_SIZE, the whole-layout size, which has its own pin below and fires beside this one; this file's vertical site (the PLANE_V_CELLS pin); BG_Init's `add.w d0, d0` column offset, which is the 2-byte cell and not the plane size; the sites in engine/level/section.emp and engine/level/plane_buffer.emp that read the same layout (Section_RedrawPlanes' plane-B blit, Draw_BG_TileColumn), pinned per axis at the end of those files; VDP register $10, pinned at the end of engine/system/constants.emp, which is evaluated in the RAM-harvest pass and so is the first and only message after a plane-size change, this pin appearing once that byte is re-encoded; the out-of-assembler writers of the layout blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see; this file's header prose, which states 64 x 64 in words; and the VRAM span a larger Plane B would occupy, which no pin checks")
-ensure(PLANE_V_CELLS == 64 && PLANE_V_CELLS / 2 - 1 == 32 - 1,
-       "PLANE GEOMETRY, VERTICAL AXIS (engine/level/bg.emp, 2026-09-11). PLANE_V_CELLS is now {PLANE_V_CELLS}, but engine/level/bg.emp hand-spells a 64-row plane at 1 site in BG_Init's nametable blit. Derived: a Plane B column is PLANE_V_CELLS = {PLANE_V_CELLS} cells = PLANE_V_CELLS/2 = {PLANE_V_CELLS / 2} longwords, and the layout blob is column-major, so one layout column is PLANE_V_CELLS*2 = {PLANE_V_CELLS * 2} contiguous bytes. THE SITE: BG_Init `moveq #32-1` (.nt_row longwords per column, which is also what steps the source pointer one layout column). WHAT THIS PIN DOES NOT COVER: BG_LAYOUT_SIZE, which has its own pin below and fires beside this one; this file's 2 horizontal sites (the PLANE_H_CELLS pin); the sites in engine/level/section.emp and engine/level/plane_buffer.emp that read the same layout, pinned per axis at the end of those files; VDP register $10, pinned at the end of engine/system/constants.emp and seen first after a plane-size change; the out-of-assembler writers of the layout blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see; this file's header prose; and VSRAM or vertical-scroll arithmetic that assumes a 512-px plane, which this enumeration did not walk")
+// value must move if the plane does, read over the whole file), not by grepping a literal.
+//
+// THE TWO PER-AXIS PINS WERE DELETED ON 2026-09-15 (regions part 2, step 2) BECAUSE THEIR
+// SITES WERE. They named three instructions, all of them in BG_Init's nametable blit and all
+// of them artefacts of the column-major order: `move.w #$8F80` and `cmpi.w #64` (horizontal)
+// and `moveq #32-1` (vertical). The row-major blit is one linear `move.l` run, so its three
+// remaining literals are the autoincrement $02 (a CELL, not a plane), the plane's VRAM base
+// (a layout constant, not a size) and `BG_LAYOUT_SIZE/4 - 1`, which FOLLOWS the constant and
+// so needs no pin at all. Deleting them is not a loosening: an `ensure` whose enumerated
+// sites no longer exist cannot fail on the change it names, and leaving it would have read as
+// coverage this file no longer needs (docs/DEFERRED_WORK's vacuous-gate rule).
+//
+// BG_LAYOUT_SIZE keeps its OWN pin, and it is the only one left here: it depends on both axes
+// and is still hand-spelled. It was already separate for this reason — folded into the axis
+// pins, a vertical-only move fired the HORIZONTAL message too and blamed an axis that had not
+// moved (measured 2026-09-11, M25/M26).
 ensure(BG_LAYOUT_SIZE == PLANE_H_CELLS * PLANE_V_CELLS * 2,
        "BG LAYOUT SIZE (engine/level/bg.emp, 2026-09-11). engine/level/bg.emp's BG_LAYOUT_SIZE no longer matches the plane: it is {BG_LAYOUT_SIZE} bytes, and a full Plane B nametable is PLANE_H_CELLS x PLANE_V_CELLS x 2 = {PLANE_H_CELLS} x {PLANE_V_CELLS} x 2 = {PLANE_H_CELLS * PLANE_V_CELLS * 2}. THE SITE: `pub const BG_LAYOUT_SIZE = 64*64*2`, which BG_Init's nametable blit drains whole, Section_RedrawPlanes' plane-B blit and Draw_BG_TileColumn read column by column, and games/sonic4/data/levels/ojz/act1/act_assets.emp uses as the embed type of OJZ_Act1_BG_Layout. WHAT THIS PIN DOES NOT COVER: the per-axis literals in BG_Init (the PLANE_H_CELLS and PLANE_V_CELLS pins above, one of which fires beside this one whenever a plane size moves); the layout's column-major ORDER, which no size can express; and the out-of-assembler writers of the blob (tools/inject_editor_bg.py, tools/ojz_strip_gen.py), which this pin cannot see")
