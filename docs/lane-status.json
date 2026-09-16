@@ -1,12 +1,6 @@
 {
-  "focus": "Fixing the one thing between the streaming sky and a clean check: the part you have not scrolled to yet.",
-  "inFlight": [
-    {
-      "what": "The background blit now writes the window you are actually looking at, instead of always the top of the picture",
-      "where": "branch parcel/bg-plane-window",
-      "agent": true
-    }
-  ],
+  "focus": "The streaming sky now draws the part you are actually looking at. It is landed and you are flying it.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,15 +8,8 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the agent returns and its work is judged and landed. The machine-side check after it is mine to run. \u26a0 The machine is at load 31 with swap in use (was 7 an hour ago) and a peer lost three background gate runs to it in this window, so ANY gate result collected around now is re-checked against a leg count before it is believed \u2014 a killed run aggregates clean.",
+  "nextBoundary": "Here, once your flythrough verdict is in. Nothing is running and nothing is half-applied.",
   "queue": [
-    {
-      "id": "BG-PLANE-WINDOW",
-      "title": "The sky you have not scrolled through yet is still the old short picture. Re-scoped by step 5's gate run from a later tidy-up to the one thing blocking that step's own check",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "REGIONS-P2-STEP6",
       "title": "The wipe when you cross between two regions -- the first step of this run where anything looks different on screen. Your snap-versus-fade answer unblocked it",
@@ -46,10 +33,10 @@
     },
     {
       "id": "LS-13b",
-      "title": "Boot's hand-written pause of the sound chip: cheaper to fix than we thought",
-      "state": "blocked",
+      "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
+      "state": "open",
       "size": "M",
-      "blockedBy": "sigil, and no longer you: you answered their d-33 today and picked the option they recommended. They are building the thing now; nothing of ours waits on it, and they tell us when it is real rather than when it looks close"
+      "blockedBy": null
     },
     {
       "id": "FLOOR-FAN",
@@ -59,7 +46,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T13:43:01Z"
+  "awaiting": "your eye on the flythrough -- does the sky tear or lurch as it streams. Also still yours: the spring sound A/B from 09-09.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T15:02:15Z"
 }
