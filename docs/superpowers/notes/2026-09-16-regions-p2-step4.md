@@ -553,3 +553,86 @@ instrument corrected, but **the corrected instrument has never run** — the nex
 says whether A1/A3 are green at invocation granularity. And the two ROM-side mutations in the
 witness's MUTATIONS block (revert the rate clamp; revert the position clamp) remain unrun, so
 nothing has yet confirmed the gate goes red when the subject breaks.
+
+## ADDENDUM 4 — the granularity fix is confirmed, and a PASS that told you not to accept it
+
+Fourth run: `WITNESS_EXIT=0`, all four legs modelled, 0 mismatched, leg W worst step **16** not
+32, 11 consecutive invocations at the bound, conservation exact. **The two-invocation reading is
+confirmed on the machine, and the conservation argument is what carried it** — arithmetic over
+data I did not produce.
+
+And the run was not acceptable, because the witness said so while exiting 0.
+
+### FINDING D: the controller's guess was refuted by the instrument he asked for
+
+> It bound 1 time(s): **0 at a region or config CHANGE and 1 in steady state.**
+
+The offered explanation — that the bound tick was a crossing — is the opposite of what the
+classifier reported. That is the classifier earning its place: it contradicted the person who
+requested it.
+
+**And the candidate as stated does not fit the counts either.** A ratchet whose first tick is
+at-change and whose remainder is mislabelled would show at least one *at a change*; zero means
+the crossing tick itself did not bind.
+
+**I could not derive a 16 px steady-state step from the act's configs, and I did not invent
+one.** Rows 10 and 5 both resolve to v_factor 3 / v_center 512 / v_offset 0 — the same target
+function, so their crossing moves the target by nothing. The row 5 → row 8 crossing goes from a
+scroll already clamped at the ceiling 288 to a lock pinned at v_offset 288 — also nothing. No
+crossing in leg D's route moves the target at all. Rather than offer a story with no mechanism,
+I made the instrument answer it.
+
+### What the old classifier could not see, and what replaces it
+
+It compared the region/config pointers of two **adjacent** samples. Two adjacent samples cannot
+see a **backlog**, so a ratchet's later steps get the steady-state label while the jump that
+caused them sits steps earlier — precisely the ambiguity raised, and the old code had no way to
+test it.
+
+`why_it_bound()` decomposes the gap the clamp had to close, with **no remainder**:
+
+    gap = d_cfg + d_cam + backlog      (identically)
+
+A crossing is `config`; the ratchet after it is `backlog`; a camera that genuinely moved the
+target a long way is `camera`. **Only two answers block**, and they are the two that contradict
+the derivation: `camera` with the config unchanged (v_factor 3 turns a 16 px camera step into
+2 px of BG scroll), and `contradiction` — the value moved exactly the bound while the model says
+the target was already in reach, which cannot happen while A3 is green.
+
+### ⚠ I got my own classifier wrong first, and caught it by sanity-checking it
+
+Draft 1 called "no single term exceeds the bound" **unexplained**. But the decomposition is
+exact, so that is not a mystery — it is a **sum**, and flagging ordinary arithmetic is how you
+teach a reader to ignore the flag. It is now `combined` and does not block. Two of my first four
+test fixtures were also wrong (a lock config given `v_offset` 0; camera fixtures whose `v_center`
+drove the target negative and clipped it), which is why the fixtures now use named `DEFAULT` /
+`LOCK` shapes taken from the act's real table instead of invented numbers. **The sanity check
+was four print statements and it found two defects in a classifier I had just written and
+described confidently.**
+
+### The exit code now agrees with the prose
+
+A blocking observation makes the run **exit 2**, prints `NOT ACCEPTED — every assertion held,
+but N bound step(s) have no attributable cause`, does **not** print the word PASS, and **dumps
+the surrounding trace**. The old combination — "read the trace before accepting this run" plus
+exit 0 — tells a tired reader the opposite of what the exit code says, and the exit code is what
+gets pasted into merge evidence. That rule is now in the header so the next person adding an
+assertion inherits it.
+
+This is the same failure this parcel has now hit **four** times, twice from each direction: a
+green that means nothing (leg S's vacuity, step 3's BG-NT-IDENTICAL, the shape check that could
+not see the tree) and now a non-green that reads as green.
+
+Red-proven, control last, 20 passed: the backlog term dropped → RED; `d_cfg`/`d_cam` swapped →
+RED; `combined` blocking again → RED; nothing ever blocks → RED; the trace dropped → RED.
+
+### Where step 4 stands
+
+Both discriminators have fired. A1/A3 are green at invocation granularity. The one open
+observation is leg D's single bound step, which the next run will attribute by exact
+decomposition and print the trace for — and which cannot be waved through, because if it lands
+on `camera` or `contradiction` the run exits 2 with the trace attached.
+
+**Still owed and it is the controller's:** the two ROM-side mutations (revert the rate clamp;
+revert the position clamp) have never run, so nothing has yet shown the gate goes red when the
+*subject* breaks.
