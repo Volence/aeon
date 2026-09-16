@@ -3,6 +3,11 @@
   "inFlight": [],
   "blockedOnOwner": [
     {
+      "id": "FG-OVERBUDGET-SOFTLOCK",
+      "what": "A spot needing more foreground art than fits locks up the finished game rather than stuttering, as I told you. Your earlier call was made on that wrong account.",
+      "since": "2026-09-16"
+    },
+    {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
@@ -55,5 +60,5 @@
   ],
   "awaiting": "a fresh look at over-budget foreground spots: they soft-lock in release rather than stutter, so your 'warn and let it exist' call was made on wrong information. Also: this lane is at 694k of 1M context and should be cleared. Still yours: the spring sound A/B.",
   "atBoundary": true,
-  "updatedAt": "2026-09-16T20:25:05Z"
+  "updatedAt": "2026-09-16T20:26:53Z"
 }

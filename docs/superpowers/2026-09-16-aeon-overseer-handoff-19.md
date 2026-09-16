@@ -14,7 +14,9 @@
 - **Goal:** Sonic 4 regions that feel like different places; stress test = all of Sonic 2/3 as one act, zones as regions.
 
 ## Next, in this order (from the review)
-1. **Put R5 back to the owner.** He ruled "warn, let it exist" believing an over-budget spot stutters. **It soft-locks
+1. **R5 is back with the owner as card `FG-OVERBUDGET-SOFTLOCK`** (filed in `docs/decisions.jsonl` and `blockedOnOwner`). Wait for his answer before designing the over-budget policy.
+   *(Originally written as "Put R5 back to the owner" — and the controller told the hub it was already on his card when it was only in a design banner. Filed properly after the hub measured the gap.)*
+   **Background:** He ruled "warn, let it exist" believing an over-budget spot stutters. **It soft-locks
    in release.** He must decide again with the true consequence, and may want a release escape (a stall watchdog).
 2. **M-B** — measure the 80×60 cache window's page set along a stitched real-zone seam and a three-zone junction.
    Tool-only. **Decides whether the stress test can exist.**
