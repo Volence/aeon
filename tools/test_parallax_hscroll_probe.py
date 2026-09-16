@@ -49,7 +49,11 @@ def mkcfg(tops, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
 
 class TestLayout(unittest.TestCase):
     def test_buffer_size_matches_ram_declaration(self):
-        # engine/ram.emp:277 — `Hscroll_Buffer: [u8; 896]`, 224 lines x 4 bytes.
+        # engine/ram.emp, the `Hscroll_Buffer: [u8; 896]` declaration — 224 lines x 4 bytes.
+        # RE-CITED BY NAME 2026-09-16 and it is the ninth of these: the old `:277` pointed at
+        # `Cache_Spec_Blocked`, and it was already doing so at 57b8a1c3 — this parcel's ram.emp
+        # edit is at ~565 and cannot have moved it. I had written in the step-4 note that this
+        # one 'was checked and left'; checking it properly is what found it.
         self.assertEqual(HSCROLL_BYTES, 896)
         self.assertEqual(HSCROLL_LINES * 4, HSCROLL_BYTES)
 
