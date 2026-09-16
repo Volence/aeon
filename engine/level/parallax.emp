@@ -2840,10 +2840,14 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         //
         // THE REGION IS READ, NOT RE-RESOLVED, and that is the point of it. `Region_Current`
         // is the Region* `Parallax_CheckBoundary` caches on every crossing, and the ordering is
-        // not a hope: on the one shipped ladder `Parallax_CheckBoundary` runs at
-        // games/sonic4/test/ojz_scroll_test.emp:1207 and `Parallax_Update` — which tail-chains
-        // into this proc — at :1382, so the pointer this reads was refreshed EARLIER IN THE
-        // SAME FRAME, against the same camera. Re-resolving here would be a fourth private
+        // not a hope: on the one shipped ladder (games/sonic4/test/ojz_scroll_test.emp,
+        // GameState_OJZScroll_Update) the `jbsr Parallax_CheckBoundary` stands ABOVE the
+        // `jbsr Parallax_Update` that tail-chains into this proc, so the pointer this reads
+        // was refreshed EARLIER IN THE SAME FRAME, against the same camera. CITED BY NAME
+        // rather than by line: the two line numbers that stood here went stale the moment
+        // regions part 2 step 5 inserted `jbsr BG_Stream_Update` into the same ladder, which
+        // is the drift test_citation_form exists to catch and CODING_CONVENTIONS' "CITE BY
+        // NAME" exists to prevent. Re-resolving here would be a fourth private
         // answer to the one question step 3 existed to consolidate, and it would be a SLOWER
         // one: `Region_Resolve` is a linear scan over the act's rows, per frame, for a value
         // the crossing already computed.
