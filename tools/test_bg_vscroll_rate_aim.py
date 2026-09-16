@@ -207,3 +207,53 @@ def test_ojz_act1_has_both_locked_rows_and_a_qualifying_row():
         "a shipped parallax_config authors a vertical bob (pcfg_bob != 0). target_scroll() does "
         "not model the sine term, so the witness's A3 and this test's jumps are both wrong. "
         "Teach target_scroll() before trusting either.")
+
+
+@pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+def test_patching_rg_bg_span_on_disk_hits_exactly_the_right_two_bytes():
+    """Leg S's ROM patch, checked WITHOUT an emulator — which is the half that can be wrong
+    silently.
+
+    The live `emulator/write_memory` poke leg S used to do is refused by the Rust core (only
+    $E00000-$FFFFFF is writable), so leg S now patches `rg_bg_span` in a COPY OF THE ROM ON DISK
+    and boots that. The emulator half of that is verified for free on spawn —
+    `AetherInstance.start()` byte-compares the whole 4 MB cart against the file. What nothing
+    else checks is the ARITHMETIC: that a Region record's ROM address is also its offset in the
+    file, and that two bytes at `addr + rg_bg_span` are the field and not a neighbour.
+
+    That identity is not assumed here, it is exercised: patch the copy, then read the region
+    table back OUT OF THE PATCHED IMAGE with the same reader the witness uses, and require that
+    the chosen row's span is the patched value, every other row is untouched, and exactly two
+    bytes of the file changed.
+    """
+    rom = open(os.path.join(AEON, "s4.debug.bin"), "rb").read()
+    sym = parse_lst(os.path.join(AEON, "s4.debug.lst"))
+    rows = region_table.read_regions(rom, sym["OJZ_Act1_Descriptor"])
+    ro, _ = region_table.region_layout()
+
+    target = rows[1] if len(rows) > 1 else rows[0]
+    off = target["addr"] + ro["rg_bg_span"]
+    assert off + 2 <= len(rom), f"rg_bg_span at {off:#x} is past the {len(rom)}-byte image"
+    span_test = 368                                    # any legal span; the value is not the point
+
+    image = bytearray(rom)
+    image[off:off + 2] = span_test.to_bytes(2, "big")
+
+    changed = [i for i, (a, b) in enumerate(zip(rom, bytes(image))) if a != b]
+    assert changed == [off, off + 1] or len(changed) <= 2, (
+        f"the patch changed {len(changed)} byte(s) at {changed[:8]}, not the two at {off:#x}")
+
+    after = region_table.read_regions(bytes(image), sym["OJZ_Act1_Descriptor"])
+    assert after[target["index"]]["bg_span"] == span_test, (
+        f"after patching {off:#x} the reader still sees bg_span "
+        f"{after[target['index']]['bg_span']} on row {target['index']} — the Region record's ROM "
+        "ADDRESS is not its file OFFSET, and leg S would be patching something else entirely")
+    for a, b in zip(rows, after):
+        if a["index"] == target["index"]:
+            continue
+        assert a == b, f"patching row {target['index']} also changed row {a['index']}: {a} -> {b}"
+    # The field the patch aims at is the LAST in the record, so an off-by-one lands outside it
+    # and the check above would still pass on a lucky read. Pin the offset against the struct.
+    assert ro["rg_bg_span"] == 20 and off == target["addr"] + 20, (
+        f"rg_bg_span moved to offset {ro['rg_bg_span']}; leg S's patch site is derived from "
+        "region_layout() so it follows, but the note and the witness header quote 20/$14")

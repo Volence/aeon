@@ -20,11 +20,18 @@ changed both halves of it:
 Every region row shipped in OJZ act 1 leaves `rg_bg_span` at 0 (ten rows in release, eleven in
 DEBUG). So on this tree the position clamp takes its FALLBACK on every frame and behaves
 EXACTLY as it did before step 4. Legs C/D/W below would pass byte for byte with the whole
-position-clamp change reverted. That is why leg S exists: it POKES a region row's `rg_bg_span`
-in the emulator's ROM image to a value that is derived to be distinguishable, and then asserts
-the scroll sticks at the poked map's ceiling — a value the pre-step-4 code could not produce.
-Leg S is the ONLY leg that tests change (a) at all. If it cannot run (the server refuses a ROM
-write; the readback disagrees) this tool exits 2 and says so — never 0.
+position-clamp change reverted, and so would A3, which models the clamp but is only exercised
+where the clamp would act. **Leg S is the ONLY thing anywhere in this tree that tests change
+(a) at all**, so a run in which leg S did not run is no evidence about the position clamp — the
+tool exits 2 and says that in those words, never 0.
+
+HOW LEG S GETS ITS SUBJECT, and the route it does NOT take. It patches `rg_bg_span` in a COPY
+OF THE ROM ON DISK and boots that in its own instance. A live `emulator/write_memory` poke was
+tried first and is REFUSED BY THE CORE, measured 2026-09-16: `[-32004] only the work-RAM window
+($E00000-$FFFFFF) is writable; ROM and I/O writes are refused`. The on-disk route turned out to
+be better evidence anyway — `AetherInstance` byte-compares the WHOLE 4 MB cart against the file
+on every spawn, so the patched word is proven present by a full-image comparison rather than by
+a single-word readback.
 
 WHAT IS ASSERTED (exit 1 on any failure):
   R0  the premise, reported not assumed: every region row's rg_bg_span, and how many are
@@ -48,11 +55,12 @@ WHAT IS ASSERTED (exit 1 on any failure):
       TABLE by `plan_vertical_leg()`, which probes rows in order, asks the ENGINE which config
       is live in each, and takes the first whose derived jump qualifies — see that function's
       header for why it exists and for the vertical-lock rows it correctly rejects.
-  A5  THE POSITION DISCRIMINATOR (leg S, ROM poke). With the row under the camera's
-      rg_bg_span poked to SPAN_TEST (derived so SPAN_TEST - SCREEN_HEIGHT is strictly below
-      VSCROLL_BG_MAX and strictly reachable), a descent inside that row settles with
-      v == SPAN_TEST - SCREEN_HEIGHT and never above it. The pre-step-4 code settles at
-      VSCROLL_BG_MAX instead, so this is red with (a) reverted.
+  A5  THE POSITION DISCRIMINATOR (leg S, a PATCHED ROM COPY). With the chosen row's
+      rg_bg_span patched to SPAN_TEST (derived from THAT region's own reach, so
+      SPAN_TEST - SCREEN_HEIGHT is strictly below VSCROLL_BG_MAX and at least one
+      BG_VSCROLL_MAX_STEP below what the act can actually drive the scroll to), a descent
+      inside that row settles with v == SPAN_TEST - SCREEN_HEIGHT and never above it. The
+      pre-step-4 code settles at VSCROLL_BG_MAX instead, so this is red with (a) reverted.
 
 WHY "THE SHAFT FALL" IS LEG D, AND WHY IT IS A NEGATIVE CONTROL RATHER THAN A DISCRIMINATOR.
 The step-4 gate line asks for "the shaft fall". `tools/plane_buffer_peak_probe.py`'s route
@@ -100,15 +108,18 @@ import ast
 import asyncio
 import json
 import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 AEON = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from suite_paths import add_client_path  # noqa: E402
 add_client_path()
-from aether import BusClient              # noqa: E402
-from aether_instance import AetherInstance, SpawnError, WrongServerError, read_bytes  # noqa: E402
+from aether import BusClient, BusError    # noqa: E402
+from aether_instance import (AetherInstance, CartMismatch, SpawnError,  # noqa: E402
+                             WrongServerError, read_bytes)
 from raster_cost_probe import parse_lst   # noqa: E402
 import region_table                       # noqa: E402
 
@@ -703,11 +714,23 @@ async def run(args) -> int:
         blocked: list[tuple[str, str]] = []
 
         async def run_leg(name, body):
+            # A `BusError` is classified here and NOT allowed to escape as a traceback. Measured
+            # 2026-09-16: the Rust core refuses every write outside $E00000-$FFFFFF, so leg S's
+            # ROM poke raised `[-32004] only the work-RAM window is writable` BEFORE its readback
+            # guard could run, and a designed-for refusal arrived as a Python stack. That is the
+            # one shape this tool's whole vocabulary exists to prevent: a reader could not tell
+            # whether the instrument had broken or the subject had.
             try:
                 await body()
             except LegBlocked as e:
                 blocked.append((name, str(e)))
                 report[name] = {"could_not_run": str(e)}
+            except BusError as e:
+                why = (f"the bus refused a call this leg needs: {e}. Classified rather than "
+                       "raised, so the run still reports every other leg — but it is COULD NOT "
+                       "RUN, never a pass.")
+                blocked.append((name, why))
+                report[name] = {"could_not_run": why}
 
         # ---- leg C: the crossing route, right across the whole region table ---------------
         # Hold RIGHT from the spawn until the camera stops moving. The stop test is
@@ -796,7 +819,32 @@ async def run(args) -> int:
                     "with the rate clamp reverted.")
         await run_leg("W", _legW)
 
-        # ---- leg S: the position DISCRIMINATOR — poke a row's rg_bg_span in ROM -----------
+        # ---- leg S: the position DISCRIMINATOR — a PATCHED ROM, not a live poke ----------
+        #
+        # ⚠ THE LIVE POKE IS DEAD, MEASURED. The Rust core refuses every write outside the
+        # work-RAM window: `[-32004] 0x00018AC8: only the work-RAM window ($E00000-$FFFFFF) is
+        # writable; ROM and I/O writes are refused`. $18AC8 is inside OJZ act 1's region table,
+        # which is ROM. So this leg patches `rg_bg_span` in a COPY OF THE ROM ON DISK and boots
+        # that, in its own emulator instance.
+        #
+        # WHY THAT IS BETTER EVIDENCE AND NOT MERELY A WORKAROUND. `AetherInstance.start()` runs
+        # `assert_cart_matches_disk` on every spawn with `CART_WINDOW = 0x400000`, i.e. it reads
+        # the WHOLE cart back off the bus and byte-compares it against the file. So the patched
+        # word is proven to be in the emulator's cart by a full-image comparison, for free —
+        # strictly stronger than the single-word readback the live poke would have got.
+        #
+        # THE PATCH SITE IS A FILE OFFSET, and that identity is proven rather than assumed: the
+        # region table is read out of this same file with `rom[addr:...]` using the ROM addresses
+        # from `Act.act_regions`, and it yields the act's real rows — so address == offset here.
+        #
+        # WHAT IS NOT PATCHED, deliberately: nothing else. The header checksum at $18E is data
+        # (`games/sonic4/config/header.emp`) and NO engine code reads it — sigil folds it
+        # post-pipeline and the ROM never verifies it at boot, so a two-byte data patch boots
+        # exactly as the pristine image does. The deb2 appendix sits past EndOfRom and is
+        # untouched; the `.lst` is untouched, so every symbol still resolves.
+        #
+        # A SECOND INSTANCE, NOT A RE-USE, because leg S's subject is a DIFFERENT ACT. Running
+        # C/D/W against the patched cart would move the ceilings A2 and A3 assert against.
         async def _legS():
             if args.skip_poke:
                 raise LegBlocked(
@@ -807,11 +855,10 @@ async def run(args) -> int:
             half_h = K["HALF_H"]
             row, cfg = plan["row"], plan["cfg"]
             ro, _ = region_table.region_layout()
-            span_addr = row["addr"] + ro["rg_bg_span"]
-            # DERIVED so the observation is impossible on the pre-step-4 code, and derived from
-            # THIS region's own reach rather than from a fraction of VSCROLL_BG_MAX: the ceiling
-            # has to be strictly below what the act can actually drive the scroll to, or the
-            # scroll never presses against it and a pass would mean nothing. One clear
+            span_off = row["addr"] + ro["rg_bg_span"]
+            # DERIVED from THIS region's own reach, not from a fraction of VSCROLL_BG_MAX: the
+            # ceiling has to be strictly below what the act can actually drive the scroll to, or
+            # the scroll never presses against it and a pass would mean nothing. One clear
             # BG_VSCROLL_MAX_STEP of margin, and the span rounded DOWN to the 8-px grid because
             # `ojz_region()` refuses a span off it (a partial row nothing can draw).
             reachable = target_scroll(plan["cam_y_hi"], cfg)
@@ -820,53 +867,92 @@ async def run(args) -> int:
             if not 0 < want_ceiling < K["VSCROLL_BG_MAX"] or reachable - step_max <= want_ceiling:
                 raise LegBlocked(
                     f"it cannot discriminate in row {row['index']}: the scroll reaches "
-                    f"{reachable} there, so a poked span of {span_test} gives a ceiling of "
+                    f"{reachable} there, so a patched span of {span_test} gives a ceiling of "
                     f"{want_ceiling}, which must be strictly inside (0, {K['VSCROLL_BG_MAX']}) "
                     f"AND at least {step_max} below the reach.")
-            await _c(b, "emulator/write_memory",
-                     {"addr": hex(span_addr), "value": span_test, "width": 2})
-            back = await rd(b, span_addr, 2)
-            if back != span_test:
-                raise LegBlocked(
-                    f"the ROM poke did not stick: wrote {span_test} to region row "
-                    f"{row['index']}'s rg_bg_span at {span_addr:#x}, read back {back}. The "
-                    "server will not write the ROM image, so the POSITION half of step 4 is "
-                    "UNTESTED by this run.")
-            rig.span_override[row["addr"]] = span_test
-            await warp_to(b, sym, rig, plan["x"], plan["cam_y_lo"] + half_h)
-            legS = await leg_until(rig, "S", ["down"],
-                                   lambda s: s["cam_y"] >= plan["cam_y_hi"], 24)
-            report["S"] = check_leg(fails, K, "S (poked span, descent)", legS)
-            report["S"].update({"row": row["index"], "span_addr": hex(span_addr),
+            if span_off + 2 > len(rom):
+                raise LegBlocked(f"region row {row['index']}'s rg_bg_span is at {span_off:#x}, "
+                                 f"past the end of the {len(rom)}-byte ROM image")
+            tmp = tempfile.mkdtemp(prefix="bgrate-patched-")
+            try:
+                patched = Path(tmp) / Path(args.rom).name
+                image = bytearray(rom)
+                was = int.from_bytes(image[span_off:span_off + 2], "big")
+                image[span_off:span_off + 2] = span_test.to_bytes(2, "big")
+                patched.write_bytes(bytes(image))
+                back = int.from_bytes(patched.read_bytes()[span_off:span_off + 2], "big")
+                if back != span_test:
+                    raise LegBlocked(f"the on-disk patch did not take: wrote {span_test} at "
+                                     f"{span_off:#x}, read back {back} from {patched}")
+                report["S_patch"] = {"rom": str(patched), "offset": hex(span_off),
+                                     "row": row["index"], "was": was, "now": span_test,
+                                     "bytes_changed": 2}
+                inst2 = AetherInstance(str(patched), symbols=args.lst)
+                try:
+                    sock2 = await asyncio.to_thread(inst2.start)
+                except (SpawnError, WrongServerError, CartMismatch) as e:
+                    raise LegBlocked(f"the patched cart would not boot or would not verify: {e}")
+                b2 = BusClient(socket_path=sock2, client_id="bgvscrollrateS",
+                               client_name="bg_vscroll_rate_witness (patched cart)")
+                try:
+                    await b2.connect()
+                    await _c(b2, "emulator/load_symbols", {"path": args.lst})
+                    rig2 = Rig(b2, sym, rows, bytes(image), K)
+                    rig2.span_override[row["addr"]] = span_test
+                    await rig2.boot()
+                    for _ in range(3):
+                        await rig2.tick()
+                    # Confirm the patched word is in the EMULATOR's cart, not merely on disk.
+                    # (assert_cart_matches_disk already byte-compared the whole image on spawn;
+                    # this reads the one word back by its own address so the verdict names it.)
+                    live = await rd(b2, span_off, 2)
+                    if live != span_test:
+                        raise LegBlocked(
+                            f"the emulator's cart holds {live} at {span_off:#x}, not the patched "
+                            f"{span_test} — the patched file is not what booted.")
+                    await warp_to(b2, sym, rig2, plan["x"], plan["cam_y_lo"] + half_h)
+                    legS = await leg_until(rig2, "S", ["down"],
+                                           lambda s: s["cam_y"] >= plan["cam_y_hi"], 24)
+                finally:
+                    try:
+                        await b2.close()
+                    finally:
+                        inst2.reap()
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            report["S"] = check_leg(fails, K, "S (patched span, descent)", legS)
+            report["S"].update({"row": row["index"], "span_offset": hex(span_off),
                                 "span_test": span_test, "derived_ceiling": want_ceiling,
-                                "reach_without_the_poke": reachable,
+                                "reach_without_the_patch": reachable,
                                 "vscroll_bg_max": K["VSCROLL_BG_MAX"]})
             inside = [s for s in legS if s["region"] == row["addr"]]
             if not inside:
                 raise LegBlocked(
-                    f"Region_Current was never on the poked row {row['index']} during the "
-                    "descent, so nothing here measured the poked span.")
+                    f"Region_Current was never on the patched row {row['index']} during the "
+                    "descent, so nothing here measured the patched span.")
             settled = inside[-1]["v"]
             over = [s["tag"] for s in inside if s["v"] > want_ceiling]
             if over:                                                        # A5
                 fails.append(
-                    f"A5: with region row {row['index']}'s rg_bg_span poked to {span_test}, the "
-                    f"BG scroll rose above the derived ceiling {want_ceiling} on {len(over)} "
-                    f"sample(s) ({over[:5]}). The position clamp is not reading rg_bg_span.")
+                    f"A5: with region row {row['index']}'s rg_bg_span patched to {span_test}, "
+                    f"the BG scroll rose above the derived ceiling {want_ceiling} on "
+                    f"{len(over)} sample(s) ({over[:5]}). The position clamp is not reading "
+                    "rg_bg_span.")
             if settled != want_ceiling:
                 fails.append(
-                    f"A5: with rg_bg_span poked to {span_test}, the descent settled at "
+                    f"A5: with rg_bg_span patched to {span_test}, the descent settled at "
                     f"{settled}, not at the derived ceiling {want_ceiling}. "
                     + (f"It settled at VSCROLL_BG_MAX = {K['VSCROLL_BG_MAX']}, which is exactly "
                        "what the PRE-step-4 clamp does — the position change is not in this ROM."
                        if settled == K["VSCROLL_BG_MAX"] else
-                       "Neither the poked ceiling nor the plane ceiling; read the trace."))
+                       "Neither the patched ceiling nor the plane ceiling; read the trace."))
             else:
                 findings.append(
-                    f"A5: with row {row['index']}'s rg_bg_span poked to {span_test}, the descent "
-                    f"settled at {settled} = rg_bg_span - SCREEN_HEIGHT, NOT at VSCROLL_BG_MAX = "
-                    f"{K['VSCROLL_BG_MAX']} (which it reaches at {reachable} unpoked). This is "
-                    "the leg that is red with the position change reverted.")
+                    f"A5: with row {row['index']}'s rg_bg_span patched to {span_test} in a COPY "
+                    f"OF THE ROM (2 bytes at {span_off:#x}), the descent settled at {settled} = "
+                    f"rg_bg_span - SCREEN_HEIGHT, NOT at VSCROLL_BG_MAX = {K['VSCROLL_BG_MAX']} "
+                    f"(which it reaches at {reachable} unpatched). This is the leg that is red "
+                    "with the position change reverted.")
         await run_leg("S", _legS)
         report["blocked"] = [{"leg": n, "why": w} for n, w in blocked]
     finally:
@@ -932,9 +1018,17 @@ def finish(args, report, fails, findings) -> int:
                if k in report and "could_not_run" not in report[k]]
         print(f"\n  {len(ran)} leg(s) DID run and their assertions held "
               f"({', '.join(ran) or 'none'}), and that is reported above rather than thrown "
-              "away. It is NOT evidence about either half of step 4 unless W and S are among "
-              "them: A4 (the rate discriminator) and A5 (the position discriminator) are the "
-              "only legs that can tell this clamp from its absence.", file=sys.stderr)
+              "away.", file=sys.stderr)
+        if "W" not in ran:
+            print("  WITHOUT LEG W NOTHING HERE TESTED THE RATE CLAMP. In ordinary play the "
+                  "target never moves more than the bound, so C and D produce identical "
+                  "numbers on a tree with the rate clamp removed.", file=sys.stderr)
+        if "S" not in ran:
+            print("  WITHOUT LEG S NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN "
+                  "THIS TREE CAN. Every shipped region row leaves rg_bg_span at 0, so every "
+                  "other leg takes the act-default fallback and would pass unchanged with step "
+                  "4's position change reverted. This is not a partial pass; it is no evidence "
+                  "about change (a) at all.", file=sys.stderr)
         return 2
     print("bg_vscroll_rate_witness: PASS")
     return 0
