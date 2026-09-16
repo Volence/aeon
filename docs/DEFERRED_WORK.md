@@ -36019,3 +36019,27 @@ eye.
 **Do not remove it while the fixture stands**: it is what makes BG-TALL answerable, and deleting it
 would silently turn that gate vacuous rather than red. Whoever retires the tall fixture retires
 both together, and BG-TALL's procedure goes with them.
+
+## EMIT-GEN-TEST-GREEN-BY-LUCK: a generated-module test renders against a sandbox that declares no records (booked 2026-09-16, `parcel/regions-emit-bindings`)
+
+**Booked by the controller because it existed ONLY in the parcel's report.** The agent flagged it,
+correctly declined to fix it inside a parcel that was already three pieces, and did not book it —
+so the single record of it was a message, and this repo's standing lesson is that **a finding that
+lives only in a message is not in force for your successor.**
+
+`tools/test_effects_gen.py::TestPresetsInTheGeneratedModule` renders with `repo=REPO` against a
+**sandbox that declares no records**, so it is **green only by luck**: it asserts over a population
+that is empty for a reason unrelated to what it is testing. That is the vacuous-gate shape this
+file already carries twice (`s4lint` linting one no-op file; `s4budget` with RAM=0) — a check whose
+green says nothing, and which nobody re-reads because green is not a prompt.
+
+**Not fixed here, deliberately.** The fix is to render against a sandbox that declares the records
+the assertion is about, and then prove the test can go RED by omitting one — i.e. it needs the
+red-first treatment the parcel gave its other gates, which is a parcel of its own rather than a
+line edit. **Whoever takes it: the control is the point, not the render.**
+
+**Related and NOT the same thing:** the parcel found and fixed **three** of its own gates that were
+*quieter the more broken the subject was* (a short-circuiting field-omission test, a table walk
+reporting only the first fault, and `display_ab_gate` exiting 1 — "a real difference" — on a run
+that could not measure). That family is about a gate under-reporting a real fault. **This row is
+the other polarity: a gate reporting success over a population that cannot fail.**
