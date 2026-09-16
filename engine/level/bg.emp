@@ -362,13 +362,83 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
 //      ones first clears it in ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) frames and
 //      leaves the rest to run out of sight.
 //
-// AND IT IS NOT S3K's ECONOMY EITHER, deliberately. SSZ1 amortises a background change
-// through the ordinary row producer and SKIPS rows outside the visible span. Aeon cannot:
-// this plane carries a BG_STREAM_LEAD_ROWS-row lead that the steady-state tracker never
-// revisits — it draws only rows ENTERING the window — so a skipped lead row is old art
-// that scrolls into view and is never corrected. S3K can skip because its Plane B is
-// 512x256 against a 224 px screen, where the lead is about zero and "visible" is very
-// nearly "the whole plane".
+// ---- WHAT S3K ACTUALLY DOES, RE-VERIFIED FIRSTHAND, AND WHERE IT DISAGREES WITH THIS ----
+// (2026-09-16 sweep over ten trees. Two claims that reached this parcel as received wisdom
+// were WRONG at the source and are corrected here rather than repeated.)
+//
+// S3K's Plane B is 64 x 32 cells = 512 x 256 px (`VRAM_Plane_B_Name_Table = $E000 ; Extends
+// until $EFFF`, sonic3k.constants.asm:1064), so it is SIXTEEN block-rows tall, not 64. Its
+// background repaints are a 4-state machine per zone (SSZ1: sonic3k.asm:116430-116561) that
+// seeds `Draw_delayed_rowcount = $F` and walks `Draw_delayed_position` by $10 a row through
+// the ORDINARY row producer (`jsr Setup_TileRowDraw`, :103450) into the same deferred plane
+// buffer the streamer uses, alongside the streamer in the same frame. All of that matches
+// what aeon does here. TWO THINGS DO NOT:
+//
+//   * `rowcount = $F` IS THE WHOLE PLANE HEIGHT. The camera-span test at :103444-103448 is
+//     not a budget mechanism and does not make the sweep a subset: the plane is 256 px and
+//     the test's window is 240, so it drops about ONE row, plus whatever the camera scrolls
+//     past mid-sweep. It is a live-camera guard. (The claim that S3K "skips rows outside the
+//     visible span RATHER THAN drawing all 64" is false twice over — there are no 64 rows,
+//     and it does draw them all.) So S3K is NOT an economy this file declines; it repaints
+//     its whole plane, exactly as this does.
+//   * THE RATE IS NOT FLAT. SSZ1's first pass uses the 2-row wrapper
+//     (`Draw_PlaneVertBottomUp`, :103427) and its second the 1-row one, and the cap is the
+//     `$480`-byte `Plane_buffer` (sonic3k.constants.asm:514) — about four block-rows — not
+//     CPU time. Aeon's BG_WIPE_ROWS_PER_FRAME is capped by the same resource for the same
+//     reason; see the reservation `ensure` above.
+//
+// ---- THE COUNTER-PRECEDENT, WHICH IS REAL AND IS ANSWERED RATHER THAN OMITTED ----
+// S3K's house order is BOTTOM-UP and FIXED (47 bottom-up call sites against 6 top-down),
+// seeded at `camY+$E0` regardless of the crossing's sign — SSZ1, ICZ1, ICZ2, AIZ1, CNZ1 all
+// do that, and every one of them triggers on a camera Y crossing with no horizontal
+// component, so the vertical case §4.3 had no answer for is S3K's NORMAL case.
+//
+// FLYING BATTERY IS THE EXCEPTION AND IT DOES TIE THE ORDER TO TRAVEL, on all four axes:
+// `FBZ1_BackgroundEvent_Index` (sonic3k.asm:108708-108718) has TopDown / BottomUp /
+// LeftRight / RightLeft entry points and `FBZ1_CheckBGChange` picks one per crossing. Seven
+// independent decision sites agree on the rule (:108978-108988, :109020-109031,
+// :109062-109073, :109110-109122, :109155-109168, :109182-109191, and FBZ2 at
+// :109784-109796): SEED AT THE EDGE YOU ARE TRAVELLING TOWARD AND WALK AWAY FROM IT.
+// Descending seeds the BOTTOM row and steps up. That is the opposite of §4.3's
+// "far edge, hidden rows first" — and on a descent it is also the opposite of the seed
+// chosen here.
+//
+// IT IS NOT ADOPTED, for two reasons that are about this plane rather than about taste:
+//
+//   1. ITS HORIZONTAL HALF NEEDS A COLUMN PRODUCER AND WE DELETED OURS. FBZ answers a
+//      horizontal crossing with a COLUMN sweep. Aeon's sweep is rows only (the column path
+//      returns in the big-levels parcel, over a block map). Adopting FBZ's vertical half
+//      alone would leave the horizontal case with no principled seed and reintroduce the
+//      direction byte for a rule that covers one of the two axes.
+//   2. WE HAVE A LEAD AND FBZ DOES NOT, and that changes which tail is worth having. FBZ's
+//      plane is 16 block-rows against a 15-row screen: essentially all of it is visible and
+//      there is no hidden tail to order. Aeon's window is 64 rows against
+//      BG_SCREEN_ROWS visible, with BG_STREAM_LEAD_ROWS hidden above and the rest hidden
+//      below, none of which the steady-state tracker ever revisits. On a DESCENT — the case
+//      that arrives without the player walking anywhere — the hidden rows BELOW are the ones
+//      about to be revealed and the hidden rows ABOVE are the ones leaving for good.
+//      "Top visible row, walking down, wrapping" orders the whole plane as
+//      visible -> about-to-be-revealed -> leaving, which is the right order for a descent
+//      and for a stationary window, and is merely late on an ascent's hidden rows (which the
+//      streamer is drawing at the top edge anyway). FBZ's seed has no such tail to get right.
+//
+// WHERE THE TWO AGREE, which is the part that matters: both repaint what the player is
+// looking at before what they are not. The disagreement is confined to the ORDER WITHIN the
+// visible span on a vertical entry, which lasts
+// ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) ticks — measured at 8, over which the screen
+// drifted 6 rows of 29, so every row visible at the arm was still visible at the end.
+//
+// NOBODY PAINTS OFF-SCREEN FIRST. Across all ten trees swept, not one does: S3K and S.C.E.
+// actively skip off-screen rows, Alien Soldier and Batman & Robin paint on-screen first by
+// construction. §4.3's hidden-rows-first sweep has no precedent in the corpus.
+//
+// AND ONE PRECEDENT FOR A PALETTE HOLD EXISTS, named because E2's row 3 stays cheap on
+// purpose: ICZ1 holds the old palette through TWO full sweeps and swaps on the frame the
+// second completes (sonic3k.asm:110249-110253, `ICZ1_SetIndoorPal`), about 16 frames. FBZ
+// and ICZ2 do the opposite — swap first, wipe after — and mitigate by changing only 8 of 16
+// colours. Alien Soldier offers a third: run the sweep with the display ON and mask it with
+// a concurrent palette FADE-IN. Aeon follows FBZ/ICZ2 (snap first) per the E2 verdict; the
+// other two are what row 3 would buy if the transient reads badly on a real fall.
 //
 // WHY A PLANE ROW IS STORED AND NOT A MAP ROW. During a fall the window is moving while
 // the sweep runs. A plane row is a physical nametable address and the map row it shows is

@@ -469,7 +469,11 @@ async def run_crossing(rig, K, rom, sym, button, start_at, row_from, row_to, eff
                      f"{want_cursor} (BG_WIPE_TOTAL_ROWS {K.WIPE_TOTAL} less the "
                      f"{K.WIPE_ROWS} the same call spends). 0 means the wipe never armed and "
                      f"the plane keeps the old backdrop for ever.")
-        return
+        # DO NOT RETURN. A tree with no wipe at all has to reach leg FINAL and go RED there,
+        # not stop early: a gate that exits before its strongest leg on the very failure it
+        # exists for reports FEWER red legs the more broken the tree is.
+        await settle_and_check_final(rig, K, rom, eff_to, eff_from, tag, fails)
+        return None, None
     # THE START ROW is the design call: the sweep must begin at the top VISIBLE plane row.
     start_row = (a["row"] - K.WIPE_ROWS) % K.PLANE_V_CELLS
     vis_top = (a["vscroll"] // K.ROW_PX) % K.PLANE_V_CELLS
@@ -495,8 +499,15 @@ async def run_crossing(rig, K, rom, sym, button, start_at, row_from, row_to, eff
     print(f"  {tag}: BG_Plane_Top over the sweep {tops[0]} -> {tops[-1]} "
           f"({len(set(tops))} distinct)")
 
-    # ---- LEG FINAL: every plane row holds the NEW blob's row for the live window ----
-    for _ in range(SETTLE_TICKS):
+    # ---- LEG FINAL ----
+    await settle_and_check_final(rig, K, rom, eff_to, eff_from, tag, fails)
+    return i_arm, i_done
+
+
+async def settle_and_check_final(rig, K, rom, eff_to, eff_from, tag, fails):
+    """LEG FINAL: once the sweep has had time to run, every plane row must hold the NEW blob's
+    row for the live window."""
+    for _ in range(SETTLE_TICKS * 4):
         await rig.tick()
     fin = await rig.sample(f"{tag}.final", want_plane=True)
     print(fmt(fin))
@@ -511,7 +522,6 @@ async def run_crossing(rig, K, rom, sym, button, start_at, row_from, row_to, eff
     else:
         print(f"  {tag} FINAL: all {K.PLANE_V_CELLS} plane rows hold blob $%06X at window "
               f"top {fin['top']}" % eff_to)
-    return i_arm, i_done
 
 
 async def run_midsweep(rig, K, rom, button, start_at, row_from, row_to, eff_from, eff_to,
@@ -525,6 +535,14 @@ async def run_midsweep(rig, K, rom, button, start_at, row_from, row_to, eff_from
     walked = await walk(rig, button, lambda s: s["region"] == row_to["addr"], f"{tag}.w", K)
     await rig.hold(None)
     arm = walked[-1]
+    if arm["cursor"] == 0:
+        # A REAL RED, not a setup failure: no sweep armed, so there is no half-redrawn plane
+        # and legs COVERED and VISIBLE have nothing to read. Reported as a FAIL because the
+        # reason is the subject's absence, not the harness's.
+        fails.append(f"{tag} COVERED/VISIBLE: no sweep armed on this route, so there is no "
+                     f"half-redrawn plane to read. Both legs are unreached BECAUSE the "
+                     f"feature is absent.")
+        return
     if arm["cursor"] != K.WIPE_TOTAL - K.WIPE_ROWS:
         raise GateError(f"{tag}: the second pass over the same route armed differently "
                         f"(cursor {arm['cursor']}, wanted {K.WIPE_TOTAL - K.WIPE_ROWS}) — the "
