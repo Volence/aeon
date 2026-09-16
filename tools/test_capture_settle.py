@@ -480,3 +480,67 @@ def test_target_authority_needs_both_a_fade_and_no_snap_since():
     # the reasons are distinguishable, because they are different engine states
     assert "has not been written" in cs.target_authority([row()])[1]
     assert "stale" in cs.target_authority(after_a_fade([row(pal_base_dirty=1), row()]))[1]
+
+
+# ---------------------------------------------------------------- the recorded machine
+#
+# docs/captures/2026-09-16-night-settled/report.json is a REAL per-tick read of a booted
+# s4.debug.bin across the night edge, committed as the evidence of the defect the first live
+# run exposed. Replaying it is worth more than any simulation: every field is what the machine
+# held, including the all-zero Pal_Target that the fixture in the sibling test file got wrong.
+
+LIVE_RUN = os.path.join(AEON, "docs", "captures", "2026-09-16-night-settled", "report.json")
+
+
+def live_rows():
+    import json
+    rep = json.load(open(LIVE_RUN))
+    out = []
+    for t_ in rep["ticks"]:
+        r = dict(t_)
+        for key in ("buffer", "target", "cram"):
+            r[key] = [int(w, 16) for w in t_[key]]
+        out.append(r)
+    assert len(out) == 13, len(out)
+    return out
+
+
+def test_the_recorded_run_replays_with_the_night_verdicts_UNCHANGED():
+    """The fix must not touch the subject. Replayed against the real recorded state, every
+    k >= 0 verdict is byte-for-byte what the shipped tool produced: `fading` while the counter
+    runs, `hold` for the two ticks after it reaches 0, `settled` from k = +6."""
+    f = facts()
+    rows = live_rows()
+    got = {}
+    for i, r in enumerate(rows):
+        got[r["k"]] = cs.assess(rows[:i + 1], f).word
+    for r in rows:
+        if r["k"] >= 0:
+            assert got[r["k"]] == r["settle_state"], (
+                f"k={r['k']:+d}: the fix changed a NIGHT verdict from "
+                f"{r['settle_state']} to {got[r['k']]}")
+    assert [got[k] for k in range(0, 9)] == ["fading"] * 4 + ["hold"] * 2 + ["settled"] * 3
+
+
+def test_the_recorded_run_no_longer_refuses_its_day_controls_on_an_unwritten_target():
+    """And it must fix the defect ON THE STATE THAT EXHIBITED IT. Every k < 0 row was named
+    `buf` by the shipped tool; none may be now, and the ones with enough samples behind them
+    must certify. The first two only read `hold` here because this replay starts at k = -4 and
+    has fewer than N samples of history; the tool itself samples from boot (its own
+    cram_stable_run of 194 at k = -4 proves it), so in a real run all four certify."""
+    f = facts()
+    rows = live_rows()
+    for i, r in enumerate(rows):
+        if r["k"] >= 0:
+            continue
+        v = cs.assess(rows[:i + 1], f)
+        assert r["settle_state"] == "buf", "this fixture is no longer the defective run"
+        assert v.word != "buf", f"k={r['k']:+d} is still refused on Pal_Target"
+        assert not v.target_checked
+        assert "has not been written" in v.target_note
+        assert all(w == 0 for w in r["target"]), "Pal_Target was not all-zero in this row"
+    # with a full-length history behind them, as the tool actually has, they certify
+    pre = [r for r in rows if r["k"] < 0]
+    padded = [dict(pre[0], tick=pre[0]["tick"] - n) for n in range(f.stable_ticks, 0, -1)] + pre
+    for i in range(f.stable_ticks, len(padded)):
+        assert cs.assess(padded[:i + 1], f).settled, i
