@@ -34940,3 +34940,42 @@ FIRED in all four arms sigil probed.
 
 **Same class as the night palette's recipe comment and as the lapsed spec clause:** a standing
 claim that was true when written, that nothing re-checks.
+
+## REGIONS-BG-GOLDEN-GAP (booked 2026-09-16, raised by the hub out of aurora's seam proof)
+
+**The shared regions golden carries no `bg` block, so `layoutRef` and the derived span are untested
+across the seam.** Aurora proved its regions file against our golden this hour — all ten rows field
+for field plus `act`/`act_w`/`act_h`, two independently written flatteners, two languages, two
+lanes, same arithmetic, nothing adjusted on either side (aurora `8c505832`, master `02ca5d9f`).
+That proof is real and it does not reach `bg`, because our golden has no `bg` block to prove
+against.
+
+**WHO OWES IT: us.** The golden is ours to publish.
+
+**WHEN IT BITES: steps 7 and 8**, the moment the engine reads `rg_bg_layout` or `rg_bg_span` out of
+the DOCUMENT rather than out of the hand-written descriptor. Today nothing does — step 1 added the
+fields and nothing reads them, and part 2's steps 3 to 6 read them from `act_descriptor.emp`. So
+this is not blocking and is not urgent.
+
+**Why book it now anyway:** a golden published before step 7 costs one parcel; the same golden
+published after step 7 costs a debugging session first, and the failure it would produce is a
+mismatch between two flatteners that both look correct in isolation — which is the expensive
+shape, not the cheap one.
+
+### Two limits on the aurora side that our readers should not misread
+
+1. **Aurora's coverage row is VACUOUS ALONE, and they documented it rather than letting the green
+   stand.** Stubbing `uncoveredRects` to return `[]` leaves it GREEN, because `[]` is what a correct
+   document and a dead instrument both produce; only punching a hole reddens it. **Do not read that
+   row's green as evidence of coverage** unless the hole test ran.
+2. **Three of our six per-row rules are deliberately NOT restated on aurora's side**, because they
+   need `CENTRE_{X,Y}_{MIN,MAX}` from the descriptor and inventing them there would be a rule this
+   engine does not have. **So a document that is green in Aurora can still be refused by this
+   build, by design. The editor's green is not a build prediction** and nothing should be written
+   that assumes it is.
+
+**Same class as the two findings beside this one** (`PRESET-NOTE-POINTS-AT-A-BLIND-INSTRUMENT`, and
+the night palette's recipe comment): a green that means less than a reader would take it to mean.
+The standing rules that came out of tonight apply directly — **do not cite a gate as your mitigation
+until you have made it fire on purpose**, and **before trusting a test that passed, ask what it
+would accept at random.**
