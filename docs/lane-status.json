@@ -1,12 +1,6 @@
 {
-  "focus": "The background-switching design is rewritten around your rulings. A Fable agent is reviewing whether we're on track.",
-  "inFlight": [
-    {
-      "what": "An independent Fable review of the region background-switching design, checking whether the decisions are sound",
-      "where": "read-only review",
-      "agent": true
-    }
-  ],
+  "focus": "The Fable review says we're on track but must reorder, and it found I told you something wrong about over-budget spots.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,14 +8,14 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the Fable review returns and I bring you its findings. Nothing is being built.",
+  "nextBoundary": "Here. Review committed, design corrected at the source, handoff 19 written. Nothing is running.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds switch by full overwrite (blank, overwrite, repaint), so every region gets the whole background block. Direction ruled by you; under Fable review before any planning",
-      "state": "doing",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null
+      "blockedBy": "your decision again on over-budget spots: they soft-lock in release, they do not stutter"
     },
     {
       "id": "REGIONS-P2-STEP7",
@@ -59,7 +53,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-16T20:15:37Z"
+  "awaiting": "a fresh look at over-budget foreground spots: they soft-lock in release rather than stutter, so your 'warn and let it exist' call was made on wrong information. Also: this lane is at 694k of 1M context and should be cleared. Still yours: the spring sound A/B.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-16T20:25:05Z"
 }

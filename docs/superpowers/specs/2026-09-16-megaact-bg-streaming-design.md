@@ -10,6 +10,46 @@ of them again.**
 
 ---
 
+## ⚠ CORRECTIONS FROM THE FABLE REVIEW (2026-09-16T20:25:05Z) — READ BEFORE ANY SECTION BELOW
+
+Full review: `docs/research/megaact-bg-streaming/07-fable-design-review.md`. **Verdict: on the right track for the
+background, but the plan must be reordered.** The sections below are NOT yet rewritten; these corrections override them.
+
+**False in this design:**
+- **§3.6 "an over-budget spot STUTTERS" — FALSE. In release it SOFT-LOCKS.** No evictable frame → release returns
+  `PAGE_NOT_RESIDENT`, the page is re-enqueued forever, the stall watchdog exists only under DEBUG, and the camera hold
+  never releases while the player can walk off screen. **And the budget is the 80×60 cache window's page set, not the
+  visible screen.** The owner's ruling R5 (warn, let it exist) was made on the false "stutters" account and must be
+  put back to him.
+- **§3.2 and §4 overclaim Icecap as "verified firsthand".** The trigger and the two counters are MEASURED; that the
+  gate CAUSES the lag is INFERRED, as the reconciliation itself says. The upgrade was this design's error. The review
+  also found a second mechanism: ICZ2's secondary art lands at `$122`, where ICZ1's visible art already sits, so it is
+  overwritten in place whatever the gate does. Only a blank or a mask prevents that, which argues MORE strongly for §3.1.
+- **§5 M-A "about a sixth of a second" — covers two of three steps.** The blank has no transport and no cost anywhere
+  in this design. A full-plane blank is 8,192 B, more than the NTSC window. **Realistic: 13-27 frames.**
+- **§3.1 "every region gets the whole 376-tile block" — it is 320 static plus a 56-tile band reserve** under today's
+  importer contract.
+- **§2 dropped the owner's OC-3 ruling without record.** He said *"Maybe hold, I guess we should see how long it is"*.
+  Restored here: under full overwrite its analogue is holding the camera when the authored cover is shorter than the
+  sequence, using the existing `Camera_Art_Hold`.
+
+**Undesigned, and blocking:**
+- **Cover at speed is about two screens of opaque foreground per crossing** (~720 px at 16 px/frame for a 25-frame
+  sequence). The corridor did not go away; only its check did. **v1 D4's CHECK should return as a build warning.**
+- **The blank colour is CRAM line 0 entry 0 — the character's colour**, which the designer does not own. Needs an
+  authored fill word per crossing.
+- **Two existing Plane B writers** (the steady-state streamer and `Section_RedrawPlanes`) will paint garbage
+  mid-sequence unless gated.
+- **Boot, respawn and warp into a non-default region are wrong by construction:** `Region` has no tiles field.
+- **Hysteresis belongs at the crossing** (where palette and parallax also swap), not at the background alone.
+- **BgAnim has no table selector in release.**
+
+**Reordered next steps:** M-B FIRST (the 80×60 window's page set along a stitched real-zone seam and at a three-zone
+junction — tool-only, and it decides whether the stress test can exist at all), M-E (confirm the release soft-lock),
+choose the blank transport, THEN M-A as the full three-step sequence under a worst-case fall.
+
+---
+
 ## 1. The goal
 
 **The product (owner's words):** *"eventually when we start sonic 4 this means that one act can have like
