@@ -737,6 +737,36 @@ def load_fg_grid(zone: str, donor: str) -> np.ndarray:
     return expand_proto_layout(data, row["layout"])
 
 
+def load_bg_grid(zone: str, donor: str) -> np.ndarray:
+    """The zone's BACKGROUND chunk-id grid, (rows, cols) of uint8. FINAL DONOR ONLY.
+
+    The final game interleaves the two planes in one $1000-byte blob, so the
+    background is simply the odd rows — one file, no extra registry.
+
+    The PROTOTYPE keeps its background in a SEPARATE file per zone AND act
+    (`GHZ_BG.bin`, but `HTZ_1_BG.bin` / `HTZ_2_BG.bin`, and `CNZ_2_BG.bin` is
+    8 bytes where `CNZ_1_BG.bin` is 2048), and the mapping from zone+act to file
+    is `Off_Level`'s `zoneOffsetTableEntry` rows rather than a naming rule. That is
+    a registry this parcel has no consumer for, so it is REFUSED by name rather
+    than guessed at: `<zone>_BG.bin` is right for five of the ten zones and wrong
+    for the rest, which is exactly the shape of silent-wrong-data this module
+    exists to prevent.
+    """
+    if donor != S2_FINAL:
+        raise SystemExit(
+            f"load_bg_grid: the {donor} donor keeps its background layouts in "
+            f"separate per-zone-AND-act files named by Off_Level, not by a rule. "
+            f"Add that registry (main.asm:35551-35612) before asking for a "
+            f"prototype background — do not guess `<zone>_BG.bin`.")
+    row = zone_row(zone, donor)
+    layout, _ = ojz_common.kos_decompress(
+        read_bytes(os.path.join(donor_root(donor), "level/layout", row["layout"] + ".kos")))
+    if len(layout) != 0x1000:
+        raise SystemExit(
+            f"{row['layout']}: layout decoded to {len(layout)} bytes, expected $1000")
+    return np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[1::2]
+
+
 def expand_proto_layout(data: bytes, name: str = "?") -> np.ndarray:
     """One prototype layout file -> its (height, 128) chunk-id grid.
 
