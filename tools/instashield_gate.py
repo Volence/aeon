@@ -1314,12 +1314,15 @@ def main():
         return 1
 
     print("instashield_gate [%s]:" % args.lst)
-    rc = 0
+    rcs = []
     if args.ability in ("instashield", "both"):
-        rc |= pass_instashield(args, rom, syms, equs, offs, overlay_len)
+        rcs.append(pass_instashield(args, rom, syms, equs, offs, overlay_len))
     if args.ability in ("tailsflight", "both"):
-        rc |= pass_tailsflight(args, rom, syms, equs, offs, overlay_len)
-    return rc
+        rcs.append(pass_tailsflight(args, rom, syms, equs, offs, overlay_len))
+    # Not `|=`: a pass can now return 2 (COULD NOT RUN, a derived cut for an off-canonical
+    # shape that could not be derived), and 1|2 would be an exit 3 no caller defines. A
+    # measured failure outranks an unmeasured pass; both passes have printed their own.
+    return 1 if 1 in rcs else (2 if 2 in rcs else 0)
 
 
 if __name__ == "__main__":
