@@ -157,7 +157,19 @@ from fg_working_set import ConstantSource        # noqa: E402  (stdlib-only at i
 SCHEMA = 1
 
 #: Where tools/s2_zone_convert.py writes converted donor zones.
+#:
+#: EVERY entry point that needs it takes `donor_root` and resolves this at CALL TIME, never
+#: as a default-argument value bound at import. A default bound at import cannot be replaced,
+#: and a caller that forgets to pass a root then reads the author's working tree silently —
+#: which is exactly how two rows of tools/test_clip_manifest.py passed here and ERRORED on a
+#: checkout that had never run the converter (the trees are gitignored, so absent is the
+#: NORMAL state). Late resolution lets that gate point this name at a path that cannot exist,
+#: so a forgotten `donor_root` fails on every machine instead of only on a clean one.
 DEFAULT_DONOR_ROOT = os.path.join(REPO, "games", "sonic4", "data", "donors")
+
+
+def _root(donor_root):
+    return DEFAULT_DONOR_ROOT if donor_root is None else donor_root
 
 CONSTANTS_EMP = os.path.join(REPO, "engine", "system", "constants.emp")
 
@@ -315,12 +327,13 @@ def _zone_manifest(clip, donor_root):
         return json.load(fh)
 
 
-def load(path, donor_root=DEFAULT_DONOR_ROOT, constants=None, warn=None):
+def load(path, donor_root=None, constants=None, warn=None):
     """Read and fully validate a clips.json. Returns a ClipAct or raises ClipManifestError.
 
     `warn` is called with each W-rule message; the messages are also kept on the
     returned ClipAct (`.warnings`) so a caller that swallowed them can still record them.
     """
+    donor_root = _root(donor_root)
     warnings = []
 
     def _warn(msg):
@@ -565,7 +578,7 @@ def section_word_grid(tree_dir, manifest, section_tiles):
     return out
 
 
-def cell_grids(act, donor_root=DEFAULT_DONOR_ROOT):
+def cell_grids(act, donor_root=None):
     """(words, zone_id) for the whole target act.
 
     words   (rows, cols) uint16 — each clip's OWN nametable words, unmodified. A word's
@@ -576,6 +589,7 @@ def cell_grids(act, donor_root=DEFAULT_DONOR_ROOT):
             claimed zone 0 would put blank cells into a zone's page group.
     """
     import numpy as np
+    donor_root = _root(donor_root)
     st = act.section_tiles
     words = np.zeros((act.rows, act.cols), dtype=np.uint16)
     zone_id = np.full((act.rows, act.cols), -1, dtype=np.int16)
@@ -592,8 +606,9 @@ def cell_grids(act, donor_root=DEFAULT_DONOR_ROOT):
     return words, zone_id
 
 
-def tilesets(act, donor_root=DEFAULT_DONOR_ROOT):
+def tilesets(act, donor_root=None):
     """[(donor, zone, tileset bytes, zone.json)] indexed by zone key."""
+    donor_root = _root(donor_root)
     out = []
     for donor, zone in act.zone_table:
         d = os.path.join(donor_root, donor, zone)
@@ -621,7 +636,7 @@ def _mode_validate(rest):
     if not rest:
         print(USAGE)
         return 1
-    path, root = rest[0], DEFAULT_DONOR_ROOT
+    path, root = rest[0], None
     extra = rest[1:]
     while extra:
         if extra[0] == "--donor-root" and len(extra) > 1:
@@ -632,7 +647,7 @@ def _mode_validate(rest):
             print(USAGE)
             return 1
     try:
-        act = load(path, donor_root=root, warn=lambda m: print(f"  WARNING: {m}"))
+        act = load(path, donor_root=_root(root), warn=lambda m: print(f"  WARNING: {m}"))
     except ClipManifestError as exc:
         print(f"clips.json REFUSED — {exc}")
         return 1

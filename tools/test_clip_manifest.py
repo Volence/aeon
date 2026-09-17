@@ -83,12 +83,41 @@ def _need(donor):
                     f"is checked: {e}")
 
 
+@pytest.fixture(autouse=True, scope="module")
+def no_working_tree_donors():
+    """NO row in this file may read the repo's own converted donor trees.
+
+    `games/sonic4/data/donors/` is gitignored by design, so ABSENT is the normal state of a
+    checkout and PRESENT means somebody ran the converter. A row that reaches that path
+    therefore passes on the author's machine and dies on a fresh clone — which is exactly
+    what `r12` did: one `CM.load(p)` with no `donor_root=`, 37 rows green here and 2 ERRORS
+    on a tree that had never run the converter.
+
+    Pointing the module-level default at a path that cannot exist turns that class of
+    mistake into a failure on EVERY machine instead of only on a clean one. It works because
+    every entry point resolves this name at call time rather than binding it as a default
+    argument (see clip_manifest.DEFAULT_DONOR_ROOT's note); a default bound at import could
+    not be reached from here, and the guard would be decorative.
+    """
+    real = CM.DEFAULT_DONOR_ROOT
+    CM.DEFAULT_DONOR_ROOT = os.path.join(
+        REPO, "tools", "__no_donor_root_for_tests__", "this-path-must-not-exist")
+    assert not os.path.exists(CM.DEFAULT_DONOR_ROOT)
+    yield
+    CM.DEFAULT_DONOR_ROOT = real
+
+
 @pytest.fixture(scope="module")
 def donors(tmp_path_factory):
     """A converted donor root holding CASES, in pytest's own tmp tree.
 
     Never `clip_manifest.DEFAULT_DONOR_ROOT`: a test must not be able to disturb a tree an
     author is working from, and must not pass merely because one happens to be lying there.
+    The converter is deterministic and reads only the read-only donor checkouts, so this
+    fixture MAKES what the rows need rather than requiring the caller to have made it — which
+    is why 37 of the 39 rows already ran on a checkout with no converted trees at all.
+    `no_working_tree_donors` above is what stops a row quietly reaching for the repo's copy
+    instead of this one.
     """
     root = str(tmp_path_factory.mktemp("s2clipdonors"))
     for donor, zone in CASES:
@@ -337,7 +366,7 @@ def r12(donors, tmp_path_factory):
         p = os.path.join(str(d), "clips.json")
         with open(p, "w") as fh:
             json.dump(doc, fh)
-        act = CM.load(p)
+        act = CM.load(p, donor_root=donors, warn=None)
         st = BAKE.place(act, donors, log=None)
         m = BAKE.emit(act, st, os.path.join(str(d), "baked"), donors)
         out[label] = (m, BAKE.recount(os.path.join(str(d), "baked")))

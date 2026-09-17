@@ -164,8 +164,12 @@ def dedupe_keyed(words, zone_id, blobs):
     return unique, canon, key, src_to_canon
 
 
-def place(act, donor_root=clip_manifest.DEFAULT_DONOR_ROOT, log=None):
-    """Compose the act and run Pass 4. Returns everything the emitter and the checks need."""
+def place(act, donor_root=None, log=None):
+    """Compose the act and run Pass 4. Returns everything the emitter and the checks need.
+
+    `donor_root=None` resolves through clip_manifest at CALL TIME — see the note at
+    clip_manifest.DEFAULT_DONOR_ROOT for why none of these is a default bound at import."""
+    donor_root = clip_manifest._root(donor_root)
     words, zone_id = clip_manifest.cell_grids(act, donor_root)
     sheets = clip_manifest.tilesets(act, donor_root)
     blobs = [s[2] for s in sheets]
@@ -240,8 +244,9 @@ def verify_art_fidelity(st):
 # Emission
 # ---------------------------------------------------------------------------
 
-def emit(act, st, out_dir, donor_root=clip_manifest.DEFAULT_DONOR_ROOT):
+def emit(act, st, out_dir, donor_root=None):
     """Write the composed act tree + the placed pool artifacts. Returns the summary dict."""
+    donor_root = clip_manifest._root(donor_root)
     pl = st["placement"]
     budget = st["budget"]
     page_tiles = budget["ART_POOL_PAGE_TILES"]
@@ -402,7 +407,8 @@ def recount(out_dir):
 # ---------------------------------------------------------------------------
 
 def bake(manifest_path, out_dir=None, expect_worst=None,
-         donor_root=clip_manifest.DEFAULT_DONOR_ROOT, log=print):
+         donor_root=None, log=print):
+    donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root,
                              warn=(lambda m: log(f"  WARNING: {m}")) if log else None)
     if out_dir is None:
