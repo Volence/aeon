@@ -1,6 +1,12 @@
 {
-  "focus": "Both video memory studies are in. The smaller art cache can work, but it needs your call on how.",
-  "inFlight": [],
+  "focus": "Building the smarter art grouping and a build check that refuses acts too big for the art cache.",
+  "inFlight": [
+    {
+      "what": "Wire the budget-aimed tile grouping and an over-budget build check into the art pipeline, with the budget read from constants",
+      "where": "branch parcel/stitched-act-page-order",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -13,7 +19,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here: both research parcels are landed and nothing is running.",
+  "nextBoundary": "When the art grouping and build check are reviewed and landed.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -25,14 +31,14 @@
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
     {
       "id": "STITCHED-ACT-PAGE-ORDER",
       "title": "Wire the budget-aimed tile grouping, per-zone pages and frame-aware pins into the art pipeline, with a build check refusing any over-budget spot",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -72,7 +78,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "whether to take the half-size page route for the smaller cache (card FG-CACHE-10-HOW), and go on the pipeline wiring that doesn't depend on it",
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T05:34:27Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T05:42:52Z"
 }
