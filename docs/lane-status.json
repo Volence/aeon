@@ -1,12 +1,6 @@
 {
-  "focus": "Importing Sonic 2's ground shapes; fixed a check that was blocking code landings for everyone.",
-  "inFlight": [
-    {
-      "what": "Collision: importing Sonic 2's ground shapes as our own shape bank",
-      "where": "branch parcel/s2-collision-bank",
-      "agent": true
-    }
-  ],
+  "focus": "Sonic 2's ground shapes are in and checked; next is collision for a clipped piece.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the shape bank lands; then clip collision, then the first picture on screen.",
+  "nextBoundary": "Here: the shape bank is landed and pushed; clip collision is the next step.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: clipping landed; importing Sonic 2's ground shapes now, then the first picture",
-      "state": "doing",
+      "title": "Sonic 2 test act: ground shapes imported and checked. Next: collision for a clip, then the first picture",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T21:05:41Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T21:26:16Z"
 }
