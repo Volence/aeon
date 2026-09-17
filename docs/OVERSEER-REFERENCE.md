@@ -39,6 +39,17 @@ That block is superseded. Everything below it moved here from the boot file on 2
 
 ## Landing lane (aeon certifies ALONE — the paired freeze is RETIRED)
 
+- **AURORA READS THIS TREE, SO "ZERO ROM BYTES" SAYS NOTHING ABOUT ITS SUITE (hub, 2026-09-17).**
+  `e2af59ea` moved zero bytes and still turned aurora's master red: 5 tests in 4 files read aeon
+  `origin/master` source, and aurora's `npm run land` refuses a red suite. **At every landing that
+  touches a path aurora reads, message aurora in the same turn** naming the commit and what moved.
+  Which paths: derive it, never keep a list here (it would rot) —
+  `git -C ../aurora fetch -q origin && git -C ../aurora grep -h -o -E "['\"\`](games|engine|tools|docs)/[A-Za-z0-9_./-]+" origin/master -- src test scripts | sort | uniq -c | sort -rn`.
+  Measured that night: `tools/inject_editor_bg.py` (48 refs, incl. a parser for
+  `BGANIM_SECTION_CEILING`), `tools/effects_gen.py`, `engine/system/constants.emp`,
+  `engine/level/scene_dsl.emp`, `tools/regenerate-level.sh`, `games/sonic4/vram.toml`, the editor
+  and generated OJZ trees.
+
 - **A byte-mover lands with our own gates and asks sigil for nothing:** merge → **assert the
   parcel's content is present** (a failed merge is silent and rebuilds master's numbers) →
   the landing check's shapes, each ROM built to a TEMP NAME and renamed into place (never `rm -f`
