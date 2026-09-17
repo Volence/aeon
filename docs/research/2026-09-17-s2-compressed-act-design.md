@@ -142,12 +142,22 @@ Donor: `/home/volence/sonic_hacks/s2disasm` (read-only; nothing in it was modifi
    placer's multi-zone rungs already exist and are exercised by fixtures, but
    `tools/fg_page_order.py:51-55` states the gap outright: *"a stitched act's loader must
    supply the per-cell tileset key."* No such loader exists. **This is parcel 1.**
-2. **A collision base bank that is not S&K's.** `load_base_bank()`
+2. **A collision base bank that is not S&K's.** ~~`load_base_bank()`
    (`tools/ojz_strip_gen.py:1795-1802`) hard-codes `games/sonic4/data/collision/base/`. Of the
    151 distinct collision shapes Sonic 2 actually uses, **75 are unreachable from the S&K
    bank's 236 shapes even allowing all four flips** — including a shape as plain as a 6-px flat
-   floor (MEASURED, second measurement). The S&K bank cannot host Sonic 2's geometry; S2's own
-   `Collision array - Vertical.bin` has to be imported as a bank, or the two merged.
+   floor (MEASURED, second measurement).~~ **DONE 2026-09-17 (parcel 4), and the figure was
+   WRONG: it is 68, not 75.** The 151 reproduces exactly (the six-zone union with the real
+   prototype HPZ); 75 reproduces under no scope or array pairing tried — five final zones 64,
+   all nine 76, every non-empty S2 slot 120, the rotated-array confound 84, (profile, angle)
+   matching 107. The 6-px-flat-floor illustration is false twice: it IS in the S&K flip closure,
+   and no S2 slot is one. The CONCLUSION stands — 68 of 151 is 45% of the shapes the act needs,
+   S2's vertical array has no hanging bytes at all where S&K's has 362, and the two banks are
+   not near-misses of one vocabulary. `tools/import_s2_collision.py` imports S2's own
+   `Collision array - Vertical.bin` as a second bank at
+   `games/sonic4/data/collision/base_s2/`; the two are NOT merged. `load_base_bank()` still
+   hard-codes `base/` — selecting a bank is row 5's first move. See
+   `docs/research/s2-compressed-act/2026-09-17-s2-collision-bank.md`.
 3. **A rotated-heightmap regeneration, not a copy.** S2 and S&K store right-anchored runs as
    *positive* widths; aeon stores them as *negative* (`256-w`) and the player sensors are
    written to that convention. For **211 of 256** S2 shapes, aeon's `rotate_profile` disagrees
@@ -155,6 +165,19 @@ Donor: `/home/volence/sonic_hacks/s2disasm` (read-only; nothing in it was modifi
    (MEASURED). The converter must regenerate from the vertical array and never copy S2's
    horizontal array in. One S2 shape (`$18`) makes `rotate_profile` **raise** (its row 0 solid
    span touches neither edge) and needs a hand ruling.
+   **DONE 2026-09-17 (parcel 4), figures CONFIRMED and sharpened.** 211 of the 255
+   `rotate_profile` can answer, all pure sign, exactly one raise (`$18`) — all three reproduce.
+   212 of 256 once `$18` is ruled. It is not merely a sign disagreement but a WHOLE-CONVENTION
+   INVERSION, confirmed from both sides' code rather than inferred from the byte diff: S2
+   (`s2.asm:43282 FindWall2`, `loc_1EA78`/`loc_1EAE0`) reads `+w` as a RIGHT-anchored run, aeon
+   (`probe_core`/`Collision_ProbeLeft`) as a LEFT-anchored one, and the disagreement runs both
+   ways (1,533 rows / 139 rows). Decoded to solid-column sets the two describe the SAME geometry
+   on 3,584 of 3,584 non-air rows, each also agreeing with the vertical array's own coverage —
+   so regenerating loses nothing. `$18` RULED: it is a symmetric peak whose upper 14 rows have a
+   centred run; keep the run's width and anchor it RIGHT, which is what S2 itself shipped for it
+   once transcribed, and which preserves an invariant both donors satisfy with zero exceptions
+   (no row is vertically covered but zero in the rotated array). Emitting 0 was considered and
+   rejected on that measurement. `$18` is referenced by NO showcase zone.
    *Side finding, pre-existing and unrelated to this parcel:* the same sign confusion is live
    in `tools/import_sk_collision.py:80,87-88`, which copies S&K's rotated table verbatim into
    `base/`. It does not reach the ROM today only because `load_base_bank` never reads that
@@ -859,7 +882,7 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 > are 12 of 12 over 48,471 windows, 682 positions at the peak. On `s2_two_clip_pins` all
 > three are 10 — **and that fixture exists because the first one cannot discriminate:** its
 > answer is 12 whether the pin rule is wired correctly or not (see §3.3's note).
-| 4 | **Collision: the S2 base bank.** `import_s2_collision.py` (sibling of `import_sk_collision.py`) imports S2's vertical array as a shape bank and REGENERATES the rotated table (never copies S2's horizontal array — §1.3 item 3). Rule on shape `$18`. | M | All 256 shapes round-trip through `rotate_profile` with no raise; a hand-picked slope's height and angle match `FindFloor`'s result for the same block in the donor. |
+| 4 | ~~**Collision: the S2 base bank.**~~ **DONE 2026-09-17** (`parcel/s2-collision-bank`). `tools/import_s2_collision.py` writes the bank to `games/sonic4/data/collision/base_s2/`, regenerating the rotated table. `$18` ruled: keep the run's width, anchor RIGHT. | M | **PASSED, both halves.** 256/256 round-trip, no raise, 1 via the ruling. The second half was widened from a hand-picked slope to **3,612,672 probes** — every distinct chunk word of all six zones x 16 x-sub x 16 y-sub x both sensor classes — against a line-for-line transcription of `s2.asm:42942`/`43030`: 0 exit-kind, 0 angle, 0 distance mismatches. No emulator; the donor's lookup is re-implemented. |
 | 5 | **Collision: clip → `collattr.bin`.** Run `bake_cell` over the clip's chunk words, emit both plane files. | M | The attr-set entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle, and the bake refuses a clip that cuts a crossover pair. |
 | 6 | **★ FIRST THING ON SCREEN: a one-clip act.** One 2-section Emerald Hill clip as a whole act: art + collision + its palette, bootable. | M | The act builds through `tools/landing_build.sh`; the clip renders and Sonic stands on its ground. This is the first parcel that produces a picture. |
 | 7 | **Two clips + a corridor.** Two zones, a neutral transition between them (§9.1a), two regions, two palettes, a cross-fade at the crossing. | M | No camera position holds cells from both clips (a static check over the placed act); the palette cross-fade fires exactly once per crossing. |
@@ -994,6 +1017,17 @@ disagreement of §1.3 item 3** (211 of 256 shapes, all pure sign) came from a se
 written measurement over `collision_pipeline.rotate_profile` and the two banks. They are
 directionally load-bearing — they are why parcel 4 exists — so parcel 4 should re-derive both
 as its own first step rather than inherit them.
+
+> **2026-09-17, parcel 4: both re-derived, and they are now reproducible.** The sign figures all
+> hold; the reachability figure was **68, not 75**, and its illustration was false. See §1.3
+> items 2 and 3 above, and `docs/research/s2-compressed-act/2026-09-17-s2-collision-bank.md`.
+> Both are now a committed check with a gate behind it:
+>
+> ```bash
+> python3 tools/import_s2_collision.py check          # reach + sign + roundtrip + findfloor, ~3 s
+> python3 tools/import_s2_collision.py check reach    # 151 used, 68 unreachable
+> python3 tools/import_s2_collision.py check sign     # 44 identical, 212 differ, all pure sign
+> ```
 
 Aeon's own foreground palette-line figure in §5.3 (all 46,211 painted cells of OJZ act 1 on
 line 2) is a one-liner over the committed editor sections:

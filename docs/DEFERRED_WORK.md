@@ -36491,9 +36491,10 @@ the report has a command line in its §13).
   OJZ mean): 12 sections ~69 KB, 30 ~172 KB, 48 ~276 KB (inferred).
 - **Collision converter head start:** `collision_pipeline.bake_cell` ALREADY converts S2 chunk
   words (flips, per-path solidity, intern) because it was written for the sonic_hack donor. But
-  the S&K base bank CANNOT host S2 geometry (75 of the 151 S2 shapes in use are unreachable even
+  the S&K base bank CANNOT host S2 geometry (~~75~~ **68, re-derived by parcel 4** of the 151 S2
+  shapes in use are unreachable even
   under all four flips) and S2's horizontal array is in the OPPOSITE sign convention from
-  aeon's (211/256 shapes disagree, all pure sign) — regenerate from the vertical array, never
+  aeon's (211/256 shapes disagree, all pure sign — CONFIRMED by parcel 4) — regenerate from the vertical array, never
   copy. Shape $18 makes `rotate_profile` raise. Both figures came from a second measurement and
   parcel 4 should re-derive them rather than inherit them.
 
@@ -36604,9 +36605,11 @@ false — §0 item 1, §0 item 3, §1.3, §3.1, §3.5, §4, §6, §9.2, §9.3, �
 - `megaact_window_pageset.py report --game s2` now sweeps nine zones including WFZ, whose
   camera box is the full 16,384 x 2,048 px placeholder. It has not been re-run at nine zones
   and will be slower than the 2026-09-16 measurement of ~1.7 min.
-- The design's two uncommitted side measurements (75 of 151 S2 shapes unreachable from the S&K
+- ~~The design's two uncommitted side measurements (75 of 151 S2 shapes unreachable from the S&K
   bank; 211 of 256 rotated shapes disagreeing by sign) are still unreproducible from anything
-  in the repo. Parcel 4 must re-derive them, as §13 already says.
+  in the repo. Parcel 4 must re-derive them, as §13 already says.~~ **DONE 2026-09-17 (parcel 4).
+  Both are now `python3 tools/import_s2_collision.py check`, with a gate behind them. The sign
+  figures hold exactly; the reachability figure was 75 and is 68.**
 
 **EVIDENCE.** `tools/landing_build.sh` exit 0, `finished=0`, three shapes built (s4.bin,
 s4.debug.bin, demo.debug.bin); pre-build tool lane 2965 passed / 2 skipped (both pre-existing);
@@ -36908,3 +36911,108 @@ that changes no ROM byte); its in-build pre-build lane is 3024 passed / 2 skippe
 0 errors (= parcel 2's 2983 plus exactly this parcel's 41 rows), and the needs_build lane is
 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the committed
 `games/sonic4/data/editor/ojz/act1` tree untouched, both donor trees read-only, no emulator used.
+
+### S2-COMPRESSED-ACT parcel 4 LANDED 2026-09-17 — the Sonic 2 collision base bank
+
+Branch `parcel/s2-collision-bank` (base `9b25b9b5`). Report:
+`docs/research/s2-compressed-act/2026-09-17-s2-collision-bank.md`. The design doc was patched in
+place at §1.3 items 2 and 3, §10 row 4 and §13, where this parcel made a sentence in it false, and
+the two stale copies of the same figure in THIS file were corrected at their source.
+
+**CLOSED**
+
+- **Staged-plan row 4 is DONE.** `tools/import_s2_collision.py` imports S2's vertical height
+  array + angle table as a SECOND base bank at `games/sonic4/data/collision/base_s2/` (five
+  tables, 8,960 B), REGENERATING the rotated wall-probe twin rather than copying the donor's.
+  The shipping act's tables, the S&K bank under `base/`, and `games/sonic4/data/editor/ojz/act1`
+  are all untouched; both donor trees were read-only. No `.emp`, no ROM byte.
+- **BOTH HALVES OF THE ROW'S CHECK PASSED.** Round trip: **256/256** shapes, no raise, 1 via the
+  `$18` ruling. The second half was widened from the row's "a hand-picked slope" to
+  **3,612,672 probes** — every distinct chunk-entry word of all six zones × 16 x-sub × 16 y-sub ×
+  both sensor classes — against a line-for-line transcription of `s2.asm:42942`/`43030`
+  `FindFloor`/`FindFloor2`: **0 exit-kind, 0 angle, 0 distance mismatches**. The donor's lookup
+  was RE-IMPLEMENTED, not run; no emulator was used. Population, so the sweep is not agreeing
+  about air: 269,936 surface / 1,125,888 full-back / 2,216,848 air.
+
+**THE TWO RE-DERIVED MEASUREMENTS — one confirmed, one WRONG**
+
+- **REACHABILITY: the design says 75, it is 68.** The 151 reproduces exactly (six-zone union with
+  the real prototype HPZ: EHZ 55, CPZ 68, OOZ 36, MTZ 38, WFZ 61, HPZ 69). 75 reproduces under no
+  scope or pairing tried — five final zones 64, all nine 76, every non-empty S2 slot 120, the
+  rotated-array confound 84, (profile, angle) matching 107, distinct profiles 68. The design's
+  illustration is false twice over: a 6-px flat floor IS in the S&K flip closure, and **no S2 slot
+  is a 6-px flat floor at all**. **THE CONCLUSION IS UNTOUCHED** — 68 of 151 is 45% of the shapes
+  the act needs, and S2's vertical array carries no hanging bytes at all where S&K's carries 362.
+- **SIGN: all three of the design's figures hold**, and the statement is sharper than the design
+  makes it. 211 of the 255 `rotate_profile` can answer disagree, all pure sign, exactly one raise
+  (`$18`); 212 of 256 with `$18` ruled; the 44 that agree are exactly the shapes whose rows are
+  only 0 and 16. It is a **WHOLE-CONVENTION INVERSION confirmed from both sides' code**, not
+  inferred from the byte diff: S2 (`FindWall2`, `loc_1EA78`/`loc_1EAE0`) reads `+w` as
+  RIGHT-anchored, aeon (`probe_core`/`Collision_ProbeLeft`) as LEFT-anchored, and it runs both
+  ways (1,533 rows / 139 rows). **Constructively**, decoding both arrays to solid-column sets
+  under their own conventions: **3,584 of 3,584** non-air rows agree with each other AND with the
+  vertical array's own coverage — a third, independent witness — so regenerating loses nothing
+  and copying would mirror the solid side of every partial wall row.
+- **The donors share one vocabulary — re-checked, it holds.** Prototype `Collision array 1.bin`
+  == final `- Vertical.bin` (sha1 `9cc4c24e980f`), `2.bin` == `- Horizontal.bin`, angle tables
+  identical. A gate row also asserts the consequence: every shape HPZ's indices name is non-air
+  in this bank.
+
+**THE `$18` RULING**
+
+`$18` is a symmetric 45-degree PEAK whose upper 14 rows have a solid run touching neither edge,
+unrepresentable in a one-signed-byte-per-row table, and the only such shape in either bank.
+**RULED: keep the run's width, anchor it at the RIGHT edge.** Three reasons, in order of weight:
+it is exactly what Sonic 2 itself shipped for this shape once transcribed into aeon's inverted
+convention (asserted by a gate row against the donor's own bytes, not a hand-typed pin); it
+preserves an invariant BOTH donors satisfy with zero exceptions (0 rows are vertically covered but
+zero in the shipped rotated array); and `$18` is referenced by NO showcase zone, so it is a
+completeness question rather than a gameplay one — with a gate row that fails if that stops being
+true. **Emitting 0 was the first instinct and was rejected on that invariant measurement**, taken
+as a control: it would make aeon's the only bank of the three where a wall probe sees air through
+solid geometry. A row with MULTIPLE solid runs still RAISES; there is no defensible byte for one.
+
+**WHAT ROW 5 INHERITS**
+
+- **`ojz_strip_gen.load_base_bank()` still hard-codes `games/sonic4/data/collision/base/`.**
+  Selecting a bank is row 5's first move. Deliberately not done here: an unused parameter added a
+  parcel early is a dormant scaffold, and the bank is all row 4 owed. The row 4 / row 5 boundary
+  is drawn in the right place.
+- **`collision_pipeline.emit_tables()` calls the UNRULED `rotate_profile`** on the interned
+  heights (`:348-354`), so a clip that ever interns `$18` or a flip of it makes the BAKE raise,
+  and the importer's local ruling does not reach there. Safe today — `$18` is in no showcase
+  zone, and the raise condition is a property of the height profile that all four flips preserve,
+  so a shape safe unflipped is safe flipped. Row 5 decides whether `emit_tables` gets
+  `rotate_profile_ruled` or keeps the loud refusal. Leaving `rotate_profile` raising is the
+  deliberate choice here: it is a live tripwire for the shipping act, and turning a refusal into
+  a silent value on the shipping path is not row 4's call.
+- **The §8 readout item "attr-set entries" that parcel 3 said needs row 4 actually needs row 5** —
+  it is a property of a baked clip, not of the shape bank.
+
+**TWO OTHER GATES CAUGHT THIS PARCEL, and both were right**
+
+- `test_cli_dispatch_refuses`'s census flagged the new tool as an argv dispatch with no recorded
+  verdict (20 → 21). Because `build` OVERWRITES a tracked bank — the `ojz_strip_gen` shape of the
+  LS-15d incident — the CLI is now a MODES table whose dispatch runs before any handler, `main()`
+  raises `SystemExit(1)` rather than returning, and the tool is in `_FIXED` with its writing
+  handlers blinded. It is deliberately given **NO subprocess row**: that file's own rule is that a
+  writing tool must never have one, because on a regression the row's failure IS the write.
+- A defect was found in the parcel's own CHECK and is recorded because it is the interesting one:
+  the aeon side omitted `probe_core`'s `and.b d6,d0` solidity-class gate and answered full-back
+  for **158,442 of 1,806,336** probes where S2 answers air — every one an L/R/B-only cell read by
+  a floor sensor. `bake_cell` interns a cell whose solidity is non-zero for EITHER class because
+  the runtime decides which sensor is asking. **The bank was never wrong; the check was.** Both
+  classes are now swept, and an anti-vacuity row proves the donor contains class-asymmetric cells.
+
+**OPEN RIDERS (small, none blocking)**
+
+- **`tools/import_sk_collision.py` still copies S&K's rotated table verbatim into `base/`** — the
+  design's own "side finding, pre-existing and unrelated". It does not reach the ROM (the bake
+  regenerates the live table via `emit_tables`, and `load_base_bank` reads only heightmaps +
+  angles), and it was deliberately NOT fixed here: it is a different bank on a different path and
+  folding it in would put an unreviewed change to the shipping act inside a parcel that otherwise
+  moves no shipping byte. Already booked by the 2026-09-06 tools lens sweep (T1-1).
+- **`games/sonic4/data/collision/base_s2/` is COMMITTED, unlike the gitignored converted donor
+  trees.** It is 8,960 B, the donor trees are out-of-repo so a fresh checkout could not regenerate
+  it, and the S&K bank beside it is committed on the same reasoning. A gate row asserts the
+  committed bytes are what the importer produces today, so it cannot silently drift.
