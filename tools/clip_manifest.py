@@ -35,6 +35,9 @@ what an author marquees and what `Region` rectangles already use
           "src_rect": { "x": 4096, "y": 0, "w": 2048, "h": 1024 },
           "dst_rect": { "x": 0,    "y": 0, "w": 2048, "h": 1024 },
           "region_id": "ehz_a",             // OPTIONAL, aurora's write-back (see below)
+    //                                     ABSENT-CASE FIXTURE: games/sonic4/data/clips/s2_two_clip_pins/
+    //                                     clips.json omits region_id on every clip. s2_two_clip carries it on both,
+    //                                     so a reader built against that one alone will assume presence (aurora, 2026-09-17).
           "unaligned_dst_reason": null      // OPTIONAL opt-out, see R11
         }, ... ] }
 

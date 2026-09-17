@@ -138,7 +138,7 @@ RULES: tuple = (
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),
     ("docs/research/s2-compressed-act/", CHECKED,
-     ("tools/test_clip_manifest.py",),
+     ("tools/test_clip_manifest.py", "tools/test_fg_page_order.py"),
      "the S2-COMPRESSED-ACT design's measurement tool is IMPORTED as the independent "
      "second implementation the clip bake is cross-checked against "
      "(test_the_bake_agrees_with_the_designs_own_measurement builds the same act from the "
@@ -147,7 +147,10 @@ RULES: tuple = (
      "that edits it must run the test that runs it. A PREFIX, not the one file: importing "
      "it puts the directory on sys.path, so the audit records a listing of the directory "
      "and a read of the bytecode cache beside it, and a rule naming only the .py leaves "
-     "both uncovered"),
+     "both uncovered. tools/test_fg_page_order.py READS THE SAME DIRECTORY and was "
+     "missing here, so the audit refused every code push on master on 2026-09-17 until "
+     "it was added: the rule listed one of its two real readers, which is the audit "
+     "working"),
 )
 # <<< RULES
 

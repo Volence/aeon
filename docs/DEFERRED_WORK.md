@@ -36912,6 +36912,12 @@ that changes no ROM byte); its in-build pre-build lane is 3024 passed / 2 skippe
 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the committed
 `games/sonic4/data/editor/ojz/act1` tree untouched, both donor trees read-only, no emulator used.
 
+### S2-COMPRESSED-ACT rider: the absent-`region_id` case IS shipped, but not in the fixture anyone reaches for (booked 2026-09-17T20:53:02Z, CORRECTED the same hour)
+
+- **CORRECTION, and it is the useful part.** This row first said both fixtures pre-fill `region_id`. **False at `origin/master`, measured by enumerating every `clips.json` rather than reading one:** `s2_two_clip/clips.json` carries it on 2 of 2 clips; `s2_two_clip_pins/clips.json` carries it on 0 of 2 (clip key set exactly `donor, dst_rect, id, src_rect, zone`), landed in `0aa5e106`. So parcel 3 already shipped a copyable absent-case fixture and the gap this row booked does not exist.
+- **How both lanes got it wrong in OPPOSITE directions from one cause.** aurora opened one fixture and concluded the absent case had no coverage; this lane opened one fixture and concluded every fixture pre-fills. Neither enumerated, and the enumeration is one command. It surfaced only because the claim was SENT to the other lane instead of being booked silently: `for f in $(git ls-tree -r --name-only origin/master | grep 'data/clips/.*clips.json'); do git show origin/master:$f | python3 -c "import json,sys; d=json.load(sys.stdin); print('$f', sum(1 for c in d['clips'] if 'region_id' in c), 'of', len(d['clips']))"; done`
+- **The residual, which is real and smaller:** the absent case is AVAILABLE but not PROMINENT. `s2_two_clip` is the fixture the spec names and the one with the descriptive `note`, so a consumer who stops at the first fixture still writes a presence-assuming reader. **Fix: a line in the format spec pointing at `s2_two_clip_pins` as the absent-`region_id` fixture.** Done 2026-09-17T20:53:02Z in `tools/clip_manifest.py`'s header; no parcel, no new row.
+
 ### S2-COMPRESSED-ACT parcel 4 LANDED 2026-09-17 — the Sonic 2 collision base bank
 
 Branch `parcel/s2-collision-bank` (base `9b25b9b5`). Report:
