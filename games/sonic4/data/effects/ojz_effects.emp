@@ -2357,7 +2357,10 @@ pub data OJZ_Preset_NightSnap: [EffectsPreset; OJZ_PRESET_NIGHT_SNAP_LEN] = if D
 // ZERO BYTES IN RELEASE, but NOT zero names: both labels exist at length 0 in the release
 // listing and so enter its deb2 appendix. The names are chosen to sort AFTER
 // `OJZ_Preset_NightSnap`, the incumbent at their release address, so neither steals its record
-// (CODING_CONVENTIONS, "A NAME-ONLY EDIT MOVES BYTES").
+// (CODING_CONVENTIONS, "A NAME-ONLY EDIT MOVES BYTES"). MEASURED on the landing build against
+// the e396a270 release ROM: s4.bin is byte-identical over [0, EndOfRom) apart from the $18E
+// checksum word, same length, and 531 deb2 appendix bytes moved (the character code table).
+// No DEBUG-gated label can avoid that; the code and data a release player runs are unchanged.
 // ===========================================================================
 const OJZ_SHOWCASE_LEN = if DEBUG == 1 { 1 } else { 0 }
 const OJZ_SHOWCASE_PAL_SIZE = if DEBUG == 1 { 96 } else { 0 }
