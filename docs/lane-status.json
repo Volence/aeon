@@ -7,8 +7,8 @@
       "agent": true
     },
     {
-      "what": "Get both art stress-test builds through every build check",
-      "where": "branch fix/stress-shapes-build",
+      "what": "Let the character-move checks work on the stress-test builds without a saved snapshot",
+      "where": "branch fix/stress-shapes-gate-cuts",
       "agent": true
     }
   ],
@@ -92,5 +92,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T07:02:28Z"
+  "updatedAt": "2026-09-17T07:31:17Z"
 }
