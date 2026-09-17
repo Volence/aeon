@@ -152,8 +152,10 @@ PAGE_TABLE_MAX = 256                  # residency page-table ceiling (replaces P
 SECTION_LOCAL_INDEX_MAX = 2047        # 11-bit nametable field: a section's local palette must fit
 PIN_SECTION_FRACTION = 0.75           # a page is pinned if >= this fraction of sections reference it (page 0 always)
 # --stress-uniquify N default (Art-streaming P2c Task 11 stress fixture): crosses
-# the 2048 index line (>32 pages) AND exceeds 15 PAGE_FRAMES by ~4x (>40 pages),
-# so the residency cache is forced into continuous evict/reload traffic on OJZ.
+# the 2048-tile local index line AND is several times the FG frame window, so the
+# residency cache is forced into continuous evict/reload traffic on OJZ. (Calibrated at
+# 64-tile pages and 15 frames: >40 pages. A tile count, so a page-size change keeps both
+# properties: 2600 tiles is ~3.4x any POOL_TILE_CEILING up to 768, whatever the page size.)
 STRESS_UNIQUIFY_DEFAULT = 2600
 STRESS_XOR_FALLBACK = 0xA5            # nonzero perturbation when the per-clone counter byte is 0
 # (block/chunk geometry constants imported from ojz_common above)
@@ -1424,18 +1426,23 @@ def test_page_split_covers_pool_exactly():
 
 
 def test_unbounded_pool_over_2048_tiles():
-    """A >2048-tile GLOBAL pool splits into >32 pages (unbounded index proof); a
-    section's LOCAL palette still fits the 11-bit nametable field."""
+    """A >2048-tile GLOBAL pool splits into more pages than 2048 tiles fill (unbounded
+    index proof); a section's LOCAL palette still fits the 11-bit nametable field."""
     pool = list(range(2600))
     pages = tile_dedupe.split_pool_into_pages(pool, ART_POOL_PAGE_TILES)
-    assert len(pages) > 32, f"expected >32 pages for a 2600-tile pool, got {len(pages)}"
+    # 2048 here is the 11-bit local index line (SECTION_LOCAL_INDEX_MAX + 1), NOT a page
+    # size; the page count it crosses is derived from the engine page size, which was the
+    # literal 32 (= 2048 / 64) before PAGE-SIZE-CONSTANT-ONLY (2026-09-17).
+    index_line_pages = (SECTION_LOCAL_INDEX_MAX + 1) // ART_POOL_PAGE_TILES
+    assert len(pages) > index_line_pages, (
+        f"expected >{index_line_pages} pages for a 2600-tile pool, got {len(pages)}")
     assert len(pages) <= PAGE_TABLE_MAX
     # a section referencing 2000 distinct globals scattered across the whole pool
     section_globals = list(range(1000)) + list(range(1600, 2600))   # 2000 distinct, spans 0..2599
     l2g = build_section_local_map(section_globals)
     assert len(l2g) == 2000
     assert len(l2g) - 1 <= SECTION_LOCAL_INDEX_MAX, "local indices must fit 11 bits"
-    print("  PASS: unbounded >2048-tile pool, >32 pages, local palette fits")
+    print(f"  PASS: unbounded >2048-tile pool, >{index_line_pages} pages, local palette fits")
 
 
 def test_section_over_2047_tiles_fails():
@@ -2191,7 +2198,7 @@ def generate(stress_uniquify=0):
 
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a
     # VRAM-tile ceiling — pages land in ALLOCATED frames (dest = frame base, not
-    # page_id*64), so there is no per-act VRAM fit to guard. act_descriptor.emp
+    # page_id*ART_POOL_PAGE_TILES), so there is no per-act VRAM fit to guard. act_descriptor.emp
     # guards only OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX at comptime; the old
     # identity-residency guard (OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING) is retired.
     assert len(pages) <= PAGE_TABLE_MAX, (

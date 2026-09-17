@@ -303,10 +303,17 @@ def main():
     check_corruption_detected(plain, payload, checksum)
 
     # Each vector decompresses into Art_Staging_Buffer (ART_STAGING_BUFFER_SIZE =
-    # 2048 B, a dedicated buffer since the P2b cutover — no longer the 9,600-B
-    # tile-cache alias). compression_selftest.emp backs this with a compile-time
-    # ensure(CSELF_PAYLOAD_SIZE <= ART_STAGING_BUFFER_SIZE).
-    assert len(payload) <= 2048
+    # ART_POOL_PAGE_BYTES, a dedicated buffer since the P2b cutover — no longer the
+    # 9,600-B tile-cache alias). compression_selftest.emp backs this with a compile-time
+    # ensure(CSELF_PAYLOAD_SIZE <= ART_STAGING_BUFFER_SIZE). The bound is READ FROM THE
+    # ENGINE (PAGE-SIZE-CONSTANT-ONLY, 2026-09-17; it was the literal 2048, one 64-tile
+    # page): the page size is a parameter of the owner's open card FG-CACHE-10-HOW.
+    from fg_working_set import ConstantSource
+    consts = ConstantSource()
+    consts.load_file(os.path.join(ROOT, "engine", "system", "constants.emp"))
+    staging = consts.get("ART_STAGING_BUFFER_SIZE")
+    assert len(payload) <= staging, (
+        f"compression self-test payload {len(payload)} B > ART_STAGING_BUFFER_SIZE {staging} B")
 
     # --- Emit blobs ---
     blobs = {

@@ -43,7 +43,7 @@ it.
 
 Queue ORDER decides who loses. One `GameLoop` iteration
 (engine/system/game_loop.emp:29) runs `VSync_Wait` -- where `PageIn_Process`
-enqueues a 2048-byte page landing on Important -- BEFORE the state dispatch,
+enqueues a page landing (ART_POOL_PAGE_BYTES) on Important -- BEFORE the state dispatch,
 where `perform_dplc` enqueues the player's art on Important. The queue is FIFO
 and `Drain_Budgeted_Queue` walks from the base, so the page landing is ahead of
 the player and spends the budget first. The player's art is what gets deferred.

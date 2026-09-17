@@ -466,13 +466,16 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 
 // STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
 // (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
-// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
-// pinned pages 0/1/8/9 + 5 dynamic frames), forcing continuous evict/reload traffic
+// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (5
+// pinned pages 0/1/7/8/9 + 4 dynamic frames; `python3 tools/fg_page_order.py check`
+// prints the committed pin set), forcing continuous evict/reload traffic
 // through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
 // free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
 // but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
 //
 // CALIBRATION HISTORY (the fixture floor for OJZ is 9; overseer ruling, chain 78).
+// The "N pinned + M dynamic" splits below count against the 4 pins OJZ had when the
+// clamp was calibrated (pages 0/1/8/9), not today's 5 (STITCHED-ACT-PAGE-ORDER).
 // OJZ is a hard case for a forced-eviction fixture: dedup makes the working set
 // ~= the pool (T7's established conclusion — there is no stable *sustained-churn*
 // regime on OJZ; genuine churn coverage comes from Task 11's stress-uniquify

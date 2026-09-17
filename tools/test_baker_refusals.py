@@ -519,6 +519,13 @@ open("games/sonic4/data/collision/angles.bin", "wb").write(b"RAW BASE BANK")
     }
     for name, body in bodies.items():
         (stubs / name).write_text(body)
+    # The preflight reads ART_POOL_PAGE_BYTES from the engine through the REAL constant
+    # reader (PAGE-SIZE-CONSTANT-ONLY): the reader and the constants file are inputs of
+    # the script, not steps under test, so they are the real ones, not stubs.
+    shutil.copy(os.path.join(HERE, "fg_working_set.py"), stubs / "fg_working_set.py")
+    (repo / "engine" / "system").mkdir(parents=True)
+    shutil.copy(os.path.join(HERE, "..", "engine", "system", "constants.emp"),
+                repo / "engine" / "system" / "constants.emp")
     coll = repo / "games" / "sonic4" / "data" / "collision"
     gen = repo / "games" / "sonic4" / "data" / "generated" / "ojz" / "act1"
     coll.mkdir(parents=True)

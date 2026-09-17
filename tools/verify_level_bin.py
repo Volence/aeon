@@ -27,8 +27,32 @@ import act_grid  # noqa: E402  stdlib-only: the ONE reader of the act's section 
 ROOT =os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
 SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
-ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
+CONSTANTS_EMP = os.path.join(ROOT, "engine", "system", "constants.emp")
 TILE_SIZE = 32
+
+
+def load_page_geometry(path=CONSTANTS_EMP):
+    """(ART_POOL_PAGE_TILES, ART_POOL_PAGE_BYTES), read from the ENGINE, not restated.
+
+    This file used to type `ART_POOL_PAGE_BYTES = 2048` (PAGE-SIZE-CONSTANT-ONLY,
+    2026-09-17): the page size is a parameter of the owner's open card FG-CACHE-10-HOW
+    (64 -> 32 tiles), and the generator, the page order and the budget check already
+    read it from constants.emp through fg_working_set.ConstantSource (stdlib-only at
+    import, so this gate stays donor-free). Same reader here, so a page-size change is
+    a constant change. An unreadable or incoherent constant raises: loud, never green.
+    """
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    src.load_file(path)
+    tiles = src.get("ART_POOL_PAGE_TILES")
+    page_bytes = src.get("ART_POOL_PAGE_BYTES")
+    if tiles * TILE_SIZE != page_bytes:
+        raise ValueError(f"{path}: ART_POOL_PAGE_BYTES {page_bytes} != ART_POOL_PAGE_TILES "
+                         f"{tiles} * TILE_SIZE {TILE_SIZE}")
+    return tiles, page_bytes
+
+
+ART_POOL_PAGE_TILES, ART_POOL_PAGE_BYTES = load_page_geometry()
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
 BLOCK_RAW_SIZE = 768       # one raw 16x16 block (dict region is a multiple)
 PROJECT_JSON = os.path.join(ROOT, "project.json")
@@ -130,7 +154,7 @@ def verify_act_pool():
         check(len(raw) <= ART_POOL_PAGE_BYTES,
               f"act pool: page{k}.bin is {len(raw)}B > one page ({ART_POOL_PAGE_BYTES})")
         check(tiles * TILE_SIZE == len(raw),
-              f"act pool: page{k} manifest tiles {tiles} (*32={tiles*32}) != .bin size {len(raw)}")
+              f"act pool: page{k} manifest tiles {tiles} (*{TILE_SIZE}={tiles*TILE_SIZE}) != .bin size {len(raw)}")
         ext = embed_ext.get(k)
         if form == 0:   # ZX0
             check(ext == "zx0", f"act pool: page{k} form 0 (ZX0) but embeds .{ext}")
@@ -147,8 +171,8 @@ def verify_act_pool():
                 check(w[2] == 0 and w[3] == 2,
                       f"act pool: page{k}.zx0 wrapper flags/version {w[2]},{w[3]} != 0,2")
                 # CONTENT check, not just the wrapper: decode the stream and
-                # byte-compare against the .bin. Every full page is exactly 2048
-                # bytes, so the size checks above have zero discriminating power
+                # byte-compare against the .bin. Every full page is exactly
+                # ART_POOL_PAGE_BYTES, so the size checks above have zero discriminating power
                 # against a stale .zx0 from a previous bake — which would ship
                 # wrong art through every other gate (this is THE drift gate for
                 # a tree the build cannot re-derive).
@@ -162,7 +186,7 @@ def verify_act_pool():
             if not os.path.isfile(praw):
                 check(False, f"act pool: act_pool_page{k}.raw missing")
                 continue
-            # BYTE equality, not just size: full raw pages are all exactly 2048 B.
+            # BYTE equality, not just size: full raw pages are all exactly ART_POOL_PAGE_BYTES.
             check(read(praw) == raw,
                   f"act pool: page{k}.raw content != page{k}.bin (stale/drifted copy)")
         else:
@@ -271,7 +295,7 @@ def verify_local_maps():
                 re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", open(dicts).read())}
     # Pool-tile bound for map VALUES (panel V-1b/B-3): every local->global entry
     # must name a real pool tile — the engine's PatchWord indexes Page_Table by
-    # global>>6 with only a DEBUG assert, so out-of-pool values in a committed
+    # global>>PAGE_FRAME_TILE_SHIFT with only a DEBUG assert, so out-of-pool values in a committed
     # map must die HERE. Bound PER PAGE: global g lives in page g // page_tiles at
     # index g % page_tiles, which must be under that page's pm_tiles. Since
     # STITCHED-ACT-PAGE-ORDER (2026-09-17) a page need not be full (per-zone pages
@@ -281,7 +305,7 @@ def verify_local_maps():
     # contiguous full pages the two bounds are the same set.
     pool_tiles = 0
     page_tiles_list = []
-    page_tiles = ART_POOL_PAGE_BYTES // TILE_SIZE
+    page_tiles = ART_POOL_PAGE_TILES
     pool = os.path.join(GEN, "ojz_act_pool.emp")
     if os.path.isfile(pool):
         page_tiles_list = [int(t) for t in
