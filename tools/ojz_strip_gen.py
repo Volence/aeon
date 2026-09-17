@@ -116,7 +116,62 @@ def _project_tileset_path() -> str:
     )
 
 
+def _project_act_data_dir() -> str:
+    """The EDITOR act directory, from project.json's acts[0].dataPath.
+
+    THREE SITES USED TO SPELL THIS `os.path.join(EDITOR_DIR, "ojz", "act1")` while
+    generate() itself already resolved it from `dataPath` (the "zones[0]/acts[0] is
+    hard-coded in nine files" item of the S2-COMPRESSED-ACT design's §11 risk 6).
+    They agree for the shipped act — dataPath IS games/sonic4/data/editor/ojz/act1/ —
+    so this is byte-neutral there, and it is what lets a SECOND act's tree be baked
+    by pointing PROJECT_JSON at a second project file (tools/clip_rom_bake.py).
+    A hard-coded path would have made the two disagree silently: the availability
+    probe and the collision overlay would have read the shipped act's files while the
+    strips came from the clip's.
+    """
+    with open(PROJECT_JSON, "r") as f:
+        proj = json.load(f)
+    return os.path.normpath(os.path.join(
+        os.path.dirname(PROJECT_JSON), proj["zones"][0]["acts"][0]["dataPath"]))
+
+
 ZONE_TILESET_PATH = _project_tileset_path()
+EDITOR_ACT_DIR = _project_act_data_dir()
+
+# The collision shape bank the editor cell words index. None = the module default
+# inside load_base_bank (games/sonic4/data/collision/base/, the S&K vocabulary the
+# shipped act is authored against). A Sonic 2 clip act is authored against
+# games/sonic4/data/collision/base_s2/ (staged plan row 4) and MUST set it: a shape
+# index means a different shape in the other bank, so the wrong bank bakes
+# well-formed collision for the wrong geometry. Set it through configure().
+COLLISION_BANK_DIR = None
+
+
+def configure(project_json: str | None = None,
+              output_dir: str | None = None,
+              collision_dir: str | None = None,
+              bank_dir: str | None = None) -> None:
+    """Point this module at a DIFFERENT act. Module-global redirection because that
+    is already this file's idiom (test_full_pipeline_runs redirects OUTPUT_DIR and
+    COLLISION_DIR the same way), and because generate() reads these from module
+    scope in a dozen places.
+
+    Re-derives everything that hangs off project.json, so a caller cannot set the
+    project and keep the previous act's tileset or data directory — which is the
+    failure this function exists to make impossible.
+    """
+    global PROJECT_JSON, OUTPUT_DIR, COLLISION_DIR, COLLISION_BANK_DIR
+    global ZONE_TILESET_PATH, EDITOR_ACT_DIR
+    if project_json is not None:
+        PROJECT_JSON = project_json
+        ZONE_TILESET_PATH = _project_tileset_path()
+        EDITOR_ACT_DIR = _project_act_data_dir()
+    if output_dir is not None:
+        OUTPUT_DIR = output_dir
+    if collision_dir is not None:
+        COLLISION_DIR = collision_dir
+    if bank_dir is not None:
+        COLLISION_BANK_DIR = bank_dir
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -509,7 +564,7 @@ def editor_data_available() -> bool:
     A zero-byte tileset is not a degenerate input to handle gracefully; it is a
     broken working tree. Refuse it here, where the diagnosis is still cheap.
     """
-    sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+    sec0 = os.path.join(EDITOR_ACT_DIR, "section_0.tiles.bin")
     for p in (sec0, ZONE_TILESET_PATH):
         if not os.path.isfile(p) or os.path.getsize(p) == 0:
             return False
@@ -1851,7 +1906,7 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     baked artifact and really is refused. That is the correct report: a crossover
     is a per-plane pair (§3.3) and cannot be authored on a mirrored plane."""
     coll_a, coll_b = grids
-    base = os.path.join(EDITOR_DIR, "ojz", "act1")
+    base = EDITOR_ACT_DIR
     path_a = os.path.join(base, f"section_{sec_id}.collattr.bin")
     if not os.path.isfile(path_a):
         return grids
@@ -1975,7 +2030,7 @@ def require_donor():
         # Name the ACTUAL cause. "Absent" and "present but empty" send an author
         # to completely different places, and the empty case is the one that used
         # to bake a blank level silently (tools lens sweep D3).
-        sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+        sec0 = os.path.join(EDITOR_ACT_DIR, "section_0.tiles.bin")
         why = []
         for label, p in (("section_0.tiles.bin", sec0), ("zone tileset", ZONE_TILESET_PATH)):
             if not os.path.isfile(p):
@@ -2044,9 +2099,12 @@ def generate(stress_uniquify=0):
         # the engine's act descriptor to declare the same GRID_W x GRID_H.
         _zone, ojz_act1 = act_grid.project_act(PROJECT_JSON)
         editor_num_sections = act_grid.section_count(PROJECT_JSON)
-        editor_data_path = os.path.join(
-            os.path.dirname(__file__), "..", ojz_act1["dataPath"]
-        )
+        # ONE spelling of the editor act directory (EDITOR_ACT_DIR, derived from this
+        # project file's dataPath). It used to resolve dataPath against the REPO ROOT
+        # here and against the PROJECT FILE's directory in validate_editor_inputs —
+        # identical for the shipped project.json, which sits at the repo root, and
+        # divergent for any second project file, which is exactly what a clip act is.
+        editor_data_path = EDITOR_ACT_DIR
         section_paths = require_editor_sections(editor_data_path, editor_num_sections)
 
         full_blob = load_editor_tile_art(ZONE_TILESET_PATH)
@@ -2121,7 +2179,7 @@ def generate(stress_uniquify=0):
     # editor's read-only baseline, sec*_strips_source.bin) stay air.
     per_section_coll_rom = per_section_coll
     if use_editor:
-        base_profiles, base_angles = load_base_bank()
+        base_profiles, base_angles = load_base_bank(COLLISION_BANK_DIR)
         attrset = collision_pipeline.AttrSet()      # ONE shared set across all sections
         per_section_coll_rom = {
             sec_id: apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, attrset)
