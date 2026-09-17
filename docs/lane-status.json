@@ -1,6 +1,12 @@
 {
-  "focus": "Nightly checks all run again; the region cover warning is on your decision list. Next: boot's sound-chip pause.",
-  "inFlight": [],
+  "focus": "Moving boot's sound-chip pause onto the compiler-checked form sigil built for it.",
+  "inFlight": [
+    {
+      "what": "LS-13b: boot's Z80 hold adopts the named-slot bracket",
+      "where": "agent worktree, branch parcel/ls13b-boot-named-slot",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here, if LS-13b is not started. It is next and needs nothing from anyone.",
+  "nextBoundary": "When the LS-13b agent returns and its parcel is judged and landed.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -57,8 +63,8 @@
     },
     {
       "id": "LS-13b",
-      "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
-      "state": "next",
+      "title": "Boot's hand-written pause of the sound chip moves onto sigil's new checked form; an agent is on it",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -68,9 +74,16 @@
       "state": "blocked",
       "size": "L",
       "blockedBy": "parked, not scheduled"
+    },
+    {
+      "id": "NIGHTLY-COMMENT-TIDY",
+      "title": "Small: a stale nightly-script comment, and check the preset cycle cap against the ROM",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
     }
   ],
-  "awaiting": "a /clear when convenient: everything is landed and banked (handoff 22); about 330k context used. Also 3 decision cards, newest on region background cover.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T09:37:27Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T09:39:05Z"
 }
