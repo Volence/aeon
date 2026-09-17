@@ -501,7 +501,8 @@ def _mode_measure_alignment(rest):
     import tempfile
     rows = []
     for label, ax, bx in ALIGN_ROWS:
-        doc = {"schema": 1, "id": "align_probe", "act": {"grid_w": 2, "grid_h": 1},
+        doc = {"schema": 1, "units": "world_px", "id": "align_probe",
+               "act": {"grid_w": 2, "grid_h": 1},
                "clips": [
                    {"id": "a", "donor": ALIGN_CLIPS[0], "zone": ALIGN_CLIPS[1],
                     "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},

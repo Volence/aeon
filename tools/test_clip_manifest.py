@@ -323,7 +323,8 @@ def r12(donors, tmp_path_factory):
         _need(donor)
     out = {}
     for label, ax, bx in BAKE.ALIGN_ROWS:
-        doc = {"schema": 1, "id": "r12", "act": {"grid_w": 2, "grid_h": 1}, "clips": [
+        doc = {"schema": 1, "units": "world_px", "id": "r12",
+               "act": {"grid_w": 2, "grid_h": 1}, "clips": [
             {"id": "a", "donor": BAKE.ALIGN_CLIPS[0], "zone": BAKE.ALIGN_CLIPS[1],
              "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},
              "dst_rect": {"x": ax, "y": 0, "w": 1024, "h": 1024},
@@ -390,6 +391,12 @@ def test_the_tracked_fixtures_validate(donors):
 
 @pytest.mark.parametrize("tag,mutate", [
     ("R1", lambda d: d.update(schema=2)),
+    ("R1", lambda d: d.update(units="tiles")),
+    ("R3", lambda d: d.update(id="S2_Two_Clip")),
+    ("R3", lambda d: d["clips"][0].update(id="EHZ")),
+    ("R3", lambda d: d["clips"][0].update(region_id="EHZ_s2")),
+    ("R3", lambda d: [c.update(region_id="same_region") for c in d["clips"]]),
+    ("R3", lambda d: d["clips"][0].update(palette="S2_Palette_EHZ")),
     ("R2", lambda d: d["act"].update(grid_w=0)),
     ("R3", lambda d: d["clips"][1].update(id=d["clips"][0]["id"])),
     ("R4", lambda d: d["clips"][0].update(zone="NOT_A_ZONE")),
@@ -479,6 +486,67 @@ def test_w1_warns_on_an_unchunked_src(donors, doc, tmp_path):
     assert any(w.startswith("W1 ") for w in got), got
 
 
+def test_the_ids_this_file_carries_are_ids_the_regions_document_could_carry(donors, doc, tmp_path):
+    """The cross-tool half of R3, checked against the CONTRACT's pattern rather than a
+    pattern retyped here.
+
+    `empyrean:contract/schema/aurora-regions.schema.json` `$defs/region/properties/id` is
+    `^[a-z][a-z0-9_]{0,31}$`, and a pasted clip becomes a region. The rule this file enforces
+    is that pattern, so every act id, clip id and `region_id` write-back in a clips.json is a
+    name aurora can use in the regions document without translating it. The row reads the
+    contract when it can and SKIPS SAYING SO when it cannot, rather than passing on a
+    hard-coded copy that could drift away from the schema it claims to mirror.
+    """
+    for donor, _zone in CASES:
+        _need(donor)
+    schema = os.path.join(os.path.dirname(REPO), "empyrean", "contract", "schema",
+                          "aurora-regions.schema.json")
+    if not os.path.isfile(schema):
+        pytest.skip(f"the suite contract is not checked out beside this repo ({schema}), so "
+                    f"the pattern CM.REGION_ID_PATTERN mirrors cannot be re-derived here")
+    with open(schema) as fh:
+        want = json.load(fh)["$defs"]["region"]["properties"]["id"]["pattern"]
+    assert CM.REGION_ID_PATTERN == want, (CM.REGION_ID_PATTERN, want)
+
+    act = CM.load(os.path.join(FIXTURE_DIR, "s2_two_clip", "clips.json"), donor_root=donors)
+    import re as _re
+    assert _re.match(want, act.id), act.id
+    for cl in act.clips:
+        assert _re.match(want, cl.id), cl.id
+        if cl.region_id:
+            assert _re.match(want, cl.region_id), cl.region_id
+
+
+def test_a_clip_cannot_name_a_preset(donors, doc, tmp_path):
+    """A region's palette comes from its REQUIRED `preset`, which names a record in the
+    GAME's effects library — a thing no Sonic 2 zone has an opinion about. Schema 1
+    therefore has no palette or preset field, and a manifest carrying one is refused rather
+    than ignored: a silently-dropped field is how two tools end up disagreeing about which
+    of them was supposed to decide.
+    """
+    for donor, _zone in CASES:
+        _need(donor)
+    d = copy.deepcopy(doc)
+    d["clips"][0]["palette"] = "S2_Palette_EHZ"
+    with pytest.raises(CM.ClipManifestError) as e:
+        CM.load(_write(tmp_path, d), donor_root=donors)
+    assert "preset" in str(e.value) and "palette.bin" in str(e.value), str(e.value)
+
+
+def test_a_dst_rect_is_a_legal_region_rect(baked):
+    """Every clip's dst_rect satisfies the contract's rect: integer world pixels, x/y >= 0,
+    w/h >= 1. This file's R6 and R11 are STRICTER, which is fine — a dst_rect is a subset of
+    the legal region rects, not a different shape — but it must never be looser, because the
+    rectangle aurora writes into the regions document IS this one.
+    """
+    for name in FIXTURES:
+        act, _st, _m, _v1, _v2 = baked[name]
+        for cl in act.clips:
+            x, y, w, h = cl.dst
+            assert all(type(v) is int for v in (x, y, w, h)), cl.dst
+            assert x >= 0 and y >= 0 and w >= 1 and h >= 1, cl.dst
+
+
 def test_a_missing_converted_tree_says_how_to_make_one(doc, tmp_path):
     """A donor tree that is not there must name the converter, not raise FileNotFoundError
     out of a loader three files down."""
@@ -495,7 +563,7 @@ def test_the_zone_key_is_per_zone_not_per_clip(donors, doc, tmp_path):
     for donor, _zone in CASES:
         _need(donor)
     d = copy.deepcopy(doc)
-    d["clips"][1] = dict(d["clips"][0], id="ehz_again",
+    d["clips"][1] = dict(d["clips"][0], id="ehz_again", region_id="ehz_again",
                          src_rect={"x": 2048, "y": 0, "w": 2048, "h": 1024},
                          dst_rect={"x": 2048, "y": 0, "w": 2048, "h": 1024})
     act = CM.load(_write(tmp_path, d), donor_root=donors)

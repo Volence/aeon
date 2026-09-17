@@ -25,6 +25,7 @@ what an author marquees and what `Region` rectangles already use
 
     {
       "schema": 1,
+      "units": "world_px",                  // the ONLY unit in this file, on both sides
       "id": "s2clip_demo",                  // the act's id; names the bake output
       "name": "two-clip fixture",           // free text, optional
       "act": { "grid_w": 2, "grid_h": 1 },  // the target act's SECTION grid, declared
@@ -33,10 +34,43 @@ what an author marquees and what `Region` rectangles already use
           "donor": "s2disasm", "zone": "EHZ",     // -> games/sonic4/data/donors/<donor>/<zone>/
           "src_rect": { "x": 4096, "y": 0, "w": 2048, "h": 1024 },
           "dst_rect": { "x": 0,    "y": 0, "w": 2048, "h": 1024 },
-          "palette":   "S2_Palette_EHZ",    // OPTIONAL, pass-through (parcel 6/7)
-          "region_id": "ehz_a",             // OPTIONAL, cross-ref into regions.json
+          "region_id": "ehz_a",             // OPTIONAL, aurora's write-back (see below)
           "unaligned_dst_reason": null      // OPTIONAL opt-out, see R11
         }, ... ] }
+
+WHAT THIS FILE DOES NOT DECIDE, and why — verified 2026-09-17 against the suite contract
+`empyrean:contract/schema/aurora-regions.schema.json` at `0742b5ed`, read rather than taken
+on report. A pasted clip becomes a `region` there, and that object is
+`required: [id, rect, preset]` with `unevaluatedProperties: false`.
+
+  * **`preset` is the region's total identity binding and a donor zone cannot supply it.**
+    It names a record in the GAME's effects library (`^[A-Za-z_][A-Za-z0-9_]{0,63}$`,
+    validated by `tools/effects_gen.py`), and a Sonic 2 zone has no opinion about aeon's
+    effects records. So there is NO preset or palette field here. What a clip supplies is
+    the donor's 96 palette bytes — `donors/<donor>/<zone>/palette.bin`, sha256 in that
+    tree's `zone.json`, carried into the bake's `clipact.json` `zone_table` — and the
+    preset that installs them is named by aurora at paste time. (A `"palette"` field
+    existed in an earlier cut of this schema and in the design's §8 sketch; it was a
+    preset name in disguise and is gone.)
+  * **`region_id` is a WRITE-BACK, not a naming.** Aurora derives the region id; if it
+    writes it here, this loader checks it against the schema's own pattern
+    (`^[a-z][a-z0-9_]{0,31}$`) so a clips.json can never carry an id aurora could not have
+    made. A clip's OWN `id` is held to that same pattern for the same reason: then the two
+    documents can use one name for one rectangle instead of two.
+  * **PROVENANCE LIVES HERE, NOT IN THE REGIONS DOCUMENT.** `unevaluatedProperties: false`
+    means there is no extension point on a region, and the region `id` pattern cannot hold
+    a donor name (`EHZ` and `s2disasm/EHZ` are both illegal). The region's `name` is free
+    text (maxLength 64, never read by the engine or the generator) and may carry a
+    human-readable echo such as `EHZ (s2disasm) clip ehz_a` — but it is an echo. The
+    authoritative record of which donor, which zone, which source rectangle and which
+    tileset sha is this file and the `clipact.json` the bake writes beside the act.
+  * **A `dst_rect` is a legal region rect, but not every legal region rect is a legal
+    `dst_rect`.** The schema's rect is world pixels with `x, y >= 0`, `w, h >= 1`, and its
+    edges deliberately need not fall on the section grid. This file agrees about the unit
+    and the floor and adds two aeon-side constraints: a multiple of 8 (R6, a hard format
+    limit — the cell grid) and a section-aligned origin (R11, a default with an in-file
+    opt-out). Nothing here rounds: `units` is declared in the file and every rect is an
+    integer count of world pixels on both sides, so aurora converts nothing.
 
 WHERE THIS DIFFERS FROM THE DESIGN'S §8 SKETCH, and why (each corrected in the design doc
 in place):
@@ -62,9 +96,13 @@ asserts that tag, so a manifest refused by an earlier rule cannot stand in for a
 R1-R10 are refusals with no opt-out; R11 is a refusal with a per-clip, in-file opt-out;
 W1-W3 are warnings.
 
-  R1  schema == 1.
+  R1  schema == 1, and `units` is "world_px" — declared in the file so the unit is part of
+      the interface rather than a convention two tools each remember separately.
   R2  the act grid is >= 1x1 and fits MAX_ACT_SECTIONS (read from engine source).
-  R3  clip ids are unique, non-empty, [A-Za-z0-9_-]+.
+  R3  the act id and every clip id match the suite contract's region-id pattern
+      `^[a-z][a-z0-9_]{0,31}$`, and clip ids are unique. A clip id that is already a legal
+      region id is one aurora can use verbatim, so one rectangle has one name in both
+      documents. An optional `region_id` write-back is held to the same pattern.
   R4  donor is a registered donor and zone is one of ITS zones (tools/s2_donor.py).
   R5  rect fields are non-negative integers, w and h positive.
   R6  every rect coordinate is a multiple of 8 px. DERIVED, not a convention: an editor
@@ -128,7 +166,14 @@ TILE_PX = 8
 #: World pixels per 128x128 chunk — Sonic 2's layout byte and aeon's streaming block.
 CHUNK_PX = 128
 
-_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+#: The suite contract's region-id pattern, transcribed from
+#: `empyrean:contract/schema/aurora-regions.schema.json` `$defs/region/properties/id` at
+#: 0742b5ed. Act ids, clip ids and any `region_id` write-back are all held to it, so a name
+#: in this file is a name aurora can use in the regions document without translating it.
+REGION_ID_PATTERN = r"^[a-z][a-z0-9_]{0,31}$"
+_ID_RE = re.compile(REGION_ID_PATTERN)
+#: The only unit this file speaks, on both sides, declared in the file itself.
+UNITS = "world_px"
 _RECT_KEYS = ("x", "y", "w", "h")
 
 
@@ -153,7 +198,7 @@ def geometry_constants(path=CONSTANTS_EMP):
 class Clip:
     """One pasted rectangle. `zone_key` is assigned by the manifest, not the file."""
 
-    __slots__ = ("id", "donor", "zone", "src", "dst", "palette", "region_id",
+    __slots__ = ("id", "donor", "zone", "src", "dst", "region_id",
                  "unaligned_dst_reason", "zone_key", "index")
 
     def __init__(self, raw, index):
@@ -163,8 +208,7 @@ class Clip:
         self.zone = raw["zone"]
         self.src = tuple(int(raw["src_rect"][k]) for k in _RECT_KEYS)
         self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
-        self.palette = raw.get("palette")
-        self.region_id = raw.get("region_id")
+        self.region_id = raw.get("region_id") or None
         self.unaligned_dst_reason = raw.get("unaligned_dst_reason") or None
         self.zone_key = -1
 
@@ -181,7 +225,7 @@ class Clip:
             "zone_key": self.zone_key,
             "src_rect": dict(zip(_RECT_KEYS, self.src)),
             "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
-            "palette": self.palette, "region_id": self.region_id,
+            "region_id": self.region_id,
             "unaligned_dst_reason": self.unaligned_dst_reason,
         }
 
@@ -293,8 +337,15 @@ def load(path, donor_root=DEFAULT_DONOR_ROOT, constants=None, warn=None):
     if raw.get("schema") != SCHEMA:
         raise ClipManifestError(
             f"R1 {path}: schema {raw.get('schema')!r}, this loader reads {SCHEMA}")
+    if raw.get("units") != UNITS:
+        raise ClipManifestError(
+            f"R1 {path}: `units` is {raw.get('units')!r}, this loader reads {UNITS!r}. Every "
+            f"rectangle in this file is an integer count of world pixels on both sides; the "
+            f"unit is declared here so no consumer has to convert or round.")
     if "id" not in raw or not _ID_RE.match(str(raw.get("id", ""))):
-        raise ClipManifestError(f"R1 {path}: `id` must be a non-empty [A-Za-z0-9_-] string")
+        raise ClipManifestError(
+            f"R3 {path}: `id` must match {REGION_ID_PATTERN} — the suite contract's region-id "
+            f"pattern (empyrean:contract/schema/aurora-regions.schema.json)")
 
     c = constants or geometry_constants()
     sec_px = c["SECTION_SIZE"]
@@ -318,7 +369,7 @@ def load(path, donor_root=DEFAULT_DONOR_ROOT, constants=None, warn=None):
     if not isinstance(clips_raw, list) or not clips_raw:
         raise ClipManifestError(f"R3 {path}: `clips` must be a non-empty list")
 
-    clips, seen_ids = [], {}
+    clips, seen_ids, seen_regions = [], {}, {}
     for i, cr in enumerate(clips_raw):
         if not isinstance(cr, dict):
             raise ClipManifestError(f"R3 {path}: clips[{i}] is not an object")
@@ -326,14 +377,39 @@ def load(path, donor_root=DEFAULT_DONOR_ROOT, constants=None, warn=None):
             if k not in cr:
                 raise ClipManifestError(f"R3 {path}: clips[{i}] is missing {k!r}")
         cid = str(cr["id"])
+        rid = cr.get("region_id") or None
         if not _ID_RE.match(cid):
             raise ClipManifestError(
-                f"R3 {path}: clip id {cid!r} is not [A-Za-z0-9_-]+ (it names a directory "
-                f"and an engine symbol downstream)")
+                f"R3 {path}: clip id {cid!r} does not match {REGION_ID_PATTERN}. That is the "
+                f"suite contract's REGION id pattern: a pasted clip becomes a region, region "
+                f"ids are validated against it, and a clip id that already satisfies it is "
+                f"one aurora can use verbatim — so one rectangle keeps one name across both "
+                f"documents. The donor and zone names (EHZ, s2disasm) live in their own "
+                f"fields, where upper case is fine.")
         if cid in seen_ids:
             raise ClipManifestError(
                 f"R3 {path}: clip id {cid!r} used twice (clips[{seen_ids[cid]}] and clips[{i}])")
         seen_ids[cid] = i
+        if rid is not None:
+            if rid in seen_regions:
+                raise ClipManifestError(
+                    f"R3 {path}: region_id {rid!r} claimed by clips {seen_regions[rid]!r} and "
+                    f"{cid!r}. A region is ONE rectangle in the regions document; two clips "
+                    f"cannot write back the same one.")
+            seen_regions[rid] = cid
+        if rid is not None and not (isinstance(rid, str) and _ID_RE.match(rid)):
+            raise ClipManifestError(
+                f"R3 {path}: clip {cid!r} region_id {rid!r} does not match "
+                f"{REGION_ID_PATTERN}. `region_id` is aurora's WRITE-BACK of the id it "
+                f"derived, not a name this file gets to invent; an id that fails the "
+                f"contract's pattern is one no regions document could have carried.")
+        if "palette" in cr:
+            raise ClipManifestError(
+                f"R3 {path}: clip {cid!r} carries a `palette` field. Schema 1 has none: a "
+                f"region's palette comes from its REQUIRED `preset`, which names a record in "
+                f"the game's effects library, and a Sonic 2 zone cannot supply that. What the "
+                f"clip supplies is donors/{cr.get('donor')}/{cr.get('zone')}/palette.bin; the "
+                f"preset that installs it is named at paste time.")
         _require_rect(f"clips[{i}].src_rect", cr["src_rect"])
         _require_rect(f"clips[{i}].dst_rect", cr["dst_rect"])
         clips.append(Clip(cr, i))

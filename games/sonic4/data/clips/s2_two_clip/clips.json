@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "units": "world_px",
   "id": "s2_two_clip",
   "name": "S2-COMPRESSED-ACT row 3 fixture: one Emerald Hill section beside one Chemical Plant section",
   "note": "Two DIFFERENT zones on purpose. Both donor tilesets start their tile indices at 0 and both use the low indices heavily, so a bake that loses the per-cell tileset key renders one clip in the other's art; a fixture made of two clips of the SAME zone could not tell those apart. The two clips are also the same section-index of their zones, so nothing about the answer comes from one being a bigger crop than the other.",
@@ -11,7 +12,6 @@
       "zone": "EHZ",
       "src_rect": { "x": 4096, "y": 0, "w": 2048, "h": 1024 },
       "dst_rect": { "x": 0, "y": 0, "w": 2048, "h": 1024 },
-      "palette": null,
       "region_id": "ehz_s2"
     },
     {
@@ -20,7 +20,6 @@
       "zone": "CPZ",
       "src_rect": { "x": 4096, "y": 0, "w": 2048, "h": 2048 },
       "dst_rect": { "x": 2048, "y": 0, "w": 2048, "h": 2048 },
-      "palette": null,
       "region_id": "cpz_s2"
     }
   ]
