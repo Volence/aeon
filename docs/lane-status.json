@@ -1,22 +1,16 @@
 {
-  "focus": "Finding a way to group foreground art so whole Sonic 2/3 zones fit side by side; the background switch awaits your look.",
-  "inFlight": [
-    {
-      "what": "Trying better ways to group foreground art into pages so a stitched Sonic 2/3 act fits, measured on the same maps",
-      "where": "branch research/stitched-act-page-order (agent worktree)",
-      "agent": true
-    },
-    {
-      "what": "Swapping the test region's background for a classic Sonic zone background in its own colours, so the switch is obvious",
-      "where": "branch parcel/showcase-classic-bg (agent worktree)",
-      "agent": true
-    }
-  ],
+  "focus": "Region backgrounds work on screen; landing the page-grouping research that makes whole Sonic 2/3 acts fit the art cache.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "FG-CACHE-10-VS-WHOLE-GAME-ACT",
+      "what": "Shrinking the foreground cache to 10 pages would stop a whole Sonic 2/3 act from fitting; which matters more",
+      "since": "2026-09-17"
     }
   ],
   "nextBoundary": "When the page-grouping report comes back and is reviewed. No game bytes change in this step.",
@@ -71,7 +65,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
+  "awaiting": "one new card: keep the 12-page foreground cache or cut to 10 as planned, now that a whole-game act only fits in 12",
   "atBoundary": false,
-  "updatedAt": "2026-09-17T00:00:00Z"
+  "updatedAt": "2026-09-17T01:00:15Z"
 }
