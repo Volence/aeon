@@ -28793,6 +28793,32 @@ both mislead anyone researching from them.
    `$65B2` (LCG PRNGs, not controller/DMA) and `$FFDFFA` (the object free-list head, proven by
    its push/pop sites, not a "master object flag pointer").
 
+#### VRAM-SAVINGS-AUDIT — every lever EXCEPT the cache cut and the plane halving (2026-09-17, `research/vram-savings-audit`)
+
+**Report: `docs/research/2026-09-17-vram-savings-audit.md`.** It answers the owner's "are there
+any other ways we could save VRAM?" The map was re-derived from `vram.toml` and build inputs
+(object and character art today = **154** tiles, debug tags 13, free 1). What it found:
+
+* **Tier 1, 62 tiles, no owner dial:** ring frame window (12: all rings share one global frame,
+  so keep 4 tiles instead of 16), waterline strips 32..47 that no power-of-two H can reach (16),
+  debug tags borrowing `spare_nametable` in DEBUG (13), Tails appendage overlaid on the
+  insta-shield window (9, character-exclusive; a sidekick undoes it), solid test art as one tile
+  per colour (9), character window 32 -> 29 (3).
+* **Tier 2, 84 more:** BG `band_reserve` 56 -> 0 (owner dial; **Aurora notice first**),
+  waterline H cap 32 (16), charge dust in the accessory window (12, INFERRED, needs RUNTIME-B).
+* **Refuted hypotheses:** `spare_nametable` is not free (the owner declined it on 2026-09-10,
+  and at 64x32 the freed plane tails are not legal Plane A/B bases, so Plane Z still needs it;
+  the plane-size doc's "384" double-counts it). Release-only debug tags free nothing objects
+  can use. Object-art residency saves **0 today** and is BLOCKED for a future figure on
+  OBJ-ART step 1 plus real badnik content.
+* **Rejected, 0 tiles:** SAT/HScroll resize (hardware sizes; alignment gaps already used),
+  FG/BG dedupe (0 shared tiles on OJZ), flip-dedupe inside object sheets (8 tiles for doubled
+  sprite pieces).
+* **Totals:** excluded levers 384 -> +62 = 446 -> +146 = 530 tiles freed for objects.
+* **Sequencing:** ride the Tier-1 recut WITH STEP7/8 so VRAM is carved once. Four runtime tags
+  (A/B/C/F) and two stale comments (`ojz_scroll_test.emp:4334-4340` bg_region 448/128;
+  `vram.toml` spring "20 tiles") are listed in the report, not fixed.
+
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 
 A new `.emp` module is a new SECTION, and an undeclared section head makes sigil's
