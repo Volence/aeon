@@ -27,6 +27,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bganim_room
+import gate_cut_shape
 import inject_editor_bg
 
 from ojz_strip_gen import (
@@ -1295,29 +1296,40 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
 
     # ---- the per-shape table (d-28-answered, then the ROM re-layout) ------------
 
-    def _stress_listings_from_build_sh(self):
-        """The off-canonical STRESS_* fixture shapes' listings, read off build.sh's own
-        `ROM_NAME="s4.stress..."` assignments rather than typed here, so renaming a
-        stress artifact breaks this test instead of leaving a row keyed to a dead name."""
-        with open(os.path.join(self.AEON, "build.sh")) as f:
-            names = re.findall(r'^\s*ROM_NAME="(s4\.stress[a-z]*)"\s*$', f.read(), re.M)
-        self.assertEqual(len(names), 2,
-                         f"build.sh should declare exactly the two STRESS_* shapes "
-                         f"(STRESS_EVICT, STRESS_ART); found {names}")
-        return sorted(n + ".lst" for n in names)
+    def _off_canonical_listings_from_build_sh(self):
+        """Every OFF-CANONICAL shape's listing, read off build.sh rather than typed here,
+        so renaming or adding an off-canonical artifact breaks this test instead of
+        leaving a row keyed to a dead name — or leaving a live shape with no row.
+
+        It now asks tools/gate_cut_shape.py, which already reads build.sh for exactly this
+        set (2026-09-17, S2-COMPRESSED-ACT row 6). It used to carry its own
+        `ROM_NAME="(s4\.stress[a-z]*)"` regex and a `len(names) == 2` tripwire, which is a
+        rule keyed to the two shapes that existed when it was written: the S2CLIP clip-act
+        shapes are off-canonical, are not spelled `stress`, and were invisible to it — so
+        the population check silently stopped covering them while still reading as a
+        derivation. One reader, one source.
+        """
+        got = gate_cut_shape.off_canonical_listings(
+            os.path.join(self.AEON, "build.sh"))
+        self.assertTrue(got, "build.sh declares no off-canonical shapes at all — this "
+                             "check has lost its subject")
+        return sorted(got)
 
     def test_per_shape_table_names_the_sonic4_listings_and_the_stress_fixtures(self):
         """The shape IS its listing. A further shape, or a renamed listing, has no ruled
         number and must surface as a missing row here, not as a silent default.
 
-        The two STRESS_* rows (fix/stress-shapes-build, 2026-09-17) carry the SAME ruled
-        number: both are the sonic4 DEBUG shape plus a comptime define and author the same
-        editor BG sections. They are keyed explicitly so bganim_room still measures each
-        stress ROM's own room from its own listing."""
-        stress = self._stress_listings_from_build_sh()
+        The off-canonical rows (the two STRESS_* fixtures, fix/stress-shapes-build; the
+        two S2CLIP clip-act shapes, S2-COMPRESSED-ACT row 6) carry the SAME ruled number,
+        because each authors the SAME editor BG sections as the shipped act — a STRESS_*
+        shape is the sonic4 shape plus a comptime define, and a clip act re-bakes only the
+        FOREGROUND half of the act slot and keeps the shipped background entirely. They are
+        keyed explicitly so bganim_room still measures each ROM's own room from its own
+        listing; the ruled number carries, the ROOM does not."""
+        off = self._off_canonical_listings_from_build_sh()
         self.assertEqual(sorted(inject_editor_bg.BGANIM_SECTION_CEILINGS),
-                         sorted(["s4.debug.lst", "s4.lst"] + stress))
-        for lst in ["s4.lst", "s4.debug.lst"] + stress:
+                         sorted(["s4.debug.lst", "s4.lst"] + off))
+        for lst in ["s4.lst", "s4.debug.lst"] + off:
             self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS[lst],
                              inject_editor_bg.BGANIM_SECTION_CEILING_RULED)
 
@@ -1355,7 +1367,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             bganim_room.ceiling_for_listing(os.path.join(self.AEON, "demo.debug.lst"))
         self.assertIn("demo.debug.lst", str(cm.exception))
         self.assertIn("BGANIM_SECTION_CEILINGS", str(cm.exception))
-        for lst in ["s4.lst", "s4.debug.lst"] + self._stress_listings_from_build_sh():
+        for lst in ["s4.lst", "s4.debug.lst"] + self._off_canonical_listings_from_build_sh():
             key, ceiling = bganim_room.ceiling_for_listing(os.path.join(self.AEON, lst))
             self.assertEqual((key, ceiling),
                              (lst, inject_editor_bg.BGANIM_SECTION_CEILINGS[lst]))

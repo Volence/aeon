@@ -153,6 +153,13 @@ _FIXED = [
     # ojz_strip_gen shape of the LS-15d incident. `build` is the writing handler; `check`
     # is read-only but is the parcel's falsifiable check and must not run unasked.
     ("import_s2_collision", ["cmd_build", "cmd_check", "build"]),
+    # S2-COMPRESSED-ACT parcel 6 (2026-09-17): born in the table form. `bake` OVERWRITES
+    # the committed generated level tree and the ROM collision tables (it is a THROWAWAY
+    # re-bake of the shipped act's slot, restored by build.sh's S2CLIP trap), so an
+    # unknown mode reaching it would rewrite tracked build inputs with no trap above it
+    # to put them back -- the ojz_strip_gen shape of LS-15d again. `ground` is read-only
+    # but is the parcel's falsifiable check and must not run unasked.
+    ("clip_rom_bake", ["_mode_bake", "_mode_ground", "bake", "ground"]),
 ]
 
 
@@ -398,6 +405,8 @@ _ROSTER = {
     "fg_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17, born in the fixed form; `check` is read-only, the FG page-budget build gate)",
     "import_s2_collision.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 4, 2026-09-17, born in the fixed form; `build` OVERWRITES the committed S2 collision bank, so the dispatch running before any handler is the property, and the two subprocess rows above pin it for both doorways)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
+    "clip_rom_bake.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 6, 2026-09-17, born in the fixed form; `bake` OVERWRITES the committed generated tree and the ROM collision tables as a THROWAWAY, so the dispatch running before any handler is the property -- and it deliberately has NO subprocess row, because on a regression that row's failure IS the write)",
+    "verify_level_bin.py": "refuses: unknown argv token -> usage + exit 2 (it grew --project/--bank on 2026-09-17 so a clip act's tree could be verified by the same ten lanes; it WRITES NOTHING at any mode, and an unparsed flag is refused by name rather than ignored)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
     "state_ram.py": "refuses: no mode SET -- a typo'd `test` becomes a state path -> unhandled FileNotFoundError, exit 1",
@@ -437,7 +446,7 @@ def test_the_ladder_population_is_still_the_roster():
     # CACHE-WINDOW-HOLD-MEASURE (2026-09-17) added cache_hold_probe.py; 20 since
     # S2-COMPRESSED-ACT row 3 (2026-09-17) added clip_manifest.py and clip_act_bake.py;
     # 21 since S2-COMPRESSED-ACT row 4 (2026-09-17) added import_s2_collision.py.
-    assert len(found) == 21, (
+    assert len(found) == 23, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "

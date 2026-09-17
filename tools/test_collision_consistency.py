@@ -557,7 +557,8 @@ def _overlay(tmp_path, monkeypatch, cells_a, cells_b):
     act.mkdir(parents=True, exist_ok=True)
     _write_plane(act / "section_0.collattr.bin", cells_a)
     _write_plane(act / "section_0.collattrb.bin", cells_b)
-    monkeypatch.setattr(osg, "EDITOR_DIR", str(edir))
+    # EDITOR_ACT_DIR, not EDITOR_DIR — see the same note in test_baker_refusals.py.
+    monkeypatch.setattr(osg, "EDITOR_ACT_DIR", str(act))
 
     profiles, angles = osg.load_base_bank()
     air = bytes(osg.COLLISION_ROWS_PER_STRIP)

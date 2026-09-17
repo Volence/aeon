@@ -40,6 +40,7 @@ when the sonic_hack collision sources are missing.
 
 import glob
 import hashlib
+import shutil
 import struct
 import sys
 import os
@@ -92,9 +93,12 @@ COLLISION_DIR = os.path.join(
     os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"
 )
 
-EDITOR_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "games", "sonic4", "data", "editor"
-)
+# EDITOR_DIR IS DELETED, NOT KEPT AS A CONVENIENCE (2026-09-17). Its three users all
+# spelled `os.path.join(EDITOR_DIR, "ojz", "act1")` and now read EDITOR_ACT_DIR, derived
+# from the project file. Leaving the name behind would leave two tests monkeypatching it
+# and passing: `apply_editor_collision_overlay` would quietly read the REAL editor tree
+# instead of their fixture, which is what happened, and their refusal rows went green
+# against the shipped act's 1,038 painted cells. Deleting it makes that setattr raise.
 PROJECT_JSON = os.path.join(
     os.path.dirname(__file__), "..", "project.json"
 )
@@ -146,11 +150,19 @@ EDITOR_ACT_DIR = _project_act_data_dir()
 # well-formed collision for the wrong geometry. Set it through configure().
 COLLISION_BANK_DIR = None
 
+# The AUTHORED palette a bake mirrors into <out_dir>/ojz_palette.bin. None = derive it
+# from out_dir (ojz_common.authored_palette_for), which is the shipped act's
+# data/editor/<zone>/<act>/palette.bin. A clip act bakes into the SHIPPED act's output
+# directory (sigil places the generated .emp modules by a fixed registry path), so its
+# palette cannot be derived and must be NAMED. Set through configure().
+AUTHORED_PALETTE_PATH = None
+
 
 def configure(project_json: str | None = None,
               output_dir: str | None = None,
               collision_dir: str | None = None,
-              bank_dir: str | None = None) -> None:
+              bank_dir: str | None = None,
+              authored_palette: str | None = None) -> None:
     """Point this module at a DIFFERENT act. Module-global redirection because that
     is already this file's idiom (test_full_pipeline_runs redirects OUTPUT_DIR and
     COLLISION_DIR the same way), and because generate() reads these from module
@@ -161,6 +173,7 @@ def configure(project_json: str | None = None,
     failure this function exists to make impossible.
     """
     global PROJECT_JSON, OUTPUT_DIR, COLLISION_DIR, COLLISION_BANK_DIR
+    global AUTHORED_PALETTE_PATH
     global ZONE_TILESET_PATH, EDITOR_ACT_DIR
     if project_json is not None:
         PROJECT_JSON = project_json
@@ -172,6 +185,8 @@ def configure(project_json: str | None = None,
         COLLISION_DIR = collision_dir
     if bank_dir is not None:
         COLLISION_BANK_DIR = bank_dir
+    if authored_palette is not None:
+        AUTHORED_PALETTE_PATH = authored_palette
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -2559,11 +2574,24 @@ def generate(stress_uniquify=0):
     # EVERY build, which silently discarded six months of the owner's palette
     # edits — see ojz_common's "EXACTLY ONE WRITER" block for the full account and
     # for why the authored file must live under data/editor/ specifically.
+    #
+    # AUTHORED_PALETTE_PATH (2026-09-17, row 6) names a DIFFERENT authored file when
+    # a second act is baked into this output directory. The derivation above reads
+    # out_dir, and a clip act's out_dir IS the shipped act's — sigil places the
+    # generated `.emp` modules by a fixed registry path, so a clip bake is an
+    # in-place throwaway (build.sh's S2CLIP shape) and cannot move out_dir. Without
+    # this the clip act would ship the SHIPPED act's colours, which is a picture that
+    # looks plausible and is wrong. It is never written to: the override is a SOURCE,
+    # and the one-writer rule for data/editor/<zone>/<act>/palette.bin is untouched.
     pal_dest = os.path.join(out_dir, "ojz_palette.bin")
-    seeded, _pal = ojz_common.refresh_act_palette(out_dir)
-    pal_authored = ojz_common.authored_palette_for(out_dir)
-    if seeded:
-        print(f"Seeded authored palette from donor -> {pal_authored} (first run only)")
+    if AUTHORED_PALETTE_PATH is not None:
+        pal_authored = AUTHORED_PALETTE_PATH
+        shutil.copyfile(pal_authored, pal_dest)
+    else:
+        seeded, _pal = ojz_common.refresh_act_palette(out_dir)
+        pal_authored = ojz_common.authored_palette_for(out_dir)
+        if seeded:
+            print(f"Seeded authored palette from donor -> {pal_authored} (first run only)")
     print(f"Palette: {pal_authored} -> {pal_dest}")
 
     print(f"Done. {len(sec_ids_in_order)} sections, {total_strips} total strips written to {out_dir}")

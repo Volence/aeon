@@ -246,8 +246,44 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
 # The bake
 # ---------------------------------------------------------------------------
 
+PALETTE_CLIP = "clip"
+PALETTE_SHIPPED = "shipped"
+
+# THE PALETTE IS A KNOB, AND THAT IS A BLOCKER RECORDED RATHER THAN A PREFERENCE
+# (2026-09-17, row 6).
+#
+# `clip` is the RIGHT picture — the donor zone's own 96 bytes, which reach the screen
+# through the OJZ presets because nearly every one of them binds `OJZ_Palette`, and
+# OJZ_Palette is `embed(".../ojz_palette.bin")`, a generated file this bake rewrites.
+#
+# It does not build today. `games/sonic4/data/effects/ojz_effects.emp` carries EIGHT
+# top-level comptime `ensure`s pinned to statistics OF THE SHIPPED ACT'S PALETTE — the
+# night grade's lit-colour count, its retention ceiling, three blue-share permille
+# figures, the distinct-colour count, the merge budget, and the showcase palette's
+# agreement with it over CRAM lines 1-2. They are RIGHT and they fire correctly: their
+# job is to catch the act art changing under a hand-derived grade, and a clip act
+# changes the act art. Emerald Hill's palette has 46 lit colours where OJZ has 42.
+#
+# WHAT IT NEEDS IS A RULING, not a workaround, and the options are:
+#   (a) scope the pins to the shipped act — a top-level comptime conditional around a
+#       block of `ensure`s. NO SUCH PATTERN EXISTS IN THIS CODEBASE today (the `if
+#       DEBUG == 1` sites are expressions inside initializers, not statement blocks
+#       around guards), and inventing one inside the shipped effects library is not a
+#       clip parcel's call. Byte-neutral if it works: an `ensure` emits nothing.
+#   (b) derive the pins per act instead of pinning them. Their own messages forbid it
+#       in terms — "Re-derive, do not re-pin" is addressed to a person.
+#   (c) give a clip act its own effects library. That is the corridor/per-region
+#       palette work the design's §9.1 describes, i.e. row 7 and beyond.
+#
+# `shipped` keeps the SHIPPED act's palette, so the clip act boots today with Emerald
+# Hill's geometry and art in Oracle Jungle's colours. It is a wrong picture and it is a
+# LABELLED wrong picture, which is the honest half of a blocked ruling — the geometry
+# claim (the clip renders, and the ground is where Emerald Hill's ground is) does not
+# depend on the palette at all.
+
+
 def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
-         skip_clean_check=False, log=print):
+         palette=PALETTE_SHIPPED, skip_clean_check=False, log=print):
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
     check_single_clip(act)
@@ -275,10 +311,40 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         output_dir=gen_dir,
         collision_dir=coll_dir,
         bank_dir=bank_dir,
-        authored_palette=os.path.join(zone_tree, "palette.bin"),
+        authored_palette=(os.path.join(zone_tree, "palette.bin")
+                          if palette == PALETTE_CLIP else None),
     )
+    if palette == PALETTE_CLIP:
+        log("clip_rom_bake: PALETTE = clip (the donor zone's own 96 bytes). Expect the "
+            "eight night-grade pins in games/sonic4/data/effects/ojz_effects.emp to "
+            "REFUSE this build — see this file's PALETTE block; that is a ruling, not a "
+            "defect in this bake.")
+    else:
+        log("clip_rom_bake: PALETTE = shipped — THE COLOURS ON SCREEN WILL BE ORACLE "
+            "JUNGLE'S, not this zone's. Emerald Hill's geometry and art over OJZ's "
+            "palette. See this file's PALETTE block for the blocker this works around "
+            "and the ruling it is waiting on.")
     log("clip_rom_bake: strips, local maps, art pool, palette, collision tables...")
     ojz_strip_gen.generate()
+
+    # THE EDITOR-AUTHORED BG OVERRIDE, exactly as tools/regenerate-level.sh runs it.
+    # Skipping it was a REAL failure and not a cosmetic one: the raw generated zone BG is
+    # 4,096 B and the override's is 8,192, and act_assets.emp declares
+    # OJZ_Act1_BG_Layout at the override's size, so the clip build died with
+    # `[emit.size-mismatch] data OJZ_Act1_BG_Layout: declared type is 8192 byte(s),
+    # initializer produced 4096`. The clip act keeps the shipped act's background (see
+    # this file's header), so it must keep the whole shipped BG path.
+    override = os.path.join(REPO, "games", "sonic4", "data", "editor_bg_override.json")
+    if os.path.isfile(override):
+        log("clip_rom_bake: editor BG override...")
+        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "inject_editor_bg.py")],
+                           cwd=REPO)
+        if r.returncode != 0:
+            raise ClipRomError(
+                f"inject_editor_bg.py exited {r.returncode}. The clip act keeps the "
+                f"shipped act's background, so it needs the same BG injection the shipped "
+                f"re-bake runs; without it OJZ_Act1_BG_Layout is emitted at half its "
+                f"declared size and the build dies at the link.")
 
     page_bytes = _art_pool_page_bytes()
     elect_pool_pages.elect(
@@ -309,6 +375,7 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
                       for k in ("attr_entries", "cap", "base_bank")},
         "verdict_at_placement": summary["verdict_at_placement"],
         "generated_dir": GEN_REL,
+        "palette": palette,
         "inherited_from_the_shipped_act": [
             "background (Plane B is built from the sonic_hack donor by Pass 6b)",
             "objects and rings (Pass 8 reads the shipped act's editor entities)",
@@ -581,11 +648,15 @@ def _mode_bake(rest):
     ap = argparse.ArgumentParser(prog="clip_rom_bake.py bake")
     ap.add_argument("manifest")
     ap.add_argument("--donor-root", default=None)
+    ap.add_argument("--palette", choices=(PALETTE_SHIPPED, PALETTE_CLIP),
+                    default=PALETTE_SHIPPED,
+                    help="which 96 bytes reach ojz_palette.bin (see the PALETTE block)")
     ap.add_argument("--allow-dirty", action="store_true",
                     help="skip R22 (build.sh's S2CLIP shape owns the restore trap "
                          "and has already checked)")
     a = ap.parse_args(rest)
-    bake(a.manifest, donor_root=a.donor_root, skip_clean_check=a.allow_dirty)
+    bake(a.manifest, donor_root=a.donor_root, palette=a.palette,
+         skip_clean_check=a.allow_dirty)
     return 0
 
 
@@ -605,8 +676,9 @@ def main(argv=None):
     args = sys.argv[1:] if argv is None else list(argv)
     handler = MODES.get(args[0] if args else None)
     if handler is None:
-        print(f"usage: clip_rom_bake.py {{{'|'.join(MODES)}}} <clips.json> [options]",
-              file=sys.stderr)
+        # STDOUT, like every other MODES-table tool in this repo: the usage IS the
+        # refusal's only actionable line, and a caller redirecting stderr would eat it.
+        print(f"usage: clip_rom_bake.py {{{'|'.join(MODES)}}} <clips.json> [options]")
         raise SystemExit(1)
     try:
         raise SystemExit(handler(args[1:]))

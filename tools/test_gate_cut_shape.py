@@ -31,7 +31,8 @@ def test_canonical_listings_come_from_the_provenance_table():
 
 def test_off_canonical_listings_are_build_sh_stress_shapes():
     got = gcs.off_canonical_listings()
-    assert got == {"s4.stress.lst", "s4.stressart.lst"}, got
+    assert got == {"s4.stress.lst", "s4.stressart.lst",
+                   "s4.s2clip.lst", "s4.s2clip.debug.lst"}, got
     assert not (got & gcs.canonical_listings())
 
 
@@ -80,11 +81,25 @@ def test_no_off_canonical_cut_is_committed(cut):
 
 # ---- the derive-and-self-check wrapper, on a toy producer/checker ----------------------
 
+#: Rows that want the REAL digest-target corroboration rather than the stub below.
+REAL_DIGEST = pytest.mark.real_digest
+
+
 @pytest.fixture(autouse=True)
 def _stress_digest(monkeypatch, request):
-    """The toy runs name s4.stress.lst, which does not exist here; the digest-target
-    corroboration has rows of its own below."""
-    if request.node.name.startswith("test_digest"):
+    """The toy runs name s4.stress.lst, which does not exist here, so the digest-target
+    corroboration is stubbed out for them; the rows that are ABOUT it opt back in.
+
+    ⚠ THE OPT-OUT USED TO BE A NAME PREFIX (`name.startswith("test_digest")`) AND IT
+    SILENTLY DISARMED A ROW (2026-09-17). A new row exercising `digest_target_problem`
+    was called `test_a_digest_without_a_rom_line_...`, did not match the prefix, got the
+    `lambda lst: None` stub, and asserted against the stub's answer instead of the
+    function's — a rule keyed to a checkable surface (the name) being blind to what is
+    true but off it (the subject). It is a MARKER now: a row says what it wants, and a row
+    that forgets loses the subject LOUDLY (it asserts against None) instead of being
+    quietly renamed out of its own coverage.
+    """
+    if request.node.get_closest_marker("real_digest"):
         return
     monkeypatch.setattr(gcs, "digest_target_problem", lambda lst: None)
 
@@ -126,12 +141,18 @@ def test_a_committed_off_canonical_cut_is_refused(tmp_path, capsys):
     assert rc == 1 and "COMMITTED cut for off-canonical" in out
 
 
-def _listing(tmp_path, target):
-    """A minimal listing whose Source Digest parses (the reader's own grammar)."""
+def _listing(tmp_path, target, rom_path="s4.stress.bin", name="s4.stress.lst"):
+    """A minimal listing whose Source Digest parses (the reader's own grammar).
+
+    `rom_path` is the artifact sigil was ASKED to write (DIGEST-ROM path=), which is what
+    separates a RENAMED canonical build from a deliberately-built off-canonical one since
+    2026-09-17. Defaulting it to the listing's own .bin keeps every pre-existing caller
+    modelling a real off-canonical build; a rename is modelled by naming s4.bin here.
+    """
     import zlib
     read = "DIGEST-READ crc=00000000 size=0 origin=source path=x.emp"
     agg = "%08x" % (zlib.crc32((read + "\n").encode()) & 0xFFFFFFFF)
-    lst = tmp_path / "s4.stress.lst"
+    lst = tmp_path / name
     lst.write_text("\n".join([
         "DIGEST-FORMAT 1",
         "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
@@ -139,18 +160,27 @@ def _listing(tmp_path, target):
         "DIGEST-SCAN pattern=*.emp files=1 crc=00000000",
         read,
         "DIGEST-AGGREGATE crc=%s reads=1" % agg,
-        "DIGEST-ROM crc=00000000 size=0 path=s4.stress.bin",
+        "DIGEST-ROM crc=00000000 size=0 path=%s" % rom_path,
         "DIGEST-END", ""]))
     return lst
 
 
+@REAL_DIGEST
 def test_digest_target_of_a_stress_build_is_accepted(tmp_path):
     assert gcs.digest_target_problem(_listing(tmp_path, "stress-evict")) is None
 
 
+@REAL_DIGEST
 def test_digest_canonical_build_under_a_stress_name_is_refused(tmp_path, capsys):
-    """A canonical build renamed to s4.stress.lst must not earn a derived cut."""
-    lst = _listing(tmp_path, "sonic4")
+    """A canonical build RENAMED to s4.stress.lst must not earn a derived cut.
+
+    The rename is now modelled properly: sigil was asked for `s4.bin` and the pair was
+    renamed afterwards, so the digest still says so. This fixture used to set only
+    `target=sonic4` and leave `path=s4.stress.bin`, which does not describe a rename at
+    all — it describes an off-canonical build — and it passed only because the rule was
+    reading the target as a proxy. It could not tell the two rules apart; it can now.
+    """
+    lst = _listing(tmp_path, "sonic4", rom_path="s4.bin")
     assert "CANONICAL build target" in gcs.digest_target_problem(lst)
     fixture = tmp_path / "toy_cut.json"
     fixture.write_text('{"shapes": {}}')
@@ -161,6 +191,48 @@ def test_digest_canonical_build_under_a_stress_name_is_refused(tmp_path, capsys)
     assert "COULD NOT RUN" in capsys.readouterr().out
 
 
+@REAL_DIGEST
+def test_digest_of_a_canonical_target_built_as_an_off_canonical_artifact_is_accepted(tmp_path):
+    """The S2CLIP clip-act shapes: off-canonical in their ACT DATA, built through the
+    canonical `--game sonic4` target, and sigil was asked for THIS artifact.
+
+    This is the case the target proxy could not express. The discriminating pair is this
+    row and the rename row above: same target, different DIGEST-ROM path, opposite verdict.
+    """
+    lst = _listing(tmp_path, "sonic4", rom_path="s4.s2clip.bin", name="s4.s2clip.lst")
+    assert gcs.digest_target_problem(lst) is None
+
+
+@REAL_DIGEST
+def test_a_digest_without_a_rom_line_is_refused_by_the_READER(tmp_path):
+    """The discriminator cannot go missing: DIGEST-ROM is required by the grammar.
+
+    MEASURED rather than assumed while widening the rule above — the guess was that a
+    digest could arrive without a ROM line and that `digest_target_problem` owned that
+    case. It does not: the reader's grammar (FORMAT ASSEMBLER SHAPE DEFINE* SCAN READ+
+    AGGREGATE ROM END) refuses it first, so the branch in that function is belt and
+    braces and this row records WHERE the refusal actually comes from. A future reader
+    relaxing the grammar makes that branch live, and this row will say so by changing
+    which message it gets.
+    """
+    import zlib
+    read = "DIGEST-READ crc=00000000 size=0 origin=source path=x.emp"
+    agg = "%08x" % (zlib.crc32((read + "\n").encode()) & 0xFFFFFFFF)
+    lst = tmp_path / "s4.s2clip.lst"
+    lst.write_text("\n".join([
+        "DIGEST-FORMAT 1",
+        "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
+        "DIGEST-SHAPE target=sonic4 game=sonic4 debug=0 extra-entries=none",
+        "DIGEST-SCAN pattern=*.emp files=1 crc=00000000",
+        read,
+        "DIGEST-AGGREGATE crc=%s reads=1" % agg,
+        "DIGEST-END", ""]))
+    problem = gcs.digest_target_problem(lst)
+    assert problem is not None
+    assert "cannot be read" in problem and "ROM END" in problem, problem
+
+
+@REAL_DIGEST
 def test_digest_missing_is_refused(tmp_path):
     lst = tmp_path / "s4.stress.lst"
     lst.write_text("no digest here\n")

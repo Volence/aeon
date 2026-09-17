@@ -164,6 +164,11 @@ def pytest_configure(config):
         "build.sh's pre-build lane deselects it; the post-sigil lane runs it. Name "
         "every artifact the test needs — they decide whether a skip is DEFERRED or "
         "a failure." % MARKER)
+    config.addinivalue_line(
+        "markers",
+        "real_digest: tools/test_gate_cut_shape.py — this row wants the REAL "
+        "gate_cut_shape.digest_target_problem, not the module's autouse stub. It "
+        "replaced a name-prefix opt-out that silently disarmed a row (2026-09-17).")
     _deferred.clear()
     _pair_verdicts.clear()
     # CTRL-3 (2026-09-13): the land gate's docs-read audit. It fails the session when a
