@@ -1,6 +1,12 @@
 {
-  "focus": "The Sonic 2 donor reader landed; Hidden Palace loads whole from the prototype.",
-  "inFlight": [],
+  "focus": "Converting Sonic 2 zones into our format, the step before anything can be clipped.",
+  "inFlight": [
+    {
+      "what": "Converting a whole Sonic 2 zone into our level format, art and layout first",
+      "where": "branch parcel/s2-zone-converter",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here: parcel 1 is landed and pushed; the zone converter is the next step.",
+  "nextBoundary": "When the zone converter lands; clipping and pasting is the step after it.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: the donor reader landed (both games, Hidden Palace loads whole). Next: convert a zone into our format",
-      "state": "next",
+      "title": "Sonic 2 test act: donor reader landed; converting a whole zone into our format now",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -55,6 +61,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T19:03:32Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T19:12:46Z"
 }
