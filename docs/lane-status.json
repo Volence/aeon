@@ -1,5 +1,5 @@
 {
-  "focus": "Clipping works; now importing Sonic 2's ground shapes so a piece has something to stand on.",
+  "focus": "Importing Sonic 2's ground shapes; fixed a check that was blocking code landings for everyone.",
   "inFlight": [
     {
       "what": "Collision: importing Sonic 2's ground shapes as our own shape bank",
@@ -62,5 +62,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T20:51:11Z"
+  "updatedAt": "2026-09-17T21:05:41Z"
 }
