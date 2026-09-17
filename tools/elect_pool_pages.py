@@ -102,9 +102,19 @@ def elect(pool_dir: str, page_bytes: int, salvador: str,
         raise ElectError(
             f"sidecar has {len(meta)} pages, manifest declares {pages}.")
 
-    # Stale elected blobs from a previously LARGER pool would otherwise be embedded.
+    # Stale pages from a previously LARGER pool. The elected blobs (.zx0/.raw) would
+    # otherwise be EMBEDDED; the .bin payloads past the new page count would be left as
+    # orphans verify_level_bin then refuses to ignore — and, worse, would be read by a
+    # later run that believed them. Only pages at or past the new count are removed, so
+    # a pool that did not shrink loses nothing.
     for name in os.listdir(pool_dir):
-        if name.startswith("act_pool_page") and name.endswith((".zx0", ".zx0.tmp", ".raw")):
+        if not name.startswith("act_pool_page"):
+            continue
+        rest = name[len("act_pool_page"):]
+        num = rest.split(".", 1)[0]
+        if name.endswith((".zx0", ".zx0.tmp", ".raw")):
+            os.remove(os.path.join(pool_dir, name))
+        elif name.endswith(".bin") and num.isdigit() and int(num) >= pages:
             os.remove(os.path.join(pool_dir, name))
 
     forms, exts, total = [], [], 0
