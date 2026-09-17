@@ -23,3 +23,9 @@
 ## Lessons
 - `/clear` kills running agents; the owner asked to clear at bedtime and was steered to sleep-mode rotation instead.
 - The land gate accepts an agent's `landing_build.sh` stamp when master moved only by docs since the agent's base.
+
+## Update, later the same night (supersedes "In flight" and "Then" above)
+- **Landed:** STRESS-UNIQUIFY-REBAKE (stress clones declared, verified as a stress bake), stress shapes' ceiling rows + STRESS_EVICT DEBUG=1, STRESS-SHAPES-GATE-CUTS (off-canonical shapes derive gate cuts; both stress builds exit 0), CACHE-WINDOW-HOLD-MEASURE (report 11: smaller windows hold the camera; ARCH 9.7 decode figure 3.4x low), check_mode_conflict docstring. Card FG-CACHE-10-HOW superseded: recommend stay-at-12.
+- **Nothing in flight.** Aeon told the hub it is clear for the sigil release-binary swap window (sigil d7e6aa15 enforces `(size: N)`). Do not rebuild `sigil/target/release/sigil` yourself: sigil lane only, in a hub-opened window.
+- **Next, in order:** (1) SPAWNDESC-SIZE-CLOSE after the swap: re-run the control (SpawnDesc size 41 refused at `engine/objects/children.emp`) then close the DEFERRED_WORK row. (2) STRESS-SHAPES-NIGHTLY: add both stress builds to `tools/nightly_effects_gates.sh` after the canonical legs, own exit codes, failure is FAILED not COULD NOT RUN. (3) MEGAACT-BG-STREAMING aeon pieces. (4) LS-13b.
+- **Aurora reads this tree:** at a landing touching a path its suite reads, message aurora (derive the list; command in OVERSEER-REFERENCE landing lane).

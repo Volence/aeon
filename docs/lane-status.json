@@ -1,5 +1,5 @@
 {
-  "focus": "Landing the stress-test build fixes; your cache card now has the in-game results.",
+  "focus": "All tonight's work is landed; waiting for the assembler update window before the next build-heavy item.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -13,7 +13,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When both overnight agents are reviewed and landed.",
+  "nextBoundary": "Here. Next build-heavy work starts after the hub's assembler binary swap.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -23,9 +23,9 @@
       "blockedBy": "decision card FG-CACHE-10-HOW"
     },
     {
-      "id": "STRESS-UNIQUIFY-REBAKE",
-      "title": "The art stress-test builds: the re-bake is fixed; now getting both stress builds through every check",
-      "state": "doing",
+      "id": "STRESS-SHAPES-NIGHTLY",
+      "title": "Run both art stress-test builds every night so they cannot silently break again",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -80,6 +80,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T08:04:56Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T08:10:09Z"
 }
