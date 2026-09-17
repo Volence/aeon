@@ -1,5 +1,5 @@
 {
-  "focus": "Region backgrounds work on screen; landing the page-grouping research that makes whole Sonic 2/3 acts fit the art cache.",
+  "focus": "Region backgrounds work on screen, and whole Sonic 2/3 acts can fit the art cache; one question for you on cache size.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -13,7 +13,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the page-grouping report comes back and is reviewed. No game bytes change in this step.",
+  "nextBoundary": "Here. Everything landed and pushed; nothing running.",
   "queue": [
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -24,8 +24,8 @@
     },
     {
       "id": "STITCHED-ACT-PAGE-ORDER",
-      "title": "Regroup foreground art into pages so a stitched Sonic 2/3 act fits the cache: the art fits, the current grouping does not. Measure a better order first",
-      "state": "doing",
+      "title": "Wire the new tile grouping into the real art pipeline for multi-zone acts, with a build check that refuses any spot over budget. Research landed: whole Sonic 2/3 acts fit 12 pages",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -53,7 +53,7 @@
     {
       "id": "LS-13b",
       "title": "Boot's hand-written pause of the sound chip: sigil shipped the language feature today, so this is now ours to take whenever a slot opens -- nothing waits on anyone",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -66,6 +66,6 @@
     }
   ],
   "awaiting": "one new card: keep the 12-page foreground cache or cut to 10 as planned, now that a whole-game act only fits in 12",
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T01:00:15Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T01:04:38Z"
 }
