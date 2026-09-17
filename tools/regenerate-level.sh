@@ -90,6 +90,17 @@ fi
 # and a restore racing an editor save would throw the save away.
 echo "Preflight: checking donors + editor data before anything is written..."
 python3 "${TOOLS}/ojz_strip_gen.py" preflight
+# One act art pool page's bytes, READ FROM THE ENGINE, not restated
+# (PAGE-SIZE-CONSTANT-ONLY, 2026-09-17). The page-size guard below used the literal
+# 2048, and the page size is a parameter of the owner's open card FG-CACHE-10-HOW
+# (64 -> 32 tiles). Same reader the generator, the page order and verify_level_bin use:
+# fg_working_set.ConstantSource on engine/system/constants.emp. A precondition, so it
+# lives here in the preflight; an unreadable constant is a hard error, never a default.
+ART_POOL_PAGE_BYTES=$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); from fg_working_set import ConstantSource; s = ConstantSource(); s.load_file('engine/system/constants.emp'); print(s.get('ART_POOL_PAGE_BYTES'))" "${TOOLS}") || {
+    echo "ERROR: could not read ART_POOL_PAGE_BYTES from engine/system/constants.emp."; exit 1; }
+if ! [[ "${ART_POOL_PAGE_BYTES}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: ART_POOL_PAGE_BYTES read as '${ART_POOL_PAGE_BYTES}', not a positive integer."; exit 1
+fi
 
 # RESTORE-ON-FAILURE (mechanism 2 above). Taken AFTER the preflight, which writes
 # nothing, and BEFORE the first write. REBAKE_OUTPUTS is every directory outside tools/
@@ -145,7 +156,7 @@ fi
 
 # Act art pool pages → per-page ZX0/raw election (P2b manifest v2, load-time tier).
 # The generator emits the globally-deduped act art pool split into fixed-size
-# pages of ART_POOL_PAGE_TILES (64) tiles = 2048 B each, plus a JSON sidecar
+# pages of ART_POOL_PAGE_TILES tiles = ART_POOL_PAGE_BYTES each, plus a JSON sidecar
 # (ojz_act_pool_manifest.json) carrying per-page {tiles, pinned}. Here we ELECT a
 # storage form per page:
 #   ZX0 (form 0): [u16 BE uncompressed size][u8 flags=0][u8 version=2] wrapper +
@@ -155,8 +166,8 @@ fi
 # The loader dispatches on the manifest form byte (not the wrapper version).
 #
 # Size guard: a single page must not exceed one page's VRAM bytes
-# (ART_POOL_PAGE_BYTES); an oversized page is a generator bug — fail the re-bake.
-ART_POOL_PAGE_BYTES=2048      # ART_POOL_PAGE_TILES (64) * 32
+# (ART_POOL_PAGE_BYTES, read from the engine in the preflight); an oversized page is a
+# generator bug — fail the re-bake.
 RAW_ELECT_NUM=9; RAW_ELECT_DEN=10   # keep .zx0 iff zx0*DEN <= raw*NUM  (>= 10% saving)
 # Page count comes from the generator's manifest — pages are addressed by
 # NUMERIC index (act_pool_page${k}), never by glob, so ordering is correct at
