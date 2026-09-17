@@ -663,7 +663,7 @@ async def run(sock: str, rom: str, lst: str, unmeasured: list[str]) -> tuple[int
     reachable = min(count, digit_cap)
     if count > reachable:
         unmeasured.append(
-            f"regions {reachable}..{count - 1} of {count} were NOT MEASURED: the preset "
+            f"regions {reachable}..{count - 1} of the act's {count}: the preset "
             f"readout is one digit (PRESET_CYCLE_MAX {digit_cap}, {LAB_SOURCE.name}), so "
             f"no `.lab_index` row can name them and nothing on screen installs or labels "
             f"their presets")
