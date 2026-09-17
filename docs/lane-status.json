@@ -1,6 +1,12 @@
 {
-  "focus": "Clipped pieces now carry their ground; the next step is the first picture on screen.",
-  "inFlight": [],
+  "focus": "Building the first thing you can look at: one Emerald Hill piece as a bootable act.",
+  "inFlight": [
+    {
+      "what": "The first bootable piece: one Emerald Hill clip as a whole act",
+      "where": "branch parcel/s2-first-clip-act",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here: clip collision landed and pushed; one Emerald Hill piece as a bootable act is next.",
+  "nextBoundary": "When the first clip act builds; then I boot it in the foreground and show you.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: pieces now carry their ground. Next is the first bootable piece, the first picture",
-      "state": "next",
+      "title": "Sonic 2 test act: building the first bootable piece, one Emerald Hill clip as a whole act",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -55,6 +61,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T22:13:03Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T22:14:06Z"
 }
