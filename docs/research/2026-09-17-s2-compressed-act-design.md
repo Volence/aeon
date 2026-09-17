@@ -15,6 +15,17 @@ thing."* Scope he set: inside REGIONS, not a new project; first cut is **level a
 collision only**, objects later; **six** Sonic 2 zones — Emerald Hill, Chemical Plant, Hidden
 Palace, Wing Fortress, Oil Ocean, Metropolis.
 
+> **UPDATE 2026-09-17, after this document landed — parcel 1 is DONE and two things below
+> are now WRONG.** Read
+> [`s2-compressed-act/2026-09-17-prototype-donor-formats.md`](s2-compressed-act/2026-09-17-prototype-donor-formats.md)
+> beside this file. In short: **Hidden Palace is no longer blocked** — the owner ruled
+> `prototype-donor`, the Simon Wai disassembly is cloned, and HPZ loads, clips and budgets
+> today (§6 and §9.2 below are superseded); and **the §3.5 collision counts move by two**,
+> because this document's measurement handed `bake_cell` the rotated collision array instead
+> of the per-column height array (301/131/278 become 299/130/276; no conclusion changes; the
+> old figures are reproducible with `--profiles horizontal`). The S2 donor loader now lives in
+> `tools/s2_donor.py` and reads both donor trees.
+
 **Scope of this document:** the aeon half only — converting a whole Sonic 2 zone into aeon's
 level format, and pasting an arbitrary clipped rectangle of it into an act. The aurora half
 (the page that loads a converted level, marquees a rectangle and pastes it) is another lane's;
@@ -28,8 +39,11 @@ Every figure below names the file it came from. Figures tagged MEASURED were pro
 command printed in this document; figures tagged INFERRED are arithmetic on measured numbers
 and are labelled as such in the sentence.
 
-1. **Hidden Palace Zone cannot be built from this donor. At all.** Not the layout, not the
-   art, not the collision. It is BLOCKED and needs an owner decision (§6).
+1. ~~**Hidden Palace Zone cannot be built from this donor. At all.**~~ **SUPERSEDED
+   2026-09-17.** True of `s2disasm`, and no longer the situation: the owner ruled
+   `prototype-donor`, `s2-simonwai-disasm` is cloned read-only, and Hidden Palace loads
+   completely from it — layout, mappings, art, both collision indices, palette. See §6's
+   update and the prototype-formats note.
 2. **Clipping saves world space, not tile art.** A 2-section clip of Emerald Hill already
    needs 480 of the whole zone's 480 unique tiles (MEASURED). What costs VRAM pages is the
    NUMBER of zones, not how much of each you take. A 6-zone act clipped to 2 sections each
@@ -37,7 +51,9 @@ and are labelled as such in the sentence.
 3. **Clipping is nevertheless mandatory — for collision.** Aeon's collision attribute set is
    capped at 255 entries for a whole act. Five whole Sonic 2 zones need 301 (MEASURED,
    46 over). The same six zones clipped to one section each need 131. The clip is what makes
-   collision fit.
+   collision fit. *(2026-09-17: corrected to 299 and 130 — see §3.5's note. And with the REAL
+   Hidden Palace instead of the Hill Top stand-in, the one-section-per-clip act is **199**, not
+   130: still fitting, with 56 entries of headroom instead of 125.)*
 4. **The foreground art budget already passes.** Aeon's real page-placement pass
    (`fg_page_order.place_pool`, the one the bake calls) ACCEPTS a five-whole-zone Sonic 2 act:
    worst camera window needs 12 of 12 page frames, 0 of 870,231 windows over budget (MEASURED).
@@ -158,14 +174,17 @@ Donor: `/home/volence/sonic_hacks/s2disasm` (read-only; nothing in it was modifi
 - `tools/import_sk_collision.py` (95 lines) — the template for an S2 collision-bank importer.
   Reads three fixed-size files, writes five ROM tables to `data/collision/` and
   `data/collision/base/`. An `import_s2_collision.py` is a near-copy.
-- `tools/donor_provenance.py` — knows exactly two donors (sonic_hack, skdisasm). s2disasm has
-  to become a third; `tools/suite_paths.py` already resolves it (`require_suite_path("s2disasm")`).
-- **`tools/megaact_window_pageset.py` is the real prize.** It already contains a complete,
-  self-checking Sonic 2 donor loader (`_load_s2`, `:305-367`) for 8 zones, cropping each to its
-  camera-reachable box, and drives the REAL dedupe / order / page / pin functions. Its `control`
-  mode reproduces the committed OJZ bake cell-for-cell. Everything in §3 and §4 of this document
-  was measured through it. The converter should be built by promoting that loader out of the
-  measurement tool, not by writing a new one.
+- ~~`tools/donor_provenance.py` — knows exactly two donors.~~ **DONE 2026-09-17:** it knows
+  four. Both S2 trees are registered with `contributes_to_rebake=false`, because no committed
+  byte comes from either yet and recording them without that flag would read as a claim that a
+  re-bake used them.
+- ~~**`tools/megaact_window_pageset.py` is the real prize.**~~ **DONE 2026-09-17 (parcel 1).**
+  Its `_load_s2` was promoted into `tools/s2_donor.py`, which is now THE Sonic 2 donor loader,
+  reads BOTH donor trees with the donor named explicitly per call, and covers nine final-game
+  zones (WFZ added) plus the prototype's ten. `megaact_window_pageset` imports it; its `control`
+  mode still reproduces the committed OJZ bake cell-for-cell (589,824 cells, 0 differing). All
+  nine final-game grids reproduce byte for byte — see the prototype-formats note §7 for the
+  method.
 
 ---
 
@@ -271,11 +290,11 @@ because its `LevelSize` entry is the placeholder `$3FFF` (`s2.asm:14718`) — it
 extent is 12,544 × 1,408 px, so **WFZ's clip must be taken from the painted bounding box, not
 the camera box.**
 
-**WFZ is not in aeon's existing S2 registry.** `tools/megaact_window_pageset.py:198-209` lists
-8 zones and WFZ is not one of them. The measurement script adds it the same way HTZ's
-supplement is handled: base art `WFZ_SCZ.kos` with `WFZ_Supp.kos` overlaid at
-`ArtTile_ArtKos_NumTiles_WFZ_Main` = $0307 (`s2disasm/s2.asm:6492-6495`,
-`s2.constants.asm:2305`). Promoting that row into the tool proper is a one-line parcel.
+~~**WFZ is not in aeon's existing S2 registry.**~~ **DONE 2026-09-17 (parcel 1).** It is now a
+registry row in `tools/s2_donor.py`, built the same way HTZ's supplement is: base art
+`WFZ_SCZ.kos` with `WFZ_Supp.kos` overlaid at `ArtTile_ArtKos_NumTiles_WFZ_Main` = $0307
+(`s2disasm/s2.asm:6492-6495`, `s2.constants.asm:2305`). The monkey patch that used to carry it
+is deleted.
 
 ### 3.2 Clipping saves sections, not art
 
@@ -362,6 +381,17 @@ sections, so it is the other reason to clip.
 
 ### 3.5 The collision budget — the one that actually fails
 
+> **CORRECTED 2026-09-17.** Every count in this section was interned off
+> `Collision array - Horizontal.bin` — the ROTATED array — where `bake_cell`'s `profiles`
+> argument means the per-column HEIGHT array (`Collision array - Vertical.bin`, which is what
+> `collision_pipeline.load_donor_collision` reads for the shipping bake). Corrected, the
+> headline figures are **299 (over by 44)**, **130 (FITS)** and **276 (over by 21)** where this
+> section says 301, 131 and 278. No conclusion here changes. `s2_clip_budget.py` now defaults
+> to `--profiles vertical`; pass `--profiles horizontal` to reproduce the numbers as printed
+> below. And with the REAL Hidden Palace rather than the Hill Top stand-in, the six-zone
+> figures are **worse**: 353 (over by 98) at two sections a clip and 199 (fits) at one — see
+> the prototype-formats note §4.
+
 Aeon interns every distinct `(height profile, angle, solidity, crossover)` into a **single
 attr set shared by the whole act**, capped at **255** entries
 (`tools/collision_pipeline.py:224-228`, one set per act at `tools/ojz_strip_gen.py:2107`).
@@ -421,8 +451,10 @@ Two candidate shapes, both measured above.
 **Shape A — "the guided tour", 6 clips of 1-2 sections each.**
 12-18 sections of 48. Each clip is one recognisable set-piece: Emerald Hill's first hill and
 loop; Chemical Plant's tube drop; Oil Ocean's fans; Metropolis's screws; Wing Fortress's
-platforms; and a sixth (see §6 on Hidden Palace). Art pool ~2,965 tiles / 50 pages, passing at
-12 of 12. Collision fits at 1 section each (131 entries) and is position-dependent at 2 sections
+platforms; and a sixth (see §6 on Hidden Palace — no longer blocked). Art pool ~2,965 tiles /
+50 pages, passing at 12 of 12 *(the real six, with prototype HPZ: 2,959 tiles / 50 pages, still
+12 of 12)*. Collision fits at 1 section each (131 entries; **199** with the real HPZ) and is
+position-dependent at 2 sections
 each (37-322 entries). ROM ~57 KB pool + ~70-105 KB block stream (inferred).
 **This is the recommended shape.**
 
@@ -499,7 +531,17 @@ would consume the whole 2-slot variant staging (`engine/effects/palette.emp:339`
 
 ---
 
-## 6. Hidden Palace Zone — BLOCKED
+## 6. Hidden Palace Zone — ~~BLOCKED~~ UNBLOCKED 2026-09-17
+
+> **SUPERSEDED.** The owner ruled `prototype-donor` the same day
+> (*"look for simon wai beta disassembly"*). `/home/volence/sonic_hacks/s2-simonwai-disasm` is
+> cloned read-only at `0113ca47`, and Hidden Palace loads completely through
+> `tools/s2_donor.py`: 700 blocks, 256 chunks, 725 art tiles, 561 canonical tiles, 9 pages,
+> 152 collision attr-set entries, painted 9216 x 2048 px, and a foreground that is **97% on
+> CRAM line 2** — the most aeon-shaped of the six zones the owner named. Option (c) below was
+> taken and it cost one parcel, not a project. The rest of this section is kept because its
+> account of what `s2disasm` does and does not hold is still exactly right, and it is the
+> reason the second donor exists.
 
 I re-derived this rather than take it on trust, and the conclusion is stronger than "probably".
 
@@ -518,14 +560,14 @@ layout, start position, and a lot of live code — palette cycling (`s2.asm:2826
   onto the next label's address.
 - `SonED2 Projects/hpz1.sep` exists but is a stub pointing at Oil Ocean's mapping files.
 
-**And there is no beta disassembly anywhere under `/home/volence/sonic_hacks`** — I searched;
-there is none. I did not download anything: acquiring donor material is the owner's call, not
-a subagent's.
+~~**And there is no beta disassembly anywhere under the suite root**~~ — true when written; the
+owner cloned one the same evening. Acquiring donor material was his call, not a subagent's,
+which is why this paragraph stopped at reporting the absence.
 
 **What HPZ would need, if the owner wants it:**
 
 1. A Simon Wai (or Nick Arcade) prototype disassembly added as a fourth donor project, with the
-   owner's say-so on provenance.
+   owner's say-so on provenance. **DONE:** `s2-simonwai-disasm`, owner-ruled 2026-09-17.
 2. From it: the HPZ layout, its 16×16 and 128×128 mappings, its Kosinski tile art, and its
    collision index. The final ROM's `HPZ.bin` palette can be reused as-is.
 3. Tooling changes: a beta-specific registry row (the prototype's layout is a different size —
@@ -663,7 +705,7 @@ shows one of them in the wrong colours for the ~640 px the camera window spans.
 corridors rather than pasted edge to edge. I think it is a better version of his idea and the
 evidence for it is in §5.3, but it is his call.
 
-### 9.2 Hidden Palace: substitute now, add the prototype later
+### 9.2 ~~Hidden Palace: substitute now, add the prototype later~~ — ANSWERED: prototype, now
 
 §6. Recommend Casino Night or Aquatic Ruin for the first cut, and book the prototype donor as a
 separate parcel that does not block anything.
@@ -674,7 +716,7 @@ separate parcel that does not block anything.
 
 | Option | What it costs | What it buys |
 |---|---|---|
-| Clip harder (1 section per zone) | Less of each zone on screen | Fits today, 131 of 255. No code change. |
+| Clip harder (1 section per zone) | Less of each zone on screen | Fits today: 130 of 255 with the Hill Top stand-in, **199 of 255 with the real Hidden Palace** (2026-09-17). No code change, but only 56 entries of headroom. |
 | Raise the soft/hard art ROM budget | A number in an env var, and the owner's agreement that the act is allowed to be big | Only fixes §3.4, not the collision cap |
 | Merge near-identical shapes with a tolerance | A bake pass and a fidelity argument | Maybe 20-30% fewer entries (INFERRED, unmeasured); collision becomes approximate |
 | Widen the attr byte to a word | Block format, runtime lookup, five ROM tables, every gate that reads them | 65,535 entries; whole zones become possible (Shape B) |
@@ -695,7 +737,7 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 
 | # | Parcel | Size | Falsifiable check |
 |---|---|---|---|
-| 1 | **Promote the S2 donor loader.** Move `_load_s2` out of `megaact_window_pageset.py` into a real converter module; add the WFZ registry row (§3.1); add s2disasm to `suite_paths` / `donor_provenance` as a third donor. | S | The new module reproduces, byte for byte, the zone word grids the measurement tool produces for all 9 zones. |
+| 1 | ~~**Promote the S2 donor loader.**~~ **DONE 2026-09-17** — `tools/s2_donor.py`, BOTH donor trees, WFZ row added, both S2 donors registered in `donor_provenance`. | S | **PASSED: 9 of 9 zones byte-identical** (word grid and art blob), measured against a `git archive d234c084` export of the pre-promotion loader. |
 | 2 | **Whole-zone converter → editor tree.** One S2 zone becomes `section_N.tiles.bin` + `tileset.bin` + `palette.bin` under a donor tree, at 2048-px sections. Art only. | M | `ojz_strip_gen.validate_editor_inputs` accepts the tree; every nametable word's tile index is inside the tileset; the round trip back to chunk words is identity. |
 | 3 | **`clips.json` + the per-cell tileset key.** The bake reads a clip manifest and hands `place_pool` a real per-cell zone grid instead of a uniform one. | M | A two-clip act bakes; `fg_page_order.check` reports the same worst-window count as `s2_clip_budget.py place` on the same two clips. Closes `tools/fg_page_order.py:51-55`. |
 | 4 | **Collision: the S2 base bank.** `import_s2_collision.py` (sibling of `import_sk_collision.py`) imports S2's vertical array as a shape bank and REGENERATES the rotated table (never copies S2's horizontal array — §1.3 item 3). Rule on shape `$18`. | M | All 256 shapes round-trip through `rotate_profile` with no raise; a hand-picked slope's height and angle match `FindFloor`'s result for the same block in the donor. |
@@ -770,14 +812,23 @@ The brief asked me to treat its framings as hypotheses. Three came out different
 One instruction I could not carry out as written: the brief named six zones including Hidden
 Palace, and Hidden Palace has no level data in this donor (§6). I measured five and used Hill
 Top as a stand-in for the sixth wherever a six-zone figure was needed, and said so at each
-figure.
+figure. **Resolved 2026-09-17:** the owner added the prototype donor, and the real six-zone
+act is measured in the prototype-formats note §4 — the art budget is unchanged (2,959 tiles,
+50 pages, 12 of 12) and the collision budget is materially worse (353 over 255 at two sections
+a clip, against the stand-in's 278).
 
 ---
 
 ## 13. Reproducing every number in this document
 
+> **2026-09-17:** the worktree named below is gone (the design landed); run these from any aeon
+> checkout. The `collision` and `collsweep` lines need **`--profiles horizontal`** to print the
+> figures as published — the tool's default is now the correct `vertical` array, which prints
+> 299 / 130 / 276. Every other line reproduces unchanged. Add `--donor s2-simonwai-disasm` for
+> the prototype's zones.
+
 ```bash
-cd /home/volence/sonic_hacks/aeon-wt-s2conv
+cd <your aeon checkout>
 export PYTHONDONTWRITEBYTECODE=1
 S=docs/research/s2-compressed-act/s2_clip_budget.py
 

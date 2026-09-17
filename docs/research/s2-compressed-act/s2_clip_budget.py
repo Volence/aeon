@@ -72,6 +72,7 @@ import ojz_strip_gen                         # noqa: E402
 import tile_dedupe                           # noqa: E402
 
 DONORS = s2_donor.DONORS
+S2FINAL_TAG = s2_donor.S2_FINAL
 
 
 def load_zone(name, donor):
@@ -164,12 +165,30 @@ def mode_clipsweep(args):
                    "clips": out}, open(args.json, "w"), indent=1)
 
 
+def split_donor(spec, default):
+    """`[<donor>@]REST` -> (donor, REST).
+
+    The showcase act the owner named is FIVE final-game zones plus Hidden Palace,
+    and Hidden Palace exists only in the prototype tree — so an act spec has to be
+    able to name a donor per clip, not per invocation. `--donor` remains the
+    default for every spec that does not carry a prefix.
+    """
+    if "@" in spec:
+        dn, _, rest = spec.partition("@")
+        if dn not in DONORS:
+            raise SystemExit(f"{spec}: unknown donor {dn!r} (one of {', '.join(DONORS)})")
+        return dn, rest
+    return default, spec
+
+
 def parse_spec(spec, st, donor):
-    """ZONE:col0,row0,secw,sech   (col0/row0 in SECTIONS from the zone box origin)"""
+    """[<donor>@]ZONE:col0,row0,secw,sech  (col0/row0 in SECTIONS from the box origin)"""
+    dn, spec = split_donor(spec, donor)
     zn, rest = spec.split(":")
     c0, r0, sw, sh = (int(x) for x in rest.split(","))
-    z = load_zone(zn, donor)
-    return clip(z, c0 * st, r0 * st, sw * st, sh * st, name=f"{zn}#{c0},{r0}")
+    z = load_zone(zn, dn)
+    tag = zn if dn == S2FINAL_TAG else f"{zn}~proto"
+    return clip(z, c0 * st, r0 * st, sw * st, sh * st, name=f"{tag}#{c0},{r0}")
 
 
 def build_act(specs, st, rowlen, donor, align=True):
@@ -251,6 +270,11 @@ def collision_entries(specs, donor, profiles="vertical"):
     """specs: ["EHZ", ...] or ["EHZ:0,2", ...] meaning zone:first_section,n_sections.
     Returns the attr-set size the whole set needs, through the REAL bake_cell.
 
+    A spec may carry a `<donor>@` prefix; `donor` is the default for those that do
+    not. The shape bank comes from `donor` regardless, which is sound only because
+    the two donors' banks are byte-identical — `tools/test_s2_donor.py::
+    test_the_two_donors_share_one_collision_shape_vocabulary` is what keeps that so.
+
     `profiles` names WHICH shape bank feeds bake_cell's `profiles` argument.
     "vertical" is the per-column HEIGHT array and the correct one — it is what
     `collision_pipeline.load_donor_collision` reads for the shipping bake.
@@ -261,8 +285,9 @@ def collision_entries(specs, donor, profiles="vertical"):
     prof, ang = s2_donor.collision_arrays(donor, profiles)
     a = _UncappedAttrSet()
     for sp in specs:
+        dn, sp = split_donor(sp, donor)
         zn, _, rest = sp.partition(":")
-        chunks, grid, P, S = s2_donor.collision_inputs(zn, donor)
+        chunks, grid, P, S = s2_donor.collision_inputs(zn, dn)
         if rest:
             s0, ns = (int(x) for x in rest.split(","))
             grid = grid[:, s0 * 16:(s0 + ns) * 16]     # 16 chunks of 128 px == one 2048 px section
