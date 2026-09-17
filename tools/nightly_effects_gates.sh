@@ -41,6 +41,10 @@
 # Do NOT "fix" this by adding a second game's build to build.sh: one invocation
 # builds one game, and that is the contract every other gate in it depends on.
 #
+# AND IT BUILDS THE TWO STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17), LAST,
+# after every lane above has graded the canonical artifacts: see the block above the
+# worst-wins combination for why last, and why a failure there is FAILED, not COULD NOT RUN.
+#
 # --selftest-fail exercises the notification path without running anything.
 set -uo pipefail
 
@@ -254,9 +258,100 @@ case $rc_nb in
     *) note "COULD NOT RUN: needs_build lane (exit $rc_nb) at $AT — see $STATE/needs_build.log" ;;
 esac
 
+# ---- fourth and fifth lanes: the two STRESS_* art fixture shapes --------------
+# STRESS-SHAPES-NIGHTLY (2026-09-17). `STRESS_EVICT=1` and `STRESS_ART=1` are build.sh's
+# two off-canonical DEV shapes (sonic4 DEBUG plus a comptime define; STRESS_ART also
+# re-bakes the act art pool uniquified, IN PLACE, under an EXIT trap that restores the
+# generated tree from git). Nothing built them routinely and both had rotted until
+# STRESS-SHAPES-GATE-CUTS (merge b9a6bf6d) got them to exit 0. This lane keeps them from
+# rotting silently again.
+#
+# WHY THEY RUN LAST (read from build.sh and the lanes above, not assumed):
+#   * They overwrite no ROM or listing a lane above reads. build.sh names them
+#     s4.stress.{bin,lst} and s4.stressart.{bin,lst}. The gates and the lab witness read
+#     s4.debug.*; the needs_build lane reads only conftest.BUILD_ARTIFACTS, the four
+#     canonical pairs, none of which a stress build writes.
+#   * They DO rewrite SOURCE the lanes above were built from. STRESS_ART regenerates
+#     games/sonic4/data/generated/ojz/act1 and games/sonic4/data/collision in place, and
+#     every stress build re-runs emit_sound_blob (engine/sound/generated) and
+#     gen_compression_vectors. The needs_build lane's provenance check requires each
+#     canonical listing's Source Digest to REPRODUCE from the files its build read, so a
+#     stress leg ahead of it would put that lane's verdict at the mercy of the EXIT trap's
+#     restore. "After the gates and the lab witness" is therefore not enough: they run
+#     after the needs_build lane too, i.e. after every lane that reads a canonical
+#     artifact or the tree it was built from.
+#
+# VERDICT MAPPING. A stress leg is a BUILD of a fixed shape of a tree the canonical legs
+# above just built, so ANY non-zero exit is FAILED (1), never COULD NOT RUN. Each leg has
+# its own rc and its own log, and neither is skipped when the other fails, so one cannot
+# mask the other; both fold into the same worst-wins combination as every lane above.
+#
+# TREE RESTORATION IS CHECKED, NOT TRUSTED. STRESS_ART refuses to start on a dirty
+# generated tree, and the checkout at the top of this script is --force, which reverts
+# tracked edits but leaves untracked files behind. A restore that stopped working would
+# therefore turn the NEXT night's STRESS_ART leg red for a reason unrelated to the code
+# under test. So `git status --porcelain` must be empty after both legs; otherwise that is
+# its own FAILED rc, and the note says whether the tree was already dirty BEFORE the
+# stress legs, so the blame lands on the right lane.
+#
+# The two build lines are spelled out literally (`STRESS_EVICT=1 ./build.sh`), not through a
+# helper taking the variable name: tools/test_landing_lane_shapes.py reads this file's
+# `./build.sh` invocations to derive which canonical shapes it builds, and skips an
+# invocation carrying a STRESS_* prefix because it writes no canonical artifact. Hidden
+# behind `env "$var=1"`, it would read as a plain sonic4 build and claim s4.bin/s4.lst.
+stress_stamp() {  # stress_stamp <shape> <logfile> <begin|end> [exit] [t0]
+    if [ "$3" = begin ]; then
+        echo "$(date -Is) $1=1 ./build.sh starting at $AT; uptime:$(uptime)" > "$2"
+    else
+        echo "$(date -Is) $1=1 ./build.sh exit $4 after $(( $(date +%s) - $5 )) s; uptime:$(uptime)" >> "$2"
+        echo "$(date -Is) $1 leg at $AT: exit $4, $(( $(date +%s) - $5 )) s wall; uptime:$(uptime)" >> "$LOG"
+    fi
+}
+tree_before=$(git -C "$NIGHTLY" status --porcelain 2>&1)
+t_se=$(date +%s)
+stress_stamp STRESS_EVICT "$STATE/stress_evict.log" begin
+STRESS_EVICT=1 ./build.sh >> "$STATE/stress_evict.log" 2>&1
+rc_se=$?
+stress_stamp STRESS_EVICT "$STATE/stress_evict.log" end "$rc_se" "$t_se"
+if [ "$rc_se" = 0 ]; then
+    echo "$(date -Is) OK at $AT (STRESS_EVICT build)" >> "$LOG"
+else
+    note "STRESS_EVICT BUILD FAILED (exit $rc_se) at $AT — see $STATE/stress_evict.log"
+    rc_se=1
+fi
+t_sa=$(date +%s)
+stress_stamp STRESS_ART "$STATE/stress_art.log" begin
+STRESS_ART=1 ./build.sh >> "$STATE/stress_art.log" 2>&1
+rc_sa=$?
+stress_stamp STRESS_ART "$STATE/stress_art.log" end "$rc_sa" "$t_sa"
+if [ "$rc_sa" = 0 ]; then
+    echo "$(date -Is) OK at $AT (STRESS_ART build)" >> "$LOG"
+else
+    note "STRESS_ART BUILD FAILED (exit $rc_sa) at $AT — see $STATE/stress_art.log"
+    rc_sa=1
+fi
+tree_after=$(git -C "$NIGHTLY" status --porcelain 2>&1)
+rc_git=$?
+{ echo "before the stress legs:"; echo "$tree_before"; echo "after the stress legs (git status exit $rc_git):"; echo "$tree_after"; } \
+    > "$STATE/stress_tree.log"
+if [ "$rc_git" != 0 ]; then
+    note "STRESS TREE CHECK FAILED: git status exited $rc_git in $NIGHTLY at $AT — see $STATE/stress_tree.log"
+    rc_tree=1
+elif [ -n "$tree_after" ]; then
+    if [ -n "$tree_before" ]; then
+        note "STRESS TREE CHECK FAILED: $NIGHTLY is dirty after the stress legs at $AT, and was ALREADY dirty before them — see $STATE/stress_tree.log"
+    else
+        note "STRESS TREE CHECK FAILED: the stress legs left $NIGHTLY dirty at $AT (STRESS_ART's EXIT-trap restore did not restore) — see $STATE/stress_tree.log"
+    fi
+    rc_tree=1
+else
+    echo "$(date -Is) OK at $AT (tree clean after the stress legs)" >> "$LOG"
+    rc_tree=0
+fi
+
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab" "$rc_nb"; do
+for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_sa" "$rc_tree"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi

@@ -73,6 +73,9 @@ RUNNERS = ("landing_build.sh", "nightly_effects_gates.sh")
 #: argument scan, which is why `>> "$LOG"` does not become a game name.
 _INVOKE = re.compile(r"\./build\.sh(?P<rest>.*)$")
 _WORD = re.compile(r"^[A-Za-z0-9_.-]+$")
+#: A STRESS_* fixture prefix (`STRESS_EVICT=1 ./build.sh`): tools/nightly_effects_gates.sh
+#: builds both fixture shapes after its canonical lanes. See `shapes_built_by`.
+_STRESS_PREFIX = re.compile(r"\bSTRESS_[A-Z_]+=1\b")
 
 #: tools/landing_build.sh's ONE declared shape list (CTRL-3b, 2026-09-14): its markers. The
 #: A->B swap is the one line between them; tools/test_landing_build_trim.py makes it.
@@ -140,6 +143,12 @@ def shapes_built_by(script_text):
         if not m:
             continue
         before = line[:m.start()]
+        if _STRESS_PREFIX.search(before):
+            # An off-canonical fixture shape (build.sh's STRESS_EVICT / STRESS_ART blocks
+            # set ROM_NAME to s4.stress / s4.stressart and ignore DEBUG and the game). It
+            # writes no canonical artifact, so it covers nothing; read as a plain build it
+            # would claim s4.bin/s4.lst, which is the failure direction that matters.
+            continue
         debug = bool(re.search(r"\bDEBUG=1\b", before))
         game = "sonic4"
         for tok in m.group("rest").split():
@@ -352,3 +361,17 @@ def test_declared_artifacts_are_all_known_build_artifacts():
         "marked test can only ever DEFER — and conftest's unmarked-skip heuristic cannot "
         "see them either. Add them to BUILD_ARTIFACTS, or fix the marker."
         % (MARKER, list(conftest.BUILD_ARTIFACTS), unknown))
+
+
+def test_a_stress_fixture_invocation_claims_no_canonical_shape():
+    """`STRESS_EVICT=1 ./build.sh` writes s4.stress.*, not s4.bin/s4.lst (build.sh's STRESS
+    blocks fix ROM_NAME and ignore DEBUG and the game). The nightly spells both stress legs
+    this way; read as a plain sonic4 build they would claim coverage of the release pair
+    they do not write. The control line proves the parse still sees a real invocation."""
+    text = (
+        'STRESS_EVICT=1 ./build.sh >> "$STATE/stress_evict.log" 2>&1\n'
+        'STRESS_ART=1 ./build.sh >> "$STATE/stress_art.log" 2>&1\n'
+    )
+    assert shapes_built_by(text) == set()
+    control = text + 'if ! DEBUG=1 ./build.sh demo >> "$STATE/build.log" 2>&1; then\n'
+    assert shapes_built_by(control) == {("demo", True)}
