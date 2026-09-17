@@ -251,6 +251,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1548,6 +1549,23 @@ def main():
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    # STRESS-SHAPES-GATE-CUTS (2026-09-17): an OFF-CANONICAL shape's cut is derived here
+    # from its own listing + ROM by build_cut (the --write-fixture producer) and checked
+    # by check_cut, exactly as a committed one would be. See tools/gate_cut_shape.py.
+    try:
+        derived = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+    except gate_cut_shape.ShapeClassError as e:
+        print("loop_crossover_gate: COULD NOT RUN — %s" % e)
+        return gate_cut_shape.COULD_NOT_RUN
+    if derived:
+        rc = gate_cut_shape.derive_for_offcanonical(
+            "loop_crossover_gate", args.lst, args.fixture, cut_shapes,
+            lambda p: p.write_text(json.dumps(build_cut(rom, spans, syms, equs, args.lst),
+                                              indent=2, sort_keys=True) + "\n"),
+            lambda p: (check_cut(rom, spans, syms, equs, p, args.lst), [])[1])
+        if rc is not None:
+            return rc
+
     r = run_all(rom, prog, extents, syms, equs)
 
     print("loop_crossover_gate [%s]:" % args.lst)
@@ -1573,7 +1591,10 @@ def main():
         if len(r["fails"]) > 20:
             print("    ... and %d more" % (len(r["fails"]) - 20))
 
-    if pathlib.Path(args.fixture).exists():
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+    elif pathlib.Path(args.fixture).exists():
         try:
             check_cut(rom, spans, syms, equs, args.fixture, args.lst)
         except SystemExit as e:

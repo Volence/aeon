@@ -173,6 +173,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1021,7 +1022,26 @@ def main():
               % (args.emit_fixture, ", ".join(fixture_shapes(out))))
         return 0
 
-    stale = check_fixture(rom, syms, args.fixture, args.lst) if args.fixture else []
+    # STRESS-SHAPES-GATE-CUTS (2026-09-17): an OFF-CANONICAL shape's cut is derived here
+    # from its own listing + ROM by build_fixture, the producer --emit-fixture uses, and
+    # checked with check_fixture like a committed one. See tools/gate_cut_shape.py.
+    derived = False
+    stale = []
+    if args.fixture:
+        try:
+            derived = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+        except gate_cut_shape.ShapeClassError as e:
+            print("sprite_tilt_gate: COULD NOT RUN — %s" % e)
+            return gate_cut_shape.COULD_NOT_RUN
+        if derived:
+            rc = gate_cut_shape.derive_for_offcanonical(
+                "sprite_tilt_gate", args.lst, args.fixture, fixture_shapes,
+                lambda p: p.write_text(build_fixture(rom, syms, args.lst)),
+                lambda p: check_fixture(rom, syms, p, args.lst))
+            if rc is not None:
+                return rc
+        else:
+            stale = check_fixture(rom, syms, args.fixture, args.lst)
 
     checks, fails, frames, listing = sweep(rom, syms, args.verbose)
 
@@ -1033,7 +1053,10 @@ def main():
           % checks)
     print("  distinct mapping frames the sweep selected: %d  ($%02X-$%02X)"
           % (len(frames), min(frames), max(frames)))
-    if args.fixture:
+    if args.fixture and derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+    elif args.fixture:
         if stale:
             print("  FIXTURE STALE (%s) — the pre-build unit tests are running over a "
                   "cut that is no longer this routine:" % args.fixture)

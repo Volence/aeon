@@ -222,6 +222,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1051,6 +1052,31 @@ def check_cap_displacement(prog, cap_off):
 
 # --------------------------------------------------------------------------
 
+def _derived_cut(args, fixture, rom, start, end, stubs, offs, k, sst_custom, syms,
+                 routine):
+    """STRESS-SHAPES-GATE-CUTS (2026-09-17). (derived, rc): for an OFF-CANONICAL shape the
+    cut is derived from this listing + ROM by build_cut (the --write-fixture producer)
+    and checked by check_cut, exactly as a committed one would be; rc is the exit code
+    to stop with, or None. A canonical shape returns (False, None) and keeps its
+    committed cut. See tools/gate_cut_shape.py."""
+    try:
+        off = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+    except gate_cut_shape.ShapeClassError as e:
+        print("  instashield_gate: COULD NOT RUN — %s" % e)
+        return True, gate_cut_shape.COULD_NOT_RUN
+
+    def produce(p):
+        doc = build_cut(rom, start, end, stubs, offs, k, sst_custom, args.lst,
+                        note=cut_note(routine))
+        p.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+    if not off:
+        return False, None
+    return True, gate_cut_shape.derive_for_offcanonical(
+        "instashield_gate", args.lst, fixture, cut_shapes, produce,
+        lambda p: (check_cut(rom, start, end, syms, p, args.lst, routine), [])[1])
+
+
 def _fixture_verdict(rom, start, end, syms, fixture, lst, gate, routine=ROUTINE):
     """(ok, hard_fail). Shared by both passes."""
     if pathlib.Path(fixture).exists():
@@ -1098,6 +1124,11 @@ def pass_instashield(args, rom, syms, equs, offs, overlay_len):
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    derived, rc = _derived_cut(args, args.fixture, rom, start, end, stubs, offs, k,
+                               equs["SST_sst_custom"], syms, ROUTINE)
+    if rc is not None:
+        return rc
+
     total, fails, fired = sweep(rom, prog, start, end, stubs, offs, k,
                                 verbose=args.verbose)
 
@@ -1119,8 +1150,13 @@ def pass_instashield(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, syms, args.fixture, args.lst,
-                               args.gate, ROUTINE)
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+        hard = False
+    else:
+        _, hard = _fixture_verdict(rom, start, end, syms, args.fixture, args.lst,
+                                   args.gate, ROUTINE)
     if hard:
         return 1
     if fails:
@@ -1162,6 +1198,11 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    derived, rc = _derived_cut(args, args.tails_fixture, rom, start, end, stubs, offs, ck,
+                               equs["SST_sst_custom"], syms, TAILS_ROUTINE)
+    if rc is not None:
+        return rc
+
     total, fails, engaged = sweep_flight(rom, prog, start, end, stubs, offs, k,
                                          cap_off, y_vel_off)
 
@@ -1183,8 +1224,13 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, syms, args.tails_fixture, args.lst,
-                               args.gate, TAILS_ROUTINE)
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.tails_fixture).name, args.lst))
+        hard = False
+    else:
+        _, hard = _fixture_verdict(rom, start, end, syms, args.tails_fixture, args.lst,
+                                   args.gate, TAILS_ROUTINE)
     if hard:
         return 1
     if fails:
