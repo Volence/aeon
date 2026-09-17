@@ -114,6 +114,11 @@ GEOMETRIES = {
     "g52x36": (6, 4, None, None),
     "g48x36": (4, 4, None, None),
     "g44x34": (2, 3, None, None),
+    # one axis at a time: which axis's margin buys the frames
+    "g56x60": (8, 16, 56, 60),
+    "g80x40": (20, 6, 80, 40),
+    "g64x60": (12, 16, 64, 60),
+    "g56x48": (8, 10, 56, 48),
 }
 
 
