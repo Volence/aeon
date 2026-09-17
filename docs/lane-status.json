@@ -1,27 +1,26 @@
 {
-  "focus": "Researching whether whole Sonic 2/3 acts can fit the smaller art cache; the wider video memory audit has landed.",
-  "inFlight": [
-    {
-      "what": "10-page foreground cache research (tool-only, no ROM bytes)",
-      "where": "branch research/fg-cache-10",
-      "agent": true
-    }
-  ],
+  "focus": "Both video memory studies are in. The smaller art cache can work, but it needs your call on how.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "FG-CACHE-10-HOW",
+      "what": "Whether to cut the art cache into half-size pages with a smaller loaded area, so objects and the whole-game showcase both fit.",
+      "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the 10-page research reports and its findings are reviewed and landed.",
+  "nextBoundary": "Here: both research parcels are landed and nothing is running.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
-      "title": "Research whether a whole Sonic 2/3 act can fit a 10-page foreground cache (smarter pinning, per-zone pools, smaller look-ahead), so the video-memory cut and the showcase can both happen",
-      "state": "doing",
+      "title": "Research landed: 10 pages fits only with half-size pages and a smaller loaded area around the screen",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "decision card FG-CACHE-10-HOW"
     },
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -32,7 +31,7 @@
     },
     {
       "id": "STITCHED-ACT-PAGE-ORDER",
-      "title": "Wire the new tile grouping into the real art pipeline for multi-zone acts, with a build check that refuses any spot over budget. Research landed: whole Sonic 2/3 acts fit 12 pages",
+      "title": "Wire the budget-aimed tile grouping, per-zone pages and frame-aware pins into the art pipeline, with a build check refusing any over-budget spot",
       "state": "next",
       "size": "M",
       "blockedBy": null
@@ -73,7 +72,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T02:57:48Z"
+  "awaiting": "whether to take the half-size page route for the smaller cache (card FG-CACHE-10-HOW), and go on the pipeline wiring that doesn't depend on it",
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T05:34:27Z"
 }
