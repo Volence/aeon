@@ -429,7 +429,8 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
     spawn_x, spawn_y = engine_spawn(desc)
-    log(f"ground: spawn re-derived from the engine = world ({spawn_x}, {spawn_y}) px")
+    if log:
+        log(f"ground: spawn re-derived from the engine = world ({spawn_x}, {spawn_y}) px")
 
     grid_w, grid_h = act_grid.descriptor_grid()
     sect_px = act.section_px
@@ -474,10 +475,11 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     # A height byte is how many pixels of the 16-px cell are solid, measured UP from
     # the cell's bottom, so the surface is at the cell bottom minus the height.
     surface = y + 16 - h
-    log(f"ground: SOLID at world y={y} (cell row {y // 16}), attr byte {attr}, "
-        f"solidity ${solidity[attr]:02X}, height {h} px in column {col_in_block}, "
-        f"angle ${ang:02X}; surface at world y={surface}, "
-        f"{surface - spawn_y} px below the spawn")
+    if log:
+        log(f"ground: SOLID at world y={y} (cell row {y // 16}), attr byte {attr}, "
+            f"solidity ${solidity[attr]:02X}, height {h} px in column {col_in_block}, "
+            f"angle ${ang:02X}; surface at world y={surface}, "
+            f"{surface - spawn_y} px below the spawn")
     out = {"spawn": [spawn_x, spawn_y], "cell_y": y, "attr": attr, "height": h,
            "angle": ang, "solidity": solidity[attr], "surface_y": surface,
            "fall_px": surface - spawn_y, "hanging_passed": skipped}
