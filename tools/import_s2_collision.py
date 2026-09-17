@@ -600,15 +600,39 @@ def _cli_check(which) -> int:
     return rc
 
 
+def cmd_build(args) -> int:
+    build(args[0] if args else None)
+    return 0
+
+
+def cmd_check(args) -> int:
+    which = args[0] if args else "all"
+    if which not in ("all", "reach", "sign", "roundtrip", "findfloor"):
+        print(f"Usage: import_s2_collision.py check "
+              f"[all|reach|sign|roundtrip|findfloor] (got {which!r})")
+        return 1
+    return _cli_check(which)
+
+
+#: The mode table IS the validator (tools/test_cli_dispatch_refuses.py, LS-15d). Born in
+#: this form deliberately: `build` OVERWRITES the committed bank, so an unrecognised or
+#: missing mode must reach no handler at all rather than fall through to a write.
+MODES = {"build": cmd_build, "check": cmd_check}
+
+
 def main(argv) -> int:
-    mode = argv[1] if len(argv) > 1 else "build"
-    if mode == "build":
-        build(argv[2] if len(argv) > 2 else None)
-        return 0
-    if mode == "check":
-        return _cli_check(argv[2] if len(argv) > 2 else "all")
-    print(__doc__)
-    return 2
+    args = argv[1:]
+    handler = MODES.get(args[0]) if args else None
+    if handler is None:
+        print(f"Usage: import_s2_collision.py <{'|'.join(MODES)}> [args]\n"
+              f"  build [OUTDIR]   import the bank (default: "
+              f"games/sonic4/data/collision/base_s2)\n"
+              f"  check [WHICH]    all | reach | sign | roundtrip | findfloor")
+        # SystemExit, not `return 1`: tools/test_cli_dispatch_refuses.py drives main()
+        # in-process with every handler blinded, and a plain return would let a caller
+        # that ignores the status carry on into a write.
+        raise SystemExit(1)
+    return handler(args[1:])
 
 
 if __name__ == "__main__":

@@ -147,6 +147,12 @@ _FIXED = [
     # an emulator and writes the run JSON; `analyze --out PATH` writes a summary. run_probe
     # and analyze_runs are the two handlers; neither may be reachable from an unknown mode.
     ("cache_hold_probe", ["run_probe", "analyze_runs"]),
+    # S2-COMPRESSED-ACT parcel 4 (2026-09-17): born in the table form. `build` OVERWRITES
+    # the committed S2 collision bank under games/sonic4/data/collision/base_s2/, so an
+    # unknown mode reaching it would silently rewrite tracked build inputs -- the
+    # ojz_strip_gen shape of the LS-15d incident. `build` is the writing handler; `check`
+    # is read-only but is the parcel's falsifiable check and must not run unasked.
+    ("import_s2_collision", ["cmd_build", "cmd_check", "build"]),
 ]
 
 
@@ -390,6 +396,7 @@ _ROSTER = {
     "clip_manifest.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 3, 2026-09-17, born in the fixed form; the only mode, `validate`, is read-only)",
     "clip_act_bake.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 3, 2026-09-17, born in the fixed form; `bake` WRITES a clip act tree, so the dispatch running before any handler is the property, and the subprocess row above pins it)",
     "fg_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17, born in the fixed form; `check` is read-only, the FG page-budget build gate)",
+    "import_s2_collision.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 4, 2026-09-17, born in the fixed form; `build` OVERWRITES the committed S2 collision bank, so the dispatch running before any handler is the property, and the two subprocess rows above pin it for both doorways)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
@@ -428,12 +435,13 @@ def test_the_ladder_population_is_still_the_roster():
     # FG-CACHE-10-RESEARCH (2026-09-16) added megaact_fg_cache10.py; 17 since the
     # STITCHED-ACT-PAGE-ORDER wiring (2026-09-17) added fg_page_order.py; 18 since
     # CACHE-WINDOW-HOLD-MEASURE (2026-09-17) added cache_hold_probe.py; 20 since
-    # S2-COMPRESSED-ACT row 3 (2026-09-17) added clip_manifest.py and clip_act_bake.py.
-    assert len(found) == 20, (
+    # S2-COMPRESSED-ACT row 3 (2026-09-17) added clip_manifest.py and clip_act_bake.py;
+    # 21 since S2-COMPRESSED-ACT row 4 (2026-09-17) added import_s2_collision.py.
+    assert len(found) == 21, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "
         "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, CACHE-WINDOW-HOLD-MEASURE's "
-        "cache_hold_probe.py and S2-COMPRESSED-ACT row 3's clip_manifest.py + "
-        "clip_act_bake.py, found %d: %s"
+        "cache_hold_probe.py, S2-COMPRESSED-ACT row 3's clip_manifest.py + "
+        "clip_act_bake.py and row 4's import_s2_collision.py, found %d: %s"
         % (len(found), sorted(found)))
