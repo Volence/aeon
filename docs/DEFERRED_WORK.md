@@ -36908,3 +36908,9 @@ that changes no ROM byte); its in-build pre-build lane is 3024 passed / 2 skippe
 0 errors (= parcel 2's 2983 plus exactly this parcel's 41 rows), and the needs_build lane is
 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the committed
 `games/sonic4/data/editor/ojz/act1` tree untouched, both donor trees read-only, no emulator used.
+
+### S2-COMPRESSED-ACT rider: the shipped clips fixture cannot exercise an ABSENT `region_id` (booked 2026-09-17T20:51:47Z, aurora's catch)
+
+- **What.** `region_id` is optional and is aurora's write-back (`tools/clip_manifest.py:37, 223, 393` all treat absence as `None`), but BOTH clips in `games/sonic4/data/clips/s2_two_clip/clips.json` pre-fill it, and so do the pins fixture's. A consumer built and tested against the shipped fixture alone writes a reader that assumes presence and stays green the whole way. The loader itself is fine; the FIXTURE is what teaches the wrong shape, which is why no existing row catches it.
+- **Who found it.** aurora, reviewing the landed format for its donor page, after the relay. It is in their packet too.
+- **Fix, folded into the next clip-touching parcel (row 5):** a fixture or gate row with `region_id` absent on at least one clip, so the absent case is exercised by something a consumer can copy. Cheap; it is not worth its own parcel.
