@@ -728,8 +728,9 @@ async def run(sock: str, rom: str, lst: str, unmeasured: list[str]) -> tuple[int
         return 2, [f"the act reports {count} regions and the readout's cap is "
                    f"PRESET_CYCLE_MAX {digit_cap}, so the preset rows should name exactly "
                    f"regions 0..{reachable - 1}; `.lab_index`'s preset rows name "
-                   f"{sorted(row_of_section)} — the list and the act disagree, so a walk "
-                   f"over one of them says nothing about the other"]
+                   f"{sorted(row_of_section)} — the list disagrees with the act and the "
+                   f"readout's cap, so a walk over it says nothing about the regions it "
+                   f"should reach"]
     for u in unmeasured:
         print(f"NOT MEASURED: {u}")
 
