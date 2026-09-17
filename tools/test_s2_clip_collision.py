@@ -361,16 +361,40 @@ def test_the_emitted_plane_cells_are_the_donors_own_geometry(baked, donors, name
     attr as the donor cell it was clipped from.
 
     A count can be right while the rectangle is transposed or offset — every cell would
-    still come from the same zone. This walks the clip's destination cells back to their
-    source cells through the manifest's own src/dst and compares the attr byte the engine
-    would see, via the scalar `reference_collision_cell` which shares no code with either
-    the emitter or the count.
+    still come from the same zone, so the attr SET would not move. (Measured: swapping the
+    two collision indices in the transcode leaves every count row in this file green.)
+
+    Two comparisons, and the first is EXHAUSTIVE rather than sampled, because a sampled one
+    caught that mutation on only one of the two fixtures:
+
+      * every cell of every clip's destination rectangle against the zone's re-derived
+        grid. Different code path — the bake reassembles the emitted section FILES, this
+        is the array the converter built them from — so it covers the rectangle mapping
+        and the file round trip;
+      * a fixed-seed sample against the SCALAR `reference_collision_cell`, which shares no
+        array code with either side.
     """
     _need(S.S2_FINAL)
     act, _st, _m, _v1, _v2 = baked[name]
-    profiles, angles = ojz_strip_gen.load_base_bank(
-        CM.collision_banks(act, donors))
     pa, pb = CM.collision_grids(act, donors)
+    exhaustive = 0
+    for cl in act.clips:
+        sx, sy, sw, sh = (v // CM.TILE_PX for v in cl.src)
+        dx, dy = cl.dst[0] // CM.TILE_PX, cl.dst[1] // CM.TILE_PX
+        ref = C.rederive_zone_collision(cl.zone, cl.donor)
+        for plane, got in zip(ref, (pa, pb)):
+            want = plane[sy:sy + sh, sx:sx + sw]
+            have = got[dy:dy + sh, dx:dx + sw]
+            assert want.shape == have.shape, (cl.id, want.shape, have.shape)
+            assert int(np.count_nonzero(want != have)) == 0, cl.id
+            exhaustive += int(want.size)
+    # DERIVED from the manifest, not a round number: two planes x every cell of every
+    # clip rectangle. A comparison that silently covered fewer cells than the clips
+    # describe would pass a `>` threshold and fail this.
+    assert exhaustive == sum(
+        2 * (cl.src[2] // CM.TILE_PX) * (cl.src[3] // CM.TILE_PX) for cl in act.clips)
+    assert exhaustive > 0
+
     rng = np.random.default_rng(0xC11FACE1)
     checked = 0
     for cl in act.clips:
@@ -384,7 +408,7 @@ def test_the_emitted_plane_cells_are_the_donors_own_geometry(baked, donors, name
             assert got == want, (cl.id, r, c, got, want)
             checked += 1
     assert checked == 120 * len(act.clips)
-    # anti-vacuity: the sample is not all air
+    # anti-vacuity: neither comparison is agreeing about air
     assert int(np.count_nonzero((pa >> CP.PLANE_SOL_SHIFT) & 3)) > 1000
 
 
