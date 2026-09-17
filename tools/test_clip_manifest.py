@@ -501,18 +501,41 @@ def test_w3_warns_but_does_not_refuse_a_mixed_section(donors, doc, tmp_path):
     assert act.warnings == got
 
 
-def test_w1_warns_on_an_unchunked_src(donors, doc, tmp_path):
-    """128-px chunk alignment is a WARNING at row 3: nothing on the art path cares. The
-    row exists so that row 5, which does care, finds the hook already wired."""
+def test_r12_refuses_a_paste_that_shifts_collision_off_the_16px_grid(donors, doc, tmp_path):
+    """~~W1 warns on an unchunked src~~ — **ROW 5 RULED IT AND THE PREMISE WAS FALSE.**
+
+    This row used to assert that an src rect off the 128-px CHUNK grid warns, "so that row
+    5, which does care, finds the hook already wired". Row 5 measured it: collision is not
+    authored per chunk in any sense a clip can cut, because a chunk is 8x8 independent
+    block placements each carrying its own entry word. The quantum is the BLOCK, 16 px,
+    and it binds on the paste SHIFT rather than on the src origin — `probe_core` picks the
+    height column with `andi.w #$F, d0` on the WORLD x. So W1 is retired and R12 is the
+    rule, a refusal with no opt-out.
+
+    The mutation is the same one this row always made (src x + 8), and it now REFUSES
+    instead of warning. The deeper collision-side coverage lives in
+    `tools/test_s2_clip_collision.py`.
+    """
     for donor, _zone in CASES:
         _need(donor)
     d = copy.deepcopy(doc)
     d["clips"][0]["src_rect"]["x"] = 4096 + 8
     d["clips"][0]["src_rect"]["w"] = 2048 - 8
     d["clips"][0]["dst_rect"]["w"] = 2048 - 8
+    with pytest.raises(CM.ClipManifestError) as e:
+        CM.load(_write(tmp_path, d), donor_root=donors)
+    assert "R12" in str(e.value), str(e.value)
+
+    # ...and the SAME rect moved to a 16-px offset loads clean, with no warning about
+    # 128-px chunk alignment: that is the retired premise, stated as a passing case.
+    d2 = copy.deepcopy(doc)
+    d2["clips"][0]["src_rect"]["x"] = 4096 + 16
+    d2["clips"][0]["src_rect"]["w"] = 2048 - 16
+    d2["clips"][0]["dst_rect"]["w"] = 2048 - 16
     got = []
-    CM.load(_write(tmp_path, d), donor_root=donors, warn=got.append)
-    assert any(w.startswith("W1 ") for w in got), got
+    act = CM.load(_write(tmp_path, d2, "ok.json"), donor_root=donors, warn=got.append)
+    assert act.clips[0].src[0] % 128 != 0            # genuinely not chunk-aligned
+    assert not any(w.startswith("W1 ") for w in got), got
 
 
 def test_the_ids_this_file_carries_are_ids_the_regions_document_could_carry(donors, doc, tmp_path):
