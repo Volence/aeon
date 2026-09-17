@@ -71,6 +71,7 @@ SCREEN_HALF_H = 112
 MCLK_PER_CPU_CLOCK = 7          # 68000 clock = MCLK / 7 (NTSC: 896,081 mclk = 128,012 clocks/frame)
 PREEMPT_CORR_CLOCKS = 262       # DERIVED: IRQ exception 44 + movem 15 regs 128 + 5 instrs to the Saved_PC write
 RESUME_CORR_CLOCKS = 170        # DERIVED: 7 move.l abs,Rn + 2 pushes + rte after the Suspended clear
+HIT_PAGE = 100                  # hits per watchpoint_hits call: 500 overran the client's 64 KB line limit
 STILL_QUIET_FRAMES = 20         # leg ends: camera unmoved this long with no hold/stall/queue/decode
 STILL_STUCK_FRAMES = 900        # leg ends anyway: a hold lasting this long is recorded as stuck
 WATCHES = ("PageIn_InFlight", "PageIn_Suspended", "PageIn_Saved_PC", "Page_Table",
@@ -167,7 +168,7 @@ async def _probe(sock, inst, opt, sym):
 
     async def drain():
         while True:
-            p = {"limit": 500}
+            p = {"limit": HIT_PAGE}
             if cursor[0] is not None:
                 p["cursor"] = str(cursor[0])
             r = await b.call("emulator/watchpoint_hits", p)
@@ -177,7 +178,7 @@ async def _probe(sock, inst, opt, sym):
                 hits.append([h["seq"], h["mclk"], h["frame"], int(str(h["addr"]).replace("0x", ""), 16),
                              int(str(h["value"]).replace("0x", ""), 16), int(str(h["pc"]).replace("0x", ""), 16)])
             wstat.update({k: r.get(k) for k in ("seen", "matched", "dropped")})
-            if not r.get("truncated") and len(got) < 500:
+            if not r.get("truncated") and len(got) < HIT_PAGE:
                 return
 
     await b.call("emulator/run_frames", {"frames": opt["settle"]})
