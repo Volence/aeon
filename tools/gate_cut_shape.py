@@ -124,8 +124,33 @@ def canonical_targets():
 
 
 def digest_target_problem(lst_path):
-    """None when the listing's own Source Digest names a NON-canonical build target;
-    otherwise the reason, in words."""
+    """None when the listing's Source Digest is one an off-canonical shape can carry;
+    otherwise the reason, in words.
+
+    WHAT THIS IS FOR: a CANONICAL build renamed to an off-canonical listing must not earn
+    a derived cut. It is a rename that is being caught, not a target.
+
+    WHY THE TARGET ALONE IS NOT THE TEST (widened 2026-09-17, S2-COMPRESSED-ACT row 6).
+    Every off-canonical shape that existed when this was written is a named sigil PROFILE
+    (`--stress-evict`, `--stress-art`), so `target != sonic4` was a free proxy for "not a
+    canonical build". The S2CLIP clip-act shapes are not: they are off-canonical in their
+    ACT DATA — a throwaway re-bake of the act slot — and are built through the canonical
+    `--game sonic4` target, because a clip act needs no placement change and inventing a
+    sigil profile for one would be a cross-repo change for a data swap. Under the old rule
+    they were refused as renames, which is a true sentence about their target doing a
+    bigger sentence's work.
+
+    THE DISCRIMINATOR IS THE ARTIFACT SIGIL WAS ASKED TO WRITE, checked directly instead
+    of through the target proxy: `DIGEST-ROM path=`. sigil writes that line from its own
+    `-o`, so a canonical build renamed afterwards still says `path=s4.bin` while its file
+    is called `s4.stress.bin`. Renaming cannot forge it, and re-running sigil with
+    `-o s4.stress.bin` is not a rename — it is building that artifact.
+
+    IT IS NOT THE ONLY THING STANDING between a rename and a derived cut, which is why
+    widening here is safe: the shared freshness primitive already refuses a pair whose
+    DIGEST-ROM names a different .bin (artifact_provenance, "DIGEST-ROM names X, not Y"),
+    upstream of every caller of this function.
+    """
     try:
         d = artifact_provenance.read_digest(str(lst_path))
     except (OSError, artifact_provenance.DigestError) as e:
@@ -133,9 +158,21 @@ def digest_target_problem(lst_path):
     target = d.get("shape", {}).get("target")
     if target is None:
         return "its Source Digest carries no DIGEST-SHAPE target"
-    if target in canonical_targets():
-        return ("its Source Digest says target=%s, a CANONICAL build target; a canonical "
-                "build under an off-canonical name is not an off-canonical shape" % target)
+    if target not in canonical_targets():
+        return None
+    named = (d.get("rom") or {}).get("path")
+    if named is None:
+        return ("its Source Digest says target=%s, a CANONICAL build target, and carries "
+                "no DIGEST-ROM path to say which artifact sigil was asked to write; a "
+                "canonical build under an off-canonical name is not an off-canonical "
+                "shape" % target)
+    want = os.path.basename(str(lst_path))
+    want = want[:-4] + ".bin" if want.endswith(".lst") else want + ".bin"
+    if os.path.basename(named) != want:
+        return ("its Source Digest says target=%s, a CANONICAL build target, and names "
+                "DIGEST-ROM path=%s rather than %s — sigil was asked for a canonical "
+                "artifact and the pair was renamed afterwards; a canonical build under an "
+                "off-canonical name is not an off-canonical shape" % (target, named, want))
     return None
 
 

@@ -56,6 +56,9 @@ ART_POOL_PAGE_TILES, ART_POOL_PAGE_BYTES = load_page_geometry()
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
 BLOCK_RAW_SIZE = 768       # one raw 16x16 block (dict region is a multiple)
 PROJECT_JSON = os.path.join(ROOT, "project.json")
+# The base collision shape bank the editor cell words index; None = the S&K
+# vocabulary under collision/base/. Set by --bank. See verify_editor_collision_fidelity.
+BASE_BANK_DIR = None
 STRIP_GEN_SRC = os.path.join(ROOT, "tools", "ojz_strip_gen.py")
 NAMETABLE_TILE_MASK = 0x07FF   # bits 0-10 of a VDP nametable word
 NAMETABLE_ATTR_MASK = 0xE000   # priority + palette line (flip bits are NOT here)
@@ -825,8 +828,11 @@ def verify_editor_bake_fidelity():
         proj = json.load(f)
     zone = proj["zones"][0]
     act = zone["acts"][0]
-    tileset_path = os.path.join(ROOT, zone["tileset"])
-    data_path = os.path.join(ROOT, act["dataPath"])
+    # Relative to the PROJECT FILE, not to ROOT — identical for the shipped
+    # project.json, which sits at the repo root, and the only spelling that works
+    # for the second project file a clip act is baked from (--project).
+    tileset_path = os.path.join(os.path.dirname(PROJECT_JSON), zone["tileset"])
+    data_path = os.path.join(os.path.dirname(PROJECT_JSON), act["dataPath"])
     declared = _section_count()
     if declared is None:
         return
@@ -1079,14 +1085,23 @@ def verify_editor_collision_fidelity():
         return
     with open(PROJECT_JSON) as f:
         act = json.load(f)["zones"][0]["acts"][0]
-    data_path = os.path.join(ROOT, act["dataPath"])
+    # Relative to the PROJECT FILE (see the same note in the bake-fidelity lane).
+    data_path = os.path.join(os.path.dirname(PROJECT_JSON), act["dataPath"])
     declared = _section_count()
     if declared is None:
         return
 
     names = ("heightmaps.bin", "angles.bin", "solidity.bin", "crossover.bin")
-    need = [os.path.join(COLLISION_DIR, "base", "heightmaps.bin"),
-            os.path.join(COLLISION_DIR, "base", "angles.bin")]
+    # --bank names the BASE SHAPE BANK the editor cell words index. Default: the
+    # S&K vocabulary under collision/base/, which the shipped act is authored
+    # against. A Sonic 2 clip act is authored against collision/base_s2/ (staged
+    # plan row 4) and a shape index means a DIFFERENT shape in the other bank, so
+    # running this lane with the wrong bank reports every authored cell as a
+    # mismatch — which is how a shape ends up skipping the lane instead of
+    # pointing it at the right bank.
+    bank = BASE_BANK_DIR or os.path.join(COLLISION_DIR, "base")
+    need = [os.path.join(bank, "heightmaps.bin"),
+            os.path.join(bank, "angles.bin")]
     need += [os.path.join(COLLISION_DIR, n) for n in names]
     missing = [p for p in need if not os.path.isfile(p)]
     if missing:
@@ -1195,14 +1210,46 @@ def verify_editor_collision_fidelity():
 
 
 def main(argv=None):
-    global STRESS_MODE
+    global STRESS_MODE, PROJECT_JSON, BASE_BANK_DIR
     args = sys.argv[1:] if argv is None else list(argv)
-    unknown = [a for a in args if a != "--stress"]
+    # --project PATH names the project file whose act this tree was baked from. The
+    # DEFAULT is the shipped project.json at the repo root and nothing about a
+    # canonical run changes. A clip act (S2-COMPRESSED-ACT row 6) bakes a SECOND act
+    # into the same output directory, and without this every lane below still ran but
+    # the two editor-fidelity lanes compared the clip's bake against the SHIPPED act's
+    # editor tree — a guaranteed, uninformative failure, which is how a shape ends up
+    # skipping the gate entirely instead of pointing it at the right tree.
+    project = None
+    bank = None
+    rest = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--project" and i + 1 < len(args):
+            project = args[i + 1]
+            i += 2
+            continue
+        if args[i] == "--bank" and i + 1 < len(args):
+            bank = args[i + 1]
+            i += 2
+            continue
+        rest.append(args[i])
+        i += 1
+    unknown = [a for a in rest if a != "--stress"]
     if unknown:
-        print(f"usage: verify_level_bin.py [--stress]  (unknown: {' '.join(unknown)})",
-              file=sys.stderr)
+        print(f"usage: verify_level_bin.py [--stress] [--project PATH] [--bank DIR]  "
+              f"(unknown: {' '.join(unknown)})", file=sys.stderr)
         return 2
-    STRESS_MODE = "--stress" in args
+    if project is not None:
+        if not os.path.isfile(project):
+            print(f"verify_level_bin: --project {project} does not exist", file=sys.stderr)
+            return 2
+        PROJECT_JSON = os.path.abspath(project)
+    if bank is not None:
+        if not os.path.isdir(bank):
+            print(f"verify_level_bin: --bank {bank} is not a directory", file=sys.stderr)
+            return 2
+        BASE_BANK_DIR = os.path.abspath(bank)
+    STRESS_MODE = "--stress" in rest
     if STRESS_MODE:
         print("verify_level_bin: --stress: verifying a STRESS_ART throwaway bake "
               f"(declared clones in {STRESS_CLONES_SIDECAR} are held to the editor after "

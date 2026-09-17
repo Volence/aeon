@@ -215,6 +215,16 @@ BGANIM_SECTION_CEILINGS = {
     # ROM's room (and fails if it drops under this number) rather than defaulting.
     "s4.stress.lst": BGANIM_SECTION_CEILING_RULED,      # STRESS_EVICT=1
     "s4.stressart.lst": BGANIM_SECTION_CEILING_RULED,   # STRESS_ART=1
+    # The S2CLIP clip-act DEV shapes (build.sh; S2-COMPRESSED-ACT row 6, 2026-09-17).
+    # SAME reasoning as the STRESS_* rows, and it is a derivation and not a copy: a clip
+    # act is a throwaway re-bake of the FOREGROUND half of the shipped act's slot and
+    # keeps the shipped background entirely — the same editor_bg_override.json, the same
+    # injected sections, the same bg_anim.emp. The BG authoring this number bounds is
+    # byte-for-byte the shipped act's, so the ruled number carries; what does NOT carry
+    # is the ROOM, which is why the rows are keyed by their own listings and
+    # bganim_room.py measures each ROM for itself.
+    "s4.s2clip.lst": BGANIM_SECTION_CEILING_RULED,        # S2CLIP=<id>
+    "s4.s2clip.debug.lst": BGANIM_SECTION_CEILING_RULED,  # S2CLIP=<id> DEBUG=1
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 

@@ -70,7 +70,10 @@ def _one_section_editor(tmp_path, collattr, collattrb=None):
 
 def _overlay(osg, monkeypatch, editor_dir):
     import collision_pipeline as cp
-    monkeypatch.setattr(osg, "EDITOR_DIR", str(editor_dir))
+    # EDITOR_ACT_DIR, not EDITOR_DIR: the overlay reads the act directory the PROJECT
+    # names (2026-09-17). EDITOR_DIR is deleted, so patching it now RAISES rather than
+    # silently pointing these rows at the shipped act — which is what it did.
+    monkeypatch.setattr(osg, "EDITOR_ACT_DIR", str(editor_dir / "ojz" / "act1"))
     profiles, angles = osg.load_base_bank()
     air = bytes(osg.COLLISION_ROWS_PER_STRIP)
     grids = ([air] * osg.STRIP_TILE_HEIGHT, [air] * osg.STRIP_TILE_HEIGHT)
@@ -523,6 +526,11 @@ open("games/sonic4/data/collision/angles.bin", "wb").write(b"RAW BASE BANK")
     # reader (PAGE-SIZE-CONSTANT-ONLY): the reader and the constants file are inputs of
     # the script, not steps under test, so they are the real ones, not stubs.
     shutil.copy(os.path.join(HERE, "fg_working_set.py"), stubs / "fg_working_set.py")
+    # The art-pool election is a REAL step of the script (it moved out of the bash into
+    # tools/elect_pool_pages.py on 2026-09-17 so a clip act could elect through the same
+    # emitter). This harness drives the script end to end, so it gets the real one; the
+    # stub generator above declares a 0-page pool, which it elects in zero work.
+    shutil.copy(os.path.join(HERE, "elect_pool_pages.py"), stubs / "elect_pool_pages.py")
     (repo / "engine" / "system").mkdir(parents=True)
     shutil.copy(os.path.join(HERE, "..", "engine", "system", "constants.emp"),
                 repo / "engine" / "system" / "constants.emp")

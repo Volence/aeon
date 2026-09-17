@@ -40,6 +40,7 @@ when the sonic_hack collision sources are missing.
 
 import glob
 import hashlib
+import shutil
 import struct
 import sys
 import os
@@ -92,9 +93,12 @@ COLLISION_DIR = os.path.join(
     os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"
 )
 
-EDITOR_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "games", "sonic4", "data", "editor"
-)
+# EDITOR_DIR IS DELETED, NOT KEPT AS A CONVENIENCE (2026-09-17). Its three users all
+# spelled `os.path.join(EDITOR_DIR, "ojz", "act1")` and now read EDITOR_ACT_DIR, derived
+# from the project file. Leaving the name behind would leave two tests monkeypatching it
+# and passing: `apply_editor_collision_overlay` would quietly read the REAL editor tree
+# instead of their fixture, which is what happened, and their refusal rows went green
+# against the shipped act's 1,038 painted cells. Deleting it makes that setattr raise.
 PROJECT_JSON = os.path.join(
     os.path.dirname(__file__), "..", "project.json"
 )
@@ -116,7 +120,73 @@ def _project_tileset_path() -> str:
     )
 
 
+def _project_act_data_dir() -> str:
+    """The EDITOR act directory, from project.json's acts[0].dataPath.
+
+    THREE SITES USED TO SPELL THIS `os.path.join(EDITOR_DIR, "ojz", "act1")` while
+    generate() itself already resolved it from `dataPath` (the "zones[0]/acts[0] is
+    hard-coded in nine files" item of the S2-COMPRESSED-ACT design's §11 risk 6).
+    They agree for the shipped act — dataPath IS games/sonic4/data/editor/ojz/act1/ —
+    so this is byte-neutral there, and it is what lets a SECOND act's tree be baked
+    by pointing PROJECT_JSON at a second project file (tools/clip_rom_bake.py).
+    A hard-coded path would have made the two disagree silently: the availability
+    probe and the collision overlay would have read the shipped act's files while the
+    strips came from the clip's.
+    """
+    with open(PROJECT_JSON, "r") as f:
+        proj = json.load(f)
+    return os.path.normpath(os.path.join(
+        os.path.dirname(PROJECT_JSON), proj["zones"][0]["acts"][0]["dataPath"]))
+
+
 ZONE_TILESET_PATH = _project_tileset_path()
+EDITOR_ACT_DIR = _project_act_data_dir()
+
+# The collision shape bank the editor cell words index. None = the module default
+# inside load_base_bank (games/sonic4/data/collision/base/, the S&K vocabulary the
+# shipped act is authored against). A Sonic 2 clip act is authored against
+# games/sonic4/data/collision/base_s2/ (staged plan row 4) and MUST set it: a shape
+# index means a different shape in the other bank, so the wrong bank bakes
+# well-formed collision for the wrong geometry. Set it through configure().
+COLLISION_BANK_DIR = None
+
+# The AUTHORED palette a bake mirrors into <out_dir>/ojz_palette.bin. None = derive it
+# from out_dir (ojz_common.authored_palette_for), which is the shipped act's
+# data/editor/<zone>/<act>/palette.bin. A clip act bakes into the SHIPPED act's output
+# directory (sigil places the generated .emp modules by a fixed registry path), so its
+# palette cannot be derived and must be NAMED. Set through configure().
+AUTHORED_PALETTE_PATH = None
+
+
+def configure(project_json: str | None = None,
+              output_dir: str | None = None,
+              collision_dir: str | None = None,
+              bank_dir: str | None = None,
+              authored_palette: str | None = None) -> None:
+    """Point this module at a DIFFERENT act. Module-global redirection because that
+    is already this file's idiom (test_full_pipeline_runs redirects OUTPUT_DIR and
+    COLLISION_DIR the same way), and because generate() reads these from module
+    scope in a dozen places.
+
+    Re-derives everything that hangs off project.json, so a caller cannot set the
+    project and keep the previous act's tileset or data directory — which is the
+    failure this function exists to make impossible.
+    """
+    global PROJECT_JSON, OUTPUT_DIR, COLLISION_DIR, COLLISION_BANK_DIR
+    global AUTHORED_PALETTE_PATH
+    global ZONE_TILESET_PATH, EDITOR_ACT_DIR
+    if project_json is not None:
+        PROJECT_JSON = project_json
+        ZONE_TILESET_PATH = _project_tileset_path()
+        EDITOR_ACT_DIR = _project_act_data_dir()
+    if output_dir is not None:
+        OUTPUT_DIR = output_dir
+    if collision_dir is not None:
+        COLLISION_DIR = collision_dir
+    if bank_dir is not None:
+        COLLISION_BANK_DIR = bank_dir
+    if authored_palette is not None:
+        AUTHORED_PALETTE_PATH = authored_palette
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -509,7 +579,7 @@ def editor_data_available() -> bool:
     A zero-byte tileset is not a degenerate input to handle gracefully; it is a
     broken working tree. Refuse it here, where the diagnosis is still cheap.
     """
-    sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+    sec0 = os.path.join(EDITOR_ACT_DIR, "section_0.tiles.bin")
     for p in (sec0, ZONE_TILESET_PATH):
         if not os.path.isfile(p) or os.path.getsize(p) == 0:
             return False
@@ -1403,8 +1473,16 @@ def test_full_pipeline_runs():
             assert side["version"] == 2 and side["page_tiles"] == ART_POOL_PAGE_TILES
             assert len(side["pages"]) == len(page_files)
             assert side["pages"][0]["pinned"] is True, "page 0 must always be pinned"
-            # (Collision tables are no longer emitted by generate() — they're the
-            # fixed imported S&K set written by tools/import_sk_collision.py.)
+            # THE COLLISION TABLES ARE EMITTED BY generate(), and this comment used
+            # to say they were not ("the fixed imported S&K set written by
+            # import_sk_collision.py"). They are the sparse INTERNED set, emitted from
+            # the attr-set this bake builds, and until 2026-09-17 they went to the
+            # SHIPPED games/sonic4/data/collision/ no matter what this test set
+            # COLLISION_DIR to. Assert they land inside the redirect, so the escape
+            # cannot come back silently.
+            for name in ("heightmaps.bin", "angles.bin"):
+                assert os.path.exists(os.path.join(COLLISION_DIR, name)), \
+                    f"{name} not written inside the COLLISION_DIR redirect"
         finally:
             OUTPUT_DIR = saved
             COLLISION_DIR = saved_coll
@@ -1851,7 +1929,7 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     baked artifact and really is refused. That is the correct report: a crossover
     is a per-plane pair (§3.3) and cannot be authored on a mirrored plane."""
     coll_a, coll_b = grids
-    base = os.path.join(EDITOR_DIR, "ojz", "act1")
+    base = EDITOR_ACT_DIR
     path_a = os.path.join(base, f"section_{sec_id}.collattr.bin")
     if not os.path.isfile(path_a):
         return grids
@@ -1975,7 +2053,7 @@ def require_donor():
         # Name the ACTUAL cause. "Absent" and "present but empty" send an author
         # to completely different places, and the empty case is the one that used
         # to bake a blank level silently (tools lens sweep D3).
-        sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+        sec0 = os.path.join(EDITOR_ACT_DIR, "section_0.tiles.bin")
         why = []
         for label, p in (("section_0.tiles.bin", sec0), ("zone tileset", ZONE_TILESET_PATH)):
             if not os.path.isfile(p):
@@ -2044,9 +2122,12 @@ def generate(stress_uniquify=0):
         # the engine's act descriptor to declare the same GRID_W x GRID_H.
         _zone, ojz_act1 = act_grid.project_act(PROJECT_JSON)
         editor_num_sections = act_grid.section_count(PROJECT_JSON)
-        editor_data_path = os.path.join(
-            os.path.dirname(__file__), "..", ojz_act1["dataPath"]
-        )
+        # ONE spelling of the editor act directory (EDITOR_ACT_DIR, derived from this
+        # project file's dataPath). It used to resolve dataPath against the REPO ROOT
+        # here and against the PROJECT FILE's directory in validate_editor_inputs —
+        # identical for the shipped project.json, which sits at the repo root, and
+        # divergent for any second project file, which is exactly what a clip act is.
+        editor_data_path = EDITOR_ACT_DIR
         section_paths = require_editor_sections(editor_data_path, editor_num_sections)
 
         full_blob = load_editor_tile_art(ZONE_TILESET_PATH)
@@ -2121,7 +2202,7 @@ def generate(stress_uniquify=0):
     # editor's read-only baseline, sec*_strips_source.bin) stay air.
     per_section_coll_rom = per_section_coll
     if use_editor:
-        base_profiles, base_angles = load_base_bank()
+        base_profiles, base_angles = load_base_bank(COLLISION_BANK_DIR)
         attrset = collision_pipeline.AttrSet()      # ONE shared set across all sections
         per_section_coll_rom = {
             sec_id: apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, attrset)
@@ -2129,8 +2210,21 @@ def generate(stress_uniquify=0):
         }
         # Emit the sparse INTERNED runtime tables the ROM uses (overwrites the
         # default full-bank tables import_sk_collision.py wrote).
-        coll_out = os.path.normpath(os.path.join(
-            os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"))
+        #
+        # THIS USED TO WRITE PAST THE COLLISION_DIR REDIRECT (found 2026-09-17, row 6),
+        # exactly as Pass 8 once wrote past the OUTPUT_DIR redirect. The destination was
+        # re-derived from __file__ here, so `python3 tools/ojz_strip_gen.py test` — whose
+        # test_full_pipeline_runs points COLLISION_DIR at a tmpdir and whose comment says
+        # "collision tables are no longer emitted by generate()" (false; this is the
+        # emission) — rewrote the SHIPPED games/sonic4/data/collision/ tables on every
+        # run. MEASURED: heightmaps.bin and angles.bin mtimes both moved across one
+        # `ojz_strip_gen.py test`. Harmless only by luck — the test bakes the same editor
+        # data, so the bytes matched and `git status` stayed clean. Point the module at a
+        # SECOND act (configure(), the clip bake) and the same line silently replaces the
+        # shipped act's ROM collision tables with the clip's, which is the D1 incident
+        # regenerate-level.sh's preflight exists to prevent, one layer down.
+        coll_out = os.path.normpath(COLLISION_DIR)
+        os.makedirs(coll_out, exist_ok=True)
         for name, data in collision_pipeline.emit_tables(attrset).items():
             with open(os.path.join(coll_out, name), "wb") as f:
                 f.write(data)
@@ -2480,11 +2574,24 @@ def generate(stress_uniquify=0):
     # EVERY build, which silently discarded six months of the owner's palette
     # edits — see ojz_common's "EXACTLY ONE WRITER" block for the full account and
     # for why the authored file must live under data/editor/ specifically.
+    #
+    # AUTHORED_PALETTE_PATH (2026-09-17, row 6) names a DIFFERENT authored file when
+    # a second act is baked into this output directory. The derivation above reads
+    # out_dir, and a clip act's out_dir IS the shipped act's — sigil places the
+    # generated `.emp` modules by a fixed registry path, so a clip bake is an
+    # in-place throwaway (build.sh's S2CLIP shape) and cannot move out_dir. Without
+    # this the clip act would ship the SHIPPED act's colours, which is a picture that
+    # looks plausible and is wrong. It is never written to: the override is a SOURCE,
+    # and the one-writer rule for data/editor/<zone>/<act>/palette.bin is untouched.
     pal_dest = os.path.join(out_dir, "ojz_palette.bin")
-    seeded, _pal = ojz_common.refresh_act_palette(out_dir)
-    pal_authored = ojz_common.authored_palette_for(out_dir)
-    if seeded:
-        print(f"Seeded authored palette from donor -> {pal_authored} (first run only)")
+    if AUTHORED_PALETTE_PATH is not None:
+        pal_authored = AUTHORED_PALETTE_PATH
+        shutil.copyfile(pal_authored, pal_dest)
+    else:
+        seeded, _pal = ojz_common.refresh_act_palette(out_dir)
+        pal_authored = ojz_common.authored_palette_for(out_dir)
+        if seeded:
+            print(f"Seeded authored palette from donor -> {pal_authored} (first run only)")
     print(f"Palette: {pal_authored} -> {pal_dest}")
 
     print(f"Done. {len(sec_ids_in_order)} sections, {total_strips} total strips written to {out_dir}")

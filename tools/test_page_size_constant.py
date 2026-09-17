@@ -186,6 +186,11 @@ def _rebake(tmp_path, page_tiles, page_bytes):
     for name in ("import_sk_collision.py", "effects_gen.py", "ojz_block_gen.py",
                  "verify_level_bin.py", "fg_page_order.py", "level_staleness.py"):
         (stubs / name).write_text("")
+    # NOT a stub: the page-size guard this file exists to drive MOVED out of
+    # regenerate-level.sh's bash into tools/elect_pool_pages.py on 2026-09-17 (so a clip
+    # act could elect its pages through the same emitter). Stubbing it would make these
+    # three rows test nothing at all — the subject has to be the real one.
+    shutil.copy(os.path.join(HERE, "elect_pool_pages.py"), stubs / "elect_pool_pages.py")
     shutil.copy(os.path.join(HERE, "fg_working_set.py"), stubs / "fg_working_set.py")
     _write_constants(repo, page_tiles)
     for sub in ("collision", "generated"):
@@ -201,13 +206,17 @@ def test_rebake_admits_a_full_page_at_the_engine_page_size(tmp_path):
     """Control: the stub harness completes when the page fits."""
     p = _rebake(tmp_path, REAL_PAGE_TILES, REAL_PAGE_TILES * TILE_SIZE)
     assert p.returncode == 0, p.stdout + p.stderr
-    assert "exceeds one page" not in p.stdout
+    assert "exceeds one page" not in p.stdout + p.stderr
 
 
 def test_rebake_refuses_a_real_size_page_under_a_32_tile_constant(tmp_path):
     p = _rebake(tmp_path, ALT_PAGE_TILES, REAL_PAGE_TILES * TILE_SIZE)
     assert p.returncode != 0, p.stdout + p.stderr
-    assert f"exceeds one page ({ALT_PAGE_TILES * TILE_SIZE})" in p.stdout, p.stdout + p.stderr
+    # stdout + stderr: the guard now refuses from a Python tool, which prints its
+    # refusal on stderr; the bash it replaced echoed on stdout. The subject is the
+    # guard, not the stream it speaks through.
+    assert f"exceeds one page ({ALT_PAGE_TILES * TILE_SIZE})" in p.stdout + p.stderr, \
+        p.stdout + p.stderr
 
 
 def test_rebake_admits_a_full_32_tile_page_under_a_32_tile_constant(tmp_path):

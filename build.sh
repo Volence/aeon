@@ -179,6 +179,47 @@ if [[ "${STRESS_ART:-0}" == "1" ]]; then
     DEBUG=1                      # the fixture needs asserts + the refcount/orphan audit
     ROM_NAME="s4.stressart"
 fi
+
+# S2CLIP=<clip act id> (S2-COMPRESSED-ACT staged plan row 6): the sonic4 shape built
+# against a SONIC 2 CLIP ACT instead of the shipped OJZ act — the first thing on screen
+# from the compressed-Sonic-2 showcase. Off-canonical DEV shape in exactly STRESS_ART's
+# sense: UNFROZEN, no golden, a DISTINCT artifact (s4.s2clip[.debug].bin/.lst), and a
+# THROWAWAY in-place re-bake of the ONE act slot under an EXIT trap that restores the
+# committed tree from git (see the S2CLIP re-bake block further down, and
+# tools/clip_rom_bake.py's header for why the slot is reused rather than a second act
+# added). The canonical shapes are byte-identical BY CONSTRUCTION: they read the
+# committed tree, no .emp, no map.toml row and no engine constant is touched here.
+#
+# It does NOT force DEBUG, unlike STRESS_ART. Row 6's check is "Sonic stands on its
+# ground", and the DEBUG shape boots the harness into free flight — the default state
+# IS the condition under test. Plain is the shape to look at; DEBUG=1 S2CLIP=... builds
+# the debug twin for the MD Debugger and the hotkeys.
+if [[ -n "${S2CLIP:-}" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: S2CLIP is a sonic4-only shape (the OJZ act slot is the target)."
+        exit 1
+    fi
+    if [[ "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" ]]; then
+        echo "ERROR: S2CLIP and the STRESS_* fixtures are mutually exclusive shapes —"
+        echo "  both re-bake the same act slot."
+        exit 1
+    fi
+    S2CLIP_MANIFEST="games/sonic4/data/clips/${S2CLIP}/clips.json"
+    if [[ ! -f "$S2CLIP_MANIFEST" ]]; then
+        echo "ERROR: S2CLIP=${S2CLIP} names no manifest at ${S2CLIP_MANIFEST}."
+        echo "  Clip acts live at games/sonic4/data/clips/<id>/clips.json."
+        exit 1
+    fi
+    # BOTH names spelled as standalone literals, not one derived from the other:
+    # tools/gate_cut_shape.py reads the off-canonical shapes off THIS file with
+    # `^\s*ROM_NAME="([^"$]+)"\s*$`, and a name built from ${ROM_NAME} is invisible to it.
+    # A listing it cannot see is classified CANONICAL and then required to have a
+    # committed cut it has no business having.
+    ROM_NAME="s4.s2clip"
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        ROM_NAME="s4.s2clip.debug"
+    fi
+fi
 MAIN_ASM="games/${GAME}/game_root.asm"
 TOOLS="${TOOLS:-tools}"
 
@@ -995,6 +1036,41 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     # <<< SHARED_LANES
 fi
 
+# S2CLIP throwaway re-bake: bake the named clip act into the shipped act's slot IN
+# PLACE under an EXIT trap that restores the committed tree from git (covers success
+# AND failures). Requires the S2 donor tree the clip names, converted with
+# tools/s2_zone_convert.py. The gates below then run against the CLIP tree — pointed at
+# the clip's staged project and its Sonic 2 shape bank rather than skipped, because a
+# lane that is switched off for a shape is a lane that shape never had.
+if [[ -n "${S2CLIP:-}" ]]; then
+    S2CLIP_GEN_TREE="games/sonic4/data/generated/ojz/act1"
+    S2CLIP_COLL_TREE="games/sonic4/data/collision"
+    if [[ -n "$(git status --porcelain -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE")" ]]; then
+        echo "ERROR: S2CLIP needs a clean generated tree, but git status shows changes"
+        echo "  under $S2CLIP_GEN_TREE or $S2CLIP_COLL_TREE. Commit or stash them first —"
+        echo "  the clip re-bake restores from git and would discard uncommitted changes."
+        exit 1
+    fi
+    _restore_s2clip_tree() {
+        echo "S2CLIP: restoring the committed level tree from git..."
+        git checkout -q -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE" 2>/dev/null || true
+        git clean -fdq -- "$S2CLIP_GEN_TREE" 2>/dev/null || true
+    }
+    trap _restore_s2clip_tree EXIT
+    echo "S2CLIP: throwaway re-bake of clip act '${S2CLIP}' into the OJZ act slot..."
+    # S2CLIP_PALETTE: `shipped` (default) or `clip`. The clip's own palette is the right
+    # picture and is BLOCKED on a ruling — eight comptime pins in
+    # games/sonic4/data/effects/ojz_effects.emp describe the SHIPPED act's palette and
+    # refuse any other. tools/clip_rom_bake.py's PALETTE block states the three options.
+    python3 "${TOOLS}/clip_rom_bake.py" bake "$S2CLIP_MANIFEST" --allow-dirty \
+        --palette "${S2CLIP_PALETTE:-shipped}" || {
+        echo "S2CLIP: the clip bake refused (see above)" >&2; exit 1; }
+    S2CLIP_PROJECT="games/sonic4/data/clips/${S2CLIP}/baked/project.json"
+    S2CLIP_BANK=$(python3 -c "import sys,json; sys.path.insert(0, sys.argv[1]); import clip_manifest as m; a = m.load(sys.argv[2]); print(m.collision_banks(a))" "${TOOLS}" "$S2CLIP_MANIFEST") || {
+        echo "S2CLIP: could not resolve the clip's collision bank" >&2; exit 1; }
+    echo "S2CLIP: gates will read project ${S2CLIP_PROJECT} and bank ${S2CLIP_BANK}"
+fi
+
 # STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
 # EXIT trap that restores the committed tree from git (covers success AND set -e
 # failures). Requires donors (like regenerate-level.sh). verify_level_bin below then
@@ -1030,6 +1106,15 @@ echo "Verifying committed OJZ level tree..."
 # flag, and a canonical verify refuses a tree carrying the stress clone declaration.
 VERIFY_LEVEL_FLAGS=""
 if [[ "${STRESS_ART:-0}" == "1" ]]; then VERIFY_LEVEL_FLAGS="--stress"; fi
+# S2CLIP: the SAME ten lanes, aimed at the clip's own project and shape bank. Both
+# fidelity lanes are act-specific — they compare the bake against the editor tree the
+# project names, and resolve editor cell words through a base bank — so without these
+# two flags they would report every cell as a mismatch and the shape would have to skip
+# them. Skipping is the outcome this avoids: a lane a shape never runs is a lane that
+# shape does not have.
+if [[ -n "${S2CLIP:-}" ]]; then
+    VERIFY_LEVEL_FLAGS="--project ${S2CLIP_PROJECT} --bank ${S2CLIP_BANK}"
+fi
 if ! gate strict "verify_level_bin.py" python3 "${TOOLS}/verify_level_bin.py" ${VERIFY_LEVEL_FLAGS}; then
     echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
