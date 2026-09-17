@@ -173,6 +173,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -978,6 +979,28 @@ def check_fixture(rom, syms, path, lst_path):
     return problems
 
 
+def derived_cut_placement(rom, syms, path, lst_path):
+    """For a DERIVED cut only: it must sit at THIS listing's addresses and hold THIS ROM's
+    bytes, exactly. check_fixture is relocation-blind by design, so it passes another
+    shape's genuine cut (measured: the s4.debug.lst cut checks clean against s4.stress.lst);
+    a cut derived from this listing has no relocation to forgive, and this is what makes
+    "not borrowed" a check rather than a sentence."""
+    fx = _read_fixture(path)["shapes"].get(_shape_key(lst_path))
+    if fx is None:
+        return ["the derived cut holds no key for %r" % _shape_key(lst_path)]
+    start, end = routine_extent(syms, "Player_ApplyTilt")
+    bad = []
+    if (fx["routine"]["addr"], fx["routine"]["bytes"]) != (start, rom[start:end].hex()):
+        bad.append("derived Player_ApplyTilt is at $%06X, this listing's at $%06X (or its "
+                   "bytes are not this ROM's)" % (fx["routine"]["addr"], start))
+    if fx["refresh_addr"] != syms.get("RefreshSpritePieceCount"):
+        bad.append("derived RefreshSpritePieceCount address is not this listing's")
+    for n, sl in sorted(fx["anim_tables"].items()):
+        if sl["addr"] != syms.get(n):
+            bad.append("derived %s address is not this listing's" % n)
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lst", required=True)
@@ -1021,7 +1044,27 @@ def main():
               % (args.emit_fixture, ", ".join(fixture_shapes(out))))
         return 0
 
-    stale = check_fixture(rom, syms, args.fixture, args.lst) if args.fixture else []
+    # STRESS-SHAPES-GATE-CUTS (2026-09-17): an OFF-CANONICAL shape's cut is derived here
+    # from its own listing + ROM by build_fixture, the producer --emit-fixture uses, and
+    # checked with check_fixture like a committed one. See tools/gate_cut_shape.py.
+    derived = False
+    stale = []
+    if args.fixture:
+        try:
+            derived = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+        except gate_cut_shape.ShapeClassError as e:
+            print("sprite_tilt_gate: COULD NOT RUN — %s" % e)
+            return gate_cut_shape.COULD_NOT_RUN
+        if derived:
+            rc = gate_cut_shape.derive_for_offcanonical(
+                "sprite_tilt_gate", args.lst, args.fixture, fixture_shapes,
+                lambda p: p.write_text(build_fixture(rom, syms, args.lst)),
+                lambda p: (check_fixture(rom, syms, p, args.lst)
+                           + derived_cut_placement(rom, syms, p, args.lst)))
+            if rc is not None:
+                return rc
+        else:
+            stale = check_fixture(rom, syms, args.fixture, args.lst)
 
     checks, fails, frames, listing = sweep(rom, syms, args.verbose)
 
@@ -1033,7 +1076,10 @@ def main():
           % checks)
     print("  distinct mapping frames the sweep selected: %d  ($%02X-$%02X)"
           % (len(frames), min(frames), max(frames)))
-    if args.fixture:
+    if args.fixture and derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+    elif args.fixture:
         if stale:
             print("  FIXTURE STALE (%s) — the pre-build unit tests are running over a "
                   "cut that is no longer this routine:" % args.fixture)

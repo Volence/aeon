@@ -251,6 +251,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1479,6 +1480,26 @@ def check_cut(rom, spans, syms, equs, path, lst_path):
             % (path, shape, "\n  ".join(problems)))
 
 
+def derived_cut_placement(rom, spans, syms, path, lst_path):
+    """For a DERIVED cut only: THIS listing's spans, table and symbol addresses and THIS
+    ROM's bytes, exactly. check_cut is relocation-blind by design and would pass another
+    shape's genuine cut; a cut derived from this listing has nothing to forgive."""
+    cut = _read_cut_doc(path)["shapes"].get(shape_key(lst_path))
+    if cut is None:
+        return ["the derived cut holds no key for %r" % shape_key(lst_path)]
+    bad = []
+    if [tuple(s) for s in cut["spans"]] != [tuple(s) for s in spans] or \
+            cut["bytes"] != [rom[a:b].hex() for a, b in spans]:
+        bad.append("derived spans %s are not this listing's %s (or their bytes are not "
+                   "this ROM's)" % (cut["spans"], [list(s) for s in spans]))
+    if cut["table_addr"] != syms.get("CrossoverTable"):
+        bad.append("derived CrossoverTable address is not this listing's")
+    moved = sorted(n for n, a in cut["syms"].items() if syms.get(n) != a)
+    if moved:
+        bad.append("derived symbol address(es) not this listing's: %s" % ", ".join(moved))
+    return bad
+
+
 # --------------------------------------------------------------------------
 
 def run_all(rom, prog, extents, syms, equs):
@@ -1548,6 +1569,24 @@ def main():
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    # STRESS-SHAPES-GATE-CUTS (2026-09-17): an OFF-CANONICAL shape's cut is derived here
+    # from its own listing + ROM by build_cut (the --write-fixture producer) and checked
+    # by check_cut, exactly as a committed one would be. See tools/gate_cut_shape.py.
+    try:
+        derived = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+    except gate_cut_shape.ShapeClassError as e:
+        print("loop_crossover_gate: COULD NOT RUN — %s" % e)
+        return gate_cut_shape.COULD_NOT_RUN
+    if derived:
+        rc = gate_cut_shape.derive_for_offcanonical(
+            "loop_crossover_gate", args.lst, args.fixture, cut_shapes,
+            lambda p: p.write_text(json.dumps(build_cut(rom, spans, syms, equs, args.lst),
+                                              indent=2, sort_keys=True) + "\n"),
+            lambda p: (check_cut(rom, spans, syms, equs, p, args.lst),
+                       derived_cut_placement(rom, spans, syms, p, args.lst))[1])
+        if rc is not None:
+            return rc
+
     r = run_all(rom, prog, extents, syms, equs)
 
     print("loop_crossover_gate [%s]:" % args.lst)
@@ -1573,7 +1612,10 @@ def main():
         if len(r["fails"]) > 20:
             print("    ... and %d more" % (len(r["fails"]) - 20))
 
-    if pathlib.Path(args.fixture).exists():
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+    elif pathlib.Path(args.fixture).exists():
         try:
             check_cut(rom, spans, syms, equs, args.fixture, args.lst)
         except SystemExit as e:

@@ -222,6 +222,7 @@ import os.path as _osp                                        # noqa: E402
 sys.path.insert(0, _osp.dirname(_osp.abspath(__file__)))
 from scene_spans import vma_phased_symbol_names   # noqa: E402
 import artifact_provenance                          # noqa: E402
+import gate_cut_shape                               # noqa: E402
 # ---------------------------------------------------------------------------
 
 
@@ -1051,6 +1052,50 @@ def check_cap_displacement(prog, cap_off):
 
 # --------------------------------------------------------------------------
 
+def derived_cut_placement(rom, start, end, stubs, path, lst_path, routine):
+    """For a DERIVED cut only: THIS listing's extent and stub addresses and THIS ROM's
+    bytes, exactly. check_cut is relocation-blind by design and would pass another
+    shape's genuine cut; a cut derived from this listing has nothing to forgive."""
+    cut = _read_cut_doc(path)["shapes"].get(shape_key(lst_path))
+    if cut is None:
+        return ["the derived cut holds no key for %r" % shape_key(lst_path)]
+    bad = []
+    if (cut["start"], cut["end"], cut["bytes"]) != (start, end, rom[start:end].hex()):
+        bad.append("derived %s span $%06X..$%06X is not this listing's $%06X..$%06X (or "
+                   "its bytes are not this ROM's)"
+                   % (routine, cut["start"], cut["end"], start, end))
+    if cut["stubs"] != {"%06X" % a: n for a, n in stubs.items()}:
+        bad.append("derived %s stub addresses are not this listing's" % routine)
+    return bad
+
+
+def _derived_cut(args, fixture, rom, start, end, stubs, offs, k, sst_custom, syms,
+                 routine):
+    """STRESS-SHAPES-GATE-CUTS (2026-09-17). (derived, rc): for an OFF-CANONICAL shape the
+    cut is derived from this listing + ROM by build_cut (the --write-fixture producer)
+    and checked by check_cut, exactly as a committed one would be; rc is the exit code
+    to stop with, or None. A canonical shape returns (False, None) and keeps its
+    committed cut. See tools/gate_cut_shape.py."""
+    try:
+        off = gate_cut_shape.classify(args.lst) == gate_cut_shape.OFF_CANONICAL
+    except gate_cut_shape.ShapeClassError as e:
+        print("  instashield_gate: COULD NOT RUN — %s" % e)
+        return True, gate_cut_shape.COULD_NOT_RUN
+
+    def produce(p):
+        doc = build_cut(rom, start, end, stubs, offs, k, sst_custom, args.lst,
+                        note=cut_note(routine))
+        p.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+    if not off:
+        return False, None
+    return True, gate_cut_shape.derive_for_offcanonical(
+        "instashield_gate", args.lst, fixture, cut_shapes, produce,
+        lambda p: (check_cut(rom, start, end, syms, p, args.lst, routine),
+                   derived_cut_placement(rom, start, end, stubs, p, args.lst,
+                                         routine))[1])
+
+
 def _fixture_verdict(rom, start, end, syms, fixture, lst, gate, routine=ROUTINE):
     """(ok, hard_fail). Shared by both passes."""
     if pathlib.Path(fixture).exists():
@@ -1098,6 +1143,11 @@ def pass_instashield(args, rom, syms, equs, offs, overlay_len):
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    derived, rc = _derived_cut(args, args.fixture, rom, start, end, stubs, offs, k,
+                               equs["SST_sst_custom"], syms, ROUTINE)
+    if rc is not None:
+        return rc
+
     total, fails, fired = sweep(rom, prog, start, end, stubs, offs, k,
                                 verbose=args.verbose)
 
@@ -1119,8 +1169,13 @@ def pass_instashield(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, syms, args.fixture, args.lst,
-                               args.gate, ROUTINE)
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.fixture).name, args.lst))
+        hard = False
+    else:
+        _, hard = _fixture_verdict(rom, start, end, syms, args.fixture, args.lst,
+                                   args.gate, ROUTINE)
     if hard:
         return 1
     if fails:
@@ -1162,6 +1217,11 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
               % (p, ", ".join(sorted(doc["shapes"]))))
         return 0
 
+    derived, rc = _derived_cut(args, args.tails_fixture, rom, start, end, stubs, offs, ck,
+                               equs["SST_sst_custom"], syms, TAILS_ROUTINE)
+    if rc is not None:
+        return rc
+
     total, fails, engaged = sweep_flight(rom, prog, start, end, stubs, offs, k,
                                          cap_off, y_vel_off)
 
@@ -1183,8 +1243,13 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
         if len(fails) > 20:
             print("    ... and %d more" % (len(fails) - 20))
 
-    _, hard = _fixture_verdict(rom, start, end, syms, args.tails_fixture, args.lst,
-                               args.gate, TAILS_ROUTINE)
+    if derived:
+        print("  " + gate_cut_shape.drift_pin_not_measured(
+            pathlib.Path(args.tails_fixture).name, args.lst))
+        hard = False
+    else:
+        _, hard = _fixture_verdict(rom, start, end, syms, args.tails_fixture, args.lst,
+                                   args.gate, TAILS_ROUTINE)
     if hard:
         return 1
     if fails:
@@ -1249,12 +1314,15 @@ def main():
         return 1
 
     print("instashield_gate [%s]:" % args.lst)
-    rc = 0
+    rcs = []
     if args.ability in ("instashield", "both"):
-        rc |= pass_instashield(args, rom, syms, equs, offs, overlay_len)
+        rcs.append(pass_instashield(args, rom, syms, equs, offs, overlay_len))
     if args.ability in ("tailsflight", "both"):
-        rc |= pass_tailsflight(args, rom, syms, equs, offs, overlay_len)
-    return rc
+        rcs.append(pass_tailsflight(args, rom, syms, equs, offs, overlay_len))
+    # Not `|=`: a pass can now return 2 (COULD NOT RUN, a derived cut for an off-canonical
+    # shape that could not be derived), and 1|2 would be an exit 3 no caller defines. A
+    # measured failure outranks an unmeasured pass; both passes have printed their own.
+    return 1 if 1 in rcs else (2 if 2 in rcs else 0)
 
 
 if __name__ == "__main__":
