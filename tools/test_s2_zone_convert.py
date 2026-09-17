@@ -26,6 +26,14 @@ differing. Two things stop that here.
     corrupt the WRITTEN BYTES and require a refusal. Together with the converse
     control in `test_a_real_zone_round_trips`, that is a check with a red state.
 
+AND THE FIXTURE ITSELF WAS VACUOUS ONCE, WHICH IS WHY ARZ IS IN `CASES`. The first
+version of this file used EHZ and HPZ. Both crop from tile row 0, so rule 1's
+"anchored at donor world tile (0, 0)" and the alternative "anchored at the crop
+origin" are the same arithmetic for them: a writer mutated from one to the other
+left every row green. ARZ crops from row 64 and is the only shape in `CASES` where
+that rule says anything; `test_the_grid_is_anchored_at_donor_world_zero` asserts it
+directly. A green mutation is a defect in the gate, not a pass for the code.
+
 Every row that needs a donor SKIPS SAYING SO when the donor cannot be resolved,
 rather than passing on an empty set.
 """
@@ -55,13 +63,23 @@ def _need(donor: str) -> str:
                     f"row is checked: {e}")
 
 
-#: One final-game zone and one prototype zone. EHZ is the showcase act's first
+#: Two final-game zones and one prototype zone. EHZ is the showcase act's first
 #: clip; HPZ exists ONLY in the prototype and is the reason the converter has to
-#: read two trees at all. Both carry X-flipped AND Y-flipped chunk entries and
-#: out-of-range block ids (measured 2026-09-17: EHZ 2842/363/200 of 16384 chunk
-#: entries, HPZ 1778/584/136), so every branch of the reference expander is
-#: exercised by the round trip rather than merely present.
-CASES = [(S.S2_FINAL, "EHZ"), (S.S2_PROTOTYPE, "HPZ")]
+#: read two trees at all. All three carry X-flipped AND Y-flipped chunk entries
+#: and out-of-range block ids (measured 2026-09-17: EHZ 2842/363/200 of 16384
+#: chunk entries, HPZ 1778/584/136, ARZ 1549/200/0), so every branch of the
+#: reference expander is exercised by the round trip rather than merely present.
+#:
+#: ARZ IS HERE BECAUSE THE FIRST VERSION OF THIS FILE WAS VACUOUS ABOUT RULE 1.
+#: EHZ and HPZ both crop from tile row 0 (`crop_tiles` [0, 1372, 0, 128] and
+#: [0, 2048, 0, 256]), so "anchored at donor world tile (0, 0)" and "anchored at
+#: the crop origin" are THE SAME ARITHMETIC for them. Mutating the writer from
+#: one to the other left all fifteen rows green. ARZ crops from row 64
+#: ([0, 1344, 64, 220]) — the only shape in which rule 1 says anything at all.
+CASES = [(S.S2_FINAL, "EHZ"), (S.S2_PROTOTYPE, "HPZ"), (S.S2_FINAL, "ARZ")]
+
+#: The zone in CASES whose camera-box crop does NOT start at tile row 0.
+YOFFSET_CASE = (S.S2_FINAL, "ARZ")
 
 
 @pytest.fixture(scope="module")
@@ -132,6 +150,33 @@ def test_the_tree_is_the_file_set_ojz_strip_gen_reads(converted, donor, zone):
     art = os.path.getsize(os.path.join(d, "tileset.bin"))
     assert art and art % C.TILE_BYTES == 0
     assert os.path.getsize(os.path.join(d, "palette.bin")) == C.ZONE_PALETTE_BYTES
+
+
+def test_the_grid_is_anchored_at_donor_world_zero(converted):
+    """Rule 1's coordinate promise, stated as an assertion instead of a comment.
+
+    A donor world tile and a converted-tree tile are THE SAME NUMBER. Row 3's
+    `clips.json` names `src_rect` in donor coordinates, so an origin shift here
+    would put a silent constant offset under every clip in the showcase act — the
+    kind of defect that produces a picture, just the wrong one.
+
+    Checked on the only shape where the two candidate rules differ: a zone whose
+    `LevelSize` ystart is not 0. Everything above the crop must be blank, and the
+    crop's first row must land at tree row y0, not at tree row 0.
+    """
+    donor, zone = YOFFSET_CASE
+    d = _dir(converted, donor, zone)
+    m = json.load(open(os.path.join(d, "zone.json")))
+    x0, x1, y0, y1 = m["extent"]["crop_tiles"]
+    assert y0 > 0, (f"{donor}@{zone} crops from row {y0}; this row needs a zone with a "
+                    f"nonzero ystart or it checks nothing")
+    got = C.read_tree_words(d, m)
+    assert not got[:y0].any(), (
+        f"tree rows 0..{y0 - 1} are above the camera box and must be blank")
+    ref = C.rederive_zone_words(zone, donor)
+    assert (got[y0, x0:x1] == ref[y0, x0:x1]).all(), (
+        "the crop's first row did not land at tree row y0 — the grid is anchored "
+        "at the crop origin, not at donor world (0, 0)")
 
 
 # ---------------------------------------------------------------------------
