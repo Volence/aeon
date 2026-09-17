@@ -208,6 +208,13 @@ BGANIM_SECTION_CEILING_RULED = 20480
 BGANIM_SECTION_CEILINGS = {
     "s4.lst": BGANIM_SECTION_CEILING_RULED,
     "s4.debug.lst": BGANIM_SECTION_CEILING_RULED,
+    # The two off-canonical STRESS_* DEV fixture shapes (build.sh; fix/stress-shapes-build,
+    # 2026-09-17). Each is the sonic4 DEBUG shape plus a comptime define and authors the
+    # same editor BG sections, so its row is the same ruled number, not a new ruling.
+    # Keyed explicitly by the shape's own listing so bganim_room.py still measures THAT
+    # ROM's room (and fails if it drops under this number) rather than defaulting.
+    "s4.stress.lst": BGANIM_SECTION_CEILING_RULED,      # STRESS_EVICT=1
+    "s4.stressart.lst": BGANIM_SECTION_CEILING_RULED,   # STRESS_ART=1
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 

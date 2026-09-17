@@ -143,6 +143,13 @@ if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
         echo "ERROR: STRESS_EVICT=1 is a sonic4-only fixture (the OJZ act pool is the target)."
         exit 1
     fi
+    # The shape IS debug (sigil --stress-evict builds sonic4 DEBUG; the listing's Source
+    # Digest says debug=1), so the shell must say so too: the post-sigil lanes that pass
+    # --shape from DEBUG (plane_base_swap_gate, the reels and role-swap gates) otherwise
+    # grade this ROM as release and refuse it as COULD NOT RUN ("DIGEST-SHAPE debug=1,
+    # but s4.stress.bin must be debug=0"). STRESS_ART below always did this.
+    # (fix/stress-shapes-build, 2026-09-17)
+    DEBUG=1
     ROM_NAME="s4.stress"
 fi
 
