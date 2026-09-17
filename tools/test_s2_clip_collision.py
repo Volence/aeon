@@ -364,15 +364,16 @@ def test_the_emitted_plane_cells_are_the_donors_own_geometry(baked, donors, name
     still come from the same zone, so the attr SET would not move. (Measured: swapping the
     two collision indices in the transcode leaves every count row in this file green.)
 
-    Two comparisons, and the first is EXHAUSTIVE rather than sampled, because a sampled one
-    caught that mutation on only one of the two fixtures:
+    Two comparisons, and they cover different mistakes -- neither subsumes the other:
 
       * every cell of every clip's destination rectangle against the zone's re-derived
         grid. Different code path — the bake reassembles the emitted section FILES, this
         is the array the converter built them from — so it covers the rectangle mapping
         and the file round trip;
-      * a fixed-seed sample against the SCALAR `reference_collision_cell`, which shares no
-        array code with either side.
+      * a STRIDED sweep against the SCALAR `reference_collision_cell`, which shares no
+        array code with either side. Strided rather than random because a random sample
+        was MEASURED to catch the swapped-index mutation on one parametrisation and miss
+        it on the other.
     """
     _need(S.S2_FINAL)
     act, _st, _m, _v1, _v2 = baked[name]
@@ -395,19 +396,26 @@ def test_the_emitted_plane_cells_are_the_donors_own_geometry(baked, donors, name
         2 * (cl.src[2] // CM.TILE_PX) * (cl.src[3] // CM.TILE_PX) for cl in act.clips)
     assert exhaustive > 0
 
-    rng = np.random.default_rng(0xC11FACE1)
+    # STRIDED, not random. A 120-cell random sample was measured to catch the swapped-
+    # index mutation on one of this row's two parametrisations and miss it on the other,
+    # because whether a cell can SHOW an A/B swap depends on the zone's two collision
+    # indices disagreeing there. A stride sweeps the whole rectangle at a fixed spacing,
+    # so coverage is a property of the geometry rather than of a seed.
+    STRIDE = 7
     checked = 0
     for cl in act.clips:
         sx, sy, sw, sh = (v // CM.TILE_PX for v in cl.src)
         dx, dy = cl.dst[0] // CM.TILE_PX, cl.dst[1] // CM.TILE_PX
-        for _ in range(120):
-            r = int(rng.integers(0, sh))
-            c = int(rng.integers(0, sw))
-            want = C.reference_collision_cell(cl.zone, cl.donor, sy + r, sx + c)
-            got = (int(pa[dy + r, dx + c]), int(pb[dy + r, dx + c]))
-            assert got == want, (cl.id, r, c, got, want)
-            checked += 1
-    assert checked == 120 * len(act.clips)
+        for r in range(0, sh, STRIDE):
+            for c in range(0, sw, STRIDE):
+                want = C.reference_collision_cell(cl.zone, cl.donor, sy + r, sx + c)
+                got = (int(pa[dy + r, dx + c]), int(pb[dy + r, dx + c]))
+                assert got == want, (cl.id, r, c, got, want)
+                checked += 1
+    assert checked == sum(
+        len(range(0, cl.src[3] // CM.TILE_PX, STRIDE))
+        * len(range(0, cl.src[2] // CM.TILE_PX, STRIDE)) for cl in act.clips)
+    assert checked > 1000, checked
     # anti-vacuity: neither comparison is agreeing about air
     assert int(np.count_nonzero((pa >> CP.PLANE_SOL_SHIFT) & 3)) > 1000
 
