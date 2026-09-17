@@ -1,27 +1,31 @@
 {
-  "focus": "Designing the Sonic 2 converter and the clip-and-paste step for your six-zone showcase act.",
-  "inFlight": [
-    {
-      "what": "Design pass for the Sonic 2 converter and the clip-and-paste-as-region step",
-      "where": "branch research/s2-compressed-act",
-      "agent": true
-    }
-  ],
+  "focus": "The Sonic 2 act design is measured and landed; two things about it need your call.",
+  "inFlight": [],
   "blockedOnOwner": [
+    {
+      "id": "S2ACT-SEAM-CORRIDORS",
+      "what": "How the six zone pieces join: short corridors between them (my recommendation) or edge to edge, which would mean recolouring six zones.",
+      "since": "2026-09-17"
+    },
+    {
+      "id": "S2ACT-HIDDEN-PALACE",
+      "what": "Hidden Palace is not in our Sonic 2 disassembly at all; substitute another zone, or bring in prototype data.",
+      "since": "2026-09-17"
+    },
     {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the converter design comes back and you have read it.",
+  "nextBoundary": "Here: the design is landed and pushed; the next parcel starts on your two answers.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: six zones you named (Emerald Hill, Chemical Plant, Hidden Palace, Wing Fortress, Oil Ocean, Metropolis), clipped into one act as regions",
-      "state": "doing",
+      "title": "Sonic 2 test act: design landed and measured; the joins between pieces and Hidden Palace need your call",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "decision cards S2ACT-SEAM-CORRIDORS and S2ACT-HIDDEN-PALACE",
       "project": "REGIONS"
     },
     {
@@ -60,7 +64,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T17:39:56Z"
+  "awaiting": "your call on how the zone pieces join, and where Hidden Palace comes from",
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T18:02:28Z"
 }
