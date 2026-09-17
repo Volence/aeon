@@ -36615,3 +36615,119 @@ first by four mutations (WFZ's LevelSize key, the Nemesis header's tile-vs-row u
 prototype layout's tile-vs-pad, and the prototype's two collision banks swapped), each restored
 from the committed baseline. `megaact_window_pageset.py control` reproduces the committed OJZ
 bake: 589,824 cells, 0 differing. No `.emp` touched, no ROM byte changed, no emulator used.
+
+### S2-COMPRESSED-ACT parcel 2 LANDED 2026-09-17 — the whole-zone converter to an aeon editor tree
+
+Branch `parcel/s2-zone-converter` (base `757c0c58`). Report:
+`docs/research/s2-compressed-act/2026-09-17-whole-zone-converter.md`. The design doc was patched
+in place at §5.3, §8 and §10 row 2, where this parcel made a sentence in it false.
+
+**CLOSED**
+
+- **Staged-plan row 2 is DONE and its falsifiable check PASSED, on all nineteen zone/donor
+  pairs.** `tools/s2_zone_convert.py` writes
+  `games/sonic4/data/donors/<donor>/<ZONE>/{tileset.bin, palette.bin, section_<N>.tiles.bin,
+  zone.json}`. **6,317,248 cells round-tripped, 0 differing; 0 nonzero pad cells; 0 tile indices
+  past any tileset; `ojz_strip_gen.validate_editor_inputs` accepted all 19 trees.** 1.3 s wall
+  clock for the whole sweep, 17 MB on disk. Art and layout only — collision, objects, regions,
+  background and the clip manifest are rows 3-5.
+- **THE ROUND TRIP IS NOT A TAUTOLOGY, and that was checked rather than claimed.** The reference
+  side is a SECOND implementation of the chunk/block word expansion
+  (`s2_zone_convert.expand_chunk_words`), written from the two file formats, not
+  `ojz_strip_gen.chunk_get_tile_word` — which is what `s2_donor.load_zone` used to build the grid
+  the writer wrote. `test_the_reference_expander_is_load_bearing` mutates one of its three
+  branches at a time (chunk X-flip, chunk Y-flip, out-of-range block id) and requires the round
+  trip to go red. All three branches are exercised by real data: every zone of both donors
+  carries X- and Y-flipped chunk entries, and fourteen of the nineteen carry out-of-range block
+  ids.
+- **The pad is VERIFIED, not asserted.** Every cell of the section grid outside the camera-box
+  crop is counted and must be zero, which is what makes "padded, never cropped" a measurement.
+
+**THREE RULES DECIDED (the parcel's open calls)**
+
+1. **Section alignment: PAD with zero words, never crop, never refuse.** Measured: not one of
+   the 19 pairs has a camera-box crop that is a whole number of 256-tile sections on its long
+   axis, so a refusing converter would convert nothing and a cropping one would silently drop
+   camera-reachable cells.
+2. **Grid anchored at donor world tile (0, 0), not at the crop origin.** Costs the four zones
+   with a nonzero `LevelSize` ystart nothing (ARZ y0=64, MCZ and DHZ y0=120, NGHZ y0=64 in tiles;
+   every crop ends at or before tile row 256, so the grid is one section tall either way), and
+   buys that a donor pixel and a converted-tree pixel are THE SAME NUMBER — which row 3's
+   `clips.json` `src_rect` depends on.
+3. **CRAM line 0 cells: converted faithfully, counted, surfaced — never remapped.** Exact
+   counts, which independently reproduce and sharpen the design's §5.3 figures: CPZ **698** of
+   112,906 painted cells (0.62%) in the final donor and **680** of 112,136 (0.61%) in the
+   prototype, WFZ **104** of 101,812 (0.10%); every other zone of both donors **zero**. **The
+   whole defect in the owner's six-zone act is 802 cells.** Not remapped because it would break
+   the identity bar, because it is the palette-bit rewrite `verify_level_bin.py`'s fidelity lane
+   forbids, and because §9.1's three options are the owner's and are still open. **The decision
+   is still open and is now a small one:** 802 cells to repaint by hand, hide behind geometry,
+   or accept.
+
+**FOUND**
+
+- **THE DESIGN'S §8 FILE SET WAS WRONG ABOUT AEON'S OWN ACT TREE.** There is no `tileset.bin` in
+  an act directory: `project.json`'s `zones[].tileset` names the zone tile blob and it lives
+  OUTSIDE the act dir (`games/sonic4/data/editor/ojz_tiles.bin`). `palette.bin` IS in the act dir
+  but because `zones[].palette` names it, not by convention. A real act dir also carries
+  `regions.json`, `section_N.meta.json`, `.objects.json`, `.rings.json` and a vestigial
+  `.coll.bin`, none of which `validate_editor_inputs` wants. `tileset.bin` is a name the
+  converter CHOOSES so a donor tree is self-contained; a project that wants one points
+  `zones[].tileset` at it. §8 patched in place.
+- **`zone.json` cannot carry attr-set cost per section** (which §8 listed) until row 4 rules on
+  the S2 shape bank. It carries the art-side counts instead.
+- **Both donors' zone palettes are CRAM lines 1-3, DERIVED not assumed**, and the two games
+  spell the derivation differently: the final game's `palptr Pal_EHZ, 1` macro states the line;
+  the prototype's open-coded `dc.l Pal_HPZ` / `dc.w $FB20,$17` does not, and `Normal_palette` is
+  a `ds.b` inside a struct, so the line-0 base is pinned by the one four-line (128-byte) entry in
+  the table — a whole-CRAM load can only sit at line 0. All 19 pairs derive to (line 1, 96
+  bytes). Anything else is refused by name.
+- **THE GATE'S OWN FIXTURE WAS VACUOUS ABOUT RULE 2, and the red-first proof is what found it.**
+  Mutating the writer from "anchor at world (0,0)" to "anchor at the crop origin" left all
+  fifteen rows GREEN, because the fixture was EHZ and HPZ and both crop from tile row 0, where
+  the two rules are the same arithmetic. ARZ (crops from row 64) joined the fixture and
+  `test_the_grid_is_anchored_at_donor_world_zero` now asserts the rule directly; the re-run is
+  red on exactly the two rows that own it, with EHZ and HPZ still green.
+
+**WHAT ROW 3 INHERITS**
+
+- **`zone.json` is the interface** and needs nothing re-measured: grid (with the flat row-major
+  index rule), extent (camera box, `camera_box_is_placeholder`, `crop_tiles`,
+  `painted_bbox_tiles`), tileset (bytes, tiles, per-source paths and offsets, SHA-256), palette
+  (CRAM lines, SHA-256, source) and per-section counts including `distinct_tiles`.
+- **Donor and tree coordinates are the same number**, asserted by a test rather than by
+  convention, so `src_rect` in donor pixels indexes a converted tree directly.
+- **Tile indices are NOT remapped**, so the per-cell tileset key row 3 owes
+  `fg_page_order.place_pool` is `(donor, zone)` per clip with no index translation.
+- **A clip of a placeholder-box zone must come from `painted_bbox_tiles`** (WFZ final;
+  CNZ/HPZ/MTZ/WZ prototype). Parcel 1's rule, unchanged. Parcel 2 records the bbox and
+  deliberately does NOT apply it — trimming is clipping and clipping is row 3's.
+
+**OPEN RIDERS (small, none blocking)**
+
+- **`games/sonic4/data/donors/` is gitignored, and that flips at ROW 6.** Today the converted
+  trees are derived, regenerable in 1.3 s from read-only donors, and read by nothing in the
+  build, so they are ignored for the same reason `tools/.cache/` is. The moment a clip out of one
+  reaches a committed byte (row 6, the first bootable act), the tracked-bytes argument that keeps
+  `games/sonic4/data/generated/` in git applies here word for word, or the ROM will be built from
+  bytes nobody can reproduce. The `.gitignore` comment says so at the line.
+- **`donor_provenance` still records both S2 donors with `contributes_to_rebake=false`, and that
+  is still correct** — nothing this parcel produces reaches a committed byte. Row 6 flips it.
+  Note for a future parcel working under a no-git-in-the-donors constraint: `donor_provenance`
+  DOES run read-only `git --no-optional-locks` queries in the donor checkouts by design. The
+  converter does not call it; `zone.json` records per-input SHA-256 and size instead.
+- **The pre-build tool lane's artifact-freshness failures on an unbuilt tree** (4 failed, 55
+  errors across `test_artifact_provenance`, `test_provenance_consumers`,
+  `test_extern_guard_reachability`, `test_bg_emit` and `test_needs_build_lane`) are pre-existing
+  and were established by an in-place control, not assumed: the same worktree with this parcel's
+  two files moved aside produces the **identical 59-node FAILED/ERROR set**, differing only by
+  the 18 rows this parcel adds. A `git archive` export at `/tmp` is NOT a valid control for this
+  (it reports 42 failures, because an export carries no gitignored working-tree state).
+
+**EVIDENCE.** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q` with
+`__pycache__` cleared: 4 failed, 2924 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests
+passed in 62.74 s; control with the parcel removed: 4 failed, 2906 passed, 2 skipped, 55 errors,
+identical node-id set. `tools/test_s2_zone_convert.py` 18 rows, red-proven by three on-disk
+mutations (M1 priority bit dropped: 2 failed, HPZ 160,521 of 524,288 cells differing; M2/M2b
+anchoring), each restored from a committed baseline. No `.emp` touched, no ROM byte changed, the
+committed `games/sonic4/data/editor/ojz/act1` tree untouched, no emulator used.

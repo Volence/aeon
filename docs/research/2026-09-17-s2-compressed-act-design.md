@@ -515,6 +515,13 @@ Three facts fall out:
    line 2.
 3. CPZ (0.6%) and WFZ (0.1%) reference **line 0**, which aeon never writes, so those cells will
    render in the character's colours. Small, but visible, and it needs a decision.
+   **Independently reproduced and made exact by parcel 2 (2026-09-17):** CPZ **698** painted
+   cells of 112,906 (0.62%) in the final donor and **680** of 112,136 (0.61%) in the prototype;
+   WFZ **104** of 101,812 (0.10%). Every other zone of both donors is **zero** — the whole
+   defect in the six-zone act is 802 cells. The converter does NOT remap them (it would be the
+   palette-bit rewrite §9.1(b) is rejected for, and it would pre-empt this decision); it counts
+   them per zone and per section into `zone.json` and warns. **The decision is still open**, and
+   it is now a small one: 802 cells to repaint by hand, to hide behind geometry, or to accept.
 
 **Therefore two Sonic 2 zones cannot be correct on screen simultaneously.** A region crossing
 installs one 96-byte palette covering all three lines; the moment the camera window straddles
@@ -618,21 +625,43 @@ This is the contract, not a UI design.
 **What aurora reads to show a converted Sonic 2 zone on a page:**
 
 A converted zone should land as a normal aeon editor act tree, because then aurora already
-knows how to render it:
+knows how to render it. **Built by parcel 2 (2026-09-17), and the sketch below is corrected in
+place** — it named a donor directory `s2/<zone>`, which cannot work now that two S2 donors are
+registered and five zone names exist in both; and it claimed the shape mirrors aeon's own act
+directory, which it does not:
 
 ```
-games/sonic4/data/donors/s2/<zone>/          # proposed; mirrors games/<game>/data/editor/<zone>/<act>/
-    tileset.bin                              # decompressed S2 art, 32 B/tile
-    palette.bin                              # 96 B, the zone's 3 CRAM lines, copied from art/palettes/<ZONE>.bin
-    section_<N>.tiles.bin                    # 256x256 big-endian nametable words
+games/sonic4/data/donors/<donor>/<ZONE>/     # <donor> = s2disasm | s2-simonwai-disasm
+    tileset.bin                              # decompressed S2 art, 32 B/tile          [parcel 2]
+    palette.bin                              # 96 B, the zone's 3 CRAM lines, verbatim  [parcel 2]
+    section_<N>.tiles.bin                    # 256x256 big-endian nametable words       [parcel 2]
     section_<N>.collattr.bin                 # 256x256 big-endian collision cell words, plane A
     section_<N>.collattrb.bin                # plane B
-    zone.json                                # grid w/h, painted bbox, source provenance, attr-set cost per section
+    zone.json                                # grid w/h, extents, painted bbox, provenance, per-section counts  [parcel 2]
 ```
+
+~~`zone.json` carries attr-set cost per section~~ — it cannot until parcel 4 rules on the S2
+shape bank, so parcel 2's `zone.json` carries the art-side counts (painted cells, distinct
+tiles, CRAM-line-0 cells, per-file SHA-256) and not that one.
+
+**Where this differs from aeon's OWN act tree, transcribed from
+`games/sonic4/data/editor/ojz/act1` and `project.json` rather than from this table:**
+
+- ~~mirrors `games/<game>/data/editor/<zone>/<act>/`~~ — **there is no `tileset.bin` in an act
+  directory.** The zone tile blob is whatever `project.json`'s `zones[].tileset` names, and it
+  lives OUTSIDE the act dir (`games/sonic4/data/editor/ojz_tiles.bin`). `tileset.bin` is a name
+  parcel 2 chose so a donor tree is self-contained; a project that wants to use one points
+  `zones[].tileset` at it.
+- `palette.bin` IS in the act dir, but because `zones[].palette` names it, not by convention.
+- A real act dir also carries `regions.json`, `section_N.meta.json`, `section_N.objects.json`,
+  `section_N.rings.json` and a vestigial `section_N.coll.bin`. A converted donor tree has none
+  of them, and `validate_editor_inputs` does not want them.
 
 Every one of those formats is already what `ojz_strip_gen` reads
 (`tools/ojz_strip_gen.py:468-489`, `:1838-1841`), so aurora needs no new loader for the donor
-page — only a way to open a tree that is not the project's own act.
+page — only a way to open a tree that is not the project's own act. Parcel 2 confirmed that
+end: `validate_editor_inputs(data_path, tileset_path, num_sections)` takes all three paths
+explicitly, so a converted tree validates without touching `project.json` or the committed act.
 
 **What aurora writes when the author marquees and pastes:**
 
@@ -738,7 +767,7 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 | # | Parcel | Size | Falsifiable check |
 |---|---|---|---|
 | 1 | ~~**Promote the S2 donor loader.**~~ **DONE 2026-09-17** — `tools/s2_donor.py`, BOTH donor trees, WFZ row added, both S2 donors registered in `donor_provenance`. | S | **PASSED: 9 of 9 zones byte-identical** (word grid and art blob), measured against a `git archive d234c084` export of the pre-promotion loader. |
-| 2 | **Whole-zone converter → editor tree.** One S2 zone becomes `section_N.tiles.bin` + `tileset.bin` + `palette.bin` under a donor tree, at 2048-px sections. Art only. | M | `ojz_strip_gen.validate_editor_inputs` accepts the tree; every nametable word's tile index is inside the tileset; the round trip back to chunk words is identity. |
+| 2 | ~~**Whole-zone converter → editor tree.**~~ **DONE 2026-09-17** — `tools/s2_zone_convert.py`, both donors, all 19 zone/donor pairs. Art and layout only. Output `games/sonic4/data/donors/<donor>/<ZONE>/` (see the corrected §8 tree). | M | **PASSED, all 19 pairs: 6,317,248 cells round-tripped, 0 differing; 0 nonzero pad cells; 0 tile indices past any tileset; `validate_editor_inputs` accepted all 19 trees.** The reference side of the round trip is a second implementation of the chunk/block expansion, not the loader's, and its three branches are mutation-proven load-bearing. |
 | 3 | **`clips.json` + the per-cell tileset key.** The bake reads a clip manifest and hands `place_pool` a real per-cell zone grid instead of a uniform one. | M | A two-clip act bakes; `fg_page_order.check` reports the same worst-window count as `s2_clip_budget.py place` on the same two clips. Closes `tools/fg_page_order.py:51-55`. |
 | 4 | **Collision: the S2 base bank.** `import_s2_collision.py` (sibling of `import_sk_collision.py`) imports S2's vertical array as a shape bank and REGENERATES the rotated table (never copies S2's horizontal array — §1.3 item 3). Rule on shape `$18`. | M | All 256 shapes round-trip through `rotate_profile` with no raise; a hand-picked slope's height and angle match `FindFloor`'s result for the same block in the donor. |
 | 5 | **Collision: clip → `collattr.bin`.** Run `bake_cell` over the clip's chunk words, emit both plane files. | M | The attr-set entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle, and the bake refuses a clip that cuts a crossover pair. |
