@@ -1,12 +1,6 @@
 {
-  "focus": "Two small tidy-ups: a stale note in the nightly checks, and a miscount in the sound-chip pause census.",
-  "inFlight": [
-    {
-      "what": "nightly comment + preset cap check; census cross-routine count",
-      "where": "agent worktree, branch parcel/small-tidy-0917",
-      "agent": true
-    }
-  ],
+  "focus": "The boot sound-chip pause and two tooling tidy-ups are landed; everything left waits on your cards or your showcase call.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the tidy-up agent returns and its parcel lands.",
+  "nextBoundary": "Here: nothing running, everything landed and pushed.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -69,21 +63,21 @@
       "blockedBy": "parked, not scheduled"
     },
     {
-      "id": "NIGHTLY-COMMENT-TIDY",
-      "title": "Small: a stale nightly-script comment, and check the preset cycle cap against the ROM",
-      "state": "doing",
+      "id": "BUS-HOLD-SPANNED-CALLS",
+      "title": "Two sound-chip pauses call other routines whose safety is traced by hand only; a census check could follow the calls",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
-      "id": "CENSUS-INTERPROC-COUNT",
-      "title": "The bus-hold census prints 2 cross-routine holds where its header says 1 (a new background blit); find out which is right",
-      "state": "doing",
+      "id": "PRESET-READOUT-COMMENT",
+      "title": "One stale comment in the preset readout test mentions a limit that no longer exists",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T10:33:36Z"
+  "awaiting": "nothing new: the rest of the list is held for your showcase direction or your 3 decision cards",
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T10:44:22Z"
 }
