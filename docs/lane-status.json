@@ -1,14 +1,9 @@
 {
-  "focus": "Researching ways to free video memory for objects: the smaller art cache, plus an audit of everything else.",
+  "focus": "Researching whether whole Sonic 2/3 acts can fit the smaller art cache; the wider video memory audit has landed.",
   "inFlight": [
     {
       "what": "10-page foreground cache research (tool-only, no ROM bytes)",
       "where": "branch research/fg-cache-10",
-      "agent": true
-    },
-    {
-      "what": "Audit of the whole video memory map for savings beyond the two levers already priced",
-      "where": "branch research/vram-savings-audit",
       "agent": true
     }
   ],
@@ -80,5 +75,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T02:45:55Z"
+  "updatedAt": "2026-09-17T02:57:48Z"
 }
