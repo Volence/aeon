@@ -1,12 +1,6 @@
 {
-  "focus": "Last small fix: one stale comment in the preset readout test. After that the list waits on you.",
-  "inFlight": [
-    {
-      "what": "fix one stale comment in the preset readout test",
-      "where": "agent worktree, branch parcel/preset-readout-comment",
-      "agent": true
-    }
-  ],
+  "focus": "Boot's sound-chip pause and three small tidy-ups landed today; the rest of the list waits on your cards or showcase call.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the comment fix lands.",
+  "nextBoundary": "Here: everything landed, pushed and written up (handoff 23).",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -71,19 +65,12 @@
     {
       "id": "BUS-HOLD-SPANNED-CALLS",
       "title": "Two sound-chip pauses call other routines whose safety is traced by hand only; a census check could follow the calls",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "PRESET-READOUT-COMMENT",
-      "title": "One stale comment in the preset readout test mentions a limit that no longer exists",
-      "state": "doing",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T10:44:31Z"
+  "awaiting": "a /clear when convenient (handoff 23 banks everything); and your 3 decision cards or the showcase call to unhold the video-memory work",
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T11:02:17Z"
 }
