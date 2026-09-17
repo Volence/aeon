@@ -1,6 +1,12 @@
 {
-  "focus": "Boot's sound-chip pause landed under the assembler's checks; now tidying a stale nightly-script comment.",
-  "inFlight": [],
+  "focus": "Two small tidy-ups: a stale note in the nightly checks, and a miscount in the sound-chip pause census.",
+  "inFlight": [
+    {
+      "what": "nightly comment + preset cap check; census cross-routine count",
+      "where": "agent worktree, branch parcel/small-tidy-0917",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here: LS-13b is landed and nothing is running.",
+  "nextBoundary": "When the tidy-up agent returns and its parcel lands.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -65,19 +71,19 @@
     {
       "id": "NIGHTLY-COMMENT-TIDY",
       "title": "Small: a stale nightly-script comment, and check the preset cycle cap against the ROM",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "CENSUS-INTERPROC-COUNT",
       "title": "The bus-hold census prints 2 cross-routine holds where its header says 1 (a new background blit); find out which is right",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T10:33:19Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T10:33:36Z"
 }
