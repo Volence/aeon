@@ -1,12 +1,6 @@
 {
-  "focus": "Giving a clipped Sonic 2 piece its ground; the first picture is the step after.",
-  "inFlight": [
-    {
-      "what": "Giving a clipped piece its collision, so a pasted rectangle has ground",
-      "where": "branch parcel/s2-clip-collision",
-      "agent": true
-    }
-  ],
+  "focus": "Clipped pieces now carry their ground; the next step is the first picture on screen.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When clip collision lands; then one Emerald Hill piece as a bootable act.",
+  "nextBoundary": "Here: clip collision landed and pushed; one Emerald Hill piece as a bootable act is next.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: collision for a clipped piece is building; the first bootable piece is the step after",
-      "state": "doing",
+      "title": "Sonic 2 test act: pieces now carry their ground. Next is the first bootable piece, the first picture",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T21:29:03Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T22:13:03Z"
 }
