@@ -1,5 +1,5 @@
 {
-  "focus": "You answered two cards: the art cache stays as is, and the background cover check waits for the showcase.",
+  "focus": "Your showcase call: a six-zone Sonic 2 act built from clipped pieces, inside regions; Sonic 3 later.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -11,18 +11,26 @@
   "nextBoundary": "Here: nothing in flight; handoff 23 is the resume anchor.",
   "queue": [
     {
+      "id": "S2-COMPRESSED-ACT",
+      "title": "Sonic 2 test act: six zones converted, clipped and pasted into one act as regions (art and collision first)",
+      "state": "open",
+      "size": "L",
+      "blockedBy": "which six zones, then your go on the converter design pass",
+      "project": "REGIONS"
+    },
+    {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: switch landed. The cover warning waits for the first real border in your showcase act (your call); animated strips wait for real band content",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "held, not blocked: needs the showcase act's first real region crossing"
+      "blockedBy": "held: needs the first real region crossing, which the Sonic 2 test act will make"
     },
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Video memory: halve the scroll plane for object room. You kept the art cache as it is, so this gets re-sized first",
       "state": "open",
       "size": "L",
-      "blockedBy": "held, not blocked: re-size without the cache cut, and the showcase act (S2 or S3 in one act) shapes it"
+      "blockedBy": "waits on the Sonic 2 test act existing: it gets sized against that act"
     },
     {
       "id": "SP-6",
@@ -46,7 +54,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "the spring sound A/B listen, or the showcase call; or a go on the optional sound-chip pause census check",
+  "awaiting": "which six Sonic 2 zones, and a go to start the level converter design",
   "atBoundary": true,
-  "updatedAt": "2026-09-17T13:02:24Z"
+  "updatedAt": "2026-09-17T16:00:34Z"
 }
