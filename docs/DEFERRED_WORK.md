@@ -37052,3 +37052,168 @@ this branch was two sections appended to the end of this file — resolved by ke
 No `.emp` touched, the committed `games/sonic4/data/collision/` and `.../base/` tables and the
 `games/sonic4/data/editor/ojz/act1` tree untouched, all three donor trees read-only, no emulator
 used. Wall clock: 2026-09-17, dev box up 1 day 21 h, load average 3.4-4.8 across the runs.
+
+### S2-COMPRESSED-ACT parcel 5 LANDED 2026-09-17 — clip → `collattr.bin`, and W1 ruled
+
+Branch `parcel/s2-clip-collision` (base `caae1521`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-collision.md`. The design doc was patched in
+place at §1.3 item 2, §2.2, §2.3, §3.5, §8, §10 row 5 and §13, where this parcel made a
+sentence in it false — including two sentences this file and the design both carried.
+
+**CLOSED**
+
+- **Staged-plan row 5 is DONE and BOTH halves of its check PASSED.** The first half passed
+  **exactly, with six numbers and six matches**: `s2_two_clip` ehz_s2 **95** = `EHZ:2,1` 95,
+  cpz_s2 **148** = `CPZ:2,1` 148, act **207** = `EHZ:2,1 CPZ:2,1` 207; `s2_two_clip_pins`
+  ehz_s1 **62** = `EHZ:1,1` 62, cpz_s1 **148** = `CPZ:1,1` 148, act **191** =
+  `EHZ:1,1 CPZ:1,1` 191. Each act is also re-counted off the EMITTED bytes and agrees, so a
+  difference would be the emission and not the arithmetic. The two sides share the shape bank
+  and nothing else: the predictor runs `bake_cell` over donor chunk words and never opens a
+  clips.json, a converted tree or a plane file. At whole-zone scope all six showcase zones
+  agree too — EHZ 105, CPZ 160, HPZ 152, WFZ 108, OOZ 67, MTZ 62.
+- **THE TRANSCODE IS EXACTLY `bake_cell`, and that is what licenses the comparison.**
+  `collision_pipeline.chunk_entry_to_plane_words` turns one donor chunk-entry word into the two
+  aurora per-plane cell words (resolve the block id through the zone's collision index to a
+  shape index, carry the flips, split the two solidity nibbles, emit XOVER_NONE — the donor has
+  no crossover field, those bits ARE path-B solidity). Over every distinct (word, index_a,
+  index_b) triple of the six zones — **5,129 triples, 10,258 cells** — identical attr bytes and
+  **byte-identical attr sets in the same intern order**.
+- **The converter writes both planes.** `tools/s2_zone_convert.py` emits
+  `section_N.collattr.bin` / `.collattrb.bin` crop-masked identically to the art, and
+  `zone.json` now carries the attr-set cost per section and per zone plus the base bank it is
+  indexed against and that bank's sha256 — the §8 readout item parcel 2 could not compute and
+  parcel 3 attributed to row 4. **It was row 5's: it is a property of a baked clip, not of the
+  shape bank.** All six zones verify: 2,219,040 art cells round-tripped 0 differing, 4,438,080
+  collision cells compared against the vectorised re-derivation 0 differing, 0 nonzero pad
+  cells, 3,072 cells sampled against a scalar second implementation 0 differing.
+- **BANK SELECTION DONE — parcel 4's first hand-off.**
+  `ojz_strip_gen.load_base_bank(bank_dir=None)` takes the directory; a converted tree NAMES
+  its bank; `clip_manifest.collision_banks` resolves an act's and REFUSES an act whose clips
+  disagree (one act has one attr set and one index in it must mean one shape). `generate()`
+  still calls it with no argument and still reads `base/`. It is load-bearing, not decorative:
+  pointing the clip bake at the S&K bank instead reds five rows including two of the four
+  count rows.
+- **The §8 per-clip readout is complete.** `clipact.json` `collision.per_clip` carries
+  `attr_entries_alone`, `attr_entries_added`, `solid_cells`, `marks_inside_src`,
+  `marks_outside_src` and any opt-out reason, beside parcel 3's tiles/pages/worst-window.
+
+**THE DESIGN'S §2.3 CROSSOVER CLAIM WAS FALSE, and C1 is what makes it true**
+
+§2.3 said a marquee cutting a loop "will fail the bake, loudly" via
+`apply_editor_collision_overlay`'s R2. **R2 refuses a SELF-MARK** (plane A carrying TO_A).
+Cutting a loop in half produces a perfectly well-formed mark whose PARTNER IS ABSENT, which
+R2 cannot see and which nothing else saw either — `collision_xover_census.py` reports pairing
+but is explicitly a census, not a gate. Nor is the thing a rectangle cuts the per-cell pair:
+the repo's own pairing rule is "same cell index, marked on both planes" and a rectangle clips
+both planes identically. What a cut really removes is the loop's OTHER crossing (act 1's eight
+marked indices are two BANDS of one column, §3.3's bottom- and top-centre).
+**C1 refuses a clip that takes some of a zone's crossover marks and leaves others.** It is
+conservative BY NECESSITY and says so in the message — the encoding records which PLANE a mark
+points at, never which LOOP it belongs to — with an in-file `severed_xover_reason` opt-out in
+R11's style. **It is structurally vacuous on today's data and the gate says so**: a converted
+S2 tree has no marks and cannot have any, so every C1 row paints its own subject, one control
+row proves the painting is what makes the difference, and a second control (a rectangle that
+takes ALL the marks, which must PASS) stops C1 degenerating into "refuse any clip of a tree
+with marks anywhere".
+
+**W1 IS RULED — RETIRED, AND ITS PREMISE WAS FALSE. R12 REPLACES IT.**
+
+W1 warned that an src rect off the 128-px chunk grid would bite collision, and left the call
+to row 5 "with its evidence". The evidence says the warning was aimed at the wrong number.
+**Collision is not authored per 128-px chunk in any sense a clip can cut**: a chunk is 8x8
+INDEPENDENT BLOCK PLACEMENTS and each carries its own entry word — its own block id, flips and
+two solidity nibbles — so a cut between blocks inside a chunk severs nothing and a chunk
+boundary is not special. **The quantum that binds is the BLOCK, 16 px, and it binds on the
+paste SHIFT rather than on the src origin.** DERIVED from the runtime, not from either file
+format: a height profile is 16 bytes covering a 16-px block and `probe_core` picks the column
+with `andi.w #$F, d0` on the WORLD x (`games/sonic4/player/player_sensors.emp`), with the row
+picked the same way in y (`engine/level/collision_lookup.emp` `lsr.w #1`). Shift the data 8 px
+and every probe reads the wrong half of a profile **silently**, because the art is one word
+per 8-px cell and moves correctly — the failure is ground 8 px out of place, which no
+screenshot shows. **R12**: dst origin - src origin is a multiple of 16 in both axes, refusal,
+no opt-out (unlike R11 there is no argument to make). It is a rule about the SHIFT: an
+8-px-aligned src pasted 2048 px away is fine. W1's tag stays reserved with its false premise
+recorded so a future W1 cannot inherit it.
+
+**THE UNRULED `rotate_profile`: LEFT RAISING, and here is why**
+
+Parcel 4 left `emit_tables` calling the unruled `rotate_profile` as a live tripwire and said
+silencing it was not its call. **Row 5 leaves it raising and moves the DETECTION instead.**
+(1) Silencing it is a change to how EVERY act in the repo is baked, made to serve one clip act
+that does not exist yet; `$18` is referenced by no showcase zone (a gate row asserts that and
+fails if a zone-list change ends it), so leaving it costs zero today and silencing it costs
+every future act. (2) What was actually wrong was the DISTANCE: the author marquees in aurora
+and finds out at the ROM bake, in a traceback four layers down naming a height profile and no
+clip. **C3** detects the same condition at the clip, by name, against the clip that caused it,
+before a byte is emitted. (3) When row 6 or later genuinely needs `$18`, the argument for
+`rotate_profile_ruled` gets made against a real clip — and a gate row FAILS the moment someone
+routes it in, so the argument happens in the open rather than in a diff.
+
+**FOUND: `bake_plane_cell` accepted a shape past the end of its bank (now R3)**
+
+An aurora cell word gives the shape 10 bits (0..1023); a bank holds 256. `bake_plane_cell`
+sliced past the end and interned a ZERO-LENGTH profile; `emit_tables` then met it as a bare
+`IndexError: index out of range` from inside `rotate_profile`, naming neither the cell nor the
+shape nor the bank — and for any profile that did not raise there, `heightmaps[i*16:(i+1)*16]
+= b""` on a bytearray DELETES those bytes and silently shortens the table. Now a named
+refusal. **Byte-neutral for the shipping act, MEASURED**: every committed editor plane file,
+every solid cell, highest shape index is 255, and that measurement is kept as a control row.
+Found while painting a synthetic over-cap act for the C2 row.
+
+**WHAT ROW 6 INHERITS**
+
+- **The tree contract is complete for art + collision.** A converted donor zone is a tree
+  aurora can open, marquee AND re-bake; `clip_act_bake` writes `section_N.tiles.bin`,
+  `section_N.local.bin`, both plane files, `sec{N}_local_map.bin`, `pool.bin`, `clipact.json`.
+- **What is still missing is the BLOCK STREAM.** Nothing here exercises `ojz_block_gen` or
+  S4LZ. `sec{N}_blocks.bin` is where the collision planes and the art meet in the format the
+  ROM reads, and it is the gap between this parcel's output and a bootable act — with the
+  `project.json` entry and the `act_descriptor.emp` with matching GRID_W/GRID_H parcel 3 named.
+  Once it exists, `fg_page_order.check` can be pointed at a second act and parcel 3's
+  restatement of the row-3 check is either closed or permanently accepted.
+- **The 255 cap now REFUSES (C2) rather than sitting in a paragraph**, with the per-clip
+  breakdown attached — "you need 278, and cpz_s2 alone is 148" rather than "it overflowed".
+  Row 6 is a one-clip act and far inside it; **§9.3's ruling is still owed** before the act
+  grows past about three zones (six clipped to two sections each is 353 with the real HPZ; one
+  section each is 199).
+- **C1 has no real data behind it yet**, and the one-way force `{TO_B on A, NONE on B}` is
+  LEGAL per §3.3, so a future pair-checking rule must not assume two-way.
+
+**CORRECTIONS TO PUBLISHED FIGURES**
+
+- **§3.5's per-zone table said CPZ 162; it is 160.** The section's own correction note moved
+  the three HEADLINE figures from the horizontal (rotated) array to the vertical one but left
+  the per-zone table alone. EHZ 105, OOZ 67, MTZ 62, WFZ 108 and HTZ 122 all reproduce.
+- **`s2_clip_budget.py collision <ZONE>:<s0>,<n>` is not a per-CLIP predictor in general** —
+  that spec has no vertical extent and counts every chunk its COLUMN range references over
+  every row. It agrees for the tracked fixtures because those clips are full-height.
+- **The collision crop costs nothing at whole-zone scope, measured because it was the obvious
+  worry.** EHZ and OOZ both have layout grids reaching below their camera-box crop (EHZ's
+  below-crop chunks are chunk 0 = air; OOZ's are real, 180-186 among them) and cropped vs
+  uncropped counts are identical for both — 105/105 and 67/67.
+
+**EVIDENCE (parcel 5).** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q`,
+`__pycache__` cleared, and **NO converted donor trees present — the state a fresh checkout is
+in** (this worktree has never run `s2_zone_convert.py` into `games/sonic4/data/donors/`):
+see the run recorded below. The 4-failed/55-error artifact-freshness family was established by
+an **in-place control taken BEFORE this parcel touched anything** — the same worktree at base
+`caae1521`, same conditions: **4 failed, 2986 passed, 2 skipped, 28 deselected, 55 errors, 143
+subtests passed in 70.49 s**, matching parcel 4's own post-landing figure exactly.
+`tools/test_s2_clip_collision.py` is **33 rows**, red-proven by **13** on-disk mutations (the
+two collision indices swapped; the flips dropped; the block-to-cell expansion transposed; the
+crop mask removed; the clip baked against the S&K bank; C1 disarmed; C1 without its OUTSIDE
+term, which reds only the discriminating control; `load_base_bank`'s default moved, which is
+the ROM-safety row; R12 reduced to one axis; `emit_tables` silenced with the ruling; C3
+disarmed; C2 disarmed; R3 disarmed), each restored from a committed baseline by copy and
+verified with `cmp` plus a clean-tree check. **Two of them are worth naming for what they did
+NOT red:** swapping the two planes left every COUNT row green (a plane swap produces the same
+attr SET) and was caught only by the row that walks emitted cells back to their donor cells;
+removing the crop mask left every count row green too and was caught only by the pad row.
+**Two other gates caught this parcel and both were right:**
+`test_clip_manifest.py::test_w1_warns_on_an_unchunked_src` failed the moment R12 landed — the
+W1 ruling meeting its own pin — and was rewritten as the R12 row carrying the retired premise
+as a PASSING case; and `test_land_gate_classifier` refused the new gate until it was registered
+as a reader of `docs/research/s2-compressed-act/`, fixed in the rule rather than routed around.
+No `.emp` touched, no ROM byte moved, the shipping act's collision tables, the S&K bank and the
+`games/sonic4/data/editor/ojz/act1` tree untouched, all three donor trees read-only, no
+emulator used.

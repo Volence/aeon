@@ -155,8 +155,14 @@ Donor: `/home/volence/sonic_hacks/s2disasm` (read-only; nothing in it was modifi
    S2's vertical array has no hanging bytes at all where S&K's has 362, and the two banks are
    not near-misses of one vocabulary. `tools/import_s2_collision.py` imports S2's own
    `Collision array - Vertical.bin` as a second bank at
-   `games/sonic4/data/collision/base_s2/`; the two are NOT merged. `load_base_bank()` still
-   hard-codes `base/` — selecting a bank is row 5's first move. See
+   `games/sonic4/data/collision/base_s2/`; the two are NOT merged. ~~`load_base_bank()` still
+   hard-codes `base/` — selecting a bank is row 5's first move.~~ **DONE 2026-09-17 (row
+   5):** `ojz_strip_gen.load_base_bank(bank_dir=None)` takes the directory, a converted
+   donor tree's `zone.json` NAMES its bank and pins its sha256, and
+   `clip_manifest.collision_banks` resolves an act's bank and REFUSES an act whose clips
+   disagree (one act has one attr set, and one index inside it must mean one shape).
+   `generate()` still calls it with no argument and still reads `base/`, so no ROM byte
+   moved. See
    `docs/research/s2-compressed-act/2026-09-17-s2-collision-bank.md`.
 3. **A rotated-heightmap regeneration, not a copy.** S2 and S&K store right-anchored runs as
    *positive* widths; aeon stores them as *negative* (`256-w`) and the player sensors are
@@ -280,6 +286,29 @@ clip's PLACEMENT in the act to a 2048-px section boundary.**
 > did not state is **8 px**: an editor section file is a grid of 8-px cells and has no
 > sub-tile addressing at all (R6).
 
+> **RULED 2026-09-17 by row 5, and the 128-px premise was FALSE.** "128-px snapping is free
+> ... no clip edge ever cuts a chunk in half, so collision and art stay coherent" reads as
+> if a chunk were the unit collision is authored in. It is not. **A chunk is 8×8 independent
+> BLOCK PLACEMENTS and every placement carries its own entry word** — its own block id, its
+> own flips, its own two solidity nibbles — so a cut between two blocks inside a chunk
+> severs nothing, and a cut at a chunk boundary is not special. W1 is RETIRED (its tag kept
+> reserved in `tools/clip_manifest.py`'s header with the false premise recorded).
+>
+> **The quantum that does bind is the BLOCK, 16 px, and it binds on the paste SHIFT rather
+> than on the src origin.** DERIVED from the runtime, not from either file format: a
+> collision cell's height profile is 16 bytes covering a 16-px block and `probe_core`
+> selects the column with `andi.w #$F, d0` on the **world** x
+> (`games/sonic4/player/player_sensors.emp`), while the collision ROW is the world tile row
+> halved (`engine/level/collision_lookup.emp` `lsr.w #1`). The geometry a cell describes is
+> therefore anchored to its own world position mod 16. Move it 8 px and every probe reads
+> the wrong half of a profile — **silently**, because the art, one word per 8-px cell, moves
+> correctly: the failure is ground 8 px out of place, which no screenshot shows.
+>
+> So **R12** replaces W1: `dst origin - src origin` is a multiple of 16 px in both axes, a
+> refusal with NO opt-out, because unlike R11 there is no argument to be made. Note it is a
+> rule about the shift: a 16-px-aligned src pasted to a 16-px-aligned dst is correct, and so
+> is an 8-px-aligned src pasted 2048 px away.
+
 ### 2.3 What happens at the cut edges
 
 **Collision continuity.** Because collision is stored per 8×16-px cell and resolved by absolute
@@ -293,8 +322,19 @@ leaves next to it.** Two concrete cases:
 - A clip cut across a loop or an overpass severs the path-A/path-B pairing. Aeon's crossover
   encoding is per-cell and paired (`docs/LOOP_CROSSOVER_ENCODING.md` §3.3), and
   `apply_editor_collision_overlay` REFUSES a self-mark (`tools/ojz_strip_gen.py:1821-1834`).
-  **A clip whose marquee cuts a loop in half will fail the bake**, loudly. That is the right
-  behaviour and should be documented for the author, not worked around.
+  ~~**A clip whose marquee cuts a loop in half will fail the bake**, loudly.~~
+  **WRONG, and row 5 built the refusal that makes it true (2026-09-17).** R2 refuses a
+  SELF-MARK — a plane-A cell carrying `XOVER_TO_A`. Cutting a loop in half produces a
+  perfectly well-formed mark whose PARTNER is simply absent, which R2 cannot see and
+  which nothing else saw either: `collision_xover_census.py` reports pairing but is a
+  census, not a gate. Nor is the thing a rectangle cuts the per-cell pair — that is one
+  cell on two planes and a rectangle clips both identically. What a cut really removes is
+  the loop's OTHER crossing (act 1's eight paired indices are two BANDS of one column,
+  §3.3's bottom-centre and top-centre). **`tools/clip_act_bake.py` C1 is the refusal**, and
+  it is conservative by necessity: the encoding records which PLANE a mark points at and
+  never which LOOP it belongs to, so "the clip takes some of this zone's marks and leaves
+  others" is the sharpest rule available, with an in-file `severed_xover_reason` opt-out
+  in R11's style.
 
 **Half-chunks.** With 128-px snapping there are none. Without it, a clip edge that lands
 mid-chunk splits a 16-block group whose flip and solidity bits were authored as a unit; the
@@ -468,7 +508,7 @@ layout references (MEASURED):
 | Scope | Attr-set entries needed | Against the 255 cap |
 |---|---|---|
 | EHZ alone | 105 | fits |
-| CPZ alone | 162 | fits |
+| CPZ alone | ~~162~~ **160** | fits |
 | OOZ alone | 67 | fits |
 | MTZ alone | 62 | fits |
 | WFZ alone | 108 | fits |
@@ -501,6 +541,26 @@ layout references, deduped by chunk word, through `collision_pipeline.bake_cell`
 shape and angle tables. A second, independently written measurement over the same data landed
 within about 10% per zone and reached the same verdict at every scope. The "clipped to the
 first N sections" rows use the leftmost N sections as a representative clip, not a bound.
+
+> **2026-09-17, row 5 — this table's per-zone row for CPZ was stale, and the six zones
+> now have measured emitted counts.** The correction note at the top of this section moved
+> the three headline figures from the horizontal array to the vertical one but left the
+> per-zone table alone; CPZ is **160** on the vertical array, not 162. EHZ 105, OOZ 67,
+> MTZ 62, WFZ 108 and HTZ 122 all reproduce unchanged. And the counts are no longer only a
+> prediction: `tools/s2_zone_convert.py` emits both collision planes per zone and
+> `zone.json` carries the attr-set cost, and all six EMITTED counts equal the predictor's
+> through two code paths that share nothing but the shape bank — EHZ 105, CPZ 160, HPZ
+> 152, WFZ 108, OOZ 67, MTZ 62.
+>
+> **One caveat on using `collision <ZONE>:<s0>,<n>` as a per-CLIP predictor: that spec has
+> no vertical extent.** It counts every chunk its COLUMN range references, over every row
+> of the layout grid, where a clip is a rectangle. It happens to agree for the tracked
+> fixtures because those clips are full-height, and it agrees at whole-zone scope even for
+> the two zones whose grids reach below their camera-box crop (EHZ's below-crop chunks are
+> chunk 0 = air; OOZ's are real chunks, 180-186 among them, and both cropped and uncropped
+> counts are 105/105 and 67/67 — the below-crop chunks reuse shapes the crop already
+> needs). A clip shorter than its zone's grid is a different rectangle and
+> `tools/clip_act_bake.py`'s per-clip number is the one about the bytes.
 
 **Ways out, for the owner to choose between (§9.3):** clip harder; widen the attr field from
 one byte to two (a per-cell storage change touching the block format and the runtime lookup);
@@ -700,14 +760,20 @@ games/sonic4/data/donors/<donor>/<ZONE>/     # <donor> = s2disasm | s2-simonwai-
     tileset.bin                              # decompressed S2 art, 32 B/tile          [parcel 2]
     palette.bin                              # 96 B, the zone's 3 CRAM lines, verbatim  [parcel 2]
     section_<N>.tiles.bin                    # 256x256 big-endian nametable words       [parcel 2]
-    section_<N>.collattr.bin                 # 256x256 big-endian collision cell words, plane A
-    section_<N>.collattrb.bin                # plane B
+    section_<N>.collattr.bin                 # 256x256 big-endian collision cell words, plane A  [row 5]
+    section_<N>.collattrb.bin                # plane B                                            [row 5]
     zone.json                                # grid w/h, extents, painted bbox, provenance, per-section counts  [parcel 2]
 ```
 
-~~`zone.json` carries attr-set cost per section~~ — it cannot until parcel 4 rules on the S2
+~~`zone.json` carries attr-set cost per section~~ — ~~it cannot until parcel 4 rules on the S2
 shape bank, so parcel 2's `zone.json` carries the art-side counts (painted cells, distinct
-tiles, CRAM-line-0 cells, per-file SHA-256) and not that one.
+tiles, CRAM-line-0 cells, per-file SHA-256) and not that one.~~ **DONE 2026-09-17 (row 5):
+it does, per section and per zone**, plus the base bank it is indexed against and that
+bank's sha256. The plane files carry AURORA's per-plane cell word — shape, flips, this
+plane's solidity, crossover — and never the baked attr byte, because an attr byte is an
+index into an ACT-wide 255-entry set and a donor zone is not an act. The transcode is
+`collision_pipeline.chunk_entry_to_plane_words` and it is exactly equivalent to `bake_cell`
+(measured over every distinct chunk-entry word of the six showcase zones).
 
 **Where this differs from aeon's OWN act tree, transcribed from
 `games/sonic4/data/editor/ojz/act1` and `project.json` rather than from this table:**
@@ -795,8 +861,20 @@ on three more (W1-W3), so the page can call it rather than reimplement it.
 - the worst camera-window page count in the clip's neighbourhood;
 - whether the marquee cuts a loop-crossover pair (which will fail the bake).
 
-The first three are one function call each against code that already exists. The fourth is a
-scan of the crossover marks in the source rectangle.
+~~The first three are one function call each against code that already exists. The fourth is a
+scan of the crossover marks in the source rectangle.~~
+
+**ALL FOUR SHIP 2026-09-17.** Parcel 3 put tiles, pages and worst window in the bake's
+`clipact.json`; row 5 adds the other two, and the attr-set item turned out to be row 5's and
+not row 4's — it is a property of a baked CLIP, not of the shape bank. Per clip,
+`clipact.json` `collision.per_clip` now carries `attr_entries_alone` (what this rectangle
+needs on its own — the number to compare between two candidate marquees),
+`attr_entries_added` (what it adds to the clips before it — the number that matters for the
+act's 255), `solid_cells`, and the crossover census `marks_inside_src` /
+`marks_outside_src`. The fourth item is a refusal and not only a readout (C1, §2.3), and the
+cap is one too (C2): an act over 255 is refused with the per-clip breakdown attached, which
+is the form the author needs — "you need 278, and `cpz_s2` alone is 148" rather than "it
+overflowed".
 
 ---
 
@@ -883,7 +961,7 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 > three are 10 — **and that fixture exists because the first one cannot discriminate:** its
 > answer is 12 whether the pin rule is wired correctly or not (see §3.3's note).
 | 4 | ~~**Collision: the S2 base bank.**~~ **DONE 2026-09-17** (`parcel/s2-collision-bank`). `tools/import_s2_collision.py` writes the bank to `games/sonic4/data/collision/base_s2/`, regenerating the rotated table. `$18` ruled: keep the run's width, anchor RIGHT. | M | **PASSED, both halves.** 256/256 round-trip, no raise, 1 via the ruling. The second half was widened from a hand-picked slope to **3,612,672 probes** — every distinct chunk word of all six zones x 16 x-sub x 16 y-sub x both sensor classes — against a line-for-line transcription of `s2.asm:42942`/`43030`: 0 exit-kind, 0 angle, 0 distance mismatches. No emulator; the donor's lookup is re-implemented. |
-| 5 | **Collision: clip → `collattr.bin`.** Run `bake_cell` over the clip's chunk words, emit both plane files. | M | The attr-set entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle, and the bake refuses a clip that cuts a crossover pair. |
+| 5 | ~~**Collision: clip → `collattr.bin`.**~~ **DONE 2026-09-17** (`parcel/s2-clip-collision`). `collision_pipeline.chunk_entry_to_plane_words` + `tools/s2_zone_convert.py` (both plane files per donor zone, crop-masked like the art, attr cost in `zone.json`) + `tools/clip_act_bake.py` (clip → both act plane files, per-clip §8 readout, C1/C2/C3). Bank selection done: `load_base_bank(bank_dir)`. W1 RULED and retired; R12 replaces it. | M | **PASSED, both halves.** Six counts, six exact matches — `s2_two_clip` ehz_s2 95 / cpz_s2 148 / act 207, `s2_two_clip_pins` ehz_s1 62 / cpz_s1 148 / act 191, each equal to `s2_clip_budget.py collision` on the same rectangle, and each act re-counted off the emitted bytes. C1 refuses a clip that takes some of a zone's crossover marks and leaves others — a refusal that **did not exist**, because the §2.3 mechanism named for it (R2) catches self-marks, not severed ones. |
 | 6 | **★ FIRST THING ON SCREEN: a one-clip act.** One 2-section Emerald Hill clip as a whole act: art + collision + its palette, bootable. | M | The act builds through `tools/landing_build.sh`; the clip renders and Sonic stands on its ground. This is the first parcel that produces a picture. |
 | 7 | **Two clips + a corridor.** Two zones, a neutral transition between them (§9.1a), two regions, two palettes, a cross-fade at the crossing. | M | No camera position holds cells from both clips (a static check over the placed act); the palette cross-fade fires exactly once per crossing. |
 | 8 | **Three clips, and the budget gates.** Add the per-clip readout of §8 so the author sees tiles/pages/attr-entries before pasting. | M | `fg_page_order.check` green; `art_rom_report` within whatever budget the owner ruled in §9.3; attr set under 255. |
@@ -1028,6 +1106,25 @@ as its own first step rather than inherit them.
 > python3 tools/import_s2_collision.py check reach    # 151 used, 68 unreachable
 > python3 tools/import_s2_collision.py check sign     # 44 identical, 212 differ, all pure sign
 > ```
+
+>**2026-09-17, parcel 5 (row 5).** Collision now converts with the zones; these need the
+> donor trees (`python3 tools/s2_zone_convert.py convert --all-six`, which also writes both
+> collision planes and the attr cost into each `zone.json`):
+>
+> ```bash
+> python3 tools/s2_zone_convert.py convert --all-six       # emits + verifies both planes
+> python3 tools/clip_act_bake.py bake games/sonic4/data/clips/s2_two_clip/clips.json
+> python3 tools/clip_act_bake.py bake games/sonic4/data/clips/s2_two_clip_pins/clips.json
+> python3 $S collision EHZ:2,1        # -> 95,  the bake's ehz_s2 alone
+> python3 $S collision CPZ:2,1        # -> 148, the bake's cpz_s2 alone
+> python3 $S collision EHZ:2,1 CPZ:2,1   # -> 207, the act
+> python3 $S collision EHZ:1,1 CPZ:1,1   # -> 191, the pins act
+> python3 -m pytest tools/test_s2_clip_collision.py -q     # 33 rows, incl. the C1 refusal
+> ```
+>
+> The whole-zone counts the converter emits are EHZ 105, CPZ 160, HPZ 152, WFZ 108, OOZ 67,
+> MTZ 62, and `python3 $S collision <ZONE>` prints the same six. §3.5's per-zone table said
+> 162 for CPZ; that was the horizontal-array figure and is corrected there.
 
 Aeon's own foreground palette-line figure in §5.3 (all 46,211 painted cells of OJZ act 1 on
 line 2) is a one-liner over the committed editor sections:
