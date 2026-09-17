@@ -68,6 +68,17 @@ KNOWN = {
         "not opened at import); build.sh names it 0 times",
     ("tools/megaact_page_order.py", "docs/research/megaact-bg-streaming/08-m-b-results-s3k.json"):
         "the same hand-run tool and evidence",
+    ("tools/megaact_fg_cache10.py", "docs/research/megaact-bg-streaming/09-page-order-results-s2.json"):
+        "FG-CACHE-10-RESEARCH's research tool, run BY HAND: `rederive` reads report 09's committed "
+        "evidence to check that this tool re-derives it before any lever number is used. Evidence "
+        "that it never runs in a build, derived 2026-09-17: a grep over *.py/*.sh/*.toml/*.cfg/*.ini "
+        "names it in its own file and in tools/test_cli_dispatch_refuses.py, which imports it and "
+        "tripwires run/rom_bytes/control_ext so none runs (P09_JSON is a module constant, not opened "
+        "at import); build.sh names it 0 times",
+    ("tools/megaact_fg_cache10.py", "docs/research/megaact-bg-streaming/09-page-order-results-s3k.json"):
+        "the same hand-run tool and evidence",
+    ("tools/megaact_fg_cache10.py", "docs/research/megaact-bg-streaming/09-page-order-results-ojz.json"):
+        "the same hand-run tool and evidence",
     ("tools/ramp_boundary_probe.py", "docs/benchmarks/effects-p3"):
         "an emulator probe run by hand; the directory is where it writes its PNG evidence",
     ("tools/tilt_frame_static_audit.py", "docs/witness/f7-tilt-frames.png"):

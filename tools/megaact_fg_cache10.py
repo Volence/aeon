@@ -88,11 +88,14 @@ import megaact_page_order as mpo                 # noqa: E402
 import ojz_strip_gen                             # noqa: E402
 import tile_dedupe                               # noqa: E402
 
-P09_JSON = {g: os.path.join(REPO, f"docs/research/megaact-bg-streaming/09-page-order-results-{g}.json")
-            for g in ("s2", "s3k", "ojz")}
+P09_JSON = {
+    "s2": os.path.join(REPO, "docs/research/megaact-bg-streaming/09-page-order-results-s2.json"),
+    "s3k": os.path.join(REPO, "docs/research/megaact-bg-streaming/09-page-order-results-s3k.json"),
+    "ojz": os.path.join(REPO, "docs/research/megaact-bg-streaming/09-page-order-results-ojz.json"),
+}
 
-# The owner's lever: POOL_TILE_CEILING 768 -> 640 (constants.emp:856-871 names the 640 /
-# 10-frame floor). Held as FRAMES x the shipped page size so it is derived, not typed.
+# The owner's lever: POOL_TILE_CEILING 768 -> 640 (engine/system/constants.emp, the comment
+# above POOL_TILE_CEILING names the 640 / 10-frame floor). Held as FRAMES x the shipped page size so it is derived, not typed.
 LEVER_FRAMES_64 = mb.OWNER_LEVER_FRAMES
 
 
@@ -169,7 +172,8 @@ def geometry_constants(c, gname):
     reach_c = (7 + c["SECTION_H_REACH_PX"]) >> 3
     reach_r = (7 + c["SECTION_V_REACH_PX"]) >> 3
     problems = []
-    # the engine's own ensures (constants.emp:899-900, :969-972)
+    # the engine's own ensures (engine/system/constants.emp: the TILE_CACHE_ROWS-even ensure
+    # beside TILE_CACHE_COLL_ROWS, and the two cache-span ensures under STREAMING REACH)
     if rows % 2:
         problems.append("TILE_CACHE_ROWS odd")
     if cols < mh + reach_c + 1:
