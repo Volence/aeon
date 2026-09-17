@@ -5401,7 +5401,14 @@ raw, KosM's $1000-granule precedent; page size is a build knob, swept on the str
 fixture). Small units mean the *scheduler* needs no time model — most units simply fit.
 Pre-chunking alone is not sufficient at the measured worst windows (a 2 KB page ≈ 45 K
 cycles vs ~42.5 K average idle in a diagonal-fall window, 2026-08-05 measurement), which
-is why Layer 2 exists.
+is why Layer 2 exists. **⚠ Re-measured 2026-09-17, and it disagrees:** on OJZ act 1's ZX0
+pages the resumable decoder spends a median **~152 K 68000 clocks per 64-tile page** and
+~75 K per 32-tile page. That was measured with master-clock-stamped write watches around
+each decode slice, display-off bulk load and in motion agreeing within 3%, and 270 of 300
+display-off 64-tile decodes needed a VBlank preempt. From decode start to publish, a
+64-tile page most often takes 2 frames (DEBUG) and a 32-tile page 1. What the 45 K figure
+counted was not re-derived. Source: `docs/research/megaact-bg-streaming/11-cache-window-runtime-holds.md`,
+"Decode timing".
 
 **Layer 2 — preemption (the supervisor bookmark).** The unit decoder runs as a
 straight-line supervisor-mode loop in the idle spin. If VBlank fires mid-decode,
