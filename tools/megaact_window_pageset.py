@@ -509,9 +509,21 @@ class Act:
             self.zones.append(z)
 
 
-def run_pipeline(act, c):
+def run_pipeline(act, c, order_fn=None, zone_split_dedupe=False):
     """Aeon's build-time page pipeline over the stitched act. Returns a dict with
-    page_grid ((H, W) int16, -1 = blank/no page), pinned list, pool facts."""
+    page_grid ((H, W) int16, -1 = blank/no page), pinned list, pool facts.
+
+    order_fn=None is the SHIPPED Pass 4 (order_pool_spatially + pin_blank_tile_first),
+    the path `control` proves against the committed OJZ bake. A candidate order
+    (tools/megaact_page_order.py, STITCHED-ACT-PAGE-ORDER) is a callable
+    order_fn(ctx) -> pool_order over canonical ids that must put the blank canonical
+    at slot 0 and list every referenced canonical exactly once; this function
+    refuses otherwise. Everything after the order (split, pin rule, local maps) is
+    the same code either way.
+
+    zone_split_dedupe=True keys the dedupe result by (zone, canonical), so two
+    zones never share a pool slot (VOID cells stay on the one blank). It is a
+    candidate POLICY for cross-zone shared tiles, not the shipped behaviour."""
     st = c["SECTION_SIZE"] >> 3
     H, W = act.zone_id.shape
     # ---- key every cell: (zone, source tile), VOID -> key 0 (an all-zero tile) ----
@@ -529,6 +541,15 @@ def run_pipeline(act, c):
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
     key_to_canon = np.array([m[0] for m in mapping], dtype=np.int64)
     canon = key_to_canon[np.searchsorted(ref, key)]
+    if zone_split_dedupe:
+        # one canonical per (zone, canonical); every blank cell keeps the one blank canonical
+        blank_c = unique.index(tile_dedupe.BLANK_TILE) if tile_dedupe.BLANK_TILE in unique else -1
+        nz = len(act.zones) + 1
+        zk = canon * nz + (act.zone_id.astype(np.int64) + 1)
+        zk = np.where(canon == blank_c, blank_c * nz, zk)
+        zref, zinv = np.unique(zk, return_inverse=True)
+        unique = [unique[int(k) // nz] for k in zref.tolist()]
+        canon = zinv.reshape(canon.shape).astype(np.int64)
 
     # ---- Pass 3: per-section canonical lists, column-major first occurrence ----
     per_section = []
@@ -540,8 +561,23 @@ def run_pipeline(act, c):
             per_section.append(u[np.argsort(idx, kind="stable")].tolist())
 
     # ---- Pass 4 ----
-    pool_order = tile_dedupe.order_pool_spatially(per_section)
-    pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
+    order_s = time.perf_counter()
+    order_stats = {}
+    if order_fn is None:
+        pool_order = tile_dedupe.order_pool_spatially(per_section)
+        pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
+    else:
+        if tile_dedupe.BLANK_TILE not in unique:      # as pin_blank_tile_first would
+            unique.append(tile_dedupe.BLANK_TILE)
+        order_ctx = {"canon": canon, "zone_id": act.zone_id, "unique": unique,
+                     "per_section": per_section, "act": act, "c": c, "stats": {}}
+        pool_order = list(order_fn(order_ctx))
+        order_stats = order_ctx["stats"]
+        if sorted(pool_order) != sorted({x for s in per_section for x in s}
+                                        | {unique.index(tile_dedupe.BLANK_TILE)}):
+            raise SystemExit(f"{act.name}: candidate order is not a permutation of the "
+                             f"referenced canonicals plus blank")
+    order_s = time.perf_counter() - order_s
     assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE
     canon_to_pool = np.full(len(unique), -1, dtype=np.int64)
     canon_to_pool[np.array(pool_order, dtype=np.int64)] = np.arange(len(pool_order))
@@ -575,6 +611,10 @@ def run_pipeline(act, c):
         "local_palette_refusals": local_palette_refusals,
         "per_section_global_sets": per_section_global_sets,
         "glob_grid": glob,
+        "order_seconds": order_s,
+        "order_stats": order_stats,
+        "pool_order": pool_order,
+        "unique": unique,
     }
 
 
