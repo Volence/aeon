@@ -1,5 +1,5 @@
 {
-  "focus": "Boot's sound-chip pause and three small tidy-ups landed today; the rest of the list waits on your cards or showcase call.",
+  "focus": "Fresh session, nothing running. The remaining list waits on your three cards or your showcase call.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -18,7 +18,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here: everything landed, pushed and written up (handoff 23).",
+  "nextBoundary": "Here: nothing in flight; handoff 23 is the resume anchor.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -70,7 +70,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "a /clear when convenient (handoff 23 banks everything); and your 3 decision cards or the showcase call to unhold the video-memory work",
+  "awaiting": "your 3 decision cards or the showcase call; or a go on the optional gate check (sound-chip pause census), which is not a done-list item",
   "atBoundary": true,
-  "updatedAt": "2026-09-17T11:02:17Z"
+  "updatedAt": "2026-09-17T12:56:10Z"
 }
