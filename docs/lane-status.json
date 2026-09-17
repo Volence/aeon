@@ -1,8 +1,7 @@
 {
-  "focus": "Landing the nightly stress builds; an agent is fixing a nightly check that has not run since the 16th.",
+  "focus": "Stress builds now run nightly; an agent is fixing a nightly check that has not run since the 16th.",
   "inFlight": [
-    { "what": "Nightly preset check refuses every night: act has more regions than its readout shows", "where": "branch parcel/preset-lab-witness-regions", "agent": true },
-    { "what": "Build both art stress tests in the nightly run, failure reported as FAILED", "where": "branch parcel/stress-shapes-nightly", "agent": false }
+    { "what": "Nightly preset check refuses every night: act has more regions than its readout shows", "where": "branch parcel/preset-lab-witness-regions", "agent": true }
   ],
   "blockedOnOwner": [
     {
@@ -31,13 +30,6 @@
       "state": "blocked",
       "size": "M",
       "blockedBy": "decision card FG-CACHE-10-HOW"
-    },
-    {
-      "id": "STRESS-SHAPES-NIGHTLY",
-      "title": "Run both art stress-test builds every night so they cannot silently break again",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     },
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -84,5 +76,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T09:20:17Z"
+  "updatedAt": "2026-09-17T09:24:45Z"
 }
