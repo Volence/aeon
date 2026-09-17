@@ -1,12 +1,6 @@
 {
-  "focus": "Converting Sonic 2 zones into our format, the step before anything can be clipped.",
-  "inFlight": [
-    {
-      "what": "Converting a whole Sonic 2 zone into our level format, art and layout first",
-      "where": "branch parcel/s2-zone-converter",
-      "agent": true
-    }
-  ],
+  "focus": "Whole Sonic 2 zones now convert into our format, all six of yours, exactly.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,11 +8,11 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the zone converter lands; clipping and pasting is the step after it.",
+  "nextBoundary": "Here: the converter is landed and pushed; clipping is the next step.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: donor reader landed; converting a whole zone into our format now",
+      "title": "Sonic 2 test act: whole zones now convert into our format; next is clipping a piece and pasting it",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T19:12:46Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T19:39:34Z"
 }
