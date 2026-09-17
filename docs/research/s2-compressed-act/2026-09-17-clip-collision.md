@@ -332,6 +332,28 @@ that is the W1 ruling meeting its own pin, fixed by rewriting the row (§5).
 and so reads a CHECKED path, and the audit would not pass until it was registered as a
 reader of `docs/research/s2-compressed-act/`. Fixed in the rule, not routed around.
 
+**Lanes.** Pre-build tool lane with `__pycache__` cleared and **no converted donor trees
+present**: **4 failed, 3019 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in
+68.29 s**. The 4-failed/55-error artifact-freshness family was established by an **in-place
+control taken before this parcel touched anything** (same worktree at base `caae1521`, same
+conditions): **4 failed, 2986 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed
+in 70.49 s**. Delta **+33 passed** = exactly this parcel's rows, and the FAILED/ERROR node-id
+sets (59 ids) are **byte-identical**.
+
+**`tools/landing_build.sh`: exit 0, `finished=0`, stamp written** (key `c16fa2cf89c4d807`,
+head `cca263d7d4a4`). Three shapes built:
+
+| shape | bytes | md5 | vs master |
+|---|---|---|---|
+| `s4.bin` | 821,479 | `ae62156a66c9c3f13e93940e938c340e` | identical |
+| `s4.debug.bin` | 848,075 | `b15ef259523f67ac963ef0cf4df003dc` | identical |
+| `demo.debug.bin` | 104,707 | `f740c22498f6ad132ac9f8bd978c9350` | identical |
+
+**No ROM byte moved.** In-build pre-build lane 3078 passed / 2 skipped / 0 failed / 0 errors
+(= parcel 4's 3045 plus this parcel's 33). needs_build lane 27 ran / 0 deferred / 0 failed /
+1 exempted (`test_deb2_appendix[demo.bin]`, the shape this caller does not build). Wall clock:
+2026-09-17, dev box up 1 day 22 h, load average 1.3-2.5 across the runs.
+
 **Reproduction** (needs the converted donor trees, which are gitignored):
 
 ```bash

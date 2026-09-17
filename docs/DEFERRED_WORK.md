@@ -37195,7 +37195,9 @@ Found while painting a synthetic over-cap act for the C2 row.
 **EVIDENCE (parcel 5).** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q`,
 `__pycache__` cleared, and **NO converted donor trees present — the state a fresh checkout is
 in** (this worktree has never run `s2_zone_convert.py` into `games/sonic4/data/donors/`):
-see the run recorded below. The 4-failed/55-error artifact-freshness family was established by
+**4 failed, 3019 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 68.29 s**,
+delta **+33 passed** over the control = exactly this parcel's 33 gate rows, with the
+FAILED/ERROR node-id set **byte-identical** to the control's (59 ids, `diff` empty). The 4-failed/55-error artifact-freshness family was established by
 an **in-place control taken BEFORE this parcel touched anything** — the same worktree at base
 `caae1521`, same conditions: **4 failed, 2986 passed, 2 skipped, 28 deselected, 55 errors, 143
 subtests passed in 70.49 s**, matching parcel 4's own post-landing figure exactly.
@@ -37221,6 +37223,17 @@ rectangles), after which it reds both. Both comparisons are kept; neither subsum
 W1 ruling meeting its own pin — and was rewritten as the R12 row carrying the retired premise
 as a PASSING case; and `test_land_gate_classifier` refused the new gate until it was registered
 as a reader of `docs/research/s2-compressed-act/`, fixed in the rule rather than routed around.
+**`tools/landing_build.sh` exit 0, `finished=0`, stamp written** (key `c16fa2cf89c4d807`,
+head `cca263d7d4a4`), three shapes built — **s4.bin 821,479 B md5
+`ae62156a66c9c3f13e93940e938c340e`, s4.debug.bin 848,075 B md5
+`b15ef259523f67ac963ef0cf4df003dc`, demo.debug.bin 104,707 B md5
+`f740c22498f6ad132ac9f8bd978c9350`: byte-identical to the three master booked at `a182f7fe`
+and at parcel 4's landing, so NO ROM BYTE MOVED**, as expected from a parcel that adds no
+build input. Its in-build pre-build lane is **3078 passed / 2 skipped / 0 failed / 0 errors**
+(= parcel 4's 3045 plus exactly this parcel's 33 rows), and the needs_build lane is
+**27 ran / 0 deferred / 0 failed / 1 exempted**. Run after merging `origin/master`
+(`e6c247c7`, a status-file commit; no conflict).
 No `.emp` touched, no ROM byte moved, the shipping act's collision tables, the S&K bank and the
-`games/sonic4/data/editor/ojz/act1` tree untouched, all three donor trees read-only, no
-emulator used.
+`games/sonic4/data/editor/ojz/act1` tree untouched (11 of 11 md5s unchanged across a bake, and
+a gate row pins it), all three donor trees read-only, no emulator used. Wall clock: 2026-09-17,
+dev box up 1 day 22 h, load average 1.3-2.5 across the runs.
