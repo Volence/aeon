@@ -139,10 +139,15 @@
 // ROM — bytes appear only where a consumer brackets with it.
 module engine.z80_bus
 
-pub context z80_stopped {
-    // Request the bus and spin until the Z80 grants it.
-    acquire = asm {
-        move.w  #$0100, Z80_BUS_REQUEST
+pub context z80_stopped(interleave: Code = asm {}) {
+    // Request the bus, run the consumer's `interleave` slot (empty by default —
+    // `asm {}` appends nothing, so a bare `with z80_stopped` emits exactly the
+    // stream it emitted before the parameter existed), then spin until the Z80
+    // grants it. The slot is spliced INSIDE the acquire, so every bracket proof
+    // covers it (sigil d-33; see the header's "THE SLOT" paragraph).
+    // The `++` chain must stay on ONE line: a context field's expression ends at
+    // the line end, and newlines are legal only inside the `asm { }` braces.
+    acquire = asm { move.w  #$0100, Z80_BUS_REQUEST } ++ interleave ++ asm {
     .wait_z80:
         btst    #0, Z80_BUS_REQUEST
         bne     .wait_z80
