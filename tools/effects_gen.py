@@ -3951,10 +3951,13 @@ def check_mode_conflict(repo: str = REPO, zone: int = 0, act: int = 0) -> None:
     picking either would be a MERGE — the thing §5.3 forbids by name, because whichever
     source lost would go on looking authoritative in the editor.
 
-    Inert on a tree with no `regions.json`, which today is every act in this repo. That is
-    what it is FOR: it is the guard that makes the migration moment safe, and it is wired
-    into `generate()` now rather than shipped with the emitter later, so the first act to
-    grow a document meets the refusal instead of a silently ignored sidecar.
+    Inert on an act with no `regions.json`; LIVE on any act that has one. Region mode is
+    detected by exactly that predicate (`has_act_regions`: the act's `regions.json` exists),
+    and aurora's editor detects it the same way. OJZ act 1 has had one since `e2af59ea`
+    (2026-09-16), so this check runs on it; re-derive which acts are live with
+    `git ls-files 'games/*/data/editor/*/*/regions.json'`. It is the guard that makes the
+    migration moment safe, wired into `generate()` so an act that grows a document meets
+    the refusal instead of a silently ignored sidecar.
     """
     if not has_act_regions(repo, zone, act):
         return
