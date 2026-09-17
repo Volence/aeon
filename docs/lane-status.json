@@ -2,13 +2,13 @@
   "focus": "Overnight: fixing the art stress-test re-bake and running the in-game test your cache card needs.",
   "inFlight": [
     {
-      "what": "Find and fix why the art stress-test re-bake fails its own fidelity check",
-      "where": "branch fix/stress-uniquify-rebake",
+      "what": "In-game test of how often the camera waits for art with a smaller loaded area",
+      "where": "branch research/cache-window-hold",
       "agent": true
     },
     {
-      "what": "In-game test of how often the camera waits for art with a smaller loaded area",
-      "where": "branch research/cache-window-hold",
+      "what": "Get both art stress-test builds through every build check",
+      "where": "branch fix/stress-shapes-build",
       "agent": true
     }
   ],
@@ -35,7 +35,7 @@
     },
     {
       "id": "STRESS-UNIQUIFY-REBAKE",
-      "title": "The art stress-test re-bake fails its own fidelity check (broken before today's work); find the cause and fix it",
+      "title": "The art stress-test builds: the re-bake is fixed; now getting both stress builds through every check",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -92,5 +92,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T06:53:56Z"
+  "updatedAt": "2026-09-17T07:02:28Z"
 }
