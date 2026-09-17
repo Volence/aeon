@@ -36325,6 +36325,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - ~~The 32-tile decode latency is derived, not measured.~~ Measured (report 11): ~75 K clocks, publish mode 1 frame (64-tile: ~152 K, 2 frames).
   - Churn is not re-measured.
 - **Bears on REGIONS-P2-STEP7 (cache 12 -> 10):** do not cut to 10 x 64-tile frames for stitched S3K content. The measured path to 640 tiles is (1) this order wiring with a build refusal, (2) 32-tile pages, (3) a 56x48 or 64x48 window gated on a runtime hold measurement.
+  - **RULED 2026-09-17T13:02:06Z, owner, card FG-CACHE-10-HOW `stay-at-12` (console selection, no words): the cache stays at 12 pages of 64 tiles.** REGIONS-P2-STEP7 (lever 1) is retired. REGIONS-P2-STEP8 (halve the scroll plane) was sized assuming lever 1 happened and must be re-sized before it starts. Re-test a smaller cache only once a real multi-zone act can run in-game.
 - **Incidental findings:**
   - 09's "every window at or under 12" is class-scoped: junction acts' other windows go over 12 (S3K 3,875 in 23 acts, S2 170 in 2).
   - The ROWS ensure at `engine/system/constants.emp:971` is one row short at odd camera rows; not binding today.

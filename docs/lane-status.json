@@ -1,52 +1,28 @@
 {
-  "focus": "Fresh session, nothing running. The remaining list waits on your three cards or your showcase call.",
+  "focus": "You answered two cards: the art cache stays as is, and the background cover check waits for the showcase.",
   "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "FG-CACHE-10-HOW",
-      "what": "Whether to keep the art cache as it is for now: the in-game test showed the smaller one makes the camera wait for art.",
-      "since": "2026-09-17"
-    },
-    {
-      "id": "REGION-BG-COVER-DEFINITION",
-      "what": "What counts as 'hidden' when a background swaps at a region border (I recommend waiting for a real crossing).",
-      "since": "2026-09-17"
     }
   ],
   "nextBoundary": "Here: nothing in flight; handoff 23 is the resume anchor.",
   "queue": [
     {
-      "id": "FG-CACHE-10-RESEARCH",
-      "title": "Research and in-game test landed: a smaller cache makes the camera wait; your card now recommends keeping it as it is for now",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "decision card FG-CACHE-10-HOW"
-    },
-    {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Region backgrounds: switch landed. Cover warning researched, waits on your definition card; per-region animated strips wait for real band content",
+      "title": "Region backgrounds: switch landed. The cover warning waits for the first real border in your showcase act (your call); animated strips wait for real band content",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "decision card REGION-BG-COVER-DEFINITION"
-    },
-    {
-      "id": "REGIONS-P2-STEP7",
-      "title": "Video memory, lever 1: shrink the foreground art cache so objects get room. He ruled this plan in his own words and scoped it inside regions; both levers are already priced here",
-      "state": "open",
-      "size": "M",
-      "blockedBy": "held, not blocked: you set the showcase as S2 or S3 in one act, and a background that loads once cannot do that. Carving video memory for one zone right before designing for many risks carving it twice"
+      "blockedBy": "held, not blocked: needs the showcase act's first real region crossing"
     },
     {
       "id": "REGIONS-P2-STEP8",
-      "title": "Video memory, lever 2: halve the scroll plane, which also makes the background window mandatory rather than optional. Takes lever 1 first",
+      "title": "Video memory: halve the scroll plane for object room. You kept the art cache as it is, so this gets re-sized first",
       "state": "open",
       "size": "L",
-      "blockedBy": "held, not blocked: you set the showcase as S2 or S3 in one act, and a background that loads once cannot do that. Carving video memory for one zone right before designing for many risks carving it twice"
+      "blockedBy": "held, not blocked: re-size without the cache cut, and the showcase act (S2 or S3 in one act) shapes it"
     },
     {
       "id": "SP-6",
@@ -70,7 +46,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "your 3 decision cards or the showcase call; or a go on the optional gate check (sound-chip pause census), which is not a done-list item",
+  "awaiting": "the spring sound A/B listen, or the showcase call; or a go on the optional sound-chip pause census check",
   "atBoundary": true,
-  "updatedAt": "2026-09-17T12:56:10Z"
+  "updatedAt": "2026-09-17T13:02:24Z"
 }

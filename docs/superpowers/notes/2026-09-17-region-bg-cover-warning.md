@@ -252,3 +252,8 @@ asking.
   pixel long (quiet), both boundaries derived from the constants.
 - A post-sigil `needs_build` report over `s4.debug.bin`'s region table that prints WARNING lines and
   exits 0.
+
+
+## Ruling (2026-09-17T13:02:06Z)
+
+Owner, card REGION-BG-COVER-DEFINITION, option `wait-for-real-crossing` (console selection, no words). No cover warning is built. The definition of 'hidden' is decided on the first real region border in the Sonic 2/3 showcase act, using the measurements above. Release has no background crossings today, so nothing is exposed meanwhile.
