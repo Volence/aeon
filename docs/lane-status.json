@@ -48,6 +48,13 @@
       "blockedBy": null
     },
     {
+      "id": "SPAWNDESC-SIZE-CLOSE",
+      "title": "Close the unenforced struct-size row: the assembler now checks it, once the assembler binary we build with is refreshed and the check is seen to refuse a wrong size",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "sigil release binary predates sigil dd0f575c; refresh after the running aeon agents land"
+    },
+    {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
       "state": "next",
@@ -92,5 +99,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T07:31:17Z"
+  "updatedAt": "2026-09-17T07:42:05Z"
 }
