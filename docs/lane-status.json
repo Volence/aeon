@@ -1,6 +1,12 @@
 {
-  "focus": "The boot sound-chip pause and two tooling tidy-ups are landed; everything left waits on your cards or your showcase call.",
-  "inFlight": [],
+  "focus": "Last small fix: one stale comment in the preset readout test. After that the list waits on you.",
+  "inFlight": [
+    {
+      "what": "fix one stale comment in the preset readout test",
+      "where": "agent worktree, branch parcel/preset-readout-comment",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here: nothing running, everything landed and pushed.",
+  "nextBoundary": "When the comment fix lands.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -72,12 +78,12 @@
     {
       "id": "PRESET-READOUT-COMMENT",
       "title": "One stale comment in the preset readout test mentions a limit that no longer exists",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     }
   ],
-  "awaiting": "nothing new: the rest of the list is held for your showcase direction or your 3 decision cards",
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T10:44:22Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T10:44:31Z"
 }
