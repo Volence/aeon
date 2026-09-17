@@ -37209,6 +37209,13 @@ verified with `cmp` plus a clean-tree check. **Two of them are worth naming for 
 NOT red:** swapping the two planes left every COUNT row green (a plane swap produces the same
 attr SET) and was caught only by the row that walks emitted cells back to their donor cells;
 removing the crop mask left every count row green too and was caught only by the pad row.
+**And one correction the mutations forced on the gate's own design, against the obvious
+reading:** the swapped-index mutation first reddened the geometry row on ONE of its two
+parametrisations, the instinct was "make the sampled comparison exhaustive", and an
+exhaustive one was added that CANNOT SEE that mutation — it compares the emitted files
+against the vectorised re-derivation, so both sides move together. What missed it was the
+random 120-cell scalar sample, now a STRIDED sweep (every 7th cell, count derived from the
+rectangles), after which it reds both. Both comparisons are kept; neither subsumes the other.
 **Two other gates caught this parcel and both were right:**
 `test_clip_manifest.py::test_w1_warns_on_an_unchunked_src` failed the moment R12 landed — the
 W1 ruling meeting its own pin — and was rewritten as the R12 row carrying the retired premise

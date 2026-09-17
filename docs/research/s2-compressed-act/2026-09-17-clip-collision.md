@@ -291,7 +291,7 @@ restored from a committed baseline by copy and verified with `cmp` plus a clean-
 
 | # | mutation | rows red |
 |---|---|---|
-| M1 | `index_a`/`index_b` swapped in the transcode | 3 |
+| M1 | `index_a`/`index_b` swapped in the transcode | 4 |
 | M2 | flips dropped in the transcode | 4 |
 | M3 | both `np.repeat`s on one axis (block → cell expansion transposed) | 9 |
 | M4 | collision written without the crop mask | 2 |
@@ -310,6 +310,20 @@ planes) left every count row green — a plane swap produces the same attr *set*
 caught only by the row that walks emitted cells back to their donor cells. M4 (no crop
 mask) left every count row green too, for the reason §2 measures, and was caught only by
 the pad row. Neither row is redundant with the counts.
+
+**And one thing the mutations corrected about this gate's own design, recorded because the
+correction went against the obvious reading.** M1 first reddened the "donor's own geometry"
+row on ONE of its two parametrisations. The instinct was that the sampled comparison should
+become exhaustive — and an exhaustive comparison was added, and it does **not** see M1 at
+all: M1 mutates the *scalar* transcode, while the exhaustive half compares the emitted files
+against `rederive_zone_collision`, both on the *vectorised* path, so both sides move
+together. It reds on a transposed rectangle (M3) and on the file round trip, which is what
+it is for, and it was already sensitive to those on both parametrisations. What actually
+missed M1 was the 120-cell **random** sample in the scalar half, and the miss was not bad
+luck in general: whether a cell can show an A/B swap depends on the zone's two collision
+indices disagreeing *there*. Replaced with a **strided** sweep (every 7th cell in both axes,
+count derived from the rectangles), after which M1 reds both parametrisations. Both
+comparisons are kept; neither subsumes the other.
 
 **Two other gates caught this parcel and both were right.**
 `test_clip_manifest.py::test_w1_warns_on_an_unchunked_src` failed the moment R12 landed —
