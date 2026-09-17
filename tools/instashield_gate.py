@@ -1052,6 +1052,23 @@ def check_cap_displacement(prog, cap_off):
 
 # --------------------------------------------------------------------------
 
+def derived_cut_placement(rom, start, end, stubs, path, lst_path, routine):
+    """For a DERIVED cut only: THIS listing's extent and stub addresses and THIS ROM's
+    bytes, exactly. check_cut is relocation-blind by design and would pass another
+    shape's genuine cut; a cut derived from this listing has nothing to forgive."""
+    cut = _read_cut_doc(path)["shapes"].get(shape_key(lst_path))
+    if cut is None:
+        return ["the derived cut holds no key for %r" % shape_key(lst_path)]
+    bad = []
+    if (cut["start"], cut["end"], cut["bytes"]) != (start, end, rom[start:end].hex()):
+        bad.append("derived %s span $%06X..$%06X is not this listing's $%06X..$%06X (or "
+                   "its bytes are not this ROM's)"
+                   % (routine, cut["start"], cut["end"], start, end))
+    if cut["stubs"] != {"%06X" % a: n for a, n in stubs.items()}:
+        bad.append("derived %s stub addresses are not this listing's" % routine)
+    return bad
+
+
 def _derived_cut(args, fixture, rom, start, end, stubs, offs, k, sst_custom, syms,
                  routine):
     """STRESS-SHAPES-GATE-CUTS (2026-09-17). (derived, rc): for an OFF-CANONICAL shape the
@@ -1074,7 +1091,9 @@ def _derived_cut(args, fixture, rom, start, end, stubs, offs, k, sst_custom, sym
         return False, None
     return True, gate_cut_shape.derive_for_offcanonical(
         "instashield_gate", args.lst, fixture, cut_shapes, produce,
-        lambda p: (check_cut(rom, start, end, syms, p, args.lst, routine), [])[1])
+        lambda p: (check_cut(rom, start, end, syms, p, args.lst, routine),
+                   derived_cut_placement(rom, start, end, stubs, p, args.lst,
+                                         routine))[1])
 
 
 def _fixture_verdict(rom, start, end, syms, fixture, lst, gate, routine=ROUTINE):

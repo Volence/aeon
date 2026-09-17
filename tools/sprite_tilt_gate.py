@@ -979,6 +979,28 @@ def check_fixture(rom, syms, path, lst_path):
     return problems
 
 
+def derived_cut_placement(rom, syms, path, lst_path):
+    """For a DERIVED cut only: it must sit at THIS listing's addresses and hold THIS ROM's
+    bytes, exactly. check_fixture is relocation-blind by design, so it passes another
+    shape's genuine cut (measured: the s4.debug.lst cut checks clean against s4.stress.lst);
+    a cut derived from this listing has no relocation to forgive, and this is what makes
+    "not borrowed" a check rather than a sentence."""
+    fx = _read_fixture(path)["shapes"].get(_shape_key(lst_path))
+    if fx is None:
+        return ["the derived cut holds no key for %r" % _shape_key(lst_path)]
+    start, end = routine_extent(syms, "Player_ApplyTilt")
+    bad = []
+    if (fx["routine"]["addr"], fx["routine"]["bytes"]) != (start, rom[start:end].hex()):
+        bad.append("derived Player_ApplyTilt is at $%06X, this listing's at $%06X (or its "
+                   "bytes are not this ROM's)" % (fx["routine"]["addr"], start))
+    if fx["refresh_addr"] != syms.get("RefreshSpritePieceCount"):
+        bad.append("derived RefreshSpritePieceCount address is not this listing's")
+    for n, sl in sorted(fx["anim_tables"].items()):
+        if sl["addr"] != syms.get(n):
+            bad.append("derived %s address is not this listing's" % n)
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lst", required=True)
@@ -1037,7 +1059,8 @@ def main():
             rc = gate_cut_shape.derive_for_offcanonical(
                 "sprite_tilt_gate", args.lst, args.fixture, fixture_shapes,
                 lambda p: p.write_text(build_fixture(rom, syms, args.lst)),
-                lambda p: check_fixture(rom, syms, p, args.lst))
+                lambda p: (check_fixture(rom, syms, p, args.lst)
+                           + derived_cut_placement(rom, syms, p, args.lst)))
             if rc is not None:
                 return rc
         else:

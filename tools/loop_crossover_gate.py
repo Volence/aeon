@@ -1480,6 +1480,26 @@ def check_cut(rom, spans, syms, equs, path, lst_path):
             % (path, shape, "\n  ".join(problems)))
 
 
+def derived_cut_placement(rom, spans, syms, path, lst_path):
+    """For a DERIVED cut only: THIS listing's spans, table and symbol addresses and THIS
+    ROM's bytes, exactly. check_cut is relocation-blind by design and would pass another
+    shape's genuine cut; a cut derived from this listing has nothing to forgive."""
+    cut = _read_cut_doc(path)["shapes"].get(shape_key(lst_path))
+    if cut is None:
+        return ["the derived cut holds no key for %r" % shape_key(lst_path)]
+    bad = []
+    if [tuple(s) for s in cut["spans"]] != [tuple(s) for s in spans] or \
+            cut["bytes"] != [rom[a:b].hex() for a, b in spans]:
+        bad.append("derived spans %s are not this listing's %s (or their bytes are not "
+                   "this ROM's)" % (cut["spans"], [list(s) for s in spans]))
+    if cut["table_addr"] != syms.get("CrossoverTable"):
+        bad.append("derived CrossoverTable address is not this listing's")
+    moved = sorted(n for n, a in cut["syms"].items() if syms.get(n) != a)
+    if moved:
+        bad.append("derived symbol address(es) not this listing's: %s" % ", ".join(moved))
+    return bad
+
+
 # --------------------------------------------------------------------------
 
 def run_all(rom, prog, extents, syms, equs):
@@ -1562,7 +1582,8 @@ def main():
             "loop_crossover_gate", args.lst, args.fixture, cut_shapes,
             lambda p: p.write_text(json.dumps(build_cut(rom, spans, syms, equs, args.lst),
                                               indent=2, sort_keys=True) + "\n"),
-            lambda p: (check_cut(rom, spans, syms, equs, p, args.lst), [])[1])
+            lambda p: (check_cut(rom, spans, syms, equs, p, args.lst),
+                       derived_cut_placement(rom, spans, syms, p, args.lst))[1])
         if rc is not None:
             return rc
 
