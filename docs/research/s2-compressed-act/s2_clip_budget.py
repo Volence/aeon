@@ -26,7 +26,11 @@ Modes:
   zones           per-zone facts (box, painted extent, sections, tiles, pages)
   clipsweep       every section-aligned NxM-section clip of a zone, tile+page cost
   act             assemble a named clip act and run the real page pipeline
-  window          `act` plus the full camera-window page-set sweep (slow)
+  place           the REAL Pass 4 placement (fg_page_order.place_pool) + its refusal
+  window          `act` plus the full camera-window page-set sweep
+  collision       attr-set entries a set of zones/clips needs (cap 255)
+  collsweep       per-zone attr-set cost of every section-aligned clip
+  pallines        which CRAM palette lines each zone's foreground uses
 
 Usage: python3 docs/research/s2-compressed-act/s2_clip_budget.py <mode> [args]
 """
@@ -234,6 +238,128 @@ def mode_act(args):
                   open(args.json, "w"), indent=1)
 
 
+# --- collision: how many attr-set entries does a set of zones/clips need? -----
+# Donor registry for the COLLISION side: (chunks128, layout, primary index, secondary
+# index or None). Cross-read from s2disasm/s2.asm Off_ColP/Off_ColS (:5915-5960) and
+# the BINCLUDE block. A zone with no real second path points Off_ColS at the primary.
+S2_COLL = {
+    "EHZ": ("EHZ_HTZ", "EHZ_1", "EHZ and HTZ primary 16x16 collision index.kos",
+            "EHZ and HTZ secondary 16x16 collision index.kos"),
+    "CPZ": ("CPZ_DEZ", "CPZ_1", "CPZ and DEZ primary 16x16 collision index.kos",
+            "CPZ and DEZ secondary 16x16 collision index.kos"),
+    "OOZ": ("OOZ", "OOZ_1", "OOZ primary 16x16 collision index.kos", None),
+    "MTZ": ("MTZ", "MTZ_1", "MTZ primary 16x16 collision index.kos", None),
+    "WFZ": ("WFZ_SCZ", "WFZ", "WFZ and SCZ primary 16x16 collision index.kos",
+            "WFZ and SCZ secondary 16x16 collision index.kos"),
+    "HTZ": ("EHZ_HTZ", "HTZ_1", "EHZ and HTZ primary 16x16 collision index.kos",
+            "EHZ and HTZ secondary 16x16 collision index.kos"),
+    "CNZ": ("CNZ", "CNZ_1", "CNZ primary 16x16 collision index.kos",
+            "CNZ secondary 16x16 collision index.kos"),
+    "MCZ": ("MCZ", "MCZ_1", "MCZ primary 16x16 collision index.kos", None),
+    "ARZ": ("ARZ", "ARZ_1", "ARZ primary 16x16 collision index.kos",
+            "ARZ secondary 16x16 collision index.kos"),
+}
+_coll_cache = {}
+
+
+def _coll_inputs(zn):
+    import collision_pipeline as cp                                   # noqa: F401
+    if zn in _coll_cache:
+        return _coll_cache[zn]
+    root = mb.s2disasm_root()
+    ch, lay, cpn, csn = S2_COLL[zn]
+    chunks = ojz_common.load_chunk_map(os.path.join(root, "mappings/128x128", ch + ".kos"))
+    layout, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "level/layout", lay + ".kos")))
+    grid = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[0::2]   # FG rows
+    P, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "collision", cpn)))
+    S = P if csn is None else ojz_common.kos_decompress(mb._read(os.path.join(root, "collision", csn)))[0]
+    _coll_cache[zn] = (chunks, grid, bytes(P), bytes(S))
+    return _coll_cache[zn]
+
+
+class _UncappedAttrSet:
+    """collision_pipeline.AttrSet without the 255 refusal, so the REQUIRED size can
+    be reported instead of only 'it overflowed'. Same key, same intern order."""
+
+    def __init__(self):
+        import collision_pipeline as cp
+        self._cp = cp
+        self.entries = [(bytes(cp.PROFILE_LEN), 0x00, cp.SOL_NONE, cp.XOVER_NONE)]
+        self.lookup = {self.entries[0]: 0}
+
+    def intern(self, heights, angle, solidity, xover):
+        k = (heights, angle, solidity, xover)
+        i = self.lookup.get(k)
+        if i is None:
+            i = len(self.entries)
+            self.entries.append(k)
+            self.lookup[k] = i
+        return i
+
+
+def collision_entries(specs):
+    """specs: ["EHZ", ...] or ["EHZ:0,2", ...] meaning zone:first_section,n_sections.
+    Returns the attr-set size the whole set needs, through the REAL bake_cell."""
+    import collision_pipeline as cp
+    root = mb.s2disasm_root()
+    prof = mb._read(os.path.join(root, "collision/Collision array - Horizontal.bin"))
+    ang = mb._read(os.path.join(root, "collision/Curve and resistance mapping.bin"))
+    a = _UncappedAttrSet()
+    for sp in specs:
+        zn, _, rest = sp.partition(":")
+        chunks, grid, P, S = _coll_inputs(zn)
+        if rest:
+            s0, ns = (int(x) for x in rest.split(","))
+            grid = grid[:, s0 * 16:(s0 + ns) * 16]     # 16 chunks of 128 px == one 2048 px section
+        for ci in sorted(set(np.unique(grid).tolist())):
+            if ci < len(chunks):
+                for w in chunks[ci]:
+                    cp.bake_cell(w, P, S, prof, ang, a)
+    return len(a.entries) - 1
+
+
+def mode_collision(args):
+    import collision_pipeline as cp
+    n = collision_entries(args.spec)
+    cap = 255
+    print(f"{' '.join(args.spec)}: {n} attr-set entries needed "
+          f"(cap {cap}, tools/collision_pipeline.py AttrSet.intern) -> "
+          f"{'FITS' if n <= cap else 'OVERFLOWS by %d' % (n - cap)}")
+    return 0 if n <= cap else 1
+
+
+def mode_collsweep(args):
+    """Per-zone: the attr-set cost of every section-aligned clip of `--secw` sections."""
+    for zn in args.zones or sorted(S2_COLL):
+        _chunks, grid, _P, _S = _coll_inputs(zn)
+        nsec = grid.shape[1] // 16
+        vals = []
+        for s0 in range(0, max(1, nsec - args.secw + 1)):
+            v = collision_entries([f"{zn}:{s0},{args.secw}"])
+            if v:
+                vals.append((s0, v))
+        if not vals:
+            continue
+        v = [x[1] for x in vals]
+        print(f"{zn}: {len(vals)} clips of {args.secw} section(s) -> attr entries "
+              f"min={min(v)} p50={int(np.percentile(v, 50))} max={max(v)}   "
+              f"(whole zone {collision_entries([zn])})")
+
+
+def mode_pallines(args):
+    """Which CRAM palette lines does each zone's FOREGROUND actually use?
+    Aeon writes lines 1..3 only (engine/effects/palette.emp:48-50)."""
+    for zn in args.zones or sorted(mb.S2_ZONES):
+        z = mb.load_zone(zn)
+        nz = (z.words & 0x7FF) != 0
+        line = (z.words >> 13) & 3
+        pri = (z.words >> 15) & 1
+        u, ct = np.unique(line[nz], return_counts=True)
+        tot = int(ct.sum())
+        d = {int(a): f"{100 * b / tot:.1f}%" for a, b in zip(u, ct)}
+        print(f"{zn}: FG palette lines {d}  priority-bit on {100 * pri[nz].mean():.1f}% of cells")
+
+
 def mode_place(args):
     """The DECISIVE one: run the REAL Pass 4 placement (fg_page_order.place_pool,
     the function ojz_strip_gen.generate() calls at tools/ojz_strip_gen.py:2177)
@@ -299,6 +425,13 @@ def main():
     sub = ap.add_subparsers(dest="mode", required=True)
     p = sub.add_parser("zones"); p.add_argument("zones", nargs="*"); p.add_argument("--json")
     p.set_defaults(fn=mode_zones)
+    p = sub.add_parser("collision"); p.add_argument("spec", nargs="+")
+    p.set_defaults(fn=mode_collision)
+    p = sub.add_parser("collsweep"); p.add_argument("zones", nargs="*")
+    p.add_argument("--secw", type=int, default=2)
+    p.set_defaults(fn=mode_collsweep)
+    p = sub.add_parser("pallines"); p.add_argument("zones", nargs="*")
+    p.set_defaults(fn=mode_pallines)
     p = sub.add_parser("clipsweep"); p.add_argument("zone")
     p.add_argument("--secw", type=int, default=1); p.add_argument("--sech", type=int, default=1)
     p.add_argument("--top", type=int, default=5); p.add_argument("--json")
