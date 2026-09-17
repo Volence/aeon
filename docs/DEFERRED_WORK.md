@@ -36229,7 +36229,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 
 1. ~~10 frames. Levers named, none built.~~ Measured by FG-CACHE-10-RESEARCH, below.
 2. The zero margin at 12 against M-B's transient-demand items, and M-E.
-3. Wiring the order and the gate into `ojz_strip_gen` Pass 4 (not done: this parcel changes no shipped byte). **Updated by FG-CACHE-10:** wire the search with its target read from `PAGE_FRAMES`, not 12.
+3. ~~Wiring the order and the gate into `ojz_strip_gen` Pass 4.~~ Wired, below (WIRED 2026-09-17).
 4. The 164-vs-48 section cap. No order interacts with it.
 
 **10 frames measured (FG-CACHE-10-RESEARCH, 2026-09-17, `research/fg-cache-10`):** report `docs/research/megaact-bg-streaming/10-fg-cache-10-frames.md`, tool `tools/megaact_fg_cache10.py`, evidence `10-fg-cache-10-*.json`. Control first: report 09's per-act numbers re-derived through the new tool, 33,822 values over 405 acts, 0 mismatches. Counts below are MEASURED over **every window class of every act** at 640 tiles (the owner's 12 -> 10 cut).
@@ -36254,3 +36254,35 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 - **Incidental findings:**
   - 09's "every window at or under 12" is class-scoped: junction acts' other windows go over 12 (S3K 3,875 in 23 acts, S2 170 in 2).
   - The ROWS ensure at `engine/system/constants.emp:971` is one row short at odd camera rows; not binding today.
+
+**WIRED (2026-09-17, `parcel/stitched-act-page-order`).** Code: `tools/fg_page_order.py` (new), `tools/ojz_strip_gen.py` Pass 3/4/5/7b, `tools/verify_level_bin.py` (local-map bound), `build.sh` + `tools/regenerate-level.sh` (lane), `tools/test_fg_page_order.py` (14 rows). The search, window model, presence count, zone split, per-zone pages and frame-aware pins were MOVED from the three research tools into `fg_page_order`; the tools import them back. Equivalence, MEASURED before/after: 6,376 values of `megaact_fg_cache10 sweep` output (5 configs, S3K CNZ1, LRZ1|CNZ1, MHZ1|CNZ1; S2 EHZ|HTZ, CNZ; OJZ) and 1,213 of `megaact_page_order report --game ojz`, 0 differ outside timings; all three `control` modes identical.
+
+- **Budget = parameters.** `PAGE_FRAMES`, `ART_POOL_PAGE_TILES`, `POOL_TILE_CEILING`, `PAGE_FRAME_TILE_SHIFT` and `TILE_CACHE_COLS/ROWS/MARGIN_H/V` are read from `engine/system/constants.emp` (`fg_working_set.ConstantSource`). `ojz_strip_gen.ART_POOL_PAGE_TILES` is now read from there too (was the literal 64). The test runs placement and refusal under the source set and under FG-CACHE-10-HOW's other option (640 tiles / 32-tile pages / margins 8,10 -> 56x48).
+- **The order is a two-rung ladder**, chosen by the measured property the refusal checks:
+  1. Shipped first-occurrence order, kept when its worst window with page 0 pinned is at or under `PAGE_FRAMES`.
+  2. Otherwise report 10's recommended policy with the target read from `PAGE_FRAMES`: dedupe per zone, per-zone pages, Hilbert start, `refine_pages` at 4x tries with wide moves (`rzsFt4w`).
+
+  Pins are frame-aware on both rungs. Global slots stay `page << shift | index`, so a short per-zone page leaves a gap.
+- **Why a ladder, not one path (MEASURED on OJZ act 1).** The owner's leaning "the per-zone split generalises and leaves OJZ identical" is half right:
+  - The split IS a no-op on one zone.
+  - The ORDER is what moves OJZ. The searched rung forced on OJZ makes 0 search tries and yields exactly 09's `hilbert_first_zonesplit` pool order (compared list-for-list): pins [0,2,7,8,9], worst 10, but windows needing 6+ pages 25,231 -> 40,092, and page ROM 11,964 -> 11,870 B (09's measurement, re-derived by `megaact_page_order report --game ojz` this parcel).
+  - A "multi-zone only" rule would reorder stitched acts that already fit (M-B: S2 seams fit under the shipped order); the ladder keys on the fit itself.
+- **A zone is the tileset, not a region (MEASURED).** OJZ act 1's 10 effects regions over one tileset would take the pool from 612 to 1,700 canonical tiles if the split were keyed on them. The generator reads one tileset per act (project.json `zones[0].tileset`), so it passes a uniform zone grid; **a stitched act's loader must supply the per-cell tileset key** (open, no loader exists).
+- **The refusal.** `needed(window) = |pins ∪ referenced pages|` over every camera window of the placed act.
+  - The bake (Pass 4) raises before Pass 5 writes, naming the worst window (tile left/top, a camera px), its count and how many windows are over.
+  - `fg_page_order.py check` repeats the count on the committed tree the ROM embeds (block blobs through the local maps, `pm_flags` pins). It runs on every canonical sonic4 build (build.sh, after verify_level_bin, `gate strict`: 1 over, 2 unmeasurable) and at the end of every re-bake. STRESS_ART / STRESS_UNIQUIFY: `--report-only`.
+- **OJZ byte delta: NONE (MEASURED).** Re-bake through the wired generator: every generated file byte-identical (only DONOR_PROVENANCE.json's generator head moved; not committed). Rung shipped, pins [0,1,7,8,9], worst 10 of 12, 0 of 257,367 windows over. Pass 4 0.05 s; whole re-bake 3.37 s wall, cold cache, load 3.10-3.49. The stress generator output (`--stress-uniquify 2600`, 123 files, 41 pages) is byte-identical to the pre-parcel generator's.
+- **Red-first (MEASURED).**
+  - Build: `POOL_TILE_CEILING` 768 -> 576 on disk (9 frames), `NO_LINT=1 ./build.sh` exit 1 at the new lane: "worst window needs 10 (tile left 73 top 0 ...); 3366 window(s) over budget".
+  - Bake at 576: exit 0, because frame-aware pins drop page 9 (pins [0,1,7,8], worst 9 of 9). That is the lever working, not a miss.
+  - Bake at 384 (6 frames): the searched rung ran (0.77 s) and the bake refused, worst 8, 2,101 windows over. Tree restored by regenerate-level.sh's trap; `constants.emp` restored from HEAD.
+- **Under the card's 20x32 / 56x48 option (MEASURED, OJZ act 1):** rung shipped, 20 pages, pins [0,1,2,15,16,17,18], worst 19 of 20, 0 of 263,886 windows over.
+
+**Still open after the wiring:**
+
+1. A multi-zone act has no loader. The per-zone path is exercised by fixtures (`test_fg_page_order.py`) and the research tools, not by a shipped act.
+2. **A 32-tile flip is not yet only a constant change, outside this parcel's order/check scope.** Literal 2048-byte page sizes remain in `tools/regenerate-level.sh` (`ART_POOL_PAGE_BYTES`) and `tools/verify_level_bin.py`. verify_level_bin fails loudly on a sidecar page_bytes mismatch; regenerate-level.sh's size guard only admits smaller pages. Plus the RAM items report 10 lists (`PAGE_FRAMES_MAX`, `Page_Audit_Snapshot`).
+3. Short non-last pages (per-zone) reach the engine only through `pm_tiles` and `global & mask`. That is INFERRED from `page_in.emp` / `page_cache.emp` reading, never run. **TAG: runtime** the first time a multi-zone act bakes a short page.
+4. `engine/system/constants.emp`'s STRESS_EVICT comment still says OJZ pins 4 pages (committed: 5); ARCH §9.7 corrected here.
+5. The zero margin, the transient-demand items, M-E, and the 164-vs-48 section cap: unchanged by wiring.
+6. **Pre-existing, found while checking the stress path:** `STRESS_UNIQUIFY=2600 tools/regenerate-level.sh` exits 1 at verify_level_bin's editor-bake fidelity check (the scratched clones resolve to different pixels than the editor authored) with BOTH the pre-parcel and the wired generator. The STRESS_ART build shape cannot re-bake today.

@@ -272,13 +272,21 @@ def verify_local_maps():
     # Pool-tile bound for map VALUES (panel V-1b/B-3): every local->global entry
     # must name a real pool tile — the engine's PatchWord indexes Page_Table by
     # global>>6 with only a DEBUG assert, so out-of-pool values in a committed
-    # map must die HERE. Bound = sum of manifest pm_tiles (the last page may be
-    # partial, so pages*64 would over-admit).
+    # map must die HERE. Bound PER PAGE: global g lives in page g // page_tiles at
+    # index g % page_tiles, which must be under that page's pm_tiles. Since
+    # STITCHED-ACT-PAGE-ORDER (2026-09-17) a page need not be full (per-zone pages
+    # end a zone's run short, and global slots keep the gap, because the engine
+    # finds the page as global>>shift), so the old bound "g < sum of pm_tiles" would
+    # refuse a legal gapped slot and admit a slot in a short page's gap. For
+    # contiguous full pages the two bounds are the same set.
     pool_tiles = 0
+    page_tiles_list = []
+    page_tiles = ART_POOL_PAGE_BYTES // TILE_SIZE
     pool = os.path.join(GEN, "ojz_act_pool.emp")
     if os.path.isfile(pool):
-        pool_tiles = sum(int(t) for t in
-                         re.findall(r"pm_tiles:\s*(\d+)", open(pool).read()))
+        page_tiles_list = [int(t) for t in
+                           re.findall(r"pm_tiles:\s*(\d+)", open(pool).read())]
+        pool_tiles = sum(page_tiles_list)
     n_sec = _section_count()
     if n_sec is None:
         return
@@ -304,10 +312,13 @@ def verify_local_maps():
               f"local maps: sec{n}_local_map.bin map[0] != 0 (blank-first invariant broken)")
         if pool_tiles:
             vals = struct.unpack(f">{count}H", m)
-            bad = [v for v in vals if v >= pool_tiles]
+            bad = [v for v in vals
+                   if v // page_tiles >= len(page_tiles_list)
+                   or v % page_tiles >= page_tiles_list[v // page_tiles]]
             check(not bad,
-                  f"local maps: sec{n}_local_map.bin has {len(bad)} entries >= pool tiles "
-                  f"({pool_tiles}) — out-of-pool globals (max {max(bad) if bad else 0})")
+                  f"local maps: sec{n}_local_map.bin has {len(bad)} entries outside the pool's "
+                  f"pages ({len(page_tiles_list)} pages, {pool_tiles} tiles, {page_tiles} slots "
+                  f"per page) — out-of-pool globals (max {max(bad) if bad else 0})")
         if not os.path.isfile(bpath) or n not in dlen:
             continue
         blob = read(bpath)

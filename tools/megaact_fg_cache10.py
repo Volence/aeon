@@ -87,6 +87,13 @@ import megaact_window_pageset as mb              # noqa: E402
 import megaact_page_order as mpo                 # noqa: E402
 import ojz_strip_gen                             # noqa: E402
 import tile_dedupe                               # noqa: E402
+# The explicit-page search, the zone split, per-zone pages and frame-aware pins moved to the
+# generator path (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17): ONE implementation, which
+# ojz_strip_gen runs. The names this tool used are kept as aliases.
+import fg_page_order as fpo                      # noqa: E402
+from fg_page_order import refine_pages, page_presence  # noqa: E402,F401
+_pages_from_order = fpo.pages_from_order
+_zone_of_canon = fpo.zone_of_canon
 
 P09_JSON = {
     "s2": os.path.join(REPO, "docs/research/megaact-bg-streaming/09-page-order-results-s2.json"),
@@ -244,16 +251,9 @@ def _dedupe(act):
 
 
 def _split(act, unique, canon, keep_shared=frozenset()):
-    """one canonical per (zone, canonical), except the blank and `keep_shared`."""
-    blank_c = unique.index(tile_dedupe.BLANK_TILE) if tile_dedupe.BLANK_TILE in unique else -1
-    nz = len(act.zones) + 1
-    zk = canon * nz + (act.zone_id.astype(np.int64) + 1)
-    collapse = canon == blank_c
-    if keep_shared:
-        collapse |= np.isin(canon, np.array(sorted(keep_shared), dtype=np.int64))
-    zk = np.where(collapse, canon * nz, zk)
-    zref, zinv = np.unique(zk, return_inverse=True)
-    return [unique[int(k) // nz] for k in zref.tolist()], zinv.reshape(canon.shape).astype(np.int64), zref // nz
+    """one canonical per (zone, canonical), except the blank and `keep_shared`
+    (fg_page_order.zone_split, the generator's own split)."""
+    return fpo.zone_split(act.zone_id, unique, canon, keep_shared, n_zones=len(act.zones))
 
 
 def run_pipeline_ext(act, c, order_fn=None, split="none", keep_shared_fn=None):
@@ -328,141 +328,6 @@ def run_pipeline_ext(act, c, order_fn=None, split="none", keep_shared_fn=None):
 # Refinement over explicit pages (controlled against megaact_page_order.refine_order)
 # ---------------------------------------------------------------------------
 
-def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), group=None, max_move=None,
-                 stride=None, light_n=None, heavy_n=None):
-    """megaact_page_order.refine_order over explicit page member lists (canonical ids,
-    page 0 includes the blank) with an optional same-group move constraint (`group[p]`:
-    moves only between pages of one group). Same samples, cost, move, loop and
-    determinism; the only additions are the page lists and the constraint. Returns
-    the new page lists (sizes unchanged)."""
-    max_tries = mpo.REFINE_MAX_TRIES if max_tries is None else max_tries
-    max_move = mpo.REFINE_MAX_MOVE if max_move is None else max_move
-    t0 = time.perf_counter()
-    light_n = mpo.REFINE_LIGHT if light_n is None else light_n
-    heavy_n = mpo.REFINE_HEAVY if heavy_n is None else heavy_n
-    sx, sy = (mpo.REFINE_SX, mpo.REFINE_SY) if stride is None else stride
-    tiles, inc, nwin, blank = mpo.refine_incidences(ctx, sx, sy)
-    row = {int(t): i for i, t in enumerate(tiles.tolist())}
-    npages = len(pages)
-    page_of = np.zeros(len(tiles), dtype=np.int32)
-    members = [[] for _ in range(npages)]
-    base_pos = {}
-    pos = 0
-    for p, lst in enumerate(pages):
-        for t in lst:
-            base_pos[int(t)] = pos
-            pos += 1
-            if t == blank:
-                continue
-            k = row[int(t)]
-            page_of[k] = p
-            members[p].append(k)
-    cnt = np.zeros((nwin, npages), dtype=np.int16)
-    for k, w in enumerate(inc):
-        cnt[w, page_of[k]] += 1
-    pinmask = np.zeros(npages, dtype=bool)
-    pinmask[sorted(pinned | {0})] = True
-    pw = ((cnt > 0) | pinmask).sum(axis=1).astype(np.int32)
-    start_max = int(pw.max()) if nwin else 0
-    start_over = int(np.count_nonzero(pw > target))
-    phi = np.array([0.0 if k <= target - 2 else float(4 ** (k - target + 2) - 1) for k in range(128)])
-    tries = accepted = 0
-    stuck = set()
-
-    def apply(moves):
-        touched = np.unique(np.concatenate([inc[k] for k, _ in moves]))
-        old = pw[touched].copy()
-        for k, q in moves:
-            cnt[inc[k], page_of[k]] -= 1
-            cnt[inc[k], q] += 1
-            page_of[k] = q
-        pw[touched] = ((cnt[touched] > 0) | pinmask).sum(axis=1)
-        return touched, old
-
-    def attempt(P, S, targets, wstar, pref):
-        need = {}
-        for q in targets:
-            need[q] = need.get(q, 0) + 1
-        back = []
-        for q, n in need.items():
-            outq = [u for u in members[q] if not mpo._has(inc[u], wstar)]
-            if len(outq) < n:
-                return False
-            score = np.array([np.count_nonzero(pref[inc[u]]) / max(1, len(inc[u])) for u in outq])
-            back += [(outq[i], q) for i in np.argsort(-score, kind="stable")[:n]]
-        fwd = list(zip(S, targets))
-        touched, old = apply(fwd + [(u, P) for u, _ in back])
-        d = phi[np.minimum(pw[touched], 127)].sum() - phi[np.minimum(old, 127)].sum()
-        if d < 0 and pw[wstar] < old[np.searchsorted(touched, wstar)]:
-            for k, q in fwd:
-                members[P].remove(k)
-                members[q].append(k)
-            for u, q in back:
-                members[q].remove(u)
-                members[P].append(u)
-            return True
-        apply([(k, P) for k, _ in fwd] + [(u, q) for u, q in back])
-        return False
-
-    passes = 1
-    accepted_this_pass = 0
-    while tries < max_tries:
-        over = np.flatnonzero(pw > target)
-        if over.size == 0:
-            break
-        wstar = None
-        for w in over[np.argsort(-pw[over], kind="stable")].tolist():
-            if w not in stuck:
-                wstar = w
-                break
-        if wstar is None:
-            if accepted_this_pass == 0:
-                break
-            stuck.clear()
-            accepted_this_pass = 0
-            passes += 1
-            continue
-        improved = False
-        ref = np.flatnonzero(cnt[wstar] > 0)
-        light = ref[np.argsort(cnt[wstar, ref], kind="stable")]
-        heavy = [q for q in ref[np.argsort(-cnt[wstar, ref], kind="stable")].tolist()]
-        for P in [x for x in light.tolist() if not pinmask[x]][:light_n]:
-            S = [k for k in members[P] if mpo._has(inc[k], wstar)]
-            if not S or len(S) > max_move:
-                continue
-            pref = cnt[:, P] > 0
-            qs = [q for q in heavy if q != P and (group is None or group[q] == group[P])][:heavy_n]
-            for Q in qs:
-                tries += 1
-                if attempt(P, S, [Q] * len(S), wstar, pref):
-                    improved = True
-                    break
-            if not improved and len(S) > 1 and len(qs) > 1:
-                tries += 1
-                improved = attempt(P, S, [qs[i % len(qs)] for i in range(len(S))], wstar, pref)
-            if improved:
-                break
-        if improved:
-            accepted += 1
-            accepted_this_pass += 1
-        stuck.add(wstar)
-    out = []
-    for p in range(npages):
-        ids = sorted((int(tiles[k]) for k in members[p]), key=lambda t: base_pos[t])
-        out.append(([blank] + ids) if p == 0 else ids)
-    ctx["stats"].setdefault("refine_rounds", []).append({
-        "target": target, "stride": [sx, sy], "light": light_n, "heavy": heavy_n, "sample_windows": int(nwin), "tries": tries, "accepted": accepted,
-        "passes": passes, "try_cap_hit": tries >= max_tries, "sample_max_before": start_max,
-        "sample_over_target_before": start_over, "sample_max_after": int(pw.max()) if nwin else 0,
-        "sample_over_target_after": int(np.count_nonzero(pw > target)),
-        "pinned_counted": sorted(pinned | {0}), "seconds": round(time.perf_counter() - t0, 3)})
-    return out
-
-
-def _pages_from_order(order, size):
-    return [list(order[i:i + size]) for i in range(0, len(order), size)]
-
-
 def _pinned_rule75(ctx, pages):
     pos, o = {}, 0
     for p in pages:
@@ -471,15 +336,6 @@ def _pinned_rule75(ctx, pages):
             o += 1
     sets = [{pos[t] for t in sec} for sec in ctx["per_section"]]
     return frozenset(i for i, f in enumerate(ojz_strip_gen.mark_pinned_pages(pages, sets)) if f)
-
-
-def _zone_of_canon(ctx):
-    tile, r, cc, blank = mpo._tile_cells(ctx)
-    z = ctx["zone_id"][r, cc].astype(np.int64)
-    pairs = np.unique(tile * 256 + z)
-    t, zz = pairs // 256, pairs % 256
-    multi = np.flatnonzero(np.r_[False, t[1:] == t[:-1]])
-    return dict(zip(t.tolist(), zz.tolist())), set(t[multi].tolist())
 
 
 def make_order(cfg, target):
@@ -512,25 +368,7 @@ def make_order(cfg, target):
         base = mpo.order_hilbert_first(ctx)
         group = None
         if cfg["split"] == "perzone":
-            zone_of, multi = _zone_of_canon(ctx)
-            if multi:
-                raise SystemExit(f"perzone: {len(multi)} canonicals occur in more than one zone after the split")
-            blank = base[0]
-            keys = {t: i for i, t in enumerate(base)}
-            rest = sorted(base[1:], key=lambda t: (zone_of[t], keys[t]))
-            pages, group = [], []
-            zfirst = zone_of[rest[0]] if rest else 0
-            cur = [blank]
-            curz = zfirst
-            for t in rest:
-                z = zone_of[t]
-                if z != curz or len(cur) == page:
-                    pages.append(cur)
-                    group.append(curz)
-                    cur, curz = [], z
-                cur.append(t)
-            pages.append(cur)
-            group.append(curz)
+            pages, group = fpo.perzone_pages(ctx, base, page)
         elif cfg["split"] == "page0shared":
             # the kept-shared canonicals (one each after the split) fill page 0 behind the
             # blank, in base order; every other tile follows in base order
@@ -595,11 +433,6 @@ class Fixed:
     def classes(self):
         return {"all": None, "interior_one_zone": self.zp <= 1,
                 "seam_two_plus_zones": self.zp >= 2, "junction_three_plus_zones": self.zp >= 3}
-
-
-def page_presence(pg, lefts, tops, cols, rows, p):
-    """bool (tops x lefts): page p present in the window (megaact_page_order bbox method)."""
-    return mpo.page_presence_sums(pg, lefts, tops, cols, rows, {"x": {p}})["x"] > 0
 
 
 def entering_pages(pg, lefts, tops, cols, rows, pages):
@@ -808,7 +641,6 @@ def measure(act, c, cfg, fixed_cache, frames_ref, bursts=False):
         dup["incremental_vs_remeasure_windows_differing"] = diff
         if diff:
             raise SystemExit(f"{act.name} {cfg['name']}: dup fixup incremental count differs on {diff} windows")
-    pins_kept = [0]
     if cfg["pin"] == "rule75":
         needed = needed_rule
         pinned_used = sorted(rule)
@@ -816,14 +648,7 @@ def measure(act, c, cfg, fixed_cache, frames_ref, bursts=False):
         needed = needed_pin0
         pinned_used = [0]
     else:
-        needed = needed_pin0.copy()
-        for p in sorted(rule - {0}):
-            pres = page_presence(pg, fixed.lefts, fixed.tops, cols, rows, p)
-            bump = needed + (~pres).astype(np.int16)
-            if np.count_nonzero((needed <= F) & (bump > F)) == 0:
-                needed = bump
-                pins_kept.append(p)
-        pinned_used = pins_kept
+        pinned_used, needed = fpo.frame_aware_pins(pg, rule, F, needed_pin0, cg, fixed.lefts, fixed.tops)
     res = {"config": cfg["name"], "frames": F, "frames_at_768": F_ship, "geometry": geo,
            "pool_tiles": pipe["pool_tiles"], "pages": pipe["pages"], "rule75_pinned": sorted(rule),
            "pinned_used": pinned_used, "page_sizes_min": min(pipe["page_sizes"]),

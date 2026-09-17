@@ -114,6 +114,9 @@ import ojz_strip_gen                            # noqa: E402
 import act_grid                                 # noqa: E402
 from fg_working_set import ConstantSource       # noqa: E402
 from suite_paths import require_suite_path      # noqa: E402
+# The window model moved to the generator path (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17);
+# re-exported so `mb.window_for_camera` / `mb.camera_windows` stay one implementation.
+from fg_page_order import window_for_camera, camera_windows  # noqa: E402,F401
 
 CONSTANTS_EMP = os.path.join(REPO, "engine", "system", "constants.emp")
 
@@ -158,20 +161,6 @@ def load_constants():
     if ojz_strip_gen.STRIP_TILE_HEIGHT != c["SECTION_SIZE"] >> 3:
         raise SystemExit("ojz_strip_gen section height disagrees with SECTION_SIZE")
     return c, origin
-
-
-def window_for_camera(c, cam_x, cam_y):
-    """Tile_Cache_Fill's desired window at steady state, straight from its code
-    (engine/level/tile_cache.emp .h_* / .v_* arms). Returns (left, right, top,
-    bottom) INCLUSIVE, after the COLS/ROWS clamp."""
-    ct, rt = cam_x >> 3, cam_y >> 3
-    left = max(0, ct - c["TILE_CACHE_MARGIN_H"])
-    right = ((cam_x + c["SECTION_H_REACH_PX"]) >> 3) + c["TILE_CACHE_MARGIN_H"]
-    right = min(right, left + c["TILE_CACHE_COLS"] - 1)
-    top = max(0, rt - c["TILE_CACHE_MARGIN_V"]) & ~1
-    bottom = ((cam_y + c["SECTION_V_REACH_PX"]) >> 3) + c["TILE_CACHE_MARGIN_V"]
-    bottom = min(bottom, top + c["TILE_CACHE_ROWS"] - 1)
-    return left, right, top, bottom
 
 
 def derive_window(c):
@@ -619,17 +608,8 @@ def run_pipeline(act, c, order_fn=None, zone_split_dedupe=False):
 
 
 # ---------------------------------------------------------------------------
-# Window sweep
+# Window sweep (window_for_camera and camera_windows live in fg_page_order)
 # ---------------------------------------------------------------------------
-
-def camera_windows(c, content_w, content_h):
-    """Every distinct window (left, top) a camera in [0, W*8-320] x [0, H*8-224]
-    produces, as index arrays + the camera tile ranges that map to each."""
-    max_cx = max(0, content_w * 8 - c["SCREEN_WIDTH"])
-    max_cy = max(0, content_h * 8 - c["SCREEN_HEIGHT"])
-    lefts = sorted({window_for_camera(c, x * 8, 0)[0] for x in range(max_cx // 8 + 1)})
-    tops = sorted({window_for_camera(c, 0, y * 8)[2] for y in range(max_cy // 8 + 1)})
-    return np.array(lefts), np.array(tops), max_cx, max_cy
 
 
 def presence_counts(grid, labels, cols, rows, lefts, tops, weight_mask=None):

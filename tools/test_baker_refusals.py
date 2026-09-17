@@ -513,6 +513,8 @@ open("games/sonic4/data/collision/angles.bin", "wb").write(b"RAW BASE BANK")
         "effects_gen.py": _STUB_WRITER,
         "ojz_block_gen.py": _STUB_WRITER,
         "verify_level_bin.py": _STUB_WRITER + 'fail_here("verify")\n',
+        # the FG page-budget lane (STITCHED-ACT-PAGE-ORDER wiring) runs after verify
+        "fg_page_order.py": _STUB_WRITER + 'fail_here("fg_budget")\n',
         "level_staleness.py": _STUB_WRITER,
     }
     for name, body in bodies.items():
@@ -584,11 +586,12 @@ def test_f6_gate_fails_a_blob_that_encodes_another_section(tmp_path, monkeypatch
     assert any(f.startswith("block decode: sec0:") for f in fails), fails
 
 
-@pytest.mark.parametrize("fail_at", ["generate", "verify"])
+@pytest.mark.parametrize("fail_at", ["generate", "verify", "fg_budget"])
 def test_f5_a_refusal_after_the_first_write_leaves_the_tree_as_it_was(tmp_path, fail_at):
     """`generate`: a refusal inside the bake (e.g. an R2 self-mark) after
     import_sk_collision.py has rewritten the tables. `verify`: the drift gate failing
-    at the very end, after every output was rewritten."""
+    at the very end, after every output was rewritten. `fg_budget`: the FG page-budget lane
+    (fg_page_order.py check) refusing after verify."""
     repo = _stub_repo(tmp_path)
     before = _tree_bytes(repo)
     p, snaps = _run_rebake(repo, tmp_path, fail_at)

@@ -1707,7 +1707,7 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame into the pool's character DPLC window (tile $3C0). If strictly one character at a time (no AI follower), this can shrink to 64 tiles.
 
-**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` = 64 tiles each, `split_pool_into_pages`), and each tile receives a permanent global pool index. Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation.
+**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` tiles each, read from `engine/system/constants.emp`; 64 today), and each tile receives a permanent global pool index. **The order is chosen against the page budget, and the build refuses an act it cannot fit (STITCHED-ACT-PAGE-ORDER, 2026-09-17; §9.7 "Window page budget")**: when the first-occurrence order leaves any camera window needing more than `PAGE_FRAMES` pages, the generator instead dedupes per zone, pages per zone and runs a budget-aimed swap search (`tools/fg_page_order.py`). Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation.
 
 Result: section transitions perform no per-section art swap — a global index names one deduped tile for the whole act, and the §9.7 residency cache keeps referenced pages resident (fully resident when the pool fits the frame budget; streamed on demand + prefetch past it). There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent global index, and the cache maps that index's page to a VRAM frame at runtime.
 
@@ -5089,11 +5089,11 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 
 1. **Flatten:** Convert each section's layout from chunks/blocks into a flat grid of 8×8 tile references.
 2. **Deduplicate tiles:** Identify identical tiles across all sections of the act (including flip variants, via canonical form). Build one master tile set per act (`tools/tile_dedupe.py: dedupe_tiles`).
-3. **Spatially order and page the global pool (2.3):** Order the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) so spatially-near tiles land at nearby pool indices, then split the pool into fixed-size pages (64 tiles each, `split_pool_into_pages`) plus a manifest v2 record per page (`{source, tiles, form, flags}`). Each tile gets a permanent global pool index; section nametables carry per-section LOCAL indices translated to global at block-decode time (so a page can reside in any VRAM frame — the §9.7 residency cache precondition). No adjacency graph or per-section index reuse.
+3. **Order and page the global pool against the window budget (2.3, §9.7):** `tools/ojz_strip_gen.py` Pass 4 calls `fg_page_order.place_pool`. Rung 1 orders the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) and splits them into `ART_POOL_PAGE_TILES`-tile pages; it is kept when no camera window needs more than `PAGE_FRAMES` pages with page 0 pinned. Otherwise rung 2 dedupes per zone (a zone = the tileset a cell draws from, not an effects region), builds per-zone pages (a zone's last page may be short; global slots stay `page << PAGE_FRAME_TILE_SHIFT | index`, so a short page leaves a gap) from a Hilbert first-use order, and runs the swap search aimed at `PAGE_FRAMES` (report 10's `rzsFt4w`). Pins on both rungs are frame-aware (the 75% rule's candidates, each kept only if it pushes no window over budget). The placed act's every window is then counted and an over-budget window **fails the bake**, naming the window and its count. Each page gets a manifest v2 record (`{source, tiles, form, flags}`). Each tile gets a permanent global pool index; section nametables carry per-section LOCAL indices translated to global at block-decode time (so a page can reside in any VRAM frame — the §9.7 residency cache precondition). No adjacency graph or per-section index reuse.
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
 5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
 6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper (verified at bake + by the DEBUG selftest).
-7. **Report:** Total ROM size per section and per zone. Act art pool page count vs the residency page table (`PAGE_TABLE_MAX`) and the per-act ROM budget (`tools/art_rom_report.py`). Build error if either is exceeded.
+7. **Report:** Total ROM size per section and per zone. Act art pool page count vs the residency page table (`PAGE_TABLE_MAX`) and the per-act ROM budget (`tools/art_rom_report.py`). Build error if either is exceeded. **Window page budget** (`tools/fg_page_order.py check`, every canonical sonic4 build and the end of every re-bake): the committed placed act's worst camera window vs `PAGE_FRAMES`; build error if over, and if it cannot be counted.
 
 **Cross-reference:** Batman & Robin stores level nametable data at `$100000+` in raw VDP format — 16-bit nametable words encoding tile index + palette + flip bits, ready for DMA straight from ROM to VRAM scroll planes. Zero runtime conversion. Our tool does the same thing, but for the section streaming system's per-column strips rather than full-screen pages.
 
@@ -5492,7 +5492,7 @@ invariants rather than trusted:
 cache window references only a fraction of the pool at once, so the resident set churns as
 the camera moves. Below that threshold the cache **correctly degenerates to fully
 resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
-page, so the working set == the pool — 4 of the 10 pages are build-pinned (`pm_flags`
+page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read off the committed manifest by `fg_page_order.py check`) are build-pinned (`pm_flags`
 `ART_PAGE_FLAG_PINNED`), and the rest are held resident by refcounts. This is not a limitation to fix —
 `AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
@@ -5507,6 +5507,29 @@ budget — there is no 2048-tile ceiling. Every section map's entry 0 is the bla
 (generator-guaranteed, verify-gated), so the shared zero staged block reads as blank
 through any map. Eviction order is a per-frame release stamp (`pf_stamp`) scanned at
 eviction — oldest evictable frame wins, by construction (F-1).
+
+**Window page budget: a build-time refusal, and the pool order that meets it (STITCHED-ACT-PAGE-ORDER, 2026-09-17).**
+A camera window whose referenced pages plus the pinned pages exceed `PAGE_FRAMES` holds the
+release engine's camera for good (`07-fable-design-review.md` finding 1, the question M-B was
+built to count). Reports 08-10
+(`docs/research/megaact-bg-streaming/`) measured that on stitched S2/S3K acts this is decided
+by the pool's tile ORDER, not its capacity. Two pieces enforce it, both in
+`tools/fg_page_order.py`, both reading `PAGE_FRAMES`, `ART_POOL_PAGE_TILES`,
+`POOL_TILE_CEILING` and the `TILE_CACHE_*` window from `constants.emp` (the owner's open
+choice between 12 x 64-tile frames at 80x60 and 20 x 32-tile frames at 56x48 is a constant
+change; `tools/test_fg_page_order.py` runs both):
+- **The order** (generator Pass 4, `place_pool`): the first-occurrence order when it fits,
+  else per-zone dedupe + per-zone pages + a Hilbert start + a swap search aimed at
+  `PAGE_FRAMES`; frame-aware pins on both. See §8 step 3.
+- **The refusal**: `needed(window) = |pinned ∪ pages referenced by the window's non-blank
+  words|` over every distinct window a camera can hold (the window is
+  `Tile_Cache_Fill`'s steady-state clamp). The bake refuses before writing; `check` repeats
+  the count on the committed tree (`sec*_blocks.bin` through the local maps, pins from
+  `pm_flags`) on every canonical sonic4 build, so a constant change meets the tree it would
+  strand. OJZ act 1 today: worst 10 of 12 over 257,367 windows, first-occurrence rung.
+The count is static: in-flight decodes, stalled columns and prefetch are transient demand it
+does not model, so fitting is necessary for no hold, not sufficient (M-E, a runtime
+confirmation, is still owed).
 
 **The degenerate regime pays a degenerate patch (streaming fix F1, 2026-08-19).** On a fully
 resident act the per-word `page → frame` indirection and the ref/unref pair inside the copy
