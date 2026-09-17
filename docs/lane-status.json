@@ -1,12 +1,6 @@
 {
-  "focus": "Building the Sonic 2 act: pieces joined by corridors, with Hidden Palace coming from the prototype.",
-  "inFlight": [
-    {
-      "what": "First build step: the reader that loads Sonic 2 zones from both the final game and the prototype",
-      "where": "branch parcel/s2-donor-loader",
-      "agent": true
-    }
-  ],
+  "focus": "The Sonic 2 donor reader landed; Hidden Palace loads whole from the prototype.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the donor reader lands; the converter is the next step after it.",
+  "nextBoundary": "Here: parcel 1 is landed and pushed; the zone converter is the next step.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: both your calls taken (corridors between pieces; prototype donor for Hidden Palace). Building the donor reader now",
-      "state": "doing",
+      "title": "Sonic 2 test act: the donor reader landed (both games, Hidden Palace loads whole). Next: convert a zone into our format",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T18:13:12Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T19:03:32Z"
 }
