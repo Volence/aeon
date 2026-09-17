@@ -52,7 +52,7 @@
       "title": "Close the unenforced struct-size row: the assembler now checks it, once the assembler binary we build with is refreshed and the check is seen to refuse a wrong size",
       "state": "open",
       "size": "S",
-      "blockedBy": "sigil release binary predates sigil dd0f575c; refresh after the running aeon agents land"
+      "blockedBy": "sigil lane refreshes its release binary only in a hub-opened window; aeon tells the hub it is clear once its running agents land, then re-runs the size-41 control"
     },
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -99,5 +99,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T07:42:05Z"
+  "updatedAt": "2026-09-17T07:42:17Z"
 }
