@@ -28,15 +28,21 @@ REAL (imported, called unmodified):
   ojz_strip_gen.build_section_local_map  (the 2048-entry per-section refusal)
   ojz_strip_gen.chunk_get_tile_word  chunk -> tile word (flip handling)
   ojz_common.kos_decompress / load_block_map / load_chunk_map
+  s2_donor.load_zone                 Sonic 2 donor loading + the camera-box crop
 ADAPTER (this file):
-  * Sonic 2 donor loading: layout ($1000 bytes, FG row r at r*$100, 128 chunks
-    wide x 16 tall), per-zone art/blocks/chunks, the HTZ supplement overlays
-    (art at ArtTile_ArtKos_NumTiles_HTZ_Main, blocks at the `Block_Table+$980`
-    patch), each read out of s2disasm, never typed in.
-  * Each zone is CROPPED to its camera-reachable box from s2.asm `LevelSize`
-    (x: xstart .. xend+320, y: max(0,ystart) .. yend+224). Everything outside
-    the box is VOID (blank). MTZ's negative ystart (vertical wrap) is clamped
-    to 0; the wrap is not modelled.
+  * Sonic 2 donor loading MOVED OUT, 2026-09-17 (S2-COMPRESSED-ACT parcel 1):
+    `tools/s2_donor.py` is now the one S2 loader and it reads BOTH S2 donor
+    trees — the final game (nine zones, WFZ included, which this file's old
+    registry lacked) and the Simon Wai prototype. Layout / art / blocks /
+    chunks / the HTZ supplement overlays / the camera-box crop all live there,
+    still read out of the donor's own source and never typed in. `--game s2`
+    reports on the FINAL donor.
+  * Each zone is CROPPED to its camera-reachable box from the donor's
+    `LevelSize` (x: xstart .. xend+320, y: max(0,ystart) .. yend+224).
+    Everything outside the box is VOID (blank). MTZ's negative ystart (vertical
+    wrap) is clamped to 0; the wrap is not modelled. A zone whose `LevelSize`
+    row is the $3FFF placeholder (WFZ) gets a box far wider than its painted
+    art, and `s2_donor` marks it rather than trimming it.
   * Stitching: boxes are placed into one world nametable; each source tile is
     keyed (zone, source tile index) so two zones' tile index spaces never
     collide, and a VOID cell is keyed to an all-zero tile (which dedupe merges
@@ -113,23 +119,23 @@ import ojz_common                               # noqa: E402
 import ojz_strip_gen                            # noqa: E402
 import act_grid                                 # noqa: E402
 from fg_working_set import ConstantSource       # noqa: E402
-from suite_paths import require_suite_path      # noqa: E402
 # The window model moved to the generator path (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17);
 # re-exported so `mb.window_for_camera` / `mb.camera_windows` stay one implementation.
 from fg_page_order import window_for_camera, camera_windows  # noqa: E402,F401
+# The Sonic 2 donor loaders moved OUT of this file (S2-COMPRESSED-ACT parcel 1,
+# 2026-09-17) into `tools/s2_donor.py`, which reads BOTH S2 donor trees — the final
+# game and the Simon Wai prototype. The grid primitives (`Zone`, `crop_to_box`,
+# `chunk_tiles`) live there too and the S3K loader below imports them, so there is
+# exactly ONE of each in the repo. `S2_ZONES`, `_load_s2`, `s2disasm_root`,
+# `parse_level_sizes` and `parse_s2_constant` are DELETED, not aliased: a second
+# spelling of a donor loader is the thing the promotion existed to remove.
+import s2_donor                                 # noqa: E402
+from s2_donor import (                          # noqa: E402
+    S2_FINAL, Zone, chunk_tiles as _chunk_tiles, crop_to_box as _crop,
+    read_bytes as _read,
+)
 
 CONSTANTS_EMP = os.path.join(REPO, "engine", "system", "constants.emp")
-
-S2_DIR_ENV = "AEON_S2DISASM_DIR"
-
-
-def s2disasm_root():
-    env = os.environ.get(S2_DIR_ENV)
-    if env:
-        if not os.path.isdir(env):
-            raise SystemExit(f"{S2_DIR_ENV}={env} is not a directory")
-        return env
-    return str(require_suite_path("s2disasm", what="Sonic 2 donor disassembly"))
 
 
 # ---------------------------------------------------------------------------
@@ -188,112 +194,25 @@ def derive_window(c):
 
 
 # ---------------------------------------------------------------------------
-# Sonic 2 donor loading
+# Zone dispatch — Sonic 2 (both donor trees) lives in tools/s2_donor.py
 # ---------------------------------------------------------------------------
-
-# Donor file registry: which art/16x16/128x128/layout each zone's act 1 uses.
-# Cross-read from s2.asm `LevelArtPointers` (levartptrs rows) and the
-# `BM16_*:/ArtKos_*:/BM128_*: BINCLUDE` block; `zone_files()` re-checks each
-# BINCLUDE spelling against s2.asm so a renamed donor file fails loudly.
-S2_ZONES = {
-    #        art          blocks16     chunks128    layout   LevelSize key
-    "EHZ": ("EHZ_HTZ",  "EHZ",       "EHZ_HTZ",   "EHZ_1", "EHZ"),
-    "HTZ": ("EHZ_HTZ",  "EHZ",       "EHZ_HTZ",   "HTZ_1", "HTZ"),   # + HTZ overlays
-    "CPZ": ("CPZ_DEZ",  "CPZ_DEZ",   "CPZ_DEZ",   "CPZ_1", "CPZ"),
-    "ARZ": ("ARZ",      "ARZ",       "ARZ",       "ARZ_1", "ARZ"),
-    "CNZ": ("CNZ",      "CNZ",       "CNZ",       "CNZ_1", "CNZ"),
-    "MCZ": ("MCZ",      "MCZ",       "MCZ",       "MCZ_1", "MCZ"),
-    "OOZ": ("OOZ",      "OOZ",       "OOZ",       "OOZ_1", "OOZ"),
-    "MTZ": ("MTZ",      "MTZ",       "MTZ",       "MTZ_1", "MTZ"),
-}
-
-
-def _read(path):
-    with open(path, "rb") as fh:
-        return fh.read()
-
-
-def parse_level_sizes(s2asm_text):
-    """{(zone, act): (xstart, xend, ystart, yend)} from s2.asm `LevelSize:`."""
-    start = s2asm_text.index("\nLevelSize:")
-    end = s2asm_text.index("zoneTableEnd", start)
-    zone = None
-    acts = {}
-    for line in s2asm_text[start:end].splitlines()[1:]:
-        m = re.match(r"^\s*;\s*([A-Za-z0-9 ]+?)\s*$", line)
-        if m:
-            zone = m.group(1).strip()
-            continue
-        m = re.match(r"^\s*zoneTableEntry\.w\s+(.+?);\s*Act\s+(\d+)", line)
-        if m:
-            vals = [int(v.strip().replace("$", "0x").replace("-0x", "-0x"), 0)
-                    for v in m.group(1).split(",")]
-            acts[(zone, int(m.group(2)))] = tuple(vals)
-    if ("EHZ", 1) not in acts:
-        raise SystemExit("could not parse s2.asm LevelSize table")
-    return acts
-
-
-def parse_s2_constant(text, name):
-    m = re.search(rf"^{name}\s*=\s*\$([0-9A-Fa-f]+)", text, re.M)
-    if not m:
-        raise SystemExit(f"s2.constants.asm no longer defines {name}")
-    return int(m.group(1), 16)
-
-
-class Zone:
-    """One S2 zone act, cropped to its camera-reachable box.
-
-    words: (box_h, box_w) uint16 nametable words; void: same shape, bool.
-    """
-
-    def __init__(self, name, words, void, box, art_tiles, n_art_tiles):
-        self.name = name
-        self.words = words
-        self.void = void
-        self.box = box
-        self.art = art_tiles          # bytes, 32 per tile
-        self.n_art_tiles = n_art_tiles
-
 
 _zone_cache = {}
 
 
-def _chunk_tiles(chunks, blocks):
-    """chunk id -> 16x16 tile words, through the REAL chunk_get_tile_word."""
-    tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
-    out = np.zeros((len(chunks), tpc, tpc), dtype=np.uint16)
-    for ci, ch in enumerate(chunks):
-        for tr in range(tpc):
-            for tc in range(tpc):
-                out[ci, tr, tc] = ojz_strip_gen.chunk_get_tile_word(ch, blocks, tc, tr)
-    return out
-
-
-def _crop(name, full, art, xs, xe, ys, ye, extra=None):
-    """Crop a zone's full FG nametable to its camera-reachable LevelSize box."""
-    tile = 8
-    x0 = max(0, xs) // tile
-    x1 = min(full.shape[1], -(-(xe + 320) // tile))
-    y0 = max(0, ys) // tile
-    y1 = min(full.shape[0], -(-(ye + 224) // tile))
-    words = full[y0:y1, x0:x1].copy()
-    n_art = len(art) // 32
-    oob = int(np.count_nonzero((words & 0x7FF) >= n_art))
-    if oob:
-        raise SystemExit(f"{name}: {oob} words reference tiles past the {n_art}-tile art blob")
-    box = {"level_size_px": [xs, xe, ys, ye], "crop_tiles": [x0, x1, y0, y1],
-           "ystart_clamped": ys < 0}
-    if extra:
-        box.update(extra)
-    return Zone(name, words, np.zeros(words.shape, dtype=bool), box, bytes(art), n_art)
-
-
 def load_zone(name):
+    """A donor zone by name. Sonic 2 names resolve against the FINAL donor.
+
+    This tool measures the final game (`--game s2`) and S&K (`--game s3k`); the
+    Simon Wai prototype is reachable through `s2_donor.load_zone(zone,
+    s2_donor.S2_PROTOTYPE)` and deliberately has no bare-name spelling here,
+    because GHZ/HTZ/MTZ/OOZ/CNZ/CPZ exist in BOTH S2 trees with different data
+    and a bare name would silently pick one.
+    """
     if name in _zone_cache:
         return _zone_cache[name]
-    if name in S2_ZONES:
-        z = _load_s2(name)
+    if s2_donor.known_zone(name, S2_FINAL):
+        z = s2_donor.load_zone(name, S2_FINAL)
     elif name in S3K_ZONES:
         z = _load_s3k(name)
     else:
@@ -302,48 +221,9 @@ def load_zone(name):
     return z
 
 
-def _load_s2(name):
-    root = s2disasm_root()
-    s2asm = open(os.path.join(root, "s2.asm"), "r", errors="replace").read()
-    s2const = open(os.path.join(root, "s2.constants.asm"), "r", errors="replace").read()
-    art_n, b16_n, b128_n, lay_n, size_key = S2_ZONES[name]
-    for spelled in (f'"art/kosinski/{art_n}.kos"', f'"mappings/16x16/{b16_n}.kos"',
-                    f'"mappings/128x128/{b128_n}.kos"'):
-        if spelled not in s2asm:
-            raise SystemExit(f"s2.asm no longer BINCLUDEs {spelled} — donor registry is stale")
-
-    art, _ = ojz_common.kos_decompress(_read(os.path.join(root, "art/kosinski", art_n + ".kos")))
-    art = bytearray(art)
-    blocks = ojz_common.load_block_map(os.path.join(root, "mappings/16x16", b16_n + ".kos"))
-    if name == "HTZ":
-        # s2.asm: KosDec ArtKos_HTZ to Chunk_Table+tiles_to_bytes(..._HTZ_Main)
-        main = parse_s2_constant(s2const, "ArtTile_ArtKos_NumTiles_HTZ_Main")
-        supp, _ = ojz_common.kos_decompress(_read(os.path.join(root, "art/kosinski/HTZ_Supp.kos")))
-        off = main * 32
-        if len(art) < off + len(supp):
-            art.extend(bytes(off + len(supp) - len(art)))
-        art[off:off + len(supp)] = supp
-        # s2.asm: `lea (Block_Table+$980).w,a1` / `lea (BM16_HTZ).l,a0` / KosDec
-        m = re.search(r"lea\s+\(Block_Table\+\$([0-9A-Fa-f]+)\)\.w,a1\s*\n\s*lea\s+\(BM16_HTZ\)", s2asm)
-        if not m:
-            raise SystemExit("s2.asm HTZ block-map patch offset not found")
-        boff = int(m.group(1), 16) // 8
-        htz_blocks = ojz_common.load_block_map(os.path.join(root, "mappings/16x16/HTZ.kos"))
-        need = boff + len(htz_blocks)
-        while len(blocks) < need:
-            blocks.append([0, 0, 0, 0])
-        blocks[boff:boff + len(htz_blocks)] = htz_blocks
-    chunks = ojz_common.load_chunk_map(os.path.join(root, "mappings/128x128", b128_n + ".kos"))
-    layout, _ = ojz_common.kos_decompress(_read(os.path.join(root, "level/layout", lay_n + ".kos")))
-    if len(layout) != 0x1000:
-        raise SystemExit(f"{lay_n}: layout decoded to {len(layout)} bytes, expected $1000")
-
-    tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
-    lay = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[0::2]   # FG rows
-    full = _chunk_tiles(chunks, blocks)[lay]       # (16, 128, 16, 16)
-    full = full.transpose(0, 2, 1, 3).reshape(16 * tpc, 128 * tpc)
-    xs, xe, ys, ye = parse_level_sizes(s2asm)[(size_key, 1)]
-    return _crop(name, full, art, xs, xe, ys, ye, {"game": "Sonic 2", "layout": lay_n})
+def s2_zone_names():
+    """The final-game Sonic 2 zones this tool reports on."""
+    return s2_donor.zone_names(S2_FINAL)
 
 
 # ---------------------------------------------------------------------------
@@ -972,7 +852,7 @@ def headline(res, frames_list, cls):
 
 
 GAMES = {
-    "s2": {"zones": lambda: list(S2_ZONES), "quick": ["EHZ", "ARZ", "MCZ", "HTZ"],
+    "s2": {"zones": lambda: s2_zone_names(), "quick": ["EHZ", "ARZ", "MCZ", "HTZ"],
            "chain": ["EHZ", "CPZ", "ARZ", "CNZ", "HTZ", "MCZ", "OOZ", "MTZ"]},
     "s3k": {"zones": lambda: list(S3K_ZONES), "quick": ["MHZ1", "LBZ1", "CNZ1", "ICZ1"],
             "chain": ["AIZ2", "HCZ1", "MGZ1", "CNZ1", "FBZ1", "ICZ1", "LBZ1", "MHZ1", "SOZ1", "LRZ1"]},
@@ -1004,7 +884,7 @@ def build_report(game="s2", quick=False, log=print):
     g = GAMES[game]
     zones = g["quick"] if quick else g["zones"]()
     report["game"] = game
-    donor = {"root": s2disasm_root() if game == "s2" else skdisasm_dir(), "zones": {}}
+    donor = {"root": s2_donor.donor_root(S2_FINAL) if game == "s2" else skdisasm_dir(), "zones": {}}
     for zn in zones:
         z = load_zone(zn)
         donor["zones"][zn] = {"box_tiles_wh": list(z.words.shape[::-1]), **z.box,

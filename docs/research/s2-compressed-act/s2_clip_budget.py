@@ -8,16 +8,36 @@ nothing. It exists to put real numbers under the design's budget table instead
 of estimates.
 
 It reuses, unmodified and by import:
-  tools/megaact_window_pageset.py   S2 donor loading (Zone/_load_s2/_crop),
-                                    Act placement, run_pipeline (the REAL
+  tools/s2_donor.py                 THE Sonic 2 donor loader — both donor trees,
+                                    nine final-game zones (WFZ included) and the
+                                    Simon Wai prototype's ten
+  tools/megaact_window_pageset.py   Act placement, run_pipeline (the REAL
                                     dedupe/order/page/pin functions), measure_act
-  tools/ojz_common.py               Kosinski decode, block/chunk maps
   tools/tile_dedupe.py              canonical-form dedupe, spatial order, paging
-The ONLY new things here are:
-  * a WFZ donor registry row (megaact's S2_ZONES has 8 zones and no WFZ), built
-    the same way HTZ's is: base art WFZ_SCZ.kos with WFZ_Supp.kos overlaid at
-    ArtTile_ArtKos_NumTiles_WFZ_Main (s2disasm/s2.asm:6492-6495,
-    s2.constants.asm:2305)
+  tools/collision_pipeline.py       bake_cell — the REAL donor-word -> attr bake
+
+WHAT CHANGED 2026-09-17 (S2-COMPRESSED-ACT parcel 1). This file used to carry a
+monkey patch that bolted a WFZ row onto `megaact_window_pageset.S2_ZONES` and
+wrapped its `_load_s2`. Both are gone: WFZ is a registry row in `s2_donor` and
+the loader is imported. Two behaviours are worth naming because they are the
+only places a number can move:
+
+  * `--profiles` now DEFAULTS TO `vertical`, and that changes three published
+    figures. `bake_cell`'s `profiles` argument is the per-column HEIGHT array —
+    `collision_pipeline.load_donor_collision` feeds it sonic_hack's `Collision
+    array 1.bin`, which is byte-identical to s2disasm's `Collision array -
+    Vertical.bin` (MEASURED). This file used to hand it `Collision array -
+    Horizontal.bin`, the ROTATED array, so it interned width profiles as
+    heights. The design's §3.5 counts were measured that way. Corrected they are
+    299 / 130 / 276 instead of 301 / 131 / 278 — no conclusion in §3.5 moves
+    (still over by 44, still fits, still over by 21). `--profiles horizontal`
+    reproduces the published numbers exactly and is how the promotion was proven
+    faithful.
+  * There is no other change. The zone grids, the art blobs and every `place`,
+    `window`, `act`, `zones`, `clipsweep` and `pallines` figure are byte-for-byte
+    what the pre-promotion tool produced.
+
+The ONLY things this file still owns are:
   * Clip(): crop a loaded Zone to a sub-rectangle, which is exactly the
     "marquee a rectangle" operation the owner asked for
   * the reports below
@@ -32,6 +52,10 @@ Modes:
   collsweep       per-zone attr-set cost of every section-aligned clip
   pallines        which CRAM palette lines each zone's foreground uses
 
+Every mode takes `--donor` (default `s2disasm`, the final game); pass
+`--donor s2-simonwai-disasm` to measure the prototype, which is the only tree
+carrying Hidden Palace Zone.
+
 Usage: python3 docs/research/s2-compressed-act/s2_clip_budget.py <mode> [args]
 """
 import argparse, json, os, sys, time
@@ -43,70 +67,29 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import megaact_window_pageset as mb          # noqa: E402
-import ojz_common                            # noqa: E402
+import s2_donor                              # noqa: E402
 import ojz_strip_gen                         # noqa: E402
 import tile_dedupe                           # noqa: E402
 
-
-# --- WFZ registry row (not in mb.S2_ZONES) ---------------------------------
-mb.S2_ZONES["WFZ"] = ("WFZ_SCZ", "WFZ_SCZ", "WFZ_SCZ", "WFZ", "WFZ")
-_orig_load_s2 = mb._load_s2
+DONORS = s2_donor.DONORS
+S2FINAL_TAG = s2_donor.S2_FINAL
 
 
-def _load_s2_wfz(name):
-    """WFZ = SCZ art with WFZ_Supp overlaid, exactly as s2.asm:6492 does."""
-    if name != "WFZ":
-        return _orig_load_s2(name)
-    root = mb.s2disasm_root()
-    s2asm = open(os.path.join(root, "s2.asm"), errors="replace").read()
-    s2const = open(os.path.join(root, "s2.constants.asm"), errors="replace").read()
-    for spelled in ('"art/kosinski/WFZ_SCZ.kos"', '"art/kosinski/WFZ_Supp.kos"',
-                    '"mappings/16x16/WFZ_SCZ.kos"', '"mappings/128x128/WFZ_SCZ.kos"'):
-        if spelled not in s2asm:
-            raise SystemExit(f"s2.asm no longer BINCLUDEs {spelled}")
-    art, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "art/kosinski/WFZ_SCZ.kos")))
-    art = bytearray(art)
-    main = mb.parse_s2_constant(s2const, "ArtTile_ArtKos_NumTiles_WFZ_Main")
-    supp, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "art/kosinski/WFZ_Supp.kos")))
-    off = main * 32
-    if len(art) < off + len(supp):
-        art.extend(bytes(off + len(supp) - len(art)))
-    art[off:off + len(supp)] = supp
-    blocks = ojz_common.load_block_map(os.path.join(root, "mappings/16x16/WFZ_SCZ.kos"))
-    chunks = ojz_common.load_chunk_map(os.path.join(root, "mappings/128x128/WFZ_SCZ.kos"))
-    layout, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "level/layout/WFZ.kos")))
-    if len(layout) != 0x1000:
-        raise SystemExit(f"WFZ layout decoded to {len(layout)} bytes, expected $1000")
-    tpc = ojz_strip_gen.TILES_PER_CHUNK_ROW
-    lay = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[0::2]
-    full = mb._chunk_tiles(chunks, blocks)[lay]
-    full = full.transpose(0, 2, 1, 3).reshape(16 * tpc, 128 * tpc)
-    xs, xe, ys, ye = mb.parse_level_sizes(s2asm)[("WFZ", 1)]
-    return mb._crop("WFZ", full, art, xs, xe, ys, ye, {"game": "Sonic 2", "layout": "WFZ"})
+def load_zone(name, donor):
+    return s2_donor.load_zone(name, donor)
 
 
-mb._load_s2 = _load_s2_wfz
-
-
-# --- a clip ----------------------------------------------------------------
 def clip(zone, col0, row0, cols, rows, name=None):
     """Crop a Zone to [col0:col0+cols, row0:row0+rows] in 8px tiles."""
     w = zone.words[row0:row0 + rows, col0:col0 + cols].copy()
     box = dict(zone.box)
     box["clip_tiles"] = [col0, row0, cols, rows]
-    z = mb.Zone(name or f"{zone.name}@{col0},{row0}", w,
-                np.zeros(w.shape, dtype=bool), box, zone.art, zone.n_art_tiles)
+    z = s2_donor.Zone(name or f"{zone.name}@{col0},{row0}", w,
+                      np.zeros(w.shape, dtype=bool), box, zone.art, zone.n_art_tiles)
     return z
 
 
-def painted_bbox(zone):
-    """Bounding box of cells whose nametable tile field is non-zero."""
-    nz = (zone.words & 0x7FF) != 0
-    if not nz.any():
-        return None
-    rows = np.nonzero(nz.any(axis=1))[0]
-    cols = np.nonzero(nz.any(axis=0))[0]
-    return int(cols[0]), int(cols[-1]) + 1, int(rows[0]), int(rows[-1]) + 1
+painted_bbox = s2_donor.painted_bbox
 
 
 def tiles_and_pages(zone, c):
@@ -127,8 +110,8 @@ def mode_zones(args):
           f"ART_POOL_PAGE_TILES={c['ART_POOL_PAGE_TILES']} "
           f"PAGE_FRAMES={c['PAGE_FRAMES']} POOL_TILE_CEILING={c['POOL_TILE_CEILING']}")
     rows = []
-    for name in args.zones or sorted(mb.S2_ZONES):
-        z = mb.load_zone(name)
+    for name in args.zones or s2_donor.zone_names(args.donor):
+        z = load_zone(name, args.donor)
         h, w = z.words.shape
         pb = painted_bbox(z)
         src, canon, pages = tiles_and_pages(z, c)
@@ -144,6 +127,7 @@ def mode_zones(args):
         print(json.dumps(r))
     tot_secs = sum(r["sections_box"][2] for r in rows)
     tot_canon = sum(r["canonical_tiles"] for r in rows)
+    print(f"# donor {args.donor}")
     print(f"# TOTALS over {len(rows)} zones: sections_if_whole={tot_secs} "
           f"(MAX_ACT_SECTIONS={c['MAX_ACT_SECTIONS']}), "
           f"sum_of_per_zone_canonical_tiles={tot_canon} "
@@ -156,7 +140,7 @@ def mode_zones(args):
 def mode_clipsweep(args):
     c, _ = mb.load_constants()
     st = c["SECTION_SIZE"] >> 3
-    z = mb.load_zone(args.zone)
+    z = load_zone(args.zone, args.donor)
     h, w = z.words.shape
     cw, ch = args.secw * st, args.sech * st
     out = []
@@ -181,15 +165,33 @@ def mode_clipsweep(args):
                    "clips": out}, open(args.json, "w"), indent=1)
 
 
-def parse_spec(spec, st):
-    """ZONE:col0,row0,secw,sech   (col0/row0 in SECTIONS from the zone box origin)"""
+def split_donor(spec, default):
+    """`[<donor>@]REST` -> (donor, REST).
+
+    The showcase act the owner named is FIVE final-game zones plus Hidden Palace,
+    and Hidden Palace exists only in the prototype tree — so an act spec has to be
+    able to name a donor per clip, not per invocation. `--donor` remains the
+    default for every spec that does not carry a prefix.
+    """
+    if "@" in spec:
+        dn, _, rest = spec.partition("@")
+        if dn not in DONORS:
+            raise SystemExit(f"{spec}: unknown donor {dn!r} (one of {', '.join(DONORS)})")
+        return dn, rest
+    return default, spec
+
+
+def parse_spec(spec, st, donor):
+    """[<donor>@]ZONE:col0,row0,secw,sech  (col0/row0 in SECTIONS from the box origin)"""
+    dn, spec = split_donor(spec, donor)
     zn, rest = spec.split(":")
     c0, r0, sw, sh = (int(x) for x in rest.split(","))
-    z = mb.load_zone(zn)
-    return clip(z, c0 * st, r0 * st, sw * st, sh * st, name=f"{zn}#{c0},{r0}")
+    z = load_zone(zn, dn)
+    tag = zn if dn == S2FINAL_TAG else f"{zn}~proto"
+    return clip(z, c0 * st, r0 * st, sw * st, sh * st, name=f"{tag}#{c0},{r0}")
 
 
-def build_act(specs, st, rowlen, align=True):
+def build_act(specs, st, rowlen, donor, align=True):
     """Lay the clips out left to right in section rows of `rowlen` sections.
 
     align=True starts every clip on a SECTION boundary — the design's premise
@@ -197,7 +199,7 @@ def build_act(specs, st, rowlen, align=True):
     section's 11-bit local palette). align=False packs them tight, which is
     what megaact's chain_act does, and is kept as the control.
     """
-    clips = [parse_spec(s, st) for s in specs]
+    clips = [parse_spec(s, st, donor) for s in specs]
     placements, col, row = [], 0, 0
     for cl in clips:
         wsec = -(-cl.words.shape[1] // st)
@@ -212,7 +214,7 @@ def build_act(specs, st, rowlen, align=True):
 def mode_act(args):
     c, _ = mb.load_constants()
     st = c["SECTION_SIZE"] >> 3
-    act = build_act(args.spec, st, args.rowlen, align=not args.no_align)
+    act = build_act(args.spec, st, args.rowlen, args.donor, align=not args.no_align)
     t0 = time.time()
     pipe = mb.run_pipeline(act, c)
     print(json.dumps({
@@ -239,42 +241,9 @@ def mode_act(args):
 
 
 # --- collision: how many attr-set entries does a set of zones/clips need? -----
-# Donor registry for the COLLISION side: (chunks128, layout, primary index, secondary
-# index or None). Cross-read from s2disasm/s2.asm Off_ColP/Off_ColS (:5915-5960) and
-# the BINCLUDE block. A zone with no real second path points Off_ColS at the primary.
-S2_COLL = {
-    "EHZ": ("EHZ_HTZ", "EHZ_1", "EHZ and HTZ primary 16x16 collision index.kos",
-            "EHZ and HTZ secondary 16x16 collision index.kos"),
-    "CPZ": ("CPZ_DEZ", "CPZ_1", "CPZ and DEZ primary 16x16 collision index.kos",
-            "CPZ and DEZ secondary 16x16 collision index.kos"),
-    "OOZ": ("OOZ", "OOZ_1", "OOZ primary 16x16 collision index.kos", None),
-    "MTZ": ("MTZ", "MTZ_1", "MTZ primary 16x16 collision index.kos", None),
-    "WFZ": ("WFZ_SCZ", "WFZ", "WFZ and SCZ primary 16x16 collision index.kos",
-            "WFZ and SCZ secondary 16x16 collision index.kos"),
-    "HTZ": ("EHZ_HTZ", "HTZ_1", "EHZ and HTZ primary 16x16 collision index.kos",
-            "EHZ and HTZ secondary 16x16 collision index.kos"),
-    "CNZ": ("CNZ", "CNZ_1", "CNZ primary 16x16 collision index.kos",
-            "CNZ secondary 16x16 collision index.kos"),
-    "MCZ": ("MCZ", "MCZ_1", "MCZ primary 16x16 collision index.kos", None),
-    "ARZ": ("ARZ", "ARZ_1", "ARZ primary 16x16 collision index.kos",
-            "ARZ secondary 16x16 collision index.kos"),
-}
-_coll_cache = {}
-
-
-def _coll_inputs(zn):
-    import collision_pipeline as cp                                   # noqa: F401
-    if zn in _coll_cache:
-        return _coll_cache[zn]
-    root = mb.s2disasm_root()
-    ch, lay, cpn, csn = S2_COLL[zn]
-    chunks = ojz_common.load_chunk_map(os.path.join(root, "mappings/128x128", ch + ".kos"))
-    layout, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "level/layout", lay + ".kos")))
-    grid = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[0::2]   # FG rows
-    P, _ = ojz_common.kos_decompress(mb._read(os.path.join(root, "collision", cpn)))
-    S = P if csn is None else ojz_common.kos_decompress(mb._read(os.path.join(root, "collision", csn)))[0]
-    _coll_cache[zn] = (chunks, grid, bytes(P), bytes(S))
-    return _coll_cache[zn]
+# The donor registry for the collision side is `s2_donor`'s (`coll_p`/`coll_s`,
+# cross-read from each donor's own Off_ColP/Off_ColS). It used to be a second
+# table here, keyed only to the final game.
 
 
 class _UncappedAttrSet:
@@ -297,17 +266,28 @@ class _UncappedAttrSet:
         return i
 
 
-def collision_entries(specs):
+def collision_entries(specs, donor, profiles="vertical"):
     """specs: ["EHZ", ...] or ["EHZ:0,2", ...] meaning zone:first_section,n_sections.
-    Returns the attr-set size the whole set needs, through the REAL bake_cell."""
+    Returns the attr-set size the whole set needs, through the REAL bake_cell.
+
+    A spec may carry a `<donor>@` prefix; `donor` is the default for those that do
+    not. The shape bank comes from `donor` regardless, which is sound only because
+    the two donors' banks are byte-identical — `tools/test_s2_donor.py::
+    test_the_two_donors_share_one_collision_shape_vocabulary` is what keeps that so.
+
+    `profiles` names WHICH shape bank feeds bake_cell's `profiles` argument.
+    "vertical" is the per-column HEIGHT array and the correct one — it is what
+    `collision_pipeline.load_donor_collision` reads for the shipping bake.
+    "horizontal" is the rotated array and reproduces the design's published
+    §3.5 figures, which were measured against it by mistake.
+    """
     import collision_pipeline as cp
-    root = mb.s2disasm_root()
-    prof = mb._read(os.path.join(root, "collision/Collision array - Horizontal.bin"))
-    ang = mb._read(os.path.join(root, "collision/Curve and resistance mapping.bin"))
+    prof, ang = s2_donor.collision_arrays(donor, profiles)
     a = _UncappedAttrSet()
     for sp in specs:
+        dn, sp = split_donor(sp, donor)
         zn, _, rest = sp.partition(":")
-        chunks, grid, P, S = _coll_inputs(zn)
+        chunks, grid, P, S = s2_donor.collision_inputs(zn, dn)
         if rest:
             s0, ns = (int(x) for x in rest.split(","))
             grid = grid[:, s0 * 16:(s0 + ns) * 16]     # 16 chunks of 128 px == one 2048 px section
@@ -319,8 +299,7 @@ def collision_entries(specs):
 
 
 def mode_collision(args):
-    import collision_pipeline as cp
-    n = collision_entries(args.spec)
+    n = collision_entries(args.spec, args.donor, args.profiles)
     cap = 255
     print(f"{' '.join(args.spec)}: {n} attr-set entries needed "
           f"(cap {cap}, tools/collision_pipeline.py AttrSet.intern) -> "
@@ -330,12 +309,12 @@ def mode_collision(args):
 
 def mode_collsweep(args):
     """Per-zone: the attr-set cost of every section-aligned clip of `--secw` sections."""
-    for zn in args.zones or sorted(S2_COLL):
-        _chunks, grid, _P, _S = _coll_inputs(zn)
+    for zn in args.zones or s2_donor.zone_names(args.donor):
+        _chunks, grid, _P, _S = s2_donor.collision_inputs(zn, args.donor)
         nsec = grid.shape[1] // 16
         vals = []
         for s0 in range(0, max(1, nsec - args.secw + 1)):
-            v = collision_entries([f"{zn}:{s0},{args.secw}"])
+            v = collision_entries([f"{zn}:{s0},{args.secw}"], args.donor, args.profiles)
             if v:
                 vals.append((s0, v))
         if not vals:
@@ -343,14 +322,14 @@ def mode_collsweep(args):
         v = [x[1] for x in vals]
         print(f"{zn}: {len(vals)} clips of {args.secw} section(s) -> attr entries "
               f"min={min(v)} p50={int(np.percentile(v, 50))} max={max(v)}   "
-              f"(whole zone {collision_entries([zn])})")
+              f"(whole zone {collision_entries([zn], args.donor, args.profiles)})")
 
 
 def mode_pallines(args):
     """Which CRAM palette lines does each zone's FOREGROUND actually use?
     Aeon writes lines 1..3 only (engine/effects/palette.emp:48-50)."""
-    for zn in args.zones or sorted(mb.S2_ZONES):
-        z = mb.load_zone(zn)
+    for zn in args.zones or s2_donor.zone_names(args.donor):
+        z = load_zone(zn, args.donor)
         nz = (z.words & 0x7FF) != 0
         line = (z.words >> 13) & 3
         pri = (z.words >> 15) & 1
@@ -368,7 +347,7 @@ def mode_place(args):
     import fg_page_order as fpo
     c, _ = mb.load_constants()
     st = c["SECTION_SIZE"] >> 3
-    act = build_act(args.spec, st, args.rowlen, align=not args.no_align)
+    act = build_act(args.spec, st, args.rowlen, args.donor, align=not args.no_align)
 
     # the shared dedupe, exactly as run_pipeline does it
     key = np.where(act.zone_id < 0, 0,
@@ -412,7 +391,7 @@ def mode_place(args):
 def mode_window(args):
     c, _ = mb.load_constants()
     st = c["SECTION_SIZE"] >> 3
-    act = build_act(args.spec, st, args.rowlen, align=not args.no_align)
+    act = build_act(args.spec, st, args.rowlen, args.donor, align=not args.no_align)
     frames = [c["PAGE_FRAMES"], mb.OWNER_LEVER_FRAMES]
     res = mb.measure_act(act, c, frames)
     print(json.dumps(mb.strip_arrays(res), indent=1))
@@ -423,25 +402,42 @@ def mode_window(args):
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="mode", required=True)
+    subparsers = []
     p = sub.add_parser("zones"); p.add_argument("zones", nargs="*"); p.add_argument("--json")
-    p.set_defaults(fn=mode_zones)
+    p.set_defaults(fn=mode_zones); subparsers.append(p)
     p = sub.add_parser("collision"); p.add_argument("spec", nargs="+")
-    p.set_defaults(fn=mode_collision)
+    p.set_defaults(fn=mode_collision); subparsers.append(p)
     p = sub.add_parser("collsweep"); p.add_argument("zones", nargs="*")
     p.add_argument("--secw", type=int, default=2)
-    p.set_defaults(fn=mode_collsweep)
+    p.set_defaults(fn=mode_collsweep); subparsers.append(p)
     p = sub.add_parser("pallines"); p.add_argument("zones", nargs="*")
-    p.set_defaults(fn=mode_pallines)
+    p.set_defaults(fn=mode_pallines); subparsers.append(p)
     p = sub.add_parser("clipsweep"); p.add_argument("zone")
     p.add_argument("--secw", type=int, default=1); p.add_argument("--sech", type=int, default=1)
     p.add_argument("--top", type=int, default=5); p.add_argument("--json")
-    p.set_defaults(fn=mode_clipsweep)
+    p.set_defaults(fn=mode_clipsweep); subparsers.append(p)
     for nm, fn in (("act", mode_act), ("window", mode_window), ("place", mode_place)):
         p = sub.add_parser(nm); p.add_argument("spec", nargs="+")
         p.add_argument("--rowlen", type=int, default=8); p.add_argument("--json")
         p.add_argument("--no-align", action="store_true")
-        p.set_defaults(fn=fn)
+        p.set_defaults(fn=fn); subparsers.append(p)
+    for p in subparsers:
+        p.add_argument("--donor", default=s2_donor.S2_FINAL, choices=DONORS,
+                       help="which Sonic 2 donor tree to measure "
+                            "(default: the final game)")
+        p.add_argument("--profiles", default="vertical", choices=("vertical", "horizontal"),
+                       help="which collision shape bank feeds bake_cell's `profiles` "
+                            "(collision/collsweep only). vertical is the per-column "
+                            "HEIGHT array and the correct one; horizontal reproduces "
+                            "the design doc's published §3.5 figures, which were "
+                            "measured against the rotated array by mistake")
     a = ap.parse_args()
+    # NOT `return a.fn(a)`. `mode_collision` and `mode_place` compute a verdict and
+    # return 0/1, and this call has always DISCARDED it, so both modes exit 0 whether
+    # they fit or refuse. That is a real defect — a gate that cannot fail — but fixing
+    # it here would move an observable (the exit code of every §13 command) inside a
+    # refactor whose whole check is that nothing moved. Booked in DEFERRED_WORK under
+    # S2-COMPRESSED-ACT instead; read the printed verdict line, not $?.
     a.fn(a)
 
 

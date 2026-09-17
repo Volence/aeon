@@ -36513,4 +36513,105 @@ hashed into the staleness stamp) is vestigial and read by nothing.
 - **S2ACT-SEAM-CORRIDORS = `corridors`**, verbatim *"and yeah that was the plan not butting them together"*. The design's 9.1(a) stands: clips are joined by transitions wider than the 640 px camera window, palette cross-fade inside. No donor-art recolour, and `verify_level_bin.py`'s bake-fidelity lane is not at risk.
 - **S2ACT-HIDDEN-PALACE = `prototype-donor`**, verbatim *"look for simon wai beta disassembly, you'll find it on sonic retro github where we can get it from hiddden palace"*. **Third donor cloned:** `/home/volence/sonic_hacks/s2-simonwai-disasm`, https://github.com/Totally-Not-Filter/s2-8XX-disasm at `0113ca4775115689edc87d4115ed9cb51f220e02`, read-only beside `s2disasm`. **Correction recorded and told to him:** it is NOT under the sonicretro org (that org's Sonic 2 repos are `s2disasm`, `s2smsdisasm`, `ktes2`); it is Filter's continuation of Alex Field's fork of Esrael Neto's 2007 disassembly, bit-perfect with the prototype ROM. No LICENSE file in the repo.
 - **HPZ assets verified present (controller, 2026-09-17T18:12:01Z):** `level/layout/HPZ_1.bin` 2050 B and `HPZ_BG.bin`; `mappings/16x16/HPZ.bin` 5600 B; `mappings/128x128/HPZ.kos` 7552 B; `collision/HPZ primary 16x16 collision index.bin` + secondary; six HPZ Nemesis art files; `palettes/HPZ.bin` + underwater.
-- **NOT measured yet, and it is parcel 1's first job:** the prototype's data shapes differ from the final game's (its layouts are uncompressed `.bin` where the final ships Kosinski `.kos`, and its zone set and collision banks differ). Treat every prototype format as unverified until the converter reads it; do not assume the final game's loader applies.
+- ~~**NOT measured yet, and it is parcel 1's first job:**~~ **MEASURED 2026-09-17** — see the parcel-1 entry at the end of this section and `docs/research/s2-compressed-act/2026-09-17-prototype-donor-formats.md` §2 for the format-by-format table. The caution was right: layouts, 16x16 maps, art and collision indices are all in different containers, and the art is Nemesis rather than Kosinski. The collision SHAPE BANKS turned out to be byte-identical between the two games, which is the one place the worry was unfounded. It is "six HPZ Nemesis art files" in the line above only if you count `Pulsing orb from HPZ.nem`; the zone's own level art is the single `HPZ primary.nem`, 725 tiles.
+
+### S2-COMPRESSED-ACT parcel 1 LANDED 2026-09-17 — the donor loader, both S2 donors, and a corrected figure
+
+Branch `parcel/s2-donor-loader`. Report:
+`docs/research/s2-compressed-act/2026-09-17-prototype-donor-formats.md` (new, beside the
+design). The design doc itself was patched in place wherever this parcel made a sentence in it
+false — §0 item 1, §0 item 3, §1.3, §3.1, §3.5, §4, §6, §9.2, §9.3, §10 row 1, §12, §13.
+
+**CLOSED**
+
+- **Staged-plan row 1 is DONE and its falsifiable check PASSED.** `tools/s2_donor.py` is THE
+  Sonic 2 donor loader. `megaact_window_pageset` lost `S2_ZONES`, `_load_s2`, `s2disasm_root`,
+  `parse_level_sizes`, `parse_s2_constant`, `Zone`, `_crop` and `_chunk_tiles` (deleted, not
+  aliased); `s2_clip_budget.py` lost its WFZ monkey patch and its duplicate collision registry;
+  `gen_region_bg_showcase.py` lost the third private copy nobody had noticed. **All 9
+  final-game zones reproduce byte for byte** — word grid AND art blob, SHA-256 — against a
+  `git archive d234c084` export of the pre-promotion loader, so the old code could not see the
+  new. `box` gained two additive keys and no existing key changed.
+- **The WFZ registry row** (§3.1's "one-line parcel") is in, art supplement and all. `--game s2`
+  in `megaact_window_pageset` now covers nine zones instead of eight; its `report` mode is
+  correspondingly slower and has NOT been re-run at nine zones.
+- **Both S2 donors registered in `donor_provenance`**, with `contributes_to_rebake=false`. The
+  committed `DONOR_PROVENANCE.json` was deliberately NOT rewritten: it carries `mode=rebake`
+  from a real bake, and a `--backfill` would have destroyed that claim to add two donors the
+  bake never read. It picks them up on the next real re-bake.
+- **HIDDEN PALACE IS NO LONGER BLOCKED.** It loads completely from the prototype donor: 700
+  blocks, 256 chunks, 725 art tiles, 561 canonical tiles, 9 pages, 152 collision attr-set
+  entries, painted 9216 x 2048 px.
+
+**FOUND**
+
+- **The prototype's formats, measured from its own source** (full table in the note §2). Five
+  differ from the final game: layouts are uncompressed `.bin` with a 2-byte (width-1, height-1)
+  header, FG and BG in separate files, and each row is **TILED** across the 128-byte RAM row
+  rather than padded; 16x16 maps are uncompressed; art is **NEMESIS**, not Kosinski (there is
+  no `art/kosinski/` in that tree); collision indices are raw `.bin`; and `LevelSize` is 4
+  longs per zone packing (min,max) word pairs. Everything else — chunk-word bits, solidity bit
+  pairs, block/chunk geometry, art at VRAM tile 0, 96-byte palettes, the HTZ supplement
+  mechanism and its `Block_Table+$980` patch — is identical.
+- **THE TWO GAMES SHARE ONE COLLISION-SHAPE VOCABULARY, byte for byte.** The prototype's
+  `Collision array 1.bin` == the final's `- Vertical.bin`, `2.bin` == `- Horizontal.bin`, and
+  the angle tables match. **Parcel 4 therefore covers both donors at once.** Pinned by
+  `test_the_two_donors_share_one_collision_shape_vocabulary` so it cannot rot silently.
+- **A PUBLISHED FIGURE WAS WRONG AND IS CORRECTED.** `s2_clip_budget.py collision` handed
+  `bake_cell` the ROTATED array as its per-column HEIGHT profiles. §3.5's 301 / 131 / 278
+  become **299 / 130 / 276**. No conclusion in §3.5 moves. `--profiles horizontal` reproduces
+  the published figures exactly, and that is how the promotion was proven faithful.
+- **THE REAL SIX-ZONE ACT, budgeted for the first time** (EHZ, CPZ, HPZ, WFZ, OOZ, MTZ — the
+  design used Hill Top as HPZ's stand-in). Art is unchanged and still passes at exactly the
+  limit: 12 sections, 2,959 pool tiles, 50 pages, worst window 12 of 12 frames, 0 of 322,391
+  over. **Collision is materially worse: 353 of 255 (over by 98) at two sections a clip against
+  the stand-in's 278, and 199 of 255 at one section against the stand-in's 131.** Hidden Palace
+  is collision-rich. **This sharpens §9.3's owner card, it does not answer it**: the
+  clip-harder option now leaves 56 entries of headroom for six zones with no objects yet.
+- **Hidden Palace's foreground is 97.0% on CRAM line 2** — aeon's own foreground line, and the
+  same line Emerald Hill sits on (95%). It is the most aeon-shaped of the six. CPZ (90% line 3),
+  MTZ (98% line 3) and WFZ (83% line 3) are the disagreeing ones. The §5.3 palette seam is
+  unchanged as a finding; this only says which pairs are cheap and which are not.
+- **HPZ's `LevelSize` row is the `$3FFF` placeholder**, exactly as WFZ's is in the final game,
+  so an HPZ clip must come from the painted bbox. The loader marks it
+  (`box["camera_box_is_placeholder"]`) and deliberately does not trim, because trimming would
+  move every figure measured off that box. Same for prototype WZ, MTZ and CNZ.
+- **A spec may now carry a `<donor>@` prefix** (`s2-simonwai-disasm@HPZ:0,0,2,1`), because the
+  showcase act is five final-game zones plus one prototype zone and no per-invocation flag can
+  express that. Row 3's `clips.json` will need the same field.
+
+**WHAT ROW 2 INHERITS**
+
+- `s2_donor` gives it everything but the writing: `load_zone` / `load_art` / `load_blocks` /
+  `load_chunks` / `load_fg_grid` / `load_bg_grid` / `collision_inputs` / `collision_arrays` /
+  `palette_path` / `art_sources`, per donor, per zone.
+- **Do not assume `<zone>_BG.bin` for the prototype.** Its background layouts are per zone AND
+  act and named by `Off_Level`'s table: `GHZ_BG.bin` serves both acts, `HTZ_1_BG.bin` and
+  `HTZ_2_BG.bin` are separate, and `CNZ_2_BG.bin` is 8 bytes where `CNZ_1_BG.bin` is 2048.
+  `load_bg_grid` is FINAL-DONOR ONLY and refuses the prototype by name, saying what the
+  registry would take. That registry is row 2's or row 3's, whenever a background is wanted.
+- **Do not assume a prototype layout row is 128 wide.** It is for every foreground layout and
+  for none of the small backgrounds.
+- The six final-game zones' act-2 layouts are reachable (`level_size(zone, donor, act=2)`) but
+  **no act-2 registry row exists**: the registry names act 1's layout file only.
+
+**OPEN RIDERS (small, none blocking)**
+
+- `s2_clip_budget.py`'s `main()` discards `mode_collision` / `mode_place`'s 0/1 return, so both
+  modes **exit 0 whether they fit or refuse**. A gate that cannot fail. Left alone deliberately
+  inside a refactor whose whole check is that no observable moved; a one-line fix for whoever
+  next touches that file. Read the printed verdict line, not `$?`.
+- `megaact_window_pageset.py report --game s2` now sweeps nine zones including WFZ, whose
+  camera box is the full 16,384 x 2,048 px placeholder. It has not been re-run at nine zones
+  and will be slower than the 2026-09-16 measurement of ~1.7 min.
+- The design's two uncommitted side measurements (75 of 151 S2 shapes unreachable from the S&K
+  bank; 211 of 256 rotated shapes disagreeing by sign) are still unreproducible from anything
+  in the repo. Parcel 4 must re-derive them, as §13 already says.
+
+**EVIDENCE.** `tools/landing_build.sh` exit 0, `finished=0`, three shapes built (s4.bin,
+s4.debug.bin, demo.debug.bin); pre-build tool lane 2965 passed / 2 skipped (both pre-existing);
+needs_build lane 27 ran, 0 failed, 1 exempted. `tools/test_s2_donor.py` 11 rows, proven red
+first by four mutations (WFZ's LevelSize key, the Nemesis header's tile-vs-row unit, the
+prototype layout's tile-vs-pad, and the prototype's two collision banks swapped), each restored
+from the committed baseline. `megaact_window_pageset.py control` reproduces the committed OJZ
+bake: 589,824 cells, 0 differing. No `.emp` touched, no ROM byte changed, no emulator used.

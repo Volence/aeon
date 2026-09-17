@@ -28,10 +28,10 @@ an unmistakably different place, preferably a classic Sonic background. The defa
 The editor-library source is kept as `--entry ID` (the act palette is then emitted unchanged).
 
 DONOR PIPELINE (`--donor s2-ooz`), every input read out of s2disasm, nothing typed:
-  1. DECODE with the decoders tools/megaact_window_pageset.py already uses (ojz_common's
+  1. DECODE through tools/s2_donor.py, THE Sonic 2 donor reader (ojz_common's
      Kosinski + block/chunk maps, ojz_strip_gen.chunk_get_tile_word through megaact's
      _chunk_tiles). S2's layout is 16 rows of (128 FG + 128 BG) chunk ids; the BG row is the
-     odd one. The zone's registry row is megaact's S2_ZONES entry.
+     odd one. The zone's registry row is s2_donor's.
   2. VERTICAL. The painted rows must be exactly the first 64 tile rows (every chunk row past 3
      is chunk 0 and chunk 0 is all tile 0); refused otherwise.
   3. HORIZONTAL. Aeon's Plane B is 64 columns and wraps. The donor repeats with a period of P
@@ -114,8 +114,8 @@ ROWS = 64
 SHOWCASE_LINE = 3            # CRAM line; see the docstring's step 6 for the measurement
 LINE_COLOURS = 15            # entries 1..15; entry 0 is transparent and never drawn
 
-# donor name -> megaact_window_pageset.S2_ZONES key
-DONORS = {"s2-ooz": "OOZ"}
+# donor name -> (s2_donor donor tree, zone key in its registry)
+DONORS = {"s2-ooz": ("s2disasm", "OOZ")}
 
 
 class Refused(SystemExit):
@@ -194,28 +194,26 @@ def _s2_backdrop(s2asm, pal48):
     return pal48[(line - 1) * 16 + idx]
 
 
-def _load_s2_bg(zone):
-    import numpy as np
-    import megaact_window_pageset as mw
-    import ojz_common
-    root = mw.s2disasm_root()
+def _load_s2_bg(donor, zone):
+    """Everything this generator needs from one Sonic 2 zone, through `s2_donor`.
+
+    `s2_donor` is THE Sonic 2 donor reader (S2-COMPRESSED-ACT parcel 1); this file
+    used to reach into `megaact_window_pageset`'s private `_load_s2` helpers, which
+    was the third private copy of the same file registry.
+    """
+    import s2_donor as sd
+    root = sd.donor_root(donor)
     s2asm = open(os.path.join(root, "s2.asm"), "r", errors="replace").read()
-    art_n, b16_n, b128_n, lay_n, _size = mw.S2_ZONES[zone]
-    pal_m = re.search(rf"^Pal_{zone}:\s*palette\s+(\S+)", s2asm, re.M)
-    if not pal_m:
-        refuse(f"s2.asm has no `Pal_{zone}: palette <file>` line")
-    pal = mw._read(os.path.join(root, "art/palettes", pal_m.group(1)))
+    pal = sd.read_bytes(sd.palette_path(zone, donor))
     if len(pal) != 96:
-        refuse(f"{pal_m.group(1)} is {len(pal)} B; a zone palette is 96 (lines 1-3)")
+        refuse(f"{sd.palette_path(zone, donor)} is {len(pal)} B; a zone palette is 96 "
+               f"(lines 1-3)")
     pal48 = struct.unpack(">48H", pal)
-    art, _ = ojz_common.kos_decompress(mw._read(os.path.join(root, "art/kosinski", art_n + ".kos")))
-    blocks = ojz_common.load_block_map(os.path.join(root, "mappings/16x16", b16_n + ".kos"))
-    chunks = ojz_common.load_chunk_map(os.path.join(root, "mappings/128x128", b128_n + ".kos"))
-    layout, _ = ojz_common.kos_decompress(mw._read(os.path.join(root, "level/layout", lay_n + ".kos")))
-    if len(layout) != 0x1000:
-        refuse(f"{lay_n}: layout decoded to {len(layout)} bytes, expected $1000")
-    bg = np.frombuffer(bytes(layout), dtype=np.uint8).reshape(32, 128)[1::2].astype(np.int64)
-    ct = mw._chunk_tiles(chunks, blocks)                    # (n_chunks, 16, 16)
+    art = sd.load_art(zone, donor)
+    blocks = sd.load_blocks(zone, donor)
+    chunks = sd.load_chunks(zone, donor)
+    bg = sd.load_bg_grid(zone, donor).astype("int64")
+    ct = sd.chunk_tiles(chunks, blocks)                     # (n_chunks, 16, 16)
     return bg, ct, bytes(art), pal48, _s2_backdrop(s2asm, pal48)
 
 
@@ -223,8 +221,8 @@ def build_donor(name: str):
     import numpy as np
     if name not in DONORS:
         refuse(f"{name!r} is not a known donor ({sorted(DONORS)})")
-    zone = DONORS[name]
-    bg, ct, art, pal48, backdrop = _load_s2_bg(zone)
+    donor, zone = DONORS[name]
+    bg, ct, art, pal48, backdrop = _load_s2_bg(donor, zone)
     tpc = ct.shape[1]
 
     # 2. vertical: exactly one plane of painted rows
