@@ -1,9 +1,9 @@
 {
-  "focus": "Making the cache page size a one-number change, so your cache decision costs nothing to apply.",
+  "focus": "Fixing the art stress-test re-bake, which was already broken before today's work.",
   "inFlight": [
     {
-      "what": "Remove the typed 64-tile page byte sizes from the level bake and verifier",
-      "where": "branch parcel/page-size-constant-only",
+      "what": "Find and fix why the art stress-test re-bake fails its own fidelity check",
+      "where": "branch fix/stress-uniquify-rebake",
       "agent": true
     }
   ],
@@ -19,7 +19,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the page-size cleanup is reviewed and landed.",
+  "nextBoundary": "When the stress re-bake fix is reviewed and landed.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -29,23 +29,16 @@
       "blockedBy": "decision card FG-CACHE-10-HOW"
     },
     {
-      "id": "PAGE-SIZE-CONSTANT-ONLY",
-      "title": "Make a cache page-size change purely a constant change: remove the fixed 64-tile page byte sizes still typed into the level bake and its verifier",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "STRESS-UNIQUIFY-REBAKE",
       "title": "The art stress-test re-bake fails its own fidelity check (broken before today's work); find the cause and fix it",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
@@ -87,5 +80,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T06:19:02Z"
+  "updatedAt": "2026-09-17T06:40:47Z"
 }
