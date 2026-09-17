@@ -74,85 +74,26 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import megaact_window_pageset as mb              # noqa: E402
 import tile_dedupe                               # noqa: E402
+# The Hilbert order, the sample incidences and the bbox presence count moved to the
+# generator path (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17) and are re-exported here,
+# so this tool, megaact_fg_cache10 and ojz_strip_gen run ONE implementation.
+from fg_page_order import (  # noqa: E402,F401
+    HILBERT_BLOCK, REFINE_SX, REFINE_SY, REFINE_MAX_TRIES, REFINE_LIGHT, REFINE_HEAVY,
+    REFINE_MAX_MOVE, hilbert_d, _order_for, _blank_canon, _tile_cells, _finish,
+    _hilbert_first_keys, order_hilbert_first, refine_incidences, _has, page_presence_sums)
 
 MB_JSON = {
     "s2": os.path.join(REPO, "docs/research/megaact-bg-streaming/08-m-b-results-s2.json"),
     "s3k": os.path.join(REPO, "docs/research/megaact-bg-streaming/08-m-b-results-s3k.json"),
 }
 
-HILBERT_BLOCK = 4               # tiles per Hilbert cell edge (order keys)
 FOOT_COLS, FOOT_ROWS = 20, 16   # footprint sample-window stride (a quarter window)
 FOOTPRINT_CANDIDATES = 512      # unassigned tiles scanned per growth step
 
 
 # ---------------------------------------------------------------------------
-# Hilbert curve
+# Hilbert curve (hilbert_d, order_hilbert_first and their helpers live in fg_page_order)
 # ---------------------------------------------------------------------------
-
-def hilbert_d(x, y, order):
-    """Vectorised xy -> d on a 2^order square (Wikipedia xy2d)."""
-    n = 1 << order
-    x = np.asarray(x, dtype=np.int64).copy()
-    y = np.asarray(y, dtype=np.int64).copy()
-    d = np.zeros_like(x)
-    s = n >> 1
-    while s > 0:
-        rx = ((x & s) > 0).astype(np.int64)
-        ry = ((y & s) > 0).astype(np.int64)
-        d += s * s * ((3 * rx) ^ ry)
-        flip = (ry == 0) & (rx == 1)
-        x = np.where(flip, n - 1 - x, x)
-        y = np.where(flip, n - 1 - y, y)
-        swap = ry == 0
-        x, y = np.where(swap, y, x), np.where(swap, x, y)
-        s >>= 1
-    return d
-
-
-def _order_for(h, w):
-    return max(1, int(np.ceil(np.log2(max(h, w, 2)))))
-
-
-def _blank_canon(unique):
-    return unique.index(tile_dedupe.BLANK_TILE)
-
-
-def _tile_cells(ctx):
-    """(canon ids of non-blank cells, their rows, their cols)."""
-    canon = ctx["canon"]
-    blank = _blank_canon(ctx["unique"])
-    flat = canon.ravel()
-    idx = np.flatnonzero(flat != blank)
-    W = canon.shape[1]
-    return flat[idx], idx // W, idx % W, blank
-
-
-def _finish(keys_by_tile, blank):
-    """pool order = blank, then referenced tiles by ascending key (stable on id)."""
-    tiles = np.array(sorted(keys_by_tile), dtype=np.int64)
-    k = np.array([keys_by_tile[t] for t in tiles.tolist()], dtype=np.float64)
-    order = tiles[np.lexsort((tiles, k))]
-    return [blank] + [int(t) for t in order.tolist() if t != blank]
-
-
-def _hilbert_first_keys(ctx):
-    tile, r, cc, blank = _tile_cells(ctx)
-    H, W = ctx["canon"].shape
-    bh, bw = -(-H // HILBERT_BLOCK), -(-W // HILBERT_BLOCK)
-    blk = (r // HILBERT_BLOCK) * bw + (cc // HILBERT_BLOCK)
-    pairs = np.unique(tile * (bh * bw) + blk)
-    pt, pb = pairs // (bh * bw), pairs % (bh * bw)
-    d = hilbert_d(pb % bw, pb // bw, _order_for(bh, bw))
-    ntile = int(tile.max()) + 1 if tile.size else 1
-    best = np.full(ntile, np.iinfo(np.int64).max, dtype=np.int64)
-    np.minimum.at(best, pt, d)
-    present = np.unique(pt)
-    return {int(t): int(best[t]) for t in present.tolist()}, blank
-
-
-def order_hilbert_first(ctx):
-    keys, blank = _hilbert_first_keys(ctx)
-    return _finish(keys, blank)
 
 
 def order_hilbert_centroid(ctx):
@@ -248,62 +189,12 @@ def order_footprint_pack(ctx):
 
 
 # ---------------------------------------------------------------------------
-# Targeted swap refinement (on superset-sampled windows)
+# Targeted swap refinement (on superset-sampled windows; the samples and the REFINE_*
+# search constants live in fg_page_order)
 # ---------------------------------------------------------------------------
 
-REFINE_SX, REFINE_SY = 8, 4     # sample stride: one sample per 8 lefts x 2 even tops
 REFINE_TARGET = 12              # the shipped PAGE_FRAMES; checked against constants at use
-REFINE_MAX_TRIES = 6000         # per round; a TRY cap, not a time cap: the result must not depend on machine speed
-REFINE_LIGHT, REFINE_HEAVY = 5, 6
-REFINE_MAX_MOVE = 32            # tiles moved out of a light page in one group swap
 REFINE_PIN_ROUNDS = 3           # re-run with the pin rule's pages counted until the pinned set is stable
-
-
-def refine_incidences(ctx, sx=None, sy=None):
-    """Per referenced non-blank tile, the sorted indices of the SAMPLE windows it
-    occurs in. Sample (i, j) is the union of every real window with left in
-    [sx*i, sx*i+sx-1] and even top in [sy*j, sy*j+sy-1], so a tile counted present in
-    a sample is present in at least one real window of that cell, and a real window's
-    page count is <= its sample's count (UPPER BOUND; the final numbers are always
-    re-measured on the exact windows)."""
-    sx = REFINE_SX if sx is None else sx
-    sy = REFINE_SY if sy is None else sy
-    tile, r, cc, blank = _tile_cells(ctx)
-    H, W = ctx["canon"].shape
-    c = ctx["c"]
-    cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
-    kx = -(-(cols + sx - 1) // sx)                    # blocks the superset spans
-    ky = -(-(rows + (sy - 2)) // sy)                  # tops are even: last top is sy*j+sy-2
-    nbx, nby = -(-W // sx), -(-H // sy)
-    blk = (r // sy) * nbx + (cc // sx)
-    pairs = np.unique(tile * (nbx * nby) + blk)
-    pt, pb = pairs // (nbx * nby), pairs % (nbx * nby)
-    starts = np.flatnonzero(np.r_[True, pt[1:] != pt[:-1]])
-    ends = np.r_[starts[1:], len(pt)]
-    tiles = pt[starts]
-    inc = []
-    for a, b in zip(starts.tolist(), ends.tolist()):
-        bx, by = pb[a:b] % nbx, pb[a:b] // nbx
-        x0, x1, y0, y1 = int(bx.min()), int(bx.max()), int(by.min()), int(by.max())
-        img = np.zeros((y1 - y0 + 1, x1 - x0 + 1), dtype=np.int32)
-        img[by - y0, bx - x0] = 1
-        ii = np.zeros((img.shape[0] + 1, img.shape[1] + 1), dtype=np.int32)
-        np.cumsum(np.cumsum(img, 0), 1, out=ii[1:, 1:])
-        js = np.arange(max(0, y0 - ky + 1), y1 + 1)
-        is_ = np.arange(max(0, x0 - kx + 1), x1 + 1)
-        ya = np.clip(js - y0, 0, img.shape[0])[:, None]
-        yb = np.clip(js + ky - y0, 0, img.shape[0])[:, None]
-        xa = np.clip(is_ - x0, 0, img.shape[1])[None, :]
-        xb = np.clip(is_ + kx - x0, 0, img.shape[1])[None, :]
-        s = ii[yb, xb] - ii[ya, xb] - ii[yb, xa] + ii[ya, xa]
-        yy, xx = np.nonzero(s > 0)
-        inc.append((js[yy] * nbx + is_[xx]).astype(np.int32))
-    return tiles, inc, nbx * nby, blank
-
-
-def _has(arr, w):
-    i = np.searchsorted(arr, w)
-    return i < len(arr) and arr[i] == w
 
 
 def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=None, pinned=frozenset({0})):
@@ -498,47 +389,6 @@ CANDIDATES = {
 # ---------------------------------------------------------------------------
 # Measurement (bbox-restricted per-page presence)
 # ---------------------------------------------------------------------------
-
-def page_presence_sums(pg, lefts, tops, cols, rows, groups):
-    """groups: {name: set(page ids)}. Returns {name: int16 (tops x lefts) count of
-    pages of that group present in each window}. A page's presence is computed on
-    its bounding box only."""
-    H, W = pg.shape
-    flat = pg.ravel()
-    idx = np.flatnonzero(flat >= 0)
-    vals = flat[idx]
-    srt = np.argsort(vals, kind="stable")
-    idx, vals = idx[srt], vals[srt]
-    uniq, starts = np.unique(vals, return_index=True)
-    ends = list(starts[1:]) + [len(vals)]
-    out = {g: np.zeros((len(tops), len(lefts)), dtype=np.int16) for g in groups}
-    for p, a, b in zip(uniq.tolist(), starts.tolist(), ends):
-        gs = [g for g, members in groups.items() if p in members]
-        if not gs:
-            continue
-        cells = idx[a:b]
-        r, cc = cells // W, cells % W
-        r0, r1, c0, c1 = int(r.min()), int(r.max()), int(cc.min()), int(cc.max())
-        h, w = r1 - r0 + 1, c1 - c0 + 1
-        ind = np.zeros((h, w), dtype=np.int32)
-        ind[r - r0, cc - c0] = 1
-        ii = np.zeros((h + 1, w + 1), dtype=np.int32)
-        np.cumsum(np.cumsum(ind, axis=0), axis=1, out=ii[1:, 1:])
-        ta, tb = np.searchsorted(tops, r0 - rows + 1), np.searchsorted(tops, r1, side="right")
-        la, lb = np.searchsorted(lefts, c0 - cols + 1), np.searchsorted(lefts, c1, side="right")
-        if ta >= tb or la >= lb:
-            continue
-        t = tops[ta:tb]
-        l = lefts[la:lb]
-        ya = np.clip(t - r0, 0, h)[:, None]
-        yb = np.clip(t + rows - r0, 0, h)[:, None]
-        xa = np.clip(l - c0, 0, w)[None, :]
-        xb = np.clip(l + cols - c0, 0, w)[None, :]
-        s = ii[yb, xb] - ii[ya, xb] - ii[yb, xa] + ii[ya, xa]
-        present = (s > 0).astype(np.int16)
-        for g in gs:
-            out[g][ta:tb, la:lb] += present
-    return out
 
 
 class ActFixed:

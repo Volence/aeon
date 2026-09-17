@@ -138,6 +138,11 @@ _FIXED = [
     # with --json PATH write docs/research/megaact-bg-streaming/10-*.json; `run` is what
     # rederive and sweep execute, rom_bytes is `rom`'s work, control_ext is `control`'s.
     ("megaact_fg_cache10", ["run", "rom_bytes", "control_ext"]),
+    # STITCHED-ACT-PAGE-ORDER wiring (2026-09-17): born in the table form. `check` writes
+    # nothing, but it is a BUILD GATE (build.sh + regenerate-level.sh), and a fall-through
+    # that reached it on a typo'd mode would print a verdict nobody asked for; `check` is
+    # the handler's work.
+    ("fg_page_order", ["check"]),
 ]
 
 
@@ -370,6 +375,7 @@ _ROSTER = {
     "megaact_window_pageset.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (M-B, 2026-09-16; was: argparse choices= guarding an `if == 'control'` ladder whose default branch was the WRITING `report --json`)",
     "megaact_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER, 2026-09-16, born in the fixed form; `report --json` writes the 09 evidence file)",
     "megaact_fg_cache10.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (FG-CACHE-10-RESEARCH, 2026-09-16, born in the fixed form; `rederive`/`sweep`/`rom --json` write the 10 evidence files)",
+    "fg_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17, born in the fixed form; `check` is read-only, the FG page-budget build gate)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
@@ -405,9 +411,11 @@ def test_the_ladder_population_is_still_the_roster():
     # 12 at the 2026-09-10 census; 13 since CTRL-3 (2026-09-13) added land_gate.py;
     # 14 since M-B (2026-09-16) added megaact_window_pageset.py; 15 since
     # STITCHED-ACT-PAGE-ORDER (2026-09-16) added megaact_page_order.py; 16 since
-    # FG-CACHE-10-RESEARCH (2026-09-16) added megaact_fg_cache10.py.
-    assert len(found) == 16, (
+    # FG-CACHE-10-RESEARCH (2026-09-16) added megaact_fg_cache10.py; 17 since the
+    # STITCHED-ACT-PAGE-ORDER wiring (2026-09-17) added fg_page_order.py.
+    assert len(found) == 17, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
-        "megaact_page_order.py and FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, found %d: %s"
+        "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py and the "
+        "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, found %d: %s"
         % (len(found), sorted(found)))
