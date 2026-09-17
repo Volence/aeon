@@ -1792,11 +1792,29 @@ def build_section_collision(
     return coll_a, coll_b
 
 
-def load_base_bank():
-    """Load the imported S&K base bank (heightmaps + angles) the bake draws shapes
-    from. Written by tools/import_sk_collision.py to data/collision/base/."""
-    base = os.path.normpath(os.path.join(
-        os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision", "base"))
+#: The shipped act's base collision bank — S&K's, written by
+#: tools/import_sk_collision.py. `generate()` reads this one and nothing else.
+SK_BANK_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision", "base"))
+
+
+def load_base_bank(bank_dir=None):
+    """Load a base collision bank's (heightmaps, angles). Default: the S&K bank.
+
+    THERE IS MORE THAN ONE BANK SINCE 2026-09-17 (S2-COMPRESSED-ACT row 4). A
+    plane word's low 10 bits are an index into a bank, and the SAME INTEGER NAMES A
+    DIFFERENT SHAPE in `base/` (S&K, the shipped OJZ act) and in `base_s2/` (Sonic
+    2's own vertical array, `tools/import_s2_collision.py`) — 68 of the 151 shapes
+    the six showcase zones use are not reachable from the S&K bank under any flip,
+    so this is a hard choice and not a preference. A converted S2 donor tree's
+    `zone.json` names its bank, and `tools/clip_act_bake.py` passes it here.
+
+    The parameter is added by the first caller that needs it, on purpose: row 4
+    left it hard-coded rather than ship an argument nothing passed. `generate()`
+    still calls it with no argument and still reads `base/`, which is why no ROM
+    byte moves.
+    """
+    base = SK_BANK_DIR if bank_dir is None else bank_dir
     hm = open(os.path.join(base, "heightmaps.bin"), "rb").read()
     an = open(os.path.join(base, "angles.bin"), "rb").read()
     return hm, an

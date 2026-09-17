@@ -209,7 +209,22 @@ class AttrSet:
     `bake_plane_cell` used to, which is the defect this parcel exists to fix.
     """
 
-    def __init__(self):
+    #: The ROM's limit: one byte per cell, index 0 reserved for air.
+    CAP = 255
+
+    def __init__(self, cap: int | None = CAP):
+        """`cap=None` lifts the refusal so the REQUIRED size can be REPORTED.
+
+        Added by S2-COMPRESSED-ACT row 5. Every bake that writes ROM tables keeps
+        the default — the cap is the reason `emit_tables` can address an entry with
+        one byte, and it is not a knob. A counting caller (the per-clip attr-set
+        readout the design's §8 owes the author, `tools/clip_act_bake.py`) needs to
+        say "this act needs 278" rather than "it overflowed", which is the number
+        that tells the author how much to trim. Those callers pass None and then
+        compare against `AttrSet.CAP` themselves, so the limit is still stated in
+        one place.
+        """
+        self.cap = cap
         self.entries = [(bytes(PROFILE_LEN), 0x00, SOL_NONE, XOVER_NONE)]  # 0 = air
         self.lookup: dict[tuple[bytes, int, int, int], int] = {}
         self.lookup[self.entries[0]] = 0
@@ -221,9 +236,9 @@ class AttrSet:
         if idx is not None:
             return idx
         idx = len(self.entries)
-        if idx > 255:
+        if self.cap is not None and idx > self.cap:
             raise ValueError(
-                f"AttrSet overflow: more than 255 unique solid combos "
+                f"AttrSet overflow: more than {self.cap} unique solid combos "
                 f"(interning entry {idx})"
             )
         self.entries.append(key)
@@ -268,6 +283,61 @@ def bake_cell(block_word: int, index_a: bytes, index_b: bytes,
         # is the encoding, not a placeholder (anchor §3.1's table).
         result.append(attrset.intern(heights, angle, solidity, XOVER_NONE))
     return (result[0], result[1])
+
+
+def chunk_entry_to_plane_words(block_word: int, index_a: bytes,
+                               index_b: bytes) -> tuple[int, int]:
+    """One DONOR chunk-entry word -> the two AURORA per-plane cell words.
+
+    S2-COMPRESSED-ACT staged-plan row 5. This is the whole "collision indirection
+    collapse" of the design's §1.3 done ONE STEP EARLIER than `bake_cell` does it:
+    `bake_cell` goes donor word -> interned attr byte in one hop, which is what the
+    ROM wants; a CONVERTED EDITOR TREE wants the intermediate — the per-plane cell
+    word aurora paints and `bake_plane_cell` consumes — so the donor zone can be
+    opened, marqueed and re-baked like any authored act.
+
+    The two word spaces are laid out beside each other because they are NOT the
+    same space (see PLANE_SOL_SHIFT's note and the d-39 failure it records):
+
+        donor chunk entry            aurora per-plane cell
+        9:0   block id               9:0   base-bank SHAPE index
+        10    X flip                 10    X flip
+        11    Y flip                 11    Y flip
+        13:12 path-A solidity        13:12 THIS plane's solidity
+        15:14 path-B solidity        15:14 XOVER (crossover mark)
+
+    So the transcode is: resolve `block id` through the zone's collision index to a
+    shape index (the indirection aeon does not keep), carry the flips across
+    unchanged, split the two solidity nibbles into the two planes' own words, and
+    emit XOVER_NONE — the donor has no crossover field at all, because those two
+    bits are path-B solidity on its side. A mark is authored later, in aurora, on
+    top of this.
+
+    EXACT EQUIVALENCE, and it is the point of the function rather than a hope:
+
+        bake_plane_cell(a, profiles, angles, s) == bake_cell(w, ia, ib, ...)[0]
+        bake_plane_cell(b, profiles, angles, s) == bake_cell(w, ia, ib, ...)[1]
+
+    for every word, because both paths reach `AttrSet.intern` with the same
+    (heights, angle, solidity, XOVER_NONE): `bake_cell`'s "solidity == 0 or
+    profile_id == 0 -> byte 0" is `bake_plane_cell`'s "solidity == 0 or shape == 0
+    -> 0" once the index lookup has happened here, and both apply xflip then yflip
+    in that order. `tools/test_s2_clip_collision.py` asserts it over every distinct
+    chunk-entry word of the six showcase zones rather than over hand-picked ones.
+
+    `index_a`/`index_b` are the zone's 768-byte primary/secondary collision
+    indices (`s2_donor.collision_inputs`). A block id past the index reads as shape
+    0 = air, matching `bake_cell`'s own out-of-range guard.
+    """
+    block_id = block_word & BLOCK_ID_MASK
+    flips = block_word & (CHUNK_XFLIP_BIT | CHUNK_YFLIP_BIT)
+    out = []
+    for shift, index in ((PATH_A_SOL_SHIFT, index_a),
+                         (PATH_B_SOL_SHIFT, index_b)):
+        shape = index[block_id] if block_id < len(index) else 0
+        solidity = (block_word >> shift) & 3
+        out.append(shape | flips | (solidity << PLANE_SOL_SHIFT))
+    return (out[0], out[1])
 
 
 def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,

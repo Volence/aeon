@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""One whole Sonic 2 zone -> one aeon editor tree. ART AND LAYOUT ONLY.
+"""One whole Sonic 2 zone -> one aeon editor tree. ART, LAYOUT AND COLLISION.
 
-S2-COMPRESSED-ACT staged plan row 2
+S2-COMPRESSED-ACT staged plan rows 2 (art + layout) and 5 (collision)
 (`docs/research/2026-09-17-s2-compressed-act-design.md` §10).
 
 WHAT THIS PRODUCES, and why in this shape
@@ -16,6 +16,8 @@ so nothing downstream needs a new loader:
                                index into this blob directly)
         palette.bin            the donor's 96-byte zone palette, VERBATIM
         section_<N>.tiles.bin  256x256 big-endian VDP nametable words
+        section_<N>.collattr.bin   256x256 big-endian PLANE-A cell words   [row 5]
+        section_<N>.collattrb.bin  256x256 big-endian PLANE-B cell words   [row 5]
         zone.json              the manifest: grid, extents, provenance, counts
 
 `section_<N>` is flat row-major over the section grid, N = sy * grid_w + sx —
@@ -40,11 +42,11 @@ touching `project.json` or the committed OJZ act.
 
 WHAT IS NOT HERE
 ----------------
-No collision (`section_N.collattr.bin` / `.collattrb.bin` are staged-plan rows 4
-and 5), no objects, no rings, no `regions.json`, no clip manifest (row 3), no
-background. `zone.json` therefore carries no attr-set cost per section, which the
-design's §8 sketch listed: that number cannot be computed before row 4 rules on
-the S2 shape bank.
+No objects, no rings, no `regions.json`, no clip manifest (row 3), no background.
+
+~~No collision.~~ **ROW 5, 2026-09-17.** Both plane files are written, and
+`zone.json` now carries the attr-set cost per section that the design's §8 sketch
+listed and row 2 could not compute. See rule 6.
 
 THE RULES THIS CONVERTER DECIDES
 --------------------------------
@@ -97,6 +99,52 @@ THE RULES THIS CONVERTER DECIDES
    per-cell tileset key all happen later in the real bake; doing any of it here
    would make the round trip non-identity for no gain.
 
+5. COLLISION IS THE INTERMEDIATE WORD, NOT THE BAKED BYTE (row 5). A converted
+   tree carries `section_N.collattr.bin` / `.collattrb.bin` in AURORA's per-plane
+   cell-word format — the format `collision_pipeline.bake_plane_cell` consumes and
+   `ojz_strip_gen.apply_editor_collision_overlay` reads — never the attr-set byte
+   the ROM holds. Two reasons, and the first is the load-bearing one:
+     * an attr byte is an index into an act-wide 255-entry set. A DONOR ZONE IS
+       NOT AN ACT. Baking here would mint a per-zone set that the clip act then
+       has to re-intern anyway, and the number that actually decides the act
+       (§3.5's 255 cap) is a property of the CLIPS, not of any one zone.
+     * the cell word is what an author edits. A converted tree opened in aurora is
+       paintable, marqueeable and re-bakeable exactly like an authored act; a tree
+       of baked bytes is a read-only artifact.
+   The transcode is `collision_pipeline.chunk_entry_to_plane_words`, and it is
+   exactly equivalent to `bake_cell` (asserted over every distinct chunk-entry word
+   of the six showcase zones by `tools/test_s2_clip_collision.py`).
+
+6. THE SHAPE INDEX NAMES THE S2 BANK, AND THE TREE SAYS SO. A plane word's low 10
+   bits index a base collision bank, and a converted S2 tree's indices are S2's own
+   — `games/sonic4/data/collision/base_s2/` (row 4,
+   `tools/import_s2_collision.py`), NOT the S&K bank under `base/` that the shipped
+   OJZ act uses. The same integer means a different shape in the two banks, so
+   `zone.json` names the bank and pins its `heightmaps.bin` sha256. Anything that
+   bakes one of these trees must select that bank; `ojz_strip_gen.load_base_bank`
+   takes the directory for exactly this reason.
+   BOTH DONORS SHARE ONE BANK, which is a measured fact and not an assumption:
+   the prototype's `Collision array 1.bin` is byte-identical to the final game's
+   `- Vertical.bin` (parcel 4, pinned by `tools/test_s2_donor.py::
+   test_the_two_donors_share_one_collision_shape_vocabulary`).
+
+7. COLLISION IS CROP-MASKED EXACTLY LIKE ART. A cell outside the camera-box crop
+   holds word 0 on both planes — air — for the same reason its nametable word is
+   0. Anything else would put invisible solid ground under a blank region, and the
+   converter's own pad check (verify_tree B) would stop meaning anything.
+   WHAT THIS COSTS, MEASURED rather than assumed, because the obvious worry is that
+   it makes the design's §3.5 numbers unreachable: NOTHING at whole-zone scope. Two
+   of the six zones have layout grids that reach below their crop — EHZ's
+   below-crop chunks are all chunk 0 (air), OOZ's are real chunks (180-186 among
+   them) — and the cropped and uncropped attr-set counts are IDENTICAL for both
+   (EHZ 105/105, OOZ 67/67): the below-crop chunks reuse shapes the crop already
+   needs. All six zones match `s2_clip_budget.py collision <ZONE>` exactly.
+   It can still differ for a CLIP, because that tool's `ZONE:s0,n` spec has no
+   vertical extent at all — it counts every chunk the COLUMN range references, over
+   every row — so a narrow clip of a zone whose only use of some shape is below the
+   crop would be predicted high. `tools/clip_act_bake.py` reports the clip's real
+   number off the emitted bytes and cross-checks it against that prediction.
+
 USAGE
 -----
     python3 tools/s2_zone_convert.py convert s2disasm@EHZ
@@ -123,6 +171,8 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import s2_donor                                    # noqa: E402
 import ojz_strip_gen                                # noqa: E402
+import collision_pipeline                           # noqa: E402
+import import_s2_collision                          # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Geometry — every number READ from the module that owns it, never restated.
@@ -134,6 +184,8 @@ SECTION_TILES = ojz_strip_gen.STRIP_TILE_HEIGHT
 SECTION_FILE_BYTES = ojz_strip_gen.EDITOR_CELL_FILE_BYTES
 #: 16x16 tiles per 128-px chunk.
 TILES_PER_CHUNK = ojz_strip_gen.TILES_PER_CHUNK_ROW
+#: 8x8 16-px blocks per 128-px chunk — the chunk-entry grid both games store.
+BLOCKS_PER_CHUNK = ojz_strip_gen.BLOCKS_PER_CHUNK_ROW
 #: 11-bit tile index field of a VDP nametable word.
 TILE_INDEX_MASK = ojz_strip_gen.TILE_INDEX_MASK
 #: Bytes of art per tile.
@@ -300,6 +352,68 @@ def expand_chunk_words(chunks: list[list[int]], blocks: list[list[int]]) -> np.n
     return out
 
 
+def expand_collision_words(chunks: list[list[int]], index_a: bytes,
+                           index_b: bytes) -> tuple[np.ndarray, np.ndarray]:
+    """(n_chunks, 16, 16) plane-A and plane-B cell words — rule 5's transcode.
+
+    Vectorised twin of `collision_pipeline.chunk_entry_to_plane_words`, which is
+    the scalar DEFINITION. This runs over every chunk of every zone, so it is a
+    numpy expression; `tools/test_s2_clip_collision.py` asserts the two agree cell
+    for cell rather than trusting that they were written from the same paragraph.
+
+    An entry covers a 16x16-px block = 2x2 nametable cells, and BOTH cells of a
+    block carry the block's word: aeon's collision cell is 8 px wide
+    (`COLL_CELL_W`) against Sonic 2's 16, so the X resolution doubles and the pair
+    shares one shape. In Y the editor file's odd rows are never read (a 16-px
+    collision row samples the even tile row,
+    `ojz_strip_gen.apply_editor_collision_overlay`); they are filled anyway so the
+    file is WYSIWYG in an editor that draws every cell.
+    """
+    n = len(chunks)
+    entries = np.zeros((n, BLOCKS_PER_CHUNK, BLOCKS_PER_CHUNK), dtype=np.uint16)
+    for i, ch in enumerate(chunks):
+        entries[i] = np.asarray(ch[:BLOCKS_PER_CHUNK * BLOCKS_PER_CHUNK],
+                                dtype=np.uint16).reshape(BLOCKS_PER_CHUNK, BLOCKS_PER_CHUNK)
+
+    cp = collision_pipeline
+    bid = (entries & cp.BLOCK_ID_MASK).astype(np.int64)
+    flips = entries & np.uint16(cp.CHUNK_XFLIP_BIT | cp.CHUNK_YFLIP_BIT)
+
+    out = []
+    for shift, index in ((cp.PATH_A_SOL_SHIFT, index_a),
+                         (cp.PATH_B_SOL_SHIFT, index_b)):
+        # a block id past the index reads as shape 0 = air, matching bake_cell
+        table = np.zeros(max(len(index), int(cp.BLOCK_ID_MASK) + 1), dtype=np.uint16)
+        table[:len(index)] = np.frombuffer(index, dtype=np.uint8)
+        shape = table[bid]
+        solidity = (entries >> shift) & np.uint16(3)
+        word = shape | flips | (solidity << np.uint16(cp.PLANE_SOL_SHIFT))
+        # one entry -> the block's 2x2 nametable cells
+        out.append(np.repeat(np.repeat(word, 2, axis=1), 2, axis=2))
+    return out[0], out[1]
+
+
+def rederive_zone_collision(zone: str, donor: str) -> tuple[np.ndarray, np.ndarray]:
+    """The zone's FULL (uncropped) per-plane cell-word grids, via the chunk grid."""
+    chunks, grid, index_a, index_b = s2_donor.collision_inputs(zone, donor)
+    grid = grid.astype(np.int64)
+    planes = expand_collision_words(chunks, index_a, index_b)
+    # A layout byte naming a chunk the zone does not define reads as AIR, which is
+    # `s2_clip_budget.collision_entries`'s `if ci < len(chunks)` guard and
+    # `ojz_strip_gen.build_collision_grids`'s "out-of-range chunk -> air". Not
+    # hypothetical: OOZ's below-crop rows name chunks past its own table.
+    oor = len(chunks)
+    grid = np.where(grid >= oor, oor, grid)
+    out = []
+    for per_chunk in planes:
+        per_chunk = np.concatenate(
+            [per_chunk, np.zeros((1,) + per_chunk.shape[1:], dtype=per_chunk.dtype)])
+        full = per_chunk[grid]                                # (rows, cols, 16, 16)
+        out.append(full.transpose(0, 2, 1, 3).reshape(
+            grid.shape[0] * TILES_PER_CHUNK, grid.shape[1] * TILES_PER_CHUNK))
+    return out[0], out[1]
+
+
 def rederive_zone_words(zone: str, donor: str) -> np.ndarray:
     """The zone's FULL (uncropped) word grid, via `expand_chunk_words`.
 
@@ -362,11 +476,23 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
     pal_line = (words >> 13) & 3
     line0 = painted & (pal_line == 0)
 
+    # Rule 5: both collision planes, in aurora's per-plane cell-word format.
+    # Uncropped and in DONOR WORLD coordinates, like the words above, so the same
+    # (sx0..sx1, sy0..sy1) crop window slices all three.
+    coll_full = rederive_zone_collision(zone, donor)
+    bank_dir = import_s2_collision.default_out()
+    bank_profiles, bank_angles = ojz_strip_gen.load_base_bank(bank_dir)
+    # UNCAPPED on purpose (rule 5): a donor zone is not an act, so the 255 cap is
+    # not its refusal to make. The number is reported; the clip act enforces it.
+    zone_attrs = collision_pipeline.AttrSet(cap=None)
+
     sections = []
     for sy in range(gh):
         for sx in range(gw):
             n = sy * gw + sx
             buf = np.zeros((SECTION_TILES, SECTION_TILES), dtype=">u2")
+            coll = [np.zeros((SECTION_TILES, SECTION_TILES), dtype=">u2")
+                    for _ in range(2)]
             wx0, wy0 = sx * SECTION_TILES, sy * SECTION_TILES
             # The crop occupies donor world rows y0..y1, columns 0..x1.
             sx0, sx1 = max(wx0, 0), min(wx0 + SECTION_TILES, x1)
@@ -376,11 +502,33 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
                 buf[sy0 - wy0:sy1 - wy0, sx0 - wx0:sx1 - wx0] = \
                     words[sy0 - y0:sy1 - y0, sx0:sx1]
                 n_cells = (sx1 - sx0) * (sy1 - sy0)
+                for p in range(2):
+                    # rule 7: the SAME crop window as the art, in donor world
+                    # coordinates (coll_full is uncropped, words is not)
+                    coll[p][sy0 - wy0:sy1 - wy0, sx0 - wx0:sx1 - wx0] = \
+                        coll_full[p][sy0:sy1, sx0:sx1]
             path = os.path.join(out_dir, f"section_{n}.tiles.bin")
             data = buf.tobytes()
             assert len(data) == SECTION_FILE_BYTES, len(data)
             with open(path, "wb") as fh:
                 fh.write(data)
+            coll_meta = {}
+            for p, suffix in enumerate(("collattr", "collattrb")):
+                cdata = coll[p].tobytes()
+                assert len(cdata) == SECTION_FILE_BYTES, len(cdata)
+                with open(os.path.join(out_dir, f"section_{n}.{suffix}.bin"), "wb") as fh:
+                    fh.write(cdata)
+                coll_meta[f"{suffix}_sha256"] = _sha256(cdata)
+            coll_meta["collision_cells_solid"] = int(sum(
+                np.count_nonzero((np.asarray(coll[p], dtype=np.uint16)
+                                  >> collision_pipeline.PLANE_SOL_SHIFT) & 3)
+                for p in range(2)))
+            before = len(zone_attrs.entries)
+            for p in range(2):
+                for w in np.unique(np.asarray(coll[p], dtype=np.uint16)).tolist():
+                    collision_pipeline.bake_plane_cell(
+                        int(w), bank_profiles, bank_angles, zone_attrs)
+            coll_meta["attr_entries_added"] = len(zone_attrs.entries) - before
             sec_idx = np.asarray(buf, dtype=np.uint16) & TILE_INDEX_MASK
             sec_painted = sec_idx != 0
             sec_line0 = sec_painted & (((np.asarray(buf, dtype=np.uint16) >> 13) & 3) == 0)
@@ -393,6 +541,7 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
                 "distinct_tiles": int(np.unique(sec_idx[sec_painted]).size)
                                   if sec_painted.any() else 0,
                 "sha256": _sha256(data),
+                **coll_meta,
             })
 
     with open(os.path.join(out_dir, "tileset.bin"), "wb") as fh:
@@ -403,8 +552,8 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
     manifest = {
         "schema": 1,
         "produced_by": "tools/s2_zone_convert.py",
-        "content": "foreground art + layout only (no collision, objects, rings, "
-                   "regions, background — staged plan rows 3-5)",
+        "content": "foreground art + layout + both collision planes (no objects, "
+                   "rings, regions, background — staged plan rows 2 and 5)",
         "zone": zone,
         "donor": donor,
         "donor_env_var": s2_donor.donor_env_var(donor),
@@ -433,6 +582,52 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
         "palette": dict(pal_info, file="palette.bin", sha256=_sha256(pal),
                         source=os.path.relpath(s2_donor.palette_path(zone, donor),
                                                s2_donor.donor_root(donor))),
+        "collision": {
+            "files": ["section_N.collattr.bin (plane A)",
+                      "section_N.collattrb.bin (plane B)"],
+            "format": "aurora per-plane cell word, big-endian u16: 9:0 base-bank "
+                      "shape, 10 X-flip, 11 Y-flip, 13:12 this plane's solidity, "
+                      "15:14 XOVER (always 0 here — the donor has no crossover "
+                      "field; its bits 15:14 are path-B solidity, which is plane "
+                      "B's own word). See collision_pipeline.chunk_entry_to_plane_"
+                      "words.",
+            "cell_px": [8, 16],
+            "cell_px_note": "the file is one word per 8-px NAMETABLE cell so it "
+                            "overlays the tiles grid exactly; a 16-px collision "
+                            "row samples the EVEN tile row "
+                            "(ojz_strip_gen.apply_editor_collision_overlay), and "
+                            "both 8-px columns of a donor 16-px block carry that "
+                            "block's word",
+            "base_bank": os.path.relpath(bank_dir, REPO),
+            "base_bank_heightmaps_sha256": _sha256(bank_profiles),
+            "base_bank_angles_sha256": _sha256(bank_angles),
+            "base_bank_note": "a shape index means a DIFFERENT shape in the S&K "
+                              "bank under data/collision/base/; anything that "
+                              "bakes this tree must select this one "
+                              "(ojz_strip_gen.load_base_bank takes the directory)",
+            "index_primary": s2_donor.zone_row(zone, donor)["coll_p"],
+            "index_secondary": s2_donor.zone_row(zone, donor)["coll_s"],
+            "index_note": "the donor's own per-zone block-id -> shape-index tables "
+                          "(Off_ColP / Off_ColS). A zone with no second path names "
+                          "no secondary and both planes share the primary.",
+            "attr_entries": len(zone_attrs.entries) - 1,
+            "attr_entries_note": "distinct (heights, angle, solidity, xover) this "
+                                 "WHOLE zone needs, against the act-wide cap of "
+                                 f"{collision_pipeline.AttrSet.CAP} "
+                                 "(collision_pipeline.AttrSet.CAP). A donor zone "
+                                 "is not an act: a clip needs a subset, and an act "
+                                 "needs the union of its clips'. Counted with the "
+                                 "cap lifted so the REQUIRED size is reported.",
+            "distinct_shapes": sorted({int(w) & collision_pipeline.BLOCK_ID_MASK
+                                       for p in coll_full
+                                       for w in np.unique(p).tolist()
+                                       if (int(w) >> collision_pipeline.PLANE_SOL_SHIFT) & 3}),
+            "crossover_marks": int(sum(
+                np.count_nonzero((np.asarray(p, dtype=np.uint16)
+                                  >> collision_pipeline.XOVER_SHIFT)
+                                 & collision_pipeline.XOVER_MASK)
+                for p in coll_full)),
+        },
         "counts": {
             "crop_cells": int(words.size),
             "painted_cells": int(painted.sum()),
@@ -464,6 +659,50 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
+
+def reference_collision_cell(zone: str, donor: str, row: int, col: int) -> tuple[int, int]:
+    """(plane A word, plane B word) for ONE donor world tile cell — scalar, slow.
+
+    The SECOND implementation of rule 5, written from the geometry rather than
+    from `expand_collision_words`'s numpy: resolve the cell's chunk, then its block
+    inside that chunk, then hand the chunk-entry word to the scalar definition in
+    `collision_pipeline`. `verify_tree` E samples this against the vectorised grid
+    on disk, so a transposition or an off-by-one in the repeat/reshape chain has
+    something to disagree with.
+    """
+    chunks, grid, index_a, index_b = s2_donor.collision_inputs(zone, donor)
+    chunk_row, chunk_col = row // TILES_PER_CHUNK, col // TILES_PER_CHUNK
+    if chunk_row >= grid.shape[0] or chunk_col >= grid.shape[1]:
+        return (0, 0)
+    chunk_id = int(grid[chunk_row, chunk_col])
+    if chunk_id >= len(chunks):
+        return (0, 0)
+    block_row = (row % TILES_PER_CHUNK) // 2
+    block_col = (col % TILES_PER_CHUNK) // 2
+    word = chunks[chunk_id][block_row * BLOCKS_PER_CHUNK + block_col]
+    return collision_pipeline.chunk_entry_to_plane_words(word, index_a, index_b)
+
+
+def read_tree_planes(out_dir: str, manifest: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Both collision planes reassembled from disk, same shape as read_tree_words."""
+    gw, gh = manifest["grid"]["w"], manifest["grid"]["h"]
+    out = []
+    for suffix in ("collattr", "collattrb"):
+        buf = np.zeros((gh * SECTION_TILES, gw * SECTION_TILES), dtype=np.uint16)
+        for sy in range(gh):
+            for sx in range(gw):
+                n = sy * gw + sx
+                p = os.path.join(out_dir, f"section_{n}.{suffix}.bin")
+                with open(p, "rb") as fh:
+                    data = fh.read()
+                if len(data) != SECTION_FILE_BYTES:
+                    raise SystemExit(f"{p}: {len(data)} bytes, expected {SECTION_FILE_BYTES}")
+                buf[sy * SECTION_TILES:(sy + 1) * SECTION_TILES,
+                    sx * SECTION_TILES:(sx + 1) * SECTION_TILES] = \
+                    np.frombuffer(data, dtype=">u2").reshape(SECTION_TILES, SECTION_TILES)
+        out.append(buf)
+    return out[0], out[1]
+
 
 def read_tree_words(out_dir: str, manifest: dict) -> np.ndarray:
     """Reassemble the converted tree's (grid_h*256, grid_w*256) word grid from disk."""
@@ -528,12 +767,36 @@ def verify_tree(out_dir: str, quiet: bool = False) -> dict:
     n_tiles = art_bytes // TILE_BYTES
     oob = int(np.count_nonzero((got & TILE_INDEX_MASK) >= n_tiles))
 
-    # D. the real gate
+    # E. COLLISION (row 5): the planes on disk against a scalar re-derivation, and
+    #    the same crop/pad rule the art obeys. Every cell of the crop is compared
+    #    against `expand_collision_words`'s numpy output re-run here, and a SAMPLE
+    #    is compared against `reference_collision_cell`, which shares no array code
+    #    with it — the cheap exhaustive check plus the expensive independent one.
+    got_a, got_b = read_tree_planes(out_dir, manifest)
+    ref_a_full, ref_b_full = rederive_zone_collision(zone, donor)
+    coll_diff = int(np.count_nonzero(ref_a_full[y0:y1, x0:x1] != got_a[y0:y1, x0:x1])
+                    + np.count_nonzero(ref_b_full[y0:y1, x0:x1] != got_b[y0:y1, x0:x1]))
+    coll_compared = int(got_a[y0:y1, x0:x1].size * 2)
+    coll_pad_nonzero = int(np.count_nonzero(got_a[~mask]) + np.count_nonzero(got_b[~mask]))
+    scalar_n, scalar_diff = 0, 0
+    rng = np.random.default_rng(0xC0115101)          # fixed seed: a sample, not a lottery
+    if y1 > y0 and x1 > x0:
+        for _ in range(512):
+            r = int(rng.integers(y0, y1))
+            c = int(rng.integers(x0, x1))
+            scalar_n += 1
+            if reference_collision_cell(zone, donor, r, c) != (int(got_a[r, c]),
+                                                               int(got_b[r, c])):
+                scalar_diff += 1
+
+    # D. the real gate — run LAST so it also sees the collision files, which
+    #    validate_editor_inputs checks "when present".
     ojz_strip_gen.validate_editor_inputs(out_dir,
                                          os.path.join(out_dir, "tileset.bin"),
                                          gw * gh)
 
-    ok = diff == 0 and pad_nonzero == 0 and oob == 0
+    ok = (diff == 0 and pad_nonzero == 0 and oob == 0
+          and coll_diff == 0 and coll_pad_nonzero == 0 and scalar_diff == 0)
     result = {
         "zone": zone, "donor": donor, "dir": out_dir,
         "sections": gw * gh,
@@ -543,6 +806,12 @@ def verify_tree(out_dir: str, quiet: bool = False) -> dict:
         "pad_cells_nonzero": pad_nonzero,
         "tileset_tiles": n_tiles,
         "tile_indices_out_of_range": oob,
+        "collision_cells_compared": coll_compared,
+        "collision_cells_differing": coll_diff,
+        "collision_pad_cells_nonzero": coll_pad_nonzero,
+        "collision_scalar_sampled": scalar_n,
+        "collision_scalar_differing": scalar_diff,
+        "collision_attr_entries": manifest["collision"]["attr_entries"],
         "validate_editor_inputs": "accepted",
         "ok": ok,
     }
@@ -550,7 +819,10 @@ def verify_tree(out_dir: str, quiet: bool = False) -> dict:
         print(f"  {donor}@{zone}: round trip {compared} cells compared, {diff} differing; "
               f"pad {pad_cells} cells, {pad_nonzero} nonzero; "
               f"{oob} indices past the {n_tiles}-tile tileset; "
-              f"validate_editor_inputs accepted {gw * gh} sections -> "
+              f"collision {coll_compared} cells, {coll_diff} differing, "
+              f"{coll_pad_nonzero} nonzero pad, {scalar_n} scalar-sampled "
+              f"({scalar_diff} differing), {result['collision_attr_entries']} attr "
+              f"entries; validate_editor_inputs accepted {gw * gh} sections -> "
               f"{'OK' if ok else 'FAILED'}")
     if not ok:
         raise SystemExit(f"{donor}@{zone}: conversion is NOT identity — {result}")
