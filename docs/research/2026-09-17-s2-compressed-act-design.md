@@ -1,0 +1,833 @@
+# S2-COMPRESSED-ACT — the aeon half of the design
+
+**Date:** 2026-09-17 · **Branch:** `research/s2-compressed-act` (worktree `aeon-wt-s2conv`)
+**Booking:** `docs/DEFERRED_WORK.md`, section `S2-COMPRESSED-ACT` (OPEN, owner direction
+2026-09-17T16:00:34Z, part of REGIONS).
+**Measurement script:** `docs/research/s2-compressed-act/s2_clip_budget.py` (committed beside
+this file).
+
+**What the owner asked for, verbatim:** *"maybe we can start with sonic 2, but like I'd like
+it so we can make like "compressed" version of the game in one act as a test? Like we convert
+the levels to our format, but then I load them on a page and can marquee parts of it, copy it
+over to our layout, and paste it in as a region or something. This way we can showcase
+multiple paarts of the game in the same aact without someone having to play through the whole
+thing."* Scope he set: inside REGIONS, not a new project; first cut is **level art +
+collision only**, objects later; **six** Sonic 2 zones — Emerald Hill, Chemical Plant, Hidden
+Palace, Wing Fortress, Oil Ocean, Metropolis.
+
+**Scope of this document:** the aeon half only — converting a whole Sonic 2 zone into aeon's
+level format, and pasting an arbitrary clipped rectangle of it into an act. The aurora half
+(the page that loads a converted level, marquees a rectangle and pastes it) is another lane's;
+§8 states only the interface aeon must offer it.
+
+---
+
+## 0. Read this first — the five things that decide the design
+
+Every figure below names the file it came from. Figures tagged MEASURED were produced by a
+command printed in this document; figures tagged INFERRED are arithmetic on measured numbers
+and are labelled as such in the sentence.
+
+1. **Hidden Palace Zone cannot be built from this donor. At all.** Not the layout, not the
+   art, not the collision. It is BLOCKED and needs an owner decision (§6).
+2. **Clipping saves world space, not tile art.** A 2-section clip of Emerald Hill already
+   needs 480 of the whole zone's 480 unique tiles (MEASURED). What costs VRAM pages is the
+   NUMBER of zones, not how much of each you take. A 6-zone act clipped to 2 sections each
+   needs a *bigger* art pool (2,965 tiles) than a 5-zone act taking the zones WHOLE (2,830).
+3. **Clipping is nevertheless mandatory — for collision.** Aeon's collision attribute set is
+   capped at 255 entries for a whole act. Five whole Sonic 2 zones need 301 (MEASURED,
+   46 over). The same six zones clipped to one section each need 131. The clip is what makes
+   collision fit.
+4. **The foreground art budget already passes.** Aeon's real page-placement pass
+   (`fg_page_order.place_pool`, the one the bake calls) ACCEPTS a five-whole-zone Sonic 2 act:
+   worst camera window needs 12 of 12 page frames, 0 of 870,231 windows over budget (MEASURED).
+   It passes at exactly the limit, with no headroom, and the count does not include object art,
+   background, or in-flight decodes.
+5. **The seam is the real problem, and it is the palette.** Aeon's foreground uses exactly ONE
+   CRAM palette line (line 2, all 46,211 painted cells of OJZ act 1 — MEASURED). Every Sonic 2
+   zone's foreground uses two to four lines, and they disagree about which (MEASURED, §5.3).
+   Two zones cannot be correct on screen at the same time. Clips therefore cannot simply butt
+   together; each one needs a transition the camera passes through. **This is the finding that
+   changes the shape of what the owner described** — see §9.1.
+
+---
+
+## 1. Format gap, measured from source on both sides
+
+### 1.1 What Sonic 2 has
+
+Donor: `/home/volence/sonic_hacks/s2disasm` (read-only; nothing in it was modified).
+
+| Thing | Where | Shape (MEASURED) |
+|---|---|---|
+| Level layout | `level/layout/<ZONE>_<act>.kos` | Kosinski; decodes to exactly $1000 = 4096 bytes. 32 rows × 128 bytes; even rows are the foreground plane, odd rows the background. Each byte is a 128×128-px chunk id. (`tools/megaact_window_pageset.py:344-355`) |
+| 128×128 chunks | `mappings/128x128/<SET>.kos` | 64 words per chunk (8×8 blocks). Word: bits 9:0 block id, bit 10 X-flip, bit 11 Y-flip, bits 13:12 path-A solidity, bits 15:14 path-B solidity. (`tools/ojz_common.py:338-369`, `tools/collision_pipeline.py:46-61`) |
+| 16×16 blocks | `mappings/16x16/<SET>.kos` | 4 VDP nametable words per block (TL, TR, BL, BR). (`tools/ojz_common.py:317-336`) |
+| Tile art | `art/kosinski/<SET>.kos` | Kosinski; 32 bytes/tile. EHZ_HTZ decodes to 914 tiles, WFZ_SCZ to 889, MTZ to 792 (MEASURED). Two zones (HTZ, WFZ) overlay a supplementary blob at a fixed tile offset. |
+| Collision index | `collision/<SET> primary/secondary 16x16 collision index.kos` | 13 files, every one decodes to exactly **768 bytes** — one byte per 16×16 block, naming a collision-tile id. (MEASURED) |
+| Collision shapes | `collision/Collision array - Horizontal.bin`, `... Vertical.bin` | 4096 bytes each = 256 shapes × 16 column heights. (MEASURED) |
+| Collision angles | `collision/Curve and resistance mapping.bin` | 256 bytes, one angle per shape; bit 0 = "no usable angle". (MEASURED; semantics `s2.asm:43609-43613`) |
+| Palette | `art/palettes/<ZONE>.bin` | 96 bytes = 48 colours = 3 CRAM lines. (MEASURED) |
+| Camera extent | `s2.asm:14698-14750` `LevelSize:` | Per zone+act (xstart, xend, ystart, yend). |
+
+### 1.2 What aeon has
+
+| Thing | Where | Shape |
+|---|---|---|
+| Act | `engine/structs.emp:41-69` | 46-byte `Act` record: section-grid pointer, `grid_w`/`grid_h`, start position, act-wide BG layout + tiles, parallax config, art-pool table + page count, edge mode, per-section local-map table, art budget, region table + count. |
+| Section | `engine/structs.emp:285-292` | 22-byte `Sec`: block index, objects, rings, type table, block dictionary + length. **Nothing else.** Palette, music, BG layout and tileset were all deleted from `Sec` between 2026-09-04 and 2026-09-16 (`engine/structs.emp:322-350`). |
+| Section size | `engine/system/constants.emp:357-358` | `SECTION_SIZE = $0800` (2048 px), `SECTION_SIZE_SHIFT = 11`. A section is 256×256 tiles. |
+| Act grid cap | `engine/system/constants.emp:875` | `MAX_ACT_SECTIONS = 48` (grid_w × grid_h). |
+| Region | `engine/structs.emp:132-156` | 26-byte `Region`: an **arbitrary world-pixel rectangle** naming an effects preset (mandatory; the preset carries the palette), an optional parallax override, and optional BG layout / span / tiles. **Presentation and identity only — storage stays per section** (`engine/structs.emp:74-77`). |
+| Editor section geometry | `tools/ojz_strip_gen.py:468-489, 522-529` | `section_N.tiles.bin` = 256×256 big-endian VDP nametable words (131,072 B). Tile indices point into one act-wide tileset named by `project.json` `zones[0].tileset`. |
+| Editor collision | `tools/ojz_strip_gen.py:1805-1937` | `section_N.collattr.bin` / `.collattrb.bin` = 256×256 big-endian 16-bit cell words (131,072 B each), planes A and B. Word: bits 9:0 shape index into the base bank, 10 X-flip, 11 Y-flip, 13:12 this plane's solidity, 15:14 loop-crossover mark. |
+| Runtime collision | `tools/collision_pipeline.py:199-231, 339-365` | One byte per 8×16-px cell, indexing five parallel 256-entry ROM tables (heightmaps, rotated heightmaps, angles, solidity, crossover). The interning table is capped at **255 solid combinations for the whole act** (`:224-228`). |
+| Art pool | `engine/system/constants.emp:380, 394, 405, 874` | One flat act-wide pool: 64-tile pages (`ART_POOL_PAGE_TILES`), at most 256 pages (`PAGE_TABLE_MAX`), 768 VRAM tiles resident (`POOL_TILE_CEILING`) = 12 page frames (`PAGE_FRAMES`). |
+| Palette | `engine/effects/palette.emp:48-50, 285-311` | 96 bytes = CRAM lines 1, 2, 3. Line 0 is the character's and the engine never writes it. Installed per **region** via the effects preset (`engine/effects/preset.emp:420-422`, `engine/level/parallax.emp:1263`). |
+
+### 1.3 The gap, item by item
+
+**Maps 1:1, no transformation:**
+
+- Two-path (primary/secondary) collision. Aeon's `LAYER_PATH_A/B` with two collision planes is
+  Sonic 2's, and aeon's `PATH_A_SOL_SHIFT = 12` / `PATH_B_SOL_SHIFT = 14`
+  (`tools/collision_pipeline.py:53-54`) are literally S2's chunk-word bit pairs.
+- Solidity encoding (0 none / 1 top / 2 left-right-bottom / 3 all).
+- Height-byte encoding (positive = up from the bottom, negative = hanging from the top,
+  16 = full block). Verified: **no byte** in S2's vertical array falls outside the range aeon's
+  validator accepts (`tools/collision_pipeline.py:426-435`).
+- Angle bytes: 256 units per turn, 0 = flat, bit 0 = unusable. Aeon's flip formulas
+  (`tools/collision_pipeline.py:127-134`) are transcriptions of `s2.asm:42968-42978`.
+- Block and chunk geometry: 16×16-px blocks, 8×8 blocks per 128-px chunk, chunk words with
+  flip bits at 10 and 11.
+- Palette file size: 96 bytes, 3 lines, both sides.
+- VDP nametable words: identical (they are hardware).
+
+**Needs transformation (all of it mechanical, and most of it already written):**
+
+- **Layout → sections.** S2 is a 128×16 grid of 128-px chunks (16,384 × 2,048 px max). Aeon is
+  a grid of 2048-px sections each stored as one 256×256-word file. A re-tiling, no more.
+- **Collision indirection collapse.** S2 resolves `block id → per-zone index → collision-tile
+  id → {height column, angle}` at runtime on every probe. Aeon resolves the whole chain at bake
+  time into one interned byte. `tools/collision_pipeline.py:234-270` `bake_cell()` **already
+  does exactly this transformation**, including per-path solidity and flip resolution, because
+  it was written for the sonic_hack donor, which is S2-format data. This is the single biggest
+  head start in the parcel.
+- **Flips become identities.** S2 flips at runtime; aeon bakes each `(shape, xflip, yflip,
+  solidity)` into its own attr-set entry. This is what makes §3's 255 cap bite.
+- **Collision X resolution doubles.** S2 stores collision per 16-px block; aeon per 8-px column
+  (`COLL_CELL_W = 8`, `engine/system/constants.emp:1043`). Each S2 block becomes two adjacent
+  cells with the same byte — `tools/ojz_strip_gen.py:1757-1758` already does this.
+
+**No counterpart in aeon today — this is the real work list:**
+
+1. **A per-cell tileset key.** Aeon's generator reads ONE tileset per act
+   (`project.json` `zones[0].tileset`) and hands the page placer a uniform zone grid. The
+   placer's multi-zone rungs already exist and are exercised by fixtures, but
+   `tools/fg_page_order.py:51-55` states the gap outright: *"a stitched act's loader must
+   supply the per-cell tileset key."* No such loader exists. **This is parcel 1.**
+2. **A collision base bank that is not S&K's.** `load_base_bank()`
+   (`tools/ojz_strip_gen.py:1795-1802`) hard-codes `games/sonic4/data/collision/base/`. Of the
+   151 distinct collision shapes Sonic 2 actually uses, **75 are unreachable from the S&K
+   bank's 236 shapes even allowing all four flips** — including a shape as plain as a 6-px flat
+   floor (MEASURED, second measurement). The S&K bank cannot host Sonic 2's geometry; S2's own
+   `Collision array - Vertical.bin` has to be imported as a bank, or the two merged.
+3. **A rotated-heightmap regeneration, not a copy.** S2 and S&K store right-anchored runs as
+   *positive* widths; aeon stores them as *negative* (`256-w`) and the player sensors are
+   written to that convention. For **211 of 256** S2 shapes, aeon's `rotate_profile` disagrees
+   with S2's shipped horizontal array, and every one of the 211 is a pure sign disagreement
+   (MEASURED). The converter must regenerate from the vertical array and never copy S2's
+   horizontal array in. One S2 shape (`$18`) makes `rotate_profile` **raise** (its row 0 solid
+   span touches neither edge) and needs a hand ruling.
+   *Side finding, pre-existing and unrelated to this parcel:* the same sign confusion is live
+   in `tools/import_sk_collision.py:80,87-88`, which copies S&K's rotated table verbatim into
+   `base/`. It does not reach the ROM today only because `load_base_bank` never reads that
+   file. Worth booking separately.
+4. **More than one foreground palette on screen at once.** §5.3. Nothing today.
+5. **Runtime collision-layer switching by table swap.** S2 path-swapper objects rewrite
+   `Collision_addr`. Aeon's only layer-change mechanism is the per-cell loop-crossover mark.
+   Out of scope for an art+collision first cut, but it is why some S2 loops will not behave.
+6. **A second act's BG animation.** Already booked: `docs/DEFERRED_WORK.md:3841-3880` — two
+   acts of one zone emit the same section and the same `BgAnim_Table` symbols. Needs an owner
+   ruling on ROM layout.
+
+**Existing partial converters, and what they are actually worth:**
+
+- `tools/convert_s2_mappings.py` — converts S2 **sprite** mappings, not level data. Precedent
+  for "we convert S2 formats", nothing reusable here.
+- `tools/import_sk_collision.py` (95 lines) — the template for an S2 collision-bank importer.
+  Reads three fixed-size files, writes five ROM tables to `data/collision/` and
+  `data/collision/base/`. An `import_s2_collision.py` is a near-copy.
+- `tools/donor_provenance.py` — knows exactly two donors (sonic_hack, skdisasm). s2disasm has
+  to become a third; `tools/suite_paths.py` already resolves it (`require_suite_path("s2disasm")`).
+- **`tools/megaact_window_pageset.py` is the real prize.** It already contains a complete,
+  self-checking Sonic 2 donor loader (`_load_s2`, `:305-367`) for 8 zones, cropping each to its
+  camera-reachable box, and drives the REAL dedupe / order / page / pin functions. Its `control`
+  mode reproduces the committed OJZ bake cell-for-cell. Everything in §3 and §4 of this document
+  was measured through it. The converter should be built by promoting that loader out of the
+  measurement tool, not by writing a new one.
+
+---
+
+## 2. The clip operation
+
+### 2.1 What a clip has to carry
+
+A clip is a rectangle of one zone. To be pasteable it must carry, per cell:
+
+- the **nametable word** (tile index within the source zone's tileset, plus flip bits, palette
+  line, priority bit);
+- the **source tileset identity** — which zone's art blob that tile index means. This is the
+  "per-cell tileset key" of §1.3 item 1. Without it, two zones' tile index spaces collide
+  silently;
+- the **collision cell word** for plane A and plane B (shape, flips, solidity, crossover mark);
+- and per clip rather than per cell: the **source zone's palette** and a **background
+  reference**.
+
+### 2.2 Alignment: what the grids force
+
+- Sonic 2's native quantum is the **128-px chunk**. A layout byte is a chunk.
+- Aeon's storage quantum is the **2048-px section** (256×256 tiles), and a section is one file.
+- Aeon's streaming quantum is the **128-px block** (16×16 tiles) — `TileCache_DecompressBlock`
+  resolves the section and its dictionary per block (`engine/level/tile_cache.emp:466-513`).
+- Aeon's **region** quantum is one world pixel: regions are arbitrary rectangles, proven by
+  OJZ act 1's night region at x 3400..4799, deliberately straddling the section line at 4096
+  (`games/sonic4/data/levels/ojz/act1/act_descriptor.emp:606-607`).
+
+**Recommendation: snap clips to 128 px on both axes (the chunk/block grid), and snap each
+clip's PLACEMENT in the act to a 2048-px section boundary.**
+
+- 128-px snapping is free: it is both games' natural quantum, and it means no clip edge ever
+  cuts a chunk in half, so collision and art stay coherent cell-for-cell.
+- Section-boundary placement is not free but is worth it: aeon interns a **per-section local
+  tile map** of at most 2047 entries (`tools/ojz_strip_gen.py:815-843`), and the page placer's
+  multi-zone rung builds **pages that never mix two zones**
+  (`tools/fg_page_order.py:526-554`). A clip straddling a section boundary puts two zones'
+  tiles into one section's local map and defeats that. It also means each clip's world
+  rectangle is exactly the region rectangle you want for its palette (§5).
+- Finer placement than a section is *possible* (regions are pixel-granular) and should be left
+  available — but it should be the exception, not the default.
+
+### 2.3 What happens at the cut edges
+
+**Collision continuity.** Because collision is stored per 8×16-px cell and resolved by absolute
+world position (`engine/level/collision_lookup.emp:27-85`), a cut edge has no special meaning to
+the engine — the cells simply stop. The player walking off the right edge of a clip walks into
+whatever the next cell says. So the cut itself is safe; **what is unsafe is what the author
+leaves next to it.** Two concrete cases:
+
+- A clip cut mid-slope leaves a vertical wall of whatever height the last column had. Fine if
+  intended, a soft-lock if not.
+- A clip cut across a loop or an overpass severs the path-A/path-B pairing. Aeon's crossover
+  encoding is per-cell and paired (`docs/LOOP_CROSSOVER_ENCODING.md` §3.3), and
+  `apply_editor_collision_overlay` REFUSES a self-mark (`tools/ojz_strip_gen.py:1821-1834`).
+  **A clip whose marquee cuts a loop in half will fail the bake**, loudly. That is the right
+  behaviour and should be documented for the author, not worked around.
+
+**Half-chunks.** With 128-px snapping there are none. Without it, a clip edge that lands
+mid-chunk splits a 16-block group whose flip and solidity bits were authored as a unit; the
+tile side survives (words are per cell) but the collision side needs the block re-baked from a
+partial chunk. Not impossible, just a reason the snap is a good default.
+
+**Air gutters between clips.** In the measurement of five whole zones laid out on section
+boundaries, the natural padding (each zone is narrower than its section allocation) left gaps
+of 164 tiles or more — wider than the 80-column camera window, so **no camera position ever
+showed two zones at once**. That is accidental, and it is also, as §9.1 argues, the shape the
+design should adopt on purpose.
+
+---
+
+## 3. Budgets, derived from the real pipeline
+
+All numbers in this section are MEASURED by pushing donor data through aeon's own functions,
+with the exact command lines given. They are measurements over **donor data through the
+build-time pipeline**, not observations of a running engine.
+
+Constants read from source at measurement time
+(`engine/system/constants.emp:357, 380, 394, 405, 874, 875`):
+`SECTION_SIZE = 2048 px`, `MAX_ACT_SECTIONS = 48`, `ART_POOL_PAGE_TILES = 64`,
+`PAGE_FRAMES = 12`, `POOL_TILE_CEILING = 768`, `PAGE_TABLE_MAX = 256`.
+
+### 3.1 Per-zone facts
+
+```
+python3 docs/research/s2-compressed-act/s2_clip_budget.py zones
+```
+
+| Zone | Camera box (px) | Painted extent (px) | Sections at 2048 px | Source tiles | Unique (deduped) tiles | Pages at 64 |
+|---|---|---|---|---|---|---|
+| EHZ | 10976 × 1024 | 10976 × 1016 | 6 × 1 = 6 | 634 | **480** | 8 |
+| CPZ | 10432 × 2048 | 10432 × 2048 | 6 × 1 = 6 | 619 | **619** | 10 |
+| OOZ | 12480 × 1888 | 12480 × 1840 | 7 × 1 = 7 | 483 | **483** | 8 |
+| MTZ | 9152 × 2048 | 9152 × 2048 | 5 × 1 = 5 | 420 | **420** | 7 |
+| WFZ | 16384 × 2048 | 12544 × 1408 | 8 × 1 = 8 | 846 | **832** | 13 |
+| HTZ | 10560 × 2048 | 10560 × 2048 | 6 × 1 = 6 | 602 | 422 | 7 |
+| CNZ | 10464 × 2048 | 10464 × 2048 | 6 × 1 = 6 | 698 | 512 | 8 |
+| MCZ | 9408 × 1088 | 9408 × 1088 | 5 × 1 = 5 | 600 | 481 | 8 |
+| ARZ | 10752 × 1248 | 10752 × 1248 | 6 × 1 = 6 | 605 | 605 | 10 |
+
+Every zone fits in ONE section row (2048 px tall). WFZ's camera box is the full 16,384 px
+because its `LevelSize` entry is the placeholder `$3FFF` (`s2.asm:14718`) — its real painted
+extent is 12,544 × 1,408 px, so **WFZ's clip must be taken from the painted bounding box, not
+the camera box.**
+
+**WFZ is not in aeon's existing S2 registry.** `tools/megaact_window_pageset.py:198-209` lists
+8 zones and WFZ is not one of them. The measurement script adds it the same way HTZ's
+supplement is handled: base art `WFZ_SCZ.kos` with `WFZ_Supp.kos` overlaid at
+`ArtTile_ArtKos_NumTiles_WFZ_Main` = $0307 (`s2disasm/s2.asm:6492-6495`,
+`s2.constants.asm:2305`). Promoting that row into the tool proper is a one-line parcel.
+
+### 3.2 Clipping saves sections, not art
+
+```
+python3 docs/research/s2-compressed-act/s2_clip_budget.py clipsweep EHZ --secw 2 --sech 1
+```
+
+Unique tiles in a 2-section (4096 × 2048 px) clip, over every section-aligned position:
+
+| Zone | min | median | max | whole zone (for comparison) |
+|---|---|---|---|---|
+| EHZ | 286 | 470 | **480** | 480 |
+| CPZ | 549 | 569 | **591** | 619 |
+| OOZ | 377 | 462 | **478** | 483 |
+| MTZ | 407 | 418 | **420** | 420 |
+| WFZ | 114 | 490 | **592** | 832 |
+| HTZ | 375 | 384 | **419** | 422 |
+
+Read the right-hand two columns together. **Taking a third of Emerald Hill costs you the same
+480 tiles as taking all of it.** Classic Sonic zone art is heavily reused along the whole zone,
+so a clip anywhere in the middle pulls in essentially the entire tileset. At 1 section
+(2048 × 2048) the medians fall — EHZ 339, HTZ 276, WFZ 244 — but even then the *maximum* is
+near the whole-zone figure.
+
+**Consequence:** the VRAM art cost of this act is set by how many ZONES it contains, not by how
+much of each you paste. Making the clips smaller to "fit more in" does not work for art.
+
+### 3.3 Does the foreground art budget pass? Yes, at exactly the limit
+
+This runs aeon's REAL Pass 4 placement (`fg_page_order.place_pool`, the function
+`tools/ojz_strip_gen.py:2177` calls) and its real refusal.
+
+```
+python3 docs/research/s2-compressed-act/s2_clip_budget.py place \
+    EHZ:0,0,6,1 CPZ:0,0,6,1 OOZ:0,0,7,1 MTZ:0,0,5,1 WFZ:0,0,8,1 --rowlen 32
+```
+
+| Act | Sections | Pool tiles | Pages | Shipped order's worst window | Searched order's worst | Windows over budget | Verdict |
+|---|---|---|---|---|---|---|---|
+| 5 whole named zones, section-aligned | 32 of 48 | 2,830 | 46 | 18 of 12 | **12 of 12** | 0 of 870,231 | **PASSES** |
+| same, tight-packed (real seams) | 30 of 48 | 2,830 | 46 | 18 of 12 | **12 of 12** | 0 of 815,447 | **PASSES** |
+| 6 zones (HTZ standing in for HPZ), 2 sections each | 12 of 48 | 2,965 | 50 | 16 of 12 | **12 of 12** | 0 of 322,391 | **PASSES** |
+| all 9 zones with a layout, 2 sections each | 18 of 48 | 4,502 | 75 | 16 of 12 | **12 of 12** | 0 of 486,743 | **PASSES** |
+
+Four things to take from this table:
+
+1. **The default page order fails every one of these acts** (worst 16-18 against a budget of
+   12). Only the "searched" rung — per-zone dedupe, per-zone pages, Hilbert first-use order,
+   then a swap search — fits them. That rung exists and is wired into the bake, and there is a
+   hard refusal if it cannot fit (`tools/fg_page_order.py:632-646`). This is the machinery
+   `STITCHED-ACT-PAGE-ORDER` delivered on 2026-09-17; report 09 measured S2 junctions going
+   from worst 17 / 10,296 windows over to **12 / 0** with it
+   (`docs/research/megaact-bg-streaming/09-page-order-candidates.md:33`).
+2. **Every act lands at exactly 12 of 12, never below.** 707 window positions sit at 12 in the
+   five-zone act, 4,762 in the six-clip act. There is no headroom, and the count explicitly
+   excludes object art, the background plane, animated tiles, in-flight decodes and eviction
+   order under motion (`tools/fg_page_order.py:75-78`). A static pass at the budget is
+   necessary for no camera soft-lock, not sufficient. **This wants a runtime confirmation and
+   is TAGGED for foreground follow-up.**
+3. `PAGE_TABLE_MAX` is 256, so 46-75 pages is comfortable.
+4. Section count is not the binding constraint. Even the whole-zone act uses 32 of 48.
+
+### 3.4 ROM cost
+
+The committed OJZ pool compresses 19,584 raw bytes to 11,964 ZX0 bytes, a ratio of 0.611
+(MEASURED). Scaling by that ratio (INFERRED — the real ratio depends on the actual tiles):
+
+| Act | Pool tiles | Raw pool | ZX0 pool (inferred) | Against `art_rom_report.py` budget |
+|---|---|---|---|---|
+| 5 whole zones | 2,830 | 90,560 B | ~55,300 B (54 KB) | soft 24 KB **exceeded**, hard 64 KB ok |
+| 6 clips × 2 sections | 2,965 | 94,880 B | ~58,000 B (57 KB) | soft **exceeded**, hard ok |
+| 9 clips × 2 sections | 4,502 | 144,064 B | ~88,000 B (86 KB) | **hard 64 KB EXCEEDED** |
+
+Budget defaults are `ART_ROM_SOFT_KB = 24.0` / `ART_ROM_HARD_KB = 64.0`
+(`tools/art_rom_report.py:38-39`), overridable per act by env var (`:122-123`) and described in
+the file as "generous now, tightened when real acts exist" (`:27`). So the six-zone act needs
+the soft budget raised and clears the hard one; a nine-zone act needs the hard budget raised
+too, which is an owner call, not a tool flag someone sets quietly.
+
+Separately, the section block stream: OJZ's 9 sections total 52,934 bytes of block blobs, a
+mean of 5,881 B per section. At that mean (INFERRED, linear scaling): 12 sections ≈ 69 KB,
+30 sections ≈ 172 KB, 48 sections ≈ 276 KB. That is the larger ROM item and it scales with
+sections, so it is the other reason to clip.
+
+### 3.5 The collision budget — the one that actually fails
+
+Aeon interns every distinct `(height profile, angle, solidity, crossover)` into a **single
+attr set shared by the whole act**, capped at **255** entries
+(`tools/collision_pipeline.py:224-228`, one set per act at `tools/ojz_strip_gen.py:2107`).
+Today's shipped act uses 63 of 255.
+
+Baking Sonic 2's own chunk words through aeon's own `bake_cell`, over every chunk each act-1
+layout references (MEASURED):
+
+| Scope | Attr-set entries needed | Against the 255 cap |
+|---|---|---|
+| EHZ alone | 105 | fits |
+| CPZ alone | 162 | fits |
+| OOZ alone | 67 | fits |
+| MTZ alone | 62 | fits |
+| WFZ alone | 108 | fits |
+| HTZ alone | 122 | fits |
+| **5 whole named zones** | **301** | **over by 46** |
+| **6 whole zones (HTZ for HPZ)** | **329** | **over by 74** |
+| all 9 whole zones | 427 | over by 172 |
+| 6 zones clipped to the first 2 sections each | 278 | over by 23 |
+| **6 zones clipped to the first 1 section each** | **131** | **fits** |
+| 5 zones clipped to the first 2 sections each | 242 | fits |
+
+And over clip POSITION (2-section clips, every section-aligned position):
+
+| Zone | entries needed by the clip alone: min / median / max |
+|---|---|
+| EHZ | 24 / 86 / 104 |
+| CPZ | 2 / 143 / 158 |
+| OOZ | 5 / 49 / 67 |
+| MTZ | 9 / 43 / 62 |
+| WFZ | 8 / 67 / 96 |
+| HTZ | 7 / 103 / 116 |
+
+Union of one 2-section clip per zone, picking the cheapest / median / most expensive clip of
+each: **6 zones → 37 / 283 / 322** entries. So a six-zone act at 2 sections per zone fits or
+fails **depending on which rectangles the author marquees**, which is the strongest argument in
+this document for putting the number in front of the author in the editor (§8).
+
+*Method note, stated so it can be checked:* the counts walk every cell of every chunk the
+layout references, deduped by chunk word, through `collision_pipeline.bake_cell` with S2's own
+shape and angle tables. A second, independently written measurement over the same data landed
+within about 10% per zone and reached the same verdict at every scope. The "clipped to the
+first N sections" rows use the leftmost N sections as a representative clip, not a bound.
+
+**Ways out, for the owner to choose between (§9.3):** clip harder; widen the attr field from
+one byte to two (a per-cell storage change touching the block format and the runtime lookup);
+merge near-identical shapes with a tolerance; or give each region its own 255-entry bank
+(a real engine change — the bank is act-wide today).
+
+---
+
+## 4. What the act would actually look like
+
+Two candidate shapes, both measured above.
+
+**Shape A — "the guided tour", 6 clips of 1-2 sections each.**
+12-18 sections of 48. Each clip is one recognisable set-piece: Emerald Hill's first hill and
+loop; Chemical Plant's tube drop; Oil Ocean's fans; Metropolis's screws; Wing Fortress's
+platforms; and a sixth (see §6 on Hidden Palace). Art pool ~2,965 tiles / 50 pages, passing at
+12 of 12. Collision fits at 1 section each (131 entries) and is position-dependent at 2 sections
+each (37-322 entries). ROM ~57 KB pool + ~70-105 KB block stream (inferred).
+**This is the recommended shape.**
+
+**Shape B — "five whole zones".**
+30-32 sections of 48, and measurably legal for ART (0 of 870,231 windows over budget). But
+collision needs 301 entries against a cap of 255, so it cannot be built today without one of
+§3.5's four changes. Worth knowing it is this close, because it means "compressed Sonic 2"
+could later mean *most of* Sonic 2, not just six postcards.
+
+In both shapes the natural layout is a single horizontal section ROW — every zone is at most
+2048 px tall, and a 1-row act keeps the camera's vertical behaviour trivial. A vertical stack
+is the alternative and has one real advantage (§9.1).
+
+---
+
+## 5. Palette, background, and the seam
+
+### 5.1 The good news: per-region palettes already ship
+
+A region names an effects preset; the preset carries the palette; crossing a region boundary
+installs it, with a snap or a 16-frame cross-fade
+(`engine/structs.emp:136`, `engine/effects/preset.emp:58, 420-422`,
+`engine/effects/palette.emp:285-311`, `engine/level/parallax.emp:1263`). The shipped proof is
+OJZ act 1's night region (row 9, x 3400..4799), whose palette is a comptime grade of all 48
+entries. A DEBUG region already carries **Oil Ocean Zone's background** with its own layout and
+its own tiles (`act_descriptor.emp:752-758`). So "six zones, six palettes, six backgrounds" is
+not new engine work — it is authoring plus per-region BG tile budget
+(`BG_REGION_STATIC_TILE_BUDGET` = 320 tiles, `act_assets.emp:77`).
+
+### 5.2 The catch: regions carry palettes, but the editor cannot author them
+
+`regions.json` has no palette key; `project.json` gives one palette per zone; the authored
+`palette.bin` is a single 96-byte file per act. Six palettes today means six hand-written
+`pub data` blobs plus six presets in `games/sonic4/data/effects/ojz_effects.emp`. That is a
+tractable authoring parcel, not an engine one.
+
+### 5.3 The real blocker: Sonic 2 zones do not agree on which palette line the ground is
+
+Measured directly, over every non-blank foreground cell:
+
+| Zone | Palette lines used by the foreground |
+|---|---|
+| **aeon OJZ act 1** | **line 2 only** (all 46,211 painted cells) |
+| EHZ | line 1 (4.3%), line 2 (95.1%), line 3 (0.5%) |
+| CPZ | line 0 (0.6%), line 1 (9.7%), **line 3 (89.7%)** |
+| OOZ | line 2 (59.9%), line 3 (40.1%) |
+| MTZ | line 1 (1.8%), line 2 (0.3%), **line 3 (98.0%)** |
+| WFZ | line 0 (0.1%), line 1 (15.8%), line 2 (1.5%), **line 3 (82.6%)** |
+| HTZ | line 1 (4.2%), line 2 (95.6%), line 3 (0.2%) |
+| CNZ | line 2 (48.3%), line 3 (51.7%) |
+
+Three facts fall out:
+
+1. Aeon's engine has **three** writable palette lines (1, 2, 3 — line 0 is the character's and
+   the engine never writes it, `engine/effects/palette.emp:48-50`).
+2. Each Sonic 2 zone's foreground spans **two to four** of them, and they disagree about which
+   is the main one. CPZ and MTZ put ~90-98% of the ground on line 3; EHZ and HTZ put ~95% on
+   line 2.
+3. CPZ (0.6%) and WFZ (0.1%) reference **line 0**, which aeon never writes, so those cells will
+   render in the character's colours. Small, but visible, and it needs a decision.
+
+**Therefore two Sonic 2 zones cannot be correct on screen simultaneously.** A region crossing
+installs one 96-byte palette covering all three lines; the moment the camera window straddles
+two clips, one of them is wrong. The camera window is 80 tiles wide (640 px), so "straddling"
+means a 640-px zone of wrongness at every seam.
+
+**What cannot fix it:** the raster palette machinery. `OP_PAL_REGION` streams at most 3 colour
+words per interrupt fire (`engine/effects/raster.emp:128-137`), so one full 16-colour line takes
+6 consecutive scanlines and all three lines take about 16. That is usable for a *horizontal*
+band boundary and useless for a *vertical* seam, since raster changes are per-scanline. And it
+would consume the whole 2-slot variant staging (`engine/effects/palette.emp:339`).
+
+**What can fix it** — three options, priced in §9.1.
+
+---
+
+## 6. Hidden Palace Zone — BLOCKED
+
+I re-derived this rather than take it on trust, and the conclusion is stronger than "probably".
+
+**What `s2disasm` has for HPZ:** palettes (`art/palettes/HPZ.bin`, underwater, and two cycles),
+music (`sound/music/90 - HPZ.asm`), object layout (`level/objects/HPZ_1.bin`, `HPZ_2.bin`), ring
+layout, start position, and a lot of live code — palette cycling (`s2.asm:2826`), camera init
+(`:14967`), scroll (`:16107`), level events (`:21281`).
+
+**What it does not have:**
+
+- No entry in `level/layout/` — the directory holds 20 files and none is HPZ (MEASURED).
+- No `mappings/16x16/HPZ.*`, no `mappings/128x128/HPZ.*`, no `art/kosinski/HPZ.*`.
+- **No collision.** `s2.asm:89589-89591`:
+  `ColP_HPZ:  ;BINCLUDE "collision/HPZ primary 16x16 collision index.kos"` — the include is
+  **commented out**, and the file does not exist. `ColP_HPZ` and `ColS_HPZ` therefore resolve
+  onto the next label's address.
+- `SonED2 Projects/hpz1.sep` exists but is a stub pointing at Oil Ocean's mapping files.
+
+**And there is no beta disassembly anywhere under `/home/volence/sonic_hacks`** — I searched;
+there is none. I did not download anything: acquiring donor material is the owner's call, not
+a subagent's.
+
+**What HPZ would need, if the owner wants it:**
+
+1. A Simon Wai (or Nick Arcade) prototype disassembly added as a fourth donor project, with the
+   owner's say-so on provenance.
+2. From it: the HPZ layout, its 16×16 and 128×128 mappings, its Kosinski tile art, and its
+   collision index. The final ROM's `HPZ.bin` palette can be reused as-is.
+3. Tooling changes: a beta-specific registry row (the prototype's layout is a different size —
+   the Simon Wai build predates the final layout format), and `suite_paths` / `donor_provenance`
+   entries for the new donor.
+
+**Options for the owner, in plain terms:**
+
+- **(a) Substitute a zone.** Aquatic Ruin, Casino Night, Mystic Cave and Hill Top all have
+  complete data here and all fit the budgets (§3.1, §3.5). Casino Night in particular is
+  visually distinct from the other five. Cost: zero. This is the recommendation for the first
+  cut.
+- **(b) Use HPZ's palette and music over someone else's geometry** — a "Hidden Palace tribute"
+  clip. Cheap, dishonest, probably not what he wants.
+- **(c) Add the prototype donor.** Real work (a new donor project, a second layout format, a
+  provenance decision) and it blocks the first playable act on an acquisition. Better as a
+  follow-up parcel once the pipeline exists and HPZ is the only thing missing.
+
+---
+
+## 7. Where "region" means two different things
+
+The owner said *"paste it in as a region or something."* In aeon today, **a Region is
+presentation and identity only** — a world rectangle naming an effects preset (and so a
+palette), an optional parallax override, and an optional background. Storage — tiles, blocks,
+collision, objects, rings — stays on the section grid and a region never touches it
+(`engine/structs.emp:74-77`).
+
+So "paste as a region" splits into two operations that happen together:
+
+- **Paste the geometry** into the section files (`section_N.tiles.bin`, `.collattr.bin`,
+  `.collattrb.bin`) at the target world rectangle. This is an editor write.
+- **Declare a region** over the same rectangle, naming the clip's preset (its palette) and its
+  background. This is a `regions.json` row.
+
+Both exist. Neither is the other. Calling the pair a "paste" is fine for the author; the design
+just has to keep them distinct, because the first has a 255-entry collision cap and a
+per-section local map behind it and the second has a whole-act coverage invariant behind it
+(the region rows must not overlap and must sum to the act's area,
+`act_descriptor.emp:938-945`).
+
+---
+
+## 8. The interface aeon must offer aurora
+
+This is the contract, not a UI design.
+
+**What aurora reads to show a converted Sonic 2 zone on a page:**
+
+A converted zone should land as a normal aeon editor act tree, because then aurora already
+knows how to render it:
+
+```
+games/sonic4/data/donors/s2/<zone>/          # proposed; mirrors games/<game>/data/editor/<zone>/<act>/
+    tileset.bin                              # decompressed S2 art, 32 B/tile
+    palette.bin                              # 96 B, the zone's 3 CRAM lines, copied from art/palettes/<ZONE>.bin
+    section_<N>.tiles.bin                    # 256x256 big-endian nametable words
+    section_<N>.collattr.bin                 # 256x256 big-endian collision cell words, plane A
+    section_<N>.collattrb.bin                # plane B
+    zone.json                                # grid w/h, painted bbox, source provenance, attr-set cost per section
+```
+
+Every one of those formats is already what `ojz_strip_gen` reads
+(`tools/ojz_strip_gen.py:468-489`, `:1838-1841`), so aurora needs no new loader for the donor
+page — only a way to open a tree that is not the project's own act.
+
+**What aurora writes when the author marquees and pastes:**
+
+1. **Into the target act's section files** — the clip's nametable words and both collision
+   planes, at the target world rectangle. Straight writes to existing formats.
+2. **Into `regions.json`** — one row for the pasted rectangle:
+   `{id, name, rect:{x,y,w,h}, preset, bg:{layoutRef, span}}`. The `preset` names an `.emp`
+   record; aurora validates it against the game's effects library
+   (`tools/effects_gen.py:3686-3691`).
+3. **Into a new clip manifest** — the one genuinely new file, and the answer to §1.3 item 1:
+
+```jsonc
+// games/sonic4/data/editor/<zone>/<act>/clips.json
+{ "schema": 1,
+  "clips": [
+    { "id": "ehz_loop", "donor": "s2/EHZ",
+      "src_rect":  { "x": 4096, "y": 0, "w": 4096, "h": 2048 },   // in the donor zone, 128-px snapped
+      "dst_rect":  { "x": 0,    "y": 0, "w": 4096, "h": 2048 },   // in this act, 2048-px snapped
+      "palette":   "OJZ_Palette_EHZ",
+      "region_id": "ehz_loop" } ] }
+```
+
+The bake reads `clips.json`, maps every cell of the act to its donor zone, and hands
+`fg_page_order.place_pool` the per-cell tileset key it has been asking for
+(`tools/fg_page_order.py:51-55`). Without this file there is no way to tell the placer that two
+identical tile indices in two sections mean different art.
+
+**What aeon must show back to aurora, per clip, so the author is not flying blind:**
+
+- unique tiles and pages this clip adds to the act pool;
+- **attr-set entries this clip adds** — the number from §3.5 that decides whether the bake
+  refuses;
+- the worst camera-window page count in the clip's neighbourhood;
+- whether the marquee cuts a loop-crossover pair (which will fail the bake).
+
+The first three are one function call each against code that already exists. The fourth is a
+scan of the crossover marks in the source rectangle.
+
+---
+
+## 9. What I think the owner should decide
+
+### 9.1 The clips should not touch — and that is a feature
+
+**The evidence:** §5.3. A region crossing swaps all three palette lines at once, and no two
+Sonic 2 zones agree on which line the ground is. Any seam where two clips are visible at once
+shows one of them in the wrong colours for the ~640 px the camera window spans.
+
+**Three ways to live with it:**
+
+- **(a) Put a transition between every pair of clips** — a corridor, a door, a tunnel, a short
+  neutral stretch wider than the 640-px camera window. The camera never holds two zones. The
+  palette cross-fade (16 frames, already shipped) plays *inside* the corridor and reads as
+  intentional. Cost: about 1 section of filler per seam, ~5 sections for six clips, and some
+  neutral art. **This is what I would do**, and it is also a better showcase — "compressed
+  Sonic 2" as a hub of six doorways is a stronger demo than six zones butted together, and it
+  makes the region machinery the star rather than a workaround.
+- **(b) Re-quantise the art.** Remap each zone's tiles onto one palette line so all six share
+  lines 1 and 3 and differ only on line 2. This is a lossy recolour of six zones' art and it
+  also trips `verify_level_bin.py`'s bake-fidelity lane, which asserts the bake never rewrote a
+  nametable word's palette bits (`tools/verify_level_bin.py:793-794, 967`). Expensive, and it
+  makes the zones look wrong in a way people who know Sonic 2 will notice immediately.
+- **(c) Stack the clips vertically and swap the palette per scanline band.** A horizontal seam
+  *can* be raster-split. But `OP_PAL_REGION` moves 3 colours per fire, so all three lines take
+  ~16 scanlines to change over, the 2-slot variant staging is fully consumed, and nothing like
+  it has been built. Genuinely interesting, genuinely novel, and not where a first playable act
+  should spend its risk.
+
+**Flag for the owner:** (a) changes what he described — the clips would be connected by short
+corridors rather than pasted edge to edge. I think it is a better version of his idea and the
+evidence for it is in §5.3, but it is his call.
+
+### 9.2 Hidden Palace: substitute now, add the prototype later
+
+§6. Recommend Casino Night or Aquatic Ruin for the first cut, and book the prototype donor as a
+separate parcel that does not block anything.
+
+### 9.3 The collision cap needs a ruling before parcel 4
+
+§3.5. The four options, in ascending cost:
+
+| Option | What it costs | What it buys |
+|---|---|---|
+| Clip harder (1 section per zone) | Less of each zone on screen | Fits today, 131 of 255. No code change. |
+| Raise the soft/hard art ROM budget | A number in an env var, and the owner's agreement that the act is allowed to be big | Only fixes §3.4, not the collision cap |
+| Merge near-identical shapes with a tolerance | A bake pass and a fidelity argument | Maybe 20-30% fewer entries (INFERRED, unmeasured); collision becomes approximate |
+| Widen the attr byte to a word | Block format, runtime lookup, five ROM tables, every gate that reads them | 65,535 entries; whole zones become possible (Shape B) |
+
+**Recommendation:** clip harder for the first cut, and measure the merge-tolerance option before
+anyone proposes widening the field.
+
+### 9.4 One-row or vertical-stack act
+
+A single 2048-px-tall section row keeps camera behaviour simple and every zone fits it. Only
+adopt a vertical stack if §9.1(c) is ever pursued.
+
+---
+
+## 10. Staged plan
+
+Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
+
+| # | Parcel | Size | Falsifiable check |
+|---|---|---|---|
+| 1 | **Promote the S2 donor loader.** Move `_load_s2` out of `megaact_window_pageset.py` into a real converter module; add the WFZ registry row (§3.1); add s2disasm to `suite_paths` / `donor_provenance` as a third donor. | S | The new module reproduces, byte for byte, the zone word grids the measurement tool produces for all 9 zones. |
+| 2 | **Whole-zone converter → editor tree.** One S2 zone becomes `section_N.tiles.bin` + `tileset.bin` + `palette.bin` under a donor tree, at 2048-px sections. Art only. | M | `ojz_strip_gen.validate_editor_inputs` accepts the tree; every nametable word's tile index is inside the tileset; the round trip back to chunk words is identity. |
+| 3 | **`clips.json` + the per-cell tileset key.** The bake reads a clip manifest and hands `place_pool` a real per-cell zone grid instead of a uniform one. | M | A two-clip act bakes; `fg_page_order.check` reports the same worst-window count as `s2_clip_budget.py place` on the same two clips. Closes `tools/fg_page_order.py:51-55`. |
+| 4 | **Collision: the S2 base bank.** `import_s2_collision.py` (sibling of `import_sk_collision.py`) imports S2's vertical array as a shape bank and REGENERATES the rotated table (never copies S2's horizontal array — §1.3 item 3). Rule on shape `$18`. | M | All 256 shapes round-trip through `rotate_profile` with no raise; a hand-picked slope's height and angle match `FindFloor`'s result for the same block in the donor. |
+| 5 | **Collision: clip → `collattr.bin`.** Run `bake_cell` over the clip's chunk words, emit both plane files. | M | The attr-set entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle, and the bake refuses a clip that cuts a crossover pair. |
+| 6 | **★ FIRST THING ON SCREEN: a one-clip act.** One 2-section Emerald Hill clip as a whole act: art + collision + its palette, bootable. | M | The act builds through `tools/landing_build.sh`; the clip renders and Sonic stands on its ground. This is the first parcel that produces a picture. |
+| 7 | **Two clips + a corridor.** Two zones, a neutral transition between them (§9.1a), two regions, two palettes, a cross-fade at the crossing. | M | No camera position holds cells from both clips (a static check over the placed act); the palette cross-fade fires exactly once per crossing. |
+| 8 | **Three clips, and the budget gates.** Add the per-clip readout of §8 so the author sees tiles/pages/attr-entries before pasting. | M | `fg_page_order.check` green; `art_rom_report` within whatever budget the owner ruled in §9.3; attr set under 255. |
+| 9 | **Six clips — the showcase act.** | L | The whole act passes `tools/landing_build.sh`, and a runtime pass confirms no camera hold at the worst window §3.3 identified. |
+
+**First visible result: parcel 6.** Parcels 1-5 are pipeline with no picture; that is a real
+morale cost and worth saying out loud. Parcel 6 could be pulled earlier by hand-authoring the
+collision for one small clip in aurora instead of converting it (parcels 4-5 deferred), at the
+price of doing that work twice.
+
+---
+
+## 11. Risks, stated plainly
+
+1. **The palette seam (§5.3) is the one that could reshape the whole thing.** MEASURED, not
+   suspected. If the owner insists on clips butting directly together, the answer is a lossy
+   art recolour of six zones, and that is a much bigger and less pleasant parcel than the
+   corridor.
+2. **The art budget passes at exactly 12 of 12 with nothing in reserve** (§3.3), and the count
+   omits object art, background, animated tiles and in-flight decodes. Object art is explicitly
+   out of scope for the first cut, which conveniently postpones the problem — and guarantees it
+   arrives later. **TAGGED for a foreground runtime check** once parcel 7 exists: no static pass
+   proves the camera never holds.
+3. **The collision cap (§3.5) fails for anything ambitious.** Six *whole* zones need 329 of 255.
+   The fix is clipping, and clipping is position-dependent (a median-clip act needs 283, a
+   cheapest-clip act 37), so the author can build something that refuses to bake and not
+   understand why. §8's readout is not a nicety.
+4. **Nothing stitched has ever run.** `docs/DEFERRED_WORK.md:36424`: *"No stitched act has run
+   in game."* Every number in §3 is a build-time measurement. The first time this is real is
+   parcel 6.
+5. **A second act's background animation has nowhere to live** —
+   `docs/DEFERRED_WORK.md:3841-3880`, already booked, needs an owner ruling on ROM layout. It
+   bites the moment the showcase is a second act rather than a replacement for OJZ act 1.
+6. **A lot of tooling says "ojz".** 3,682 hits across 228 files; most is prose, but the real
+   work is concentrated: `verify_level_bin.py:28` hard-codes the generated directory,
+   `regenerate-level.sh:176` hard-codes the pool directory, nine files hard-code
+   `zones[0]`/`acts[0]`, 16 tools name `OJZ_Act1_Descriptor` directly, `map.toml:133` lists
+   seven OJZ head labels, and the boot path types the descriptor address five times in one game
+   state. `tools/effects_gen.py` already takes `zone`/`act` parameters and derives every symbol
+   name from the project ids — that is the pattern to copy.
+7. **`verify_level_bin.py` asserts the bake never rewrites a nametable word's palette bits**
+   (`:793-794, 967`). Any palette-line remap (§9.1b) trips exactly that lane. Good — it is the
+   guard working — but it means option (b) is a lane change, not a data change.
+8. **Two pieces of stale documentation found in passing**, both worth a one-line fix and neither
+   part of this parcel: `docs/ENGINE_ARCHITECTURE.md:19`'s summary row still says "per-section
+   full palette copies (128 bytes)" when the shipped mechanism is per-region, 96 bytes, 3 lines;
+   and `docs/LEVEL_EDITOR_SPEC.md:9,64` says the `Act` struct is 34 bytes and `Sec` is 34 bytes
+   when `engine/structs.emp:41,285` say 46 and 22.
+
+---
+
+## 12. Where I disagree with how the task was framed
+
+The brief asked me to treat its framings as hypotheses. Three came out differently:
+
+- **"Clips share the 48 sections, so budget the sections carefully."** Sections are not the
+  binding constraint — even five *whole* zones use 32 of 48 (§3.3). The binding constraints are
+  the 255-entry collision attr set (§3.5) and the palette seam (§5.3). Budget those.
+- **"Clip small pieces so the showcase fits."** For ART, clipping buys almost nothing (§3.2):
+  a third of Emerald Hill costs the same 480 tiles as all of it, and a 6-zone clipped act needs
+  a *bigger* pool than a 5-zone whole act. Clipping is still right, but for the collision and
+  ROM reasons, not the VRAM one. Worth telling the owner, because the intuition is natural and
+  wrong.
+- **"Paste it in as a region."** In aeon a Region carries no geometry (§7). The paste is two
+  operations that must happen together, and conflating them would hide the coverage invariant
+  the region table has to satisfy.
+
+One instruction I could not carry out as written: the brief named six zones including Hidden
+Palace, and Hidden Palace has no level data in this donor (§6). I measured five and used Hill
+Top as a stand-in for the sixth wherever a six-zone figure was needed, and said so at each
+figure.
+
+---
+
+## 13. Reproducing every number in this document
+
+```bash
+cd /home/volence/sonic_hacks/aeon-wt-s2conv
+export PYTHONDONTWRITEBYTECODE=1
+S=docs/research/s2-compressed-act/s2_clip_budget.py
+
+python3 $S zones                                          # 3.1   ~0.4 s
+python3 $S clipsweep EHZ --secw 2 --sech 1                # 3.2   ~1 s per zone
+python3 $S place EHZ:0,0,6,1 CPZ:0,0,6,1 OOZ:0,0,7,1 \
+                 MTZ:0,0,5,1 WFZ:0,0,8,1 --rowlen 32      # 3.3   ~1.1 s
+python3 $S place EHZ:1,0,2,1 CPZ:1,0,2,1 OOZ:2,0,2,1 \
+                 MTZ:1,0,2,1 WFZ:2,0,2,1 HTZ:1,0,2,1 \
+                 --rowlen 12                              # 3.3   ~1 s
+python3 $S window EHZ:0,0,6,1 ... --rowlen 32             # 3.3 shipped-order sweep, ~2.5 s
+
+# 3.5 collision budget, through collision_pipeline.bake_cell and a cap-free AttrSet.
+# "ZONE" means the whole zone; "ZONE:s0,n" means n sections starting at section s0.
+python3 $S collision EHZ CPZ OOZ MTZ WFZ                  # -> 301, OVERFLOWS by 46
+python3 $S collision EHZ:0,1 CPZ:0,1 OOZ:0,1 \
+                     MTZ:0,1 WFZ:0,1 HTZ:0,1              # -> 131, FITS
+python3 $S collision EHZ:0,2 CPZ:0,2 OOZ:0,2 \
+                     MTZ:0,2 WFZ:0,2 HTZ:0,2              # -> 278, OVERFLOWS by 23
+python3 $S collsweep EHZ CPZ OOZ MTZ WFZ HTZ --secw 2     # 3.5 per-position table, ~0.3 s
+
+python3 $S pallines EHZ CPZ OOZ MTZ WFZ HTZ               # 5.3, ~1 s
+```
+
+Two figures in this document are NOT produced by that script and are named here so nobody
+mistakes them for reproducible output. **The S&K-vs-S2 shape comparison of §1.3 item 2** (75 of
+151 S2 shapes unreachable from the S&K flip closure) and **the rotated-heightmap sign
+disagreement of §1.3 item 3** (211 of 256 shapes, all pure sign) came from a second, separately
+written measurement over `collision_pipeline.rotate_profile` and the two banks. They are
+directionally load-bearing — they are why parcel 4 exists — so parcel 4 should re-derive both
+as its own first step rather than inherit them.
+
+Aeon's own foreground palette-line figure in §5.3 (all 46,211 painted cells of OJZ act 1 on
+line 2) is a one-liner over the committed editor sections:
+
+```bash
+python3 -c "
+import glob, numpy as np
+h={}
+for p in sorted(glob.glob('games/sonic4/data/editor/ojz/act1/section_*.tiles.bin')):
+    w=np.frombuffer(open(p,'rb').read(),dtype='>u2'); nz=(w&0x7FF)!=0
+    for a,b in zip(*np.unique(((w>>13)&3)[nz],return_counts=True)): h[int(a)]=h.get(int(a),0)+int(b)
+print(h)"
+```
+
+Wall clock at measurement: 2026-09-17, dev box up 1 day 18 h, load average 1.3-5.8 across the
+runs. No emulator was used and nothing was built.
+
+---
+
+*This report and its measurement tool were committed on `research/s2-compressed-act` as
+`2b6a104` (the tool) and `07c7e10` (the report + the `S2-COMPRESSED-ACT` booking update).
+No engine code, no `.emp`, no build change, and no emulator was used.*
