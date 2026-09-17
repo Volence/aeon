@@ -1,9 +1,14 @@
 {
-  "focus": "Fixing the art stress-test re-bake, which was already broken before today's work.",
+  "focus": "Overnight: fixing the art stress-test re-bake and running the in-game test your cache card needs.",
   "inFlight": [
     {
       "what": "Find and fix why the art stress-test re-bake fails its own fidelity check",
       "where": "branch fix/stress-uniquify-rebake",
+      "agent": true
+    },
+    {
+      "what": "In-game test of how often the camera waits for art with a smaller loaded area",
+      "where": "branch research/cache-window-hold",
       "agent": true
     }
   ],
@@ -19,7 +24,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the stress re-bake fix lands; the overnight order is in handoff 21.",
+  "nextBoundary": "When both overnight agents are reviewed and landed.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -38,14 +43,14 @@
     {
       "id": "CACHE-WINDOW-HOLD-MEASURE",
       "title": "In-game test your cache card needs: how often the camera would wait for art with a smaller loaded area, and how long a half-size page takes to load",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
@@ -87,5 +92,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T06:50:52Z"
+  "updatedAt": "2026-09-17T06:53:56Z"
 }
