@@ -329,6 +329,18 @@ ever grows a call in that span, nothing here or in sigil's `[bus.*]` net would n
 applied** — this is exactly the "record the evidence and leave it" case the dispatch
 asked for; the ruling on whether to close it is the owner's.
 
+**Update 2026-09-17 (parcel/small-tidy-0917). The count above is 2 today, not 1, and both instances were re-traced.** This section is kept as written; it was true on 2026-09-09. The census still prints the count and still gates nothing on it:
+
+```
+$ python3 tools/test_z80_bus_hold_mask_census.py
+mechanism-2 sites with a call between the mask and the bracket: 2 -> engine/level/bg.emp:221 (1 call(s)), engine/level/section.emp:734 (3 call(s))
+```
+
+- **When it became 2.** The census's own `scan_text`, replayed over each file as it stood at a revision: 1 at `ad70c81c~1` (the section site only), 2 at `ad70c81c` (2026-09-16, "bg: synchronous path uploads a region's own tiles before its layout"). That commit put `jbsr BG_UploadTiles` inside `BG_Init`'s FIRST `z80_stopped` bracket (the tile upload). The census does not reset its call count at a bracket, so the call is counted against the SECOND bracket (bg.emp:221, the layout blit). That is the right count: the call runs after the `$2700` mask near the top of `BG_Init` and before the second bracket is entered. The tool is not miscounting.
+- **The section site changed callees.** `Section_GetSecPtrXY` is no longer in the span. The three calls now are `Region_Resolve` (engine/level/parallax.emp), `BG_UploadTiles` (engine/level/bg.emp) and `DMA_Deferrable_DropDest` (engine/system/dma_queue.emp). The last two arrived with `ad70c81c` and `5098260c` (2026-09-16).
+- **The masking argument, re-derived.** All three callees were read in full. Each is a LEAF (no `jbsr`/`jsr`/`bsr`) and none writes `sr`. The only `sr` in `BG_UploadTiles` and `DMA_Deferrable_DropDest` is `move.w sr, d<n>`, a read, feeding a DEBUG `assert.w ... hs, #$0600`, and sigil's `assert` saves and restores the full SR. `dma_entry_dest`, spliced into `DMA_Deferrable_DropDest`, writes only `d0`. So both masks hold across their calls today. In DEBUG shapes the IPL is also asserted at runtime inside both of those callees and just before `BG_Init`'s second bracket.
+- **Still unchecked by any tool.** That trace is a reading, not a gate. The gap is now booked in `docs/DEFERRED_WORK.md` (BUS-HOLD-SPANNED-CALLS).
+
 ### Related, not new: LS-13b (boot's hand-spelled hold pairing) is open but not presently occupied
 
 `test_sound_bus_hold_mask_lint.py`'s "PAIRING is still checked by nothing, here or in
