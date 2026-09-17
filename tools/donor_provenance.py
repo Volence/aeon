@@ -10,7 +10,7 @@ authoring machine — could prove a re-bake would reproduce the committed bytes.
 The bytes were tracked; the inputs that produced them were not.
 
 What this writes is a claim about INPUTS, not a checksum of outputs. It cannot
-prove the tree reproduces; it makes the question answerable, by naming the two
+prove the tree reproduces; it makes the question answerable, by naming the
 revisions to check out before asking. Read `mode` before trusting it:
 
   mode = "rebake"    the donors named here were read by the generate() run that
@@ -23,6 +23,15 @@ revisions to check out before asking. Read `mode` before trusting it:
 `dirty` is the other half of the claim: a donor with uncommitted modifications
 is not identified by its SHA, and the stamp says so instead of implying the SHA
 is sufficient.
+
+`contributes_to_rebake` is the third. Four donors are recorded and only two of
+them feed the bake: `s2disasm` and `s2-simonwai-disasm` (the Simon Wai prototype,
+registered 2026-09-17, the only source of Hidden Palace Zone) are read by
+`tools/s2_donor.py` and the S2-COMPRESSED-ACT measurement tools, and NOTHING they
+hold has reached a committed byte. They are recorded so their revisions are
+answerable at all; the flag is what stops that record from reading as "the bake
+used these". It flips to true for whichever of them a converter parcel actually
+bakes from.
 
 Usage:
     python3 tools/donor_provenance.py --backfill    # record today's donor SHAs
@@ -38,6 +47,28 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ojz_common import SONIC_HACK, skdisasm_root  # noqa: E402
+import s2_donor  # noqa: E402
+import suite_paths  # noqa: E402
+
+
+def _s2_donor_path(donor: str) -> str:
+    """Where an S2 donor checkout WOULD be, without refusing when it is not there.
+
+    `s2_donor.donor_root()` raises for an absent or wrong checkout, which is right
+    at a call site about to read bytes and wrong here: this file's whole contract is
+    that it never raises and that "unknown" and "clean" stay distinguishable. So the
+    environment override still wins (a record must name what a reader would actually
+    open), and the fall-back is the plain suite path, which `describe_repo` then
+    reports as absent / not-a-git-repo / git as the case may be.
+    """
+    env = os.environ.get(s2_donor.donor_env_var(donor))
+    if env:
+        return env
+    try:
+        return str(suite_paths.suite_path(s2_donor.donor_dirname(donor)))
+    except suite_paths.SuitePathError as e:
+        return f"<unresolved: {e}>"
+
 
 REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -124,6 +155,8 @@ def describe_repo(path: str) -> dict:
 
 def build_provenance(mode: str, sonic_hack: str | None = None,
                      skdisasm: str | None = None,
+                     s2disasm: str | None = None,
+                     s2_prototype: str | None = None,
                      generator_repo: str | None = None,
                      recorded_at: str | None = None) -> dict:
     """Assemble the provenance record. Pure: no filesystem writes, no clock.
@@ -138,25 +171,54 @@ def build_provenance(mode: str, sonic_hack: str | None = None,
     rec = {
         "schema": SCHEMA,
         "_note": (
-            "Donor revisions read by the level re-bake that produced "
-            "games/sonic4/data/generated/ and games/sonic4/data/collision/. "
-            "Written by tools/donor_provenance.py. mode=rebake means these donors "
-            "were read by the bake committed alongside this file; mode=backfill "
-            "means every revision here (donors AND generator) was recorded by "
-            "inspection AFTER the bake, and is NOT proof that this tree reproduces "
-            "from them. A donor with dirty=true is not identified by its SHA at all."
+            "Donor revisions present when this record was written. The ones with "
+            "contributes_to_rebake=true are the inputs to the level re-bake that "
+            "produced games/sonic4/data/generated/ and games/sonic4/data/collision/; "
+            "the ones with contributes_to_rebake=false are registered donors that no "
+            "committed byte comes from yet and are recorded only so their revisions "
+            "are answerable. Written by tools/donor_provenance.py. mode=rebake means "
+            "the contributing donors were read by the bake committed alongside this "
+            "file; mode=backfill means every revision here (donors AND generator) was "
+            "recorded by inspection AFTER the bake, and is NOT proof that this tree "
+            "reproduces from them. A donor with dirty=true is not identified by its "
+            "SHA at all."
         ),
         "mode": mode,
         "donors": {
             "sonic_hack": dict(
                 role="level layouts, Kosinski art, chunk+block maps, palette",
                 env_var="AEON_SONIC_HACK_DIR",
+                contributes_to_rebake=True,
                 **describe_repo(sonic_hack if sonic_hack is not None else SONIC_HACK),
             ),
             "skdisasm": dict(
                 role="S&K 252-shape collision vocabulary (import_sk_collision.py)",
                 env_var="AEON_SKDISASM_DIR",
+                contributes_to_rebake=True,
                 **describe_repo(skdisasm if skdisasm is not None else skdisasm_root()),
+            ),
+            # The two Sonic 2 donors, registered 2026-09-17 (S2-COMPRESSED-ACT
+            # parcel 1). `contributes_to_rebake=False` is the load-bearing field:
+            # NOTHING these two trees hold reaches `games/sonic4/data/generated/`
+            # or `data/collision/` today — they feed `tools/s2_donor.py` and the
+            # design's measurement tools only. Recording them WITHOUT that flag
+            # would turn this file into a claim that a re-bake read them, which is
+            # exactly the kind of implied-by-omission lie the module docstring
+            # exists to forbid. The flag flips when the converter (staged plan
+            # parcels 2-5) starts writing an editor tree from them.
+            s2_donor.S2_FINAL: dict(
+                role=s2_donor.donor_role(s2_donor.S2_FINAL),
+                env_var=s2_donor.donor_env_var(s2_donor.S2_FINAL),
+                contributes_to_rebake=False,
+                **describe_repo(s2disasm if s2disasm is not None
+                                else _s2_donor_path(s2_donor.S2_FINAL)),
+            ),
+            s2_donor.S2_PROTOTYPE: dict(
+                role=s2_donor.donor_role(s2_donor.S2_PROTOTYPE),
+                env_var=s2_donor.donor_env_var(s2_donor.S2_PROTOTYPE),
+                contributes_to_rebake=False,
+                **describe_repo(s2_prototype if s2_prototype is not None
+                                else _s2_donor_path(s2_donor.S2_PROTOTYPE)),
             ),
         },
         # The generator's own revision is the third reproducibility input: the same
