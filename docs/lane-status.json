@@ -1,17 +1,6 @@
 {
-  "focus": "Overnight: fixing the art stress-test re-bake and running the in-game test your cache card needs.",
-  "inFlight": [
-    {
-      "what": "In-game test of how often the camera waits for art with a smaller loaded area",
-      "where": "branch research/cache-window-hold",
-      "agent": true
-    },
-    {
-      "what": "Let the character-move checks work on the stress-test builds without a saved snapshot",
-      "where": "branch fix/stress-shapes-gate-cuts",
-      "agent": true
-    }
-  ],
+  "focus": "Landing the stress-test build fixes; your cache card now has the in-game results.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -20,7 +9,7 @@
     },
     {
       "id": "FG-CACHE-10-HOW",
-      "what": "Whether to cut the art cache into half-size pages with a smaller loaded area, so objects and the whole-game showcase both fit.",
+      "what": "Whether to keep the art cache as it is for now: the in-game test showed the smaller one makes the camera wait for art.",
       "since": "2026-09-17"
     }
   ],
@@ -28,7 +17,7 @@
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
-      "title": "Research landed: 10 pages fits only with half-size pages and a smaller loaded area around the screen",
+      "title": "Research and in-game test landed: a smaller cache makes the camera wait; your card now recommends keeping it as it is for now",
       "state": "blocked",
       "size": "M",
       "blockedBy": "decision card FG-CACHE-10-HOW"
@@ -38,13 +27,6 @@
       "title": "The art stress-test builds: the re-bake is fixed; now getting both stress builds through every check",
       "state": "doing",
       "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "CACHE-WINDOW-HOLD-MEASURE",
-      "title": "In-game test your cache card needs: how often the camera would wait for art with a smaller loaded area, and how long a half-size page takes to load",
-      "state": "doing",
-      "size": "M",
       "blockedBy": null
     },
     {
@@ -99,5 +81,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T07:42:17Z"
+  "updatedAt": "2026-09-17T08:04:56Z"
 }
