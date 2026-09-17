@@ -69,6 +69,7 @@ Usage (numpy required; donors as megaact_window_pageset; salvador for `rom`):
 """
 
 import argparse
+import re
 import json
 import multiprocessing as mp
 import os
@@ -130,7 +131,7 @@ def config(name):
         raise SystemExit(f"config {name!r}: page tiles must be 64 or 32")
     if s not in ("none", "zone", "perzone", "page0shared"):
         raise SystemExit(f"config {name!r}: unknown split {s!r}")
-    if o not in ("shipped", "rzs12", "rzsF"):
+    if o not in ("shipped", "rzs12") and not re.fullmatch(r"rzs(12)?F(t[0-9]+)?", o):
         raise SystemExit(f"config {name!r}: unknown order {o!r}")
     if pin not in ("rule75", "pin0", "frameaware"):
         raise SystemExit(f"config {name!r}: unknown pin policy {pin!r}")
@@ -467,7 +468,15 @@ def make_order(cfg, target):
     """Order function for a config (None for the shipped order)."""
     if cfg["order"] == "shipped":
         return None
-    tgt = 12 if cfg["order"] == "rzs12" else target
+    # rzs12: 09's search (target 12). rzsF: target F. rzs12F: 09's search, then a second
+    # search at F starting from its result. A trailing t<k> multiplies the try budget by k.
+    m = re.fullmatch(r"rzs(12)?(F)?(?:t([0-9]+))?", cfg["order"])
+    stages = [12] if m.group(1) else []
+    if m.group(2):
+        stages.append(target)
+    tries = mpo.REFINE_MAX_TRIES * int(m.group(3) or 1)
+    if cfg["pin"] == "rule75" and len(stages) > 1:
+        raise SystemExit("two-stage orders are measured with pin0/frameaware only")
     rounds = mpo.REFINE_PIN_ROUNDS if cfg["pin"] == "rule75" else 1
 
     def fn(ctx):
@@ -509,7 +518,13 @@ def make_order(cfg, target):
             pages = _pages_from_order(base, page)
         pinned = frozenset({0})
         for _ in range(rounds):
-            pages = refine_pages(ctx, pages, tgt, pinned=pinned, group=group, max_move=page // 2)
+            if len(stages) == 1:
+                pages = refine_pages(ctx, pages, stages[0], max_tries=tries, pinned=pinned, group=group,
+                                     max_move=page // 2)
+            else:
+                for tgt in stages:
+                    pages = refine_pages(ctx, pages, tgt, max_tries=tries, pinned=pinned, group=group,
+                                         max_move=page // 2)
             if cfg["pin"] != "rule75":
                 break
             new = _pinned_rule75(ctx, pages)
