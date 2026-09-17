@@ -134,6 +134,10 @@ _FIXED = [
     # writes docs/research/megaact-bg-streaming/09-*.json; build_report is what it runs
     # before writing, control_presence is `control`'s work.
     ("megaact_page_order", ["build_report", "control_presence"]),
+    # FG-CACHE-10-RESEARCH (2026-09-16): born in the table form. `rederive`/`sweep`/`rom`
+    # with --json PATH write docs/research/megaact-bg-streaming/10-*.json; `run` is what
+    # rederive and sweep execute, rom_bytes is `rom`'s work, control_ext is `control`'s.
+    ("megaact_fg_cache10", ["run", "rom_bytes", "control_ext"]),
 ]
 
 
@@ -365,6 +369,7 @@ _ROSTER = {
     "ojz_strip_gen.py": "FIXED LS-15d (was: DESTRUCTIVE fall-through into generate() -- the incident)",
     "megaact_window_pageset.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (M-B, 2026-09-16; was: argparse choices= guarding an `if == 'control'` ladder whose default branch was the WRITING `report --json`)",
     "megaact_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER, 2026-09-16, born in the fixed form; `report --json` writes the 09 evidence file)",
+    "megaact_fg_cache10.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (FG-CACHE-10-RESEARCH, 2026-09-16, born in the fixed form; `rederive`/`sweep`/`rom --json` write the 10 evidence files)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
@@ -399,9 +404,10 @@ def test_the_ladder_population_is_still_the_roster():
         "is the failure this row is built to prevent." % ", ".join(vanished))
     # 12 at the 2026-09-10 census; 13 since CTRL-3 (2026-09-13) added land_gate.py;
     # 14 since M-B (2026-09-16) added megaact_window_pageset.py; 15 since
-    # STITCHED-ACT-PAGE-ORDER (2026-09-16) added megaact_page_order.py.
-    assert len(found) == 15, (
+    # STITCHED-ACT-PAGE-ORDER (2026-09-16) added megaact_page_order.py; 16 since
+    # FG-CACHE-10-RESEARCH (2026-09-16) added megaact_fg_cache10.py.
+    assert len(found) == 16, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
-        "megaact_page_order.py, found %d: %s"
+        "megaact_page_order.py and FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, found %d: %s"
         % (len(found), sorted(found)))

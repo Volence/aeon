@@ -36227,7 +36227,30 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 
 **Still open:**
 
-1. 10 frames. Levers named, none built: a frame-aware pin rule (under the recommended order CNZ1 alone pins 9 of 12), smaller cache margins, 32-tile pages, per-region pools.
+1. ~~10 frames. Levers named, none built.~~ Measured by FG-CACHE-10-RESEARCH, below.
 2. The zero margin at 12 against M-B's transient-demand items, and M-E.
-3. Wiring the order and the gate into `ojz_strip_gen` Pass 4 (not done: this parcel changes no shipped byte).
+3. Wiring the order and the gate into `ojz_strip_gen` Pass 4 (not done: this parcel changes no shipped byte). **Updated by FG-CACHE-10:** wire the search with its target read from `PAGE_FRAMES`, not 12.
 4. The 164-vs-48 section cap. No order interacts with it.
+
+**10 frames measured (FG-CACHE-10-RESEARCH, 2026-09-17, `research/fg-cache-10`):** report `docs/research/megaact-bg-streaming/10-fg-cache-10-frames.md`, tool `tools/megaact_fg_cache10.py`, evidence `10-fg-cache-10-*.json`. Control first: report 09's per-act numbers re-derived through the new tool, 33,822 values over 405 acts, 0 mismatches. Counts below are MEASURED over **every window class of every act** at 640 tiles (the owner's 12 -> 10 cut).
+
+- **640 tiles fit every window, but only with 32-tile pages and a smaller cache window.** 32-tile pages (20 frames), the order search aimed at the budget, per-zone pages, frame-aware pins and a 56x48 tile cache (margins 8/10 from 20/16): **0 windows over** in S3K (263,078,533), S2 (57,359,163) and OJZ act 1. At 64x48 it is 0 only if the build picks per act between per-zone and shared-page-0 pages.
+- **64-tile pages do not fit S3K.** Best: 540 windows in 20 acts (worst 11), every one of them containing CNZ1. S2 alone fits at 64-tile pages with a 64x48 window and a shared page 0.
+- **The shipped 80x60 window never fits.** 32-tile pages with the per-act choice still leave 428 S3K windows and 30 S2 windows over.
+- **Biggest single lever: aiming the search at the budget.** S3K 7,272,448 -> 450,502 windows over at 80x60. The window is second, and rows matter more than columns.
+- **The owner's hypotheses:** 32-tile pages do **not** help through pinning (multi-zone acts pin only page 0). Frame-aware pins matter only for single CNZ1/SOZ1 (5,862 / 9,557 -> 0).
+- **Costs:**
+  - ROM, 32-tile pages: S3K row +2,998 B page payload + 768 B manifest; OJZ act 1 +436 B + 80 B.
+  - RAM: `PAGE_FRAMES_MAX` 15 -> 20 (+40 B, ritual), and DEBUG `Page_Audit_Snapshot[52]` must grow.
+  - Tile cache shrinks 14,400 -> 8,064 B at 56x48 (RAM layout moves).
+  - Collision range shrinks. Only player code queries it today.
+  - Streaming lead falls from 18 columns / 13 rows to 6 / 7 (DERIVED: no demand-only headroom to the right, so it rests on block-ahead prefetch).
+- **Open:**
+  - No margin: 100,822 S3K windows sit exactly at 20.
+  - Runtime hold rate of the smaller window. **Needs a runtime measurement before any window change.**
+  - The 32-tile decode latency is derived, not measured.
+  - Churn is not re-measured.
+- **Bears on REGIONS-P2-STEP7 (cache 12 -> 10):** do not cut to 10 x 64-tile frames for stitched S3K content. The measured path to 640 tiles is (1) this order wiring with a build refusal, (2) 32-tile pages, (3) a 56x48 or 64x48 window gated on a runtime hold measurement.
+- **Incidental findings:**
+  - 09's "every window at or under 12" is class-scoped: junction acts' other windows go over 12 (S3K 3,875 in 23 acts, S2 170 in 2).
+  - The ROWS ensure at `engine/system/constants.emp:971` is one row short at odd camera rows; not binding today.
