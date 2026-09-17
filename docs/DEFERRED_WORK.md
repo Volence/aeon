@@ -36507,3 +36507,10 @@ only because `load_base_bank` never reads it); `docs/ENGINE_ARCHITECTURE.md:19` 
 bytes, 3 lines; `docs/LEVEL_EDITOR_SPEC.md:9,64` says `Act` and `Sec` are 34 bytes each when
 `engine/structs.emp:41,285` say 46 and 22; `section_N.coll.bin` (65536 B x 9, committed and
 hashed into the staleness stamp) is vestigial and read by nothing.
+
+### S2-COMPRESSED-ACT: both owner cards answered 2026-09-17T18:12:01Z
+
+- **S2ACT-SEAM-CORRIDORS = `corridors`**, verbatim *"and yeah that was the plan not butting them together"*. The design's 9.1(a) stands: clips are joined by transitions wider than the 640 px camera window, palette cross-fade inside. No donor-art recolour, and `verify_level_bin.py`'s bake-fidelity lane is not at risk.
+- **S2ACT-HIDDEN-PALACE = `prototype-donor`**, verbatim *"look for simon wai beta disassembly, you'll find it on sonic retro github where we can get it from hiddden palace"*. **Third donor cloned:** `/home/volence/sonic_hacks/s2-simonwai-disasm`, https://github.com/Totally-Not-Filter/s2-8XX-disasm at `0113ca4775115689edc87d4115ed9cb51f220e02`, read-only beside `s2disasm`. **Correction recorded and told to him:** it is NOT under the sonicretro org (that org's Sonic 2 repos are `s2disasm`, `s2smsdisasm`, `ktes2`); it is Filter's continuation of Alex Field's fork of Esrael Neto's 2007 disassembly, bit-perfect with the prototype ROM. No LICENSE file in the repo.
+- **HPZ assets verified present (controller, 2026-09-17T18:12:01Z):** `level/layout/HPZ_1.bin` 2050 B and `HPZ_BG.bin`; `mappings/16x16/HPZ.bin` 5600 B; `mappings/128x128/HPZ.kos` 7552 B; `collision/HPZ primary 16x16 collision index.bin` + secondary; six HPZ Nemesis art files; `palettes/HPZ.bin` + underwater.
+- **NOT measured yet, and it is parcel 1's first job:** the prototype's data shapes differ from the final game's (its layouts are uncompressed `.bin` where the final ships Kosinski `.kos`, and its zone set and collision banks differ). Treat every prototype format as unverified until the converter reads it; do not assume the final game's loader applies.
