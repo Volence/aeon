@@ -1608,10 +1608,19 @@ pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // `hand: Label = 0` default is the only way to spell it, and it is also the RIGHT value:
 // 0 means CLEAR here, where in ep_raster it would mean "keep". The raster channel's
 // "always pass `hand:` explicitly" rule does not transfer, for exactly that reason.
-pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None,
-                                                  cycle: ojz_act1_preset_cycle(preset: OJZ_Preset_Sec3_KEY, hand: OJZ_ShimmerCycle),
-                                                  variants: [ ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 0, hand: Variant_Water_Deep),
-                                                              ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 1) ])
+//
+// ONE ARGUMENT LIST, TWO PALETTES (parcel/showcase-classic-bg, 2026-09-16). `ojz_sec3_preset()`
+// is section 3's record with the palette left open; OJZ_Preset_Sec3 applies it to the day
+// palette and the DEBUG-only OJZ_Preset_Showcase (below OJZ_Preset_NightSnap) to the region
+// bg switch showcase's palette, so "the showcase differs from its neighbour in ep_pal and
+// nothing else" is a property of the constructor, not of two lists kept in step by eye.
+comptime fn ojz_sec3_preset(pal: Label) -> EffectsPreset {
+    return preset(pal: pal, raster: Raster_Program_None,
+                  cycle: ojz_act1_preset_cycle(preset: OJZ_Preset_Sec3_KEY, hand: OJZ_ShimmerCycle),
+                  variants: [ ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 0, hand: Variant_Water_Deep),
+                              ojz_act1_preset_variant(preset: OJZ_Preset_Sec3_KEY, slot: 1) ])
+}
+pub data OJZ_Preset_Sec3:  EffectsPreset = ojz_sec3_preset(OJZ_Palette)
 pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 // SECTION 4 IS THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26). It is
 // OJZ_Preset_Plain in every other respect — same palette, same variant, no cycle — and
@@ -2321,6 +2330,54 @@ comptime fn ojz_e2_plain(pal: Label) -> EffectsPreset {
 
 const OJZ_PRESET_NIGHT_SNAP_LEN = if DEBUG == 1 { 1 } else { 0 }
 pub data OJZ_Preset_NightSnap: [EffectsPreset; OJZ_PRESET_NIGHT_SNAP_LEN] = if DEBUG == 1 { [ ojz_e2_plain(OJZ_Palette_Night) ] } else { [] }
+
+// ===========================================================================
+// THE REGION BG SWITCH SHOWCASE PALETTE — DEBUG-SHAPE ONLY (parcel/showcase-classic-bg).
+//
+// The showcase row (act_descriptor.emp, OJZ_SHOWCASE_BG_ROWS) shows Sonic 2 Oil Ocean Zone's
+// background. Its colours cannot come from OJZ_Palette: the donor needs its own 15 colours,
+// and FG and BG share CRAM lines 1-3. tools/gen_region_bg_showcase.py writes this palette as
+// OJZ_Palette with LINE 3's entries 1..15 replaced by the donor's (quantized 21 -> 15; the
+// merges are printed by the generator), and lays every donor tile on line 3.
+//
+// WHY LINE 3, MEASURED: every foreground nametable word in all nine act 1 sections is on line
+// 2 (decoded from the shipped sec*_blocks.bin), line 2 also carries OJZ_ShimmerCycle and the
+// water variant's terrain ramp, and line 1 carries the rings' gold. Line 3 is used by 156 cells
+// of the act-default BACKGROUND and nothing else, and inside the showcase region that
+// background is replaced. So the swap recolours no foreground tile.
+// tools/test_gen_region_bg_showcase.py re-measures that from the section blobs.
+//
+// THE PRESET IS SECTION 3'S RECORD WITH THIS PALETTE (ojz_sec3_preset, above), and like
+// section 3 it has no `transition:`, so the palette SNAPS at the crossing and the tile
+// overwrite + wipe follow it (engine/level/bg.emp, the E2 ordering). The transient that
+// ordering already owns is therefore visible here: entering, the ~156 act-default line-3
+// cells show in donor colours until the wipe clears them; LEAVING, the donor art shows in
+// OJZ's line-3 colours until the act tiles land and the wipe repaints.
+//
+// ZERO BYTES IN RELEASE, but NOT zero names: both labels exist at length 0 in the release
+// listing and so enter its deb2 appendix. The names are chosen to sort AFTER
+// `OJZ_Preset_NightSnap`, the incumbent at their release address, so neither steals its record
+// (CODING_CONVENTIONS, "A NAME-ONLY EDIT MOVES BYTES").
+// ===========================================================================
+const OJZ_SHOWCASE_LEN = if DEBUG == 1 { 1 } else { 0 }
+const OJZ_SHOWCASE_PAL_SIZE = if DEBUG == 1 { 96 } else { 0 }
+const _ojz_showcase_pal = embed("games/sonic4/data/generated/ojz/act1/ojz_palette_showcase_debug.bin")
+
+// The first byte index below `n` at which two palettes differ, or -1.
+comptime fn ojz_pal_first_diff(a: Data, b: Data, n: int) -> int {
+    for i in 0..n {
+        if a[i] != b[i] { return i }
+    }
+    return -1
+}
+ensure(_ojz_showcase_pal.len == 96,
+       "ojz_palette_showcase_debug.bin is {_ojz_showcase_pal.len} bytes; a preset palette is exactly 96 (CRAM lines 1-3). Re-run tools/gen_region_bg_showcase.py")
+ensure(ojz_pal_first_diff(_ojz_showcase_pal, _ojz_day_pal, 64) == -1,
+       "the showcase palette differs from OJZ_Palette at byte {ojz_pal_first_diff(_ojz_showcase_pal, _ojz_day_pal, 64)}, inside CRAM lines 1-2. Only line 3 may change: every OJZ foreground tile is on line 2 and the rings' gold is on line 1, so a change there recolours the level, not the background. Re-run tools/gen_region_bg_showcase.py")
+ensure(ojz_pal_first_diff(_ojz_showcase_pal, _ojz_day_pal, 96) != -1,
+       "the showcase palette is byte-identical to OJZ_Palette, so the showcase background would show in OJZ's line-3 colours and the region's colour change is gone. Re-run tools/gen_region_bg_showcase.py")
+pub data OJZ_Showcase_Palette: [u8; OJZ_SHOWCASE_PAL_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/ojz_palette_showcase_debug.bin") } else { [] }
+pub data OJZ_Preset_Showcase: [EffectsPreset; OJZ_SHOWCASE_LEN] = if DEBUG == 1 { [ ojz_sec3_preset(OJZ_Showcase_Palette) ] } else { [] }
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
