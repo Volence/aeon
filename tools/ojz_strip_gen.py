@@ -136,7 +136,18 @@ from vram_map import GAME as _VRAM_MAP_GAME, POOL_TILE_CEILING, BG_TILE_BASE_SLO
 assert _VRAM_MAP_GAME == 'sonic4', (
     f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
     "regenerate: python3 tools/gen_vram_map.py --game sonic4 --toml games/sonic4/vram.toml --py tools/vram_map.py")
-ART_POOL_PAGE_TILES = 64              # tiles per independently-decodable act art page (P2b cutover: 256->64)
+# Tiles per independently-decodable act art page. READ FROM THE ENGINE, not restated
+# (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17): the page size is one of the budget
+# parameters the owner's open card FG-CACHE-10-HOW may change (64 -> 32), and the Pass 4
+# order search and the window-budget refusal take it from the same source. This line was
+# the literal `= 64` (P2b cutover 256->64); megaact_window_pageset.load_constants
+# cross-checks it against the engine.
+from fg_working_set import ConstantSource as _ConstantSource
+_engine_constants = _ConstantSource()
+_engine_constants.load_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                                         "engine", "system", "constants.emp"))
+ART_POOL_PAGE_TILES = _engine_constants.get("ART_POOL_PAGE_TILES")
+del _engine_constants
 PAGE_TABLE_MAX = 256                  # residency page-table ceiling (replaces POOL_TILE_CEILING as the hard cap)
 SECTION_LOCAL_INDEX_MAX = 2047        # 11-bit nametable field: a section's local palette must fit
 PIN_SECTION_FRACTION = 0.75           # a page is pinned if >= this fraction of sections reference it (page 0 always)
@@ -830,8 +841,11 @@ def mark_pinned_pages(pages, per_section_global_sets) -> list[bool]:
     reference at least one of the page's global slots (act-common art). Page 0 is
     ALWAYS pinned — it holds the blank tile at global slot 0, which every air cell
     renders. Global slot of a page's first tile is the running sum of prior page
-    lengths (== page_idx * ART_POOL_PAGE_TILES, since every page but the last is
-    full).
+    lengths, so `per_section_global_sets` must hold CONTIGUOUS pool positions.
+    That equals page_idx * ART_POOL_PAGE_TILES only when every page but the last
+    is full; since STITCHED-ACT-PAGE-ORDER a per-zone page may be short and the
+    emitted global slots then keep a gap, so generate() passes positions, not
+    slots (fg_page_order._evaluate).
     """
     n_sections = len(per_section_global_sets)
     threshold = PIN_SECTION_FRACTION * n_sections
@@ -2091,39 +2105,82 @@ def generate(stress_uniquify=0):
         for i, src_idx in enumerate(sorted_indices)
     }
 
-    # ---- Pass 3: per-section unique canonical-tile lists ----
+    # ---- Pass 3: the act-wide canonical grid ----
+    # Sections sit in flat row-major grid order (tools/act_grid.py); inside a section,
+    # strips[col][row]. fg_page_order.per_section_lists walks each section column-major,
+    # which is the first-occurrence walk this pass used to do inline over the strips.
+    import numpy as np
+    import fg_page_order
+    budget = fg_page_order.load_budget_constants()
+    if budget["ART_POOL_PAGE_TILES"] != ART_POOL_PAGE_TILES:
+        raise SystemExit("ojz_strip_gen: ART_POOL_PAGE_TILES disagrees with the budget constants")
+    grid_w, grid_h = act_grid.section_grid(PROJECT_JSON)
     sec_ids_in_order = list(per_section_strips.keys())
-    per_section_canon_tiles: list[list[int]] = []
-    for sec_id in sec_ids_in_order:
-        seen: set[int] = set()
-        ordered: list[int] = []
-        for col in per_section_strips[sec_id]:
-            for word in col:
-                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
-                canon_idx, _ = src_to_canon.get(src_idx, (0, 0))
-                if canon_idx not in seen:
-                    seen.add(canon_idx)
-                    ordered.append(canon_idx)
-        per_section_canon_tiles.append(ordered)
+    if sec_ids_in_order != [str(i) for i in range(grid_w * grid_h)]:
+        raise SystemExit(
+            f"ojz_strip_gen: sections {sec_ids_in_order} are not the flat row-major ids of the "
+            f"{grid_w}x{grid_h} act grid; the Pass 4 window count needs each section's place")
+    st = STRIP_TILE_HEIGHT
+    src_canon_lut = np.zeros(max(src_to_canon) + 1, dtype=np.int64)
+    for src_idx, (canon_idx, _flip) in src_to_canon.items():
+        src_canon_lut[src_idx] = canon_idx
+    canon_grid = np.zeros((grid_h * st, grid_w * st), dtype=np.int64)
+    for s_idx, sec_id in enumerate(sec_ids_in_order):
+        words = np.array(per_section_strips[sec_id], dtype=np.int64)       # (cols, rows)
+        if words.shape != (st, st):
+            raise SystemExit(f"ojz_strip_gen: section {sec_id} strips are {words.shape}, "
+                             f"expected ({st}, {st})")
+        sy, sx = divmod(s_idx, grid_w)
+        canon_grid[sy * st:(sy + 1) * st, sx * st:(sx + 1) * st] = \
+            src_canon_lut[words & tile_dedupe.NAMETABLE_TILE_MASK].T
+    # THE ZONE KEY: the tileset a cell's art comes from (NOT an effects region: OJZ act 1
+    # has 10 regions over one tileset). This generator reads ONE tileset
+    # (project.json zones[0].tileset), so every cell is zone 0; a stitched act's loader
+    # must supply the per-cell key. See fg_page_order's header.
+    zone_grid = np.zeros(canon_grid.shape, dtype=np.int16)
 
-    # ---- Pass 4: global act art pool — spatially ordered, no per-section partition ----
-    pool_order = tile_dedupe.order_pool_spatially(per_section_canon_tiles)   # canon IDs in pool order
+    # ---- Pass 4: global act art pool — page ORDER + window-budget refusal ----
+    # fg_page_order.place_pool: the shipped first-occurrence order when it already fits
+    # PAGE_FRAMES, else per-zone dedupe + per-zone pages + the budget-aimed search
+    # (reports 09/10). Pins are frame-aware. Then EVERY camera window of the placed act is
+    # counted, and one over budget REFUSES the bake before this pass writes anything
+    # (regenerate-level.sh restores the collision tables an earlier pass wrote).
+    placement = fg_page_order.place_pool(
+        canon_grid, zone_grid, unique, st, grid_w, grid_h, budget,
+        rule_pins_fn=lambda pages, sets: [i for i, f in enumerate(mark_pinned_pages(pages, sets)) if f],
+        log=print)
+    print("  " + fg_page_order.verdict_line(placement["verdict"], "Pass 4 placement"))
+    fg_page_order.refuse_over_budget(placement["verdict"], "OJZ act 1 (ojz_strip_gen Pass 4)")
+    unique = placement["unique"]                  # may carry an appended blank / zone copies
+    canon_grid = placement["canon"]               # per-cell canonical ids after any zone split
+    per_section_canon_tiles = placement["per_section"]
+    pages = placement["pages"]
+    pool_order = [cid for page in pages for cid in page]    # canon IDs in pool order
     # Pool slot 0 == VRAM tile 0 must be the blank tile — empty blocks and
-    # sparse plane rows render nametable word $0000. May append to `unique`.
-    pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
+    # sparse plane rows render nametable word $0000.
     assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE
-    canon_to_pool = {cid: idx for idx, cid in enumerate(pool_order)}  # canon ID -> pool index (== VRAM global slot)
+    # canon ID -> global VRAM slot: page p's tiles start at p * ART_POOL_PAGE_TILES (the engine
+    # finds a page as global >> PAGE_FRAME_TILE_SHIFT), so a short per-zone page leaves a gap.
+    canon_to_pool = {cid: int(placement["slot_of"][cid]) for cid in pool_order}
 
     # ---- Pass 4b (P2c Task 11): optional stress-uniquify pool inflation ----
     # Clones are APPENDED to pool_order (after the blank-pinned slot 0), so the
     # split/pin/manifest passes below see the inflated pool transparently. The
     # returned redirect re-points a spread of block references at the clones; it
-    # is applied in Pass 5 and folded into per_section_global_sets.
+    # is applied in Pass 5 and folded into per_section_global_sets. It needs the
+    # contiguous shipped-rung layout (clone slot == pool index), and it sits OUTSIDE the
+    # window budget on purpose: the fixture exists to overwhelm the cache.
     stress_redirect = None
     if stress_uniquify:
+        if placement["rung"] != "shipped":
+            raise SystemExit(
+                f"--stress-uniquify needs the contiguous shipped page layout, but Pass 4 took "
+                f"the {placement['rung']!r} rung; the stress fixture is defined over OJZ's "
+                f"shipped order")
         stress_redirect, _stress_clone_parent = stress_uniquify_pool(
             stress_uniquify, unique, pool_order, canon_to_pool,
             per_section_strips, sec_ids_in_order, src_to_canon)
+        pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
         print(f"STRESS-UNIQUIFY: inflated act pool to {len(pool_order)} tiles "
               f"({len(stress_redirect)} parent-matched clone references re-pointed)")
 
@@ -2132,7 +2189,6 @@ def generate(stress_uniquify=0):
     # 2048-tile pool ceiling — the pool is bounded only by PAGE_TABLE_MAX pages
     # (asserted below) and the ROM budget gate.
 
-    pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a
     # VRAM-tile ceiling — pages land in ALLOCATED frames (dest = frame base, not
     # page_id*64), so there is no per-act VRAM fit to guard. act_descriptor.emp
@@ -2142,14 +2198,14 @@ def generate(stress_uniquify=0):
         f"act art pool split into {len(pages)} pages > PAGE_TABLE_MAX {PAGE_TABLE_MAX} "
         f"(residency page table is a byte per page)")
 
-    # Per-section global-slot sets (parallel to sec_ids_in_order) — drive both the
-    # per-section local→global tables (Pass 5) and the page-pin heuristic (Pass 7).
+    # Per-section global-slot sets (parallel to sec_ids_in_order) — drive the
+    # per-section local→global tables (Pass 5).
     per_section_global_sets = [
         set(canon_to_pool[c] for c in sec_canons)
         for sec_canons in per_section_canon_tiles
     ]
     # Fold stress clones into each section's global set so its local→global map
-    # (Pass 5) and the pin heuristic (Pass 7) cover the re-pointed references.
+    # (Pass 5) and the stress pin rule (Pass 7b) cover the re-pointed references.
     if stress_redirect is not None:
         for (s_idx, _col, _row), slot in stress_redirect.items():
             per_section_global_sets[s_idx].add(slot)
@@ -2170,13 +2226,19 @@ def generate(stress_uniquify=0):
         local_to_global = build_section_local_map(per_section_global_sets[s_idx])
         global_to_local = {g: i for i, g in enumerate(local_to_global)}
         section_local_maps.append((sec_id, local_to_global))
+        sy, sx = divmod(s_idx, grid_w)
+        # this section's canonical ids as [col][row], from the placed grid (after any
+        # zone split); the flip bits still come from the source tile's dedupe
+        sec_canon_cols = canon_grid[sy * st:(sy + 1) * st, sx * st:(sx + 1) * st].T.tolist()
 
         remapped_strips = []
         for col_i, col in enumerate(per_section_strips[sec_id]):
             remapped_col = []
+            canon_col = sec_canon_cols[col_i]
             for row_i, word in enumerate(col):
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
-                canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
+                _src_canon, flip_bits = src_to_canon[src_idx]
+                canon_idx = canon_col[row_i]
                 vram_slot = canon_to_pool[canon_idx]         # global pool slot
                 if stress_redirect is not None:
                     r = stress_redirect.get((s_idx, col_i, row_i))
@@ -2293,7 +2355,13 @@ def generate(stress_uniquify=0):
     # ojz_act_pool.emp (replacing the old longword OJZ_Act_Pool_PageTable). The
     # generator owns tiles+pinned (data knowledge); the packer owns source+form
     # (compression knowledge).
-    pinned_flags = mark_pinned_pages(pages, per_section_global_sets)
+    # Pins: Pass 4's frame-aware set (the 75% rule's candidates that push no window over
+    # PAGE_FRAMES). The stress fixture re-applies the plain rule over its inflated pool, as
+    # it always has: it is outside the window budget by design.
+    if stress_redirect is not None:
+        pinned_flags = mark_pinned_pages(pages, per_section_global_sets)
+    else:
+        pinned_flags = [i in set(placement["pins"]) for i in range(len(pages))]
     sidecar = {
         "version": 2,
         "page_tiles": ART_POOL_PAGE_TILES,
