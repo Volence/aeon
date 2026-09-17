@@ -202,6 +202,27 @@ that could drift from the schema it claims to mirror.
 | M6 | the id pattern loosened back to `[A-Za-z0-9_-]+` | 4 failed / 35 passed |
 | M7 | the `units` check removed | 1 failed / 38 passed |
 | M8 | a `palette` field accepted and ignored | 2 failed / 37 passed |
+| M9 | the `r12` fixture's `donor_root=` dropped, **with the donor trees present** | 2 errors / 37 passed — the guard catches it where it used to be invisible |
+| M10 | the same, with `no_working_tree_donors` disabled | 39 passed — the failure mode reproduced: green for the author, red for everyone else |
+
+### The gate read the author's working tree, and that is now structurally impossible
+
+Caught at landing review, not here: on a checkout that had never run the converter, two rows
+ERRORED at fixture setup (`R4 clip 'a': no converted tree at
+games/sonic4/data/donors/s2disasm/EHZ`). `games/sonic4/data/donors/` is gitignored by design, so
+**absent is the normal state** and present means somebody ran the converter.
+
+The cause was one argument, not a policy: the module-scoped `donors` fixture already converts what
+the rows need into pytest's own tmp tree — which is why the other 37 rows run on a checkout with
+no converted trees at all — and the `r12` fixture called `CM.load(p)` without `donor_root=`, so it
+fell through to the module default and read the repo's copy. My working tree had one because I had
+generated it before writing the test.
+
+Fixed, and the class closed rather than the instance: every entry point in `clip_manifest` and
+`clip_act_bake` now takes `donor_root=None` and resolves `DEFAULT_DONOR_ROOT` at CALL TIME (a
+default bound at import cannot be replaced, so a guard against it would be decorative), and an
+autouse module fixture points that name at a path that cannot exist for the whole gate. M9/M10
+above are the proof pair, both run with the trees PRESENT — the state that used to mask it.
 
 ## Two other gates caught this parcel, and both were right
 
@@ -223,8 +244,11 @@ running the full lane rather than the file you just wrote.
 
 ## Evidence
 
-Pre-build tool lane, `__pycache__` cleared, `python3 -m pytest tools -m "not needs_build" -q`:
-**4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 64.32 s.**
+Pre-build tool lane, `__pycache__` cleared, `python3 -m pytest tools -m "not needs_build" -q`,
+**with NO converted donor trees present in the repo — the state a fresh checkout is in**:
+**4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 63.74 s.**
+Not one clip row is among the failures or errors, and 2965 is the same passed count as the run
+with the trees present, so the 39 rows RUN rather than skip.
 
 The 4-failed/55-error family is the pre-existing artifact-freshness one and it was **established
 by a control taken BEFORE this parcel touched anything**: the same worktree at base `75008de6`,
@@ -234,7 +258,8 @@ one above. The only difference between the two runs is this parcel, and the delt
 39 gate rows + 2 subprocess rows. (Taking the control first is a stronger form of the
 move-the-files-aside control, not a weaker one: nothing had to be reconstructed.)
 
-`tools/landing_build.sh` **exit 0, `finished=0`**, three shapes built: `s4.bin` 821,479 B
+`tools/landing_build.sh`, also run with no converted donor trees present, **exit 0,
+`finished=0`**, three shapes built: `s4.bin` 821,479 B
 (md5 `ae62156a66c9c3f13e93940e938c340e`), `s4.debug.bin` 848,075 B
 (md5 `b15ef259523f67ac963ef0cf4df003dc`), `demo.debug.bin` 104,707 B
 (md5 `f740c22498f6ad132ac9f8bd978c9350`) — the same sizes parcel 2 booked, as expected from a

@@ -36729,8 +36729,8 @@ in place at §5.3, §8 and §10 row 2, where this parcel made a sentence in it f
 passed in 62.74 s; control with the parcel removed: 4 failed, 2906 passed, 2 skipped, 55 errors,
 identical node-id set. `tools/test_s2_zone_convert.py` 18 rows, red-proven by three on-disk
 mutations (M1 priority bit dropped: 2 failed, HPZ 160,521 of 524,288 cells differing; M2/M2b
-anchoring), each restored from a committed baseline. **`tools/landing_build.sh` exit 0,
-`finished=0`, three shapes built** (s4.bin 821,479 B, s4.debug.bin 848,075 B, demo.debug.bin
+anchoring), each restored from a committed baseline. **`tools/landing_build.sh`, also run with no converted
+donor trees present, exit 0, `finished=0`, three shapes built** (s4.bin 821,479 B, s4.debug.bin 848,075 B, demo.debug.bin
 104,707 B); its in-build pre-build lane on the freshly built tree is 2983 passed / 2 skipped /
 0 failed / 0 errors (= parcel 1's 2965 plus exactly this parcel's 18 rows), and the needs_build
 lane is 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the
@@ -36875,18 +36875,33 @@ direction, and a gate row pins that it never becomes looser.
   copy could drift from the schema it claims to mirror — but it is a cross-repo read and the
   schema's owner can move it without this repo noticing anything but a skip.
 
+- **THE GATE READ THE AUTHOR'S WORKING TREE, caught at landing review.** Two rows ERRORED on a
+  checkout that had never run the converter — and since `games/sonic4/data/donors/` is gitignored
+  by design, ABSENT is the normal state and PRESENT means somebody ran it. The cause was one
+  argument, not a policy: the module-scoped `donors` fixture already converts what the rows need
+  into pytest's own tmp tree (which is why the other 37 rows ran on a checkout with no trees at
+  all), and the `r12` fixture called `CM.load(p)` with no `donor_root=`, falling through to the
+  module default. Fixed, and the CLASS closed rather than the instance: every entry point in
+  `clip_manifest` and `clip_act_bake` takes `donor_root=None` and resolves `DEFAULT_DONOR_ROOT` at
+  CALL TIME (a default bound at import cannot be replaced, so a guard against it would be
+  decorative), and an autouse module fixture points that name at a path that cannot exist for the
+  whole gate. Proof pair, both with the trees PRESENT — the state that used to mask it: bug
+  restored with the guard ON, 2 errors; with the guard OFF, 39 passed.
+
 **EVIDENCE.** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q` with
-`__pycache__` cleared: **4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests
-passed in 64.32 s**. The 4-failed/55-error artifact-freshness family was established by a control
+`__pycache__` cleared and **NO converted donor trees present — the state a fresh checkout is in**:
+**4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 63.74 s**;
+no clip row among the failures or errors, and the passed count is the same as with the trees
+present, so the 39 rows RUN rather than skip. The 4-failed/55-error artifact-freshness family was established by a control
 taken BEFORE this parcel touched anything — the same worktree at base `75008de6` with the
 converted donor trees already present: **4 failed, 2924 passed, 2 skipped, 28 deselected, 55
 errors in 63.80 s**, FAILED/ERROR node-id set byte-identical to the run above, delta +41 passed =
 39 gate rows + 2 subprocess rows. `tools/test_clip_manifest.py` 39 rows, red-proven by **eight**
-on-disk mutations (uniform zone key 9 failed; raw pin rule 3 failed and only on the discriminating
+on-disk mutations plus the two-row pair above (uniform zone key 9 failed; raw pin rule 3 failed and only on the discriminating
 fixture; corrupted local map, the bake itself refuses; R9 against the padded grid 2 failed;
 act-wide local maps 1 failed; loosened id pattern 4 failed; units unchecked 1 failed; `palette`
-accepted 2 failed), each restored from a committed baseline. **`tools/landing_build.sh` exit 0,
-`finished=0`, three shapes built** (s4.bin 821,479 B md5 `ae62156a66c9c3f13e93940e938c340e`,
+accepted 2 failed), each restored from a committed baseline. **`tools/landing_build.sh`, also run with no converted
+donor trees present, exit 0, `finished=0`, three shapes built** (s4.bin 821,479 B md5 `ae62156a66c9c3f13e93940e938c340e`,
 s4.debug.bin 848,075 B md5 `b15ef259523f67ac963ef0cf4df003dc`, demo.debug.bin 104,707 B md5
 `f740c22498f6ad132ac9f8bd978c9350` — the same sizes parcel 2 booked, as expected from a parcel
 that changes no ROM byte); its in-build pre-build lane is 3024 passed / 2 skipped / 0 failed /
