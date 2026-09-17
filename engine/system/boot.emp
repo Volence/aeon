@@ -91,11 +91,16 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
 
         // Preload hardware addresses via movem — the table head assigns:
         // d5=$8000 (VDP reg cmd base) d6=RAM-clear dbf count d7=$0100 (reg
-        // stride / Z80 bus value); a0=Z80_RAM a1=Z80_BUS_REQUEST a2=Z80_RESET
-        // a3=VDP_DATA a4=VDP_CTRL (boot_data.emp owns the values).
+        // stride / Z80 reset value); a0=Z80_RAM a2=Z80_RESET a3=VDP_DATA
+        // a4=VDP_CTRL (boot_data.emp owns the values). There is NO a1 preload
+        // (LS-13b, 2026-09-17): the bus request register used to ride in a1 for
+        // the hand-spelled hold below, and that hold is now a `with z80_stopped`
+        // bracket that names Z80_BUS_REQUEST absolutely. Do not bring an a1 =
+        // Z80_BUS_REQUEST preload back — a `move.w dN,(a1)` bus write is exactly
+        // the spelling sigil's `[bus.*]` tier cannot recognise.
         lea     BootData(pc), a5
         movem.w (a5)+, d5-d7
-        movem.l (a5)+, a0-a4
+        movem.l (a5)+, a0/a2-a4
 
         // VDP register init — 24 registers from table (§0.3)
         moveq   #23, d1
@@ -125,49 +130,62 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // the clear would have re-opened a real-hardware race with no gate to
         // catch it. Keep VDP-decoded accesses OUT of this window.
 
-        // Z80 init (§0.5)
+        // Z80 init (§0.5) — ONE bracketed bus hold, interleaved with the /IC
+        // reset pulse. Hardware order, which is the point of this block:
+        //   assert reset → request bus → release reset → wait for grant →
+        //   copy blob → assert reset → ~264-cycle delay → release reset →
+        //   release bus.
+        // The reset ASSERT precedes the bracket and is outside the hold. The
+        // reset RELEASE between the bus request and the grant spin is the one
+        // statement a bare bracket could not place, so it rides in the context's
+        // `interleave` slot (sigil named slot, decision d-33), which z80_stopped
+        // splices INSIDE its acquire: request → slot → spin. Since LS-13b
+        // (2026-09-17) this hold is therefore no longer hand-spelled, and gets
+        // the compiler's pairing proofs like every other hold: `[context.escape]`
+        // (every path reaches the release — an early exit from anywhere inside,
+        // slot included, is REFUSED), `[context.entry-skip]`, `[context.reacquire]`.
+        // Its request/release are the absolute `#$0100`/`#$0000` writes to
+        // Z80_BUS_REQUEST, the form sigil's `[bus.*]` tier recognises; the old
+        // `move.w d7,(a1)` spelling was invisible to it.
+        //
+        // Registers: the context's acquire and release touch only the CCR (its
+        // spin is `btst #0, Z80_BUS_REQUEST`), so d0 = 0, d7 = $0100, a0 and a2
+        // survive the bracket for the body and for the RAM clear below.
         move.w  d0, (a2)                    // assert Z80 reset
-        move.w  d7, (a1)                    // request Z80 bus
-        move.w  d7, (a2)                    // release Z80 reset
+        with z80_stopped(interleave: asm { move.w d7, (a2) }) {
+            // ^ acquire: request bus, release Z80 reset (the slot), spin on grant
 
-    .wait_z80:
-        btst    d0, (a1)                    // wait for bus grant (d0 = 0 → test bit 0)
-        bne     .wait_z80
+            // Copy Z80 program to Z80 RAM (a5 already points at the included blob).
+            // d1 is a BYTE count minus 1 and the loop below is byte-wide — the Z80
+            // program is a byte stream, not words. "Optimizing" this to move.w and
+            // halving the count would copy half the driver.
+            if SOUND_DRIVER_ENABLED == 1 {
+                move.w  #Z80_SOUND_SIZE-1, d1   // bytes-1 (move.w, not moveq: the blob exceeds moveq's signed-8 immediate)
+            } else {
+                moveq   #Z80_IDLE_SIZE-1, d1    // bytes-1
+            }
+        .load_z80:
+            move.b  (a5)+, (a0)+
+            dbf     d1, .load_z80
 
-        // Copy Z80 program to Z80 RAM (a5 already points at the included blob).
-        // d1 is a BYTE count minus 1 and the loop below is byte-wide — the Z80
-        // program is a byte stream, not words. "Optimizing" this to move.w and
-        // halving the count would copy half the driver.
-        if SOUND_DRIVER_ENABLED == 1 {
-            move.w  #Z80_SOUND_SIZE-1, d1   // bytes-1 (move.w, not moveq: the blob exceeds moveq's signed-8 immediate)
-        } else {
-            moveq   #Z80_IDLE_SIZE-1, d1    // bytes-1
-        }
-    .load_z80:
-        move.b  (a5)+, (a0)+
-        dbf     d1, .load_z80
-
-        // Z80 reset with YM2612-safe delay
-        // KEEP `.ym_delay` A LOCAL LABEL — never `export` it. This delay sits
-        // INSIDE the hand-spelled bus hold, and sigil's `[context.entry-skip]`
-        // rule reads the TARGET SYMBOL rather than the CFG: an exported label
-        // inside a bracketed region is reachable from any proc, which the proc's
-        // own item list cannot see, so the check fires — correctly. The backward
-        // `dbf` edge itself is fine and always was (the region property is
-        // reachability, and the rule's own text names `bne .wait_z80` above as
-        // the correct case). Verified at sigil origin/master
-        // crates/sigil-frontend-emp/src/context.rs, the `check_contexts` doc
-        // comment, 2026-09-10; if that rule has since moved, THIS COMMENT IS THE
-        // STALE ONE — re-read the rule, do not trust this line. Why it matters
-        // here: this hold is hand-spelled and gets none of the bracket proofs
-        // today (LS-13b), and the fix under discussion is a bracket that WOULD
-        // cover it, at which point this label's linkage starts being load-bearing.
-        move.w  d0, (a2)                    // assert reset
-        moveq   #25, d2
-    .ym_delay:
-        dbf     d2, .ym_delay               // ~264 cycles (YM2612 needs >= 192)
-        move.w  d7, (a2)                    // release reset — Z80 starts idle loop
-        move.w  d0, (a1)                    // release bus — Z80 has control
+            // Z80 reset with YM2612-safe delay
+            // KEEP `.ym_delay` (and `.load_z80`) LOCAL LABELS — never `export`
+            // them. They sit INSIDE the bracketed bus hold, and sigil's
+            // `[context.entry-skip]` rule reads the TARGET SYMBOL rather than the
+            // CFG: an exported label inside a bracketed region is reachable from
+            // any proc, which the proc's own item list cannot see, so the check
+            // fires — correctly. The backward `dbf` edges themselves are fine (the
+            // region property is reachability; the context's own spliced grant
+            // spin is a backward branch too). Verified at sigil origin/master
+            // crates/sigil-frontend-emp/src/context.rs, the `check_contexts` doc
+            // comment, 2026-09-10; if that rule has since moved, THIS COMMENT IS
+            // THE STALE ONE — re-read the rule, do not trust this line.
+            move.w  d0, (a2)                    // assert reset
+            moveq   #25, d2
+        .ym_delay:
+            dbf     d2, .ym_delay               // ~264 cycles (YM2612 needs >= 192)
+            move.w  d7, (a2)                    // release reset — Z80 starts idle loop
+        }                                       // release bus — Z80 has control
 
         // Clear Work RAM — ALL 64KB, on warm boots as well as cold (§0.7).
         // There is deliberately no preserved region, and this is now a RULING

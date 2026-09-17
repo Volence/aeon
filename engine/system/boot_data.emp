@@ -12,11 +12,11 @@
 // THE $3FE MAP HOLE (no-sound shapes). The table splits into two sections,
 // `boot_head` and `boot_tail`, with the resident Z80 program placed BETWEEN
 // them:
-//   - SOUND-ON: `boot_head` carries the head (54 B) + the sound driver blob
+//   - SOUND-ON: `boot_head` carries the head (50 B) + the sound driver blob
 //     (`embed`); `boot_tail`
 //     abuts it. `engine.z80_init` is absent (the sound driver replaces the
 //     idle).
-//   - SOUND-OFF: `boot_head` is the 54-byte head alone; `engine.z80_init`'s
+//   - SOUND-OFF: `boot_head` is the 50-byte head alone; `engine.z80_init`'s
 //     38-byte idle program packs into the $3d8..$3fe hole by declared order
 //     (`BootData` < `Z80_IdleProgram` < `BootData_PostBlob`); `boot_tail`
 //     resumes at $3fe. This IS the map's `[[hole]] after = "Z80_IdleProgram"
@@ -34,7 +34,7 @@
 
 module engine.boot_data
 
-use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT, VDP_REG_PLANE_SIZE}
+use engine.constants.{Z80_RAM, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT, VDP_REG_PLANE_SIZE}
 // The VRAM bases the five base registers below are DERIVED from — named here so
 // the register table has one authority instead of a transcribed literal each.
 use engine.constants.{VRAM_PLANE_A, VRAM_PLANE_B, VRAM_PLANE_B_BYTES, VRAM_WINDOW}
@@ -138,28 +138,31 @@ ensure(VRAM_PLANE_B == VRAM_PLANE_B_BYTES,
        "engine.constants disagrees with itself about Plane B: VRAM_PLANE_B is {VRAM_PLANE_B} and VRAM_PLANE_B_BYTES is {VRAM_PLANE_B_BYTES}. Reg $04 is derived from the first and bg/plane_buffer/section address the plane through the second, so a split makes the VDP fetch the nametable from one address while the engine writes it to another.")
 
 // -----------------------------------------------
-// boot_head — the movem-preload head (26 B) + the 24 VDP register bytes + the
-// VRAM DMA-fill command (4 B) = 54 B, then the resident sound blob (sound-on) or
+// boot_head — the movem-preload head (22 B) + the 24 VDP register bytes + the
+// VRAM DMA-fill command (4 B) = 50 B, then the resident sound blob (sound-on) or
 // the $3d8 hole the idle fills (sound-off).
 // -----------------------------------------------
 section boot_head (cpu: m68000) {
-    // Movem preload — d5-d7 (3 words) then a0-a4 (5 longs). The 5 longs are LINK
-    // labels (the hardware ports), the reason a flat blob can't hold this head.
-    // The 26-byte head width is what boot.emp's `movem.w (a5)+, d5-d7` /
-    // `movem.l (a5)+, a0-a4` pair reads before the register loop.
+    // Movem preload — d5-d7 (3 words) then a0/a2-a4 (4 longs). The 4 longs are
+    // LINK labels (the hardware ports), the reason a flat blob can't hold this
+    // head. The 22-byte head width is what boot.emp's `movem.w (a5)+, d5-d7` /
+    // `movem.l (a5)+, a0/a2-a4` pair reads before the register loop.
+    // NO a1 / Z80_BUS_REQUEST LONG (LS-13b, 2026-09-17): it existed only for
+    // boot's hand-spelled `move.w d7,(a1)` bus hold, which is now a
+    // `with z80_stopped` bracket naming the register absolutely. movem loads in
+    // mask order (a0, a2, a3, a4), so the longs below keep that order.
     pub proc BootData () clobbers() {
         dc.w    $8000                       // d5: VDP reg command base
         dc.w    RAM_CLEAR_LCNT              // d6: RAM clear longword count ($3FFF)
-        dc.w    $0100                       // d7: Z80 bus/reset value
+        dc.w    $0100                       // d7: Z80 reset-release value / VDP reg stride
         dc.l    Z80_RAM                     // a0
-        dc.l    Z80_BUS_REQUEST             // a1
         dc.l    Z80_RESET                   // a2
         dc.l    VDP_DATA                    // a3
         dc.l    VDP_CTRL                    // a4
     }
 
     // VDP register values $00-$17 (read cross-seam by vdp_init.emp) + the VRAM
-    // DMA-fill command. 28 bytes, so the blob/idle begins at BootData+54.
+    // DMA-fill command. 28 bytes, so the blob/idle begins at BootData+50.
     pub proc BootData_VDPRegs () clobbers() {
         dc.b    $04                         // $00: HInt off, HV counter readable
         dc.b    $14                         // $01: display OFF, VInt OFF, DMA ON
