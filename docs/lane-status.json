@@ -1,12 +1,6 @@
 {
-  "focus": "Building the clip step: take a piece of a converted Sonic 2 zone and place it in an act.",
-  "inFlight": [
-    {
-      "what": "Clipping: a piece of a converted zone, placed into an act",
-      "where": "branch parcel/s2-clip-manifest",
-      "agent": true
-    }
-  ],
+  "focus": "Clipping works: a piece of Emerald Hill and a piece of Chemical Plant now make one act.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When clipping lands; collision is the step after it, then the first picture on screen.",
+  "nextBoundary": "Here: clipping is landed and pushed; collision is the next step.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: zones convert exactly; clipping a piece and placing it in an act is building now",
-      "state": "doing",
+      "title": "Sonic 2 test act: clipping landed (two zones compose into one act). Next: collision, then the first picture",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T19:42:47Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T20:50:02Z"
 }
