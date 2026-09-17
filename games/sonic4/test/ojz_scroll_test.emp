@@ -4146,7 +4146,7 @@ proc Debug_TierTags_Update () clobbers(d0-d4/a0-a3) {
         // module-scope directive and is not a mnemonic inside a proc body — sigil
         // rejects it with "`align` is not a recognized 68000 mnemonic". (It is spelled
         // at module scope in games/sonic4/debug/game_debug.emp:193 and
-        // engine/system/boot_data.emp:214; neither of those is inside a proc.)
+        // engine/system/boot_data.emp beside `Z80_Sound_End`; neither of those is inside a proc.)
         //
         // IT HAS ITS OWN LABEL so it is not inside `.btag_names`: that table is parsed
         // by tools/test_tier_tag_tables.py as "one LTR_ triple per row", and a bare

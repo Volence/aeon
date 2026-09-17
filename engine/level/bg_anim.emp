@@ -200,7 +200,7 @@ pub proc BgAnim_SetTable (a0: u32) clobbers(d0) {
 //
 // WHO ACTUALLY CALLS IT TODAY, traced end to end 2026-08-24 — and the short
 // answer is A PLAIN BOOT OF s4.bin DOES, every frame:
-//   engine/system/boot.emp:349   move.l #Game.entry, (Game_State).w
+//   engine/system/boot.emp `EntryPoint`   move.l #Game.entry, (Game_State).w
 //   games/sonic4/config/game.emp:59-60   ENTRY_ID = GS_OJZ_SCROLL_TEST,
 //                                        entry = GameState_OJZScroll_Init
 //   ojz_scroll_test.emp `GameState_OJZScroll_Init`  installs GameState_OJZScroll_Update

@@ -104,7 +104,7 @@ import parallax_hscroll_probe as php                  # noqa: E402
 
 LINES = base.LINES              # 224
 SCREEN_W = 320
-PLANE_W = 512                   # 64 cells x 8; VDP reg $10 = $11, boot_data.emp:186
+PLANE_W = 512                   # 64 cells x 8; VDP reg $10 = $11, boot_data.emp BootData_VDPRegs
 WRAP_MARGIN = PLANE_W - SCREEN_W        # 192 -- DERIVED, not fitted
 SECTION_SIZE = 0x0800           # engine/system/constants.emp, SECTION_SIZE
 GRID_W = 3                      # games/sonic4/data/levels/ojz/act1/act_descriptor.emp `GRID_W`
