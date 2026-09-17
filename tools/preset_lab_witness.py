@@ -558,6 +558,28 @@ async def run(sock: str, rom: str, lst: str, unmeasured: list[str]) -> tuple[int
         # The readout's one-digit cap. A preset row's sub-index is the digit it paints, so
         # the rows can name regions 0..PRESET_CYCLE_MAX-1 and no more — whatever the act
         # holds. Read, not typed: the refusal this replaces was a literal 10.
+        #
+        # WHY THIS ONE IS NOT CROSS-CHECKED AGAINST THE ROM (unlike LAB_ENTRY_SIZE x
+        # LAB_CYCLE_COUNT below), argued 2026-09-17 rather than assumed:
+        #  * It is a comptime `const`. Its ONLY emission is the immediate of
+        #    `assert.w d4, ls, #PRESET_CYCLE_MAX-1` in Debug_PresetReadout_Show. It bounds
+        #    nothing at runtime: the rows are authored bytes, and the hotkey's runtime bound
+        #    is Act.act_region_count. Its build-time job is test_lab_index_lint.py's
+        #    `len(PRESET rows) <= PRESET_CYCLE_MAX`, which reads this same file.
+        #  * In the runner (tools/nightly_effects_gates.sh) the ROM is built from this
+        #    checkout minutes before this reads LAB_SOURCE out of the same checkout, so the
+        #    two are one file. A disagreement needs a ROM from a different tree.
+        #  * Even then no verdict goes wrong. The walk, the digit expected at each cursor and
+        #    each verdict are all derived from the ROM's own `.lab_index` rows and region
+        #    table; this value only sets the EXPECTED row set, range(min(count, cap)). If the
+        #    two caps give the same set, the run is identical. If they differ, the ROM's rows
+        #    match at most one of them, and a mismatch is the exit-2 refusal below, not a
+        #    green. The one output a stale cap can make wrong is the WORDING of the
+        #    NOT MEASURED line ("no row can name them"): which regions were measured stays
+        #    true. And a ROM row past the ROM's own cap trips that ROM's assert on the walk,
+        #    which cannot read as a pass either.
+        # So a check would add nothing a verdict depends on. Revisit if PRESET_CYCLE_MAX
+        # ever gains a runtime use (a clamp, a table length) in the ROM.
         digit_cap = source_const("PRESET_CYCLE_MAX")
     except RuntimeError as e:
         return 2, [str(e)]

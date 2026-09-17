@@ -218,10 +218,18 @@ esac
 # costs a review session before anyone notices. It rides here rather than in build.sh
 # for the same reason the gates do: it boots a headless emulator.
 #
-# It cannot be wired anywhere cheaper. The two older lab tiers each carry a `dc.l`
-# table and a pytest lint that counts its rows; this tier has NO table — its cycle
-# list is the act's own section grid — so there is nothing textual to lint and the
-# only question left is a runtime one.
+# It cannot be wired anywhere cheaper, but not because there is nothing to lint. Since
+# 625fdc74 (2026-09-05) the lab is ONE list, `.lab_index` in
+# games/sonic4/test/ojz_scroll_test.emp: LAB_CYCLE_COUNT rows, and its PRESET rows name
+# regions 0..N-1 with N capped by PRESET_CYCLE_MAX, the preset readout's one decimal
+# digit. (This comment used to say the tier had no table and cycled the act's own section
+# grid; that described the START+A tier of bffee96e and went stale when the chords were
+# collapsed.) The TEXT is linted, in build.sh's pre-build pytest lane, by
+# tools/test_lab_index_lint.py: row count against LAB_CYCLE_COUNT, preset rows dense,
+# inside the act's region table and no more than PRESET_CYCLE_MAX. What no lint can
+# answer is the runtime question this lane asks: does pressing the chord actually
+# install each preset row's region, and does the readout paint the digit and verdict
+# glyph that is true of what got installed. That needs a booted machine.
 #
 # SAME EXIT CONTRACT, and it is combined WORST-WINS: a lane that could not run (2)
 # outranks a lane that failed (1). A backstop that reports the gates' green while its
