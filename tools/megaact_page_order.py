@@ -788,13 +788,14 @@ def control_presence(c, samples=150, seed=7):
     act = mb.pair_act("LRZ1", "CNZ1", st)
     fixed = ActFixed(act, c)
     cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
-    checked = 0
-    for name in ("shipped", "footprint_pack"):
+    checked = full_compared = 0
+    for name in ("shipped", "footprint_pack", "refined_zonesplit"):
         r = measure_candidate(act, c, fixed, name, [12, 10])
         pg, needed, pinned = r["_arrays"]
         labels = sorted(set(np.unique(pg).tolist()) - {-1})
         ref = mb.presence_counts(pg, labels, cols, rows, fixed.lefts, fixed.tops, weight_mask=pinned)
         full = int(np.count_nonzero(ref + len(pinned) != needed))
+        full_compared += int(needed.size)
         if full:
             problems.append(f"{name}: {full} windows differ from megaact_window_pageset.presence_counts")
         rnd = random.Random(seed)
@@ -811,7 +812,7 @@ def control_presence(c, samples=150, seed=7):
                 for k in ("positions", "max", "over_12", "over_10", "p50"):
                     if a[k] != b[k]:
                         problems.append(f"shipped {cls}.{k} {a[k]} != M-B committed {b[k]}")
-    return {"windows_direct_scanned": checked, "windows_full_compared": int(needed.size) * 2,
+    return {"windows_direct_scanned": checked, "windows_full_compared": full_compared,
             "problems": problems, "ok": not problems}
 
 
