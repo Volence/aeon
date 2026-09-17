@@ -1,9 +1,6 @@
 {
-  "focus": "Stress builds run nightly now; agents are on a broken nightly check and the region background cover warning.",
-  "inFlight": [
-    { "what": "Region background: warn at build time when the foreground cover for a crossing is too short", "where": "branch parcel/region-bg-cover-warning", "agent": true },
-    { "what": "Nightly preset check refuses every night: act has more regions than its readout shows", "where": "branch parcel/preset-lab-witness-regions", "agent": true }
-  ],
+  "focus": "Nightly checks all run again; the region cover warning is on your decision list. Next: boot's sound-chip pause.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,17 +11,15 @@
       "id": "FG-CACHE-10-HOW",
       "what": "Whether to keep the art cache as it is for now: the in-game test showed the smaller one makes the camera wait for art.",
       "since": "2026-09-17"
+    },
+    {
+      "id": "REGION-BG-COVER-DEFINITION",
+      "what": "What counts as 'hidden' when a background swaps at a region border (I recommend waiting for a real crossing).",
+      "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When both agents land. Per-region animated background strips stay booked: nothing ships bands yet.",
+  "nextBoundary": "Here, if LS-13b is not started. It is next and needs nothing from anyone.",
   "queue": [
-    {
-      "id": "PRESET-LAB-WITNESS-REGIONS",
-      "title": "The nightly preset check has refused to run since the 16th: the act now has more regions than its readout counts",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
     {
       "id": "FG-CACHE-10-RESEARCH",
       "title": "Research and in-game test landed: a smaller cache makes the camera wait; your card now recommends keeping it as it is for now",
@@ -34,10 +29,10 @@
     },
     {
       "id": "MEGAACT-BG-STREAMING",
-      "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
-      "state": "doing",
+      "title": "Region backgrounds: switch landed. Cover warning researched, waits on your definition card; per-region animated strips wait for real band content",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null
+      "blockedBy": "decision card REGION-BG-COVER-DEFINITION"
     },
     {
       "id": "REGIONS-P2-STEP7",
@@ -76,6 +71,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T09:25:42Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T09:36:43Z"
 }
