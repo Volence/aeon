@@ -158,6 +158,11 @@ PIN_SECTION_FRACTION = 0.75           # a page is pinned if >= this fraction of 
 # properties: 2600 tiles is ~3.4x any POOL_TILE_CEILING up to 768, whatever the page size.)
 STRESS_UNIQUIFY_DEFAULT = 2600
 STRESS_XOR_FALLBACK = 0xA5            # nonzero perturbation when the per-clone counter byte is 0
+# The stress bake's clone declaration (written into the act's generated dir ONLY by a
+# --stress-uniquify bake; never committed). verify_level_bin --stress reads it to hold
+# every clone to the editor's pixels after undoing the one declared scratch byte; a
+# canonical verify REFUSES a tree that carries it. Name mirrored in verify_level_bin.py.
+STRESS_CLONES_SIDECAR = "stress_clones.json"
 # (block/chunk geometry constants imported from ojz_common above)
 TILES_PER_CHUNK_ROW = TILES_PER_BLOCK_ROW * BLOCKS_PER_CHUNK_ROW   # 16
 TILES_PER_CHUNK_COL = TILES_PER_BLOCK_COL * BLOCKS_PER_CHUNK_COL   # 16
@@ -886,7 +891,7 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
 
     Mutates `unique`/`pool_order`/`canon_to_pool` in place (clones are APPENDED —
     the real pool + blank tile 0 are untouched, so page 0 stays pinned/blank).
-    Returns `(redirect, clone_parent)`:
+    Returns `(redirect, clone_parent, scratch)`:
       redirect      {(section_index, col, row): clone_pool_slot} — applied in Pass 5
                     (the local-index word rewrite; the original canon-flip is KEPT so
                     the clone renders in the source orientation) and folded into
@@ -894,6 +899,11 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
       clone_parent  {clone_pool_slot: parent_pool_slot} — the parent each clone was
                     minted from (the redirected position's own referenced tile); the
                     parent-match invariant / pytest reads this.
+      scratch       {clone_slot: (byte_offset, xor)} — the ONE byte of the clone's pool
+                    tile (canonical orientation) this function XORed, and by what.
+                    generate() publishes it with clone_parent in the stress sidecar
+                    (STRESS_CLONES_SIDECAR), so verify_level_bin --stress can undo the
+                    declared scratch and still hold every clone to the editor's pixels.
 
     The fixture exists to overwhelm the residency cache: `target_tiles` well above
     PAGE_FRAMES*ART_POOL_PAGE_TILES forces continuous eviction/reload.
@@ -933,6 +943,7 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
     step = len(positions) // n_clones                  # >= 1 (checked above)
     redirect = {}
     clone_parent = {}
+    scratch = {}
     for j in range(n_clones):
         s_idx, col_i, row_i, parent_slot = positions[j * step]   # strided => distinct
         parent_canon = pool_order[parent_slot]
@@ -947,7 +958,8 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
         canon_to_pool[new_canon] = clone_slot
         redirect[(s_idx, col_i, row_i)] = clone_slot
         clone_parent[clone_slot] = parent_slot
-    return redirect, clone_parent
+        scratch[clone_slot] = (row * 4, xor)
+    return redirect, clone_parent, scratch
 
 
 # Repo-relative path the generated `.emp` embed()s reference (matches
@@ -1515,7 +1527,7 @@ def test_stress_uniquify_generation_and_pages():
     N = STRESS_UNIQUIFY_DEFAULT
     unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
     base_len = len(pool_order)
-    redirect, clone_parent = stress_uniquify_pool(
+    redirect, clone_parent, _scratch = stress_uniquify_pool(
         N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
 
     assert len(pool_order) == N, f"pool inflated to {len(pool_order)}, expected {N}"
@@ -1543,7 +1555,7 @@ def test_stress_uniquify_parent_matched():
     swag-clone)."""
     N = STRESS_UNIQUIFY_DEFAULT
     unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
-    redirect, clone_parent = stress_uniquify_pool(
+    redirect, clone_parent, scratch = stress_uniquify_pool(
         N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
     tsz = tile_dedupe.TILE_SIZE
     for (s_idx, col_i, row_i), clone_slot in redirect.items():
@@ -1559,6 +1571,15 @@ def test_stress_uniquify_parent_matched():
                         if clone_tile[k:k + 4] != parent_tile[k:k + 4])
         assert diff_rows == 1, \
             f"clone {clone_slot} differs from parent in {diff_rows} rows, expected 1 (faint scratch)"
+        # The DECLARED scratch (published in the stress sidecar for verify_level_bin
+        # --stress) must be exactly the difference: undoing it restores the parent.
+        off, xor = scratch[clone_slot]
+        assert 0 <= off < tsz and 0 < xor <= 0xFF, f"clone {clone_slot} scratch {scratch[clone_slot]}"
+        undone = bytearray(clone_tile)
+        undone[off] ^= xor
+        assert bytes(undone) == parent_tile, \
+            f"clone {clone_slot}: undoing the declared scratch {scratch[clone_slot]} does not restore its parent"
+    assert set(scratch) == set(clone_parent), "every clone declares exactly one scratch"
     print("  PASS: stress-uniquify parent-matched (no cross-texture swaps)")
 
 
@@ -1567,7 +1588,7 @@ def test_stress_uniquify_local_tables_valid():
     the 11-bit field and each re-pointed clone slot round-trips local→global."""
     N = STRESS_UNIQUIFY_DEFAULT
     unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
-    redirect, _clone_parent = stress_uniquify_pool(
+    redirect, _clone_parent, _scratch = stress_uniquify_pool(
         N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
 
     # Rebuild per-section global sets the way generate() Pass 4/5 does, folding in
@@ -1597,11 +1618,12 @@ def test_stress_uniquify_deterministic():
     """Two independent runs are byte-identical (seeded by index, no RNG)."""
     N = STRESS_UNIQUIFY_DEFAULT
     u1, p1, c1, s1, ids1, s2c1 = _fabricate_stress_inputs()
-    r1, cp1 = stress_uniquify_pool(N, u1, p1, c1, s1, ids1, s2c1)
+    r1, cp1, sc1 = stress_uniquify_pool(N, u1, p1, c1, s1, ids1, s2c1)
     u2, p2, c2, s2, ids2, s2c2 = _fabricate_stress_inputs()
-    r2, cp2 = stress_uniquify_pool(N, u2, p2, c2, s2, ids2, s2c2)
+    r2, cp2, sc2 = stress_uniquify_pool(N, u2, p2, c2, s2, ids2, s2c2)
     assert r1 == r2, "redirect map differs between runs"
     assert cp1 == cp2, "clone-parent map differs between runs"
+    assert sc1 == sc2, "clone scratch map differs between runs"
     assert u1 == u2, "cloned tile bytes differ between runs"
     assert p1 == p2, "pool order differs between runs"
     print("  PASS: stress-uniquify deterministic across runs")
@@ -2184,7 +2206,8 @@ def generate(stress_uniquify=0):
                 f"--stress-uniquify needs the contiguous shipped page layout, but Pass 4 took "
                 f"the {placement['rung']!r} rung; the stress fixture is defined over OJZ's "
                 f"shipped order")
-        stress_redirect, _stress_clone_parent = stress_uniquify_pool(
+        stress_base_pool = len(pool_order)
+        stress_redirect, stress_clone_parent, stress_scratch = stress_uniquify_pool(
             stress_uniquify, unique, pool_order, canon_to_pool,
             per_section_strips, sec_ids_in_order, src_to_canon)
         pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
@@ -2382,6 +2405,35 @@ def generate(stress_uniquify=0):
     with open(os.path.join(out_dir, "ojz_act_pool_manifest.json"), "w") as f:
         json.dump(sidecar, f, indent=2, sort_keys=True)
         f.write("\n")
+
+    # Stress clone declaration (STRESS-UNIQUIFY-REBAKE, 2026-09-17). The fixture's clones
+    # are DELIBERATELY one byte off their parent, so verify_level_bin's editor-bake
+    # fidelity check (added 8706d8f2) refused every stress bake from 2026-09-05 on. The
+    # fix is not to exempt clones: this file declares, per clone, its parent slot and the
+    # one byte it scratched, and the verifier (only under --stress) undoes exactly that
+    # byte and still compares against the editor. It is never a committed file (build.sh's
+    # STRESS_ART restore cleans it with the rest of the throwaway tree), and a canonical
+    # verify refuses a tree that carries one, so a stale one left by a standalone stress
+    # re-bake is removed here instead of failing the next canonical re-bake.
+    stress_sidecar_path = os.path.join(out_dir, STRESS_CLONES_SIDECAR)
+    if stress_redirect is not None:
+        with open(stress_sidecar_path, "w") as f:
+            json.dump({
+                "version": 1,
+                "what": ("ojz_strip_gen --stress-uniquify clone declaration: each clone "
+                         "[slot, parent_slot, byte_offset, xor] is its parent's pool tile "
+                         "(canonical orientation) with tile[byte_offset] ^= xor. "
+                         "Throwaway stress bake only; never commit."),
+                "target_tiles": stress_uniquify,
+                "base_pool_tiles": stress_base_pool,
+                "pool_tiles": len(pool_order),
+                "clones": [[slot, stress_clone_parent[slot], *stress_scratch[slot]]
+                           for slot in sorted(stress_scratch)],
+            }, f, indent=1)
+            f.write("\n")
+    elif os.path.isfile(stress_sidecar_path):
+        os.remove(stress_sidecar_path)
+        print(f"Removed a stale {STRESS_CLONES_SIDECAR} (left by a standalone stress re-bake)")
 
     # ---- A.3 measurement ----
     raw_referenced = len(sorted_indices)

@@ -271,8 +271,14 @@ python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 # The re-bake is the ONE moment the committed tree actually changes — run the
 # drift gate HERE, not just at the next build.sh. (set -euo pipefail above
 # makes a verify failure abort the script with its nonzero exit.)
+# A stress bake is verified as one (--stress): its clones are deliberately one byte off
+# their parent, declared in stress_clones.json, and the editor-bake fidelity check holds
+# each clone to the editor after undoing exactly that byte (verify_level_bin.py
+# _stress_clone_scratch). A canonical bake gets no flag, and refuses that sidecar.
+VERIFY_FLAGS=""
+if [[ -n "${STRESS_UNIQUIFY:-}" ]]; then VERIFY_FLAGS="--stress"; fi
 echo "Verifying the re-baked tree..."
-python3 "${TOOLS}/verify_level_bin.py"
+python3 "${TOOLS}/verify_level_bin.py" ${VERIFY_FLAGS} || { echo "regenerate-level.sh: verify_level_bin refused the re-baked tree (see above)" >&2; exit 1; }
 
 # FG page budget on the tree just written (STITCHED-ACT-PAGE-ORDER wiring). ojz_strip_gen
 # Pass 4 already refused an over-budget placement before writing; this counts what the

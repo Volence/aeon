@@ -1018,7 +1018,12 @@ fi
 # only catch after the ROM already moved.
 if [[ "$FAST" == "0" ]]; then
 echo "Verifying committed OJZ level tree..."
-if ! gate strict "verify_level_bin.py" python3 "${TOOLS}/verify_level_bin.py"; then
+# STRESS_ART verifies the throwaway stress tree as a stress bake (--stress: declared clones
+# are held to the editor after undoing their one scratch byte); canonical builds pass no
+# flag, and a canonical verify refuses a tree carrying the stress clone declaration.
+VERIFY_LEVEL_FLAGS=""
+if [[ "${STRESS_ART:-0}" == "1" ]]; then VERIFY_LEVEL_FLAGS="--stress"; fi
+if ! gate strict "verify_level_bin.py" python3 "${TOOLS}/verify_level_bin.py" ${VERIFY_LEVEL_FLAGS}; then
     echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
 fi

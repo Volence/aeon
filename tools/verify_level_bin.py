@@ -63,6 +63,13 @@ NAMETABLE_ATTR_MASK = 0xE000   # priority + palette line (flip bits are NOT here
 COLLISION_DIR = os.path.join(ROOT, "games", "sonic4", "data", "collision")
 PROFILE_LEN = 16               # one height byte per 16-px column of a collision cell
 
+# The stress bake's clone declaration (ojz_strip_gen.STRESS_CLONES_SIDECAR, mirrored by
+# name; the generator is not importable here, this gate is donor-free). Read ONLY under
+# --stress; a canonical run refuses a tree that carries it. See _stress_clone_scratch.
+STRESS_CLONES_SIDECAR = "stress_clones.json"
+STRESS_MODE = False            # set by main() from --stress (regenerate-level.sh / build.sh
+                               # pass it exactly when STRESS_UNIQUIFY / STRESS_ART is set)
+
 _fail = []
 
 
@@ -688,6 +695,92 @@ def _tile_pixels(blob, idx, hflip, vflip):
     return b"".join(rows)
 
 
+def _stress_clone_scratch(pool, stress=None, gen=None):
+    """None on a canonical run; on a --stress run, {clone_slot: (byte_offset, xor)} for
+    every clone whose declaration checks out against the pool bytes.
+
+    WHY (STRESS-UNIQUIFY-REBAKE, 2026-09-17). The STRESS_ART fixture
+    (ojz_strip_gen --stress-uniquify, P2c Task 11) re-points a spread of nametable words
+    at CLONES of their own tile, each with one byte XORed so the clone is a distinct
+    tile the page cache has to stream. That is a deliberate one-byte pixel difference
+    from what the editor authored, so verify_editor_bake_fidelity (8706d8f2, 2026-09-05)
+    refused every stress re-bake: MEASURED 1988 mismatched word shapes, 1988 distinct
+    clone slots (612..2599), every one differing from the editor in exactly 1 byte, and
+    zero mismatches on a real pool slot.
+
+    THE RULE, which is not an exemption. The generator declares each clone as
+    [slot, parent_slot, byte_offset, xor]. Here: the declaration must be complete
+    (exactly the slots past the real pool, each once), each parent a real non-blank
+    pool tile, and the clone's pool bytes must equal its parent's with that one byte
+    XORed. The fidelity comparison then UNDOES the declared byte on the clone and still
+    demands the editor's pixels. So a wrong tile anywhere is still refused: in a real
+    slot nothing is undone; in a clone slot the undone tile is not the editor's tile
+    (and fails the parent check). A clone slot whose raw bytes already match the editor
+    also fails, since undoing a nonzero XOR then breaks it. The most a declaration can
+    account for is one XOR byte per clone, and only on a tile that otherwise matches.
+
+    TWO KEYS. Honoured only with --stress AND the sidecar. --stress without it is a
+    failure (the stress bake did not declare its clones); the sidecar on a canonical
+    run is a failure too (a stress tree is being verified as a real one, or a stress
+    re-bake's leftover is in the tree), and it is not read.
+    """
+    stress = STRESS_MODE if stress is None else stress
+    path = os.path.join(GEN if gen is None else gen, STRESS_CLONES_SIDECAR)
+    present = os.path.isfile(path)
+    if not stress:
+        check(not present,
+              f"editor bake: {os.path.relpath(path, ROOT)} is present on a CANONICAL verify "
+              f"-- that is the STRESS_ART fixture's clone declaration, so this tree is a "
+              f"stress bake (or a stress re-bake's leftover). Restore the committed tree "
+              f"from git, or verify it as a stress bake with --stress")
+        return None
+    if not present:
+        check(False, f"editor bake: --stress but no {STRESS_CLONES_SIDECAR} in "
+                     f"{os.path.relpath(GEN if gen is None else gen, ROOT)} -- the stress "
+                     f"bake did not declare its clones, so nothing may be undone and every "
+                     f"clone is held to the editor's pixels as-is")
+        return {}
+    try:
+        with open(path) as f:
+            decl = json.load(f)
+        version = decl["version"]
+        base = int(decl["base_pool_tiles"])
+        declared_pool = int(decl["pool_tiles"])
+        clones = [tuple(int(x) for x in c) for c in decl["clones"]]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        check(False, f"editor bake: {STRESS_CLONES_SIDECAR} is unreadable ({e!r})")
+        return {}
+    pool_tiles = len(pool) // TILE_SIZE
+    shape_ok = (version == 1 and 0 < base < declared_pool == pool_tiles
+                and all(len(c) == 4 for c in clones)
+                and [c[0] for c in clones] == list(range(base, declared_pool)))
+    check(shape_ok,
+          f"editor bake: {STRESS_CLONES_SIDECAR} does not declare exactly the clone slots "
+          f"past the real pool (version {version}, base_pool_tiles {base}, pool_tiles "
+          f"{declared_pool} vs {pool_tiles} in the pages, {len(clones)} clone rows) -- "
+          f"no clone is honoured")
+    if not shape_ok:
+        return {}
+    scratch = {}
+    bad = []
+    for slot, parent, off, xor in clones:
+        if not (0 < parent < base and 0 <= off < TILE_SIZE and 0 < xor <= 0xFF):
+            bad.append((slot, parent, off, xor))
+            continue
+        undone = bytearray(pool[slot * TILE_SIZE:(slot + 1) * TILE_SIZE])
+        undone[off] ^= xor
+        if bytes(undone) != pool[parent * TILE_SIZE:(parent + 1) * TILE_SIZE]:
+            bad.append((slot, parent, off, xor))
+            continue
+        scratch[slot] = (off, xor)
+    check(not bad,
+          f"editor bake: {len(bad)} declared stress clone(s) are NOT their parent with the "
+          f"declared byte XORed (first [slot, parent, byte, xor]: {list(bad[0]) if bad else ''}) "
+          f"-- those clones are not honoured, so every word on them is held to the editor "
+          f"as-is")
+    return scratch
+
+
 def verify_editor_bake_fidelity():
     """The committed generated tree must carry the EDITOR's authored nametable,
     pixel for pixel, into the artifacts the ROM consumes. Donor-free.
@@ -759,6 +852,11 @@ def verify_editor_bake_fidelity():
     if not pages:
         return
     pool = b"".join(pages)
+    # None on a canonical run (the comparison below is then exactly the pre-stress-rule
+    # one); on --stress, the verified clone declarations (see _stress_clone_scratch).
+    scratch = _stress_clone_scratch(pool)
+    clone_shapes = 0
+    clones_seen = set()
 
     sections_checked = 0
     words_checked = 0
@@ -836,7 +934,17 @@ def verify_editor_bake_fidelity():
                     src_oob += 1
                     src_oob_max = max(src_oob_max, sw & NAMETABLE_TILE_MASK)
                     continue
-                got = _tile_pixels(pool, g, (rw >> 11) & 1, (rw >> 12) & 1)
+                if scratch and g in scratch:
+                    # A declared stress clone: undo its ONE declared byte, then hold it
+                    # to the editor like any other tile.
+                    off, xor = scratch[g]
+                    tile = bytearray(pool[g * TILE_SIZE:(g + 1) * TILE_SIZE])
+                    tile[off] ^= xor
+                    got = _tile_pixels(bytes(tile), 0, (rw >> 11) & 1, (rw >> 12) & 1)
+                    clone_shapes += 1
+                    clones_seen.add(g)
+                else:
+                    got = _tile_pixels(pool, g, (rw >> 11) & 1, (rw >> 12) & 1)
                 if got is None:
                     range_bad += 1
                     continue
@@ -872,9 +980,24 @@ def verify_editor_bake_fidelity():
     check(sections_checked > 0,
           "editor bake: zero sections had editor tiles to check -- this gate "
           "measured nothing, which is not a pass")
+    if scratch is not None and sections_checked:
+        # Stress: a declared clone no word renders is a declaration nothing tested, and
+        # a stress bake with no clone words is not the fixture it claims to be.
+        unseen = sorted(set(scratch) - clones_seen)
+        check(not unseen,
+              f"editor bake: {len(unseen)} declared stress clone(s) are rendered by no "
+              f"nametable word (first slot {unseen[0] if unseen else ''}) -- the "
+              f"declaration covers art the check never compared")
+        check(clone_shapes > 0,
+              "editor bake: --stress run compared zero clone word shapes -- the stress "
+              "rule measured nothing, which is not a pass")
     if sections_checked and len(_fail) == fails_before:
+        stress_note = ("" if scratch is None else
+                       f"; STRESS: {clone_shapes} word shape(s) on {len(clones_seen)} "
+                       f"declared clone(s) matched the editor after undoing their one "
+                       f"declared scratch byte")
         print(f"verify_level_bin: editor bake fidelity OK "
-              f"({sections_checked} section(s), {words_checked} nametable words)")
+              f"({sections_checked} section(s), {words_checked} nametable words{stress_note})")
 
 
 def _expected_collision_entry(word, base_hm, base_an):
@@ -1071,7 +1194,19 @@ def verify_editor_collision_fidelity():
               f"{cells_checked} cells, {authored_nonair} authored non-air)")
 
 
-def main():
+def main(argv=None):
+    global STRESS_MODE
+    args = sys.argv[1:] if argv is None else list(argv)
+    unknown = [a for a in args if a != "--stress"]
+    if unknown:
+        print(f"usage: verify_level_bin.py [--stress]  (unknown: {' '.join(unknown)})",
+              file=sys.stderr)
+        return 2
+    STRESS_MODE = "--stress" in args
+    if STRESS_MODE:
+        print("verify_level_bin: --stress: verifying a STRESS_ART throwaway bake "
+              f"(declared clones in {STRESS_CLONES_SIDECAR} are held to the editor after "
+              f"undoing their one declared byte)")
     verify_act_pool()
     verify_local_maps()
     verify_block_blobs()
