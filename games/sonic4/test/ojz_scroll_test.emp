@@ -3096,10 +3096,16 @@ proc Debug_PresetReadout_Show () clobbers(d0-d4/a0-a3) {
         // -- (4) queue both cells. Two entries, not one: the sources are a row of the
         //    scene readout's digit sheet and a row of the verdict sheet below, which
         //    are two different tables in ROM. --
-        // The digit first. d4 holds the cursor, which the clamp in the hotkey bounds
-        // at 9, so it indexes the ten-glyph sheet directly with no tens split — the
+        // The digit first. d4 holds the PRESET row's sub-index (the region, loaded in
+        // step (2)), so it indexes the ten-glyph sheet directly with no tens split — the
         // one place this readout is simpler than the scene readout rather than the
-        // same. The assert is the guard that keeps it that way if the clamp ever moves.
+        // same. NO RUNTIME CLAMP bounds it at 9: the old hotkey's clamp to
+        // PRESET_CYCLE_MAX went with Debug_PresetCycleHotkey in 625fdc74. What bounds
+        // it now is the BUILD — tools/test_lab_index_lint.py requires the PRESET rows'
+        // sub-indices to be a dense 0..N-1 run with N <= PRESET_CYCLE_MAX — and the
+        // hotkey's only runtime bound on the row is `< Act.act_region_count`, which
+        // keeps the region read in range but does not cap the digit. The assert is
+        // the runtime guard for a row set the lint never saw.
         assert.w d4, ls, #PRESET_CYCLE_MAX-1    // one digit — see PRESET_CYCLE_MAX, and
                                                 // the precondition in step (2)
         move.w  d3, -(sp)                       // the verdict; d0-d4 do not survive the DMA
