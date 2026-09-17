@@ -253,18 +253,21 @@ def order_footprint_pack(ctx):
 
 REFINE_SX, REFINE_SY = 8, 4     # sample stride: one sample per 8 lefts x 2 even tops
 REFINE_TARGET = 12              # the shipped PAGE_FRAMES; checked against constants at use
-REFINE_MAX_TRIES = 4000         # a TRY cap, not a time cap: the result must not depend on machine speed
-REFINE_LIGHT, REFINE_HEAVY = 3, 4
-REFINE_MAX_MOVE = 16            # tiles moved out of a light page in one group swap
+REFINE_MAX_TRIES = 6000         # per round; a TRY cap, not a time cap: the result must not depend on machine speed
+REFINE_LIGHT, REFINE_HEAVY = 5, 6
+REFINE_MAX_MOVE = 32            # tiles moved out of a light page in one group swap
+REFINE_PIN_ROUNDS = 3           # re-run with the pin rule's pages counted until the pinned set is stable
 
 
-def refine_incidences(ctx, sx=REFINE_SX, sy=REFINE_SY):
+def refine_incidences(ctx, sx=None, sy=None):
     """Per referenced non-blank tile, the sorted indices of the SAMPLE windows it
     occurs in. Sample (i, j) is the union of every real window with left in
     [sx*i, sx*i+sx-1] and even top in [sy*j, sy*j+sy-1], so a tile counted present in
     a sample is present in at least one real window of that cell, and a real window's
     page count is <= its sample's count (UPPER BOUND; the final numbers are always
     re-measured on the exact windows)."""
+    sx = REFINE_SX if sx is None else sx
+    sy = REFINE_SY if sy is None else sy
     tile, r, cc, blank = _tile_cells(ctx)
     H, W = ctx["canon"].shape
     c = ctx["c"]
@@ -303,11 +306,11 @@ def _has(arr, w):
     return i < len(arr) and arr[i] == w
 
 
-def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRIES):
+def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=None, pinned=frozenset({0})):
     """Targeted group-swap local search on sample windows.
 
     State: page_of[tile], cnt[sample, page] = tiles of that page present, and
-    pw[sample] = pages present, counting page 0 always (it is pinned by rule).
+    pw[sample] = pages present OR pinned (`pinned` always includes page 0).
     Loop: take the sample with the most pages that is over `target` and not marked
     stuck; for its LIGHTEST pages P (fewest of their tiles present) and HEAVIEST pages
     Q, move P's present tiles S into Q and swap back the |S| tiles of Q that are absent
@@ -315,9 +318,11 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
     so the pool stays contiguous 64-tile pages). Accept iff the sample loses a page AND
     sum phi(pw) over every touched sample falls, phi(k) = 4^(k-target+2) - 1 above
     target-2 (steep: trading one window at 13 for many at 11 is refused). Otherwise
-    undo and try the next (P, Q); a sample with no accepted move is stuck until any
-    move is accepted. Deterministic: ties break on index, and the budget is a count of
-    tries, never wall time."""
+    undo and try the next (P, Q), then the group split round-robin across the heavy
+    pages. Each over-target sample gets one attempt per pass; a new pass starts only if
+    the last one accepted a move. Deterministic: ties break on index, and the budget is
+    a count of tries, never wall time."""
+    max_tries = REFINE_MAX_TRIES if max_tries is None else max_tries
     page = ctx["c"]["ART_POOL_PAGE_TILES"]
     t0 = time.perf_counter()
     tiles, inc, nwin, blank = refine_incidences(ctx)
@@ -334,7 +339,9 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
     cnt = np.zeros((nwin, npages), dtype=np.int16)
     for k, w in enumerate(inc):
         cnt[w, page_of[k]] += 1
-    pw = ((cnt > 0).sum(axis=1) + (cnt[:, 0] == 0)).astype(np.int32)
+    pinmask = np.zeros(npages, dtype=bool)
+    pinmask[sorted(pinned | {0})] = True
+    pw = ((cnt > 0) | pinmask).sum(axis=1).astype(np.int32)
     start_max = int(pw.max()) if nwin else 0
     start_over = int(np.count_nonzero(pw > target))
     phi = np.array([0.0 if k <= target - 2 else float(4 ** (k - target + 2) - 1) for k in range(128)])
@@ -350,9 +357,39 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
             cnt[inc[k], q] += 1
             page_of[k] = q
         sub = cnt[touched]
-        pw[touched] = (sub > 0).sum(axis=1) + (sub[:, 0] == 0)
+        pw[touched] = ((sub > 0) | pinmask).sum(axis=1)
         return touched, old
 
+    def attempt(P, S, targets, wstar, pref):
+        """Move each tile S[i] to page targets[i]; from each receiving page Q swap back
+        as many of its tiles absent from wstar (best co-presence with P first). Keep
+        iff wstar loses a page and phi over the touched samples falls."""
+        need = {}
+        for q in targets:
+            need[q] = need.get(q, 0) + 1
+        back = []
+        for q, n in need.items():
+            outq = [u for u in members[q] if not _has(inc[u], wstar)]
+            if len(outq) < n:
+                return False
+            score = np.array([np.count_nonzero(pref[inc[u]]) / max(1, len(inc[u])) for u in outq])
+            back += [(outq[i], q) for i in np.argsort(-score, kind="stable")[:n]]
+        fwd = list(zip(S, targets))
+        touched, old = apply(fwd + [(u, P) for u, _ in back])
+        d = phi[np.minimum(pw[touched], 127)].sum() - phi[np.minimum(old, 127)].sum()
+        if d < 0 and pw[wstar] < old[np.searchsorted(touched, wstar)]:
+            for k, q in fwd:
+                members[P].remove(k)
+                members[q].append(k)
+            for u, q in back:
+                members[q].remove(u)
+                members[P].append(u)
+            return True
+        apply([(k, P) for k, _ in fwd] + [(u, q) for u, q in back])
+        return False
+
+    passes = 1
+    accepted_this_pass = 0
     while tries < max_tries:
         over = np.flatnonzero(pw > target)
         if over.size == 0:
@@ -363,43 +400,38 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
                 wstar = w
                 break
         if wstar is None:
-            break
+            # every over-target sample has been tried since the last reset: another
+            # pass only if something changed during this one
+            if accepted_this_pass == 0:
+                break
+            stuck.clear()
+            accepted_this_pass = 0
+            passes += 1
+            continue
         improved = False
         ref = np.flatnonzero(cnt[wstar] > 0)
         light = ref[np.argsort(cnt[wstar, ref], kind="stable")]
-        heavy = ref[np.argsort(-cnt[wstar, ref], kind="stable")]
-        for P in light[:REFINE_LIGHT].tolist():
+        heavy = [q for q in ref[np.argsort(-cnt[wstar, ref], kind="stable")].tolist()]
+        for P in [x for x in light.tolist() if not pinmask[x]][:REFINE_LIGHT]:
             S = [k for k in members[P] if _has(inc[k], wstar)]
             if not S or len(S) > REFINE_MAX_MOVE:
                 continue
             pref = cnt[:, P] > 0
-            for Q in heavy[:REFINE_HEAVY].tolist():
-                if Q == P:
-                    continue
-                outq = [u for u in members[Q] if not _has(inc[u], wstar)]
-                if len(outq) < len(S):
-                    continue
-                score = np.array([np.count_nonzero(pref[inc[u]]) / max(1, len(inc[u])) for u in outq])
-                U = [outq[i] for i in np.argsort(-score, kind="stable")[:len(S)]]
+            qs = [q for q in heavy if q != P][:REFINE_HEAVY]
+            for Q in qs:                                   # whole group into one page
                 tries += 1
-                touched, old = apply([(k, Q) for k in S] + [(u, P) for u in U])
-                d = phi[np.minimum(pw[touched], 127)].sum() - phi[np.minimum(old, 127)].sum()
-                if d < 0 and pw[wstar] < old[np.searchsorted(touched, wstar)]:
-                    accepted += 1
-                    for k in S:
-                        members[P].remove(k)
-                        members[Q].append(k)
-                    for u in U:
-                        members[Q].remove(u)
-                        members[P].append(u)
+                if attempt(P, S, [Q] * len(S), wstar, pref):
                     improved = True
-                    stuck.clear()
                     break
-                apply([(k, P) for k in S] + [(u, Q) for u in U])
+            if not improved and len(S) > 1 and len(qs) > 1:  # split the group across them
+                tries += 1
+                improved = attempt(P, S, [qs[i % len(qs)] for i in range(len(S))], wstar, pref)
             if improved:
                 break
-        if not improved:
-            stuck.add(wstar)
+        if improved:
+            accepted += 1
+            accepted_this_pass += 1
+        stuck.add(wstar)
     out = []
     base_pos = {int(t): i for i, t in enumerate(base_order)}
     for p in range(npages):
@@ -407,8 +439,8 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
         ids = sorted((int(tiles[k]) for k in members[p]), key=lambda t: base_pos[t])
         out += ([blank] + ids) if p == 0 else ids
     ctx["stats"]["refine"] = {
-        "target": target, "sample_windows": int(nwin), "incidences": int(sum(len(w) for w in inc)),
-        "tries": tries, "accepted": accepted, "try_cap_hit": tries >= max_tries,
+        "target": target, "stride": [REFINE_SX, REFINE_SY], "sample_windows": int(nwin), "incidences": int(sum(len(w) for w in inc)),
+        "tries": tries, "accepted": accepted, "passes": passes, "try_cap_hit": tries >= max_tries,
         "sample_max_before": start_max, "sample_over_target_before": start_over,
         "sample_max_after": int(pw.max()) if nwin else 0,
         "sample_over_target_after": int(np.count_nonzero(pw > target)),
@@ -416,13 +448,39 @@ def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRI
     return out
 
 
+def pinned_for_order(ctx, order):
+    """The shipped pin rule (ojz_strip_gen.mark_pinned_pages) applied to `order`."""
+    import ojz_strip_gen
+    page = ctx["c"]["ART_POOL_PAGE_TILES"]
+    pos = {t: i for i, t in enumerate(order)}
+    pages = tile_dedupe.split_pool_into_pages(order, page)
+    sets = [{pos[t] for t in sec} for sec in ctx["per_section"]]
+    return frozenset(i for i, f in enumerate(ojz_strip_gen.mark_pinned_pages(pages, sets)) if f)
+
+
 def order_refined(ctx):
+    """hilbert_first, then refine_order; repeated with the pin rule's pinned pages
+    counted as always present until the pinned set stops changing (at most
+    REFINE_PIN_ROUNDS rounds)."""
     if ctx["c"]["PAGE_FRAMES"] != REFINE_TARGET:
         raise SystemExit(f"REFINE_TARGET {REFINE_TARGET} != PAGE_FRAMES {ctx['c']['PAGE_FRAMES']}: re-derive")
     t0 = time.perf_counter()
-    base = order_hilbert_first(ctx)
+    order = order_hilbert_first(ctx)
     ctx["stats"]["base_seconds"] = round(time.perf_counter() - t0, 3)
-    return refine_order(ctx, base)
+    pinned = frozenset({0})
+    rounds = []
+    for _ in range(REFINE_PIN_ROUNDS):
+        order = refine_order(ctx, order, pinned=pinned)
+        st = ctx["stats"].pop("refine")
+        new_pinned = pinned_for_order(ctx, order)
+        st["pinned_counted"] = sorted(pinned)
+        st["pinned_after"] = sorted(new_pinned)
+        rounds.append(st)
+        if new_pinned <= pinned:
+            break
+        pinned = pinned | new_pinned
+    ctx["stats"]["refine_rounds"] = rounds
+    return order
 
 
 CANDIDATES = {
