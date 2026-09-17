@@ -1,6 +1,12 @@
 {
-  "focus": "Clipping works: a piece of Emerald Hill and a piece of Chemical Plant now make one act.",
-  "inFlight": [],
+  "focus": "Clipping works; now importing Sonic 2's ground shapes so a piece has something to stand on.",
+  "inFlight": [
+    {
+      "what": "Collision: importing Sonic 2's ground shapes as our own shape bank",
+      "where": "branch parcel/s2-collision-bank",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here: clipping is landed and pushed; collision is the next step.",
+  "nextBoundary": "When the shape bank lands; then clip collision, then the first picture on screen.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: clipping landed (two zones compose into one act). Next: collision, then the first picture",
-      "state": "next",
+      "title": "Sonic 2 test act: clipping landed; importing Sonic 2's ground shapes now, then the first picture",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -55,6 +61,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T20:50:02Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T20:51:11Z"
 }
