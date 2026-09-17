@@ -131,7 +131,7 @@ def config(name):
         raise SystemExit(f"config {name!r}: page tiles must be 64 or 32")
     if s not in ("none", "zone", "perzone", "page0shared"):
         raise SystemExit(f"config {name!r}: unknown split {s!r}")
-    if o not in ("shipped", "rzs12") and not re.fullmatch(r"rzs(12)?F(t[0-9]+)?", o):
+    if o not in ("shipped", "rzs12") and not re.fullmatch(r"rzs(12)?F(t[0-9]+)?(s[0-9]+)?(w)?", o):
         raise SystemExit(f"config {name!r}: unknown order {o!r}")
     if pin not in ("rule75", "pin0", "frameaware"):
         raise SystemExit(f"config {name!r}: unknown pin policy {pin!r}")
@@ -314,7 +314,8 @@ def run_pipeline_ext(act, c, order_fn=None, split="none", keep_shared_fn=None):
 # Refinement over explicit pages (controlled against megaact_page_order.refine_order)
 # ---------------------------------------------------------------------------
 
-def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), group=None, max_move=None):
+def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), group=None, max_move=None,
+                 stride=None, light_n=None, heavy_n=None):
     """megaact_page_order.refine_order over explicit page member lists (canonical ids,
     page 0 includes the blank) with an optional same-group move constraint (`group[p]`:
     moves only between pages of one group). Same samples, cost, move, loop and
@@ -323,7 +324,10 @@ def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), grou
     max_tries = mpo.REFINE_MAX_TRIES if max_tries is None else max_tries
     max_move = mpo.REFINE_MAX_MOVE if max_move is None else max_move
     t0 = time.perf_counter()
-    tiles, inc, nwin, blank = mpo.refine_incidences(ctx)
+    light_n = mpo.REFINE_LIGHT if light_n is None else light_n
+    heavy_n = mpo.REFINE_HEAVY if heavy_n is None else heavy_n
+    sx, sy = (mpo.REFINE_SX, mpo.REFINE_SY) if stride is None else stride
+    tiles, inc, nwin, blank = mpo.refine_incidences(ctx, sx, sy)
     row = {int(t): i for i, t in enumerate(tiles.tolist())}
     npages = len(pages)
     page_of = np.zeros(len(tiles), dtype=np.int32)
@@ -408,12 +412,12 @@ def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), grou
         ref = np.flatnonzero(cnt[wstar] > 0)
         light = ref[np.argsort(cnt[wstar, ref], kind="stable")]
         heavy = [q for q in ref[np.argsort(-cnt[wstar, ref], kind="stable")].tolist()]
-        for P in [x for x in light.tolist() if not pinmask[x]][:mpo.REFINE_LIGHT]:
+        for P in [x for x in light.tolist() if not pinmask[x]][:light_n]:
             S = [k for k in members[P] if mpo._has(inc[k], wstar)]
             if not S or len(S) > max_move:
                 continue
             pref = cnt[:, P] > 0
-            qs = [q for q in heavy if q != P and (group is None or group[q] == group[P])][:mpo.REFINE_HEAVY]
+            qs = [q for q in heavy if q != P and (group is None or group[q] == group[P])][:heavy_n]
             for Q in qs:
                 tries += 1
                 if attempt(P, S, [Q] * len(S), wstar, pref):
@@ -433,7 +437,7 @@ def refine_pages(ctx, pages, target, max_tries=None, pinned=frozenset({0}), grou
         ids = sorted((int(tiles[k]) for k in members[p]), key=lambda t: base_pos[t])
         out.append(([blank] + ids) if p == 0 else ids)
     ctx["stats"].setdefault("refine_rounds", []).append({
-        "target": target, "sample_windows": int(nwin), "tries": tries, "accepted": accepted,
+        "target": target, "stride": [sx, sy], "light": light_n, "heavy": heavy_n, "sample_windows": int(nwin), "tries": tries, "accepted": accepted,
         "passes": passes, "try_cap_hit": tries >= max_tries, "sample_max_before": start_max,
         "sample_over_target_before": start_over, "sample_max_after": int(pw.max()) if nwin else 0,
         "sample_over_target_after": int(np.count_nonzero(pw > target)),
@@ -470,11 +474,18 @@ def make_order(cfg, target):
         return None
     # rzs12: 09's search (target 12). rzsF: target F. rzs12F: 09's search, then a second
     # search at F starting from its result. A trailing t<k> multiplies the try budget by k.
-    m = re.fullmatch(r"rzs(12)?(F)?(?:t([0-9]+))?", cfg["order"])
+    m = re.fullmatch(r"rzs(12)?(F)?(?:t([0-9]+))?(?:s([0-9]+))?(w)?", cfg["order"])
     stages = [12] if m.group(1) else []
     if m.group(2):
         stages.append(target)
     tries = mpo.REFINE_MAX_TRIES * int(m.group(3) or 1)
+    # s<k>: sample stride k lefts x k tops (tops even, so k >= 2); w: wider move search
+    knobs = {}
+    if m.group(4):
+        k = int(m.group(4))
+        knobs["stride"] = (k, max(2, k if k % 2 == 0 else k + 1))
+    if m.group(5):
+        knobs["light_n"], knobs["heavy_n"] = 2 * mpo.REFINE_LIGHT, 2 * mpo.REFINE_HEAVY
     if cfg["pin"] == "rule75" and len(stages) > 1:
         raise SystemExit("two-stage orders are measured with pin0/frameaware only")
     rounds = mpo.REFINE_PIN_ROUNDS if cfg["pin"] == "rule75" else 1
@@ -520,11 +531,11 @@ def make_order(cfg, target):
         for _ in range(rounds):
             if len(stages) == 1:
                 pages = refine_pages(ctx, pages, stages[0], max_tries=tries, pinned=pinned, group=group,
-                                     max_move=page // 2)
+                                     max_move=page // 2, **knobs)
             else:
                 for tgt in stages:
                     pages = refine_pages(ctx, pages, tgt, max_tries=tries, pinned=pinned, group=group,
-                                         max_move=page // 2)
+                                         max_move=page // 2, **knobs)
             if cfg["pin"] != "rule75":
                 break
             new = _pinned_rule75(ctx, pages)
