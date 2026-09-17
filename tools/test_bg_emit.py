@@ -1295,12 +1295,29 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
 
     # ---- the per-shape table (d-28-answered, then the ROM re-layout) ------------
 
-    def test_per_shape_table_names_exactly_the_two_sonic4_listings(self):
-        """The shape IS its listing. A third shape, or a renamed listing, has no ruled
-        number and must surface as a missing row here, not as a silent default."""
+    def _stress_listings_from_build_sh(self):
+        """The off-canonical STRESS_* fixture shapes' listings, read off build.sh's own
+        `ROM_NAME="s4.stress..."` assignments rather than typed here, so renaming a
+        stress artifact breaks this test instead of leaving a row keyed to a dead name."""
+        with open(os.path.join(self.AEON, "build.sh")) as f:
+            names = re.findall(r'^\s*ROM_NAME="(s4\.stress[a-z]*)"\s*$', f.read(), re.M)
+        self.assertEqual(len(names), 2,
+                         f"build.sh should declare exactly the two STRESS_* shapes "
+                         f"(STRESS_EVICT, STRESS_ART); found {names}")
+        return sorted(n + ".lst" for n in names)
+
+    def test_per_shape_table_names_the_sonic4_listings_and_the_stress_fixtures(self):
+        """The shape IS its listing. A further shape, or a renamed listing, has no ruled
+        number and must surface as a missing row here, not as a silent default.
+
+        The two STRESS_* rows (fix/stress-shapes-build, 2026-09-17) carry the SAME ruled
+        number: both are the sonic4 DEBUG shape plus a comptime define and author the same
+        editor BG sections. They are keyed explicitly so bganim_room still measures each
+        stress ROM's own room from its own listing."""
+        stress = self._stress_listings_from_build_sh()
         self.assertEqual(sorted(inject_editor_bg.BGANIM_SECTION_CEILINGS),
-                         ["s4.debug.lst", "s4.lst"])
-        for lst in ("s4.lst", "s4.debug.lst"):
+                         sorted(["s4.debug.lst", "s4.lst"] + stress))
+        for lst in ["s4.lst", "s4.debug.lst"] + stress:
             self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS[lst],
                              inject_editor_bg.BGANIM_SECTION_CEILING_RULED)
 
@@ -1338,7 +1355,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             bganim_room.ceiling_for_listing(os.path.join(self.AEON, "demo.debug.lst"))
         self.assertIn("demo.debug.lst", str(cm.exception))
         self.assertIn("BGANIM_SECTION_CEILINGS", str(cm.exception))
-        for lst in ("s4.lst", "s4.debug.lst"):
+        for lst in ["s4.lst", "s4.debug.lst"] + self._stress_listings_from_build_sh():
             key, ceiling = bganim_room.ceiling_for_listing(os.path.join(self.AEON, lst))
             self.assertEqual((key, ceiling),
                              (lst, inject_editor_bg.BGANIM_SECTION_CEILINGS[lst]))
