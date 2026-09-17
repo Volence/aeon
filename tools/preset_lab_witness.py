@@ -56,7 +56,9 @@ only question worth asking is a runtime one: does the press install, and does th
 match. That question needs a machine.
 
 WHAT IT MEASURES.
-  1. The CURSOR advances, one section per press, and wraps at the act's section count.
+  1. The CURSOR advances, one row per press, and wraps at LAB_CYCLE_COUNT (the one list's
+     length — this line used to say "at the act's section count", which stopped being the
+     wrap when the three chords collapsed into one list on 2026-09-05).
   2. The INSTALL is real, read off the engine's own state rather than off the hotkey:
      `Raster_Program` becomes the section's bound program and `Pal_Cycle_Script` becomes
      the section's `ep_cycle`. These are the cells `Raster_VBlank` and `Palette_LoadCycle`
@@ -144,6 +146,20 @@ WHAT IT DOES NOT MEASURE.
     via a patched world anchor at 0. Nothing was added to reach BLIND; the act's content
     moved under a claim nothing was running to contradict.
   * It runs the DEBUG shape only, which is the only shape any of this exists in.
+  * ⚠ IT DOES NOT MEASURE A REGION NO PRESET ROW CAN REACH, AND SAYS SO ON EVERY RUN
+    (2026-09-17, parcel/preset-lab-witness-regions). The readout paints ONE decimal digit,
+    so the lab's preset rows are capped at `PRESET_CYCLE_MAX` (ojz_scroll_test.emp, beside
+    `LAB_CYCLE_COUNT`; tools/test_lab_index_lint.py fails the build on an eleventh row) —
+    "hidden rather than mislabelled", the trade DEFERRED_WORK's preset-readout entry
+    records. The DEBUG act outgrew that cap on 2026-09-15 (7de53e2e appended the E2 snap
+    row; the tall and showcase rows followed), and this file used to REFUSE the whole walk
+    on `1 <= count <= 10`, a literal that stood for two different facts at once: "the lab
+    covers every region" and "every region index fits the digit". It now derives the cap
+    from the source constant and walks exactly the regions a preset row CAN name —
+    min(act region count, PRESET_CYCLE_MAX) — requires the lab to name every one of those,
+    and prints the regions past the cap as NOT MEASURED, in the verdict as well as the
+    body. What is not measured there is real and unchanged by this file: a region past the
+    cap has no lab row, so nothing on screen can install or label its preset.
 
 IT REFUSES rather than guesses on: a served ROM that does not match the file on disk, a
 cursor that does not advance, a `Raster_Pending` still staged after the settle (VBlank
@@ -472,7 +488,10 @@ def source_const(name: str) -> int:
     return int(m.group(1))
 
 
-async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
+async def run(sock: str, rom: str, lst: str, unmeasured: list[str]) -> tuple[int, list[str]]:
+    """`unmeasured` is filled with what this run could NOT reach, whatever the exit code, so
+    the caller prints it beside every verdict rather than only beside a refusal."""
+    unmeasured.clear()
     b = BusClient(socket_path=sock, client_id="preslab", client_name="preset_lab_witness")
     await b.connect()
     await b.call("emulator/load_symbols", {"path": lst})
@@ -536,8 +555,17 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         kind_preset = source_const("LAB_KIND_PRESET")
         kind_scene = source_const("LAB_KIND_SCENE")
         kind_wline = source_const("LAB_KIND_WLINE")
+        # The readout's one-digit cap. A preset row's sub-index is the digit it paints, so
+        # the rows can name regions 0..PRESET_CYCLE_MAX-1 and no more — whatever the act
+        # holds. Read, not typed: the refusal this replaces was a literal 10.
+        digit_cap = source_const("PRESET_CYCLE_MAX")
     except RuntimeError as e:
         return 2, [str(e)]
+    if not 1 <= digit_cap <= len(digits):
+        return 2, [f"{LAB_SOURCE.name} declares PRESET_CYCLE_MAX {digit_cap}, but the readout's "
+                   f"digit sheet this instrument reads holds {len(digits)} glyphs — a cap "
+                   f"outside 1..{len(digits)} would index past the sheet, so the digit "
+                   f"expectation below could not be derived"]
     # The same either-spelling resolve, for the same reason: `.lab_index` is exported
     # (three procs walk it) and `.scene_table` is not, and which side of that fork a
     # label sits on is not this instrument's business to remember.
@@ -624,10 +652,21 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
                    "default, and with no default there is nothing to compare against"]
     o = _ACT_OFF["act_region_count"]
     count = int.from_bytes(grid[o:o + 2], "big")
-    if not 1 <= count <= 10:
-        return 2, [f"the act reports {count} regions; this instrument walks the whole "
-                   f"cycle and the readout clamps at 10, so anything else needs the "
-                   f"clamp handled explicitly rather than assumed"]
+    if count < 1:
+        return 2, [f"the act reports {count} regions — there is no region table to walk"]
+    # ---- THE CLAMP, HANDLED RATHER THAN ASSUMED ----
+    # This was `if not 1 <= count <= 10: REFUSE`, and it was right to refuse: the walk below
+    # used to require the preset rows to be exactly 0..count-1. What caps the rows is the
+    # READOUT (one digit, PRESET_CYCLE_MAX), not the act, so the regions this instrument can
+    # honestly measure are the first min(count, cap). The rest are reported, by index, as NOT
+    # MEASURED — never folded into a green that reads as "every region checked".
+    reachable = min(count, digit_cap)
+    if count > reachable:
+        unmeasured.append(
+            f"regions {reachable}..{count - 1} of {count} were NOT MEASURED: the preset "
+            f"readout is one digit (PRESET_CYCLE_MAX {digit_cap}, {LAB_SOURCE.name}), so "
+            f"no `.lab_index` row can name them and nothing on screen installs or labels "
+            f"their presets")
     none_prog = sym["Raster_Program_None"]
     none_cycle = sym["Pal_Cycle_None"]
     print(f"act at ${act:06X}: {count} regions, table ${regions:06X}; "
@@ -685,11 +724,14 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
         return V_NONE, ("no raster, no patched program, no palette cycle, and the act's "
                         "own default background")
 
-    if sorted(row_of_section) != list(range(count)):
-        return 2, [f"the act reports {count} regions but `.lab_index`'s preset rows name "
+    if sorted(row_of_section) != list(range(reachable)):
+        return 2, [f"the act reports {count} regions and the readout's cap is "
+                   f"PRESET_CYCLE_MAX {digit_cap}, so the preset rows should name exactly "
+                   f"regions 0..{reachable - 1}; `.lab_index`'s preset rows name "
                    f"{sorted(row_of_section)} — the list and the act disagree, so a walk "
-                   f"over one of them says nothing about the other. "
-                   f"tools/test_lab_index_lint.py fails the build on this too"]
+                   f"over one of them says nothing about the other"]
+    for u in unmeasured:
+        print(f"NOT MEASURED: {u}")
 
     # ---- THE PREAMBLE: the crossed rows, stepped ON PURPOSE ----
     # The first press wraps cursor 0 onto row LAB_CYCLE_COUNT-1, which is the proof that
@@ -796,7 +838,8 @@ async def run(sock: str, rom: str, lst: str) -> tuple[int, list[str]]:
               f"verdict {V_NAMES[want_verdict]} ({why})")
 
     if retries:
-        print(f"  NOTE: {retries} extra press(es) were needed across {count} steps — "
+        print(f"  NOTE: {retries} extra press(es) were needed across "
+              f"{len(crossed) + len(row_of_section)} steps — "
               f"a press landing entirely inside a lag frame is not sampled by Input_Tick. "
               f"This is an instrument property, not a hotkey one; a step that needed more "
               f"than {PRESS_RETRIES} would have failed above.")
@@ -817,7 +860,8 @@ def main() -> int:
           f"({Path(a.rom).stat().st_size} B, crc32 "
           f"{zlib.crc32(Path(a.rom).read_bytes()):08x})")
     with aether_emulator(a.rom, symbols=a.lst) as sock:
-        code, fails = asyncio.run(run(sock, a.rom, a.lst))
+        unmeasured: list[str] = []
+        code, fails = asyncio.run(run(sock, a.rom, a.lst, unmeasured))
     if code == 2:
         print("\nREFUSED — unmeasurable:")
     elif fails:
@@ -828,6 +872,10 @@ def main() -> int:
         print("\nOK — every press stepped the cursor, installed that section's channels, "
               "and painted a digit + verdict that match the ROM's own glyph sheets and the "
               "preset's own fields.")
+    # NOT MEASURED rides on EVERY verdict, OK included: a green over part of the act must
+    # not read as a green over all of it.
+    for u in unmeasured:
+        print(f"  NOT MEASURED: {u}")
     return code
 
 
