@@ -35438,6 +35438,20 @@ per-tick cap on the entry axis. The durations are measured in
 opaque-foreground extent per crossing is authoring data only Aurora and the level build can
 compute. Warn, not refuse (R5's shape).
 
+**UPDATE 2026-09-17 (`parcel/region-bg-cover-warning`, phase 1 only): BLOCKED on the definition
+of "opaque cover", an owner call.** Note: `docs/superpowers/notes/2026-09-17-region-bg-cover-warning.md`
+(measurement script beside it). Required cover is derived from source there: uncontended
+n = ceil(blob bytes / `BG_OVERWRITE_CHUNK_BYTES`) ticks, plus `ceil(BG_SCREEN_ROWS /
+BG_WIPE_ROWS_PER_FRAME) - 1` for the visible repaint. A vertical crossing whose BG can V-scroll
+needs the full sweep instead (`BG_WIPE_FRAMES - 1`), and the booking's formula above undercounts
+it. The cost report's measured 11/12 vertical ticks are one past the visible-row figure. Leaving a
+tile-owning region is also an overwrite, back to the act blob: 6 chunks for OJZ, not 3. Release has
+no tile-switch crossing. DEBUG has 8, the showcase row's four edges both ways. Readings disagree on
+real crossings: whole-screen pixel/tile readings warn on all 8; a centre-line "some lane exists"
+reading warns on 6; a >= 50% opaque-fraction reading warns on 5. The owner has to pick the
+definition: strict whole screen (recommended), centre line, or a threshold. Nothing was
+implemented.
+
 ## REGION-BG-CAMERA-HOLD: hold the camera when authored cover is shorter than the switch (booked 2026-09-16, owner option)
 
 The owner's OC-3 answer ("Maybe hold, I guess we should see how long it is") under full overwrite.
