@@ -1458,8 +1458,16 @@ def test_full_pipeline_runs():
             assert side["version"] == 2 and side["page_tiles"] == ART_POOL_PAGE_TILES
             assert len(side["pages"]) == len(page_files)
             assert side["pages"][0]["pinned"] is True, "page 0 must always be pinned"
-            # (Collision tables are no longer emitted by generate() — they're the
-            # fixed imported S&K set written by tools/import_sk_collision.py.)
+            # THE COLLISION TABLES ARE EMITTED BY generate(), and this comment used
+            # to say they were not ("the fixed imported S&K set written by
+            # import_sk_collision.py"). They are the sparse INTERNED set, emitted from
+            # the attr-set this bake builds, and until 2026-09-17 they went to the
+            # SHIPPED games/sonic4/data/collision/ no matter what this test set
+            # COLLISION_DIR to. Assert they land inside the redirect, so the escape
+            # cannot come back silently.
+            for name in ("heightmaps.bin", "angles.bin"):
+                assert os.path.exists(os.path.join(COLLISION_DIR, name)), \
+                    f"{name} not written inside the COLLISION_DIR redirect"
         finally:
             OUTPUT_DIR = saved
             COLLISION_DIR = saved_coll
@@ -2187,8 +2195,21 @@ def generate(stress_uniquify=0):
         }
         # Emit the sparse INTERNED runtime tables the ROM uses (overwrites the
         # default full-bank tables import_sk_collision.py wrote).
-        coll_out = os.path.normpath(os.path.join(
-            os.path.dirname(__file__), "..", "games", "sonic4", "data", "collision"))
+        #
+        # THIS USED TO WRITE PAST THE COLLISION_DIR REDIRECT (found 2026-09-17, row 6),
+        # exactly as Pass 8 once wrote past the OUTPUT_DIR redirect. The destination was
+        # re-derived from __file__ here, so `python3 tools/ojz_strip_gen.py test` — whose
+        # test_full_pipeline_runs points COLLISION_DIR at a tmpdir and whose comment says
+        # "collision tables are no longer emitted by generate()" (false; this is the
+        # emission) — rewrote the SHIPPED games/sonic4/data/collision/ tables on every
+        # run. MEASURED: heightmaps.bin and angles.bin mtimes both moved across one
+        # `ojz_strip_gen.py test`. Harmless only by luck — the test bakes the same editor
+        # data, so the bytes matched and `git status` stayed clean. Point the module at a
+        # SECOND act (configure(), the clip bake) and the same line silently replaces the
+        # shipped act's ROM collision tables with the clip's, which is the D1 incident
+        # regenerate-level.sh's preflight exists to prevent, one layer down.
+        coll_out = os.path.normpath(COLLISION_DIR)
+        os.makedirs(coll_out, exist_ok=True)
         for name, data in collision_pipeline.emit_tables(attrset).items():
             with open(os.path.join(coll_out, name), "wb") as f:
                 f.write(data)
