@@ -1,6 +1,12 @@
 {
-  "focus": "Your showcase call: a six-zone Sonic 2 act built from clipped pieces, inside regions; Sonic 3 later.",
-  "inFlight": [],
+  "focus": "Designing the Sonic 2 converter and the clip-and-paste step for your six-zone showcase act.",
+  "inFlight": [
+    {
+      "what": "Design pass for the Sonic 2 converter and the clip-and-paste-as-region step",
+      "where": "branch research/s2-compressed-act",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,14 +14,14 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here: nothing in flight; handoff 23 is the resume anchor.",
+  "nextBoundary": "When the converter design comes back and you have read it.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: six zones converted, clipped and pasted into one act as regions (art and collision first)",
-      "state": "open",
+      "title": "Sonic 2 test act: six zones you named (Emerald Hill, Chemical Plant, Hidden Palace, Wing Fortress, Oil Ocean, Metropolis), clipped into one act as regions",
+      "state": "doing",
       "size": "L",
-      "blockedBy": "which six zones, then your go on the converter design pass",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -54,7 +60,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "which six Sonic 2 zones, and a go to start the level converter design",
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T16:00:34Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T17:39:56Z"
 }
