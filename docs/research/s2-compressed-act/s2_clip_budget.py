@@ -37,6 +37,14 @@ only places a number can move:
     `window`, `act`, `zones`, `clipsweep` and `pallines` figure are byte-for-byte
     what the pre-promotion tool produced.
 
+WHAT CHANGED 2026-09-17 AGAIN (S2-COMPRESSED-ACT parcel 3). `mode_place` handed
+`place_pool` the raw `ojz_strip_gen.mark_pinned_pages`, which returns a
+list[bool]; `place_pool` wants PAGE INDICES and `generate()` wraps it. See
+`pin_rule_fn` below for the full statement and the measurement. The §3.3 table in
+the design doc is UNAFFECTED (no page on those acts reaches the pin rule's 75%
+threshold, so the candidate set is empty either way — re-measured both ways);
+small acts move, and `--pins raw` reproduces the old behaviour.
+
 The ONLY things this file still owns are:
   * Clip(): crop a loaded Zone to a sub-rectangle, which is exactly the
     "marquee a rectangle" operation the owner asked for
@@ -339,6 +347,32 @@ def mode_pallines(args):
         print(f"{zn}: FG palette lines {d}  priority-bit on {100 * pri[nz].mean():.1f}% of cells")
 
 
+def pin_rule_fn(mode):
+    """`place_pool`'s `rule_pins_fn`, in the shape it actually wants.
+
+    CORRECTED 2026-09-17 (S2-COMPRESSED-ACT parcel 3). `place_pool` calls
+    `rule_pins_fn(pages, sets)` and then does `sorted(set(candidates) - {0})`,
+    so it needs PAGE INDICES. `ojz_strip_gen.mark_pinned_pages` returns a
+    list[bool] parallel to `pages`, and `generate()` wraps it at its Pass 4 call
+    (`tools/ojz_strip_gen.py`, `rule_pins_fn=lambda pages, sets: [i for i, f in
+    enumerate(mark_pinned_pages(pages, sets)) if f]`). This file passed the raw
+    function, so the candidate set became `{False, True} - {0}` = `{True}` = page
+    1: every act with any pinned page pinned page 1 instead, and no act could
+    pin any other page. MEASURED effect: on the published §3.3 acts, none — no
+    page reaches the 75% threshold there, so the candidate set is empty either
+    way and the whole table reproduces unchanged. On a SMALL act it moves the
+    answer: `place EHZ:1,0,1,1 CPZ:1,0,1,1` prints pins [0, True] worst 11 with
+    `--pins raw` and pins [0, 4] worst 10 with the default.
+
+    `--pins raw` keeps the old behaviour reachable, exactly as `--profiles
+    horizontal` keeps the pre-parcel-1 collision figures reachable.
+    """
+    if mode == "raw":
+        return ojz_strip_gen.mark_pinned_pages
+    return lambda pages, sets: [
+        i for i, f in enumerate(ojz_strip_gen.mark_pinned_pages(pages, sets)) if f]
+
+
 def mode_place(args):
     """The DECISIVE one: run the REAL Pass 4 placement (fg_page_order.place_pool,
     the function ojz_strip_gen.generate() calls at tools/ojz_strip_gen.py:2177)
@@ -367,7 +401,7 @@ def mode_place(args):
     bc = fpo.load_budget_constants()
     t0 = time.time()
     pl = fpo.place_pool(canon, act.zone_id, unique, st, act.grid_w, act.grid_h, bc,
-                        ojz_strip_gen.mark_pinned_pages, log=print)
+                        pin_rule_fn(args.pins), log=print)
     v = pl["verdict"]
     print(fpo.verdict_line(v, act.name))
     print(json.dumps({
@@ -422,6 +456,11 @@ def main():
         p.add_argument("--no-align", action="store_true")
         p.set_defaults(fn=fn); subparsers.append(p)
     for p in subparsers:
+        p.add_argument("--pins", default="wrapped", choices=("wrapped", "raw"),
+                       help="how mark_pinned_pages is handed to place_pool (place only). "
+                            "wrapped is the shape generate() uses and the correct one; "
+                            "raw reproduces this file's pre-2026-09-17 behaviour, which "
+                            "pinned page 1 for any act with a pinned page")
         p.add_argument("--donor", default=s2_donor.S2_FINAL, choices=DONORS,
                        help="which Sonic 2 donor tree to measure "
                             "(default: the final game)")

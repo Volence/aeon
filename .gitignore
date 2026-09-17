@@ -203,3 +203,14 @@ docs/research/external/
 # and these trees must be tracked, or the ROM will be built from bytes nobody can
 # reproduce. Booked in docs/DEFERRED_WORK.md under S2-COMPRESSED-ACT.
 games/sonic4/data/donors/
+
+# S2-COMPRESSED-ACT staged plan row 3: a clip act's BAKED output
+# (tools/clip_act_bake.py). The `clips.json` beside it IS tracked — it is authored
+# content, the file aurora writes, and the only input to the bake that is not a
+# donor tree. `baked/` is derived from it plus the (gitignored) converted donor
+# trees, so it is regenerable and reproducible only as far as those are:
+#     python3 tools/s2_zone_convert.py convert --all-six
+#     python3 tools/clip_act_bake.py bake games/sonic4/data/clips/<id>/clips.json
+# The same rule the donors block states applies here: the moment a clip act's
+# bytes reach the ROM (row 6), this line has to go and the tree has to be tracked.
+games/sonic4/data/clips/*/baked/
