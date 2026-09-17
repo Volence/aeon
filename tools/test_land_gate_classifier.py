@@ -58,6 +58,16 @@ KNOWN = {
         "the same hand-run write site",
     ("tools/fg_working_set.py", "docs/generated/vram-map-sonic4.md"):
         "read in-process by tools/test_fg_working_set.py, a declared reader of docs/generated/",
+    ("tools/megaact_page_order.py", "docs/research/megaact-bg-streaming/08-m-b-results-s2.json"):
+        "STITCHED-ACT-PAGE-ORDER's research tool, run BY HAND: `report` reads M-B's committed "
+        "evidence to take its act populations and to check its shipped candidate against it. "
+        "Evidence that it never runs in a build, derived 2026-09-16: a grep over "
+        "*.py/*.sh/*.toml/*.cfg/*.ini names it in its own file, a docstring of "
+        "megaact_window_pageset.py, and tools/test_cli_dispatch_refuses.py, which imports it and "
+        "tripwires build_report/control_presence so neither runs (MB_JSON is a module constant, "
+        "not opened at import); build.sh names it 0 times",
+    ("tools/megaact_page_order.py", "docs/research/megaact-bg-streaming/08-m-b-results-s3k.json"):
+        "the same hand-run tool and evidence",
     ("tools/ramp_boundary_probe.py", "docs/benchmarks/effects-p3"):
         "an emulator probe run by hand; the directory is where it writes its PNG evidence",
     ("tools/tilt_frame_static_audit.py", "docs/witness/f7-tilt-frames.png"):

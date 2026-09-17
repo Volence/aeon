@@ -36175,3 +36175,33 @@ block the mega-act design. It is booked because it is a real, measured error in 
 MEASURED, counts are camera windows through the unmodified dedupe/order/page/pin functions: S2 seams fit at 12 and 10 frames; S3K seams go over in 11 of 90 pairs at 12 (worst 15); three-zone junctions go over in 6/24 (S2, worst 17) and 24/32 (S3K, worst 21); all 10 S3K zones in one row: 4.67% of windows over at 12, 16.14% at 10. **But no window holds more than 452 distinct tiles (8 pages if packed well)**, so the fix to try is the ORDERING, and its effect is unmeasured. Per-window bound only; no single order has been shown to meet it everywhere.
 
 Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SECTIONS` 48; (b) CNZ1 alone at 10 frames pins 10 pages and leaves 0 evictable, which bears on REGIONS-P2-STEP7's 12 -> 10 lever; (c) `constants.emp:470` and `ENGINE_ARCHITECTURE.md:5488` say OJZ pins 4 pages, the committed manifest pins 5 (`[0,1,7,8,9]`), prose not yet corrected. **Not covered:** object art, BG, animated tiles, transient demand from stalled columns, eviction order in motion, and whether over-budget reaches the camera hold at runtime (M-E still owed).
+
+**Order measured (2026-09-16, `research/stitched-act-page-order`):** report `docs/research/megaact-bg-streaming/09-page-order-candidates.md`, tool `tools/megaact_page_order.py`, evidence `09-page-order-results-{s2,s3k,ojz}.json` and `09-page-order-timing-s3k-chain.json`. Eight candidate orders were run on exactly M-B's acts (404 acts). The shipped candidate re-derives every committed M-B value (7,158 values, 0 mismatches).
+
+- **At 12 frames: fixed.** `refined_zonesplit` (Hilbert first-use order, a deterministic try-capped swap search against windows over 12 that counts the pin rule's pages, and dedupe keyed per zone) has **0 windows over 12 in every population**. MEASURED, counts of camera windows:
+  - S3K junctions: 68,957 -> 0, worst 21 -> 12.
+  - S3K 10-zone row: 227,206 -> 0, worst 18 -> 12.
+  - S3K offset sweep: 43,059 -> 0.
+  - S3K pair seams: 11,208 -> 0.
+  - S2 junctions: 10,296 -> 0.
+  - S2 row: 11,575 -> 0.
+- **Cheaper candidates do not get there.** Hilbert order alone makes the S3K row worse (335,663). Centroid and co-occurrence-greedy orders are worse than shipped almost everywhere. The refinement without the zone split leaves 2,559 over in the S3K row; the split without the refinement leaves 75,063.
+- **At 10 frames: not fixed.** Every multi-zone population still has windows over 10 (S3K row 183,187 = 3.76%). A refinement stage aimed at 10 was tried on 2 acts and did not help.
+- **No margin at 12.** The worst window is exactly 12 wherever the search worked; 54,237 S3K-row windows sit at 12.
+
+**Recommendation:** adopt `refined_zonesplit` for multi-region acts, **together with** a build-time refusal on the placed act's window page count. The search met its target here but guarantees nothing on authored data.
+
+- **Build cost (MEASURED):** 3.5 s for the whole S3K row, up to 48 s for a contended S3K junction act, and 0.11 s for OJZ act 1 (shipped 0.000 s). Order function only, replayed.
+- **OJZ cost of adopting:**
+  - Worst window stays 10 and 0 windows go over 10, but windows needing 6+ pages rise 25,231 -> 40,092.
+  - Pinned pages change [0,1,7,8,9] -> [0,2,7,8,9].
+  - Page ROM 11,964 -> 11,870 B.
+  - 10/10 page payloads, 8/9 local maps and 44,223 cells' local indices change; block streams are INFERRED to change too.
+- **Zone split pool cost:** +245 tiles in the S2 row (EHZ/HTZ share an art file) and +41 in the S3K row; bytes not measured.
+
+**Still open:**
+
+1. 10 frames. Levers named, none built: a frame-aware pin rule (under the recommended order CNZ1 alone pins 9 of 12), smaller cache margins, 32-tile pages, per-region pools.
+2. The zero margin at 12 against M-B's transient-demand items, and M-E.
+3. Wiring the order and the gate into `ojz_strip_gen` Pass 4 (not done: this parcel changes no shipped byte).
+4. The 164-vs-48 section cap. No order interacts with it.
