@@ -825,3 +825,9 @@ print(h)"
 
 Wall clock at measurement: 2026-09-17, dev box up 1 day 18 h, load average 1.3-5.8 across the
 runs. No emulator was used and nothing was built.
+
+---
+
+*This report and its measurement tool were committed on `research/s2-compressed-act` as
+`2b6a104` (the tool) and `07c7e10` (the report + the `S2-COMPRESSED-ACT` booking update).
+No engine code, no `.emp`, no build change, and no emulator was used.*
