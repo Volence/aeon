@@ -965,6 +965,10 @@ def _work(args):
     for name in cfgs:
         r = measure(act, c, config(name), fixed_cache, None, bursts)
         r.pop("_arrays")
+        # evidence size: histograms are kept for the headline count only
+        for field in ("needed_rule75", "needed_pin0", "needed_reachable"):
+            for v in r[field].values():
+                v.pop("histogram", None)
         out["configs"][name] = r
     out["elapsed_s"] = round(time.perf_counter() - t0, 2)
     return out
