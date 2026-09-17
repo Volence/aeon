@@ -364,6 +364,9 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
     could only ever fire for a player standing on solid ground, and you can enter
     a loop's far side airborne.
 
+    RULE R3 (a shape past the end of the bank RAISES) is implemented below, added by
+    S2-COMPRESSED-ACT row 5. See the comment at the check for what it replaces.
+
     RULE R2 (refuse a self-mark: a plane-A cell marked TO_A) IS NOT IMPLEMENTED,
     and the reason is STRUCTURAL rather than unfinished: this function is handed
     one plane's word at a time and takes no plane parameter, so it cannot ask
@@ -395,6 +398,26 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
         if xover == XOVER_NONE:
             return 0
         return attrset.intern(bytes(PROFILE_LEN), 0x00, SOL_NONE, xover)
+    # RULE R3 — a shape past the bank is a REFUSAL, not a short slice. The cell word
+    # gives the shape 10 bits (0..1023) and a bank holds MAX_PROFILES = 256, so an
+    # authored word CAN name one that is not there. This used to slice past the end
+    # and intern a ZERO-LENGTH profile, which `emit_tables` then met as a bare
+    # `IndexError: index out of range` from inside `rotate_profile` — no cell, no
+    # shape, no bank named — and which, for any profile that did not raise there,
+    # would have assigned an empty slice into the table bytearray and SHORTENED it.
+    # Found by S2-COMPRESSED-ACT row 5 while painting a synthetic over-cap act; no
+    # committed editor plane file names a solid shape above 255, so the guard is
+    # byte-neutral for the shipping act (measured, not assumed).
+    n_shapes = len(profiles) // PROFILE_LEN
+    if shape >= n_shapes:
+        raise ValueError(
+            f"bake_plane_cell: cell word ${cell_word:04X} names collision shape "
+            f"{shape} (${shape:03X}), and the base bank holds {n_shapes} shapes "
+            f"(0..{n_shapes - 1}). The cell word's shape field is 10 bits and a bank "
+            f"is 256 entries, so this is representable and wrong rather than "
+            f"impossible. Either the cell was painted against a DIFFERENT bank — the "
+            f"same index means a different shape in games/sonic4/data/collision/base/ "
+            f"(S&K) and .../base_s2/ (Sonic 2) — or the word is corrupt.")
     heights = profiles[shape * PROFILE_LEN:(shape + 1) * PROFILE_LEN]
     angle = angles[shape] if shape < len(angles) else 0
     if cell_word & CHUNK_XFLIP_BIT:

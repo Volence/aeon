@@ -602,6 +602,47 @@ def test_the_unruled_rotate_profile_is_still_the_one_emit_tables_calls(bank):
         CP.emit_tables(s)
 
 
+def test_a_shape_past_the_end_of_the_bank_is_refused_by_name(bank):
+    """`bake_plane_cell` R3, found by row 5 while painting a synthetic over-cap act.
+
+    The cell word gives the shape 10 bits and a bank holds 256 entries, so an authored
+    word can name one that is not there. It used to slice past the end and intern a
+    ZERO-LENGTH profile, which `emit_tables` met as a bare `IndexError: index out of
+    range` from inside `rotate_profile` naming neither the cell nor the shape nor the
+    bank. The guard is byte-neutral for the shipping act — measured, not assumed, by the
+    control below.
+    """
+    profiles, angles = bank
+    n = len(profiles) // CP.PROFILE_LEN
+    word = n | (CP.SOL_ALL << CP.PLANE_SOL_SHIFT)
+    with pytest.raises(ValueError) as e:
+        CP.bake_plane_cell(word, profiles, angles, CP.AttrSet())
+    assert "base_s2" in str(e.value) and str(n) in str(e.value)
+    # the last IN-range shape still bakes, so the boundary is the boundary
+    CP.bake_plane_cell((n - 1) | (CP.SOL_ALL << CP.PLANE_SOL_SHIFT),
+                       profiles, angles, CP.AttrSet())
+
+
+def test_no_committed_plane_file_names_a_shape_past_its_bank():
+    """The CONTROL for the row above: R3 cannot have changed what the shipped act bakes.
+
+    Every committed editor plane file, every SOLID cell, highest shape index. If this ever
+    reaches 256 the new refusal would start firing on a real bake, and this is what says
+    so before the build does.
+    """
+    import glob
+    highest = -1
+    files = sorted(glob.glob(os.path.join(
+        REPO, "games", "sonic4", "data", "editor", "*", "*", "section_*.collattr*.bin")))
+    assert files, "no committed editor plane files matched — this row measured nothing"
+    for p in files:
+        g = np.frombuffer(open(p, "rb").read(), dtype=">u2")
+        solid = ((g >> CP.PLANE_SOL_SHIFT) & 3) != 0
+        if solid.any():
+            highest = max(highest, int((g[solid] & CP.BLOCK_ID_MASK).max()))
+    assert 0 <= highest < CP.MAX_PROFILES, highest
+
+
 def test_the_showcase_zones_do_not_need_18(bank):
     """The reason C3 is quiet on real data, recorded so it fails if it stops being true.
 
