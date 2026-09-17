@@ -1,7 +1,8 @@
 {
-  "focus": "Struct-size check landed; an agent is adding the art stress tests to the nightly run.",
+  "focus": "Landing the nightly stress builds; an agent is fixing a nightly check that has not run since the 16th.",
   "inFlight": [
-    { "what": "Build both art stress tests in the nightly run, failure reported as FAILED", "where": "branch parcel/stress-shapes-nightly", "agent": true }
+    { "what": "Nightly preset check refuses every night: act has more regions than its readout shows", "where": "branch parcel/preset-lab-witness-regions", "agent": true },
+    { "what": "Build both art stress tests in the nightly run, failure reported as FAILED", "where": "branch parcel/stress-shapes-nightly", "agent": false }
   ],
   "blockedOnOwner": [
     {
@@ -17,6 +18,13 @@
   ],
   "nextBoundary": "When both agents land: then region background pieces (cover-length warning, animated bands).",
   "queue": [
+    {
+      "id": "PRESET-LAB-WITNESS-REGIONS",
+      "title": "The nightly preset check has refused to run since the 16th: the act now has more regions than its readout counts",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
     {
       "id": "FG-CACHE-10-RESEARCH",
       "title": "Research and in-game test landed: a smaller cache makes the camera wait; your card now recommends keeping it as it is for now",
@@ -76,5 +84,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T08:49:49Z"
+  "updatedAt": "2026-09-17T09:20:17Z"
 }
