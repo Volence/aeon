@@ -59,7 +59,7 @@ THE THREE NUMBERS this tool makes agree, and what each would catch:
   printout. N3 is a separate command by design: it is an INDEPENDENT second implementation
   and folding it in here would make it this tool's own opinion.
 
-WHAT SECTION-ALIGNED PLACEMENT ACTUALLY BUYS (`measure-r12`, and it is less than the
+WHAT SECTION-ALIGNED PLACEMENT ACTUALLY BUYS (`measure-alignment`, and it is less than the
 design's §2.2 claimed). Two 1024x1024 clips of two different zones, EHZ and CPZ, in a
 2x1-section act — same cells, same tilesets, three placements:
 
@@ -83,7 +83,7 @@ design's §2.2 claimed). Two 1024x1024 clips of two different zones, EHZ and CPZ
 Usage:
     python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N]
     python3 tools/clip_act_bake.py recount <baked DIR>
-    python3 tools/clip_act_bake.py measure-r12
+    python3 tools/clip_act_bake.py measure-alignment
 """
 
 import json
@@ -478,36 +478,36 @@ def _mode_recount(rest):
     return 0 if v["ok"] else 1
 
 
-R12_CLIPS = ("s2disasm", "EHZ", "s2disasm", "CPZ")
+ALIGN_CLIPS = ("s2disasm", "EHZ", "s2disasm", "CPZ")
 
 
-#: (label, clip A dst x, clip B dst x) for measure-r12, in a 2x1-section act with two
+#: (label, clip A dst x, clip B dst x) for measure-alignment, in a 2x1-section act with two
 #: 1024x1024 clips of two different zones. Row 2 is the CONTROL for row 3: the two clips
 #: touch in both, so "a camera window can hold both zones" is held fixed and the only
 #: thing that varies is whether the section boundary falls between them. Row 1 is the
 #: separated case, kept to show how much of row 3's cost is adjacency rather than mixing.
-R12_ROWS = (
+ALIGN_ROWS = (
     ("separated, one zone per section", 0, 2048),
     ("adjacent,  one zone per section", 1024, 2048),
     ("adjacent,  both in section 0", 0, 1024),
 )
 
 
-def _mode_measure_r12(rest):
+def _mode_measure_alignment(rest):
     """The measurement behind clip_manifest's R12, run from the same code the bake uses."""
     if rest:
         print(USAGE)
         return 1
     import tempfile
     rows = []
-    for label, ax, bx in R12_ROWS:
-        doc = {"schema": 1, "id": "r12_probe", "act": {"grid_w": 2, "grid_h": 1},
+    for label, ax, bx in ALIGN_ROWS:
+        doc = {"schema": 1, "id": "align_probe", "act": {"grid_w": 2, "grid_h": 1},
                "clips": [
-                   {"id": "a", "donor": R12_CLIPS[0], "zone": R12_CLIPS[1],
+                   {"id": "a", "donor": ALIGN_CLIPS[0], "zone": ALIGN_CLIPS[1],
                     "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},
                     "dst_rect": {"x": ax, "y": 0, "w": 1024, "h": 1024},
                     "unaligned_dst_reason": "R12 measurement probe"},
-                   {"id": "b", "donor": R12_CLIPS[2], "zone": R12_CLIPS[3],
+                   {"id": "b", "donor": ALIGN_CLIPS[2], "zone": ALIGN_CLIPS[3],
                     "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},
                     "dst_rect": {"x": bx, "y": 0, "w": 1024, "h": 1024},
                     "unaligned_dst_reason": "R12 measurement probe"}]}
@@ -516,9 +516,9 @@ def _mode_measure_r12(rest):
             with open(p, "w") as fh:
                 json.dump(doc, fh)
             try:
-                act = _load_ignoring_r12(p)
+                act = _load_probe(p)
             except clip_manifest.ClipManifestError as exc:
-                print(f"measure-r12 UNMEASURABLE — {exc}")
+                print(f"measure-alignment UNMEASURABLE — {exc}")
                 return 2
             st = place(act, log=None)
             m = emit(act, st, os.path.join(td, "baked"))
@@ -534,37 +534,23 @@ def _mode_measure_r12(rest):
     return 0
 
 
-def _load_ignoring_r12(path):
-    """Load a manifest with R12 suppressed — ONLY for measure-r12, which measures R12.
+def _load_probe(path):
+    """`clip_manifest.load` for the alignment probe.
 
-    R12 is the LAST rule `clip_manifest.load` runs, so a manifest that reaches it has
-    already passed every other rule; the ClipAct is then rebuilt from those validated
-    pieces rather than by giving the validator a bypass flag that a caller could reach.
+    The mixed placement it measures is a WARNING (W3), not a refusal, and the offset
+    placements carry the in-file `unaligned_dst_reason` R11 asks for, so this is the
+    ordinary loader. It exists as its own name because the probe manifests are built here
+    rather than tracked, and the tests share it.
     """
-    seen = []
-    try:
-        return clip_manifest.load(path, warn=None)
-    except clip_manifest.ClipManifestError as exc:
-        if not str(exc).startswith("R12"):
-            raise
-        seen.append(str(exc))
-    with open(path) as fh:
-        raw = json.load(fh)
-    clips = [clip_manifest.Clip(cr, i) for i, cr in enumerate(raw["clips"])]
-    keys = {}
-    for cl in clips:
-        cl.zone_key = keys.setdefault(cl.tree_key, len(keys))
-    return clip_manifest.ClipAct(path, raw, clips, raw["act"]["grid_w"],
-                                 raw["act"]["grid_h"],
-                                 clip_manifest.geometry_constants(), seen)
+    return clip_manifest.load(path, warn=None)
 
 
 USAGE = """Usage:
     python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N]
     python3 tools/clip_act_bake.py recount <baked DIR>
-    python3 tools/clip_act_bake.py measure-r12"""
+    python3 tools/clip_act_bake.py measure-alignment"""
 
-MODES = {"bake": _mode_bake, "recount": _mode_recount, "measure-r12": _mode_measure_r12}
+MODES = {"bake": _mode_bake, "recount": _mode_recount, "measure-alignment": _mode_measure_alignment}
 
 
 def main(argv=None):
