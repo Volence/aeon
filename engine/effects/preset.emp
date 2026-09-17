@@ -117,6 +117,26 @@ pub struct EffectsPreset (size: 46) {
 // unreachable module, guards do not fire AND declared layouts are not validated:
 // treat everything in one as unverified, no matter what a report claims about it.
 //
+// RE-MEASURED 2026-09-17 against sigil d7e6aa15 (md5 8027e7ba7fba6ef5e3351aa3211e1520),
+// which added a declared-size check that no longer waits for a use to force the layout.
+// Its reach is the `use` closure, NOT the whole tree. Same probe text,
+// `struct ProbeUnreachSize (size: 9) { pr_a: u16 @ $00, }` (fields total 2), appended
+// to two modules, built as sonic4 plain, sonic4 debug and demo plain:
+//   - engine/objects/children.emp (in the closure, the struct never referenced):
+//     all three exit 1, "struct ProbeUnreachSize: declared size 9 but fields total 2".
+//   - engine/debug/sound_debug.emp (outside the closure in all three; the census
+//     names it): all three exit 0, no diagnostic. Also exit 0 with the struct `pub`.
+//     Controls for that module: a syntax error appended there fails all three, so
+//     it IS parsed; `(size: 2)` builds clean; `ensure(1 == 2)` appended there builds
+//     clean, and the census count goes from 2 to 3.
+// So both halves of the sentence above still hold for an UNREACHABLE module. What
+// changed is inside the closure: a declared size there no longer needs anything to
+// force its layout. And the census is no instrument for layouts: it reports ENSURE
+// counts, so it tells you nothing about a struct. The sigil lane reported
+// (2026-09-16, not re-measured here) that it names only modules with at least one
+// ensure, so a census that does not name a module does NOT show that the module is
+// reachable. To check one, append `ensure(1 == 2)` to it and confirm the build fails.
+//
 // `preset()`'s OWN ensures never had this problem and ARE live: they were verified at
 // authoring time by deliberately violating each one from a real call site in
 // configs.emp and confirming the build failed with the intended message. A comptime

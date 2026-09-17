@@ -156,6 +156,14 @@ pub struct Region (size: 26) {
                                         //       Identity is the POINTER: two rows naming one
                                         //       blob never re-upload.
 }
+// ⚠ SUPERSEDED IN PART 2026-09-17: sigil d7e6aa15 checks a declared `(size: N)` for every
+// struct in a module inside the `use` closure, referenced or not. Measured: SpawnDesc mutated to
+// `(size: 41)` fails sonic4 and demo; an unreferenced probe struct in engine/objects/children.emp
+// fails all three shapes. It still does NOT check a module outside the closure (a probe in
+// engine/debug/sound_debug.emp builds clean); engine/effects/preset.emp records that measurement.
+// The paragraph below is the pre-d7e6aa15 history. The `ensure` still earns its place: it
+// catches a record change made with the declaration moved to match, which no size check can.
+//
 // A `(size: N)` DECLARATION IS NOT CHECKED BY ANY PASS THAT WALKS DECLARED STRUCTS — it is
 // verified only inside `layout_of_struct`, i.e. only when something in the build FORCES this
 // struct's layout. Measured by the sigil lane over seventeen shapes with a positive control
@@ -174,12 +182,12 @@ pub struct Region (size: 26) {
 // PASSED and this line was the only thing left to fail); it costs zero ROM bytes, measured
 // as a byte-identical debug ROM across adding it.
 //
-// The same class is LIVE in this tree at engine/objects/children.emp's
-// `pub struct SpawnDesc (size: 4)`, which builds clean mutated to `(size: 41)` under both
-// games. Booked in docs/DEFERRED_WORK.md rather than fixed here — different file, different
-// parcel's subject.
+// The same class WAS live at engine/objects/children.emp's `pub struct SpawnDesc (size: 4)`,
+// which built clean mutated to `(size: 41)` under both games. CLOSED 2026-09-17 by sigil
+// d7e6aa15, not by an ensure here: the same mutation now exits 1 for both games (see the
+// closed row in docs/DEFERRED_WORK.md).
 ensure(sizeof(Region) == 26,
-       "engine/structs.emp: sizeof(Region) is {sizeof(Region)}, and the record is 26 bytes (22 until the region bg switch appended rg_bg_tiles, 2026-09-16). The `(size: ...)` declaration above is NOT self-checking: sigil verifies it only inside layout_of_struct, i.e. only when something in the build forces this struct's layout, and in the shipping closure that is ONE site (engine/level/parallax.emp's `lea sizeof(Region)(a0), a0` in Region_Resolve). This `ensure` is what makes the size a build-time fact independent of that site. If you meant to change the record, change the declaration and this line together, and re-read Parallax_CheckBoundary's two span-major `move.l` cache fills — they read x0:x1 and y0:y1 as pairs and assume the first four fields' order")
+       "engine/structs.emp: sizeof(Region) is {sizeof(Region)}, and the record is 26 bytes (22 until the region bg switch appended rg_bg_tiles, 2026-09-16). Since sigil d7e6aa15 the `(size: ...)` declaration above is checked against its fields whenever this module is in the `use` closure, but that cannot catch a record change made with the declaration moved to match. This `ensure` pins the size itself. If you meant to change the record, change the declaration and this line together, and re-read Parallax_CheckBoundary's two span-major `move.l` cache fills — they read x0:x1 and y0:y1 as pairs and assume the first four fields' order")
 
 // -----------------------------------------------
 // Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.
