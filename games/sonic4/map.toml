@@ -362,8 +362,13 @@ when = "sound_on"
 
 # ── Holes (declared as data now; boot_data enforcement rides K2) ──
 [[hole]]
-after = "Z80_IdleProgram"   # the Z80 idle runs from the label to `at`; MEASURED 0x3C8..0x3F0
-at = 0x3F0                   # post-hole AS data (PSG silence, post-DMA) resumes here (idle 0x3C8..0x3F0)
+after = "Z80_IdleProgram"   # the Z80 idle runs from the label to `at`; MEASURED 0x3D6..0x3FE (config_b, 2026-09-17)
+at = 0x3FE                   # post-hole AS data (PSG silence, post-DMA) resumes here (idle 0x3D6..0x3FE)
+                             # ⚠ MOVED 0x3F0 -> 0x3FE by LS-13b (2026-09-17): boot's Z80 hold became a
+                             # `with z80_stopped(interleave: …)` bracket (+18 B code) and BootData lost its
+                             # a1 long (-4 B), net +14. Measured in `sigil build --native --config-b`:
+                             # BootData 0x3A4, BootData_PostBlob 0x3FE; config_b bytes identical at 0x3F0 and
+                             # at 0x3FE. The 0x3F0/0x3FE history below predates this move.
                              # ⚠ was 0x3FE, and the comment said $3d8..$3fe, from 2026-08-01
                              # (a7375682/K1) — both went stale when the layout moved twice
                              # underneath them (boot region +8, idle body 38->40 B) and

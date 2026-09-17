@@ -46,13 +46,14 @@ WHAT IT DOES NOT COVER, and each of these is a real hole:
   * ANY OTHER FILE. This lint reads sound_api.emp only. Counted 2026-09-07: SIXTEEN more
     `with z80_stopped` brackets across eight files — vblank.emp 6, section.emp 3, bg.emp 2,
     boot.emp 1, controllers.emp 1, parallax.emp 1, sound_debug.emp 1, ojz_scroll_test.emp 1
-    — plus the one hold that is not a bracket at all (below). Several are correct only
+    — plus, until LS-13b (2026-09-17), one hold that was not a bracket at all (below);
+    boot.emp now has 2 brackets and the tree 23. Several are correct only
     because of a mask established many lines above them, or because they run in interrupt
     context where the 68000's own IPL is the mask — neither of which this file-scoped text
     rule models. Do not read a green run HERE as a statement about them.
     ⚠ THEY ARE NO LONGER UNCHECKED, and this bullet used to imply they were. Since LS-13a
-    (2026-09-07) tools/test_z80_bus_hold_mask_census.py checks the mask at ALL 22 brackets
-    tree-wide, plus the ordering that masks boot's hand-spelled hold. It found one real
+    (2026-09-07) tools/test_z80_bus_hold_mask_census.py checks the mask at ALL the brackets
+    tree-wide (22 then, 23 since LS-13b), plus the reset-entry ordering. It found one real
     gap on the tree it landed against (Sound_DebugMirror, which declared no
     `requires(vblank)`), and that is fixed. This file stays for what the tree-wide gate
     does NOT do: the header-premise check below, which is sound_api-specific.
@@ -62,17 +63,14 @@ WHAT IT DOES NOT COVER, and each of these is a real hole:
     count, 22. The hit and prose totals are partly a function of the comment blocks doing
     the counting, so only the code count is worth quoting. The census itself lives in
     engine/z80_bus.emp's header — that is the file to update, not this docstring.
-  * THE ONE HOLD THAT IS NOT A BRACKET AT ALL, and so is invisible to any grep for
-    `with z80_stopped`: engine/system/boot.emp's `EntryPoint` spells its own bus
-    request/spin/release by hand around the Z80 driver-blob copy. ⚠ THE METHOD THIS
-    BULLET USED TO NAME DOES NOT FIND IT: grepping `Z80_BUS_REQUEST|Z80_RESET|A11100|
-    A11200` hits only a COMMENT in boot.emp — the request and release are
-    `move.w d7,(a1)` / `move.w d0,(a1)` and neither names the register (re-run 2026-09-07;
-    see engine/z80_bus.emp's header for the enumeration that does close it). It is masked
-    (the reset SR still stands; boot's first `sr` write comes after both of its holds),
-    and since LS-13a that ORDERING is checked — by
-    test_boot_hand_spelled_hold_precedes_the_first_sr_write in the tree-wide gate. Its
-    PAIRING is still checked by nothing, here or in sigil.
+  * ~~THE ONE HOLD THAT IS NOT A BRACKET AT ALL~~ — GONE since LS-13b (2026-09-17).
+    engine/system/boot.emp's `EntryPoint` used to spell its own bus request/spin/release
+    by hand (`move.w d7,(a1)` / `move.w d0,(a1)`, invisible to any grep for the register
+    name). It is now `with z80_stopped(interleave: asm { move.w d7, (a2) }) { … }`, so its
+    PAIRING is proven by sigil's `[context.*]` checks like every other bracket, its mask
+    ordering by test_reset_entry_holds_precede_the_first_sr_write, and the tree-wide gate's
+    test_no_hand_spelled_bus_hold_remains refuses any code outside engine/z80_bus.emp that
+    names the bus-request register, so a hand-spelled hold cannot quietly come back.
   * A MASK ESTABLISHED BY A CALLER. A proc in this file that is only ever reached with SR
     already at $2700 would be flagged, and correctly so — the rule is that the transaction
     masks. The tree-wide gate takes the one honest exception to that: a proc declaring

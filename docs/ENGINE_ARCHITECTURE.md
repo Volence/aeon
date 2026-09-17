@@ -476,8 +476,9 @@ ensure(PLANE_H_CELLS * PLANE_V_CELLS <= 4096, "Plane exceeds 8KB")
 ```asm
 ; Pack hardware addresses into registers with movem (S.C.E. pattern)
         lea.l   BootData(pc), a5
-        movem.w (a5)+, d5-d7        ; d5=$8000 (VDP reg base), d6=$3FFF (RAM loop), d7=$0100 (Z80 bus)
-        movem.l (a5)+, a0-a4        ; a0=Z80_RAM, a1=Z80_Bus, a2=Z80_Reset, a3=VDP_Data, a4=VDP_Ctrl
+        movem.w (a5)+, d5-d7        ; d5=$8000 (VDP reg base), d6=$3FFF (RAM loop), d7=$0100 (Z80 reset / reg stride)
+        movem.l (a5)+, a0/a2-a4     ; a0=Z80_RAM, a2=Z80_Reset, a3=VDP_Data, a4=VDP_Ctrl
+                                    ; (no a1=Z80_Bus since LS-13b: the bus hold is a z80_stopped bracket, §0.5)
 
 ; Write 24 VDP registers from table
         moveq   #23, d1
@@ -677,38 +678,31 @@ The sanctioned transient hits today are the `$8F02`/`$8F80` autoincrement excurs
 | Reset | `$A11200` | `$0100` = run, `$0000` = assert reset |
 | Z80 RAM | `$A00000-$A01FFF` | 8KB, **byte writes only** |
 
-**Init sequence** (with YM2612-safe timing):
+**Init sequence** (with YM2612-safe timing) — ONE `z80_stopped` bracket (`engine/system/boot.emp`). Since LS-13b (2026-09-17) the hold is no longer hand-spelled: the reset release that must sit between the bus request and the grant spin rides in the context's `interleave` slot (sigil named slot, decision d-33), which `engine/z80_bus.emp` splices inside the acquire. The bracket therefore carries the compiler's pairing proofs, and its request/release are the absolute writes sigil's `[bus.*]` tier recognises. The old `a1 = Z80_BUS_REQUEST` preload is gone.
 
-```asm
-; Phase 1: Assert reset, request bus
-        move.w  d0, (a2)                ; Assert Z80 reset (d0 = 0, active low)
-        move.w  d7, (a1)                ; Request Z80 bus (d7 = $0100)
-        move.w  d7, (a2)                ; Release Z80 reset
+```
+        move.w  d0, (a2)                ; Assert Z80 reset (d0 = 0, active low) — outside the hold
+        with z80_stopped(interleave: asm { move.w d7, (a2) }) {
+            ; acquire: move.w #$0100, Z80_BUS_REQUEST   ; request bus
+            ;          move.w d7, (a2)                  ; (slot) release Z80 reset
+            ;          .wait_z80: btst #0, Z80_BUS_REQUEST / bne .wait_z80
 
-; Phase 2: Wait for bus grant
-.wait_z80:
-        btst    d0, (a1)                ; Poll bus grant (bit 0)
-        bne.s   .wait_z80              ; Loop until Z80 stops
+            ; Load Z80 program (byte writes!) — the full sound driver when
+            ; SOUND_DRIVER_ENABLED (the default build), the idle program otherwise.
+            ; a5 already points at the included blob in BootData.
+            if SOUND_DRIVER_ENABLED == 1 { move.w #Z80_SOUND_SIZE-1, d1 }  ; blob exceeds moveq range
+            else                         { moveq  #Z80_IDLE_SIZE-1, d1 }
+        .load_z80:
+            move.b  (a5)+, (a0)+        ; Copy to Z80 RAM
+            dbf     d1, .load_z80
 
-; Phase 3: Load Z80 program (byte writes!) — the full sound driver when
-; SOUND_DRIVER_ENABLED (the default build), the idle program otherwise.
-; a5 already points at the included blob in BootData.
-    ifdef SOUND_DRIVER_ENABLED
-        move.w  #Z80_SOUND_SIZE-1, d1   ; word count — blob may exceed moveq range
-    else
-        moveq   #Z80_IDLE_SIZE-1, d1
-    endif
-.load_z80:
-        move.b  (a5)+, (a0)+            ; Copy to Z80 RAM
-        dbf     d1, .load_z80
-
-; Phase 4: Reset with YM2612-safe delay
-        move.w  d0, (a2)                ; Assert reset (d0 = 0)
-        moveq   #25, d2                 ; ~264 cycles delay (YM2612 needs ≥192)
-.ym_delay:
-        dbf     d2, .ym_delay
-        move.w  d7, (a2)                ; Release reset — Z80 starts running
-        move.w  d0, (a1)                ; Release bus — Z80 has control
+            ; Reset with YM2612-safe delay
+            move.w  d0, (a2)            ; Assert reset (d0 = 0)
+            moveq   #25, d2             ; ~264 cycles delay (YM2612 needs ≥192)
+        .ym_delay:
+            dbf     d2, .ym_delay
+            move.w  d7, (a2)            ; Release reset — Z80 starts running
+        }                               ; release: move.w #$0000, Z80_BUS_REQUEST — Z80 has control
 ```
 
 **Z80 idle program** (`engine/system/z80_init.emp` — used only in sound-OFF builds):
@@ -1021,7 +1015,7 @@ Power On
   Cold_Boot:
   ├── TMSS handshake ($A10001 revision-nibble test, "SEGA" → $A14000 if non-zero)
   ├── Read VDP control port (reset command word state machine)
-  ├── movem preload d5-d7/a0-a4 from BootData
+  ├── movem preload d5-d7/a0/a2-a4 from BootData
   │
   ├── VDP register init ($00-$17, 24 registers from table)
   │     └── Register $17 = $80 primes DMA fill

@@ -46,7 +46,11 @@ The two supporting anchors:
   drives the YM2612's `/IC` pin, so this pulse resets the FM chip. The YM2612
   requires the line held at least 192 cycles; 264 clears that.
 - `engine/system/boot.emp:149` — `move.w d0, (a1)`, the bus release. **From
-  this instruction onward the Z80 is executing.** In a sound build that is the
+  this instruction onward the Z80 is executing.** *(Since LS-13b, 2026-09-17, the
+  Z80 init hold is a `with z80_stopped(interleave: …)` bracket and this release is
+  the bracket's closing brace, which splices `move.w #$0000, Z80_BUS_REQUEST`; the
+  order — reset pulse, then bus release — is unchanged. The line numbers in this
+  section predate that parcel and were already stale before it.)* In a sound build that is the
   full sound driver, not an idle loop.
 - `engine/z80_bus.emp` — the `z80_stopped` context. Its acquire asserts BUSREQ
   and spins on the grant bit; it does not and cannot know what instruction the

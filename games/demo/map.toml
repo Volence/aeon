@@ -52,7 +52,10 @@ at = 0x10000
 
 [[hole]]
 after = "Z80_IdleProgram"
-at = 0x3F0   # the idle packs flush after boot_head (0x3C8 plain / 0x3CC debug, 40 B); post-hole data resumes at 0x3F0 plain / 0x3F4 debug — this row is the LOWER bound across the sound-off shapes
+at = 0x3FE   # the idle packs flush after boot_head (0x3D6 plain / 0x3DC debug, 40 B); post-hole data resumes at 0x3FE plain / 0x404 debug — this row is the LOWER bound across the sound-off shapes
+             # RE-MEASURED 2026-09-17 (LS-13b: boot's bracketed Z80 hold +18 B code, BootData head -4 B) in sigil direct builds; was 0x3F0
+             # (0x3C8/0x3CC, 0x3F0/0x3F4). Bumping 0x3F0 -> 0x3FE left demo plain/debug bytes identical; 0x400 is refused
+             # by [map.hole-interior-occupied] (boot_tail at 0x3FE), so 0x3FE is the tight bound.
 filled_by = "engine.z80_init"
 when = "sound_off"
 

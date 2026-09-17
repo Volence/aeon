@@ -1,21 +1,39 @@
 // Z80 bus ownership — the declared context.
 //
 // The 68k can only read/write Z80 RAM, or drive a blocking VDP copy, while it
-// OWNS the Z80 bus. `with z80_stopped { … }` is the door for all but one site:
-// the bracket splices the request-and-spin before its body and the release
+// OWNS the Z80 bus. `with z80_stopped { … }` is the door for EVERY 68k hold in
+// the tree (since LS-13b, 2026-09-17 — before that, all but one): the bracket splices the request-and-spin before its body and the release
 // after it, and the compiler PROVES the pairing — every path through the body
 // reaches the release (`[context.escape]`), no branch enters the region past
 // the request (`[context.entry-skip]`), and the hold is never taken twice
 // (`[context.reacquire]`, because a bus request is not a counting lock: an
 // inner release frees the outer hold).
 //
-// THE ONE EXCEPTION is cold boot. `EntryPoint` in engine/system/boot.emp spells
-// its own request/spin/release by hand (`move.w d7,(a1)` / `.wait_z80` /
-// `move.w d0,(a1)`, with a1 preloaded from BootData) because it interleaves the
-// hold with the /IC reset pulse on a2 and the driver-blob copy, which is not the
-// shape a bracket can take. It is therefore NOT proven by the context checks
-// above — it is proven by reading it. Anyone writing "the only door" again
-// should count it.
+// THE SLOT. `z80_stopped(interleave: Code = asm {})` — a context parameter
+// (sigil's named slot, owner decision d-33, sigil 2ff47f97/c64edab4). The acquire
+// is `request ++ interleave ++ grant spin`, so a consumer may place code BETWEEN
+// the bus request and the spin, and nowhere else. Omitted, it is `asm {}` and
+// appends nothing: the 22 bare brackets emitted byte-identical ROMs across the
+// canonical landing shapes when it was added (LS-13b, measured by whole-ROM
+// comparison, s4 / s4.debug / demo.debug). The slot is spliced INSIDE the
+// acquire range, so all three proofs above cover it; slot code is authored to the
+// CONSUMER's proc for the clobber/SR lints. Limits a slot author meets at once:
+// the `++` chain in a context field must stay on one line; a label inside an
+// `asm { }` value is not reachable from the body; and a FALSE comptime gate on
+// the bracket (`with z80_stopped(…) if COND`) removes the slot along with the
+// acquire.
+//
+// COLD BOOT WAS THE ONE EXCEPTION UNTIL LS-13b. `EntryPoint` in
+// engine/system/boot.emp used to spell its own request/spin/release by hand
+// (`move.w d7,(a1)` / `.wait_z80` / `move.w d0,(a1)`, with a1 preloaded from
+// BootData), because releasing Z80 reset (`move.w d7,(a2)`) has to happen between
+// the bus request and the grant spin. That one statement is now the slot
+// argument — `with z80_stopped(interleave: asm { move.w d7, (a2) }) { … }` — so
+// boot's hold carries the same compiler proofs as every other, and its
+// request/release are the absolute `#$0100`/`#$0000` writes sigil's `[bus.*]`
+// tier recognises (the register-indirect spelling was invisible to it). The a1
+// preload was deleted with it. Do NOT hand-spell a hold again: the census gate
+// refuses any code outside this module that names Z80_BUS_REQUEST.
 //
 // ---- THE CENSUS OF 68k Z80-BUS HOLDS ----------------------------------------
 // STOP READING THE PROSE AND RUN THE GATE. Since LS-13a (2026-09-07) this census
@@ -26,35 +44,38 @@
 // prints today's population, every site's masking mechanism, and the tally. It is
 // collected by build.sh's pre-build pytest lane and is build-fatal. The paragraphs
 // below explain what it checks and why; the NUMBERS in them are a snapshot
-// (2026-09-07) and the tool is the authority when they disagree.
+// (2026-09-07, re-taken 2026-09-17 for LS-13b) and the tool is the authority when
+// they disagree.
 //
-// TOTAL: 22 bracketed + 1 hand-spelled = 23. By file (bracketed): sound_api 6 ·
-// vblank 6 · section 3 · bg 2 · boot 1 · controllers 1 · parallax 1 ·
-// sound_debug 1 · ojz_scroll_test 1.
+// TOTAL: 23, ALL bracketed (was 22 bracketed + 1 hand-spelled until LS-13b). By
+// file: sound_api 6 · vblank 6 · section 3 · bg 2 · boot 2 · controllers 1 ·
+// parallax 1 · sound_debug 1 · ojz_scroll_test 1.
 //
 // METHOD, so it can be re-run and so it can fail. Two greps, both QUOTED (an
 // unquoted `--include=*.emp` is eaten by this workspace's zsh and matches
 // NOTHING while exiting 1), both with this file as the positive control:
 //   1. `grep -rn "with z80_stopped" --include='*.emp' --include='*.asm' engine games`
-//      → 28 hits; 6 are prose (`grep -E ':[0-9]+: *//'`), leaving 22 CODE sites.
-//      RE-DERIVED 2026-09-07 (LS-13a) and CORRECTED: this block said 27 and 5.
-//      Only the CODE count is a durable number — the hit and prose counts are
-//      partly a function of THIS HEADER, so they move whenever it is edited, and
-//      they did, inside the parcel that wrote them.
-//   2. `grep -rn "Z80_BUS_REQUEST\|Z80_RESET\|A11100\|A11200" --include='*.emp'
-//      --include='*.asm' .` → the search that is supposed to catch a hold which
-//      bypasses the bracket. ⚠ RE-RUN 2026-09-07: IT DOES NOT ACTUALLY FIND
-//      BOOT'S HOLD. Its boot.emp hit is a COMMENT (`a1=Z80_BUS_REQUEST` in the
-//      movem-preload note); boot's request and release are `move.w d7,(a1)` and
-//      `move.w d0,(a1)`, and NEITHER INSTRUCTION NAMES THE REGISTER. Delete that
-//      one comment and the method silently drops the 23rd hold. The durable
-//      enumeration is instead: the constant reaches code by exactly two routes —
-//      the splice below, and `dc.l Z80_BUS_REQUEST` in boot_data.emp's `BootData`
-//      table (`grep -rn "BootData"` closes that route: `boot.emp`'s
-//      `lea BootData(pc), a5` + `movem.l (a5)+, a0-a4` is the only consumer of
-//      the preload head). Sigil's own `[bus.*]` net has the same blind spot for
-//      the same reason and says so (sigil-frontend-emp/src/z80_bus.rs: a
-//      register-indirect destination is unresolvable, its soundness bailout).
+//      → the CODE sites are the hits that are not prose (`grep -E ':[0-9]+: *//'`):
+//      22 through LS-13a, 23 since LS-13b. Only the CODE count is a durable
+//      number — the hit and prose counts are partly a function of THIS HEADER, so
+//      they move whenever it is edited, and they did, inside the parcel that
+//      wrote them (LS-13a corrected 27/5 to 28/6 here).
+//   2. The search that catches a hold which BYPASSES the bracket is now a gate,
+//      not a grep: `test_no_hand_spelled_bus_hold_remains` in the census tool
+//      fails if any CODE line (comments and strings stripped) outside this module
+//      names `Z80_BUS_REQUEST` or `$A11100`, other than the constant's one
+//      definition in engine/system/constants.emp. A hold has to write that
+//      register and code can only reach it by name or address, so a
+//      hand-spelled request, a preload of the address into a register, or a
+//      second context all fail it. HISTORY, because the grep this replaced was
+//      wrong in an instructive way: until LS-13b boot's hand-spelled hold wrote
+//      through a1 (`move.w d7,(a1)` / `move.w d0,(a1)`), so a grep for the NAME
+//      found only a comment in boot.emp, and the real route was
+//      `dc.l Z80_BUS_REQUEST` in BootData's movem preload — exactly the line the
+//      gate would now refuse. Sigil's `[bus.*]` net had the same blind spot
+//      (sigil-frontend-emp/src/z80_bus.rs: a register-indirect destination is
+//      unresolvable, its soundness bailout, and the source was not the literal
+//      `#$0100` either).
 //
 // SITES ARE NAMED BY ROUTINE, NOT BY LINE, DELIBERATELY. A line-numbered census
 // is stale the first time anyone edits one of these files — this one went stale
@@ -64,8 +85,9 @@
 // mechanisms — which is why no comment anywhere may call itself "the one hold
 // that must also stay masked". The gate recognises all four FROM CODE (it strips
 // string literals and `//` comments before matching, so no comment — including
-// this one — can satisfy it), and the tally it printed on 2026-09-07 was
-// `{'HAND_2700': 7, 'INTS_OFF': 6, 'RESET_SR': 1, 'VBLANK': 8}`:
+// this one — can satisfy it), and the tally it printed on 2026-09-17 (LS-13b) was
+// `{'HAND_2700': 7, 'INTS_OFF': 6, 'RESET_SR': 2, 'VBLANK': 8}` (on 2026-09-07,
+// RESET_SR 1 plus boot's then hand-spelled hold, which the scanner could not see):
 //   * INTS_OFF (6) — enclosing `with ints_off`: Sound_PostByte, Sound_ReadStat
 //     and Sound_PlayMusic's two (its `.await_slot` probe and its param-block
 //     post), Parallax_Update's reg $0B reassert, the OJZ scroll test;
@@ -89,28 +111,32 @@
 //     for this class is that the handler never LOWERS the mask before the
 //     bracket; the gate checks that too, per-proc, by refusing any `sr` write
 //     ahead of the site.
-//   * RESET_SR (1 bracketed + boot's hand-spelled hold) — the reset SR ($2700)
-//     still standing. EntryPoint's hand-spelled hold and its YM key-off bracket;
-//     boot's FIRST `sr` write is after both of them, and the gate checks that
-//     ORDERING (test_boot_hand_spelled_hold_precedes_the_first_sr_write) rather
-//     than trusting it. That test is the only automated statement about the 23rd
-//     hold anywhere in the toolchain.
+//   * RESET_SR (2) — the reset SR ($2700) still standing. EntryPoint's Z80 init
+//     bracket (the one carrying the `interleave` slot) and its YM key-off
+//     bracket; boot's FIRST `sr` write is after both of them, and the gate checks
+//     that ORDERING (test_reset_entry_holds_precede_the_first_sr_write) rather
+//     than trusting it — and that the slot-carrying bracket is still there, so a
+//     regression to a hand-spelled boot hold fails loudly.
 // The mask matters because the hold is a LATCH: an IRQ6 whose handler takes its
 // own bracket RELEASES the bus on the way out, and nothing below a `.wait_z80`
 // re-issues the request.
 //
 // WHAT IS STILL UNPROVEN, so the next reader does not over-read the gate:
-//   * PAIRING for boot's hand-spelled hold. `[context.escape]` /
-//     `[context.entry-skip]` / `[context.reacquire]` cover the 22 brackets and
-//     NOT that one; sigil's `[bus.*]` net cannot see it either (the
-//     register-indirect bailout above). An early exit added between its request
-//     and its release would leave the Z80 halted with nothing to catch it. Open
-//     as LS-13a's remaining half.
+//   * ~~PAIRING for boot's hand-spelled hold~~ — CLOSED by LS-13b (2026-09-17).
+//     Boot's hold is a bracket; an early `jbra` out of its body was measured
+//     REFUSED by `[context.escape]` (the same mutation on the old hand spelling
+//     built green). Sigil's `[bus.*]` tier also now SEES it: a stray
+//     `move.w #$0000, Z80_BUS_REQUEST` inside the body reports
+//     `[bus.start-without-stop]` in EntryPoint (0 on the old spelling). Note that
+//     tier is REPORT-ONLY (`sigil build --native --report contracts`), not
+//     build-fatal, and nothing in sigil checks that a declared bus context is
+//     recognised as one (sigil c64edab4's booked gap).
 //   * INTERPROCEDURAL MASK LOWERING. The gate is per-proc: a `jbsr` between a
 //     HAND_2700 mask and its bracket could lower the mask inside the callee
 //     unseen. It DERIVES and prints the count of sites in that shape on every run
 //     (1 on 2026-09-07: Section_RedrawPlanes' last bracket, past its
-//     `jbsr Section_GetSecPtrXY`).
+//     `jbsr Section_GetSecPtrXY`; 2 on 2026-09-17: that one and BG_Init's second
+//     blit — not re-investigated by LS-13b, which did not touch either).
 //   * A build-time check of the mask AT THE HOLD, in the compiler rather than in
 //     a text gate. Not expressible in `.emp` today: sigil models bus state
 //     (z80_bus.rs's `Tri` net over `must_in_states`) but has NO interrupt-mask

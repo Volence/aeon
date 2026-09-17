@@ -17,9 +17,10 @@
 //     abuts it. `engine.z80_init` is absent (the sound driver replaces the
 //     idle).
 //   - SOUND-OFF: `boot_head` is the 50-byte head alone; `engine.z80_init`'s
-//     38-byte idle program packs into the $3d8..$3fe hole by declared order
-//     (`BootData` < `Z80_IdleProgram` < `BootData_PostBlob`); `boot_tail`
-//     resumes at $3fe. This IS the map's `[[hole]] after = "Z80_IdleProgram"
+//     40-byte idle program packs into the $3d6..$3fe hole (plain; $3dc..$404
+//     in DEBUG) by declared order (`BootData` < `Z80_IdleProgram` <
+//     `BootData_PostBlob`); `boot_tail` resumes at $3fe. (Addresses re-measured
+//     2026-09-17 after LS-13b moved boot +14 B net; they were stale before it.) This IS the map's `[[hole]] after = "Z80_IdleProgram"
 //     at = 0x3FE filled_by = "engine.z80_init"` relationship, made real: the
 //     idle fills the hole and the post-hole content resumes at the right
 //     address purely through contiguous packing — no absolute `org`. A drift in
@@ -140,7 +141,7 @@ ensure(VRAM_PLANE_B == VRAM_PLANE_B_BYTES,
 // -----------------------------------------------
 // boot_head — the movem-preload head (22 B) + the 24 VDP register bytes + the
 // VRAM DMA-fill command (4 B) = 50 B, then the resident sound blob (sound-on) or
-// the $3d8 hole the idle fills (sound-off).
+// the $3d6 hole the idle fills (sound-off, plain shape).
 // -----------------------------------------------
 section boot_head (cpu: m68000) {
     // Movem preload — d5-d7 (3 words) then a0/a2-a4 (4 longs). The 4 longs are
@@ -198,7 +199,7 @@ section boot_head (cpu: m68000) {
     }
 
     // The resident Z80 program: the sound driver blob (sound-on) or nothing
-    // (sound-off — the idle program engine.z80_init packs into the $3d8..$3fe hole
+    // (sound-off — the idle program engine.z80_init packs into the $3d6..$3fe hole
     // here). Z80_Sound_End brackets the blob so Z80_SOUND_SIZE folds as the link
     // difference.
     data Z80_Sound_Start = if SOUND_DRIVER_ENABLED == 1 { ShapeBlob } else { Data.empty }

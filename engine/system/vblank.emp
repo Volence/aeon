@@ -122,8 +122,8 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
         // bus hold in the sound build, and this comment used to say that it was:
         // `Read_Controllers` (engine/system/controllers.emp) takes an unconditional,
         // far longer hold thirty lines below, on this very path, every frame. The
-        // tree-wide census is in engine/z80_bus.emp's header — 22 bracketed holds
-        // plus boot's hand-spelled one. The OFF build keeps the original full-DMA
+        // tree-wide census is in engine/z80_bus.emp's header — 23 bracketed holds,
+        // boot's included since LS-13b. The OFF build keeps the original full-DMA
         // Z80 fence.
         if SOUND_DRIVER_ENABLED == 1 {
             with z80_stopped {
