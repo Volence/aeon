@@ -107,16 +107,36 @@ def test_the_zx0_wrapper_is_the_four_bytes_the_loader_reads(tmp_path):
 def test_every_elected_blob_is_even_length(tmp_path):
     """The 2026-08-12 boot AddressError: an odd blob lands the successor symbol odd.
 
-    Swept over enough page sizes that at least one ZX0 stream is naturally odd, so the
-    row's subject exists rather than being hoped for.
+    ⚠ THE FIRST VERSION OF THIS ROW COULD NOT SEE ITS OWN SUBJECT. It swept page sizes
+    992..2048 of PRNG bytes and asserted evenness; every one of those elected RAW, whose
+    length is the page size and is therefore always even, so deleting the padding left
+    the row GREEN. The fixture has to PRODUCE an odd ZX0 stream, and which pages do is a
+    measurement, not a guess: a low-entropy page (the `i // 7` ramp) at 48, 96, 112 or
+    128 bytes packs to 17/31/35/37 bytes, +4 of wrapper = 21/35/39/41 — odd, and each
+    saves far more than the election's 10%. The anti-vacuity assertion below is what
+    keeps that true: if no elected blob in the sweep is odd BEFORE padding, the row says
+    so rather than passing.
     """
-    for n in (992, 1024, 1056, 1120, 2048):
-        d = _pool(tmp_path / f"s{n}", 1, page_bytes=n, compressible=False)
-        _elect(d, page_bytes=2048)
-        for ext in ("zx0", "raw"):
-            p = d / f"act_pool_page0.{ext}"
-            if p.exists():
-                assert p.stat().st_size % 2 == 0, f"{p} is odd at page size {n}"
+    odd_seen = 0
+    for n in (48, 96, 112, 128):
+        d = tmp_path / f"s{n}" / "gen"
+        d.mkdir(parents=True)
+        (d / "act_pool_page0.bin").write_bytes(bytes((i // 7) & 0x0F for i in range(n)))
+        (d / "ojz_act_pool_manifest.emp").write_text("pub const OJZ_ACT_POOL_PAGES = 1\n")
+        (d / "ojz_act_pool_manifest.json").write_text(json.dumps(
+            {"pages": [{"tiles": max(1, n // TILE), "pinned": True}]}))
+        res = _elect(d, page_bytes=2048)
+        assert res["forms"] == [EPP.FORM_ZX0], f"page size {n} did not elect ZX0"
+        blob = (d / "act_pool_page0.zx0")
+        assert blob.stat().st_size % 2 == 0, f"{blob} is odd at page size {n}"
+        # was it odd BEFORE the padding? the padding appends exactly one byte, so an
+        # even result whose stream+wrapper was odd is the padding doing its job.
+        stream = blob.read_bytes()
+        if stream[-1:] == b"\x00" and (len(stream) - 1) % 2 == 1:
+            odd_seen += 1
+    assert odd_seen, ("no page in this sweep produced an odd elected blob, so this row "
+                      "cannot see the padding it exists to check — re-measure the page "
+                      "sizes rather than trusting this list")
 
 
 def test_a_shrinking_pool_leaves_no_stale_page_behind(tmp_path):
