@@ -1,6 +1,9 @@
 {
-  "focus": "Rebooted and holding: the assembler update is underway, and every next item needs a build.",
-  "inFlight": [],
+  "focus": "Assembler update is in; checking it catches wrong struct sizes, and adding stress builds to the nightly run.",
+  "inFlight": [
+    { "what": "Confirm the new assembler refuses a wrongly sized struct, then close that row", "where": "branch parcel/spawndesc-size-close", "agent": true },
+    { "what": "Build both art stress tests in the nightly run, failure reported as FAILED", "where": "branch parcel/stress-shapes-nightly", "agent": true }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -13,7 +16,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "Here. Builds resume once sigil reports the new assembler and the hub announces it.",
+  "nextBoundary": "When both agents land: then region background pieces (cover-length warning, animated bands).",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -25,16 +28,16 @@
     {
       "id": "STRESS-SHAPES-NIGHTLY",
       "title": "Run both art stress-test builds every night so they cannot silently break again",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "SPAWNDESC-SIZE-CLOSE",
       "title": "Close the unenforced struct-size row: the assembler now checks it, once the assembler binary we build with is refreshed and the check is seen to refuse a wrong size",
-      "state": "open",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "sigil lane refreshes its release binary only in a hub-opened window; aeon tells the hub it is clear once its running agents land, then re-runs the size-41 control"
+      "blockedBy": null
     },
     {
       "id": "MEGAACT-BG-STREAMING",
@@ -79,7 +82,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "nothing from you. Holding all builds until sigil finishes the assembler swap the hub opened.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-17T08:11:40Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-17T08:13:50Z"
 }
