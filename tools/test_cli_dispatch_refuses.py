@@ -253,6 +253,13 @@ _ALREADY_REFUSING = [
     # what it ought to do, because a marker chosen to look nice is a marker that stops
     # matching the day someone adds the try/except.
     ("state_ram.py", ["tset"], (1, 2), "No such file or directory"),
+    # S2-COMPRESSED-ACT parcel 3. Both are MODES-table tools born in the fixed form: the
+    # dispatch runs BEFORE any handler, so an unrecognised mode reaches no writing branch.
+    # MEASURED 2026-09-17, not assumed -- `not-a-mode` on each printed usage, exited 1 and
+    # left the working tree byte-identical (git status clean afterwards), which is the
+    # property that licenses a subprocess row here.
+    ("clip_manifest.py", ["not-a-mode"], (1,), "Usage:"),
+    ("clip_act_bake.py", ["not-a-mode"], (1,), "Usage:"),
 ]
 
 
@@ -380,6 +387,8 @@ _ROSTER = {
     "megaact_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER, 2026-09-16, born in the fixed form; `report --json` writes the 09 evidence file)",
     "megaact_fg_cache10.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (FG-CACHE-10-RESEARCH, 2026-09-16, born in the fixed form; `rederive`/`sweep`/`rom --json` write the 10 evidence files)",
     "cache_hold_probe.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CACHE-WINDOW-HOLD-MEASURE, 2026-09-17, born in the fixed form; `run --out` boots an emulator and writes a run JSON, `analyze --out` writes a summary)",
+    "clip_manifest.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 3, 2026-09-17, born in the fixed form; the only mode, `validate`, is read-only)",
+    "clip_act_bake.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 3, 2026-09-17, born in the fixed form; `bake` WRITES a clip act tree, so the dispatch running before any handler is the property, and the subprocess row above pins it)",
     "fg_page_order.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17, born in the fixed form; `check` is read-only, the FG page-budget build gate)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
@@ -418,11 +427,13 @@ def test_the_ladder_population_is_still_the_roster():
     # STITCHED-ACT-PAGE-ORDER (2026-09-16) added megaact_page_order.py; 16 since
     # FG-CACHE-10-RESEARCH (2026-09-16) added megaact_fg_cache10.py; 17 since the
     # STITCHED-ACT-PAGE-ORDER wiring (2026-09-17) added fg_page_order.py; 18 since
-    # CACHE-WINDOW-HOLD-MEASURE (2026-09-17) added cache_hold_probe.py.
-    assert len(found) == 18, (
+    # CACHE-WINDOW-HOLD-MEASURE (2026-09-17) added cache_hold_probe.py; 20 since
+    # S2-COMPRESSED-ACT row 3 (2026-09-17) added clip_manifest.py and clip_act_bake.py.
+    assert len(found) == 20, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "
-        "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py and CACHE-WINDOW-HOLD-MEASURE's "
-        "cache_hold_probe.py, found %d: %s"
+        "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, CACHE-WINDOW-HOLD-MEASURE's "
+        "cache_hold_probe.py and S2-COMPRESSED-ACT row 3's clip_manifest.py + "
+        "clip_act_bake.py, found %d: %s"
         % (len(found), sorted(found)))

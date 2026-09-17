@@ -67,6 +67,13 @@ FIXTURES = {
 }
 FIXTURE_DIR = os.path.join(REPO, "games", "sonic4", "data", "clips")
 
+#: The design's measurement tool, IMPORTED as the independent second implementation two rows
+#: below cross-check against. Named as the FILE and the directory taken from its dirname: a
+#: bare directory literal is a docs path `tools/land_gate.py` would need its own rule for
+#: (test_land_gate_classifier's static scan reads these strings), and the file is the thing
+#: this gate actually depends on.
+BUDGET_TOOL = os.path.join(REPO, "docs", "research", "s2-compressed-act", "s2_clip_budget.py")
+
 
 def _need(donor):
     try:
@@ -159,7 +166,7 @@ def test_the_bake_agrees_with_the_designs_own_measurement(baked, donors, name):
     tautology. The pin rule is wired the way `generate()` wires it on both sides; see
     `test_the_pin_wiring_moves_this_fixture` for why that matters.
     """
-    sys.path.insert(0, os.path.join(REPO, "docs", "research", "s2-compressed-act"))
+    sys.path.insert(0, os.path.dirname(BUDGET_TOOL))
     import s2_clip_budget as SB              # noqa: E402
     import fg_page_order as fpo              # noqa: E402
     import megaact_window_pageset as mb      # noqa: E402
@@ -280,7 +287,7 @@ def test_the_pin_wiring_moves_this_fixture(baked):
     stops failing to differ, the agreement row above has stopped discriminating and needs
     a new fixture — say so here rather than let it quietly become decorative.
     """
-    sys.path.insert(0, os.path.join(REPO, "docs", "research", "s2-compressed-act"))
+    sys.path.insert(0, os.path.dirname(BUDGET_TOOL))
     import s2_clip_budget as SB              # noqa: E402
     import fg_page_order as fpo              # noqa: E402
 
