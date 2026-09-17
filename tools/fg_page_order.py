@@ -50,9 +50,13 @@ THE ORDER (`place_pool`), a two-rung ladder keyed on the property the refusal ch
 
 WHAT A "ZONE" IS HERE: the tileset a cell's art comes from. It is NOT an effects region.
 OJZ act 1 has 10 regions (regions.json) over one tileset; keying the split on them would
-duplicate one zone's shared art per region. Every act this generator can build today
-reads ONE tileset (project.json zones[0].tileset), so the generator passes a uniform zone
-grid; a stitched act's loader must supply the per-cell tileset key.
+duplicate one zone's shared art per region. Every act `ojz_strip_gen.generate()` can build
+reads ONE tileset (project.json zones[0].tileset), so that generator passes a uniform zone
+grid. THE STITCHED-ACT LOADER NOW EXISTS (2026-09-17, S2-COMPRESSED-ACT staged plan row 3):
+`tools/clip_manifest.py` turns a `clips.json`'s destination rectangles into the per-cell
+tileset key and `tools/clip_act_bake.py` hands it to `place_pool` in this same call shape.
+It bakes into its own directory rather than through `generate()`, because a second act needs
+a project.json entry, a matching `act_descriptor.emp` and collision — see that file's header.
 
 THE REFUSAL (`budget_verdict` + `refuse_over_budget`): the search is a heuristic (09
 verdict item 3; 10 "the search is a heuristic"), so the placed act is COUNTED, and a

@@ -494,7 +494,7 @@ ALIGN_ROWS = (
 
 
 def _mode_measure_alignment(rest):
-    """The measurement behind clip_manifest's R12, run from the same code the bake uses."""
+    """The measurement behind clip_manifest's R11 and W3, from the code the bake uses."""
     if rest:
         print(USAGE)
         return 1
@@ -506,11 +506,11 @@ def _mode_measure_alignment(rest):
                    {"id": "a", "donor": ALIGN_CLIPS[0], "zone": ALIGN_CLIPS[1],
                     "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},
                     "dst_rect": {"x": ax, "y": 0, "w": 1024, "h": 1024},
-                    "unaligned_dst_reason": "R12 measurement probe"},
+                    "unaligned_dst_reason": "alignment measurement probe"},
                    {"id": "b", "donor": ALIGN_CLIPS[2], "zone": ALIGN_CLIPS[3],
                     "src_rect": {"x": 4096, "y": 0, "w": 1024, "h": 1024},
                     "dst_rect": {"x": bx, "y": 0, "w": 1024, "h": 1024},
-                    "unaligned_dst_reason": "R12 measurement probe"}]}
+                    "unaligned_dst_reason": "alignment measurement probe"}]}
         with tempfile.TemporaryDirectory() as td:
             p = os.path.join(td, "clips.json")
             with open(p, "w") as fh:

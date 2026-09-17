@@ -219,13 +219,43 @@ clip's PLACEMENT in the act to a 2048-px section boundary.**
 - 128-px snapping is free: it is both games' natural quantum, and it means no clip edge ever
   cuts a chunk in half, so collision and art stay coherent cell-for-cell.
 - Section-boundary placement is not free but is worth it: aeon interns a **per-section local
-  tile map** of at most 2047 entries (`tools/ojz_strip_gen.py:815-843`), and the page placer's
+  tile map** of at most 2047 entries (`tools/ojz_strip_gen.py:815-843`), and ~~the page placer's
   multi-zone rung builds **pages that never mix two zones**
   (`tools/fg_page_order.py:526-554`). A clip straddling a section boundary puts two zones'
-  tiles into one section's local map and defeats that. It also means each clip's world
+  tiles into one section's local map and defeats that.~~ It also means each clip's world
   rectangle is exactly the region rectangle you want for its palette (§5).
 - Finer placement than a section is *possible* (regions are pixel-granular) and should be left
   available — but it should be the exception, not the default.
+
+> **CORRECTED 2026-09-17 by parcel 3, which MEASURED both halves of that bullet.**
+> `python3 tools/clip_act_bake.py measure-alignment` — two 1024×1024 clips, EHZ and CPZ, in a
+> 2×1-section act, three placements of the same cells:
+>
+> | placement | sections used | local maps | pool | pages | worst window |
+> |---|---|---|---|---|---|
+> | separated, one zone per section | 2 | 394 / 224 | 617 | 10 | 7 of 12 |
+> | adjacent, one zone per section | 2 | 394 / 224 | 617 | 10 | **9 of 12** |
+> | adjacent, both inside section 0 | 1 | 617 / 1 | 617 | 10 | **9 of 12** |
+>
+> Row 2 is the control for row 3: the clips touch in both, so "a camera window can hold two
+> zones" is held fixed and the only thing that varies is whether the section boundary falls
+> between them. **The page budget is the same either way.** The struck sentence is wrong on
+> both counts: `perzone_pages` groups by the per-CELL zone key, not by section, so a
+> straddling clip does not defeat it; and the page-budget difference in the table is
+> ADJACENCY (row 1 → row 2), which is §9.1's corridor argument, not an alignment argument.
+>
+> What section alignment does buy is the local-map column, and that part stands: a section
+> carries ONE 11-bit local tile map capped at 2047 entries, and a section holding two zones
+> needs the sum of both. So the recommendation survives as the DEFAULT — `clip_manifest`'s
+> R11 refuses an unaligned `dst_rect` unless the clip carries an `unaligned_dst_reason`
+> string — while "two zones in one section" is a WARNING (W3) rather than a refusal, because
+> the exact limit is downstream and precise and this one is a cost, not an error.
+>
+> The 128-px bullet also survives only as a warning at parcel 3 (W1): on the ART path a
+> nametable word is per cell and nothing cares. Its evidence is collision-side, so promoting
+> it to a refusal is row 5's call. The one alignment rule that is HARD and that this section
+> did not state is **8 px**: an editor section file is a grid of 8-px cells and has no
+> sub-tile addressing at all (R6).
 
 ### 2.3 What happens at the cut edges
 
@@ -326,6 +356,18 @@ much of each you paste. Making the clips smaller to "fit more in" does not work 
 
 This runs aeon's REAL Pass 4 placement (`fg_page_order.place_pool`, the function
 `tools/ojz_strip_gen.py:2177` calls) and its real refusal.
+
+> **2026-09-17, parcel 3: the tool had a pin-rule defect, and this table is UNAFFECTED — which
+> was measured, not assumed.** `s2_clip_budget.mode_place` handed `place_pool` the raw
+> `ojz_strip_gen.mark_pinned_pages`, which returns a `list[bool]`; `place_pool` wants page
+> INDICES and `generate()` wraps it. The candidate set became `{False, True} - {0}` = `{True}` =
+> page 1, so any act with a pinned page pinned page 1 and could pin nothing else. **No page on
+> any of the four acts below reaches the pin rule's 75%-of-sections threshold**, so the
+> candidate set is empty either way and every row re-measured identically (5 whole zones:
+> pins `[0]`, worst 12, 707 positions of 870,231 windows, both ways). On a SMALL act it does
+> move: `place EHZ:1,0,1,1 CPZ:1,0,1,1` is worst **11** with the defect and **10** without.
+> Fixed, with `--pins raw` reproducing the old behaviour the way `--profiles horizontal`
+> reproduces the pre-parcel-1 collision figures.
 
 ```
 python3 docs/research/s2-compressed-act/s2_clip_budget.py place \
@@ -671,23 +713,56 @@ explicitly, so a converted tree validates without touching `project.json` or the
    `{id, name, rect:{x,y,w,h}, preset, bg:{layoutRef, span}}`. The `preset` names an `.emp`
    record; aurora validates it against the game's effects library
    (`tools/effects_gen.py:3686-3691`).
-3. **Into a new clip manifest** — the one genuinely new file, and the answer to §1.3 item 1:
+3. **Into a new clip manifest** — the one genuinely new file, and the answer to §1.3 item 1.
+   **Built by parcel 3 (2026-09-17): `tools/clip_manifest.py`, and the sketch below is
+   corrected in place.**
 
 ```jsonc
-// games/sonic4/data/editor/<zone>/<act>/clips.json
+// games/sonic4/data/clips/<act id>/clips.json          [parcel 3]
 { "schema": 1,
+  "id": "s2_two_clip",                      // names the act and its bake output dir
+  "name": "free text",                      // optional
+  "act": { "grid_w": 2, "grid_h": 1 },      // the act's SECTION grid, DECLARED not inferred
   "clips": [
-    { "id": "ehz_loop", "donor": "s2/EHZ",
-      "src_rect":  { "x": 4096, "y": 0, "w": 4096, "h": 2048 },   // in the donor zone, 128-px snapped
-      "dst_rect":  { "x": 0,    "y": 0, "w": 4096, "h": 2048 },   // in this act, 2048-px snapped
-      "palette":   "OJZ_Palette_EHZ",
-      "region_id": "ehz_loop" } ] }
+    { "id": "ehz_loop",
+      "donor": "s2disasm", "zone": "EHZ",   // ~~"donor": "s2/EHZ"~~ — two donor trees exist
+      "src_rect":  { "x": 4096, "y": 0, "w": 2048, "h": 1024 },   // donor world px
+      "dst_rect":  { "x": 0,    "y": 0, "w": 2048, "h": 1024 },   // act world px, same w/h
+      "palette":   "OJZ_Palette_EHZ",       // optional, pass-through (rows 6/7)
+      "region_id": "ehz_loop",              // optional, cross-ref into regions.json
+      "unaligned_dst_reason": null } ] }    // optional R11 opt-out, see §2.2's correction
 ```
 
-The bake reads `clips.json`, maps every cell of the act to its donor zone, and hands
-`fg_page_order.place_pool` the per-cell tileset key it has been asking for
-(`tools/fg_page_order.py:51-55`). Without this file there is no way to tell the placer that two
-identical tile indices in two sections mean different art.
+Four corrections, each with its reason:
+
+- ~~`"donor": "s2/EHZ"`~~ — donor and zone are separate, separately validated fields. Two
+  donor trees are registered and five zone names exist in **both**, meaning different levels.
+- **`act.grid_w`/`grid_h` are declared, not inferred** from the clips' bounding box. An act
+  with a trailing empty section is a different act: the camera-window sweep the art budget is
+  counted over is a function of the grid (`fg_page_order.camera_windows`), so inferring it
+  would make the budget depend on where the last clip happened to end.
+- **`dst_rect` keeps `w`/`h` and they must equal `src_rect`'s.** A clip is a paste, never a
+  scale.
+- **There is no `tileset` field.** The tileset is `donors/<donor>/<zone>/tileset.bin` from
+  parcel 2's tree, and the zone key is DERIVED: distinct `(donor, zone)` pairs in
+  first-appearance order. Two clips of the same zone share a key, or the pool would carry
+  that zone's art twice.
+
+The bake (`tools/clip_act_bake.py`) reads `clips.json`, maps every cell of the act to its
+donor zone, and hands `fg_page_order.place_pool` the per-cell tileset key it has been asking
+for (`tools/fg_page_order.py:51-55`). Without this file there is no way to tell the placer
+that two identical tile indices in two sections mean different art — **and there is no way to
+represent the act at all**, because an editor word's index field is 11 bits, so one act-wide
+tileset tops out at 2048 tiles against §0 item 2's 2,965 for six clipped zones. Multiple
+tilesets are forced by the format, not chosen.
+
+Aurora should validate, before writing: the donor is registered and the zone belongs to
+**that** donor; every rect coordinate is a multiple of 8; `dst` w/h equal `src` w/h; the
+`src_rect` is inside that zone's `crop_tiles` (NOT merely inside its padded section grid —
+outside the crop there is only the converter's zero padding); no two `dst_rect`s overlap; and
+the act grid contains every `dst_rect`. An unaligned `dst_rect` needs an
+`unaligned_dst_reason`. `clip_manifest.load` refuses all of these by name (R1-R11) and warns
+on three more (W1-W3), so the page can call it rather than reimplement it.
 
 **What aeon must show back to aurora, per clip, so the author is not flying blind:**
 
@@ -768,7 +843,22 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 |---|---|---|---|
 | 1 | ~~**Promote the S2 donor loader.**~~ **DONE 2026-09-17** — `tools/s2_donor.py`, BOTH donor trees, WFZ row added, both S2 donors registered in `donor_provenance`. | S | **PASSED: 9 of 9 zones byte-identical** (word grid and art blob), measured against a `git archive d234c084` export of the pre-promotion loader. |
 | 2 | ~~**Whole-zone converter → editor tree.**~~ **DONE 2026-09-17** — `tools/s2_zone_convert.py`, both donors, all 19 zone/donor pairs. Art and layout only. Output `games/sonic4/data/donors/<donor>/<ZONE>/` (see the corrected §8 tree). | M | **PASSED, all 19 pairs: 6,317,248 cells round-tripped, 0 differing; 0 nonzero pad cells; 0 tile indices past any tileset; `validate_editor_inputs` accepted all 19 trees.** The reference side of the round trip is a second implementation of the chunk/block expansion, not the loader's, and its three branches are mutation-proven load-bearing. |
-| 3 | **`clips.json` + the per-cell tileset key.** The bake reads a clip manifest and hands `place_pool` a real per-cell zone grid instead of a uniform one. | M | A two-clip act bakes; `fg_page_order.check` reports the same worst-window count as `s2_clip_budget.py place` on the same two clips. Closes `tools/fg_page_order.py:51-55`. |
+| 3 | ~~**`clips.json` + the per-cell tileset key.**~~ **DONE 2026-09-17** — `tools/clip_manifest.py` (schema 1, R1-R11 + W1-W3) and `tools/clip_act_bake.py` (compose → real `place_pool` with a real zone grid → emit → re-count off disk). Art and layout only. | M | **PASSED, with the check restated — see below.** Two tracked two-clip fixtures bake; placement verdict, recount-off-disk and `s2_clip_budget.py place` all agree, and 1,182 (zone, tile) pairs verify against their own zone's art. |
+
+> **The row-3 check as written could not be run, and why.** It named `fg_page_order.check`,
+> which reads **exactly one act**: `_known_acts` RAISES on any act whose generated dir is not
+> `fg_working_set.GEN_DIR`, and `fg_working_set.Model` takes GRID_W/GRID_H from OJZ act 1's
+> `act_descriptor.emp`. Pointing it at a second act needs a `project.json` entry and a
+> matching `.emp` descriptor — a ROM change, which is rows 4-6, not row 3. So the count is
+> run in `clip_act_bake` instead, importing the two functions `check` itself calls
+> (`window_needed`, `budget_verdict`): the arithmetic is shared and only the decoding
+> differs (`check` S4LZ-decodes `sec{N}_blocks.bin`; the bake reads `section_N.local.bin`,
+> because a block file carries the collision planes and inventing collision bytes to reach a
+> count is row 5's work, not filler for row 3). **Three numbers, not two:** the placement
+> verdict, the recount off disk, and `s2_clip_budget.py place`. On `s2_two_clip` all three
+> are 12 of 12 over 48,471 windows, 682 positions at the peak. On `s2_two_clip_pins` all
+> three are 10 — **and that fixture exists because the first one cannot discriminate:** its
+> answer is 12 whether the pin rule is wired correctly or not (see §3.3's note).
 | 4 | **Collision: the S2 base bank.** `import_s2_collision.py` (sibling of `import_sk_collision.py`) imports S2's vertical array as a shape bank and REGENERATES the rotated table (never copies S2's horizontal array — §1.3 item 3). Rule on shape `$18`. | M | All 256 shapes round-trip through `rotate_profile` with no raise; a hand-picked slope's height and angle match `FindFloor`'s result for the same block in the donor. |
 | 5 | **Collision: clip → `collattr.bin`.** Run `bake_cell` over the clip's chunk words, emit both plane files. | M | The attr-set entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle, and the bake refuses a clip that cuts a crossover pair. |
 | 6 | **★ FIRST THING ON SCREEN: a one-clip act.** One 2-section Emerald Hill clip as a whole act: art + collision + its palette, bootable. | M | The act builds through `tools/landing_build.sh`; the clip renders and Sonic stands on its ground. This is the first parcel that produces a picture. |
@@ -855,6 +945,21 @@ a clip, against the stand-in's 278).
 > figures as published — the tool's default is now the correct `vertical` array, which prints
 > 299 / 130 / 276. Every other line reproduces unchanged. Add `--donor s2-simonwai-disasm` for
 > the prototype's zones.
+>
+> **2026-09-17, parcel 3:** `place` gained `--pins wrapped|raw` (default `wrapped`, the
+> correct one). The §3.3 table reproduces unchanged under BOTH — see §3.3's note. Parcel 3's
+> own commands, which need the converted donor trees
+> (`python3 tools/s2_zone_convert.py convert --all-six`, ~0.5 s):
+>
+> ```bash
+> python3 tools/clip_manifest.py validate games/sonic4/data/clips/s2_two_clip/clips.json
+> python3 tools/clip_act_bake.py bake     games/sonic4/data/clips/s2_two_clip/clips.json
+> python3 tools/clip_act_bake.py bake     games/sonic4/data/clips/s2_two_clip_pins/clips.json
+> python3 tools/clip_act_bake.py measure-alignment          # the §2.2 correction, ~0.3 s
+> python3 $S place EHZ:2,0,1,1 CPZ:2,0,1,1                  # N3 for s2_two_clip -> 12
+> python3 $S place EHZ:1,0,1,1 CPZ:1,0,1,1                  # N3 for the pins fixture -> 10
+> python3 $S place EHZ:1,0,1,1 CPZ:1,0,1,1 --pins raw       # the old wiring -> 11
+> ```
 
 ```bash
 cd <your aeon checkout>

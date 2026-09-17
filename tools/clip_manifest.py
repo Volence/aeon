@@ -57,8 +57,10 @@ THE ZONE KEY is derived, not authored: distinct `(donor, zone)` pairs in first-a
 order, 0..n-1. Two clips of the SAME zone share a key — they share a tileset, so they must
 share a key or the pool would carry the art twice.
 
-VALIDATION RULES. Each is named in the error it raises. R1-R10 and R12 are refusals with
-no opt-out; R11 is a refusal with a per-clip, in-file opt-out; W1-W2 are warnings.
+VALIDATION RULES. Each is named in the message it raises or warns with, and every gate row
+asserts that tag, so a manifest refused by an earlier rule cannot stand in for a later one.
+R1-R10 are refusals with no opt-out; R11 is a refusal with a per-clip, in-file opt-out;
+W1-W3 are warnings.
 
   R1  schema == 1.
   R2  the act grid is >= 1x1 and fits MAX_ACT_SECTIONS (read from engine source).
@@ -80,10 +82,15 @@ no opt-out; R11 is a refusal with a per-clip, in-file opt-out; W1-W2 are warning
       recommendation. OPT-OUT: a non-empty "unaligned_dst_reason" string on the clip. The
       opt-out is a field in the file rather than a flag on the command line so the next
       reader of the manifest sees the argument that was made.
+  W1  src rect coordinates are not multiples of 128 px (the chunk quantum both games
+      share). Warning ONLY at this parcel: nothing on the ART path cares, because a
+      nametable word is per cell. It is the COLLISION path that is authored per 128-px
+      chunk, so upgrading W1 to a refusal is staged-plan row 5's call, with its evidence.
+  W2  the src rect contains no painted cell.
   W3  an act section holds cells of two different ZONE KEYS. A WARNING, and the design's
       §2.2 gives two reasons for section-boundary placement of which the measurement
-      supports only one (`python3 tools/clip_act_bake.py measure-r12`, table in that
-      file's header):
+      supports only one (`python3 tools/clip_act_bake.py measure-alignment`, table in
+      that file's header):
         * TRUE — a section's local tile map is one 11-bit space capped at 2047 entries
           (`ojz_strip_gen.build_section_local_map`), and a mixed section's map is the SUM
           of both zones'. Measured: 394 + 224 split, 617 merged.
@@ -91,11 +98,6 @@ no opt-out; R11 is a refusal with a per-clip, in-file opt-out; W1-W2 are warning
           the control holds clip ADJACENCY fixed; the separated act's 7 is adjacency, not
           section purity. The exact refusal that does bite is downstream and precise
           (build_section_local_map raises past 2047), so this stays a warning.
-  W1  src rect coordinates are not multiples of 128 px (the chunk quantum both games
-      share). Warning ONLY at this parcel: nothing on the ART path cares, because a
-      nametable word is per cell. It is the COLLISION path that is authored per 128-px
-      chunk, so upgrading W1 to a refusal is staged-plan row 5's call, with its evidence.
-  W2  the src rect contains no painted cell.
 
 Usage:
     python3 tools/clip_manifest.py validate <clips.json> [--donor-root DIR]
@@ -399,7 +401,7 @@ def load(path, donor_root=DEFAULT_DONOR_ROOT, constants=None, warn=None):
                     f"R11 clip {cl.id!r}: dst_rect origin ({cl.dst[0]}, {cl.dst[1]}) is not "
                     f"on a {sec_px}-px section boundary. Section-aligned placement is the "
                     f"design's §2.2 default, and what it buys (MEASURED, see W3 and "
-                    f"tools/clip_act_bake.py measure-r12) is a smaller per-section local "
+                    f"tools/clip_act_bake.py measure-alignment) is a smaller per-section local "
                     f"tile map: one section carries ONE 11-bit local map capped at 2047 "
                     f"entries, and a section holding two zones needs the sum of both. It "
                     f"does NOT buy a better camera-window page budget — that measured the "
