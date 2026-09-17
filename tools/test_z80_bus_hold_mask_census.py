@@ -42,7 +42,9 @@ can be satisfied by prose, and a control in this module proves that specific cas
   4. RESET_SR   — the reset entry point, before it has written `sr` at all. The 68000
                   enters reset with SR = $2700, so the mask stands until the first
                   write. Recognised ONLY for the declared reset proc below, and only
-                  for sites above that proc's FIRST `sr` write.
+                  for sites above that proc's FIRST `sr` write. Since LS-13b
+                  (2026-09-17) it classifies TWO brackets, both in `EntryPoint`: the
+                  cold-boot Z80 init hold and the YM key-off hold.
 
 Mechanism 3 is the interesting one: it is the only mechanism whose premise a HUMAN
 does not have to re-check, because sigil already proves it. `grants(vblank)` is
@@ -50,14 +52,23 @@ declared exactly once in the tree (engine/system/vblank.emp's `VBlank_Handler`) 
 this file asserts that, because mechanism 3 is worth nothing if the capability is
 handed out from a second, non-interrupt root.
 
-THE HOLD THAT IS NOT A BRACKET. engine/system/boot.emp's `EntryPoint` spells its own
-request/spin/release by hand around the Z80 driver-blob copy — `move.w d7,(a1)` with
-a1 preloaded from BootData — so NO grep for `with z80_stopped` can see it, and no
-`[context.*]` check treats it as a hold. Its mask argument is mechanism 4, and that
-argument IS checked here: `test_boot_hand_spelled_hold_precedes_the_first_sr_write`.
-Sigil cannot see this hold either — its `[bus.*]` net (sigil-frontend-emp/src/
-z80_bus.rs) keys off a RESOLVED destination operand, and a register-indirect
-destination is its documented soundness bailout.
+THERE IS NO LONGER A HOLD THAT IS NOT A BRACKET (LS-13b, 2026-09-17). Until then
+engine/system/boot.emp's `EntryPoint` spelled its own request/spin/release by hand
+around the Z80 driver-blob copy (`move.w d7,(a1)` with a1 preloaded from BootData), so
+no `with z80_stopped` grep saw it, no `[context.*]` check treated it as a hold, and
+sigil's `[bus.*]` net could not recognise it (register-indirect destination AND a
+non-literal source). The one statement that forced the hand spelling — releasing Z80
+reset between the bus request and the grant spin — now rides in `z80_stopped`'s
+`interleave` slot (sigil named slot, decision d-33), so the hold is an ordinary bracket,
+counted by the population floor and classified by mechanism 4 like the key-off bracket.
+Two checks keep that true rather than remembered:
+  * `test_reset_entry_holds_precede_the_first_sr_write` — the ordering argument for
+    BOTH `EntryPoint` brackets, and that the Z80-init one is still the bracket carrying
+    the slot argument (so a regression back to a hand spelling fails here);
+  * `test_no_hand_spelled_bus_hold_remains` — the bus-request register (by name or by
+    raw address) appears in CODE only at its definition and inside the context that
+    brackets it. A hand-spelled request, a preload of the address into a register,
+    or a second context all fail it.
 
 WHAT IT DOES NOT COVER, each a real hole:
   * INTERPROCEDURAL ANYTHING. Classification is per-proc. A bracket in a helper whose
@@ -96,10 +107,18 @@ SUFFIXES = (".emp", ".asm")
 # check cannot be satisfied by some other proc acquiring the same shape.
 RESET_ENTRY = ("engine/system/boot.emp", "EntryPoint")
 
-# The label the hand-spelled boot hold spins on. It is the only handle a source-level
-# check has on that hold: the request and release write through an address register,
-# so neither instruction names the bus at all.
-BOOT_SPIN_LABEL = ".wait_z80"
+# The module that DECLARES the bus bracket, and the module that DEFINES the bus-request
+# register. They are the only two files whose CODE may name that register (see
+# `test_no_hand_spelled_bus_hold_remains`); both are also checked to still hold the
+# declaration/definition, so renaming either fails loudly instead of widening the rule.
+BUS_CONTEXT_FILE = "engine/z80_bus.emp"
+BUS_REGISTER_DEF_FILE = "engine/system/constants.emp"
+RE_BUS_REGISTER = re.compile(r"\bZ80_BUS_REQUEST\b|\$A11100\b|\b0xA11100\b", re.IGNORECASE)
+RE_BUS_CONTEXT_DECL = re.compile(r"^\s*(?:pub\s+)?context\s+z80_stopped\b")
+RE_BUS_REGISTER_DEF = re.compile(r"^\s*(?:pub\s+)?const\s+Z80_BUS_REQUEST\s*=")
+# The slot argument that marks boot's Z80-init bracket (the reset release between the
+# bus request and the grant spin).
+RE_INTERLEAVE_ARG = re.compile(r"\bwith\s+z80_stopped\s*\(\s*interleave\s*:")
 
 RE_PROC = re.compile(r"^\s*(?:pub\s+)?proc\s+(\w+)")
 RE_REQUIRES_VBLANK = re.compile(r"\brequires\s*\(([^)]*)\)")
@@ -124,8 +143,10 @@ UNMASKED = "UNMASKED"
 # A FLOOR on the bracket population, and it is a floor and not a census: it catches
 # sites being deleted out from under this check, it does not catch a site being added
 # (the per-site mechanism check is what covers additions — a new bracket with no
-# mechanism fails). Derived 2026-09-07 by this module's own scanner.
-MIN_BRACKETS = 22
+# mechanism fails). Derived 2026-09-07 by this module's own scanner (22); 23 since
+# LS-13b (2026-09-17), when boot's hand-spelled hold became a bracket — re-derived by
+# the scanner on that tree, which prints the population on every run.
+MIN_BRACKETS = 23
 
 
 def _strip(line: str) -> str:
@@ -365,28 +386,29 @@ def test_every_bus_hold_is_masked():
     )
 
 
-def test_boot_hand_spelled_hold_precedes_the_first_sr_write():
-    """The 23rd hold — the one no `with z80_stopped` grep can see.
+def test_reset_entry_holds_precede_the_first_sr_write():
+    """Mechanism 4's ordering argument, for every bus hold in the reset entry point.
 
-    engine/system/boot.emp's `EntryPoint` requests, spins on and releases the bus by
-    hand, through an address register preloaded from BootData. Neither the request nor
-    the release names the bus, so the only source-level handle is the spin LABEL. What
-    is checked is its mask argument, which is mechanism 4: the reset SR ($2700) still
-    stands because nothing has written `sr` yet.
+    Since LS-13b both of `EntryPoint`'s holds are `with z80_stopped` brackets: the
+    cold-boot Z80 init (which carries the `interleave:` slot argument, the Z80 reset
+    release between the bus request and the grant spin) and the YM key-off. Both rest on
+    the reset SR ($2700) still standing, i.e. on sitting ABOVE the proc's first `sr`
+    write. This asserts that ordering for each, and that the slot-carrying bracket is
+    still there — so boot regressing to a hand-spelled hold (which no bracket search
+    would see) fails HERE, rather than silently shrinking the population by one.
 
-    WHAT THIS DOES NOT PROVE: that the hold is still correctly paired, or that the
-    label still belongs to a bus spin at all. Renaming the label fails this test loudly
-    rather than silently dropping the hold from the population, which is the failure
-    mode worth buying.
+    WHAT THIS DOES NOT PROVE: pairing. That is sigil's `[context.escape]` /
+    `[context.entry-skip]` / `[context.reacquire]`, which cover these brackets because
+    the compiler emitted them.
     """
     path = REPO / RESET_ENTRY[0]
     assert path.is_file(), f"{RESET_ENTRY[0]} is missing — the reset entry point moved."
     lines = [_strip(l) for l in path.read_text(encoding="utf-8").splitlines()]
 
     in_entry = False
-    spin_lines: list[int] = []
+    brackets: list[int] = []
+    slot_brackets: list[int] = []
     first_sr_write = 0
-    last_bracket = 0
     for n, line in enumerate(lines, start=1):
         m = RE_PROC.match(line)
         if m:
@@ -396,35 +418,106 @@ def test_boot_hand_spelled_hold_precedes_the_first_sr_write():
             continue
         if not in_entry:
             continue
-        if re.match(rf"\s*{re.escape(BOOT_SPIN_LABEL)}\s*:", line):
-            spin_lines.append(n)
         if RE_Z80.search(line):
-            last_bracket = n
+            brackets.append(n)
+        if RE_INTERLEAVE_ARG.search(line):
+            slot_brackets.append(n)
         if first_sr_write == 0 and RE_SR_WRITE.search(line):
             first_sr_write = n
 
     print(
-        f"{RESET_ENTRY[0]} {RESET_ENTRY[1]}: hand-spelled spin at {spin_lines}, "
-        f"last bracket at :{last_bracket}, first `sr` write at :{first_sr_write}"
+        f"{RESET_ENTRY[0]} {RESET_ENTRY[1]}: z80_stopped brackets at {brackets} "
+        f"(slot-carrying: {slot_brackets}), first `sr` write at :{first_sr_write}"
     )
-    assert len(spin_lines) == 1, (
-        f"expected exactly one `{BOOT_SPIN_LABEL}:` label in {RESET_ENTRY[0]}'s "
-        f"{RESET_ENTRY[1]} (the hand-spelled Z80 bus hold around the driver-blob copy); "
-        f"found {len(spin_lines)} at {spin_lines}. If the hold was restructured, "
-        "re-derive this check — do not delete it: this is the one hold in the tree that "
-        "no `with z80_stopped` search and no `[context.*]` check can see."
+    assert len(slot_brackets) == 1, (
+        f"expected exactly one `with z80_stopped(interleave: …)` bracket in "
+        f"{RESET_ENTRY[0]}'s {RESET_ENTRY[1]} (the cold-boot Z80 init hold, whose slot "
+        f"releases Z80 reset between the bus request and the grant spin); found "
+        f"{len(slot_brackets)} at {slot_brackets}. If boot's Z80 init went back to a "
+        "hand-spelled request/spin/release, it has left every compiler pairing proof and "
+        "sigil's [bus.*] tier again (LS-13b) — restore the bracket, do not re-derive this."
     )
     assert first_sr_write > 0, (
         f"{RESET_ENTRY[1]} writes `sr` nowhere. It used to write `#$2700` after the "
         "boot Z80 work; if that moved, mechanism 4's ordering argument needs re-deriving."
     )
-    for label, site in (("hand-spelled hold", spin_lines[0]), ("last bracket", last_bracket)):
+    for site in brackets:
         assert site < first_sr_write, (
-            f"{RESET_ENTRY[0]}: the {label} at :{site} now sits AFTER {RESET_ENTRY[1]}'s "
-            f"first `sr` write at :{first_sr_write}. Mechanism 4 (the reset SR still "
-            "standing) no longer covers it, and nothing else does — that hold is entered "
-            "with whatever mask that write left behind."
+            f"{RESET_ENTRY[0]}: the z80_stopped bracket at :{site} now sits AFTER "
+            f"{RESET_ENTRY[1]}'s first `sr` write at :{first_sr_write}. Mechanism 4 (the "
+            "reset SR still standing) no longer covers it, and nothing else does — that "
+            "hold is entered with whatever mask that write left behind."
         )
+
+
+def bus_register_code_mentions() -> list[tuple[str, int, str]]:
+    """Every CODE line (comments and strings stripped) naming the bus-request register."""
+    out: list[tuple[str, int, str]] = []
+    for path in source_files():
+        rel = path.relative_to(REPO).as_posix()
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for n, raw in enumerate(text.splitlines(), start=1):
+            line = _strip(raw)
+            if RE_BUS_REGISTER.search(line):
+                out.append((rel, n, line.strip()))
+    return out
+
+
+def test_no_hand_spelled_bus_hold_remains():
+    """The machine-checked form of "every 68k Z80-bus hold is a bracket".
+
+    A hold has to WRITE the bus-request register, and code can only reach that
+    register by naming it (`Z80_BUS_REQUEST`) or its address (`$A11100`). So: outside
+    its one definition and the one context that brackets it, no CODE line anywhere in
+    engine/ or games/ may name it. That rules out a hand-spelled `move.w #$0100, …`, a
+    `lea`/`movea`/`dc.l` preload of the address into a register for a later
+    `move.w dN,(aN)` (the exact shape boot used until LS-13b — its BootData
+    `dc.l Z80_BUS_REQUEST` would have been this rule's only other hit), and a second bus
+    context.
+
+    Both allowed files are checked to still carry the definition / declaration, so a
+    rename fails here rather than quietly exempting a file that no longer does the job.
+
+    WHAT IT CANNOT SEE: an address assembled at runtime from parts, or one read from a
+    table authored outside engine/ and games/. Neither exists today; this is a text rule.
+    """
+    mentions = bus_register_code_mentions()
+    print(f"code lines naming the Z80 bus-request register: {len(mentions)}")
+    for rel, n, line in mentions:
+        print(f"  {rel}:{n}  {line}")
+
+    ctx_text = [_strip(l) for l in (REPO / BUS_CONTEXT_FILE).read_text(encoding="utf-8").splitlines()]
+    def_text = [_strip(l) for l in (REPO / BUS_REGISTER_DEF_FILE).read_text(encoding="utf-8").splitlines()]
+    assert any(RE_BUS_CONTEXT_DECL.match(l) for l in ctx_text), (
+        f"{BUS_CONTEXT_FILE} no longer declares `context z80_stopped` — the exemption "
+        "below would be exempting a file that is not the bus bracket."
+    )
+    assert any(RE_BUS_REGISTER_DEF.match(l) for l in def_text), (
+        f"{BUS_REGISTER_DEF_FILE} no longer defines `const Z80_BUS_REQUEST` — re-point "
+        "BUS_REGISTER_DEF_FILE at the definition."
+    )
+    # Positive control: the rule must actually be SEEING the context's own writes, or
+    # an empty `offenders` below would be vacuous.
+    assert any(rel == BUS_CONTEXT_FILE for rel, _, _ in mentions), (
+        f"no code line in {BUS_CONTEXT_FILE} names the bus-request register; the scan is "
+        "not seeing the context's acquire/release, so it cannot see a hand-spelled hold."
+    )
+
+    offenders = []
+    for rel, n, line in mentions:
+        if rel == BUS_CONTEXT_FILE:
+            continue
+        if rel == BUS_REGISTER_DEF_FILE and RE_BUS_REGISTER_DEF.match(line):
+            continue
+        offenders.append(f"  {rel}:{n}  {line}")
+    assert not offenders, (
+        "CODE outside the `z80_stopped` context names the Z80 bus-request register. That "
+        "is either a hand-spelled bus hold or the preload for one, and it gets none of "
+        "the compiler's pairing proofs; a register-indirect or non-literal write is also "
+        "invisible to sigil's [bus.*] tier (LS-13b). Use `with z80_stopped { … }` — "
+        "with `z80_stopped(interleave: asm { … })` if a statement must sit between the "
+        "bus request and the grant spin:\n" + "\n".join(offenders)
+    )
 
 
 def test_comment_prose_cannot_satisfy_a_mechanism():
@@ -476,6 +569,7 @@ if __name__ == "__main__":
     test_vblank_capability_has_exactly_one_grant_root()
     test_bracket_population_has_not_shrunk()
     test_every_bus_hold_is_masked()
-    test_boot_hand_spelled_hold_precedes_the_first_sr_write()
+    test_reset_entry_holds_precede_the_first_sr_write()
+    test_no_hand_spelled_bus_hold_remains()
     test_comment_prose_cannot_satisfy_a_mechanism()
     print("OK")
