@@ -19,7 +19,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the stress re-bake fix is reviewed and landed.",
+  "nextBoundary": "When the stress re-bake fix lands; the overnight order is in handoff 21.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -36,9 +36,16 @@
       "blockedBy": null
     },
     {
+      "id": "CACHE-WINDOW-HOLD-MEASURE",
+      "title": "In-game test your cache card needs: how often the camera would wait for art with a smaller loaded area, and how long a half-size page takes to load",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
       "id": "MEGAACT-BG-STREAMING",
       "title": "Region backgrounds: the switch is landed (overwrite then repaint, never art before it loads). Still open: authoring a region's art in Aurora, a cover-length warning, and per-region animated bands",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
@@ -80,5 +87,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T06:40:47Z"
+  "updatedAt": "2026-09-17T06:50:52Z"
 }
