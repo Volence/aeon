@@ -35192,6 +35192,18 @@ surfaced the vertical crossing. The capture README's caption was wrong and is co
 
 ## PRESET-NOTE-POINTS-AT-A-BLIND-INSTRUMENT (booked 2026-09-16, from the sigil lane)
 
+> **STATUS 2026-09-17 (`parcel/spawndesc-size-close`):** the comment at `engine/effects/preset.emp`
+> has been corrected. It keeps "declared layouts are not validated" for UNREACHABLE modules,
+> because that was re-measured against sigil d7e6aa15 and is still true: a mis-sized probe
+> struct in `engine/debug/sound_debug.emp` builds clean for sonic4 plain, sonic4 debug and demo.
+> It adds that inside the `use` closure a declared size no longer needs a use to force it, that
+> the census counts ensures and so is no instrument for layouts, and that the reachability test
+> is an appended `ensure(1 == 2)`. The census claim "names only modules with a nonzero ensure
+> count" is still the sigil lane's measurement, not this parcel's. The paragraph below about
+> "only when something forces that struct's layout" is pre-d7e6aa15 history inside the closure.
+> Measurements are in the closed `SpawnDesc` row below.
+
+
 **`engine/effects/preset.emp:114` prescribes a mitigation that is structurally blind to the case
 it was written for.** That note records `EffectsPreset` having been declared `(size: 36)` against
 32 bytes of fields and going undetected for as long as its module was unreachable, and tells the
@@ -35472,7 +35484,55 @@ display-on caller is DEBUG, and doing it touches the VDP shadow-register contrac
 CODING_CONVENTIONS §3.1 rule 5). Revisit the day a release path (a respawn, a cache recovery that
 actually fires) reaches `Section_Plane_Dirty` with the display on.
 
-## `(size: N)` on `SpawnDesc` is not enforced — the same silent-declaration class, LIVE (reported by the sigil lane 2026-09-16, booked from `parcel/regions-p2-step3`)
+## ✅ CLOSED 2026-09-17 (`parcel/spawndesc-size-close`) — `(size: N)` on `SpawnDesc` is not enforced — the same silent-declaration class, LIVE (reported by the sigil lane 2026-09-16, booked from `parcel/regions-p2-step3`)
+
+**CLOSED BY SIGIL, NOT BY AN AEON ENSURE.** Sigil d7e6aa15 checks a struct's declared size
+without waiting for something to force its layout. The shared release binary was swapped to it
+at 2026-09-17T08:11:55Z. This parcel measured it at aeon base `9eb59adf`, with
+`$SIGIL_BUILD` md5 `8027e7ba7fba6ef5e3351aa3211e1520` and `--version` `sigil 0.1.0 (d7e6aa15)`.
+`children.emp` gained no ensure.
+
+| build | SpawnDesc | exit | diagnostic |
+|---|---|---|---|
+| `./build.sh` (sonic4) | `(size: 4)` control | 0 | none |
+| `./build.sh demo` | `(size: 4)` control | 0 | none |
+| `./build.sh` (sonic4) | `(size: 41)` | 1 | see (a) |
+| `./build.sh demo` | `(size: 41)` | 1 | see (a) |
+| `FAST=1 ./build.sh` (sonic4 plain) | `(size: 41)` | 1 | `error: native build (sonic4 plain): build_program: 1 error(s);` / `./engine/objects/children.emp:84:29: [Error] struct SpawnDesc: declared size 41 but fields total 4` |
+| `FAST=1 DEBUG=1 ./build.sh` (sonic4 debug) | `(size: 41)` | 1 | `error: native build (sonic4 debug): build_program: 1 error(s);` / same `children.emp:84:29` line |
+| `FAST=1 ./build.sh demo` | `(size: 41)` | 1 | `error: native build (demo plain): build_program: 1 error(s);` / same `children.emp:84:29` line |
+| `./build.sh` (sonic4), restored | `(size: 4)` | 0 | none; `s4.bin` CRC32 `f9156c30`, same as the control |
+
+(a) **Read this before quoting the canonical exit 1 as the sigil build refusing.** Both canonical
+runs stopped at build.sh's pre-build pytest lane (`Tool-suite tests failed`, 7 failed and 50
+errors), before the stage that builds the game. The refusal is real, but it came from the
+sigil builds that lane starts itself. The demo fixture in `tools/provenance_fixtures.py`
+printed `error: native build (demo plain): build_program: 1 error(s);` and
+`.../engine/objects/children.emp:84:29: [Error] struct SpawnDesc: declared size 41 but fields total 4`.
+`tools/test_extern_guard_reachability.py` printed
+`error: native check (sonic4 plain): build_program: 1 error(s);` and
+`./engine/objects/children.emp:84:29: [Error] struct SpawnDesc: declared size 41 but fields total 4`,
+followed by the field map (`code @0 (2 bytes)` ... `4 vs 41 (off by 37, too small)`), for sonic4
+plain, sonic4 debug and config_a. The three `FAST=1` rows skip that lane, which is why they are
+here: they show each game's own build stage refusing. The sigil lane's premise said line `:82`;
+this tree has the declaration at `:84`, and the diagnostic says so.
+
+**THE SCOPE IS THE `use` CLOSURE, NOT "EVERYWHERE".** Measured in the same session. The probe
+`struct ProbeUnreachSize (size: 9) { pr_a: u16 @ $00, }` (fields total 2) fails all three
+`FAST=1` shapes (sonic4 plain, sonic4 debug, demo) when appended to `engine/objects/children.emp`,
+and nothing references it there. Appended to `engine/debug/sound_debug.emp`, which is outside
+the closure for all three, the same probe builds **clean, exit 0**, in all three and under
+`--check`, `pub` or not. Controls for that module: a syntax error appended there fails all
+three, so it is parsed. `(size: 2)` builds clean. `ensure(1 == 2)` appended there also builds
+clean, and the census count goes from 2 to 3. So the old "only when forced" rule is gone inside
+the closure and unchanged outside it. The comment at `engine/effects/preset.emp` now records
+this, and the `PRESET-NOTE-POINTS-AT-A-BLIND-INSTRUMENT` row points here.
+`engine/structs.emp`'s Region block and ensure message had repeated both the old rule and
+"SpawnDesc is live", so they were corrected in the same commit. That commit is comment and
+ensure-message text only: `s4.bin` CRC32 `f9156c30` before and after.
+
+**The original booking follows, kept as written. Its "LIVE" claim and its remedy no longer apply.**
+
 
 A `(size: N)` struct declaration in `.emp` is checked **only inside `layout_of_struct`**, i.e.
 only when something in the build FORCES that struct's layout. No pass walks declared structs and
