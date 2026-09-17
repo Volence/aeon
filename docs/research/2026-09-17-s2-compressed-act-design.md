@@ -962,15 +962,26 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 > answer is 12 whether the pin rule is wired correctly or not (see §3.3's note).
 | 4 | ~~**Collision: the S2 base bank.**~~ **DONE 2026-09-17** (`parcel/s2-collision-bank`). `tools/import_s2_collision.py` writes the bank to `games/sonic4/data/collision/base_s2/`, regenerating the rotated table. `$18` ruled: keep the run's width, anchor RIGHT. | M | **PASSED, both halves.** 256/256 round-trip, no raise, 1 via the ruling. The second half was widened from a hand-picked slope to **3,612,672 probes** — every distinct chunk word of all six zones x 16 x-sub x 16 y-sub x both sensor classes — against a line-for-line transcription of `s2.asm:42942`/`43030`: 0 exit-kind, 0 angle, 0 distance mismatches. No emulator; the donor's lookup is re-implemented. |
 | 5 | ~~**Collision: clip → `collattr.bin`.**~~ **DONE 2026-09-17** (`parcel/s2-clip-collision`). `collision_pipeline.chunk_entry_to_plane_words` + `tools/s2_zone_convert.py` (both plane files per donor zone, crop-masked like the art, attr cost in `zone.json`) + `tools/clip_act_bake.py` (clip → both act plane files, per-clip §8 readout, C1/C2/C3). Bank selection done: `load_base_bank(bank_dir)`. W1 RULED and retired; R12 replaces it. | M | **PASSED, both halves.** Six counts, six exact matches — `s2_two_clip` ehz_s2 95 / cpz_s2 148 / act 207, `s2_two_clip_pins` ehz_s1 62 / cpz_s1 148 / act 191, each equal to `s2_clip_budget.py collision` on the same rectangle, and each act re-counted off the emitted bytes. C1 refuses a clip that takes some of a zone's crossover marks and leaves others — a refusal that **did not exist**, because the §2.3 mechanism named for it (R2) catches self-marks, not severed ones. |
-| 6 | **★ FIRST THING ON SCREEN: a one-clip act.** One 2-section Emerald Hill clip as a whole act: art + collision + its palette, bootable. | M | The act builds through `tools/landing_build.sh`; the clip renders and Sonic stands on its ground. This is the first parcel that produces a picture. |
+| 6 | ~~**★ FIRST THING ON SCREEN: a one-clip act.**~~ **DONE 2026-09-17** (`parcel/s2-first-clip-act`). `tools/clip_rom_bake.py` + `tools/elect_pool_pages.py` + build.sh's `S2CLIP` shape. The block stream exists: `sec{N}_blocks.bin` via `ojz_block_gen`, S4LZ v3, per-section dictionaries. **The palette half is BLOCKED** — see below. | M | **PASSED as far as a static check reaches, and the runtime half is TAGGED rather than claimed.** `S2CLIP=s2_ehz_boot ./build.sh` exit 0 -> `s4.s2clip.bin` 821,211 B (every build.sh gate green on the clip tree); `tools/landing_build.sh` exit 0 with the three canonical ROMs byte-identical. `verify_level_bin` all ten lanes on the clip tree: 589,824 nametable words and 589,824 collision cells carry what the converter emitted. The ground: spawn (256,256) DERIVED from `Camera_Init`, solid at y=656 by `probe_core`'s own arithmetic over the EMITTED ROM tables, surface y=671 — and Sonic 2's own `startpos/EHZ_1.bin` (96, 655) puts the player's feet at y=674 where our floor is at y=676, **2 px**, inside a derived 0..16 window a 16- or 8-px paste shift would miss. **No emulator was used**; "it renders" is a runtime claim and is tagged in the parcel report's §8. |
 | 7 | **Two clips + a corridor.** Two zones, a neutral transition between them (§9.1a), two regions, two palettes, a cross-fade at the crossing. | M | No camera position holds cells from both clips (a static check over the placed act); the palette cross-fade fires exactly once per crossing. |
 | 8 | **Three clips, and the budget gates.** Add the per-clip readout of §8 so the author sees tiles/pages/attr-entries before pasting. | M | `fg_page_order.check` green; `art_rom_report` within whatever budget the owner ruled in §9.3; attr set under 255. |
 | 9 | **Six clips — the showcase act.** | L | The whole act passes `tools/landing_build.sh`, and a runtime pass confirms no camera hold at the worst window §3.3 identified. |
 
-**First visible result: parcel 6.** Parcels 1-5 are pipeline with no picture; that is a real
-morale cost and worth saying out loud. Parcel 6 could be pulled earlier by hand-authoring the
-collision for one small clip in aurora instead of converting it (parcels 4-5 deferred), at the
-price of doing that work twice.
+~~**First visible result: parcel 6.**~~ **THERE IS A ROM, 2026-09-17.** Parcels 1-5 were
+pipeline with no picture, which was a real morale cost and was worth saying out loud; parcel 6
+built `s4.s2clip.bin`. The suggestion below — pulling it earlier by hand-authoring the collision
+in aurora — was not needed and would have cost the work twice, exactly as it warned.
+
+**And the way it coexists with the shipped act is not what this document assumed.** §10 row 6
+read as though a clip act would be a SECOND act. It is not, and cannot cheaply be: sigil places
+the generated `.emp` modules by a FIXED registry path and `games/sonic4/map.toml` names their
+head labels, so a second act needs a sigil registry change, a map.toml change and a second
+`act_descriptor.emp` — all of which land bytes in the canonical ROM. A clip act is a THROWAWAY
+in-place re-bake of the ONE act slot under an EXIT trap (build.sh's `STRESS_ART` shape,
+generalised), which makes the canonical shapes byte-identical BY CONSTRUCTION. **The consequence
+for the plan: a clip act inherits the shipped act's background, objects, rings, region table and
+effects presets**, because all of those live outside the generated tree. Rows 7-9 own the first
+three of those the moment a corridor needs its own.
 
 ---
 
@@ -989,9 +1000,14 @@ price of doing that work twice.
    The fix is clipping, and clipping is position-dependent (a median-clip act needs 283, a
    cheapest-clip act 37), so the author can build something that refuses to bake and not
    understand why. §8's readout is not a nicety.
-4. **Nothing stitched has ever run.** `docs/DEFERRED_WORK.md:36424`: *"No stitched act has run
-   in game."* Every number in §3 is a build-time measurement. The first time this is real is
-   parcel 6.
+4. ~~**Nothing stitched has ever run.**~~ **PARTLY SPENT 2026-09-17.** A ONE-CLIP act is now a
+   ROM (`s4.s2clip.bin`, parcel 6) and every number in §3 that it touches was reproduced through
+   the ROM bake rather than the donor-side tool — including §3.2's own `min=286 canonical, 5
+   pages` for a 2-section Emerald Hill clip, which the bake printed independently. **What is
+   still true is the part that matters: nothing has RUN.** Parcel 6 used no emulator; its
+   rendering claim is tagged for a foreground check, not asserted. And nothing STITCHED has been
+   built at all — a one-clip act is an ordinary aeon act with one tileset, which is precisely why
+   it was reachable. The stitched case starts at row 7.
 5. **A second act's background animation has nowhere to live** —
    `docs/DEFERRED_WORK.md:3841-3880`, already booked, needs an owner ruling on ROM layout. It
    bites the moment the showcase is a second act rather than a replacement for OJZ act 1.
@@ -1061,6 +1077,29 @@ a clip, against the stand-in's 278).
 > python3 $S place EHZ:1,0,1,1 CPZ:1,0,1,1                  # N3 for the pins fixture -> 10
 > python3 $S place EHZ:1,0,1,1 CPZ:1,0,1,1 --pins raw       # the old wiring -> 11
 > ```
+
+> **2026-09-17, parcel 6 — the first bootable clip act.** Needs the converted EHZ tree and the
+> two sigil env vars. The bake OVERWRITES the committed generated tree as a THROWAWAY and
+> REFUSES to start over a dirty one (R22), so the `git checkout` line between runs is not
+> optional; `build.sh`'s `S2CLIP` shape owns that restore itself through an EXIT trap.
+>
+> ```bash
+> export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+> export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+> python3 tools/s2_zone_convert.py convert s2disasm@EHZ
+> python3 tools/clip_rom_bake.py bake games/sonic4/data/clips/s2_ehz_boot/clips.json
+> python3 tools/verify_level_bin.py \
+>     --project games/sonic4/data/clips/s2_ehz_boot/baked/project.json \
+>     --bank    games/sonic4/data/collision/base_s2        # the ten lanes, on the clip tree
+> python3 tools/clip_rom_bake.py ground games/sonic4/data/clips/s2_ehz_boot/clips.json
+> git checkout -- games/sonic4/data/generated games/sonic4/data/collision
+> git clean -fdq -- games/sonic4/data/generated
+> S2CLIP=s2_ehz_boot ./build.sh                            # -> s4.s2clip.bin
+> ```
+>
+> `$S clipsweep EHZ --secw 2 --sech 1` above is the CROSS-CHECK for the bake: its
+> `min=286 canonical, 5 pages` at `px [0,0]` are the two numbers `clip_rom_bake` prints, reached
+> without going through a converted tree or a `clips.json` at all.
 
 ```bash
 cd <your aeon checkout>

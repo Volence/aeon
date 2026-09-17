@@ -37237,3 +37237,230 @@ No `.emp` touched, no ROM byte moved, the shipping act's collision tables, the S
 `games/sonic4/data/editor/ojz/act1` tree untouched (11 of 11 md5s unchanged across a bake, and
 a gate row pins it), all three donor trees read-only, no emulator used. Wall clock: 2026-09-17,
 dev box up 1 day 22 h, load average 1.3-2.5 across the runs.
+
+### S2-COMPRESSED-ACT parcel 6 LANDED 2026-09-17 — ★ THE FIRST BOOTABLE CLIP ACT
+
+Branch `parcel/s2-first-clip-act` (base `1d6117ec`). Report:
+`docs/research/s2-compressed-act/2026-09-17-first-clip-act.md`. The design doc was patched in
+place at §10 row 6, §11 risk 4 and §13, where this parcel made a sentence in it false.
+
+**CLOSED**
+
+- **Staged-plan row 6 is DONE for everything a static check can reach.**
+  `S2CLIP=s2_ehz_boot ./build.sh` exits 0 and writes **`s4.s2clip.bin`, 821,211 B, md5
+  `7f40876af03b35f03f0ef9d6bd527743`, DIGEST-ROM crc `76106cb9`**. Every gate in build.sh runs
+  against the CLIP tree and passes. The RENDERING half of the row's check is a runtime claim,
+  is TAGGED for the foreground in the report's §8 (what to boot, what to look for in order,
+  and six named falsifiers), and is NOT claimed here. No emulator was used anywhere.
+- **THE BLOCK STREAM EXISTS — parcel 5's named inheritance.** `tools/clip_rom_bake.py` takes a
+  one-clip manifest to the format the ROM reads: `clip_act_bake` composes, a staged
+  `project.json` points the SHIPPED generators at it, `ojz_strip_gen.generate()` emits strips /
+  local maps / pool pages / palette / the interned collision tables against the SONIC 2 bank,
+  `inject_editor_bg.py` runs as the shipped re-bake runs it, `elect_pool_pages` elects the page
+  forms, and `ojz_block_gen.generate_all()` writes `sec{N}_blocks.bin` (S4LZ v3, per-section
+  dictionaries). **First bake: 286 pool tiles in 5 pages, 66 of 255 attr entries; sec0 12,220 B
+  (K=1, 128/256 non-empty blocks), sec1 16,860 B (K=3, 128/256), sec2-8 air deduped to one
+  1,024 B blob.** `project.json` entry and matching GRID_W/GRID_H: both, by R21.
+- **THE DESIGN'S OWN §3.2 MEASUREMENT REPRODUCES THE ROM BAKE EXACTLY, and the two sides share
+  only the donor bytes.** `s2_clip_budget.py clipsweep EHZ --secw 2 --sech 1` reports
+  `min=286 canonical, min=5 pages` at `px [0,0]` — the two numbers the bake printed, reached
+  through a converted editor tree, `clips.json`, the composer and `ojz_strip_gen` rather than
+  through the donor tables directly.
+- **`fg_page_order.check` READS THE CLIP ACT**, so parcel 3's restatement of the row-3 check is
+  CLOSED rather than permanently accepted: a clip act is baked into the shipped act's slot, so
+  `_known_acts` and `fg_working_set.Model` see the act they already know. On the clip tree:
+  5 pages, pins [0], worst window **5 of 12 frames**, 0 of 257,367 windows over budget.
+  `art_rom_report`: raw 8.9 KB -> stored 4.8 KB, inside the soft 24 KB.
+- **THE COEXISTENCE MECHANISM: a THROWAWAY re-bake of the ONE act slot**, in exactly
+  `STRESS_ART`'s shape — an off-canonical DEV shape, unfrozen, no golden, distinct artifacts
+  (`s4.s2clip[.debug]`), an EXIT trap restoring the committed tree from git. **The canonical
+  shapes are byte-identical BY CONSTRUCTION, not by promise**: they read the committed tree, no
+  `.emp`, no `map.toml` row and no engine constant is touched. A SECOND ACT ENTRY was rejected
+  because sigil places the generated `.emp` modules by a FIXED registry path and map.toml names
+  their head labels, so a second act needs a sigil registry change + a map.toml change + a
+  second `act_descriptor.emp`, all of which land canonical bytes. A SEPARATE GAME was rejected
+  because `games/demo` has zero Sonic code and "Sonic stands on its ground" would need a fork
+  of the whole `games/sonic4` game layer.
+
+**BLOCKED — THE PALETTE, and it wants a ruling before row 7**
+
+`--palette clip` is the right picture and does not build. `games/sonic4/data/effects/
+ojz_effects.emp` carries **EIGHT top-level comptime `ensure`s pinned to statistics OF THE
+SHIPPED ACT'S PALETTE** — the night grade's lit-colour count (42), its retention ceiling (76%),
+three blue-share permille figures (313 / 310 / 377), the distinct-colour count (39), the merge
+budget (36), and the showcase palette's agreement with `OJZ_Palette` over CRAM lines 1-2.
+**They are RIGHT and fire correctly**: their job is to catch the act art changing under a
+hand-derived grade, and a clip act changes the act art (Emerald Hill has 46 lit colours, 37
+distinct, blue share 337). Every message says "re-derive, do not re-pin", addressed to a person.
+Three options, all the owner's: **(a)** scope the pins to the shipped act — a top-level comptime
+conditional around a block of `ensure`s, a pattern **THIS CODEBASE DOES NOT HAVE** (the
+`if DEBUG == 1` sites are expressions inside initializers), byte-neutral if it works since an
+`ensure` emits nothing; **(b)** derive the pins per act, which their own messages forbid;
+**(c)** give a clip act its own effects library, which is §9.1's per-region palette work, i.e.
+row 7+. **What ships is `S2CLIP_PALETTE=shipped` (default): Emerald Hill's geometry and art in
+Oracle Jungle's colours, announced in a loud banner at the bake and recorded in the bake's
+JSON.** A wrong picture that says it is wrong. The geometry claim does not depend on it.
+**Row 7 needs this ruled: two clips means two palettes and a cross-fade.**
+
+**THE STATIC EVIDENCE FOR "THE CLIP RENDERS AND SONIC STANDS ON ITS GROUND"**
+
+- **`verify_level_bin`, ALL TEN LANES, on the clip tree**: editor bake fidelity OK (9 sections,
+  **589,824 nametable words**), editor collision fidelity OK (9 sections, **589,824 cells,
+  7,840 authored non-air**), plus act-pool / local-maps / block-blobs / block-decode /
+  bininclude-targets / collision-interned / section-set / orphans. That IS "its tiles resolve
+  and its collision bytes are the ones the converter emitted", over every cell rather than
+  sampled. It needed two parameterisations because BOTH fidelity lanes were silently
+  act-specific: **`--project PATH`** (dataPath now resolves against the PROJECT FILE, not ROOT
+   — identical for the shipped project.json, which sits at the root) and **`--bank DIR`** (a
+  Sonic 2 clip is indexed against `collision/base_s2`, and a shape index means a DIFFERENT
+  shape in the S&K bank). Both default to today's values; a canonical run is unchanged.
+  **Without them the shape would have had to SKIP those two lanes, and a lane a shape never
+  runs is a lane that shape does not have.**
+- **`clip_rom_bake.py ground`** re-implements the engine's own lookup over the EMITTED ROM
+  bytes: spawn `(256, 256)` DERIVED from `Camera_Init`'s clamped seed + the boot state's
+  half-screen (not typed); the cell picked the way `probe_core` picks it (8-px column from
+  world x, 16-px row by one `lsr.w #1`); **`probe_core`'s SOLIDITY CLASS gate applied** — the
+  one parcel 4's own check omitted for 158,442 probes; the height byte from the emitted
+  `heightmaps.bin` at `attr*16 + (x & $F)`, indexed by the attr byte the emitted strips carry;
+  a negative height treated as a hanging run, not a floor. **Result: SOLID at world y=656,
+  attr 8, solidity $03, height 1, angle $F8, surface y=671, 415 px below the spawn.**
+- **A SECOND, INDEPENDENT WITNESS, and the one that can see a shifted paste.** "Something solid
+  is under the spawn" only rules out air. Sonic 2 ships its own EHZ act 1 start position
+  (`s2disasm/startpos/EHZ_1.bin` = `$0060 $028F` = 96, 655). At that point in our act the ROM's
+  floor surface is **y=676** and the player's feet, at `PLAYER_Y_RADIUS` 19 below 655, are at
+  **y=674: 2 px.** The window is DERIVED not fitted — at or below the feet (above spawns the
+  player inside the ground) and within one 16-px collision cell (further is a fall, not a
+  stand). **A paste shifted by R12's 16-px block quantum, or by the 8 px that moves collision
+  and not art, lands outside it.** That is the failure no screenshot shows.
+
+**FIVE EXISTING GATES CAUGHT THIS PARCEL, all five right, all five fixed at the source**
+
+1. **`inject_editor_bg.py` was never run by the clip bake**, so `OJZ_Act1_BG_Layout` emitted at
+   4,096 B against a declared 8,192 and the link died. The clip act keeps the shipped
+   background, so it must keep the whole shipped BG path.
+2. **`bganim_room` had no ruled ceiling for the new shape** and said so, with the fix in its own
+   message. Two rows added, DERIVED not copied: a clip act re-bakes only the FOREGROUND half and
+   keeps the shipped BG authoring byte for byte, so the ruled number carries; the ROOM does not,
+   which is why they are keyed by their own listings.
+3. **`test_bg_emit` derived the off-canonical shapes with its own `ROM_NAME="(s4\.stress
+   [a-z]*)"` regex and a `len == 2` tripwire** — a rule keyed to the two shapes that existed
+   when it was written. The S2CLIP listings are off-canonical, are not spelled `stress`, and
+   were invisible to it, so a population check had silently stopped covering the population. It
+   asks `tools/gate_cut_shape.py` now, which already reads build.sh for exactly that set.
+4. **`test_cli_dispatch_refuses`**: two tools joined the argv-dispatch population unrostered
+   (21 -> 23). `clip_rom_bake` is `_FIXED` with **NO** subprocess row — it OVERWRITES tracked
+   build inputs, and that file's rule is that on a regression such a row's failure IS the write.
+5. **`test_page_size_constant` and `test_baker_refusals` stubbed the art-pool election**, which
+   had just become a real tool. Both harnesses drive the script end to end, so both get the REAL
+   `elect_pool_pages.py`; stubbing it would have left `test_page_size_constant`'s three rows
+   testing nothing at all.
+
+**FOUND: `ojz_strip_gen.generate()` WROTE ITS COLLISION TABLES PAST THE `COLLISION_DIR`
+REDIRECT.** The destination was re-derived from `__file__` at the write, so every
+`python3 tools/ojz_strip_gen.py test` rewrote the SHIPPED `games/sonic4/data/collision/` tables
+even though `test_full_pipeline_runs` points COLLISION_DIR at a tmpdir — and that test's own
+comment asserted the opposite ("collision tables are no longer emitted by generate()").
+MEASURED, not inferred: `heightmaps.bin` and `angles.bin` mtimes both moved across one test run
+(1789683885 -> 1789683953). Harmless only by luck, because the test bakes the same editor data
+so the bytes matched and git status stayed clean. **Point the module at a SECOND act and the
+same line silently replaces the shipped act's ROM collision tables with the clip's** — the D1
+incident, one layer down. Fixed by honouring COLLISION_DIR; the stale comment replaced by an
+ASSERTION that the tables land inside the redirect.
+
+**A GATE-CLASSIFIER RULE WIDENED, with the discriminating pair it was missing.**
+`gate_cut_shape` refused the clip shape: "target=sonic4, a CANONICAL build target". The rule is
+aimed at a RENAMED canonical build, and every off-canonical shape that existed when it was
+written is a named sigil PROFILE, so `target != sonic4` was a free proxy. S2CLIP is
+off-canonical in its ACT DATA and is built through the canonical target — inventing a sigil
+profile for a data swap would be a cross-repo change this parcel may not make. **THE
+DISCRIMINATOR IS NOW `DIGEST-ROM path=`**, the artifact sigil was ASKED to write, which a
+rename cannot forge; and it is not the only line of defence, because the shared freshness
+primitive already refuses a pair whose DIGEST-ROM names a different .bin. **The test that
+covered this could not tell the two rules apart**: its "renamed canonical build" fixture set
+only `target=sonic4` and left `path=s4.stress.bin`, which describes an off-canonical BUILD and
+not a rename. It models a rename now, with the accepted case beside it — same target, different
+path, opposite verdict.
+
+**A NAME-KEYED OPT-OUT SILENTLY DISARMED A NEW ROW, and it is the one worth reading.**
+`test_gate_cut_shape`'s autouse fixture stubbed `digest_target_problem` for every test whose
+name did not start with `test_digest`. A new row exercising that exact function was called
+`test_a_digest_without_a_rom_line_...`, did not match, got the `lambda lst: None` stub, and
+asserted against the stub's answer while reading as a real check. It is a registered MARKER
+now: a row says what it wants, and a row that forgets loses its subject LOUDLY (it asserts
+against None) instead of being quietly renamed out of its own coverage. The row also records a
+MEASURED correction: the "no DIGEST-ROM line" case it was written for is unreachable, because
+the digest reader's grammar requires that line and refuses first.
+
+**AND THE PARCEL'S OWN GATE HAD A ROW THAT COULD NOT SEE ITS SUBJECT** — found by the
+mutations, which is what they are for. Deleting `elect_pool_pages`' even-length padding left
+the gate GREEN: the row swept page sizes 992-2048 of PRNG bytes, every one of which elects RAW,
+whose length IS the page size and is therefore always even. Applied-but-still-green is a runner
+defect, not a pass. The fixture now PRODUCES an odd ZX0 stream (an `i // 7` ramp at 48/96/112/
+128 bytes packs to 17/31/35/37, +4 wrapper = 21/35/39/41 — odd, and each saves far more than
+the 10% the election needs), with an anti-vacuity assertion that SAYS SO if no elected blob in
+the sweep was odd before padding.
+
+**WHAT ROW 7 (two clips + a corridor) INHERITS**
+
+- **The ROM path is open for ONE clip, and R20 is row 7's first job.** Two clips need the
+  per-cell tileset key ON THE ROM PATH; `clip_act_bake` already computes it
+  (`clip_manifest.cell_grids`) and `ojz_strip_gen.generate()` does not read it — it hands
+  `place_pool` a `zone_grid` of zeros and loads ONE tileset (`project.json` zones[0].tileset).
+- **The act grid is 3x3 and fixed by the descriptor (R21).** Two clips plus a corridor wider
+  than the 640 px camera window fit in one 6,144 px row with room to spare — but the corridor's
+  own art has to come from somewhere, and today that somewhere is the one tileset.
+- **THE PALETTE BLOCKER IS ON ROW 7'S CRITICAL PATH**, not a nicety.
+- **A clip act's own effects, regions and background do not exist**; all three are inherited
+  from the shipped act. Row 7's corridor needs at least the region rows.
+- **The `$18` tripwire is still armed** and still costs nothing: no showcase zone references it.
+
+**OPEN RIDERS (small, none blocking)**
+
+- **`games/sonic4/data/clips/*/baked/` and `games/sonic4/data/donors/` are STILL gitignored, and
+  the row-6 expiry parcels 2 and 3 wrote into the `.gitignore` DID NOT FIRE.** Their rule was
+  "the moment a clip out of one reaches a committed byte". Nothing here commits a generated
+  byte: the clip act's tree is a THROWAWAY restored by the shape's own trap, and `s4.s2clip.bin`
+  is an untracked build artifact like every other ROM. The tracked-bytes argument applies the
+  moment a clip act's tree is COMMITTED, which would be the second-act-entry design this parcel
+  rejected. The `.gitignore` comments were left as written rather than edited, because the
+  condition they name is still the right condition — it just has not arrived.
+- **`S2CLIP_PALETTE=clip` is expected to FAIL** until the ruling above. It is wired, refused by
+  the pins, and says so; it is not a dormant scaffold but the named subject of an open card.
+- **`donor_provenance` still records both S2 donors with `contributes_to_rebake=false`, and that
+  is still correct** — no committed byte comes from them. A clip bake DOES stamp
+  `DONOR_PROVENANCE.json` with them as it runs, and the trap restores it.
+
+**EVIDENCE (parcel 6).** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q`,
+`__pycache__` cleared, and **NO converted donor trees present — the state a fresh checkout is
+in** (`games/sonic4/data/donors/` moved aside for the run): **4 failed, 3042 passed, 2 skipped,
+28 deselected, 55 errors, 143 subtests passed in 72.14 s**, with the FAILED/ERROR node-id set
+**byte-identical** to the control's (59 ids, `diff` empty). The 4-failed/55-error
+artifact-freshness family was established by an **in-place control taken BEFORE this parcel
+touched anything** — the same worktree at base `1d6117ec`, same conditions: **4 failed, 3019
+passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 70.22 s**, matching parcel
+5's own post-landing figure exactly. Delta **+23 passed**, accounted for exactly: 18 new rows in
+`tools/test_clip_rom_bake.py`, +2 in `test_gate_cut_shape.py` (26 -> 28), +3 in
+`test_cli_dispatch_refuses.py` (40 -> 43, the three parametrized `_FIXED` rows the new module
+adds). `tools/test_clip_rom_bake.py` is **18 rows**, red-proven by **12** on-disk mutations, each
+SHOWN as a `git diff --stat` before its red run and each restored from the committed baseline
+and byte-compared: the election rule inverted (4 red); the even-length padding dropped (1); the
+stale-page cleanup disarmed (1); the 16-px collision row rule dropped (5); the 8-px column rule
+widened to 16 (5); `probe_core`'s solidity class gate removed (1); the surface placed from the
+cell top (1); a hanging run treated as a floor (1); the corroboration window widened to +/-64
+(1); R20 disarmed (1); `Camera_Init`'s clamp dropped (1); R21 disarmed (1). Control before and
+after the whole sweep: 18 passed. **`tools/landing_build.sh` exit 0, `finished=0`, stamp written**
+(key `3d5174cba17e3d8f`, head `78639f3e44c8`), three shapes built — **`s4.bin` 821,479 B md5
+`ae62156a66c9c3f13e93940e938c340e`, `s4.debug.bin` 848,075 B md5
+`b15ef259523f67ac963ef0cf4df003dc`, `demo.debug.bin` 104,707 B md5
+`f740c22498f6ad132ac9f8bd978c9350`: byte-identical to the three master booked, so NO CANONICAL
+ROM BYTE MOVED** (re-derived at this landing, not copied from the previous booking). Its in-build
+pre-build lane is **3101 passed / 2 skipped / 0 failed / 0 errors** (= parcel 5's 3078 plus
+exactly this parcel's 23 rows), and the needs_build lane is **27 ran / 0 deferred / 0 failed /
+1 exempted**. `S2CLIP=s2_ehz_boot ./build.sh` exit 0 -> `s4.s2clip.bin` 821,211 B md5
+`7f40876af03b35f03f0ef9d6bd527743`. Two full `tools/regenerate-level.sh` runs proved the shipped
+act's re-bake byte-neutral across the election extraction and the parameterisation (`git status
+games/sonic4/data` named only `DONOR_PROVENANCE.json`, restored, plus the two comment lines this
+parcel deliberately changed in `ojz_act_pool.emp`), against a control re-bake taken before any
+edit. **No `.emp` was touched, the shipped act's committed tree is unchanged apart from those
+two comment lines, all three donor trees were read-only, and NO EMULATOR WAS USED.** Wall clock:
+2026-09-17, dev box up 1 day 23 h, load average 1.5-7.5 across the runs.
