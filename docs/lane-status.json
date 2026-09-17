@@ -1,12 +1,6 @@
 {
-  "focus": "Moving boot's sound-chip pause onto the compiler-checked form sigil built for it.",
-  "inFlight": [
-    {
-      "what": "LS-13b: boot's Z80 hold adopts the named-slot bracket",
-      "where": "agent worktree, branch parcel/ls13b-boot-named-slot",
-      "agent": true
-    }
-  ],
+  "focus": "Boot's sound-chip pause landed under the assembler's checks; now tidying a stale nightly-script comment.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-17"
     }
   ],
-  "nextBoundary": "When the LS-13b agent returns and its parcel is judged and landed.",
+  "nextBoundary": "Here: LS-13b is landed and nothing is running.",
   "queue": [
     {
       "id": "FG-CACHE-10-RESEARCH",
@@ -62,13 +56,6 @@
       "blockedBy": "decision card SP6-MODULATION-DIVERGENCE"
     },
     {
-      "id": "LS-13b",
-      "title": "Boot's hand-written pause of the sound chip moves onto sigil's new checked form; an agent is on it",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
       "id": "FLOOR-FAN",
       "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
@@ -81,9 +68,16 @@
       "state": "next",
       "size": "S",
       "blockedBy": null
+    },
+    {
+      "id": "CENSUS-INTERPROC-COUNT",
+      "title": "The bus-hold census prints 2 cross-routine holds where its header says 1 (a new background blit); find out which is right",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-17T09:39:05Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-17T10:33:19Z"
 }
