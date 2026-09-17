@@ -123,10 +123,27 @@ W1-W3 are warnings.
       recommendation. OPT-OUT: a non-empty "unaligned_dst_reason" string on the clip. The
       opt-out is a field in the file rather than a flag on the command line so the next
       reader of the manifest sees the argument that was made.
-  W1  src rect coordinates are not multiples of 128 px (the chunk quantum both games
-      share). Warning ONLY at this parcel: nothing on the ART path cares, because a
-      nametable word is per cell. It is the COLLISION path that is authored per 128-px
-      chunk, so upgrading W1 to a refusal is staged-plan row 5's call, with its evidence.
+  R12 the paste SHIFT (dst origin - src origin) is a multiple of 16 px in both axes.
+      DERIVED from the runtime, not from either file format: a collision cell's height
+      profile is 16 bytes covering a 16-px block and `probe_core` indexes it with
+      `andi.w #$F, d0` on the WORLD x (games/sonic4/player/player_sensors.emp), while
+      the collision ROW is the world tile row halved (engine/level/collision_lookup.emp
+      `lsr.w #1`). So the geometry a cell describes is anchored to its own world
+      position mod 16, and a paste that moves it by 8 px reads the wrong half of every
+      profile — silently, because the ART is one word per 8-px cell and moves correctly.
+      No opt-out: unlike R11 there is no argument to be made, the data is simply wrong.
+
+  ~~W1  src rect coordinates are not multiples of 128 px (the chunk quantum both games
+      share)... upgrading W1 to a refusal is staged-plan row 5's call.~~
+      **RETIRED 2026-09-17 BY ROW 5, AND ITS PREMISE WAS FALSE.** Collision is NOT
+      authored per 128-px chunk in any sense a clip can cut. A chunk is 8x8 BLOCK
+      PLACEMENTS and every placement carries its OWN entry word — its own block id,
+      its own flips, its own two solidity nibbles — so a cut between two blocks inside
+      a chunk severs nothing, and one at a chunk boundary is not special. The quantum
+      that does bind is the BLOCK, 16 px, and it binds on the SHIFT rather than on the
+      src origin: a 16-px-aligned src pasted to a 16-px-aligned dst is correct, and so
+      is an 8-px-aligned src pasted 2048 px away. R12 above is the rule that survives.
+      The tag stays reserved so a future W1 cannot quietly inherit this one's meaning.
   W2  the src rect contains no painted cell.
   W3  an act section holds cells of two different ZONE KEYS. A WARNING, and the design's
       §2.2 gives two reasons for section-boundary placement of which the measurement
@@ -154,6 +171,7 @@ TOOLS = os.path.join(REPO, "tools")
 if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
+import collision_pipeline                       # noqa: E402  (R12's quantum)
 import s2_donor                                  # noqa: E402
 from fg_working_set import ConstantSource        # noqa: E402  (stdlib-only at import)
 
@@ -180,6 +198,11 @@ CONSTANTS_EMP = os.path.join(REPO, "engine", "system", "constants.emp")
 TILE_PX = 8
 #: World pixels per 128x128 chunk — Sonic 2's layout byte and aeon's streaming block.
 CHUNK_PX = 128
+#: World pixels a collision cell's height profile spans, and therefore the quantum a
+#: paste must preserve (R12). READ from the module that owns the profile, never
+#: restated: PROFILE_LEN is one height byte per pixel column of a 16-px block, and
+#: probe_core selects the column with `world x & 15`.
+COLL_QUANTUM_PX = collision_pipeline.PROFILE_LEN
 
 #: The suite contract's region-id pattern, transcribed from
 #: `empyrean:contract/schema/aurora-regions.schema.json` `$defs/region/properties/id` at
@@ -214,7 +237,7 @@ class Clip:
     """One pasted rectangle. `zone_key` is assigned by the manifest, not the file."""
 
     __slots__ = ("id", "donor", "zone", "src", "dst", "region_id",
-                 "unaligned_dst_reason", "zone_key", "index")
+                 "unaligned_dst_reason", "severed_xover_reason", "zone_key", "index")
 
     def __init__(self, raw, index):
         self.index = index
@@ -225,6 +248,7 @@ class Clip:
         self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
         self.region_id = raw.get("region_id") or None
         self.unaligned_dst_reason = raw.get("unaligned_dst_reason") or None
+        self.severed_xover_reason = raw.get("severed_xover_reason") or None
         self.zone_key = -1
 
     @property
@@ -242,6 +266,7 @@ class Clip:
             "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
             "region_id": self.region_id,
             "unaligned_dst_reason": self.unaligned_dst_reason,
+            "severed_xover_reason": self.severed_xover_reason,
         }
 
     def __repr__(self):
@@ -501,12 +526,24 @@ def load(path, donor_root=None, constants=None, warn=None):
                     f"\"unaligned_dst_reason\" on this clip to the argument for it, and it "
                     f"will be carried into the bake's clipact.json.")
 
-        # W1 — the 128-px chunk quantum: art does not care, collision will
-        if any(v % CHUNK_PX for v in cl.src):
-            _warn(f"W1 clip {cl.id!r}: src_rect ({_rect_str(cl.src)}) is not 128-px "
-                  f"chunk-aligned. Harmless on the ART path (a nametable word is per cell), "
-                  f"but Sonic 2 authors collision per 128-px chunk, so staged-plan row 5 may "
-                  f"turn this into a refusal.")
+        # R12 — the collision quantum. W1's replacement; see the rule table.
+        shift = (cl.dst[0] - cl.src[0], cl.dst[1] - cl.src[1])
+        if any(v % COLL_QUANTUM_PX for v in shift):
+            raise ClipManifestError(
+                f"R12 clip {cl.id!r}: the paste shifts the clip by "
+                f"({shift[0]}, {shift[1]}) px, and collision is only correct when BOTH "
+                f"axes shift by a multiple of {COLL_QUANTUM_PX}. DERIVED, not a "
+                f"convention: a collision cell's height profile is {COLL_QUANTUM_PX} "
+                f"bytes covering a {COLL_QUANTUM_PX}-px block, and the runtime picks the "
+                f"column with `andi.w #$F, d0` on the WORLD x "
+                f"(games/sonic4/player/player_sensors.emp probe_core); the row is picked "
+                f"the same way in y (`lsr.w #1` of the tile row, "
+                f"engine/level/collision_lookup.emp). Shift the data by 8 px and every "
+                f"probe reads the wrong half of the profile while the ART, which is one "
+                f"word per 8-px cell, moves correctly — so this fails as ground that is "
+                f"8 px out of place, not as anything that looks broken in a screenshot. "
+                f"Move src_rect or dst_rect so the difference is a multiple of "
+                f"{COLL_QUANTUM_PX} in both axes.")
 
         # W2 — an all-blank clip
         bbox = zm["extent"].get("painted_bbox_tiles")
@@ -607,6 +644,99 @@ def cell_grids(act, donor_root=None):
         words[dy:dy + sh, dx:dx + sw] = src_words[sy:sy + sh, sx:sx + sw]
         zone_id[dy:dy + sh, dx:dx + sw] = cl.zone_key
     return words, zone_id
+
+
+def section_plane_grid(tree_dir, manifest, section_tiles, suffix):
+    """One converted zone's whole COLLISION plane grid, (grid_h*st, grid_w*st) uint16.
+
+    `suffix` is "collattr" (plane A) or "collattrb" (plane B). Same reassembly as
+    `section_word_grid` — a plane file is the same shape as a tiles file on purpose
+    (`tools/s2_zone_convert.py` rule 5), so a clip rectangle slices all three grids
+    with one pair of indices.
+    """
+    import numpy as np
+    gw, gh = manifest["grid"]["w"], manifest["grid"]["h"]
+    out = np.zeros((gh * section_tiles, gw * section_tiles), dtype=np.uint16)
+    for sy in range(gh):
+        for sx in range(gw):
+            n = sy * gw + sx
+            p = os.path.join(tree_dir, f"section_{n}.{suffix}.bin")
+            if not os.path.isfile(p):
+                raise ClipManifestError(
+                    f"{p} is missing. A converted donor tree carries both collision "
+                    f"planes since S2-COMPRESSED-ACT row 5; a tree without them was "
+                    f"written by the row-2 converter and is stale. Re-run "
+                    f"tools/s2_zone_convert.py convert.")
+            with open(p, "rb") as fh:
+                data = fh.read()
+            want = section_tiles * section_tiles * 2
+            if len(data) != want:
+                raise ClipManifestError(f"{p}: {len(data)} bytes, expected {want}")
+            out[sy * section_tiles:(sy + 1) * section_tiles,
+                sx * section_tiles:(sx + 1) * section_tiles] = \
+                np.frombuffer(data, dtype=">u2").reshape(section_tiles, section_tiles)
+    return out
+
+
+def collision_grids(act, donor_root=None):
+    """(plane_a, plane_b) for the whole target act — the collision twin of `cell_grids`.
+
+    Same rectangles, same order, same VOID rule: a cell no clip covers is word 0,
+    which is air on both planes. Row 5's §8 hand-off says the clip rectangles come
+    from here rather than being re-derived, so this shares `cell_grids`' loop
+    shape deliberately.
+
+    Each word is an AURORA per-plane cell word whose low 10 bits index the donor's
+    base bank — `zone.json`'s `collision.base_bank`, NOT the S&K bank — so a caller
+    that bakes these must select that bank. `collision_banks()` returns it.
+    """
+    import numpy as np
+    donor_root = _root(donor_root)
+    st = act.section_tiles
+    planes = [np.zeros((act.rows, act.cols), dtype=np.uint16) for _ in range(2)]
+    cache = {}
+    for cl in act.clips:
+        if cl.tree_key not in cache:
+            zm = _zone_manifest(cl, donor_root)
+            d = cl.tree_dir(donor_root)
+            cache[cl.tree_key] = tuple(
+                section_plane_grid(d, zm, st, s) for s in ("collattr", "collattrb"))
+        src = cache[cl.tree_key]
+        sx, sy, sw, sh = (v // TILE_PX for v in cl.src)
+        dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
+        for p in range(2):
+            planes[p][dy:dy + sh, dx:dx + sw] = src[p][sy:sy + sh, sx:sx + sw]
+    return planes[0], planes[1]
+
+
+def collision_banks(act, donor_root=None):
+    """The base collision bank directory every clip's zone names, as ONE path.
+
+    REFUSES an act whose zones disagree. Nothing today can produce one — both S2
+    donors share one shape vocabulary byte for byte (parcel 4) — but the attr set
+    is act-wide and a single byte in it is a shape index, so two banks in one act
+    would mean one index standing for two shapes with nothing to say which. A
+    refusal is the only honest answer, and it is here rather than discovered in the
+    bake's output.
+    """
+    donor_root = _root(donor_root)
+    banks = {}
+    for cl in act.clips:
+        zm = _zone_manifest(cl, donor_root)
+        coll = zm.get("collision")
+        if not coll or not coll.get("base_bank"):
+            raise ClipManifestError(
+                f"clip {cl.id!r}: {'/'.join(cl.tree_key)}'s zone.json names no "
+                f"collision base bank. That tree predates S2-COMPRESSED-ACT row 5; "
+                f"re-run tools/s2_zone_convert.py convert.")
+        banks.setdefault(os.path.join(REPO, coll["base_bank"]), []).append(cl.id)
+    if len(banks) > 1:
+        detail = "; ".join(f"{b} <- {', '.join(ids)}" for b, ids in sorted(banks.items()))
+        raise ClipManifestError(
+            f"this act's clips name {len(banks)} different collision base banks "
+            f"({detail}). One act has ONE attr set and a shape index inside it means "
+            f"one shape; two banks would make the same index mean two.")
+    return next(iter(banks))
 
 
 def tilesets(act, donor_root=None):

@@ -2,9 +2,13 @@
 """clip_act_bake.py — compose an act from a `clips.json` and run the REAL art-pool
 placement over it with a REAL per-cell tileset key.
 
-S2-COMPRESSED-ACT staged plan row 3, second half
-(`docs/research/2026-09-17-s2-compressed-act-design.md` §2, §8). ART AND LAYOUT ONLY: no
-collision, no objects, no rings, no regions, no background, no `.emp`, no ROM.
+S2-COMPRESSED-ACT staged plan row 3, second half, plus row 5's collision half
+(`docs/research/2026-09-17-s2-compressed-act-design.md` §2, §3.5, §8). No objects, no
+rings, no regions, no background, no `.emp`, no ROM.
+
+~~ART AND LAYOUT ONLY~~ — **ROW 5, 2026-09-17: collision too.** Both plane files are
+emitted beside the art, the act's attr-set size is counted and capped, and the §8 per-clip
+readout is complete. See "COLLISION" below and the C1-C3 block further down.
 
 WHAT THIS CLOSES. `tools/fg_page_order.py`'s header said:
 
@@ -80,12 +84,43 @@ design's §2.2 claimed). Two 1024x1024 clips of two different zones, EHZ and CPZ
   opt-out) but demoted "two zones in one section" to a warning, W3: the exact limit is
   downstream and precise (`ojz_strip_gen.build_section_local_map` raises past 2047).
 
+COLLISION (row 5), and the number it exists to produce. The clip's collision planes come
+from the SAME rectangles as its art — `clip_manifest.collision_grids` shares
+`cell_grids`' loop, so a rectangle cannot mean one thing to the tiles and another to the
+ground — and they are emitted in the same per-plane cell-word format an authored act uses,
+against the S2 base bank the donor tree names (`base_s2/`, NOT the S&K bank the shipped
+OJZ act uses; the same index is a different shape in the two).
+
+  THE NUMBER is the act's attr-set size against `AttrSet.CAP` = 255, the design's §3.5
+  cap and the one budget of this act that a bigger ROM cannot buy out of. It is counted
+  twice, the same way the window budget is: once over the composed grids and once decoded
+  back OFF DISK (`recount_collision`), so a disagreement is the emission rather than the
+  arithmetic. The §8 readout the author needs is per clip and printed per clip: entries
+  the clip needs ALONE, entries it ADDS to the clips before it, solid cells, and crossover
+  marks taken.
+
+  MEASURED AGAINST THE DESIGN'S OWN PREDICTOR, which reaches `bake_cell` from the donor
+  side without going through clips.json, a converted tree or a plane file at all — six
+  numbers, six exact matches:
+
+    fixture            clip     alone  s2_clip_budget collision   act   act predicted
+    s2_two_clip        ehz_s2      95  EHZ:2,1 -> 95              207   EHZ:2,1 CPZ:2,1 -> 207
+    s2_two_clip        cpz_s2     148  CPZ:2,1 -> 148
+    s2_two_clip_pins   ehz_s1      62  EHZ:1,1 -> 62              191   EHZ:1,1 CPZ:1,1 -> 191
+    s2_two_clip_pins   cpz_s1     148  CPZ:1,1 -> 148
+
+  The two agree only because these clips are full-height and section-aligned: that tool's
+  `ZONE:s0,n` spec has no vertical extent and counts every chunk its COLUMN range
+  references, over every row. A clip taller or shorter than its zone's grid is a different
+  rectangle and the numbers are allowed to differ; this tool's is the one about the bytes.
+
 Usage:
     python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N]
     python3 tools/clip_act_bake.py recount <baked DIR>
     python3 tools/clip_act_bake.py measure-alignment
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -101,6 +136,7 @@ if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
 import clip_manifest                              # noqa: E402
+import collision_pipeline                         # noqa: E402
 import fg_page_order as fpo                       # noqa: E402
 import ojz_strip_gen                              # noqa: E402
 import tile_dedupe                                # noqa: E402
@@ -403,6 +439,270 @@ def recount(out_dir):
 
 
 # ---------------------------------------------------------------------------
+# Collision — S2-COMPRESSED-ACT staged plan row 5
+# ---------------------------------------------------------------------------
+#
+# The clip's collision planes come from the SAME rectangles as its art
+# (`clip_manifest.collision_grids`, which shares `cell_grids`' loop), and are
+# emitted in the same per-plane cell-word format an authored act uses. The three
+# refusals below are tagged C1-C3 rather than continuing `clip_manifest`'s R/W
+# namespace, because they are BAKE-time facts: each needs the collision bytes and
+# the base bank, neither of which the manifest loader reads.
+#
+#   C1  the clip severs a crossover. A rectangle that takes SOME of a zone's
+#       crossover marks and leaves others may have cut a loop in half — the encoding
+#       records which plane a mark points at (docs/LOOP_CROSSOVER_ENCODING.md §3.3)
+#       but NOT which loop it belongs to, so nothing can tell a severed loop from
+#       two unrelated ones. CONSERVATIVE by necessity and it says so; opt out with
+#       "severed_xover_reason" on the clip.
+#       ⚠ WHAT THE DESIGN GOT WRONG HERE, corrected in §2.3 in place: it said a
+#       marquee that cuts a loop "will fail the bake" via
+#       `apply_editor_collision_overlay`'s R2. R2 refuses a SELF-MARK (plane A
+#       carrying TO_A). Cutting a loop in half produces a perfectly well-formed
+#       mark whose partner is simply absent, which R2 cannot see and neither can
+#       anything else that existed before this function.
+#   C2  the act's attr set is over `AttrSet.CAP`. This is §3.5's cap arriving as a
+#       refusal instead of a paragraph, and it is the number the design says decides
+#       whether a set of marquees is bakeable at all.
+#   C3  the act interns a height profile `rotate_profile` will not rotate. LEFT
+#       RAISING ON PURPOSE — see the note at `check_rotatable`.
+
+class ClipCollisionError(ClipBakeError):
+    """A clip act whose COLLISION this bake will not emit."""
+
+
+def crossover_marks(plane_words):
+    """Cell indices carrying a crossover, per the encoding's own field position."""
+    x = (plane_words >> collision_pipeline.XOVER_SHIFT) & collision_pipeline.XOVER_MASK
+    return x != 0
+
+
+def check_severed_crossovers(act, donor_root, log=None):
+    """C1. Returns the per-clip mark census whether or not it refuses.
+
+    A clip is refused when its SOURCE RECTANGLE contains at least one crossover
+    mark and its source ZONE contains at least one outside that rectangle.
+
+    WHY THAT RULE AND NOT A SHARPER ONE. A crossover is a per-plane pair at ONE
+    cell (`tools/collision_xover_census.py`'s pairing is "same cell index, marked on
+    both planes" — 8 paired indices in the shipped act), and a rectangle cut can
+    never split THAT: both planes are clipped by the same rectangle. What a cut
+    really breaks is the loop's OTHER crossing — act 1's marks sit in two bands of
+    one column, the §3.3 bottom-centre and top-centre — and nothing in the encoding
+    says those two bands belong to one loop. So the only sound rule is the
+    conservative one, and its false positive (a clip that leaves an UNRELATED loop
+    behind) is exactly what the opt-out is for.
+
+    STRUCTURALLY VACUOUS ON TODAY'S DATA, and that is stated rather than discovered:
+    a converted Sonic 2 tree carries XOVER_NONE in every cell, because the donor
+    chunk word has no crossover field at all (its bits 15:14 are path-B solidity).
+    This guards the path that opens the moment an author paints a mark onto a donor
+    tree in aurora. `tools/test_s2_clip_collision.py` proves it fires by painting
+    one.
+    """
+    rows = []
+    for cl in act.clips:
+        zm = clip_manifest._zone_manifest(cl, donor_root)
+        d = cl.tree_dir(donor_root)
+        st = act.section_tiles
+        inside = outside = 0
+        for suffix in ("collattr", "collattrb"):
+            g = clip_manifest.section_plane_grid(d, zm, st, suffix)
+            marked = crossover_marks(g)
+            sx, sy, sw, sh = (v // clip_manifest.TILE_PX for v in cl.src)
+            sub = marked[sy:sy + sh, sx:sx + sw]
+            inside += int(sub.sum())
+            outside += int(marked.sum()) - int(sub.sum())
+        rows.append({"clip": cl.id, "zone": "/".join(cl.tree_key),
+                     "marks_inside_src": inside, "marks_outside_src": outside,
+                     "severed_xover_reason": cl.severed_xover_reason})
+        if inside and outside and not cl.severed_xover_reason:
+            raise ClipCollisionError(
+                f"C1 clip {cl.id!r}: its source rectangle takes {inside} crossover "
+                f"mark(s) from {'/'.join(cl.tree_key)} and leaves {outside} behind. A "
+                f"crossover sends the player to the other collision plane and something "
+                f"else has to send them back (docs/LOOP_CROSSOVER_ENCODING.md §3.3); a "
+                f"marquee that keeps one end of a loop and drops the other produces a "
+                f"one-way trip onto a plane whose geometry is not there. The encoding "
+                f"does NOT record which marks belong to one loop, so this refusal cannot "
+                f"tell a severed loop from two unrelated ones and errs toward refusing. "
+                f"If you know the ones left behind are a different loop, say so in "
+                f"\"severed_xover_reason\" on this clip and it will be carried into "
+                f"clipact.json.")
+        if inside and outside and log:
+            log(f"  C1 OPT-OUT clip {cl.id!r}: {inside} mark(s) taken, {outside} left "
+                f"behind — {cl.severed_xover_reason}")
+    return rows
+
+
+def check_rotatable(attrset):
+    """C3. Every interned profile must survive `collision_pipeline.rotate_profile`.
+
+    THE DECISION ROW 4 HANDED ROW 5, and it is to keep the refusal. `emit_tables`
+    rotates every attr-set entry to build `heightmaps_rot.bin`, and it calls the
+    UNRULED `rotate_profile`, which RAISES on a row whose solid span touches neither
+    edge — S2 shape `$18` and its flips are the only such shapes in either bank.
+    Row 4 ruled `$18` for the BANK (keep the run's width, anchor it RIGHT) inside
+    `tools/import_s2_collision.py`, and that ruling deliberately does not reach
+    `emit_tables`.
+
+    IT STILL DOES NOT, and this function does not change that. What it changes is
+    WHEN the author hears about it. Turning the raise into a value on the shipping
+    act's path is a change to how every act in the repo is baked, made to serve one
+    clip act that does not exist yet, and `$18` is referenced by NO showcase zone —
+    so the cost of leaving it raising is zero today and the cost of silencing it is
+    every future act. What was actually wrong was the DISTANCE: the author marquees
+    a rectangle in aurora and finds out at the ROM bake, in a traceback from a
+    function four layers down that names a height profile and no clip. So the same
+    condition is now detected here, by name, against the clip that caused it, before
+    a single byte is emitted — and when row 6 or later genuinely needs `$18` in a
+    shipping act, the argument for `rotate_profile_ruled` will be made against a
+    real clip instead of a hypothetical one.
+    """
+    bad = []
+    for idx, (heights, _angle, _sol, _xover) in enumerate(attrset.entries):
+        try:
+            collision_pipeline.rotate_profile(heights)
+        except ValueError as exc:
+            bad.append((idx, list(heights), str(exc)))
+    if bad:
+        detail = "; ".join(f"attr {i} heights={h} ({m})" for i, h, m in bad[:4])
+        raise ClipCollisionError(
+            f"C3 this act interns {len(bad)} height profile(s) that "
+            f"collision_pipeline.rotate_profile REFUSES, so the ROM's wall-probe table "
+            f"(heightmaps_rot.bin, emit_tables) cannot be built for it: {detail}. In the "
+            f"S2 bank the only shape like this is $18, a symmetric 45-degree peak whose "
+            f"upper rows have a solid run touching neither edge — one signed byte per row "
+            f"cannot say that. tools/import_s2_collision.py RULED it for the bank (keep "
+            f"the run's width, anchor RIGHT) but that ruling deliberately does not reach "
+            f"emit_tables, because turning a build refusal into a silent value on every "
+            f"act's path is not a change to make for a clip. Marquee around the shape, or "
+            f"make the case for rotate_profile_ruled in emit_tables with this clip as the "
+            f"evidence.")
+
+
+def collision(act, st, donor_root=None, log=None):
+    """Compose both collision planes, count the attr set, and run C1-C3.
+
+    Returns everything `emit` and the readout need. The count is taken with the cap
+    LIFTED (`AttrSet(cap=None)`) so an act that does not fit can be told how far
+    over it is — the §8 readout the author needs is "you need 278", not "it
+    overflowed" — and C2 then compares against `AttrSet.CAP`.
+    """
+    donor_root = clip_manifest._root(donor_root)
+    marks = check_severed_crossovers(act, donor_root, log=log)
+    bank_dir = clip_manifest.collision_banks(act, donor_root)
+    profiles, angles = ojz_strip_gen.load_base_bank(bank_dir)
+    plane_a, plane_b = clip_manifest.collision_grids(act, donor_root)
+
+    attrset = collision_pipeline.AttrSet(cap=None)
+    per_clip = []
+    for cl, mrow in zip(act.clips, marks):
+        before = len(attrset.entries)
+        dx, dy = (v // clip_manifest.TILE_PX for v in cl.dst[:2])
+        sw, sh = (v // clip_manifest.TILE_PX for v in cl.src[2:])
+        alone = collision_pipeline.AttrSet(cap=None)
+        for plane in (plane_a, plane_b):
+            sub = plane[dy:dy + sh, dx:dx + sw]
+            for w in np.unique(sub).tolist():
+                collision_pipeline.bake_plane_cell(int(w), profiles, angles, attrset)
+                collision_pipeline.bake_plane_cell(int(w), profiles, angles, alone)
+        per_clip.append(dict(
+            mrow,
+            attr_entries_alone=len(alone.entries) - 1,
+            attr_entries_added=len(attrset.entries) - before,
+            solid_cells=int(sum(
+                np.count_nonzero((plane[dy:dy + sh, dx:dx + sw]
+                                  >> collision_pipeline.PLANE_SOL_SHIFT) & 3)
+                for plane in (plane_a, plane_b))),
+        ))
+
+    # cells no clip covers are word 0 = air on both planes and intern to nothing,
+    # but bake them anyway so the count is over the ACT and not over the clips
+    for plane in (plane_a, plane_b):
+        for w in np.unique(plane).tolist():
+            collision_pipeline.bake_plane_cell(int(w), profiles, angles, attrset)
+
+    check_rotatable(attrset)
+    n = len(attrset.entries) - 1
+    cap = collision_pipeline.AttrSet.CAP
+    if n > cap:
+        worst = max(per_clip, key=lambda r: r["attr_entries_alone"])
+        raise ClipCollisionError(
+            f"C2 this act needs {n} collision attr-set entries and the cap is {cap} "
+            f"(collision_pipeline.AttrSet.CAP — one byte per cell, index 0 reserved for "
+            f"air). Over by {n - cap}. Per clip, standing alone: "
+            + ", ".join(f"{r['clip']} {r['attr_entries_alone']}" for r in per_clip)
+            + f". The most expensive is {worst['clip']!r} at "
+            f"{worst['attr_entries_alone']}. This is the design's §3.5 cap, the one "
+            f"budget of this act that a bigger ROM cannot buy out of: clip harder, or "
+            f"take the ruling §9.3 asks for (merge near-identical shapes, widen the attr "
+            f"field to a word, or give each region its own bank).")
+    if log:
+        log(f"  collision: {n} attr-set entries of {cap} "
+            f"({100 * n / cap:.0f}% of the act-wide cap), bank "
+            f"{os.path.relpath(bank_dir, REPO)}")
+        for r in per_clip:
+            log(f"    {r['clip']}: {r['attr_entries_alone']} entries alone, "
+                f"{r['attr_entries_added']} added here, {r['solid_cells']} solid cells, "
+                f"{r['marks_inside_src']} crossover mark(s)")
+    return {"plane_a": plane_a, "plane_b": plane_b, "attrset": attrset,
+            "entries": n, "cap": cap, "bank_dir": bank_dir, "per_clip": per_clip}
+
+
+def emit_collision(act, coll, out_dir):
+    """Write both plane files per section and return the manifest block."""
+    sect = act.section_tiles
+    rows = []
+    for s_idx in range(act.grid_w * act.grid_h):
+        sy, sx = divmod(s_idx, act.grid_w)
+        r0, c0 = sy * sect, sx * sect
+        row = {"n": s_idx}
+        for plane, suffix in ((coll["plane_a"], "collattr"), (coll["plane_b"], "collattrb")):
+            sub = plane[r0:r0 + sect, c0:c0 + sect].astype(">u2")
+            data = sub.tobytes()
+            with open(os.path.join(out_dir, f"section_{s_idx}.{suffix}.bin"), "wb") as fh:
+                fh.write(data)
+            row[f"{suffix}_sha256"] = hashlib.sha256(data).hexdigest()
+            row[f"{suffix}_solid_cells"] = int(np.count_nonzero(
+                (np.asarray(sub, dtype=np.uint16)
+                 >> collision_pipeline.PLANE_SOL_SHIFT) & 3))
+        rows.append(row)
+    return {
+        "attr_entries": coll["entries"],
+        "cap": coll["cap"],
+        "base_bank": os.path.relpath(coll["bank_dir"], REPO),
+        "format": "aurora per-plane cell word, big-endian u16 (see "
+                  "tools/collision_pipeline.chunk_entry_to_plane_words)",
+        "per_clip": coll["per_clip"],
+        "sections": rows,
+    }
+
+
+def recount_collision(act, out_dir, bank_dir):
+    """The act's attr-set size, decoded back OFF DISK. The N2 of the collision half.
+
+    Deliberately not `collision()`'s number: that one counts the in-memory grids, this
+    one re-reads the emitted plane files, so a disagreement is the emission.
+    """
+    profiles, angles = ojz_strip_gen.load_base_bank(bank_dir)
+    attrset = collision_pipeline.AttrSet(cap=None)
+    sect = act.section_tiles
+    for s_idx in range(act.grid_w * act.grid_h):
+        for suffix in ("collattr", "collattrb"):
+            p = os.path.join(out_dir, f"section_{s_idx}.{suffix}.bin")
+            with open(p, "rb") as fh:
+                data = fh.read()
+            want = sect * sect * 2
+            if len(data) != want:
+                raise ClipCollisionError(f"{p}: {len(data)} bytes, expected {want}")
+            g = np.frombuffer(data, dtype=">u2")
+            for w in np.unique(g).tolist():
+                collision_pipeline.bake_plane_cell(int(w), profiles, angles, attrset)
+    return len(attrset.entries) - 1
+
+
+# ---------------------------------------------------------------------------
 # Modes
 # ---------------------------------------------------------------------------
 
@@ -420,7 +720,18 @@ def bake(manifest_path, out_dir=None, expect_worst=None,
     n_checked = verify_art_fidelity(st)
     if log:
         log(f"  art fidelity: {n_checked} (zone, tile) pair(s) resolve to their own zone's art")
+    coll = collision(act, st, donor_root, log=log)
     manifest = emit(act, st, out_dir, donor_root)
+    manifest["collision"] = emit_collision(act, coll, out_dir)
+    n2_coll = recount_collision(act, out_dir, coll["bank_dir"])
+    if n2_coll != coll["entries"]:
+        raise ClipCollisionError(
+            f"the emitted collision planes do not re-count as they were composed: "
+            f"{coll['entries']} attr-set entries in memory, {n2_coll} decoded back off "
+            f"disk. The interning is the same code either way, so this is the emission.")
+    manifest["collision"]["attr_entries_at_recount"] = n2_coll
+    if log:
+        log(f"  collision recount off disk: {n2_coll} attr-set entries")
     v1 = pl["verdict"]
     v2 = recount(out_dir)
     if log:
@@ -467,7 +778,8 @@ def _mode_bake(rest):
         return 1
     print(f"clip act baked: {m['pool']['tiles']} pool tiles in {m['pool']['pages']} pages, "
           f"rung {m['placement']['rung']}, worst window {v1['worst']} of {v1['frames']}, "
-          f"{v1['over']} over budget; {time.time() - t0:.2f} s")
+          f"{v1['over']} over budget; {m['collision']['attr_entries']} collision attr-set "
+          f"entries of {m['collision']['cap']}; {time.time() - t0:.2f} s")
     return 0
 
 
