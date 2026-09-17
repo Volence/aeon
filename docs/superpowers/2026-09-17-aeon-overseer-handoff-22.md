@@ -21,4 +21,4 @@ REGION-BG-COVER-DEFINITION (new), FG-CACHE-10-HOW (recommend stay-at-12), SP6-MO
 
 ## Lessons
 - A merge that conflicts inside a `&&` chain stops the chain, but anything after a `;` still runs: the landing runner looked "started" and was not. Confirm the runner with pgrep.
-- An agent's own brief can overcount: the cover booking's formula undercounts vertical crossings (n+7 vs the measured n+8/n+15 bound). Its note derives the right one.
+- A booking formula can be wrong while looking derived: the cover booking's n+7 undercounts vertical crossings (measured n+8; the only safe bound is n+15). The note derives the right one; re-derive a booked formula before building on it.
