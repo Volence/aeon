@@ -31,7 +31,7 @@ LEGS (each names what it asserts):
          arena write was still queued the tick before; BG_Tiles_Current names the blob only when
          VRAM holds it; completion within ceil(len/CHUNK)+2 ticks.
   TRANSPORT_STARVED  transport_under_a_starved_window_keeps_one_chunk_outstanding_and_completes
-         The same, with DMA_Budget_Default poked below one chunk for STARVE_TICKS ticks once two
+         The same, with DMA_Budget_Default poked below the subject's smallest chunk (Fixture.STARVE) for STARVE_TICKS ticks once two
          chunks have gone, so a chunk is HELD in the queue. The only leg that can see the
          one-outstanding rule: on a calm frame every chunk drains in its own VBlank.
   TRAFFIC  the_overwrite_completes_while_another_producer_enqueues_a_deferrable_entry_every_frame
@@ -337,6 +337,32 @@ class Fixture:
                             "length, so a VRAM read cannot tell them apart")
         if self.S_layout == self.A_layout:
             raise GateError("the subject's layout equals the act's")
+        # THE STARVATION BUDGET, DERIVED FROM THE SUBJECT BLOB (parcel/showcase-classic-bg).
+        # Every starved leg pokes DMA_Budget_Default below a chunk so a chunk is HELD in the
+        # queue. It used to poke CHUNK - 2, which holds a chunk only if that chunk is longer than
+        # CHUNK - 2. The colonnade blob (6912 B = 3 x 1824 + 1440) still had a full chunk to send
+        # past the two-chunk triggers; the Oil Ocean blob (3776 B = 2 x 1824 + 128) has only a
+        # 128 B one, which CHUNK - 2 lets straight through, and WARP_MID went COULD NOT RUN
+        # ("no subject chunk is held in the queue before the warp"). The chunk
+        # lengths are the engine's own rule (BG_Stream_Update: min(CHUNK, bytes left)), so the
+        # value that holds ANY chunk this subject sends is the smallest of them, minus 2.
+        L = len(self.S_tiles)
+        self.chunk_sizes = [min(K.CHUNK, L - o) for o in range(0, L, K.CHUNK)]
+        self.STARVE = min(self.chunk_sizes) - 2
+        if self.STARVE <= 0:
+            raise GateError(f"the subject's smallest overwrite chunk is {min(self.chunk_sizes)} B; "
+                            f"no DMA budget below it can still be a budget")
+        # AND WHEN TO POKE IT, from the same list. A leg that pokes from the PREVIOUS tick's
+        # sample (TRANSPORT_STARVED's Starver) lands its poke after the update that sample
+        # preceded has already enqueued and drained a chunk, so to hold the LAST chunk it must
+        # fire on the sample taken before the SECOND-TO-LAST one went: offset >= the start of
+        # the second-to-last chunk. For a 4-chunk blob that is 2 x CHUNK, the value this leg
+        # used to type; for the 3-chunk Oil Ocean blob it is 1 x CHUNK, and 2 x CHUNK fired one
+        # chunk late and held nothing (measured: COULD NOT RUN, "no arena write stayed queued").
+        if len(self.chunk_sizes) < 2:
+            raise GateError(f"the subject's overwrite is {len(self.chunk_sizes)} chunk; the "
+                            f"starved legs need a chunk still to send after one has gone")
+        self.STARVE_AT = sum(self.chunk_sizes[:-2])
         # Routes, derived from the row's own rectangle and its act-default neighbours.
         self.centre = ((S["x0"] + S["x1"]) // 2, (S["y0"] + S["y1"]) // 2)
         left = region_table.region_at(self.rows, S["x0"] - 1, self.centre[1])
@@ -604,13 +630,13 @@ STARVE_TICKS = 6
 
 
 class Starver:
-    """Holds the DMA window below one chunk for STARVE_TICKS ticks, once, starting at the first
+    """Holds the DMA window below the subject's smallest chunk for STARVE_TICKS ticks, once, starting at the first
     tick `when(sample)` is true: the budget poke of plan call C13. DMA_Budget_Default seeds
     DMA_Budget_Remaining at the top of every VInt_Level, so a value below the chunk keeps an
     enqueued chunk in the Deferrable queue for as long as it is held."""
 
-    def __init__(self, rig, K, when):
-        self.rig, self.K, self.when = rig, K, when
+    def __init__(self, rig, F, K, when):
+        self.rig, self.F, self.K, self.when = rig, F, K, when
         self.addr = rig.sym["DMA_Budget_Default"]
         self.saved = None
         self.start = None
@@ -621,7 +647,7 @@ class Starver:
         if self.start is None and last_sample is not None and self.when(last_sample):
             self.saved = await rd(b, self.addr, 2)
             await _c(b, "emulator/write_memory", {"addr": hex(self.addr),
-                                                  "value": self.K.CHUNK - 2, "width": 2})
+                                                  "value": self.F.STARVE, "width": 2})
             self.start = i
         elif self.start is not None and self.saved is not None:
             self.ticks += 1
@@ -634,7 +660,7 @@ class Starver:
 async def leg_transport_starved(rig, F, K, fails):
     """transport_under_a_starved_window_keeps_one_chunk_outstanding_and_completes_after_release"""
     holder = {"last": None}
-    st = Starver(rig, K, lambda s: s["offset"] >= 2 * K.CHUNK)
+    st = Starver(rig, F, K, lambda s: s["offset"] >= F.STARVE_AT)
 
     async def per_tick(i):
         await st.step(i, holder["last"])
@@ -643,7 +669,7 @@ async def leg_transport_starved(rig, F, K, fails):
     samples, i_in = await cross_into_subject(rig, F, K, per_tick=per_tick,
                                              tag="TRANSPORT-STARVED", on_sample=holder)
     if st.start is None:
-        raise GateError("TRANSPORT-STARVED: the offset never reached two chunks, so the window "
+        raise GateError(f"TRANSPORT-STARVED: the offset never reached {F.STARVE_AT} B, so the window "
                         "was never starved and the leg measured nothing")
     held = samples[st.start + 1:st.start + STARVE_TICKS]
     if not any(s["arena_entries"] for s in held):
@@ -770,7 +796,7 @@ async def leg_order_starved(rig, F, K, fails):
                 and s["target"] == F.S["bg_tiles"] and s["current"] == 0
                 and 0 < len(F.S_tiles) - s["offset"] <= K.CHUNK and not s["arena_entries"]):
             state["saved"] = await rd(rig.b, addr, 2)
-            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": F.STARVE,
                                                       "width": 2})
             state["hold_from"] = i
         if state["hold_from"] is not None and state["saved"] is not None \
@@ -844,7 +870,7 @@ async def leg_reentrant(rig, F, K, fails):
         if st["in"] is None and s["region"] == F.S["addr"]:
             st["in"] = i
             st["saved"] = await rd(rig.b, addr, 2)             # starve: hold a chunk queued
-            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": F.STARVE,
                                                       "width": 2})
         if st["in"] is not None and st["back"] is None and s["region"] == F.left["addr"]:
             st["back"] = i
@@ -1008,7 +1034,7 @@ async def leg_warp_mid(rig, F, K, fails):
         if s["region"] == F.S["addr"] and s["offset"] >= 2 * K.CHUNK and not inside:
             inside = True
             await rig.hold(None)
-            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": K.CHUNK - 2,
+            await _c(rig.b, "emulator/write_memory", {"addr": hex(addr), "value": F.STARVE,
                                                       "width": 2})
             await rig.tick()
             await rig.tick()

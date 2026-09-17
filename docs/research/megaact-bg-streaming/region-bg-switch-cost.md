@@ -82,3 +82,27 @@ inputs REGION-BG-COVER-WARNING needs.
 4. Look for: the brief scramble in the first few frames, the top-down wipe that follows, and whether
    the colonnade art under the Sec3 preset's palette reads at all (the look, and the art, are the
    owner's).
+
+## Addendum 2026-09-16 — re-measured after the showcase art changed (parcel/showcase-classic-bg)
+
+The tables above are a RECORD of the 216-tile colonnade blob. The showcase row now shows Sonic 2
+Oil Ocean Zone's background: **118 tiles = 3776 B = 3 chunks (1824 + 1824 + 128 B)**, on its own CRAM
+line 3 palette (`OJZ_Preset_Showcase`). Same instrument (`--legs measure`), canonical `DEBUG=1`
+build of that branch:
+
+| route | crossing -> arena settled | crossing -> all 29 visible rows repainted | crossing -> sweep retired |
+|---|---|---|---|
+| HORIZONTAL | **3** | **10** | **18** |
+| VERTICAL | **3** | **11** | **18** |
+
+Lag frames 0 on both (VBlanks equal ticks). The look step 4 of the recipe below now asks about is the
+Oil Ocean sky and refineries in their own colours; a still rendered from the committed blobs is
+`showcase-classic-bg.png` beside this file. The palette SNAPS at the crossing (section 3's record
+has no `transition:`), so for the ~10 ticks above the rows not yet repainted show old art under the
+new line 3, and leaving the region shows Oil Ocean art under OJZ's line 3 until the act tiles land.
+
+GATE BG-SWITCH needed two expectations re-derived for the smaller blob, both from the blob's own
+chunk list rather than retyped: the starvation budget (was `CHUNK - 2`, which lets a 128 B chunk
+through; now the smallest chunk minus 2) and TRANSPORT_STARVED's trigger (was `offset >= 2 x CHUNK`,
+one chunk late for a 3-chunk blob; now the start of the second-to-last chunk). Before the fix the
+gate was COULD NOT RUN (exit 2) on WARP_MID and then TRANSPORT_STARVED; after it, 13 legs PASS.
