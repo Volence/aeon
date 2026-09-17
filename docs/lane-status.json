@@ -5,6 +5,11 @@
       "what": "Trying better ways to group foreground art into pages so a stitched Sonic 2/3 act fits, measured on the same maps",
       "where": "branch research/stitched-act-page-order (agent worktree)",
       "agent": true
+    },
+    {
+      "what": "Swapping the test region's background for a classic Sonic zone background in its own colours, so the switch is obvious",
+      "where": "branch parcel/showcase-classic-bg (agent worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -66,7 +71,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": "your look at the region background switch in the DEBUG ROM (crc f95b1eb4); the spring sound A/B from 09-09 is still yours too",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-16T23:39:32Z"
+  "updatedAt": "2026-09-17T00:00:00Z"
 }
