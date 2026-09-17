@@ -263,6 +263,16 @@ python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 echo "Verifying the re-baked tree..."
 python3 "${TOOLS}/verify_level_bin.py"
 
+# FG page budget on the tree just written (STITCHED-ACT-PAGE-ORDER wiring). ojz_strip_gen
+# Pass 4 already refused an over-budget placement before writing; this counts what the
+# ROM will embed (block blobs through the local maps, pm_flags pins), so the bake and
+# build.sh's lane read the same thing. The stress fixture overwhelms the cache on purpose:
+# report only. `set -e` is not trusted here (reference: it does not stop in this repo).
+FG_BUDGET_FLAGS=""
+if [[ -n "${STRESS_UNIQUIFY:-}" ]]; then FG_BUDGET_FLAGS="--report-only"; fi
+echo "Checking the FG page budget on the re-baked tree..."
+python3 "${TOOLS}/fg_page_order.py" check ${FG_BUDGET_FLAGS} || { echo "regenerate-level.sh: FG page budget refused (see above)" >&2; exit 1; }
+
 # THE EDITOR-SOURCE STAMP — record WHICH editor bytes these outputs were baked from.
 # LAST, and only on a fully successful run: a stamp written before the generators
 # finish would certify a tree that does not exist. `set -euo pipefail` above means a

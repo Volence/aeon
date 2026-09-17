@@ -1023,6 +1023,25 @@ if ! gate strict "verify_level_bin.py" python3 "${TOOLS}/verify_level_bin.py"; t
     exit 1
 fi
 
+# FG page budget (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17). Counts, for every camera
+# window of the COMMITTED placed act (sec*_blocks.bin through each section's local map,
+# pins from the manifest's pm_flags), the pages it needs, and refuses one over
+# PAGE_FRAMES, naming the worst window and its count. Budget and window are read from
+# engine/system/constants.emp, never typed. The bake refuses the same way
+# (ojz_strip_gen Pass 4), but a bake runs only when the editor tree changes; this runs on
+# every canonical sonic4 build so a constant change (FG-CACHE-10-HOW) meets the tree.
+# EXIT 2 HERE MEANS: UNMEASURABLE -- a constant, the committed tree, or an act the decoder
+# does not know could not be read. It is `strict`: "could not count" never passes.
+# STRESS_ART: report-only, as art_rom_report -- that fixture overwhelms the cache on purpose.
+if [[ "${GAME}" == "sonic4" ]]; then
+    FG_BUDGET_FLAGS=""
+    if [[ "${STRESS_ART:-0}" == "1" ]]; then FG_BUDGET_FLAGS="--report-only"; fi
+    if ! gate strict "fg_page_order.py" python3 "${TOOLS}/fg_page_order.py" check ${FG_BUDGET_FLAGS}; then
+        echo "FG page budget refused — a camera window needs more art pages than PAGE_FRAMES (see above)."
+        exit 1
+    fi
+fi
+
 # The editor-effects drift gate (scanline P5 slice 5). The generated binding
 # module is a COMMITTED artifact act_descriptor.emp imports, so both failures
 # are real: a hand edit inside it, and an editor scene / `sceneRef` changed
