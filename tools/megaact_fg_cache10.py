@@ -131,7 +131,7 @@ def config(name):
         raise SystemExit(f"config {name!r}: page tiles must be 64 or 32")
     if s not in ("none", "zone", "perzone", "page0shared"):
         raise SystemExit(f"config {name!r}: unknown split {s!r}")
-    if o not in ("shipped", "rzs12") and not re.fullmatch(r"rzs(12)?F(t[0-9]+)?(s[0-9]+)?(w)?", o):
+    if o not in ("shipped", "rzs12") and not re.fullmatch(r"rzs(12)?F(t[0-9]+)?(s[0-9]+)?(w)?(d[0-9]+)?", o):
         raise SystemExit(f"config {name!r}: unknown order {o!r}")
     if pin not in ("rule75", "pin0", "frameaware"):
         raise SystemExit(f"config {name!r}: unknown pin policy {pin!r}")
@@ -139,7 +139,12 @@ def config(name):
         raise SystemExit(f"config {name!r}: the shipped order is only defined with split none")
     if o == "rzs12" and (s != "zone" or p != "64" or pin != "rule75"):
         raise SystemExit(f"config {name!r}: rzs12 is report 09's exact candidate: split zone, 64, rule75")
-    return {"name": name, "geometry": g, "page_tiles": int(p), "split": s, "order": o, "pin": pin}
+    dm = re.search(r"d([0-9]+)$", o)
+    spare = int(dm.group(1)) if dm else 0
+    if spare and (pin == "rule75" or spare >= int(p) // 2):
+        raise SystemExit(f"config {name!r}: duplication fixup needs pin0/frameaware and spare < page/2")
+    return {"name": name, "geometry": g, "page_tiles": int(p), "split": s, "order": o, "pin": pin,
+            "spare": spare}
 
 
 def geometry_constants(c, gname):
@@ -474,7 +479,7 @@ def make_order(cfg, target):
         return None
     # rzs12: 09's search (target 12). rzsF: target F. rzs12F: 09's search, then a second
     # search at F starting from its result. A trailing t<k> multiplies the try budget by k.
-    m = re.fullmatch(r"rzs(12)?(F)?(?:t([0-9]+))?(?:s([0-9]+))?(w)?", cfg["order"])
+    m = re.fullmatch(r"rzs(12)?(F)?(?:t([0-9]+))?(?:s([0-9]+))?(w)?(?:d[0-9]+)?", cfg["order"])
     stages = [12] if m.group(1) else []
     if m.group(2):
         stages.append(target)
@@ -490,8 +495,11 @@ def make_order(cfg, target):
         raise SystemExit("two-stage orders are measured with pin0/frameaware only")
     rounds = mpo.REFINE_PIN_ROUNDS if cfg["pin"] == "rule75" else 1
 
+    spare = cfg.get("spare", 0)
+
     def fn(ctx):
-        page = ctx["c"]["ART_POOL_PAGE_TILES"]
+        # d<k>: every page is built k slots short, the room the duplication fixup fills
+        page = ctx["c"]["ART_POOL_PAGE_TILES"] - spare
         base = mpo.order_hilbert_first(ctx)
         group = None
         if cfg["split"] == "perzone":
@@ -520,9 +528,10 @@ def make_order(cfg, target):
             if "_shared_ids" not in ctx:
                 raise SystemExit("page0shared: ctx lacks _shared_ids")
             ids = set(ctx["_shared_ids"])
-            if len(ids) > page - 1:
+            if len(ids) > ctx["c"]["ART_POOL_PAGE_TILES"] - 1:
                 raise SystemExit("page0shared: more kept tiles than page 0 holds")
-            p0 = [base[0]] + [t for t in base[1:] if t in ids]
+            p0 = [base[0]] + [t for t in base[1:] if t in ids][:page - 1]
+            ids = set(p0[1:])
             rest = [t for t in base[1:] if t not in ids]
             pages = [p0] + _pages_from_order(rest, page)
         else:
@@ -544,7 +553,7 @@ def make_order(cfg, target):
                 break
             pinned = pinned | new
         order = [t for p in pages for t in p]
-        if cfg["split"] in ("perzone", "page0shared"):
+        if cfg["split"] in ("perzone", "page0shared") or spare:
             ctx["stats"]["page_sizes"] = [len(p) for p in pages]
         return order
     return fn
@@ -607,6 +616,138 @@ def entering_pages(pg, lefts, tops, cols, rows, pages):
     return out
 
 
+def _local_presence(pg, p, ts, ls, cols, rows):
+    """bool (len ts x len ls): page p present in each window, from a local integral image."""
+    H, W = pg.shape
+    r0, c0 = int(ts[0]), int(ls[0])
+    r1, c1 = min(H, int(ts[-1]) + rows), min(W, int(ls[-1]) + cols)
+    if r0 >= r1 or c0 >= c1:
+        return np.zeros((len(ts), len(ls)), dtype=bool)
+    ind = (pg[r0:r1, c0:c1] == p).astype(np.int32)
+    h, w = ind.shape
+    ii = np.zeros((h + 1, w + 1), dtype=np.int32)
+    np.cumsum(np.cumsum(ind, axis=0), axis=1, out=ii[1:, 1:])
+    ya = np.clip(ts - r0, 0, h)[:, None]
+    yb = np.clip(ts + rows - r0, 0, h)[:, None]
+    xa = np.clip(ls - c0, 0, w)[None, :]
+    xb = np.clip(ls + cols - c0, 0, w)[None, :]
+    return (ii[yb, xb] - ii[ya, xb] - ii[yb, xa] + ii[ya, xa]) > 0
+
+
+def dup_fixup(pg, glob, page_sizes, cap, F, lefts, tops, cols, rows, max_dup=16, max_passes=6):
+    """Duplication fixup, pinned = {page 0}. For a window over F, take its unpinned page
+    P with the fewest distinct tiles present in it and copy those tiles into a page Q the
+    window already references (or page 0) that has spare slots (a copy already in Q is
+    reused), then re-point that window's cells of those tiles (first try: the window's
+    own cells; second: the window grown by half a window each side). Kept only if the
+    window loses a page, no window crosses from <= F to > F, and the summed excess over
+    F falls, all judged EXACTLY on every window the change can touch. Returns the new
+    page grid, the new slot grid, per-page fill and counters; the caller re-measures
+    from scratch and compares."""
+    pg = pg.copy()
+    glob = glob.copy()
+    fill = list(page_sizes)
+    npages = len(fill)
+    slot_page = np.concatenate([np.full(n, i, dtype=np.int64) for i, n in enumerate(page_sizes)]).tolist()
+    root = list(range(len(slot_page)))
+    copies = {}
+    sums = mpo.page_presence_sums(pg, lefts, tops, cols, rows, {"u": set(range(1, npages))})["u"]
+    needed = sums.astype(np.int32) + 1
+    lefts = np.asarray(lefts)
+    tops = np.asarray(tops)
+    H, W = pg.shape
+    added = accepted = attempts = passes = 0
+    for passes in range(1, max_passes + 1):
+        over = np.flatnonzero(needed.ravel() > F)
+        if over.size == 0:
+            break
+        order = over[np.argsort(-needed.ravel()[over], kind="stable")]
+        kept_this_pass = 0
+        for flat in order.tolist():
+            ti, li = divmod(flat, needed.shape[1])
+            if needed[ti, li] <= F:
+                continue
+            top, left = int(tops[ti]), int(lefts[li])
+            wpg = pg[top:top + rows, left:left + cols]
+            wgl = glob[top:top + rows, left:left + cols]
+            live = wpg >= 0
+            pages_here, cells_here = np.unique(wpg[live], return_counts=True)
+            roots_by_page = {}
+            for sl in np.unique(wgl[live]).tolist():
+                roots_by_page.setdefault(slot_page[sl], set()).add(root[sl])
+            cand_p = sorted((len(roots_by_page[p]), p) for p in pages_here.tolist() if p != 0)
+            q_order = [0] + [int(p) for p in pages_here[np.argsort(-cells_here, kind="stable")].tolist() if p != 0]
+            done = False
+            for nroots, P in cand_p:
+                if nroots > max_dup:
+                    break
+                S = roots_by_page[P]
+                s_arr = np.array(sorted(S), dtype=np.int64)
+                for Q in q_order:
+                    if Q == P:
+                        continue
+                    cost = sum(1 for r in S if (r, Q) not in copies)
+                    if fill[Q] + cost > cap:
+                        continue
+                    for grow in (0, 1):
+                        attempts += 1
+                        gr, gc = (rows // 2, cols // 2) if grow else (0, 0)
+                        R0, R1 = max(0, top - gr), min(H, top + rows + gr)
+                        C0, C1 = max(0, left - gc), min(W, left + cols + gc)
+                        sub_pg = pg[R0:R1, C0:C1]
+                        sub_gl = glob[R0:R1, C0:C1]
+                        roots_arr = np.array(root, dtype=np.int64)
+                        mask = (sub_pg == P) & np.isin(roots_arr[np.maximum(sub_gl, 0)], s_arr)
+                        if not mask.any():
+                            continue
+                        rr, cc = np.nonzero(mask)
+                        br0, br1 = R0 + int(rr.min()), R0 + int(rr.max())
+                        bc0, bc1 = C0 + int(cc.min()), C0 + int(cc.max())
+                        ta = int(np.searchsorted(tops, br0 - rows + 1))
+                        tb = int(np.searchsorted(tops, br1, side="right"))
+                        la = int(np.searchsorted(lefts, bc0 - cols + 1))
+                        lb = int(np.searchsorted(lefts, bc1, side="right"))
+                        ts, ls = tops[ta:tb], lefts[la:lb]
+                        beforeP = _local_presence(pg, P, ts, ls, cols, rows)
+                        beforeQ = _local_presence(pg, Q, ts, ls, cols, rows) if Q != 0 else None
+                        saved = sub_pg[mask].copy()
+                        sub_pg[mask] = Q
+                        delta = _local_presence(pg, P, ts, ls, cols, rows).astype(np.int32) - beforeP
+                        if Q != 0:
+                            delta += _local_presence(pg, Q, ts, ls, cols, rows).astype(np.int32) - beforeQ
+                        old = needed[ta:tb, la:lb]
+                        new = old + delta
+                        ok = (new[ti - ta, li - la] < old[ti - ta, li - la]
+                              and not np.any((old <= F) & (new > F))
+                              and np.maximum(new - F, 0).sum() < np.maximum(old - F, 0).sum())
+                        if not ok:
+                            sub_pg[mask] = saved
+                            continue
+                        for r in sorted(S):
+                            if (r, Q) not in copies:
+                                copies[(r, Q)] = len(slot_page)
+                                slot_page.append(Q)
+                                root.append(r)
+                                fill[Q] += 1
+                                added += 1
+                        gl_old = sub_gl[mask]
+                        sub_gl[mask] = np.array([copies[(root[x], Q)] for x in gl_old.tolist()], dtype=sub_gl.dtype)
+                        needed[ta:tb, la:lb] = new
+                        accepted += 1
+                        kept_this_pass += 1
+                        done = True
+                        break
+                    if done:
+                        break
+                if done:
+                    break
+        if kept_this_pass == 0:
+            break
+    return pg, glob, fill, {"tiles_added": added, "accepted": accepted, "attempts": attempts,
+                            "passes": passes, "cap": cap,
+                            "over_after_incremental": int(np.count_nonzero(needed > F)), "_needed": needed}
+
+
 def measure(act, c, cfg, fixed_cache, frames_ref, bursts=False):
     cg, geo = geometry_constants(c, cfg["geometry"])
     c2 = page_constants(cg, cfg["page_tiles"])
@@ -636,12 +777,28 @@ def measure(act, c, cfg, fixed_cache, frames_ref, bursts=False):
     t_pipe = time.perf_counter() - t0
     cols, rows = cg["TILE_CACHE_COLS"], cg["TILE_CACHE_ROWS"]
     pg = pipe["page_grid"]
+    dup = None
+    if cfg.get("spare"):
+        t1 = time.perf_counter()
+        pg, glob2, fill, dup = dup_fixup(pg, pipe["glob_grid"], pipe["page_sizes"], cfg["page_tiles"], F,
+                                         fixed.lefts, fixed.tops, cols, rows)
+        dup["seconds"] = round(time.perf_counter() - t1, 3)
+        inc_needed = dup.pop("_needed")
+        pipe["glob_grid"] = glob2
+        pipe["page_sizes"] = fill
+        pipe["pool_tiles"] = sum(fill)
     allp = set(range(pipe["pages"]))
     rule = set(pipe["pinned"])
     sums = mpo.page_presence_sums(pg, fixed.lefts, fixed.tops, cols, rows,
                                   {"unpinned": allp - rule, "pinned_nonzero": rule - {0}})
     needed_rule = sums["unpinned"] + len(rule)
     needed_pin0 = sums["unpinned"] + sums["pinned_nonzero"] + 1
+    if dup is not None:
+        # CONTROL: the fixup's incremental counts must equal a from-scratch re-measure
+        diff = int(np.count_nonzero(inc_needed != needed_pin0))
+        dup["incremental_vs_remeasure_windows_differing"] = diff
+        if diff:
+            raise SystemExit(f"{act.name} {cfg['name']}: dup fixup incremental count differs on {diff} windows")
     pins_kept = [0]
     if cfg["pin"] == "rule75":
         needed = needed_rule
@@ -666,6 +823,7 @@ def measure(act, c, cfg, fixed_cache, frames_ref, bursts=False):
            "local_palette_max": pipe["local_palette_max"], "local_palette_refusals": pipe["local_palette_refusals"],
            "shared_kept": pipe["shared_kept"], "order_seconds": round(pipe["order_seconds"], 3),
            "pipeline_seconds": round(t_pipe, 3), "order_stats": pipe["order_stats"],
+           "dup_fixup": dup,
            "needed": {}, "needed_rule75": {}, "needed_pin0": {}, "needed_reachable": {}}
     for cname, m in fixed.classes().items():
         if m is not None and not m.any():
