@@ -36247,8 +36247,8 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - Streaming lead falls from 18 columns / 13 rows to 6 / 7 (DERIVED: no demand-only headroom to the right, so it rests on block-ahead prefetch).
 - **Open:**
   - No margin: 100,822 S3K windows sit exactly at 20.
-  - Runtime hold rate of the smaller window. **Needs a runtime measurement before any window change.**
-  - The 32-tile decode latency is derived, not measured.
+  - Runtime hold rate of the smaller window. **Needs a runtime measurement before any window change.** Measured on the SYNTHETIC OJZ subject only (report 11, see item 5 below): not clean at 56x48. Still owed on a stitched or stress subject.
+  - ~~The 32-tile decode latency is derived, not measured.~~ Measured (report 11): ~75 K clocks, publish mode 1 frame (64-tile: ~152 K, 2 frames).
   - Churn is not re-measured.
 - **Bears on REGIONS-P2-STEP7 (cache 12 -> 10):** do not cut to 10 x 64-tile frames for stitched S3K content. The measured path to 640 tiles is (1) this order wiring with a build refusal, (2) 32-tile pages, (3) a 56x48 or 64x48 window gated on a runtime hold measurement.
 - **Incidental findings:**
@@ -36285,4 +36285,22 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 3. Short non-last pages (per-zone) reach the engine only through `pm_tiles` and `global & mask`. That is INFERRED from `page_in.emp` / `page_cache.emp` reading, never run. **TAG: runtime** the first time a multi-zone act bakes a short page.
 4. ~~`engine/system/constants.emp`'s STRESS_EVICT comment still says OJZ pins 4 pages (committed: 5)~~ **CLOSED (PAGE-SIZE-CONSTANT-ONLY, 2026-09-17):** the comment now says 5 pins [0,1,7,8,9] + 4 dynamic frames and notes the calibration history counted against the 4 pins of its time. Comment only; ROM CRCs unchanged. ARCH §9.7 was corrected by the wiring parcel.
 5. The zero margin, the transient-demand items, M-E, and the 164-vs-48 section cap: unchanged by wiring.
+   - **Runtime hold check done on the only subject that exists (CACHE-WINDOW-HOLD-MEASURE, 2026-09-17,
+     `research/cache-window-hold`).**
+     - Report: `docs/research/megaact-bg-streaming/11-cache-window-runtime-holds.md`.
+     - Tool: `tools/cache_hold_probe.py`.
+     - Evidence: `11-cache-window-runtime-holds.json`.
+   - **Subject:** OJZ act 1 squeezed to its zero-margin budget (64-tile F=9, 32-tile F=16, plus F=18), driven at the
+     16 px/tick cap in DEBUG free flight on the Rust core. It is SYNTHETIC, and it is not a stitched act.
+   - **Findings (MEASURED):**
+     - Shipped OJZ cannot hold: it is fully resident, with 0 demands.
+     - At zero margin, 56x48 holds in every configuration. The 32-tile hot-spot route gives 17-19 hold ticks per run
+       at 56x48, against 7-8 at 64x48 and 2 at 80x60.
+     - With 2 frames of margin, 56x48 still holds (3-4 per run) and 64x48 and 80x60 are clean.
+     - Release ordering is the same: 80x60 never holds.
+     - A 32-tile page decodes in ~75 K clocks against ~152 K at 64 tiles, and publishes about 1 frame sooner.
+       ARCH §9.7's 45 K figure is 3.4x low against this.
+   - **Read-out for FG-CACHE-10-HOW:** the check is **not clean for 56x48**. 64x48 is clean only with frame margin.
+   - **BLOCKED:** the heavy subject (STRESS_ART, pending `fix/stress-uniquify-rebake`) and any stitched act (no
+     loader). Re-run the tool on both before any window change.
 6. **Pre-existing, found while checking the stress path:** `STRESS_UNIQUIFY=2600 tools/regenerate-level.sh` exits 1 at verify_level_bin's editor-bake fidelity check (the scratched clones resolve to different pixels than the editor authored) with BOTH the pre-parcel and the wired generator. The STRESS_ART build shape cannot re-bake today.
