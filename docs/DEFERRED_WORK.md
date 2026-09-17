@@ -36729,5 +36729,10 @@ in place at §5.3, §8 and §10 row 2, where this parcel made a sentence in it f
 passed in 62.74 s; control with the parcel removed: 4 failed, 2906 passed, 2 skipped, 55 errors,
 identical node-id set. `tools/test_s2_zone_convert.py` 18 rows, red-proven by three on-disk
 mutations (M1 priority bit dropped: 2 failed, HPZ 160,521 of 524,288 cells differing; M2/M2b
-anchoring), each restored from a committed baseline. No `.emp` touched, no ROM byte changed, the
-committed `games/sonic4/data/editor/ojz/act1` tree untouched, no emulator used.
+anchoring), each restored from a committed baseline. **`tools/landing_build.sh` exit 0,
+`finished=0`, three shapes built** (s4.bin 821,479 B, s4.debug.bin 848,075 B, demo.debug.bin
+104,707 B); its in-build pre-build lane on the freshly built tree is 2983 passed / 2 skipped /
+0 failed / 0 errors (= parcel 1's 2965 plus exactly this parcel's 18 rows), and the needs_build
+lane is 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the
+committed `games/sonic4/data/editor/ojz/act1` tree untouched (0 of the 6 changed files is under
+it), no emulator used.

@@ -269,7 +269,15 @@ HPZ round trip reporting 160,521 of 524,288 cells differing.
   different environment, not a different commit.)
 - **`tools/test_s2_zone_convert.py`**: 18 rows, all green, red-proven by three on-disk mutations
   (M1 priority bit, M2/M2b anchoring) each restored from a committed baseline.
+- **`tools/landing_build.sh` exit 0, `finished=0`**, three shapes built: `s4.bin` 821,479 B,
+  `s4.debug.bin` 848,075 B, `demo.debug.bin` 104,707 B. Its in-build pre-build lane, run on a
+  freshly built tree: **2983 passed, 2 skipped, 28 deselected, 0 failed, 0 errors** — the
+  artifact-freshness family cleared by the build, as predicted. 2983 is parcel 1's 2965 plus
+  exactly this parcel's 18 rows. `needs_build` lane: 28 cases, 27 ran, 0 deferred, 0 failed,
+  1 exempted (`test_deb2_appendix[demo.bin]`, a shape this caller does not build).
+  Run at HEAD `3138d904` with `md5(SIGIL_BUILD)=8027e7ba7fba6ef5e3351aa3211e1520`.
 - **No emulator.** No `.emp` touched, no ROM byte changed, the committed
-  `games/sonic4/data/editor/ojz/act1` tree untouched (`git status` clean at every commit).
+  `games/sonic4/data/editor/ojz/act1` tree untouched (0 of the 6 changed files is under it),
+  `git status` clean at every commit.
 
 *Wall clock: 2026-09-17, dev box up 1 day 19 h, load average 1.2-2.9 across the runs.*
