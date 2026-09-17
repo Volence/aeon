@@ -1,7 +1,6 @@
 {
-  "focus": "Assembler update is in; checking it catches wrong struct sizes, and adding stress builds to the nightly run.",
+  "focus": "Struct-size check landed; an agent is adding the art stress tests to the nightly run.",
   "inFlight": [
-    { "what": "Confirm the new assembler refuses a wrongly sized struct, then close that row", "where": "branch parcel/spawndesc-size-close", "agent": true },
     { "what": "Build both art stress tests in the nightly run, failure reported as FAILED", "where": "branch parcel/stress-shapes-nightly", "agent": true }
   ],
   "blockedOnOwner": [
@@ -28,13 +27,6 @@
     {
       "id": "STRESS-SHAPES-NIGHTLY",
       "title": "Run both art stress-test builds every night so they cannot silently break again",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "SPAWNDESC-SIZE-CLOSE",
-      "title": "Close the unenforced struct-size row: the assembler now checks it, once the assembler binary we build with is refreshed and the check is seen to refuse a wrong size",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -84,5 +76,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T08:13:50Z"
+  "updatedAt": "2026-09-17T08:49:49Z"
 }
