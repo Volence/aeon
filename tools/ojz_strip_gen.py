@@ -2164,8 +2164,10 @@ def generate(stress_uniquify=0):
             src_canon_lut[words & tile_dedupe.NAMETABLE_TILE_MASK].T
     # THE ZONE KEY: the tileset a cell's art comes from (NOT an effects region: OJZ act 1
     # has 10 regions over one tileset). This generator reads ONE tileset
-    # (project.json zones[0].tileset), so every cell is zone 0; a stitched act's loader
-    # must supply the per-cell key. See fg_page_order's header.
+    # (project.json zones[0].tileset), so every cell is zone 0. The stitched-act loader
+    # that supplies a real per-cell key is tools/clip_manifest.py + tools/clip_act_bake.py
+    # (2026-09-17), which call place_pool directly rather than through here. See
+    # fg_page_order's header.
     zone_grid = np.zeros(canon_grid.shape, dtype=np.int16)
 
     # ---- Pass 4: global act art pool — page ORDER + window-budget refusal ----

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_two_clip_pins",
+  "name": "S2-COMPRESSED-ACT row 3 fixture 2: the pin rule discriminates",
+  "note": "Section 1 of Emerald Hill beside section 1 of Chemical Plant. Chosen because the 75%-of-sections pin rule fires here (a two-section act pins any page both sections reference), so this act's worst-window count DEPENDS on how mark_pinned_pages reaches place_pool. The row-3 fixture s2_two_clip does not: its verdict is 12 whether the pin rule is wired correctly or not, which would have made the bake-vs-s2_clip_budget agreement unable to see the defect parcel 3 found. Correct wiring gives 10; the pre-2026-09-17 s2_clip_budget wiring gives 11 (reproduce with --pins raw).",
+  "act": { "grid_w": 2, "grid_h": 1 },
+  "clips": [
+    {
+      "id": "ehz_s1",
+      "donor": "s2disasm",
+      "zone": "EHZ",
+      "src_rect": { "x": 2048, "y": 0, "w": 2048, "h": 1024 },
+      "dst_rect": { "x": 0, "y": 0, "w": 2048, "h": 1024 }
+    },
+    {
+      "id": "cpz_s1",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": { "x": 2048, "y": 0, "w": 2048, "h": 2048 },
+      "dst_rect": { "x": 2048, "y": 0, "w": 2048, "h": 2048 }
+    }
+  ]
+}

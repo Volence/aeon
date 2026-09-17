@@ -137,6 +137,17 @@ RULES: tuple = (
     ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py"),
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),
+    ("docs/research/s2-compressed-act/", CHECKED,
+     ("tools/test_clip_manifest.py",),
+     "the S2-COMPRESSED-ACT design's measurement tool is IMPORTED as the independent "
+     "second implementation the clip bake is cross-checked against "
+     "(test_the_bake_agrees_with_the_designs_own_measurement builds the same act from the "
+     "donor side through its build_act, and test_the_pin_wiring_moves_this_fixture calls "
+     "its pin_rule_fn). It lives under docs/ but it is code the gate executes, so a push "
+     "that edits it must run the test that runs it. A PREFIX, not the one file: importing "
+     "it puts the directory on sys.path, so the audit records a listing of the directory "
+     "and a read of the bytecode cache beside it, and a rule naming only the .py leaves "
+     "both uncovered"),
 )
 # <<< RULES
 

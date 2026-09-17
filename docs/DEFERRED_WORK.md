@@ -36729,10 +36729,182 @@ in place at §5.3, §8 and §10 row 2, where this parcel made a sentence in it f
 passed in 62.74 s; control with the parcel removed: 4 failed, 2906 passed, 2 skipped, 55 errors,
 identical node-id set. `tools/test_s2_zone_convert.py` 18 rows, red-proven by three on-disk
 mutations (M1 priority bit dropped: 2 failed, HPZ 160,521 of 524,288 cells differing; M2/M2b
-anchoring), each restored from a committed baseline. **`tools/landing_build.sh` exit 0,
-`finished=0`, three shapes built** (s4.bin 821,479 B, s4.debug.bin 848,075 B, demo.debug.bin
+anchoring), each restored from a committed baseline. **`tools/landing_build.sh`, also run with no converted
+donor trees present, exit 0, `finished=0`, three shapes built** (s4.bin 821,479 B, s4.debug.bin 848,075 B, demo.debug.bin
 104,707 B); its in-build pre-build lane on the freshly built tree is 2983 passed / 2 skipped /
 0 failed / 0 errors (= parcel 1's 2965 plus exactly this parcel's 18 rows), and the needs_build
 lane is 27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the
 committed `games/sonic4/data/editor/ojz/act1` tree untouched (0 of the 6 changed files is under
 it), no emulator used.
+
+### S2-COMPRESSED-ACT parcel 3 LANDED 2026-09-17 — `clips.json`, the per-cell tileset key, and the bake that reads it
+
+Branch `parcel/s2-clip-manifest` (base `75008de6`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-manifest.md`. The design doc was patched in place
+at §2.2, §3.3, §8, §10 row 3 and §13, where this parcel made a sentence in it false.
+
+**CLOSED**
+
+- **Staged-plan row 3 is DONE.** `tools/clip_manifest.py` (schema 1: R1-R11 refusals, W1-W3
+  warnings, and the per-cell zone-key grid) and `tools/clip_act_bake.py` (compose → real
+  `fg_page_order.place_pool` with a real zone grid → emit → re-count off disk). Two tracked
+  fixtures under `games/sonic4/data/clips/`; the bake output is gitignored on the same terms and
+  with the same row-6 expiry as the converted donor trees. Art and layout only.
+- **`tools/fg_page_order.py`'s "a stitched act's loader must supply the per-cell tileset key" is
+  closed**, and the header now names the loader.
+- **THE CHECK PASSED, with three numbers rather than two.** `s2_two_clip` (EHZ section 2 beside
+  CPZ section 2): placement verdict, recount off disk and `s2_clip_budget.py place` all
+  **12 of 12, 0 of 48,471 windows over, 682 at the peak**; pool 1,035 in 17 pages, rung
+  "searched"; 1,182 (zone, tile) pairs verified against their own zone's art. `s2_two_clip_pins`
+  (section 1 of each): all three **10 of 12**, 1,771 at the peak, pool 797 in 13 pages, rung
+  "shipped", 900 pairs verified.
+- **THE ROW-3 CHECK AS WRITTEN COULD NOT BE RUN, and the reason is structural.** It named
+  `fg_page_order.check`, which reads exactly ONE act: `_known_acts` RAISES on any act whose
+  generated dir is not `fg_working_set.GEN_DIR`, and `fg_working_set.Model` takes `GRID_W`/`GRID_H`
+  from OJZ act 1's `act_descriptor.emp`. A second act needs a `project.json` entry plus a matching
+  `.emp` descriptor — a ROM change, rows 4-6. The count therefore runs in `clip_act_bake`
+  importing the two functions `check` itself calls (`window_needed`, `budget_verdict`): shared
+  arithmetic, different decoding. The decoding differs because a `sec{N}_blocks.bin` carries the
+  collision planes and inventing collision bytes to reach a number is row 5's work.
+
+**FOUND**
+
+- **THE DESIGN'S MEASUREMENT TOOL HAD A PIN-RULE DEFECT, AND THE TWO NUMBERS DISAGREED.** On the
+  tree as committed, `s2_clip_budget.py place EHZ:1,0,1,1 CPZ:1,0,1,1` printed **11** where the
+  bake printed **10**. `place_pool` does `sorted(set(rule_pins_fn(...)) - {0})` and indexes pages
+  with the result, so the callable must return PAGE INDICES;
+  `ojz_strip_gen.mark_pinned_pages` returns a `list[bool]` and `generate()` wraps it. The tool
+  passed the raw function, so the candidate set became `{False, True} - {0}` = `{True}` = page 1:
+  **every act with any pinned page pinned page 1 and could pin nothing else.** I believe the
+  bake's 10, because its wiring is `generate()`'s — the wiring the ROM is built with. Fixed with
+  `--pins raw` preserving the old behaviour, the shape parcel 1 used for `--profiles horizontal`.
+  **§3.3's published table does NOT move, re-measured both ways rather than assumed:** no page on
+  those four acts reaches the pin rule's 75%-of-sections threshold, so the candidate set is empty
+  either way (5 whole zones: pins `[0]`, worst 12, 707 of 870,231 windows, identical). It bites
+  only on small acts, where two sections make the 75% rule easy to satisfy.
+- **SECTION-ALIGNED PLACEMENT DOES NOT PROTECT THE PAGE BUDGET — §2.2 said it did.**
+  `tools/clip_act_bake.py measure-alignment`, two 1024x1024 clips (EHZ + CPZ) in a 2x1-section
+  act: separated and section-pure 7 of 12; **adjacent and section-pure 9; adjacent and both inside
+  section 0, 9.** Rows 2 and 3 are the controlled pair — the clips touch in both, so "a camera
+  window can hold two zones" is held fixed. `perzone_pages` groups by the per-CELL zone key, not
+  by section, so a straddling clip does not defeat it, and the 7 → 9 in the table is ADJACENCY
+  (§9.1's corridor argument). **The first cut of this measurement had only rows 1 and 3 and read
+  as evidence FOR alignment; the control is what turned it over.**
+- **What alignment DOES buy is the per-section local tile map** — one 11-bit space capped at 2047
+  entries, 394 + 224 split against 617 merged. So R11 (section-aligned `dst` origin) stays the
+  default as a refusal with an IN-FILE opt-out (`unaligned_dst_reason`, so the argument sits where
+  the next reader will see it), and "two zones in one section" is W3, a WARNING: the exact limit
+  is downstream and precise (`build_section_local_map` raises past 2047) and this is a cost, not
+  an error.
+- **THE HARD ALIGNMENT RULE §2.2 NEVER STATED IS 8 PX** (R6). An editor section file is a grid of
+  8-px cells with no sub-tile addressing at all. 128-px chunk alignment is W1, a warning: on the
+  art path a nametable word is per cell and nothing cares.
+- **MULTIPLE TILESETS ARE FORCED BY THE FORMAT, NOT CHOSEN.** An editor word's tile index is 11
+  bits into one act-wide tileset, so a single tileset tops out at 2048 tiles against §0 item 2's
+  2,965 canonical tiles for six clipped zones. There is no version of this act that concatenates
+  the zones into one blob.
+- **R9 EXISTS BECAUSE `s2_clip_budget.clip` TRUNCATES SILENTLY.** A converted tree is padded up to
+  whole sections, so a `src_rect` can be inside the files and outside the level; the design's tool
+  slices a numpy array and a rect past the crop just comes back smaller. The manifest refuses it
+  by name against `zone.json`'s `crop_tiles`.
+- **TWO OTHER GATES CAUGHT THIS PARCEL and both were right**, and neither fires when the new gate
+  is run alone. `test_cli_dispatch_refuses`: both new tools joined the argv-dispatch population
+  unrostered (18 → 20; both are MODES-table tools born in the fixed form, MEASURED to write
+  nothing on an unrecognised mode, with two subprocess rows added). `test_land_gate_classifier`:
+  the gate named a bare `docs/research/s2-compressed-act` string for `sys.path`; fixed at the
+  source, and `land_gate.py` gained a CHECKED rule for that directory as a PREFIX — a leaf rule on
+  the one `.py` left 2 of 3 audit findings standing, because importing it makes the audit record a
+  directory listing and a bytecode-cache read too.
+
+**THE AURORA REGIONS CONTRACT — four constraints raised mid-parcel, all four accepted**
+
+Verified firsthand by reading `empyrean:contract/schema/aurora-regions.schema.json` at `0742b5ed`,
+not taken on report: `$defs/region` is `required: [id, rect, preset]`, `unevaluatedProperties:
+false`, id `^[a-z][a-z0-9_]{0,31}$`, preset `^[A-Za-z_][A-Za-z0-9_]{0,63}$`, rect integer world
+pixels whose edges need not fall on the section grid, name free text ≤64 never read by the engine
+or the generator. Nothing conflicted; two of them improved the design.
+
+1. **No `palette` field, and a manifest carrying one is REFUSED** rather than ignored — a
+   silently-dropped field is how two tools end up disagreeing about which was supposed to decide.
+   The design's §8 sketch had one; it was a preset name in disguise, and a Sonic 2 zone has no
+   opinion about a record in the game's effects library. What a clip supplies is the donor's 96
+   bytes; the preset that installs them is named by aurora at paste time.
+2. **`units: "world_px"` is a required top-level field.** The unit was already pixels on both
+   sides; declaring it makes it part of the interface rather than a convention two tools each
+   remember, so nothing rounds at the boundary.
+3. **Act ids, clip ids and any `region_id` are held to the contract's REGION id pattern** (they
+   were `[A-Za-z0-9_-]+`). A clip id that is already a legal region id is one aurora can use
+   verbatim, so one rectangle keeps one name in both documents; `EHZ` and `s2disasm` stay in their
+   own fields. `region_id` is aurora's WRITE-BACK, validated, and refused if two clips claim one
+   region.
+4. **Provenance lives in `clips.json` and the bake's `clipact.json`, never in the regions
+   document** — decided here rather than discovered at integration, because there is no extension
+   point on a region and the id pattern cannot hold a donor name. The region's `name` may carry a
+   human-readable echo; it is an echo.
+
+A `dst_rect` is a legal region rect but not conversely: R6 and R11 are stricter, which is the safe
+direction, and a gate row pins that it never becomes looser.
+
+**WHAT ROWS 4-6 INHERIT**
+
+- **`clips.json` is the interface and validates today.** `clip_manifest.load(path, donor_root=...)`
+  → `ClipAct`; `cell_grids()` → `(words, zone_id)` for the whole act. Row 5 needs the same
+  rectangles for the collision planes and should take them from here, not re-derive them.
+- **W1 is row 5's to rule on.** Collision is authored per 128-px chunk, so row 5 has the evidence
+  to promote the warning to a refusal — and should, or state why not.
+- **The crossover-cut refusal §2.3 promises is NOT built.** Nothing scans the source rectangle for
+  a severed loop pair, so a bad clip fails at the bake rather than at the marquee. §8's per-clip
+  readout wants it earlier.
+- **Three of §8's four per-clip readout items are already in `clipact.json`** (tiles, pages, worst
+  window). The fourth, attr-set entries, needs row 4.
+- **Nothing here exercises `ojz_block_gen` or S4LZ.** Row 6 is where a clip act meets the block
+  baker, and where the `fg_page_order.check` restatement above is either resolved (teach the
+  committed-tree decoder a second act) or permanently accepted.
+
+**OPEN RIDERS (small, none blocking)**
+
+- **`games/sonic4/data/clips/*/baked/` is gitignored and that flips at ROW 6**, on the same terms
+  as `games/sonic4/data/donors/`. The `.gitignore` comment says so at the line.
+- **`s2_clip_budget.py`'s `a.fn(a)` still discards `mode_place`'s and `mode_collision`'s return
+  value**, so both exit 0 whether they fit or refuse. Already booked by parcel 1; this parcel
+  makes `place`'s printed verdict load-bearing for a cross-check, so it reads the verdict LINE and
+  not `$?`. Worth fixing when someone is willing to move §13's observable.
+- **`test_the_ids_this_file_carries_are_ids_the_regions_document_could_carry` reads a sibling
+  repo.** It re-derives `REGION_ID_PATTERN` from empyrean's schema when the suite contract is
+  checked out beside aeon, and SKIPS SAYING SO when it is not. That is deliberate — a hard-coded
+  copy could drift from the schema it claims to mirror — but it is a cross-repo read and the
+  schema's owner can move it without this repo noticing anything but a skip.
+
+- **THE GATE READ THE AUTHOR'S WORKING TREE, caught at landing review.** Two rows ERRORED on a
+  checkout that had never run the converter — and since `games/sonic4/data/donors/` is gitignored
+  by design, ABSENT is the normal state and PRESENT means somebody ran it. The cause was one
+  argument, not a policy: the module-scoped `donors` fixture already converts what the rows need
+  into pytest's own tmp tree (which is why the other 37 rows ran on a checkout with no trees at
+  all), and the `r12` fixture called `CM.load(p)` with no `donor_root=`, falling through to the
+  module default. Fixed, and the CLASS closed rather than the instance: every entry point in
+  `clip_manifest` and `clip_act_bake` takes `donor_root=None` and resolves `DEFAULT_DONOR_ROOT` at
+  CALL TIME (a default bound at import cannot be replaced, so a guard against it would be
+  decorative), and an autouse module fixture points that name at a path that cannot exist for the
+  whole gate. Proof pair, both with the trees PRESENT — the state that used to mask it: bug
+  restored with the guard ON, 2 errors; with the guard OFF, 39 passed.
+
+**EVIDENCE.** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q` with
+`__pycache__` cleared and **NO converted donor trees present — the state a fresh checkout is in**:
+**4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 63.74 s**;
+no clip row among the failures or errors, and the passed count is the same as with the trees
+present, so the 39 rows RUN rather than skip. The 4-failed/55-error artifact-freshness family was established by a control
+taken BEFORE this parcel touched anything — the same worktree at base `75008de6` with the
+converted donor trees already present: **4 failed, 2924 passed, 2 skipped, 28 deselected, 55
+errors in 63.80 s**, FAILED/ERROR node-id set byte-identical to the run above, delta +41 passed =
+39 gate rows + 2 subprocess rows. `tools/test_clip_manifest.py` 39 rows, red-proven by **eight**
+on-disk mutations plus the two-row pair above (uniform zone key 9 failed; raw pin rule 3 failed and only on the discriminating
+fixture; corrupted local map, the bake itself refuses; R9 against the padded grid 2 failed;
+act-wide local maps 1 failed; loosened id pattern 4 failed; units unchecked 1 failed; `palette`
+accepted 2 failed), each restored from a committed baseline. **`tools/landing_build.sh`, also run with no converted
+donor trees present, exit 0, `finished=0`, three shapes built** (s4.bin 821,479 B md5 `ae62156a66c9c3f13e93940e938c340e`,
+s4.debug.bin 848,075 B md5 `b15ef259523f67ac963ef0cf4df003dc`, demo.debug.bin 104,707 B md5
+`f740c22498f6ad132ac9f8bd978c9350` — the same sizes parcel 2 booked, as expected from a parcel
+that changes no ROM byte); its in-build pre-build lane is 3024 passed / 2 skipped / 0 failed /
+0 errors (= parcel 2's 2983 plus exactly this parcel's 41 rows), and the needs_build lane is
+27 ran / 0 deferred / 0 failed / 1 exempted. No `.emp` touched, no ROM byte changed, the committed
+`games/sonic4/data/editor/ojz/act1` tree untouched, both donor trees read-only, no emulator used.
