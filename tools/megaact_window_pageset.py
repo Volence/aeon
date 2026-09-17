@@ -562,14 +562,17 @@ def run_pipeline(act, c, order_fn=None, zone_split_dedupe=False):
 
     # ---- Pass 4 ----
     order_s = time.perf_counter()
+    order_stats = {}
     if order_fn is None:
         pool_order = tile_dedupe.order_pool_spatially(per_section)
         pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
     else:
         if tile_dedupe.BLANK_TILE not in unique:      # as pin_blank_tile_first would
             unique.append(tile_dedupe.BLANK_TILE)
-        pool_order = list(order_fn({"canon": canon, "zone_id": act.zone_id, "unique": unique,
-                                    "per_section": per_section, "act": act, "c": c}))
+        order_ctx = {"canon": canon, "zone_id": act.zone_id, "unique": unique,
+                     "per_section": per_section, "act": act, "c": c, "stats": {}}
+        pool_order = list(order_fn(order_ctx))
+        order_stats = order_ctx["stats"]
         if sorted(pool_order) != sorted({x for s in per_section for x in s}
                                         | {unique.index(tile_dedupe.BLANK_TILE)}):
             raise SystemExit(f"{act.name}: candidate order is not a permutation of the "
@@ -609,6 +612,7 @@ def run_pipeline(act, c, order_fn=None, zone_split_dedupe=False):
         "per_section_global_sets": per_section_global_sets,
         "glob_grid": glob,
         "order_seconds": order_s,
+        "order_stats": order_stats,
         "pool_order": pool_order,
         "unique": unique,
     }

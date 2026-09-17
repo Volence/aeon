@@ -33,6 +33,11 @@ THE CANDIDATES (all put the blank canonical at pool slot 0, as the engine requir
                      tile first), from the next FOOTPRINT_CANDIDATES unassigned tiles in
                      curve order. sum over windows of pages referenced == sum over pages
                      of windows its footprint touches, so this is a greedy on that sum.
+  refined            hilbert_first, then refine_order: a deterministic group-swap local
+                     search that attacks the windows over PAGE_FRAMES directly (move a
+                     light page's few present tiles into a heavy page, swap back tiles
+                     absent from that window), judged on superset-sampled windows whose
+                     counts upper-bound the real ones; capped by a count of tries
   *_zonesplit        the same order after keying dedupe by (zone, canonical): a tile two
                      zones share gets one pool slot PER ZONE, so no zone's window can
                      reference another zone's page. Costs pool slots (reported).
@@ -51,7 +56,7 @@ pure-Python direct scan.
 Usage (numpy required; donors as megaact_window_pageset):
     python3 tools/megaact_page_order.py control
     python3 tools/megaact_page_order.py report --game {s2,s3k,ojz} [--json PATH] [--jobs N]
-    python3 tools/megaact_page_order.py timing [--json PATH]
+                                               [--candidates a,b] [--only chain,junction]
 """
 
 import argparse
@@ -242,13 +247,193 @@ def order_footprint_pack(ctx):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Targeted swap refinement (on superset-sampled windows)
+# ---------------------------------------------------------------------------
+
+REFINE_SX, REFINE_SY = 8, 4     # sample stride: one sample per 8 lefts x 2 even tops
+REFINE_TARGET = 12              # the shipped PAGE_FRAMES; checked against constants at use
+REFINE_MAX_TRIES = 4000         # a TRY cap, not a time cap: the result must not depend on machine speed
+REFINE_LIGHT, REFINE_HEAVY = 3, 4
+REFINE_MAX_MOVE = 16            # tiles moved out of a light page in one group swap
+
+
+def refine_incidences(ctx, sx=REFINE_SX, sy=REFINE_SY):
+    """Per referenced non-blank tile, the sorted indices of the SAMPLE windows it
+    occurs in. Sample (i, j) is the union of every real window with left in
+    [sx*i, sx*i+sx-1] and even top in [sy*j, sy*j+sy-1], so a tile counted present in
+    a sample is present in at least one real window of that cell, and a real window's
+    page count is <= its sample's count (UPPER BOUND; the final numbers are always
+    re-measured on the exact windows)."""
+    tile, r, cc, blank = _tile_cells(ctx)
+    H, W = ctx["canon"].shape
+    c = ctx["c"]
+    cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
+    kx = -(-(cols + sx - 1) // sx)                    # blocks the superset spans
+    ky = -(-(rows + (sy - 2)) // sy)                  # tops are even: last top is sy*j+sy-2
+    nbx, nby = -(-W // sx), -(-H // sy)
+    blk = (r // sy) * nbx + (cc // sx)
+    pairs = np.unique(tile * (nbx * nby) + blk)
+    pt, pb = pairs // (nbx * nby), pairs % (nbx * nby)
+    starts = np.flatnonzero(np.r_[True, pt[1:] != pt[:-1]])
+    ends = np.r_[starts[1:], len(pt)]
+    tiles = pt[starts]
+    inc = []
+    for a, b in zip(starts.tolist(), ends.tolist()):
+        bx, by = pb[a:b] % nbx, pb[a:b] // nbx
+        x0, x1, y0, y1 = int(bx.min()), int(bx.max()), int(by.min()), int(by.max())
+        img = np.zeros((y1 - y0 + 1, x1 - x0 + 1), dtype=np.int32)
+        img[by - y0, bx - x0] = 1
+        ii = np.zeros((img.shape[0] + 1, img.shape[1] + 1), dtype=np.int32)
+        np.cumsum(np.cumsum(img, 0), 1, out=ii[1:, 1:])
+        js = np.arange(max(0, y0 - ky + 1), y1 + 1)
+        is_ = np.arange(max(0, x0 - kx + 1), x1 + 1)
+        ya = np.clip(js - y0, 0, img.shape[0])[:, None]
+        yb = np.clip(js + ky - y0, 0, img.shape[0])[:, None]
+        xa = np.clip(is_ - x0, 0, img.shape[1])[None, :]
+        xb = np.clip(is_ + kx - x0, 0, img.shape[1])[None, :]
+        s = ii[yb, xb] - ii[ya, xb] - ii[yb, xa] + ii[ya, xa]
+        yy, xx = np.nonzero(s > 0)
+        inc.append((js[yy] * nbx + is_[xx]).astype(np.int32))
+    return tiles, inc, nbx * nby, blank
+
+
+def _has(arr, w):
+    i = np.searchsorted(arr, w)
+    return i < len(arr) and arr[i] == w
+
+
+def refine_order(ctx, base_order, target=REFINE_TARGET, max_tries=REFINE_MAX_TRIES):
+    """Targeted group-swap local search on sample windows.
+
+    State: page_of[tile], cnt[sample, page] = tiles of that page present, and
+    pw[sample] = pages present, counting page 0 always (it is pinned by rule).
+    Loop: take the sample with the most pages that is over `target` and not marked
+    stuck; for its LIGHTEST pages P (fewest of their tiles present) and HEAVIEST pages
+    Q, move P's present tiles S into Q and swap back the |S| tiles of Q that are absent
+    from the sample and most often co-present with P elsewhere (page sizes unchanged,
+    so the pool stays contiguous 64-tile pages). Accept iff the sample loses a page AND
+    sum phi(pw) over every touched sample falls, phi(k) = 4^(k-target+2) - 1 above
+    target-2 (steep: trading one window at 13 for many at 11 is refused). Otherwise
+    undo and try the next (P, Q); a sample with no accepted move is stuck until any
+    move is accepted. Deterministic: ties break on index, and the budget is a count of
+    tries, never wall time."""
+    page = ctx["c"]["ART_POOL_PAGE_TILES"]
+    t0 = time.perf_counter()
+    tiles, inc, nwin, blank = refine_incidences(ctx)
+    row = {int(t): i for i, t in enumerate(tiles.tolist())}
+    npages = -(-len(base_order) // page)
+    page_of = np.zeros(len(tiles), dtype=np.int32)
+    members = [[] for _ in range(npages)]
+    for slot, t in enumerate(base_order):
+        if t == blank:
+            continue
+        k = row[int(t)]
+        page_of[k] = slot // page
+        members[slot // page].append(k)
+    cnt = np.zeros((nwin, npages), dtype=np.int16)
+    for k, w in enumerate(inc):
+        cnt[w, page_of[k]] += 1
+    pw = ((cnt > 0).sum(axis=1) + (cnt[:, 0] == 0)).astype(np.int32)
+    start_max = int(pw.max()) if nwin else 0
+    start_over = int(np.count_nonzero(pw > target))
+    phi = np.array([0.0 if k <= target - 2 else float(4 ** (k - target + 2) - 1) for k in range(128)])
+    t_init = time.perf_counter() - t0
+    tries = accepted = 0
+    stuck = set()
+
+    def apply(moves):
+        touched = np.unique(np.concatenate([inc[k] for k, _ in moves]))
+        old = pw[touched].copy()
+        for k, q in moves:
+            cnt[inc[k], page_of[k]] -= 1
+            cnt[inc[k], q] += 1
+            page_of[k] = q
+        sub = cnt[touched]
+        pw[touched] = (sub > 0).sum(axis=1) + (sub[:, 0] == 0)
+        return touched, old
+
+    while tries < max_tries:
+        over = np.flatnonzero(pw > target)
+        if over.size == 0:
+            break
+        wstar = None
+        for w in over[np.argsort(-pw[over], kind="stable")].tolist():
+            if w not in stuck:
+                wstar = w
+                break
+        if wstar is None:
+            break
+        improved = False
+        ref = np.flatnonzero(cnt[wstar] > 0)
+        light = ref[np.argsort(cnt[wstar, ref], kind="stable")]
+        heavy = ref[np.argsort(-cnt[wstar, ref], kind="stable")]
+        for P in light[:REFINE_LIGHT].tolist():
+            S = [k for k in members[P] if _has(inc[k], wstar)]
+            if not S or len(S) > REFINE_MAX_MOVE:
+                continue
+            pref = cnt[:, P] > 0
+            for Q in heavy[:REFINE_HEAVY].tolist():
+                if Q == P:
+                    continue
+                outq = [u for u in members[Q] if not _has(inc[u], wstar)]
+                if len(outq) < len(S):
+                    continue
+                score = np.array([np.count_nonzero(pref[inc[u]]) / max(1, len(inc[u])) for u in outq])
+                U = [outq[i] for i in np.argsort(-score, kind="stable")[:len(S)]]
+                tries += 1
+                touched, old = apply([(k, Q) for k in S] + [(u, P) for u in U])
+                d = phi[np.minimum(pw[touched], 127)].sum() - phi[np.minimum(old, 127)].sum()
+                if d < 0 and pw[wstar] < old[np.searchsorted(touched, wstar)]:
+                    accepted += 1
+                    for k in S:
+                        members[P].remove(k)
+                        members[Q].append(k)
+                    for u in U:
+                        members[Q].remove(u)
+                        members[P].append(u)
+                    improved = True
+                    stuck.clear()
+                    break
+                apply([(k, P) for k in S] + [(u, Q) for u in U])
+            if improved:
+                break
+        if not improved:
+            stuck.add(wstar)
+    out = []
+    base_pos = {int(t): i for i, t in enumerate(base_order)}
+    for p in range(npages):
+        # within a page keep the base order's sequence (no refinement move = base order)
+        ids = sorted((int(tiles[k]) for k in members[p]), key=lambda t: base_pos[t])
+        out += ([blank] + ids) if p == 0 else ids
+    ctx["stats"]["refine"] = {
+        "target": target, "sample_windows": int(nwin), "incidences": int(sum(len(w) for w in inc)),
+        "tries": tries, "accepted": accepted, "try_cap_hit": tries >= max_tries,
+        "sample_max_before": start_max, "sample_over_target_before": start_over,
+        "sample_max_after": int(pw.max()) if nwin else 0,
+        "sample_over_target_after": int(np.count_nonzero(pw > target)),
+        "init_seconds": round(t_init, 3), "seconds": round(time.perf_counter() - t0, 3)}
+    return out
+
+
+def order_refined(ctx):
+    if ctx["c"]["PAGE_FRAMES"] != REFINE_TARGET:
+        raise SystemExit(f"REFINE_TARGET {REFINE_TARGET} != PAGE_FRAMES {ctx['c']['PAGE_FRAMES']}: re-derive")
+    t0 = time.perf_counter()
+    base = order_hilbert_first(ctx)
+    ctx["stats"]["base_seconds"] = round(time.perf_counter() - t0, 3)
+    return refine_order(ctx, base)
+
+
 CANDIDATES = {
     "shipped": (None, False),
     "hilbert_first": (order_hilbert_first, False),
     "hilbert_centroid": (order_hilbert_centroid, False),
     "footprint_pack": (order_footprint_pack, False),
+    "refined": (order_refined, False),
     "hilbert_first_zonesplit": (order_hilbert_first, True),
     "footprint_pack_zonesplit": (order_footprint_pack, True),
+    "refined_zonesplit": (order_refined, True),
 }
 
 
@@ -339,6 +524,7 @@ def measure_candidate(act, c, fixed, name, frames):
     res = {
         "candidate": name, "pool_tiles": pipe["pool_tiles"], "pages": pipe["pages"],
         "pinned_pages": sorted(pinned), "order_seconds": round(pipe["order_seconds"], 3),
+        "order_stats": pipe["order_stats"],
         "pipeline_seconds": round(t_pipe, 3),
         "local_palette_max": pipe["local_palette_max"],
         "local_palette_refusals": len(pipe["local_palette_refusals"]),
@@ -427,6 +613,76 @@ def ojz_act(c):
     return mb.Act("OJZ act 1", [(z, 0, 0)], st)
 
 
+SALVADOR_ENV = "AEON_SALVADOR"
+
+
+def _salvador():
+    env = os.environ.get(SALVADOR_ENV)
+    for p in ([env] if env else []) + [os.path.join(REPO, "tools", "bin", "salvador")]:
+        if p and os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def ojz_page_rom(c, cands, log=print):
+    """OJZ act 1's art-pool ROM under each candidate: page payloads (pass 6 of
+    ojz_strip_gen.generate: 32 raw bytes per canonical, pool order) compressed with
+    salvador and elected ZX0/raw by regenerate-level.sh's rule (keep ZX0 iff
+    (stream+4)*10 <= raw*9; ZX0 padded to even). CONTROL: the shipped candidate's
+    payloads must equal the committed act_pool_page<k>.bin byte for byte, and its
+    elected sizes the committed .zx0/.raw files. Only the page blobs are measured; the
+    per-section block streams also change under a new order and are NOT measured."""
+    import subprocess
+    import tempfile
+    import fg_working_set as fws
+    sal = _salvador()
+    if sal is None:
+        return {"ran": False, "why": f"no salvador at tools/bin/salvador or ${SALVADOR_ENV}"}
+    act = ojz_act(c)
+    out = {"ran": True, "salvador": sal, "candidates": {}}
+
+    def elect(payload, td, k):
+        src = os.path.join(td, f"p{k}.bin")
+        dst = os.path.join(td, f"p{k}.zx0")
+        with open(src, "wb") as fh:
+            fh.write(payload)
+        subprocess.run([sal, src, dst], check=True, stdout=subprocess.DEVNULL)
+        z = os.path.getsize(dst) + 4
+        if z * 10 <= len(payload) * 9:
+            return z + (z & 1), "zx0"
+        return len(payload), "raw"
+
+    for name in cands:
+        order_fn, zsplit = CANDIDATES[name]
+        pipe = mb.run_pipeline(act, c, order_fn=order_fn, zone_split_dedupe=zsplit)
+        order, unique = pipe["pool_order"], pipe["unique"]
+        page = c["ART_POOL_PAGE_TILES"]
+        payloads = [b"".join(unique[t] for t in order[i:i + page]) for i in range(0, len(order), page)]
+        with tempfile.TemporaryDirectory() as td:
+            sizes = [elect(p, td, k) for k, p in enumerate(payloads)]
+        row = {"pages": len(payloads), "stored_bytes": sum(s for s, _ in sizes),
+               "forms": [f for _, f in sizes], "pinned": pipe["pinned"]}
+        if name == "shipped":
+            ctl = []
+            for k, p in enumerate(payloads):
+                committed = open(os.path.join(fws.GEN_DIR, f"act_pool_page{k}.bin"), "rb").read()
+                if committed != p:
+                    ctl.append(f"page {k} payload differs from committed act_pool_page{k}.bin")
+                form = sizes[k][1]
+                cpath = os.path.join(fws.GEN_DIR, f"act_pool_page{k}.{form}")
+                if not os.path.isfile(cpath):
+                    ctl.append(f"page {k} elected {form} but committed has no act_pool_page{k}.{form}")
+                elif os.path.getsize(cpath) != sizes[k][0]:
+                    ctl.append(f"page {k} {form} {sizes[k][0]} B != committed {os.path.getsize(cpath)} B")
+            row["control_vs_committed"] = {"problems": ctl, "ok": not ctl}
+        out["candidates"][name] = row
+        log(f"  ojz rom {name}: {row['stored_bytes']} B over {row['pages']} pages {row['forms']}")
+    base = out["candidates"]["shipped"]["stored_bytes"]
+    for name, row in out["candidates"].items():
+        row["delta_vs_shipped_bytes"] = row["stored_bytes"] - base
+    return out
+
+
 _WORKER = {}
 
 
@@ -505,7 +761,7 @@ def control_presence(c, samples=150, seed=7):
 # Report
 # ---------------------------------------------------------------------------
 
-def build_report(game, jobs, cands, log=print):
+def build_report(game, jobs, cands, log=print, only=None):
     c, _ = mb.load_constants()
     rep = {"tool": "tools/megaact_page_order.py", "game": game, "candidates": cands,
            "frames_compared": [c["PAGE_FRAMES"], mb.OWNER_LEVER_FRAMES],
@@ -527,12 +783,16 @@ def build_report(game, jobs, cands, log=print):
         return rep
     if game == "ojz":
         specs = [("ojz", ("ojz",))]
+        rep["ojz_rom"] = ojz_page_rom(c, cands, log)
     else:
         specs, mbrep = populations(game, c)
         rep["mb_population_counts"] = {
             "singles": len(mbrep["singles"]), "pairs": len(mbrep["pairs"]),
             "offsets": sum(len(v) for v in mbrep["vertical_offset_sensitivity"].values()),
             "junctions": len(mbrep["junctions"]), "chain": 1}
+    if only:
+        specs = [(g, sp) for g, sp in specs if g in only]
+        rep["only_groups"] = only
     work = [(spec, group, cands) for group, spec in specs]
     # biggest first so the chain does not start last
     work.sort(key=lambda w: 0 if w[1] == "chain" else 1)
@@ -556,7 +816,66 @@ def build_report(game, jobs, cands, log=print):
     rep["population_counts_measured"] = {g: sum(1 for a in acts if a["group"] == g)
                                          for g in sorted({a["group"] for a in acts})}
     rep["summary"] = summarise_groups(rep["acts"], cands, rep["frames_compared"])
+    if game != "ojz":
+        rep["control_shipped_vs_mb"] = shipped_vs_mb(rep["acts"], mbrep, rep["frames_compared"])
+        cm = rep["control_shipped_vs_mb"]
+        log(f"control: shipped vs M-B committed: {cm['acts_compared']} acts, "
+            f"{cm['values_compared']} values, {len(cm['mismatches'])} mismatches")
+        if cm["mismatches"] or cm["acts_compared"] != len(acts):
+            rep["refused"] = "the shipped candidate does not re-derive M-B's committed numbers"
     return rep
+
+
+def shipped_vs_mb(acts, mbrep, frames):
+    """Every act's shipped-candidate numbers against the value M-B committed for it."""
+    F, L = frames
+    offs = {}
+    for label, rows_ in mbrep["vertical_offset_sensitivity"].items():
+        a, b = label.split("|")
+        for row in rows_:
+            offs[f"{a}|{b} dy={row['b_row_offset_tiles']}"] = row
+    by_name = {}
+    for zn, v in mbrep["singles"].items():
+        by_name[v["act"]] = v
+    for v in list(mbrep["pairs"].values()) + list(mbrep["junctions"].values()) + [mbrep["chain"]]:
+        by_name[v["act"]] = v
+    mism, n_vals, n_acts = [], 0, 0
+    for a in acts:
+        mine = a["candidates"]["shipped"]
+        if a["group"] == "offset":
+            ref = offs.get(a["act"])
+            if ref is None:
+                mism.append(f"{a['act']}: not in M-B")
+                continue
+            s = mine["needed"].get("seam_two_plus_zones", {})
+            pairs_ = [("seam_max", s.get("max")), ("seam_p50", s.get("p50")),
+                      ("seam_positions", s.get("positions")), ("seam_over_frames", s.get(f"over_{F}")),
+                      ("seam_over_lever", s.get(f"over_{L}")), ("pages", mine["pages"])]
+            for k, v in pairs_:
+                n_vals += 1
+                if ref[k] != v:
+                    mism.append(f"{a['act']}: {k} {v} != M-B {ref[k]}")
+            n_acts += 1
+            continue
+        ref = by_name.get(a["act"])
+        if ref is None:
+            mism.append(f"{a['act']}: not in M-B")
+            continue
+        n_acts += 1
+        for k in ("pages", "pool_tiles"):
+            n_vals += 1
+            if ref[k] != mine[k]:
+                mism.append(f"{a['act']}: {k} {mine[k]} != M-B {ref[k]}")
+        n_vals += 1
+        if ref["pinned_pages"] != mine["pinned_pages"]:
+            mism.append(f"{a['act']}: pinned {mine['pinned_pages']} != M-B {ref['pinned_pages']}")
+        for cls, s in mine["needed"].items():
+            rs = ref["needed"].get(cls, {})
+            for k in ("positions", "max", "p50", "p99", f"over_{F}", f"over_{L}"):
+                n_vals += 1
+                if rs.get(k) != s.get(k):
+                    mism.append(f"{a['act']}: needed.{cls}.{k} {s.get(k)} != M-B {rs.get(k)}")
+    return {"acts_compared": n_acts, "values_compared": n_vals, "mismatches": mism}
 
 
 def summarise_groups(acts, cands, frames):
@@ -606,7 +925,7 @@ def summarise_groups(acts, cands, frames):
 
 USAGE = """Usage:
     python3 tools/megaact_page_order.py control
-    python3 tools/megaact_page_order.py report --game {s2,s3k,ojz} [--json PATH] [--jobs N] [--candidates a,b]"""
+    python3 tools/megaact_page_order.py report --game {s2,s3k,ojz} [--json PATH] [--jobs N] [--candidates a,b] [--only groups]"""
 
 
 def _mode_control(rest):
@@ -627,13 +946,16 @@ def _mode_report(rest):
     ap.add_argument("--json", metavar="PATH")
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--candidates", default=",".join(CANDIDATES))
+    ap.add_argument("--only", default=None,
+                    help="comma list of groups (single,pair,offset,junction,chain) to measure")
     args = ap.parse_args(rest)
     cands = args.candidates.split(",")
     unknown = [x for x in cands if x not in CANDIDATES]
     if unknown or "shipped" not in cands:
         print(f"ERROR: candidates must include 'shipped' and be among {sorted(CANDIDATES)}; got {unknown}")
         sys.exit(1)
-    rep = build_report(args.game, args.jobs, cands, log=lambda m: print(m, flush=True))
+    only = args.only.split(",") if args.only else None
+    rep = build_report(args.game, args.jobs, cands, log=lambda m: print(m, flush=True), only=only)
     if args.json:
         with open(args.json, "w") as fh:
             json.dump(rep, fh, separators=(",", ":"))
