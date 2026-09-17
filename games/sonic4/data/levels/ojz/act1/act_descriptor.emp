@@ -36,7 +36,7 @@ use engine.structs.{Act, Sec, Region}
 // (AND AS OF 2026-09-05 it is ONE: section 7 took OJZ_Preset_Sec7 for item 9c's live patch
 // channels, so OJZ_Preset_Plain is section 8's alone. The record is still SHARED-SHAPED and
 // stays that way — a ninth section would point at it — but nothing shares it today.)
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7, OJZ_Preset_Night, OJZ_Preset_NightSnap}
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth, OJZ_Preset_Sec5, OJZ_Preset_Sec6, OJZ_Preset_Sec7, OJZ_Preset_Night, OJZ_Preset_NightSnap, OJZ_Preset_Showcase}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -726,9 +726,16 @@ const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
 // DEBUG ONLY, carved out of row `sec3`'s right half the way the two rows above carve theirs.
 // The one region in the act whose background names its OWN TILES (rg_bg_tiles) as well as
 // its own layout, so crossing into it is an overwrite of the BG tile arena followed by a
-// repaint, and crossing out is the same back to the act's tiles. It reuses row sec3's preset,
-// so the palette, raster and parallax under it are a shipped look and the ONLY difference
-// from its neighbour is the background.
+// repaint, and crossing out is the same back to the act's tiles.
+//
+// THE PICTURE IS SONIC 2 OIL OCEAN ZONE'S BACKGROUND IN ITS OWN COLOURS (parcel/
+// showcase-classic-bg, 2026-09-16), replacing the editor library's colonnade after the owner
+// flew it: every library background is a forest, so the switch read as the same forest
+// scrolling. OJZ_Preset_Showcase is row sec3's preset built by the same constructor with a
+// palette whose CRAM line 3 is the donor's (ojz_effects.emp, above OJZ_Preset_Showcase, says
+// why line 3 recolours no foreground). So raster and parallax under it are sec3's, and what
+// differs from its neighbour is the background and line 3. The donor is exactly one plane tall
+// (64 rows), so bg_span stays 0 = PLANE_B_SPAN.
 //
 // WHY THIS RECTANGLE (x 1024..2047, y 2048..4095), derived from what the switch's gate needs
 // and from what the other gates walk:
@@ -745,7 +752,7 @@ const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
 const OJZ_SHOWCASE_X0 = 1024
 const OJZ_SEC3_X1 = if DEBUG == 1 { OJZ_SHOWCASE_X0 - 1 } else { 2047 }
 const OJZ_SHOWCASE_BG_ROWS: array = if DEBUG == 1 {
-    [ ojz_region(x0: OJZ_SHOWCASE_X0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Sec3,
+    [ ojz_region(x0: OJZ_SHOWCASE_X0, x1: 2047, y0: 2048, y1: 4095, effects: OJZ_Preset_Showcase,
                  bg_layout: OJZ_Act1_BG_Showcase_Layout, bg_tiles: OJZ_Act1_BG_Showcase_Tiles) ]
 } else { [] }
 const OJZ_SHOWCASE_BG_ROWS_LEN = OJZ_SHOWCASE_BG_ROWS.len

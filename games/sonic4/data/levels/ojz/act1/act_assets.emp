@@ -57,10 +57,12 @@ pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { em
 
 // ---- THE REGION BG SWITCH SHOWCASE (region bg switch, task 2; DEBUG ONLY) ----
 // A second background with its OWN TILES, so a crossing that overwrites the BG tile arena
-// and then repaints Plane B can be seen and gated. An instrument, not content: the picture
-// is Aurora's library entry `deep-forest-v15-marching-colonnade`, chosen because it is one of
-// the three entries whose tiles fit the static budget; the look is the owner's call.
-// tools/gen_region_bg_showcase.py writes both blobs and refuses anything that would make
+// and then repaints Plane B can be seen and gated. The picture is Sonic 2 Oil Ocean Zone's
+// background plane (parcel/showcase-classic-bg, 2026-09-16), lowered from s2disasm onto CRAM
+// line 3 with its own palette (OJZ_Showcase_Palette, ojz_effects.emp). It replaced Aurora's
+// library entry `deep-forest-v15-marching-colonnade` after the owner flew that one and it
+// read as the same forest; the library source is still `--entry ID`.
+// tools/gen_region_bg_showcase.py writes all three blobs and refuses anything that would make
 // the gates vacuous (tiles equal to the act's, or a layout naming a tile the blob lacks).
 //
 // TYPED, like the two layouts above, and the tile blob is typed too: both lengths are the
@@ -73,7 +75,7 @@ pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { em
 // the queue's `lsr.l #1` read one byte early. The overwrite also raise_errors on an odd
 // source in DEBUG.
 pub const BG_REGION_STATIC_TILE_BUDGET = 320                  // vram.toml bg_region tiles - band_reserve
-pub const BG_SHOWCASE_TILE_COUNT = 216
+pub const BG_SHOWCASE_TILE_COUNT = 118
 pub const BG_SHOWCASE_TILES_SIZE = if DEBUG == 1 { 2 + BG_SHOWCASE_TILE_COUNT * 32 } else { 0 }
 pub const BG_SHOWCASE_LAYOUT_SIZE = if DEBUG == 1 { BG_LAYOUT_SIZE } else { 0 }
 ensure(BG_SHOWCASE_TILE_COUNT <= BG_REGION_STATIC_TILE_BUDGET,
