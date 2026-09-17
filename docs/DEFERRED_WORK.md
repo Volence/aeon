@@ -37022,3 +37022,33 @@ solid geometry. A row with MULTIPLE solid runs still RAISES; there is no defensi
   trees.** It is 8,960 B, the donor trees are out-of-repo so a fresh checkout could not regenerate
   it, and the S&K bank beside it is committed on the same reasoning. A gate row asserts the
   committed bytes are what the importer produces today, so it cannot silently drift.
+
+**EVIDENCE (parcel 4).** Pre-build tool lane `python3 -m pytest tools -m "not needs_build" -q`,
+`__pycache__` cleared, and **NO converted donor trees present — the state a fresh checkout is in**
+(this worktree has never run `s2_zone_convert.py`; `games/sonic4/data/donors/` does not exist):
+**4 failed, 2986 passed, 2 skipped, 28 deselected, 55 errors, 143 subtests passed in 69.32 s**.
+The 4-failed/55-error artifact-freshness family was established by an **in-place control taken
+BEFORE this parcel touched anything** — the same worktree at base `9b25b9b5`, same conditions:
+**4 failed, 2965 passed, 2 skipped, 28 deselected, 55 errors in 65.19 s**, with the four FAILED
+node ids byte-identical between the two runs. Delta **+21 passed** = 18 gate rows + 2 CLI refusal
+rows + 1 mode-table row; no row of this parcel is among the failures or errors.
+`python3 tools/import_s2_collision.py check` exit 0 in 3.0 s.
+`tools/test_import_s2_collision.py` is 18 rows, red-proven by **eight** on-disk mutations
+(`$18` ruled LEFT; `$18` ruled to 0, the rejected alternative; a multi-run row fabricating an
+answer; `probe_core`'s class gate removed — the real defect; `default_out` bound at import time;
+the Y-flip angle using the X formula; the rotated table COPIED from the donor, which reds three
+rows including the central one; and the CLI dispatch falling through to the writing `build`,
+where the blinded tripwire FIRED, proving the real `build` never ran), each restored from a
+committed baseline (`git show HEAD:` into a scratch dir, restored by copy, verified with `cmp`).
+**`tools/landing_build.sh` exit 0, `finished=0`, stamp written, three shapes built** — s4.bin
+821,479 B md5 `ae62156a66c9c3f13e93940e938c340e`, s4.debug.bin 848,075 B md5
+`b15ef259523f67ac963ef0cf4df003dc`, demo.debug.bin 104,707 B md5
+`f740c22498f6ad132ac9f8bd978c9350`: **byte-identical to the three master booked at `a182f7fe`, so
+no ROM byte moved**, as expected from a parcel that adds no build input. Its in-build pre-build
+lane is 3045 passed / 2 skipped / 0 failed / 0 errors (= parcel 3's 3024 plus exactly this
+parcel's 21 rows), and the needs_build lane is 27 ran / 0 deferred / 0 failed / 1 exempted. Run
+after merging `origin/master` (`a182f7fe`, the land-gate reader rule), whose only conflict with
+this branch was two sections appended to the end of this file — resolved by keeping BOTH.
+No `.emp` touched, the committed `games/sonic4/data/collision/` and `.../base/` tables and the
+`games/sonic4/data/editor/ojz/act1` tree untouched, all three donor trees read-only, no emulator
+used. Wall clock: 2026-09-17, dev box up 1 day 21 h, load average 3.4-4.8 across the runs.
