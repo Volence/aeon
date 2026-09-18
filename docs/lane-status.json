@@ -1,12 +1,6 @@
 {
   "focus": "No bug after all: the left-edge check reads a few frames early, while the picture is still crossfading.",
-  "inFlight": [
-    {
-      "what": "Landing build for the two new probe tools the diagnostic left behind",
-      "where": "clean checkout of the merge",
-      "agent": false
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Once the probes land. Then the gate fix, unless you want the flythrough answered first.",
+  "nextBoundary": "Here. Everything is landed, pushed and tidied; a fresh session would lose nothing.",
   "queue": [
     {
       "id": "FG-LEFT-EDGE-GATE-FIX",
@@ -75,7 +69,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "a flythrough: hold RIGHT from the spawn on s4.s2clip.bin (md5 45268bc1) and tell me if the ground runs unbroken to the end. Expect two floorless pits and no signpost -- both explained below.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-18T19:32:30Z"
+  "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-18T20:44:32Z"
 }
