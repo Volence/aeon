@@ -363,7 +363,7 @@ the running machine, not a reading.*
 | `lens_residue_raster_witness.py` | NOT RACY — **wrong row kind** | pokes the cursor to `row-1`, presses once onto a **RASTER** row; that arm tail-calls `Raster_Install` and stages no transition. Subject is `Raster_Program`/`Raster_Patch_Tab`/`Raster_Buf_A`, none of it lerped, and it stops on `Raster_VBlank`'s `.no_install` with `Raster_Pending == 0` |
 | `pcc_identity_probe.py` | NOT RACY — **drives no cursor** | reads `Debug_Lab_Index` as context only; prints `Frames=` beside every snapshot; its verdict ("does `Current` resolve to a config label") is true on both sides of the window |
 | `pcc_lab_probe.py` | NOT RACY — **the window IS its subject** | samples at +0f/+4f/+64f *on purpose* and prints `Frames=` on every line, so no reader can mistake a mid-window read for a settled one |
-| `perspective_floor_witness.py` | NOT RACY — **enough frames, derived** | `run_frames 30` after the walk, and 30 > `PARALLAX_TRANS_DEFAULT` = 16 (`engine/system/constants.emp:803`). MEASURED: `Frames` = 13 right after the walk, **0** after the 30. Its subject (plane-B nametable words, VRAM tiles) is not lerped either |
+| `perspective_floor_witness.py` | NOT RACY — **enough frames, MEASURED** (and now settled too) | `run_frames 30` after the walk. MEASURED: `Frames` = 13 right after the walk, **0** after the 30. Its subject (plane-B nametable words, VRAM tiles) is not lerped either. ⚠ The verdict rested on `30 > PARALLAX_TRANS_DEFAULT` = 16 — arithmetic that holds today and is coupled to the constant by NOTHING. Closed 2026-09-18 (controller review): it now also calls the derived-bound `settle_transition` AFTER the 30 — see the correction below |
 | `ramp_authored_witness.py` | NOT IN POPULATION | names the symbol only in a comment saying it does not poke it; verified — one hit, line 78 |
 | `preset_lab_witness.py` | **RACY BUT HARMLESS — proven, not asserted** | `SETTLE_FRAMES = 6 < 16`. MEASURED: `Frames = 7` at its sample point on **5 of 6** walked rows, `Current`/`Target` both live. But its whole read surface — `Raster_Pending`, `Raster_Program`, `Effects_Screen_L`, `Effects_World_Y` — is **byte-identical across the window** on every step, and the one step that showed drift (row 33, `Effects_Screen_L` `$0855`→`$0853`) showed **the same drift in a control of the same frame count with no window open** (`$0853`→`$0852`), i.e. per-frame anchor re-latching, not the crossfade. Mechanism agrees: the PRESET arm latches the world lines in `Effects_InstallPreset` *before* it starts the transition, and its parallax rung is resolved from ROM, not from a live cell. **No fix. Nothing to fix.** |
 | `fg_left_edge_capture.py` | **RACY AND WRONG** | MEASURED below |
@@ -422,6 +422,46 @@ on the machine's own counter and takes its bound from `fg_left_edge_gate._trans_
 the tree's single reader of PARALLAX_TRANS_DEFAULT, imported rather than re-derived, so there
 is no second copy to go stale. LOUD when the counter never settles and when the symbol is
 absent from the `.lst`.
+
+**⚠ CORRECTION, controller review 2026-09-18 — two sentences in the first draft of this row
+implied more than was true, and the row is the thing that gets believed later.**
+
+*(i) `perspective_floor_witness` HOSTED the helper and did not CALL it.* The report sentence
+"gains the one shared `settle_transition`; still rc=0" reads as though the tool settles. It
+did not: it defined the helper at `:132` and its sample path used the bare literal
+`run_frames 30` at `:216`. The NOT-RACY verdict was never in doubt — it stands on its own
+measurement, 13 remaining after the walk and 0 after the 30 — but the literal was coupled to
+`PARALLAX_TRANS_DEFAULT` by arithmetic alone, so raising that constant past 30 would have
+silently re-raced the tool while the derived-bound helper sat unused twelve lines above the
+call. That is exactly the class this parcel exists to close, so it is now wired in.
+**The 30 STAYS and the settle runs AFTER it**, for two reasons: the 30 also serves "let the
+scene's art and the glyph DMAs land", so shortening it would change what the comparisons read;
+and settling after it makes the behaviour change provably ZERO while `30 >= 16` (the counter
+is already 0, so it runs no frames) while making the tool correct rather than lucky if that
+ever stops holding. The printed count is now the per-run evidence: `settled after 0 frame(s)`
+is the arithmetic being CHECKED against the machine every run instead of trusted.
+*Red-first, because a settle that always returns 0 could be dead code and a green row that
+never chose its bed cannot fail:* the `30` cut to `4` (below the window), mutation quoted off
+disk before the run → **`settled after 11 frame(s)`**, 4 + 11 spanning the full window, same
+PASS lines, rc=0. The call is live and does real work when there is work. Restored → `settled
+after 0 frame(s)`, rc=0, PASS lines unchanged.
+
+*(ii) "the engine rule has one home" was true of the BOUND and read as though there were one
+IMPLEMENTATION.* There are **three** functions named `settle_transition` under `tools/`, and
+the third was not mentioned at all:
+* `fg_left_edge_gate.settle_transition(c, syms)` — pre-resolved `syms` from `lookup_symbol`;
+* `perspective_floor_witness.settle_transition(client, lst_path)` — **load-bearing, not
+  redundant**: the floor family never calls `lookup_symbol`, it parses the `.lst` with
+  `lst_symbol()` and calls through the `_c()` timeout wrapper. Collapsing the two would mean
+  adding an address-or-resolver parameter to a function on the attested gate's hot path to
+  serve a caller that does not exist. The plumbing differs; the rule does not. **This reason
+  is now written in that function's docstring** so the next reader does not tidy one away;
+* `left_edge_vsram_probe.settle_transition(c, syms, limit=300)` — the one genuinely worth
+  collapsing: the gate's signature, but a **magic 300** instead of a derivation, so it is the
+  only one whose loudness threshold would not move with the constant. It waits on the
+  machine's counter, so it is CORRECT and its NOT-RACY row is unaffected — the bound governs
+  only how it reports an unmeasurable. Left alone because this parcel fixed only what it
+  measured wrong. **Named here and in the docstring rather than left to be rediscovered.**
 
 *Claims that rest on a tool changed here — checked, not merely listed.*
 * ⚠ **`docs/research/reference_captures/2026-08-29-d41/` — all 12 PNGs are INVALIDATED as
