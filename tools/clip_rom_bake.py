@@ -117,6 +117,109 @@ class ClipRomError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# THE STAMP, and why a bare bake now restores by default (parcel 7, 2026-09-17)
+# ---------------------------------------------------------------------------
+#
+# TWO DEFECTS, ONE MECHANISM. Parcel 6 left both and the owner hit both in one session:
+#
+#   (1) `bake` RUN BY HAND DIRTIED THE SHIPPED TREE. R22 refuses to START over
+#       uncommitted work, but nothing put the tree back afterwards: build.sh's S2CLIP
+#       shape owns an EXIT trap, a bare invocation owned nothing, and the next person to
+#       `git commit -a` would have committed the clip act's bytes into the shipped act's
+#       slot. The default is therefore now RESTORE-ON-EXIT, on success and on failure.
+#       It is exact rather than best-effort because R22 has already proven the pre-state
+#       clean — a restore is only safe when something guaranteed what it restores TO.
+#
+#       WHY NOT "WRITE ELSEWHERE", which would be the obvious fix: it is not available.
+#       sigil places the generated `.emp` modules by a FIXED registry path and
+#       games/sonic4/map.toml names their head labels (this file's header). The bake
+#       MUST land in the shipped act's slot; the only question was who cleans it up.
+#
+#   (2) A STALE TREE ANSWERED AS A PASTE SHIFT. `ground` run against a tree baked from
+#       something else refused — correctly — but with `donor_corroboration`'s message,
+#       which says "a difference that is a multiple of 8 or 16 is a PASTE SHIFT". It was
+#       not a paste shift. It was the wrong act. A reader acting on that message would
+#       go and look at R12 and the clip rectangle, which are innocent.
+#
+# The stamp closes (2) and makes (1)'s opt-out safe. `--keep` leaves the tree in place
+# for `ground` / `clip_reachability` to read, and writes STAMP_NAME beside it naming the
+# clip act that produced it. Both readers refuse on a missing or mismatched stamp, BY
+# NAME, before they measure anything — so "you are looking at the shipped act" and "you
+# are looking at a different clip" can no longer arrive dressed as geometry.
+#
+# The stamp is deliberately UNTRACKED: it must not exist in the committed tree, because
+# the committed tree is the shipped act and a stamp there would be a lie. R22 skips it
+# for that reason (it is the one path this bake creates that is not a modification of
+# something the restore can put back), and build.sh's `git clean -fdq` removes it.
+
+STAMP_NAME = "clip_bake_stamp.json"
+
+RESTORE_PATHS = (GEN_REL, "games/sonic4/data/collision")
+
+
+def write_stamp(act, gen_dir, manifest_path):
+    """Name the clip act this generated tree was baked from."""
+    with open(os.path.join(gen_dir, STAMP_NAME), "w") as fh:
+        json.dump({
+            "schema": 1,
+            "produced_by": "tools/clip_rom_bake.py",
+            "act": act.id,
+            "manifest": os.path.relpath(os.path.abspath(manifest_path), REPO),
+            "_note": ("UNTRACKED and deliberately so: this tree is the SHIPPED act's "
+                      "slot holding a THROWAWAY clip bake. Its presence is what tells "
+                      "`ground` and `clip_reachability` they are not reading the shipped "
+                      "act. Never commit it; `git clean -fdq` on the generated tree is "
+                      "part of the restore."),
+        }, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+
+
+def require_stamp(act_id, gen_dir, reader):
+    """Refuse to measure a tree that is not this clip act's. Raises ClipRomError."""
+    path = os.path.join(gen_dir, STAMP_NAME)
+    if not os.path.isfile(path):
+        raise ClipRomError(
+            f"{reader}: {GEN_REL} carries no {STAMP_NAME}, so it is NOT a clip bake — "
+            f"it is the committed SHIPPED act (or a restored tree). Measuring it would "
+            f"answer about Oracle Jungle while naming this clip, which is how a stale "
+            f"tree gets read as a paste shift. Run "
+            f"`python3 tools/clip_rom_bake.py bake <manifest> --keep` first; a bare "
+            f"`bake` restores the tree on exit precisely so this cannot be ambiguous.")
+    try:
+        stamped = json.load(open(path))["act"]
+    except (OSError, ValueError, KeyError) as exc:
+        raise ClipRomError(
+            f"{reader}: {GEN_REL}/{STAMP_NAME} could not be read ({exc}). It is the only "
+            f"thing that says which act these bytes are; without it nothing here can be "
+            f"attributed.") from exc
+    if stamped != act_id:
+        raise ClipRomError(
+            f"{reader}: {GEN_REL} was baked from clip act '{stamped}', not '{act_id}'. "
+            f"This is a STALE TREE, not a geometry problem — do not read the numbers as "
+            f"a paste shift. Re-bake with "
+            f"`python3 tools/clip_rom_bake.py bake <this act's manifest> --keep`.")
+
+
+def restore_tree(git="git", log=print):
+    """Put the paths this bake overwrites back to their committed bytes."""
+    for cmd in (["checkout", "--"], ["clean", "-fdq", "--"]):
+        args = [git] + cmd + ([GEN_REL] if cmd[0] == "clean" else list(RESTORE_PATHS))
+        try:
+            subprocess.run(args, cwd=REPO, capture_output=True, check=False)
+        except OSError as exc:                      # noqa: BLE001 — reported, not swallowed
+            if log:
+                log(f"clip_rom_bake: WARNING — could not restore the tree ({exc}). "
+                    f"Run by hand: git checkout -- {' '.join(RESTORE_PATHS)} && "
+                    f"git clean -fdq -- {GEN_REL}")
+            return False
+    if log:
+        log(f"clip_rom_bake: tree RESTORED — {', '.join(RESTORE_PATHS)} are back at "
+            f"their committed bytes. Pass --keep to inspect the bake instead "
+            f"(`ground` and `clip_reachability` need the kept tree).")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Refusals
 # ---------------------------------------------------------------------------
 
@@ -178,10 +281,15 @@ def check_tree_is_clean(paths, git="git"):
             f"R22 could not read `git status` for {', '.join(paths)} ({exc}). This bake "
             f"OVERWRITES those paths and the restore is `git checkout`, so it will not "
             f"run without being able to see what it would destroy.") from exc
-    if out.strip():
+    # The stamp is this bake's own untracked marker (see the STAMP block). It is the one
+    # path here the restore does not put back but `git clean` removes, and a previous
+    # `--keep` run leaving one must not refuse the next bake.
+    dirty = [ln for ln in out.rstrip().splitlines()
+             if os.path.basename(ln.strip()) != STAMP_NAME]
+    if dirty:
         raise ClipRomError(
             "R22 the paths this bake overwrites are not clean:\n  "
-            + "\n  ".join(out.rstrip().splitlines())
+            + "\n  ".join(dirty)
             + "\nCommit or stash them first — this is a THROWAWAY bake whose restore "
               "is `git checkout`, and it would discard them.")
 
@@ -283,7 +391,24 @@ PALETTE_SHIPPED = "shipped"
 
 
 def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
-         palette=PALETTE_SHIPPED, skip_clean_check=False, log=print):
+         palette=PALETTE_SHIPPED, skip_clean_check=False, keep=False, log=print):
+    """Bake the clip act into the shipped act's slot.
+
+    `keep=False` (a bare invocation) RESTORES the overwritten tree on the way out, win or
+    lose — see the STAMP block for why that is the default and why it is safe. `keep=True`
+    leaves it, stamped, for build.sh and for `ground` / `clip_reachability`.
+    """
+    try:
+        return _bake(manifest_path, donor_root=donor_root, gen_dir=gen_dir,
+                     coll_dir=coll_dir, palette=palette,
+                     skip_clean_check=skip_clean_check, keep=keep, log=log)
+    finally:
+        if not keep:
+            restore_tree(log=log)
+
+
+def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
+          palette=PALETTE_SHIPPED, skip_clean_check=False, keep=False, log=print):
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
     check_single_clip(act)
@@ -385,6 +510,13 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     with open(os.path.join(baked_dir, "clip_rom_bake.json"), "w") as fh:
         json.dump(report, fh, indent=2, sort_keys=True)
         fh.write("\n")
+    if keep:
+        write_stamp(act, gen_dir, manifest_path)
+        log(f"clip_rom_bake: --keep — {GEN_REL} and {os.path.relpath(coll_dir, REPO)} "
+            f"now hold THIS CLIP ACT, not the shipped one, and they are TRACKED PATHS. "
+            f"Put them back with:\n"
+            f"    git checkout -- {' '.join(RESTORE_PATHS)} && "
+            f"git clean -fdq -- {GEN_REL}")
     log(f"clip_rom_bake: DONE — {act.id} is in {GEN_REL}; "
         f"{report['pool']['tiles']} pool tiles in {report['pool']['pages']} pages, "
         f"{report['collision']['attr_entries']} of {report['collision']['cap']} attr entries")
@@ -426,6 +558,9 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     import struct
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
+    # BEFORE anything is measured: these numbers are only about this clip if this tree
+    # is this clip's. A stale tree used to arrive here dressed as a paste shift.
+    require_stamp(act.id, gen_dir, "ground")
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
     spawn_x, spawn_y = engine_spawn(desc)
@@ -656,9 +791,13 @@ def _mode_bake(rest):
     ap.add_argument("--allow-dirty", action="store_true",
                     help="skip R22 (build.sh's S2CLIP shape owns the restore trap "
                          "and has already checked)")
+    ap.add_argument("--keep", action="store_true",
+                    help="leave the baked tree in place (stamped) instead of restoring "
+                         "it on exit. `ground` and clip_reachability.py need it; "
+                         "build.sh's S2CLIP shape passes it and owns its own trap")
     a = ap.parse_args(rest)
     bake(a.manifest, donor_root=a.donor_root, palette=a.palette,
-         skip_clean_check=a.allow_dirty)
+         skip_clean_check=a.allow_dirty, keep=a.keep)
     return 0
 
 

@@ -37473,3 +37473,115 @@ two comment lines, all three donor trees were read-only, and NO EMULATOR WAS USE
 - **HYPOTHESIS, to test and not to confirm: the imported ANGLE byte convention is wrong.** Parcel 4's FindFloor cross-check compared the bank against a Python re-implementation of S2's own lookup, so a convention difference present on BOTH sides (donor data and re-implementation) would reproduce exactly and prove nothing about what aeon's player code expects. That is the same shape as the rotated-table sign flip parcel 4 DID catch, one layer out: it checked the bank against the donor, never against the consumer.
 - **The control that settles it, and it must be established FIRST:** boot the shipped `s4.debug.bin` and try the same three things on OJZ act 1's slopes. If the shipped act slips, rolls back and rides down, the engine is fine and the clip's angle data is the subject. If it does not, this is an engine defect the clip merely made visible, and it is not an S2-import row at all.
 - **Sequenced behind** `parcel/s2-clip-gap` (the act ending early), which touches the same bake path.
+### S2-COMPRESSED-ACT parcel 7 LANDED 2026-09-17 — ★ THE WORLD ENDS AT x=4096, AND IT IS THE ACT THE CLIP DOES NOT PAINT
+
+Branch `parcel/s2-clip-gap` (base `fe078743`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-act-reachability.md`. Parcel 6's report is
+patched in place at runtime-check items 3 and 4 and at its falsifier table, where this parcel
+made it false.
+
+**BASE NOTE, said because the brief said otherwise:** the parcel was briefed to branch off
+`origin/master`, but `origin/master` was `d1d2b23f` and does NOT contain parcel 6 — the merge
+`fe078743` is local and unpushed. Both of its parents (`d1d2b23f`, `origin/parcel/s2-first-clip-act`
+= `f6a3f7c9`) ARE on origin, so the content is fetchable and the base is safe; only the merge
+commit is not published. Basing on `origin/master` would have branched off a tree with no
+`tools/clip_rom_bake.py` in it.
+
+**CLOSED**
+
+- **THE CAUSE, and it is not a truncation.** Subject `s4.s2clip.bin` md5
+  `7f40876af03b35f03f0ef9d6bd527743`, rebuilt here and the md5 reproduced. The clip act's level
+  data is COMPLETE and FAITHFUL: 0 of 512 columns of the 4,096 × 1,024 rectangle lack art, 0
+  lack a plane-A landing surface, the local maps cover every index their strips use (252 of 253,
+  279 of 280) and point only inside the 286-tile pool, `verify_level_bin`'s block-decode lane is
+  green, and the converted donor matches s2disasm's own EHZ chunk grid chunk for chunk.
+  **What ends is the ACT.** R21 forces a clip act into the shipped act's grid (GRID_W/GRID_H are
+  hand-written in `act_descriptor.emp` and shared with the canonical ROM), so a 4,096 × 1,024
+  clip lives in a 6,144 × 6,144 act and sections 2/5/8 are baked as air — 0 of 256 non-empty
+  blocks, content-deduped to one 1,024 B blob. At x = 4,096 the art and BOTH collision planes
+  stop dead, top to bottom, at a fixed world x. The tile cache carries the nametable and both
+  collision planes in the same block, so this is **ONE bound consumed twice**: the owner's hard
+  vertical line (seen in free flight, physics out of the picture) and his fall-through are the
+  same boundary seen from the renderer and from the sensors. `EDGE_CLAMP` clamps the CAMERA to
+  the act, not the player to the clip.
+- **What a clip act should OWN vs INHERIT: its act EXTENT.** It cannot today, and widening the
+  rectangle does not rescue it — EHZ act 1 has its own bottomless pit at x 4,672..4,863, so a
+  3-section clip trades this edge for a worse one. Owning the extent needs a clip act with its
+  own descriptor (row 7+). What landed instead makes the inheritance **explicit and
+  build-checked**: `unpainted_remainder` in `clips.json`, with the reason beside it.
+- **THE GATE — `tools/clip_reachability.py`**, `gate strict` in build.sh's S2CLIP shape after
+  the ten verify lanes. Scans the WHOLE ACT (the rectangle was the wrong subject — inside it
+  everything is perfect, which is why ten green lanes and a green `ground` sat on top of this).
+  Per 8-px column: art present, and a landing surface on every REACHABLE plane, with
+  reachability READ from the interned CrossoverTable. The declaration check is two-sided
+  (earlier = missing content, later = stale declaration). Red-first with three mutations shown
+  on disk: mark one crossover byte (exit 1), zero one tile column's plane-A collision (exit 1),
+  remove a strip (exit 2). 19 donor-free build-free rows in `tools/test_clip_reachability.py`,
+  proven with `games/sonic4/data/donors` moved away.
+- **THE BARE-BAKE DEFECT (parcel 6's remaining hole) is closed.** A bare
+  `clip_rom_bake.py bake` now RESTORES the tree on exit, win or lose — exact rather than
+  best-effort because R22 has already proven the pre-state clean. "Write elsewhere" was not
+  available (sigil places the generated modules by a fixed registry path). `--keep` opts out for
+  build.sh and the two gates and writes an untracked `clip_bake_stamp.json`; `ground` and
+  `clip_reachability` refuse on a missing or mismatched stamp BEFORE measuring. That also closes
+  the stale-tree trap: a stale tree used to arrive dressed as `donor_corroboration`'s "a
+  difference that is a multiple of 8 or 16 is a PASTE SHIFT". It now says "STALE TREE, not a
+  geometry problem" and names the act it found.
+
+**FOUND**
+
+- **Plane B has NO landing surface at all in x 1,344..1,407** — 8 bottomless columns, the only
+  thing inside the rectangle that CAN swallow a player. Harmless today (the CrossoverTable marks
+  zero attr bytes and `player_common.emp` clears `layer` at init, so nothing writes it) and
+  invisible before today for a stronger reason: **every act that has ever run on this engine had
+  plane B as a byte-for-byte COPY of plane A** — `ojz_block_gen.test_extract_block` asserts it in
+  terms. A Sonic 2 clip is the FIRST content where the planes differ, because S2's chunk words
+  carry two independent solidity nibbles and the converter splits them. The gate prints it as
+  INFORMATIONAL and turns it red the moment one crossover is marked (a row, not a promise).
+- **The x 1,344..1,535 "missing ground" is genuine Emerald Hill.** EHZ's own layout puts the
+  all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half; the ground drops
+  from y 644 to a floor at y 872; and Sonic 2's ring layout puts a row of five rings over it at
+  y = 568, x 1,392..1,488 (24 px apart; decode verified against s2disasm's `RingsMgr_NextRingInRow`,
+  not assumed). It is a jump. A clip act inherits OJZ's rings so the cue is absent.
+- **A reading that cost a wrong premise, recorded because it will recur:** "the data DOES contain
+  that ground" counted NON-ZERO donor words as solid. A Sonic 2 chunk word is block index in bits
+  0-9 and solidity in bits 12-15; `0x00ff` is block 255 with no solidity on either path. Every
+  word in the quoted range is `0x00ff` or `0x20ff` (LRB only, not standable from above).
+- **The clip height was right.** `crop_tiles [0, 1372, 0, 128]` is consistent: the converter
+  measured 217,600 pad cells outside the crop with 0 non-zero. Design hypothesis 3 stands.
+
+**THE SECOND EDGE — added after the controller refused the account above, and he was right**
+
+- **THERE ARE TWO EDGES AND HIS IS THE ONE A WALKING PLAYER MEETS FIRST.** x = 4,096 is real and
+  is what the owner's FREE FLIGHT screenshot shows. The other is this: **THE ACT HAS NO BOTTOM
+  BOUNDARY.** All 512 of 512 painted columns have air below their LAST landing surface. Sonic 2's
+  terrain interiors are LRB-only (`$2000` — solid left/right/bottom and NOTHING to a falling
+  body), and Sonic 2 survives that with a level bottom boundary that kills and restarts; **EHZ
+  act 1 declares its own at y = 800** (`s2_donor.level_size` → `(0, 10656, 0, 800)`). A clip act
+  declares none — it inherits the shipped act's 6,144 px height. **Every fall that is a
+  death-and-restart in the donor game is an endless fall here.** Locally: the pit's floor at
+  y 864..895 spans x 1,280..1,535 and STOPS at the pit's right lip, and x 1,536..1,663 has its
+  lowest landing surface at y 624..656 with its first floorless air at y = 672 — sixteen pixels
+  below the running surface.
+- **"The clip's data is complete and faithful" is true about the RECTANGLE and is the wrong
+  question** — the controller's words, and correct. The right question is whether a fall can end.
+- **The gate was extended to ask it**, two-sided on the count, with `donor_bottom_boundary`
+  derived from `s2_donor.level_size` and recorded beside it. A row proves it is not vacuous: put
+  a landing surface in every column's last collision row and the count goes 512 → 0.
+- **His candidate 1 (the 1,024 px rectangle cuts descending terrain) is REFUTED AT THE RAW
+  SOURCE**, not at the cropped donor: `load_fg_grid('EHZ')` is 16 × 128 chunks and rows 8..15
+  (y 1,024..2,047) hold ZERO non-zero chunks across x 0..4,095, every row measured. Candidate 2
+  (coordinate mismatch) is refuted — the spawn agrees at x = 256. Candidate 3 is no: the art
+  reading is real content geometry, EHZ's own jump.
+
+**STILL OPEN**
+
+- **WHICH floorless volume the body entered is NOT settled.** In a pure 8 × 16 cell model both are
+  sealed from the spawn (a flood fill reaches 23,936 air cells and ZERO of them lie below their
+  column's last landing surface), but a 20 × 40 px body at 6-16 px/frame is not a cell model. The
+  report's §7 item 4 plus two new falsifier rows are the discriminator — the number to bring back
+  is the player's x as he passes y = 1,024. Flagged, not explained away.
+- **A bottom boundary / death plane for a clip act.** The single change that would turn all 512
+  unbounded columns into the death-and-restart the donor game performs. Row 7+, and arguably
+  before the corridor.
+- **A clip act owning its own act extent** — row 7+, and the real fix for the x = 4,096 cause.

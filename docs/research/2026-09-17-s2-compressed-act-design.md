@@ -983,6 +983,19 @@ for the plan: a clip act inherits the shipped act's background, objects, rings, 
 effects presets**, because all of those live outside the generated tree. Rows 7-9 own the first
 three of those the moment a corridor needs its own.
 
+**THAT LIST WAS INCOMPLETE, AND THE MISSING ITEM IS THE ONE THAT BIT** (parcel 7, 2026-09-17 —
+`docs/research/s2-compressed-act/2026-09-17-clip-act-reachability.md`). A clip act also inherits
+the shipped act's **EXTENT**: `clip_rom_bake`'s R21 forces the manifest to declare the
+descriptor's grid, because `GRID_W`/`GRID_H` are hand-written in `act_descriptor.emp` and shared
+with the canonical ROM. So `s2_ehz_boot` paints 4,096 × 1,024 px of a 6,144 × 6,144 px act, the
+remaining sections are baked as air, and **at x = 4,096 the art and both collision planes stop
+dead at a fixed world x** — the tile cache carries all three in the same block, so it is one
+bound consumed twice. `EDGE_CLAMP` clamps the CAMERA to the act, not the player to the clip, so
+the player walks off the painted world and falls its full height. Widening the rectangle does not
+fix it (EHZ act 1 has its own bottomless pit at x 4,672..4,863). **A clip act should OWN its act
+extent**; until it can, the remainder is declared in `clips.json` (`unpainted_remainder`) and
+checked by `tools/clip_reachability.py` on every S2CLIP build. Row 7+ owns the real fix.
+
 ---
 
 ## 11. Risks, stated plainly
