@@ -1,4 +1,4 @@
-# A clip act declares its own grid — and Emerald Hill is five sections wide, not six
+# A clip act declares its own grid — and the act holds five of Emerald Hill's 5.36 painted sections
 
 S2-COMPRESSED-ACT parcel 9, 2026-09-17. Branch `parcel/s2-clip-act-extent`, base `8ee74c67`.
 Subject: `s4.s2clip.bin`, rebuilt from `S2CLIP=s2_ehz_boot ./build.sh`.
@@ -16,23 +16,44 @@ Correct. The act was 3 x 3 and the clip painted all of it; there was simply no m
 dispatch asked for the whole of Emerald Hill act 1 — **six sections, 12,288 px** — "if the
 measurements allow it", and asked for the binding number if they did not.
 
-**They do not, and the number that binds is the donor's own crop.** EHZ's converted tree
-declares `extent.crop_tiles` ending at tile **1372**, i.e. painted content stops before
-x = **10,976 px**, and `clip_manifest` R9 refuses a `src_rect` past the crop because outside it
-there is only the converter's zero padding — "a clip that reads smaller than it looks". Six
-sections need 12,288. So the sentence this lane has been repeating since parcel 6 —
-*"EHZ itself is six sections wide (12288 px)"*, written into `clips.json` as fact — is true of
-the donor's **padded section grid** and false of its **painted content**: the last 1,312 px of
-that sixth section is padding.
+**They do not, and the number that binds is the donor's own crop against the 2,048 px section
+grid.** EHZ's converted tree declares `extent.crop_tiles` ending at tile **1372**, i.e. painted
+content stops before x = **10,976 px**, and `clip_manifest` R9 refuses a `src_rect` past the crop.
+**10,976 px is 5.36 sections.** Six sections need 12,288 and would leave 1,312 px of the act
+unpaintable — the owner's exact complaint, one section further right. So the act is **five
+sections, 10,240 px**, and the clip paints all 1,280 of its columns.
 
-**Five sections — 10,240 px — is the widest act every column of which the donor can paint**, and
-painting every column is the whole point, because the defect the owner has reported twice is a
-hard vertical edge where the painted world stops. So the act is 5 x 3 and the clip is
-10,240 x 1,024.
+### ⚠ THAT IS A TRUNCATION, AND IT IS 736 px OF REAL EMERALD HILL
 
-**The cost of keeping the act a whole number of sections is 416 px.** Sonic 2's own camera box
-for EHZ act 1 is `x max 10656`; the act stops at 10,240, so the very end of the level — where the
-signpost stands — is inside the donor's crop but not inside a whole fifth section.
+**Say the two things in one sentence or the second one does not get through:** the act paints
+**every column it has**, and it **has fewer columns than the donor has content**. 5 x 2,048 =
+10,240; the crop reaches 10,976; **736 px — 92 columns — of painted Emerald Hill is outside the
+act and is not in the ROM.**
+
+**It is not padding, and that was measured rather than assumed** (`zone.json` plus the donor's own
+`section_5.*.bin`, counted directly):
+
+| x 10,240..10,975 (92 columns, rows 0..127) | non-zero cells | columns touched |
+|---|---|---|
+| art (`section_5.tiles.bin`) | **11,776** | **92 of 92** |
+| collision plane A (`.collattr.bin`) | **3,304** | **92 of 92** |
+| collision plane B (`.collattrb.bin`) | **3,304** | **92 of 92** |
+| **control** — x 10,976..12,287, past the crop | **0** | **0** |
+
+So every one of those 92 columns is fully drawn and carries collision, and the zero-padding claim
+is true only *past* 10,976, which is exactly where the crop says it starts. **The act holds 5 of
+the zone's 5.36 painted sections and loses 736 px at the right.**
+
+**416 px of what is lost is playable level.** Sonic 2's own camera box for EHZ act 1 is
+`x max 10656`, which is inside the truncated band: the act stops 416 px before the end of the
+level the donor lets a player reach (where the signpost stands), and the remaining 320 px is
+drawn scenery past the camera box.
+
+**Why truncating is still the right call here, stated as a decision and not as an absence:** the
+alternatives are a six-section act with 1,312 px of unpainted world at its right edge — the defect
+being fixed, moved — or a non-section-aligned act extent, which nothing in the engine or the
+bakers supports today. The truncation costs content the owner has never seen; the unpainted band
+costs him the thing he reported twice.
 
 ## 2. The mechanism, and how much of parcel 8's pricing survived
 
@@ -46,6 +67,7 @@ took:
 | "that moves canonical bytes unless the generated symbol reproduces the shipped 3 x 3 exactly ... proving it is the parcel, not a footnote" | **confirmed as the right worry, and it was the cheap half.** §3 |
 | R21 would be re-aimed rather than relaxed | **confirmed.** §5 |
 | — | **MISSED: the grid is not the only thing sized by the grid.** §2.1 |
+| — | **MISSED: an act's width is a whole number of SECTIONS and a donor's content is not.** §1 |
 
 ### 2.1 What §7 did not price, and it was most of the work
 
@@ -195,11 +217,18 @@ parcel's, off the same instruments.
 | local maps | 9 sections | **15 sections, 6 distinct** | — |
 | `s4.s2clip.bin` | 821,305 B (`c869deaf…`) | **§9** | 4 MB |
 
-**The tightest budget did not move.** The dispatch flagged the page window as the one to watch
-because it is a LOCAL measure — and that is exactly why it held: the worst window is the same
-80 x 60-tile window over the same busy art at camera x ≈ 4,392 that parcel 8 found. Five sections
-put 185,856 more windows under the instrument and none of them beat it. Four frames of headroom,
-unchanged.
+**The tightest budget's CEILING did not move. Its EXPOSURE nearly doubled, and that is not the
+same thing.** The worst window is still 8 of 12 frames, still the same 80 x 60-tile window over
+the same busy art at camera x ≈ 4,392 that parcel 8 found — the dispatch flagged this measure as
+LOCAL and that is exactly why the peak held. But the number of camera positions sitting AT that
+peak went **2,703 -> 5,059**, out of 257,367 -> 443,223 windows evaluated. As a share of all
+camera positions that is 1.05% -> 1.14%.
+
+**A reader who sees "8 of 12, unchanged" will conclude the widening was free and that is wrong.**
+Four frames of headroom is a static fact about the worst case; how often the player stands in a
+worst case is a different fact, and it grew by 87%. Nothing in the static proof bounds what
+happens at the ceiling — the fill-throughput lag in §10's table is the runtime finding this makes
+more likely to be seen, not less.
 
 **The pool grew by eight tiles for 4,096 px of new ground.** EHZ reuses its art that heavily: the
 whole zone's tileset is 914 tiles and only 633 are referenced anywhere in it.
@@ -248,6 +277,12 @@ first** or the harness's free flight is the condition under test.
    the act now reaches it. Declared in `clips.json`, count AND runs, and the build checks both.
 5. **Any fall that gets under the terrain never ends** — 1,232 of 1,280 columns, up from 744 of
    768. Arithmetic, not a regression.
+6. **The level does NOT end where Sonic 2's does, and he will notice.** The act stops at
+   x = 10,240; Emerald Hill act 1's own end — the stretch where the signpost stands — is at
+   x 10,240..10,656 and is **not in this ROM**. 736 px of fully drawn Emerald Hill is truncated
+   (§1), because an act's width is a whole number of 2,048 px sections and the zone is 5.36 of
+   them. The camera stopping there with ground under him is CORRECT; it is just not the end of the
+   level.
 
 **Verify DURING motion.** Row 1 versus row 4 of that table is only distinguishable while moving
 and while stopping.
@@ -262,8 +297,9 @@ Filled in at §12 with the landing-build and clip-build figures, each reproduced
   shows one flat preset over everything past 6,144 px. The right answer is for the region document
   to be per-act data the bake can produce, which is `effects_gen` work and is not booked here
   beyond this sentence.
-* **The 416 px tail of EHZ act 1 is unreachable** while an act's width must be a whole number of
-  sections. A clip act owning a NON-section-aligned extent is the parcel-7 idea in its last
-  surviving form, and this parcel did not need it.
+* **736 px of painted Emerald Hill — 92 fully drawn columns, 416 px of them playable — is
+  truncated** while an act's width must be a whole number of 2,048 px sections. A clip act owning
+  a NON-section-aligned extent is the parcel-7 idea in its last surviving form, and it is the only
+  thing that recovers them. This parcel did not need it; the next reader of this file might.
 * **Six sections becomes available the moment an act can hold two clips** — the padding at the end
   of EHZ is exactly where a corridor or a second zone would go, which is row 7.

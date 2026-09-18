@@ -37651,3 +37651,74 @@ design doc's §10 and parcel 6's report are patched in place where this falsifie
   change for a second clip's pits; `unpainted_remainder`'s `x_from` is one trailing edge on one
   axis and is the part that will not survive a hole BETWEEN two clips (the gate already fails that
   loudly as "a hole, not an edge").
+
+### S2-COMPRESSED-ACT parcel 9 LANDED 2026-09-17 — A CLIP ACT DECLARES ITS OWN GRID, AND THE ACT HOLDS FIVE OF EMERALD HILL'S 5.36 PAINTED SECTIONS
+
+Branch `parcel/s2-clip-act-extent` (base `8ee74c67`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-act-own-grid.md`. Parcel 8's §7 and the design
+doc's extent paragraph are patched in place where this falsifies them.
+
+- **The owner's words:** *"Oh nice, I see as much as I can now but after our third section it
+  stops because we only have 3 horizontally"*. Correct — the act was 3 × 3 and there was no more
+  act. This gives a clip act its own grid, and then fills it.
+- **The mechanism.** `GRID_W`/`GRID_H` left `act_descriptor.emp`. They are GENERATED from
+  `project.json` into `games/sonic4/data/generated/ojz/act1/act_grid.emp` (`tools/act_grid.py
+  emit`), which is inside the tree the S2CLIP trap restores — so the bake can write the grid the
+  engine compiles, and the descriptor reads it (`const GRID_W = OJZ_ACT_GRID_W`).
+- **★ THE ACT PAINTS EVERY COLUMN IT HAS AND HAS FEWER COLUMNS THAN THE DONOR HAS CONTENT — both
+  halves, or the second one does not get through.** EHZ's `zone.json extent.crop_tiles` ends at
+  tile 1,372 = x < **10,976 px = 5.36 sections**, and R9 refuses a `src_rect` past it. Six sections
+  need 12,288 and would leave 1,312 px unpaintable — the owner's complaint, one section right. So
+  the act is **five sections, 10,240 px**, all 1,280 columns painted — and **736 px (92 columns) of
+  Emerald Hill is TRUNCATED.** ⚠ **That band is not padding, measured on the donor's own section
+  files rather than inferred from the crop:** art 11,776 non-zero cells in 92 of 92 columns,
+  collision plane A 3,304 in 92 of 92, plane B the same; the control past the crop (x
+  10,976..12,287) is 0 non-zero art cells. **416 px of the loss is playable** — Sonic 2's camera
+  box for EHZ act 1 reaches x 10,656, inside the truncated band, so the act stops 416 px before the
+  signpost end of the level and the other 320 px is drawn scenery past the camera box. The
+  alternative was 1,312 px of UNPAINTED act, which is the defect being fixed; the truncation costs
+  content the owner has never seen. **"EHZ is six sections wide (12288 px)" — asserted in
+  `clips.json` since parcel 6 — described its PADDED grid and read as a claim about painted
+  content. Its replacement must not have that shape.**
+- **NO CANONICAL BYTE MOVED, proved two ways.** `s4.bin` md5 `ae62156a…` 821,479 B before and
+  after; and — the stronger control — with the grid mechanism in and the widening not yet done,
+  `S2CLIP=s2_ehz_boot ./build.sh` reproduced parcel 8's clip ROM byte for byte (`c869deaf…`,
+  821,305 B). That control caught a real defect: the first redirect of `ojz_entity_gen` emptied
+  every entity table while the ROM SIZE stayed identical and only the md5 moved.
+- **Budgets, measured, 3 → 5 sections:** pool 472 → **480** tiles of 768 · pages 8 → **8** of 256 ·
+  **worst camera window 8 → 8 of 12 frames — the CEILING held, the EXPOSURE did not.** Same
+  window (tile left 529, cam x ≈ 4,392), but **the camera positions sitting AT that peak went
+  2,703 → 5,059, +87%** (of 257,367 → 443,223 windows evaluated; 1.05% → 1.14% of all positions).
+  A reader who sees "8 of 12, unchanged" concludes the widening was free and that is wrong: four
+  frames of headroom is a fact about the worst case, how often the player stands in one is a
+  different fact. · attr entries
+  105 → **105** of 255 (that is the WHOLE ZONE's requirement and cannot rise) · sections 9 → **15**
+  of 48 · painted columns 768 → **1,280**, all carrying art. **No budget refused.** The tightest
+  one did not move, because it is a LOCAL measure and the busiest window was already inside three
+  sections.
+- **★ A SECOND EMERALD HILL PIT CAME WITH THE NEW GROUND, x 9,472..9,663** — 24 more columns with
+  no `SOLID_TOP` at any height, exactly like the x 4,672..4,863 one. Declared, count AND runs.
+  **TELL THE OWNER ABOUT BOTH RANGES.** Unbounded-fall 744 of 768 → **1,232 of 1,280**: arithmetic.
+- **R21 re-aimed, not relaxed.** It now runs after the bake emits the grid and reads the value back
+  out. STILL CAUGHT: a stale/unwritten grid module (the F2 staleness, one file over) and a
+  descriptor that stopped reading it (RAISES — Unmeasurable, never a pass; new test row). GIVEN UP,
+  named: refusing a clip whose grid differs from the shipped act's — that refusal WAS the cap. The
+  guarantee it claimed moved to a comptime `ensure(OJZ_SEC_ROWS_TOTAL == GRID_W * GRID_H)` in the
+  descriptor, which no bake can skip, plus `verify_level_bin`'s local-map arity lane.
+- **Two other gates moved and both are written up:** the `.lab_index` lint's region-arity rule
+  accepted only `if DEBUG == 1 { .. } else { [] }`, which was incidental to its own argument —
+  widened to any condition, SHAPE not relaxed, red-first on two mutations. And a stale
+  `ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table ...")` was deleted rather than left beside its
+  derived replacement.
+- **★ SIGIL FINDING, with a discriminator.** A `pub const` reached ONLY through a generated
+  module's own `use` does not resolve to an integer — sigil hands back a link-time LABEL and the
+  consumer refuses the field (`expected an integer for u16, got label`). The value is irrelevant:
+  a row taking `OJZ_SEC5_BLOCK_DICT_LEN` (0, a name `act_descriptor.emp` also imports) resolved,
+  beside a row taking `OJZ_SEC10_BLOCK_DICT_LEN` (also 0, imported only there) that did not. Same
+  shape as `EMP_PITFALLS` §2. Worked around by emitting the number as a literal. **Reported from
+  aeon's side as a symptom only; not raised with sigil and no claim made about its internals.**
+- **STILL OPEN, unchanged:** the act has no bottom (1,232 of 1,280 columns). A NON-section-aligned
+  act extent is the only thing that recovers the truncated 736 px — the parcel-7 idea in its last
+  surviving form, not needed here. And `OJZ_WIDE_FILL_ROWS` is a floor, not a design: a clip act wider than its region
+  document shows one flat preset past 6,144 px, because `effects_gen` does not run in the S2CLIP
+  bake. Per-act region documents are the real answer and are not booked beyond this sentence.

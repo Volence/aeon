@@ -175,9 +175,15 @@ descriptor, the rectangle from the manifest.
 > baked. None of that is visible from the file this section was reading.
 > **And the shape of the answer changed:** this section says widening and owning the extent are
 > alternatives. They are not — parcel 9 owns the GRID and then widens the clip to fill it, which
-> is both. **One factual correction:** parcel 8's own `clips.json` note said "EHZ itself is six
-> sections wide (12288 px)". That is its PADDED grid. Its painted crop ends at x = 10,976, so
-> five sections is the widest act the donor can paint every column of.
+> is both. **One factual correction, and its replacement needs both halves.** Parcel 8's own
+> `clips.json` note said "EHZ itself is six sections wide (12288 px)". That is its PADDED grid;
+> its painted crop ends at x = 10,976 = **5.36 sections**. Five sections is the widest act the
+> donor can paint every column of — **and a five-section act therefore TRUNCATES 736 px (92
+> columns) of fully drawn Emerald Hill**, 416 px of which is inside Sonic 2's own camera box for
+> the level. Measured on the donor's `section_5.*.bin`, not inferred from the crop: 11,776
+> non-zero art cells in 92 of 92 columns, 3,304 collision cells per plane in 92 of 92, against 0
+> past the crop. "Six sections" was a claim about the padded grid that read as a claim about
+> content; do not let "five sections" read as "all of it".
 
 
 The owner reversed onto widening before this was written, so it is an estimate from the reading
