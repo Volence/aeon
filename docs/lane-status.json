@@ -1,9 +1,14 @@
 {
-  "focus": "Checking whether other tools can read a scene's settings mid-crossfade the way one of them did.",
+  "focus": "Two checks under repair: one that can read a scene too early, one that stops looking at a call boundary.",
   "inFlight": [
     {
       "what": "Sweeping every tool that steps through the effects lab, to see which ones read too early",
       "where": "branch parcel/cursor-race-sweep",
+      "agent": true
+    },
+    {
+      "what": "Teaching the Z80-bus safety check to follow a call instead of stopping at it",
+      "where": "branch parcel/bus-hold-spanned-calls",
       "agent": true
     }
   ],
@@ -14,7 +19,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the sweep returns with its per-tool table and either a fix or a clean bill.",
+  "nextBoundary": "When both agents are back and their work is either landed or reported as not worth landing.",
   "queue": [
     {
       "id": "CURSOR-RACE-SWEEP",
@@ -77,12 +82,12 @@
     {
       "id": "BUS-HOLD-SPANNED-CALLS",
       "title": "Two sound-chip pauses call other routines whose safety is traced by hand only; a census check could follow the calls",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-18T23:27:02Z"
+  "updatedAt": "2026-09-18T23:28:39Z"
 }
