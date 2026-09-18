@@ -207,7 +207,7 @@ The published palette cost figure (19,332) is a ONE-SLOT number - one variant bo
 
 Two rows in tools/test_s4lint.py skip with 'main.asm not found'. main.asm was DELETED by design in the sigil flip, so those two can NEVER un-skip - they are permanent dead weight that reads as coverage in the totals. Decide: re-point them at what replaced main.asm, or delete them. Found while re-verifying the merged tree, not by a gate.
 
-### `FG-LEFT-EDGE-GATE-UNRUN` — RUN 2026-09-18 / the arm is UNREACHABLE, and the gate is FALSE-RED / S
+### `FG-LEFT-EDGE-GATE-UNRUN` — CLOSED 2026-09-18 / the arm EXECUTES, both arms attested, gate GREEN / S
 
 tools/fg_left_edge_gate.py was rewritten in chain 197 to branch on the per-scene flag (both the offset and the bit DERIVED at runtime, not typed). Its declining arm has NEVER EXECUTED - agents cannot touch the emulator. Until a foreground run, the gate is reviewed and not attested, and a gate whose new arm has never run is exactly the population this lane keeps finding. Five minutes with the emulator up.
 
@@ -269,6 +269,65 @@ NOT FIXED HERE, by instruction. Two separable follow-ups, each needing its own r
 (a) the gate must select its arm from the record the engine actually used, not from
 `Parallax_Current_Config`; (b) the staleness of `Parallax_Current_Config` itself, and who else
 it misleads.
+
+**(a) FIXED AND ATTESTED 2026-09-18** — branch `parcel/fg-left-edge-arm-selection`, own
+worktree off `a22ce711`, own `DEBUG=1 ./build.sh` (`s4.debug.bin` 848,075 B, crc32
+`62238a15`, rc=0). `tools/fg_left_edge_gate.py` now SETTLES before it samples:
+`settle_transition()` runs the machine one frame at a time until `Parallax_Transition_Frames`
+reads 0 (bound `2 x PARALLAX_TRANS_DEFAULT`, derived from `engine/system/constants.emp`,
+UNMEASURABLE if it never settles), and `check_scene` re-reads that counter at the sample point
+and refuses to grade a frame with a transition in flight. At `Frames == 0` the raw cell IS the
+active config by the engine's own promotion, in both the `CAP_TRANSITIONS` and cap-elided
+shapes. **Rejected alternative:** restating `Parallax_Active_Config`'s `Frames != 0 -> Target`
+rule in Python — it puts a second copy of an engine rule in a test (stale-green), and it fixes
+only the arm and not the subject, since mid-transition the plane-B word the gate asserts on is
+a lerp between two scenes' configs.
+
+```
+$ python3 tools/fg_left_edge_gate.py --rom <worktree>/s4.debug.bin
+GREEN 6 of 6 scenes                            # rc=0; every scene settled in 7-9 frames
+  10 ACCEPT  cfg=$013E14 Rocking_Slow          vds=$00  and=$090 == expected
+  11 ACCEPT  cfg=$013E52 Rocking               vds=$00  and=$090 == expected
+  12 ACCEPT  cfg=$013E90 Rocking_Fast          vds=$00  and=$090 == expected
+  13 DECLINE cfg=$013FCE Perspective_Subtle    vds=$82  vsram4E=$0005 != $090  -> PASS
+  14 DECLINE cfg=$01408C Perspective           vds=$80  vsram4E=$0015 != $090  -> PASS
+  15 ACCEPT  cfg=$01414A Perspective_Dramatic  vds=$00  and=$090 == expected
+```
+
+**The declining arm executed, twice, and 13/14 are CONFIRMED false reds.** Their `$0005` /
+`$0015` against `expected=$090` are exactly the signature the arm documents as a PASS — the
+claim tested, not assumed. The six `cfg` values are the hand-authored lab records resolved
+from this build's own `s4.debug.lst`, not `EditorSceneBinding_OJZ_Act1_Sec0` on all six as
+before; their `vds` bytes match the ROM image read independently at `+25` (offset derived from
+`engine/structs.emp`).
+
+**Both arms attested against a mutation each** (red-first, each mutation quoted back off disk
+before its run, each restored from the committed baseline):
+- flip scene 13's authored bit (`perspective_scene_declined` -> `perspective_scene`, plus the
+  matching literal in `games/sonic4/test/scene_equiv_proof.emp` — the build REFUSES the
+  one-line version, `scene equivalence: ... differs at cfg field 13`, which is that proof
+  working): scene 13 MOVES to the accept arm (vds `$02`, plane-B word `$0005` -> `$0090`)
+  while 14 stays declining. Selection responds to the authored bit, per scene;
+- delete the `bmi .col19_borrow_declined` skip in Step 5b: the declining arm's own FAIL branch
+  fires on 13 AND 14 ("the store ran anyway", b19 == `$090`), accept scenes untouched, rc=1.
+  The arm is not vacuously green;
+- the file's documented poison (delete the borrow store) for the accept arm: 10, 12, 15 RED,
+  13/14 correctly green, **and scene 11 PASSED** — plane B's own word was `$07FA` and
+  `$07FA & $0090 == $0090`. The AND rule passes on any plane-B word whose bits are a SUPERSET
+  of the foreground's, so a deform sample near `$7FF` launders a missing borrow. Blind spot in
+  the ACCEPT arm, camera-dependent, no engine defect; recorded in the gate's POISON section,
+  whose "every sampled scene must fail" is now corrected there.
+
+⚠ **Neither engine mutation was noticed by `./build.sh`** — both trees built rc=0 through every
+lane. This gate is the only thing in the tree that sees them.
+
+**(b) remains open**, and the diagnostic narrowed it: `Parallax_Current_Config` is never wrong
+in an ordinary boot (`docs/research/2026-09-18-parallax-current-config-identity.md`); the
+bounded divergence is that during the 16-frame boundary lerp the raw cell names the OUTGOING
+scene. Consumers that read the raw cell — `ojz_effects.emp:2884` (`OJZ_Reels_Fill`, DEBUG-only
+table) and `tools/boot_override_gate.py` — inherit that window. **Any other tool that drives
+this lab cursor and reads a parallax cell has the same 12-vs-16-frame race this fix removed
+from `fg_left_edge_gate`; not swept.**
 
 ---
 

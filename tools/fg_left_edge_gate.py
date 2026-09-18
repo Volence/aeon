@@ -62,6 +62,17 @@ Expect `and=$0000..$00xx` against a three-digit `expected`. The gate prints all 
 numbers (`vsram4C`, `vsram4E`, `and`, `expected`) on the failing line so the poison's
 signature is visible rather than inferred.
 
+MEASURED 2026-09-18, AND "every sampled scene must fail" ABOVE IS TOO STRONG — kept, with
+this correction under it, because the row it is wrong about is the interesting one. The
+poison was built and run (`s4.debug.bin` 848043 B, crc32 e8308fe3): scenes 10, 12 and 15
+failed exactly as written; 13 and 14 correctly stayed GREEN on the declining arm, since the
+store this poison deletes is the one they already skip; and SCENE 11 PASSED. Plane B's own
+word read $07FA there, and $07FA & $0090 == $0090. The AND rule passes on any plane-B word
+whose bits are a SUPERSET of the foreground's, so a deform sample near $7FF launders a
+missing borrow. That is a blind spot in the ACCEPT arm — camera-dependent, not an engine
+defect — and the honest reading of the poison is "the accept scenes go red, most of them at
+any one camera Y". Never conclude a borrow is present from one green accept row.
+
 TWO ARMS SINCE d-50 (2026-09-02), PICKED PER SCENE FROM THE ROM. The column-19 borrow is
 per scene now, default on. This gate reads `Parallax_Current_Config`'s
 `pcfg_v_deform_shift_bg` and branches on PCFG_VDS_DECLINE_BORROW, so it grades each scene
@@ -100,6 +111,19 @@ subject: mid-transition the plane-B word this gate asserts on is a LERP between 
 configs (`Parallax_Current_Vscroll_BG` easing toward the target), so the declining arm would
 still be grading a half-crossfaded value against a steady-state expectation. Settling fixes
 both with no restatement.
+
+BOTH ARMS ARE NOW ATTESTED, each against a mutation it had to answer (2026-09-18,
+s4.debug.bin 848075 B crc32 62238a15, one oracle-aether per run on its own socket):
+  * clean tree — ACCEPT on 10/11/12/15 (cfg $13E14/$13E52/$13E90/$1414A, vds $00), DECLINING
+    on 13/14 (cfg $13FCE/$1408C, vds $82/$80), GREEN 6 of 6, rc=0;
+  * flip scene 13's authored bit (`perspective_scene_declined` -> `perspective_scene`, plus
+    the matching expectation in games/sonic4/test/scene_equiv_proof.emp, which refuses the
+    build otherwise): scene 13 MOVES to the accept arm (vds $02, plane-B word $0005 -> $0090)
+    while 14 stays declining. The selection responds to the authored bit, per scene;
+  * delete the `bmi .col19_borrow_declined` skip in Step 5b so the store runs on a declining
+    scene: the declining arm's own FAIL branch fires on 13 AND 14 ("the store ran anyway",
+    b19 == $090), accept scenes untouched, rc=1. The arm is not vacuously green.
+Nothing in `./build.sh`'s lanes noticed either engine mutation — both trees built rc=0.
 
 USAGE
     python3 tools/fg_left_edge_gate.py                       # all six per-column scenes
