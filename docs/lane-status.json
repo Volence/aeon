@@ -1,9 +1,9 @@
 {
-  "focus": "Emerald Hill now runs five sections wide. It came back finished last night and is waiting to be landed.",
+  "focus": "Emerald Hill runs five sections wide and is landed. The ROM on your disk is the one to fly.",
   "inFlight": [
     {
-      "what": "Landing the wider Emerald Hill act and writing down the build figures its report left blank",
-      "where": "branch land/0918",
+      "what": "Running a gate arm that has never once executed since it was written",
+      "where": "branch off cb593b02",
       "agent": true
     }
   ],
@@ -14,27 +14,27 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the five-section act is landed and the ROM on your disk is the one you would fly.",
+  "nextBoundary": "After you have flown the wider act east and said whether the ground holds.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: the wider act came back finished; landing it, then you fly it end to end",
-      "state": "doing",
+      "title": "Sonic 2 test act: LANDED five sections wide; waiting on your eye, not on work",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "landed; the flythrough is yours -- no emulator was used anywhere in it",
       "project": "REGIONS"
     },
     {
       "id": "GATE-UNRUN-RECOVERY",
       "title": "A gate whose new arm has never once run: it was never actually blocked, so it is five minutes",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "S2CLIP-TRUNCATION",
       "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -75,7 +75,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "a flythrough: hold RIGHT from the spawn on s4.s2clip.bin (md5 45268bc1) and tell me if the ground runs unbroken to the end. Expect two floorless pits and no signpost -- both explained below.",
   "atBoundary": false,
-  "updatedAt": "2026-09-18T18:18:42Z"
+  "updatedAt": "2026-09-18T18:51:54Z"
 }
