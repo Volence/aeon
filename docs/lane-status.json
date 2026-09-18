@@ -1,10 +1,10 @@
 {
-  "focus": "A gate that has guarded the left edge since chain 197 turns out never to have run its own check.",
+  "focus": "No bug after all: the left-edge check reads a few frames early, while the picture is still crossfading.",
   "inFlight": [
     {
-      "what": "Telling apart a broken gate from a real bug: whether the engine's 'which scene am I' pointer is wrong in ordinary play too",
-      "where": "branch off c92f7248",
-      "agent": true
+      "what": "Landing build for the two new probe tools the diagnostic left behind",
+      "where": "clean checkout of the merge",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -14,13 +14,13 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "After you have flown the wider act east and said whether the ground holds.",
+  "nextBoundary": "Once the probes land. Then the gate fix, unless you want the flythrough answered first.",
   "queue": [
     {
-      "id": "PARALLAX-CURRENT-CONFIG-SUSPECT",
-      "title": "The pointer that says which scene is active reads as something that is not a scene; two other things trust it and both fail quietly",
-      "state": "doing",
-      "size": "M",
+      "id": "FG-LEFT-EDGE-GATE-FIX",
+      "title": "Fix the left-edge check so it waits for the crossfade to finish before looking; its real arm has still never run",
+      "state": "next",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -34,7 +34,7 @@
     {
       "id": "S2CLIP-TRUNCATION",
       "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -77,5 +77,5 @@
   ],
   "awaiting": "a flythrough: hold RIGHT from the spawn on s4.s2clip.bin (md5 45268bc1) and tell me if the ground runs unbroken to the end. Expect two floorless pits and no signpost -- both explained below.",
   "atBoundary": false,
-  "updatedAt": "2026-09-18T19:01:40Z"
+  "updatedAt": "2026-09-18T19:32:30Z"
 }
