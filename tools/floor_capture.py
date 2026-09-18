@@ -61,10 +61,25 @@ async def run(rom, lst, out, extra_frames):
         if extra_frames:
             # Optional extra travel so a second shot sits at a different camera
             # x. Held RIGHT only -- no START, so the lab cursor cannot move.
+            #
+            # ...but the CAMERA can cross a section, and a crossing routes into
+            # Parallax_StartTransition exactly as a lab-cursor step does, staging a
+            # 16-frame crossfade. The `run_frames 4` that stood here was four frames
+            # against that (CURSOR-RACE-SWEEP, 2026-09-18). MEASURED on s4.debug.bin
+            # crc32 62238a15: holding RIGHT from the floor row opens one window at travel
+            # frames 72..86, and `--extra-right-frames 76` left the shot at
+            # Parallax_Transition_Frames == 8 with 448 of 896 bytes of the live HScroll
+            # table mid-lerp. A screenshot taken there shows a background halfway between
+            # two scenes, and for a tool whose whole product is a picture a human rules
+            # on, a wrong picture is worse than no picture: the reader cannot tell them
+            # apart by looking. The walk above already waits 30 > 16 frames and was
+            # measured closing its own window; this arm never was.
             await w._c(client, "emulator/play_input",
                        {"rows": [{"start": 0, "end": extra_frames,
                                   "buttons": ["right"], "port": 0}]})
-            await w._c(client, "emulator/run_frames", {"frames": 4})
+            waited = await w.settle_transition(client, lst)
+            print("  travel settled after %d frame(s) "
+                  "(Parallax_Transition_Frames == 0)" % waited)
 
         # VOUCH FOR THE FRAME BEFORE SHOOTING IT.
         again = int((await read_bytes(client, lab_sym, 1))[:2], 16)
