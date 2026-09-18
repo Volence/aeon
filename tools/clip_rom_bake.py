@@ -242,27 +242,57 @@ def check_single_clip(act):
 
 
 def check_act_grid_matches_engine(act, descriptor=None):
-    """R21 — the manifest's act grid is the grid the ENGINE's act descriptor declares.
+    """R21 — the manifest's act grid is the grid the ENGINE WILL COMPILE.
 
-    The throwaway re-bakes the shipped act SLOT, and that slot's section table, its
-    map.toml placement rows and its `const GRID_W`/`GRID_H` are all fixed by the
-    hand-written `act_descriptor.emp`. A clip act declaring a different grid would bake
-    a local-map table shorter (or longer) than the grid the engine indexes by flat id —
-    the 2026-09-12 F2 incident, one act over.
+    ────────────────────────────────────────────────────────────────────────────────
+    RE-AIMED 2026-09-17 (S2-COMPRESSED-ACT parcel 9). READ THIS BEFORE TRUSTING IT.
+    ────────────────────────────────────────────────────────────────────────────────
+
+    WHAT IT USED TO BE. The grid was two hand-typed lines in `act_descriptor.emp`, a file
+    this throwaway cannot write, so the only grid a clip act could declare was the shipped
+    act's and this row's whole job was to say NO to anything else. It named a real hazard
+    (a local-map table shorter than the grid the engine indexes by flat id — the
+    2026-09-12 F2 incident, one act over), but it enforced it by forbidding the subject.
+
+    WHAT IT IS NOW. The grid is GENERATED from project.json into
+    `games/sonic4/data/generated/ojz/act1/act_grid.emp`, which IS inside the tree this
+    bake rewrites and the S2CLIP trap restores. `stage_project` writes the clip's grid
+    into the staged project and `emit_engine_grid` lowers it into that module, so this row
+    runs AFTER the emit and reads the emitted value back out.
+
+    WHAT IT STILL CATCHES, and it is not nothing:
+      * an emit that did not happen or wrote the wrong numbers — a STALE module left by a
+        previous bake at a previous grid, which is the F2 staleness exactly, and the case
+        a bake is most likely to produce by accident;
+      * a descriptor that stopped taking its grid from that module at all
+        (`act_grid.descriptor_grid` RAISES rather than falling back — an unreadable grid
+        is Unmeasurable, never a pass).
+
+    WHAT IT NO LONGER CATCHES, NAMED RATHER THAN IMPLIED: a clip act declaring a grid
+    different from the shipped act's. That case is now the FEATURE and refusing it was the
+    cap this parcel removed, so it is deliberately given up.
+
+    WHAT TOOK OVER THE GUARANTEE IT USED TO GIVE. "The section table is exactly as long as
+    the grid" is now a comptime `ensure` in the descriptor itself
+    (`OJZ_SEC_ROWS_TOTAL == GRID_W * GRID_H`), which no bake can skip, and
+    `verify_level_bin`'s local-map lane still holds `OJZ_Sec_LocalMaps`' arity to
+    `act_grid.section_count`. A short table fails the BUILD now instead of being refused at
+    the manifest.
 
     Read from the engine, never typed: `act_grid.descriptor_grid` parses
-    `const GRID_W = <int>` out of the descriptor.
+    `pub const OJZ_ACT_GRID_W = <int>` out of the generated module.
     """
     kw = {} if descriptor is None else {"descriptor": descriptor}
     gw, gh = act_grid.descriptor_grid(**kw)
     if (act.grid_w, act.grid_h) != (gw, gh):
         raise ClipRomError(
-            f"R21 the manifest declares a {act.grid_w}x{act.grid_h} act grid and the "
-            f"engine's act descriptor declares {gw}x{gh}. A clip act is baked into the "
-            f"SHIPPED act's slot (see this file's header), whose section table, map.toml "
-            f"placement rows and GRID_W/GRID_H are fixed by the descriptor. Declare "
-            f'"act": {{"grid_w": {gw}, "grid_h": {gh}}} — sections your clip does not '
-            f"cover are baked as air, which is what an empty section is.")
+            f"R21 the manifest declares a {act.grid_w}x{act.grid_h} act grid and the grid "
+            f"the engine will compile is {gw}x{gh} "
+            f"({os.path.relpath(act_grid.ACT_GRID_EMP, REPO)}). Those are emitted from the "
+            f"manifest by this bake, so a disagreement means the emit did not happen or "
+            f"wrote something else — a STALE module from a previous bake at a previous "
+            f"grid is the likely cause. Re-run the bake; do not edit the generated module "
+            f"by hand.")
 
 
 def check_tree_is_clean(paths, git="git"):
@@ -412,7 +442,6 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
     check_single_clip(act)
-    check_act_grid_matches_engine(act)
     if not skip_clean_check:
         check_tree_is_clean([os.path.relpath(gen_dir, REPO),
                              os.path.relpath(coll_dir, REPO)])
@@ -423,6 +452,22 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         manifest_path, out_dir=baked_dir, donor_root=donor_root, log=log)
 
     project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir)
+
+    # THE ENGINE'S GRID, LOWERED FROM THE MANIFEST (S2-COMPRESSED-ACT parcel 9). This is
+    # the whole of what lets a clip act be a different SHAPE from the shipped one: the
+    # descriptor reads `GRID_W`/`GRID_H` out of this generated module, the module is inside
+    # the tree the S2CLIP trap restores, and so the grid is finally something a throwaway
+    # bake can set. It must happen BEFORE ojz_strip_gen, whose section count is
+    # act_grid.section_count(staged project) and which refuses unless the engine agrees.
+    #
+    # R21 runs immediately after and reads the value back OUT of the emitted module, so a
+    # stale or unwritten module is still a named refusal — see its docstring for what that
+    # re-aiming keeps and what it gives up.
+    act_grid.emit(act.grid_w, act.grid_h)
+    check_act_grid_matches_engine(act)
+    log(f"clip_rom_bake: engine grid {act.grid_w}x{act.grid_h} -> "
+        f"{os.path.relpath(act_grid.ACT_GRID_EMP, REPO)} "
+        f"({act.grid_w * act.grid_h} sections)")
     bank_dir = clip_manifest.collision_banks(act, donor_root)
     log(f"clip_rom_bake: staged project {os.path.relpath(project_path, REPO)} "
         f"(bank {os.path.relpath(bank_dir, REPO)})")
@@ -478,14 +523,19 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         symbol_prefix="OJZ_Act_Pool_Page", table_symbol="OJZ_Act_Pool_PageTable",
         emp_name="ojz_act_pool.emp", embed_prefix=GEN_REL, log=log)
 
-    # THE BLOCK STREAM — row 6's inheritance. ojz_block_gen reads sec{N}_strips_a.bin
-    # out of its own OUTPUT_DIR and the section count out of act_grid, which reads the
-    # SHIPPED project.json. Both are the shipped act's here by construction (this bakes
-    # into its slot at its grid, R21), so neither is redirected.
+    # THE BLOCK STREAM — row 6's inheritance. ojz_block_gen reads sec{N}_strips_a.bin out
+    # of its own OUTPUT_DIR and the section count out of act_grid.
+    #
+    # ⚠ THE SENTENCE THAT STOOD HERE IS FALSE SINCE PARCEL 9 and is corrected rather than
+    # deleted: it said the count "reads the SHIPPED project.json ... the shipped act's here
+    # by construction (this bakes into its slot at its grid, R21)". R21 no longer pins the
+    # clip to the shipped grid — that cap is exactly what parcel 9 removed — so the shipped
+    # project.json is the WRONG count for any clip that declares its own, and both the
+    # output dir and the project are redirected now.
     log("clip_rom_bake: block stream (S4LZ v3, per-section dictionaries)...")
     import ojz_block_gen
     ojz_block_gen.OUTPUT_DIR = gen_dir
-    ojz_block_gen.generate_all()
+    ojz_block_gen.generate_all(project_json=project_path)
 
     report = {
         "schema": 1,
@@ -712,7 +762,7 @@ def _engine_const(name, path=None):
     return src.get(name)
 
 
-def engine_spawn(descriptor_path, constants_path=None):
+def engine_spawn(descriptor_path, constants_path=None, grid_path=None):
     """(x, y) world px the boot state puts Player_1 at, DERIVED from the engine.
 
     Camera_Init seeds Camera_X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x
@@ -739,7 +789,10 @@ def engine_spawn(descriptor_path, constants_path=None):
         v = m.group(1)
         return int(v[1:], 16) if v.startswith("$") else int(v)
 
-    gw, gh = act_grid.descriptor_grid(descriptor_path)
+    # THE GRID IS NOT IN THE DESCRIPTOR ANY MORE (parcel 9): it is the generated
+    # act_grid.emp, which is what bounds the clamp below. `grid_path` exists so a test can
+    # move the grid and the spawn fields independently.
+    gw, gh = act_grid.descriptor_grid(grid_path or act_grid.ACT_GRID_EMP)
     cam_x = (field("start_sec_x") << shift) + field("start_local_x") - half_w
     cam_y = (field("start_sec_y") << shift) + field("start_local_y") - half_h
     cam_x = max(0, min(cam_x, (gw << shift) - screen_w))

@@ -203,18 +203,31 @@ def test_r20_refuses_a_two_clip_act_and_admits_a_one_clip_act():
     assert "R20" in str(exc.value) and "row 7" in str(exc.value)
 
 
-def _descriptor(tmp_path, w, h):
-    p = tmp_path / "act_descriptor.emp"
-    p.write_text(f"const GRID_W = {w}\nconst GRID_H = {h}\n")
+def _descriptor(tmp_path, w, h, name="act_grid.emp"):
+    """A stand-in for the GENERATED grid module the engine compiles.
+
+    It used to write `const GRID_W` into a fake act_descriptor.emp. The grid moved out of
+    the descriptor in S2-COMPRESSED-ACT parcel 9 and this moved with it — written through
+    `act_grid.emit`, so the fixture cannot drift from the emitter's own spelling the way a
+    hand-typed one could (and did: the whole reason R21's reader raises on an unrecognised
+    file is that a fixture is the easiest thing in the tree to leave behind).
+    """
+    import act_grid
+    p = tmp_path / name
+    act_grid.emit(w, h, str(p))
     return str(p)
 
 
-def test_r21_holds_the_manifest_grid_to_the_ENGINE_descriptor(tmp_path):
-    """DERIVED from the descriptor, not typed: the row reads whatever the engine says.
+def test_r21_holds_the_manifest_grid_to_the_ENGINE_grid_module(tmp_path):
+    """DERIVED from the engine, not typed: the row reads whatever the engine will compile.
 
-    A clip act is baked into the SHIPPED act's slot, whose section table and map.toml
-    placement rows are fixed by that descriptor, so a mismatched grid writes a local-map
-    table of the wrong length for the grid the engine indexes by flat id.
+    RE-AIMED with the mechanism (parcel 9). R21 used to be "a clip may not declare a grid
+    other than the shipped act's", because the grid was hand-written where a throwaway
+    bake could not reach it. The bake now WRITES that grid from the manifest, so what this
+    row proves is the read-back: the module says what the manifest said, and a module
+    saying anything else — the stale-from-a-previous-bake case — is still a named refusal.
+    The case deliberately given up is a clip declaring a grid of its own, which is the
+    feature.
     """
     import act_grid
     gw, gh = act_grid.descriptor_grid()
@@ -222,11 +235,17 @@ def test_r21_holds_the_manifest_grid_to_the_ENGINE_descriptor(tmp_path):
     with pytest.raises(CRB.ClipRomError) as exc:
         CRB.check_act_grid_matches_engine(_Act(1, (gw + 1, gh)))
     assert "R21" in str(exc.value) and f"{gw}x{gh}" in str(exc.value)
-    # and it reads the descriptor it is HANDED, so a different engine grid moves it
+    # and it reads the grid module it is HANDED, so a different engine grid moves it
     d = _descriptor(tmp_path, gw + 2, gh + 2)
     CRB.check_act_grid_matches_engine(_Act(1, (gw + 2, gh + 2)), descriptor=d)
     with pytest.raises(CRB.ClipRomError):
         CRB.check_act_grid_matches_engine(_Act(1, (gw, gh)), descriptor=d)
+    # AND A MODULE THAT DOES NOT DECLARE THE GRID AT ALL IS UNMEASURABLE, NEVER A PASS —
+    # the stale/garbage case the re-aiming leans on most.
+    empty = tmp_path / "empty.emp"
+    empty.write_text("module games.sonic4.ojz_act_grid_act1\n")
+    with pytest.raises(act_grid.ActGridError):
+        CRB.check_act_grid_matches_engine(_Act(1, (gw, gh)), descriptor=str(empty))
 
 
 def test_r22_refuses_a_dirty_tree_and_admits_a_clean_one(tmp_path, monkeypatch):
@@ -441,21 +460,27 @@ def test_engine_spawn_is_derived_from_the_engine_and_the_clamp_can_bite(tmp_path
     half_h = int(src.get("CAM_SCREEN_HALF_H"))
 
     def desc(sx, sy, lx, ly, w=3, h=3):
+        """(descriptor, grid module) — TWO files since parcel 9, because the spawn fields
+        and the grid live in two files now and engine_spawn reads one from each."""
         p = tmp_path / f"d_{sx}_{sy}_{lx}_{ly}.emp"
         p.write_text(
-            f"const GRID_W = {w}\nconst GRID_H = {h}\n"
             f"    start_local_x:       ${lx:04X},\n"
             f"    start_local_y:       ${ly:04X},\n"
             f"    start_sec_x:         {sx},\n"
             f"    start_sec_y:         {sy},\n")
-        return str(p)
+        import act_grid
+        g = tmp_path / f"g_{sx}_{sy}_{lx}_{ly}_{w}x{h}.emp"
+        act_grid.emit(w, h, str(g))
+        return str(p), str(g)
 
     # well inside the act: the half-screens cancel exactly
-    assert CRB.engine_spawn(desc(1, 1, 0x0400, 0x0400)) == \
+    d, g = desc(1, 1, 0x0400, 0x0400)
+    assert CRB.engine_spawn(d, grid_path=g) == \
         ((1 << shift) + 0x400, (1 << shift) + 0x400)
     # at the world origin: the seed would be negative, the clamp holds it at 0, and the
     # player lands half a screen INTO the act rather than at start_local
-    assert CRB.engine_spawn(desc(0, 0, 0x0010, 0x0010)) == (half_w, half_h)
+    d, g = desc(0, 0, 0x0010, 0x0010)
+    assert CRB.engine_spawn(d, grid_path=g) == (half_w, half_h)
 
 
 def test_the_donor_corroboration_window_is_derived_and_both_sides_of_it_bite(tmp_path,

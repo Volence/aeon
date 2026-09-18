@@ -68,6 +68,11 @@ except ImportError:                                   # pragma: no cover - path 
 
 AEON = Path(__file__).resolve().parent.parent
 ENGINE_CONSTANTS = "engine/system/constants.emp"
+#: The GENERATED act grid the descriptor folds GRID_W/GRID_H out of since
+#: S2-COMPRESSED-ACT parcel 9 (tools/act_grid.py). Seeded alongside the engine
+#: constants for the same reason they are: the FORMULA stays the descriptor's line,
+#: only its leaves are imported, and `GRID_W = OJZ_ACT_GRID_W` made this a leaf.
+ACT_GRID_EMP = "games/sonic4/data/generated/ojz/act1/act_grid.emp"
 
 # The bounds `ojz_region()` checks each row against, by the names the descriptor declares
 # them under. Every one is read; none is defaulted. A descriptor that renames one refuses
@@ -194,8 +199,9 @@ def to_inclusive(r) -> dict:
 def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
     """`ojz_region()`'s bounds, folded out of the descriptor's own `const` lines.
 
-    `descriptor` is repo-relative. Seeded with `engine/system/constants.emp`, because
-    every one of these formulas reaches into it (`ACT_W = GRID_W << SECTION_SIZE_SHIFT`,
+    `descriptor` is repo-relative. Seeded with `engine/system/constants.emp` AND the
+    generated `act_grid.emp`, because every one of these formulas reaches into them
+    (`ACT_W = GRID_W << SECTION_SIZE_SHIFT`, `GRID_W = OJZ_ACT_GRID_W`,
     `CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W`). The FORMULA stays the
     descriptor's line; only its leaves are imported.
     """
@@ -206,7 +212,19 @@ def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
                         f"{', '.join(BOUND_NAMES)} is read from the descriptor and none "
                         f"is defaulted here: a bound this module invented would be a rule "
                         f"the engine does not have.")
-    vals = emp_consts(path, seed=emp_consts(aeon / ENGINE_CONSTANTS))
+    grid_path = aeon / ACT_GRID_EMP
+    if not grid_path.is_file():
+        raise RuleError(
+            f"{ACT_GRID_EMP} does not exist, so `GRID_W`/`GRID_H` are free names in "
+            f"{descriptor} and every bound below folds to nothing. It is GENERATED "
+            f"(python3 tools/act_grid.py emit) — emit it rather than letting this module "
+            f"carry on with a rule set that silently stopped running.")
+    seed = emp_consts(aeon / ENGINE_CONSTANTS)
+    # MERGED, not replaced: emp_consts returns the FILE's own consts and drops the seed it
+    # was given, so `seed = emp_consts(grid, seed=seed)` would throw the engine constants
+    # away and every bound below would go missing.
+    seed = {**seed, **emp_consts(grid_path, seed=seed)}
+    vals = emp_consts(path, seed=seed)
     missing = [n for n in BOUND_NAMES if n not in vals]
     if missing:
         raise RuleError(f"{descriptor} declares no foldable `const` for {missing}. Those "
@@ -214,7 +232,22 @@ def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
                         f"module reads them and never supplies one, because a rule that "
                         f"silently stops running is a check that passes for the wrong "
                         f"reason.")
-    return {n: vals[n] for n in BOUND_NAMES}
+    out = {n: vals[n] for n in BOUND_NAMES}
+    # THE DESCRIPTOR'S TRAILING FILL ROW, read out of the descriptor the same way its bounds
+    # are (S2-COMPRESSED-ACT parcel 9). `flatten` needs to know whether the ACT's Region table
+    # covers a band the DOCUMENT does not, because since parcel 9 those two can be different
+    # widths: a clip act declares its own grid, `regions.json` is the shipped act's, and
+    # `effects_gen` does not run in the S2CLIP bake. See `flatten`'s coverage step.
+    #
+    # The shape is matched exactly, not approximately: a fill that covered less than the full
+    # height, or started anywhere but where the document stops, would leave a real hole and
+    # must not be read as this one.
+    out["WIDE_FILL"] = re.search(
+        r"^const\s+OJZ_WIDE_FILL_ROWS\s*:\s*array\s*=\s*if\s+ACT_W\s*>\s*OJZ_AUTHORED_ACT_W\s*\{"
+        r"\s*\[\s*ojz_region\(\s*x0:\s*OJZ_AUTHORED_ACT_W\s*,\s*x1:\s*ACT_W\s*-\s*1\s*,"
+        r"\s*y0:\s*0\s*,\s*y1:\s*ACT_H\s*-\s*1\s*,",
+        path.read_text(errors="replace"), re.M) is not None
+    return out
 
 
 def _check_row(row: dict, b: dict, who: str) -> list:
@@ -312,6 +345,31 @@ def flatten(regions, bounds: dict, where: str = "regions.json") -> list:
             f"cut.")
 
     holes = uncovered(rects, bounds["ACT_W"], bounds["ACT_H"])
+    if holes and bounds.get("WIDE_FILL"):
+        # THE ACT CAN BE WIDER THAN ITS DOCUMENT, AND THEN THE ROM TABLE IS NOT THIS TABLE
+        # (S2-COMPRESSED-ACT parcel 9). A clip act declares its own grid; `regions.json` is
+        # still the shipped act's, because `effects_gen` does not run inside the S2CLIP bake.
+        # act_descriptor.emp closes the difference with ONE appended row across the whole
+        # remainder, so that area is NOT a place with no identity — it is a place whose
+        # identity is not in this file.
+        #
+        # THE EXEMPTION IS EXACTLY THAT BAND AND NOTHING ELSE. Every hole must lie at or past
+        # where the document's own right edge stops, and together they must tile
+        # [doc_w, ACT_W) x [0, ACT_H) with nothing left over. An interior hole, a hole that is
+        # not full height, a hole left of the document's edge, or a remainder the holes do not
+        # exhaust all fall through to the refusal below unchanged.
+        doc_w = max(r["x1"] for r in rows) + 1
+        band = (bounds["ACT_W"] - doc_w) * bounds["ACT_H"]
+        covered = sum(w * h for _x, _y, w, h in holes)
+        trailing = all(x >= doc_w for x, _y, _w, _h in holes)
+        if band > 0 and trailing and covered == band:
+            print(f"region coverage: {where}: the document tiles x 0..{doc_w - 1} and the act "
+                  f"is {bounds['ACT_W']} px wide. The remaining band (x {doc_w}.."
+                  f"{bounds['ACT_W'] - 1}, full height, {band} px2 in {len(holes)} rectangle(s)) "
+                  f"is covered by act_descriptor.emp's OJZ_WIDE_FILL_ROWS, which this checked "
+                  f"is declared and spans exactly it. NOT a hole — and NOT authored either: "
+                  f"that band shows one flat preset.")
+            holes = []
     if holes:
         shown = ", ".join(f"x {x}..{x + w - 1} y {y}..{y + h - 1}" for x, y, w, h in holes[:6])
         more = "" if len(holes) <= 6 else f" (and {len(holes) - 6} more)"

@@ -1057,6 +1057,9 @@ def run_c3b2(build: Build, out: list, budget: int) -> str:
 
 OJZ_EFFECTS = "games/sonic4/data/effects/ojz_effects.emp"
 OJZ_ACT1 = "games/sonic4/data/levels/ojz/act1/act_descriptor.emp"
+#: The GENERATED act grid (parcel 9). `build.source` reads it out of the build being
+#: measured, exactly as it reads the descriptor.
+OJZ_ACT_GRID = "games/sonic4/data/generated/ojz/act1/act_grid.emp"
 S7_STEER_MARGIN = 8          # px inside the both-live camera band, half a tick of fly motion
 S7_NO_LAG_FRAMES = 2400      # a flight this long with no VInt_Lag stopped producing them
 
@@ -1094,15 +1097,21 @@ def section_preset(build: Build, sec: int) -> tuple:
     a spelling rather than the thing that changed.
 
     `effects_gen.section_preset_symbols` is the one reader of that edge in both modes, so the
-    mapping is asked of it rather than re-derived here. GRID_W is still read from the
-    descriptor THROUGH `build.source`, which is what keeps this witness's numbers provably
-    those of the build it is measuring — and the descriptor still declares it.
+    mapping is asked of it rather than re-derived here. GRID_W is still read THROUGH
+    `build.source`, which is what keeps this witness's numbers provably those of the build
+    it is measuring.
+
+    ⚠ IT IS NO LONGER READ FROM THE DESCRIPTOR. The sentence here used to end "and the
+    descriptor still declares it" — S2-COMPRESSED-ACT parcel 9 falsified that: the grid is
+    GENERATED into OJZ_ACT_GRID (act_grid.emp) and the descriptor says
+    `const GRID_W = OJZ_ACT_GRID_W`, which this regex would have refused to fold, so the
+    witness would have gone Unmeasurable rather than wrong.
     """
-    text = _strip_comments(build.source(OJZ_ACT1).decode("utf-8", "replace"))
-    gw = re.search(r"^\s*const\s+GRID_W\s*=\s*(\d+)", text, re.M)
+    text = _strip_comments(build.source(OJZ_ACT_GRID).decode("utf-8", "replace"))
+    gw = re.search(r"^\s*pub\s+const\s+OJZ_ACT_GRID_W\s*=\s*(\d+)", text, re.M)
     if not gw:
-        raise CouldNotRun(f"{OJZ_ACT1}: no foldable `const GRID_W`, so this witness cannot "
-                          f"place a section in the act at all")
+        raise CouldNotRun(f"{OJZ_ACT_GRID}: no foldable `pub const OJZ_ACT_GRID_W`, so this "
+                          f"witness cannot place a section in the act at all")
     preset = effects_gen.section_preset_symbols(
         effects_gen.act_names(str(ROOT)), str(ROOT)).get(sec)
     if preset is None:

@@ -69,6 +69,11 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, SCENE_ACT_SPAN_Y}
 // unchanged CRC). tools/effects_seam_gate.py pins that this edge is live by reading
 // the generated module's witness equates out of the build's own listing.
 use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}
+// THE ACT'S GRID AND ITS SECTION ROWS PAST THE NINTH — both GENERATED, both read
+// here (S2-COMPRESSED-ACT parcel 9). See the banner over `const GRID_W` below for why
+// the grid stopped being two hand-written numbers in this file.
+use games.sonic4.ojz_act_grid_act1.{OJZ_ACT_GRID_W, OJZ_ACT_GRID_H}
+use games.sonic4.ojz_sec_grid_extra_act1.{OJZ_ACT_SEC_EXTRA_ROWS}
 // THE REGION TABLE, LOWERED FROM THE EDITOR'S DOCUMENT (2026-09-16, REGIONS-EMIT-BINDINGS).
 // `ojz_act1_sec_scene` is NOT imported and no longer exists: in region mode each row carries
 // its scene binding as a `rg_parallax` POINTER, so the chooser that stood between this file
@@ -123,8 +128,27 @@ ensure(OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX,
        "OJZ act 1 art pool {OJZ_ACT_POOL_PAGES} pages exceeds PAGE_TABLE_MAX residency page-table capacity")
 
 // ---- the act's shape, written once ----
-const GRID_W = 3
-const GRID_H = 3
+//
+// AND WRITTEN SOMEWHERE ELSE SINCE 2026-09-17 (S2-COMPRESSED-ACT parcel 9). These two
+// used to be `const GRID_W = 3` / `const GRID_H = 3`, hand-typed here, with
+// tools/act_grid.py parsing them straight out of this file and comparing them against
+// project.json on every build. They are now the LOWERING of project.json — the same
+// numbers, reached through games/sonic4/data/generated/ojz/act1/act_grid.emp, which is
+// generated from it. One statement instead of two that agree.
+//
+// WHY IT MATTERS AND IT IS NOT TIDINESS. The S2CLIP throwaway bake (tools/clip_rom_bake.py)
+// rewrites the GENERATED tree and nothing else, so while the grid lived here it was a
+// number a clip act could not reach: R21 could only REFUSE a clip declaring any grid but
+// this act's, which capped every clip act at 6,144 px however much donor zone was left
+// over. Emerald Hill act 1 is 12,288 px wide, so half of it was unreachable by
+// construction. A clip act now declares its own grid in its own manifest.
+//
+// THE BYTES DO NOT MOVE FOR IT. The generated module says 3 x 3 for the shipped act,
+// which is what these two lines said; the section table below composes to the same nine
+// rows; and every derived const (ACT_W, the camera band, the region rules) folds to the
+// value it folded to before.
+const GRID_W = OJZ_ACT_GRID_W
+const GRID_H = OJZ_ACT_GRID_H
 
 // The old per-act if/error blocks, as comptime facts (they fail the build
 // HERE, not at link): grid capacity, and the <= $8000 axis-extent ceiling that
@@ -244,7 +268,11 @@ comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Lab
     }
 }
 
-pub data OJZ_Act1_Sections: [Sec; 9] = [
+// THE NINE HAND-WRITTEN ROWS. They are a `const` array rather than the `pub data` they
+// used to be, so that a wider act's remaining rows can be appended to them — see
+// `OJZ_Act1_Sections` below the ninth. At 3 x 3 the append is with an EMPTY array and
+// the emitted table is byte-for-byte what this literal always produced.
+const OJZ_SEC_ROWS_BASE: array = [
     ojz_sec(blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
@@ -426,8 +454,24 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]
-// the [Sec; 9] length IS the table-size check; tie the literal to the grid
-ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")
+
+// THE SECTION TABLE THE ENGINE READS = the nine rows above ++ whatever a wider act baked
+// past them (S2-COMPRESSED-ACT parcel 9). `OJZ_ACT_SEC_EXTRA_ROWS` is generated beside the
+// block dictionaries (sec_grid_extra.emp) and is EMPTY for the shipped 3 x 3 act, so this
+// emits the same 9 x sizeof(Sec) bytes at the same place it always did.
+//
+// THE ARITY IS CHECKED AGAINST THE GRID, which is the guarantee R21 used to give from the
+// Python side and now gives from here as well, where it cannot be skipped by a bake that
+// forgot to run a checker: Section_GetSecPtrXY indexes this table by flat id over GRID_W x
+// GRID_H, so a table SHORTER than the grid reads whatever the linker put next — the
+// 2026-09-12 F2 incident's failure mode, one table over. A table LONGER than the grid is
+// dead bytes and a sign the bake and the grid disagree, so it is refused too.
+const OJZ_SEC_ROWS_BASE_LEN = OJZ_SEC_ROWS_BASE.len
+const OJZ_SEC_ROWS_EXTRA_LEN = OJZ_ACT_SEC_EXTRA_ROWS.len
+const OJZ_SEC_ROWS_TOTAL = OJZ_SEC_ROWS_BASE_LEN + OJZ_SEC_ROWS_EXTRA_LEN
+ensure(OJZ_SEC_ROWS_TOTAL == GRID_W * GRID_H,
+       "OJZ act 1 section table has {OJZ_SEC_ROWS_TOTAL} rows ({OJZ_SEC_ROWS_BASE_LEN} hand-written + {OJZ_SEC_ROWS_EXTRA_LEN} generated) for a {GRID_W}x{GRID_H} grid. Section_GetSecPtrXY indexes this table by flat id over the grid; short, it reads past the table")
+pub data OJZ_Act1_Sections: [Sec; OJZ_SEC_ROWS_TOTAL] = OJZ_SEC_ROWS_BASE ++ OJZ_ACT_SEC_EXTRA_ROWS
 
 // -----------------------------------------------
 // Region table — the act's IDENTITY scope (painted-regions v1,
@@ -551,6 +595,29 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, paral
                    rg_bg_tiles: bg_tiles }
 }
 
+// THE WIDTH THE REGION DOCUMENT WAS AUTHORED FOR, which since S2-COMPRESSED-ACT parcel 9
+// is not necessarily the width of the act (see `OJZ_WIDE_FILL_ROWS` at the end of this
+// file). Derived from the generated rows rather than typed: the document tiles a rectangle
+// and this is that rectangle's right edge + 1.
+//
+// WHY IT IS NEEDED AT ALL. `regions.emp` is lowered from the editor's regions.json by
+// tools/effects_gen.py, which the S2CLIP throwaway bake does not run — so a clip act that
+// declares a WIDER grid gets the shipped act's region document over a bigger act. Every
+// number below that used to be spelled `6143` or derived from `ACT_W - 1` meant "the right
+// edge of the authored document", and those two stopped being the same number.
+comptime fn region_max_x1(r: array) -> int {
+    comptime var m: int = 0
+    for i in 0..r.len {
+        if r[i].rg_x1 > m { m = r[i].rg_x1 }
+    }
+    return m
+}
+const OJZ_AUTHORED_ACT_W = region_max_x1(OJZ_ACT1_GENERATED_REGION_ROWS) + 1
+ensure(OJZ_AUTHORED_ACT_W <= ACT_W,
+       "OJZ act 1's region document tiles {OJZ_AUTHORED_ACT_W} px of x but the act is only {ACT_W} px wide — rows would reach past the act's right edge, where no camera centre can stand. The document and the grid (the generated act_grid.emp) disagree about which act this is")
+ensure(OJZ_AUTHORED_ACT_W % (1 << SECTION_SIZE_SHIFT) == 0,
+       "OJZ act 1's region document tiles {OJZ_AUTHORED_ACT_W} px of x, which is not a whole number of sections. OJZ_WIDE_FILL_ROWS at the end of this file starts where the document stops, so a document ending mid-section would put a region edge inside a section for no authored reason")
+
 // The first overlapping pair as `i * 1000 + j` (i < j), or -1 when no two rows share a
 // pixel. Inclusive bounds: two rectangles overlap iff each one's low edge is at or below
 // the other's high edge, on both axes.
@@ -659,9 +726,9 @@ ensure(OJZ_SNAP_X0 > OJZ_FADE_WITNESS_MAX_X,
        "the E2 snap edge ({OJZ_SNAP_X0}) is at or left of where tools/region_fade_witness.py's out leg reaches ({OJZ_FADE_WITNESS_MAX_X}). That walk would fly into the snap region and the night palette would be under samples its assertions assume are the day one")
 // Row 2 gives up its right end to the snap region in the DEBUG shape and keeps all of it in
 // release. Single-level `if` in value position on purpose — EMP_PITFALLS §1.
-const OJZ_SEC2_X1 = if DEBUG == 1 { OJZ_SNAP_X0 - 1 } else { 6143 }
+const OJZ_SEC2_X1 = if DEBUG == 1 { OJZ_SNAP_X0 - 1 } else { OJZ_AUTHORED_ACT_W - 1 }
 const OJZ_E2_SNAP_ROWS: array = if DEBUG == 1 {
-    [ ojz_region(x0: OJZ_SNAP_X0, x1: 6143, y0: 0, y1: 2047, effects: OJZ_Preset_NightSnap) ]
+    [ ojz_region(x0: OJZ_SNAP_X0, x1: OJZ_AUTHORED_ACT_W - 1, y0: 0, y1: 2047, effects: OJZ_Preset_NightSnap) ]
 } else { [] }
 // Release 10, DEBUG 11. Every whole-table guard below reads the rows themselves, so both
 // shapes are checked for overlap and exact coverage without either count being typed twice.
@@ -714,10 +781,10 @@ const OJZ_E2_SNAP_ROWS_LEN = OJZ_E2_SNAP_ROWS.len
 const OJZ_TALL_X0 = 5120
 // Row 5 gives up its right end to the tall region in the DEBUG shape and keeps all of it
 // in release. Single-level `if` in value position on purpose — EMP_PITFALLS §1.
-const OJZ_SEC5_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { 6143 }
-const OJZ_SEC8_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { 6143 }
+const OJZ_SEC5_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { OJZ_AUTHORED_ACT_W - 1 }
+const OJZ_SEC8_X1 = if DEBUG == 1 { OJZ_TALL_X0 - 1 } else { OJZ_AUTHORED_ACT_W - 1 }
 const OJZ_TALL_BG_ROWS: array = if DEBUG == 1 {
-    [ ojz_region(x0: OJZ_TALL_X0, x1: 6143, y0: 2048, y1: 6143, effects: OJZ_Preset_Plain,
+    [ ojz_region(x0: OJZ_TALL_X0, x1: OJZ_AUTHORED_ACT_W - 1, y0: 2048, y1: ACT_H - 1, effects: OJZ_Preset_Plain,
                  bg_layout: OJZ_Act1_BG_Layout_Tall, bg_span: BG_LAYOUT_TALL_SPAN) ]
 } else { [] }
 const OJZ_TALL_BG_ROWS_LEN = OJZ_TALL_BG_ROWS.len
@@ -757,7 +824,35 @@ const OJZ_SHOWCASE_BG_ROWS: array = if DEBUG == 1 {
 } else { [] }
 const OJZ_SHOWCASE_BG_ROWS_LEN = OJZ_SHOWCASE_BG_ROWS.len
 
-const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN
+// ---- THE ROW THAT COVERS AN ACT WIDER THAN ITS REGION DOCUMENT ----
+// S2-COMPRESSED-ACT parcel 9. EMPTY in every shipped shape; ZERO bytes there.
+//
+// The region table's whole-table invariant is EXACT COVERAGE — the rows' areas must sum to
+// the act's — because a place with no row has no identity and Region_Resolve's "no
+// rectangle contains the point" arm would be reachable. A clip act that declares a wider
+// grid than the shipped one gets a wider ACT and the SAME region document, because
+// `regions.emp` is lowered from the editor by tools/effects_gen.py and the S2CLIP
+// throwaway does not run it. Without this row that act fails the coverage ensure, which is
+// the right failure and a useless one: the act is legal, the document simply does not reach
+// the new right-hand end.
+//
+// SO IT IS ONE ROW, ACROSS THE WHOLE REMAINDER, BINDING THE ACT'S PLAINEST PRESET. Not an
+// identity anybody authored — there is nothing to author it from — but the act's own
+// default look, which is what an unauthored place should show. `OJZ_Preset_Plain` is the
+// preset three of the shipped rows already bind, so nothing new reaches the ROM for it.
+//
+// A CLIP ACT IS NOT THE ONLY THING THIS ADMITS, and that is worth saying out loud rather
+// than discovering later: any future act whose grid outgrows its region document gets the
+// same silent fill. The guard against that is the ensure below — the row is emitted ONLY
+// when ACT_W exceeds the authored width, so on an act whose document does tile it, this is
+// `[]` and the coverage ensure is doing its full job.
+const OJZ_WIDE_FILL_ROWS: array = if ACT_W > OJZ_AUTHORED_ACT_W {
+    [ ojz_region(x0: OJZ_AUTHORED_ACT_W, x1: ACT_W - 1, y0: 0, y1: ACT_H - 1,
+                 effects: OJZ_Preset_Plain) ]
+} else { [] }
+const OJZ_WIDE_FILL_ROWS_LEN = OJZ_WIDE_FILL_ROWS.len
+
+const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN + OJZ_WIDE_FILL_ROWS_LEN
 
 // THE ROWS — ONE SOURCE, AND SINCE 2026-09-16 THAT SOURCE IS THE EDITOR'S DOCUMENT.
 // `games/sonic4/data/editor/ojz/act1/regions.json` is act 1's identity, lowered by
@@ -808,15 +903,15 @@ const OJZ_ACT1_REGION_ROW_COUNT = 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_L
 // INTERIOR edge (x1 2047), so it names that value explicitly and the check stays exactly as
 // strict: "the row still ends where this delta was written against", not "anything goes".
 comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key: int, was_x1: int = -1) -> array {
-    let expect_x1 = if was_x1 < 0 { ACT_W - 1 } else { was_x1 }
+    let expect_x1 = if was_x1 < 0 { OJZ_AUTHORED_ACT_W - 1 } else { was_x1 }
     ensure(row >= 0 && row < r.len,
            "ojz_cut_row(row: {row}): the table has {r.len} rows. The row constants are generated from the document's ids, so an out-of-range one means the document lost the region this delta cuts")
     ensure(was_preset == preset_key,
            "ojz_cut_row(row: {row}): that row binds preset key {was_preset} and this delta was written for key {preset_key}. The document has re-pointed the region at another EffectsPreset record, so the cut would take the right end off a look nobody asked to shorten")
     ensure(r[row].rg_x1 == expect_x1,
-           "ojz_cut_row(row: {row}): that row already ends at x1 {r[row].rg_x1}, not the {expect_x1} this delta was written against (the act's right edge, {ACT_W} - 1, unless `was_x1` names an interior edge). A DEBUG delta CARVES a row whose end it knows; applied to one that ends elsewhere, it would either widen it or cut a second bite out of a row another delta already took")
+           "ojz_cut_row(row: {row}): that row already ends at x1 {r[row].rg_x1}, not the {expect_x1} this delta was written against (the authored document's right edge, {OJZ_AUTHORED_ACT_W} - 1, unless `was_x1` names an interior edge). A DEBUG delta CARVES a row whose end it knows; applied to one that ends elsewhere, it would either widen it or cut a second bite out of a row another delta already took")
     // NEVER WIDENS — and `<=` rather than `<` is the whole subtlety of this line. A delta is
-    // shape-conditional: in RELEASE every OJZ_SEC*_X1 is ACT_W - 1, so the cut is a legal
+    // shape-conditional: in RELEASE every OJZ_SEC*_X1 is OJZ_AUTHORED_ACT_W - 1, so the cut is a legal
     // NO-OP and a strict `<` here refuses the release shape outright (measured: 18 errors,
     // 2026-09-16, the first build of this block). What must never happen is the other
     // direction — a delta that WIDENS a row past where the document put it.
@@ -885,7 +980,7 @@ comptime fn ojz_region_table_check(r: array) -> int {
 }
 
 // THE COMPOSITION. Release: the document's ten rows, untouched — every cut is a no-op
-// because OJZ_SEC{2,5,8}_X1 are all ACT_W - 1 in that shape, and both delta arrays are empty.
+// because OJZ_SEC{2,5,8}_X1 are all OJZ_AUTHORED_ACT_W - 1 in that shape, and both delta arrays are empty.
 // DEBUG: three rows carved and two appended. Written as a chain rather than as twelve typed
 // rows precisely so the release shape and the DEBUG shape cannot disagree about anything but
 // the deltas themselves.
@@ -897,7 +992,7 @@ const OJZ_ACT1_ROWS_CUT2 = ojz_cut_row(OJZ_ACT1_GENERATED_REGION_ROWS, OJZ_ACT1_
 const OJZ_ACT1_ROWS_CUT5 = ojz_cut_row(OJZ_ACT1_ROWS_CUT2, OJZ_ACT1_ROW_SEC5, OJZ_SEC5_X1, OJZ_ACT1_ROW_SEC5_PRESET, OJZ_Preset_Sec5_KEY)
 const OJZ_ACT1_ROWS_CUT8 = ojz_cut_row(OJZ_ACT1_ROWS_CUT5, OJZ_ACT1_ROW_SEC8, OJZ_SEC8_X1, OJZ_ACT1_ROW_SEC8_PRESET, OJZ_Preset_Plain_KEY)
 const OJZ_ACT1_ROWS_CUT3 = ojz_cut_row(OJZ_ACT1_ROWS_CUT8, OJZ_ACT1_ROW_SEC3, OJZ_SEC3_X1, OJZ_ACT1_ROW_SEC3_PRESET, OJZ_Preset_Sec3_KEY, was_x1: 2047)
-const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT3 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS ++ OJZ_SHOWCASE_BG_ROWS
+const OJZ_ACT1_REGION_ROWS: [Region; OJZ_ACT1_REGION_ROW_COUNT] = OJZ_ACT1_ROWS_CUT3 ++ OJZ_E2_SNAP_ROWS ++ OJZ_TALL_BG_ROWS ++ OJZ_SHOWCASE_BG_ROWS ++ OJZ_WIDE_FILL_ROWS
 
 // ojz_region_table_fault_count() — HOW MANY rows break a rule, beside WHICH one does.
 //
@@ -944,4 +1039,4 @@ ensure(OJZ_ACT1_REGION_OVERLAP == -1,
 ensure(OJZ_ACT1_REGION_AREA == ACT_W * ACT_H,
        "OJZ act 1 region rows do not tile the act: their areas sum to {OJZ_ACT1_REGION_AREA} px², the act is {ACT_W} x {ACT_H}. A hole is a place with no identity")
 
-pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN] = OJZ_ACT1_REGION_ROWS
+pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS_LEN + OJZ_SHOWCASE_BG_ROWS_LEN + OJZ_WIDE_FILL_ROWS_LEN] = OJZ_ACT1_REGION_ROWS
