@@ -2604,14 +2604,20 @@ def generate(stress_uniquify=0):
     # smoke test a producer of committed data (tools lens sweep D8) -- the test
     # redirects OUTPUT_DIR, and Pass 8 wrote straight past the redirect.
     #
-    # AND PASS OUR PROJECT (S2-COMPRESSED-ACT parcel 9). `ojz_entity_gen` reads the act
-    # GRID and the editor `dataPath` out of its own module-constant project.json, which is
-    # the SHIPPED act's. That was harmless while every bake used the shipped grid and
+    # AND PASS OUR SECTION COUNT (S2-COMPRESSED-ACT parcel 9). `ojz_entity_gen` reads the
+    # act GRID and the editor `dataPath` out of its own module-constant project.json, which
+    # is the SHIPPED act's. That was harmless while every bake used the shipped grid and
     # stopped being harmless the moment a clip act could declare its own: Pass 8 would emit
     # the shipped act's nine OJZ_Sec{N}_Objects tables for an act whose section table has
     # eighteen rows, and the link would fail on the nine names that were never emitted.
-    ojz_entity_gen.PROJECT_JSON = PROJECT_JSON
-    ojz_entity_gen.generate(out_path=os.path.join(out_dir, "entity_data.emp"))
+    #
+    # THE COUNT AND NOT THE PROJECT. Redirecting the whole module at the staged clip project
+    # was tried first and MEASURED: it empties every entity table (the clip's baked tree has
+    # no objects/rings JSON), so the clip ROM loses OJZ's objects and rings. That inheritance
+    # is deliberate and documented in clip_rom_bake.py's header, and silently ending it is
+    # not this parcel's business.
+    ojz_entity_gen.generate(out_path=os.path.join(out_dir, "entity_data.emp"),
+                            sections=act_grid.section_count(PROJECT_JSON))
 
     # ---- Pass 9: donor provenance ----
     # The tree above is baked from TWO out-of-repo checkouts, and until this stamp
