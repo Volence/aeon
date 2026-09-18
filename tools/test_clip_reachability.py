@@ -389,3 +389,133 @@ def test_a_floor_at_the_bottom_of_every_column_clears_the_unbounded_fall(tmp_pat
         p.write_bytes(bytes(buf))
     _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
     assert _run(gen, coll) == 0
+
+
+# ---------------------------------------------------------------------------
+# `floorless_columns` — a DONOR GAME'S OWN PIT, declared rather than refused
+#
+# Parcel 8 widened s2_ehz_boot from 4,096 to 6,144 px so the painted world fills the act
+# and the player cannot walk off its right-hand edge. The 2,048 px that pulls in contain
+# Emerald Hill act 1's own bottomless pit at x 4672..4863: art fully drawn, collision
+# cells present, and every one of them an LRB-only pit wall, so no column in the run has a
+# SOLID_TOP surface at any height. Sonic 2 ships that pit and survives it with a level
+# bottom boundary at y = 800; this engine has no death at all, so here it is an endless
+# fall. Refusing the bake would refuse faithful donor content, and stopping the clip short
+# of the pit just moves the reported edge from x = 4,096 to x = 4,672.
+#
+# So the channel exists — and these rows are what stops it from being an off switch. It is
+# exact (count AND runs), two-sided, per plane, and it does not touch the undeclared case.
+# ---------------------------------------------------------------------------
+
+_PIT_WHY = "EHZ's own pit; the donor survives it with a bottom boundary this engine lacks"
+
+
+def _pit_declared(cols, runs, plane="A", why=_PIT_WHY):
+    return {"x_from": 4096, "why": "painted",
+            "unbounded_fall": {"columns": 512 - cols, "donor_bottom_boundary": 800,
+                               "why": "fixture"},
+            "floorless_columns": {"why": why,
+                                  "planes": {plane: {"columns": cols, "x_runs": runs}}}}
+
+
+def test_a_declared_floorless_run_passes_on_the_reachable_plane(tmp_path, monkeypatch,
+                                                                capsys):
+    """The green side. Three adjacent floorless columns, declared exactly, accepted."""
+    holes = (1600, 1608, 1616)
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=holes)
+    _install(monkeypatch, gen, (2, 1), declared=_pit_declared(3, [[1600, 1624]]))
+    assert CR.check("fixture/clips.json", gen_dir=str(gen), coll_dir=str(coll)) == 0
+    out = capsys.readouterr().out
+    assert "3 floorless column(s) at [(1600, 1624)], exactly as declared" in out
+    # And the pass line must not claim more than was checked.
+    assert "except the 3 DECLARED floorless column(s)" in out
+
+
+def test_the_undeclared_case_is_untouched_and_still_fails(tmp_path, monkeypatch, capsys):
+    """THE CASE THE CHANNEL MUST NOT SWALLOW: no declaration, still red, by name.
+
+    This is the row that says the channel is a declaration and not an opt-out. It also
+    pins the how-to-declare text, because a failure that does not say what to write next
+    is how a gate gets edited out instead of answered.
+    """
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600,))
+    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    assert _run(gen, coll) == 1
+    err = capsys.readouterr().err
+    assert "plane A has NO landing surface in 1 column" in err
+    assert '"floorless_columns"' in err
+    assert '"x_runs": [[1600, 1608]]' in err
+
+
+def test_a_floorless_declaration_is_two_sided_on_the_count(tmp_path, monkeypatch, capsys):
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096,
+                            floor_holes=(1600, 1608, 1616))
+    for cols, runs, expect in (
+            (2, [[1600, 1616]], "MORE of the painted world has no landing surface"),
+            (4, [[1600, 1632]], "FEWER")):
+        _install(monkeypatch, gen, (2, 1), declared=_pit_declared(cols, runs))
+        assert _run(gen, coll) == 1
+        assert expect in capsys.readouterr().err
+
+
+def test_a_floorless_declaration_is_two_sided_on_the_RUNS_not_just_the_count(
+        tmp_path, monkeypatch, capsys):
+    """A pit that MOVED is not a pit that is still declared.
+
+    The count alone would pass this — which is why the runs are compared too, and why
+    this declaration is stricter than the `unbounded_fall` count beside it.
+    """
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600, 1608))
+    _install(monkeypatch, gen, (2, 1), declared=_pit_declared(2, [[2400, 2416]]))
+    assert _run(gen, coll) == 1
+    assert "The COUNT agrees and the RUNS do not" in capsys.readouterr().err
+
+
+def test_a_floorless_declaration_that_the_bytes_no_longer_need_fails_as_stale(
+        tmp_path, monkeypatch, capsys):
+    """The day the engine gets a death plane, this is the row that makes someone delete
+    the declaration instead of leaving a gate that has stopped asking."""
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)      # no holes at all
+    _install(monkeypatch, gen, (2, 1), declared=_pit_declared(3, [[1600, 1624]]))
+    assert _run(gen, coll) == 1
+    assert "FEWER" in capsys.readouterr().err
+
+
+def test_a_floorless_declaration_on_plane_b_does_not_cover_plane_a(tmp_path, monkeypatch,
+                                                                   capsys):
+    """The latent defect stays armed. Declaring B says nothing about A."""
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600,))
+    _install(monkeypatch, gen, (2, 1), declared=_pit_declared(1, [[1600, 1608]], plane="B"))
+    assert _run(gen, coll) == 1
+    err = capsys.readouterr().err
+    assert "plane A has NO landing surface in 1 column" in err
+
+
+def test_a_floorless_declaration_without_a_why_is_unmeasurable(tmp_path, monkeypatch):
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600,))
+    _install(monkeypatch, gen, (2, 1), declared=_pit_declared(1, [[1600, 1608]], why="  "))
+    with pytest.raises(CR.Unmeasurable) as exc:
+        _run(gen, coll)
+    assert 'no "why"' in str(exc.value)
+
+
+@pytest.mark.parametrize("bad, fragment", [
+    ({"why": "w"}, '"planes"'),
+    ({"why": "w", "planes": {}}, '"planes"'),
+    ({"why": "w", "planes": {"C": {"columns": 1, "x_runs": []}}}, "names plane 'C'"),
+    ({"why": "w", "planes": {"A": {"columns": 1}}}, '"x_runs"'),
+    ({"why": "w", "planes": {"A": {"columns": "1", "x_runs": []}}}, '"columns"'),
+    ({"why": "w", "planes": {"A": {"columns": 1, "x_runs": [[1600]]}}}, '"x_runs"'),
+    ({"why": "w", "planes": {"A": {"columns": 1, "x_runs": "1600-1608"}}}, '"x_runs"'),
+    ("not an object", '"floorless_columns"'),
+])
+def test_a_malformed_floorless_declaration_is_unmeasurable_never_a_pass(bad, fragment):
+    """Exit 2, never 0. A declaration this gate cannot parse must not read as 'no pit'."""
+    with pytest.raises(CR.Unmeasurable) as exc:
+        CR._declared_floorless({"floorless_columns": bad}, log=None)
+    assert fragment in str(exc.value)
+
+
+def test_no_floorless_declaration_parses_to_nothing():
+    assert CR._declared_floorless(None) == {}
+    assert CR._declared_floorless({"x_from": 4096}) == {}

@@ -991,10 +991,25 @@ with the canonical ROM. So `s2_ehz_boot` paints 4,096 × 1,024 px of a 6,144 × 
 remaining sections are baked as air, and **at x = 4,096 the art and both collision planes stop
 dead at a fixed world x** — the tile cache carries all three in the same block, so it is one
 bound consumed twice. `EDGE_CLAMP` clamps the CAMERA to the act, not the player to the clip, so
-the player walks off the painted world and falls its full height. Widening the rectangle does not
-fix it (EHZ act 1 has its own bottomless pit at x 4,672..4,863). **A clip act should OWN its act
-extent**; until it can, the remainder is declared in `clips.json` (`unpainted_remainder`) and
-checked by `tools/clip_reachability.py` on every S2CLIP build. Row 7+ owns the real fix.
+the player walks off the painted world and falls its full height. ~~Widening the rectangle does
+not fix it (EHZ act 1 has its own bottomless pit at x 4,672..4,863).~~ **WIDENING IS EXACTLY WHAT
+FIXED IT — parcel 8, 2026-09-17** (`s2-compressed-act/2026-09-17-clip-act-full-width.md`), on the
+owner's ruling: *"yeah just finish painting emerald hill out"*. `s2_ehz_boot` now paints
+6,144 × 1,024 — the act's own width, three sections of three — so the painted world runs to the
+camera's own clamp and there is no remainder to walk into. It cost pool 286 → 472 tiles of 768,
+pages 5 → 8, worst camera window 5 → 8 of 12 frames, attr entries 66 → 105 of 255: everything
+still fits, the window being the tightest. The pit at x 4,672..4,863 is real and did arrive with
+the third section — 24 columns, art fully drawn, collision present and every cell an LRB-only
+wall — and it is ACCEPTED rather than avoided, because Sonic 2 survives it with a level bottom
+boundary at y = 800 and this engine has no death at all, which the owner already knew and set
+aside. Avoiding it would have put the hard edge at x = 4,672 instead of 4,096: the same defect,
+576 px right. `clip_reachability.py` gained a `floorless_columns` declaration (per plane, exact on
+the count AND the runs) so the pit is checked rather than refused. **A clip act should still OWN
+its act extent** — the remainder is declared in `clips.json` (`unpainted_remainder`) and checked
+on every S2CLIP build, and "fill the act" stops being available the moment an act is wider than
+its donor, which row 7's corridor will be. Row 7+ owns that. **The act's HEIGHT is untouched:
+nothing is painted below y = 1,024, 744 of the 768 columns have air below their last landing
+surface, and there is no bottom boundary.**
 
 ---
 

@@ -1,5 +1,19 @@
 # The world ends at x = 4,096, and it is the act the clip does not paint
 
+> **★ SUPERSEDED IN ITS CONCLUSION BY PARCEL 8, 2026-09-17** —
+> `2026-09-17-clip-act-full-width.md`. The MECHANISM below is correct and stands. The
+> REMEDY it argues for does not: this report says twice that widening the rectangle cannot
+> fix the x = 4,096 edge because Emerald Hill act 1 has its own bottomless pit at
+> x 4,672..4,863 and "a 3-section clip trades this edge for a worse one". The owner ruled
+> the other way — *"yeah just finish painting emerald hill out"* — and he was right that
+> the pit is the lesser problem, because he already knows this engine has no death at all,
+> whereas a wall of background in the middle of the act is the thing he reported. The clip
+> is now 6,144 × 1,024, the act is painted to its own width, `x_from` is 6,144, and the pit
+> is DECLARED (`floorless_columns`) rather than refused. **Every "512 columns" and "4,096"
+> below is a measurement of the act as it was, not as it is: it is 768 columns now, with
+> 744 unbounded-fall and 24 floorless.** The individual sentences this falsifies are marked
+> in place.
+
 S2-COMPRESSED-ACT parcel 7, 2026-09-17. Branch `parcel/s2-clip-gap`.
 Subject: `s4.s2clip.bin` md5 `7f40876af03b35f03f0ef9d6bd527743` — rebuilt here and the md5
 reproduced, so this is the same artifact the owner booted, not a lookalike.
@@ -68,7 +82,16 @@ falls the act's full height with nothing to land on.
 
 It should own its **act extent**. It cannot today, and the fix is not a wider rectangle:
 Emerald Hill act 1 has its own bottomless pit at x 4,672..4,863, so a 3-section clip trades this
-edge for a worse one. Owning the extent means a clip act with its own descriptor, which is row
+edge for a worse one.
+
+> **THAT LAST SENTENCE IS THE ONE PARCEL 8 OVERTURNED.** The trade is real — the pit is
+> exactly where this predicted, 24 columns with no landing surface on either plane — but it
+> is not worse, and the owner is the one who gets to say so: *"I understand there's no death
+> pits here (there's no death at all in our engine currently)."* A pit he can fall into
+> forever is a hazard this engine will grow a death plane for; a hard vertical line of
+> background across the middle of the act is a broken picture. The clip was widened to the
+> act's full 6,144 px and the pit declared. See `2026-09-17-clip-act-full-width.md` §4.
+ Owning the extent means a clip act with its own descriptor, which is row
 7+ work. **What this parcel does instead is make the inheritance explicit and build-checked**
 rather than implicit: the manifest declares `unpainted_remainder`, with the reason written next
 to it, and the build refuses if the painted world ends anywhere but exactly there.
@@ -260,9 +283,13 @@ the condition under test.
 2. **At x ≈ 1,344 the ground falls away.** *This is expected.* It is EHZ's own jump; the floor is
    228 px below, at y ≈ 872. Sonic 2 puts five rings in an arc over it, and this act has no
    rings, so there is no cue. **He should land, not keep falling.**
-3. **Keep going right to x ≈ 4,096.** The art and the ground stop at a hard vertical line and he
-   falls with nothing to land on. **This is the reported bug and it is EXPECTED for a one-clip
-   act** — it is now declared in the manifest and checked by the build.
+3. ~~**Keep going right to x ≈ 4,096.** The art and the ground stop at a hard vertical line and he
+   falls with nothing to land on.~~ **NO LONGER TRUE — PARCEL 8.** The clip fills the act's width,
+   so the ground runs to x = 6,144 and the camera clamps there with painted art to the screen
+   edge. What he WILL meet on the way is **Emerald Hill's own pit at x 4,672..4,863**, which has
+   no floor at all and which this engine has no death to end. Expected, declared, and not a
+   defect of the bake. The current runtime script is
+   `2026-09-17-clip-act-full-width.md` §8.
 4. **THE DISCRIMINATOR THIS PARCEL NEEDS — free flight, plain lateral movement.**
    Fly right along y ≈ 640 and watch the right-hand edge of the terrain.
 
@@ -289,4 +316,9 @@ third rows is *only* visible while moving and while stopping.
   the act has none. It is the single change that would turn all 512 unbounded columns into the
   death-and-restart the donor game performs. Row 7+, and arguably before the corridor.
 * **Plane B's 8 bottomless columns** are informational until something marks a crossover.
-* **A clip act owning its own extent** is row 7+ and is the real fix for §2.
+* ~~**A clip act owning its own extent** is row 7+ and is the real fix for §2.~~ **NOT THE FIX
+  THAT WAS TAKEN.** Parcel 8 filled the act instead, on the owner's instruction, and the
+  reported edge is gone with no canonical byte moved and R21 untouched. Owning the extent is
+  still the right answer for a clip SMALLER than its act — which row 7's corridor will be, since
+  a corridor is authored rather than donor content and there is no more Emerald Hill to paint
+  with. Priced, not built: `2026-09-17-clip-act-full-width.md` §7.

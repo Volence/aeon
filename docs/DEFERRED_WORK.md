@@ -37593,3 +37593,61 @@ commit is not published. Basing on `origin/master` would have branched off a tre
 - **The subject is: a clip act must own its EXTENT** so the act ends where the painted content ends. Dispatched as `parcel/s2-clip-extent`.
 - **Rejected alternative, priced and relayed to him:** painting three sections of EHZ instead of two would fill the inherited 6144 width but only moves the same edge right, and EHZ's own pit at x 4672..4863 arrives with it.
 - **A correction this lane owes itself:** my summary to him led with the bottom-boundary finding because it explained MY measurement (the fall at EHZ's own pit at x 1344..1535). His screenshot was the x=4096 edge all along, and he had said so. The parcel report carried both; the relay ranked them by which one I had personally chased.
+- ~~**A clip act owning its own act extent** — row 7+, and the real fix for the x = 4,096 cause.~~
+  **NOT THE FIX THAT WAS TAKEN — see parcel 8 below.** Still the right answer for a clip SMALLER
+  than its act; priced but not built.
+
+### S2-COMPRESSED-ACT parcel 8 LANDED 2026-09-17 — THE ACT IS PAINTED TO ITS OWN EDGE
+
+Branch `parcel/s2-clip-extent` (base `62d5cea1`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-act-full-width.md`. Parcel 7's report, the
+design doc's §10 and parcel 6's report are patched in place where this falsifies them.
+
+- **The owner's complaint, verbatim:** *"No it's just literally missing parts of the right side of
+  the edge, I'm not talking about below or anything, I understand there's no death pits here
+  (there's no death at all in our engine currently). The forground just randomly ends at that 409x
+  spot"*. Parcel 7 had the mechanism; this is the fix, and **the owner chose which fix**: *"yeah
+  just finish painting emerald hill out, add more sections if need be (but we have another so it
+  should be fine?)"* — widen the clip to fill the act, rather than shrink the act to fit the clip.
+- **The change is one line of data.** `s2_ehz_boot`'s clip `src_rect`/`dst_rect` `w: 4096` →
+  `6144`. 6,144 = `grid_w` 3 × `SECTION_SIZE` 2,048 = the act's own width, so the painted
+  foreground now runs to the last column the camera can reach and `EDGE_CLAMP` stops it there.
+  **No canonical byte moved; `GRID_W`/`GRID_H`, `act_descriptor.emp` and R21 are untouched.**
+- **What it cost, measured against the parcel-7 ROM rebuilt here (md5 reproduced):** pool
+  286 → 472 tiles of 768 · pages 5 → 8 of 256 · **worst camera window 5 → 8 of 12 frames** (the
+  tightest, and the one to watch: it is a local measure) · attr entries 66 → 105 of 255 ·
+  non-empty blocks 256 → 384 of 2,304 · `s4.s2clip.bin` 821,211 B (md5 `7f40876a…`) →
+  **821,305 B** (md5 `c869deaf…`), +94 B.
+- **★ EMERALD HILL ACT 1'S OWN BOTTOMLESS PIT, x 4,672..4,863, IS NOW INSIDE THE ACT.** 24
+  columns; art fully drawn in all 128 cells (you SEE a pit); collision cells present and every one
+  an LRB-only wall, so no `SOLID_TOP` surface at any height on either plane. Faithful Sonic 2
+  level design, not a conversion defect: **the donor survives it with a level bottom boundary at
+  y = 800** (`s2_donor.level_size`) that kills and restarts. **This engine has no death at all**,
+  which the owner said himself, so here it is an endless fall. Parcel 7 used this pit as the
+  argument against widening ("trades this edge for a worse one") and was overruled — avoiding it
+  would put the hard edge at x = 4,672 instead of 4,096, the same defect 576 px right.
+  **TELL THE OWNER ABOUT THIS RANGE; it is not something to design around today.**
+- **The gate change:** `clip_reachability.py` gained `floorless_columns` — per plane, exact on the
+  **count AND the runs** (stricter than the `unbounded_fall` count beside it), two-sided, inside
+  `unpainted_remainder`. It does **not** touch the undeclared case: a reachable plane with
+  floorless columns and no declaration is the same failure it always was, and plane B's latent
+  defect stays armed. **What it gives up, named:** the build no longer refuses an act with an
+  unsurvivable hole. That returns the day the engine has a death plane, when the stale half turns
+  red until the declaration is deleted. Red-first on the real baked tree with the bytes shown on
+  disk: FEWER, COUNT-agrees-RUNS-do-not (a count-only check would pass that one), MORE; control
+  green. 16 new rows, 38 in the file.
+- **`unpainted_remainder` did NOT become unnecessary** and that is deliberate. `x_from` is 6,144
+  — the act's extent, i.e. "nothing unpainted on x" — and it is kept because the check is
+  two-sided: if a future re-bake loses a section, the build says so instead of a report finding it
+  later. The declaration carries the pit and the fall counts too.
+- **STILL OPEN, unchanged by this parcel** (the owner set it aside explicitly): the act has no
+  bottom. 744 of 768 painted columns have air below their last landing surface — up from 512 of
+  512, which is arithmetic (more painted ground = more interior to get under), not a regression.
+  A bottom boundary / death plane is the single change that ends all of them.
+- **What a multi-clip act needs on top of this:** R20 still refuses two clips (one tileset per
+  act); "fill the act" stops being available the moment the act is wider than its donor, which
+  row 7's authored corridor will be — that is when owning the extent becomes the answer rather
+  than the alternative. `floorless_columns` is already per-plane/per-run and needs no schema
+  change for a second clip's pits; `unpainted_remainder`'s `x_from` is one trailing edge on one
+  axis and is the part that will not survive a hole BETWEEN two clips (the gate already fails that
+  loudly as "a hole, not an edge").
