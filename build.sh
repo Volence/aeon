@@ -1062,7 +1062,10 @@ if [[ -n "${S2CLIP:-}" ]]; then
     # picture and is BLOCKED on a ruling — eight comptime pins in
     # games/sonic4/data/effects/ojz_effects.emp describe the SHIPPED act's palette and
     # refuse any other. tools/clip_rom_bake.py's PALETTE block states the three options.
-    python3 "${TOOLS}/clip_rom_bake.py" bake "$S2CLIP_MANIFEST" --allow-dirty \
+    # --keep: this shape owns the EXIT trap above, so the bake must NOT restore the tree
+    # on its way out (a bare `bake` does — tools/clip_rom_bake.py's STAMP block). --keep
+    # also writes the stamp the gates read to prove they are measuring THIS clip act.
+    python3 "${TOOLS}/clip_rom_bake.py" bake "$S2CLIP_MANIFEST" --allow-dirty --keep \
         --palette "${S2CLIP_PALETTE:-shipped}" || {
         echo "S2CLIP: the clip bake refused (see above)" >&2; exit 1; }
     S2CLIP_PROJECT="games/sonic4/data/clips/${S2CLIP}/baked/project.json"
@@ -1118,6 +1121,24 @@ fi
 if ! gate strict "verify_level_bin.py" python3 "${TOOLS}/verify_level_bin.py" ${VERIFY_LEVEL_FLAGS}; then
     echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
+fi
+
+# S2CLIP REACHABILITY (S2-COMPRESSED-ACT parcel 7). The ten lanes above ask whether the
+# bytes are SELF-CONSISTENT; they were all green on the ROM whose world looked like it
+# ended a third of the way through the clip. This asks the other question — whether every
+# column of the clip's own destination rectangle carries art and TERMINATES A FALL on
+# every collision plane the player can reach. An act here is 6,144 px tall while a Sonic 2
+# clip's painted band is 1,024, so a column with no landing surface is not a dip, it is a
+# column the player leaves the world through. `strict`: exit 2 (could not measure) never
+# passes. Only the S2CLIP shape runs it, because only a clip act has a manifest naming the
+# rectangle to check; the shipped act's equivalent question is the section table's.
+if [[ -n "${S2CLIP:-}" ]]; then
+    if ! gate strict "clip_reachability.py" python3 "${TOOLS}/clip_reachability.py" \
+            check "$S2CLIP_MANIFEST"; then
+        echo "The clip act has a column the player cannot survive (see above) — fix the"
+        echo "  clip rectangle or the donor conversion, not this gate."
+        exit 1
+    fi
 fi
 
 # FG page budget (STITCHED-ACT-PAGE-ORDER wiring, 2026-09-17). Counts, for every camera
