@@ -297,6 +297,8 @@ booking is accurate and current, not stale.
 
 ### Finding B — `test_z80_bus_hold_mask_census.py`: interprocedural mask gap is presently exercised at `engine/level/section.emp:485`
 
+> **⚠ LATER NOTE (2026-09-18, not part of this audit): this gap is CLOSED.** `tools/test_z80_bus_hold_mask_census.py` now resolves every call in such a span and walks the full transitive closure for `sr` writes, failing loudly on anything it cannot resolve. See `docs/DEFERRED_WORK.md`, `BUS-HOLD-SPANNED-CALLS`. The finding below is kept as written.
+
 This is the closest match in the whole sift to the sigil precedent the audit exists
 for: a docstring names a structural blind spot ("a `jbsr` between a mechanism-2 mask
 and its bracket could lower the mask inside the callee and this file would not see

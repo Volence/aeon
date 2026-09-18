@@ -32361,7 +32361,7 @@ control was silently downgraded; the one UNRUN is reported as UNRUN.
 
 **THE SEVEN OCCUPIED, RANKED BY WHETHER ANYTHING HOLDS THEM SAFE:**
 
-1. **`test_z80_bus_hold_mask_census.py` — safe by accident, nothing enforcing it.** The census
+1. **`test_z80_bus_hold_mask_census.py` — safe by accident, nothing enforcing it.** **⚠ CLOSED 2026-09-18 — something enforces it now: the spanned-call arm, `BUS-HOLD-SPANNED-CALLS` below. Everything in this item was true when written.** The census
    declares that a call sitting between a hand-spelled SR mask and its bus-hold bracket could lower
    the mask unseen; it PRINTS intervening calls and never asserts on them. `engine/level/section.emp`
    has exactly that shape: mask at ~233, `jbsr Section_GetSecPtrXY` at ~439, bracket at ~485.
@@ -36408,12 +36408,98 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 - **Still open, not this parcel.** Regions 10..12 of the DEBUG act (the snap, tall and showcase fixtures) have no lab row, so the lab cannot install or label their presets. Reaching them needs a second readout glyph cell (the trade the preset-readout entry above calls "hidden rather than mislabelled"). That is a VRAM and DEBUG-byte decision. `PRESET_CYCLE_MAX` is read from source and not checked against the ROM: the source-drift check covers `LAB_ENTRY_SIZE`/`LAB_CYCLE_COUNT` only.
   - **The ROM half of that last sentence: CLOSED 2026-09-17 by argument, no check added (`parcel/small-tidy-0917`).** `PRESET_CYCLE_MAX` is a comptime `const` whose only ROM emission is the immediate of the DEBUG `assert.w d4, ls, #PRESET_CYCLE_MAX-1` in `Debug_PresetReadout_Show`. It bounds nothing at runtime (the hotkey's runtime bound is `Act.act_region_count`). The witness's walk, expected digits and verdicts all come from the ROM's own `.lab_index` rows and region table. The cap only sets the expected row set, `range(min(count, cap))`: equal sets give an identical run, and unequal sets make the ROM's rows fail one of them, which is the existing exit-2 refusal, not a green. The one output a stale cap could make wrong is the wording of the NOT MEASURED line. In the runner the ROM is built from the same checkout the witness reads. The full argument sits beside `source_const("PRESET_CYCLE_MAX")` in `tools/preset_lab_witness.py`. Revisit only if the constant gains a runtime use in the ROM.
 
-## BUS-HOLD-SPANNED-CALLS: two hand-masked Z80 bus holds are entered after a call that nothing checks (OPEN, booked 2026-09-17, `parcel/small-tidy-0917`)
+## BUS-HOLD-SPANNED-CALLS: two hand-masked Z80 bus holds are entered after a call that nothing checks (CLOSED 2026-09-18, `parcel/bus-hold-spanned-calls`; booked 2026-09-17, `parcel/small-tidy-0917`)
 
 - **What.** `tools/test_z80_bus_hold_mask_census.py` classifies a `with z80_stopped` bracket as masked (mechanism 2, HAND_2700) when a `move.w #$2700, sr` precedes it in the same proc. Its docstring names the hole: a call between that mask and the bracket could lower the mask in the callee, and the census would not see it. It prints how many sites have that shape and gates nothing on the number.
 - **Occupied today, count 2** (the 2026-09-09 gate-blindspot sift, `docs/audits/2026-09-09-gate-blindspot-sift-c.md` Finding B, recorded 1): `engine/level/bg.emp` `BG_Init`'s second bracket (the layout blit), 1 call (`BG_UploadTiles`, inside the first bracket), since `ad70c81c` (2026-09-16); and `engine/level/section.emp` `Section_RedrawPlanes`'s last bracket, 3 calls (`Region_Resolve`, `BG_UploadTiles` from `ad70c81c`, `DMA_Deferrable_DropDest` from `5098260c`). The LS-13b parcel reported the 2 correctly. The census is not miscounting, and its docstring never stated a number.
 - **Safe today, by reading.** All four callee instances are leaves with no `sr` write (reads feeding a DEBUG IPL assert only; sigil's `assert` restores the full SR). DEBUG shapes also assert IPL >= 6 inside `BG_UploadTiles`, `DMA_Deferrable_DropDest` and before `BG_Init`'s second bracket, so a lowered mask would halt a DEBUG boot on those paths. Release shapes have no such check.
 - **What would close it.** A census arm that resolves each spanned call to its proc and requires that proc (transitively) to contain no `sr` write, or a sigil-side mask-state fact carried across calls. Not built here: nothing was wrong, and this parcel was scoped to fixing what was.
+
+### CLOSED 2026-09-18 — the first option was built (`parcel/bus-hold-spanned-calls`, base `e0317db8`)
+
+- **What landed.** `tools/test_z80_bus_hold_mask_census.py` grew the arm the bullet above
+  describes, in the same file and the same runner (build.sh's pre-build
+  `pytest tools -m "not needs_build"` lane, build-fatal; also in the module's
+  `__main__`). `test_spanned_mask_calls_resolve_and_never_write_sr` takes every call
+  between a mechanism-2 mask and its bracket, resolves it to a proc DEFINITION in this
+  tree, and walks the FULL TRANSITIVE CLOSURE of that proc's own calls, requiring no
+  `sr` write anywhere in it. **The sigil-side alternative was NOT needed**: the walk is
+  a text resolution over `.emp` procs, it needed no call-graph facility this repo does
+  not have, and it took no new dependency. A compiler-carried mask-state fact would
+  still be strictly better (it would see splices and indirect targets); this is the
+  cheap 95%, and what it cannot see it REFUSES rather than passes.
+- **Population RE-DERIVED on this tree, not inherited: 2 sites / 4 callee instances /
+  3 distinct callees, every one a leaf — the same 2/4 the booking recorded.** Method:
+  the census's own scanner, then a resolver over the proc index, not a grep by name.
+  `engine/level/bg.emp:221` `BG_Init` (mask `:141`, 1 call: `BG_UploadTiles`) and
+  `engine/level/section.emp:734` `Section_RedrawPlanes` (mask `:323`, 3 calls:
+  `Region_Resolve`, `BG_UploadTiles`, `DMA_Deferrable_DropDest`). Max depth reached by
+  the walk: **1** — the three callees make no calls at all. The 2026-09-09 sift's
+  count of 1 named a different callee (`Section_GetSecPtrXY`); the tree moved, both
+  numbers were right on their day, and **nothing in the new arm pins a population**.
+  Deliberately no floor: it has legitimately been 1 and 2, so the count is PRINTED
+  every run and two synthetic controls carry the non-vacuity instead.
+- **Depth: UNBOUNDED, and that is a decision, not an omission.** The property is
+  monotone reachability ("does the reachable set contain an `sr` write"), so a visited
+  set loses nothing and a call CYCLE simply stops adding members — no bound is needed
+  for termination. `WALK_VISIT_CEILING` (2000) exists only so a pathological graph
+  cannot hang the build lane, and **reaching it FAILS the arm as NOT MEASURED**, never
+  returns clean. The depth actually reached is printed on every run.
+- **Loud on unmeasurable — the design bar, and the half that took the work.** Every
+  shape the resolver cannot follow FAILS: a register-indirect or computed target
+  (`jsr (a0)`), an absolute target outside the proc index (`jsr (MDDBG__…).l` — the
+  vendored MD Debugger is `.asm` and has no `proc`), a name with no proc definition
+  (macro, extern), a name with MORE THAN ONE definition (today `entry`,
+  `TestSolid_Init`, `TestSolid_Main` — ambiguous, so undecidable), an alias binding
+  (`proc entry = GameState_X`), a local-label call whose block is not in the enclosing
+  proc, and a `with` naming an undeclared context. `test_the_walk_refuses_every_shape_it_cannot_resolve`
+  drives all six through the REAL walker.
+- **Two premises made measurable instead of assumed.** (1) `test_every_proc_line_without_a_brace_is_a_declaration_or_a_binding`
+  — the index only takes a `proc` line carrying the body `{`, so a wrapped signature
+  would silently drop a definition; today the only brace-less `proc` lines are
+  `proc entry: GameState` and the two `proc entry = …` bindings. (2)
+  `test_declared_contexts_cannot_lower_an_established_mask` — a `with ctx` splices code
+  the caller's text does not show, so the walker reads it at the DECLARATION: every
+  declared context must write `sr` only as `#$2700` (raise) or as a `(sp)+` restore
+  paired with its own save. Measured from `engine/irq.emp` and `engine/z80_bus.emp`:
+  `ints_off` save/raise/restore, `ints_off_until_rte` raise-only, `z80_stopped` and
+  `vblank` no `sr` at all.
+- **A second hole closed on the way, same class, smaller.** The non-CALL half: the
+  scanner ends mechanism 2 on `move.w (sp)+, sr` and on **nothing else**, so an
+  `andi.w #$F8FF, sr` between the mask and the bracket left the site classified
+  HAND_2700. The arm now refuses any `sr` write other than a re-mask in the caller's
+  own span. Population today: **0**.
+- **Red-first, 8 mutations, each quoted off disk before its run and each restored from
+  the COMMITTED baseline `6a659e24` (`git status` empty between every one).** Baseline
+  12 passed / exit 0.
+  1. `move.w d0, sr` at the top of `BG_UploadTiles` (depth 1) → exit 1, arm names
+     `engine/level/bg.emp:272 … (depth 1, reached via engine/level/bg.emp:158 in BG_Init)`
+     at BOTH sites.
+  2. **THE TRANSITIVITY PROOF.** `jbsr Camera_Init` added to `BG_UploadTiles` AND
+     `move.w d0, sr` added to `Camera_Init` — the write exists only at depth 2 → exit 1,
+     `engine/level/camera.emp:154 in Camera_Init (depth 2, reached via engine/level/bg.emp:272 in BG_UploadTiles)`.
+  2b. **Its discriminating control:** the same `jbsr Camera_Init` hop with `camera.emp`
+     restored → exit 0, closure grows to `['BG_UploadTiles','Camera_Init']` at max depth 2.
+     So the red in 2 came from the depth-2 write, not from the added call.
+  3. `jbsr BG_UploadTiles` in `BG_Init`'s span replaced by `jsr (a2)` → exit 1,
+     "call target `(a2)` is not a plain name … this resolver cannot follow it".
+     Unresolvable is RED, not skipped.
+  4. `ints_off`'s release changed to `move.w d0, sr` → exit 1 on the context premise.
+  5. `andi.w #$F8FF, sr` inserted in `BG_Init`'s span → exit 1 on the caller-span half,
+     while the OLD arms still print `bg.emp:222 BG_Init HAND_2700` — the hole, shown.
+  6. `BG_UploadTiles`' signature wrapped onto two lines → exit 1 on BOTH the premise
+     check and the arm (UNMEASURED, naming the callee), never a silent pass.
+  7. Transitivity deleted from `walk_from` (callees no longer enqueued) → exit 1 on both
+     synthetic controls, so they are not decoration.
+  8. The register-indirect branch changed to `continue` (the classic silent-skip
+     defect) → exit 1 on the unmeasurable control.
+  Post-restore: `git diff HEAD` empty, 12 passed, exit 0.
+- **Still open, and it is the alternative the booking named.** Sigil splices that are
+  not declared contexts are NOT modelled. `assert` is the one inside today's closure
+  (`BG_UploadTiles`' DEBUG IPL assert); its SR-neutrality is sigil's contract, a
+  cross-repo premise no check in this tree can grade from source. A compiler-carried
+  mask-state fact would subsume this arm AND see indirect targets; nothing needs it
+  today, and this arm would go red rather than quiet if something did.
 
 ## S2-COMPRESSED-ACT: the showcase test act is a "compressed" Sonic 2, six zones clipped into one act (OPEN, owner direction 2026-09-17T16:00:34Z, part of REGIONS)
 

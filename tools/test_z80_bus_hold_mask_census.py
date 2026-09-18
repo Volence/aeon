@@ -193,7 +193,8 @@ def scan_text(text: str, rel: str) -> tuple[list[dict], list[dict]]:
 
     A site record carries the mechanism that masks it, plus the evidence the failure
     message needs: which proc, and whether a call sits between a mechanism-2 mask and
-    the site (the interprocedural hole, counted rather than remembered).
+    the site (the interprocedural hole — counted here, and since 2026-09-18 also
+    ASSERTED by the spanned-call arm at the bottom of this file).
     """
     sites: list[dict] = []
     procs: list[dict] = []
