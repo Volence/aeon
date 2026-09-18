@@ -72,11 +72,34 @@ V-scroll, and the run refuses to grade at all when the camera sits where the two
 predict the same word. Registry 13 and 14 (Perspective_Subtle, Perspective) decline today;
 10, 11, 12 and 15 do not.
 
-⚠ THE DECLINING ARM HAS NOT BEEN RUN. The lane that added it (parcel/left-edge-perscene)
-was a background agent and could not touch an emulator, so the arm is derived from the
-engine source and reviewed but NOT attested against a booted ROM. The first foreground run
-is what turns it from a written expectation into a measurement; treat a green from it as
-unproven until then.
+THE ARM SELECTION SAMPLES A SETTLED FRAME, AND THAT IS WHY IT WORKS (2026-09-18). Between
+d-50 and today the declining arm had executed ZERO times: every scene took the accept arm
+and two of them (13, 14 — the two that DECLINE) were reported RED. Both halves were one
+bug, and it was in the gate's clock, not in its rule. Every scene in the tree authors
+`pcfg_transition == 0`, so `Parallax_StartTransition` takes its CAP_TRANSITIONS staging arm
+— it writes `Parallax_Target_Config` and `Parallax_Transition_Frames = PARALLAX_TRANS_DEFAULT`
+and DELIBERATELY LEAVES `Parallax_Current_Config` ALONE; `Parallax_Update` promotes Target
+into Current only on the frame the counter reaches 0 (engine/level/parallax.emp:1784-1800).
+`drive_cursor`'s `step_scene` advances 12 frames per step against a 16-frame transition, so
+every step re-staged before the previous promoted and the raw cell still held the BOOT
+section's binding — the read was 9 of 16 frames early, on all six scenes. See
+docs/research/2026-09-18-parallax-current-config-identity.md.
+
+So this gate now RUNS THE MACHINE UNTIL THE ENGINE HAS PROMOTED — `settle_transition()`
+polls `Parallax_Transition_Frames` to 0 — and `check_scene` re-reads that counter at the
+sample point and REFUSES to grade a frame where a transition is in flight. At
+`Transition_Frames == 0` the raw `Parallax_Current_Config` cell IS the active config, by the
+engine's own promotion, in both the CAP_TRANSITIONS and the cap-elided shape.
+
+THE ALTERNATIVE, AND WHY NOT IT. `Parallax_Active_Config` (parallax.emp:1480) is the
+engine's selector: `Frames != 0 -> Target, else Current`. The gate could have restated that
+rule in Python and sampled mid-transition. Rejected for two reasons. (1) It would put a
+SECOND COPY of an engine rule in a test — the exact shape of staleness the per-scene read
+was introduced to avoid, and it would go stale GREEN. (2) It fixes only the arm, not the
+subject: mid-transition the plane-B word this gate asserts on is a LERP between two scenes'
+configs (`Parallax_Current_Vscroll_BG` easing toward the target), so the declining arm would
+still be grading a half-crossfaded value against a steady-state expectation. Settling fixes
+both with no restatement.
 
 USAGE
     python3 tools/fg_left_edge_gate.py                       # all six per-column scenes
@@ -146,6 +169,21 @@ def _decline_borrow_bit() -> int:
                          "engine/level/parallax.emp — the per-scene switch this gate reads "
                          "is not where it was, and a default would be a guess")
     return int(m.group(1), 16)
+
+
+def _trans_default() -> int:
+    """PARALLAX_TRANS_DEFAULT out of the engine source. Used ONLY to bound the settle loop —
+    the loop's condition is the machine's own `Parallax_Transition_Frames`, never a frame
+    count typed here. Loud when absent: a guessed bound would turn "the engine never
+    promoted" into "we gave up early", and the two deserve different verdicts."""
+    import re as _re
+    txt = open(os.path.join(REPO, "engine", "system", "constants.emp"), encoding="utf-8").read()
+    m = _re.search(r"^\s*pub\s+const\s+PARALLAX_TRANS_DEFAULT\s*=\s*(\d+)", txt, _re.M)
+    if not m:
+        raise SystemExit("FAIL: cannot find `pub const PARALLAX_TRANS_DEFAULT` in "
+                         "engine/system/constants.emp — the transition length this gate "
+                         "bounds its settle against is not where it was")
+    return int(m.group(1))
 
 # The six scenes that attach SceneVDeform.Columns, i.e. the only ones that raise reg $0B
 # bit 2 — Rocking_Slow/Rocking/Rocking_Fast and Perspective_Subtle/Perspective/_Dramatic.
@@ -266,6 +304,36 @@ async def drive_cursor(client, addr, index, limit=40):
     raise SystemExit(
         f"UNMEASURABLE: could not drive the effects-lab cursor to {index} in {limit} steps")
 
+
+async def settle_transition(client, syms):
+    """Run frames until the engine has PROMOTED the staged config, and say how long it took.
+
+    `drive_cursor` returns the instant the cursor cell reads the wanted index, which is
+    mid-transition: the lab's install stages Target + Transition_Frames and leaves Current
+    alone (see the banner). Nothing downstream of here is allowed to read Current until the
+    engine itself has promoted it, so this waits for the engine to say so.
+
+    The condition is the machine's `Parallax_Transition_Frames`, read one frame at a time.
+    The BOUND comes from PARALLAX_TRANS_DEFAULT, derived from the engine source: one staged
+    transition can need at most that many frames, and the allowance below is two of them, so
+    running out means the counter is not behaving like a transition at all. That is
+    UNMEASURABLE, never a silent continue — grading the raw cell mid-transition is precisely
+    the defect this function exists to end.
+    """
+    budget = 2 * _trans_default()
+    for waited in range(budget + 1):
+        frames = await read_bus(client, addr=syms["Parallax_Transition_Frames"], length=1)
+        if frames == 0:
+            return waited
+        await client.call("emulator/run_frames", {"frames": 1})
+    raise SystemExit(
+        f"UNMEASURABLE: Parallax_Transition_Frames never reached 0 in {budget} frames "
+        f"(2 x PARALLAX_TRANS_DEFAULT, derived from engine/system/constants.emp). The "
+        f"transition staged by the lab install is not completing, so Parallax_Current_Config "
+        f"is not the active config and every arm this run would pick is picked from the "
+        f"wrong record")
+
+
 async def sample_plane(client, layer, cols, rows):
     out = {}
     for y in rows:
@@ -316,6 +384,23 @@ async def check_scene(client, syms, index, want_pixels):
     # so the gate reads the ACTIVE CONFIG rather than carrying a list of which scenes decline
     # — a list would go stale the first time an author changes one, and it would go stale
     # green. Both the field offset and the flag bit come from the engine source above.
+    #
+    # RE-READ AT THE SAMPLE POINT, never inferred from the settle (2026-09-18), for the same
+    # reason reg $0B above is re-read and not trusted: `settle_transition` ran BEFORE this
+    # sample, and a transition staged since would put the active config in Target while
+    # `Parallax_Current_Config` still names the outgoing scene. Grading that frame is exactly
+    # what made this gate red on the two scenes that were working. At Frames == 0 the raw
+    # cell IS the active config — that is Parallax_Active_Config's own else-arm — so this is
+    # a precondition check, not a restatement of the selector.
+    trans = await read_bus(client, addr=syms["Parallax_Transition_Frames"], length=1)
+    if trans:
+        target = await read_bus(client, addr=syms["Parallax_Target_Config"], length=4)
+        return False, (f"UNMEASURABLE scene {index}: a parallax transition is in flight at the "
+                       f"sample point (Parallax_Transition_Frames={trans}, "
+                       f"Target=${target:06X}), so Parallax_Current_Config still names the "
+                       f"OUTGOING scene and both the borrow policy and the plane-B word would "
+                       f"be read mid-crossfade. Refusing to grade a config the engine has not "
+                       f"promoted")
     cfg = await read_bus(client, addr=syms["Parallax_Current_Config"], length=4)
     if not cfg:
         return False, (f"UNMEASURABLE scene {index}: Parallax_Current_Config is NULL at the "
@@ -419,7 +504,8 @@ def main():
         # "it could not run". Those two leave the same evidence: no result.
         # If you add a syms[...] read to check_scene(), add its name HERE in the same edit.
         for name in ("Debug_Lab_Index", "Camera_Y", "VDP_Shadow_Table",
-                     "Parallax_Current_Config"):
+                     "Parallax_Current_Config", "Parallax_Target_Config",
+                     "Parallax_Transition_Frames"):
             syms[name] = await lookup(c, name)
 
         await c.call("emulator/run_frames", {"frames": args.settle})
@@ -432,6 +518,9 @@ def main():
 
         for index in scenes:
             at = await drive_cursor(c, syms["Debug_Lab_Index"], index)
+            waited = await settle_transition(c, syms)
+            print(f"      scene {index}: cursor at {at}, settled after {waited} frame(s) "
+                  f"(Parallax_Transition_Frames == 0)")
             ok, msg = await check_scene(c, syms, index, args.pixels)
             if msg:
                 print(f"  {msg}")
