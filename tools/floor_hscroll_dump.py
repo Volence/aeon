@@ -81,7 +81,21 @@ async def run(rom, lst, extra):
             await w._c(client, "emulator/play_input",
                        {"rows": [{"start": 0, "end": extra,
                                   "buttons": ["right"], "port": 0}]})
-            await w._c(client, "emulator/run_frames", {"frames": 4})
+            # SETTLE, not a fixed wait (CURSOR-RACE-SWEEP, 2026-09-18). Travelling
+            # CROSSES SECTIONS, and a crossing routes into Parallax_StartTransition
+            # exactly as a lab-cursor step does. The `run_frames 4` that stood here was
+            # four frames against a sixteen-frame crossfade. MEASURED on s4.debug.bin
+            # crc32 62238a15: holding RIGHT from the floor row opens one window at travel
+            # frames 72..86, and `--extra-right-frames 76` left this read at
+            # Parallax_Transition_Frames == 8, with 448 of the 896 bytes of the live
+            # HScroll table below DIFFERENT from their settled values. Every "px/row"
+            # number this tool prints is computed from that table, so the whole result was
+            # a lerp between two scenes' scroll rates. The walk above is safe — its
+            # `run_frames 30` exceeds the 16-frame window and was measured closing it —
+            # but this arm never was.
+            waited = await w.settle_transition(client, lst)
+            print("  travel settled after %d frame(s) "
+                  "(Parallax_Transition_Frames == 0)" % waited)
         again = int((await read_bytes(client, lab, 1))[:2], 16)
         if again != w.LAB_ROW:
             raise w.WitnessError("cursor moved to %d before the read" % again)

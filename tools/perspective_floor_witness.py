@@ -129,6 +129,49 @@ async def read_tile(b, idx):
     return out
 
 
+async def settle_transition(client, lst_path, limit=None):
+    """Run the machine one frame at a time until the parallax crossfade has FINISHED.
+
+    WHY THIS EXISTS (CURSOR-RACE-SWEEP, 2026-09-18). A lab-cursor step and a section
+    boundary crossing both route into `Parallax_StartTransition`, which stages
+    `Parallax_Target_Config` and sets `Parallax_Transition_Frames` to
+    PARALLAX_TRANS_DEFAULT; `Parallax_Update` promotes Target into Current only when that
+    counter reaches 0. Anything read inside that window — the per-line HScroll table, the
+    band scroll accumulators, VSRAM, the pixels — is a LERP between two scenes.
+
+    SETTLE THE MACHINE, DO NOT MODEL IT. The condition below is the engine's own counter,
+    read out of the running machine one frame at a time. The BOUND is the engine's own
+    PARALLAX_TRANS_DEFAULT via `fg_left_edge_gate._trans_default()` — the tree's one
+    derivation of it, imported rather than re-derived, so there is no second copy to go
+    stale. Restating `Parallax_Active_Config`'s `Frames != 0 -> Target` rule in Python was
+    considered and rejected for the gate and is rejected here for the same two reasons: a
+    second copy of an engine rule in a tool is a stale-green waiting to happen, and it
+    would fix only which record you name, not the lerped values you read.
+
+    LOUD ON UNMEASURABLE: a counter that never reaches 0 raises, because "the transition
+    never completed" and "we gave up early" deserve different verdicts and neither is a
+    quiet continue.
+
+    Returns the number of frames waited (0 when nothing was in flight).
+    """
+    import fg_left_edge_gate as _G          # local: the one PARALLAX_TRANS_DEFAULT reader
+    budget = limit if limit is not None else 2 * _G._trans_default()
+    sym = lst_symbol(lst_path, "Parallax_Transition_Frames")
+    if sym is None:
+        raise WitnessError(
+            "Parallax_Transition_Frames is not in %s, so this tool cannot tell a settled "
+            "frame from a crossfade and would read a lerp between two scenes without "
+            "knowing it" % lst_path)
+    for waited in range(budget + 1):
+        if int((await read_bytes(client, sym, 1))[:2], 16) == 0:
+            return waited
+        await _c(client, "emulator/run_frames", {"frames": 1})
+    raise WitnessError(
+        "Parallax_Transition_Frames never reached 0 in %d frames (2 x "
+        "PARALLAX_TRANS_DEFAULT, derived from engine/system/constants.emp) — the staged "
+        "transition is not completing, so nothing read here is a settled scene" % budget)
+
+
 async def walk_to_floor_row(client, lab_sym):
     got = -1
     for want in range(1, LAB_ROW + 1):

@@ -17,6 +17,13 @@ WHAT IT CAPTURES, and why both edges rather than the one that was fixed:
 EVERY WAY IT CAN FAIL TO REACH ITS SUBJECT IS A REFUSAL, never a picture:
   * the served ROM not matching the file on disk        (a stale server is the classic)
   * the scene cursor not landing where it was driven
+  * a parallax transition still in flight at the shot   (the lab's install STAGES a
+                                                         16-frame crossfade; shooting
+                                                         inside it photographs a
+                                                         background halfway between two
+                                                         scenes — added 2026-09-18 after
+                                                         measuring that every shot this
+                                                         tool had ever taken was one)
   * VDP reg $0B bit 2 clear at the sample point         (the DEBUG warp clears it)
   * `source != "raster"`                                (a post-hoc state render is NOT
                                                          what the raster drew, and every
@@ -115,7 +122,12 @@ def main():
         st = await c.call("emulator/status", {})
         if st["romBytes"] != len(blob):
             raise SystemExit(f"REFUSED: server serves {st['romBytes']} B, {a.rom} is {len(blob)}")
-        syms = {n: await G.lookup(c, n) for n in ("Debug_Lab_Index", "Camera_Y")}
+        # `Parallax_Transition_Frames` is here because `G.settle_transition` reads it by
+        # this name. If you add a syms[...] read below, add its name HERE in the same edit
+        # — the gate learned that the hard way (chain 197 died with a KeyError before
+        # reaching a single scene, and the failure looked like "nobody ran it").
+        syms = {n: await G.lookup(c, n) for n in
+                ("Debug_Lab_Index", "Camera_Y", "Parallax_Transition_Frames")}
         await c.call("emulator/run_frames", {"frames": a.settle})
         if a.travel:
             await c.call("emulator/play_input",
@@ -130,6 +142,40 @@ def main():
         at = await G.read_bus(c, addr=syms["Debug_Lab_Index"], length=1)
         if at != a.scene:
             raise SystemExit(f"REFUSED: cursor reads {at}, wanted {a.scene}")
+
+        # ---- SETTLE BEFORE SHOOTING (CURSOR-RACE-SWEEP, 2026-09-18) ----
+        # `drive_cursor` returns the instant the cursor CELL reads the wanted scene. The
+        # lab's install does not install: SCENE rows tail-call `Parallax_StartTransition`,
+        # which stages Target and sets `Parallax_Transition_Frames` to
+        # PARALLAX_TRANS_DEFAULT, and `Parallax_Update` only promotes when that counter
+        # reaches 0. drive_cursor's own step burns about 12 frames against that 16, so
+        # every frame this tool used to shoot was MID-CROSSFADE.
+        #
+        # MEASURED, on s4.debug.bin crc32 62238a15, all six per-column scenes: this point
+        # read `Parallax_Transition_Frames == 7` every time, and the band accumulator
+        # `Parallax_Current_Scroll_B` took SEVEN distinct values across the window while a
+        # control of sixteen settled frames moved it on 0/15 frame steps. So the picture
+        # written here carried a background at 9/16 of the way between two scenes — a state
+        # no settled frame of the scene in the filename ever holds. For a tool whose entire
+        # job is to let a human LOOK at the price of the borrow, that is the worst possible
+        # failure: a wrong picture the reader cannot tell from a right one.
+        #
+        # WE SETTLE THE MACHINE rather than model it. The condition is the engine's own
+        # counter and the bound is derived from the engine's own constant — no restatement
+        # of `Parallax_Active_Config`'s `Frames != 0 -> Target` rule in Python, which would
+        # be a second copy of an engine rule in a tool (stale-green) and would in any case
+        # fix only the label and not the picture.
+        waited = await G.settle_transition(c, syms)
+        # RE-READ at the shot, never inferred from the settle: the settle ran BEFORE the
+        # reads below, and anything that staged a transition since would put this frame
+        # back inside a window. Same reason reg $0B is re-read below and not trusted.
+        trans = await G.read_bus(c, addr=syms["Parallax_Transition_Frames"], length=1)
+        if trans:
+            raise SystemExit(f"REFUSED: a parallax transition is in flight at the shot "
+                             f"(Parallax_Transition_Frames={trans}) — the frame would be a "
+                             f"crossfade between two scenes, and a picture of a state the "
+                             f"game never rests in is not the price anyone is ruling on")
+        print(f"  settled after {waited} frame(s) (Parallax_Transition_Frames == 0)")
         mode3 = await G.read_bus(c, symbol=None, addr=await G.lookup(c, "VDP_Shadow_Table") + G.VDP_MODE3_OFF, length=1)
         if not (mode3 & G.VDP_MODE3_PERCOL):
             raise SystemExit(f"REFUSED: VDP reg $0B = ${mode3:02X}, bit 2 clear — this scene is "
