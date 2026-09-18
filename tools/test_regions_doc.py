@@ -58,6 +58,7 @@ import copy
 import glob
 import json
 import os
+import pathlib
 import re
 import shutil
 import sys
@@ -107,7 +108,11 @@ NIGHT_ID = "ojz_preset_night"
 # because that is the one the tests mutate.
 SANDBOX_LINKS = ("project.json", "engine", "games/sonic4/config",
                  "games/sonic4/data/effects", "games/sonic4/data/editor/effects",
-                 "games/sonic4/data/levels")
+                 "games/sonic4/data/levels",
+                 # The GENERATED act grid the descriptor's `const GRID_W` folds against
+                 # since S2-COMPRESSED-ACT parcel 9. Without it every bound in
+                 # region_flatten.BOUND_NAMES goes unfoldable and act_bounds refuses.
+                 "games/sonic4/data/generated/ojz/act1/act_grid.emp")
 
 
 def golden_doc() -> dict:
@@ -1368,6 +1373,101 @@ class TestShippedTableMatchesGolden(unittest.TestCase):
                               f"resolution, exactly as it does for rg_parallax's "
                               f"EditorSceneBinding_* names. A measurement that cannot be "
                               f"made, not a pass.")
+
+
+# ---------------------------------------------------------------------------
+# AN ACT WIDER THAN ITS REGION DOCUMENT (S2-COMPRESSED-ACT parcel 9)
+# ---------------------------------------------------------------------------
+
+class TestActWiderThanItsDocument(unittest.TestCase):
+    """`regions.json` and the ACT stopped being the same width on 2026-09-17.
+
+    A clip act declares its own grid (games/sonic4/data/generated/ojz/act1/act_grid.emp) and
+    the S2CLIP throwaway bake does NOT run effects_gen, so the act can be 10,240 px wide with
+    the shipped 6,144-wide document under it. act_descriptor.emp closes that with one appended
+    `OJZ_WIDE_FILL_ROWS` region, and region_flatten's coverage step has to know — otherwise the
+    build refuses a band that the ROM's own table does cover.
+
+    THE ACT IS WIDENED THE WAY THE BAKE WIDENS IT — by emitting a wider act_grid.emp into a
+    sandbox — and NOT by poking ACT_W into the bounds dict. That matters: ACT_W is the leaf
+    four other bounds fold from (the camera-centre band above all), and a poked ACT_W produced
+    a tree whose rows failed the reachable-edge rule instead of the coverage rule, i.e. a test
+    that would have been measuring the wrong refusal.
+
+    THE EXEMPTION IS THE SUBJECT AND ITS BOUNDARY IS WHAT THESE ROWS TEST. Three of the four
+    are ways it must NOT apply; a declaration channel is a weakening unless its edges bite.
+    """
+
+    DESC_REL = ACT1_DESCRIPTOR
+
+    def sandbox(self, grid_w, grid_h, drop_fill=False):
+        """A repo whose act_grid.emp declares (grid_w, grid_h). Returns its path."""
+        import act_grid
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        os.symlink(os.path.join(AEON, "engine"), os.path.join(d, "engine"))
+        rel_dir = os.path.dirname(self.DESC_REL)
+        os.makedirs(os.path.join(d, rel_dir), exist_ok=True)
+        src = open(os.path.join(AEON, self.DESC_REL)).read()
+        if drop_fill:
+            # The declaration act_bounds looks for, removed. Same band, no fill.
+            src = src.replace("const OJZ_WIDE_FILL_ROWS: array = if ACT_W > OJZ_AUTHORED_ACT_W {",
+                              "const OJZ_WIDE_FILL_ROWS: array = if 0 == 1 {")
+        open(os.path.join(d, self.DESC_REL), "w").write(src)
+        os.makedirs(os.path.join(d, os.path.dirname(act_grid.ACT_GRID_EMP.replace(
+            AEON + os.sep, ""))), exist_ok=True)
+        act_grid.emit(grid_w, grid_h,
+                      os.path.join(d, act_grid.ACT_GRID_EMP.replace(AEON + os.sep, "")))
+        return d
+
+    def grid(self):
+        """The shipped act's grid, read where the engine reads it."""
+        import act_grid
+        return act_grid.descriptor_grid()
+
+    def test_a_wider_act_is_covered_by_the_descriptors_fill_row(self):
+        gw, gh = self.grid()
+        d = self.sandbox(gw + 2, gh)
+        b = region_flatten.act_bounds(self.DESC_REL, aeon=pathlib.Path(d))
+        self.assertTrue(b["WIDE_FILL"], "the descriptor's fill declaration was not found; "
+                                        "this row would be testing nothing")
+        rows = region_flatten.flatten(golden_doc()["regions"], b, where="widened")
+        self.assertEqual(len(rows), len(golden_doc()["regions"]))
+
+    def test_the_exemption_needs_the_declaration_to_be_IN_the_descriptor(self):
+        """WIDE_FILL is read out of act_descriptor.emp by act_bounds, exact in shape. With the
+        declaration gone the same band is a hole again, which is what it would be."""
+        gw, gh = self.grid()
+        d = self.sandbox(gw + 2, gh, drop_fill=True)
+        b = region_flatten.act_bounds(self.DESC_REL, aeon=pathlib.Path(d))
+        self.assertFalse(b["WIDE_FILL"])
+        with self.assertRaises(region_flatten.RuleError) as e:
+            region_flatten.flatten(golden_doc()["regions"], b, where="widened")
+        self.assertIn("belong to no region", str(e.exception))
+
+    def test_the_exemption_does_not_cover_an_INTERIOR_hole(self):
+        """One document row removed. The trailing band is still exempt-shaped, but the holes
+        no longer tile it alone, so the whole thing refuses — the case that matters most,
+        because an interior hole beside a legitimate band is how this would go quiet."""
+        gw, gh = self.grid()
+        d = self.sandbox(gw + 2, gh)
+        b = region_flatten.act_bounds(self.DESC_REL, aeon=pathlib.Path(d))
+        doc = golden_doc()
+        del doc["regions"][1]
+        with self.assertRaises(region_flatten.RuleError) as e:
+            region_flatten.flatten(doc["regions"], b, where="widened")
+        self.assertIn("belong to no region", str(e.exception))
+
+    def test_the_exemption_does_not_cover_a_TALLER_act(self):
+        """The fill row spans the act's full height, so a taller act's bottom band is not
+        inside it. Those holes are not at or past the document's right edge and the exemption
+        must not reach them."""
+        gw, gh = self.grid()
+        d = self.sandbox(gw + 2, gh + 1)
+        b = region_flatten.act_bounds(self.DESC_REL, aeon=pathlib.Path(d))
+        with self.assertRaises(region_flatten.RuleError) as e:
+            region_flatten.flatten(golden_doc()["regions"], b, where="widened")
+        self.assertIn("belong to no region", str(e.exception))
 
 
 if __name__ == "__main__":

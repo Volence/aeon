@@ -214,13 +214,17 @@ def test_f2_the_grid_has_one_source_and_the_engine_must_agree(tmp_path):
     p.write_text(json.dumps(proj))
     with pytest.raises(act_grid.ActGridError) as exc:
         act_grid.section_grid(str(p))
-    assert "act descriptor" in str(exc.value), str(exc.value)
+    # The engine's half of the disagreement moved from act_descriptor.emp to the GENERATED
+    # act_grid.emp in S2-COMPRESSED-ACT parcel 9. The F2 hazard did not move with it: the
+    # two sides are still "what the bake is about to bake" and "what the engine last
+    # compiled", and they still disagree exactly when one was edited without the other.
+    assert "grid module" in str(exc.value), str(exc.value)
 
 
-def test_f2_a_descriptor_that_stops_declaring_the_grid_is_refused(tmp_path):
+def test_f2_a_grid_module_that_stops_declaring_the_grid_is_refused(tmp_path):
     import act_grid
-    d = tmp_path / "act_descriptor.emp"
-    d.write_text("module games.sonic4.ojz_act1_descriptor\n")
+    d = tmp_path / "act_grid.emp"
+    d.write_text("module games.sonic4.ojz_act_grid_act1\n")
     with pytest.raises(act_grid.ActGridError):
         act_grid.descriptor_grid(str(d))
 

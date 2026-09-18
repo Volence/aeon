@@ -949,7 +949,9 @@ Each parcel has one falsifiable check. Sizes are S (a day or less), M, L.
 > **The row-3 check as written could not be run, and why.** It named `fg_page_order.check`,
 > which reads **exactly one act**: `_known_acts` RAISES on any act whose generated dir is not
 > `fg_working_set.GEN_DIR`, and `fg_working_set.Model` takes GRID_W/GRID_H from OJZ act 1's
-> `act_descriptor.emp`. Pointing it at a second act needs a `project.json` entry and a
+> `act_descriptor.emp` (⚠ since parcel 9, 2026-09-17, it folds them THROUGH that file out of the
+> generated `act_grid.emp`, which is where the numbers themselves now live; the one-act limit is
+> unchanged). Pointing it at a second act needs a `project.json` entry and a
 > matching `.emp` descriptor — a ROM change, which is rows 4-6, not row 3. So the count is
 > run in `clip_act_bake` instead, importing the two functions `check` itself calls
 > (`window_needed`, `budget_verdict`): the arithmetic is shared and only the decoding
@@ -1004,10 +1006,29 @@ wall — and it is ACCEPTED rather than avoided, because Sonic 2 survives it wit
 boundary at y = 800 and this engine has no death at all, which the owner already knew and set
 aside. Avoiding it would have put the hard edge at x = 4,672 instead of 4,096: the same defect,
 576 px right. `clip_reachability.py` gained a `floorless_columns` declaration (per plane, exact on
-the count AND the runs) so the pit is checked rather than refused. **A clip act should still OWN
+the count AND the runs) so the pit is checked rather than refused. ~~**A clip act should still OWN
 its act extent** — the remainder is declared in `clips.json` (`unpainted_remainder`) and checked
 on every S2CLIP build, and "fill the act" stops being available the moment an act is wider than
-its donor, which row 7's corridor will be. Row 7+ owns that. **The act's HEIGHT is untouched:
+its donor, which row 7's corridor will be. Row 7+ owns that.~~ **DONE ON 2026-09-17 BY PARCEL 9**
+(`s2-compressed-act/2026-09-17-clip-act-own-grid.md`), and not as row 7 work. `GRID_W`/`GRID_H`
+are no longer hand-written in `act_descriptor.emp`: they are GENERATED from `project.json` into
+`games/sonic4/data/generated/ojz/act1/act_grid.emp`, which is inside the tree the S2CLIP trap
+restores, so **a clip act declares its own grid in its own manifest** and R21 is re-aimed to hold
+the manifest to the grid the engine will compile rather than to the shipped act's. No canonical
+byte moved (`s4.bin` md5 unchanged), and at the shipped 3 × 3 the clip ROM is byte-identical to
+parcel 8's. The act is now **5 × 3 = 10,240 × 6,144 px** and the clip paints all 1,280 of its
+columns. **The act paints every column it HAS and has fewer columns than the donor has
+content — both halves.** EHZ's `extent.crop_tiles` ends at tile 1,372 (x < 10,976 px = **5.36
+sections**) and R9 refuses a rect past it, so "EHZ is six sections wide" describes its PADDED grid,
+not its painted content; six sections would leave 1,312 px UNPAINTED, which is the defect being
+fixed, moved right. Five sections therefore **TRUNCATES 736 px (92 columns) of fully drawn Emerald
+Hill** — measured on the donor's own `section_5.*.bin` (11,776 non-zero art cells in 92 of 92
+columns; 3,304 collision cells per plane; 0 past the crop), 416 px of it inside Sonic 2's own
+camera box for the level. A NON-section-aligned act extent is the only thing that recovers them. A SECOND Emerald Hill pit
+came with the new ground, at x 9,472..9,663. **Owning the extent and filling the act turned out not
+to be alternatives** — parcel 9 owns the grid and then fills it, which is both. What is still open
+is a NON-section-aligned extent: the last 416 px of EHZ act 1 (Sonic 2's camera box reaches
+x 10,656) is inside the crop but not inside a whole fifth section. **The act's HEIGHT is untouched:
 nothing is painted below y = 1,024, 744 of the 768 columns have air below their last landing
 surface, and there is no bottom boundary.**
 

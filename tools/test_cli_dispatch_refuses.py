@@ -167,6 +167,11 @@ _FIXED = [
     # on a typo'd mode and exits 0 is a lane that has silently stopped asking. The three
     # rows below are cheap and the alternative is a gate nobody can tell from a pass.
     ("clip_reachability", ["_mode_check", "check", "scan"]),
+    # S2-COMPRESSED-ACT parcel 9 (2026-09-17): born in the table form. `emit` OVERWRITES
+    # games/sonic4/data/generated/ojz/act1/act_grid.emp -- a COMMITTED file the engine
+    # compiles its act grid out of -- so an unknown mode reaching it would silently re-shape
+    # the act from whatever project.json says. `check` is read-only but must not run unasked.
+    ("act_grid", ["_mode_emit", "_mode_check", "emit", "emit_from_project"]),
 ]
 
 
@@ -413,6 +418,7 @@ _ROSTER = {
     "import_s2_collision.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 4, 2026-09-17, born in the fixed form; `build` OVERWRITES the committed S2 collision bank, so the dispatch running before any handler is the property, and the two subprocess rows above pin it for both doorways)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "clip_rom_bake.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 6, 2026-09-17, born in the fixed form; `bake` OVERWRITES the committed generated tree and the ROM collision tables as a THROWAWAY, so the dispatch running before any handler is the property -- and it deliberately has NO subprocess row, because on a regression that row's failure IS the write)",
+    "act_grid.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT parcel 9, 2026-09-17, born in the fixed form; `emit` WRITES the committed act_grid.emp the engine compiles its GRID_W/GRID_H out of, so the dispatch running before any handler is the property)",
     "clip_reachability.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT parcel 7, 2026-09-17, born in the fixed form; `check` is READ-ONLY -- the act-wide reachability build gate for the S2CLIP shape. It is in _FIXED despite writing nothing because it runs as `gate strict`: a typo'd mode that reached a handler and exited 0 would be a build lane that had stopped measuring, which is this gate's own subject)",
     "verify_level_bin.py": "refuses: unknown argv token -> usage + exit 2 (it grew --project/--bank on 2026-09-17 so a clip act's tree could be verified by the same ten lanes; it WRITES NOTHING at any mode, and an unparsed flag is refused by name rather than ignored)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
@@ -459,11 +465,12 @@ def test_the_ladder_population_is_still_the_roster():
     # at 21 but the assertion already read 23 before parcel 7 touched it, so TWO tools
     # (clip_rom_bake.py, verify_level_bin.py) entered the population without a line
     # here. The number is what the rows grade; the commentary is not, and it had drifted.
-    assert len(found) == 24, (
+    assert len(found) == 25, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "
         "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, CACHE-WINDOW-HOLD-MEASURE's "
         "cache_hold_probe.py, S2-COMPRESSED-ACT row 3's clip_manifest.py + "
-        "clip_act_bake.py, row 4's import_s2_collision.py and parcel 7's clip_reachability.py, found %d: %s"
+        "clip_act_bake.py, row 4's import_s2_collision.py, parcel 7's clip_reachability.py and "
+        "parcel 9's act_grid.py, found %d: %s"
         % (len(found), sorted(found)))

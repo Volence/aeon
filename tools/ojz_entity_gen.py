@@ -321,8 +321,23 @@ def emit_section(lines: list[str], sec_idx: int,
     lines.append("")
 
 
-def generate(out_path: str | None = None) -> None:
+def generate(out_path: str | None = None, sections: int | None = None) -> None:
     """Emit entity_data.emp. *out_path* overrides the module default.
+
+    *sections* OVERRIDES HOW MANY SECTIONS ARE EMITTED, and nothing else
+    (S2-COMPRESSED-ACT parcel 9). The act's grid used to be this module's project.json
+    alone, which was true for every bake until a clip act could declare a grid of its own:
+    a clip whose act is 6x3 needs eighteen OJZ_Sec{N}_* tables, and this module — reading
+    the SHIPPED project — would emit nine, so the link fails on the nine names that were
+    never emitted.
+
+    It is a COUNT override and deliberately not a project redirect. The clip act inherits
+    the shipped act's objects and rings on purpose (tools/clip_rom_bake.py's header names
+    that inheritance and why it is out of scope), and pointing this module at the clip's own
+    staged project would silently empty every entity table — measured 2026-09-17, 27 lines
+    of OJZ objects and rings replaced by terminators, which is a content change nobody asked
+    this parcel for. Sections past the shipped act's have no editor JSON and come out empty,
+    which is what an unauthored section is.
 
     The parameter exists because OUTPUT_PATH is a module CONSTANT pointing at the
     committed tree, and ojz_strip_gen.generate() calls this as its Pass 8. That
@@ -341,6 +356,23 @@ def generate(out_path: str | None = None) -> None:
     cfg = load_act_config()
     grid_w, grid_h = cfg["grid_w"], cfg["grid_h"]
     num_sections = grid_w * grid_h
+    if sections is not None:
+        if int(sections) < num_sections:
+            raise SystemExit(
+                f"ojz_entity_gen: asked for {sections} sections but this act's editor "
+                f"project declares {grid_w}x{grid_h} = {num_sections}. Emitting FEWER "
+                f"tables than the editor has data for would drop authored objects and "
+                f"rings silently; this override exists to emit MORE (empty) ones.")
+        num_sections = int(sections)
+        # The pressure analysis below is a grid walk, so it needs a grid and not a count.
+        # Rows past the authored ones are empty, so growing the HEIGHT is the shape that
+        # keeps every authored section at its own flat id.
+        grid_h = num_sections // grid_w
+        if grid_w * grid_h != num_sections:
+            raise SystemExit(
+                f"ojz_entity_gen: {sections} sections is not a whole number of rows of "
+                f"{grid_w}. A clip act's grid must share this act's width for the flat "
+                f"ids to line up.")
     library = load_object_library()
 
     errors: list[str] = []
