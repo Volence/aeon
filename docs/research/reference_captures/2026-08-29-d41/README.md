@@ -38,3 +38,31 @@ edge still shows the price. See `2026-08-29-vsram-column19-borrow.md`.
 The affected strip's WIDTH here is Oracle's model, which flattens it to 16 px where hardware and
 GPGX say `hscroll & 15` — Oracle's own divergence P4. The displaced CONTENT is the hardware-tested
 part; the exact width on real silicon is not, and we have no console to settle it.
+
+---
+
+## ⚠ AUDITED 2026-09-18 — read this before using these pictures
+
+Nothing above has been edited; this is an append. It is what the tool that produced these
+captures was later found to be doing, and what that does and does not cost.
+
+`tools/fg_left_edge_capture.py` **never waited for the parallax crossfade to finish**
+(`git log -S Parallax_Transition_Frames` over its whole history is empty). Every frame in
+this directory was shot with `Parallax_Transition_Frames == 7`, mid-transition. Fixed
+2026-09-18; the tool now settles and refuses to shoot inside the window.
+
+**What that does NOT cost.** These are still pictures of the scenes they name: the renderer
+is driven by `Parallax_Target_Config` during a transition, which is the REQUESTED scene, and
+that was tested rather than read. Every VSRAM value quoted above is identical mid-window and
+settled, and with the deform animation held fixed the crossfade moves no per-column V-scroll
+at all. **The d-41 ruling rests on quantities the crossfade did not touch.**
+
+**What it does cost.** The background's horizontal band scroll was still sliding: on scene 12
+by 3 px on one band, on scene 13 by up to 46 px.
+
+**⚠ And the scene-13 pair is invalid for a bigger, unrelated reason.** `658ebb8e`
+(2026-09-02, d-50) made the borrow per-scene and scene 13 now DECLINES it, so
+`after-scene13-*.png` shows behaviour the engine deliberately no longer has.
+
+Full measurements, the instrument nulls, and re-shot frames:
+`../2026-09-18-d41-resettled/README.md`.
