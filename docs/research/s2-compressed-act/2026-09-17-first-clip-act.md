@@ -355,16 +355,31 @@ shape there is nothing to press.
    and expect the background to be Oracle Jungle's, because the clip act keeps it (§2).
 2. **Sonic falls about 415 px and LANDS**, roughly half a second, and then stands still. He
    spawns at world (256, 256) and the floor's surface is at y = 671.
-3. **He runs right along a continuous floor for two sections** (4,096 px). The floor rises and
-   falls; §6.3's table is what the collision says it does.
-4. **At x ≈ 4096 the world ends.** Sections 2-8 are air, so running off the right edge of the
-   clip is a fall into nothing. That is correct for a one-clip act, not a bug.
+3. ~~**He runs right along a continuous floor for two sections** (4,096 px).~~ **FALSE, AND
+   THIS SENTENCE IS WHAT TURNED A LEVEL FEATURE INTO A BUG REPORT** (corrected by parcel 7,
+   2026-09-17). The floor is continuous in the sense that every one of the 512 columns has a
+   landing surface somewhere — that is measured and it holds — but it is NOT a surface you
+   can run along. **Emerald Hill act 1 has a jump at x 1,344..1,535**: its own layout puts
+   the all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half, the
+   ground drops from y 644 to y 872, and Sonic 2 puts a five-ring arc over it at x 1,392,
+   y 568. A clip act inherits OJZ's rings, so that cue is not on screen and the drop reads as
+   the world ending. §6.3's table samples eight x values and steps straight over it. What to
+   look for instead: **he runs right, and at x ≈ 1,344 the ground falls away into a pit with a
+   floor 228 px down.** That is Emerald Hill, correctly converted.
+4. **At x ≈ 4096 the world ends** — and parcel 7 found that this is the whole reported bug,
+   not a footnote. Sections 2/5/8 are air (0 of 256 non-empty blocks, content-deduped to one
+   1,024 B blob), so at x = 4,096 the art and BOTH collision planes stop dead, top to bottom,
+   at a fixed world x. The camera's `EDGE_CLAMP` clamps the CAMERA to the act, not the player
+   to the clip, so a player who keeps running right leaves the painted world and falls the
+   act's full 6,144 px with nothing to land on. It IS correct for a one-clip act; what was
+   wrong was that nothing but this sentence said so. It is now DECLARED in the manifest
+   (`unpainted_remainder`) and CHECKED by `tools/clip_reachability.py` on every S2CLIP build.
 
 **What would FALSIFY it, and what each failure would mean:**
 
 | symptom | what it means |
 |---|---|
-| Sonic falls through the ground and keeps falling | the collision bytes are not reaching the runtime — the block stream's collision planes, not the art |
+| Sonic falls through the ground and keeps falling | ⚠ **PARCEL 7 RESOLVED THIS ONE AND IT WAS NOT THE COLLISION BYTES.** They reach the runtime intact: every block decodes to its strips, and all 512 painted columns carry a plane-A landing surface. It is the act's unpainted remainder past x = 4,096. If it recurs INSIDE x < 4,096, `clip_reachability.py` now fails the build before the ROM exists |
 | Sonic stands but the ground is visibly 8 or 16 px out of line with the art he stands on | the paste shift (R12) — the failure §6.3's second witness is aimed at, and the one no screenshot of a STILL frame shows |
 | the terrain is Oracle Jungle's, not Emerald Hill's | the clip's tile indices were resolved against the wrong tileset |
 | the terrain is Emerald Hill's but scrambled / wrong tiles in the right places | the dedupe or the page placement, i.e. the pool, not the layout |

@@ -37464,3 +37464,88 @@ parcel deliberately changed in `ojz_act_pool.emp`), against a control re-bake ta
 edit. **No `.emp` was touched, the shipped act's committed tree is unchanged apart from those
 two comment lines, all three donor trees were read-only, and NO EMULATOR WAS USED.** Wall clock:
 2026-09-17, dev box up 1 day 23 h, load average 1.5-7.5 across the runs.
+
+### S2-COMPRESSED-ACT parcel 7 LANDED 2026-09-17 — ★ THE WORLD ENDS AT x=4096, AND IT IS THE ACT THE CLIP DOES NOT PAINT
+
+Branch `parcel/s2-clip-gap` (base `fe078743`). Report:
+`docs/research/s2-compressed-act/2026-09-17-clip-act-reachability.md`. Parcel 6's report is
+patched in place at runtime-check items 3 and 4 and at its falsifier table, where this parcel
+made it false.
+
+**BASE NOTE, said because the brief said otherwise:** the parcel was briefed to branch off
+`origin/master`, but `origin/master` was `d1d2b23f` and does NOT contain parcel 6 — the merge
+`fe078743` is local and unpushed. Both of its parents (`d1d2b23f`, `origin/parcel/s2-first-clip-act`
+= `f6a3f7c9`) ARE on origin, so the content is fetchable and the base is safe; only the merge
+commit is not published. Basing on `origin/master` would have branched off a tree with no
+`tools/clip_rom_bake.py` in it.
+
+**CLOSED**
+
+- **THE CAUSE, and it is not a truncation.** Subject `s4.s2clip.bin` md5
+  `7f40876af03b35f03f0ef9d6bd527743`, rebuilt here and the md5 reproduced. The clip act's level
+  data is COMPLETE and FAITHFUL: 0 of 512 columns of the 4,096 × 1,024 rectangle lack art, 0
+  lack a plane-A landing surface, the local maps cover every index their strips use (252 of 253,
+  279 of 280) and point only inside the 286-tile pool, `verify_level_bin`'s block-decode lane is
+  green, and the converted donor matches s2disasm's own EHZ chunk grid chunk for chunk.
+  **What ends is the ACT.** R21 forces a clip act into the shipped act's grid (GRID_W/GRID_H are
+  hand-written in `act_descriptor.emp` and shared with the canonical ROM), so a 4,096 × 1,024
+  clip lives in a 6,144 × 6,144 act and sections 2/5/8 are baked as air — 0 of 256 non-empty
+  blocks, content-deduped to one 1,024 B blob. At x = 4,096 the art and BOTH collision planes
+  stop dead, top to bottom, at a fixed world x. The tile cache carries the nametable and both
+  collision planes in the same block, so this is **ONE bound consumed twice**: the owner's hard
+  vertical line (seen in free flight, physics out of the picture) and his fall-through are the
+  same boundary seen from the renderer and from the sensors. `EDGE_CLAMP` clamps the CAMERA to
+  the act, not the player to the clip.
+- **What a clip act should OWN vs INHERIT: its act EXTENT.** It cannot today, and widening the
+  rectangle does not rescue it — EHZ act 1 has its own bottomless pit at x 4,672..4,863, so a
+  3-section clip trades this edge for a worse one. Owning the extent needs a clip act with its
+  own descriptor (row 7+). What landed instead makes the inheritance **explicit and
+  build-checked**: `unpainted_remainder` in `clips.json`, with the reason beside it.
+- **THE GATE — `tools/clip_reachability.py`**, `gate strict` in build.sh's S2CLIP shape after
+  the ten verify lanes. Scans the WHOLE ACT (the rectangle was the wrong subject — inside it
+  everything is perfect, which is why ten green lanes and a green `ground` sat on top of this).
+  Per 8-px column: art present, and a landing surface on every REACHABLE plane, with
+  reachability READ from the interned CrossoverTable. The declaration check is two-sided
+  (earlier = missing content, later = stale declaration). Red-first with three mutations shown
+  on disk: mark one crossover byte (exit 1), zero one tile column's plane-A collision (exit 1),
+  remove a strip (exit 2). 19 donor-free build-free rows in `tools/test_clip_reachability.py`,
+  proven with `games/sonic4/data/donors` moved away.
+- **THE BARE-BAKE DEFECT (parcel 6's remaining hole) is closed.** A bare
+  `clip_rom_bake.py bake` now RESTORES the tree on exit, win or lose — exact rather than
+  best-effort because R22 has already proven the pre-state clean. "Write elsewhere" was not
+  available (sigil places the generated modules by a fixed registry path). `--keep` opts out for
+  build.sh and the two gates and writes an untracked `clip_bake_stamp.json`; `ground` and
+  `clip_reachability` refuse on a missing or mismatched stamp BEFORE measuring. That also closes
+  the stale-tree trap: a stale tree used to arrive dressed as `donor_corroboration`'s "a
+  difference that is a multiple of 8 or 16 is a PASTE SHIFT". It now says "STALE TREE, not a
+  geometry problem" and names the act it found.
+
+**FOUND**
+
+- **Plane B has NO landing surface at all in x 1,344..1,407** — 8 bottomless columns, the only
+  thing inside the rectangle that CAN swallow a player. Harmless today (the CrossoverTable marks
+  zero attr bytes and `player_common.emp` clears `layer` at init, so nothing writes it) and
+  invisible before today for a stronger reason: **every act that has ever run on this engine had
+  plane B as a byte-for-byte COPY of plane A** — `ojz_block_gen.test_extract_block` asserts it in
+  terms. A Sonic 2 clip is the FIRST content where the planes differ, because S2's chunk words
+  carry two independent solidity nibbles and the converter splits them. The gate prints it as
+  INFORMATIONAL and turns it red the moment one crossover is marked (a row, not a promise).
+- **The x 1,344..1,535 "missing ground" is genuine Emerald Hill.** EHZ's own layout puts the
+  all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half; the ground drops
+  from y 644 to a floor at y 872; and Sonic 2's ring layout puts a five-ring arc at x = 1,392,
+  y = 568 directly over it. It is a jump. A clip act inherits OJZ's rings so the cue is absent.
+- **A reading that cost a wrong premise, recorded because it will recur:** "the data DOES contain
+  that ground" counted NON-ZERO donor words as solid. A Sonic 2 chunk word is block index in bits
+  0-9 and solidity in bits 12-15; `0x00ff` is block 255 with no solidity on either path. Every
+  word in the quoted range is `0x00ff` or `0x20ff` (LRB only, not standable from above).
+- **The clip height was right.** `crop_tiles [0, 1372, 0, 128]` is consistent: the converter
+  measured 217,600 pad cells outside the crop with 0 non-zero. Design hypothesis 3 stands.
+
+**STILL OPEN**
+
+- **The owner's x samples (1,472 / 1,901) are NOT reconciled.** Every column at those x measures
+  complete. Either the sampled quantity was not the player's world x, or there is a runtime bound
+  the emitted bytes cannot show. The report's §7 item 4 is the discriminator (free flight, plain
+  lateral movement, watch whether the only hard line is at 4,096 and whether it moves/refills);
+  flagged rather than explained away.
+- **A clip act owning its own act extent** — row 7+, and the real fix for the cause above.
