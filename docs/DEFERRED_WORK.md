@@ -37737,3 +37737,39 @@ doc's extent paragraph are patched in place where this falsifies them.
   surviving form, not needed here. And `OJZ_WIDE_FILL_ROWS` is a floor, not a design: a clip act wider than its region
   document shows one flat preset past 6,144 px, because `effects_gen` does not run in the S2CLIP
   bake. Per-act region documents are the real answer and are not booked beyond this sentence.
+
+## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
+
+**The premise that sent this diagnostic out was wrong, and the correction is the finding.**
+`Parallax_Current_Config` holding `EditorSceneBinding_OJZ_Act1_Sec0` is CORRECT: that label is a
+`SceneCfg5`, the same struct as every `ParallaxConfig_*`, with `hdr: parallax_config` pinned at
+offset 0 by sixteen `ensure`s in `scene_registry.emp`. The region table binds the editor bindings
+(`regions.emp:62-70`); the hand-authored `ParallaxConfig_*` library is referenced ONLY by the
+effects lab and by `scene_equiv_proof`. An ordinary boot never installs one. Measured green on an
+ordinary boot at two regions (`boot_override_gate` PASS) and over play (`tools/pcc_identity_probe.py`).
+Full write-up: `docs/research/2026-09-18-parallax-current-config-identity.md`.
+
+**What IS open** is one real class, small and bounded. `Parallax_StartTransition`'s smooth arm
+(live: `SCANLINE_CAPS $0FDE & CAP_TRANSITIONS $0010`) leaves `Parallax_Current_Config` holding the
+OUTGOING config for `PARALLAX_TRANS_DEFAULT` = 16 frames while `Parallax_Target_Config` holds the
+incoming one. `Parallax_Active_Config` (`parallax.emp:1480`) is the accessor that resolves this
+(`Frames != 0 -> Target`). Three readers take the raw cell instead and so name the outgoing scene
+during any boundary lerp:
+
+1. `tools/fg_left_edge_gate.py:319` — **this one is load-bearing and already false-red.** Its
+   `drive_cursor` advances 12 frames per step against a 16-frame transition, so the cell NEVER
+   settles during a walk and the gate grades every scene against the boot's region binding. This
+   is a SECOND, independent reason its declining arm's two REDs are false, beyond the
+   unreachability `c92f7248` recorded. Fix is one of: apply `Parallax_Active_Config`'s rule
+   client-side, or settle > 16 frames after `drive_cursor`. NOT written here — diagnostic scope.
+2. `games/sonic4/data/effects/ojz_effects.emp:2884` (`OJZ_Reels_Fill`) — DEBUG-tier only
+   (`EditorReelBindings_OJZ_Act1` is `[]` in release), and a miss keeps the documented fallback.
+   Worst case is reel rates lagging a crossing by 16 frames while the bands lerp anyway. Rider,
+   not a defect.
+3. `games/sonic4/data/generated/ojz/act1/effects_scenes.emp:175` — the same table and walk; same
+   verdict.
+
+**No fix written, by instruction.** Whoever picks this up: decide first whether reader 1 is the
+whole parcel (it is the only one with a wrong verdict attached), and whether 2/3 want the accessor
+or want to keep the outgoing scene deliberately during a lerp — that is an authoring question, not
+a correctness one.
