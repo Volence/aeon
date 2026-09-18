@@ -1,12 +1,6 @@
 {
-  "focus": "Emerald Hill boots in our engine. Two ROMs are on disk for you; the world ending early is being fixed.",
-  "inFlight": [
-    {
-      "what": "Finding why the clip act's world ends early and Sonic falls through",
-      "where": "branch parcel/s2-clip-gap",
-      "agent": true
-    }
-  ],
+  "focus": "The endless fall is explained: the act has no floor of last resort, unlike the original game.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the early-ending fix lands and you have looked at the ROM.",
+  "nextBoundary": "Here: the cause is landed and pushed; a death boundary for a clip act is the next step.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: the first piece BOOTS (two ROMs on disk for you); fixing the world ending early",
-      "state": "doing",
+      "title": "Sonic 2 test act: the world-ending cause found (no floor of last resort). Next: a death boundary, then slopes",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -61,6 +55,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-18T00:13:18Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-18T01:15:28Z"
 }
