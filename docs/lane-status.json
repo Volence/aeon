@@ -1,6 +1,12 @@
 {
-  "focus": "No bug after all: the left-edge check reads a few frames early, while the picture is still crossfading.",
-  "inFlight": [],
+  "focus": "Fixing the left-edge check so it stops looking mid-crossfade, and finally running the half of it that never has.",
+  "inFlight": [
+    {
+      "what": "Making the left-edge check wait for the scene change to finish before it looks",
+      "where": "branch off a22ce711",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything is landed, pushed and tidied; a fresh session would lose nothing.",
+  "nextBoundary": "When the gate fix lands and its declining arm has actually executed.",
   "queue": [
     {
       "id": "FG-LEFT-EDGE-GATE-FIX",
       "title": "Fix the left-edge check so it waits for the crossfade to finish before looking; its real arm has still never run",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -28,7 +34,7 @@
     {
       "id": "S2CLIP-TRUNCATION",
       "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -70,6 +76,6 @@
     }
   ],
   "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-18T20:44:32Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-18T20:46:41Z"
 }
