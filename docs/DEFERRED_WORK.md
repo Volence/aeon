@@ -36439,6 +36439,25 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   numbers were right on their day, and **nothing in the new arm pins a population**.
   Deliberately no floor: it has legitimately been 1 and 2, so the count is PRINTED
   every run and two synthetic controls carry the non-vacuity instead.
+- **A TAIL CALL IS A CALL — the widening that came from re-reading my own arm, and its
+  discriminating control is the sharpest evidence in this entry.** The first cut followed
+  `jbsr`/`jsr`/`bsr` only. This tree has **383 `jbra` and 9 `jmp`**, and `jbra Other`
+  leaves a proc exactly as `jbsr Other` does, so a callee could have tail-called something
+  that lowers the mask and the arm would have come back GREEN having never looked. That is
+  a hole of the same class the arm closes and a SILENT one: a missing EDGE is not even an
+  unresolved call, so "loud on unmeasurable" buys nothing against it. Every control
+  transfer out of a reachable proc is now an edge — `jbsr`/`jsr`/`bsr`, `jbra`, `jmp`,
+  every `b<cc>`/`jb<cc>`, every `db<cc>` (target is its SECOND operand). The condition-code
+  list is spelled out rather than `b\w\w`, so `btst`/`bset`/`bclr`/`bchg` and the
+  identifiers `bit`/`body`/`blue` in this tree cannot match. Local-label targets resolve to
+  the enclosing proc (already scanned in full), do NOT count as a depth level, and are
+  deduplicated per proc. **MEASURED: the widening changes nothing on today's tree** — same
+  3-proc closure, same max depth 1 — which is what says it costs nothing now and would have
+  mattered the moment someone wrote a tail call. **The control:** with `jbra Camera_Init`
+  in `BG_UploadTiles` and `move.w d0, sr` in `Camera_Init`, the widened arm fails naming
+  `engine/level/camera.emp:154 … (depth 2, reached via engine/level/bg.emp:272 in BG_UploadTiles)`,
+  and the PRE-WIDENING code (`f63cd6a4`) run against **the same mutated tree** reports
+  `sr_writes []  unresolved []` for both sites — a silent green, reproduced rather than argued.
 - **Depth: UNBOUNDED, and that is a decision, not an omission.** The property is
   monotone reachability ("does the reachable set contain an `sr` write"), so a visited
   set loses nothing and a call CYCLE simply stops adding members — no bound is needed
@@ -36493,7 +36512,30 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
      synthetic controls, so they are not decoration.
   8. The register-indirect branch changed to `continue` (the classic silent-skip
      defect) → exit 1 on the unmeasurable control.
-  Post-restore: `git diff HEAD` empty, 12 passed, exit 0.
+  9. `jbra Camera_Init` in `BG_UploadTiles` + `move.w d0, sr` in `Camera_Init` (the tail
+     call) → exit 1 at depth 2; the pre-widening code on the same tree: clean. See above.
+  Post-restore after each: `git diff HEAD` empty, all tests pass, exit 0.
+- **A tenth finding, and the landing lane is the only thing that produced it.** The two
+  synthetic controls originally seeded the walker with `"engine/ctl.emp:1 in Caller"` and
+  `"engine/caller.emp:1 in Caller"`. `tools/` is LIVE scope for
+  `tools/test_citation_form.py`, so those literals are citations to `.emp` files that do
+  not exist, and that gate went red. **The per-file run of this module was green through
+  all eight earlier mutations with the defect present**, because the offending text is in a
+  DIFFERENT tool's scope. The seeds now read `"<control seed>"` and a comment at the site
+  says why; the synthetic file NAMES stay, since a name without a line number is not a
+  citation.
+- **Worktree note for whoever repeats this.** A worktree at
+  `/home/volence/sonic_hacks/.worktrees/<name>` makes FIVE unrelated tool tests fail —
+  four `test_emp_helper_closure` rows (the paired-sigil locator wants
+  `<root>/aeon/.worktrees/<n>` or a sibling `sigil/`) and
+  `test_suite_paths::test_the_walk_records_its_step_in_the_layout_this_run_actually_has`
+  (that path is not in `_LAYOUTS`). The house convention `/home/volence/sonic_hacks/.aeon-<name>`
+  resolves all five. A further FOUR `test_extern_guard_reachability` rows fail in any fresh
+  worktree when `pytest tools` is run STANDALONE, because `engine/debug/generated/*.bin`
+  does not exist until `build.sh`'s `gen_compression_vectors` step — inside `build.sh` and
+  `landing_build.sh` that step runs before the pytest lane, so they pass there. Both sets
+  were confirmed on an UNMODIFIED `e0317db8` control worktree before being attributed to
+  the layout rather than to this parcel.
 - **Still open, and it is the alternative the booking named.** Sigil splices that are
   not declared contexts are NOT modelled. `assert` is the one inside today's closure
   (`BG_UploadTiles`' DEBUG IPL assert); its SR-neutrality is sigil's contract, a
