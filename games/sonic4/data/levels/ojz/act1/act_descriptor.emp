@@ -472,8 +472,6 @@ const OJZ_SEC_ROWS_TOTAL = OJZ_SEC_ROWS_BASE_LEN + OJZ_SEC_ROWS_EXTRA_LEN
 ensure(OJZ_SEC_ROWS_TOTAL == GRID_W * GRID_H,
        "OJZ act 1 section table has {OJZ_SEC_ROWS_TOTAL} rows ({OJZ_SEC_ROWS_BASE_LEN} hand-written + {OJZ_SEC_ROWS_EXTRA_LEN} generated) for a {GRID_W}x{GRID_H} grid. Section_GetSecPtrXY indexes this table by flat id over the grid; short, it reads past the table")
 pub data OJZ_Act1_Sections: [Sec; OJZ_SEC_ROWS_TOTAL] = OJZ_SEC_ROWS_BASE ++ OJZ_ACT_SEC_EXTRA_ROWS
-// the [Sec; 9] length IS the table-size check; tie the literal to the grid
-ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")
 
 // -----------------------------------------------
 // Region table — the act's IDENTITY scope (painted-regions v1,
