@@ -37651,3 +37651,11 @@ design doc's §10 and parcel 6's report are patched in place where this falsifie
   change for a second clip's pits; `unpainted_remainder`'s `x_from` is one trailing edge on one
   axis and is the part that will not survive a hole BETWEEN two clips (the gate already fails that
   loudly as "a hole, not an edge").
+
+### S2CLIP-ACT-GRID: a clip act declares its own grid, so the whole zone can be shown (2026-09-18T02:11:50Z)
+
+- **Owner, verbatim, after flying to the new right-hand edge:** *"Oh nice, I see as much as I can now but after our third section it stops because we only have 3 horizontally"*. Correct and not a defect: the act is 3x3 sections, the clip now paints its full 6144 px width, and EHZ act 1 is SIX sections wide (12,288 px, `zone.json`), so half the zone cannot be reached.
+- **"Paint more" has run out of room, which is exactly parcel 8's own prediction** ("widening only works while the donor has content to reach with, and row 7's corridor will not").
+- **Dispatched as `parcel/s2-clip-act-extent`.** Build what parcel 8 priced in its §7 and deliberately did not build: `grid_w`/`grid_h` from the clip's own manifest through the generated `.emp` module the bake emits, R21 re-aimed at the generated grid rather than the hand-written one, and the shipped act's 3x3 reproduced EXACTLY so no canonical byte moves. Target: six sections, the whole of EHZ act 1.
+- **Budgets to measure, not assume** (parcel 8's 3-section figures in brackets): art pool [472 of 768], worst camera window [8 of 12 page frames — the tightest, and LOCAL, so denser art can blow it], attr entries [105 of 255], MAX_ACT_SECTIONS 48, per-section local map, ROM size.
+- **Not this parcel's subject:** the y axis, and EHZ's own pit at x 4672..4863 (he knows; this engine has no death plane). A wider act will likely bring more holes; they declare through `floorless_columns` and get relayed to him.
