@@ -1061,6 +1061,11 @@ def test_spanned_mask_calls_resolve_and_never_write_sr():
     )
 
 
+# The control seeds below say "<control seed>" rather than a `file.emp:LINE`
+# coordinate on purpose: tools/ is LIVE scope for tools/test_citation_form.py, and a
+# `.emp:N` literal in a SYNTHETIC fixture is a citation to a file that does not exist.
+# The landing lane caught exactly that on 2026-09-18. The synthetic file NAMES are
+# fine; only a name-plus-line-number reads as a citation.
 def _control_index(sources: dict[str, str]):
     records: list[dict] = []
     for rel, text in sources.items():
@@ -1095,7 +1100,7 @@ def test_the_walk_catches_an_sr_write_at_depth_two():
     }
     unique, ambiguous = _control_index(chain)
     assert sorted(unique) == ["CtlA", "CtlB", "CtlC"], f"control index built {sorted(unique)}"
-    got = walk_from([("CtlA", "engine/ctl.emp:1 in Caller", None)], unique, ambiguous, {})
+    got = walk_from([("CtlA", "<control seed>", None)], unique, ambiguous, {})
     assert not got["unresolved"], f"control chain should resolve cleanly: {got['unresolved']}"
     assert got["max_depth"] == 3, f"expected to reach depth 3, reached {got['max_depth']}"
     assert len(got["sr_writes"]) == 1 and "CtlC" in got["sr_writes"][0] and "depth 3" in got["sr_writes"][0], (
@@ -1104,7 +1109,7 @@ def test_the_walk_catches_an_sr_write_at_depth_two():
     )
     clean = {"engine/ctl.emp": chain["engine/ctl.emp"].replace("move.w  d0, sr", "nop")}
     u2, a2 = _control_index(clean)
-    got2 = walk_from([("CtlA", "engine/ctl.emp:1 in Caller", None)], u2, a2, {})
+    got2 = walk_from([("CtlA", "<control seed>", None)], u2, a2, {})
     assert not got2["sr_writes"] and not got2["unresolved"] and got2["max_depth"] == 3, (
         f"the negative half of the control did not come back clean: {got2}"
     )
@@ -1136,7 +1141,7 @@ def test_the_walk_refuses_every_shape_it_cannot_resolve():
     }
     unique, ambiguous = _control_index(sources)
     assert "Twice" in ambiguous and "Seed" in unique, f"{sorted(unique)} / {sorted(ambiguous)}"
-    got = walk_from([("Seed", "engine/caller.emp:1 in Caller", None)], unique, ambiguous, {})
+    got = walk_from([("Seed", "<control seed>", None)], unique, ambiguous, {})
     blob = "\n".join(got["unresolved"])
     for needle, why in (
         ("(a0)", "register-indirect call"),
