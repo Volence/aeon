@@ -15,7 +15,11 @@ the acts this engine builds are 6,144 px tall while the painted band of a Sonic 
 1,024 — so a fall that does not terminate inside the painted band does not terminate at
 all. Nothing measured that. This does.
 
-WHAT IT CHECKS, per 8-px world column of the clip's DESTINATION rectangle:
+WHAT IT CHECKS, per 8-px world column of the WHOLE ACT — not of the clip's destination
+rectangle, which is the subject this gate started with and had to be corrected off. A
+clip act is baked into a BIGGER act's slot, so the rectangle is complete while the act
+around it is not, and the boundary that swallows the player is at the rectangle's EDGE.
+See scan() for the measurement and check() for the two-sided declaration rule:
 
   1. ART. Some tile in that column is non-zero. An all-zero column is a column the
      player walks into and sees nothing.
@@ -43,8 +47,8 @@ chunk words carry two independent solidity nibbles and the converter splits them
 clip act is also the first content on which a wrong `layer` byte is fatal rather than a
 no-op, and the plane-B holes this prints are the map of where it would be fatal.
 Measured on s2_ehz_boot: plane A has a floor in all 512 columns; plane B has none at all
-in x 1344..1407, which is EHZ's own jump-the-pit (Sonic 2 puts a five-ring arc over it at
-x 1392, y 568) seen from the path the player is not on.
+in x 1344..1407, which is EHZ's own jump-the-pit (Sonic 2 puts a row of five rings over it
+at y 568, x 1392..1488) seen from the path the player is not on.
 
 LOUD WHEN IT CANNOT MEASURE. A missing strip file, a strip of the wrong shape, a
 constant that moved, an unreadable crossover table: exit 2, never a pass.

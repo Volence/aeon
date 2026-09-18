@@ -88,8 +88,12 @@ path** — a non-collidable filler tile. Every word quoted in that range is `0x0
 
 What is actually at x 1,344..1,535 is **a genuine Emerald Hill jump.** EHZ's own layout puts the
 all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half; the ground drops
-from y 644 to a floor at y 872; and **Sonic 2's ring layout puts a five-ring arc at x = 1,392,
-y = 568 directly over it.** A clip act inherits OJZ's rings, so that cue is not on screen. The
+from y 644 to a floor at y 872; and **Sonic 2's ring layout puts a horizontal row of five rings over it** — layout entry
+`x=1392, y=568, count=5`, and `RingsMgr_NextRingInRow` steps `addi.w #$18,d2`, so they sit at
+x 1,392 / 1,416 / 1,440 / 1,464 / 1,488, spanning the pit 76 px above its lip. (Decode verified
+against s2disasm's own expander, not assumed: `rol.w #4` + `andi.w #7` is count-1 in bits 12-14,
+`andi.w #$FFF` is Y, `bmi` on the second word is a column. An earlier draft of this report called
+it an *arc*; it is a level row, and the spacing is 24 px, not 16.) A clip act inherits OJZ's rings, so that cue is not on screen. The
 parcel-6 report's runtime item 3 promised "a continuous floor for two sections", which is what
 turned a level feature into a bug report; it is corrected in place.
 

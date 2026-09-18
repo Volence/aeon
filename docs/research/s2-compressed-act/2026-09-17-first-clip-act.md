@@ -361,8 +361,8 @@ shape there is nothing to press.
    landing surface somewhere — that is measured and it holds — but it is NOT a surface you
    can run along. **Emerald Hill act 1 has a jump at x 1,344..1,535**: its own layout puts
    the all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half, the
-   ground drops from y 644 to y 872, and Sonic 2 puts a five-ring arc over it at x 1,392,
-   y 568. A clip act inherits OJZ's rings, so that cue is not on screen and the drop reads as
+   ground drops from y 644 to y 872, and Sonic 2 puts a row of five rings over it at
+   y 568, x 1,392..1,488 (24 px apart — `RingsMgr_NextRingInRow`'s `addi.w #$18,d2`). A clip act inherits OJZ's rings, so that cue is not on screen and the drop reads as
    the world ending. §6.3's table samples eight x values and steps straight over it. What to
    look for instead: **he runs right, and at x ≈ 1,344 the ground falls away into a pit with a
    floor 228 px down.** That is Emerald Hill, correctly converted.

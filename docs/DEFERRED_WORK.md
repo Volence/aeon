@@ -37532,8 +37532,9 @@ commit is not published. Basing on `origin/master` would have branched off a tre
   INFORMATIONAL and turns it red the moment one crossover is marked (a row, not a promise).
 - **The x 1,344..1,535 "missing ground" is genuine Emerald Hill.** EHZ's own layout puts the
   all-empty chunk `$0C` at chunk column 11 and empties chunk `$0B`'s right half; the ground drops
-  from y 644 to a floor at y 872; and Sonic 2's ring layout puts a five-ring arc at x = 1,392,
-  y = 568 directly over it. It is a jump. A clip act inherits OJZ's rings so the cue is absent.
+  from y 644 to a floor at y 872; and Sonic 2's ring layout puts a row of five rings over it at
+  y = 568, x 1,392..1,488 (24 px apart; decode verified against s2disasm's `RingsMgr_NextRingInRow`,
+  not assumed). It is a jump. A clip act inherits OJZ's rings so the cue is absent.
 - **A reading that cost a wrong premise, recorded because it will recur:** "the data DOES contain
   that ground" counted NON-ZERO donor words as solid. A Sonic 2 chunk word is block index in bits
   0-9 and solidity in bits 12-15; `0x00ff` is block 255 with no solidity on either path. Every
