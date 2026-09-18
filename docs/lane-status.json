@@ -1,5 +1,5 @@
 {
-  "focus": "The left-edge check is fixed and awake; it found a blind spot in its own other half on the way.",
+  "focus": "Booted fresh; picking up the sweep for other tools that could read a scene's settings mid-crossfade.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -8,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed, pushed and tidied.",
+  "nextBoundary": "When the cursor-race sweep returns and either lands a fix or reports nothing to fix.",
   "queue": [
     {
       "id": "CURSOR-RACE-SWEEP",
@@ -76,7 +76,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
+  "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
   "atBoundary": true,
-  "updatedAt": "2026-09-18T21:33:38Z"
+  "updatedAt": "2026-09-18T23:24:31Z"
 }
