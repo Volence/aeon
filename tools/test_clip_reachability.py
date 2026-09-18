@@ -123,7 +123,9 @@ def _run(gen, coll, capsys=None):
 def test_a_complete_act_with_a_matching_declaration_passes(tmp_path, monkeypatch):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "the act is fully painted"})
+             declared={"x_from": 4096, "why": "the act is fully painted",
+                       "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800,
+                                          "why": "one floor row, air below it"}})
     assert _run(gen, coll) == 0
 
 
@@ -201,7 +203,9 @@ def test_plane_b_holes_are_informational_until_a_crossover_is_marked(
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096,
                             plane_b_holes=(1600, 1608))
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "why": "fully painted",
+                       "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800,
+                                          "why": "fixture"}})
     assert _run(gen, coll) == 0, "plane B is unreachable, so its holes cannot be fallen into"
 
     table = bytearray((coll / "crossover.bin").read_bytes())
@@ -332,3 +336,56 @@ def test_a_bare_bake_leaves_no_stamp_so_the_readers_refuse(tmp_path):
     with pytest.raises(clip_rom_bake.ClipRomError) as e:
         clip_rom_bake.require_stamp("anything", str(gen), "ground")
     assert "--keep" in str(e.value)
+
+
+# ---------------------------------------------------------------------------
+# The unbounded fall — "every column has a landing surface" is a claim about the TOP
+# ---------------------------------------------------------------------------
+
+def test_an_undeclared_unbounded_fall_fails(tmp_path, monkeypatch, capsys):
+    """The SECOND edge, and the one a walking player meets first.
+
+    The first version of this gate asked only whether each column had a landing surface
+    SOMEWHERE. It does — and a player already below that surface is not helped by it.
+    Sonic 2's terrain interiors are LRB-only and stop nothing falling; the donor game
+    survives that with a level bottom boundary that kills and restarts, and a clip act
+    baked into a bigger act's slot has none.
+    """
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    assert _run(gen, coll) == 1
+    err = capsys.readouterr().err
+    assert "AIR below their LAST landing surface" in err
+    assert "LEVEL BOTTOM BOUNDARY" in err
+
+
+def test_the_unbounded_fall_count_is_two_sided(tmp_path, monkeypatch, capsys):
+    """The count is the check: it moves when a floor, a death plane or a boundary does."""
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    for declared, expect in ((400, "MORE of the act now swallows"), (900, "FEWER")):
+        _install(monkeypatch, gen, (2, 1),
+                 declared={"x_from": 4096, "why": "painted",
+                           "unbounded_fall": {"columns": declared,
+                                              "donor_bottom_boundary": 800,
+                                              "why": "fixture"}})
+        assert _run(gen, coll) == 1
+        assert expect in capsys.readouterr().err
+
+
+def test_a_floor_at_the_bottom_of_every_column_clears_the_unbounded_fall(tmp_path,
+                                                                         monkeypatch):
+    """The green side, and the row that proves this check is NOT VACUOUS.
+
+    It is not simply true of every tree, and the thing that clears it is a floor under
+    the world — which is what a bottom boundary or a death plane would stand in for.
+    """
+    rows, coll_rows, stride = _geometry()
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    for n in range(2):
+        p = gen / f"sec{n}_strips_a.bin"
+        buf = bytearray(p.read_bytes())
+        for lx in range(SECTION_TILES):
+            buf[lx * stride + rows * 2 + coll_rows - 1] = 1   # the last collision row
+        p.write_bytes(bytes(buf))
+    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    assert _run(gen, coll) == 0

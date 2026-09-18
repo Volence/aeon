@@ -27,6 +27,10 @@ See scan() for the measurement and check() for the two-sided declaration rule:
      positive height in the sensor's own column of the 16-byte profile — the same
      arithmetic `probe_core` uses (games/sonic4/player/player_sensors.emp) and the same
      one clip_rom_bake.ground re-derives, applied to every column instead of one.
+  3. THAT A FALL CAN END — whether there is air below the column's LAST landing surface.
+     (2) is a claim about the TOP of a column and says nothing to a player already below
+     it. This third check is the one the first version of this gate did not have, and its
+     absence is what let the x = 4,096 edge be published as the whole story.
 
 WHAT "REACHABLE" MEANS, AND WHY THE GATE IS SHAPED THIS WAY. The engine has two
 collision planes and the querying object's `layer` byte selects between them
@@ -265,15 +269,45 @@ def scan(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, log
                     return y + cell_h - sh
         return None
 
+    # THE SECOND MEASUREMENT, and the one the first version of this gate was missing
+    # (added 2026-09-17 after the coordinator refused the first account — he was right).
+    #
+    # "Every column has a landing surface" is a claim about the TOP of a column, and a
+    # player already BELOW a column's last landing surface is not helped by it. Sonic 2's
+    # terrain interiors are LRB-only ($2000 — solid left/right/bottom and NOTHING to a
+    # falling body), and Sonic 2 survives that with a LEVEL BOTTOM BOUNDARY that kills and
+    # restarts a player who gets under the world. EHZ act 1 declares its own at y = 800
+    # (s2_donor.level_size). A clip act declares none: it inherits a 6,144 px act with
+    # nothing painted below 1,024. So a fall that is a death-and-restart in the donor game
+    # is an ENDLESS fall here, and that — not the x = 4,096 edge — is what a walking
+    # player meets first.
+    def last_landing_row(wx, plane=0):
+        col = wx & (cell_h - 1)
+        last = -1
+        for y in range(0, act_h, cell_h):
+            a = geo.attr(wx, y, plane)
+            if a and (solidity[a] & solid_top):
+                h = heights[a * cell_h + col]
+                sh = h - 256 if h > 127 else h
+                if sh > 0:
+                    last = y
+        return last
+
     no_art, no_floor = [], {p: [] for p in (0, 1)}
+    unbounded = []
     for wx in range(0, act_w, cell_w):
         if not any(geo.tile(wx, wy) for wy in range(0, act_h, 8)):
             no_art.append(wx)
         for plane in (0, 1):
             if floor_y(wx, plane) is None:
                 no_floor[plane].append(wx)
+        last = last_landing_row(wx)
+        if last >= 0 and any(geo.attr(wx, y, 0) == 0
+                             for y in range(last + cell_h, act_h, cell_h)):
+            unbounded.append(wx)
 
     return {"act": act.id, "planes": planes, "why": why, "cell_w": cell_w,
+            "unbounded": unbounded,
             "act_w": act_w, "act_h": act_h,
             "grid": [grid_w, grid_h], "section_px": section_px,
             "clip_rects": {c.id: list(c.dst) for c in act.clips},
@@ -413,14 +447,53 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
                 log(f"  plane {name}: a landing surface in every painted column "
                     f"(unreachable in this act, reported anyway)")
 
+    # -- THE UNBOUNDED FALL -------------------------------------------------------
+    # Declared and two-sided, like the remainder above. The COUNT is the thing that moves:
+    # add a floor, a death plane or a bottom boundary and it drops; lose one and it rises.
+    # Either way this stops agreeing with the manifest and the build says so.
+    # `donor_bottom_boundary` records the y at which the DONOR GAME kills a player who gets
+    # under its world — the whole reason the same geometry is survivable there and fatal
+    # here — and is derived (s2_donor.level_size), never typed into the tool.
+    unbounded = [x for x in r["unbounded"] if x < trailing_from]
+    decl = r["declared"] or {}
+    want = decl.get("unbounded_fall") if isinstance(decl, dict) else None
+    if unbounded and want is None:
+        shown = _runs(unbounded, step)
+        failures.append(
+            f"{len(unbounded)} of {trailing_from // step} painted columns have AIR below "
+            f"their LAST landing surface — x runs {shown[:6]}"
+            + ("..." if len(shown) > 6 else "") + ". A body below that surface has no "
+            f"floor anywhere in the {r['act_h']} px act and falls forever. Sonic 2's "
+            f"terrain interiors are LRB-only and stop nothing falling; the donor game "
+            f"survives that with a LEVEL BOTTOM BOUNDARY that kills and restarts, and this "
+            f"act has none. Declare it inside `unpainted_remainder`: "
+            f'"unbounded_fall": {{"columns": {len(unbounded)}, '
+            f'"donor_bottom_boundary": <the donor level\'s own bottom y>, '
+            f'"why": "<why this act ships without a bottom boundary>"}}')
+    elif want is not None:
+        if not isinstance(want, dict) or "columns" not in want:
+            raise Unmeasurable('"unbounded_fall" must be an object with a "columns" count')
+        if want["columns"] != len(unbounded):
+            failures.append(
+                f"the manifest declares {want['columns']} unbounded-fall column(s) and the "
+                f"bytes have {len(unbounded)}. "
+                + ("MORE of the act now swallows a falling body than was declared."
+                   if len(unbounded) > want["columns"] else
+                   "FEWER — something gained a floor, which is good news the declaration "
+                   "has not caught up with. Re-derive it."))
+        elif log:
+            log(f"  unbounded fall: {len(unbounded)} column(s), exactly as declared "
+                f"(the donor game's own bottom boundary: "
+                f"y={want.get('donor_bottom_boundary')}; this act has none)")
+
     if failures:
         for f in failures:
             print(f"clip_reachability: FAIL — {f}", file=sys.stderr)
         return 1
     if log:
         log("clip_reachability: OK — the painted world ends where the manifest says it "
-            "does, and every column inside it carries art and terminates a fall on every "
-            "reachable plane")
+            "does, every column inside it carries art and a landing surface on every "
+            "reachable plane, and the unbounded-fall volume is the declared one")
     return 0
 
 

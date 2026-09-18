@@ -321,17 +321,57 @@ def _tables(tmp_path, entries):
 
 class _GroundAct:
     section_px = 2048
+    id = "ground_fixture_act"
 
     def __init__(self, clips=()):
         self.clips = list(clips)
 
 
-def _ground(tmp_path, gen, coll, monkeypatch, spawn):
+def _ground(tmp_path, gen, coll, monkeypatch, spawn, stamp=True):
+    """Drive `ground` over a synthetic tree.
+
+    THE STAMP IS PART OF THE FIXTURE NOW (parcel 7, 2026-09-17). `ground` refuses a
+    generated tree that is not the clip act's before it measures anything, so these rows
+    have to hand it one — and `stamp=False` is how the row below checks that it does.
+    """
+    if stamp:
+        CRB.write_stamp(_GroundAct(), str(gen), "unused.json")
     monkeypatch.setattr(CRB, "engine_spawn", lambda *a, **k: spawn)
     monkeypatch.setattr(CRB, "donor_corroboration",
                         lambda *a, **k: {"measured": False, "why": "not this row"})
     monkeypatch.setattr(CRB.clip_manifest, "load", lambda *a, **k: _GroundAct())
     return CRB.ground("unused.json", gen_dir=str(gen), coll_dir=str(coll), log=None)
+
+
+def test_ground_refuses_a_tree_that_is_not_this_clip_acts(tmp_path, monkeypatch):
+    """The stale-tree trap, closed at the doorway rather than in the numbers.
+
+    Before parcel 7, `ground` against a tree baked from something else reached
+    donor_corroboration and refused with ITS message — "a difference that is a multiple
+    of 8 or 16 is a PASTE SHIFT". It was not a paste shift; it was the wrong act, and a
+    reader acting on that message would audit R12 and the clip rectangle, which are
+    innocent. It now refuses BEFORE measuring, and says which act it found.
+    """
+    gen = tmp_path / "gen"
+    gen.mkdir()
+    coll = _tables(tmp_path, {})
+    with pytest.raises(CRB.ClipRomError) as e:
+        _ground(tmp_path, gen, coll, monkeypatch, (0, 0), stamp=False)
+    assert "carries no clip_bake_stamp.json" in str(e.value)
+    assert "--keep" in str(e.value)
+
+    CRB.write_stamp(_GroundAct(), str(gen), "unused.json")
+    import json as _json
+    sp = gen / CRB.STAMP_NAME
+    d = _json.loads(sp.read_text())
+    d["act"] = "a_completely_different_clip"
+    sp.write_text(_json.dumps(d))
+    with pytest.raises(CRB.ClipRomError) as e:
+        _ground(tmp_path, gen, coll, monkeypatch, (0, 0), stamp=False)
+    msg = str(e.value)
+    assert "STALE TREE, not a geometry problem" in msg
+    assert "a_completely_different_clip" in msg
+    assert "PASTE SHIFT" not in msg
 
 
 def test_ground_finds_the_first_solid_cell_and_places_the_surface(tmp_path, monkeypatch):

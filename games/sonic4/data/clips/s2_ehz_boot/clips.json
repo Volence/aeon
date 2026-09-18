@@ -2,20 +2,38 @@
   "schema": 1,
   "units": "world_px",
   "id": "s2_ehz_boot",
-  "name": "S2-COMPRESSED-ACT row 6: the first bootable clip act — the opening stretch of Emerald Hill Zone act 1",
-  "note": "WHY THIS RECTANGLE. (1) It is two sections wide, which is what staged plan row 6 asks for; its height is 1024 and not 2048 because EHZ's whole crop is 128 tiles tall (zone.json extent.crop_tiles) and R9 refuses a rect past it. (2) src == dst, so the paste SHIFT is (0,0): R12's 16-px block quantum is satisfied by construction, and a collision misalignment — which moves ground 8 px and which no screenshot shows — cannot hide behind a nonzero shift here. (3) dst (0,0) puts painted geometry in SECTION 0, which is the section whose block blob and local map own the map.toml head labels (OJZ_Sec0_Blocks / OJZ_Sec0_LocalMap); an all-air section 0 would content-dedup into an `equ` alias of some other section and the placement rows would name a label that is not a section head. (4) It is the opening of Emerald Hill act 1 — flat ground under the whole spawn column, the first hill, palm trees — which is the most recognisable ground in Sonic 2 and therefore the clearest possible answer to 'is this our engine drawing Sonic 2'. (5) EHZ has ZERO cells on CRAM line 0 (verified in its zone.json counts, not assumed), so the palette defect parcel 2 measured in CPZ and WFZ cannot appear here.",
-  "act": { "grid_w": 3, "grid_h": 3 },
+  "name": "S2-COMPRESSED-ACT row 6: the first bootable clip act \u2014 the opening stretch of Emerald Hill Zone act 1",
+  "note": "WHY THIS RECTANGLE. (1) It is two sections wide, which is what staged plan row 6 asks for; its height is 1024 and not 2048 because EHZ's whole crop is 128 tiles tall (zone.json extent.crop_tiles) and R9 refuses a rect past it. (2) src == dst, so the paste SHIFT is (0,0): R12's 16-px block quantum is satisfied by construction, and a collision misalignment \u2014 which moves ground 8 px and which no screenshot shows \u2014 cannot hide behind a nonzero shift here. (3) dst (0,0) puts painted geometry in SECTION 0, which is the section whose block blob and local map own the map.toml head labels (OJZ_Sec0_Blocks / OJZ_Sec0_LocalMap); an all-air section 0 would content-dedup into an `equ` alias of some other section and the placement rows would name a label that is not a section head. (4) It is the opening of Emerald Hill act 1 \u2014 flat ground under the whole spawn column, the first hill, palm trees \u2014 which is the most recognisable ground in Sonic 2 and therefore the clearest possible answer to 'is this our engine drawing Sonic 2'. (5) EHZ has ZERO cells on CRAM line 0 (verified in its zone.json counts, not assumed), so the palette defect parcel 2 measured in CPZ and WFZ cannot appear here.",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 3
+  },
   "unpainted_remainder": {
     "x_from": 4096,
-    "why": "THE CLIP ACT INHERITS THE SHIPPED ACT'S EXTENT, AND THIS IS WHERE THAT SHOWS. A clip act is baked into the shipped OJZ act's slot at the shipped act's grid (clip_rom_bake R21, because GRID_W/GRID_H are hand-written in act_descriptor.emp and shared with the canonical ROM), so this 4096x1024 clip lives inside a 6144x6144 act. Sections 2, 5 and 8 are baked as air — 0 of 256 non-empty blocks, content-deduped to one 1024-byte blob — and at x=4096 the art and BOTH collision planes stop dead, top to bottom. The camera's EDGE_CLAMP clamps the CAMERA to the act, not the player to the clip, so a player who keeps running right leaves the painted world and falls 6144 px with nothing to land on. That is not a defect in this bake and it cannot be fixed by widening the rectangle (EHZ's own act 1 has a bottomless pit at x 4672..4863, so a 3-section clip trades this edge for a worse one); it is the cost of the throwaway slot, and the fix is a clip act that owns its own act extent — staged plan row 7+. Declared here so the build CHECKS the edge instead of a report describing it: clip_reachability.py refuses if the painted world ends anywhere but exactly x=4096."
+    "why": "THE CLIP ACT INHERITS THE SHIPPED ACT'S EXTENT, AND THIS IS WHERE THAT SHOWS. A clip act is baked into the shipped OJZ act's slot at the shipped act's grid (clip_rom_bake R21, because GRID_W/GRID_H are hand-written in act_descriptor.emp and shared with the canonical ROM), so this 4096x1024 clip lives inside a 6144x6144 act. Sections 2, 5 and 8 are baked as air \u2014 0 of 256 non-empty blocks, content-deduped to one 1024-byte blob \u2014 and at x=4096 the art and BOTH collision planes stop dead, top to bottom. The camera's EDGE_CLAMP clamps the CAMERA to the act, not the player to the clip, so a player who keeps running right leaves the painted world and falls 6144 px with nothing to land on. That is not a defect in this bake and it cannot be fixed by widening the rectangle (EHZ's own act 1 has a bottomless pit at x 4672..4863, so a 3-section clip trades this edge for a worse one); it is the cost of the throwaway slot, and the fix is a clip act that owns its own act extent \u2014 staged plan row 7+. Declared here so the build CHECKS the edge instead of a report describing it: clip_reachability.py refuses if the painted world ends anywhere but exactly x=4096.",
+    "unbounded_fall": {
+      "columns": 512,
+      "donor_bottom_boundary": 800,
+      "why": "THE ACT HAS NO BOTTOM, AND THIS IS THE EDGE A WALKING PLAYER MEETS FIRST. Every one of the 512 painted columns has air below its LAST landing surface, so a body that gets under the terrain has no floor anywhere in the 6144 px act and falls forever. It is not a conversion defect: Sonic 2's terrain interiors are LRB-only ($2000 - solid left/right/bottom and NOTHING to a falling body), and Sonic 2 survives that with a LEVEL BOTTOM BOUNDARY that kills and restarts. EHZ act 1 declares its own at y=800 (s2_donor.level_size -> (0, 10656, 0, 800)). A clip act declares none, because the act it is baked into is the shipped OJZ act whose descriptor is hand-written and shared with the canonical ROM. So every fall that is a death-and-restart in the donor game is an ENDLESS fall here - which is what happens at EHZ's own jump-the-pit at x 1344..1535, whose floor (y 864..895) STOPS at the pit's right lip while x 1536..1663 has its lowest landing surface at y 624..656 and its first floorless air at y=672, sixteen pixels below the running surface. THE COUNT IS THE CHECK: add a floor, a death plane or a bottom boundary and it drops, and this gate says so. A clip act owning its own act extent AND its own bottom boundary is staged plan row 7+."
+    }
   },
   "clips": [
     {
       "id": "ehz_opening",
       "donor": "s2disasm",
       "zone": "EHZ",
-      "src_rect": { "x": 0, "y": 0, "w": 4096, "h": 1024 },
-      "dst_rect": { "x": 0, "y": 0, "w": 4096, "h": 1024 }
+      "src_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 4096,
+        "h": 1024
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 4096,
+        "h": 1024
+      }
     }
   ]
 }
