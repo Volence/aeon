@@ -599,6 +599,13 @@ def test_comment_prose_cannot_satisfy_a_mechanism():
 # so "unbounded" is a measurement rather than a claim.
 #
 # WHAT THE RESOLVER CAN SEE:
+#   * every control transfer OUT of a reachable proc, not only `jbsr`: `jsr`, `bsr`,
+#     `jbra`, `jmp`, every `b<cc>`/`jb<cc>` and every `db<cc>`. A TAIL CALL IS A CALL
+#     (`jbra Other` leaves the proc exactly as `jbsr Other` does, and this tree has 383
+#     of them), and an edge type the walker did not follow would be a hole of the same
+#     class as the one it closes — a silent one, since a missing edge is not even an
+#     unresolved call. Nearly all branch targets are `.local` labels and resolve to the
+#     enclosing proc, which is already scanned in full.
 #   * `jbsr Name` / `jsr Name` / `bsr(.w|.s|.b|.l) Name` where `Name` has exactly
 #     one `proc Name (...) {` DEFINITION under engine/ or games/. The `{` on the
 #     proc line is what separates a definition from a contract DECLARATION
@@ -631,6 +638,21 @@ def test_comment_prose_cannot_satisfy_a_mechanism():
 # --------------------------------------------------------------------------------
 
 RE_CALL_OPERAND = re.compile(r"\b(?:jbsr|jsr|bsr(?:\.[wsbl])?)\s+(\S+)")
+# A TAIL CALL is a call. `jbra Other` / `jmp Other` / `beq Other` leave this proc for
+# another one exactly as `jbsr` does, and 383 `jbra` sit in this tree — an edge type the
+# walker did not follow would be a hole of the SAME class this arm exists to close, and a
+# silent one, because a missing edge is not even an unresolved call. So every control
+# transfer is an edge. Almost all of them target a `.local` label, which resolves to the
+# enclosing proc and adds nothing; the ones that name a proc are followed.
+# The condition-code list is spelled out rather than written `b\w\w` so that `btst`,
+# `bset`, `bclr`, `bchg` — and the identifiers `bit`, `body`, `blue` in this tree — cannot
+# match: no two-letter prefix of any of them is a 68000 condition code.
+_CC_ALT = r"cc|cs|eq|ge|gt|hi|le|ls|lt|mi|ne|pl|vc|vs|hs|lo|ra"
+RE_BRANCH_OPERAND = re.compile(r"\b(?:j?b(?:" + _CC_ALT + r")|jmp)(?:\.[wsbl])?\s+(\S+)")
+# `dbcc` puts the target SECOND.
+RE_DBCC_OPERAND = re.compile(
+    r"\bdb(?:f|t|" + _CC_ALT + r")(?:\.[wsbl])?\s+\S+\s*,\s*(\S+)"
+)
 RE_LOCAL_LABEL_DEF = re.compile(r"^\s*(\.\w+)\s*:")
 RE_WITH_NAME = re.compile(r"\bwith\s+([A-Za-z_]\w*)")
 RE_CONTEXT_DECL_ANY = re.compile(r"^\s*(?:pub\s+)?context\s+(\w+)")
@@ -781,10 +803,17 @@ def context_mask_verdicts() -> dict[str, dict]:
 
 
 def calls_in(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Every control transfer OUT of these lines: calls AND branches/jumps.
+
+    Branches are included because a tail call is a call (see RE_BRANCH_OPERAND). The
+    overwhelming majority resolve to a `.local` label and therefore to the enclosing
+    proc, which the walker has already scanned in full.
+    """
     out: list[tuple[int, str]] = []
     for n, text in lines:
-        for m in RE_CALL_OPERAND.finditer(text):
-            out.append((n, m.group(1).rstrip(",")))
+        for rx in (RE_CALL_OPERAND, RE_BRANCH_OPERAND, RE_DBCC_OPERAND):
+            for m in rx.finditer(text):
+                out.append((n, m.group(1).rstrip(",")))
     return out
 
 
@@ -802,9 +831,10 @@ def walk_from(seeds, unique, ambiguous, contexts) -> dict:
     visits = 0
     stack = [(op, 1, where, encl) for op, where, encl in seeds]
 
+    seen_local: set[tuple[str, str]] = set()
+
     while stack:
         operand, depth, where, enclosing = stack.pop()
-        max_depth = max(max_depth, depth)
         visits += 1
         if visits > WALK_VISIT_CEILING:
             unresolved.append(
@@ -816,7 +846,13 @@ def walk_from(seeds, unique, ambiguous, contexts) -> dict:
 
         if operand.startswith("."):
             # A local label: its block lives inside the enclosing proc, whose whole
-            # body is already scanned. It adds nothing — if it is really there.
+            # body is already scanned. It adds nothing to the closure and it is NOT a
+            # depth level (control never left the proc), so it does not move max_depth.
+            # Deduplicated per proc so a branch-heavy body cannot walk the visit ceiling.
+            key = ((enclosing or {}).get("name", "?"), operand)
+            if key in seen_local:
+                continue
+            seen_local.add(key)
             found = False
             if enclosing is not None:
                 for _, t in enclosing["lines"]:
@@ -830,6 +866,8 @@ def walk_from(seeds, unique, ambiguous, contexts) -> dict:
                     f"{(enclosing or {}).get('name', '<no enclosing proc>')} — cannot resolve"
                 )
             continue
+
+        max_depth = max(max_depth, depth)
 
         if not RE_PLAIN_NAME.match(operand):
             unresolved.append(
@@ -1034,9 +1072,11 @@ def test_spanned_mask_calls_resolve_and_never_write_sr():
     audit = spanned_call_audit()
     print(f"mechanism-2 spanned sites audited: {len(audit)}")
     for rec in audit:
+        named = [c for _, c in rec["direct"] if not c.startswith(".")]
+        local = [c for _, c in rec["direct"] if c.startswith(".")]
         print(
             f"  {rec['site']} in {rec['proc']} (mask at :{rec['mask_line']}): "
-            f"{len(rec['direct'])} direct call(s) {[c for _, c in rec['direct']]}, "
+            f"{len(named)} transfer(s) naming a proc {named} + {len(local)} local branch(es), "
             f"closure {sorted(rec['closure'])} (max depth {rec['max_depth']}, unbounded walk)"
         )
 
@@ -1115,6 +1155,46 @@ def test_the_walk_catches_an_sr_write_at_depth_two():
     )
 
 
+def test_the_walk_follows_a_tail_call():
+    """Control: a `jbra` to another proc is an EDGE, not a line the walker skips.
+
+    Without this, a callee could tail-call something that lowers the mask and the arm
+    would come back green having never looked — the silent form of the very hole it
+    exists to close. The negative half pins the discrimination: the same chain with the
+    `sr` write removed comes back clean, so the red is the write and not the `jbra`.
+    """
+    chain = {
+        "engine/tail.emp": (
+            "pub proc TailA () clobbers() {\n"
+            "        beq     .skip\n"
+            "        jbra    TailB\n"
+            "    .skip:\n"
+            "        rts\n"
+            "}\n"
+            "pub proc TailB () clobbers() {\n"
+            "        move.w  d0, sr\n"
+            "        rts\n"
+            "}\n"
+        )
+    }
+    unique, ambiguous = _control_index(chain)
+    got = walk_from([("TailA", "<control seed>", None)], unique, ambiguous, {})
+    assert not got["unresolved"], (
+        f"the local branch `beq .skip` or the tail call did not resolve: {got['unresolved']}"
+    )
+    assert "TailB" in got["closure"], (
+        "the walk did not follow `jbra TailB`, so a tail call is invisible to it: "
+        f"closure {sorted(got['closure'])}"
+    )
+    assert len(got["sr_writes"]) == 1 and "TailB" in got["sr_writes"][0], got["sr_writes"]
+    clean = {"engine/tail.emp": chain["engine/tail.emp"].replace("move.w  d0, sr", "nop")}
+    u2, a2 = _control_index(clean)
+    got2 = walk_from([("TailA", "<control seed>", None)], u2, a2, {})
+    assert not got2["sr_writes"] and not got2["unresolved"] and "TailB" in got2["closure"], (
+        f"the negative half of the tail-call control did not come back clean: {got2}"
+    )
+
+
 def test_the_walk_refuses_every_shape_it_cannot_resolve():
     """Control: LOUD ON UNMEASURABLE.
 
@@ -1169,5 +1249,6 @@ if __name__ == "__main__":
     test_declared_contexts_cannot_lower_an_established_mask()
     test_spanned_mask_calls_resolve_and_never_write_sr()
     test_the_walk_catches_an_sr_write_at_depth_two()
+    test_the_walk_follows_a_tail_call()
     test_the_walk_refuses_every_shape_it_cannot_resolve()
     print("OK")
