@@ -1,9 +1,9 @@
 {
-  "focus": "Emerald Hill runs five sections wide and is landed. The ROM on your disk is the one to fly.",
+  "focus": "A gate that has guarded the left edge since chain 197 turns out never to have run its own check.",
   "inFlight": [
     {
-      "what": "Running a gate arm that has never once executed since it was written",
-      "where": "branch off cb593b02",
+      "what": "Telling apart a broken gate from a real bug: whether the engine's 'which scene am I' pointer is wrong in ordinary play too",
+      "where": "branch off c92f7248",
       "agent": true
     }
   ],
@@ -17,19 +17,19 @@
   "nextBoundary": "After you have flown the wider act east and said whether the ground holds.",
   "queue": [
     {
+      "id": "PARALLAX-CURRENT-CONFIG-SUSPECT",
+      "title": "The pointer that says which scene is active reads as something that is not a scene; two other things trust it and both fail quietly",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
       "id": "S2-COMPRESSED-ACT",
       "title": "Sonic 2 test act: LANDED five sections wide; waiting on your eye, not on work",
       "state": "blocked",
       "size": "L",
       "blockedBy": "landed; the flythrough is yours -- no emulator was used anywhere in it",
       "project": "REGIONS"
-    },
-    {
-      "id": "GATE-UNRUN-RECOVERY",
-      "title": "A gate whose new arm has never once run: it was never actually blocked, so it is five minutes",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     },
     {
       "id": "S2CLIP-TRUNCATION",
@@ -77,5 +77,5 @@
   ],
   "awaiting": "a flythrough: hold RIGHT from the spawn on s4.s2clip.bin (md5 45268bc1) and tell me if the ground runs unbroken to the end. Expect two floorless pits and no signpost -- both explained below.",
   "atBoundary": false,
-  "updatedAt": "2026-09-18T18:51:54Z"
+  "updatedAt": "2026-09-18T19:01:40Z"
 }
