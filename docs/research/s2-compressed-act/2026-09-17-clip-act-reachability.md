@@ -21,7 +21,9 @@ mis-derived clip height. The answer is the first one, in mechanism, at a differe
 anyone was looking.
 
 **Nothing in the pipeline is truncated. The level data is complete and faithful.** Measured on
-the emitted bytes, over the whole clip rectangle:
+the emitted bytes, over the whole clip rectangle — **and see §3a: that is a true sentence about
+the RECTANGLE and it is the wrong question**, which the coordinator said in those words and was
+right to:
 
 | what | measured |
 |---|---|
@@ -97,9 +99,59 @@ it an *arc*; it is a level row, and the spacing is 24 px, not 16.) A clip act in
 parcel-6 report's runtime item 3 promised "a continuous floor for two sections", which is what
 turned a level feature into a bug report; it is corrected in place.
 
-## 4. Found on the way — the only thing inside the rectangle that CAN swallow a player
+## 3a. THE SECOND EDGE — the coordinator refused the account above, and he was right
+
+He measured, firsthand in Oracle on this ROM: on the ground at x 1,027 / 1,330 / 1,472, falling
+by x 1,901 (y 2,143), still falling at x 3,701 (y 5,920), and art ending roughly a third of a
+screen right of a player at x 1,330 — near x ≈ 1,500, not 4,096. His three reconciliations, in
+order, with the evidence:
+
+**Candidate 1 — the rectangle's 1,024 px height cuts EHZ terrain that descends below it.
+REFUTED, at the RAW SOURCE rather than at the cropped donor** (the cropped donor would show
+zeros by construction, which is why that is not where I looked). `s2_donor.load_fg_grid('EHZ')`
+returns a 16 × 128 chunk grid, and **chunk rows 8 through 15 — world y 1,024..2,047 — hold zero
+non-zero chunks across x 0..4,095**, every one of the eight rows measured. EHZ act 1's own
+declared size is `(0, 10656, 0, 800)`. There is no terrain below y = 1,024 to cut.
+
+**Candidate 2 — my x is not his x. REFUTED.** The spawn agrees: he read x = 256, and the ground
+check derives world (256, 256) from the engine.
+
+**Candidate 3 — his art reading is a camera or pool artefact. NO: it is real content geometry**
+— EHZ's own jump at x 1,344..1,535, where the surface terrain ends and the next art is 220 px
+lower, below the bottom of the screen at that camera position.
+
+**And he is right that there are TWO EDGES, and that his is the one a walking player meets
+first.** Mine at x = 4,096 is real and is what the owner's FREE FLIGHT screenshot shows — he flew
+right past it. His is this, and it is a different mechanism:
+
+> **THE ACT HAS NO BOTTOM BOUNDARY.** All **512 of 512** painted columns have air below their
+> LAST landing surface. Sonic 2's terrain interiors are LRB-only (`$2000` — solid left, right and
+> bottom, and *nothing at all* to a falling body), and Sonic 2 survives that with a level bottom
+> boundary that kills and restarts: **EHZ act 1 declares its own at y = 800.** A clip act declares
+> none — it inherits the shipped act's 6,144 px height. **So every fall that is a
+> death-and-restart in the donor game is an endless fall here.**
+
+The local shape, measured: the pit's floor at y 864..895 spans x 1,280..1,535 and **stops at the
+pit's right lip**; the columns at x 1,536..1,663 have their lowest landing surface at y 624..656
+and their first floorless air at **y = 672 — sixteen pixels below the running surface**. A body
+that falls into the pit carrying forward speed clears the floor's right edge.
+
+**What I could not settle, and am not going to dress up.** In a pure 8 × 16 cell model both
+floorless volumes are *sealed* from the spawn — a flood fill over air reaches 23,936 cells and
+**zero** of them lie below their column's last landing surface. But a 20 × 40 px body moving
+6-16 px per frame is not a cell model, and his numbers fit: from his own x 1,472 / y 671 sample
+the implied horizontal speed is 6.2 px/frame and the implied fall is 46 px, which is what gravity
+gives over that distance from a lip at x ≈ 1,344. **Which volume he entered, and by what, is a
+runtime question** — §7 item 4 is the discriminator.
+
+**So: "the level data is complete and faithful" is true about the rectangle and is the wrong
+question.** The right one is whether a fall can end, and for this act the answer is: nowhere.
+
+## 4. A latent defect, invisible today
 
 **Plane B has no landing surface at all in x 1,344..1,407** — 8 columns, bottomless.
+(An earlier draft of this report called this *"the only thing inside the rectangle that CAN
+swallow a player"*. That was wrong, and §3a is what corrects it: the whole act can.)
 
 It is harmless today and was invisible before today, for two independent reasons:
 
@@ -134,10 +186,21 @@ Per 8-px world column of the act:
    height in the sensor's own column of the 16-byte profile, the arithmetic `probe_core` uses.
    Reachability is **read** from the crossover table, never assumed.
 
-The unpainted remainder is declared in the manifest and the check is **two-sided**: a void
-starting *earlier* than declared is missing content; *later* (or absent) is a stale declaration
-that has stopped asking anything. A clip act with no declaration and a real void fails by name,
-with the numbers — that is the state `s2_ehz_boot` shipped in.
+3. **that a fall can END** — whether there is air below the column's LAST landing surface.
+   **This is the check the first version of this gate did not have, and its absence is what let
+   me publish the x = 4,096 account as if it were the whole story.** (2) is a claim about the TOP
+   of a column and says nothing to a player already below it.
+
+Both the remainder and the unbounded-fall volume are declared in the manifest, and both checks
+are **two-sided**: a void starting *earlier* than declared is missing content, *later* (or
+absent) is a stale declaration that has stopped asking anything; an unbounded-fall count higher
+than declared means more of the act swallows a falling body, lower means something gained a floor
+and the declaration has not caught up. A clip act with no declaration and a real void fails by
+name, with the numbers — that is the state `s2_ehz_boot` shipped in, on both counts.
+
+The unbounded-fall row also records `donor_bottom_boundary`: the y at which the DONOR GAME kills
+a player who gets under its world (EHZ 800, from `s2_donor.level_size` — derived, not typed).
+That number is the whole reason the same geometry is survivable there and fatal here.
 
 Derived, never typed: the strip layout from `ojz_strip_gen`'s source; `SOLID_TOP`,
 `COLL_CELL_W`/`COLL_CELL_H` from `engine/system/constants.emp`; the grid from the descriptor;
@@ -152,8 +215,9 @@ tree, the real tree untouched):
 | mark one crossover attr byte | `crossover.bin[9]` 0 → 1, nonzero entries 0 → 1 | exit **1**, names plane B's 8 columns |
 | zero one tile column's plane-A collision | tile col 200's 128 plane-A bytes, nonzero 3 → 0 | exit **1**, names x run (1600, 1608) |
 | remove a strip file | `sec1_strips_a.bin` moved away | exit **2**, COULD NOT MEASURE |
+| put a landing surface in every column's last collision row | unbounded-fall count 512 → 0 | exit **0** — the row that proves this check is **not vacuous**, and that what clears it is a floor under the world |
 
-Plus 19 donor-free, build-free rows in `tools/test_clip_reachability.py`, proven to pass with
+Plus 22 donor-free, build-free rows in `tools/test_clip_reachability.py`, proven to pass with
 `games/sonic4/data/donors` moved away.
 
 ## 6. The bare-bake defect, and the stale-tree trap
@@ -207,7 +271,8 @@ the condition under test.
 | the only hard vertical line is at x = 4,096, and terrain is continuous everywhere left of it | **the static account is confirmed.** One boundary, the one in the bytes |
 | a hard line at some *other* fixed world x, left of 4,096 | **the static account is WRONG** and there is a second cause the emitted bytes do not carry. Report the x — every column below 4,096 measures complete, so a line there is a runtime bound, not data |
 | a line that **moves with you** and **fills in within a second when you stop** | a fill-throughput lag, not a bound: the camera outran `BLOCK_DECOMP_BUDGET` (6 blocks/frame). Would be a *new* finding — it is not what the bytes say and not what parcel 7 claims |
-| the ground at x ≈ 1,344 does **not** catch him at y ≈ 872 | the collision planes are not reaching the sensors after all, and §1's table is wrong somewhere. This is the one result that would falsify the central claim |
+| he falls into the pit at x ≈ 1,344 and **is caught** at y ≈ 872 | the pit floor works, and the endless fall needs a different entry — most likely past its right lip with forward speed. Try again at full running speed |
+| he falls into the pit and is **not** caught | §3a: he has cleared the floor's right edge or got under the terrain, and there is no bottom boundary to stop him. **Note his x when he passes y = 1,024** — that is the entry point, and it is the number I could not derive |
 | he ends up on plane B (anything that changes `layer`) | impossible per §4 unless something new writes it — and §4's 8 bottomless columns become live. Say so loudly |
 
 **Verify DURING motion, not from a still frame.** The distinction between item 4's first and
@@ -215,9 +280,13 @@ third rows is *only* visible while moving and while stopping.
 
 ## 8. What is still open
 
-* **The owner's x samples (1,472 / 1,901) are not reconciled.** Every column at those x measures
-  complete — art, plane-A floor, block decode — so either the sampled quantity was not the
-  player's world x, or there is a runtime bound the bytes cannot show. §7 item 4 is the
-  discriminator, and this is flagged rather than explained away.
+* **RECONCILED (§3a), but not completely.** The x samples are world x and they fit a fall
+  beginning at EHZ's own pit at x ≈ 1,344 into an act with no bottom boundary. What is NOT settled
+  is WHICH floorless volume the body entered and by what means — in a pure cell model both are
+  sealed from the spawn, and a 20 × 40 px body at 6-16 px/frame is not a cell model. §7 item 4
+  and its two new rows are the discriminator. Flagged, not explained away.
+* **A bottom boundary / death plane for a clip act.** The donor declares one (EHZ y = 800) and
+  the act has none. It is the single change that would turn all 512 unbounded columns into the
+  death-and-restart the donor game performs. Row 7+, and arguably before the corridor.
 * **Plane B's 8 bottomless columns** are informational until something marks a crossover.
 * **A clip act owning its own extent** is row 7+ and is the real fix for §2.

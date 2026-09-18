@@ -37542,11 +37542,38 @@ commit is not published. Basing on `origin/master` would have branched off a tre
 - **The clip height was right.** `crop_tiles [0, 1372, 0, 128]` is consistent: the converter
   measured 217,600 pad cells outside the crop with 0 non-zero. Design hypothesis 3 stands.
 
+**THE SECOND EDGE — added after the controller refused the account above, and he was right**
+
+- **THERE ARE TWO EDGES AND HIS IS THE ONE A WALKING PLAYER MEETS FIRST.** x = 4,096 is real and
+  is what the owner's FREE FLIGHT screenshot shows. The other is this: **THE ACT HAS NO BOTTOM
+  BOUNDARY.** All 512 of 512 painted columns have air below their LAST landing surface. Sonic 2's
+  terrain interiors are LRB-only (`$2000` — solid left/right/bottom and NOTHING to a falling
+  body), and Sonic 2 survives that with a level bottom boundary that kills and restarts; **EHZ
+  act 1 declares its own at y = 800** (`s2_donor.level_size` → `(0, 10656, 0, 800)`). A clip act
+  declares none — it inherits the shipped act's 6,144 px height. **Every fall that is a
+  death-and-restart in the donor game is an endless fall here.** Locally: the pit's floor at
+  y 864..895 spans x 1,280..1,535 and STOPS at the pit's right lip, and x 1,536..1,663 has its
+  lowest landing surface at y 624..656 with its first floorless air at y = 672 — sixteen pixels
+  below the running surface.
+- **"The clip's data is complete and faithful" is true about the RECTANGLE and is the wrong
+  question** — the controller's words, and correct. The right question is whether a fall can end.
+- **The gate was extended to ask it**, two-sided on the count, with `donor_bottom_boundary`
+  derived from `s2_donor.level_size` and recorded beside it. A row proves it is not vacuous: put
+  a landing surface in every column's last collision row and the count goes 512 → 0.
+- **His candidate 1 (the 1,024 px rectangle cuts descending terrain) is REFUTED AT THE RAW
+  SOURCE**, not at the cropped donor: `load_fg_grid('EHZ')` is 16 × 128 chunks and rows 8..15
+  (y 1,024..2,047) hold ZERO non-zero chunks across x 0..4,095, every row measured. Candidate 2
+  (coordinate mismatch) is refuted — the spawn agrees at x = 256. Candidate 3 is no: the art
+  reading is real content geometry, EHZ's own jump.
+
 **STILL OPEN**
 
-- **The owner's x samples (1,472 / 1,901) are NOT reconciled.** Every column at those x measures
-  complete. Either the sampled quantity was not the player's world x, or there is a runtime bound
-  the emitted bytes cannot show. The report's §7 item 4 is the discriminator (free flight, plain
-  lateral movement, watch whether the only hard line is at 4,096 and whether it moves/refills);
-  flagged rather than explained away.
-- **A clip act owning its own act extent** — row 7+, and the real fix for the cause above.
+- **WHICH floorless volume the body entered is NOT settled.** In a pure 8 × 16 cell model both are
+  sealed from the spawn (a flood fill reaches 23,936 air cells and ZERO of them lie below their
+  column's last landing surface), but a 20 × 40 px body at 6-16 px/frame is not a cell model. The
+  report's §7 item 4 plus two new falsifier rows are the discriminator — the number to bring back
+  is the player's x as he passes y = 1,024. Flagged, not explained away.
+- **A bottom boundary / death plane for a clip act.** The single change that would turn all 512
+  unbounded columns into the death-and-restart the donor game performs. Row 7+, and arguably
+  before the corridor.
+- **A clip act owning its own act extent** — row 7+, and the real fix for the x = 4,096 cause.
