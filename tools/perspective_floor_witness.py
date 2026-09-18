@@ -152,6 +152,29 @@ async def settle_transition(client, lst_path, limit=None):
     never completed" and "we gave up early" deserve different verdicts and neither is a
     quiet continue.
 
+    ⚠ DO NOT "TIDY" THIS INTO fg_left_edge_gate.settle_transition. THREE functions in
+    tools/ have this name and the duplication is deliberate in two of the three cases —
+    what must have ONE home is the engine RULE, and it does: PARALLAX_TRANS_DEFAULT is
+    read by `fg_left_edge_gate._trans_default()` and by nothing else, which all three
+    bounds either call or should.
+
+      * `fg_left_edge_gate.settle_transition(c, syms)` takes a PRE-RESOLVED `syms` dict
+        built from `emulator/lookup_symbol` calls over a bare `BusClient`.
+      * THIS one takes a `.lst` PATH, because the floor family — this file, floor_capture
+        and floor_hscroll_dump — never calls `lookup_symbol` at all: it parses the listing
+        with `lst_symbol()`, and it calls through `_c()`, the asyncio.wait_for timeout
+        wrapper, rather than `b.call` directly. Collapsing the two would mean teaching the
+        attested gate's version to accept either a resolved address or a resolver, i.e.
+        adding a parameter to a function on the gate's hot path to serve a caller that
+        does not exist yet. The plumbing is what differs; the rule is not duplicated.
+      * `left_edge_vsram_probe.settle_transition(c, syms, limit=300)` is the THIRD, and it
+        is the one genuinely worth collapsing: same signature as the gate's, but its bound
+        is a magic 300 rather than a derivation, so it is the only one of the three whose
+        loudness threshold would not move with the constant. It waits on the machine's own
+        counter, so it is CORRECT — the bound governs only how it reports an unmeasurable
+        — and it was left alone by CURSOR-RACE-SWEEP because that parcel fixed only what it
+        measured wrong. Named here rather than left for someone to rediscover.
+
     Returns the number of frames waited (0 when nothing was in flight).
     """
     import fg_left_edge_gate as _G          # local: the one PARALLAX_TRANS_DEFAULT reader
@@ -214,6 +237,29 @@ async def run(rom, lst):
         row = await walk_to_floor_row(client, lab_sym)
         print("  lab cursor row %d  (START+RIGHT x%d from row 0)" % (row, LAB_ROW))
         await _c(client, "emulator/run_frames", {"frames": 30})
+        # ---- AND THEN SETTLE, WHICH IS A BACKSTOP AND NOT A WAIT ----
+        # The 30 above stays: it is not only about the crossfade, it is also "let the
+        # scene's art and the glyph DMAs land", and shortening it would change what the
+        # comparisons below read. What it is NOT is coupled to anything. It exceeds
+        # PARALLAX_TRANS_DEFAULT (16) today by arithmetic that happens to hold, and the
+        # day that constant goes above 30 this tool starts reading a crossfade again with
+        # nothing going red — which is precisely the class the CURSOR-RACE-SWEEP parcel
+        # exists to close, so leaving the derived-bound helper unused twelve lines above
+        # this call was the accident, not the design.
+        #
+        # ORDER IS THE POINT: settling AFTER the 30 makes the behaviour change provably
+        # ZERO while 30 >= PARALLAX_TRANS_DEFAULT (the counter is already 0, so this
+        # returns immediately and runs no frames), and makes the tool correct rather than
+        # lucky if it ever is not. The printed count is the per-run EVIDENCE that the 30
+        # was enough: a `settled after 0 frame(s)` line is the arithmetic being checked
+        # against the machine on every run instead of being trusted.
+        waited = await settle_transition(client, lst)
+        print("  settled after %d frame(s) (Parallax_Transition_Frames == 0) — %s"
+              % (waited,
+                 "the 30 above confirmed sufficient by the machine, not assumed"
+                 if waited == 0 else
+                 "THE 30 ABOVE WAS NOT ENOUGH; this wait is what kept the read off a "
+                 "crossfade, and the literal should be revisited"))
 
         # Camera_X is u32 16.16 (engine/ram.emp), so the top word is the integer
         # part. Reading four bytes and taking the whole longword would report the
