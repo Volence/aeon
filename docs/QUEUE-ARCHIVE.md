@@ -207,11 +207,68 @@ The published palette cost figure (19,332) is a ONE-SLOT number - one variant bo
 
 Two rows in tools/test_s4lint.py skip with 'main.asm not found'. main.asm was DELETED by design in the sigil flip, so those two can NEVER un-skip - they are permanent dead weight that reads as coverage in the totals. Decide: re-point them at what replaced main.asm, or delete them. Found while re-verifying the merged tree, not by a gate.
 
-### `FG-LEFT-EDGE-GATE-UNRUN` — open / S
+### `FG-LEFT-EDGE-GATE-UNRUN` — RUN 2026-09-18 / the arm is UNREACHABLE, and the gate is FALSE-RED / S
 
 tools/fg_left_edge_gate.py was rewritten in chain 197 to branch on the per-scene flag (both the offset and the bit DERIVED at runtime, not typed). Its declining arm has NEVER EXECUTED - agents cannot touch the emulator. Until a foreground run, the gate is reviewed and not attested, and a gate whose new arm has never run is exactly the population this lane keeps finding. Five minutes with the emulator up.
 
 **⚠ REOPENED AND RE-SCOPED 2026-09-18 — "agents cannot touch the emulator" is FALSE at this site, specifically.** `tools/fg_left_edge_gate.py` imports `AetherInstance` (`tools/aether_instance.py`), the oracle-aether SUBPROCESS path on its own private socket. There is no MCP anywhere in it, and `effects_gates.py`'s header records that the aether segments **cannot hit the stop race** at all — oracle-aether boots PAUSED and `run_frames`/`run_to` are synchronous and bounded. The real barrier is `mcp__oracle__*`, which `docs/OVERSEER-REFERENCE.md` has said since 2026-08-19 (`57d80265`). **So this gate has been delegable the whole time it sat unattested**, and the declining arm's five minutes was never blocked on anything. Booked as `GATE-UNRUN-RECOVERY`.
+
+**RAN IT 2026-09-18 (branch `parcel/fg-left-edge-gate-unrun`, worktree off `cb593b02`). The MCP
+correction above is CONFIRMED by reading the imports: `fg_left_edge_gate` → `aether_instance` →
+`aether.BusClient` + `subprocess`, and `left_col_mask_probe` (from which it takes `struct_offsets`
+only) imports `argparse/pathlib/re/sys`. No `mcp__oracle__*` anywhere. The run took ~1 s wall,
+spawned and reaped its own `oracle-aether`, leaked nothing and never wedged.**
+
+```
+$ python3 tools/fg_left_edge_gate.py --rom <worktree>/s4.debug.bin
+ROM 848075 bytes, crc32 62238a15 (DEBUG=1 ./build.sh in the worktree, rc=0)
+RED   2 of 6 scenes failed: [13, 14]        # rc=1; reproduced with --scenes 13,14
+```
+
+**THE DECLINING ARM STILL DID NOT EXECUTE, and that is the finding.** Every one of the six
+scenes reported `cfg=$01486E vds=$04 borrow=ON`, so `check_scene` took the ACCEPT arm six times
+out of six. The declining branch remains at zero executions since chain 197.
+
+**The two RED rows are a FALSE RED: the engine is correct and the gate's arm-selection oracle is
+pointed at the wrong record.** Four measurements, in order:
+
+1. `$01486E` is not a `parallax_config` at all. In `s4.debug.lst` it is
+   `EditorSceneBinding_OJZ_Act1_Sec0` — the section's own editor binding, a same-sized (190 B)
+   but different record. The real scene records are `ParallaxConfig_Perspective_Subtle $13FCE`
+   and `ParallaxConfig_Perspective $1408C`.
+2. Read straight out of the ROM image at `+25` (`pcfg_v_deform_shift_bg`, offset DERIVED):
+   Perspective_Subtle `$82`, Perspective `$80`, Perspective_Floor `$82` — **bit 7 SET, the
+   decline is authored and emitted correctly**; Rocking_Slow/Rocking/Rocking_Fast/
+   Perspective_Dramatic all `$00`. That matches the source: 13 and 14 call
+   `perspective_scene_declined(...)` (`games/sonic4/data/effects/ojz_scenes.emp:732-733`).
+   The byte the gate actually read, `EditorSceneBinding_OJZ_Act1_Sec0+25`, is `$04`.
+3. `Parallax_Step5_Vscroll` does not consult `Parallax_Current_Config` — it tests
+   `parallax_config.pcfg_v_deform_shift_bg(a0)` on the config it is already iterating
+   (`engine/level/parallax.emp:3193`). So the engine graded itself off the right record.
+4. Its observed output agrees: scenes 13/14 gave `vsram4E=$0005` / `$0015` against
+   `expected=$090` — plane B's own locked-plus-deform word, i.e. **exactly the signature the
+   gate's own declining arm documents as a PASS** ("borrow DECLINED and skipped"). Scenes
+   10/11/12/15 gave `vsram4E=$0090 == expected`, correctly green on the accept arm.
+
+So the gate is red on the two scenes that are working as designed, and it cannot reach the arm
+that would have said so.
+
+**Mechanism, partially established — the fix parcel owns the rest.** `Parallax_Current_Config`
+reads the same `$01486E` on all six scenes, never moving as the lab cursor walks 10→15, so it is
+not merely lagging by one scene. `engine/level/parallax.emp:1785-1800` shows at least one path
+where it is *legitimately* not the active config: during a transition the active record is
+`Parallax_Target_Config`, and `Current` is only promoted when `Parallax_Transition_Frames` hits 0.
+Whether the effects-lab install writes `Current` at all was NOT determined here.
+
+⚠ **This is not only the gate's problem.** `Parallax_Current_Config` is read as "the active
+scene" by other consumers — `games/sonic4/data/effects/ojz_effects.emp:2884` (reel-binding
+match) and `tools/boot_override_gate.py`. If the pointer is stale in this scenario, those are
+reading the same stale value. Not investigated; flagged.
+
+NOT FIXED HERE, by instruction. Two separable follow-ups, each needing its own red-first proof:
+(a) the gate must select its arm from the record the engine actually used, not from
+`Parallax_Current_Config`; (b) the staleness of `Parallax_Current_Config` itself, and who else
+it misleads.
 
 ---
 
