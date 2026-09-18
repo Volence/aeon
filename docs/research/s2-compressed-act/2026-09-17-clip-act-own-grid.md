@@ -335,6 +335,11 @@ and while stopping.
 **The landing ran on 2026-09-18**, in worktree `land/0918` off `origin/master` `2395d575`. Every
 figure below was produced on that tree; none is carried forward from the parcel's own worktree.
 
+**Landed as `d800c309`** — `2395d575..d800c309`, three commits: the merge (`f5e734b1`, parcel tip
+`60af29e8`), the §1 instrument correction (`ff852186`) and this evidence section (`d800c309`). The
+land-gate hook allowed the push on stamp `58fd606e4d66b8ff` and validated the 4 `checked` docs
+paths in a temporary checkout (89 passed in 4.22 s).
+
 ### 11.1 The landing check
 
 `tools/landing_build.sh` (no `FAST=1`, no `NO_LINT=1` — it refuses both), on the merge plus the
