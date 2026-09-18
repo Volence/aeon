@@ -1,12 +1,6 @@
 {
-  "focus": "Fixing the left-edge check so it stops looking mid-crossfade, and finally running the half of it that never has.",
-  "inFlight": [
-    {
-      "what": "Making the left-edge check wait for the scene change to finish before it looks",
-      "where": "branch off a22ce711",
-      "agent": true
-    }
-  ],
+  "focus": "The left-edge check is fixed and awake; it found a blind spot in its own other half on the way.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the gate fix lands and its declining arm has actually executed.",
+  "nextBoundary": "Here. Everything landed, pushed and tidied.",
   "queue": [
     {
-      "id": "FG-LEFT-EDGE-GATE-FIX",
-      "title": "Fix the left-edge check so it waits for the crossfade to finish before looking; its real arm has still never run",
-      "state": "doing",
+      "id": "CURSOR-RACE-SWEEP",
+      "title": "Other tools may read a scene's settings mid-crossfade the same way this one did; nobody has checked which",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "ACCEPT-ARM-BLIND-SPOT",
+      "title": "The left-edge check's other arm can pass when it should fail, depending on where the camera is",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -34,7 +35,7 @@
     {
       "id": "S2CLIP-TRUNCATION",
       "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -76,6 +77,6 @@
     }
   ],
   "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-18T20:46:41Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-18T21:33:38Z"
 }
