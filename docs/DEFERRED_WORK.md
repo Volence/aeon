@@ -37585,3 +37585,11 @@ commit is not published. Basing on `origin/master` would have branched off a tre
   unbounded columns into the death-and-restart the donor game performs. Row 7+, and arguably
   before the corridor.
 - **A clip act owning its own act extent** — row 7+, and the real fix for the x = 4,096 cause.
+
+### S2CLIP-EXTENT: the owner's actual complaint is the x=4096 edge, and a death plane is NOT the fix (2026-09-18T01:19:35Z)
+
+- **Owner, verbatim, after reading this lane's account of parcel 7:** *"No it's just literally missing parts of the right side of the edge, I'm not talking about below or anything, I understand there's no death pits here (there's no death at all in our engine currently). The forground just randomly ends at that 409x spot"*.
+- **This narrows parcel 7's two edges to ONE for now.** The unbounded-fall half (all 512 columns with air below their last landing surface) stays booked and stays TRUE, but it is not what he wants fixed, and a death boundary is not a thing this engine has at all. Do not offer it as the next step again.
+- **The subject is: a clip act must own its EXTENT** so the act ends where the painted content ends. Dispatched as `parcel/s2-clip-extent`.
+- **Rejected alternative, priced and relayed to him:** painting three sections of EHZ instead of two would fill the inherited 6144 width but only moves the same edge right, and EHZ's own pit at x 4672..4863 arrives with it.
+- **A correction this lane owes itself:** my summary to him led with the bottom-boundary finding because it explained MY measurement (the fall at EHZ's own pit at x 1344..1535). His screenshot was the x=4096 edge all along, and he had said so. The parcel report carried both; the relay ranked them by which one I had personally chased.
