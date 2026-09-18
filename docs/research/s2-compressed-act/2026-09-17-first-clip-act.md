@@ -195,15 +195,32 @@ shape §3.5's clip-harder option needs.
 
 `games/sonic4/data/effects/ojz_effects.emp` carries **eight top-level comptime `ensure`s pinned
 to statistics of the SHIPPED act's palette**: the night grade's lit-colour count (42), its
-retention ceiling (76%), three blue-share permille figures (313 / 310 / 377), the distinct
+retention ceiling (76%), three blue-share permille figures (**337 / 341 / 406** — CORRECTED
+2026-09-18; this sentence read "313 / 310 / 377", which are EHZ's MEASURED values, not the pinned
+ones. Verified at `ojz_effects.emp:2268, 2270, 2272`), the distinct
 colour count (39), the merge budget (36), and the showcase palette's agreement with
 `OJZ_Palette` over CRAM lines 1-2.
 
 **They are RIGHT and they fire correctly.** Their job is to catch the act art changing under a
 hand-derived grade, and a clip act changes the act art: Emerald Hill's palette has **46** lit
-colours where Oracle Jungle has 42, 37 distinct where OJZ has 39, and a blue share of 337
-permille against the pinned 313. Every one of their messages says "re-derive, do not re-pin",
-addressed to a person.
+colours where Oracle Jungle has 42, 37 distinct where OJZ has 39, and a blue share of **313**
+permille against the pinned **337** (the swap above, same correction).
+
+**AND THE DECISIVE NUMBER WAS MISSING FROM THIS LIST** (added 2026-09-18, from the hub's
+adjudicating agent, which re-implemented all seven comptime functions and reproduced every OJZ pin
+exactly as its positive control before running them on the donor's verbatim `EHZ.bin`; that agent's
+measurement, not this lane's): **EHZ's night retention ceiling is 91% against the pinned 76%.**
+That is precisely the *"straggler that will read as full daylight in the night region"* the pin's
+own message names — and OJZ act 1's night region (x 3400..4799) sits INSIDE this clip's 4096-wide
+rectangle. So re-pinning to EHZ's measurements would have banked a known-bad night picture as an
+expectation. The list above named the figures that merely differ and omitted the one that means
+something.
+
+**"Every one of their messages says re-derive" is also too strong:** `:2257` says "Re-derive, do
+not re-pin" and `:2268` says "re-derive the two rows below rather than nudging them"; `:2270`,
+`:2272` and `:2279` carry no such language, and the eighth (`:2378`) asks for a generator re-run,
+not a hand derivation. The distinction matters: "re-derive" forbids nudging a literal until green.
+It does not forbid a person measuring a SECOND palette and pinning per palette.
 
 **Three options, all of them the owner's:**
 
