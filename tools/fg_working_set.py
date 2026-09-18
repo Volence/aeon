@@ -71,6 +71,7 @@ ACT_DESCRIPTOR_EMP = os.path.join(
     REPO, "games", "sonic4", "data", "levels", "ojz", "act1", "act_descriptor.emp")
 GEN_DIR = os.path.join(
     REPO, "games", "sonic4", "data", "generated", "ojz", "act1")
+ACT_GRID_EMP = os.path.join(GEN_DIR, "act_grid.emp")
 VRAM_MAP_DOC = os.path.join(REPO, "docs", "generated", "vram-map-sonic4.md")
 
 BLOCKS_PER_SECTION_AXIS = 16      # cross-checked against constants.emp below
@@ -153,7 +154,12 @@ def load_constants():
     src = ConstantSource()
     src.load_file(CONSTANTS_EMP)
     src.load_file(CAMERA_EMP)          # CAM_MAX_X_STEP is file-local there
-    src.load_file(ACT_DESCRIPTOR_EMP)  # GRID_W / GRID_H
+    # GRID_W / GRID_H are `const GRID_W = OJZ_ACT_GRID_W` in the descriptor since
+    # S2-COMPRESSED-ACT parcel 9 — the numbers themselves live in the GENERATED
+    # act_grid.emp (tools/act_grid.py). Both files, in that order, or the fold has a
+    # free name and this raises.
+    src.load_file(ACT_GRID_EMP)        # OJZ_ACT_GRID_W / OJZ_ACT_GRID_H
+    src.load_file(ACT_DESCRIPTOR_EMP)  # GRID_W / GRID_H, in terms of those
     return src
 
 

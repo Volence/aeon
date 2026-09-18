@@ -550,10 +550,18 @@ def generate_section_blocks(section_idx, use_cache=True):
                  memo_rejected=rejected))
 
 
-def generate_all(use_cache=True):
-    """Generate block data for all OJZ sections."""
+def generate_all(use_cache=True, project_json=None):
+    """Generate block data for all OJZ sections.
+
+    `project_json` names the project whose grid decides HOW MANY sections that is. It
+    defaults to the shipped act's, which is right for every canonical re-bake; the S2CLIP
+    throwaway hands it the staged clip project, because since S2-COMPRESSED-ACT parcel 9 a
+    clip act can declare a grid of its own and this count has to follow it rather than the
+    shipped one.
+    """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    num_sections = act_grid.section_count()
+    num_sections = (act_grid.section_count() if project_json is None
+                    else act_grid.section_count(project_json))
     section_ids = list(range(num_sections))
     missing = [i for i in section_ids
                if not os.path.isfile(os.path.join(OUTPUT_DIR, f"sec{i}_strips_a.bin"))]

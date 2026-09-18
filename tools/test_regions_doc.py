@@ -107,7 +107,11 @@ NIGHT_ID = "ojz_preset_night"
 # because that is the one the tests mutate.
 SANDBOX_LINKS = ("project.json", "engine", "games/sonic4/config",
                  "games/sonic4/data/effects", "games/sonic4/data/editor/effects",
-                 "games/sonic4/data/levels")
+                 "games/sonic4/data/levels",
+                 # The GENERATED act grid the descriptor's `const GRID_W` folds against
+                 # since S2-COMPRESSED-ACT parcel 9. Without it every bound in
+                 # region_flatten.BOUND_NAMES goes unfoldable and act_bounds refuses.
+                 "games/sonic4/data/generated/ojz/act1/act_grid.emp")
 
 
 def golden_doc() -> dict:

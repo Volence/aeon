@@ -68,6 +68,11 @@ except ImportError:                                   # pragma: no cover - path 
 
 AEON = Path(__file__).resolve().parent.parent
 ENGINE_CONSTANTS = "engine/system/constants.emp"
+#: The GENERATED act grid the descriptor folds GRID_W/GRID_H out of since
+#: S2-COMPRESSED-ACT parcel 9 (tools/act_grid.py). Seeded alongside the engine
+#: constants for the same reason they are: the FORMULA stays the descriptor's line,
+#: only its leaves are imported, and `GRID_W = OJZ_ACT_GRID_W` made this a leaf.
+ACT_GRID_EMP = "games/sonic4/data/generated/ojz/act1/act_grid.emp"
 
 # The bounds `ojz_region()` checks each row against, by the names the descriptor declares
 # them under. Every one is read; none is defaulted. A descriptor that renames one refuses
@@ -194,8 +199,9 @@ def to_inclusive(r) -> dict:
 def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
     """`ojz_region()`'s bounds, folded out of the descriptor's own `const` lines.
 
-    `descriptor` is repo-relative. Seeded with `engine/system/constants.emp`, because
-    every one of these formulas reaches into it (`ACT_W = GRID_W << SECTION_SIZE_SHIFT`,
+    `descriptor` is repo-relative. Seeded with `engine/system/constants.emp` AND the
+    generated `act_grid.emp`, because every one of these formulas reaches into them
+    (`ACT_W = GRID_W << SECTION_SIZE_SHIFT`, `GRID_W = OJZ_ACT_GRID_W`,
     `CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W`). The FORMULA stays the
     descriptor's line; only its leaves are imported.
     """
@@ -206,7 +212,19 @@ def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
                         f"{', '.join(BOUND_NAMES)} is read from the descriptor and none "
                         f"is defaulted here: a bound this module invented would be a rule "
                         f"the engine does not have.")
-    vals = emp_consts(path, seed=emp_consts(aeon / ENGINE_CONSTANTS))
+    grid_path = aeon / ACT_GRID_EMP
+    if not grid_path.is_file():
+        raise RuleError(
+            f"{ACT_GRID_EMP} does not exist, so `GRID_W`/`GRID_H` are free names in "
+            f"{descriptor} and every bound below folds to nothing. It is GENERATED "
+            f"(python3 tools/act_grid.py emit) — emit it rather than letting this module "
+            f"carry on with a rule set that silently stopped running.")
+    seed = emp_consts(aeon / ENGINE_CONSTANTS)
+    # MERGED, not replaced: emp_consts returns the FILE's own consts and drops the seed it
+    # was given, so `seed = emp_consts(grid, seed=seed)` would throw the engine constants
+    # away and every bound below would go missing.
+    seed = {**seed, **emp_consts(grid_path, seed=seed)}
+    vals = emp_consts(path, seed=seed)
     missing = [n for n in BOUND_NAMES if n not in vals]
     if missing:
         raise RuleError(f"{descriptor} declares no foldable `const` for {missing}. Those "

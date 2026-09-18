@@ -69,6 +69,11 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, SCENE_ACT_SPAN_Y}
 // unchanged CRC). tools/effects_seam_gate.py pins that this edge is live by reading
 // the generated module's witness equates out of the build's own listing.
 use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}
+// THE ACT'S GRID AND ITS SECTION ROWS PAST THE NINTH — both GENERATED, both read
+// here (S2-COMPRESSED-ACT parcel 9). See the banner over `const GRID_W` below for why
+// the grid stopped being two hand-written numbers in this file.
+use games.sonic4.ojz_act_grid_act1.{OJZ_ACT_GRID_W, OJZ_ACT_GRID_H}
+use games.sonic4.ojz_sec_grid_extra_act1.{OJZ_ACT_SEC_EXTRA_ROWS}
 // THE REGION TABLE, LOWERED FROM THE EDITOR'S DOCUMENT (2026-09-16, REGIONS-EMIT-BINDINGS).
 // `ojz_act1_sec_scene` is NOT imported and no longer exists: in region mode each row carries
 // its scene binding as a `rg_parallax` POINTER, so the chooser that stood between this file
@@ -123,8 +128,27 @@ ensure(OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX,
        "OJZ act 1 art pool {OJZ_ACT_POOL_PAGES} pages exceeds PAGE_TABLE_MAX residency page-table capacity")
 
 // ---- the act's shape, written once ----
-const GRID_W = 3
-const GRID_H = 3
+//
+// AND WRITTEN SOMEWHERE ELSE SINCE 2026-09-17 (S2-COMPRESSED-ACT parcel 9). These two
+// used to be `const GRID_W = 3` / `const GRID_H = 3`, hand-typed here, with
+// tools/act_grid.py parsing them straight out of this file and comparing them against
+// project.json on every build. They are now the LOWERING of project.json — the same
+// numbers, reached through games/sonic4/data/generated/ojz/act1/act_grid.emp, which is
+// generated from it. One statement instead of two that agree.
+//
+// WHY IT MATTERS AND IT IS NOT TIDINESS. The S2CLIP throwaway bake (tools/clip_rom_bake.py)
+// rewrites the GENERATED tree and nothing else, so while the grid lived here it was a
+// number a clip act could not reach: R21 could only REFUSE a clip declaring any grid but
+// this act's, which capped every clip act at 6,144 px however much donor zone was left
+// over. Emerald Hill act 1 is 12,288 px wide, so half of it was unreachable by
+// construction. A clip act now declares its own grid in its own manifest.
+//
+// THE BYTES DO NOT MOVE FOR IT. The generated module says 3 x 3 for the shipped act,
+// which is what these two lines said; the section table below composes to the same nine
+// rows; and every derived const (ACT_W, the camera band, the region rules) folds to the
+// value it folded to before.
+const GRID_W = OJZ_ACT_GRID_W
+const GRID_H = OJZ_ACT_GRID_H
 
 // The old per-act if/error blocks, as comptime facts (they fail the build
 // HERE, not at link): grid capacity, and the <= $8000 axis-extent ceiling that
@@ -244,7 +268,11 @@ comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Lab
     }
 }
 
-pub data OJZ_Act1_Sections: [Sec; 9] = [
+// THE NINE HAND-WRITTEN ROWS. They are a `const` array rather than the `pub data` they
+// used to be, so that a wider act's remaining rows can be appended to them — see
+// `OJZ_Act1_Sections` below the ninth. At 3 x 3 the append is with an EMPTY array and
+// the emitted table is byte-for-byte what this literal always produced.
+const OJZ_SEC_ROWS_BASE: array = [
     ojz_sec(blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
@@ -426,6 +454,24 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]
+
+// THE SECTION TABLE THE ENGINE READS = the nine rows above ++ whatever a wider act baked
+// past them (S2-COMPRESSED-ACT parcel 9). `OJZ_ACT_SEC_EXTRA_ROWS` is generated beside the
+// block dictionaries (sec_grid_extra.emp) and is EMPTY for the shipped 3 x 3 act, so this
+// emits the same 9 x sizeof(Sec) bytes at the same place it always did.
+//
+// THE ARITY IS CHECKED AGAINST THE GRID, which is the guarantee R21 used to give from the
+// Python side and now gives from here as well, where it cannot be skipped by a bake that
+// forgot to run a checker: Section_GetSecPtrXY indexes this table by flat id over GRID_W x
+// GRID_H, so a table SHORTER than the grid reads whatever the linker put next — the
+// 2026-09-12 F2 incident's failure mode, one table over. A table LONGER than the grid is
+// dead bytes and a sign the bake and the grid disagree, so it is refused too.
+const OJZ_SEC_ROWS_BASE_LEN = OJZ_SEC_ROWS_BASE.len
+const OJZ_SEC_ROWS_EXTRA_LEN = OJZ_ACT_SEC_EXTRA_ROWS.len
+const OJZ_SEC_ROWS_TOTAL = OJZ_SEC_ROWS_BASE_LEN + OJZ_SEC_ROWS_EXTRA_LEN
+ensure(OJZ_SEC_ROWS_TOTAL == GRID_W * GRID_H,
+       "OJZ act 1 section table has {OJZ_SEC_ROWS_TOTAL} rows ({OJZ_SEC_ROWS_BASE_LEN} hand-written + {OJZ_SEC_ROWS_EXTRA_LEN} generated) for a {GRID_W}x{GRID_H} grid. Section_GetSecPtrXY indexes this table by flat id over the grid; short, it reads past the table")
+pub data OJZ_Act1_Sections: [Sec; OJZ_SEC_ROWS_TOTAL] = OJZ_SEC_ROWS_BASE ++ OJZ_ACT_SEC_EXTRA_ROWS
 // the [Sec; 9] length IS the table-size check; tie the literal to the grid
 ensure(GRID_W * GRID_H == 9, "the [Sec; 9] table must match grid_w*grid_h")
 
