@@ -1022,9 +1022,12 @@ content — both halves.** EHZ's `extent.crop_tiles` ends at tile 1,372 (x < 10,
 sections**) and R9 refuses a rect past it, so "EHZ is six sections wide" describes its PADDED grid,
 not its painted content; six sections would leave 1,312 px UNPAINTED, which is the defect being
 fixed, moved right. Five sections therefore **TRUNCATES 736 px (92 columns) of fully drawn Emerald
-Hill** — measured on the donor's own `section_5.*.bin` (11,776 non-zero art cells in 92 of 92
-columns; 3,304 collision cells per plane; 0 past the crop), 416 px of it inside Sonic 2's own
-camera box for the level. A NON-section-aligned act extent is the only thing that recovers them. A SECOND Emerald Hill pit
+Hill** — measured on the donor's own `section_5.*.bin` (**7,745** art cells with a non-zero tile
+index in 92 of 92 columns, 65.8% of the band; **3,036** collision cells with a non-zero shape index
+per plane; 0 past the crop), 416 px of it inside Sonic 2's own camera box for the level. (Those
+figures replace an earlier 11,776/3,304 that counted non-zero WORDS and so counted blank sky and
+X-flipped empty collision as content; the conclusion is unchanged and the instrument is pinned to
+`zone.json counts/painted_cells` — clip-act-own-grid §1.) A NON-section-aligned act extent is the only thing that recovers them. A SECOND Emerald Hill pit
 came with the new ground, at x 9,472..9,663. **Owning the extent and filling the act turned out not
 to be alternatives** — parcel 9 owns the grid and then fills it, which is both. What is still open
 is a NON-section-aligned extent: the last 416 px of EHZ act 1 (Sonic 2's camera box reaches

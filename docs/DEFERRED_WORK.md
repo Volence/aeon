@@ -37660,7 +37660,7 @@ design doc's §10 and parcel 6's report are patched in place where this falsifie
 - **Budgets to measure, not assume** (parcel 8's 3-section figures in brackets): art pool [472 of 768], worst camera window [8 of 12 page frames — the tightest, and LOCAL, so denser art can blow it], attr entries [105 of 255], MAX_ACT_SECTIONS 48, per-section local map, ROM size.
 - **Not this parcel's subject:** the y axis, and EHZ's own pit at x 4672..4863 (he knows; this engine has no death plane). A wider act will likely bring more holes; they declare through `floorless_columns` and get relayed to him.
 
-### S2-COMPRESSED-ACT parcel 9 LANDED 2026-09-17 — A CLIP ACT DECLARES ITS OWN GRID, AND THE ACT HOLDS FIVE OF EMERALD HILL'S 5.36 PAINTED SECTIONS
+### S2-COMPRESSED-ACT parcel 9 LANDED 2026-09-18 — A CLIP ACT DECLARES ITS OWN GRID, AND THE ACT HOLDS FIVE OF EMERALD HILL'S 5.36 PAINTED SECTIONS
 
 Branch `parcel/s2-clip-act-extent` (base `8ee74c67`). Report:
 `docs/research/s2-compressed-act/2026-09-17-clip-act-own-grid.md`. Parcel 8's §7 and the design
@@ -37679,9 +37679,16 @@ doc's extent paragraph are patched in place where this falsifies them.
   need 12,288 and would leave 1,312 px unpaintable — the owner's complaint, one section right. So
   the act is **five sections, 10,240 px**, all 1,280 columns painted — and **736 px (92 columns) of
   Emerald Hill is TRUNCATED.** ⚠ **That band is not padding, measured on the donor's own section
-  files rather than inferred from the crop:** art 11,776 non-zero cells in 92 of 92 columns,
-  collision plane A 3,304 in 92 of 92, plane B the same; the control past the crop (x
-  10,976..12,287) is 0 non-zero art cells. **416 px of the loss is playable** — Sonic 2's camera
+  files rather than inferred from the crop:** art **7,745** cells with a non-zero TILE INDEX in 92
+  of 92 columns (65.8% of the band's 11,776 cells), collision plane A **3,036** with a non-zero
+  SHAPE INDEX in 92 of 92, plane B the same; the control past the crop (x 10,976..12,287) is 0.
+  ⚠ **Those figures SUPERSEDE the 11,776 / 3,304 this parcel's own commit `60af29e8` carries**,
+  which counted non-zero WORDS: 11,776 of 11,776 is exactly 100% because a blank sky cell carries a
+  palette line (band row 0 is 92 x word `0x4000`) and 268 "collision" cells were word `0x0400` —
+  an X-flipped empty shape with no solidity. The instrument is pinned, not chosen: tile index != 0
+  reproduces `zone.json counts/painted_cells` = 119,231 zone-wide. **The conclusion does not move**
+  — every one of the 92 columns still carries real art AND real collision, the control is still 0,
+  and 65.8% sits beside the zone's own 67.9%, a discriminating figure where 100.0% was not. **416 px of the loss is playable** — Sonic 2's camera
   box for EHZ act 1 reaches x 10,656, inside the truncated band, so the act stops 416 px before the
   signpost end of the level and the other 320 px is drawn scenery past the camera box. The
   alternative was 1,312 px of UNPAINTED act, which is the defect being fixed; the truncation costs

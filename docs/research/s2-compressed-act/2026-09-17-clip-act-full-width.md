@@ -180,9 +180,11 @@ descriptor, the rectangle from the manifest.
 > its painted crop ends at x = 10,976 = **5.36 sections**. Five sections is the widest act the
 > donor can paint every column of — **and a five-section act therefore TRUNCATES 736 px (92
 > columns) of fully drawn Emerald Hill**, 416 px of which is inside Sonic 2's own camera box for
-> the level. Measured on the donor's `section_5.*.bin`, not inferred from the crop: 11,776
-> non-zero art cells in 92 of 92 columns, 3,304 collision cells per plane in 92 of 92, against 0
-> past the crop. "Six sections" was a claim about the padded grid that read as a claim about
+> the level. Measured on the donor's `section_5.*.bin`, not inferred from the crop: **7,745**
+> art cells with a non-zero tile index in 92 of 92 columns (65.8% of the band), **3,036** collision
+> cells with a non-zero shape index per plane in 92 of 92, against 0 past the crop. (Corrected from
+> 11,776/3,304, which counted non-zero WORDS — blank sky carries a palette line. Same conclusion,
+> stronger evidence: clip-act-own-grid §1.) "Six sections" was a claim about the padded grid that read as a claim about
 > content; do not let "five sections" read as "all of it".
 
 

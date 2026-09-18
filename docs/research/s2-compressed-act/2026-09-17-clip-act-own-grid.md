@@ -31,18 +31,48 @@ sections, 10,240 px**, and the clip paints all 1,280 of its columns.
 act and is not in the ROM.**
 
 **It is not padding, and that was measured rather than assumed** (`zone.json` plus the donor's own
-`section_5.*.bin`, counted directly):
+`section_5.*.bin`, counted directly). The band is x 10,240..10,975 — local columns 0..91 of
+`section_5`, rows 0..127, 92 x 128 = **11,776 cells**:
 
-| x 10,240..10,975 (92 columns, rows 0..127) | non-zero cells | columns touched |
-|---|---|---|
-| art (`section_5.tiles.bin`) | **11,776** | **92 of 92** |
-| collision plane A (`.collattr.bin`) | **3,304** | **92 of 92** |
-| collision plane B (`.collattrb.bin`) | **3,304** | **92 of 92** |
-| **control** — x 10,976..12,287, past the crop | **0** | **0** |
+| x 10,240..10,975 (92 columns, rows 0..127) | content cells | % of band | columns touched |
+|---|---|---|---|
+| art (`section_5.tiles.bin`), tile index != 0 | **7,745** | 65.8% | **92 of 92** |
+| collision plane A (`.collattr.bin`), shape index != 0 | **3,036** | 25.8% | **92 of 92** |
+| collision plane B (`.collattrb.bin`), shape index != 0 | **3,036** | 25.8% | **92 of 92** |
+| **control** — x 10,976..12,287, past the crop | **0** | 0% | **0** |
 
 So every one of those 92 columns is fully drawn and carries collision, and the zero-padding claim
 is true only *past* 10,976, which is exactly where the crop says it starts. **The act holds 5 of
 the zone's 5.36 painted sections and loses 736 px at the right.**
+
+#### ⚠ THESE FIGURES SUPERSEDE THE ONES THIS PARCEL'S OWN COMMITS CARRY, AND THE CONCLUSION DOES NOT MOVE
+
+Commit `60af29e8` and the first draft of this file measured the band as **11,776 non-zero art
+cells** and **3,304 non-zero collision cells per plane**. Those counted *the cell word is
+non-zero*; the question is *does the cell hold content*. They are superseded by the table above,
+and a reader who meets the old numbers in the git log should land here.
+
+**Why the old figure could not stand:** 11,776 of 11,776 is exactly 100.0000% — its own
+denominator. It is real (the control past the crop returns 0 through the same path, so the counter
+does discriminate) but near-vacuous: zone-wide, non-zero words cover 175,276 of 175,616 crop
+cells, 99.8%. Row 0 of the band is 92 identical cells of word **0x4000** — tile index 0 with a
+palette line, a blank sky cell that is non-zero only because of its attribute bits.
+
+**The right instrument is derived, not chosen.** In a Genesis nametable word bits 0..10 are the
+tile index. Counting tile index != 0 over rows 0..127 of all six sections gives **119,231**, which
+is exactly `zone.json`'s own `counts/painted_cells` — the converter's definition of painted,
+confirmed against an independent pin rather than picked for its answer. §11 gives the command.
+
+**The collision planes had a smaller version of the same defect, and it is decided rather than
+suspected.** 3,304 non-zero minus 3,036 with a shape = **268 cells, and all 268 are the single
+word `0x0400`**: shape index 0, solidity bits (13:12) clear, X-flip (bit 10) set — the plane word
+format `tools/s2_zone_convert.py` documents at its `bit_layout`. An X-flipped empty shape with no
+solidity is not collision, so 3,036 is the honest figure.
+
+**THE CONCLUSION DOES NOT MOVE.** Every one of the 92 columns still carries real art AND real
+collision under the stricter definition, the control is still 0, and 65.8% in the band sits right
+alongside the zone's own 67.9% (119,231 of 175,616) — a discriminating figure where 100.0% was
+not. The band is fully drawn Emerald Hill; only the evidence for it got stronger.
 
 **416 px of what is lost is playable level.** Sonic 2's own camera box for EHZ act 1 is
 `x max 10656`, which is inside the truncated band: the act stops 416 px before the end of the
@@ -215,7 +245,7 @@ parcel's, off the same instruments.
 | non-empty blocks | 384 of 2,304 | **640 of 3,840** | — |
 | painted columns | 768 | **1,280** | 1,280 = the whole act |
 | local maps | 9 sections | **15 sections, 6 distinct** | — |
-| `s4.s2clip.bin` | 821,305 B (`c869deaf…`) | **§9** | 4 MB |
+| `s4.s2clip.bin` | 821,305 B (`c869deaf…`) | **821,708 B** (`45268bc1…`) | 4 MB |
 
 **The tightest budget's CEILING did not move. Its EXPOSURE nearly doubled, and that is not the
 same thing.** The worst window is still 8 of 12 frames, still the same 80 x 60-tile window over
@@ -241,8 +271,21 @@ fact, not a budget.
 
 ## 9. The clip ROM
 
-See §11 for the reproduced figures; they are written there and not here so that the number and the
-evidence that it reproduces sit together.
+`S2CLIP=s2_ehz_boot ./build.sh` produces **`s4.s2clip.bin`, 821,708 bytes, md5
+`45268bc176e92956941c4217c8fa6bbb`** — reproduced byte for byte across two consecutive builds at
+the landing. That is **+403 B** over parcel 8's three-section clip ROM (821,305 B, `c869deaf…`),
+which is what two more sections of block/strip/local-map/entity tables cost; the act art pool grew
+by only 8 tiles (§8), so almost none of it is art.
+
+The bake announces the new grid on the way past, and these two lines are the ones §10 tells a
+reader to check if they suspect a stale ROM:
+
+```
+clip_rom_bake: engine grid 5x3 -> games/sonic4/data/generated/ojz/act1/act_grid.emp (15 sections)
+clip_rom_bake: DONE — s2_ehz_boot is in games/sonic4/data/generated/ojz/act1; 480 pool tiles in 8 pages, 105 of 255 attr entries
+```
+
+§11 carries the full landing evidence, including the two build md5s and the canonical shapes.
 
 ## 10. ★ THE RUNTIME CHECK — TAGGED FOR THE FOREGROUND
 
