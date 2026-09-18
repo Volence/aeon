@@ -83,6 +83,11 @@ PRESETS_DIR = os.path.join("games", "sonic4", "data", "editor", "effects", "pres
 GENERATED = os.path.join("games", "sonic4", "data", "generated", "ojz", "act1", "effects_scenes.emp")
 DESCRIPTOR = os.path.join("games", "sonic4", "data", "levels", "ojz", "act1", "act_descriptor.emp")
 CONSTANTS = os.path.join("engine", "system", "constants.emp")
+#: The act GRID moved out of the descriptor and into a GENERATED module on 2026-09-17
+#: (S2-COMPRESSED-ACT parcel 9; the descriptor now says `const GRID_W = OJZ_ACT_GRID_W`).
+#: Read it where it lives, or this witness places sections in the wrong act.
+ACT_GRID = os.path.join("games", "sonic4", "data", "generated", "ojz", "act1",
+                        "act_grid.emp")
 CHOOSER = "ojz_act1_preset_raster"
 RASTER_REF_KEY = "rasterRef"            # empyrean AURORA_EFFECTS_SCHEMA §3.1; effects_gen.ACT_RASTER_REF_KEY
 ACTIVE_H = 224
@@ -114,15 +119,15 @@ def parse_const(text: str, name: str, where: str) -> int:
 
 def geometry(repo: str) -> dict:
     consts = open(os.path.join(repo, CONSTANTS), encoding="utf-8").read()
-    desc = open(os.path.join(repo, DESCRIPTOR), encoding="utf-8").read()
+    grid = open(os.path.join(repo, ACT_GRID), encoding="utf-8").read()
     shift = parse_const(consts, "SECTION_SIZE_SHIFT", CONSTANTS)
     return {
         "shift": shift,
         "size": 1 << shift,
         "screen_w": parse_const(consts, "SCREEN_WIDTH", CONSTANTS),
         "screen_h": parse_const(consts, "SCREEN_HEIGHT", CONSTANTS),
-        "grid_w": parse_const(desc, "GRID_W", DESCRIPTOR),
-        "grid_h": parse_const(desc, "GRID_H", DESCRIPTOR),
+        "grid_w": parse_const(grid, "OJZ_ACT_GRID_W", ACT_GRID),
+        "grid_h": parse_const(grid, "OJZ_ACT_GRID_H", ACT_GRID),
     }
 
 
