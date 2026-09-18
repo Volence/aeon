@@ -332,7 +332,102 @@ and while stopping.
 
 ## 11. Evidence
 
-Filled in at §12 with the landing-build and clip-build figures, each reproduced twice.
+**The landing ran on 2026-09-18**, in worktree `land/0918` off `origin/master` `2395d575`. Every
+figure below was produced on that tree; none is carried forward from the parcel's own worktree.
+
+### 11.1 The landing check
+
+`tools/landing_build.sh` (no `FAST=1`, no `NO_LINT=1` — it refuses both), on the merge plus the
+§1 correction, commit `ff852186`:
+
+```
+exit code      0
+finished=0                       (the stamp that separates a completed run from a killed one)
+land-gate      STAMP WRITTEN key=58fd606e4d66b8ff head=ff8521869adf
+```
+
+Aggregate totals, not a tail excerpt:
+
+| lane | result |
+|---|---|
+| pre-build tool suite (`pytest tools -m "not needs_build"`, runs once, in the `s4` shape) | **3,150 passed, 2 skipped, 28 deselected, 143 subtests passed** (87.19 s) |
+| `emp_expect_fail` | **56/56 cases** (54 comptime + 2 link) |
+| `needs_build` lane, `s4` | 10 passed, 18 skipped, 40 subtests |
+| `needs_build` lane, `s4.debug` | 15 passed, 13 skipped |
+| `needs_build` lane, `demo.debug` | 1 passed, 27 skipped |
+| `needs_build_lane.py` aggregation over the three shapes | **27 ran, 0 deferred, 0 failed, 1 exempted** — `EXIT_needs_build=0` |
+
+The one exemption is `test_deb2_appendix[demo.bin]`, which needs `demo.bin` — a shape
+`LANDING_SHAPES` deliberately omits. **Exempted is not passed**; it is graded by `./build.sh demo`
+and the nightly.
+
+### 11.2 The shapes it built
+
+| file | bytes | md5 |
+|---|---|---|
+| `s4.bin` | 821,479 | `ae62156a66c9c3f13e93940e938c340e` |
+| `s4.debug.bin` | 848,075 | `b15ef259523f67ac963ef0cf4df003dc` |
+| `demo.debug.bin` | 104,707 | `f740c22498f6ad132ac9f8bd978c9350` |
+
+**These are the same three md5s §3 reports from before the parcel**, reproduced here by a different
+worktree on a different day: no canonical byte moved, and §3's claim survives the landing rather
+than merely being repeated by it.
+
+### 11.3 The clip ROM
+
+`S2CLIP=s2_ehz_boot ./build.sh` → **`s4.s2clip.bin`, 821,708 bytes, md5
+`45268bc176e92956941c4217c8fa6bbb`.**
+
+**Reproduced across three builds**, and the three were not interchangeable — one ran *before* the
+§1 correction touched `clips.json` and two *after*:
+
+| build | when | bytes | md5 |
+|---|---|---|---|
+| 1 | before the `clips.json` note was corrected | 821,708 | `45268bc176e92956941c4217c8fa6bbb` |
+| 2 | after | 821,708 | `45268bc176e92956941c4217c8fa6bbb` |
+| 3 | after | 821,708 | `45268bc176e92956941c4217c8fa6bbb` |
+
+So the ROM is reproducible **and** the corrected prose in the clip manifest reaches no byte of it —
+which is the control that says the correction was documentation, not a content change. The bake
+printed `engine grid 5x3 ... (15 sections)` and `480 pool tiles in 8 pages, 105 of 255 attr
+entries` on each run (§9).
+
+The landing worktree had no donor tree (it is gitignored, so a fresh worktree lacks it);
+`python3 tools/s2_zone_convert.py convert s2disasm@EHZ` regenerated it, reporting `6x1 = 6
+sections, 914 tiles, 119231 painted cells` and `175616 cells round-tripped, 0 differing`, and the
+result is **md5-identical, file for file, to the main checkout's donor tree**. So §1's band
+measurements and this ROM were taken over the same donor bytes.
+
+### 11.4 The instrument behind §1, as a command a reader can re-run
+
+§1's counts use *tile index != 0* (nametable bits 0..10), not *word != 0*. That choice is validated
+by reproducing the converter's own published total:
+
+```python
+# zone-wide: rows 0..127 of sections 0..5, columns to the crop edge at tile 1372
+import struct
+D = "games/sonic4/data/donors/s2disasm/EHZ"
+tot = 0
+for sec in range(6):
+    w = struct.unpack(">65536H", open(f"{D}/section_{sec}.tiles.bin", "rb").read())
+    for r in range(128):                       # crop height
+        for v in w[r*256 : r*256 + (256 if sec < 5 else 92)]:
+            if v & 0x7FF:                      # bits 0..10 = tile index
+                tot += 1
+print(tot)          # 119231  ==  zone.json counts/painted_cells
+```
+
+**119,231 is `zone.json`'s own `counts/painted_cells`.** The same script with `if v:` instead gives
+175,276 of 175,616 crop cells (99.8%) — the near-vacuous figure §1 discarded. For the collision
+planes, swap the file for `section_5.collattr.bin` / `.collattrb.bin` and the mask for `0x3FF`
+(bits 0..9 = shape index).
+
+### 11.5 What is NOT evidenced here
+
+**§10's runtime check has not been run.** No emulator was used anywhere in this parcel or its
+landing; §10 is tagged for a foreground session with the owner and is still open. Everything above
+is static: assembler, generators, gates and file bytes. **A green landing says the ROM builds and
+reproduces; it does not say the act looks right when Sonic runs east.**
 
 ## 12. What the next act needs from this
 
