@@ -27,6 +27,11 @@ See scan() for the measurement and check() for the two-sided declaration rule:
      positive height in the sensor's own column of the 16-byte profile — the same
      arithmetic `probe_core` uses (games/sonic4/player/player_sensors.emp) and the same
      one clip_rom_bake.ground re-derives, applied to every column instead of one.
+     DECLARABLE since parcel 8, per plane, through `floorless_columns` — because a
+     DONOR GAME'S OWN PIT is faithful content rather than a conversion defect, and the
+     donor survives it with a bottom boundary this engine does not have. The declaration
+     is exact (count AND runs) and two-sided; `_declared_floorless` writes down what that
+     channel still catches and the one case it deliberately gives up.
   3. THAT A FALL CAN END — whether there is air below the column's LAST landing surface.
      (2) is a claim about the TOP of a column and says nothing to a player already below
      it. This third check is the one the first version of this gate did not have, and its
@@ -50,9 +55,12 @@ A Sonic 2 clip act is the FIRST content where the two planes differ, because Son
 chunk words carry two independent solidity nibbles and the converter splits them. So the
 clip act is also the first content on which a wrong `layer` byte is fatal rather than a
 no-op, and the plane-B holes this prints are the map of where it would be fatal.
-Measured on s2_ehz_boot: plane A has a floor in all 512 columns; plane B has none at all
-in x 1344..1407, which is EHZ's own jump-the-pit (Sonic 2 puts a row of five rings over it
-at y 568, x 1392..1488) seen from the path the player is not on.
+Measured on s2_ehz_boot AFTER the parcel-8 widening (768 columns, x 0..6143): plane A has
+a floor in every column but the 24 of EHZ's own bottomless pit at x 4672..4863, which is
+DECLARED; plane B has none in 32 — those same 24 plus x 1344..1407, which is EHZ's
+jump-the-pit (Sonic 2 puts a row of five rings over it at y 568, x 1392..1488) seen from
+the path the player is not on. Before the widening the act was 512 columns and plane A had
+a floor in all of them, which is the number the parcel-7 report quotes.
 
 LOUD WHEN IT CANNOT MEASURE. A missing strip file, a strip of the wrong shape, a
 constant that moved, an unreadable crossover table: exit 2, never a pass.
@@ -207,16 +215,20 @@ def _runs(xs, step):
 def scan(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, log=print):
     """Measure every 8-px column of the WHOLE ACT — not just the clip's rectangle.
 
-    THE RECTANGLE IS THE WRONG SUBJECT, and finding that out is what this parcel cost.
+    THE RECTANGLE IS THE WRONG SUBJECT, and finding that out is what parcel 7 cost.
     A clip act is baked into the SHIPPED act's slot at the SHIPPED act's grid (R21,
     clip_rom_bake.check_act_grid_matches_engine), because the descriptor's GRID_W/GRID_H
-    are hand-written and shared with the canonical ROM. s2_ehz_boot therefore paints
-    4,096 x 1,024 px of a 6,144 x 6,144 px act, and the remaining sections are baked as
+    are hand-written and shared with the canonical ROM. s2_ehz_boot USED TO PAINT
+    4,096 x 1,024 px of a 6,144 x 6,144 px act, with the remaining sections baked as
     air — 0 of 256 non-empty blocks, content-deduped to one 1,024-byte blob. At x = 4,096
-    the art and BOTH collision planes stop dead, top to bottom, and the camera's
+    the art and BOTH collision planes stopped dead, top to bottom, and the camera's
     EDGE_CLAMP clamps the CAMERA to the act rather than the player to the clip. So the
-    player walks off the end of the painted world into 2,048 px of void and falls 5,120
-    px with nothing to land on.
+    player walked off the end of the painted world into 2,048 px of void and fell 5,120
+    px with nothing to land on. THAT IS FIXED (parcel 8): the clip was widened to
+    6,144 x 1,024, which is the act's full WIDTH, so the trailing remainder is gone and
+    the camera clamp is now the edge of painted ground. The act's HEIGHT is still
+    inherited and still unpainted below y = 1,024 — a fall still has no bottom — which is
+    why this gate keeps measuring the whole act rather than the rectangle.
 
     That boundary is REAL and it is in the bytes. Checking only the clip rectangle would
     certify it as perfect, which is exactly what every gate before this one did.
@@ -331,6 +343,96 @@ def _declared_bound(declared, key, act_extent, axis):
     return v
 
 
+def _declared_floorless(declared, log=None):
+    """The per-plane `floorless_columns` declaration, validated but not yet checked.
+
+    Returns {plane_index: (columns, [(from, to), ...])} for the planes the manifest names,
+    or {} when it names none.
+
+    WHY THIS CHANNEL EXISTS AT ALL, since "every column has a floor" was the whole point
+    of check (2) — parcel 8, 2026-09-17, and it is a DELIBERATE concession rather than a
+    tidy-up. The clip act was widened from 4,096 to 6,144 px so the painted world fills
+    the act and the player cannot walk off its right-hand edge (the owner's report). The
+    2,048 px that widening pulls in contain **Emerald Hill act 1's own bottomless pit at
+    x 4,672..4,863** — genuine, faithfully converted donor content: the art is fully
+    drawn (all 128 cells of every column) and the collision cells are there, but they are
+    the pit's LRB-only walls, so no column in that run has a SOLID_TOP surface at any
+    height. Sonic 2 ships that pit and survives it with a LEVEL BOTTOM BOUNDARY — EHZ act
+    1 declares its own at y = 800 (s2_donor.level_size) — which kills and restarts a
+    player who falls in. This engine has no death of any kind, so here the same pit is an
+    endless fall.
+
+    Refusing the bake for it would refuse FAITHFUL DONOR DATA for a hazard the donor game
+    itself ships, and the alternative — stopping the clip short of the pit — just puts the
+    owner's hard edge back at x = 4,672 instead of 4,096. So the pit is DECLARED and
+    CHECKED rather than refused.
+
+    WHAT THIS STILL CATCHES, stated because a declaration channel is a weakening unless
+    the boundary is written down:
+      * a reachable plane with floorless columns and NO declaration for that plane — the
+        original failure, unchanged, including the whole of plane B if a crossover ever
+        marks one (the latent defect of the parcel-7 report's §4);
+      * a declared plane whose floorless runs MOVED, GREW or SHRANK by a single 8-px
+        column — the runs are compared exactly, not just their total, which is stricter
+        than the `unbounded_fall` count beside it;
+      * a declaration that has gone stale because the columns gained a floor.
+    WHAT IT NO LONGER CATCHES, named rather than implied: this act shipping with a pit a
+    player can fall into forever. That is now a fact in `clips.json` with the donor's own
+    bottom boundary written next to it, and the case deliberately given up is "the build
+    refuses an act with an unsurvivable hole in it". It comes back the moment this engine
+    has a death plane: give the act a bottom boundary, the runs go empty, and the stale
+    half of this same check turns red until the declaration is deleted.
+    """
+    if declared is None:
+        return {}
+    raw = declared.get("floorless_columns")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise Unmeasurable('"floorless_columns" must be an object with "why" and "planes"')
+    if not str(raw.get("why", "")).strip():
+        raise Unmeasurable(
+            '"floorless_columns" has no "why". A column the player cannot survive that '
+            'the build ACCEPTS needs the reason written next to it, or the next reader '
+            'cannot tell donor-faithful level design from this bake losing its floor')
+    planes = raw.get("planes")
+    if not isinstance(planes, dict) or not planes:
+        raise Unmeasurable(
+            '"floorless_columns"."planes" must be a non-empty object keyed by plane name '
+            f'({"/".join(sorted(PLANE_NAMES.values()))}) — a declaration that names no '
+            'plane checks nothing')
+    by_index = {v: k for k, v in PLANE_NAMES.items()}
+    out = {}
+    for name, body in planes.items():
+        if name not in by_index:
+            raise Unmeasurable(
+                f'"floorless_columns"."planes" names plane {name!r}; this engine has '
+                f'{"/".join(sorted(by_index))}')
+        if not isinstance(body, dict) or "columns" not in body or "x_runs" not in body:
+            raise Unmeasurable(
+                f'"floorless_columns"."planes"."{name}" must be an object with "columns" '
+                f'(the count) and "x_runs" (a list of [from, to) world-x pairs)')
+        cols = body["columns"]
+        if not isinstance(cols, int) or isinstance(cols, bool) or cols < 0:
+            raise Unmeasurable(
+                f'"floorless_columns"."planes"."{name}"."columns" = {cols!r} is not a '
+                f'non-negative integer')
+        runs = body["x_runs"]
+        if not isinstance(runs, list) or not all(
+                isinstance(p, list) and len(p) == 2
+                and all(isinstance(v, int) and not isinstance(v, bool) for v in p)
+                for p in runs):
+            raise Unmeasurable(
+                f'"floorless_columns"."planes"."{name}"."x_runs" must be a list of '
+                f'[from, to) integer pairs')
+        out[by_index[name]] = (cols, [tuple(p) for p in runs])
+    if log:
+        for idx, (cols, runs) in sorted(out.items()):
+            log(f'  floorless columns DECLARED on plane {PLANE_NAMES[idx]}: {cols} '
+                f'column(s), x runs {runs} (why: {raw.get("why")})')
+    return out
+
+
 def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, log=print):
     """0 = the act has no undeclared void, 1 = it has one. Unmeasurable -> exit 2.
 
@@ -423,16 +525,51 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
     elif log:
         log(f"  art: all {trailing_from // step} painted columns carry at least one tile")
 
+    floorless_decl = _declared_floorless(r["declared"], log=log)
     for plane in (0, 1):
         name = PLANE_NAMES[plane]
         holes = [x for x in r["no_floor"][plane] if x < trailing_from]
-        if plane in r["planes"]:
+        measured_runs = _runs(holes, step)
+        # THE DECLARATION IS CHECKED ON EVERY PLANE IT NAMES, reachable or not: a
+        # declaration that has stopped matching the bytes is a gate that has stopped
+        # asking, and that is true of plane B as much as plane A. What reachability
+        # decides is only whether UNDECLARED holes are a failure or informational.
+        if plane in floorless_decl:
+            want_cols, want_runs = floorless_decl[plane]
+            if want_cols != len(holes) or want_runs != measured_runs:
+                failures.append(
+                    f"plane {name}: the manifest declares {want_cols} floorless "
+                    f"column(s) at x runs {want_runs} and the bytes have {len(holes)} at "
+                    f"{measured_runs}. "
+                    + ("MORE of the painted world has no landing surface than was "
+                       "declared — content lost its floor."
+                       if len(holes) > want_cols else
+                       "FEWER — something gained a floor, which is good news the "
+                       "declaration has not caught up with. Re-derive it, or delete the "
+                       "declaration if the runs are now empty."
+                       if len(holes) < want_cols else
+                       "The COUNT agrees and the RUNS do not: the same number of "
+                       "floorless columns, somewhere else. That is a shifted paste or a "
+                       "changed donor rectangle, not a floor that came or went."))
+            elif log:
+                log(f"  plane {name}: {len(holes)} floorless column(s) at "
+                    f"{measured_runs}, exactly as declared "
+                    + ("(REACHABLE — a player CAN fall into these and this act has no "
+                       "bottom boundary to stop them)" if plane in r["planes"] else
+                       "(unreachable in this act)"))
+        elif plane in r["planes"]:
             if holes:
                 failures.append(
                     f"plane {name} has NO landing surface in {len(holes)} column(s) of "
-                    f"the painted world — x runs {_runs(holes, step)}. The act is "
+                    f"the painted world — x runs {measured_runs}. The act is "
                     f"{r['act_h']} px tall, so a fall in those columns does not "
-                    f"terminate: the player leaves the world and never comes back")
+                    f"terminate: the player leaves the world and never comes back. If "
+                    f"this is donor content the act is meant to ship (a pit the donor "
+                    f"game survives with a bottom boundary this engine does not have), "
+                    f"declare it inside `unpainted_remainder`: "
+                    f'"floorless_columns": {{"why": "<why this act ships with it>", '
+                    f'"planes": {{"{name}": {{"columns": {len(holes)}, '
+                    f'"x_runs": {[list(p) for p in measured_runs]}}}}}}}')
             elif log:
                 log(f"  plane {name}: a landing surface in every painted column "
                     f"(REACHABLE — checked)")
@@ -491,9 +628,21 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
             print(f"clip_reachability: FAIL — {f}", file=sys.stderr)
         return 1
     if log:
+        # Careful with this sentence: it used to say "a landing surface on every
+        # reachable plane" flat out, and after the `floorless_columns` channel landed
+        # that became a false claim on any act that declares one. A pass line that
+        # overstates what was checked is how a gate stops being read.
+        # REACHABLE planes only: a declaration on plane B is a fact about bytes nothing
+        # can fall into today, and naming it here would make the exception sound live.
+        declared_floorless = sum(c for p, (c, _) in floorless_decl.items()
+                                 if p in r["planes"])
         log("clip_reachability: OK — the painted world ends where the manifest says it "
-            "does, every column inside it carries art and a landing surface on every "
-            "reachable plane, and the unbounded-fall volume is the declared one")
+            "does, every column inside it carries art, "
+            + ("every reachable plane has a landing surface in every one of them, "
+               if not declared_floorless else
+               f"every reachable plane has a landing surface in every one of them "
+               f"except the {declared_floorless} DECLARED floorless column(s), ")
+            + "and the unbounded-fall volume is the declared one")
     return 0
 
 
