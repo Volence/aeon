@@ -164,6 +164,22 @@ descriptor, the rectangle from the manifest.
 
 ## 7. The extent option, priced but NOT built
 
+> ⚠ **BUILT ON 2026-09-17 BY PARCEL 9** — `docs/research/s2-compressed-act/2026-09-17-clip-act-own-grid.md`.
+> This section is left exactly as written, because it flagged itself as an estimate from reading
+> and the scoring of it is the useful record. **What it got right:** the `const` lines, the
+> generated-module identity channel, "that moves canonical bytes unless the generated symbol
+> reproduces the shipped 3 x 3 exactly", and R21 being re-aimed rather than relaxed. **What it
+> missed, and it was most of the work:** the grid is not the only thing sized by the grid. The
+> hand-written `[Sec; 9]` section table and the exact-coverage region table are both sized by it,
+> and `ojz_block_gen`/`ojz_entity_gen` both read the SHIPPED `project.json` whatever is being
+> baked. None of that is visible from the file this section was reading.
+> **And the shape of the answer changed:** this section says widening and owning the extent are
+> alternatives. They are not — parcel 9 owns the GRID and then widens the clip to fill it, which
+> is both. **One factual correction:** parcel 8's own `clips.json` note said "EHZ itself is six
+> sections wide (12288 px)". That is its PADDED grid. Its painted crop ends at x = 10,976, so
+> five sections is the widest act the donor can paint every column of.
+
+
 The owner reversed onto widening before this was written, so it is an estimate from the reading
 done first, not a measurement — **flagged as such.** It still matters, because widening only
 works while the donor has content to reach with, and row 7's corridor will not.

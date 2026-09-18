@@ -266,7 +266,7 @@ def act_region_count() -> int:
         raise AssertionError(
             f"{ACT.name}: the region table's arity is `{arity}`, which this lint cannot bound. "
             "It reads a bare integer, or `<integer> + <NAME> [+ <NAME> ...]` where every NAME is "
-            "a DEBUG-only row count. A preset row's sub-index indexes that table in every shape, "
+            "a CONDITIONAL row count. A preset row's sub-index indexes that table in every shape, "
             "so an arity this lint cannot resolve must not pass."
         )
     base = int(s.group(1))
@@ -275,9 +275,22 @@ def act_region_count() -> int:
         f"{ACT.name}: the region table's arity `{arity}` matched the sum form but yielded no "
         "added terms to check — the two patterns have drifted apart and this lint would be "
         "returning the base without proving anything about the rest of the expression.")
-    # EVERY added term must be zero in the RELEASE shape, and that has to be read out of the
-    # source rather than trusted: `const NAME = <rows>.len` whose <rows> is the
-    # `if DEBUG == 1 { [ .. ] } else { [] }` shape. An empty `else` branch is the proof.
+    # EVERY added term must be an APPENDED, CONDITIONAL row array with an empty else branch,
+    # and that has to be read out of the source rather than trusted: `const NAME = <rows>.len`
+    # whose <rows> is the `if <cond> { [ .. ] } else { [] }` shape. The empty `else` is the proof
+    # that `base` is a row count the table actually attains, so `base` is the MINIMUM over shapes
+    # and is what this returns.
+    #
+    # ⚠ THE CONDITION USED TO HAVE TO BE `DEBUG == 1`, AND THAT WAS INCIDENTAL (widened
+    # 2026-09-17, S2-COMPRESSED-ACT parcel 9). Every conditional row array in this act was a
+    # build-shape delta until parcel 9 added `OJZ_WIDE_FILL_ROWS`, whose condition is
+    # `ACT_W > OJZ_AUTHORED_ACT_W` — the act being wider than its region document, which is false
+    # in every shipped shape and true for a wide CLIP act. The argument this lint rests on never
+    # mentioned DEBUG: an `array`'s `.len` is never negative, the term is `++`-appended so it
+    # renumbers no existing row, and the `else { [] }` branch is what says `base` is reachable.
+    # All three still hold. What is NOT relaxed is the SHAPE: an added term this lint cannot see
+    # an empty else branch for is still a refusal, because then nothing says `base` is attained
+    # and the floor would be a guess.
     for name in names:
         decl = re.search(rf"^const\s+{re.escape(name)}\s*=\s*(\w+)\.len\s*$", src, re.M)
         assert decl is not None, (
@@ -286,13 +299,14 @@ def act_region_count() -> int:
             "cannot prove the added term is zero there."
         )
         rows = decl.group(1)
-        gated = re.search(rf"^const\s+{re.escape(rows)}\s*:\s*array\s*=\s*if\s+DEBUG\s*==\s*1\s*\{{"
+        gated = re.search(rf"^const\s+{re.escape(rows)}\s*:\s*array\s*=\s*if\s+.+?\s*\{{"
                           rf".*?\}}\s*else\s*\{{\s*\[\s*\]\s*\}}", src, re.M | re.S)
         assert gated is not None, (
-            f"{ACT.name}: `{rows}` is not the `if DEBUG == 1 {{ .. }} else {{ [] }}` shape, so "
-            f"this lint cannot prove `{name}` is 0 in the release shape. The bound a "
-            "`.lab_index` PRESET row must satisfy is the MINIMUM row count over shapes; without "
-            "that proof there is no minimum to bound it by."
+            f"{ACT.name}: `{rows}` is not the `if <cond> {{ .. }} else {{ [] }}` shape, so this "
+            f"lint cannot prove `{name}` can be 0 at all. The bound a `.lab_index` PRESET row "
+            "must satisfy is the MINIMUM row count over shapes, and without an empty else branch "
+            "there is no shape in which the base is attained, so there is no minimum to bound it "
+            "by."
         )
     return base
 
