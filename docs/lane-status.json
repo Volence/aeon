@@ -1,6 +1,12 @@
 {
-  "focus": "Booted fresh; picking up the sweep for other tools that could read a scene's settings mid-crossfade.",
-  "inFlight": [],
+  "focus": "Checking whether other tools can read a scene's settings mid-crossfade the way one of them did.",
+  "inFlight": [
+    {
+      "what": "Sweeping every tool that steps through the effects lab, to see which ones read too early",
+      "where": "branch parcel/cursor-race-sweep",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,19 +14,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the cursor-race sweep returns and either lands a fix or reports nothing to fix.",
+  "nextBoundary": "When the sweep returns with its per-tool table and either a fix or a clean bill.",
   "queue": [
     {
       "id": "CURSOR-RACE-SWEEP",
       "title": "Other tools may read a scene's settings mid-crossfade the same way this one did; nobody has checked which",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "ACCEPT-ARM-BLIND-SPOT",
       "title": "The left-edge check's other arm can pass when it should fail, depending on where the camera is",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -76,7 +82,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk): press B, hold RIGHT, and tell me if the ground runs unbroken to the end. Two floorless pits and no signpost are expected, not bugs.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-18T23:24:31Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-18T23:27:02Z"
 }
