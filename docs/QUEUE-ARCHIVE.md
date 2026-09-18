@@ -325,9 +325,50 @@ lane. This gate is the only thing in the tree that sees them.
 in an ordinary boot (`docs/research/2026-09-18-parallax-current-config-identity.md`); the
 bounded divergence is that during the 16-frame boundary lerp the raw cell names the OUTGOING
 scene. Consumers that read the raw cell — `ojz_effects.emp:2884` (`OJZ_Reels_Fill`, DEBUG-only
-table) and `tools/boot_override_gate.py` — inherit that window. **Any other tool that drives
+table) and `tools/boot_override_gate.py` — inherit that window. ~~Any other tool that drives
 this lab cursor and reads a parallax cell has the same 12-vs-16-frame race this fix removed
-from `fg_left_edge_gate`; not swept.**
+from `fg_left_edge_gate`; not swept.~~ **SWEPT 2026-09-18 — see below.**
+
+**(b)-adjacent sweep leg: CLOSED 2026-09-18** — branch `parcel/cursor-race-sweep`, own
+worktree off `6301d1b6`, against the attested `s4.debug.bin` (848,075 B, crc32 `62238a15`,
+NOT rebuilt — no engine source was touched).
+
+*Population, and the marker.* Re-derived rather than inherited. The marker that decides the
+population is **"installs a lab row, by any route"**, because the install is what stages the
+transition — `games/sonic4/test/ojz_scroll_test.emp`'s `Debug_LabCycleHotkey` dispatches
+SCENE and WLINE rows to `Parallax_StartTransition` and PRESET rows to `Effects_InstallPreset`
+**then** `Parallax_StartTransition`, while RASTER rows tail-call `Raster_Install` and stage no
+transition at all. Three independent spellings were swept and their results compared:
+`Debug_Lab_Index` by name (12 files), a START+direction chord in a `play_input` row (6 files),
+and a call to `step_scene`/`drive_cursor` (4 files). **The second and third are both SUBSETS of
+the first**, so on this tree the by-name marker is not merely a proxy — it is a superset, and
+nothing drives the cursor without naming the cell.
+
+⚠ **What the marker cannot see**, stated because a sweep silent about its blind spots is not
+a result: (i) a tool that stages a transition WITHOUT the lab — by travelling across a section
+boundary, which `Parallax_CheckBoundary` routes into the same `Parallax_StartTransition`. That
+population is larger (24 files read a `Parallax_*` cell) and is NOT swept here; the one case of
+it that the lab tools own is measured below. (ii) a tool that reaches the cursor through a
+helper whose name contains neither spelling. (iii) a tool that spells the symbol at runtime
+(an f-string, a name built from parts) — none found, but grep cannot prove that.
+
+*Classification, three outcomes, never blurred. Every CANDIDATE row carries a measurement off
+the running machine, not a reading.*
+
+| tool | verdict | evidence |
+|---|---|---|
+| `fg_left_edge_gate.py` | NOT RACY — **settles** | `settle_transition()` on the machine's own `Parallax_Transition_Frames`; the fix above |
+| `left_edge_vsram_probe.py` | NOT RACY — **settles** | its own `settle_transition` waits `Frames == 0` then +30f; every one of its sample sites (`:457`, `:481`) is preceded by it |
+| `waterline_stamp_witness.py` | NOT RACY — **never opens one** | pokes `Current == Target` and `Frames = 0` directly (`install()`), and writes `Debug_Lab_Index` rather than pressing, so no `Parallax_StartTransition` ever runs |
+| `lens_residue_raster_witness.py` | NOT RACY — **wrong row kind** | pokes the cursor to `row-1`, presses once onto a **RASTER** row; that arm tail-calls `Raster_Install` and stages no transition. Subject is `Raster_Program`/`Raster_Patch_Tab`/`Raster_Buf_A`, none of it lerped, and it stops on `Raster_VBlank`'s `.no_install` with `Raster_Pending == 0` |
+| `pcc_identity_probe.py` | NOT RACY — **drives no cursor** | reads `Debug_Lab_Index` as context only; prints `Frames=` beside every snapshot; its verdict ("does `Current` resolve to a config label") is true on both sides of the window |
+| `pcc_lab_probe.py` | NOT RACY — **the window IS its subject** | samples at +0f/+4f/+64f *on purpose* and prints `Frames=` on every line, so no reader can mistake a mid-window read for a settled one |
+| `perspective_floor_witness.py` | NOT RACY — **enough frames, derived** | `run_frames 30` after the walk, and 30 > `PARALLAX_TRANS_DEFAULT` = 16 (`engine/system/constants.emp:803`). MEASURED: `Frames` = 13 right after the walk, **0** after the 30. Its subject (plane-B nametable words, VRAM tiles) is not lerped either |
+| `ramp_authored_witness.py` | NOT IN POPULATION | names the symbol only in a comment saying it does not poke it; verified — one hit, line 78 |
+| `preset_lab_witness.py` | **RACY BUT HARMLESS — proven, not asserted** | `SETTLE_FRAMES = 6 < 16`. MEASURED: `Frames = 7` at its sample point on **5 of 6** walked rows, `Current`/`Target` both live. But its whole read surface — `Raster_Pending`, `Raster_Program`, `Effects_Screen_L`, `Effects_World_Y` — is **byte-identical across the window** on every step, and the one step that showed drift (row 33, `Effects_Screen_L` `$0855`→`$0853`) showed **the same drift in a control of the same frame count with no window open** (`$0853`→`$0852`), i.e. per-frame anchor re-latching, not the crossfade. Mechanism agrees: the PRESET arm latches the world lines in `Effects_InstallPreset` *before* it starts the transition, and its parallax rung is resolved from ROM, not from a live cell. **No fix. Nothing to fix.** |
+| `fg_left_edge_capture.py` | **RACY AND WRONG** | MEASURED below |
+| `floor_hscroll_dump.py` | **RACY AND WRONG on its `--extra-right-frames` arm** | MEASURED below |
+| `floor_capture.py` | **RACY AND WRONG on its `--extra-right-frames` arm** | MEASURED below |
 
 ---
 
