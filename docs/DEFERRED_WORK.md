@@ -36434,7 +36434,10 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   `engine/level/bg.emp:221` `BG_Init` (mask `:141`, 1 call: `BG_UploadTiles`) and
   `engine/level/section.emp:734` `Section_RedrawPlanes` (mask `:323`, 3 calls:
   `Region_Resolve`, `BG_UploadTiles`, `DMA_Deferrable_DropDest`). Max depth reached by
-  the walk: **1** — the three callees make no calls at all. The 2026-09-09 sift's
+  the walk: **1** — none of the three callees transfers to another proc (their branches
+  are all `.local` labels, which stay inside the proc and are not a depth level;
+  `BG_Init`'s span has 2 of those beside its 1 call, `Section_RedrawPlanes`' 33 beside
+  its 3). The 2026-09-09 sift's
   count of 1 named a different callee (`Section_GetSecPtrXY`); the tree moved, both
   numbers were right on their day, and **nothing in the new arm pins a population**.
   Deliberately no floor: it has legitimately been 1 and 2, so the count is PRINTED
@@ -36536,6 +36539,13 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   `landing_build.sh` that step runs before the pytest lane, so they pass there. Both sets
   were confirmed on an UNMODIFIED `e0317db8` control worktree before being attributed to
   the layout rather than to this parcel.
+- **Landing evidence.** `tools/landing_build.sh` at `2a66f7ec`: **`finished=0`**, exit 0,
+  zero `FAILED` lines in the whole log. Pre-build lane 3155 passed / 2 skipped / 0 failed
+  (control at unmodified `e0317db8`, same lane inside build.sh: 3150 — the +5 is this
+  parcel's five new tests). Post-build needs_build lane: `EXIT_needs_build=0`, 27 marked
+  tests ran and passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`, the shape this caller
+  does not build). An earlier `finished=0` at `f63cd6a4` covered everything but the
+  tail-call widening.
 - **Still open, and it is the alternative the booking named.** Sigil splices that are
   not declared contexts are NOT modelled. `assert` is the one inside today's closure
   (`BG_UploadTiles`' DEBUG IPL assert); its SR-neutrality is sigil's contract, a
