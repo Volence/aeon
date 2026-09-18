@@ -1,9 +1,9 @@
 {
-  "focus": "Making a clip act as wide as its content, so all six sections of Emerald Hill fit.",
+  "focus": "Emerald Hill now runs five sections wide. It came back finished last night and is waiting to be landed.",
   "inFlight": [
     {
-      "what": "Letting a clip act be as wide as its content, so the whole zone can be shown",
-      "where": "branch parcel/s2-clip-act-extent",
+      "what": "Landing the wider Emerald Hill act and writing down the build figures its report left blank",
+      "where": "branch land/0918",
       "agent": true
     }
   ],
@@ -14,12 +14,20 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the wider act lands and you have flown it; slopes are next.",
+  "nextBoundary": "When the five-section act is landed and the ROM on your disk is the one you would fly.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: Emerald Hill runs full width; making the act able to hold the whole zone",
+      "title": "Sonic 2 test act: the wider act came back finished; landing it, then you fly it end to end",
       "state": "doing",
+      "size": "L",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "S2CLIP-TRUNCATION",
+      "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -55,12 +63,12 @@
     {
       "id": "BUS-HOLD-SPANNED-CALLS",
       "title": "Two sound-chip pauses call other routines whose safety is traced by hand only; a census check could follow the calls",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-18T02:11:50Z"
+  "updatedAt": "2026-09-18T18:05:25Z"
 }
