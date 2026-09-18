@@ -1,9 +1,9 @@
 {
-  "focus": "Building the first thing you can look at: one Emerald Hill piece as a bootable act.",
+  "focus": "Emerald Hill boots in our engine. Two ROMs are on disk for you; the world ending early is being fixed.",
   "inFlight": [
     {
-      "what": "The first bootable piece: one Emerald Hill clip as a whole act",
-      "where": "branch parcel/s2-first-clip-act",
+      "what": "Finding why the clip act's world ends early and Sonic falls through",
+      "where": "branch parcel/s2-clip-gap",
       "agent": true
     }
   ],
@@ -14,11 +14,11 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the first clip act builds; then I boot it in the foreground and show you.",
+  "nextBoundary": "When the early-ending fix lands and you have looked at the ROM.",
   "queue": [
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: building the first bootable piece, one Emerald Hill clip as a whole act",
+      "title": "Sonic 2 test act: the first piece BOOTS (two ROMs on disk for you); fixing the world ending early",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -62,5 +62,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-17T22:14:06Z"
+  "updatedAt": "2026-09-18T00:13:18Z"
 }
