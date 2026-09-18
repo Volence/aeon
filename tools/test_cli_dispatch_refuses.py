@@ -160,6 +160,13 @@ _FIXED = [
     # to put them back -- the ojz_strip_gen shape of LS-15d again. `ground` is read-only
     # but is the parcel's falsifiable check and must not run unasked.
     ("clip_rom_bake", ["_mode_bake", "_mode_ground", "bake", "ground"]),
+    # S2-COMPRESSED-ACT parcel 7 (2026-09-17): born in the table form. Every mode is
+    # READ-ONLY -- it measures a baked tree and writes nothing -- so an unknown mode
+    # reaching a handler would not lose data. It is in _FIXED anyway, for the reason the
+    # tool exists: it is a `gate strict` build lane, and a lane that runs the wrong thing
+    # on a typo'd mode and exits 0 is a lane that has silently stopped asking. The three
+    # rows below are cheap and the alternative is a gate nobody can tell from a pass.
+    ("clip_reachability", ["_mode_check", "check", "scan"]),
 ]
 
 
@@ -406,6 +413,7 @@ _ROSTER = {
     "import_s2_collision.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 4, 2026-09-17, born in the fixed form; `build` OVERWRITES the committed S2 collision bank, so the dispatch running before any handler is the property, and the two subprocess rows above pin it for both doorways)",
     "land_gate.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (CTRL-3, born in the fixed form; `finish` writes the landing stamp)",
     "clip_rom_bake.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT row 6, 2026-09-17, born in the fixed form; `bake` OVERWRITES the committed generated tree and the ROM collision tables as a THROWAWAY, so the dispatch running before any handler is the property -- and it deliberately has NO subprocess row, because on a regression that row's failure IS the write)",
+    "clip_reachability.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT parcel 7, 2026-09-17, born in the fixed form; `check` is READ-ONLY -- the act-wide reachability build gate for the S2CLIP shape. It is in _FIXED despite writing nothing because it runs as `gate strict`: a typo'd mode that reached a handler and exited 0 would be a build lane that had stopped measuring, which is this gate's own subject)",
     "verify_level_bin.py": "refuses: unknown argv token -> usage + exit 2 (it grew --project/--bank on 2026-09-17 so a clip act's tree could be verified by the same ten lanes; it WRITES NOTHING at any mode, and an unparsed flag is refused by name rather than ignored)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
@@ -445,12 +453,17 @@ def test_the_ladder_population_is_still_the_roster():
     # STITCHED-ACT-PAGE-ORDER wiring (2026-09-17) added fg_page_order.py; 18 since
     # CACHE-WINDOW-HOLD-MEASURE (2026-09-17) added cache_hold_probe.py; 20 since
     # S2-COMPRESSED-ACT row 3 (2026-09-17) added clip_manifest.py and clip_act_bake.py;
-    # 21 since S2-COMPRESSED-ACT row 4 (2026-09-17) added import_s2_collision.py.
-    assert len(found) == 23, (
+    # 21 since S2-COMPRESSED-ACT row 4 (2026-09-17) added import_s2_collision.py;
+    # 24 since S2-COMPRESSED-ACT parcel 7 (2026-09-17) added clip_reachability.py.
+    # OBSERVED WHILE RAISING IT, said rather than tidied: this running commentary stops
+    # at 21 but the assertion already read 23 before parcel 7 touched it, so TWO tools
+    # (clip_rom_bake.py, verify_level_bin.py) entered the population without a line
+    # here. The number is what the rows grade; the commentary is not, and it had drifted.
+    assert len(found) == 24, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "
         "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, CACHE-WINDOW-HOLD-MEASURE's "
         "cache_hold_probe.py, S2-COMPRESSED-ACT row 3's clip_manifest.py + "
-        "clip_act_bake.py and row 4's import_s2_collision.py, found %d: %s"
+        "clip_act_bake.py, row 4's import_s2_collision.py and parcel 7's clip_reachability.py, found %d: %s"
         % (len(found), sorted(found)))
