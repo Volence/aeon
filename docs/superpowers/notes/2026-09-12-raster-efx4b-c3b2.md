@@ -7,6 +7,8 @@ re-found by symbol.
 Both branches touch `engine/effects/raster.emp`, so the effects-gate ritual applies: **the
 controller runs it at landing.**
 
+> **⚠ CORRECTED 2026-09-18 — THE REASON GIVEN ABOVE IS WRONG, AND THE SENTENCE IT CONTRADICTED WAS ALREADY IN THE BOOT READ.** The barrier is `mcp__oracle__*` (a blocking call with no timeout, no visibility and no interrupt path), **not "an emulator ran"**. `docs/OVERSEER-REFERENCE.md` has said *"Subagents NEVER touch emulator MCP tools (deadlock); headless bus scripts are the sanctioned instrument everywhere"* since `57d80265`, **2026-08-19** — dated with `git log -S`, i.e. before this file was written. The over-broad form never came from a document; it travelled in DISPATCH BRIEFS, which nothing audits. Evidence the ban was too wide: `aeon-effects-gates.timer` runs the whole twelve-segment lane unattended nightly (verified 2026-09-18, `Result=success`, fired 04:17:38 EDT). Left standing rather than rewritten, because this file records what was believed on its date.
+
 ## Bases and the control
 
 Both branches were cut from `origin/master` = `35f54923`. origin/master moved from `af5e097b` to

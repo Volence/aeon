@@ -5,6 +5,8 @@ in packet s12 §12.9, plus the whole-ROM falsifier §12.2 asked for and the buil
 phase 1 never reached. No agent did any of this: subagents cannot drive the emulator
 (they deadlock), so every measurement below is the controller's own.
 
+> **⚠ CORRECTED 2026-09-18 — THE REASON GIVEN ABOVE IS WRONG, AND THE SENTENCE IT CONTRADICTED WAS ALREADY IN THE BOOT READ.** The barrier is `mcp__oracle__*` (a blocking call with no timeout, no visibility and no interrupt path), **not "an emulator ran"**. `docs/OVERSEER-REFERENCE.md` has said *"Subagents NEVER touch emulator MCP tools (deadlock); headless bus scripts are the sanctioned instrument everywhere"* since `57d80265`, **2026-08-19** — dated with `git log -S`, i.e. before this file was written. The over-broad form never came from a document; it travelled in DISPATCH BRIEFS, which nothing audits. Evidence the ban was too wide: `aeon-effects-gates.timer` runs the whole twelve-segment lane unattended nightly (verified 2026-09-18, `Result=success`, fired 04:17:38 EDT). Left standing rather than rewritten, because this file records what was believed on its date.
+
 Subject: `parcel/alignment-flip-hole-196` @ `8c0983b5` built with sigil `443d1544`
 (`land/alignment-flip-196` = sigil master `9a2f40c6` + parcel `23ee52f0`).
 ROMs: s4 `ac10ab85`/719325, s4_debug `fa866f19`/736345, demo `30a31d81`/96458,

@@ -211,6 +211,8 @@ Two rows in tools/test_s4lint.py skip with 'main.asm not found'. main.asm was DE
 
 tools/fg_left_edge_gate.py was rewritten in chain 197 to branch on the per-scene flag (both the offset and the bit DERIVED at runtime, not typed). Its declining arm has NEVER EXECUTED - agents cannot touch the emulator. Until a foreground run, the gate is reviewed and not attested, and a gate whose new arm has never run is exactly the population this lane keeps finding. Five minutes with the emulator up.
 
+**⚠ REOPENED AND RE-SCOPED 2026-09-18 — "agents cannot touch the emulator" is FALSE at this site, specifically.** `tools/fg_left_edge_gate.py` imports `AetherInstance` (`tools/aether_instance.py`), the oracle-aether SUBPROCESS path on its own private socket. There is no MCP anywhere in it, and `effects_gates.py`'s header records that the aether segments **cannot hit the stop race** at all — oracle-aether boots PAUSED and `run_frames`/`run_to` are synchronous and bounded. The real barrier is `mcp__oracle__*`, which `docs/OVERSEER-REFERENCE.md` has said since 2026-08-19 (`57d80265`). **So this gate has been delegable the whole time it sat unattested**, and the declining arm's five minutes was never blocked on anything. Booked as `GATE-UNRUN-RECOVERY`.
+
 ---
 
 ## Added 2026-09-02 — open work that did not fit the 20-row bound
