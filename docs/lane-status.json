@@ -1,12 +1,6 @@
 {
-  "focus": "Four tools are expected to fail as normal, so a check added to one cannot fail. Fixing that on a real case.",
-  "inFlight": [
-    {
-      "what": "Making a baseline describe the check it was measured on, so a failure can be told from the usual failure",
-      "where": "branch parcel/keepalive-perarm-identity",
-      "agent": true
-    }
-  ],
+  "focus": "A check added to a tool that is meant to fail can now fail differently; and your own 09-09 ruling answered the question I was going to send you.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,18 +8,18 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When a baseline names its own check, proven on a tool whose reds are being settled in the same parcel.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
-    {
-      "id": "KEEPALIVE-PERARM-IDENTITY",
-      "title": "Four tools are expected to FAIL as their normal state, so a check added to one can never fail; fixing that, using the revived tool's three deliberate reds as the real case",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "COST-PROBE-W20-STALE",
+      "title": "A cost probe nudges a value that now holds a no-anchor marker, so its 'split moved 80 to 96' is really 32767 to 32783 -- off screen. Same defect we just fixed, one tool over",
       "state": "open",
       "size": "S",
       "blockedBy": null
@@ -111,6 +105,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T06:54:13Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T07:24:32Z"
 }
