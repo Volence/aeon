@@ -1,6 +1,12 @@
 {
-  "focus": "Both halves of the measuring-tool sweep are done; the ordinary-gameplay half came back clean.",
-  "inFlight": [],
+  "focus": "Two measuring tools stopped working weeks ago; one was hiding ten failures. Finding out what they were.",
+  "inFlight": [
+    {
+      "what": "Repairing two dead measuring tools and finding out what the older one was hiding",
+      "where": "branch parcel/dead-instrument-pair",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,19 +14,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed.",
+  "nextBoundary": "When both instruments are alive or the second is ruled on, and the 10 hidden failures have owners.",
   "queue": [
     {
       "id": "DEAD-INSTRUMENT-PAIR",
-      "title": "One measuring tool was dead 23 days and hid 10 failures; a second has not run since 08-29 and is not yet repaired",
-      "state": "next",
+      "title": "One measuring tool crashed on startup from 2026-08-26 until it was found on 2026-09-18, hiding 10 failures; a second has not run since 2026-08-29 and is deliberately not repaired yet",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "CAPTURE-SETTLE-NAME",
       "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -77,6 +83,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T02:08:06Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T02:34:47Z"
 }
