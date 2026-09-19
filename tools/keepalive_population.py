@@ -151,10 +151,30 @@ def strip_prose(src):
     return "\n".join(kept)
 
 
+# The keepalive lane's own files, which must not act as reachability SOURCES.
+#
+# ⚠ MEASURED, NOT ANTICIPATED. Without this the advisory count moved 50 -> 47 the moment
+# the lane's own tests were written, because `tools/test_keepalive_lane.py` carries an
+# argparse fixture whose text is the short string "usage: sec5_band_witness.py [-h] ..." --
+# and a short string literal is exactly what this module deliberately KEEPS, since that is
+# where a real invocation lives. So the lane's own bookkeeping was crediting instruments as
+# live, which is the over-crediting flaw documented at the top of this file, reintroduced
+# from inside. It is also wrong on the merits: "the keepalive lane mentions this tool" can
+# never be evidence that something ELSE runs it.
+LANE_BOOKKEEPING = frozenset({
+    "tools/keepalive_population.py",
+    "tools/keepalive_lane.py",
+    "tools/test_keepalive_lane.py",
+    "tools/nightly_instrument_keepalive.sh",
+})
+
+
 def _code_corpus(repo):
     corpus = {}
     for rel in _tracked_files(repo):
         if not (rel.endswith(".py") or rel.endswith(".sh")):
+            continue
+        if rel in LANE_BOOKKEEPING:
             continue
         text = _read(repo, rel)
         if text is None:

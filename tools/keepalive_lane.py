@@ -49,8 +49,16 @@ rendered both of today's dead instruments as ordinary failures.
     timeout ........................................... COULD NOT RUN
     "Traceback (most recent call last):" in output .... COULD NOT RUN
     exit 2 with an argparse usage error ............... COULD NOT RUN  (see below)
+    non-zero AND the instrument's own refusal word .... COULD NOT RUN  (see REFUSAL_MARKERS)
     exit status == the declared baseline .............. PASSED
     anything else ..................................... FAILED
+
+The fourth rung was added after the FIRST REAL RUN, which is the only reason it exists:
+seven of the ten rows that came back FAILED were instruments saying in their own words
+that they could not measure the ROM they were handed ("COULD NOT RUN - ROM crc32 ... is
+not the measured 9ce1c2ff", "UNMEASURABLE: Sound_DebugMirror is not a label", "BLOCKED:
+the borrowed symbol addresses do not describe this ROM"). Reading those as failures both
+loses the distinction this lane exists for AND blames the engine for a stale instrument.
 
 The argparse rung is about THIS FILE being wrong, not the tool: if the manifest's declared
 invocation no longer matches the tool's arguments, the lane is not measuring that tool any
@@ -101,8 +109,62 @@ CNR = "COULD NOT RUN"
 
 TRACEBACK_MARK = "Traceback (most recent call last):"
 
+# THE INSTRUMENTS ALREADY DRAW THIS DISTINCTION THEMSELVES, and the first real run of this
+# lane is what showed it. Seven of the ten rows that came back FAILED were not failures at
+# all -- they were instruments saying, in their own words, that they could not measure the
+# ROM they were handed:
+#
+#   blank_priority_probe        "COULD NOT RUN - ROM crc32 62238a15 is not the measured 9ce1c2ff"
+#   lens_residue_object_witness "COULD NOT RUN (setup): ... Refusing to report on a different ROM."
+#   sec5_band_witness           "REFUSED: ... this instrument measures exactly ONE band; the document has 3"
+#   deform_own_cost_probe       "REFUSED: band record is 32 bytes, expected 20"
+#   song_load_mid_drum_witness  "UNMEASURABLE: Sound_DebugMirror is not a label in ..."
+#   tick_variance_probe         "BLOCKED: the borrowed symbol addresses do not describe this ROM"
+#   dma_straddle_reading        "THIS RUN SAYS NOTHING - REFUSING TO REPORT IT AS A PASS"
+#
+# Flattening those into "exit 1, expected 0" throws away the very distinction this lane
+# exists to preserve, and it points the finger at the engine for what is a stale
+# instrument. So the lane honours an instrument's own verdict word when it has one.
+#
+# THE VOCABULARY IS THE TREE'S, NOT MINE. Measured over tools/*.py on 2026-09-18:
+# "UNMEASURABLE" appears in 82 files, "REFUSED" in 58, "VACUOUS" in 31, "COULD NOT RUN" in
+# 28. These are house conventions with a long history here, not a pattern fitted to one
+# bad night.
+#
+# TWO GUARDS KEEP THIS FROM SWALLOWING REAL FAILURES:
+#   * the marker must begin a LINE (after an optional "toolname: " prefix), so a sentence
+#     mentioning a refusal in passing cannot trigger it; and
+#   * a tool that exited 0 is never reclassified -- it formed a verdict, and its prose is
+#     not the lane's business.
+# A tool whose legitimate verdict IS a refusal (tools/curve_probe.py refuses every
+# canonical image by design) sets `refusal_is_expected = true` in the manifest and opts out.
+REFUSAL_MARKERS = (
+    "COULD NOT RUN",
+    "REFUSED",
+    "REFUSING TO REPORT",
+    "UNMEASURABLE",
+    "BLOCKED:",
+    "THIS RUN SAYS NOTHING",
+)
 
-def classify(rc, output, expect, timed_out):
+
+def _self_declared_refusal(output):
+    """Return the instrument's own refusal line, or None. Line-leading markers only."""
+    for line in output.splitlines():
+        text = line.strip()
+        # Strip a "toolname: " prefix -- several instruments lead their verdict with it.
+        head, sep, rest = text.partition(": ")
+        if sep and " " not in head and head.endswith(("probe", "witness", "gate", "ab",
+                                                      "poison", "capture", "dump",
+                                                      "reading", "exercise", "audition")):
+            text = rest.strip()
+        for mark in REFUSAL_MARKERS:
+            if text.startswith(mark):
+                return text[:160]
+    return None
+
+
+def classify(rc, output, expect, timed_out, refusal_is_expected=False):
     """The whole claim of this lane lives in this function. See the module docstring."""
     if timed_out:
         return CNR, "timed out"
@@ -115,6 +177,10 @@ def classify(rc, output, expect, timed_out):
     if rc == 2 and ("usage:" in output or "error: the following arguments are required" in output
                     or "error: unrecognized arguments" in output):
         return CNR, "the manifest's declared invocation no longer matches this tool's arguments"
+    if rc != 0 and not refusal_is_expected:
+        said = _self_declared_refusal(output)
+        if said:
+            return CNR, f"the instrument itself refused: {said}"
     if rc == expect:
         return PASSED, f"exit {rc} (declared baseline)"
     return FAILED, f"exit {rc}, declared baseline was {expect}"
@@ -163,7 +229,8 @@ def run_one(name, spec, rom, lst, repo, verbose):
         if isinstance(out, bytes):
             out = out.decode("utf-8", "replace")
     wall = time.time() - t0
-    verdict, why = classify(rc, out, int(spec.get("expect", 0)), timed_out)
+    verdict, why = classify(rc, out, int(spec.get("expect", 0)), timed_out,
+                            refusal_is_expected=bool(spec.get("refusal_is_expected", False)))
     return {
         "name": name, "verdict": verdict, "why": why, "wall": wall,
         "cmd": " ".join(cmd[1:]), "output": out, "rc": rc,

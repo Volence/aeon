@@ -38203,6 +38203,15 @@ instrument in one sentence.
 authority, and a 29-line invocation manifest is a decision about what this tree promises to keep
 alive, not a tidy-up.
 
+> **BUILT 2026-09-18 by `INSTRUMENT-KEEPALIVE`** — `tools/keepalive_lane.py` +
+> `tools/keepalive_manifest.toml` + `tools/keepalive_population.py`, with
+> `tools/nightly_instrument_keepalive.sh` as the (UNARMED) nightly. **Two figures above did not
+> survive re-derivation and are corrected in the entry at the end of this file:** the population
+> reconciles (84 construct a `BusClient`, an 85th shims the class), but **"29 referenced by
+> nothing" does not reproduce under any of five definitions** — the count ranges 18 to 50
+> depending on what counts as a reference, and the honest "nothing executes this" figure is **50**,
+> because raw-text matching credits a tool that is merely NAMED IN A COMMENT as live.
+
 
 **Also open from that sweep, and smaller:** `tile_cache_fill_gate.py`'s documented poison —
 "`--post 0` reintroduces the drain-lag false positive" — is UNREACHABLE. The bus refuses it:

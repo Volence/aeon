@@ -68,10 +68,6 @@ timeout = 300
 
 # ---- --rom/--lst, required ------------------------------------------------------------
 
-[wired."deform_own_cost_probe.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 600
 
 [wired."dplc_coherence_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -83,10 +79,6 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
-[wired."song_load_mid_drum_witness.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 300
 
 [wired."zx0r_net_boot_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -95,16 +87,7 @@ timeout = 300
 
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
-[wired."blank_priority_probe.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 600
 
-[wired."dma_straddle_reading.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 900
-note = "default arms are 4 legs x 3600 frames; the timeout is sized for that, not guessed"
 
 [wired."floor_hscroll_dump.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -157,9 +140,10 @@ expect = 0
 timeout = 300
 
 [wired."spring_clip_ab.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--label", "keepalive"]
 expect = 0
 timeout = 600
+note = "--label is required unless --compare is given; the first run caught the omission"
 
 [wired."spring_launch_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -191,10 +175,6 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 600
 
-[wired."tick_variance_probe.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 900
 
 [wired."waterline_art_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -215,7 +195,8 @@ expect = 0
 timeout = 600
 
 [wired."floor_capture.py"]
-args = ["--rom", "{rom}", "--lst", "{lst}", "--out", "{outdir}"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--out", "{outdir}/floor.png"]
+note = "--out is a FILE, not a directory; the first run reported COULD NOT RUN for exactly this"
 expect = 0
 timeout = 300
 
@@ -224,21 +205,9 @@ args = ["--rom", "{rom}", "--lst", "{lst}", "--out-dir", "{outdir}"]
 expect = 0
 timeout = 600
 
-[wired."sec5_band_witness.py"]
-args = ["--rom", "{rom}", "--label", "keepalive", "--out-dir", "{outdir}"]
-expect = 0
-timeout = 600
-note = "derives its own --lst from --rom when not given"
 
 # ---- tools taking a selector ----------------------------------------------------------
 
-[wired."lens_residue_object_witness.py"]
-args = ["c2a6", "--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
-timeout = 600
-note = """c2a6 is the first of the five plain witnesses (c2a6, multisprite, nullmap, c4a2,
-c4a3). The `all` selector also sweeps the two A/B witnesses, which need a SECOND ROM from
-a different build; keepalive runs one ROM, so it runs one plain witness."""
 
 [wired."lens_residue_raster_witness.py"]
 args = ["efx4b", "--rom", "{rom}", "--lst", "{lst}"]
@@ -342,3 +311,10 @@ it is not a verdict about pagecache_audit_poison."""
 "vsplit_landing_gate.py" = "reachable in code from a real entry point"
 "warp_mailbox_gate.py" = "reachable in code from a real entry point"
 "waterline_stamp_witness.py" = "reachable in code from a real entry point"
+"blank_priority_probe.py" = "pinned to a ROM that no longer exists: it says 'COULD NOT RUN - ROM crc32 62238a15 is not the measured 9ce1c2ff; pass --any-rom'. Measured 2026-09-18. Keepalive runs the SHIPPING ROM, so this instrument cannot report here at all. Wiring it needs either the pinned artifact or a decision to re-measure it; --any-rom would silence the refusal without making the reading mean anything."
+"lens_residue_object_witness.py" = "same pinned-ROM refusal: 'COULD NOT RUN (setup): ROM ... is crc32 62238a15 / 848075 B, not the 9ce1c2ff / 847533 this run expects. Refusing to report on a different ROM.' Measured 2026-09-18 on the c2a6 witness."
+"song_load_mid_drum_witness.py" = "needs a DIFFERENT BUILD SHAPE, not a different argument: 'UNMEASURABLE: Sound_DebugMirror is not a label in s4.debug.lst - this is not the config-A (music-capable, mirror-bearing) listing, and without the Z80-RAM mirror this bus cannot read SND_STAT_DAC_ACTIVE at all'. Measured 2026-09-18. A keepalive that built config-A too is a bigger lane than this one."
+"tick_variance_probe.py" = "borrows symbol addresses from another ROM: 'BLOCKED: [idle] the borrowed symbol addresses do not describe this ROM: Camera_X 0 Camera_Y 0 leader $000000 (A/B: 96 / 144 / $FF8DB0)' - its control arm is pinned to crc d22dda85 from sigil 7b46f075's golden. Measured 2026-09-18."
+"sec5_band_witness.py" = "stale against the authored preset it reads: 'REFUSED: games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json: this instrument measures exactly ONE band; the document has 3 - extend it, do not guess'. Measured 2026-09-18. The instrument is explicitly refusing to guess, which is correct behaviour and also means it cannot report until someone extends it."
+"deform_own_cost_probe.py" = "stale against a record that grew under it: 'REFUSED: band record is 32 bytes, expected 20 (legacy prefix + one band_ext). The record grew by something this probe does not know how to fill.' Measured 2026-09-18."
+"dma_straddle_reading.py" = "self-reports vacuity on the canonical ROM: 'THIS RUN SAYS NOTHING - REFUSING TO REPORT IT AS A PASS'. Measured 2026-09-18 on default arms. Making it say something needs arguments that reach a straddle, which is a reading this parcel had no basis to choose."

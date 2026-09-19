@@ -105,6 +105,66 @@ def test_the_clean_pass():
     assert lane.classify(rc=0, output="OK\n", expect=0, timed_out=False)[0] == "PASSED"
 
 
+def test_no_declared_baseline_can_make_a_crash_green():
+    """There must be no manifest setting that accepts a crash as an instrument's normal state.
+
+    A measured negative is a legitimate thing to baseline -- parallax_hscroll_identity's
+    three stale-fixture reds are declared. A CRASH never is: baselining one would mean the
+    lane agreeing to stop noticing that a channel cannot report, which is the defect.
+    """
+    tb = "Traceback (most recent call last):\nNameError: boom\n"
+    for expect in range(-2, 5):
+        assert lane.classify(rc=1, output=tb, expect=expect, timed_out=False)[0] == "COULD NOT RUN"
+
+
+# ---------------------------------------------------------------------------------
+#  The instrument's own refusal word
+# ---------------------------------------------------------------------------------
+# All five strings below are VERBATIM from the lane's first real run, 2026-09-18, against
+# s4.debug.bin crc32 62238a15. They are not invented shapes.
+
+@pytest.mark.parametrize("line", [
+    "blank_priority_probe: COULD NOT RUN - ROM crc32 62238a15 is not the measured 9ce1c2ff; pass --any-rom",
+    "COULD NOT RUN (setup): ROM s4.debug.bin is crc32 62238a15, not the 9ce1c2ff this run expects.",
+    "REFUSED: band record is 32 bytes, expected 20 (legacy prefix + one band_ext).",
+    "UNMEASURABLE: Sound_DebugMirror is not a label in s4.debug.lst",
+    "BLOCKED: [idle] the borrowed symbol addresses do not describe this ROM",
+])
+def test_an_instrument_that_refuses_is_could_not_run_not_failed(line):
+    out = "some preamble\n" + line + "\nmore output\n"
+    verdict, why = lane.classify(rc=1, output=out, expect=0, timed_out=False)
+    assert verdict == "COULD NOT RUN", (
+        "an instrument saying in its own words that it cannot measure this ROM is a "
+        "channel that cannot report, not an engine defect"
+    )
+    assert "itself refused" in why
+
+
+def test_a_refusal_word_inside_a_sentence_does_not_trigger():
+    """The marker must BEGIN a line. Otherwise ordinary prose reclassifies a real failure."""
+    out = "VERDICT FAIL\n  the engine REFUSED the write, which is the behaviour under test\n"
+    assert lane.classify(rc=1, output=out, expect=0, timed_out=False)[0] == "FAILED"
+
+
+def test_a_tool_that_exited_zero_is_never_reclassified_by_its_prose():
+    out = "note: an earlier arm was UNMEASURABLE, the rest ran\nOK\n"
+    assert lane.classify(rc=0, output=out, expect=0, timed_out=False)[0] == "PASSED"
+
+
+def test_refusal_is_expected_opts_a_tool_out():
+    """tools/curve_probe.py refuses every canonical image BY DESIGN."""
+    out = "REFUSED: this image is canonical, which is what this probe asserts\n"
+    assert lane.classify(rc=1, output=out, expect=1, timed_out=False,
+                         refusal_is_expected=True)[0] == "PASSED"
+
+
+def test_a_real_measured_failure_is_still_failed():
+    """waterline_art_witness's actual first-run output shape: a verdict, not a refusal."""
+    out = ("  POSITIVE  12/12 frames: VRAM equals the gather predicted from the ladder row\n"
+           "  VERDICT FAIL\n")
+    assert lane.classify(rc=1, output=out, expect=0, timed_out=False)[0] == "FAILED"
+
+
 # ---------------------------------------------------------------------------------
 #  The accounting
 # ---------------------------------------------------------------------------------
