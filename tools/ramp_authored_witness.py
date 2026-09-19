@@ -805,12 +805,14 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
         if h_stops:
             fin = want_acc(a_hi, step_v)
             held_ok = all(v == fin for _, v in h_stops)
-            say("    THE HOLD, READ ON THE WIRE: %d stop(s) below the run at lines %s all "
-                "read %+d = %+0.3f px, the run's FINAL accumulator (value j=%d) — %s. This "
-                "is engine/effects/raster.emp's documented behaviour ('after the run ends "
-                "the entry KEEPS its final value'), measured here rather than assumed."
-                % (len(h_stops), [L for L, _ in h_stops], fin, fin / 65536.0, lines,
-                   "ok" if held_ok else "*** they do NOT ***"))
+            say("    THE HOLD, READ ON THE WIRE: %d stop(s) below the run at lines %s — the "
+                "document derives the run's FINAL accumulator (value j=%d) %+d = %+0.3f px "
+                "for every one, and they MEASURE %s. %s This is "
+                "engine/effects/raster.emp's documented behaviour ('after the run ends the "
+                "entry KEEPS its final value'), measured here rather than assumed."
+                % (len(h_stops), [L for L, _ in h_stops], lines, fin, fin / 65536.0,
+                   sorted({v for _, v in h_stops}),
+                   "ok." if held_ok else "*** THEY DO NOT AGREE ***."))
             if not held_ok:
                 ok = False
         else:
@@ -1236,6 +1238,18 @@ def main():
           % (d_lo, d_hi, len(inside), d_hi - d_lo + 1))
     print("  changed OUTSIDE it                       : %d %s"
           % (len(outside), sorted(outside) if len(outside) <= 12 else ""))
+    # AND MOST OF "OUTSIDE" IS EXPECTED, DERIVED RATHER THAN EXCUSED. A ramp WRITES the
+    # entry and `.dense_end` falls into `.park`, so when the run retires the entry keeps its
+    # last value and every line below stays shifted for the rest of the frame
+    # (engine/effects/raster.emp, above raster_ramp_program). This arm has no verdict, so
+    # nothing here changes; the count is named so the next reader does not chase it.
+    if d_hi < SCREEN_LINES - 1:
+        below = [l for l in outside if l > d_hi]
+        print("    of which %d lie in the HELD zone, screen lines %d..%d — the run retires "
+              "at %d and the entry keeps value j=%d for the rest of the frame — and %d are "
+              "genuinely unaccounted for"
+              % (len(below), d_hi + 1, SCREEN_LINES - 1, d_hi, lines,
+                 len(outside) - len(below)))
     print("  first differing line                     : %s" % (firsts[0] if firsts else None))
     print("  NOTE: arm 2 CANNOT separate the ramp from the program replacement. That is "
           "arm 3's job.")
@@ -1314,6 +1328,20 @@ def main():
         print("  agreement              : %s"
               % ("EXACT" if (reached[0], reached[-1]) == (d_lo, d_hi)
                  else "top %+d, bottom %+d" % (reached[0] - d_lo, reached[-1] - d_hi)))
+        # A BOTTOM OVERSHOOT IS NOT A SPAN ERROR WHEN THE RUN RETIRES ABOVE THE LAST LINE.
+        # Arm 4's twins differ in `rrp_start`, so the HELD value differs between them too
+        # and every line below the run moves as well — the reached span runs to 223 by
+        # construction. DERIVED here, with the number this document implies, so the printed
+        # "bottom +N" above is readable instead of alarming. No verdict changes: arm 4 has
+        # none, and the question of whether its DERIVED span should say 223 in the first
+        # place is booked in docs/DEFERRED_WORK.md rather than decided here.
+        if d_hi < SCREEN_LINES - 1:
+            print("  ⚠ the bottom is EXPECTED at %d, not %d: the run retires after value "
+                  "j=%d and a ramp WRITES the entry, so it keeps that value for the "
+                  "remaining %d line(s) (engine/effects/raster.emp, above "
+                  "raster_ramp_program). A bottom of %+d is exactly that hold."
+                  % (SCREEN_LINES - 1, d_hi, lines, SCREEN_LINES - 1 - d_hi,
+                     SCREEN_LINES - 1 - d_hi))
     print()
 
     print("ARM 5  THE VALUE ITSELF, AND ITS SIGN")

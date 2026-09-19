@@ -22554,6 +22554,12 @@ on `parcel/aurora-ramp-witness`. **That part is CLOSED.**
 
 ## THE SIGN IS NOW WITNESSED ON THE HARDWARE — 2026-09-04, `parcel/ramp-sign-witness`
 
+⚠ **AND IT WAS DEAD ON ITS OWN DEFAULT SUBJECT FROM THIS DAY UNTIL 2026-09-19.** Everything
+below was measured on `aurora_ramp_witness` (22 parked stops, 203 decoded lines) — the one
+preset whose run reaches the bottom of the screen and therefore has no HELD zone. Run on the
+script's DEFAULT subject `ramp_probe`, the same arm crashed. See "THE LANE IS NOT VACUOUS" at
+the end of this file for the defect, the two readings it rules out, and the fix.
+
 `tools/ramp_authored_witness.py` **arm 5** reads WHAT VALUE IS WRITTEN rather than which lines
 moved. Two instruments, because each one's blind spot is the other's subject:
 
@@ -38292,15 +38298,20 @@ Final run 2026-09-18, against `s4.debug.bin` crc32 `62238a15` / 848,075 B:
   PASSED 34   FAILED 0   COULD NOT RUN 1       finished=35 of 35    exit 2
 ```
 
+⚠ That is the 2026-09-18 reading and it is left as measured. **The one COULD NOT RUN was
+`ramp_authored_witness.py`, fixed 2026-09-19 and now declared `expect = 0`** (next section),
+so the same 35 rows should fold to `PASSED 35 / FAILED 0 / COULD NOT RUN 0`, exit 0 — which
+is a PREDICTION from one row changing, not a lane run anybody has done since.
+
 **Cost: 5.0 to 7.0 min wall for 35 instruments**, measured across three full runs at load
 average 5.09 to 8.22 (`uptime` 3 days, 3:55 / 3:46 / 4:06). That is well under the ~12 min
 the previous parcel priced for 29, because the median instrument here is far cheaper than
 the ~25 s the two known-dead ones cost.
 
-#### THE LANE IS NOT VACUOUS — ⚠ OPEN DEFECT FOUND ON ITS FIRST RUN
+#### THE LANE IS NOT VACUOUS — IT FOUND A DEAD INSTRUMENT ON ITS FIRST RUN (✅ FIXED 2026-09-19)
 
-**`tools/ramp_authored_witness.py` is DEAD and stays LOUD.** It runs arms 1-4, prints a full
-authored-vs-wire comparison that looks entirely healthy, and then dies:
+**`tools/ramp_authored_witness.py` was DEAD and stayed LOUD.** It ran arms 1-4, printed a full
+authored-vs-wire comparison that looked entirely healthy, and then died:
 
 ```
   File "tools/ramp_authored_witness.py", line 841, in run_arm5
@@ -38308,12 +38319,76 @@ authored-vs-wire comparison that looks entirely healthy, and then dies:
 TypeError: unsupported operand type(s) for -: 'NoneType' and 'int'
 ```
 
-`want_val()` returned `None`. This is the `parallax_hscroll_probe` shape exactly — a crash
-deep in a run, after plenty of plausible output, exiting **1**. It is **not** baselined, and
-it cannot be: no `expect` value makes a traceback green, by construction and by test
-(`test_no_declared_baseline_can_make_a_crash_green`). A measured negative is a legitimate
-thing to baseline; a crash never is. The lane will report COULD NOT RUN every run until
-someone fixes `run_arm5`. **Nobody has run arm 5 for long enough that the fix is unknown work.**
+`want_val()` returned `None`. This was the `parallax_hscroll_probe` shape exactly — a crash
+deep in a run, after plenty of plausible output, exiting **1** — and it was **not** baselined
+and could not be: no `expect` value makes a traceback green, by construction and by test
+(`test_no_declared_baseline_can_make_a_crash_green`).
+
+**✅ FIXED 2026-09-19 (parcel RAMP-WITNESS-ARM5), and the fix was NOT the visible off-by-one.**
+Clamping or guarding `longest[-1] + 1` would have made the crash go away without establishing
+which side was mistaken. The real defect is one level up:
+
+> **A ramp keeps writing the picture after its run ends, and arm 5 modelled only the lines it
+> WRITES.** `.dense_end` falls into `.park`, so when the run retires nothing touches VSRAM
+> entry 1 again until the next frame's VBlank — the entry KEEPS its last value and every line
+> below stays shifted. `engine/effects/raster.emp` says exactly that above
+> `raster_ramp_program`, naming **`ramp_probe`, this script's own DEFAULT subject**, as the
+> example; the sibling instrument `tools/ramp_boundary_probe.py` already models it
+> (`k = LINES - 1  # the run WRITES, so its last value persists downward`). THIS arm was the
+> one without the clamp.
+
+So on `ramp_probe` (top 128, lines 64) the **30 screen lines below the run decode, to a
+constant**, and the old shape mishandled every one:
+
+| symptom | old behaviour |
+|---|---|
+| the crash | `want_val` returned None outside `1 <= j <= lines`; the derived total across a chain that ran into the hold raised `TypeError` |
+| silent false reds | the two checks that *did* test for None counted a correctly-held line as a **disagreement** — 8 pairs and 10 absolute misses on the baseline run |
+| 5a slope | folded the hold in, read `{0.0, 29491.2, 98304.0}`, reported the correct engine as a MISMATCH |
+| 5a sign | hard-wired to "strictly decreasing", so the DEFAULT preset (+1.5 px/line, an **upward** ramp) printed `*** NOT strictly decreasing ***` for being right. 5b had already been corrected to use the document's sign; 5a was missed |
+
+**Two readings were REJECTED on evidence, not on plausibility.** (1) *The caller is wrong* —
+no: the measured total telescopes exactly to `want_val(last+1) - want_val(first)`, so the call
+site is the correct derived counterpart; the POPULATION was wrong, not the expression.
+(2) *`want_val`'s domain is off by one* — refuted by an independent instrument inside the same
+run: 5a parked the raster at lines 200/210/220 and read `Raster_Ramp_Acc` = `+6291456` =
+`+96.000 px` at all three, exactly value `j = 64 = lines`. The accumulator stops advancing when
+the run retires; widening the bound would derive +97.5 px for a line the machine never writes.
+
+**The fix is a three-zone model derived from the document** — ABOVE (parallax base; nothing
+derivable, and a decoded line there is an anomaly reported loudly), AUTHORED (the only zone
+that carries a direction — every sign, slope, histogram, chain and total claim is made here),
+HELD (derivable *exactly*, so it is CHECKED on both instruments rather than skipped).
+
+**⚠ THE CRASH WAS ARGUMENT-DEPENDENT, AND THAT CUTS THE OPPOSITE WAY TO THE USUAL WORRY.**
+Only two preset documents carry a `ramp` key, so the tool has exactly two reachable subjects.
+`--preset aurora_ramp_witness` (top 3, lines 220) runs to the bottom of the screen, has **no
+held zone at all**, and exits **0 on the UNFIXED tool** — measured, not assumed. The default,
+`ramp_probe`, is the one that crashes. So **the keepalive lane's default-arguments rule is what
+caught this**, and the preset a human would reach for (the one that motivated arm 5) would
+never have shown it. The standing "every wired instrument runs on DEFAULT arguments" gap below
+is real, but it is not this defect's blind spot — here the default was the only invocation that
+could see it.
+
+**Declared baseline, MEASURED on the fixed tool** (`s4.debug.bin` crc32 `62238a15` / 848,075 B):
+`expect = 0`, all five arms, **exit 0, 36 s wall** at load average 4.21 — the 300 s timeout
+stands with room. Arm 5 on the default preset now reports 94 decoded lines = **64 AUTHORED +
+30 HELD + 0 ABOVE**, 87 of 87 differences equal to the document's (both zones), absolute 94 of
+94, chain 130..193 total **+95 px measured / +95 derived**, and SUBJECT **UPWARD** / MIRROR
+**DOWNWARD** / FLAT **FLAT** — three records differing in four bytes, three different answers.
+
+**Its green is ATTESTED, not assumed.** An arm nobody has run has never been shown to fire, so
+it was made to, twice, each mutation quoted off disk before its red run:
+
+* **the machine lies about the sign** — the SUBJECT staged as the sign-flipped record while the
+  document still says +1.5 px/line. Exit **1**: accumulator 0 of 10 stops, slope `{-98304.0}`
+  vs derived `+98304`, SIGN red, 5b differences 30 of 93, absolute 15 of 94, total –94 measured
+  vs +95 derived, DIRECTION MISMATCH, and the three subjects refused to separate.
+* **the derivation lies about the hold** — the held clamp moved one step (`min(j, lines - 1)`).
+  Exit **1**: the three held stops MISMATCH, the wire-hold check red, 31 absolute misses on the
+  held lines for SUBJECT and MIRROR, the boundary pair (192, 193) disagreeing, both chain totals
+  disagreeing — and FLAT untouched, since its value is 0 under either clamp, which is what a
+  mutation specific to the held *value* should look like.
 
 #### ⚠ SEVEN INSTRUMENTS CANNOT MEASURE THE SHIPPING ROM AT ALL
 
@@ -38369,7 +38444,19 @@ reduced frames would keep a DIFFERENT tool alive than the one anybody runs.
 
 #### STILL OPEN
 
-1. **`ramp_authored_witness.run_arm5` is broken** (above). Highest value of anything here.
+1. ~~**`ramp_authored_witness.run_arm5` is broken**~~ — **CLOSED 2026-09-19**, see above. Two
+   riders it opened rather than closed:
+   * **Arms 2 and 4 carry the same blind spot, without a verdict attached.** Arm 2 prints
+     `changed OUTSIDE it: 30` and arm 4 prints `agreement: top +0, bottom +30`; both numbers
+     ARE the documented hold, and neither arm fails on them. Both now print a DERIVED line
+     naming the hold so the next reader does not chase it, but nothing was decided: **should
+     arm 4's DERIVED DISPLAY SPAN say `130..223` (what the picture does) rather than
+     `130..193` (what the run writes)?** That is a change to what the instrument claims, and
+     it is the owner's call, not a bug fix. Booked, not taken.
+   * **`ramp_probe`'s own `d_hi > 223` sibling case is untested.** `aurora_ramp_witness` warns
+     "the LAST value displays on line 224, which does not exist — 219 of the 220 authored
+     values can render", and arm 5 has no check that the un-renderable tail values are absent
+     rather than wrapped. Nothing measured says it is wrong; nothing measured says it is right.
 2. **The lane is not armed.** Units are in the script's trailing comment; pick an hour that
    does not collide with `aeon-effects-gates.timer` — both build a ROM and boot emulators,
    and this lane's timeouts are sized against a measured load average, not an idle machine.

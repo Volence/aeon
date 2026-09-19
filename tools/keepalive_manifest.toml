@@ -135,6 +135,18 @@ timeout = 600
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
+note = """DECLARED GREEN, and the declaration is new. This row was COULD NOT RUN on the
+lane's first run (2026-09-18): arms 1-4 printed a healthy comparison and run_arm5 died with
+TypeError on None. Fixed 2026-09-19 -- the arm modelled only the lines a ramp WRITES, and a
+ramp keeps the VSRAM entry after its run retires, so the 30 lines below ramp_probe's run
+decode to a constant the arm had no derivation for. Baseline MEASURED on the fixed tool,
+s4.debug.bin crc32 62238a15 / 848,075 B: all five arms, exit 0, 36 s wall at load average
+4.21 (the 300 s timeout stands with room). The arm now reports, on the DEFAULT preset,
+94 decoded lines = 64 AUTHORED + 30 HELD + 0 ABOVE, 87 of 87 differences equal to the
+document's, absolute 94 of 94, and SUBJECT UPWARD / MIRROR DOWNWARD / FLAT FLAT. Going red
+is a real change: the value-and-sign checks were shown firing under two quoted mutations
+(a sign-flipped record staged as the subject; a one-step error in the held derivation),
+both exit 1."""
 
 [wired."raster_frame_epoch_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
