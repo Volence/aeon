@@ -54,7 +54,19 @@ CAM    = 0xFFA74C          # Camera_X                    (16.16; top word is the
 TRANS_DEFAULT = 16         # engine/system/constants.emp PARALLAX_TRANS_DEFAULT
 ROM_MAX = 0xD0000          # any config pointer lives inside the image
 
+# ⚠ THIS SET IS THE INSTRUMENT'S BLIND SPOT, so it is derived from what the tools
+# actually call, not from what a read "looks like". The first version of it omitted
+# `emulator/read` and `emulator/read_vdp_registers`, and BOTH matter here:
+#   * `emulator/read {"space": "vsram", ...}` is how six tools in this tree read VSRAM,
+#     and VSRAM is one of the quantities the transition LERPS. Missing it meant the
+#     probe was blind to the single most exposed read surface it exists to find.
+#   * VDP reg $0B bit 2 is re-asserted EVERY FRAME from the ACTIVE config
+#     (engine/level/parallax.emp, the per-frame mode shadow), which mid-window is the
+#     TARGET config -- so a register read inside a window reports the incoming scene's
+#     V-scroll mode while the rest of the frame is still the outgoing one.
+# Re-derive this set against `grep -o '"emulator/[a-z_]*"' tools/*.py` when adding a tool.
 READS = {"emulator/read_memory", "emulator/read_vram", "emulator/read_cram",
+         "emulator/read", "emulator/read_vdp_registers",
          "emulator/screenshot", "emulator/state_hash", "emulator/memory_hash",
          "emulator/read_vsram", "emulator/scanlines", "emulator/sprites",
          "emulator/pixel_attribution", "emulator/registers"}
@@ -106,8 +118,10 @@ async def patched(self, method, params=None):
                     # Logic_Tick inside a window is untouched by the lerp; a tool
                     # that reads the HScroll table or VSRAM inside one is reading
                     # the lerp itself. So the target is recorded and tallied.
-                    tgt = "%s %s" % (method.rsplit("/", 1)[-1],
-                                     (params or {}).get("addr", ""))
+                    q = params or {}
+                    tgt = "%s %s%s" % (method.rsplit("/", 1)[-1],
+                                       (q.get("space", "") + ":") if q.get("space") else "",
+                                       q.get("addr", q.get("symbol", "")))
                     REC["open_targets"][tgt] = REC["open_targets"].get(tgt, 0) + 1
                     if len(REC["samples"]) < 12:
                         REC["samples"].append({"method": method, "frames": f,
