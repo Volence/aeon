@@ -1,5 +1,5 @@
 {
-  "focus": "The clamp disagreement is the assembler's, not ours -- and I checked the shipping ROM's bytes, not its listing.",
+  "focus": "Fourteen things landed overnight and not one was the game -- worth your call before I start a fifteenth.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -8,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed.",
+  "nextBoundary": "Here, and it is a clean one: nothing running, nothing unbanked, console green.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
@@ -146,7 +146,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
+  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. Fourteen landings overnight, all instruments, and the queue they left is 12 instrument rows against 7 game rows -- the instrument work is generating its own successors faster than it closes them. Absent an answer I will take the one unblocked game row (the act stopping 736 px short) rather than a fifteenth instrument. Also still yours: the spring sound A/B, and the s4.s2clip.bin flythrough.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T09:48:52Z"
+  "updatedAt": "2026-09-19T09:52:30Z"
 }
