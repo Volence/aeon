@@ -42,7 +42,7 @@
       "title": "Sonic 2 test act: LANDED five sections wide; waiting on your eye, not on work",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "landed; the flythrough is yours -- no emulator was used anywhere in it",
+      "blockedBy": "waits on your eye only: the act is built and landed, and needs your flythrough to be accepted",
       "project": "REGIONS"
     },
     {
@@ -63,7 +63,7 @@
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Video memory: halve the scroll plane for object room. You kept the art cache as it is, so this gets re-sized first",
-      "state": "open",
+      "state": "blocked",
       "size": "L",
       "blockedBy": "waits on the Sonic 2 test act existing: it gets sized against that act"
     },
@@ -79,10 +79,10 @@
       "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "parked, not scheduled"
+      "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": false,
-  "updatedAt": "2026-09-19T02:34:47Z"
+  "updatedAt": "2026-09-19T02:37:58Z"
 }
