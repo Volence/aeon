@@ -4897,10 +4897,29 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   verification for the two flipped variants. ~8 cycles/piece.
 - ~~**Parallax computed-jump-table unroll**~~ — **✅ CLOSED 2026-08-20 (`perf/parallax-unroll`).**
   This row was stale twice over and contradicted the file's own closed entry below; both are
-  now settled there. The lever was taken in the SAMPLING loops (not the flat one, which has
-  been unrolled for a year) and it took the streaming arc under its line: max-diagonal
+  now settled there. The lever was taken in the SAMPLING loops (not the flat one, unrolled
+  `a7c1080b` 2026-07-23, 28 days before this line was written — it said "for a year", which
+  this repo is not old enough for; see the note at the end of this entry) and it took the
+  streaming arc under its line: max-diagonal
   work/tick **134,521 → 123,016**, against a 128,000-cycle frame. Full verdict in the closed
   entry below and in `benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F7.
+  - ⚠ **The "for a year" above was wrong by 13x, and the shape is worth more than the fix.**
+    Corrected 2026-09-19 on empyrean's cross-lane sweep (banked empyrean `5e2f5a57`,
+    `docs/OVERSEER-LOG.md`), which oracle raised against its own prose after finding a pin it
+    had described as standing "for thirteen months" in a repo 86 days old. **The discriminator
+    is mechanical and needs no judgement: a duration claim about OUR OWN code that exceeds its
+    repo's age is wrong.** Aeon's first commit is 2026-04-24, so no in-repo duration can reach
+    a year until 2027-04. Run it:
+    `git log --reverse --format=%ad --date=short | head -1`
+    **The failure mode is not sloppiness, it is INFLATION TOWARD THE WRITER'S POINT** — "the
+    flat one has been unrolled for a year" makes the sampling loops sound like the only lever
+    left standing, which is exactly what the sentence was arguing; "we did it four weeks ago"
+    does not. Oracle's instance inflated in its own favour too. **A duration is an argument
+    when it is doing rhetorical work, so date it from the commit rather than from feel.**
+    *Scope, stated because it bounds the sweep rather than the rule:* this discriminator only
+    refutes claims that EXCEED the repo's age. The other duration claims in this tree
+    ("for months", against 147 days) were checked against that bound and are inside it —
+    which is not the same as having been verified, and none of them was.
 - **Variable HScroll DMA — variable-length transfer** — its blocker ("await a confirmed
   performance need") is **DISCHARGED by this file's own measurement**: per-line HScroll is
   896 B/frame, ~20% of the frame, and this file names it "the single biggest lever". Caveat: the
