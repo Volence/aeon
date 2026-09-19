@@ -585,9 +585,10 @@ def seam(text: str, tree, path=None, _seen=None) -> str:
     `rust`    — imports `tools/aether_instance.py`, or spawns the `oracle-aether` binary itself.
     `legacy`  — imports `harness_path` / `launcher`, i.e. spawns the C++ `oracle_gui`.
     `ambient` — connects to a pre-existing socket. Treated as `legacy` below: BOTH servers
-                default to `$XDG_RUNTIME_DIR/oracle.sock` so the path cannot discriminate, and
-                the standing owner ruling pins the one such tool (`evict_witness.py`) to the
-                legacy server its own docstring names.
+                default to `$XDG_RUNTIME_DIR/oracle.sock` so the path cannot discriminate.
+                `evict_witness.py`, which this clause used to name, migrated to the Rust core
+                on 2026-09-19 and flipped its key in the same commit; `sfx_audition.py` is the
+                remaining ambient tool.
 
     The evidence is FOLLOWED THROUGH LOCAL IMPORTS, because in this tree a probe routinely
     borrows its whole connection: `staging_lifetime_timeline.py` has no seam marker of its own

@@ -737,9 +737,25 @@ async def control_body(sock: str, lst: str, blob: bytes, args, d: Driver) -> dic
     WHY A FORCED CONTROL AT ALL. ram.emp's reading rule says an Important zero means
     "Important never straddled" only while Dbg_DMA_Straddle_All is non-zero -- otherwise it
     means "nothing straddled at all", which is also what a broken instrument reads like.
-    That rule assumes ordinary play can move the control. In this act it structurally
-    cannot (see static_straddle_survey), so waiting for the control to move is waiting
-    forever, and calling the wait a failure throws away a real answer. The force uses the
+    That rule assumes ordinary play can move the control.
+
+    ⚠ CORRECTED 2026-09-19, BY THIS TOOL'S OWN RUN. This paragraph used to read "In this act
+    it structurally cannot (see static_straddle_survey), so waiting for the control to move is
+    waiting forever". MEASURED on s4.debug.bin crc32 62238a15: a default campaign moved
+    Dbg_DMA_Straddle_All 0 -> 6 and Dbg_DMA_Straddle_Peak 0 -> 1, first non-zero at frame
+    13005 in P4-anchored, player (1082,497) grounded. Ordinary play moves it. (`first_hit` is
+    recorded at a POLL, `--chunk` frames apart, so the `mapping_frame $2C` printed beside it is
+    the frame at the poll boundary and NOT necessarily the frame that straddled -- what the run
+    licenses is "within the 30 frames ending at 13005, grounded".) The static survey is not wrong about what it surveys -- it answers "can a PAGE-IN
+    LANDING straddle 128 KB in this act?" and the answer is still False -- but "the straddle
+    population in ordinary play is EMPTY" was the conjunction of that with dplc_straddle.py's
+    "every straddling DPLC frame in the cast is unreachable through its anim table", and the
+    observation above contradicts the DPLC half: $2C is a walk/run tilt frame, it straddles,
+    and grounded play reaches it. Treat the second half of that conjunction as OPEN until
+    dplc_straddle is re-run; it is booked in docs/DEFERRED_WORK.md.
+
+    The forced control keeps its job regardless: it is the control available when the act's
+    straddle population really is empty, and a run where A fires does not need it. The force uses the
     ROM's own data and no source change: Perform_DPLC sees mapping_frame != prev_frame,
     walks that frame's entries, and the straddling one takes `.split` -- the exact
     instruction path the four cells sit on.
@@ -900,8 +916,30 @@ def summarise(d: Driver, args, elapsed: float) -> int:
     # deliberately forced straddle is another, and it is the only one available when the
     # act's straddle population is empty by construction -- which is a fact about the ROM,
     # not a failure of the run, and is established here rather than assumed.
+    # EITHER control proves the instrument live, and the gate below must read BOTH.
+    #
+    # WHAT THIS REPLACED, and it is worth stating because the bug printed its own refutation.
+    # The gate was `if not forced`: it consulted control B alone while the line above printed
+    # control A's result, so a run where ordinary play DID move the counter printed
+    # "MOVED DURING PLAY: True" and then "VERDICT: UNMEASURABLE. Neither control fired" in the
+    # same breath, and returned 2. MEASURED on s4.debug.bin crc32 62238a15, 2026-09-19: a
+    # default campaign reached Dbg_DMA_Straddle_All 0 -> 6 and Dbg_DMA_Straddle_Peak 0 -> 1
+    # (first non-zero at frame 13005, P4-anchored, mapping_frame $2C) and was reported
+    # UNMEASURABLE. The module docstring's own contract has always said "Only both controls
+    # failing is exit 2"; the CODE said something narrower, and the VERDICT was the half that
+    # was lying. Every past run of this tool that printed MOVED DURING PLAY: True and exited 2
+    # threw away a real measurement -- it UNDER-reported. It could never over-report: the pass
+    # path required `forced`, which is strictly stronger than what the reading rule asks.
+    #
+    # `control_moved` is deliberately the STRONGER form of ram.emp's rule. ram.emp says the
+    # Important zeros are readable while Dbg_DMA_Straddle_All is NON-ZERO; this asks that it
+    # MOVED during the campaign, which also rules out a value inherited from before the first
+    # poll. It is not loosened to `peak_all > 0` here, because loosening a witness to make a
+    # verdict available is the move this whole comment exists to record.
     control_moved = peak_all > boot["Dbg_DMA_Straddle_All"]
     forced = d.control.get("frames_that_straddled") or []
+    live_by = ([] + (["A, ordinary play"] if control_moved else [])
+               + (["B, forced DPLC frame"] if forced else []))
     print()
     print(f"  CONTROL A (natural): Dbg_DMA_Straddle_All {boot['Dbg_DMA_Straddle_All']} at "
           f"boot -> {d.campaign_final.get('Dbg_DMA_Straddle_All', final['Dbg_DMA_Straddle_All'])}"
@@ -910,13 +948,15 @@ def summarise(d: Driver, args, elapsed: float) -> int:
           + (f" -- forcing mapping_frame ${forced[0]:02X} moved the counter in ONE frame; "
              f"straddling frames seen live: {', '.join(f'${f:02X}' for f in forced)}"
              if forced else ""))
-    if not forced:
+    if not live_by:
         print()
         print("  VERDICT: UNMEASURABLE. Neither control fired: the counters did not move in")
         print("  play AND did not move when a straddling DPLC frame was forced. By ram.emp's")
         print("  own reading rule the Important zeros above are indistinguishable from a")
         print("  broken instrument, and they are reported as unmeasurable, not as zeros.")
         return 2
+    print(f"  INSTRUMENT PROVEN LIVE BY: {', '.join(live_by)}"
+          + ("" if forced else " -- control B never fired, so nothing here rests on it"))
     if not control_moved:
         print()
         print("  NOTE: the control never moved in PLAY, only when forced. Read the zeros as")
@@ -937,7 +977,8 @@ def summarise(d: Driver, args, elapsed: float) -> int:
     else:
         print(f"  VERDICT: across {d.campaign_frames} frames of campaign play the Important "
               f"straddle cells stayed at Peak={peak_peak} (<= reserve {args.reserve}) and "
-              f"Reject=0, with the instrument PROVEN live by the forced control. No enqueue "
+              f"Reject=0, with the instrument PROVEN live by control(s) {'/'.join(live_by)}. "
+              f"No enqueue "
               f"was dropped by any of the three drop paths either: DMA_Split_Reject_Count="
               f"{peak_rej}, DMA_Overflow_Count={peak_ovf}, Dbg_DMA_Enq_Capped={peak_cap}. "
               f"Since a dropped Important enqueue is the NECESSARY first step of the F7 "

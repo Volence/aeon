@@ -39338,3 +39338,308 @@ two-sweep a directory for that reason. **When taken, derive the population from 
 PROMISES — never from a grep for the word "drift"**, which finds the one instance whose name
 happens to match and misses every gate that does the same thing under another name. Names are not
 behaviour; that is this repo's own standing lesson and it is the exact trap here.
+
+## THREE INSTRUMENTS, THREE WAYS OF BEING WRONG — 2026-09-19
+
+Closes **`COST-PROBE-W20-STALE`** and **`TWO-BROKEN-TOOLS`**. Three tools were booked as wrong
+in three different ways; all three verdicts came out REPAIR, one of them with an arm DECLARED
+red rather than fixed. Everything below is measured on this tree — `s4.debug.bin` crc32
+`62238a15`, 848,075 bytes (byte-identical to the main checkout's), and `s4.stress.bin` crc32
+`cd308561` from `STRESS_EVICT=1 ./build.sh`.
+
+**Two of the three booked readings were narrower than what is actually there, and one figure I
+was handed was right.** Recording that up front because "the booking understated it" happened
+twice in a row here and the pattern is worth more than either instance.
+
+### (1) `tools/parallax_cost_probe.py` — REPAIR (fixture arm) + DECLARE (`--sweep` arm)
+
+**BOOKED AS:** W20 perturbs `Effects_World_Y` by +16 off a bank holding `$7FFF`, so its "split
+moved 80 → 96" is really 32767 → 32783, off screen; the arm "runs, produces numbers, and the
+numbers describe nothing."
+
+**MEASURED:** the `$7FFF` half is exactly right. `Effects_World_Y[0]` = **32767**
+(`PATCH_ANCHOR_NONE`, `engine/effects/raster_dsl.emp:2149`) and `Effects_Screen_L[0]` = **32623**
+at `Camera_Y` 144, read at this probe's own boot+settle+`Debug_Scene_Freeze` state. Channel 1
+does carry a real anchor (314); channel 0 does not.
+
+**But the scope was wrong twice over.** It is not one fixture, it is **eight** — W10 W12 W16 W17
+W18 W19 W20 W21, every anchored fixture in the matrix, because *none* of them installed an
+anchor and W20 differed only in also adding 16 to the nothing it inherited. And the probe was
+**not** producing numbers that describe nothing: it **exits 5** with 16 derived-check failures,
+prints `!! NO SPLIT` on all eight and `IDENTICAL` on all eight neighbour differentials, and says
+in its own words `DERIVED CHECKS FAILED — the cycle rows above are NOT evidence`. Its split
+witness worked. The fixtures were half-built.
+
+**THE FIX SHAPE, which the booking explicitly asked about.** Perturbing by a delta is what let
+it rot: it makes the fixture's meaning a function of state the fixture does not control, so
+content movement silently redefines it and nothing is wrong at the edit site. The anchor is
+**installed, absolute, for every anchored fixture**, and **derived**: the caller asks for a
+SCREEN LINE, `_one` resolves it against the live `Camera_Y`, and the line comes from
+`split_line()` over this matrix's own band tops — the multiple of 8 nearest mid-screen that is
+not a band top of any anchored fixture, **104** — with the position fixture taking
+`split_line_alt()`, **120**. **The delta survives and should**: W20 is still "W16's split,
+moved". What changed is that it is a delta between two *installed* values instead of a delta off
+inherited state. Both description strings are written from the derived lines, so the prose
+cannot outlive the geometry the way "split 80 → 96" did.
+
+**THE MISSING WITNESS IS THE REAL FINDING.** The neighbour-pair table asked "did a split happen"
+eight times and "did the split MOVE" zero times — `W20 vs W16` was not in it, only `W20 vs W24`.
+So W20 could have sat on exactly W16's split and passed every check in the file. It now prints
+`W20 vs W16: split moved 104 -> 120 (+16) as asked` and fails naming the clamp otherwise.
+
+**RESULT:** exit 0, all eight anchored fixtures split, residuals within 65 cycles on rows of
+5k–36k, out-of-sample gap +1.97%.
+
+**AND AN INDEPENDENT CONTROL THAT WAS ALREADY IN THE TREE.** The two anchored coefficients moved
+**anchor 242.5 → 1068.3** and **anchor_ops 19.5 → 102.9**, while every other term stayed put
+(base 5458.5 → 5457.7, `line_fg_only` 26.0 → 26.0, vdeform 1553.5 → 1554.3). `tools/effects_budget_model.toml`
+publishes **981.4** (record 10) / **1024.5** (2026-08-29) for `anchor` and **60.77** / **84.9**
+for `anchor_ops`. **The repaired fit lands beside that published history; the broken one is off
+by ~4x from both it and from the repaired re-measure (1068.3 / 242.5 = 4.40; 1024.5 / 242.5 =
+4.22), and nothing in the tree ever compared them.**
+
+Read that as corroboration, not as proof of a date: the natural inference is that those figures
+were taken while the fixture still installed a live anchor, but this parcel did not bisect for
+when the bank went to `$7FFF` and does not claim to know. What it does establish is that the
+repaired instrument and the published table agree, and the broken instrument agreed with
+neither. Anyone who had re-run this probe recently and taken its anchored terms would have
+silently replaced a ~1000-cycle overlay with a ~240-cycle one.
+
+**THE `--sweep` ARM IS DECLARED RED, NOT REPAIRED — and its defect is worse than the fixture
+arm's, because it was GREEN.** Same root. Its OVERLAY-COVERAGE rationale reads "Effects_World_Y[0]
+is 224 in this act, and the overlay's split line is world_y − Camera_Y, so these five positions
+walk L across the whole screen" — false; it is `$7FFF`. Measured, the sweep exercises **zero**
+overlay split lines, every position's `split` column reads False, and it **exited 0**. The reason
+it exited 0 is one `and`: the degenerate-case guard was `if ls and set(ls) == {0}`, so an EMPTY
+`ls` short-circuited past it. **The soft degenerate case was guarded and the hard one walked
+straight through the guard written for it.** The empty case is now a named failure (exit 5, cause
+on the line) and the false rationale is corrected with the measurement beside it.
+
+It is not repaired by installing an anchor, and that is deliberate: that arm's first line of
+documentation is *"NOTHING is poked but Camera_Y and the arm word"*, and its whole value is that
+it watches the engine's own re-glue path with the configs the engine installs. Poking a world
+anchor into it changes what the arm **is**, not how well it does it. See the open item below.
+
+### (2) `tools/evict_witness.py` — REPAIR
+
+**BOOKED AS:** dead on a hard-coded path, unhandled `FileNotFoundError` out of `sock.connect`,
+exit 1 in 0 s; never spawns an emulator; defaults name `s4.stress.bin`. **Reproduced verbatim.**
+
+RETIRE was considered and rejected on evidence, and the evidence is the nightly. Its subject is
+alive: `STRESS_EVICT=1 ./build.sh` still exists, `tools/nightly_effects_gates.sh:321` builds that
+shape, and `aeon-effects-gates.timer` is `enabled` + `active` with a last run of
+**2026-09-19 04:17:05** — so the fixture ROM really is produced, not merely scriptable. **And
+nothing in the tree grades it**: the nightly builds the fixture and the next thing that touches
+it is nothing. Nothing else in the tree witnesses eviction either. A tool covering a live subject
+that nothing else covers is not a deletion candidate; it is an unwired one.
+
+**REPAIRED:** it spawns its own headless `oracle-aether` through `tools/aether_instance.py`, and
+`timeout_ms` → `timeoutMs` flipped **in the same commit**, per the 2026-08-26 ruling.
+`test_wait_for_break_spelling.py` and `test_legacy_seam_keys.py` both read the file's seam off its
+imports and grade the key against it, so the two halves could not have landed apart — the
+migration's own red-first net, already in the tree.
+
+Two seam details the migration surfaced, both recorded at the code: the Rust core returns
+`read_memory` bytes `0x`-prefixed where the legacy server returned bare hex (the old one-line
+`bytes.fromhex` raised on the very first read), and short replies are refused rather than padded.
+
+**Its three transcribed constants are derived now** — this tool is an instance of the class
+`PUBLISH-BAND-RECORD-LEN` remedies, not the remedy. `PAGE_NOT_RESIDENT` and `PAGE_TABLE_MAX` come
+off the listing's `EQU` lines; the act's pool page count comes off the running act descriptor
+(`Act.act_art_pool_pages`, `engine/structs.emp:53`) because a **generated** manifest supplies it
+and any level re-bake can move it; and a new guard refuses the whole run when `pool_pages <=
+clamp`, since the pigeonhole proof is unavailable — and vacuously true-looking — in that case.
+
+**RESULT:** PASS on `s4.stress.bin` (10 distinct pages > the 9-frame clamp, eviction of page 2
+directly observed, 288 samples, exit 0) — reproducing the original 2026-08-09 measurement — and
+**2 UNMEASURABLE** on the canonical `s4.debug.bin`, naming the shape, instead of reporting the
+engine working as designed as a FAIL.
+
+### (3) `tools/dma_straddle_exercise.py` — REPAIR. **WHICH OUTPUT WAS LYING: THE VERDICT.**
+
+**BOOKED AS:** it prints `CONTROL A … MOVED DURING PLAY: True` and then `VERDICT: UNMEASURABLE.
+Neither control fired`, from one run, and emits both without noticing. **Reproduced verbatim**,
+exit 2.
+
+**DIAGNOSED BEFORE FIXED, because the two readings have opposite implications.** Three
+independent pieces of evidence, all pointing the same way:
+
+1. **The tool's own numbers.** `Dbg_DMA_Straddle_All` **0 at boot → 6**, and
+   `Dbg_DMA_Straddle_Peak` **0 → 1**, first observed non-zero at **frame 13005** in P4-anchored,
+   player (1082,497) **grounded**. Control A did fire; `control_moved` is computed straight off
+   those samples. ⚠ **The `mapping_frame $2C` beside that line is the frame at the POLL, not the
+   frame that straddled.** `first_hit` is recorded when a poll first sees the cell non-zero and
+   polls are `--chunk` frames apart (default 30), so all it licenses is "within the 30 frames
+   ending at 13005, with the player grounded and animating in the walk/run range".
+2. **The tool's own contract.** The module docstring has always said *"Only both controls failing
+   is exit 2 (could-not-measure)"*. The gate said `if not forced` — control B alone.
+3. **`ram.emp`'s reading rule**, which the verdict quotes: the Important zeros are readable while
+   `Dbg_DMA_Straddle_All` is non-zero. It asks for *a* live control, not for control B.
+
+**So the verdict was the liar, and the direction matters: this tool has been UNDER-reporting.**
+Every past run that printed `MOVED DURING PLAY: True` and exited 2 threw away a real measurement
+and blamed a dead instrument. **It could never have over-reported** — the pass path required
+`forced`, which is strictly *stronger* than what the reading rule asks. That holds for the whole
+life of the file, checked rather than assumed: `git log -S 'if not forced:'` returns exactly two
+commits, the tool's introduction (`145da64b`) and this repair, so the gate has read control B
+alone since day one and no run of any version reached a verdict it had not earned. Nothing
+already published needs retracting; what was lost is measurements that were never published.
+
+**And the loss was real.** Repaired, the same default campaign delivers the d-47 booking's
+number, which had never been reported: across **36,638 frames**, `Dbg_DMA_Straddle_Peak` = **1**
+(at or below the 2-slot `DPLC_ENTRY_RESERVE`), `DMA_Split_Reject_Count` = **0**, and no drop on
+any of the three paths — so the F7 stale-`prev_frame` mechanism did not fire in this campaign.
+
+`control_moved` is deliberately **not** loosened to `peak_all > 0` (the literal `ram.emp` rule)
+while repairing this. The stronger form is true here, and loosening a witness to make a verdict
+available is the exact move this whole entry is about.
+
+**A SECOND, SEPARABLE FINDING THE SAME RUN PRODUCED — see the open items.** `control_body`'s
+docstring asserted that ordinary play "structurally cannot" move the control in this act. It can
+and does. The static page-manifest survey is still correct about what it surveys (no page-in
+landing in this act can cross 128 KB, and it printed exactly that); it is the *other* half of the
+conjunction — `dplc_straddle.py`'s "every straddling DPLC frame in the cast is unreachable
+through its anim table" — that the observation contradicts. **Which frame did it is not
+established by this run** (see the poll-resolution caveat above); what is established is that
+something in ordinary grounded play straddles six times, and the DPLC path is the only remaining
+candidate once the page-in half is excluded by the survey.
+
+### RED-FIRST EVIDENCE
+
+Every repair's red was captured before the edit, off disk, and four mutations were applied to the
+repaired files and quoted off disk before each red run. `__pycache__` cleared before each;
+baselines restored with `git checkout --` and re-run to confirm green, because an unapplied
+mutation and a restored baseline print the same thing.
+
+| | mutation, as quoted off disk | result |
+|---|---|---|
+| pre | `parallax_cost_probe.py` unmodified | **exit 5**, 16 derived-check failures, 8 × `NO SPLIT` |
+| pre | `evict_witness.py` unmodified | **exit 1**, unhandled `FileNotFoundError` in `sock.connect`, 0 s |
+| pre | `dma_straddle_exercise.py` unmodified | **exit 2**, `MOVED DURING PLAY: True` beside `Neither control fired` |
+| M1 | `control_moved = False   # MUTATION M1: control A is reported dead however it behaved` | **exit 2** — straight back to UNMEASURABLE. The new gate reads control A |
+| M2 | `clamp = clamp_equ   # MUTATION M2: trust the published EQU instead of the emitted code` | **exit 2** — the witness refuses its own fixture shape. The emitted-code authority is load-bearing |
+| M3 | `ACT_ART_POOL_PAGES_OFF = 0x20   # MUTATION M3: off-by-one field (was 0x1E)` | **exit 1**, named refusal — a shifted field is not decoded into a plausible page count |
+| M4 | `alt_l = base_l   # MUTATION M4: the split-POSITION fixture does not move the split` | **SURVIVED, exit 0** on the first version of the new check — reported rather than hidden, and then closed. The check compared the REALIZED delta against the REQUESTED one, and `0 == 0` passes: mutating the ask mutates the expectation with it, and the position fixture quietly became a duplicate row of its own reference. A second row now grades the ask itself (`want == 0` is a failure), and re-run with the same mutation the probe goes **exit 5**: `W20 vs W16: !! ASKS FOR NO MOVE — a duplicate row of W16` |
+
+**The M4 result is the most useful line in this table and it is worth stating plainly: the
+check I added to close this defect did not, at first, catch the defect's own shape.** A
+differential between a request and a realization cannot see a bad request. That is the same
+blindness the sibling's `shipped_precedent()` has to a wrong field OFFSET (booked there), and it
+is worth carrying as a rule: **when a check compares what was asked against what happened, ask
+separately whether what was asked was worth asking.**
+
+### ACCOUNTING MOVED
+
+No tool file was added, deleted or renamed. **No new `tools/*.py` was written at all,
+deliberately**: a committed test file that names instruments by filename is what rotted the
+census once already, and the census guard's scope is the substring `keepalive`, so a
+`tools/test_three_instruments.py` would have escaped it entirely.
+
+**Verified rather than asserted**, against a control worktree detached at the base revision
+`efe2439f`:
+
+```
+manifest      [wired] 36 rows / 35 tools     [not_wired] 50 entries      (unchanged)
+census        bus instruments 85 · reachable 35 · UNREACHABLE 50         (all three unchanged)
+lane_status_audit   9 findings, byte-identical output at base and here, exit 1 both
+pytest tools -m "not needs_build"   3215 passed, 2 skipped, 29 deselected, exit 0
+DEBUG=1 ./build.sh  exit 0, s4.debug.bin crc32 62238a15 / 848,075 bytes -- UNCHANGED
+```
+
+**`tools/landing_build.sh` was NOT run, and that is stated rather than glossed.** This parcel
+touches `tools/*.py`, one `.toml` reason string and two docs; no engine source, no `.emp`, no
+`map.toml`. The claim it would grade — that the shapes still build — is covered here by a full
+`DEBUG=1 ./build.sh` producing a byte-identical ROM, and the shape-independent lanes it folds in
+(`pytest tools -m "not needs_build"`, `emp_expect_fail`) both ran inside that build. Nothing here
+is merged to master; a merge should run the script.
+
+**One name moved inside the census, in a way worth recording.** The UNREACHABLE set gained
+`evict_witness.py` and lost `sfx_audition.py` — totals unchanged, membership swapped. The reason
+is that the *only* thing that ever made `evict_witness.py` "reachable" was the short string
+literal in `cart_coverage_census.py`'s CANARIES table, which the census's corpus keeps (a
+filename in a string looks like an invocation; prose does not). Moving the canary moved the
+credit. So `sfx_audition.py` is now credited as reachable **purely by being named in a table of
+classifications that does not execute it** — precisely the over-crediting `evict_witness.py`'s
+own exclusion reason called out, in the entry landed the same day by `8b3ea95c`
+("the ONLY code reference to it anywhere in the tree is a string inside
+`cart_coverage_census.py`'s own TABLE OF TOOL CLASSIFICATIONS"). Nothing in the accounting is wrong today;
+it is the same known hole, wearing a different name, and it belongs to
+`CENSUS-CRITERION-TOO-NARROW` rather than to this parcel.
+
+Three accounting edits were required anyway:
+
+1. **`evict_witness.py`'s `[not_wired]` reason was rewritten**, because it read "it is broken" and
+   it is not broken any more. The new reason is the true current one: it grades an off-canonical
+   fixture shape that only the nightly builds.
+2. **`cart_coverage_census.py`'s bus canary MOVED, and this is the sharpest lesson of the parcel.**
+   `evict_witness.py` was the canary for the bare-`BusClient` arm — and it qualified **because of
+   the defect**. Repairing it took bus-only 17 → 16 and the census went red with
+   *"arm 'bus' uniquely reaches 16 file(s) and NO canary covers it"*, correctly, in a parcel with
+   nothing to do with carts. **A canary picked for a property that is a bug is a canary that
+   leaves when the bug is fixed.** `sfx_audition.py` is the canary now, because its ambient socket
+   is a requirement (it plays sound at the owner) rather than something anybody will repair away.
+   Verified against a control worktree at the base revision: `test_cart_coverage_census.py` passes
+   at base and failed with the change, so the failure was mine and not inherited.
+3. **Two seam tests' prose** named `evict_witness.py` as "the one such tool" pinned to the legacy
+   ambient socket. That is false as of this parcel; both now name `sfx_audition.py` and mark the
+   `evict_witness` row historical. `cart_identity.reload_rom_verified`'s docstring cited this tool
+   as a measured near-miss for the `symbolsDropped: false` hazard; it no longer reloads at all,
+   so that citation is marked HISTORICAL there — the example is kept, because the hazard is
+   real for every tool that does reload, and only the claim that this one does is retracted.
+
+### STILL OPEN — booked here, not done
+
+**`STRESS-CLAMP-EQU-WRONG`: the STRESS fixture's own listing publishes a clamp the ROM
+contradicts.** Found by the derivation above, and it would have stayed invisible behind the
+transcribed `9`. On `s4.stress.bin` / `s4.stress.lst`:
+
+```
+EQU PAGE_FRAMES        = $0000000C   (12)
+EQU PAGE_FRAMES_CLAMP  = $0000000C   (12)      <-- published
+EQU STRESS_EVICT       = $00000001
+EQU STRESS_EVICT_FRAMES = $00000009
+```
+
+`engine/system/constants.emp:509` folds those to `12 - 1*(12-9) = 9`, and the ROM agrees with the
+fold, not with the publication: the one site that uses the name, `engine/level/load_art.emp:88`,
+emits `cmpi.w #$0009,d6` at `$0093B6` (the canonical debug shape emits `#$000C` at the same
+offset, so the site is right and the shape is right). **The three primitive constants are
+published correctly and only the FOLDED one is wrong**, which points at how a derived `pub const`
+is evaluated for the listing under a build define rather than at the define itself. The witness
+prints both and goes with the ROM, loudly. Not chased further here: it is plausibly a sigil-side
+question and this lane does not make claims about another tree by grepping it.
+
+**`DPLC-STRADDLE-REACHABLE`: a straddling DPLC frame IS reachable in ordinary grounded play.**
+`Dbg_DMA_Straddle_All` went 0 → 6 and `Dbg_DMA_Straddle_Peak` 0 → 1 during ordinary grounded
+play, first seen at frame 13005 with the player at (1082,497), `mapping_frame $2C` at the poll
+(which is a 30-frame window, not a frame attribution — see the caveat in section 3).
+`dplc_straddle.py`'s claim that every straddling DPLC frame in the cast is unreachable through
+its anim table is what `dma_straddle_exercise`'s "empty by construction" argument rests on, and
+with the page-in half excluded by the static survey the DPLC path is the only candidate left, so
+that claim is contradicted by observation even though the specific frame is not named. **Re-run `dplc_straddle.py` before quoting that argument again.** This does not
+touch the campaign's verdict — Peak 1 ≤ reserve 2, Reject 0 — it touches the *reason* anyone gave
+for expecting zeros.
+
+**`COST-PROBE-SWEEP-ANCHOR`: does the `--sweep` arm get to poke a world anchor?** It is red now,
+with the cause on the line, and it will stay red until somebody decides. Installing an anchor per
+camera position is about five lines and would give the arm the overlay coverage it advertises;
+it also contradicts the arm's declared contract ("nothing is poked but Camera_Y and the arm
+word"), which is the property that makes its out-of-sample reading worth anything. **That is a
+decision about what the arm is, not a bug fix**, and it is the owner's or the arm's.
+
+**`EVICT-WITNESS-WIRING`: the nightly builds `STRESS_EVICT` and grades nothing.**
+`nightly_effects_gates.sh:321` builds `s4.stress.bin`, and reading the whole stress block: the
+leg checks the BUILD's exit code and, after both stress legs, that the tree restored. **Nothing
+reads the artifact.** Grepped across `tools/*.sh`, `tools/*.py` and `build.sh`, the only runnable
+consumer of `s4.stress.*` is a shape CLASSIFIER (`gate_cut_shape.py`) and a per-listing ceiling
+table (`inject_editor_bg.py`) — no witness. Now that the witness runs headless and self-spawns, wiring it in is two lines
+there plus a `[not_wired]` → `[wired]` move with a surface baseline. Not done here: this parcel
+repaired three instruments, and wiring one of them into a lane is a different proof obligation
+with different accounting.
+
+**`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
+fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this
+parcel touched no engine code, only the fixture that was mis-measuring. The new pair
+(anchor 1068.3, anchor_ops 102.9) sits beside the published 1024.5 / 84.9 rather than replacing
+them, and whether it earns a `remeasured_2026_09_19_*` record — given the band record is 32 bytes
+now, not the 20 the 2026-08-29 row was taken at — is a call for whoever owns that file.

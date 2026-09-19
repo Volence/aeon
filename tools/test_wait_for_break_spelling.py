@@ -15,7 +15,10 @@ key is not an error there, it silently takes the 30 s DEFAULT. So a well-meaning
 match the convention" against a legacy-seam probe does not go red — it quietly replaces every
 hand-chosen budget with 30 s:
 
-    tools/evict_witness.py             60000 -> 30000   (Phase-1 anchor budget halved)
+    tools/evict_witness.py             60000 -> 30000   (Phase-1 anchor budget halved;
+                                                        HISTORICAL — this file migrated to
+                                                        the Rust core on 2026-09-19 and its
+                                                        key is `timeoutMs` now)
     tools/raster_frame_epoch_probe.py   6000 -> 30000   (a hang gets 5x longer to hide in)
     tools/parallax_hscroll_probe.py   120000 -> 30000   (the wedge detector its own docstring
                                                          says was raised from 20 s AFTER four
@@ -93,8 +96,12 @@ def _seam(text: str) -> str:
                 `oracle-old/linux-port/harness` (that module's `GUI` constant is the binary).
     `ambient` — connects to a pre-existing socket rather than spawning. Treated as `legacy`
                 below: BOTH servers default to `$XDG_RUNTIME_DIR/oracle.sock`, so the path
-                cannot discriminate, and the standing owner ruling pins the one such tool
-                (`evict_witness.py`) to the legacy server it documents in its own docstring.
+                cannot discriminate. The tool this clause used to name, `evict_witness.py`,
+                MIGRATED to the Rust core on 2026-09-19 (its ambient socket was a defect: it
+                hard-coded /run/user/1000/oracle.sock and died in 0 s without a GUI open), and
+                its `timeout_ms` flipped to `timeoutMs` in the same commit per the 2026-08-26
+                ruling — which is exactly what this file exists to force. `sfx_audition.py` is
+                the remaining ambient tool, and its ambient socket is deliberate.
     """
     if "aether_instance" in text:
         return "rust"
