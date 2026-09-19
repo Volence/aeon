@@ -38755,9 +38755,13 @@ keep up. The list stays EXPLICIT — `keepalive_population`'s own comment gives 
 2. **`parallax_scratch_probe --expect-refusal` cannot be exercised on the shipping ROM.** The
    arm is correct and the fixture is not reachable from here; making it measurable needs a
    config-free fixture, which is a reading nobody has taken.
-3. **The ~50 not-wired tools' non-default surface is not measured.** `keepalive_surface.py`
-   reads the `[wired]` table only. Pointing it at `[not_wired]` is a one-line change and a
-   larger reading.
+3. ~~**The ~50 not-wired tools' non-default surface is not measured.**~~
+   **CLOSED 2026-09-19 by `KEEPALIVE-UNWIRED-SURFACE`** — `keepalive_surface.py --unwired`
+   covers all 50, and the "larger reading" was the substance: for an unwired tool every option
+   is unreached by construction, so what it derives is the PRICE and SHAPE of a wiring
+   (`required` / `needs_args` / `bare_exit_is_free` / `runnable`), not a bigger unreached count.
+   ⚠ It was NOT a one-line change: the same parcel audited all 50 written reasons and found 3
+   rotted, one of them covering a tool that is dead. See the entry at the end of this file.
 
 ## A BASELINE DESCRIBES AN INVOCATION, AND THE IDENTITY FIXTURES WERE HALF A FIXTURE — 2026-09-19
 
@@ -39019,3 +39023,253 @@ generic, or named as a witness the way theirs is.
 **Not fixed 2026-09-19:** an agent was live across `tools/` and this lane had just declined to
 build an engine change for the same reason. A one-line docstring is not worth an exception to a
 rule that is worth keeping.
+
+## AN EXCLUSION REASON IS THE CLAIM NOTHING EVER CHECKS — 2026-09-19
+
+Closes **`KEEPALIVE-UNWIRED-SURFACE`**, and closes open item 3 of the
+`KEEPALIVE-PERARM-BASELINES` entry above ("the ~50 not-wired tools' non-default surface is not
+measured"). Two halves: an audit of all fifty written reasons in `[not_wired]`, and
+`keepalive_surface.py --unwired`, which measures the population the module could not see.
+
+### (0) THE POPULATION, RE-DERIVED — AND THE TWO FIFTIES DO NOT COINCIDE
+
+Derived on this tree, `fd7e5dc6`, not inherited:
+
+```
+bus instruments (tools/*.py, not test_*, names BusClient):  85
+reachable in CODE from a real entry point:                  35
+UNREACHABLE -- nothing executes these:                      50
+manifest [wired]:      36 rows / 35 tools     [not_wired]:  50 entries
+accounting: population - (wired | not_wired) = {} ; declared-but-absent = {}
+```
+
+**The two 50s are the same NUMBER and mostly not the same SET.** `|unreachable ∩ not_wired| =
+15`. The other 35 unreachable tools are the wired ones — every single tool the lane runs is in
+the census's unreachable set, which is correct and is what `LANE_BOOKKEEPING` is for: the lane
+must not count as evidence that something else runs them. And 35 of the `[not_wired]` entries
+are *reachable*. That the two totals both land on 50 is arithmetic
+(`|wired| = |not_wired| − |not_wired ∩ unreachable|` happens to hold, 35 = 50 − 15), not a
+shared meaning. **Do not read agreement of the totals as agreement of the sets.**
+
+**⚠ AND THE CENSUS HAS A HOLE THAT THE ACCOUNTING CANNOT SEE.** The population criterion is
+"names `BusClient`", described in `keepalive_population.py` as "deliberately the superset". It
+is a superset of *bus clients*; it is **not** a superset of the thing the same docstring says
+the population is — "tools that drive a headless emulator". Measured: **four** `tools/*.py`
+spawn a headless emulator through `aether_instance` and never name `BusClient`, so they carry
+**no manifest disposition at all** and the lane's "every instrument is declared" invariant
+never sees them:
+
+| tool | what runs it |
+|---|---|
+| `effects_gates.py` | `nightly_effects_gates.sh`, `landing_build.sh`, the merge ritual — well covered |
+| `cart_identity.py` | imported by 9 tools incl. wired ones — library-covered |
+| `depth_onset_probe.py` | imported by `cart_coverage_census.py` only |
+| `cart_verify_spawn_proof.py` | **NOTHING. Zero code references anywhere in the tree.** |
+
+`cart_verify_spawn_proof.py` is an emulator-spawning tool that no runner, no test and no other
+tool names, and it is invisible to this lane by construction. **Not fixed here** — widening the
+criterion changes the population and therefore the accounting, and that is a decision about the
+lane, not a consequence of auditing it.
+
+**A second asymmetry, TESTED rather than asserted:** `strip_prose` is applied to `.py` corpus
+files only; `.sh` files keep their comments, so a shell comment can credit a tool as reachable —
+the exact over-crediting the module documents itself as having fixed. Measured by stripping
+`.sh` comments and re-running the census: **50 → 50, zero tools credited only by a shell
+comment.** Latent, not live. Recorded because the next `build.sh` comment could make it live.
+
+### (1) THE REASON AUDIT — 50 ENTRIES
+
+Each classified from what the tool and the tree do, never from the reason's own wording.
+**47 HOLD · 3 ROTTED · 0 UNDETERMINED** (each of the three is corrected in the manifest in this
+same change, and every correction keeps its row's disposition).
+
+**Re-run and reproduced exactly, on `s4.debug.bin` crc32 `62238a15` / 848,075 B** — six rows
+whose reason quotes a refusal. All six printed the quoted refusal, verbatim:
+`blank_priority_probe` (exit 2, 0 s), `lens_residue_object_witness c2a6` (exit 2, 0 s),
+`tick_variance_probe` (exit 1, 0 s), `song_load_mid_drum_witness` (exit 2, 1 s),
+`sec5_band_witness` (exit 2, 0 s — note the row's reason omits that it *also* requires
+`--label` and `--out-dir` before it reaches the refusal), `deform_own_cost_probe` (exit 1, 0 s).
+`dma_straddle_reading` reproduced its "THIS RUN SAYS NOTHING — REFUSING TO REPORT IT AS A PASS"
+in 38 s — **and the tool's own suggested fix does not work**: it says "only KNUCKLES straddles…
+Re-run with `--character 2`", and `--character 2` was run (`Character_ID = 2 after 2
+A-press(es)`, 14,580 frames) and is **equally vacuous, all counters 0**. The reason therefore
+still holds, with the blocker now known to be deeper than the tool's own note says.
+
+**Derived from the parser, not the prose** — the three A/B rows carry `required=True` on exactly
+the four before/after paths their reasons name (`bg_nt_gate`, `display_ab_gate`:
+`--before-rom/--before-lst/--after-rom/--after-lst`; `sec7_waterline_probe`:
+`--old-*`/`--new-*`). Both "builds its own ROM" rows really do `subprocess.run([sigil, "build",
+"--aeon", …, "--native", "--config-a", …])` and both refuse without `SIGIL_BUILD`. `sfx_audition`
+connects to a pre-existing `--socket` and produces no verdict at all. `Sound_FadeOut` still has
+**zero call sites** in `engine/` and `games/`, which is the load-bearing half of
+`fade_busy_stale_witness`'s reason. `preset_lab_witness` is invoked by name at
+`nightly_effects_gates.sh:237`, on a timer that is `enabled`+`active` and last fired
+2026-09-18 04:17:38. `e2_snap_capture` does, on default `--outdir`, `write_text` over
+`docs/captures/2026-09-15-regions-p2-e2/README.md`, which **is committed**, and no guard has
+appeared. `parallax_hscroll_probe`'s "34 unit tests" collects at exactly 34.
+
+**⚠ THE 35 "reachable in code from a real entry point" ROWS ARE ALL TRUE AND THEY ARE NOT ONE
+THING.** The heading was already corrected on 2026-09-19 to say reachability is not execution.
+Graded by what actually runs them:
+
+| grade | n | what it means |
+|---|---|---|
+| A — spawned nightly | 17 | 16 are `subprocess.run`n by `effects_gates.py` (`--only` defaults to `""`, so `wanted()` is true for all of them and the nightly's argv runs every one); `preset_lab_witness` is spawned directly by the nightly script |
+| B — CLI spawned by a pytest | 1 | `cart_coverage_census` |
+| C — imported as a LIBRARY by something that runs | 10 | their `main()` runs nowhere. `fg_left_edge_gate` and `parallax_cost_probe` are imported by *wired* instruments, so their imported functions do execute nightly; `parallax_hscroll_probe` is this class, which is why its own line already says "a test imports its arithmetic" |
+| D — named only in prose, strings or data tables | 5 | `cache_hold_probe`, `e2_snap_capture`, `evict_witness`, `ramp_boundary_probe`, `row_remap_witness` — **nothing imports them and nothing runs them.** As dead as the 15 explicitly excluded, filed as somebody else's problem |
+
+Grade D is where the reason is weakest, and running those five is what found the dead tool below.
+
+### (2) THE THREE ROTTED REASONS
+
+1. **`blank_priority_probe` — "pinned to a ROM that NO LONGER EXISTS".** False. The artifact is
+   on disk: `s4.debug.bin` crc32 `9ce1c2ff` / 847,533 B in the sibling worktree
+   `.aeon-ls9-land`, and the probe's own header names its source tree `9fe9ee91`, which is in
+   history and rebuildable. The row's operative clause — keepalive runs the shipping ROM — is
+   unchanged and still true, so the disposition stands and only the false clause moves. (The
+   artifact lives in gitignored build output of one worktree; that is existence, not durability.)
+2. **`canopy_gap_exercise` — "cost … would dominate the lane".** Measured false. The quoted
+   frame arithmetic is right and the inference from it is not: the exercise is a **search** and
+   stops when the instrument fires. Run at defaults: **exit 0 in 20 s at load average 3.05**,
+   printing "RESULT: the instrument FIRED during this campaign". Its own wall-clock column gives
+   382–385 frames/s, so the never-fires worst case over the full ~17,520-frame budget is ≈46 s.
+   Against the lane's 5.0 min floor: +7% today, +15% worst case.
+3. **`evict_witness` — "reachable in code from a real entry point".** True, empty, and covering
+   a **dead tool**. See (5).
+
+### (3) WHAT `--unwired` MEASURES, AND WHAT IT REFUSES TO
+
+`keepalive_surface.measure_unwired()` + `--unwired` cover all 50 `[not_wired]` entries.
+**It deliberately does not report the wired half's quantity.** For an unwired tool every option
+is unreached *by construction*; that is a true sentence carrying no information, and publishing
+a big number for it would be this lane's own defect. What it derives instead is the price and
+shape of a wiring: `required` (what argparse refuses without — the `args = [...]` a row would
+have to spell), `needs_args`, `bare_exit_is_free`, `runnable`, the env-var surface, and the
+whole unreached `choices` domain.
+
+```
+50 tools · 296 options · 11 need arguments · 36 accept a bare argv · 2 UNDETERMINED · 1 is not a program
+UNREACHED BODY 88 · REACHED-resized 66 · PURE PARAMETER 134 · SUBJECT SELECTOR 8 (8 whole domains, none reached)
+9 tools take input from os.environ, which no argparse scan can reach
+```
+
+Three properties of it are worth more than the totals:
+
+* **It is three-valued where two would have lied.** `needs_args`/`bare_exit_is_free` are read
+  off argparse. Two `[not_wired]` entries are programs with **no argparse** — `cache_hold_probe`
+  dispatches off a `MODES` table, `reels_witness` off `sys.argv[1:]` — so for them the question
+  was never asked and they report `None`, not `False`. That is not pedantry: running
+  `cache_hold_probe` with no arguments prints `Usage:` and **exits 1**, the exact opposite of
+  the free green a truthiness answer would have asserted. `aether_bytes` stays `False` (no
+  parser *and* no `__main__`: determinably not a program).
+* **It fixed a rendering bug in the shared scan.** `choices=` is usually built, not written —
+  6 options in `tools/` build theirs. `_lit` returned the **string** `"<expr>"` for those, which
+  is iterable, so a domain rendered as `['<','e','x','p','r','>']`: worse than nothing, because
+  it looks like an answer. A bounded evaluator (module-level literal constants, `+`, five
+  sequence constructors; no import, no exec) now resolves them, and what it cannot resolve is
+  marked `<unresolved>` — zero of those among the manifest's tools.
+* **Its controls are measured, not self-consistent.** `test_the_measured_required_set_is_reproduced_from_the_parser`
+  pins `sec5_band_witness` to the set argparse itself printed at exit 2 on this tree
+  (`--label`, `--out-dir`); `test_a_built_choices_domain_is_resolved_and_matches_argparse` pins
+  the resolved `lens_residue_object_witness` domain to the one argparse printed in its own usage
+  line. A derivation that cannot reproduce an exit status already observed is not evidence about
+  the other 48 rows.
+
+**Red-first:** the first 6 of the 9 new tests were written before the feature and run red
+against the parent commit (`AttributeError: module 'keepalive_surface' has no attribute
+'measure_unwired'`), and the three-valued test ran red against the two-valued implementation
+before it was fixed. Three mutations, each quoted off disk before its red run and restored with
+`git checkout` from the committed baseline, `__pycache__` cleared each time: dropping the
+`required=True` arm → **3 failed**; disabling the `+` arm of the choices evaluator →
+**3 failed**; `determinable = True` → **1 failed**. Restored → 18 passed.
+
+### (4) THE BOUND THAT REMAINS — READ THIS AS A PROHIBITION, NOT A CAVEAT
+
+**Nothing in section (3) is coverage.** The keepalive lane executes **zero lines** of all 50 of
+those files, and `--unwired` boots no emulator and executes none of them either: it reads
+parsers and ASTs. A reader who adds the 88 `UNREACHED BODY` options here to the 38 from the
+wired report has added two counts of different things — on a wired tool that class means "the
+nightly never executes this block", and here it means "if somebody wired this at defaults, this
+block would still be dead."
+
+Specifically still unmeasured after this parcel:
+
+* **43 of the 50 unwired tools were never executed at all by this parcel.** Seven were run
+  (six refusal reproductions plus `dma_straddle_reading` twice) and seven more were run for
+  pricing; the rest are audited **from source and from what runs them**, which cannot see a tool
+  that imports cleanly, parses cleanly and dies on its first bus call — the `evict_witness`
+  shape. The five grade-D rows were run *because* that is the only way to find that shape, and
+  one of the five was exactly it. **The same argument applies to the other 45 and was not
+  carried out.**
+* **Grade-C rows are covered only in the functions somebody imports.** Ten tools' `main()` runs
+  nowhere. `parallax_hscroll_probe` spent 2026-08-26→2026-09-18 crashing in exactly that
+  region with 34 green unit tests beside it.
+* **`cart_verify_spawn_proof.py` has no disposition and no runner**, and three sibling tools
+  sit outside the population criterion with it.
+* **The lane has not yet produced a scheduled run.** `aeon-instrument-keepalive.timer` is
+  enabled with a next elapse of 2026-09-19 05:00; `~/.local/state/aeon-keepalive/` contains
+  only `SELFTEST: the failure-notification path works` (2026-09-19T00:05:36-04:00) and **no
+  `lane.log` at all**. Every figure quoted about the lane's runtime, the 5.0 min floor included,
+  comes from hand runs, not from the nightly.
+
+### (5) WIREABLE NOW — PRICED, AND EXPLICITLY NOT WIRED
+
+Each run once on crc32 `62238a15`, integer-second resolution, load average beside it. **None of
+these was wired.** The lane fires at 05:00 on the owner's machine; growing it is his decision.
+
+| tool | exit | wall | what a row would buy |
+|---|---|---|---|
+| `e2_snap_capture` | 0 | ~1 s | 44 files incl. 42 PNGs, at `--outdir {outdir}` — which is also the fix for its committed-`README.md` overwrite hazard. Cheapest row on the table |
+| `canopy_gap_exercise` | 0 | 20 s | the whole search + "the instrument FIRED"; worst case ≈46 s. Its cost reason is now known false |
+| `ramp_boundary_probe` | 0 | 97 s | a real discriminating reading: 37 discriminating rows, top+1 rule matches 0, top+2 matches 29 |
+| `row_remap_witness` | 1 | 1 s | three substantive FAILs today, so it would be a **declared-red row** needing `baseline_args`, and `--out {outdir}` (its default writes `row_remap_witness.json` to the repo root) |
+| `cache_hold_probe` | 1 | 0 s | needs a mode; a bare row is only a usage refusal |
+| `dma_straddle_exercise` | 2 | 120 s | **not recommended.** +40% on the lane for a run that self-reports UNMEASURABLE. Its stated frame arithmetic is also understated: it drove **36,638** frames, not the ~18k the reason computes |
+
+Cheapest useful bundle: `e2_snap_capture` + `canopy_gap_exercise` ≈ **21 s, +7%** on the 5.0 min
+floor, and it would have caught a `canopy_gap_exercise` that stopped firing.
+
+### (6) FOUND BROKEN, NOT FIXED
+
+A broken tool found by an audit is its own parcel with its own proof obligations; repairing one
+inside the audit that found it makes the audit harder to trust. Both are reported and left alone.
+
+1. **`tools/evict_witness.py` is dead.** `--rom s4.debug.bin --lst s4.debug.lst` → **unhandled
+   `FileNotFoundError` out of `sock.connect`, exit 1, 0 s.** It never spawns an emulator: it
+   hard-codes `SOCK = "/run/user/1000/oracle.sock"` and its docstring line 37 says "Requires one
+   running oracle_gui". It belongs to `sfx_audition`'s class. It was excluded as "reachable in
+   code from a real entry point"; the only code reference to it in the entire tree is a string
+   inside `cart_coverage_census.py`'s **table of tool classifications**. Its `--rom`/`--lst` also
+   default to `s4.stress.bin`/`s4.stress.lst`, a non-canonical shape.
+2. **`tools/dma_straddle_exercise.py` contradicts itself in its own verdict.** The run prints
+   `CONTROL A (natural): Dbg_DMA_Straddle_All 0 at boot -> 6 at the end of the campaign, max 6.
+   MOVED DURING PLAY: True` and then `VERDICT: UNMEASURABLE. Neither control fired`. Control A
+   moved. Either the verdict's predicate or its wording is wrong, and a tool whose verdict
+   disagrees with the line above it cannot be graded by an exit status.
+
+### (7) WHAT THIS CHANGE TOUCHED
+
+`tools/keepalive_surface.py` (the unwired half + the choices evaluator),
+`tools/test_keepalive_surface.py` (+9), `tools/keepalive_manifest.toml` (3 reasons), this file.
+**No new files** — deliberately: a new file under `tools/` named without "keepalive" would
+escape `test_every_keepalive_file_is_excluded_as_a_reachability_source`, whose guard is keyed to
+that substring, and would rot the census exactly as the previous parcel's did. Census verified
+unchanged at 85 / 35 / 50 before and after. `pytest tools`: **4 failed, 3227 passed** in this
+tree against **4 failed, 3218 passed** in a pristine control worktree at the same base — the
+identical failure set (`test_extern_guard_reachability.py`, 4 rows, a fresh-worktree artifact)
+and +9 = the new tests.
+
+### (8) STILL OPEN
+
+1. **The four emulator-driving tools outside the population criterion**, `cart_verify_spawn_proof`
+   most of all: nothing names it anywhere. Widening the criterion from "names `BusClient`" to
+   "spawns an emulator" changes the accounting and is a decision about the lane.
+2. **43 of 50 unwired tools have still never been executed by anything.** Only running one can
+   find the `evict_witness` shape.
+3. **`evict_witness` and `dma_straddle_exercise`**, per (6).
+4. **`sec5_band_witness`'s reason omits its required arguments**, so a reader following it hits
+   an argparse exit 2 before the refusal the reason quotes. Left as-is; it is a wording gap, not
+   a wrong disposition.
+5. **The `.sh` comment asymmetry in `strip_prose`** — measured harmless today (50 → 50), live
+   the moment a `build.sh` comment names a tool nothing else reaches.
