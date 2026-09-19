@@ -72,6 +72,9 @@ import tomllib
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS_DIR)
+sys.path.insert(0, TOOLS_DIR)
+import keepalive_lane as lane  # noqa: E402  -- for `tool_of`, the row-key grammar's one reader
+
 DEFAULT_MANIFEST = os.path.join(TOOLS_DIR, "keepalive_manifest.toml")
 
 NO_DEFAULT = "<none>"          # add_argument had no `default=` kwarg at all
@@ -279,11 +282,20 @@ def classify(opt, blocks):
 
 def measure(repo=REPO, manifest=DEFAULT_MANIFEST):
     wired = tomllib.load(open(manifest, "rb"))["wired"]
+    # A manifest row is an INVOCATION and a tool may have several (`tool.py#arm-label`).
+    # The question this file asks -- "what surface does the lane never reach" -- is a
+    # question about the TOOL, so the rows of one tool are folded here and the flags any
+    # of them sets count as set. Measuring per row instead would report a flag as
+    # unreached on the arm that does not set it while another arm sets it every night.
+    by_tool = {}
+    for row in sorted(wired):
+        by_tool.setdefault(lane.tool_of(row), []).append(
+            [str(x) for x in wired[row].get("args", [])])
     rows = []
-    for name in sorted(wired):
-        spec = wired[name]
-        declared = [str(x) for x in spec.get("args", [])]
-        set_flags = {x for x in declared if x.startswith("-")}
+    for name in sorted(by_tool):
+        argvs = by_tool[name]
+        declared = argvs[0] if len(argvs) == 1 else [a for argv in argvs for a in argv]
+        set_flags = {x for argv in argvs for x in argv if x.startswith("-")}
         path = os.path.join(repo, "tools", name)
         src = open(path, encoding="utf-8", errors="replace").read()
         tree = ast.parse(src)
@@ -349,8 +361,10 @@ def main(argv=None):
 
     tools = sorted({r["tool"] for r in rows})
     noargs = sorted({r["tool"] for r in rows if r["flag"] == "(no argparse)"})
-    wired_n = len(tomllib.load(open(args.manifest, "rb"))["wired"])
-    print(f"KEEPALIVE SURFACE -- {wired_n} wired tool(s); {len(tools)} of them have surface "
+    _w = tomllib.load(open(args.manifest, "rb"))["wired"]
+    wired_n = len({lane.tool_of(r) for r in _w})
+    print(f"KEEPALIVE SURFACE -- {wired_n} wired tool(s) over {len(_w)} declared "
+          f"invocation(s); {len(tools)} of them have surface "
           f"the declared invocation does not set, over "
           f"{sum(1 for r in rows if r['dest'])} option(s)")
     print(f"  tools with no argparse at all: {len(noargs)}  ({', '.join(noargs)})")

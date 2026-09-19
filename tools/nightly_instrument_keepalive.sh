@@ -42,12 +42,20 @@
 # recreates the original defect inside the fix.
 #
 # ⚠ SOME INSTRUMENTS ARE RED TODAY AND THAT IS DECLARED, NOT BROKEN.
-# tools/keepalive_manifest.toml records each instrument's CURRENT honest exit status as
-# its baseline -- parallax_hscroll_identity is `expect = 1` because it has three
-# deliberate stale-fixture reds. The lane reports a baseline-1 tool that starts exiting 0
-# as FAILED, on purpose: otherwise the cheapest way to green this lane would be to weaken
-# an instrument until it stops complaining, which would make it a machine for hiding
-# exactly what it exists to surface.
+# tools/keepalive_manifest.toml records each ROW's CURRENT honest exit status as its
+# baseline -- three rows are `expect = 1` on 2026-09-19 (loop_step_over_witness,
+# sprite_owner_probe, waterline_art_witness), each for a reason its note states. The lane
+# reports a baseline-1 row that starts exiting 0 as FAILED, on purpose: otherwise the
+# cheapest way to green this lane would be to weaken an instrument until it stops
+# complaining, which would make it a machine for hiding exactly what it exists to surface.
+# (This paragraph named parallax_hscroll_identity and "three deliberate stale-fixture reds"
+# until 2026-09-19, when IDENTITY-FIXTURE-RULING settled them and its baseline went to 0.)
+#
+# ⚠ A BASELINE BELONGS TO A ROW, AND A ROW IS AN INVOCATION. A manifest key is `tool.py`
+# or `tool.py#arm-label`, and a non-zero `expect` must carry `baseline_args` equal to that
+# row's own `args` -- so a red measured on one arm cannot grade a different one. A row
+# whose baseline does not describe its own argv is COULD NOT RUN, which lands here as
+# exit 2.
 #
 # --selftest-fail exercises the notification path without running anything.
 # --checkout-only resolves and checks out the target and exits, for testing this file.
@@ -134,7 +142,7 @@ rc=$?
 # The counts, straight out of the lane's own summary, so the notification says WHAT rather
 # than only THAT. Aggregate totals -- never a tail excerpt.
 SUMMARY=$(grep -E "^  (PASSED|FAILED|COULD NOT RUN) " "$RUNLOG" | tr -s ' ' | paste -sd' ' -)
-POP=$(grep -E "^  (bus instruments|declared in the manifest|unexecuted AND not wired)" "$RUNLOG" | tr -s ' ' | paste -sd' | ' -)
+POP=$(grep -E "^  (bus instruments|declared in the manifest|wired INVOCATIONS|unexecuted AND not wired)" "$RUNLOG" | tr -s ' ' | paste -sd' | ' -)
 FINISHED=$(grep -E "^finished=" "$RUNLOG" | tail -1)
 
 case $rc in

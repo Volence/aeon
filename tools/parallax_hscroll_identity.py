@@ -14,6 +14,10 @@ HOW A FIXTURE IS INSTALLED. Identical to `parallax_cost_probe` and deliberately 
 `Replay_Record_Buf`, and the same three derived checks (pointer still aimed, fixture bytes
 unchanged, replay recorder idle) run every time. A fixture that failed to install would
 otherwise "match" trivially, because both ROMs would be filling from the same shipped config.
+⚠ ONE THING IS NO LONGER IDENTICAL, as of 2026-09-19: an ANCHORED fixture also installs its
+own `Effects_World_Y[0]`, absolutely, where `parallax_cost_probe` only PERTURBS the live one
+by a delta. The reasoning is in the banner above `split_line`; the short version is that the
+overlay takes two inputs and a fixture that synthesizes one of them is half a fixture.
 
 WHAT MAKES THE MATRIX NON-VACUOUS -- the two coverage witnesses, ASSERTED not assumed.
 A fill rewritten around a walking table pointer has exactly two new failure surfaces, and a
@@ -35,41 +39,53 @@ matrix that misses either is a gate that cannot fail:
 Both witnesses are printed on every run, pass or fail, so a future change that quietly makes
 the matrix cell-aligned again is visible rather than silently green.
 
-STATUS 2026-09-18: IT RUNS AGAIN AND IT IS RED, AND THAT IS THE WITNESSES WORKING.
-On the first run after the `set_stride` repair below, against s4.debug.bin (crc32 62238a15) it
-reports three failures, and they are ONE cause:
+STATUS 2026-09-19: GREEN, AND THE THREE REDS WERE CLOSED BY GIVING THE FIXTURE THE STATE IT
+WAS MISSING -- NOT BY RELAXING A WITNESS. The witnesses got STRICTER in the same change.
 
-    ID7: sampled buffer is identical to the flat fixture ID1 -- the curve did not deflect
-    ID8: sampled buffer is identical to the flat fixture ID1 -- the curve did not deflect
-    COVERAGE: no non-multiple-of-8 span in the whole matrix -- the remainder tail is untested
+WHAT WAS WRONG, and it was the fixture. From 2026-09-18 this file reported three failures on
+s4.debug.bin (crc32 62238a15): ID7 and ID8 sampled a buffer identical to the flat fixture ID1,
+and COVERAGE found no non-multiple-of-8 span anywhere in the matrix. All three were ONE cause.
+A split line is not a config field: it is `Effects_Screen_L[ch]`, re-latched every frame from
+`Effects_World_Y[ch] - Camera_Y`. The anchored fixtures set `anchor=0` in their CONFIG and
+inherited the ANCHOR BANK from whatever section the boot had loaded -- and the boot region
+leaves channel 0 at PATCH_ANCHOR_NONE ($7FFF), so L came out ~32623, past every band, and the
+overlay correctly did nothing. The engine was right the whole time; the fixture asked for a
+split while supplying one of the two inputs a split takes. The tell was in the printed spans,
+ID7/ID8 [56, 56, 56, -8, 64]: a NEGATIVE span, i.e. `nshadow = bands + 1` reading a slot
+nothing had written that frame.
 
-THE ANCHORED SPLIT NEVER FIRES. ID7/ID8 are the fixtures whose sampling is turned on BY the
-anchor (ROM bands all 15, anchor_dsb = 2), so with no split they emit the flat buffer; and the
-ragged spans the matrix needs can only come from a split landing off the 8-pixel grid, so they
-do not exist either. The tell is in the printed spans -- ID7/ID8 show [56, 56, 56, -8, 64] and
-ID6/ID9 [112, -32, 144]. A NEGATIVE span: `nshadow = bands + 1` assumes the anchor split, and
-with no split that extra slot is the previous frame's leftover.
+WHAT CHANGED: the anchored fixtures now install their own channel-0 world anchor, at a split
+line DERIVED from the matrix's own band tops (see `split_line`), and four checks were added
+that did not exist while the split never fired --
 
-IT IS NOT AN ENGINE DEFECT. Measured on the booted ROM at 240 frames, no freeze, no written
-camera, Camera_Y = 144:
+  * the installed anchor is read back after the sample (a preset re-install or the anchor
+    mover would otherwise change what was measured, silently);
+  * the whole realized shadow view must equal the fixture's own config tops with
+    `anchor_wy - Camera_Y` inserted -- so a split in the wrong place, or no split, is named;
+  * no span may be non-positive, which turns the old [.., -8, ..] artifact into a failure;
+  * `shipped_precedent()` MEASURES, every run, that the loaded act still pairs a parallax
+    config consuming channel 0 with a preset seeding a real world anchor on it. That is the
+    original diagnosis -- "the fixture picks its anchor channel by NUMBER, and which channel
+    carries a world anchor is a property of the scene" -- made mechanical instead of left as
+    a rot the fixture cannot feel.
 
-    Effects_World_Y   [32767, 314, 32767, 32767]      ($7FFF = the no-anchor sentinel)
-    Effects_Screen_L  [32623, 170, 32623, 32623]
+MEASURED 2026-09-19, s4.debug.bin crc32 62238a15 / 848,075 B, 20.6 s at load average 2.20:
+exit 0. ID6 spans [104, 8, 112]; ID7 [56, 48, 8, 56, 56]; ID8 (camera 147) [56, 45, 11, 56, 56];
+ID9 [101, 11, 112]. RAGGED SPANS 4 (was 0), WRAPPING FRAMES 240. ID7/ID8 now carry digests of
+their own rather than ID1's. THE CONTROL: ID0-ID5, the un-anchored fixtures, are byte-identical
+to the pre-change run -- digests 4ef90c32e72c / 4ef90c32e72c / 108caaa4b699 / c7aaecfd9e6a /
+e1ccd44faa9b / 96a227f98067 before and after -- so the change reached only the fixtures it was
+aimed at.
 
-Screen_L = World_Y - Camera_Y EXACTLY on all four channels, sentinels included, so
-Effects_LatchWorldLines is working. The only channel carrying a real world anchor is CHANNEL 1.
-These fixtures hardcode `anchor=0`, and so does the live boot config at $01486E -- which is why
-tools/parallax_hscroll_probe.py also reports "L 32623 past band_hi 220 -- record not emitted, no
-split" at every camera position it samples.
-
-VERDICT: STALE FIXTURE EXPECTATION. The fixture picks its anchor channel by NUMBER, and which
-channel carries a world anchor is a property of the scene, which changed under it.
-
-DELIBERATELY NOT MADE GREEN. Weakening either witness to get a pass is exactly the vacuous-gate
-pattern this file exists to refuse, and authoring a fixture that installs its own channel-0
-world anchor is a real design decision -- should an identity fixture poke the effects bank, and
-does the state it creates correspond to anything the game reaches? -- that should not be taken
-blind. Booked in docs/DEFERRED_WORK.md under "Two parallax HScroll instruments cannot run".
+AND THE STATE IS ONE THE GAME REACHES, measured rather than argued. The loaded act's own region
+table (13 regions) has exactly one row pairing a consuming `anchor_ch` with a real world anchor
+on that channel: region 5, x 4096..5119 y 2048..4095, `OJZ_Preset_Sec5` ->
+`ParallaxConfig_OJZ_Underwater`, `anchor_ch` 0, `ep_patch_world_ys[0]` = 2272. That is what the
+player walks into, and it is the shape these fixtures build. The boot region (region 0) declares
+`anchor_ch` 0 as well and leaves channel 0 at the sentinel -- deliberately, by a dated owner
+ruling of 2026-09-09 recorded verbatim in games/sonic4/data/effects/ojz_effects.emp, reversible
+in two tokens (`224` back into `ep_patch_world_ys[0]`). The field is not dead data; its producer
+is switched off in that one region.
 
 Usage:
     python3 tools/parallax_hscroll_identity.py --rom s4.debug.bin --lst s4.debug.lst \
@@ -81,6 +97,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -94,6 +111,7 @@ from aether import BusClient            # noqa: E402
 from launcher import headless_emulator   # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
 import parallax_cost_probe as pcp        # noqa: E402
+import region_table                      # noqa: E402  -- the one out-of-assembler Act/Region reader
 from parallax_cost_probe import (        # noqa: E402
     ANCHOR_NONE, CFG_ANCHOR_CH, CFG_BAND_COUNT, CFG_SIZE, CFG_V_FACTOR_BG,
     NO_DEFORM, build,
@@ -128,7 +146,9 @@ SYMS = ("Parallax_Current_Config", "Parallax_Target_Config", "Parallax_Transitio
         "Debug_Scene_Freeze", "Replay_Record_Buf", "Replay_Record_Idx",
         "DeformTable_OJZ_Calm", "DeformTable_Shimmer", "ParallaxConfig_OJZ_Default",
         "Parallax_Shadow_Bands", "Hscroll_Buffer", "Camera_Y",
-        "Parallax_Deform_Phase_FG", "Parallax_Deform_Phase_BG")
+        "Parallax_Deform_Phase_FG", "Parallax_Deform_Phase_BG",
+        # The anchored fixtures' OTHER input, and the act the precedent check walks.
+        "Effects_World_Y", "Current_Act_Ptr")
 
 # THE CURVES MUST DEFLECT. `parallax_cost_probe` attaches `DeformTable_Zero` because a cost
 # probe only needs the sampling path to RUN. An identity probe attaching it would be vacuous
@@ -148,6 +168,68 @@ CURVE_BG = "DeformTable_Shimmer"     # amplitude 8,  period 32
 # it, which is why every cell-aligned fixture hides a broken remainder tail.
 CAM_Y_IDLE = 144
 CAM_Y_RAGGED = 147
+
+SCREEN_LINES = 224               # the visible height the filler walks, and spans_of's end
+
+# =====================================================================================
+#  THE ANCHORED FIXTURES INSTALL THEIR OWN CHANNEL-0 WORLD ANCHOR (2026-09-19)
+# =====================================================================================
+# THE THREE REDS THIS CLOSES, and what was actually wrong. ID7 and ID8 sampled a buffer
+# identical to the flat fixture ID1, and the whole matrix produced no span off the 8-pixel
+# grid. Both were ONE cause: the anchored split never fired, because a split line is not a
+# config field. It is `Effects_Screen_L[ch]`, re-latched every frame from
+# `Effects_World_Y[ch] - Camera_Y`, and these fixtures set `anchor=0` in their config while
+# leaving the ANCHOR BANK at whatever the live section had put there. On the shipping ROM the
+# boot region leaves channel 0 at PATCH_ANCHOR_NONE ($7FFF), so L came out ~32623, past every
+# band, and the overlay correctly did nothing. The engine was right; the fixture asked for a
+# split with only half the state a split needs.
+#
+# SO THE FIXTURE INSTALLS THE OTHER HALF. THREE REASONS, AND THE THIRD IS MEASURED:
+#
+#  1. IT IS THE SAME CLASS OF REACH THIS FILE ALREADY MAKES. A fixture here already writes
+#     `Debug_Scene_Freeze`, pins `Camera_Y`, and aims the LIVE `Parallax_Current_Config` at a
+#     scratch buffer it filled itself. The overlay takes exactly two inputs -- the config and
+#     the anchor -- and synthesizing one while inheriting the other from whatever section
+#     happens to be loaded is not a principle, it is half a fixture. The thing a fixture must
+#     not do is poke the RESPONSE, and `Hscroll_Buffer` is untouched.
+#  2. THE SIBLING THAT SHARES `build()` ALREADY WRITES THIS BANK. `parallax_cost_probe`'s W20
+#     moves `Effects_World_Y[ch]` to move the split, with a comment saying why the camera is
+#     the wrong knob. (It PERTURBS by a delta rather than installing an absolute, which is why
+#     W20's own split is stale on this ROM today: $7FFF + 16 is still off-screen. Stated here
+#     because the precedent is "this bank is a fixture input", not "the sibling is correct".)
+#  3. THE STATE IS SHIPPED CONTENT, and `shipped_precedent()` below MEASURES it on every run
+#     rather than this comment asserting it. Measured 2026-09-19 on s4.debug.bin crc32
+#     62238a15: OJZ act 1 region 5 (x 4096..5119, y 2048..4095) binds `OJZ_Preset_Sec5`, whose
+#     `ep_patch_world_ys[0]` is 2272 -- a real world anchor on channel 0 -- and resolves its
+#     parallax to `ParallaxConfig_OJZ_Underwater`, whose `anchor_ch` is 0. An anchored channel
+#     0 with a config that consumes it is what the player walks into, not a state invented
+#     here. If NO region pairs them any more, the check below says so and fails: a fixture
+#     exercising a shape the game cannot reach is a different defect, not a green one.
+#
+# THE SPLIT LINE IS DERIVED, NOT TYPED. It must (a) be a multiple of 8 at the idle camera, so
+# the cell-aligned fixtures stay cell-aligned and the RAGGED ones earn their raggedness from
+# the camera alone -- which is this file's own stated mechanism -- and (b) not coincide with a
+# band top of ANY anchored fixture, because a split exactly on a boundary produces a
+# zero-length band and tests the boundary rather than the remainder. `split_line()` picks it
+# off `band_tops()`; nothing here is a literal but the tie-break.
+ANCHOR_CH = 0                    # the channel the anchored fixtures name in their config
+
+
+def split_line(band_counts, height=SCREEN_LINES) -> int:
+    """The screen line the anchored fixtures put their split on, at the IDLE camera.
+
+    The multiple of 8 nearest the middle of the display that is not a band top of any
+    anchored fixture. Ties go to the LOWER candidate, so the value is a function of the
+    fixture matrix and not of iteration order.
+    """
+    tops = {t for n in band_counts for t in pcp.band_tops(n)}
+    mid = height // 2
+    cands = [x for x in range(8, height, 8) if x not in tops]
+    if not cands:
+        raise SystemExit("parallax_hscroll_identity: every multiple of 8 on the screen is a "
+                         "band top of some anchored fixture — there is no split line that "
+                         "tests a remainder rather than a boundary")
+    return min(cands, key=lambda x: (abs(x - mid), x))
 
 
 def matrix(base: bytes, fg: int, bg: int) -> dict:
@@ -200,7 +282,7 @@ def matrix(base: bytes, fg: int, bg: int) -> dict:
 
 
 async def _one(b: BusClient, sym: dict[str, int], cfg: bytes, settle: int,
-               cam_y: int) -> dict:
+               cam_y: int, anchor_wy: int | None = None) -> dict:
     for attempt in range(4):     # `reset: timeout waiting for main-thread drain` is an
         try:                     # instrument flake under load — see parallax_cost_probe's note
             await b.call("emulator/reset", {"wait": True, "run": False})
@@ -228,6 +310,18 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes, settle: int,
     await b.call("emulator/write_memory",
                  {"addr": hex(sym["Parallax_Current_Config"]), "value": scratch, "width": 4})
     await b.call("emulator/run_frames", {"frames": 3})
+
+    # THE ANCHORED FIXTURES' SECOND INPUT. Written AFTER the config so the install order is
+    # the same one a section crossing uses (Effects_InstallPreset seeds the bank and the
+    # config together), and ABSOLUTE rather than a delta: the live bank holds
+    # PATCH_ANCHOR_NONE for this channel on the shipping ROM, and $7FFF plus anything is
+    # still $7FFF-ish, i.e. still off screen. See the banner above CAM_Y_IDLE.
+    wy_addr = None
+    if anchor_wy is not None:
+        wy_addr = sym["Effects_World_Y"] + 2 * ANCHOR_CH
+        await b.call("emulator/write_memory",
+                     {"addr": hex(wy_addr), "value": anchor_wy & 0xFFFF, "width": 2})
+        await b.call("emulator/run_frames", {"frames": 2})
 
     idx0 = await b.call("emulator/read_memory",
                         {"addr": hex(sym["Replay_Record_Idx"]), "len": 2})
@@ -257,11 +351,79 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes, settle: int,
     idx1 = await b.call("emulator/read_memory",
                         {"addr": hex(sym["Replay_Record_Idx"]), "len": 2})
     cam = await b.call("emulator/read_memory", {"addr": hex(sym["Camera_Y"]), "len": 4})
+    # READ THE ANCHOR BACK. "The preset re-installed its own anchors over the poke" and "the
+    # anchor mover walked it" are both things that would silently change what was measured,
+    # so this is a check rather than an assumption -- the same reason the config bytes and
+    # the config pointer are read back two lines up.
+    wy_back = None
+    if wy_addr is not None:
+        r = await b.call("emulator/read_memory", {"addr": hex(wy_addr), "len": 2})
+        wy_back = int(r["bytes"], 16)
     return {"frames": frames, "tops": tops_seen, "phases": phases,
             "cam_y": int(cam["bytes"][:4], 16),
+            "anchor_wy": wy_back,
             "ptr_ok": (int(ptr["bytes"][:8], 16) & 0xFFFFFF) == (scratch & 0xFFFFFF),
             "bytes_ok": back["bytes"].upper() == cfg.hex().upper(),
             "replay_idle": idx0["bytes"] == idx1["bytes"] == "0000"}
+
+
+# =====================================================================================
+#  DOES THE GAME REACH THE STATE THE ANCHORED FIXTURES BUILD?  MEASURED, NOT ASSERTED.
+# =====================================================================================
+# A fixture that installs state by hand owes an answer to "and does anything reach this?",
+# and the honest place for that answer is a measurement that re-runs, not a paragraph that
+# ages. This walks the LOADED act's own region table out of the ROM image and reports every
+# region that pairs a parallax config consuming channel `ch` with a preset seeding a REAL
+# world anchor on that same channel -- which is exactly the pair the anchored fixtures build.
+#
+# THE OFFSETS ARE READ OFF THE DECLARATIONS. Act/Region come from `region_table`, the one
+# out-of-assembler reader for them (it cross-checks every `// $HH` against the accumulated
+# field types). EffectsPreset's two fields are read from their own `@ $HH` annotations in
+# engine/effects/preset.emp -- the annotation IS the declaration there, not a comment -- and
+# PATCH_ANCHOR_NONE from engine/effects/raster_dsl.emp through parallax_cost_probe's
+# `_emp_const`, which refuses rather than guessing. Nothing below is a typed offset.
+PRESET_SRC = "engine/effects/preset.emp"
+PATCH_ANCHOR_NONE = pcp._emp_const("engine/effects/raster_dsl.emp", "PATCH_ANCHOR_NONE")
+
+
+def _preset_field(name: str) -> int:
+    txt = (Path(__file__).resolve().parent.parent / PRESET_SRC).read_text()
+    m = re.search(rf"^\s*{re.escape(name)}\s*:[^@\n]*@\s*\$([0-9A-Fa-f]+)", txt, re.M)
+    if not m:
+        raise SystemExit(f"parallax_hscroll_identity: `struct EffectsPreset` in {PRESET_SRC} "
+                         f"no longer declares `{name}` with an `@ $HH` offset — the shipped "
+                         f"precedent check reads that field and will not guess where it went")
+    return int(m.group(1), 16)
+
+
+def shipped_precedent(rom: bytes, act_base: int) -> tuple[list[dict], list[dict]]:
+    """(regions pairing an anchor_ch with a real world anchor, all regions) for this act.
+
+    A region "pairs" when its RESOLVED parallax config names channel `c` in `anchor_ch` and
+    the preset bound to that region seeds `ep_patch_world_ys[c]` with something other than
+    PATCH_ANCHOR_NONE. The resolve is the engine's three rungs -- Region.rg_parallax, then
+    EffectsPreset.ep_parallax, then Act.act_parallax_config.
+    """
+    act_off, _ = region_table.struct_layout("Act")
+    ep_par = _preset_field("ep_parallax")
+    ep_wy = _preset_field("ep_patch_world_ys")
+    o = act_off["act_parallax_config"]
+    act_default = int.from_bytes(rom[act_base + o:act_base + o + 4], "big")
+    rows, paired = [], []
+    for r in region_table.read_regions(rom, act_base):
+        ep = r["effects"]
+        cfg = r["parallax"] or int.from_bytes(rom[ep + ep_par:ep + ep_par + 4], "big") \
+            or act_default
+        anchor_ch = rom[cfg + CFG_ANCHOR_CH]
+        wys = [int.from_bytes(rom[ep + ep_wy + 2 * i:ep + ep_wy + 2 * i + 2], "big")
+               for i in range(pcp.RASTER_MAX_PATCH)]
+        row = {"index": r["index"], "rect": (r["x0"], r["x1"], r["y0"], r["y1"]),
+               "preset": ep, "cfg": cfg, "anchor_ch": anchor_ch, "world_ys": wys}
+        rows.append(row)
+        if anchor_ch != ANCHOR_NONE and anchor_ch < len(wys) \
+                and wys[anchor_ch] != PATCH_ANCHOR_NONE:
+            paired.append(row)
+    return paired, rows
 
 
 def spans_of(tops: list[int], nbands: int) -> list[int]:
@@ -298,14 +460,30 @@ def main() -> int:
     FX = matrix(rom[off:off + CFG_SIZE], sym[CURVE_FG], sym[CURVE_BG])
     got: dict[str, list[dict]] = {k: [] for k in FX}
 
+    # The split line every anchored fixture lands on at the idle camera, and the ONE world
+    # anchor that produces it. One value for all four, because the RAGGED fixtures earn
+    # their raggedness by moving the camera under a fixed world anchor -- moving the anchor
+    # with the camera would hold L constant and there would be no ragged span anywhere.
+    anchored_counts = sorted({fx["cfg"][CFG_BAND_COUNT] for fx in FX.values()
+                              if fx["cfg"][CFG_ANCHOR_CH] != ANCHOR_NONE})
+    split_l = split_line(anchored_counts)
+    anchor_wy = CAM_Y_IDLE + split_l
+
+    act_ptr: list[int] = []
+
     async def _sweep(sock: str) -> None:
         b = BusClient(socket_path=sock, client_id="pxident",
                       client_name="parallax_hscroll_identity")
         await b.connect()
         await b.call("emulator/load_symbols", {"path": args.lst})
+        r = await b.call("emulator/read_memory",
+                         {"addr": hex(sym["Current_Act_Ptr"]), "len": 4})
+        act_ptr.append(int(r["bytes"][:8], 16) & 0xFFFFFF)
         for k, fx in FX.items():
+            anchored = fx["cfg"][CFG_ANCHOR_CH] != ANCHOR_NONE
             got[k].append(await _one(b, sym, fx["cfg"], args.settle,
-                                     fx.get("cam_y", CAM_Y_IDLE)))
+                                     fx.get("cam_y", CAM_Y_IDLE),
+                                     anchor_wy=anchor_wy if anchored else None))
         await b.close()
 
     for _ in range(args.repeat):
@@ -314,13 +492,63 @@ def main() -> int:
 
     ref = json.loads(Path(args.ref).read_text()) if args.ref else None
     print(f"ROM {args.rom}   {FRAMES} frames/fixture   repeats {args.repeat}")
-    print(f"response = Hscroll_Buffer, all {HSCROLL_BYTES} bytes, after each frame\n")
+    print(f"response = Hscroll_Buffer, all {HSCROLL_BYTES} bytes, after each frame")
+    print(f"anchored fixtures: channel {ANCHOR_CH} world anchor {anchor_wy} installed by this "
+          f"fixture -> split line {split_l} at camera {CAM_Y_IDLE}, "
+          f"{anchor_wy - CAM_Y_RAGGED} at camera {CAM_Y_RAGGED} "
+          f"(band tops of the anchored counts {anchored_counts}: "
+          f"{sorted({t for n in anchored_counts for t in pcp.band_tops(n)})})")
+
+    # ---- the precedent, MEASURED, before anything is graded ----
+    setup_bad = []
+    if not act_ptr or not act_ptr[0]:
+        setup_bad.append("PRECEDENT UNMEASURABLE: Current_Act_Ptr read back 0, so there is no "
+                         "act whose regions could be walked — this run cannot say whether the "
+                         "state these fixtures install is one the game reaches")
+        paired, allrows = [], []
+    else:
+        paired, allrows = shipped_precedent(rom, act_ptr[0])
+    if allrows:
+        inv = {v: k for k, v in sym.items()}
+        print(f"\nSHIPPED PRECEDENT — the act at ${act_ptr[0]:06X} has {len(allrows)} region(s); "
+              f"{len(paired)} pair a consuming `anchor_ch` with a real world anchor on it "
+              f"({sum(1 for r in paired if r['anchor_ch'] == ANCHOR_CH)} on the fixtures' own "
+              f"channel {ANCHOR_CH}):")
+        for r in paired:
+            ys = ["NONE" if y == PATCH_ANCHOR_NONE else y for y in r["world_ys"]]
+            print(f"  region {r['index']:2d} x{r['rect'][0]}..{r['rect'][1]} "
+                  f"y{r['rect'][2]}..{r['rect'][3]}  "
+                  f"{inv.get(r['preset'], hex(r['preset']))} -> "
+                  f"{inv.get(r['cfg'], hex(r['cfg']))}  anchor_ch {r['anchor_ch']}  "
+                  f"world_ys {ys}")
+        # THE CHECK IS ON THE FIXTURE'S OWN CHANNEL, and that is the point rather than
+        # pedantry. The original diagnosis of this file's three reds was that "the fixture
+        # picks its anchor channel by NUMBER, and which channel carries a world anchor is a
+        # property of the scene, which changed under it". That sentence describes a rot the
+        # fixture could not feel. This is the same sentence made mechanical: the fixture
+        # still picks channel 0 by number, and the run FAILS if the content stops pairing
+        # that number, naming the channel the content moved to.
+        on_ch = [r for r in paired if r["anchor_ch"] == ANCHOR_CH]
+        if not on_ch:
+            elsewhere = sorted({r["anchor_ch"] for r in paired})
+            setup_bad.append(
+                f"PRECEDENT: no region of the loaded act pairs a parallax config consuming "
+                f"channel {ANCHOR_CH} with a preset seeding a real world anchor on it"
+                + (f" — the content anchors channel(s) {elsewhere} instead, so ANCHOR_CH "
+                   f"here is now the stale number"
+                   if elsewhere else
+                   ", and no channel is paired anywhere in this act at all")
+                + ". The anchored fixtures below build a state the shipped content does not "
+                  "reach, so what they certify is an engine path with no consumer — re-read "
+                  "them before trusting a green, and do not silence this by deleting the "
+                  "check")
+    print()
     hdr = (f"{'FIX':4} {'camY':>4} {'bands':>5} {'spans (screen lines)':<30} {'ragged':>6}"
            f" {'wrapF':>6} {'digest':<12} {'vs ref':>8}")
     print(hdr)
     print("-" * len(hdr))
 
-    out, bad, ragged_total, wrap_total = {}, [], 0, 0
+    out, bad, ragged_total, wrap_total = {}, list(setup_bad), 0, 0
     flat_digest = None
     for k, fx in FX.items():
         runs = got[k]
@@ -343,6 +571,46 @@ def main() -> int:
         if not checks:
             note = "INSTALL!"
             bad.append(f"{k}: fixture did not install cleanly")
+        # ---- THE ANCHORED FIXTURES' OWN TWO CHECKS ----
+        # Neither of these existed while the split never fired, which is how [56,56,56,-8,64]
+        # -- a NEGATIVE span, i.e. a slot holding the previous frame's leftover -- printed
+        # every run without being a failure. A fixture that asks for a split and does not get
+        # one tests the flat path under an anchored name, and that is worse than a red.
+        if anchored:
+            if r0.get("anchor_wy") != anchor_wy:
+                note = "ANCHOR!"
+                bad.append(f"{k}: the installed channel-{ANCHOR_CH} world anchor read back as "
+                           f"{r0.get('anchor_wy')}, not the {anchor_wy} this fixture wrote — "
+                           f"something re-seeded the bank under the sample (a preset install, "
+                           f"or the anchor mover), so the split this fixture measured is not "
+                           f"the one it asked for")
+            # THE WHOLE REALIZED SHADOW VIEW, against an expectation derived two ways that
+            # do not share the parser: the UNSPLIT tops are read back out of the config
+            # bytes this fixture installed (and `bytes_ok` above has already confirmed the
+            # emulator holds those bytes), and the SPLIT line is `anchor_wy - cam_y` with
+            # BOTH terms read back off the machine. An overlay that wrote the split in the
+            # wrong place, or did not write it, cannot produce this list.
+            # ⚠ Stated narrowly: the unsplit half is a fixture-to-fixture identity (the
+            # fixture authored those tops), so what this check is a WITNESS for is the
+            # split's position and the insert, not the band layout.
+            cfgb = fx["cfg"]
+            want_l = anchor_wy - r0["cam_y"]
+            want_tops = sorted([pcp.be_top(cfgb, i, CFG_SIZE) for i in range(nb)] + [want_l])
+            got_tops = r0["tops"][-1][:nshadow]
+            if got_tops != want_tops:
+                note = "SPLIT!"
+                bad.append(f"{k}: the anchored split did not land where the world anchor puts "
+                           f"it — the shadow view reads {got_tops} and the config's own tops "
+                           f"with Effects_World_Y[{ANCHOR_CH}] {anchor_wy} - Camera_Y "
+                           f"{r0['cam_y']} = {want_l} inserted are {want_tops}. Either no "
+                           f"split was written (a slot is the previous frame's leftover) or "
+                           f"Raster_GetChannelBand clamped L into channel {ANCHOR_CH}'s "
+                           f"authored band")
+            if any(x <= 0 for x in sp):
+                note = "SPANS!"
+                bad.append(f"{k}: spans {sp} contain a non-positive entry, so the "
+                           f"nshadow = bands + 1 reading of the shadow view is not what the "
+                           f"engine wrote — a slot is being read that nothing filled")
         if not stable:
             note = "UNSTABLE"
             bad.append(f"{k}: not reproducible across {args.repeat} boots")
@@ -374,6 +642,7 @@ def main() -> int:
               f" {digests[0][:12]:<12} {cmp_s:>8}  {note}")
         out[k] = {"digest": digests[0], "what": fx["what"], "spans": sp, "cam_y": r0["cam_y"],
                   "ragged": ragged, "wrap_frames": wrapf, "checks_ok": checks,
+                  "anchor_wy": r0.get("anchor_wy"),
                   "per_frame": runs[0]["frames"]}
 
     print(f"\nCOVERAGE WITNESSES — ragged spans {ragged_total}   wrapping frames {wrap_total}")

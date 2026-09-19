@@ -24,6 +24,28 @@
 #  complaining.
 #
 #  timeout = seconds. A timeout is COULD NOT RUN, not FAILED.
+#
+#  ===================================================================================
+#  A ROW IS AN INVOCATION, NOT A TOOL -- and `expect` belongs to the ROW
+#  ===================================================================================
+#  A key is `tool.py` or `tool.py#arm-label`. Only the part before the `#` names a file;
+#  the label names one more declared invocation of the SAME tool. The population
+#  accounting folds every row through that split, so N arms of one tool are still ONE
+#  disposition, and two rows of one tool with IDENTICAL `args` are reported AMBIGUOUS --
+#  two baselines for one measurement, with nothing to say which is the measured one.
+#
+#  A NON-ZERO `expect` MUST CARRY `baseline_args`, SPELLED OUT AND EQUAL TO THIS ROW'S
+#  `args`. The redundancy is the check. Measured 2026-09-19: `loop_step_over_witness
+#  --phase-sweep` enters its arm, hits the same tool-wide SETUP red the default arm hits,
+#  exits 1, and against a TOOL-keyed `expect = 1` grades PASSED -- a row that reports
+#  PASSED whatever it does. A baseline is a measurement of ONE argv; this field is where
+#  the row says WHICH, and a row whose baseline names a different argv than it runs is
+#  COULD NOT RUN (not PASSED, not FAILED) and is not even spawned.
+#
+#  `expect = 0` is exempt and that is deliberate: zero is not a measurement that can
+#  travel, it is "this tool is supposed to work". The hazard is a measured RED carried
+#  onto an arm nobody measured. A zero row that carries `baseline_args` anyway is still
+#  held to the equality, so a stale one cannot sit there looking like evidence.
 
 # =====================================================================================
 #  WIRED -- the lane runs these
@@ -33,15 +55,26 @@
 
 [wired."parallax_hscroll_identity.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 1
+expect = 0
 timeout = 300
-note = """KNOWN RED, and the red is the point. Measured 2026-09-18 on s4.debug.bin crc32
-62238a15: exits 1 with exactly three complaints -- ID7 and ID8 sample a buffer identical
-to the flat fixture ID1 (the curve did not deflect, so those two fixtures test nothing),
-and COVERAGE finds no non-multiple-of-8 span anywhere in the matrix (the remainder tail is
-untested). These are stale fixture expectations left red ON PURPOSE. It prints no
-traceback, which is what makes it a FAILED rather than a COULD NOT RUN, and is exactly the
-distinction this lane draws. This tool had not run since 2026-08-29."""
+note = """GREEN since 2026-09-19, and the three declared reds were closed by giving the
+FIXTURE the state it was missing rather than by relaxing a witness -- the witnesses got
+STRICTER in the same change. The reds (ID7/ID8 sampling a buffer identical to the flat
+fixture ID1, and no non-multiple-of-8 span anywhere in the matrix) were one cause: a split
+line is `Effects_Screen_L[ch]`, latched from `Effects_World_Y[ch] - Camera_Y`, and the
+anchored fixtures set `anchor=0` in their CONFIG while inheriting the ANCHOR BANK from the
+boot region, which leaves channel 0 at PATCH_ANCHOR_NONE. They now install their own
+channel-0 world anchor at a split line derived from the matrix's own band tops. Four checks
+were ADDED: the anchor is read back after the sample; the whole realized shadow view must
+equal the config's own tops with `anchor_wy - Camera_Y` inserted; no span may be
+non-positive (the old `[.., -8, ..]` artifact is now a failure); and `shipped_precedent()`
+measures every run that the loaded act still pairs a config consuming channel 0 with a
+preset seeding a real anchor on it. MEASURED on s4.debug.bin crc32 62238a15 / 848,075 B:
+exit 0, 20.5 s at load average 2.21, ragged spans 4 (was 0), wrapping frames 240, and the
+un-anchored fixtures ID0-ID5 byte-identical to the pre-change run. Going red is a real
+change; five mutations were shown firing (see docs/DEFERRED_WORK.md).
+⚠ `expect = 0` carries no `baseline_args` because zero is exempt by the rule at the top of
+this file -- zero is not a measurement that can travel."""
 
 [wired."parallax_scratch_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -77,14 +110,46 @@ timeout = 600
 [wired."loop_step_over_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 300
 note = """DECLARED RED, classification: SETUP, instrument-side. Measured 2026-09-18 on crc32
-62238a15: 'THE PLAYER NEVER LANDED, so this run cannot say anything about the loop. placed
-at (1097, 553); after 8 landing frames he is at y=585 with y_vel=1568 (want 0). This is a
-SETUP failure, not a loop result.' The tool names its own fix -- pass --start-y derived
-from the ground top under editor column 137 -- and choosing that value is a reading this
-parcel had no basis to make. Baselined at 1 so a CHANGE is loud; going green is reported
-FAILED, not quietly accepted."""
+62238a15 and re-measured 2026-09-19 (exit 1 in 0.79 s): 'THE PLAYER NEVER LANDED, so this run
+cannot say anything about the loop. placed at (1097, 553); after 8 landing frames he is at
+y=585 with y_vel=1568 (want 0). This is a SETUP failure, not a loop result.' The tool names
+its own fix -- pass --start-y derived from the ground top under editor column 137 -- and
+choosing that value is a reading this parcel had no basis to make. Baselined at 1 so a CHANGE
+is loud; going green is reported FAILED, not quietly accepted.
+⚠ THIS ROW REACHES 0.79 s OF THE TOOL AND STOPS AT THE REFUSAL. It keeps the boot and the
+placement alive and NOTHING past them -- not the drive, not the layer-flip sampler, not the
+per-speed report. That is what the `#no-assert-grounded` row below is for, and why the two
+rows carry different baselines."""
+
+[wired."loop_step_over_witness.py#no-assert-grounded"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
+expect = 0
+timeout = 300
+note = """⚠ A KEEPALIVE ROW, NOT A WITNESS, AND ITS GREEN IS NOT A VERDICT ABOUT THE LOOP.
+Read that as a prohibition: this arm reports zero layer flips and a long fall WHATEVER the
+crossover code does -- the tool's own --help says so, and that signature is exactly what the
+default row's grounded assertion exists to refuse. Nobody may ever cite this row's PASSED as
+evidence about the step-over.
+
+WHAT IT IS FOR. The default row above exits at the setup refusal in 0.79 s, so the lane
+executes the boot and the placement and nothing else. This arm is the only declared
+invocation that RUNS the drive at all three derived speeds (PHYS_TOP_SPEED, the
+one-cell-per-frame boundary, PHYS_GSP_CAP), samples the layer bit across 90 frames, and
+reaches the per-speed report and main()'s return. That reporting path is precisely where
+parallax_hscroll_probe's NameError hid for three weeks, and no lane could see it because
+nothing completed a run. MEASURED 2026-09-19 on s4.debug.bin crc32 62238a15 / 848,075 B:
+exit 0, 3.07 s at load average 3.14, printing flips=0 and x 1097..1361 / y 585..846 at each
+of the three speeds. +3.1 s on a lane with a measured 5.0 min floor.
+
+AND IT IS THE PARCEL'S OWN PROOF THAT A BASELINE IS PER-INVOCATION. This tool now carries
+TWO rows with DIFFERENT measured baselines -- 1 on the default argv, 0 on this one -- which
+a tool-keyed `expect` could not express at all. Under the old schema the only way to add
+this flag was to edit the default row's `args`, and the lane would then have reported
+FAILED, 'exit 0, declared baseline was 1': a false alarm reading as 'the known red went
+green'."""
 
 
 [wired."zx0r_net_boot_witness.py"]
@@ -182,6 +247,7 @@ timeout = 300
 [wired."sprite_owner_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 300
 note = """DECLARED RED, classification: VACUOUS, instrument-side. Measured 2026-09-18:
 'THIN: the widest frame sampled carried 3 sprite(s), below the 4 this probe treats as a
@@ -203,6 +269,7 @@ timeout = 600
 [wired."waterline_art_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 600
 note = """DECLARED RED, classification: VACUOUS ARM, instrument-side -- NOT an engine
 finding, and that was read off the output rather than assumed. Measured 2026-09-18: the two
