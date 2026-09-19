@@ -137,7 +137,11 @@ exit $rc
 #        Description=aeon bus-instrument keepalive
 #        [Service]
 #        Type=oneshot
-#        ExecStart=%h/sonic_hacks/aeon/tools/nightly_instrument_keepalive.sh
+#        ExecStart=<the aeon checkout>/tools/nightly_instrument_keepalive.sh
+#        # ^ spell the absolute path to THIS file, wherever the aeon checkout lives:
+#        #     systemctl --user edit --full aeon-instrument-keepalive.service
+#        #   The script derives every other path from its own location, so this is the
+#        #   only place the unit has to know where anything is.
 #
 #    ~/.config/systemd/user/aeon-instrument-keepalive.timer
 #        [Unit]

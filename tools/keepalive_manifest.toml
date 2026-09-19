@@ -76,8 +76,15 @@ timeout = 600
 
 [wired."loop_step_over_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
+expect = 1
 timeout = 300
+note = """DECLARED RED, classification: SETUP, instrument-side. Measured 2026-09-18 on crc32
+62238a15: 'THE PLAYER NEVER LANDED, so this run cannot say anything about the loop. placed
+at (1097, 553); after 8 landing frames he is at y=585 with y_vel=1568 (want 0). This is a
+SETUP failure, not a loop result.' The tool names its own fix -- pass --start-y derived
+from the ground top under editor column 137 -- and choosing that value is a reading this
+parcel had no basis to make. Baselined at 1 so a CHANGE is loud; going green is reported
+FAILED, not quietly accepted."""
 
 
 [wired."zx0r_net_boot_witness.py"]
@@ -162,8 +169,13 @@ timeout = 300
 
 [wired."sprite_owner_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
+expect = 1
 timeout = 300
+note = """DECLARED RED, classification: VACUOUS, instrument-side. Measured 2026-09-18:
+'THIN: the widest frame sampled carried 3 sprite(s), below the 4 this probe treats as a
+real witness. The claims above did not fail - they had almost nothing to check.' It fails
+BECAUSE it refuses to call an empty scene a verification, which is correct behaviour. Fixing
+it means reaching a busier state, not changing the probe."""
 
 [wired."staging_index_poison.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
@@ -178,8 +190,16 @@ timeout = 600
 
 [wired."waterline_art_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 0
+expect = 1
 timeout = 600
+note = """DECLARED RED, classification: VACUOUS ARM, instrument-side -- NOT an engine
+finding, and that was read off the output rather than assumed. Measured 2026-09-18: the two
+substantive arms PASS ('POSITIVE 12/12 frames: VRAM equals the gather predicted from the
+published ladder row', 'CONTROL 12/12 separable frames differ from the identity gather').
+The VERDICT FAIL comes from the third: 'THE GUARD ARM IS UNPOPULATED ON ONE SIDE (no sampled
+transition changed the row, so nothing tested the rebuild) - its consistency total says
+nothing. Widen --stride or move the camera.' ⚠ Note it also writes
+waterline_art_witness.json into the REPO ROOT on every run (gitignored today)."""
 
 [wired."fg_left_edge_probe.py"]
 args = ["--rom", "{rom}"]
