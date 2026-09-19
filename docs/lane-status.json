@@ -14,19 +14,33 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the blind spot is closed and landed, or reported as not reproducible.",
+  "nextBoundary": "When the blind-spot parcel lands; the crossing-transition sweep is named and ready to follow it.",
   "queue": [
     {
-      "id": "SETTLE-IMPL-COLLAPSE",
-      "title": "A third copy of the settle helper uses a magic number instead of deriving it; correct today, worth collapsing",
-      "state": "open",
-      "size": "S",
+      "id": "CROSSING-TRANSITION-SWEEP",
+      "title": "Tonight's sweep covered tools that step through the effects lab. Tools that trigger the same scene change by CROSSING a section were named and not swept -- and that is the path the showcase act uses",
+      "state": "next",
+      "size": "M",
       "blockedBy": null
     },
     {
       "id": "ACCEPT-ARM-BLIND-SPOT",
       "title": "The left-edge check's other arm can pass when it should fail, depending on where the camera is",
       "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "CAPTURE-SETTLE-NAME",
+      "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "SETTLE-IMPL-COLLAPSE",
+      "title": "A third copy of the settle helper uses a magic number instead of deriving it; correct today, worth collapsing",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -77,5 +91,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-19T00:37:35Z"
+  "updatedAt": "2026-09-19T01:05:33Z"
 }
