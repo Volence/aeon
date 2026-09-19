@@ -1,6 +1,12 @@
 {
-  "focus": "Both dead measuring tools are alive; all 35 hidden failures were the tool misreading, not the game.",
-  "inFlight": [],
+  "focus": "Making a dead measuring tool announce itself, instead of reading the same as a tool with nothing to report.",
+  "inFlight": [
+    {
+      "what": "Building the nightly that notices when a measuring tool stops working at all",
+      "where": "branch parcel/instrument-keepalive",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When the keepalive lane runs and every one of the 29 unwatched tools has a verdict or a named reason it cannot run.",
   "queue": [
     {
       "id": "IDENTITY-FIXTURE-RULING",
@@ -20,7 +26,7 @@
     {
       "id": "INSTRUMENT-KEEPALIVE",
       "title": "29 of our 84 measuring tools are referenced by nothing, so a dead one stays dead silently; a nightly that runs them is priced at ~12 min and ~29 declared lines, and is your call to take or leave",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -84,6 +90,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T03:04:27Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T03:05:19Z"
 }
