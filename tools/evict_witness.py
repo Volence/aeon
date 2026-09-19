@@ -55,10 +55,19 @@ THREE COPIED CONSTANTS ARE NOW DERIVED, for the same reason. `PAGE_FRAMES_CLAMP 
 `PAGE_NOT_RESIDENT = 0xFF` and `OJZ_POOL_PAGES = 10` were transcribed from the engine, and
 a transcribed number is one that nothing notices when the source moves: the pool page count
 in particular comes out of a GENERATED manifest (`ojz_act_pool_manifest.emp`) that any
-level re-bake can change. The clamp and the sentinel are read off the listing's own `EQU`
-lines; the pool page count is read off the running act descriptor; and the CLAMP is read
-off the emitted `cmpi.w #imm,d6` in `Level_LoadArt`, NOT off its `EQU` — because on the
-STRESS shape those two disagree (see the block at that read). If the pool and the clamp
+level re-bake can change. Each is read from the authority that governs it:
+
+  PAGE_NOT_RESIDENT, PAGE_TABLE_MAX   the listing's own `EQU` lines
+  act_art_pool_pages                  the act descriptor on the running machine
+  PAGE_FRAMES_CLAMP                   the EMITTED `cmpi.w #imm,d6` in `Level_LoadArt`,
+                                      NOT its `EQU` — on the STRESS shape those two
+                                      DISAGREE (12 published, 9 compared). The `EQU` is
+                                      read anyway and printed beside it, loudly, because
+                                      an instrument that silently prefers one of two
+                                      disagreeing authorities is how a disagreement
+                                      stays invisible. See the block at that read.
+
+If the pool and the clamp
 ever stop satisfying `pool_pages > clamp` the fixture cannot force an eviction at all, and
 that is now a loud refusal rather than a pigeonhole that quietly always holds.
 """
