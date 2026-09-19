@@ -1,6 +1,12 @@
 {
-  "focus": "A check added to a tool that is meant to fail can now fail differently; and your own 09-09 ruling answered the question I was going to send you.",
-  "inFlight": [],
+  "focus": "Fifty tools sit outside the nightly for written reasons; checking whether those reasons are still true.",
+  "inFlight": [
+    {
+      "what": "Auditing why 50 tools are excluded from the nightly, since an excluded tool is never run and its excuse is never tested",
+      "where": "branch parcel/keepalive-unwired-surface",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When every exclusion reason is classified holds / rotted / undetermined.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
@@ -20,7 +26,7 @@
     {
       "id": "COST-PROBE-W20-STALE",
       "title": "A cost probe nudges a value that now holds a no-anchor marker, so its 'split moved 80 to 96' is really 32767 to 32783 -- off screen. Same defect we just fixed, one tool over",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -33,8 +39,8 @@
     },
     {
       "id": "KEEPALIVE-UNWIRED-SURFACE",
-      "title": "The 50 tools the nightly does NOT run have had their non-default behaviour measured by nobody; tonight only measured the 35 it does run",
-      "state": "next",
+      "title": "Fifty tools are excluded from the nightly, each for a written reason; nobody has checked whether those reasons are still true",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -105,6 +111,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T07:24:32Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T07:36:21Z"
 }
