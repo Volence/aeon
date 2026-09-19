@@ -117,3 +117,41 @@ def test_every_wired_tool_is_accounted_for(rows):
     assert seen <= wired
     for name in wired:
         assert os.path.isfile(os.path.join(REPO, "tools", name)), name
+
+
+# --------------------------------------------------------------------------------------
+# THE LANE'S OWN BOOKKEEPING MUST NOT ACT AS A REACHABILITY SOURCE, AND NOTHING CHECKED IT.
+#
+# `keepalive_population.LANE_BOOKKEEPING` carries a measured warning: without it the
+# advisory "nothing executes this" count moved 50 -> 47 the moment `test_keepalive_lane.py`
+# was written, because a test's short string literal "tools/foo.py" is exactly what the
+# census deliberately KEEPS (that is where a real invocation lives). The list was correct
+# and hand-maintained, and NOTHING enforced that a new lane file joined it.
+#
+# So it rotted on the next lane file added -- this one. MEASURED 2026-09-19 on this tree:
+# committing `tools/test_keepalive_surface.py`, whose control names two instruments by
+# filename, moved the same count 50 -> 43 and flipped `floor_hscroll_dump.py` from dead to
+# live. Seven instruments credited as executed by a file that only measures them.
+#
+# The list stays EXPLICIT -- `keepalive_population`'s own comment gives the reason a prefix
+# rule is an open-ended hole -- and this test is what makes it keep up.
+# --------------------------------------------------------------------------------------
+def test_every_keepalive_file_is_excluded_as_a_reachability_source():
+    import subprocess
+    import keepalive_population as kpop
+
+    tracked = subprocess.run(
+        ["git", "-C", REPO, "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.split("\n")
+    # Scoped to what `_code_corpus` actually READS -- it skips anything that is not .py
+    # or .sh, so `keepalive_manifest.toml` is not a source today and flagging it would be
+    # a red for a non-defect. If that filter ever widens, this widens with it.
+    own = {f for f in tracked
+           if "keepalive" in os.path.basename(f) and f.startswith("tools/")
+           and (f.endswith(".py") or f.endswith(".sh"))}
+    missing = sorted(own - set(kpop.LANE_BOOKKEEPING))
+    assert not missing, (
+        "these files are the keepalive lane's own bookkeeping and are being counted as "
+        "evidence that something ELSE executes the instruments they name: "
+        f"{missing}. Add them to keepalive_population.LANE_BOOKKEEPING."
+    )

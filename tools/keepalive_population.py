@@ -161,11 +161,21 @@ def strip_prose(src):
 # live, which is the over-crediting flaw documented at the top of this file, reintroduced
 # from inside. It is also wrong on the merits: "the keepalive lane mentions this tool" can
 # never be evidence that something ELSE runs it.
+# ⚠ AND IT ROTTED ON THE NEXT LANE FILE ADDED, because nothing enforced that a new one
+# joined the list. MEASURED 2026-09-19: committing `tools/test_keepalive_surface.py` --
+# whose control names two instruments by filename, in exactly the short literals this
+# module deliberately keeps -- moved the same count 50 -> 43 and flipped
+# `floor_hscroll_dump.py` from dead to live. Seven instruments credited as executed by a
+# file that only measures them. The list stays EXPLICIT for the reason above, and
+# `test_keepalive_surface.test_every_keepalive_file_is_excluded_as_a_reachability_source`
+# is what now makes it keep up.
 LANE_BOOKKEEPING = frozenset({
     "tools/keepalive_population.py",
     "tools/keepalive_lane.py",
     "tools/test_keepalive_lane.py",
     "tools/nightly_instrument_keepalive.sh",
+    "tools/keepalive_surface.py",
+    "tools/test_keepalive_surface.py",
 })
 
 
