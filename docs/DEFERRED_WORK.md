@@ -38688,3 +38688,29 @@ keep up. The list stays EXPLICIT — `keepalive_population`'s own comment gives 
 3. **The ~50 not-wired tools' non-default surface is not measured.** `keepalive_surface.py`
    reads the `[wired]` table only. Pointing it at `[not_wired]` is a one-line change and a
    larger reading.
+
+## PUBLISH-BAND-RECORD-LEN: consumers each derive a stride we could publish once (OPEN, booked 2026-09-19)
+
+**Asked by oracle** (reported, not requested — they own a working route and were explicit that no
+CR was needed): publish a **`band_record_len`** equate, or `PARALLAX_SCRATCH_BYTES`, beside the
+`band_entry_*` rows. Today oracle resolves every offset per gesture from our published equates via
+`lookup_equate` and **derives** the stride, refusing on a non-exact division rather than rounding.
+That is sound, and it is a correct derivation performed in a tree we do not test.
+
+**The argument for publishing is not convenience, it is tonight's own evidence.** The stride is
+**per game — 32 on `s4.debug`, 10 on `demo.debug`** — and oracle notes a transcribed 32 would have
+addressed demo's band 1 *inside its band 3*. Separately, on 2026-09-19 this lane found
+`parallax_hscroll_probe` had been striding the band array by **10 where the engine uses 32** for
+three weeks, misreading five bands at lines 0/32/80/112/160 as 0/3855/0/0/3840 and reporting a
+**correct engine** as the failure. **One published authority makes that class unwritable; N correct
+derivations in N trees only make it unlikely.**
+
+**And the same day's address sweep is the general form:** seven of eight absolute addresses in
+`docs/2026-09-06-live-effects-ram-surface.md` had rotted, while the WIDTHS beside them — derived
+from `End − start` — had not. **A derived quantity survived where every snapshot rotted.** A
+published equate is the derived form, held by the one tree that owns the struct.
+
+**Not built 2026-09-19 deliberately:** an agent was live in this tree, and an equate is engine
+source, so it lands as its own parcel with the full landing build rather than riding behind
+something else. **Check before building whether sigil's equate publication already covers it** —
+the `band_entry_*` rows are served, so this may be one line beside them rather than a mechanism.
