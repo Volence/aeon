@@ -37943,3 +37943,48 @@ during any boundary lerp:
 whole parcel (it is the only one with a wrong verdict attached), and whether 2/3 want the accessor
 or want to keep the outgoing scene deliberately during a lerp — that is an authoring question, not
 a correctness one.
+
+## CAPTURE-SETTLE-IS-PALETTE-ONLY: a frame named `settled` asserts more than the predicate proves (OPEN, booked 2026-09-19)
+
+**Raised by the empyrean hub** relaying oracle's never-settles-baseline finding (empyrean `c847ec8d`,
+*cited as: the never-settles baseline rule*): oracle found a pinned baseline whose plane text is
+identical at 120/600/1800 frames while its frame hash differs at all four budgets — a picture still
+in motion at thirty seconds, pinned as settled, agreeing with every re-run **because the run is
+deterministic**. Their question to this lane: does aeon's decode control establish CONVERGENCE, or
+only that a frame decodes to a known palette?
+
+**ANSWER, read out of `tools/capture_settle.py` rather than remembered: convergence, genuinely — on
+the palette axis only.** It is not a decode test. Its `hold` clause requires **CRAM lines 1-3
+identical across the last N samples**, `lag` requires those N samples each to advance `Logic_Tick`
+by exactly 1 with no lag frame, and **N is DERIVED from the engine's own loop orderings and
+re-derived every run, refusing if any has moved** — so the window cannot outlive its derivation.
+It even closes the pipeline offset: CRAM at sample `i` shows `compose(i-1)` while the PNG shows
+`compose(i-2)`, and the window is sized so the frame the PNG actually shows has a settled compose
+on each side. That is oracle's vary-the-budget test in its temporal form, and it was here first.
+
+⚠ **THE GAP, AND IT IS THEIR DEFECT ON AN AXIS THEY DID NOT ASK ABOUT. Measured: every clause is
+about palette/CRAM, and `grep -in "vsram|plane|hscroll|sprite|frame_hash|camera"` over that file
+returns ONE hit, a positional label (`:583`), not a clause.** Nothing reads plane text, scroll,
+VSRAM, sprites or a frame hash. **So a frame can be certified while the PICTURE is still moving** —
+geometry scrolling, parallax mid-lerp — because the palette converged and nothing else was asked.
+That is exactly oracle's shape with **CRAM as the cheap surface that lies**.
+
+**Corroborated from this lane's own evening rather than argued:** the 2026-09-18 crossfade sweep
+found three tools sampling inside the 16-frame parallax transition, one of them reading a per-line
+scroll table **463 px** off the settled value. A frame this predicate certifies could sit precisely
+in that window: palette done, scroll not.
+
+**THE PREDICATE IS NOT WRONG — THE NAME IS.** Its own docstring claims only that *"the picture's
+colours are the settled palette"*, which is true and correctly scoped. But `SETTLED_WORD =
+"settled"` (`capture_settle.py:185`) puts the bare word in the filename, and
+`t5-f272-settled.png` asserts to every later reader that the FRAME is settled. **A true sentence
+doing a bigger sentence's work** — the same class this repo already books, arriving on the tool
+built to stop the previous instance of it.
+
+**What would close it.** Either (a) narrow the name to what is proven (`palette-settled`), which is
+cheap, honest, and immediately correct for every existing capture; or (b) widen the predicate with a
+motion clause on a surface that actually moves — a frame hash or the plane/VSRAM words held
+identical across the same N samples — and keep the bare name. **(a) is the recommendation**: it
+costs a rename and a docstring line, it cannot be wrong, and (b) can be added later under the
+narrowed name without invalidating anything captured in the meantime. Do NOT re-certify existing
+captures as a precondition: they were correctly certified for colour and are cited for colour.
