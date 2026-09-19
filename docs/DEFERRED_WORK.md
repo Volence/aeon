@@ -38005,31 +38005,204 @@ dangling while the printed line twelve above it was updated to the literal `"per
 by `git log -S per_line_mode` and `git log -S '"mode": mode'`, not by reading the comment.
 **23 days unrunnable.** The one-line repair landed with the sweep.
 
-⚠ **THE OPEN ITEM IS WHAT THE CRASH WAS HIDING.** With it gone the probe completes and reports
-`FAIL — 10 failing check(s)`, rc=1: **STAGE A and STAGE B both fail at all five camera
-positions** ("the derived shadow view disagrees with the machine's"; "all derived entries match
-`Hscroll_Buffer`" refuted). The red is PRE-EXISTING and cannot be the repair's — both
-`fails += 1` sites are ABOVE the line touched, so the count is complete before the dict is
-built, and the crash fired on the FIRST position, which is why the other nine have never been
-seen. **Hypothesis, flagged as a hypothesis and NOT measured:** the same 2026-08-26 edit that
-deleted `per_line_mode` also changed the fill, and this probe's derivation was left stale.
-Wants its own red-first parcel.
+⚠ **THE OPEN ITEM IS WHAT THE CRASH WAS HIDING — CLOSED 2026-09-18 (`DEAD-INSTRUMENT-PAIR`).
+It was the TOOL, in one number, and the engine was correct throughout.**
 
-⚠ **And one thing the sweep's claims-audit could not clear.** `docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md`
-names this probe as THE instrument and was written **2026-08-20, before the break**, so its
-numbers came from a tool that ran. But **the vintage of the 10 failures is unknown**: if STAGE
-A/B were already disagreeing then, that document's numbers came from a tool that was WRONG
-rather than merely dead, and the date argument does not save them. Settling it means running
-the repaired probe at `1b14c624`. Named, not resolved.
+**First, the count is 10 only on the DEFAULT arm.** `--arm all` reports **35**: the frozen arm's
+5 pinned positions x {Stage A, Stage B} = 10, plus the sweep arm's 24 per-frame
+"discontinuities" and the red-first arm's control refusing to proceed. Re-derived here, not
+inherited.
 
-**(2) `tools/parallax_hscroll_identity.py` — NOT repaired, needs a ruling.** It dies with
-`TypeError: cannot convert 'NoneType' object to bytearray`, three frames deep in
-`parallax_cost_probe.band()`. Cause: it imports `build()` from `parallax_cost_probe` but never
-calls `set_stride()`, so `BE_SIZE` is still its declared `None` — the sentinel introduced
-2026-08-29 when the stride stopped being the literal 10 (`docs/benchmarks/scanline-p4/BAND-DRIFT.md`).
-So it has not run since that change. Left alone deliberately: unlike a dangling name, this needs
-a decision about where the stride is primed for an importing caller, and the tool's verdict once
-it runs is unknown — a repair here could well surface a second red like (1)'s.
+**All 35 have one cause: the probe strode the ROM config's band array by
+`sizeof(band_entry)` (10) instead of `sizeof(band_record)`.** The engine does not:
+`engine/level/parallax.emp`, `band_top_line_next` —
+`offsetof(band_entry, band_top_plane) + sizeof(band_record)`. For sonic4 that is **32** today
+(legacy prefix + the four capability tails). Two sites were wrong, `sample_state`'s config read
+and `derive_shadow`'s slice. Against the attested `s4.debug.bin` (crc32 `62238a15`, 848,075 B)
+the live config at `$01486E` lowers five bands at stride 32 with plane tops
+**0/32/80/112/160**; read at stride 10 they decode as **0/3855/0/0/3840** — past the 512-line
+plane span and not monotonic — so `derive_shadow` clamped bands 1..4 off-screen and produced
+the degenerate view `[0,224,224,224,224]`. Everything downstream followed: Stage A reported the
+machine's CORRECT tops as the disagreement; Stage B applied band 0's BG factor (`b_s1 = 4`) to
+all 224 lines against a machine that correctly switches to 3, 2 and 1 at lines 80/112/160,
+giving 144 mismatching words per position each off by exactly a power of two; the sweep arm
+classified the four REAL band edges as interior. **Verdict for all ten, and all thirty-five:
+TOOL ROT. Not one engine defect among them.** The ROM and the buffer agreed with each other the
+whole time.
+
+**The booked hypothesis is REFUTED.** It read: "the same 2026-08-26 edit that deleted
+`per_line_mode` also changed the fill, and this probe's derivation was left stale." The
+derivation of the FILL was never stale — Stage B's arithmetic is unchanged and now matches
+224/224 entries at all five positions. What was stale was the stride of the array the
+derivation reads its operands out of, which is a different file's change on a different date.
+
+**Repaired at `d6df3c4d`.** `--arm all` now exits 0. The tool's own red-first arm passes all
+six steps (ramp installed, RED against the shipped expectation with 434 named mismatches, GREEN
+against the ramp's own, GREEN after restore, GREEN after the walker refills), so the repaired
+checker is proven non-vacuous rather than merely quiet.
+
+⚠ **WHY THE 34 UNIT TESTS COULD NOT SEE IT, which is the more general finding.**
+`test_parallax_hscroll_probe.py`'s `mkcfg` lays its fixture entries out at `BE_SIZE` and
+`derive_shadow` parses them at `BE_SIZE`. **One symbol on both sides of the comparison**, so the
+fixture moves with the parser and NO value of `BE_SIZE` can fail the suite. Measured, not
+asserted: with the stride mutated back to 10, 32 of 34 still pass. Two tests added that do not
+build their own fixture — the record stride read independently through `tools/band_geometry.py`,
+and the SHIPPED `ParallaxConfig_*` configs checked against `band_top_plane`'s own declared
+domain (0..511, non-decreasing). Both go red at stride 10; red-first proven off the committed
+baseline.
+
+✅ **THE VINTAGE QUESTION IS SETTLED, and `CURVE-INSTRUMENT.md`'s numbers are CLEAN.** Settled
+three independent ways, none of which needed a historical build:
+
+1. **By date.** `docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md` has exactly one commit,
+   `1b14c624` (2026-08-20 03:04:03 -0400), the same one that lands the probe. At that tree
+   `band_record` **does not exist** — it arrives 7.5 h later at `a1d66b51` (10:36) with
+   `BAND_EXT_N = 0`, and `BAND_CURVE_N` arrives at `65423310` (11:56), also 0. `sizeof(band_record)
+   == sizeof(band_entry) == 10`, so the probe's stride-10 ROM read was **correct** when the
+   document was written. The first tail to go non-zero for sonic4 is `BAND_CURVE_N = 1` at
+   `1d1c96d4` — the d-15 showcase adopting a curved horizon — **six days later**.
+2. **By ancestry, which is stronger than the dates and contradicts them.** `1d1c96d4`'s AUTHOR
+   date is 2026-08-26 11:14:56 but its COMMIT date is 14:12:38 and its single parent is
+   `c9fa1c07`, a descendant of `55ab501f` (13:22:41) — the commit that killed the probe. At
+   `1d1c96d4`'s own tree the probe already carries `"mode": mode`. **So on master there is no
+   commit at which this probe was alive and its stride was wrong.** It was correct, then dead,
+   then alive-and-wrong for exactly one run: the one that produced these failures.
+3. **By the document's own content.** Its transcript records `[0] CONTROL … GREEN as required`
+   over a **5-band** config (`$01230C` = `ParallaxConfig_OJZ_Underwater`, 5 shadow bands, tops
+   `[0, 48, 80, 112, 224]`). A stride-10 read of a stride-20 array cannot produce a green Stage A
+   on a multi-band config — band 0 is the one index a wrong stride cannot corrupt.
+
+The stride timeline for sonic4, for anyone re-dating a claim from this era: **10** until
+`1d1c96d4`; **20** from the curve tail; **24** from `a8c85611` (2026-09-02, drift on); **32**
+from `efe087ae` (2026-09-03, row remap adopted).
+
+⚠ **What `CURVE-INSTRUMENT.md` IS stale on, and it is not the arithmetic:** its transcript is
+taken at config `$01230C` with an anchored split at L = 80, and the boot config today is
+`$01486E` with **no** split (see (2) below). A reader re-running `--arm redfirst` gets a
+correct green against different numbers. Noted in the document rather than rewritten — it is a
+dated record of a run, not a live pin.
+
+**(2) `tools/parallax_hscroll_identity.py` — RULED AND REPAIRED 2026-09-18
+(`DEAD-INSTRUMENT-PAIR`). Repair, because it covers a hole nothing else covers** (the replay net
+is pixel-blind, `ab_runner` freezes the scene, no golden covers `Hscroll_Buffer`), **it failed
+LOUD rather than plausibly, and the defect was one missing call.** Every sibling primes the
+stride — `curve_probe`'s `main()`, `deform_own_cost_probe`'s `derive_stride()`,
+`parallax_cost_probe`'s own `main()`. This one did not, and `from parallax_cost_probe import
+BE_SIZE` binds the VALUE at import, so a later `set_stride()` by anyone else could never have
+reached it. Now imports the module and calls `pcp.set_stride(sym)` from the .lst under measure.
+Dated precisely: unrunnable since `57bd877c`, **2026-08-29 08:56:30**.
+
+⚠ **AND IT SURFACED THREE REDS, LEFT RED ON PURPOSE.** On the attested ROM it now runs the full
+10-fixture matrix and refuses to certify it:
+
+```
+ID7: sampled buffer is identical to the flat fixture ID1 — the curve did not deflect
+ID8: sampled buffer is identical to the flat fixture ID1 — the curve did not deflect
+COVERAGE: no non-multiple-of-8 span in the whole matrix — the remainder tail is untested
+```
+
+**All three are one cause, and it is NOT an engine defect.** The anchored split never fires, so
+ID7/ID8 (whose sampling is turned on *by* the anchor: ROM bands all 15, `anchor_dsb = 2`) emit
+the flat buffer, and the ragged spans the matrix needs — which only an anchored split landing
+off the 8-pixel grid can produce — never exist. The tell is in the printed spans: ID7/ID8 show
+`[56, 56, 56, -8, 64]` and ID6/ID9 `[112, -32, 144]`. **A negative span** — the tool assumes
+`nshadow = bands + 1` when anchored, and with no split that extra slot is the previous frame's
+leftover.
+
+**Measured, on the booted ROM at 240 frames, no freeze and no written camera:**
+
+| bank | ch0 | ch1 | ch2 | ch3 |
+|---|---|---|---|---|
+| `Effects_World_Y` | **32767** | 314 | **32767** | **32767** |
+| `Effects_Screen_L` | 32623 | 170 | 32623 | 32623 |
+
+`Camera_Y` = 144, and `Screen_L = World_Y - Camera_Y` **exactly on all four channels**, sentinels
+included — so `Effects_LatchWorldLines` is demonstrably working. `$7FFF` is the no-anchor
+sentinel; the only channel carrying a real world anchor is **channel 1**. The fixtures hardcode
+`anchor=0` (`build(base, …, anchor=0)`), and the live config at `$01486E` also declares
+`anchor_ch = 0`, which is why `parallax_hscroll_probe` reports `L 32623 past band_hi 220 —
+record not emitted, no split` at every position too.
+
+**Verdict: STALE FIXTURE EXPECTATION.** The fixture picks its anchor channel by NUMBER, and
+which channel carries a world anchor is a property of the scene, which changed under it. The
+engine is doing the right thing with an unanchored channel.
+
+**Deliberately NOT made green.** Weakening either witness to get a pass is precisely the
+vacuous-gate pattern the tool was built to refuse, and authoring a fixture that installs its own
+channel-0 world anchor is a real design decision (should an identity fixture poke the effects
+bank, and does the state it creates correspond to anything the game reaches?) that should not be
+taken blind. **The tool refusing to certify a vacuous matrix IS the tool working.**
+
+⚠ **ONE THING GENUINELY OPEN AND NOT CLASSIFIED HERE.** The live boot config `$01486E` declares
+`anchor_ch = 0` while channel 0 carries the sentinel, so its anchored split never fires in normal
+play. That may be correct — the split reads like a waterline, and the boot section is not
+underwater; among the named configs only `ParallaxConfig_OJZ_Underwater` uses `anchor_ch = 0`
+and the other 20 are `$FF`. But it is a content question about authoring intent that this parcel
+had no basis to settle, so it is recorded as **UNCLASSIFIED** rather than rounded to "fine".
+Deciding it needs whoever authored the OJZ sections.
+
+### PREVENTION — why a dead instrument stayed dead, PRICED AND NOT BUILT (2026-09-18, `DEAD-INSTRUMENT-PAIR`)
+
+The brief's question was "what would have noticed, and is it cheap". The measured answer is that
+**the obvious cheap thing does not work**, and the thing that works is affordable but is not
+free in the way people assume.
+
+**The obvious cheap thing, measured: a startup smoke over every bus instrument.** Population
+**85** tools under `tools/` that construct a `BusClient` (excluding `test_*`). Invoking each with
+`--help` costs **7.9 s for all 85, 0.09 s each** — three orders of magnitude under running them.
+**It would have caught NEITHER of today's two defects.** `parallax_hscroll_identity`'s `TypeError`
+fires inside `main()` at the first `build()`, *after* `parse_args`, so `--help` exits 0 on a tool
+that cannot do anything; `parallax_hscroll_probe`'s `NameError` was on the reporting path, deep
+inside a run. The smoke also has a **9% false-positive rate** as written (8 of 85 exit non-zero
+on `--help`: `band_capture`, `band_witness`, `bganim_vprobe_witness`, `cache_hold_probe`,
+`plane_buffer_headroom_probe`, `reels_witness`, `sh_probe`, `transition_window_probe` — mostly
+tools that take positionals or wrap another tool, not tools that are dead). A lane with a 9%
+false-positive rate and 0% true-positive rate on the real population is worse than nothing.
+
+**The thing that works is running the tool, and that is the honest price.** Measured on this
+machine at load average 7.6–8.0: `parallax_hscroll_probe --arm all` **30 s** (three headless
+boots), `parallax_hscroll_identity` **23 s** (one boot, 10 fixtures x 24 frames). There is no
+observation short of execution that distinguishes "this channel reports nothing wrong" from
+"this channel cannot report".
+
+**The at-risk population is a measured number, not a guess: 29 of the 84 bus instruments are
+referenced by NOTHING** — no `.sh`, no other tool, no lane, nothing but themselves. Both of
+today's are in that 29. At the ~25 s median measured here, running all 29 nightly is
+**≈12 minutes of wall clock**, which is not the obstacle.
+
+**The real cost is not compute — it is ~29 declared invocation lines.** A blanket runner cannot
+exist: 8 of 85 do not even accept `--help`, several need a ROM/.lst pair, several need positional
+arguments, and a few need an argument that makes them non-vacuous (`curve_probe` REFUSES every
+canonical image by design). Each tool needs one line saying how to run it and what exit status
+means alive. **The shape is already proven in this tree** — `tools/nightly_effects_gates.sh`
+behind `aeon-effects-gates.timer` runs exactly this pattern (a headless emulator per gate, a
+desktop notification on failure *or on a lane that could not run*). A sibling list is a small,
+known-shaped job, and the distinction that matters is the one that lane already draws:
+**FAILED and COULD-NOT-RUN must be different exit statuses**, because collapsing them is the
+whole defect.
+
+⚠ **AND THE SECOND PREVENTION, which is not about lanes at all and is the one I would rank
+first.** `parallax_hscroll_probe` had **34 unit tests pinning its arithmetic**, run in `pytest
+tools` on every build, and not one of them could fail for this defect: `mkcfg` laid its fixtures
+out at `BE_SIZE` and `derive_shadow` parsed them at `BE_SIZE`. **One symbol on both sides of the
+comparison.** Measured, not argued: with the stride mutated back to 10, **32 of 34 still pass**.
+The lane was green for three weeks *and would have stayed green under a correct lane too*. The
+generalizable rule, and the one worth writing down:
+
+> **A fixture builder and the parser under test must not read the same symbol for the quantity
+> being tested.** When they do, the fixture moves with the parser and the test measures
+> self-consistency, which is never the property in question.
+
+The two tests added here obey it — one reads the record stride independently through
+`tools/band_geometry.py`, the other checks the SHIPPED configs against `band_top_plane`'s own
+declared domain — and they cost **0.02 s**. That is the cheap prevention. It is per-file and
+cannot be mechanized into a lint, but it is a review question that can be asked of any new
+instrument in one sentence.
+
+**NOT BUILT HERE, deliberately.** The brief said price it rather than build it on my own
+authority, and a 29-line invocation manifest is a decision about what this tree promises to keep
+alive, not a tidy-up.
+
 
 **Also open from that sweep, and smaller:** `tile_cache_fill_gate.py`'s documented poison —
 "`--post 0` reintroduces the drain-lag false positive" — is UNREACHABLE. The bus refuses it:

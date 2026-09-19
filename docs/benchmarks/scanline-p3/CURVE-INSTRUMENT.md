@@ -6,6 +6,45 @@
 
 ---
 
+## 0. Vintage note, added 2026-09-18 — the numbers below are from a tool that was RUNNING and CORRECT
+
+This document was written at `1b14c624`, 2026-08-20 03:04:03 -0400. On 2026-08-26 the probe it
+names started dying on every run (`NameError: name 'mode' is not defined`, from `55ab501f`), and
+when it was repaired on 2026-09-17 it reported failures nobody had seen. That raised a fair
+question about this page: if those failures predated it, its figures came from a tool that was
+*wrong* rather than merely later dead.
+
+**They did not.** The failures were a single defect — the probe strode the ROM config's band
+array by `sizeof(band_entry)` where the engine strides it by `sizeof(band_record)` — and that
+only became wrong when sonic4's band record first grew a capability tail, at `1d1c96d4`, **six
+days after this page**. Three independent confirmations, the full argument in
+`docs/DEFERRED_WORK.md` under *"Two parallax HScroll instruments cannot run"*:
+
+1. **Date.** At `1b14c624` the struct `band_record` does not exist; it arrives 7.5 h later and
+   at zero tails. `sizeof(band_record) == sizeof(band_entry) == 10`, so the read was correct.
+2. **Ancestry**, which contradicts the author dates and is the stronger argument: `1d1c96d4`
+   (author 11:14:56, **commit 14:12:38**) descends from `55ab501f` (13:22:41), and its own tree
+   already carries the crash. **On master there is no commit at which this probe was alive and
+   its stride was wrong.**
+3. **This page's own content.** Section 5's `[0] CONTROL … GREEN as required` is over a 5-band
+   config. A wrong stride cannot produce a green Stage A on a multi-band config — band 0 is the
+   one index it cannot corrupt.
+
+⚠ **What IS stale here is the SCENE, not the arithmetic.** Sections 5 and 6 are transcribed at
+config `$01230C` (`ParallaxConfig_OJZ_Underwater`, 5 shadow bands, tops `[0, 48, 80, 112, 224]`,
+anchor L = 80). The boot config today is `$01486E`, 5 bands, tops `[0, 32, 80, 112, 160]`, and
+**no anchored split at all** (`L 32623 past band_hi 220`: `Effects_World_Y[0]` is the `$7FFF`
+no-anchor sentinel, and channel 1 is the only one anchored). Re-running `--arm redfirst` today
+is green and prints different numbers. Those numbers are not corrected below, because this is a
+dated record of a run rather than a live pin; read them as such.
+
+Record-keeping corrections while here: the header says "**Unit tests:** 34" and there are now
+**36** — two added 2026-09-18 that the original 34 structurally could not contain, because
+`mkcfg` laid fixtures out at the same symbol `derive_shadow` parsed them with. Section 2's
+"`band_entry` (10 bytes)" is still right as the PREFIX and is no longer the stride.
+
+---
+
 ## 1. Why the ordering is the point
 
 Design §8.3 names the instrument curves need: *"after `Parallax_Update` on a pinned camera

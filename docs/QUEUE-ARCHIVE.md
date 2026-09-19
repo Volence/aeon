@@ -619,12 +619,28 @@ instrument. Corrected here at the source rather than caveated:
   `CURVE-INSTRUMENT.md`'s numbers were taken from a tool that was wrong rather than merely
   dead, and the date argument above does not save them. Establishing that means running the
   repaired probe at `1b14c624`, which this parcel did not do. **Named, not resolved.**
+  → **RESOLVED 2026-09-18 (`DEAD-INSTRUMENT-PAIR`), and no historical build was needed.** The
+  failures date from `1d1c96d4`, when sonic4's band record first grew a tail — six days AFTER
+  the document. Stronger still, by ancestry rather than by author date: `1d1c96d4` (commit date
+  14:12:38) descends from `55ab501f` (13:22:41) and its own tree already carries the crash, so
+  **on master there is no commit at which the probe was alive and its stride was wrong**. And
+  the document's own transcript shows a GREEN Stage-A control over a 5-band config, which a
+  wrong stride cannot produce. Its numbers came from a tool that was running AND correct.
 
 `tools/transition_window_probe.py` is new and nothing rests on it yet.
 
-*Still open, and booked.* (1) `parallax_hscroll_probe`'s 10 pre-existing failures — the
-hypothesis to test, stated as a hypothesis, is that the same 2026-08-26 edit left its derivation
-stale while the NameError hid it. (2) `parallax_hscroll_identity`'s unprimed `BE_SIZE`.
+*Still open, and booked.* (1) ~~`parallax_hscroll_probe`'s 10 pre-existing failures~~ —
+**CLOSED 2026-09-18 by `DEAD-INSTRUMENT-PAIR`, and the hypothesis booked here was WRONG.** The
+derivation of the fill was never stale; the probe strode the ROM config's BAND ARRAY by
+`sizeof(band_entry)` (10) where the engine strides it by `sizeof(band_record)` (32 for sonic4).
+One number, both `fails += 1` sites, all five positions — and `--arm all` is **35** failures,
+not 10, of which 10 are the default arm. Every one is TOOL ROT; not one engine defect. The
+vintage question below is also SETTLED (the document's numbers are clean, three ways). See
+`docs/DEFERRED_WORK.md`, *"Two parallax HScroll instruments cannot run"*. (2)
+~~`parallax_hscroll_identity`'s unprimed `BE_SIZE`~~ — **RULED REPAIR and repaired
+2026-09-18**; it now runs and **refuses its own matrix as vacuous** (ID7/ID8 flat, zero ragged
+spans), traced to the fixtures hardcoding `anchor=0` while the boot scene anchors only channel
+1 — a stale fixture expectation, left red on purpose rather than weakened into a pass.
 (3) The non-default-argument surface: every tool but `tile_cache_fill_gate` was swept on
 DEFAULTS, and yesterday's defect lived on a non-default arm. (4) `left_edge_vsram_probe`'s
 magic `limit=300` is still not collapsed onto `fg_left_edge_gate._trans_default()`; this parcel
