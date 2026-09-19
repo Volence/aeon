@@ -38410,5 +38410,21 @@ made to read the result. **Derive the population from what the code DOES** (a fa
 does not exit/raise), never from a grep for the word "warn" — that marker cannot see the silent
 cases, which are the ones that matter.
 
+**⚠ THIRD INSTANCE, 2026-09-19, AND IT IS THE SHARPEST BECAUSE THE MECHANICAL FIX WAS ALREADY IN
+PLACE.** The status writer had been changed to RAISE rather than emit a file with the wrong number
+of `next` rows — the fix this row recommends. It raised, correctly, printing `REFUSING: 2 next
+rows`. **The commit on the next line of the same invocation ran anyway**, because in a shell a
+NEWLINE is not `&&`: the heredoc's exit status was never read. The lane-log entry landed and the
+status did not, leaving the board advertising an agent that had finished.
+
+**So the row's own sentence applies one layer further out than the row describes it: a guard that
+raises is still only a guard if its CALLER reads the result.** Making the check strict moved the
+defect from the check to the invocation, where nothing was looking. The fix is the same shape
+either way — `writer && action || { exit N; }`, never `writer` on one line and `action` on the
+next — and this repo's memory already carries the general form (`set -e` does not stop here; gate
+with an explicit `|| { exit N; }`). **Add to the sweep: callers that chain an action after a
+gating command WITHOUT `&&`, which is a different grep from the failure-branch one above and finds
+a disjoint population.**
+
 **Deliberately not swept on 2026-09-19:** an agent was live across `tools/` on the keepalive
 parcel and two sweeps in one directory is how a parcel loses its baseline. Take it when that lands.
