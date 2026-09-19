@@ -1,5 +1,5 @@
 {
-  "focus": "Fourteen things landed overnight and not one was the game -- worth your call before I start a fifteenth.",
+  "focus": "Holding. The question about instruments-versus-game is yours, and my own fallback turned out to need you too.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -112,9 +112,9 @@
     {
       "id": "S2CLIP-TRUNCATION",
       "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "open",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "its own fix is a design change: recovering the 416 playable px needs an act that is not a whole number of sections, which is yours to rule, not mine to take",
       "project": "REGIONS"
     },
     {
@@ -146,7 +146,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. Fourteen landings overnight, all instruments, and the queue they left is 12 instrument rows against 7 game rows -- the instrument work is generating its own successors faster than it closes them. Absent an answer I will take the one unblocked game row (the act stopping 736 px short) rather than a fifteenth instrument. Also still yours: the spring sound A/B, and the s4.s2clip.bin flythrough.",
+  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. Fourteen landings overnight, all instruments; the queue they left is 12 instrument rows against 7 game rows. CORRECTION to what I said earlier: I claimed I would take the one unblocked game row absent an answer -- but that row's fix needs an act that is not a whole number of sections, which is a design change and yours. So there is no non-instrument work I can start without you. Also still yours: the spring sound A/B, and the s4.s2clip.bin flythrough.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T09:52:30Z"
+  "updatedAt": "2026-09-19T10:07:20Z"
 }
