@@ -10,6 +10,18 @@ on 2026-09-18, and the crash was hiding 35 findings. `tools/parallax_hscroll_ide
 had not run since 2026-08-29. Both are bus instruments that nothing executes, so nothing
 noticed. This lane executes them.
 
+⚠ ONE INVOCATION PER TOOL, WHICH IS NARROWER THAN "RUNS THEM" AND IS MEASURED, NOT
+ESTIMATED. Every wired tool is run on exactly the argv `keepalive_manifest.toml` declares
+for it, so what this lane keeps alive is each tool's ability to reach A verdict on ONE
+path -- in practice its defaults, plus a required label/out-dir and, for two rows, one
+chosen subject. Measured 2026-09-19 by `tools/keepalive_surface.py` over the 35 wired
+tools: 28 carry surface this invocation does not set, 38 options gate 241 lines whose
+default leaves them unexecuted, one selector reaches 1 of 5 subjects, and
+`transition_window_probe` is pointed at 1 of 85 possible subject tools. A 20-arm sample
+of that unreached surface ran clean the same night (0 dead), so the gap is a LIMIT OF
+REACH rather than a list of known-broken arms -- but it is a real limit and it is stated
+here rather than left for the next reader to discover.
+
 =============================================================================
 WHY THE CHEAP VERSION DOES NOT WORK, MEASURED BY THE PARCEL BEFORE THIS ONE
 =============================================================================

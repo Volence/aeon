@@ -306,10 +306,19 @@ it is not a verdict about pagecache_audit_poison."""
 "canopy_gap_exercise.py" = "cost: default phases are 2400+2400+(24x30)+9000+600+2400 frames plus settles. Wiring it at defaults would dominate the lane; wiring it at reduced frames would keep a DIFFERENT tool alive than the one anybody runs."
 "dma_straddle_exercise.py" = "cost: default phases total ~13k frames plus a 29-point camera survey at 180-frame settles. Same reasoning as canopy_gap_exercise."
 
-# -- reachable in code from a real entry point: something else already runs these -------
-#  These are NOT a claim that each is well covered; they are a claim that this lane is not
-#  the thing that covers them. keepalive_population.py prints the reachability it derived
-#  beside this accounting, so a tool that STOPS being reachable shows up as a gap here.
+# -- reachable in code from a real entry point ------------------------------------------
+#  ⚠ READ THE HEADING NARROWLY. "Reachable" here means the census found a path to this
+#  tool's NAME, in code, from an entry point that runs on this machine. It does NOT mean
+#  anybody runs the tool, and the difference is not hypothetical: the parallax_hscroll_probe
+#  line below says in so many words that its reachability is "a test imports its
+#  arithmetic", and those tests were green through the three weeks it was crashing. An
+#  earlier wording of this heading read "something else already runs these", which is a
+#  stronger sentence than the census can support; corrected 2026-09-19.
+#
+#  So these are NOT a claim that each is well covered; they are a claim that this lane is
+#  not the thing that covers them. keepalive_population.py prints the reachability it
+#  derived beside this accounting, so a tool that STOPS being reachable shows up as a gap
+#  here.
 "bg_switch_gate.py" = "reachable in code from a real entry point"
 "bg_vscroll_rate_witness.py" = "reachable in code from a real entry point"
 "bg_window_gate.py" = "reachable in code from a real entry point"

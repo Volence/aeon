@@ -7,6 +7,24 @@
 # tools/parallax_hscroll_identity.py had not run since 2026-08-29. Both are bus
 # instruments that nothing executes. This lane executes them.
 #
+# ⚠ WHAT "EXECUTES THEM" COVERS, MEASURED 2026-09-19 (parcel KEEPALIVE-DEFAULT-ARGS).
+# It is one invocation per tool, not a tool's whole surface, and the difference is
+# enumerated rather than left to the reader:
+#
+#     35 wired instruments, and all 35 are in the census's "nothing else runs this" set.
+#     28 of them have surface this invocation does not set, over 90 options. Of those:
+#        38 options gate 241 lines whose DEFAULT leaves them unexecuted -- never run here
+#         1 selector reaches 1 of its 5 subjects (lens_residue_raster_witness efx4b)
+#         1 tool takes another TOOL as its subject and is pointed at 1 of 85
+#             (transition_window_probe)
+#         3 tools also take input from os.environ, which no argv can reach
+#             (PB_ROM/PB_LST, RAMP_WITNESS_TREE, SHIM_OUT)
+#
+# tools/keepalive_surface.py re-derives that split from the parsers and the code on
+# demand. A 20-arm sample of the unreached surface was run on 2026-09-19 against
+# s4.debug.bin crc32 62238a15 and found 0 dead -- so this is a stated LIMIT of the lane's
+# reach, not a backlog of known-broken arms.
+#
 # WHY A NIGHTLY AND NOT build.sh. The cost is ~30 s per instrument because there is no
 # observation short of EXECUTION that distinguishes a dead instrument from a quiet one
 # (a --help smoke over all 85 costs 7.9 s, catches NEITHER real defect, and has a 9%

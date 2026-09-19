@@ -18,7 +18,7 @@
   "queue": [
     {
       "id": "KEEPALIVE-DEFAULT-ARGS",
-      "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
+      "title": "Measured: the keepalive reaches one invocation per tool, leaving 38 options that gate 241 lines it never runs -- and a 20-arm sample of them found 0 dead, so the gap is real but empty tonight",
       "state": "doing",
       "size": "M",
       "blockedBy": null

@@ -38241,6 +38241,12 @@ DEFAULT arguments. The defect the previous leg found lived on a non-default arm
 (`--extra-right-frames`), so the non-default surface is the same blind spot one level along and
 is NOT swept.
 
+> **MEASURED 2026-09-19 by `KEEPALIVE-DEFAULT-ARGS`, for the 35 tools the keepalive lane
+> wires.** The non-default surface is now enumerated (`tools/keepalive_surface.py`) and a
+> 20-arm sample of it was run: **0 dead**. This paragraph's worry was reasonable and is not
+> what the tree turned out to hold; the blind spot is real but empty tonight. It is still
+> unswept for the ~50 tools the lane does NOT wire.
+
 ---
 
 ### INSTRUMENT KEEPALIVE — BUILT 2026-09-18 (`INSTRUMENT-KEEPALIVE`), UNARMED
@@ -38469,9 +38475,12 @@ reduced frames would keep a DIFFERENT tool alive than the one anybody runs.
 2. **The lane is not armed.** Units are in the script's trailing comment; pick an hour that
    does not collide with `aeon-effects-gates.timer` — both build a ROM and boot emulators,
    and this lane's timeouts are sized against a measured load average, not an idle machine.
-3. **The non-default surface is unswept.** Every wired instrument runs on DEFAULT arguments.
-   The defect that started all this lived on a non-default arm (`--extra-right-frames`), so
-   the blind spot is the same one, one level along.
+3. ~~**The non-default surface is unswept.** Every wired instrument runs on DEFAULT
+   arguments.~~ — **SETTLED 2026-09-19 (`KEEPALIVE-DEFAULT-ARGS`), and the sentence was
+   wrong twice over.** It is false as written (7 of the 35 wired rows set something beyond
+   `--rom`/`--lst`), and the gap it names turns out not to be a backlog: a 20-arm sample of
+   the unreached surface found **0 dead**. The measured split is in the entry at the end of
+   this file.
 4. **`waterline_art_witness` writes `waterline_art_witness.json` into the repo root** on every
    run. Gitignored today, so it pollutes nothing tracked, but a keepalive lane running
    nightly makes it a standing write.
@@ -38548,3 +38557,134 @@ overturnable by one word), on the ground that **a keepalive that is written but 
 instrument that cannot report — the exact defect it was built to detect.** Cost of the defect:
 35 silent failures over three weeks plus a third dead tool found in the first six minutes. Cost of
 the fix: ~6 min a night. The failure path was verified before arming (`--selftest-fail`, exit 1).
+
+## KEEPALIVE COVERAGE, MEASURED NOT ASSUMED — 2026-09-19 (`KEEPALIVE-DEFAULT-ARGS`)
+
+**The question.** The nightly keepalive runs ~35 bus instruments on ONE declared invocation
+each, and this tree carried sentences amounting to *"the nightly now covers this"*. Is that
+true, and if not, what is?
+
+**The short answer: the sentence is true about WHICH instruments and silent about HOW MUCH of
+each.** Corrected at four places, and the corrected claim is:
+
+> The lane runs, nightly, every bus instrument nothing else runs — 35 of them, and all 35 are
+> in the census's "nothing else runs this" set — on **one declared invocation each**. That
+> keeps each tool's ability to reach A verdict on ONE path alive. It does not reach the 38
+> options whose defaults gate 241 lines that then never execute, the 4 unreached choices of
+> the one selector, the 84 subject tools `transition_window_probe` is not pointed at, or the
+> three tools' `os.environ` inputs.
+
+#### THE SURFACE, DERIVED FROM THE PARSERS AND THE CODE
+
+`tools/keepalive_surface.py` (new) re-derives this on demand. It reads no docstrings — this
+lane has repeatedly found them wrong about their own tools' subjects.
+
+| | |
+|---|---|
+| wired tools | 35, of which 28 carry surface the declared invocation does not set |
+| options left at default | 90 |
+| **UNREACHED BODY** — default is falsy and gates a block, so it never executes | **38 options, 241 lines** |
+| **SUBJECT SELECTOR** — `choices`, one reached at a time | 1 (`lens_residue_raster_witness` reaches `efx4b`, not `c1b3`/`c3b2`/`c3b2s7`/`all`) |
+| REACHED, resized only — block runs nightly, the flag only changes its size | 17 options |
+| PURE PARAMETER — the value never reaches a branch test | 34 options |
+| tools with no argparse at all | 7 (3 fully positional and fully supplied; 2 take one sizing positional; `pcc_lab_probe` takes nothing; `transition_window_probe` takes a subject TOOL) |
+
+**⚠ THE INTERPROCEDURAL HOP IS THE WHOLE MEASUREMENT, and an `if args.X` scan gets the one
+case with a known answer exactly backwards.** `--extra-right-frames` — the flag that *was*
+sampling mid-transition while the default path measured clean — is read as
+`a.extra_right_frames`, passed POSITIONALLY into `run(rom, lst, extra)`, and gated there as
+`if extra:`. A scan that stops at `args.<dest>` scores it **0 gated lines** and classifies it
+`PURE PARAMETER`, this classifier's spelling of "nothing there". That is pinned as the control
+in `tools/test_keepalive_surface.py` and was attested red by removing the hop.
+
+#### DOES THE UNREACHED SURFACE ROT? MEASURED: NOT TONIGHT
+
+**20 arms run, 5.8 min wall, against `s4.debug.bin` crc32 `62238a15` / 848,075 B, load average
+3.78 at start (`uptime` 3 days, 5:57). Verdicts by the lane's OWN classifier: 19 PASSED, 1
+COULD NOT RUN, and ZERO tracebacks.** The sample was all 12 `store_true` unreached arms (no
+value to guess), 3 of the 4 unreached selector choices, the original defect's arm at the value
+its own comment quotes (`--extra-right-frames 76`), the other ramp subject, two output-sink
+arms, and the shim on a second subject.
+
+Two rows need their output read beside their verdict, which is the whole point:
+
+* **`parallax_scratch_probe --expect-refusal` → COULD NOT RUN, and it is CORRECT.** The arm is
+  alive and refuses: *"UNMEASURABLE: this fixture HAS an active config ($01486E), so it cannot
+  exercise the refusal path — run it without --expect-refusal"*. This arm **cannot be wired to
+  the shipping ROM at all**; wiring it would buy a permanent red.
+* **`loop_step_over_witness --phase-sweep` → PASSED, and that is the trap.** It enters the arm
+  (prints `PHASE SWEEP at gsp $1000 — start X shifted 0..7 px.`) and then hits the tool's
+  already-declared SETUP red — *"THE PLAYER NEVER LANDED"* — the same cause as its default arm.
+  It exits 1, the row is `expect = 1`, so the lane grades it **PASSED**.
+
+> **⚠ SO ANY COVERAGE EXPANSION HAS A CONSTRAINT THE LANE DOES NOT CURRENTLY STATE: an extra
+> arm on a tool with a non-zero declared baseline INHERITS a baseline that was measured on a
+> different arm.** Four wired rows are `expect = 1` today — `loop_step_over_witness`,
+> `parallax_hscroll_identity`, `sprite_owner_probe`, `waterline_art_witness`. An extra arm on
+> any of them is a row that reports PASSED whatever it does, which is a green row that cannot
+> fail. Baselines are per-invocation, and a second invocation needs its own.
+
+#### THE PRICE, AND IT IS NOT BOUGHT
+
+Measured, not estimated — every figure below is a wall time from the runs above.
+
+| what | arms | measured cost | share of the 241 rotting lines |
+|---|---|---|---|
+| all 12 `store_true` unreached arms | 12 | **62.1 s** | 132 lines, **55%** |
+| the 3 wireable unreached selector choices | 3 | **174.0 s** | (subjects, not lines) |
+| the 26 value-taking unreached flags | 26 | **not priceable** | 109 lines, 45% |
+| `transition_window_probe`'s other 84 subjects | 84 | ≈ the whole lane again | — |
+
+**The cheap subset is the 12 `store_true` arms at 62 s — +21% on the lane's measured 5.0 min
+floor, for 55% of the rotting lines.** That is affordable, and it is **not a different order of
+magnitude**, contrary to the framing this parcel was dispatched with.
+
+**And it is still not worth buying today, on this arithmetic:** its measured yield tonight was
+**zero defects for 62 s a night**, two of its twelve rows are the two problem cases above (one
+unwireable, one ungradeable without a new baseline), and the deep half of the surface — the 26
+value-taking flags holding the other 45% of the lines — **cannot be priced at all without
+choosing values**, which is a reading, and this manifest's standing practice is to refuse to
+guess one (`sec5_band_witness`: *"extend it, do not guess"*). Buying the cheap half would cover
+the SHALLOW arms and leave the deep ones exactly as unreached.
+
+**Not bought. This is a measurement, and the decision is the owner's.**
+
+#### WHAT COULD NOT BE ENUMERATED, NAMED RATHER THAN ROUNDED TO "NOTHING THERE"
+
+1. **`ramp_authored_witness --preset`'s domain.** It carries no `choices=`; the valid subjects
+   are whichever preset documents carry a `ramp` key, which is a property of the DATA, not the
+   parser. Two are known from the tree's prose. The parser route cannot enumerate it.
+2. **`transition_window_probe`'s subject domain** is the population itself, not a flag domain.
+   One extra subject was run (`spring_line0_gate`, 0.7 s, `reads=213 live=5 IN-WINDOW=0`).
+3. **The 26 value-taking flags' domains.** `--tilt-inject`, `--dense`, `--stall`, `--warp`,
+   `--compare`, `--ref` and the rest take values with no declared domain. They are ENUMERATED
+   (each is named in `keepalive_surface.py --json`); they are not PRICED, because pricing one
+   means choosing its value.
+4. **Environment input.** Three wired tools read `os.environ` and no argv reaches it:
+   `plane_buffer_headroom_probe` (`PB_ROM`/`PB_LST`), `ramp_authored_witness`
+   (`RAMP_WITNESS_TREE`), `transition_window_probe` (`SHIM_OUT`).
+
+#### ⚠ A SEPARATE DEFECT, FOUND BY COMMITTING A FILE — AND IT WAS MINE
+
+`keepalive_population.LANE_BOOKKEEPING` lists the lane's own files so they cannot act as
+reachability SOURCES; its comment records the count moving **50 → 47** when
+`test_keepalive_lane.py` was written. **Nothing enforced that a NEW lane file joined the list,
+so it rotted on the next one added — this parcel's.** Committing
+`tools/test_keepalive_surface.py`, whose control names two instruments by filename in exactly
+the short literals the census deliberately keeps, moved the same count **50 → 43** and flipped
+`floor_hscroll_dump.py` from dead to live: seven instruments credited as executed by a file
+that only measures them. Fixed, census back to the documented 85 / 50, and
+`test_every_keepalive_file_is_excluded_as_a_reachability_source` is what now makes the list
+keep up. The list stays EXPLICIT — `keepalive_population`'s own comment gives the reason a
+`keepalive_*` prefix rule is an open-ended hole.
+
+#### STILL OPEN FROM THIS PARCEL
+
+1. **The four `expect = 1` rows cannot take a second arm without a second baseline.** Booked
+   above; it is a precondition for any expansion, not a defect today.
+2. **`parallax_scratch_probe --expect-refusal` cannot be exercised on the shipping ROM.** The
+   arm is correct and the fixture is not reachable from here; making it measurable needs a
+   config-free fixture, which is a reading nobody has taken.
+3. **The ~50 not-wired tools' non-default surface is not measured.** `keepalive_surface.py`
+   reads the `[wired]` table only. Pointing it at `[not_wired]` is a one-line change and a
+   larger reading.
