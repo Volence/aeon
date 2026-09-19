@@ -518,3 +518,49 @@ aeon documents it at all today.
 
 Their draft is at `../sigil` `docs/EMP_PITFALLS_EQUALITY.md` at `6a8b3ecd`. Site it, do not
 restate it.
+
+---
+
+## Appended 2026-09-19 — rows closed since the snapshot
+
+### `ACCEPT-ARM-BLIND-SPOT` — done / S
+
+`tools/fg_left_edge_gate.py`'s ACCEPT arm could pass on a tree with no column-19 borrow at
+all. Given plane A's word already asserted equal to camY, `(VSRAM[$4C] & VSRAM[$4E]) == camY`
+reduces to "plane B's bits COVER the foreground's" — satisfied by any superset, which a
+deform sample near $7FF supplies for free. Camera-dependent, so a green run said nothing
+about whether it had been lucky.
+
+REPRODUCED BEFORE FIXED. The file's own documented poison (delete the one `move.w d1,
+Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF`) was built and run: `s4.debug.bin`
+848043 B crc32 e8308fe3, byte-identical to the 2026-09-18 record. Scenes 10/12/15 red,
+13/14 correctly green on the declining arm, and SCENE 11 PASSED on plane-B word $07FA
+($07FA & $0090 == $0090). The blind spot is real and still live at that camera Y.
+
+FIXED, TOOL ONLY. The accept arm keeps the AND (the statement about what the SCREEN renders,
+the value the VDP actually consumes) and adds `VSRAM[$4E] & $7FF == camY` (the statement
+about what OUR STORE did, injective where the AND is not), each failing with its own
+message. A third condition backs both: the interval plane B's own words occupy is now
+MEASURED from column pairs 0..18 of the same VSRAM frame — signed, widened by the largest
+column-to-column step — and when camY masks into it the run refuses rather than passes,
+because a missing store would then leave pair 19 carrying a word indistinguishable from the
+borrow. The declining arm's hand-typed `expected <= 0x1F` is replaced by that same measured
+interval: it was a second copy of an engine fact, and it was one-sided — blind to $7FA being
+six BELOW zero, so a camera at Y 2042 would have walked straight past it.
+
+Also: `Parallax_Roles_Swapped` is now read at the sample point and refuses the run, because
+Step 5b aims the borrow at the FIRST word of the pair under a swap and neither arm has ever
+been attested there. The typed `$4C` is derived from SCREEN_WIDTH the way the engine derives
+it.
+
+EVIDENCE. Same poison ROM, after the fix: 10/11/12/15 all red (scene 11 with "the borrow's
+store did not land ... vsram4E=$07FA", the laundering value printed on the failing line),
+13/14 still green, rc=1. Engine restored from a committed baseline, rebuilt to crc32
+62238a15 / 848075 B, GREEN 6 of 6, rc=0. The measured interval earned its widening on that
+very run: scene 11's nineteen sampled plane-B words spanned -4..20 raw and pair 19's own
+word was -6, outside the sample and inside the interval only because it is widened.
+
+STILL OPEN (booked here rather than silently dropped): the widening assumes the deform wave's
+slope at column 19 does not exceed every slope across columns 0..18. A wave that peaked
+exactly at the last column could sit outside the interval, and then a camera Y equal to that
+word would still launder a missing store. Nothing in the tree authors such a wave today.

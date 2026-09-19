@@ -19,8 +19,8 @@
     },
     {
       "id": "ACCEPT-ARM-BLIND-SPOT",
-      "title": "The left-edge check's other arm can pass when it should fail, depending on where the camera is",
-      "state": "next",
+      "title": "DONE: the left-edge check could report the column-19 borrow present when it was missing, if the camera stood in the wrong place. It cannot now -- the false pass was reproduced first, then closed. Check-only; no engine bytes moved.",
+      "state": "done",
       "size": "S",
       "blockedBy": null
     },
@@ -71,5 +71,5 @@
   ],
   "awaiting": "two things when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T00:33:52Z"
+  "updatedAt": "2026-09-19T00:55:00Z"
 }
