@@ -1,12 +1,6 @@
 {
-  "focus": "The nightly is armed and running at 5am; now fixing the dead tool it found.",
-  "inFlight": [
-    {
-      "what": "Fixing the measuring tool whose fifth check crashes after four healthy-looking ones",
-      "where": "branch parcel/ramp-witness-arm5",
-      "agent": true
-    }
-  ],
+  "focus": "All three dead measuring tools are alive, and the last one had been reporting failures against a correct engine.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,20 +8,20 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the ramp witness runs end to end, or its intent is ruled unrecoverable.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
-    {
-      "id": "RAMP-WITNESS-ARM5",
-      "title": "A third measuring tool is dead: its first four checks look healthy and the fifth crashes, so nobody saw it. The fix is unknown work -- nobody has run that arm",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "KEEPALIVE-DEFAULT-ARGS",
       "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
       "state": "next",
       "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "RAMP-ARM4-SPAN",
+      "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
+      "state": "open",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -104,6 +98,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T04:35:35Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T05:14:56Z"
 }
