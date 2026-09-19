@@ -1,12 +1,6 @@
 {
-  "focus": "Fifty tools sit outside the nightly for written reasons; checking whether those reasons are still true.",
-  "inFlight": [
-    {
-      "what": "Auditing why 50 tools are excluded from the nightly, since an excluded tool is never run and its excuse is never tested",
-      "where": "branch parcel/keepalive-unwired-surface",
-      "agent": true
-    }
-  ],
+  "focus": "Checked why 50 tools sit outside the nightly: 47 reasons still true, 3 had rotted, and 2 more tools are broken.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,11 +8,25 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When every exclusion reason is classified holds / rotted / undetermined.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "TWO-BROKEN-TOOLS",
+      "title": "One tool dies instantly on a hard-coded socket path; another prints a control as fired and then calls the run unmeasurable",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "CENSUS-CRITERION-TOO-NARROW",
+      "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
       "state": "open",
       "size": "S",
       "blockedBy": null
@@ -41,13 +49,6 @@
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
       "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "KEEPALIVE-UNWIRED-SURFACE",
-      "title": "Fifty tools are excluded from the nightly, each for a written reason; nobody has checked whether those reasons are still true",
-      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -118,6 +119,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T07:38:06Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T08:17:08Z"
 }
