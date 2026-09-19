@@ -38714,3 +38714,36 @@ published equate is the derived form, held by the one tree that owns the struct.
 source, so it lands as its own parcel with the full landing build rather than riding behind
 something else. **Check before building whether sigil's equate publication already covers it** —
 the `band_entry_*` rows are served, so this may be one line beside them rather than a mechanism.
+
+## STALE-ADDRESS-IN-A-DOCSTRING: one illustrative example carries the number that cost a peer a live defect (OPEN, booked 2026-09-19, S)
+
+**Swept this tree after oracle found a LIVE guard defect from the same class**, and the result is a
+clean negative with one cosmetic residue. Reporting the sweep rather than only the residue, because
+a clean negative is only worth something if its instrument is shown to have fired.
+
+**What oracle found in THEIR tree, which is what prompted this:** `LAB_INDEX_ADDR = 0xFFFF_EE0D`
+was not documentation but a **live guard route** — their `forbidden()` refuses a write to the lab
+cursor by name OR by address, the address arm existing to catch a cell reaching it under another
+name. Our `Debug_Lab_Index` moved **+$200**, so that guard failed in both directions at once: the
+hole it exists to close reopened, AND its refusal now misidentifies whatever *does* sit at the old
+address. **A refusal that misnames what it caught is worse than no refusal, because the operator
+believes it.**
+
+**Swept here: 38 tool files carry a `0xFFFF....`/`$FFFF....` literal; every hit classified. ZERO
+live defects.** Most are masks (`0xFFFF0000`, `0xFFFFFFFF`, `0xFFFF8000`). Six are **prose examples
+illustrating 68000 sign-extension** where the specific address is incidental to the point being
+made (`engine_baseline_probe` ×2, `sprite_tilt_gate`, `raster_cost_probe`, `ramp_authored_witness`,
+`demo_drift_classifier`). **None is a guard target or a lookup key** — our tools resolve symbols
+through `lookup_symbol` and REFUSE when one does not resolve, which is the route that cannot rot.
+
+**The residue, and it is cosmetic: `tools/parallax_scratch_probe.py:86`'s docstring illustrates
+bus-width masking with `$FFFFEA26`** — the exact stale value. The function masks with `0xFFFFFF`
+and is correct for any address, so nothing is wrong; but it is an **undeclared** example of a real
+symbol's dead address, in a file a reader consults about that symbol. **Oracle's equivalent literal
+is the model: theirs is named `SCRATCH_NOTED_ADDR` and exists precisely to record what our note
+said so their panel can state the disagreement — a witness, named for it.** Ours should either be
+generic, or named as a witness the way theirs is.
+
+**Not fixed 2026-09-19:** an agent was live across `tools/` and this lane had just declined to
+build an engine change for the same reason. A one-line docstring is not worth an exception to a
+rule that is worth keeping.
