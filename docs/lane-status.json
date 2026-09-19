@@ -1,6 +1,12 @@
 {
-  "focus": "The left-edge check can no longer pass by luck, and a second blind spot turned up inside it.",
-  "inFlight": [],
+  "focus": "Now checking the tools that watch the game while it CROSSES between areas -- the path your showcase act uses.",
+  "inFlight": [
+    {
+      "what": "Sweeping tools that sample during a section crossing, where the same scene change happens outside the debug menu",
+      "where": "branch parcel/crossing-transition-sweep",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,19 +14,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed; the crossing-transition sweep is named and ready.",
+  "nextBoundary": "When the crossing sweep returns with its table and either fixes or a clean bill.",
   "queue": [
     {
       "id": "CROSSING-TRANSITION-SWEEP",
       "title": "Tonight's sweep covered tools that step through the effects lab. Tools that trigger the same scene change by CROSSING a section were named and not swept -- and that is the path the showcase act uses",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "CAPTURE-SETTLE-NAME",
       "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -77,6 +83,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T01:08:47Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T01:34:56Z"
 }
