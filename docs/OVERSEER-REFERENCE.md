@@ -39,6 +39,26 @@ That block is superseded. Everything below it moved here from the boot file on 2
 
 ## Landing lane (aeon certifies ALONE — the paired freeze is RETIRED)
 
+**⚠ THE "A LANDING RUN MAKES THE TREE READ-ONLY, AND THE OVERSEER IS THE LIKELIEST VIOLATOR"
+EXPOSURE DOES NOT APPLY TO AEON'S NIGHTLY. Measured 2026-09-19 against the IMPLEMENTATION, after
+the hub relayed it from oracle having read only this script's comment block.** *Cited as: the
+nightly runs in its own tree.* Oracle's rule is sound in its own repo, whose gate checks the tree
+the overseer is sitting in. Ours does not: `tools/nightly_effects_gates.sh` sets
+`NIGHTLY="$SUITE/.aeon-nightly"` (`:60`), cuts it as a **separate detached worktree** at a freshly
+fetched SHA (`:142`), and scopes its dirty check to it explicitly —
+`tree_before=$(git -C "$NIGHTLY" status --porcelain)` (`:318`). **Worktrees share an object store
+and refs, never working files**, so a status write or a lane-log append in the main checkout cannot
+dirty it. Re-derive rather than trust this paragraph:
+```sh
+grep -n '^NIGHTLY=' tools/nightly_effects_gates.sh && grep -n 'tree_before=' tools/nightly_effects_gates.sh
+```
+**And the second layer is the land gate's, by a different mechanism: its stamp is keyed to CODE
+paths only** — every push prints `N code, N checked, N docs` — so docs work during a landing run is
+tolerated BY DESIGN rather than by luck. **The general caution still binds where neither holds:
+editing a tree a gate is actively reading.** *The hub labelled its report "comment block, not
+implementation", and that label is exactly where the reading went wrong — the comment says the
+dirty check must be empty and never says WHICH TREE. A correct summary of an incomplete read.*
+
 **⚠ BEFORE ANY CHECK THAT READS ANOTHER LANE'S TREE: RESOLVE ITS DEFAULT BRANCH, NEVER TYPE ONE.**
 *Cited as: resolve the default branch; the assumed-default family.* **Measured 2026-09-19, and the
 suite is split 3/3:** `master` for aeon, sigil and aurora; `main` for oracle, seraph and empyrean.
