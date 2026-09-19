@@ -1,12 +1,6 @@
 {
-  "focus": "Now checking the tools that watch the game while it CROSSES between areas -- the path your showcase act uses.",
-  "inFlight": [
-    {
-      "what": "Sweeping tools that sample during a section crossing, where the same scene change happens outside the debug menu",
-      "where": "branch parcel/crossing-transition-sweep",
-      "agent": true
-    }
-  ],
+  "focus": "Both halves of the measuring-tool sweep are done; the ordinary-gameplay half came back clean.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the crossing sweep returns with its table and either fixes or a clean bill.",
+  "nextBoundary": "Here. Everything landed and pushed.",
   "queue": [
     {
-      "id": "CROSSING-TRANSITION-SWEEP",
-      "title": "Tonight's sweep covered tools that step through the effects lab. Tools that trigger the same scene change by CROSSING a section were named and not swept -- and that is the path the showcase act uses",
-      "state": "doing",
+      "id": "DEAD-INSTRUMENT-PAIR",
+      "title": "One measuring tool was dead 23 days and hid 10 failures; a second has not run since 08-29 and is not yet repaired",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -83,6 +77,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T01:34:56Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T02:07:52Z"
 }
