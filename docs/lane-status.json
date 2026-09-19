@@ -1,6 +1,12 @@
 {
-  "focus": "Checked why 50 tools sit outside the nightly: 47 reasons still true, 3 had rotted, and 2 more tools are broken.",
-  "inFlight": [],
+  "focus": "Three measuring tools are wrong in three different ways; deciding which to fix, which to delete, and which to leave red.",
+  "inFlight": [
+    {
+      "what": "Deciding whether three broken measuring tools should be repaired, retired, or left red on purpose",
+      "where": "branch parcel/three-wrong-instruments",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,8 +14,15 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When each of the three has a verdict with evidence behind it.",
   "queue": [
+    {
+      "id": "THREE-WRONG-INSTRUMENTS",
+      "title": "Three measuring tools are wrong in three different ways: one reports numbers that describe nothing, one dies instantly, one prints a result and then says it measured nothing",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
@@ -18,22 +31,8 @@
       "blockedBy": null
     },
     {
-      "id": "TWO-BROKEN-TOOLS",
-      "title": "One tool dies instantly on a hard-coded socket path; another prints a control as fired and then calls the run unmeasurable",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "CENSUS-CRITERION-TOO-NARROW",
       "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "COST-PROBE-W20-STALE",
-      "title": "A cost probe nudges a value that now holds a no-anchor marker, so its 'split moved 80 to 96' is really 32767 to 32783 -- off screen. Same defect we just fixed, one tool over",
       "state": "next",
       "size": "S",
       "blockedBy": null
@@ -119,6 +118,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T08:17:08Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T08:35:54Z"
 }
