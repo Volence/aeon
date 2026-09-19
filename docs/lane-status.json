@@ -1,12 +1,6 @@
 {
-  "focus": "Your left-edge screenshots audited: the decision stands, but one of the two pairs shows behaviour we later removed.",
-  "inFlight": [
-    {
-      "what": "Teaching the Z80-bus safety check to follow a call instead of stopping at it",
-      "where": "branch parcel/bus-hold-spanned-calls",
-      "agent": true
-    }
-  ],
+  "focus": "Both checks repaired and landed: one was reading mid-fade, the other stopped looking at a call.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the bus-hold check is back and the re-shot screenshots have either confirmed or overturned what you were shown.",
+  "nextBoundary": "Here. Both parcels landed, pushed and tidied; nothing running.",
   "queue": [
     {
       "id": "SETTLE-IMPL-COLLAPSE",
@@ -73,16 +67,9 @@
       "state": "blocked",
       "size": "L",
       "blockedBy": "parked, not scheduled"
-    },
-    {
-      "id": "BUS-HOLD-SPANNED-CALLS",
-      "title": "Two sound-chip pauses call other routines whose safety is traced by hand only; a census check could follow the calls",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T00:01:12Z"
+  "awaiting": "two things when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T00:12:10Z"
 }
