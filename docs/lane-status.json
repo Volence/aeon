@@ -1,6 +1,12 @@
 {
-  "focus": "The nightly's blind spot is measured and the claim about it corrected; nothing in the unwatched half is rotting.",
-  "inFlight": [],
+  "focus": "Four tools are expected to fail as normal, so a check added to one cannot fail. Fixing that on a real case.",
+  "inFlight": [
+    {
+      "what": "Making a baseline describe the check it was measured on, so a failure can be told from the usual failure",
+      "where": "branch parcel/keepalive-perarm-identity",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,8 +14,15 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When a baseline names its own check, proven on a tool whose reds are being settled in the same parcel.",
   "queue": [
+    {
+      "id": "KEEPALIVE-PERARM-IDENTITY",
+      "title": "Four tools are expected to FAIL as their normal state, so a check added to one can never fail; fixing that, using the revived tool's three deliberate reds as the real case",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
@@ -18,24 +31,10 @@
       "blockedBy": null
     },
     {
-      "id": "KEEPALIVE-PERARM-BASELINES",
-      "title": "Four tools are expected to FAIL as their normal state, so adding a check to one gives a check that can never fail; they need a baseline per check before the nightly grows",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "KEEPALIVE-UNWIRED-SURFACE",
       "title": "The 50 tools the nightly does NOT run have had their non-default behaviour measured by nobody; tonight only measured the 35 it does run",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "IDENTITY-FIXTURE-RULING",
-      "title": "A revived tool reports three failures we left red on purpose: its test fixtures expect an anchor the game does not set, and one live config's authoring intent needs whoever wrote the OJZ sections",
       "state": "next",
-      "size": "S",
+      "size": "M",
       "blockedBy": null
     },
     {
@@ -105,6 +104,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T06:17:01Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T06:36:02Z"
 }
