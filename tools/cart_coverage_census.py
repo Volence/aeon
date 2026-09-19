@@ -53,7 +53,9 @@ HELPER_MODULES = {"aether_instance.py", "cart_identity.py", "aether_bytes.py"}
 
 # POSITIVE CONTROL for the enumeration loop, and getting it right took two goes. The
 # first version was four "obviously different" members — fg_left_edge_gate (imports
-# AetherInstance), band_witness (imports aether_emulator), evict_witness (bare BusClient),
+# AetherInstance), band_witness (imports aether_emulator), evict_witness (bare BusClient —
+# true of the 2026-08 file this sentence describes; it spawns through aether_instance since
+# 2026-09-19, see the canary note below),
 # warp_mailbox_gate (imports assert_rust_server and spawns by hand). It looked like four
 # routes. IT WAS NOT: breaking the `mod == "aether_instance"` arm outright left all four
 # canaries in the population and the census exited 0. Every one of those four is reached
@@ -62,7 +64,7 @@ HELPER_MODULES = {"aether_instance.py", "cart_identity.py", "aether_bytes.py"}
 # MEASURED ARM CONTRIBUTION (printed live on every run, so it cannot go stale silently):
 #   mod-only  (`from aether_instance import <anything>` and nothing else)   1 file
 #   name-only (`aether_emulator` / `AetherInstance` by name and nothing else)  0 files
-#   bus-only  (bare `from aether import BusClient`)                        17 files
+#   bus-only  (bare `from aether import BusClient`)                        16 files
 #
 # So the NAME arm is currently REDUNDANT — it is kept for files that may arrive later,
 # and a canary cannot cover it because no file needs it. Saying that out loud is the
@@ -70,9 +72,21 @@ HELPER_MODULES = {"aether_instance.py", "cart_identity.py", "aether_bytes.py"}
 #
 # The canaries are therefore the two files that ARE uniquely reachable, one per
 # load-bearing arm, plus one ordinary member as a shape check.
+#
+# ⚠ THE BUS CANARY MOVED ON 2026-09-19, AND THIS IS THE FAILURE MODE A CANARY HAS. It was
+# `evict_witness.py`, which qualified because it attached to an ambient socket with a bare
+# BusClient — and that was a DEFECT, not a design: it hard-coded /run/user/1000/oracle.sock
+# and died in 0 s for anyone without a GUI open. Repairing it (it now spawns through
+# `aether_instance`) moved it out of the bus-only arm, bus-only went 17 -> 16, and this
+# census went red with "arm 'bus' uniquely reaches 16 file(s) and NO canary covers it" —
+# correctly, loudly, and in a parcel that had nothing to do with carts. A canary picked for
+# a property that is a BUG is a canary that leaves when the bug is fixed. `sfx_audition.py`
+# is picked instead because its ambient socket is a REQUIREMENT (it plays sound at the
+# owner), not something anybody is going to repair away.
 CANARIES = {
     "depth_onset_probe.py":  "the ONLY file reached solely by the `aether_instance` arm",
-    "evict_witness.py":      "reached solely by the bare `from aether import BusClient` arm",
+    "sfx_audition.py":       "reached solely by the bare `from aether import BusClient` arm "
+                             "(and the one tool whose ambient socket is deliberate)",
     "fg_left_edge_gate.py":  "an ordinary member (the row's own model tool)",
 }
 
