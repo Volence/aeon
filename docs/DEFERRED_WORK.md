@@ -39543,7 +39543,15 @@ manifest      [wired] 36 rows / 35 tools     [not_wired] 50 entries      (unchan
 census        bus instruments 85 · reachable 35 · UNREACHABLE 50         (all three unchanged)
 lane_status_audit   9 findings, byte-identical output at base and here, exit 1 both
 pytest tools -m "not needs_build"   3215 passed, 2 skipped, 29 deselected, exit 0
+DEBUG=1 ./build.sh  exit 0, s4.debug.bin crc32 62238a15 / 848,075 bytes -- UNCHANGED
 ```
+
+**`tools/landing_build.sh` was NOT run, and that is stated rather than glossed.** This parcel
+touches `tools/*.py`, one `.toml` reason string and two docs; no engine source, no `.emp`, no
+`map.toml`. The claim it would grade — that the shapes still build — is covered here by a full
+`DEBUG=1 ./build.sh` producing a byte-identical ROM, and the shape-independent lanes it folds in
+(`pytest tools -m "not needs_build"`, `emp_expect_fail`) both ran inside that build. Nothing here
+is merged to master; a merge should run the script.
 
 **One name moved inside the census, in a way worth recording.** The UNREACHABLE set gained
 `evict_witness.py` and lost `sfx_audition.py` — totals unchanged, membership swapped. The reason

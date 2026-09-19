@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Eviction-liveness witness (adjudication debt V-3, 2026-08-09).
 
-Proves the residency cache actually evicts, against a LIVE oracle instance,
-on the STRESS_EVICT shape (PAGE_FRAMES_CLAMP frames vs the act's larger page pool;
-both numbers are derived at run time, see the banner below).
+Proves the residency cache actually evicts, on the STRESS_EVICT shape, against a
+headless `oracle-aether` IT SPAWNS ITSELF (PAGE_FRAMES_CLAMP frames vs the act's larger
+page pool; both numbers are derived at run time, see the banner below).
 
 PHASE 1 (the proof, famine-free): sample Page_Table rapidly while the OJZ
-init loads the act. Ten pages must stream through nine frames, so the load
-itself evicts: the sampler observes a page transition resident->absent while
-the distinct-ever-resident count exceeds the frame clamp (pigeonhole — no
-engine instrumentation needed). Measured on 2026-08-09 master: page 2 is
-evicted to admit page 8, distinct=10.
+init loads the act. More pages must stream through than there are frames to
+hold them, so the load itself evicts: the sampler observes a page transition
+resident->absent while the distinct-ever-resident count exceeds the frame
+clamp (pigeonhole — no engine instrumentation needed). Both sides of that
+inequality are derived per run and the run REFUSES when it does not hold.
+Measured 2026-08-09: page 2 evicted to admit page 8, distinct 10 over a
+9-frame clamp. Re-measured 2026-09-19 on s4.stress.bin crc32 cd308561:
+same shape — 10 distinct pages, clamp 9, eviction of page 2 observed.
 
 PHASE 2 (best-effort scroll churn): one 90-frame camera-scroll burst, then a
 residency re-sample. This leg exercises the reload-after-evict path — but the
@@ -53,9 +56,11 @@ THREE COPIED CONSTANTS ARE NOW DERIVED, for the same reason. `PAGE_FRAMES_CLAMP 
 a transcribed number is one that nothing notices when the source moves: the pool page count
 in particular comes out of a GENERATED manifest (`ojz_act_pool_manifest.emp`) that any
 level re-bake can change. The clamp and the sentinel are read off the listing's own `EQU`
-lines; the pool page count is read off the running act descriptor. If the two ever stop
-satisfying `pool_pages > clamp` the fixture cannot force an eviction at all, and that is
-now a loud refusal rather than a pigeonhole that quietly always holds.
+lines; the pool page count is read off the running act descriptor; and the CLAMP is read
+off the emitted `cmpi.w #imm,d6` in `Level_LoadArt`, NOT off its `EQU` — because on the
+STRESS shape those two disagree (see the block at that read). If the pool and the clamp
+ever stop satisfying `pool_pages > clamp` the fixture cannot force an eviction at all, and
+that is now a loud refusal rather than a pigeonhole that quietly always holds.
 """
 import argparse
 import asyncio
