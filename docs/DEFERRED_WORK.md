@@ -38139,6 +38139,14 @@ channel-0 world anchor is a real design decision (should an identity fixture pok
 bank, and does the state it creates correspond to anything the game reaches?) that should not be
 taken blind. **The tool refusing to certify a vacuous matrix IS the tool working.**
 
+> ✅ **SETTLED 2026-09-19 by `IDENTITY-FIXTURE-RULING`, and the design decision above was taken
+> rather than deferred: YES, the fixture installs its own channel-0 world anchor, and the state
+> it creates IS one the game reaches — measured, not argued. The three reds are closed and the
+> tool's baseline in `tools/keepalive_manifest.toml` is `expect = 0`. See the entry at the end
+> of this file for the measurement, the four checks ADDED in the same change, and the four
+> mutations shown firing. ⚠ `$01486E` is `EditorSceneBinding_OJZ_Act1_Sec0`, the editor scene
+> binding for region 0 — not one of the 21 hand-named `ParallaxConfig_*`.**
+
 ⚠ **ONE THING GENUINELY OPEN AND NOT CLASSIFIED HERE.** The live boot config `$01486E` declares
 `anchor_ch = 0` while channel 0 carries the sentinel, so its anchored split never fires in normal
 play. That may be correct — the split reads like a waterline, and the boot section is not
@@ -38146,6 +38154,23 @@ underwater; among the named configs only `ParallaxConfig_OJZ_Underwater` uses `a
 and the other 20 are `$FF`. But it is a content question about authoring intent that this parcel
 had no basis to settle, so it is recorded as **UNCLASSIFIED** rather than rounded to "fine".
 Deciding it needs whoever authored the OJZ sections.
+
+> ✅ **DISSOLVED 2026-09-19 by `IDENTITY-FIXTURE-RULING` — it never needed the owner, and the
+> answer was on disk the whole time.** `anchor_ch = 0` means exactly what it says. Region 0's
+> channel 0 sits at `PATCH_ANCHOR_NONE` because of a **dated owner ruling of 2026-09-09**, kept
+> verbatim at `games/sonic4/data/effects/ojz_effects.emp` above `OJZ_Preset_Sec0`: *"⚠ CHANNEL
+> 0'S WATERLINE IS OFF (owner, 2026-09-09: 'I just want it off because it's dark and distracting
+> right now'). REVERSIBLE IN TWO TOKENS — the exact original values are: `patch_world_ys: [224,
+> 314, …]`, `patch_motion: [anchor_sweep(amp_shift: 4, period_shift: 1), …]`."* The same block
+> says why the sentinel is the mechanism: `$7FFF` "lands in the off-screen-below branch", so the
+> tint band is not emitted **and** "the `parallax:` band split, which reads the SAME latched
+> line, goes off-screen with it". The channel and its parallax consumer were deliberately
+> retired TOGETHER. Its scene document authors the channel explicitly
+> (`games/sonic4/data/editor/effects/ojz_act1_start.json`: `anchor.at.channel = 0`), and
+> **region 5 of the same act ships the live pairing** — `OJZ_Preset_Sec5`,
+> `ep_patch_world_ys[0] = 2272`, resolving to `ParallaxConfig_OJZ_Underwater`, `anchor_ch = 0`.
+> So the field is not dead data anywhere; its producer is switched off in ONE region, on
+> purpose, with the restore recipe written down. **Nothing is parked for the owner.**
 
 ### PREVENTION — why a dead instrument stayed dead, PRICED AND NOT BUILT (2026-09-18, `DEAD-INSTRUMENT-PAIR`)
 
@@ -38623,6 +38648,13 @@ Two rows need their output read beside their verdict, which is the whole point:
 > `parallax_hscroll_identity`, `sprite_owner_probe`, `waterline_art_witness`. An extra arm on
 > any of them is a row that reports PASSED whatever it does, which is a green row that cannot
 > fail. Baselines are per-invocation, and a second invocation needs its own.
+>
+> ✅ **BUILT 2026-09-19 by `KEEPALIVE-PERARM-BASELINES`.** A manifest key is now `tool.py` or
+> `tool.py#arm-label`, `expect` belongs to the ROW, and a non-zero `expect` must carry
+> `baseline_args` equal to that row's own `args`. The `--phase-sweep` case above was
+> RE-DERIVED here and reproduces exactly — it exits 1 and `classify(rc=1, expect=1)` returns
+> `('PASSED', 'exit 1 (declared baseline)')` — and under the new rule that same row is COULD
+> NOT RUN and is not spawned. See the entry at the end of this file.
 
 #### THE PRICE, AND IT IS NOT BOUGHT
 
@@ -38680,11 +38712,215 @@ keep up. The list stays EXPLICIT — `keepalive_population`'s own comment gives 
 
 #### STILL OPEN FROM THIS PARCEL
 
-1. **The four `expect = 1` rows cannot take a second arm without a second baseline.** Booked
-   above; it is a precondition for any expansion, not a defect today.
+1. ~~**The four `expect = 1` rows cannot take a second arm without a second baseline.**~~
+   **CLOSED 2026-09-19 by `KEEPALIVE-PERARM-BASELINES`** — baselines are per-row and a row is
+   an invocation; see the entry at the end of this file. The population is now THREE
+   `expect = 1` rows, not four: `parallax_hscroll_identity` went to 0 in the same parcel.
 2. **`parallax_scratch_probe --expect-refusal` cannot be exercised on the shipping ROM.** The
    arm is correct and the fixture is not reachable from here; making it measurable needs a
    config-free fixture, which is a reading nobody has taken.
 3. **The ~50 not-wired tools' non-default surface is not measured.** `keepalive_surface.py`
    reads the `[wired]` table only. Pointing it at `[not_wired]` is a one-line change and a
    larger reading.
+
+## A BASELINE DESCRIBES AN INVOCATION, AND THE IDENTITY FIXTURES WERE HALF A FIXTURE — 2026-09-19
+
+Closes **`KEEPALIVE-PERARM-BASELINES`** and **`IDENTITY-FIXTURE-RULING`**. They are one parcel
+because settling the second changes the first's baseline, and the first is the mechanism that
+has to be able to express that change.
+
+### (A) `expect` IS KEYED TO THE ROW, AND A ROW IS AN INVOCATION
+
+**The defect, re-derived here rather than inherited.** `tools/loop_step_over_witness.py
+--phase-sweep` exits **1** — it enters the arm, prints its banner, and hits the same tool-wide
+SETUP red the default arm hits. Against the tool's declared `expect = 1`,
+`keepalive_lane.classify(rc=1, output=…, expect=1)` returns `('PASSED', 'exit 1 (declared
+baseline)')`. Measured directly, not quoted. A check that can see perfectly and whose output
+carries no information.
+
+**The change, and it is 3 rules.**
+
+1. A manifest key is `tool.py` or `tool.py#arm-label`. Only the part before the separator names
+   a file. The population accounting folds every row through that split, so N arms of one tool
+   are still ONE disposition — pinned by `test_an_arm_row_is_one_disposition_not_two_in_the_accounting`.
+2. A **non-zero** `expect` must carry `baseline_args`, spelled out and **equal to that row's own
+   `args`**. The redundancy is the check. A row whose declared baseline names a different argv
+   than it runs is **COULD NOT RUN** — not PASSED, not FAILED — and the tool is **not spawned**
+   (a headless boot spent for a verdict nothing may grade is the cost this refuses).
+3. Two rows of one tool with identical `args` are **AMBIGUOUS**: two baselines for one
+   measurement, and nothing to say which is the measured one.
+
+**What it catches, and the one thing it cannot, stated so nobody expects more of it.** It
+catches adding a flag to an existing non-zero row's `args`; copying a non-zero row to a new arm
+key and changing only `args`; and writing a new arm and thinking about nothing at all, because
+`expect` DEFAULTS TO 0 and a new arm on a known-red tool then reports FAILED on its first run.
+It does **not** catch an author who copies the row and edits `baseline_args` to match — that is
+a claim ("I measured THIS argv and it exits N"), not an inheritance, and no mechanism short of
+running it can tell a true claim from a false one.
+
+**`expect = 0` is exempt on purpose.** Zero is not a measurement that can travel; it is "this
+tool is supposed to work". Requiring the field on 31 zero rows would buy nothing and rot on the
+first `args` edit. A zero row that carries the field anyway is still held to the equality, so a
+stale one cannot sit there looking like evidence.
+
+#### THE ALTERNATIVES REJECTED, WITH THE REASON
+
+| considered | rejected because |
+|---|---|
+| TOML array-of-tables `[[wired."tool.py"]]` | expresses arms natively but rewrites all 35 existing rows and every reader. The brief's own instruction was to stop and report a large schema change rather than build it; this is one, and the arm-key grammar buys the same expressiveness for one `split()`. |
+| fingerprint the baseline with the ROM's crc32 | the ROM changes on every build. Every red row would refuse on the first rebuild, which trains people to delete the field. |
+| store an opaque digest of the argv | a mismatch could not NAME what drifted, in a file that is read and edited by hand. |
+| forbid non-zero `expect`; match a quoted fingerprint of the instrument's output instead | strictly stronger — it would separate two arms that both exit 1 for different reasons, which exit codes cannot. Also a much bigger schema change, and it rots on every wording change in a tool's prose. **Named here as the thing not bought**, not as a thing that does not exist. |
+
+#### THE DEMONSTRATION — THE LANE TELLING FAILED-AS-USUAL FROM FAILED-DIFFERENTLY
+
+A real arm was wired: **`loop_step_over_witness.py#no-assert-grounded`**. Four runs, all through
+`tools/keepalive_lane.py` against `s4.debug.bin` crc32 `62238a15` / 848,075 B:
+
+| the manifest row | what the lane says |
+|---|---|
+| default row, `expect = 1`, its own argv | `PASSED  0.8s  exit 1 (declared baseline)` — **failed as usual** |
+| the arm, `expect = 0`, measured on the arm | `PASSED  3.1s  exit 0 (declared baseline)` — its own normal |
+| the arm carrying the **default row's** `baseline_args` | `COULD NOT RUN  0.0s` naming both argvs — **the silent-inheritance case, now loud and not even spawned** |
+| the arm declared `expect = 1` on its OWN argv | `FAILED  3.1s  exit 0, declared baseline was 1` — **failed differently** |
+
+And the brief's named instance, added as a scratch row: `loop_step_over_witness.py#phase-sweep`
+carrying the default arm's baseline is `COULD NOT RUN`, where the old tool-keyed grading of that
+same run returns `PASSED` (measured above).
+
+#### WHY THE ARM IS WORTH ITS 3.1 s, AND WHAT ITS GREEN IS NOT
+
+⚠ **`#no-assert-grounded` is a KEEPALIVE row, not a witness. Nobody may cite its PASSED as
+evidence about the step-over** — it reports zero layer flips and a long fall whatever the
+crossover code does, which is the exact signature the default row's grounded assertion exists to
+refuse.
+
+It is wired because **the default row reaches 0.79 s of that tool and stops at the refusal**:
+the lane executes the boot and the placement and nothing else — not the drive, not the
+layer-flip sampler, not the per-speed report, not `main()`'s return. This arm is the only
+declared invocation that completes a run, and a completed run is where
+`parallax_hscroll_probe`'s `NameError` hid for three weeks. Measured 2026-09-19: **3.07 s at
+load average 3.14**, +1% on the lane's measured 5.0 min floor.
+
+**The surface figures moved by exactly one option and no lines:** `keepalive_surface.py` reads
+35 wired tools over **36** declared invocations; options left unset 90 → **89**; UNREACHED BODY
+unchanged at **38 options / 241 gated lines** (the flag the arm sets was classified PURE
+PARAMETER, 34 → 33). Control: with no arms present the refactor reproduced 35/28/90/38/241
+exactly.
+
+### (B) THE IDENTITY FIXTURES INSTALL THEIR OWN CHANNEL-0 WORLD ANCHOR
+
+**The three reds were the fixture's, and the engine was right the whole time.** A split line is
+not a config field: it is `Effects_Screen_L[ch]`, re-latched every frame from
+`Effects_World_Y[ch] - Camera_Y`. The anchored fixtures set `anchor=0` in their CONFIG and
+inherited the ANCHOR BANK from whatever section the boot had loaded — and the boot region leaves
+channel 0 at `PATCH_ANCHOR_NONE` (`$7FFF`), so L came out ~32623, past every band, and the
+overlay correctly did nothing. The tell was in ID7/ID8's own printed spans, `[56, 56, 56, -8,
+64]`: a **negative** span, i.e. `nshadow = bands + 1` reading a slot nothing wrote that frame.
+
+**(1) Should the fixture install its own anchor? YES, and the reasoning is not "it is
+convenient".** This file already writes `Debug_Scene_Freeze`, pins `Camera_Y`, and aims the LIVE
+`Parallax_Current_Config` at a scratch buffer it filled itself. The overlay takes exactly two
+inputs — the config and the anchor — and synthesizing one while inheriting the other from
+whichever section happens to be loaded is not a principle, it is half a fixture. The thing a
+fixture must not touch is the RESPONSE, and `Hscroll_Buffer` is untouched. The sibling that
+shares `build()` already writes this bank (`parallax_cost_probe`'s W20). ⚠ Stated precisely
+because the precedent is narrower than it looks: W20 **perturbs** the live value by a delta
+rather than installing an absolute — which is why **W20's own split is stale on this ROM today**,
+`$7FFF + 16` still being off screen. The precedent is "this bank is a fixture input", not "the
+sibling is correct".
+
+**The split line is DERIVED.** `split_line()` returns the multiple of 8 nearest the middle of the
+224-line display that is not a band top of ANY anchored fixture (ties to the lower). On this
+matrix: anchored band counts `[2, 4]`, tops `[0, 56, 112, 168]`, so **104**, and the one world
+anchor installed is `CAM_Y_IDLE + 104 = 248`. ONE anchor for all four anchored fixtures, because
+the RAGGED fixtures earn their raggedness by moving the camera under a FIXED world anchor —
+moving the anchor with the camera would hold L constant and there would be no ragged span
+anywhere. The "not a band top" clause is not fastidiousness: mutation B2 below shifted the anchor
+by 8, landing the split exactly on top 112, and produced **zero-length bands** (`[112, 0, 112]`,
+`[56, 56, 0, 56, 56]`).
+
+**(2) Does the game reach that state? MEASURED: YES.** The loaded act's own region table, read
+out of the shipping ROM through `tools/region_table.py` (which cross-checks every `// $HH`
+against the accumulated field types) with `EffectsPreset`'s two fields taken from their own
+`@ $HH` annotations in `engine/effects/preset.emp`, and `PATCH_ANCHOR_NONE` from
+`engine/effects/raster_dsl.emp`. Act `$018A38`, **13 regions**, and exactly one pairs a parallax
+config consuming a patch channel with a preset seeding a real world anchor on that channel:
+
+```
+region  5  x4096..5119 y2048..4095  OJZ_Preset_Sec5 -> ParallaxConfig_OJZ_Underwater
+           anchor_ch 0   ep_patch_world_ys [2272, NONE, NONE, NONE]
+```
+
+That is shipped content a player walks into, and it is the shape these fixtures build.
+`shipped_precedent()` now **re-measures it on every run** and FAILS if the act stops pairing
+channel 0, naming the channel the content moved to. That is the original diagnosis — *"the
+fixture picks its anchor channel by NUMBER, and which channel carries a world anchor is a
+property of the scene, which changed under it"* — made mechanical instead of left as a rot the
+fixture cannot feel.
+
+For the record, the whole table's shape: region 0 declares `anchor_ch 0` with world_ys
+`[NONE, 314, NONE, NONE]`; region 7 seeds channels 2 and 3 (`4320`, `4410`) under `anchor_ch
+$FF`, i.e. its anchors feed the PATCHED program rather than a parallax split; the other ten
+regions resolve to `ParallaxConfig_OJZ_Default` (`anchor_ch $FF`) with no anchors at all.
+
+**(3) Does `$01486E`'s `anchor_ch = 0` mean what it says? YES — DISSOLVED INTO (2), nothing
+parked.** Full reasoning is in the struck block above; in one line: region 0's channel 0 is at
+the sentinel because of a **dated owner ruling of 2026-09-09** kept verbatim in
+`games/sonic4/data/effects/ojz_effects.emp`, reversible in two tokens, and the same block records
+that the sentinel suppresses the tint band **and** the parallax split together *because both read
+the same latched line*. The channel and its consumer were retired as a pair, on purpose.
+⚠ Also corrected: `$01486E` is `EditorSceneBinding_OJZ_Act1_Sec0`, the editor scene binding for
+region 0 — it is not one of the 21 hand-named `ParallaxConfig_*`, so "among 21 named configs only
+`OJZ_Underwater` uses `anchor_ch = 0`" is true and is about a different set.
+
+**The witnesses got STRICTER in the same change.** Four checks that did not exist while the split
+never fired: the installed anchor is read back after the sample; the whole realized shadow view
+must equal the fixture's own config tops with `anchor_wy - Camera_Y` inserted; no span may be
+non-positive (the old `[.., -8, ..]` artifact is now a named failure); and the precedent check
+above.
+
+**MEASURED**, `s4.debug.bin` crc32 `62238a15` / 848,075 B, **20.5 s at load average 2.21**:
+**exit 0**. ID6 `[104, 8, 112]` · ID7 `[56, 48, 8, 56, 56]` · ID8 (camera 147) `[56, 45, 11, 56,
+56]` · ID9 `[101, 11, 112]`. **Ragged spans 4** (was 0), wrapping frames 240, and ID7/ID8 now
+carry digests of their own instead of ID1's. **CONTROL: ID0–ID5, the un-anchored fixtures, are
+byte-identical to the pre-change run** — `4ef90c32e72c / 4ef90c32e72c / 108caaa4b699 /
+c7aaecfd9e6a / e1ccd44faa9b / 96a227f98067` before and after — so the change reached only the
+fixtures it was aimed at.
+
+**The resulting baseline, set through (A)'s mechanism:**
+`tools/keepalive_manifest.toml` → `parallax_hscroll_identity.py`, `expect = 1` → **`expect = 0`**,
+and `baseline_args` correctly absent, zero being exempt.
+
+### RED FIRST — EVERY MUTATION QUOTED OFF DISK BEFORE ITS RUN, RESTORED FROM THE COMMIT
+
+| # | mutation, as it read on disk | result |
+|---|---|---|
+| A1 | the rule in, `baseline_args` not yet written on any row | `--list` named **exactly** the four non-zero rows and exited 2 |
+| A2 | `baseline_drift`: `return None   # MUTATION: the baseline never drifts` | **4 failed**, 36 passed |
+| A3 | `tool_of`: `return row   # MUTATION: the arm label is treated as part of the filename` | **4 failed**, 36 passed |
+| B1 | `_one(..., anchor_wy=None))   # MUTATION: no anchor installed` | **exit 1 with 15 complaints** — it reproduces the pre-parcel state exactly (ID6/ID9 digests `ed273a007657` / `072f536a7cfd`, ID7/ID8 VACUOUS, COVERAGE 0 ragged) **and** the four new check families fire on top, naming the CAUSE where the old three only reported the symptom |
+| B2 | `"value": (anchor_wy + 8) & 0xFFFF   # MUTATION: +8` | **exit 1** — anchor read-back `256, not the 248 this fixture wrote`, the realized shadow view named against the derived one, and zero-length bands from the split landing on a band top |
+| B3 | `ep_wy = _preset_field("ep_patch_world_ys") + 2   # MUTATION: off-by-one-channel` | **SURVIVED, exit 0** — and that is reported rather than hidden: a shifted field offset reads channel 1's anchor as channel 0's and still looks like a pairing. The precedent check is blind to a wrong OFFSET; what it guards is CONTENT drift, and the offset comes from the declaration's own `@ $HH` (with `_preset_field` refusing if the annotation goes missing) rather than from anything content can move. |
+| B4 | `on_ch = [… if r["anchor_ch"] == 1]   # MUTATION: a channel nothing consumes` | **exit 1** with the PRECEDENT complaint — the failure branch and its message are live |
+
+Three lane tests were also updated rather than left to rot on the new key grammar, and one of
+them **caught the schema change on its own**: `test_keepalive_surface.test_every_wired_tool_is_accounted_for`
+went red on `os.path.isfile(".../loop_step_over_witness.py#no-assert-grounded")`. (An assertion
+added there in passing — that `measure()` folds as many tools as the manifest names — was itself
+wrong and was deleted: a tool whose declared invocation sets everything produces no option row at
+all, which that file's own docstring says. 28 of 35 carry unset surface.)
+
+### WHAT IS STILL OPEN
+
+1. **`parallax_cost_probe`'s W20 fixture is stale in the same way this file just stopped being.**
+   It moves `Effects_World_Y[ch]` by a DELTA off a bank that now holds `$7FFF` in the boot
+   region, so its "split 80 → 96" is `32767 → 32783` and lands off screen. Not touched here —
+   `parallax_cost_probe` is a `not_wired` row and a cost probe's fixtures are a different
+   reading. Booked, measured, not fixed.
+2. **The stronger baseline rule was priced and not bought:** matching a declared fingerprint of
+   an instrument's OUTPUT would separate two arms that both exit 1 for different reasons, which
+   exit codes cannot. Table above.
+3. **`shipped_precedent()` is blind to a wrong field OFFSET** (mutation B3). It guards content
+   drift, which is what rotted this fixture; a code-side offset error is guarded only by
+   `_preset_field` refusing a missing annotation.
