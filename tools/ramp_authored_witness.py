@@ -475,6 +475,29 @@ def run(rom, lst, sym, install=None, patch=None):
 # timing is an INTERIM model in oracle's own recon. THE SIGN RESULT DOES NOT REST ON THE
 # LANDING RULE AT ALL: a one-line shift moves every value by one index and changes no
 # difference, no direction and no total.
+#
+# ⚠ AND THE RUN'S BOTTOM EDGE IS NOT WHERE THE PICTURE STOPS MOVING — the defect that made
+# this arm dead from the day it was written, found by tools/keepalive_lane.py on its first
+# armed run (2026-09-19) and fixed the same day. A ramp WRITES the VSRAM entry and
+# `.dense_end` falls into `.park`, so when the run retires the entry KEEPS its last value
+# and every line below stays shifted for the rest of the frame (engine/effects/raster.emp
+# says exactly that above `raster_ramp_program`, naming `ramp_probe` — THIS SCRIPT'S DEFAULT
+# SUBJECT — as the example). Those held lines DECODE, to a constant. The first shape of this
+# arm modelled only the authored window: `want_val` returned None below the run, the two
+# checks that tested for None counted a correctly-held line as a DISAGREEMENT, the slope set
+# folded the hold in and called the correct engine a MISMATCH, and the derived total across
+# a chain that ran into the hold raised TypeError and killed the process.
+#
+# The fix is a three-zone model derived from the document — ABOVE / AUTHORED / HELD, see the
+# banner over `want_val` — and it is not a clamp bolted on to silence the crash:
+#   * the HELD zone is DERIVABLE EXACTLY (it is the constant value `lines`), so it is
+#     CHECKED on both instruments rather than skipped — 5a parks in it and 5b decodes it;
+#   * every DIRECTION and SIGN claim is made over the AUTHORED zone alone, because a held
+#     line is flat by construction and would dilute a population it says nothing about;
+#   * a decoded line ABOVE the run is an ANOMALY and is reported as one, never swallowed.
+# `--preset aurora_ramp_witness` (top 3, lines 220) runs to the bottom of the screen and has
+# NO held zone at all, which is why the arm was green on the subject that motivated it and
+# dead on its own default.
 def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
     """The value arm. Prints its own report; returns True if every check held."""
     R = []
@@ -511,13 +534,64 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
             "MIRROR":  "that record with the step's sign FLIPPED, staged in RAM",
             "FLAT":    "that record with the step ZEROED, staged in RAM"}
 
-    def want_val(L, step):
-        """The integer the ROM should write for screen line L, from the document ALONE.
-        `swap d1` selects the HIGH WORD of a two's-complement 16.16, which is floor()."""
+    # ------------------------------------------------------------------------------
+    # THREE ZONES, AND THE RUN'S OWN BOTTOM EDGE IS NOT WHERE THE PICTURE STOPS MOVING.
+    #
+    # This is the defect that killed this arm from the day it was written (found 2026-09-19
+    # by the instrument-keepalive lane, fixed here). The old `want_val` returned None for
+    # every line outside `1 <= j <= lines` and every consumer treated that as "no value" —
+    # so the derived total at the end of a chain raised TypeError, and the two checks that
+    # DID test for None counted a line the engine drives correctly as a DISAGREEMENT.
+    #
+    # The engine's behaviour below a run is documented in two places in this tree and is
+    # not a guess:
+    #   * engine/effects/raster.emp, above raster_ramp_program: "a ramp WRITES the entry, so
+    #     after the run ends the entry KEEPS its final value and every line below the run
+    #     stays shifted for the rest of the frame. `ramp_probe`'s 64-line run, declared to
+    #     end at 192, changes the picture to 223. Correct, and not a bug."
+    #   * the source says the same thing: .dense_end falls into .park, which ENDS the
+    #     schedule, so nothing writes VSRAM entry 1 again until the next frame's VBlank.
+    #   * and the sibling instrument already models it — tools/ramp_boundary_probe.py's
+    #     `model()`: `if k >= LINES: k = LINES - 1  # the run WRITES, so its last value
+    #     persists downward`. THIS arm was the one without the clamp.
+    #
+    # So there are three zones, DERIVED from the document, and each gets its own treatment:
+    #
+    #   ABOVE     j < 1          the parallax system's base scroll is live. The document
+    #                            says NOTHING about it -> None, and a DECODED line here is
+    #                            an anomaly reported loudly, not swallowed.
+    #   AUTHORED  1 <= j <= lines  the run writes value j. This is the ONLY zone that carries
+    #                            a direction, so every direction/sign claim is made here.
+    #   HELD      j > lines      the run is over and the entry holds value `lines`. Derivable
+    #                            EXACTLY (it is a constant), so it is CHECKED rather than
+    #                            skipped — but it is FLAT by construction and says nothing
+    #                            about the step's sign, so it is kept out of the direction
+    #                            population instead of diluting it.
+    #
+    # Neither `d_lo`/`d_hi` nor the zone bounds are typed here: they all come out of `top`
+    # and `lines`, which come out of the document.
+    ZONE_ABOVE, ZONE_AUTHORED, ZONE_HELD = "ABOVE", "AUTHORED", "HELD"
+    a_lo, a_hi = top + 2, top + lines + 1      # the AUTHORED display span
+
+    def zone(L):
         j = L - top - 1                        # the VSRAM landing rule, with j starting at 1
-        if not (1 <= j <= lines):
+        return ZONE_ABOVE if j < 1 else (ZONE_AUTHORED if j <= lines else ZONE_HELD)
+
+    def want_acc(L, step):
+        """The 16.16 ACCUMULATOR the ROM holds while screen line L is being served, from the
+        document ALONE. Clamped at `lines`: the run stops advancing it when it retires, and
+        the value stands for the rest of the frame (see the zone banner above). None only
+        ABOVE the run, where the document authors nothing at all."""
+        j = L - top - 1
+        if j < 1:
             return None
-        return (start_v + j * step) >> 16      # arithmetic shift == floor, negatives included
+        return start_v + min(j, lines) * step
+
+    def want_val(L, step):
+        """The integer the VDP is shown for screen line L, from the document ALONE.
+        `swap d1` selects the HIGH WORD of a two's-complement 16.16, which is floor()."""
+        acc = want_acc(L, step)
+        return None if acc is None else acc >> 16   # arithmetic shift == floor, negatives too
 
     async def go(b):
         track = []
@@ -690,16 +764,34 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
     else:
         say("    all %d stops inside frame %d (the accumulator is rewound every frame, so a "
             "straddle would be a false reading)" % (len(accs), frames.pop()))
+        # THE STOPS ARE NOT ALL IN THE RUN, and that is measured rather than assumed: the
+        # parked lines walk to the bottom of the screen, so on a document whose run ends
+        # above line 223 some stops land in the HELD zone. They are kept (a held stop is a
+        # direct, non-pixel reading of the documented hold) and compared against the CLAMPED
+        # derivation, but they carry no slope and no direction — see the zone banner.
+        a_stops = [(L, v) for L, _, v in accs if zone(L) == ZONE_AUTHORED]
+        h_stops = [(L, v) for L, _, v in accs if zone(L) == ZONE_HELD]
+        x_stops = [(L, v) for L, _, v in accs if zone(L) == ZONE_ABOVE]
+        say("    stop zones, DERIVED from the document: %d AUTHORED (j 1..%d, lines %d..%d) "
+            "| %d HELD (below the run, entry keeps value %d) | %d ABOVE"
+            % (len(a_stops), lines, a_lo, a_hi, len(h_stops), lines, len(x_stops)))
+        if x_stops:
+            say("    *** %d stop(s) parked ABOVE the run, where the document derives nothing. "
+                "This arm parks from line top+2 down, so that is impossible unless `top` "
+                "moved under it. NOT MEASURED." % len(x_stops))
+            ok = False
         for L, _, v in accs[:6] + ([("...", 0, 0)] if len(accs) > 9 else []) + accs[-3:]:
             if L == "...":
                 say("      ...")
                 continue
             j = L - top - 1
-            w = start_v + j * step_v
-            say("      line %3d  j=%3d  acc %+12d = %+9.3f px   document derives %+12d  %s"
-                % (L, j, v, v / 65536.0, w, "ok" if v == w else "*** MISMATCH ***"))
-        bad = [(L, v, start_v + (L - top - 1) * step_v) for L, _, v in accs
-               if v != start_v + (L - top - 1) * step_v]
+            w = want_acc(L, step_v)
+            say("      line %3d  j=%3d %-9s acc %+12d = %+9.3f px   document derives %s  %s"
+                % (L, j, "(HELD)" if zone(L) == ZONE_HELD else "",
+                   v, v / 65536.0,
+                   "%+12d" % w if w is not None else "%12s" % "(none)",
+                   "ok" if v == w else "*** MISMATCH ***"))
+        bad = [(L, v, want_acc(L, step_v)) for L, _, v in accs if v != want_acc(L, step_v)]
         say("    accumulator EQUALS the document's derived value at %d of %d stops"
             % (len(accs) - len(bad), len(accs)))
         if bad:
@@ -710,19 +802,57 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
                 "the accumulator parked at screen line L holds exactly value j = L-top-1, "
                 "i.e. value j is the one live on line top+j+1. It does not PIN the rule "
                 "(see this arm's core note); it agrees with it from a different instrument.")
-        slopes = {(accs[i + 1][2] - accs[i][2]) / (accs[i + 1][0] - accs[i][0])
-                  for i in range(len(accs) - 1)}
-        say("    per-line slope across every consecutive pair: %s   document derives %+d "
-            "(= fp16(%d, %d)) %s"
-            % (sorted(slopes), step_v, step_v // 65536 if step_v >= 0 else -((-step_v) // 65536),
+        if h_stops:
+            fin = want_acc(a_hi, step_v)
+            held_ok = all(v == fin for _, v in h_stops)
+            say("    THE HOLD, READ ON THE WIRE: %d stop(s) below the run at lines %s — the "
+                "document derives the run's FINAL accumulator (value j=%d) %+d = %+0.3f px "
+                "for every one, and they MEASURE %s. %s This is "
+                "engine/effects/raster.emp's documented behaviour ('after the run ends the "
+                "entry KEEPS its final value'), measured here rather than assumed."
+                % (len(h_stops), [L for L, _ in h_stops], lines, fin, fin / 65536.0,
+                   sorted({v for _, v in h_stops}),
+                   "ok." if held_ok else "*** THEY DO NOT AGREE ***."))
+            if not held_ok:
+                ok = False
+        else:
+            say("    no stop landed below the run (its last displayed value is at line %d, "
+                "at or past the last line that exists), so the hold is not read on the wire "
+                "for this document." % a_hi)
+        # SLOPE IS AN AUTHORED-ZONE QUANTITY. A consecutive pair straddling the run's bottom
+        # edge has a slope of 0 or a fraction of the step, and both are the HOLD rather than
+        # a wrong step. Restricting the population is what the old shape failed to do: it
+        # folded the hold into the slope set and reported the correct engine as a MISMATCH.
+        a_pairs = [(a_stops[i], a_stops[i + 1]) for i in range(len(a_stops) - 1)
+                   if a_stops[i + 1][0] - a_stops[i][0] > 0]
+        slopes = {(y[1] - x[1]) / (y[0] - x[0]) for x, y in a_pairs}
+        say("    per-line slope across every consecutive AUTHORED pair (%d of them): %s   "
+            "document derives %+d (= fp16(%d, %d)) %s"
+            % (len(a_pairs), sorted(slopes), step_v,
+               step_v // 65536 if step_v >= 0 else -((-step_v) // 65536),
                (abs(step_v) % 65536) // 256,
                "ok" if slopes == {float(step_v)} else "*** MISMATCH ***"))
         if slopes != {float(step_v)}:
             ok = False
+        # THE SIGN IS THE DOCUMENT'S, NOT THIS PARCEL'S SUBJECT — the same correction the
+        # 5b half already carries. The old spelling asked "is it strictly DECREASING" and
+        # printed a red for the DEFAULT preset (`ramp_probe`, +1.5 px/line) for being
+        # exactly right. Monotonicity is asked in the direction the document authored.
+        # AND AN EMPTY POPULATION IS NOT A PASS. `all()` over no pairs is True, so without
+        # this the arm would print a confident sign claim about a zone it never sampled.
+        mono = bool(a_pairs) and (all(y[1] < x[1] for x, y in a_pairs) if sign < 0 else
+                                  all(y[1] > x[1] for x, y in a_pairs))
         say("    SIGN ON THE WIRE: %s"
-            % ("DOWNWARD — the accumulator strictly decreases, exactly %+0.4f px per line"
-               % step_px if all(accs[i + 1][2] < accs[i][2] for i in range(len(accs) - 1))
-               else "*** NOT strictly decreasing ***"))
+            % ("*** NOT MEASURED: no two parked stops both landed in the authored zone, so "
+               "there is no pair to read a direction from ***" if not a_pairs else
+               "%s — the accumulator strictly %s across the authored zone, exactly %+0.4f "
+               "px per line" % (NAMEX[sign], "decreases" if sign < 0 else "increases", step_px)
+               if mono else
+               "*** the accumulator is NOT strictly %s across the authored zone, and the "
+               "document's step %+0.4f px/line says it must be ***"
+               % ("decreasing" if sign < 0 else "increasing", step_px)))
+        if not mono:
+            ok = False
     say()
 
     # ---------------- 5b report ----------------------------------------------------
@@ -738,6 +868,30 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
         say("    %-7s (step %+d = %+0.4f px/line — %s)" % (tag, st_, st_ / 65536.0, ROLE[tag]))
         say("      decoded %d lines | unreached %d | unstable/animating %d"
             % (len(decoded), len(unreached), len(unstable)))
+        # THE DECODED SET IS PARTITIONED BEFORE ANYTHING IS CLAIMED FROM IT. A run that
+        # retires above line 223 leaves the entry holding its last value, so the lines below
+        # it decode too — to a CONSTANT. They are a real reading of the documented hold and
+        # they are checked as one; they are not evidence about a step, and folding them into
+        # the direction population is what made this arm read its own correct engine as a
+        # failure (and then crash deriving a total across the boundary).
+        d_auth = [L for L in decoded if zone(L) == ZONE_AUTHORED]
+        d_held = [L for L in decoded if zone(L) == ZONE_HELD]
+        d_above = [L for L in decoded if zone(L) == ZONE_ABOVE]
+        say("      zones, DERIVED from the document: %d AUTHORED (lines %d..%d) | %d HELD "
+            "(below the run) | %d ABOVE" % (len(d_auth), a_lo, a_hi, len(d_held), len(d_above)))
+        if d_above:
+            say("      *** %d decoded line(s) lie ABOVE the run, where the parallax base is "
+                "live and the document derives nothing: %s. Every twin shares that base, so "
+                "those lines should have matched EVERY residue and read UNREACHED. Something "
+                "is wrong with the span, not with the step. NOT MEASURED for %s."
+                % (len(d_above), d_above[:10], tag))
+            ok = False
+        if not d_auth:
+            say("      *** nothing decoded inside the AUTHORED span %d..%d, so this arm "
+                "MEASURED NOTHING about %s's values. Do not read the held lines below as a "
+                "flat ramp." % (a_lo, a_hi, tag))
+            ok = False
+            continue
         say("      EXPECTED DIRECTION, derived from the document's step: %s"
             % NAMEX[want_dir[tag]])
         if not decoded:
@@ -786,10 +940,16 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
                 deltas[L] = got[0]
             else:
                 unresolved.append((L, got))
-        say("      adjacent pairs with a UNIQUELY resolved difference: %d   (window +/-%d px, "
-            "DERIVED from the document's step %+0.4f px/line; the alias is %s px so the "
-            "window cannot straddle it)"
-            % (len(deltas), win, step_px, spacings[0] if spacings else "n/a"))
+        # A PAIR BELONGS TO THE ZONE OF ITS SECOND LINE. The pair (a_hi, a_hi+1) reads the
+        # last authored value against the first held one — the engine derives 0 for it, and
+        # it is a HOLD pair, not a ramp pair.
+        a_deltas = {L: d for L, d in deltas.items() if zone(L + 1) == ZONE_AUTHORED}
+        h_deltas = {L: d for L, d in deltas.items() if zone(L + 1) == ZONE_HELD}
+        say("      adjacent pairs with a UNIQUELY resolved difference: %d  (%d AUTHORED, "
+            "%d HELD)   (window +/-%d px, DERIVED from the document's step %+0.4f px/line; "
+            "the alias is %s px so the window cannot straddle it)"
+            % (len(deltas), len(a_deltas), len(h_deltas), win, step_px,
+               spacings[0] if spacings else "n/a"))
         if unresolved:
             say("      pairs the window could not resolve: %d %s" % (len(unresolved),
                                                                      unresolved[:6]))
@@ -797,19 +957,36 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
             say("      *** no difference resolved; NOTHING is said about direction for %s." % tag)
             ok = False
             continue
-        vals = list(deltas.values())
+        if not a_deltas:
+            say("      *** no difference resolved inside the AUTHORED span, so NOTHING is "
+                "said about direction for %s. The %d resolved difference(s) below the run "
+                "are the hold and carry no direction." % (tag, len(h_deltas)))
+            ok = False
+            continue
+        vals = list(a_deltas.values())
         neg, pos, zer = sum(1 for d in vals if d < 0), sum(1 for d in vals if d > 0), \
             sum(1 for d in vals if d == 0)
-        say("      DIRECTION: %d differences DOWN(<0), %d UP(>0), %d FLAT(==0)" % (neg, pos, zer))
+        say("      DIRECTION, over the %d AUTHORED differences: %d DOWN(<0), %d UP(>0), "
+            "%d FLAT(==0)" % (len(vals), neg, pos, zer))
         say("      difference histogram: %s"
             % sorted((d, vals.count(d)) for d in set(vals)))
+        if h_deltas:
+            hv = sorted(set(h_deltas.values()))
+            say("      THE HOLD, AT THE DESTINATION: %d resolved difference(s) below the run "
+                "(lines %d..%d), values %s — the engine writes nothing there and the entry "
+                "keeps value j=%d, so every one must be 0. %s"
+                % (len(h_deltas), min(h_deltas), max(h_deltas) + 1, hv, lines,
+                   "ok" if hv == [0] else "*** IT DOES NOT HOLD ***"))
+            if hv != [0]:
+                ok = False
 
         wrong = []
         for L, d in sorted(deltas.items()):
             a_, b_ = want_val(L, st_), want_val(L + 1, st_)
             if a_ is None or b_ is None or d != b_ - a_:
                 wrong.append((L, d, None if (a_ is None or b_ is None) else b_ - a_))
-        say("      differences EQUAL to the one the document derives for that pair: %d of %d"
+        say("      differences EQUAL to the one the document derives for that pair: %d of %d "
+            "(BOTH zones — the hold derives 0 and is checked, not skipped)"
             % (len(deltas) - len(wrong), len(deltas)))
         if wrong:
             say("      disagreeing pairs (line, measured, derived): %s" % wrong[:8])
@@ -820,14 +997,19 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
                    if want_val(L, st_) is None
                    or (want_val(L, st_) % height) not in c[L]]
         say("      ABSOLUTE: the document's derived value is among the candidates on %d of %d "
-            "decoded lines (pinned only mod %d — the artwork's own vertical period)"
-            % (len(decoded) - len(absmiss), len(decoded), alias))
+            "decoded lines (%d authored + %d held, pinned only mod %d — the artwork's own "
+            "vertical period)"
+            % (len(decoded) - len(absmiss), len(decoded), len(d_auth), len(d_held), alias))
         if absmiss:
             say("      lines where it is NOT: %s" % absmiss[:10])
             ok = False
 
+        # THE CHAIN IS BUILT OUT OF THE AUTHORED PAIRS, which is what bounds both ends of
+        # the derived total inside the span the document authors. Built out of `deltas` it
+        # ran off the bottom of the run into the hold, and `want_val(longest[-1] + 1)` was
+        # then None — the TypeError the keepalive lane found on 2026-09-19.
         runs, cur = [], []
-        for L in sorted(deltas):
+        for L in sorted(a_deltas):
             if cur and L == cur[-1] + 1:
                 cur.append(L)
             else:
@@ -837,9 +1019,14 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
         if cur:
             runs.append(cur)
         longest = max(runs, key=len)
-        total = sum(deltas[L] for L in longest)
+        total = sum(a_deltas[L] for L in longest)
+        # Both ends are AUTHORED by construction: every L in a_deltas has zone(L+1) AUTHORED,
+        # and zone is monotone in L, so zone(longest[0]) is AUTHORED too. want_val cannot be
+        # None at either, and this assert says so rather than trusting it.
+        assert zone(longest[0]) == ZONE_AUTHORED and zone(longest[-1] + 1) == ZONE_AUTHORED, \
+            "chain %d..%d escaped the authored span" % (longest[0], longest[-1] + 1)
         want_total = want_val(longest[-1] + 1, st_) - want_val(longest[0], st_)
-        say("      LONGEST unbroken decoded chain: screen lines %d..%d (%d differences)"
+        say("      LONGEST unbroken AUTHORED chain: screen lines %d..%d (%d differences)"
             % (longest[0], longest[-1] + 1, len(longest)))
         say("      TOTAL DISPLACEMENT ACROSS IT: %+d px MEASURED   %+d px DERIVED   %s"
             % (total, want_total, "agree" if total == want_total else "*** DISAGREE ***"))
@@ -851,9 +1038,12 @@ def run_arm5(rom, lst, sym, at, blob, scratch, top, lines, start_v, step_v):
         show = decoded[::max(1, len(decoded) // 10)][:10]
         say("      the measured sequence (every ~%dth decoded line):" % max(1, len(decoded) // 10))
         for L in show:
-            say("        line %3d  candidates %-22s  document derives %5d (mod %d = %d)"
-                % (L, str(c[L]), want_val(L, st_), height,
-                   want_val(L, st_) % height))
+            wv = want_val(L, st_)
+            say("        line %3d  candidates %-22s  document derives %s%s"
+                % (L, str(c[L]),
+                   "(nothing — ABOVE the run)" if wv is None else "%5d" % wv,
+                   "" if wv is None else " (mod %d = %d)%s"
+                   % (height, wv % height, "  HELD" if zone(L) == ZONE_HELD else "")))
         got_dir = (total > 0) - (total < 0)
         pure = {-1: neg, 0: zer, 1: pos}[want_dir[tag]] == len(vals)
         say("      DIRECTION VERDICT: measured %s, expected %s — %s"
@@ -1048,6 +1238,18 @@ def main():
           % (d_lo, d_hi, len(inside), d_hi - d_lo + 1))
     print("  changed OUTSIDE it                       : %d %s"
           % (len(outside), sorted(outside) if len(outside) <= 12 else ""))
+    # AND MOST OF "OUTSIDE" IS EXPECTED, DERIVED RATHER THAN EXCUSED. A ramp WRITES the
+    # entry and `.dense_end` falls into `.park`, so when the run retires the entry keeps its
+    # last value and every line below stays shifted for the rest of the frame
+    # (engine/effects/raster.emp, above raster_ramp_program). This arm has no verdict, so
+    # nothing here changes; the count is named so the next reader does not chase it.
+    if d_hi < SCREEN_LINES - 1:
+        below = [l for l in outside if l > d_hi]
+        print("    of which %d lie in the HELD zone, screen lines %d..%d — the run retires "
+              "at %d and the entry keeps value j=%d for the rest of the frame — and %d are "
+              "genuinely unaccounted for"
+              % (len(below), d_hi + 1, SCREEN_LINES - 1, d_hi, lines,
+                 len(outside) - len(below)))
     print("  first differing line                     : %s" % (firsts[0] if firsts else None))
     print("  NOTE: arm 2 CANNOT separate the ramp from the program replacement. That is "
           "arm 3's job.")
@@ -1126,6 +1328,20 @@ def main():
         print("  agreement              : %s"
               % ("EXACT" if (reached[0], reached[-1]) == (d_lo, d_hi)
                  else "top %+d, bottom %+d" % (reached[0] - d_lo, reached[-1] - d_hi)))
+        # A BOTTOM OVERSHOOT IS NOT A SPAN ERROR WHEN THE RUN RETIRES ABOVE THE LAST LINE.
+        # Arm 4's twins differ in `rrp_start`, so the HELD value differs between them too
+        # and every line below the run moves as well — the reached span runs to 223 by
+        # construction. DERIVED here, with the number this document implies, so the printed
+        # "bottom +N" above is readable instead of alarming. No verdict changes: arm 4 has
+        # none, and the question of whether its DERIVED span should say 223 in the first
+        # place is booked in docs/DEFERRED_WORK.md rather than decided here.
+        if d_hi < SCREEN_LINES - 1:
+            print("  ⚠ the bottom is EXPECTED at %d, not %d: the run retires after value "
+                  "j=%d and a ramp WRITES the entry, so it keeps that value for the "
+                  "remaining %d line(s) (engine/effects/raster.emp, above "
+                  "raster_ramp_program). A bottom of %+d is exactly that hold."
+                  % (SCREEN_LINES - 1, d_hi, lines, SCREEN_LINES - 1 - d_hi,
+                     SCREEN_LINES - 1 - d_hi))
     print()
 
     print("ARM 5  THE VALUE ITSELF, AND ITS SIGN")
