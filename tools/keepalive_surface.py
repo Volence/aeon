@@ -95,9 +95,63 @@ def _lit(node):
         return "<expr>"
 
 
+# A `choices=` domain is the one `add_argument` kwarg whose VALUE a reader needs, and it
+# is also the one most often built rather than written: `choices=WITNESSES + ("c4a2t",
+# "all") + tuple(AB)` is not a literal, so `_lit` returns the string "<expr>" -- which is
+# ITERABLE, and reporting an unreached domain of ['<','e','x','p','r','>'] is worse than
+# reporting nothing, because it looks like an answer. Measured 2026-09-19: 6 options in
+# tools/ build their choices this way. So the domain gets a small bounded evaluator over
+# the module's own top-level literal constants, and anything it cannot resolve is marked
+# UNRESOLVED rather than rendered.
+_CHOICE_CALLS = {"tuple": tuple, "list": list, "sorted": sorted, "frozenset": frozenset,
+                 "set": set}
+CHOICES_UNRESOLVED = "<unresolved>"
+
+
+def _module_consts(tree):
+    """Top-level NAME = <literal> bindings, the only namespace the evaluator may use."""
+    out = {}
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                and isinstance(n.targets[0], ast.Name):
+            try:
+                out[n.targets[0].id] = ast.literal_eval(n.value)
+            except Exception:
+                pass
+    return out
+
+
+def _eval_choices(node, consts):
+    """Resolve a `choices=` expression, or return CHOICES_UNRESOLVED.
+
+    Deliberately tiny: literals, names bound to literals at module level, `+` between
+    sequences, and the five sequence constructors above. Nothing is imported and nothing
+    is executed from the file -- a scanner that ran a tool's module to read its parser
+    would be booting emulators to answer a static question.
+    """
+    def ev(n):
+        if isinstance(n, ast.Name):
+            if n.id in consts:
+                return consts[n.id]
+            raise ValueError(n.id)
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add):
+            a, b = ev(n.left), ev(n.right)
+            return list(a) + list(b)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                and n.func.id in _CHOICE_CALLS and len(n.args) == 1 and not n.keywords:
+            return list(_CHOICE_CALLS[n.func.id](ev(n.args[0])))
+        return ast.literal_eval(n)
+    try:
+        v = ev(node)
+    except Exception:
+        return CHOICES_UNRESOLVED
+    return list(v) if isinstance(v, (list, tuple, set, frozenset)) else CHOICES_UNRESOLVED
+
+
 def parse_options(tree):
     """Every add_argument in the file, as {names, dest, default, choices, action}."""
     out = []
+    consts = _module_consts(tree)
     for n in ast.walk(tree):
         if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                 and n.func.attr == "add_argument"):
@@ -107,6 +161,9 @@ def parse_options(tree):
         kw = {k.arg: _lit(k.value) for k in n.keywords if k.arg}
         if not names:
             continue
+        for k in n.keywords:
+            if k.arg == "choices":
+                kw["choices"] = _eval_choices(k.value, consts)
         dest = kw.get("dest")
         if dest is None:
             longs = [x for x in names if x.startswith("--")]
@@ -293,7 +350,23 @@ def measure(repo=REPO, manifest=DEFAULT_MANIFEST):
             [str(x) for x in wired[row].get("args", [])])
     rows = []
     for name in sorted(by_tool):
-        argvs = by_tool[name]
+        rows.extend(_scan_tool(repo, name, by_tool[name]))
+    return rows
+
+
+def _scan_tool(repo, name, argvs, extra=None):
+    """The per-tool option scan, shared by the wired and unwired halves.
+
+    `argvs` is every declared invocation of this tool; `[[]]` means "nothing is set",
+    which is the unwired case. `extra` is merged into every row this tool produces, so
+    the unwired half can carry its per-TOOL facts (required set, runnability) on rows
+    that are otherwise per-OPTION.
+    """
+    rows = []
+    # A single-iteration loop, not an `if`: the body below uses `continue` to mean "this
+    # option needs no row", which was a skip to the next TOOL when this was the body of
+    # measure()'s loop and must stay a skip here.
+    for _once in (None,):
         declared = argvs[0] if len(argvs) == 1 else [a for argv in argvs for a in argv]
         set_flags = {x for argv in argvs for x in argv if x.startswith("-")}
         path = os.path.join(repo, "tools", name)
@@ -328,15 +401,192 @@ def measure(repo=REPO, manifest=DEFAULT_MANIFEST):
                 continue
             t, infn = taint(tree, o["dest"], ns)
             gl, gb = gated(tree, t, infn, o["dest"], ns)
-            rows.append({
+            row = {
                 "tool": name, "declared": declared, "env": env,
                 "flag": "/".join(o["names"]), "dest": o["dest"],
                 "default": o["default"], "choices": o["choices"],
                 "action": o["action"],
                 "gated_lines": gl, "gated_blocks": gb,
                 "class": classify(o, gb),
-            })
+            }
+            if o["choices"]:
+                # UNSET selector. `classify` already calls it SUBJECT SELECTOR, but the
+                # domain is the whole point of that class and a row that omits it forces
+                # every reader back to the source. Reached is empty BY CONSTRUCTION here
+                # -- that is what "the manifest sets nothing" means -- so the pair is
+                # carried in the same shape the set-selector branch above uses, and not
+                # in a second one a consumer would have to learn.
+                row["reached_choices"] = [d for d in declared if d in o["choices"]]
+                row["unreached_choices"] = [c for c in o["choices"]
+                                            if c not in row["reached_choices"]]
+            rows.append(row)
+    if extra:
+        for r in rows:
+            r.update(extra)
     return rows
+
+
+# =====================================================================================
+#  THE UNWIRED HALF -- the 50 tools the lane does NOT run
+# =====================================================================================
+#  WHY THIS IS NOT JUST `measure()` OVER THE OTHER TABLE, and the distinction is the
+#  whole point. For a WIRED tool the question is "which options does the one declared
+#  invocation leave untouched", and the answer is a proper subset. For an UNWIRED tool
+#  nothing is set, so every option is untouched -- a true statement that carries no
+#  information and would let this module report a big number about nothing.
+#
+#  What a reader actually needs from an unwired row is the price and the shape of a
+#  wiring, so that is what is derived:
+#
+#    required            what argparse REFUSES without. This is the `args = [...]` a
+#                        manifest row would have to spell, and it turns the manifest's
+#                        A/B prose ("requires --before-rom/--after-rom from two different
+#                        builds") into a fact read off the parser. It is validated in
+#                        tools/test_keepalive_surface.py against an argparse exit-2
+#                        message measured off this tree, not against itself.
+#    needs_args          argparse would exit 2 on an empty argv.
+#    bare_exit_is_free   the trap the manifest names for display_ab_gate, generalised: a
+#                        parser that demands nothing can exit 0 having measured nothing,
+#                        and from the outside that is indistinguishable from a pass.
+#                        ⚠ IT IS A FLAG, NOT A VERDICT. It says an exit status alone is
+#                        not evidence for this row; it does NOT say the tool is vacuous.
+#    runnable            has a `__main__` block, i.e. is a program at all. Two manifest
+#                        rows are excluded as "not an instrument"; this is that claim,
+#                        derived, and it separates them (aether_bytes is not runnable,
+#                        aether_instance is).
+#
+#  ⚠ AND THE OPTION CLASSES BELOW MEAN SOMETHING WEAKER HERE. On a wired tool UNREACHED
+#  BODY means "the nightly never executes this block". On an unwired tool the nightly
+#  executes NO block of the file, so the classes describe only what a bare wiring would
+#  STILL leave dead after it went green. Do not add the two halves' UNREACHED totals
+#  together: they are counts of different things.
+# =====================================================================================
+
+def required_args(tree):
+    """Option strings argparse would refuse an empty argv for.
+
+    Positionals count only when they demand at least one value: `nargs='*'` and
+    `nargs='?'` are satisfied by nothing, and `sfx_audition`'s `sounds` is the case that
+    makes that distinction load-bearing -- it takes `nargs='*'`, so a bare run parses
+    cleanly and returns 0 without ever reaching the bus.
+    """
+    out = []
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "add_argument"):
+            continue
+        names = [a.value for a in n.args
+                 if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+        if not names:
+            continue
+        kw = {k.arg: _lit(k.value) for k in n.keywords if k.arg}
+        positional = not names[0].startswith("-")
+        if positional:
+            if kw.get("nargs") in ("*", "?") or kw.get("nargs") == 0:
+                continue
+            out.append(names[0])
+        elif kw.get("required") is True:
+            out.append(names[0])
+    return out
+
+
+def measure_unwired(repo=REPO, manifest=DEFAULT_MANIFEST):
+    """One or more rows per `[not_wired]` entry, carrying the reason beside the derivation."""
+    not_wired = tomllib.load(open(manifest, "rb"))["not_wired"]
+    rows = []
+    for name in sorted(not_wired):
+        path = os.path.join(repo, "tools", name)
+        src = open(path, encoding="utf-8", errors="replace").read()
+        tree = ast.parse(src)
+        req = required_args(tree)
+        runnable = bool(re.search(r'^if __name__\s*==', src, re.M))
+        has_parser = bool(parse_options(tree))
+        # ⚠ UNDETERMINED IS A THIRD ANSWER, NOT A FALSY SECOND ONE. `required_args` reads
+        # argparse; a tool that parses `sys.argv` by hand has no argparse to read, so
+        # "does a bare argv parse" is a question this module did not ask, not a question
+        # it answered no to. Both no-argparse PROGRAMS in the [not_wired] table dispatch
+        # by hand (`cache_hold_probe` off a MODES table, `reels_witness` off `sys.argv[1:]`)
+        # and tools/test_cli_dispatch_refuses.py already records the first of them giving
+        # usage + exit 1 on a missing mode -- the exact opposite of the free green a
+        # truthiness answer would have asserted here. `runnable` stays determinable either
+        # way, which is what separates aether_bytes (no parser AND no __main__: False)
+        # from these two (None).
+        determinable = has_parser or not runnable
+        extra = {
+            "wired": False,
+            "reason": not_wired[name],
+            "required": req,
+            "needs_args": bool(req) if determinable else None,
+            "bare_exit_is_free": ((not req) and runnable) if determinable else None,
+            "runnable": runnable,
+        }
+        rows.extend(_scan_tool(repo, name, [[]], extra=extra))
+    return rows
+
+
+def _report_unwired(args):
+    """The unwired half of the report. See the block comment above `required_args`.
+
+    ⚠ READ THE TOTALS NARROWLY, and this is a prohibition rather than a caveat: NOTHING
+    here is a coverage claim. Every one of these tools is run by this lane ZERO times.
+    The counts say what a wiring would COST and what a bare wiring would STILL leave
+    unexecuted; they do not say any line of any of these files has been executed by
+    anything. A reader who adds an `UNREACHED BODY` total from this report to the one
+    from the wired report has added two counts of different things.
+    """
+    rows = measure_unwired(args.repo, args.manifest)
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(rows, fh, indent=1, default=str)
+    by = {}
+    for r in rows:
+        by.setdefault(r["tool"], []).append(r)
+    print(f"KEEPALIVE UNWIRED SURFACE -- {len(by)} tool(s) the lane runs ZERO times.")
+    print("  Nothing below is coverage. The lane executes no line of any of these files.")
+    und = sum(1 for t in by if by[t][0].get("bare_exit_is_free") is None
+              and by[t][0].get("runnable"))
+    print(f"  {sum(1 for t in by if by[t][0].get('needs_args'))} need arguments "
+          f"(a manifest row must spell them); "
+          f"{sum(1 for t in by if by[t][0].get('bare_exit_is_free'))} would accept an "
+          f"empty argv, where an exit status alone is not evidence; "
+          f"{sum(1 for t in by if not by[t][0].get('runnable'))} are not programs at all; "
+          f"{und} UNDETERMINED -- they parse sys.argv by hand and argparse says nothing "
+          f"about them.")
+    print()
+    hdr = (f"  {'tool':34s} {'opts':>4s} {'UNR':>4s} {'SEL':>4s} {'RSZ':>4s} {'PAR':>4s}"
+           f"  required / notes")
+    print(hdr)
+    print("  " + "-" * (len(hdr) - 2))
+    for name in sorted(by):
+        rs = by[name]
+        head = rs[0]
+        n = {k: sum(1 for r in rs if r["class"] == k)
+             for k in (UNREACHED, SELECTOR, RESIZED, PARAM)}
+        opts = sum(1 for r in rs if r["dest"])
+        notes = []
+        if not head.get("runnable"):
+            notes.append("NOT A PROGRAM (no __main__)")
+        elif head.get("bare_exit_is_free") is None:
+            notes.append("UNDETERMINED: hand-rolled sys.argv, no parser to read")
+        if head.get("required"):
+            notes.append(" ".join(head["required"]))
+        elif head.get("bare_exit_is_free"):
+            notes.append("bare argv parses -- exit status alone is not evidence")
+        if head.get("env"):
+            notes.append("env=" + ",".join(head["env"]))
+        print(f"  {name[:34]:34s} {opts:4d} {n[UNREACHED]:4d} {n[SELECTOR]:4d} "
+              f"{n[RESIZED]:4d} {n[PARAM]:4d}  {'; '.join(notes)}")
+    sel = [r for r in rows if r["class"] == SELECTOR]
+    if sel:
+        print("\n### SUBJECT SELECTORS -- whole domains, none of them reached")
+        for r in sorted(sel, key=lambda r: r["tool"]):
+            print(f"   {r['tool'][:32]:33s} {r['flag'][:22]:23s} "
+                  f"UNREACHED={r.get('unreached_choices')}")
+    print("\n### THE REASON EACH ROW CARRIES, beside what was derived above")
+    print("   (the reason is the CLAIM; the columns are the measurement)")
+    for name in sorted(by):
+        print(f"   {name}\n      {by[name][0]['reason']}")
+    return 0
 
 
 def main(argv=None):
@@ -345,7 +595,12 @@ def main(argv=None):
     ap.add_argument("--manifest", default=DEFAULT_MANIFEST)
     ap.add_argument("--json", default=None, help="write the rows here")
     ap.add_argument("--env", action="store_true", help="only the env-var surface")
+    ap.add_argument("--unwired", action="store_true",
+                    help="the 50 tools the lane does NOT run: reason beside derivation")
     args = ap.parse_args(argv)
+
+    if args.unwired:
+        return _report_unwired(args)
 
     rows = measure(args.repo, args.manifest)
     if args.json:

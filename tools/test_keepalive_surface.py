@@ -163,3 +163,151 @@ def test_every_keepalive_file_is_excluded_as_a_reachability_source():
         "evidence that something ELSE executes the instruments they name: "
         f"{missing}. Add them to keepalive_population.LANE_BOOKKEEPING."
     )
+
+
+# ======================================================================================
+# THE UNWIRED HALF (KEEPALIVE-UNWIRED-SURFACE, 2026-09-19)
+#
+# `measure()` reads the manifest's [wired] table only, so everything above is about the 35
+# tools the lane runs. The other 50 rows in that manifest are the tools it does NOT run,
+# each carrying a written reason -- and a reason is a MEASURED ABSENCE, the claim most
+# likely to rot, because nothing that would falsify it ever visits it.
+#
+# WHAT `measure_unwired()` MEANS, AND WHAT IT DOES NOT. For an unwired tool NOTHING is set,
+# so classifying its options "unreached" is true by construction and says nothing. The
+# informative quantity is the one a reader needs in order to PRICE a wiring:
+#
+#   * `required` -- what argparse would refuse without. This is the `args = [...]` any
+#     manifest row would have to spell, and it is what mechanises the A/B reason class:
+#     "requires --before-rom/--after-rom from two different builds" is a sentence, and
+#     `required_args()` is the same claim read off the parser.
+#   * the option classes UNDER AN EMPTY ARGV -- what a bare wiring would still leave dead
+#     even after it went green.
+#   * `bare_exit_is_free` -- the trap the manifest itself names for display_ab_gate: a row
+#     that exits 0 without measuring anything. A tool whose parser demands nothing cannot
+#     be told apart, from the outside, from one that measured and passed.
+#
+# THE CONTROLS BELOW ARE MEASURED, NOT ASSUMED. Both were run off this tree on 2026-09-19
+# against s4.debug.bin crc32 62238a15 / 848,075 B:
+#   `python3 tools/sec5_band_witness.py --rom ... --lst ...` -> exit 2,
+#     "error: the following arguments are required: --label, --out-dir"
+#   `python3 tools/bg_nt_gate.py` is declared A/B in the manifest, and its parser carries
+#     required=True on exactly the four before/after paths.
+# A derivation that cannot reproduce an exit status already observed is not evidence about
+# the other 48 rows.
+# ======================================================================================
+
+
+@pytest.fixture(scope="module")
+def unwired():
+    return ks.measure_unwired(REPO)
+
+
+def _tool(rows, name):
+    return [r for r in rows if r["tool"] == name]
+
+
+def test_every_not_wired_row_is_scanned(unwired):
+    """The unwired scan must cover the manifest's [not_wired] table exactly -- a subset
+    would be this lane's own defect (a census that quietly covers 49 of 50)."""
+    import tomllib
+    nw = set(tomllib.load(
+        open(os.path.join(REPO, "tools", "keepalive_manifest.toml"), "rb"))["not_wired"])
+    assert {r["tool"] for r in unwired} == nw
+
+
+def test_the_measured_required_set_is_reproduced_from_the_parser(unwired):
+    """CONTROL. argparse itself printed this set; the derivation must agree with it."""
+    r = _tool(unwired, "sec5_band_witness.py")[0]
+    assert set(r["required"]) == {"--label", "--out-dir"}, (
+        "derived required set disagrees with the exit-2 argparse message measured off "
+        f"this tree: {r['required']}"
+    )
+    assert r["needs_args"] is True
+
+
+def test_the_ab_reason_class_is_read_off_the_parser_not_the_prose(unwired):
+    """The three A/B rows say they need a second ROM. That is checkable, so it is checked."""
+    for name, want in (
+            ("bg_nt_gate.py", {"--before-rom", "--before-lst", "--after-rom", "--after-lst"}),
+            ("display_ab_gate.py", {"--before-rom", "--before-lst", "--after-rom", "--after-lst"}),
+            ("sec7_waterline_probe.py", {"--old-rom", "--old-lst", "--new-rom", "--new-lst"})):
+        r = _tool(unwired, name)[0]
+        assert set(r["required"]) == want, f"{name}: {r['required']}"
+        assert r["needs_args"] is True
+
+
+def test_a_tool_whose_parser_demands_nothing_is_flagged_as_a_free_green(unwired):
+    """The display_ab_gate trap, generalised: a row that can exit 0 having measured
+    nothing looks identical from the outside to one that measured and passed. The flag
+    is not a verdict -- it marks the rows where an exit status is not evidence."""
+    r = _tool(unwired, "fade_busy_stale_witness.py")[0]
+    assert r["needs_args"] is False and r["bare_exit_is_free"] is True
+    # And it must be able to say NO: a parser with four required paths is not free.
+    assert _tool(unwired, "bg_nt_gate.py")[0]["bare_exit_is_free"] is False
+
+
+def test_a_file_that_is_not_a_program_is_reported_as_one(unwired):
+    """`aether_bytes.py` is excluded as "not an instrument". It has no argparse AND no
+    __main__ block, so it cannot be invoked at all -- which is the reason, derived."""
+    r = _tool(unwired, "aether_bytes.py")[0]
+    assert r["flag"] == "(no argparse)"
+    assert r["runnable"] is False
+    # The harness beside it IS runnable, so this is not a blanket answer for the pair.
+    assert _tool(unwired, "aether_instance.py")[0]["runnable"] is True
+
+
+def test_choices_domains_are_reported_wholly_unreached(unwired):
+    """A wired tool's selector reports the ONE choice the lane reaches. An unwired tool
+    reaches none, and the whole domain is the unmeasured surface."""
+    rows = [r for r in _tool(unwired, "lens_residue_object_witness.py")
+            if r["class"] == ks.SELECTOR]
+    assert rows, "the selector this tool refuses without is no longer a choices option"
+    r = rows[0]
+    assert r["reached_choices"] == []
+    assert "c2a6" in r["unreached_choices"]
+
+
+def test_a_hand_rolled_argv_dispatcher_is_undetermined_not_free(unwired):
+    """LOUD ON UNMEASURABLE. `bare_exit_is_free` is read off argparse, so for a tool that
+    parses `sys.argv` by hand it is not a measurement at all and must not be reported as
+    one. Both no-argparse programs in the [not_wired] table dispatch by hand, and
+    cache_hold_probe is the case that proves the difference is real: another lane already
+    records that an unknown/missing mode gives it usage + exit 1, i.e. the OPPOSITE of the
+    free green a truthiness answer here would assert.
+
+    Contrast with aether_bytes.py, which has no argparse AND no __main__: not runnable at
+    all, which IS determinable, and False rather than None."""
+    for name in ("cache_hold_probe.py", "reels_witness.py"):
+        r = _tool(unwired, name)[0]
+        assert r["flag"] == "(no argparse)", name
+        assert r["bare_exit_is_free"] is None, (
+            f"{name} parses sys.argv by hand; argparse says nothing about its bare argv, "
+            f"and reporting {r['bare_exit_is_free']!r} would be an unmeasured claim"
+        )
+        assert r["needs_args"] is None, name
+    assert _tool(unwired, "aether_bytes.py")[0]["bare_exit_is_free"] is False
+
+
+def test_a_built_choices_domain_is_resolved_and_matches_argparse(unwired):
+    """MEASURED CONTROL. `choices=WITNESSES + ("c4a2t","all") + tuple(AB)` is not a
+    literal. Running the tool on this tree, 2026-09-19, argparse printed its own domain:
+
+        usage: lens_residue_object_witness.py ...
+               {c2a6,multisprite,nullmap,c4a2,c4a3,c4a2t,all,c4a3ab,c4a2ab}
+
+    The evaluator must reproduce that exactly -- and the failure it replaces is worse than
+    no answer: the unresolved marker "<expr>" is a STRING, and iterating it reported the
+    domain as ['<','e','x','p','r','>'], which looks like a result."""
+    r = [x for x in _tool(unwired, "lens_residue_object_witness.py")
+         if x["flag"] == "witness"][0]
+    assert r["choices"] == ["c2a6", "multisprite", "nullmap", "c4a2", "c4a3",
+                            "c4a2t", "all", "c4a3ab", "c4a2ab"]
+    assert r["unreached_choices"] == r["choices"]
+
+
+def test_no_manifest_tool_has_an_unresolvable_choices_domain(unwired):
+    """If one appears, it must show as the marker -- never as a character list."""
+    bad = [(r["tool"], r["flag"]) for r in unwired
+           if r["choices"] == ks.CHOICES_UNRESOLVED]
+    assert not bad, f"unresolvable choices domains in the manifest population: {bad}"
