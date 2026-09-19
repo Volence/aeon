@@ -67,8 +67,8 @@ not having it.**
 | what | symbol | address | width | shape |
 |---|---|---|---|---|
 | parallax scene | `Parallax_Current_Config` | `$FFFF88EC` | u32 | **both** (release + debug) |
-| raster program | `Raster_Program` | `$FFFF8BD6` | u32 | **both** |
-| band table | `BgAnim_Table_Ptr` | `$FFFFE91A` | u32 | **DEBUG ONLY** |
+| raster program | `Raster_Program` | `$FFFF8BF6` | u32 | **both** |
+| band table | `BgAnim_Table_Ptr` | `$FFFFE93A` | u32 | **DEBUG ONLY** |
 
 Each holds a **pointer**, and the engine **re-reads it every frame** — `Parallax_Update`
 lists `Parallax_Current_Config` under its own *Reads*, and the raster build does
@@ -76,7 +76,7 @@ lists `Parallax_Current_Config` under its own *Reads*, and the raster build does
 engine change.** Observed live across two lab rows: `Raster_Program` held `Raster_Buf_B`
 (RAM) on the floor row and `EditorRaster_OJZ_Act1_aurora_ramp_witness` (ROM) on another.
 
-**`Debug_Lab_Index` (`$FFFFEE0D`, u8) is the CHORD'S CURSOR ONLY.** Writing it moves the
+**`Debug_Lab_Index` (`$FFFFF00D`, u8) is the CHORD'S CURSOR ONLY.** Writing it moves the
 on-screen label and changes nothing that runs. This cost this lane an hour today — the
 label said one row while the machine ran another.
 
@@ -152,8 +152,8 @@ The hook is the live-palette shape: a **RAM scratch config**, plus an entry poin
 the active ROM config into it and re-points the selector; the panel then edits the RAM copy
 and the next frame picks it up.
 
-**The pattern already exists on the raster channel** — `Raster_Buf_A` (`$FFFF8BE4`) and
-`Raster_Buf_B` (`$FFFF8C64`), 128 B each (`RASTER_BUF_SIZE`), are RAM working copies and
+**The pattern already exists on the raster channel** — `Raster_Buf_A` (`$FFFF8C04`) and
+`Raster_Buf_B` (`$FFFF8C84`), 128 B each (`RASTER_BUF_SIZE`), are RAM working copies and
 `Raster_Program` legitimately points at them. So this is copying a shape, not inventing one.
 **Until it lands, a nudge control has nothing to write and should not ship** — a slider that
 silently does nothing is worse than an absent one.
@@ -173,11 +173,34 @@ the layout, not read off the design. **DEBUG SHAPES ONLY** — see the shape not
 
 ### 6.1 The three symbols
 
+> ⚠ **EVERY ADDRESS IN THIS DOCUMENT IS A SNAPSHOT AND ROTS SILENTLY. RESOLVE, DO NOT
+> TRANSCRIBE.** Corrected 2026-09-19 against `s4.debug.lst`: **seven of the note's eight
+> addresses had moved** — six by `+$20` (`Raster_Program`, `Raster_Buf_A`, `Raster_Buf_B`,
+> `BgAnim_Table_Ptr`, `Parallax_Scratch_Config`, `Parallax_Scratch_Config_End`) and
+> `Debug_Lab_Index` by `+$200`. Only `Parallax_Current_Config` still held. **These are RAM-tail
+> symbols in size-varying groups: anything landing ahead of them slides them, and nothing about
+> a stale number looks wrong.** Oracle found ONE of the seven by transcribing it into a panel
+> and hitting the disagreement; the other six were found only because that report prompted a
+> sweep of the whole table. **A consumer that transcribes any number here is building on a fact
+> with no maintainer.** Resolve them:
+>
+> ```sh
+> for s in Parallax_Scratch_Config Parallax_Scratch_Arm Parallax_Scratch_Config_End \
+>          Parallax_Current_Config Raster_Program Raster_Buf_A Raster_Buf_B \
+>          BgAnim_Table_Ptr Debug_Lab_Index; do
+>   printf '%-30s ' "$s"; grep -E "^ $s :" s4.debug.lst | head -1 | awk '{print $3}'
+> done
+> ```
+>
+> The WIDTHS and the derivations below are not snapshots and did not move — 542 B still
+> re-derives from `Parallax_Scratch_Config_End - Parallax_Scratch_Config`. **It is the
+> absolute addresses that have no maintainer, and only those.**
+
 | what | symbol | address (s4.debug) | width | shape |
 |---|---|---|---|---|
-| the RAM working copy | `Parallax_Scratch_Config` | `$FFFFEA26` | 542 B | **DEBUG ONLY** |
-| one past its end | `Parallax_Scratch_Config_End` | `$FFFFEC44` | — | **DEBUG ONLY** |
-| the request cell | `Parallax_Scratch_Arm` | `$FFFFEC44` | u8 | **DEBUG ONLY** |
+| the RAM working copy | `Parallax_Scratch_Config` | `$FFFFEA46` | 542 B | **DEBUG ONLY** |
+| one past its end | `Parallax_Scratch_Config_End` | `$FFFFEC64` | — | **DEBUG ONLY** |
+| the request cell | `Parallax_Scratch_Arm` | `$FFFFEC64` | u8 | **DEBUG ONLY** |
 
 **542 is derived, not chosen**, and the derivation is the reason a panel can trust it for any
 scene rather than for the shipped ones:
@@ -206,16 +229,16 @@ second buffer here would have no producer.
 ### 6.2 How to install it — poke a byte, run a frame
 
 ```
-write $FFFFEC44 = 1        (Parallax_Scratch_Arm; any nonzero value)
+write $FFFFEC64 = 1        (Parallax_Scratch_Arm; any nonzero value)
 run one frame
 read  $FFFF88EC            (Parallax_Current_Config)
 ```
 
-If `Parallax_Current_Config` now reads `$FFFFEA26`, the scratch is installed and holds a copy
+If `Parallax_Current_Config` now reads `$FFFFEA46`, the scratch is installed and holds a copy
 of the config that was active. **That compare is the success test** — the arm cell is a
 request byte, not a status byte; the engine clears it as it services it whether the install
 took or was refused. (`Parallax_Current_Config` stores the full sign-extended long
-`$FFFFEA26` where the listing resolves the symbol to the 24-bit bus address `$FFEA26`. Mask
+`$FFFFEA46` where the listing resolves the symbol to the 24-bit bus address `$FFEA26`. Mask
 before comparing; a raw compare is a false mismatch, and it was the first thing this lane's
 own probe got wrong.)
 
@@ -390,7 +413,7 @@ the identical approach, two untouched runs are **required** to be byte-identical
 poked run is allowed to mean anything, and only then is one byte changed. Measured on
 `s4.debug.bin` `f4d9c299`:
 
-* arm → install: `Current_Config` `$FFFFEA26`, `Target_Config` 0, `Transition_Frames` 0, arm
+* arm → install: `Current_Config` `$FFFFEA46`, `Target_Config` 0, `Transition_Frames` 0, arm
   cleared; the scratch's 158 bytes (4 bands) byte-identical to the ROM config at `$012F08`
   with `pcfg_transition` forced `0 -> 1`.
 * determinism rung: two re-approached runs byte-identical over 6 frames — **and the buffer
