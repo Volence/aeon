@@ -39255,10 +39255,21 @@ inside the audit that found it makes the audit harder to trust. Both are reporte
 **No new files** — deliberately: a new file under `tools/` named without "keepalive" would
 escape `test_every_keepalive_file_is_excluded_as_a_reachability_source`, whose guard is keyed to
 that substring, and would rot the census exactly as the previous parcel's did. Census verified
-unchanged at 85 / 35 / 50 before and after. `pytest tools`: **4 failed, 3227 passed** in this
-tree against **4 failed, 3218 passed** in a pristine control worktree at the same base — the
-identical failure set (`test_extern_guard_reachability.py`, 4 rows, a fresh-worktree artifact)
-and +9 = the new tests.
+unchanged at 85 / 35 / 50 before and after. `pytest tools` on the final tree: **3 failed, 3228
+passed, 0 errors**, against **3 failed, 3219 passed, 0 errors** in a pristine control worktree
+at the same base, run minutes apart — **the failure id sets are identical, `comm` both ways
+empty** (`test_extern_guard_reachability.py`: `test_every_shape_reported`,
+`test_excusals_are_not_stale`, `test_no_linkassert_is_inapplicable`), and +9 = the new tests.
+
+⚠ TWO THINGS ABOUT THAT CONTROL, BOTH LEARNED BY GETTING IT WRONG FIRST. (a) **Without
+`SIGIL_BUILD`/`SIGIL_EMIT` exported, `pytest tools` grows 55 ERRORS** —
+`test_artifact_provenance` (16), `test_provenance_consumers` (34) and
+`test_extern_guard_reachability` (5), all needing an assembler to ask. Measured in BOTH trees
+at the same moment: 4 failed / 3172 passed / 55 errors here, 4 failed / 3163 passed / 55 errors
+in the control, the 9 being the new tests. A run without those exports is not the known failure
+set; it is a different question. (b) **`test_check_does_not_perturb_generated_sound_artifacts`
+is not stable across runs** — it failed in the 03:52 control and passed in every later run of
+both trees. Read the id sets, not the totals.
 
 ### (8) STILL OPEN
 
