@@ -70,6 +70,9 @@ import tokenize
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS_DIR)
 
+# This lane's own two files. They name `BusClient` in their prose and are not instruments.
+LANE_OWN_FILES = frozenset({"keepalive_population.py", "keepalive_lane.py"})
+
 # The entry points that actually run on this machine. build.sh is every developer's
 # build; landing_build.sh is the pre-merge check; nightly_effects_gates.sh is the
 # backstop timer. Anything reachable from one of these is exercised by somebody.
@@ -108,7 +111,16 @@ def population(repo=REPO):
             continue
         # The keepalive lane's own machinery is not an instrument. Without this the
         # population module counts itself, because it spells `BusClient` in its prose.
-        if fname.startswith("keepalive_"):
+        #
+        # ⚠ AN EXPLICIT SET, NOT THE `keepalive_` PREFIX, and that is not a style choice.
+        # This started as a prefix test, and the drift fixture that was supposed to prove
+        # the UNDECLARED arm fires was itself named `keepalive_drift_fixture_probe.py` --
+        # so the exclusion ate the fixture and the lane reported a clean accounting over a
+        # tree that had just grown an undeclared instrument. A prefix exclusion is an
+        # open-ended hole: anything anyone names `keepalive_*` later escapes the census
+        # silently, which is the exact defect this lane exists to close, reintroduced by
+        # its own bookkeeping. The set below can only ever excuse these two files.
+        if fname in LANE_OWN_FILES:
             continue
         text = _read(repo, os.path.join("tools", fname))
         if text is not None and "BusClient" in text:
