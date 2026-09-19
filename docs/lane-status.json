@@ -1,12 +1,6 @@
 {
-  "focus": "Making a dead measuring tool announce itself, instead of reading the same as a tool with nothing to report.",
-  "inFlight": [
-    {
-      "what": "Building the nightly that notices when a measuring tool stops working at all",
-      "where": "branch parcel/instrument-keepalive",
-      "agent": true
-    }
-  ],
+  "focus": "A nightly now notices when a measuring tool stops working; on its first run it found a third one already dead.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,20 +8,34 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the keepalive lane runs and every one of the 29 unwatched tools has a verdict or a named reason it cannot run.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
     {
-      "id": "IDENTITY-FIXTURE-RULING",
-      "title": "A revived tool reports three failures we left red on purpose: its test fixtures expect an anchor the game does not set, and one live config's authoring intent needs whoever wrote the OJZ sections",
+      "id": "RAMP-WITNESS-ARM5",
+      "title": "A third measuring tool is dead: its first four checks look healthy and the fifth crashes, so nobody saw it. The fix is unknown work -- nobody has run that arm",
       "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "KEEPALIVE-ARM-IT",
+      "title": "The keepalive nightly is written but switched OFF; arming it is a decision about what the tree promises to keep alive, at about six minutes a night",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
-      "id": "INSTRUMENT-KEEPALIVE",
-      "title": "29 of our 84 measuring tools are referenced by nothing, so a dead one stays dead silently; a nightly that runs them is priced at ~12 min and ~29 declared lines, and is your call to take or leave",
-      "state": "doing",
+      "id": "KEEPALIVE-DEFAULT-ARGS",
+      "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
+      "state": "open",
       "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "IDENTITY-FIXTURE-RULING",
+      "title": "A revived tool reports three failures we left red on purpose: its test fixtures expect an anchor the game does not set, and one live config's authoring intent needs whoever wrote the OJZ sections",
+      "state": "open",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -97,6 +105,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T03:07:40Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T04:03:44Z"
 }
