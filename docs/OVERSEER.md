@@ -36,11 +36,24 @@ there, never only into the log.
 which file it lives in. `tools/test_overseer_bound.py` asserts the ruled 100,000 B bound directly
 as of this cut (2026-09-10) — the growth ratchet it carried while card 7 was open is retired,
 per that file's own instruction. Narrative: `docs/OVERSEER-LOG.md`, search `BOOT-READ BOUND`.
+
+**GREP THIS FILE WITH `-i`, AND GIVE EVERY RULE YOU BANK A LOWERCASE `*Cited as:*` NAME.** Rules
+here are STORED in capitals, for emphasis a reader uses, and CITED in lower case — so a
+case-sensitive grep for the name a rule travels under returns **0 and reads as absent**. Measured
+2026-09-19: **6 of this file's 7 headings** carry a 4+ ALL-CAPS run, and `grep "cut the ceremony"`
+— the ruling that outranks every bar in `docs/OVERSEER-REFERENCE.md`, and one cited by that name in
+eight files of this tree — returned **0** while `grep -i` returned 2. Both halves are needed:
+a reader habit alone fails for whoever lacks it, and citation names alone fail for a rule that
+later travels under a name nobody wrote down. **Do NOT fix this by rewriting the headings** — the
+capitals carry emphasis, and churning them destroys that to solve what one line per rule solves.
+Found by the empyrean hub (`e2567eee`) against its own file after this lane misread a
+case-sensitive miss in THEIRS as the phrase being absent; measured here rather than assumed to
+transfer, and this file was worse: 86% against their 50%.
 <!-- /SPLIT-NOTE -->
 
 ## ⚠ STANDING RULING THAT OUTRANKS EVERY BAR IN `docs/OVERSEER-REFERENCE.md` — read it before those bars
 
-**2026-09-02T18:20:19Z — CUT THE CEREMONY (the owner's own ruling).** It ends the paired
+**2026-09-02T18:20:19Z — CUT THE CEREMONY (the owner's own ruling).** *Cited as: cut the ceremony.* It ends the paired
 aeon+sigil freeze, puts a moratorium on new process bars and boot-doc growth, confines lanes
 to DoD items and the bug tier, and keeps "correct" meaning build + the lane's own tests + on
 screen or in a witness. **Read it at the artifact, do not trust this summary of it:**
@@ -103,6 +116,8 @@ need. Byte-movers still serialize behind the aeon/sigil chain, and look/taste ca
 
 ## ⚠ STANDING RULE — SAY WHEN YOU NEED A CONTEXT CLEAR (owner, 2026-09-09)
 
+*Cited as: say when you need a context clear.*
+
 *"Remind the agents to let us know when they need a clear."* **Sibling of the 2026-09-03T05:21:01Z
 report-when-you-finish-or-stop rule.** Say it in **both** places: your hub message, and
 `lane-status.json`'s `awaiting`.
@@ -120,6 +135,8 @@ the work to do before asking.
 
 ## ⚠ STANDING RULE — A LANE SAYS WHEN IT CAN BE CLEARED (owner, 2026-09-11T23:19:31Z)
 
+*Cited as: a lane says when it can be cleared.*
+
 *"the overseer should say when theyy can be cleared, I think theyy should tell you then you just clear them if yyou're
 automating them, and clear yourself if you're able to"* (heard directly by the hub; read it at the anchor, not here:
 `git -C ../empyrean show 9911fd6:docs/OVERSEER.md | grep -an "A LANE SAYS WHEN IT CAN BE CLEARED"`).
@@ -136,6 +153,8 @@ rotate does it. **Reporting changed with it** (owner, 23:20:23Z, answering the h
 lane STOPS or NEEDS something; landings go in `docs/lane-log.jsonl`, which his changelog reads.
 
 ## ⚠ STANDING RULING — THE LAST CLEANUP BEFORE REGIONS, AND THE VIDEO-MEMORY RECUT (owner, 2026-09-12T22:16:45Z)
+
+*Cited as: the last cleanup before regions; the video-memory recut.*
 
 Relayed by the hub, **read firsthand here at the artifact and not from the relay**:
 
@@ -197,6 +216,8 @@ to start regions on the strength of that cleanup being the last thing**, so do n
 
 ## ⚠ FIRST COMMAND OF EVERY BOOT: `git fetch origin` IN THIS TREE, BEFORE READING `git log master`
 
+*Cited as: first command of every boot; the stale ref.*
+
 **The local `master` ref does not move when your own predecessor lands.** A lane lands from a
 worktree and pushes `HEAD:master`; the main checkout's `master` stays wherever it was. A fresh
 session reading `git log --oneline -5 master` therefore sees a tree that is real, coherent and
@@ -222,6 +243,8 @@ Not all of that work was wasted — the redone gate run closed a leg the predece
 left open — but that was luck, not method, and this file's standing lesson is that luck is not one.
 
 ### ⚠ AND ITS OTHER HALF, MEASURED 2026-09-16 AND THE COST LANDED ON THE OWNER: THE STALE ARTIFACT
+
+*Cited as: the stale artifact.*
 
 The rule above is about a stale **ref**. There is a second, worse one: **a push from a landing
 worktree does not rebuild the main checkout's ROM either**, and `aeon/s4.debug.bin` is the file
