@@ -162,6 +162,11 @@ s4.debug.bin 848075 B crc32 62238a15, one oracle-aether per run on its own socke
     10/11/12/15 all red, rc=1, with 13/14 still green on the declining arm and the clean tree
     back to GREEN 6 of 6 at crc32 62238a15. The accept arm is not vacuously green either, and
     it is no longer green on a laundering plane-B word.
+  * the `bmi` mutation above RE-RUN under the replacement ambiguity guard (2026-09-18,
+    s4.debug.bin 848075 B crc32 1f02fe01), because that guard is what the declining arm
+    refuses on and it was rewritten in the same edit: 13 and 14 red on "the store ran anyway"
+    (b19 == $090), 10/11/12/15 untouched and green, rc=1. Replacing the typed `<= 0x1F` with
+    the measured interval did NOT make the declining arm stop discriminating.
 Nothing in `./build.sh`'s lanes noticed any of these engine mutations — every tree built rc=0.
 
 USAGE
