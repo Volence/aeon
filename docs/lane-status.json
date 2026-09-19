@@ -1,12 +1,6 @@
 {
-  "focus": "Two measuring tools stopped working weeks ago; one was hiding ten failures. Finding out what they were.",
-  "inFlight": [
-    {
-      "what": "Repairing two dead measuring tools and finding out what the older one was hiding",
-      "where": "branch parcel/dead-instrument-pair",
-      "agent": true
-    }
-  ],
+  "focus": "Both dead measuring tools are alive; all 35 hidden failures were the tool misreading, not the game.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,12 +8,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When both instruments are alive or the second is ruled on, and the 10 hidden failures have owners.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
     {
-      "id": "DEAD-INSTRUMENT-PAIR",
-      "title": "One measuring tool crashed on startup from 2026-08-26 until it was found on 2026-09-18, hiding 10 failures; a second has not run since 2026-08-29 and is deliberately not repaired yet",
-      "state": "doing",
+      "id": "IDENTITY-FIXTURE-RULING",
+      "title": "A revived tool reports three failures we left red on purpose: its test fixtures expect an anchor the game does not set, and one live config's authoring intent needs whoever wrote the OJZ sections",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "INSTRUMENT-KEEPALIVE",
+      "title": "29 of our 84 measuring tools are referenced by nothing, so a dead one stays dead silently; a nightly that runs them is priced at ~12 min and ~29 declared lines, and is your call to take or leave",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -83,6 +84,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T02:37:58Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T03:03:40Z"
 }
