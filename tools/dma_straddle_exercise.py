@@ -743,8 +743,10 @@ async def control_body(sock: str, lst: str, blob: bytes, args, d: Driver) -> dic
     it structurally cannot (see static_straddle_survey), so waiting for the control to move is
     waiting forever". MEASURED on s4.debug.bin crc32 62238a15: a default campaign moved
     Dbg_DMA_Straddle_All 0 -> 6 and Dbg_DMA_Straddle_Peak 0 -> 1, first non-zero at frame
-    13005 in P4-anchored, player (1082,497) grounded, mapping_frame $2C. Ordinary play moves
-    it. The static survey is not wrong about what it surveys -- it answers "can a PAGE-IN
+    13005 in P4-anchored, player (1082,497) grounded. Ordinary play moves it. (`first_hit` is
+    recorded at a POLL, `--chunk` frames apart, so the `mapping_frame $2C` printed beside it is
+    the frame at the poll boundary and NOT necessarily the frame that straddled -- what the run
+    licenses is "within the 30 frames ending at 13005, grounded".) The static survey is not wrong about what it surveys -- it answers "can a PAGE-IN
     LANDING straddle 128 KB in this act?" and the answer is still False -- but "the straddle
     population in ordinary play is EMPTY" was the conjunction of that with dplc_straddle.py's
     "every straddling DPLC frame in the cast is unreachable through its anim table", and the

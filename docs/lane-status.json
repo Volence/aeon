@@ -26,7 +26,7 @@
     },
     {
       "id": "DPLC-STRADDLE-REACHABLE",
-      "title": "A sprite frame we had argued was unreachable is reached by ordinary grounded play, and it straddles -- the argument for expecting zeros needs re-running, not the numbers",
+      "title": "Ordinary grounded play straddles six times in an act we had argued could not straddle at all; the frame that did it is not identified, but the argument for expecting zeros needs re-running -- not the numbers, which stand",
       "state": "open",
       "size": "S",
       "blockedBy": null

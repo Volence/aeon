@@ -39393,11 +39393,17 @@ So W20 could have sat on exactly W16's split and passed every check in the file.
 **AND AN INDEPENDENT CONTROL THAT WAS ALREADY IN THE TREE.** The two anchored coefficients moved
 **anchor 242.5 → 1068.3** and **anchor_ops 19.5 → 102.9**, while every other term stayed put
 (base 5458.5 → 5457.7, `line_fg_only` 26.0 → 26.0, vdeform 1553.5 → 1554.3). `tools/effects_budget_model.toml`
-publishes **981.4** / **1024.5** for `anchor` and **60.77** / **84.9** for `anchor_ops`, measured
-back when the fixture still worked. **The repaired fit lands beside the published history; the
-broken one was off by 4.4x and nothing in the tree compared them.** Anyone who had re-run this
-probe in the last weeks and taken its anchored terms would have silently replaced a ~1000-cycle
-overlay with a ~240-cycle one.
+publishes **981.4** (record 10) / **1024.5** (2026-08-29) for `anchor` and **60.77** / **84.9**
+for `anchor_ops`. **The repaired fit lands beside that published history; the broken one is off
+by ~4x from both it and from the repaired re-measure (1068.3 / 242.5 = 4.40; 1024.5 / 242.5 =
+4.22), and nothing in the tree ever compared them.**
+
+Read that as corroboration, not as proof of a date: the natural inference is that those figures
+were taken while the fixture still installed a live anchor, but this parcel did not bisect for
+when the bank went to `$7FFF` and does not claim to know. What it does establish is that the
+repaired instrument and the published table agree, and the broken instrument agreed with
+neither. Anyone who had re-run this probe recently and taken its anchored terms would have
+silently replaced a ~1000-cycle overlay with a ~240-cycle one.
 
 **THE `--sweep` ARM IS DECLARED RED, NOT REPAIRED — and its defect is worse than the fixture
 arm's, because it was GREEN.** Same root. Its OVERLAY-COVERAGE rationale reads "Effects_World_Y[0]
@@ -39419,10 +39425,13 @@ anchor into it changes what the arm **is**, not how well it does it. See the ope
 **BOOKED AS:** dead on a hard-coded path, unhandled `FileNotFoundError` out of `sock.connect`,
 exit 1 in 0 s; never spawns an emulator; defaults name `s4.stress.bin`. **Reproduced verbatim.**
 
-RETIRE was considered and rejected on evidence. Its subject is alive: `STRESS_EVICT=1 ./build.sh`
-still exists, `tools/nightly_effects_gates.sh:321` **builds that shape every night**, and nothing
-in the tree grades it — the nightly builds the fixture and throws it away. Nothing else witnesses
-eviction. A tool covering a live subject that nothing else covers is not a deletion candidate.
+RETIRE was considered and rejected on evidence, and the evidence is the nightly. Its subject is
+alive: `STRESS_EVICT=1 ./build.sh` still exists, `tools/nightly_effects_gates.sh:321` builds that
+shape, and `aeon-effects-gates.timer` is `enabled` + `active` with a last run of
+**2026-09-19 04:17:05** — so the fixture ROM really is produced, not merely scriptable. **And
+nothing in the tree grades it**: the nightly builds the fixture and the next thing that touches
+it is nothing. Nothing else in the tree witnesses eviction either. A tool covering a live subject
+that nothing else covers is not a deletion candidate; it is an unwired one.
 
 **REPAIRED:** it spawns its own headless `oracle-aether` through `tools/aether_instance.py`, and
 `timeout_ms` → `timeoutMs` flipped **in the same commit**, per the 2026-08-26 ruling.
@@ -39456,9 +39465,12 @@ exit 2.
 independent pieces of evidence, all pointing the same way:
 
 1. **The tool's own numbers.** `Dbg_DMA_Straddle_All` **0 at boot → 6**, and
-   `Dbg_DMA_Straddle_Peak` **0 → 1**, first non-zero at **frame 13005** in P4-anchored, player
-   (1082,497) **grounded**, `mapping_frame $2C`. Control A did fire. `control_moved` is computed
-   straight off those samples.
+   `Dbg_DMA_Straddle_Peak` **0 → 1**, first observed non-zero at **frame 13005** in P4-anchored,
+   player (1082,497) **grounded**. Control A did fire; `control_moved` is computed straight off
+   those samples. ⚠ **The `mapping_frame $2C` beside that line is the frame at the POLL, not the
+   frame that straddled.** `first_hit` is recorded when a poll first sees the cell non-zero and
+   polls are `--chunk` frames apart (default 30), so all it licenses is "within the 30 frames
+   ending at 13005, with the player grounded and animating in the walk/run range".
 2. **The tool's own contract.** The module docstring has always said *"Only both controls failing
    is exit 2 (could-not-measure)"*. The gate said `if not forced` — control B alone.
 3. **`ram.emp`'s reading rule**, which the verdict quotes: the Important zeros are readable while
@@ -39467,9 +39479,11 @@ independent pieces of evidence, all pointing the same way:
 **So the verdict was the liar, and the direction matters: this tool has been UNDER-reporting.**
 Every past run that printed `MOVED DURING PLAY: True` and exited 2 threw away a real measurement
 and blamed a dead instrument. **It could never have over-reported** — the pass path required
-`forced`, which is strictly *stronger* than what the reading rule asks — so no past run ever
-claimed a verdict it had not earned. Nothing already published needs retracting; what was lost is
-measurements that were never published.
+`forced`, which is strictly *stronger* than what the reading rule asks. That holds for the whole
+life of the file, checked rather than assumed: `git log -S 'if not forced:'` returns exactly two
+commits, the tool's introduction (`145da64b`) and this repair, so the gate has read control B
+alone since day one and no run of any version reached a verdict it had not earned. Nothing
+already published needs retracting; what was lost is measurements that were never published.
 
 **And the loss was real.** Repaired, the same default campaign delivers the d-47 booking's
 number, which had never been reported: across **36,638 frames**, `Dbg_DMA_Straddle_Peak` = **1**
@@ -39485,7 +39499,10 @@ docstring asserted that ordinary play "structurally cannot" move the control in 
 and does. The static page-manifest survey is still correct about what it surveys (no page-in
 landing in this act can cross 128 KB, and it printed exactly that); it is the *other* half of the
 conjunction — `dplc_straddle.py`'s "every straddling DPLC frame in the cast is unreachable
-through its anim table" — that the observation contradicts.
+through its anim table" — that the observation contradicts. **Which frame did it is not
+established by this run** (see the poll-resolution caveat above); what is established is that
+something in ordinary grounded play straddles six times, and the DPLC path is the only remaining
+candidate once the page-in half is excluded by the survey.
 
 ### RED-FIRST EVIDENCE
 
@@ -39535,7 +39552,9 @@ literal in `cart_coverage_census.py`'s CANARIES table, which the census's corpus
 filename in a string looks like an invocation; prose does not). Moving the canary moved the
 credit. So `sfx_audition.py` is now credited as reachable **purely by being named in a table of
 classifications that does not execute it** — precisely the over-crediting `evict_witness.py`'s
-own exclusion reason called out three hours earlier. Nothing in the accounting is wrong today;
+own exclusion reason called out, in the entry landed the same day by `8b3ea95c`
+("the ONLY code reference to it anywhere in the tree is a string inside
+`cart_coverage_census.py`'s own TABLE OF TOOL CLASSIFICATIONS"). Nothing in the accounting is wrong today;
 it is the same known hole, wearing a different name, and it belongs to
 `CENSUS-CRITERION-TOO-NARROW` rather than to this parcel.
 
@@ -39583,11 +39602,13 @@ prints both and goes with the ROM, loudly. Not chased further here: it is plausi
 question and this lane does not make claims about another tree by grepping it.
 
 **`DPLC-STRADDLE-REACHABLE`: a straddling DPLC frame IS reachable in ordinary grounded play.**
-`mapping_frame $2C` — inside the walk/run tilt block `$01-$30`, the owner's "rotated slightly"
-frames — straddled at frame 13005 with the player grounded at (1082,497). `dplc_straddle.py`'s
-claim that every straddling DPLC frame in the cast is unreachable through its anim table is what
-`dma_straddle_exercise`'s "empty by construction" argument rests on, and it is now contradicted
-by observation. **Re-run `dplc_straddle.py` before quoting that argument again.** This does not
+`Dbg_DMA_Straddle_All` went 0 → 6 and `Dbg_DMA_Straddle_Peak` 0 → 1 during ordinary grounded
+play, first seen at frame 13005 with the player at (1082,497), `mapping_frame $2C` at the poll
+(which is a 30-frame window, not a frame attribution — see the caveat in section 3).
+`dplc_straddle.py`'s claim that every straddling DPLC frame in the cast is unreachable through
+its anim table is what `dma_straddle_exercise`'s "empty by construction" argument rests on, and
+with the page-in half excluded by the static survey the DPLC path is the only candidate left, so
+that claim is contradicted by observation even though the specific frame is not named. **Re-run `dplc_straddle.py` before quoting that argument again.** This does not
 touch the campaign's verdict — Peak 1 ≤ reserve 2, Reject 0 — it touches the *reason* anyone gave
 for expecting zeros.
 
@@ -39599,8 +39620,11 @@ word"), which is the property that makes its out-of-sample reading worth anythin
 decision about what the arm is, not a bug fix**, and it is the owner's or the arm's.
 
 **`EVICT-WITNESS-WIRING`: the nightly builds `STRESS_EVICT` and grades nothing.**
-`nightly_effects_gates.sh:321` builds `s4.stress.bin` every night and the next thing that touches
-it is nothing. Now that the witness runs headless and self-spawns, wiring it in is two lines
+`nightly_effects_gates.sh:321` builds `s4.stress.bin`, and reading the whole stress block: the
+leg checks the BUILD's exit code and, after both stress legs, that the tree restored. **Nothing
+reads the artifact.** Grepped across `tools/*.sh`, `tools/*.py` and `build.sh`, the only runnable
+consumer of `s4.stress.*` is a shape CLASSIFIER (`gate_cut_shape.py`) and a per-listing ceiling
+table (`inject_editor_bg.py`) — no witness. Now that the witness runs headless and self-spawns, wiring it in is two lines
 there plus a `[not_wired]` → `[wired]` move with a surface baseline. Not done here: this parcel
 repaired three instruments, and wiring one of them into a lane is a different proof obligation
 with different accounting.
