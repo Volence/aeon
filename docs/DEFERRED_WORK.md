@@ -38281,6 +38281,22 @@ every one of the 85, the census is re-derived from the tree on every run, and an
 (in the tree, not in the manifest) or MISSING (in the manifest, not in the tree) name is
 COULD NOT RUN. That invariant holds whether or not the heuristic is exactly right.
 
+#### WHAT IT REPORTS TODAY
+
+Final run 2026-09-18, against `s4.debug.bin` crc32 `62238a15` / 848,075 B:
+
+```
+  bus instruments in tools/          85
+  declared in the manifest           85  (35 wired, 50 not wired)
+  accounting: every bus instrument in the tree has a disposition.
+  PASSED 34   FAILED 0   COULD NOT RUN 1       finished=35 of 35    exit 2
+```
+
+**Cost: 5.0 to 7.0 min wall for 35 instruments**, measured across three full runs at load
+average 5.09 to 8.22 (`uptime` 3 days, 3:55 / 3:46 / 4:06). That is well under the ~12 min
+the previous parcel priced for 29, because the median instrument here is far cheaper than
+the ~25 s the two known-dead ones cost.
+
 #### THE LANE IS NOT VACUOUS — ⚠ OPEN DEFECT FOUND ON ITS FIRST RUN
 
 **`tools/ramp_authored_witness.py` is DEAD and stays LOUD.** It runs arms 1-4, prints a full
