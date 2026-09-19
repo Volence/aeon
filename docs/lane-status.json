@@ -1,5 +1,5 @@
 {
-  "focus": "Both checks repaired and landed: one was reading mid-fade, the other stopped looking at a call.",
+  "focus": "Both checks repaired and landed; a wrong date in our notes traced, fixed, and turned into a rule.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -71,5 +71,5 @@
   ],
   "awaiting": "two things when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T00:12:10Z"
+  "updatedAt": "2026-09-19T00:33:52Z"
 }
