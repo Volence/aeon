@@ -38299,9 +38299,18 @@ Final run 2026-09-18, against `s4.debug.bin` crc32 `62238a15` / 848,075 B:
 ```
 
 ⚠ That is the 2026-09-18 reading and it is left as measured. **The one COULD NOT RUN was
-`ramp_authored_witness.py`, fixed 2026-09-19 and now declared `expect = 0`** (next section),
-so the same 35 rows should fold to `PASSED 35 / FAILED 0 / COULD NOT RUN 0`, exit 0 — which
-is a PREDICTION from one row changing, not a lane run anybody has done since.
+`ramp_authored_witness.py`, fixed 2026-09-19 and now declared `expect = 0`** (next section).
+
+**Re-measured 2026-09-19 on the fixed tree: `PASSED 35 / FAILED 0 / COULD NOT RUN 0`, exit 0**,
+4.6 min over 35 instruments at load average 2.58 (`uptime` 3 days, 5:12). That total is
+assembled from two runs and the seam is named rather than smoothed: the 35-row run reported
+32 PASSED and **3 COULD NOT RUN — `pcc_lab_probe`, `plane_buffer_headroom_probe` and `sh_probe`,
+the three `args = []` rows that read `s4.debug.bin` / `s4.debug.lst` FROM THE REPO ROOT** and
+so cannot run in a worktree that has never been built. Linking the artifacts in and re-running
+exactly those three plus this parcel's row gave `PASSED 4 / FAILED 0 / COULD NOT RUN 0`, exit 0.
+**That seam is this measurement's, not the nightly's:** `tools/nightly_instrument_keepalive.sh`
+runs `DEBUG=1 ./build.sh` inside its own fresh worktree before it calls the lane, so those
+three rows find their artifacts there. Nothing to book.
 
 **Cost: 5.0 to 7.0 min wall for 35 instruments**, measured across three full runs at load
 average 5.09 to 8.22 (`uptime` 3 days, 3:55 / 3:46 / 4:06). That is well under the ~12 min
