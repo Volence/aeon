@@ -1,12 +1,6 @@
 {
-  "focus": "Finding out what the new nightly CANNOT see, since a claim that it covers us is already written down.",
-  "inFlight": [
-    {
-      "what": "Measuring what the new nightly cannot see, so the claim that it covers this is either true or made precise",
-      "where": "branch parcel/keepalive-default-args",
-      "agent": true
-    }
-  ],
+  "focus": "The nightly's blind spot is measured and the claim about it corrected; nothing in the unwatched half is rotting.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,20 +8,27 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the nightly's blind spot is measured and the written claim is either confirmed or narrowed.",
+  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
   "queue": [
-    {
-      "id": "KEEPALIVE-DEFAULT-ARGS",
-      "title": "Measured: the keepalive reaches one invocation per tool, leaving 38 options that gate 241 lines it never runs -- and a 20-arm sample of them found 0 dead, so the gap is real but empty tonight",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
       "state": "open",
       "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "KEEPALIVE-PERARM-BASELINES",
+      "title": "Four tools are expected to FAIL as their normal state, so adding a check to one gives a check that can never fail; they need a baseline per check before the nightly grows",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "KEEPALIVE-UNWIRED-SURFACE",
+      "title": "The 50 tools the nightly does NOT run have had their non-default behaviour measured by nobody; tonight only measured the 35 it does run",
+      "state": "open",
+      "size": "M",
       "blockedBy": null
     },
     {
@@ -104,6 +105,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T05:35:27Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T06:17:01Z"
 }
