@@ -215,21 +215,10 @@ SCREEN_LINES = 224               # the visible height the filler walks, and span
 ANCHOR_CH = 0                    # the channel the anchored fixtures name in their config
 
 
-def split_line(band_counts, height=SCREEN_LINES) -> int:
-    """The screen line the anchored fixtures put their split on, at the IDLE camera.
-
-    The multiple of 8 nearest the middle of the display that is not a band top of any
-    anchored fixture. Ties go to the LOWER candidate, so the value is a function of the
-    fixture matrix and not of iteration order.
-    """
-    tops = {t for n in band_counts for t in pcp.band_tops(n)}
-    mid = height // 2
-    cands = [x for x in range(8, height, 8) if x not in tops]
-    if not cands:
-        raise SystemExit("parallax_hscroll_identity: every multiple of 8 on the screen is a "
-                         "band top of some anchored fixture — there is no split line that "
-                         "tests a remainder rather than a boundary")
-    return min(cands, key=lambda x: (abs(x - mid), x))
+# `split_line` MOVED to `parallax_cost_probe` on 2026-09-19 — `pcp.band_tops`, its only
+# input, lives there, and both files need it now that the cost probe's anchored fixtures
+# install a world anchor too. One derivation, in the module that owns the geometry.
+split_line = pcp.split_line
 
 
 def matrix(base: bytes, fg: int, bg: int) -> dict:

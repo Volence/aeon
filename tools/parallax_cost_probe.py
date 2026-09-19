@@ -233,6 +233,12 @@ PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChanne
 # `Static_Hscroll_Line` dma_length(896). (The 112-byte `Static_Hscroll_Cell` twin was
 # deleted 2026-08-26, d-29-corrected; the tuple shape is kept for the scan below.)
 HSCROLL_STATIC_BYTES = (896,)
+SCREEN_LINES_VISIBLE = 224   # the visible height the filler walks; `_segments` clamps L to it
+# The one fixture that varies the split POSITION, and the fixture it is a copy of. Named
+# rather than spelled inline because THREE places have to agree about the pair: the derived
+# `what`/`vary` strings, the neighbour-pair table, and the split-moved check.
+SPLIT_POSITION_FIXTURE = "W20"
+SPLIT_POSITION_REFERENCE = "W16"
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
@@ -259,6 +265,43 @@ def band_tops(bands: int) -> list[int]:
     and the shadow tops read back as exactly those values. The probe prints them.
     """
     return [i * (28 // bands) * 8 for i in range(bands)]
+
+
+def split_line(band_counts, height=SCREEN_LINES_VISIBLE) -> int:
+    """The screen line the anchored fixtures put their split on.
+
+    The multiple of 8 nearest the middle of the display that is not a band top of any
+    anchored fixture. Ties go to the LOWER candidate, so the value is a function of the
+    fixture matrix and not of iteration order. A split landing exactly ON a band top
+    produces a zero-length band and tests the boundary instead of the remainder.
+
+    MOVED HERE FROM `parallax_hscroll_identity.py` on 2026-09-19, which is where it was
+    written, because both files now need it and `band_tops` — its only input — lives here.
+    The sibling imports this module already; this module cannot import the sibling.
+    """
+    tops = {t for n in band_counts for t in band_tops(n)}
+    cands = [x for x in range(8, height, 8) if x not in tops]
+    if not cands:
+        raise SystemExit("parallax_cost_probe: every multiple of 8 on the screen is a band "
+                         "top of some anchored fixture — there is no split line that tests a "
+                         "remainder rather than a boundary")
+    return min(cands, key=lambda x: (abs(x - height // 2), x))
+
+
+def split_line_alt(band_counts, base: int, height=SCREEN_LINES_VISIBLE) -> int:
+    """A SECOND legal split line, for the fixture that varies the split POSITION.
+
+    Same rules as `split_line` (multiple of 8, not a band top of any anchored fixture) and
+    the nearest one strictly BELOW `base` in screen order... above it, rather: the smallest
+    legal line greater than `base`. Derived, so the position fixture's delta is whatever the
+    band geometry leaves free instead of a number somebody typed.
+    """
+    tops = {t for n in band_counts for t in band_tops(n)}
+    for x in range(base + 8, height, 8):
+        if x not in tops:
+            return x
+    raise SystemExit("parallax_cost_probe: no legal split line above "
+                     f"{base} — the split-POSITION fixture has nothing to move to")
 
 
 def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
@@ -318,7 +361,7 @@ def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
 # whole phase exists to avoid.
 
 def fixtures(base: bytes, zero_tab: int) -> dict:
-    return {
+    fx = {
         "W0": {"what": "1 band, no table, no deform, no anchor — the floor (per-line, like everything)",
                "vary": "-", "cfg": build(base, bands=1)},
         "W1": {"what": "2 bands, no table", "vary": "band count vs W0",
@@ -428,7 +471,11 @@ def fixtures(base: bytes, zero_tab: int) -> dict:
         # sample every line from 80 to 224 = 144 lines. So W17 vs W16 varies band count ALONE.
         "W17": {"what": "2 bands, per-line, ANCHORED, sampling turned on BY the anchor "
                         "(bands 15/15, anchor_dsb = 2) — W16's regime at W10's band count",
-                "vary": "band count vs W16 (sampled lines identical: 144)",
+                "vary": "band count vs W16 — sampled lines identical BY CONSTRUCTION (both sample only "
+                        "below the same split, so the FG/BG/both column prints the same "
+                        "triple for the two). The literal \"144\" that stood here was the "
+                        "count under the split this fixture set could not actually produce "
+                        "until 2026-09-19; the column is the authority, not this string.",
                 "cfg": build(base, bands=2, tab_bg=zero_tab, anchor=0,
                              dsa=NO_DEFORM, dsb=2,
                              shifts=[(NO_DEFORM, NO_DEFORM)] * 2)},
@@ -453,16 +500,14 @@ def fixtures(base: bytes, zero_tab: int) -> dict:
                 "cfg": build(base, bands=4, tab_fg=zero_tab, anchor=0,
                              dsa=2, dsb=NO_DEFORM,
                              shifts=[(NO_DEFORM, NO_DEFORM)] * 4)},
-        # Split position. The split line is NOT a config field -- it is Effects_Screen_L[ch],
-        # latched every frame from Effects_World_Y[ch] - Camera_Y. So this fixture is W16 with
-        # the WORLD ANCHOR moved (+16 px), never the camera: moving the camera would change the
-        # scroll factors, the section under it and the whole `Decode_Factor` half, which is four
-        # more differences. The realized split is read back from the shadow view rather than
-        # assumed, because Raster_GetChannelBand clamps L into the channel's authored band.
-        "W20": {"what": "4 bands, per-line, ANCHORED, W16 with the world anchor moved +16 px "
-                        "(split 80 -> 96, sampled lines 144 -> 128)",
-                "vary": "split POSITION vs W16 — and it re-checks sampled_lines(split)",
-                "world_y_delta": 16,
+        # Split POSITION. Byte-identical to W16 by construction — the ONLY difference is the
+        # world anchor, which moves the split line and nothing else. Moving the CAMERA instead
+        # would change the section, the scroll factors and the whole `Decode_Factor` half,
+        # which is four differences. `what` and `vary` are WRITTEN from the derived split
+        # lines at the bottom of this function, not typed here, and the realized split is read
+        # back out of the shadow view rather than assumed, because `Raster_GetChannelBand`
+        # clamps L into the channel's authored band.
+        "W20": {"what": "(derived below)", "vary": "(derived below)",
                 "cfg": build(base, bands=4, tab_bg=zero_tab, anchor=0,
                              dsa=NO_DEFORM, dsb=2,
                              shifts=[(NO_DEFORM, NO_DEFORM)] * 4)},
@@ -494,6 +539,31 @@ def fixtures(base: bytes, zero_tab: int) -> dict:
                 "vary": "sampling BANDS vs W14 (1 -> 2) — identifies band_sampling",
                 "cfg": build(base, bands=2, tab_fg=zero_tab, dsa=3)},
     }
+
+    # ---- EVERY ANCHORED FIXTURE GETS ITS SECOND INPUT, and the lines are DERIVED ----
+    # See the banner in `_one`. `split_want` is a SCREEN LINE; `_one` resolves it against
+    # the live Camera_Y. One line for all the anchored fixtures, and one alternate for the
+    # split-POSITION fixture, both picked off this matrix's own band tops so that neither
+    # lands on a boundary (a split exactly on a band top makes a zero-length band and tests
+    # the boundary instead of the remainder). Nothing here is a literal.
+    anchored_counts = sorted({f["cfg"][CFG_BAND_COUNT] for f in fx.values()
+                              if f["cfg"][CFG_ANCHOR_CH] != ANCHOR_NONE})
+    base_l = split_line(anchored_counts)
+    alt_l = split_line_alt(anchored_counts, base_l)
+    for k, f in fx.items():
+        if f["cfg"][CFG_ANCHOR_CH] != ANCHOR_NONE:
+            f["split_want"] = alt_l if k == SPLIT_POSITION_FIXTURE else base_l
+    # The two strings that used to carry the stale numbers are WRITTEN from the derived
+    # values instead of describing them, so a change in the band geometry cannot leave the
+    # prose asserting a split the fixture does not produce. (They read "split 80 -> 96,
+    # sampled lines 144 -> 128" until 2026-09-19, when the real pair was 32767 -> 32783.)
+    p = fx[SPLIT_POSITION_FIXTURE]
+    ref = SPLIT_POSITION_REFERENCE
+    p["what"] = (f"4 bands, per-line, ANCHORED, {ref} with the world anchor moved "
+                 f"+{alt_l - base_l} px (split {base_l} -> {alt_l}, sampled lines "
+                 f"{SCREEN_LINES_VISIBLE - base_l} -> {SCREEN_LINES_VISIBLE - alt_l})")
+    p["vary"] = (f"split POSITION vs {ref} — and it re-checks sampled_lines(split)")
+    return fx
 
 
 SYMS = ("Parallax_Update", "Parallax_Fill_PerLine",
@@ -538,7 +608,7 @@ TRANS_B_DEFAULT = "ParallaxConfig_Perspective_Dramatic"  # 5 bands, per-column V
 
 
 async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
-               settle: int, sample: int, world_y_delta: int = 0) -> dict:
+               settle: int, sample: int, split_want: int | None = None) -> dict:
     # `reset: timeout waiting for main-thread drain` is an INSTRUMENT flake, not a ROM one:
     # oracle's reset is serviced by the GUI main loop, and under machine load (other lanes'
     # headless emulators running) that loop can miss its drain window. Observed three times
@@ -570,18 +640,45 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
     await b.call("emulator/run_frames", {"frames": 3})
 
     # THE SPLIT LINE IS NOT A CONFIG FIELD. It is Effects_Screen_L[ch], re-derived every frame
-    # by Effects_LatchWorldLines as Effects_World_Y[ch] - Camera_Y. A fixture that wants a
-    # DIFFERENT split therefore moves the world anchor, never the camera: the camera also
-    # selects the section, the scroll factors and the whole Decode_Factor half, so moving it
-    # would vary four things instead of one. Read-modify-write, and the value is read back
-    # after the sample so "the preset re-installed its own anchors over the poke" is a check
-    # rather than an assumption.
+    # by Effects_LatchWorldLines as Effects_World_Y[ch] - Camera_Y. So an ANCHORED fixture has
+    # TWO inputs, the config and the anchor, and this file used to synthesize one and inherit
+    # the other from whatever the boot section had left in the bank.
+    #
+    # ⚠ WHAT THAT COST, MEASURED 2026-09-19 ON s4.debug.bin crc32 62238a15. The boot region
+    # leaves Effects_World_Y[0] at PATCH_ANCHOR_NONE ($7FFF = 32767), so L latched at
+    # 32767 - 144 = 32623, past every band, and the overlay correctly did nothing. ALL EIGHT
+    # anchored fixtures (W10 W12 W16 W17 W18 W19 W20 W21) reported "!! NO SPLIT", all eight
+    # neighbour differentials reported IDENTICAL, and the run exited 5 with "DERIVED CHECKS
+    # FAILED — the cycle rows above are NOT evidence". The instrument was right; the FIXTURES
+    # were half-built. W20 was the worst of them because it PERTURBED the bank by +16 instead
+    # of installing a value: $7FFF + 16 is $800F, still off screen, so its advertised "split
+    # 80 -> 96" was really 32767 -> 32783 and described nothing. A delta off state you do not
+    # control is a fixture whose meaning the content can silently redefine.
+    #
+    # SO THE ANCHOR IS INSTALLED, ABSOLUTE, AND DERIVED. Written AFTER the config so the
+    # install order matches a section crossing (Effects_InstallPreset seeds bank and config
+    # together), and the value is read back after the sample so "the preset re-installed its
+    # own anchors over the poke" stays a check rather than an assumption. The shape a fixture
+    # must NOT take is poking the RESPONSE; the profiled cycle row is untouched. The sibling
+    # `parallax_hscroll_identity.py` — which shares `build()` with this file — made the same
+    # move on 2026-09-19 and its `shipped_precedent()` MEASURES, every run, that the loaded
+    # act still pairs an anchored channel 0 with a config that consumes it, so this is a
+    # state the game reaches and not one invented here.
+    #
+    # THE CALLER ASKS FOR A SCREEN LINE, NOT A WORLD Y. `Camera_Y` is read here rather than
+    # pinned, because this arm deliberately leaves the camera where the boot section put it
+    # (moving it would change the section, the scroll factors and the whole Decode_Factor
+    # half), so the world anchor that lands the split on the requested line is a function of
+    # the live camera and is resolved against it. Camera_Y is 16.16 with the whole pixels in
+    # the HIGH word — the walker reads it as `move.l Camera_Y,d1 / swap d1`.
     ch = cfg[CFG_ANCHOR_CH]
-    wy_addr = wy_want = None
-    if world_y_delta and ch != ANCHOR_NONE:
+    wy_addr = wy_want = cam_y = None
+    if split_want is not None and ch != ANCHOR_NONE:
+        cam = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Camera_Y"]), "len": 4})
+        cam_y = int(cam["bytes"][:4], 16)
         wy_addr = sym["Effects_World_Y"] + 2 * ch
-        wy0 = await b.call("emulator/read_memory", {"addr": hex(wy_addr), "len": 2})
-        wy_want = (int(wy0["bytes"], 16) + world_y_delta) & 0xFFFF
+        wy_want = (cam_y + split_want) & 0xFFFF
         await b.call("emulator/write_memory",
                      {"addr": hex(wy_addr), "value": wy_want, "width": 2})
         await b.call("emulator/run_frames", {"frames": 2})
@@ -689,6 +786,7 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
         wy1 = await b.call("emulator/read_memory", {"addr": hex(wy_addr), "len": 2})
         wy_ok = int(wy1["bytes"], 16) == wy_want
     return {"prof": prof, "shadow_tops": tops, "screen_l": screen_l,
+            "camera_y": cam_y, "anchor_wy": wy_want, "split_want": split_want,
             "slot_n": tops[n_cfg] if n_cfg < len(tops) else None,
             "frames": d_frames, "ticks": d_ticks, "lag_frames": d_lag,
             "preempt_free": d_frames == d_ticks and d_lag == 0,
@@ -1380,11 +1478,17 @@ def run_sweep_mode(args, sym: dict[str, int]) -> int:
     #   parallax_hscroll_probe's frozen positions (Camera_Y 144/320/96) ALL land k = 3 — one
     #   rotation state, three times.
     #
-    #   OVERLAY COVERAGE (the 0..224 group). Effects_World_Y[0] is 224 in this act, and the
-    #   overlay's split line is world_y - Camera_Y, so these five positions walk L across the
-    #   whole screen (224, 160, 112, 64, 0) instead of leaving it clamped off the top. Without
-    #   them every anchored row is the degenerate `L <= 0 -> split at line 0` case and the
-    #   sweep would never check a mid-screen split at all.
+    #   OVERLAY COVERAGE (the 0..224 group). ⚠ THIS RATIONALE IS FALSE ON THIS TREE AND THE
+    #   SWEEP NOW SAYS SO. It read: "Effects_World_Y[0] is 224 in this act, and the overlay's
+    #   split line is world_y - Camera_Y, so these five positions walk L across the whole
+    #   screen (224, 160, 112, 64, 0) instead of leaving it clamped off the top." MEASURED
+    #   2026-09-19 on s4.debug.bin crc32 62238a15, at this arm's own boot+settle+freeze state:
+    #   Effects_World_Y[0] = 32767 ($7FFF, PATCH_ANCHOR_NONE) and Effects_Screen_L[0] = 32623
+    #   at Camera_Y 144. (Channel 1 does carry a real anchor, 314; channel 0 does not.) So L
+    #   never lands on the screen at any of the five positions, the overlay early-outs, and
+    #   the run exercises ZERO split lines. The positions are kept — they are the right
+    #   positions IF the anchor were live — and the empty-coverage case is now a named failure
+    #   at the tally instead of a `if ls and` short-circuit that skipped it.
     #
     # Neither group is ASSUMED: the vscroll and the latched L used by the expectation are both
     # read back out of the machine, so a config or an act with different fields still gets a
@@ -1478,7 +1582,35 @@ def run_sweep_mode(args, sym: dict[str, int]) -> int:
     # A sweep whose every anchored row is the L <= 0 degenerate has checked the overlay's
     # early-out and nothing else. Reported, not silently green: the mid-screen split is the
     # part world-Y re-glue (Task 7) is going to move.
-    if ls and set(ls) == {0}:
+    #
+    # ⚠ AND THE `if ls and` USED TO SHORT-CIRCUIT THE WHOLE THING. An EMPTY `ls` — no anchored
+    # position resolved any L at all — skipped this check and the run printed
+    # "distinct overlay split lines exercised: 0  []" and then "ALL POSITIONS AGREE", exit 0.
+    # MEASURED 2026-09-19 on s4.debug.bin crc32 62238a15: that is this sweep's ACTUAL state.
+    # Every position's `split` column reads False and the tally is 0. The degenerate case the
+    # guard above was written for was the SOFT one; the hard one walked straight past it.
+    #
+    # WHY IT IS ZERO, and the cause is the same one that had all eight anchored FIXTURES
+    # reporting NO SPLIT: the rationale above this function says "Effects_World_Y[0] is 224 in
+    # this act", and on this tree it is $7FFF (PATCH_ANCHOR_NONE, 32767). L latches at
+    # 32767 - Camera_Y, past every band, and the overlay correctly does nothing at all five
+    # "overlay coverage" positions. The comment is corrected there; this is the gate.
+    #
+    # THE FIX IS NOT MADE HERE, DELIBERATELY. The fixture arm installs the anchor now, because
+    # a FIXTURE owns both its inputs. This arm's first line of documentation is "NOTHING is
+    # poked but Camera_Y and the arm word" — its value is that it watches the engine's own
+    # re-glue path with the configs the engine installs — and poking a world anchor into it
+    # changes what the arm IS, not how well it does it. That is a design call for whoever owns
+    # the arm. Until then this run is RED with the reason on the line, which is the honest
+    # rendering of "the coverage this sweep advertises is not being achieved".
+    if not ls:
+        failures.append(
+            "ZERO overlay split lines exercised — no anchored position resolved an L at all, "
+            "so the whole OVERLAY COVERAGE half of this sweep's stated purpose measured "
+            "nothing. Cause on this tree: Effects_World_Y[0] holds PATCH_ANCHOR_NONE ($7FFF), "
+            "not the 224 the position list was chosen for, so every L latches off screen. "
+            "See the note at this check.")
+    elif set(ls) == {0}:
         failures.append("every anchored position resolved L = 0 — the sweep never checked a "
                         "mid-screen split, only the overlay's clamp-to-top early-out")
     if args.out:
@@ -1727,7 +1859,7 @@ def main() -> int:
         await b.call("emulator/load_symbols", {"path": args.lst})
         for k, fx in FX.items():
             results[k].append(await _one(b, sym, fx["cfg"], args.settle, args.sample,
-                                         fx.get("world_y_delta", 0)))
+                                         fx.get("split_want")))
         live.append(await _live(b, sym, args.settle, args.sample))
         await b.close()
 
@@ -1932,6 +2064,35 @@ def main() -> int:
             print(f"  {a_k} vs {p_k}: "
                   + ("!! IDENTICAL — the split did NOT happen, the anchor coefficient is"
                      " measuring an early-out" if same else "differ — the split happened"))
+
+    # ---- DID THE SPLIT-POSITION FIXTURE ACTUALLY MOVE THE SPLIT? ----
+    # THE CHECK WHOSE ABSENCE LET W20 ROT FOR A MONTH. Every other witness here asks "did a
+    # split happen", which W20 could answer yes to while sitting on exactly W16's split — and
+    # for most of 2026-09 it answered no to all of them while the file's prose went on claiming
+    # "split 80 -> 96". The fixture's whole claim is that the split MOVED, by a stated amount,
+    # relative to one named neighbour; that claim is now graded. Both halves are derived: the
+    # expected delta from `split_line`/`split_line_alt` over this matrix's own band tops, the
+    # realized pair out of the shadow view.
+    a_k, p_k = SPLIT_POSITION_FIXTURE, SPLIT_POSITION_REFERENCE
+    if a_k in table and p_k in table:
+        want = ((FX[a_k].get("split_want") or 0) - (FX[p_k].get("split_want") or 0))
+        got_a, got_p = table[a_k]["split_line"], table[p_k]["split_line"]
+        if got_a is None or got_p is None:
+            failures.append(f"{a_k} vs {p_k}: split POSITION — one of the two realized no "
+                            f"split at all ({a_k}={got_a}, {p_k}={got_p})")
+            verdict = "!! NO SPLIT on one side"
+        elif got_a - got_p != want:
+            failures.append(
+                f"{a_k} vs {p_k}: split POSITION — the split moved by {got_a - got_p}, not "
+                f"the {want} these fixtures asked for ({p_k} split {got_p}, {a_k} split "
+                f"{got_a}). The anchors installed were {FX[p_k].get('split_want')} and "
+                f"{FX[a_k].get('split_want')} screen lines off the live camera; a smaller "
+                f"move than asked is Raster_GetChannelBand clamping one of them into the "
+                f"channel's authored band")
+            verdict = f"!! MOVED BY {got_a - got_p}, WANTED {want}"
+        else:
+            verdict = f"split moved {got_p} -> {got_a} (+{want}) as asked"
+        print(f"  {a_k} vs {p_k}: {verdict}")
 
     # ---- OUT OF SAMPLE: the shipped config, scored by the fitted model --------------
     live_out = {}
