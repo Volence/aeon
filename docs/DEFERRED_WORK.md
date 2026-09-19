@@ -4904,11 +4904,20 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   work/tick **134,521 → 123,016**, against a 128,000-cycle frame. Full verdict in the closed
   entry below and in `benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F7.
   - ⚠ **The "for a year" above was wrong by 13x, and the shape is worth more than the fix.**
-    Corrected 2026-09-19 on empyrean's cross-lane sweep (banked empyrean `5e2f5a57`,
-    `docs/OVERSEER-LOG.md`), which oracle raised against its own prose after finding a pin it
-    had described as standing "for thirteen months" in a repo 86 days old. **The discriminator
-    is mechanical and needs no judgement: a duration claim about OUR OWN code that exceeds its
-    repo's age is wrong.** Aeon's first commit is 2026-04-24, so no in-repo duration can reach
+    Corrected 2026-09-19 on empyrean's cross-lane sweep, which oracle raised against its own
+    prose after finding a pin it had described as standing "for thirteen months" in a repo 86
+    days old. **The class is now PROTOCOL, and read it there, not here: empyrean `098209ce`,
+    `docs/OVERSEER-PROTOCOL-REFERENCE.md`** (verified reachable from `origin/main` and read
+    firsthand out of that blob; the sweep itself is `5e2f5a57` and the hub's correction of its
+    own clean result is `b6c77bf3`, both in `docs/OVERSEER-LOG.md`, which are history rather
+    than governing text). **Its PRIMARY test is predictive and is the one to run first: ask
+    what would change if a duration in your own prose were an order of magnitude smaller — if
+    the answer is "the conclusion", date it from the commit.** Colour durations need nothing,
+    because nobody inflates what has nothing to gain. **The repo-age test below is the cheap
+    REFUTATION, and it is a lower bound on the class, never its boundary.**
+    **A duration claim about OUR OWN code that exceeds its repo's age is wrong**, in one
+    command, with no judgement — but "for three months" would have sat inside the bound and
+    been exactly as wrong, since 28 days is 28 days. Aeon's first commit is 2026-04-24, so no in-repo duration can reach
     a year until 2027-04. Run it:
     `git log --reverse --format=%ad --date=short | head -1`
     **The failure mode is not sloppiness, it is INFLATION TOWARD THE WRITER'S POINT** — "the
