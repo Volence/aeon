@@ -38428,3 +38428,27 @@ a disjoint population.**
 
 **Deliberately not swept on 2026-09-19:** an agent was live across `tools/` on the keepalive
 parcel and two sweeps in one directory is how a parcel loses its baseline. Take it when that lands.
+
+## KEEPALIVE ARMED 2026-09-19, AT 05:00 AND NOT THE SUGGESTED 04:30 (closes KEEPALIVE-ARM-IT)
+
+`aeon-instrument-keepalive.timer` is enabled, `OnCalendar=*-*-* 05:00:00`, `Persistent=true`,
+running `tools/nightly_instrument_keepalive.sh`. **Disable with
+`systemctl --user disable --now aeon-instrument-keepalive.timer`.**
+
+**THE HOUR IS MEASURED, AND THE SCRIPT'S OWN SUGGESTION WOULD HAVE COLLIDED.** Its trailing
+comment proposes 04:30 and says to check `list-timers` first — that check is the reason this is
+not 04:30. `aeon-effects-gates.timer` fires at 04:17 and its service has finished at **04:35:41,
+04:35:14 and 04:44:59** over 2026-09-14..18 (`journalctl --user -u aeon-effects-gates.service`).
+**A 27-minute run against a 13-minute gap is a collision that already happened once in five
+nights** — and both lanes build a ROM and boot headless emulators, so an overlap puts each one's
+timings under the other's load while this lane's per-instrument timeouts are sized against a
+measured load average. 05:00 leaves ~15 min past the longest observed finish for a 5-7 min run.
+Re-derive before changing it: `systemctl --user list-timers --all | grep aeon`.
+
+**Who armed it, since the artifact carries a dissent.** The script's own comment reads *"Arming is
+the owner's, deliberately"* — the building agent's judgement, written without knowledge of the
+hub's standing delegation. The hub ruled ARM IT under that delegation (non-look, owner-granted,
+overturnable by one word), on the ground that **a keepalive that is written but switched off is an
+instrument that cannot report — the exact defect it was built to detect.** Cost of the defect:
+35 silent failures over three weeks plus a third dead tool found in the first six minutes. Cost of
+the fix: ~6 min a night. The failure path was verified before arming (`--selftest-fail`, exit 1).

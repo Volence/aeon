@@ -18,13 +18,6 @@
       "blockedBy": null
     },
     {
-      "id": "KEEPALIVE-ARM-IT",
-      "title": "The keepalive nightly is written but switched OFF; arming it is a decision about what the tree promises to keep alive, at about six minutes a night",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "KEEPALIVE-DEFAULT-ARGS",
       "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
       "state": "open",
@@ -106,5 +99,5 @@
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T04:03:44Z"
+  "updatedAt": "2026-09-19T04:05:55Z"
 }
