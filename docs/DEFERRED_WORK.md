@@ -39609,6 +39609,13 @@ is evaluated for the listing under a build define rather than at the define itse
 prints both and goes with the ROM, loudly. Not chased further here: it is plausibly a sigil-side
 question and this lane does not make claims about another tree by grepping it.
 
+**DIAGNOSED 2026-09-19 (`parcel/stress-clamp-equ`). It is sigil's, the guess above was right, and
+the row stays open only until sigil acts.** The listing's engine-constant equate rows do not come
+from the shape's own lowering at all — they come from a SHAPE-BLIND harvest that pins
+`STRESS_EVICT` to 0. Full evidence, the control that rejected the two rival readings, and the
+cited sigil revision: **`STRESS-CLAMP-EQU-WRONG — DIAGNOSIS` at the end of this file.** Nothing
+here is ours to fix; `evict_witness.py`'s "go with the ROM" is the correct handling and stays.
+
 **`DPLC-STRADDLE-REACHABLE`: a straddling DPLC frame IS reachable in ordinary grounded play.**
 `Dbg_DMA_Straddle_All` went 0 → 6 and `Dbg_DMA_Straddle_Peak` 0 → 1 during ordinary grounded
 play, first seen at frame 13005 with the player at (1082,497), `mapping_frame $2C` at the poll
@@ -39676,3 +39683,118 @@ adopt without any lane change at all.**
 **Do not read this row as a demand for a mechanism.** It may be that the honest answer is: the
 keepalive covers (1), nothing covers (2) or (3), and that is stated rather than closed. **Saying so
 precisely is worth more than a mechanism that appears to cover them.**
+
+## STRESS-CLAMP-EQU-WRONG — DIAGNOSIS: sigil publishes the shape-BLIND fold of an engine `pub const` (OPEN against sigil, diagnosed 2026-09-19)
+
+**The booked row above asked which of three things was wrong. It is the third one listed there and
+the first two are rejected by measurement, not by argument.** Aeon's source is fine, the name is
+fine, and the two numbers are not a capacity-vs-index pair. The listing's Equate Table row for
+`PAGE_FRAMES_CLAMP` is computed by a code path that **cannot see the build shape**, and it sits in
+the same table as `EQU STRESS_EVICT = $00000001`, which **can**.
+
+### What was measured (aeon `parcel/stress-clamp-equ`, base `899b25c5`, sigil binary revision `d7e6aa15`)
+
+Built in an isolated worktree, `STRESS_EVICT=1 ./build.sh`, exit 0, ROM crc32 `cd308561`:
+
+```
+DIGEST-SHAPE  target=stress-evict game=sonic4 debug=1
+DIGEST-DEFINE STRESS_EVICT=1
+EQU PAGE_FRAMES         = 12     EQU STRESS_EVICT        = 1
+EQU PAGE_FRAMES_CLAMP   = 12     EQU STRESS_EVICT_FRAMES = 9
+Level_LoadArt = $009394 ; EMITTED cmpi.w #$0009,d6 at $0093B6     -> DISAGREE 12 vs 9
+```
+
+`engine/system/constants.emp:509` folds `12 - 1*(12-9) = 9`. **The ROM is right.**
+
+**THE CONTROL, and it is what decides this.** The same shape rebuilt with the formula perturbed so
+that the shape-blind fold and the shape-aware fold land on two numbers that are **neither 12 nor
+9 and not equal to each other** — `STRESS_EVICT_FRAMES 9 -> 7` and
+`PAGE_FRAMES_CLAMP = PAGE_FRAMES - 1 - STRESS_EVICT*(PAGE_FRAMES - 1 - STRESS_EVICT_FRAMES)`, so
+the `STRESS_EVICT=0` fold is 11 and the `STRESS_EVICT=1` fold is 7. Registered before the run.
+Result: `EQU PAGE_FRAMES_CLAMP = 11`, emitted `cmpi.w #$0007,d6`. The mutation was restored from
+the committed baseline and the probe artifacts deleted.
+
+That result **forbids** the two rival readings:
+
+* **"the row is a `PAGE_FRAMES` passthrough / a stale cached 12"** — it would have stayed 12. It moved to 11.
+* **"the two numbers mean different things (capacity vs last-valid-index, pre- vs post-clamp)"** — a
+  semantic offset is fixed. The gap moved from 3 to 4, tracking `PAGE_FRAMES - STRESS_EVICT_FRAMES`
+  exactly. **`9 = 12 - 3` is the fixture's own clamp delta, not a meaning.**
+* **"the row is shape-aware after all"** — it would have been 7.
+
+The published value is, precisely, **the fold of the same expression with `STRESS_EVICT` forced to
+0**. Nothing else fits 11.
+
+### Where it comes from (sigil, cited through git objects at a named revision)
+
+Revision `d7e6aa15463a8b7f8652d05ce1462d42d6b21d70` — what the running `sigil` binary stamps into
+`DIGEST-ASSEMBLER`. Every line below is byte-identical at sigil's tip
+`1bfce22f3a345942310fa818279ce92022ac2ea8` (the first change to `native.rs` between the two is at
+line 1607, past all of them), so the tip carries it too.
+
+1. `crates/sigil-harness/src/native.rs:1262` `harvest_engine_constants(aeon: &Path)` — **takes no
+   profile.** It is the only one of the four harvests that cannot see the shape;
+   `harvest_game_constants` (line 1308) takes `debug: bool` and seeds it.
+2. `crates/sigil-harness/src/native.rs:1279` — it folds **every** `pub const` of
+   `engine/system/constants.emp` with the seed list `[("STRESS_EVICT", 0)]`, hard-coded.
+3. `crates/sigil-harness/src/native.rs:1542` — that output becomes `guarded_defines`.
+4. `crates/sigil-frontend-as/src/eval.rs:927` `attach_guarded_equ_exports` — each guarded define is
+   attached to the linked program as a **link-level `EquSym`**.
+5. `crates/sigil-link/src/lib.rs:342` `resolved_equates` -> `crates/sigil-link/src/listing.rs:182`
+   `EQU {} = ${:08X}` — which is the row we read.
+
+Meanwhile `stress_evict_profile()` (`native.rs:937`) flips `STRESS_EVICT` to 1 in `emp_defines`,
+and that is what lowers the instruction. **Two evaluations of one `pub const`, one shape-aware and
+one pinned at 0, and the listing publishes the pinned one.**
+
+**The comment at `native.rs:1272-1279` already anticipated the stale value** and called it "an
+unused AS define". That was half right: no residual `.asm` references `PAGE_FRAMES_CLAMP` (grepped
+across the aeon tree), so the AS side really does not read it — **but the same guarded define is
+also exported as a link `EquSym` and published in the listing**, where `tools/evict_witness.py`
+does read it. The claim's scope was the AS side; the value's reach is wider.
+
+Two sibling sites seed the same pin **harmlessly**, and they are named here because they are why
+this pattern is easy to keep adding, not as further defects:
+`crates/sigil-frontend-emp/src/lower/mod.rs:192` (a fallback the real build always overrides
+explicitly) and `crates/sigil-harness/src/seam1.rs:1179` (keeps only `Z80_RAM`, which is
+shape-independent, and discards the rest).
+
+### What each number actually means, plainly
+
+* **The emitted `cmpi.w` immediate (9)** — the residency-cache frame count **this ROM enforces**:
+  `Level_LoadArt` takes the fully-resident path when the act's pool is at or under it. It is the
+  fixture's whole point, and it is correct for the shape.
+* **The published `EQU PAGE_FRAMES_CLAMP` (12)** — the value that expression takes **when
+  `STRESS_EVICT` is 0**, which is every shipped shape and not this one. It is not a capacity, not
+  an index, and not a pre-clamp value; it is **the answer to a question about a different build**.
+
+### Blast radius, measured rather than assumed
+
+* **Canonical shapes DO NOT carry it.** Both canonical sonic4 shapes were rebuilt with the same
+  sigil binary and probed the same way: plain (`Level_LoadArt $007A82`) and `DEBUG=1`
+  (`$009394`) each publish `EQU PAGE_FRAMES_CLAMP = 12` and emit `cmpi.w #$000C,d6`. **AGREE.**
+  At `STRESS_EVICT = 0` the two paths evaluate the same expression, so they cannot differ. Demo
+  and `--stress-art` do not flip the define either. **The disagreement exists in exactly one
+  shape, `--stress-evict`, for exactly one name.**
+* **A NEW instance of this class fails loudly rather than publishing silently.** Probed: adding
+  `pub const PROBE_UNSEEDED = PAGE_FRAMES - DEBUG` to `engine/system/constants.emp` aborts the
+  build at exit 101 with ``unknown name `DEBUG` `` (`crates/sigil-harness/src/seam1.rs:1144`), no
+  ROM written. The silent-wrong case needs the define to be one the harvest seeds, and it seeds
+  **exactly one, at exactly one value**. Mutation restored from the committed baseline.
+* **The propagation path that is open but unused today:** `harvest_game_constants` (`native.rs:1313`)
+  seeds the harvested ENGINE values, the stale `PAGE_FRAMES_CLAMP` included, into the game
+  constants' eval. No game `pub const` references it today. If one ever does, the staleness travels.
+* The bad value does **not** reach Oracle's symbol resolution or the deb2 appendix: `emit_listing`
+  writes body rows only for address symbols, and `attach_guarded_equ_exports` documents that
+  `EquSym`s are filtered from the deb2 appendix.
+
+### What sigil is being asked (ours is to report, not to choose)
+
+Either would close it, and **which one is theirs to pick**: make the engine-constants harvest
+shape-aware the way the game-constants harvest already is, or stop publishing shape-blind
+harvested values as listing equate rows (omit them, or mark them so a reader can tell a
+shape-blind row from `EQU STRESS_EVICT = 1` sitting two lines away). **What cannot stand is one
+table answering "what is this name worth in this ROM" in two different senses with no marking.**
+
+**Not fixed here, by rule: this is another tree, and this lane does not edit it.** `evict_witness.py`
+already prints both numbers and goes with the ROM, so no aeon instrument is currently misled.
