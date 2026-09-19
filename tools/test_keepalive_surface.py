@@ -111,10 +111,18 @@ def test_every_wired_tool_is_accounted_for(rows):
     """A tool with no unset surface produces no option row; it must still be reachable
     from the manifest, or this module is quietly measuring a subset."""
     import tomllib
-    wired = set(tomllib.load(
+    rowkeys = set(tomllib.load(
         open(os.path.join(REPO, "tools", "keepalive_manifest.toml"), "rb"))["wired"])
+    # A manifest row is an INVOCATION: `tool.py` or `tool.py#arm-label`. `measure()` folds a
+    # tool's rows before scanning it, so the tool set is what these rows are about. The "#"
+    # is spelled out rather than imported from keepalive_lane, for this file's own reason: a
+    # fixture that reads the same symbol as the code under test measures self-consistency.
+    wired = {k.split("#", 1)[0] for k in rowkeys}
     seen = {r["tool"] for r in rows}
     assert seen <= wired
+    # NOT an equality: a tool whose declared invocation sets everything produces no option
+    # row at all (the docstring above says so), so `seen` is a subset by design. 28 of the
+    # 35 wired tools carry unset surface on 2026-09-19.
     for name in wired:
         assert os.path.isfile(os.path.join(REPO, "tools", name)), name
 
