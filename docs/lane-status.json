@@ -20,7 +20,7 @@
     {
       "id": "CAPTURE-SETTLE-NAME",
       "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -78,5 +78,5 @@
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T02:07:52Z"
+  "updatedAt": "2026-09-19T02:08:06Z"
 }
