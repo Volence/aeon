@@ -1,0 +1,340 @@
+#  keepalive_manifest — the declared invocation list for tools/keepalive_lane.py
+#
+#  WHY DECLARED AND NOT DISCOVERED. Each bus instrument has its own arguments and its own
+#  idea of success. A runner that auto-discovered them and guessed would produce noise,
+#  and a noisy lane gets ignored -- which is the dead-instrument defect again with extra
+#  steps. So every tool the lane runs gets one line here saying HOW to invoke it and WHAT
+#  its exit status means, and every tool the lane does NOT run gets one line saying why.
+#
+#  EVERY BUS INSTRUMENT IN THE TREE MUST APPEAR IN EXACTLY ONE OF THE TWO SECTIONS.
+#  keepalive_lane.py derives the population from the tree on every run (see
+#  keepalive_population.py) and reports COULD NOT RUN if any name is undeclared here, or
+#  if any name here has left the tree. A keepalive lane quietly covering 84 of 85 is the
+#  artifact it was built to prevent, so the accounting is checked rather than intended.
+#
+#  PLACEHOLDERS: {rom} {lst} {repo} {outdir}. {outdir} is a fresh temp directory made per
+#  tool per run -- it is how a capture tool is kept from writing over committed evidence.
+#
+#  expect = the tool's DECLARED BASELINE exit status, i.e. what it does TODAY when it is
+#  working. It is usually 0. Where it is not, the note says why, and that red is the
+#  declared state rather than a bug the lane papers over. A tool declared `expect = 1`
+#  that starts exiting 0 is reported FAILED, deliberately: a known-red going green is a
+#  change in what the instrument reports, and if the lane rounded it to green then the
+#  cheapest way to turn this lane green would be to weaken an instrument until it stops
+#  complaining.
+#
+#  timeout = seconds. A timeout is COULD NOT RUN, not FAILED.
+
+# =====================================================================================
+#  WIRED -- the lane runs these
+# =====================================================================================
+
+# ---- the two instruments this whole lane exists because of --------------------------
+
+[wired."parallax_hscroll_identity.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 1
+timeout = 300
+note = """KNOWN RED, and the red is the point. Measured 2026-09-18 on s4.debug.bin crc32
+62238a15: exits 1 with exactly three complaints -- ID7 and ID8 sample a buffer identical
+to the flat fixture ID1 (the curve did not deflect, so those two fixtures test nothing),
+and COVERAGE finds no non-multiple-of-8 span anywhere in the matrix (the remainder tail is
+untested). These are stale fixture expectations left red ON PURPOSE. It prints no
+traceback, which is what makes it a FAILED rather than a COULD NOT RUN, and is exactly the
+distinction this lane draws. This tool had not run since 2026-08-29."""
+
+[wired."parallax_scratch_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+note = "sibling of the probe that was dead 2026-08-26..2026-09-18"
+
+# ---- positional rom/lst ---------------------------------------------------------------
+
+[wired."band_capture.py"]
+args = ["{rom}", "{lst}", "{outdir}"]
+expect = 0
+timeout = 300
+
+[wired."band_witness.py"]
+args = ["{rom}", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."bganim_vprobe_witness.py"]
+args = ["{rom}", "{lst}"]
+expect = 0
+timeout = 300
+
+# ---- --rom/--lst, required ------------------------------------------------------------
+
+
+[wired."dplc_coherence_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+[wired."loop_step_over_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 1
+timeout = 300
+note = """DECLARED RED, classification: SETUP, instrument-side. Measured 2026-09-18 on crc32
+62238a15: 'THE PLAYER NEVER LANDED, so this run cannot say anything about the loop. placed
+at (1097, 553); after 8 landing frames he is at y=585 with y_vel=1568 (want 0). This is a
+SETUP failure, not a loop result.' The tool names its own fix -- pass --start-y derived
+from the ground top under editor column 137 -- and choosing that value is a reading this
+parcel had no basis to make. Baselined at 1 so a CHANGE is loud; going green is reported
+FAILED, not quietly accepted."""
+
+
+[wired."zx0r_net_boot_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+# ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
+
+
+
+[wired."floor_hscroll_dump.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."glide_ceiling_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+[wired."pagecache_audit_poison.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."pcc_identity_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."perspective_floor_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."plane_buffer_peak_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."poke_storm_sound_cost_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+[wired."ramp_authored_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."raster_frame_epoch_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+[wired."role_swap_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."spring_clip_ab.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--label", "keepalive"]
+expect = 0
+timeout = 600
+note = "--label is required unless --compare is given; the first run caught the omission"
+
+[wired."spring_launch_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 900
+
+[wired."spring_line0_gate.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."spring_sfx_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."sprite_owner_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 1
+timeout = 300
+note = """DECLARED RED, classification: VACUOUS, instrument-side. Measured 2026-09-18:
+'THIN: the widest frame sampled carried 3 sprite(s), below the 4 this probe treats as a
+real witness. The claims above did not fail - they had almost nothing to check.' It fails
+BECAUSE it refuses to call an empty scene a verification, which is correct behaviour. Fixing
+it means reaching a busier state, not changing the probe."""
+
+[wired."staging_index_poison.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
+[wired."streaming_choke_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+
+[wired."waterline_art_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 1
+timeout = 600
+note = """DECLARED RED, classification: VACUOUS ARM, instrument-side -- NOT an engine
+finding, and that was read off the output rather than assumed. Measured 2026-09-18: the two
+substantive arms PASS ('POSITIVE 12/12 frames: VRAM equals the gather predicted from the
+published ladder row', 'CONTROL 12/12 separable frames differ from the identity gather').
+The VERDICT FAIL comes from the third: 'THE GUARD ARM IS UNPOPULATED ON ONE SIDE (no sampled
+transition changed the row, so nothing tested the rebuild) - its consistency total says
+nothing. Widen --stride or move the camera.' ⚠ Note it also writes
+waterline_art_witness.json into the REPO ROOT on every run (gitignored today)."""
+
+[wired."fg_left_edge_probe.py"]
+args = ["--rom", "{rom}"]
+expect = 0
+timeout = 300
+note = "takes --symbols, not --lst"
+
+# ---- tools that write captures: pointed at a fresh temp dir, never committed evidence --
+
+[wired."fg_left_edge_capture.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--label", "keepalive", "--out-dir", "{outdir}"]
+expect = 0
+timeout = 600
+
+[wired."floor_capture.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--out", "{outdir}/floor.png"]
+note = "--out is a FILE, not a directory; the first run reported COULD NOT RUN for exactly this"
+expect = 0
+timeout = 300
+
+[wired."left_edge_vsram_probe.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--out-dir", "{outdir}"]
+expect = 0
+timeout = 600
+
+
+# ---- tools taking a selector ----------------------------------------------------------
+
+
+[wired."lens_residue_raster_witness.py"]
+args = ["efx4b", "--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+note = "one of efx4b/c1b3/c3b2/c3b2s7; `all` is a longer sweep than a keepalive needs"
+
+# ---- tools with no argparse -----------------------------------------------------------
+
+[wired."pcc_lab_probe.py"]
+args = []
+expect = 0
+timeout = 300
+note = "takes no arguments; reads s4.debug.bin from the repo root"
+
+[wired."plane_buffer_headroom_probe.py"]
+args = []
+expect = 0
+timeout = 600
+note = "optional positional is frames-per-mode, default 300"
+
+[wired."sh_probe.py"]
+args = []
+expect = 0
+timeout = 600
+note = "optional positional is frame count, default 600"
+
+# ---- the meta-instrument ---------------------------------------------------------------
+
+[wired."transition_window_probe.py"]
+args = ["tools/pagecache_audit_poison.py", "--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+note = """This one instruments ANOTHER tool -- it shims aether.BusClient.call and reports
+whether the subject samples inside a live parallax transition. It needs a subject, so the
+keepalive line gives it the cheapest wired one. That means this row keeps the SHIM alive;
+it is not a verdict about pagecache_audit_poison."""
+
+# =====================================================================================
+#  NOT WIRED -- the lane does not run these, and says so rather than omitting them
+# =====================================================================================
+#  Every line here is a coverage GAP that is declared instead of hidden. Wiring any of
+#  them is a follow-up, not a defect in this lane.
+
+[not_wired]
+
+# -- the harness itself, not instruments ----------------------------------------------
+"aether_bytes.py" = "not an instrument: the bus byte-decoding helper every instrument imports"
+"aether_instance.py" = "not an instrument: the harness that spawns the headless emulator"
+
+# -- need a SECOND ROM from a different build (A/B differentials) ----------------------
+"bg_nt_gate.py" = "A/B: requires --before-rom/--before-lst and --after-rom/--after-lst from two different builds. A keepalive run has one ROM, and pointing both arms at it makes the gate vacuous rather than alive."
+"display_ab_gate.py" = "A/B: same before/after pair. It has --allow-same-rom, but a same-ROM run measures nothing, so wiring it that way would be a green row that cannot fail."
+"sec7_waterline_probe.py" = "A/B: requires --old-rom/--old-lst and --new-rom/--new-lst."
+
+# -- build a purpose-made ROM (needs sigil and minutes, not one emulator boot) ---------
+"fade_busy_stale_witness.py" = "builds its own purpose-made ROM: no path on the bus starts a fade ($A00000-$A0FFFF is unreadable and unwritable through the bus, and Sound_FadeOut has zero call sites), so the question can only be asked by a ROM that makes the call. That is a build, not an instrument run."
+"fm6_foreign_sample_witness.py" = "same shape: carries --build-only and constructs its own ROM."
+
+# -- need a live emulator someone is listening to --------------------------------------
+"sfx_audition.py" = "posts an SFX id into a RUNNING emulator's sound ring so a HUMAN can hear it. It takes --socket and expects an instance that is already up with audio. There is no headless verdict for it to produce."
+
+# -- cost: default arms are far past a keepalive budget --------------------------------
+"canopy_gap_exercise.py" = "cost: default phases are 2400+2400+(24x30)+9000+600+2400 frames plus settles. Wiring it at defaults would dominate the lane; wiring it at reduced frames would keep a DIFFERENT tool alive than the one anybody runs."
+"dma_straddle_exercise.py" = "cost: default phases total ~13k frames plus a 29-point camera survey at 180-frame settles. Same reasoning as canopy_gap_exercise."
+
+# -- reachable in code from a real entry point: something else already runs these -------
+#  These are NOT a claim that each is well covered; they are a claim that this lane is not
+#  the thing that covers them. keepalive_population.py prints the reachability it derived
+#  beside this accounting, so a tool that STOPS being reachable shows up as a gap here.
+"bg_switch_gate.py" = "reachable in code from a real entry point"
+"bg_vscroll_rate_witness.py" = "reachable in code from a real entry point"
+"bg_window_gate.py" = "reachable in code from a real entry point"
+"bg_wipe_gate.py" = "reachable in code from a real entry point"
+"boot_override_gate.py" = "reachable in code from a real entry point"
+"cache_hold_probe.py" = "reachable in code from a real entry point"
+"canopy_record.py" = "reachable in code from a real entry point"
+"cart_coverage_census.py" = "reachable in code from a real entry point"
+"curve_desc_probe.py" = "reachable in code from a real entry point"
+"curve_probe.py" = "reachable in code from a real entry point"
+"e2_snap_capture.py" = "reachable in code from a real entry point; ALSO overwrites a committed capture record on default arguments (booked 2026-09-18), so it must not be run unattended until that guard exists"
+"engine_baseline_probe.py" = "reachable in code from a real entry point"
+"evict_witness.py" = "reachable in code from a real entry point"
+"fg_left_edge_gate.py" = "reachable in code from a real entry point"
+"hblank_window_sweep.py" = "reachable in code from a real entry point"
+"night_settle_capture.py" = "reachable in code from a real entry point"
+"palette_variant_gate.py" = "reachable in code from a real entry point"
+"parallax_cost_probe.py" = "reachable in code from a real entry point"
+"parallax_crossing_gate.py" = "reachable in code from a real entry point"
+"parallax_hscroll_probe.py" = "reachable in code from a real entry point: the DEAD-INSTRUMENT-PAIR parcel gave it 34 unit tests on 2026-09-18. Note those tests were green through the three weeks it was crashing, so reachability here means 'a test imports its arithmetic', not 'somebody runs it'. A candidate to wire."
+"preset_lab_witness.py" = "reachable: tools/nightly_effects_gates.sh runs it every night"
+"ramp_boundary_probe.py" = "reachable in code from a real entry point"
+"raster_cost_probe.py" = "reachable in code from a real entry point"
+"raster_off_gate.py" = "reachable in code from a real entry point"
+"raster_source_gate.py" = "reachable in code from a real entry point"
+"reels_witness.py" = "reachable in code from a real entry point"
+"region_fade_witness.py" = "reachable in code from a real entry point"
+"row_remap_witness.py" = "reachable in code from a real entry point"
+"snapshot_poison_gate.py" = "reachable in code from a real entry point"
+"tile_cache_fill_gate.py" = "reachable in code from a real entry point"
+"vsplit_landing_gate.py" = "reachable in code from a real entry point"
+"warp_mailbox_gate.py" = "reachable in code from a real entry point"
+"waterline_stamp_witness.py" = "reachable in code from a real entry point"
+"blank_priority_probe.py" = "pinned to a ROM that no longer exists: it says 'COULD NOT RUN - ROM crc32 62238a15 is not the measured 9ce1c2ff; pass --any-rom'. Measured 2026-09-18. Keepalive runs the SHIPPING ROM, so this instrument cannot report here at all. Wiring it needs either the pinned artifact or a decision to re-measure it; --any-rom would silence the refusal without making the reading mean anything."
+"lens_residue_object_witness.py" = "same pinned-ROM refusal: 'COULD NOT RUN (setup): ROM ... is crc32 62238a15 / 848075 B, not the 9ce1c2ff / 847533 this run expects. Refusing to report on a different ROM.' Measured 2026-09-18 on the c2a6 witness."
+"song_load_mid_drum_witness.py" = "needs a DIFFERENT BUILD SHAPE, not a different argument: 'UNMEASURABLE: Sound_DebugMirror is not a label in s4.debug.lst - this is not the config-A (music-capable, mirror-bearing) listing, and without the Z80-RAM mirror this bus cannot read SND_STAT_DAC_ACTIVE at all'. Measured 2026-09-18. A keepalive that built config-A too is a bigger lane than this one."
+"tick_variance_probe.py" = "borrows symbol addresses from another ROM: 'BLOCKED: [idle] the borrowed symbol addresses do not describe this ROM: Camera_X 0 Camera_Y 0 leader $000000 (A/B: 96 / 144 / $FF8DB0)' - its control arm is pinned to crc d22dda85 from sigil 7b46f075's golden. Measured 2026-09-18."
+"sec5_band_witness.py" = "stale against the authored preset it reads: 'REFUSED: games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json: this instrument measures exactly ONE band; the document has 3 - extend it, do not guess'. Measured 2026-09-18. The instrument is explicitly refusing to guess, which is correct behaviour and also means it cannot report until someone extends it."
+"deform_own_cost_probe.py" = "stale against a record that grew under it: 'REFUSED: band record is 32 bytes, expected 20 (legacy prefix + one band_ext). The record grew by something this probe does not know how to fill.' Measured 2026-09-18."
+"dma_straddle_reading.py" = "self-reports vacuity on the canonical ROM: 'THIS RUN SAYS NOTHING - REFUSING TO REPORT IT AS A PASS'. Measured 2026-09-18 on default arms. Making it say something needs arguments that reach a straddle, which is a reading this parcel had no basis to choose."

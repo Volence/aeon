@@ -38203,6 +38203,15 @@ instrument in one sentence.
 authority, and a 29-line invocation manifest is a decision about what this tree promises to keep
 alive, not a tidy-up.
 
+> **BUILT 2026-09-18 by `INSTRUMENT-KEEPALIVE`** — `tools/keepalive_lane.py` +
+> `tools/keepalive_manifest.toml` + `tools/keepalive_population.py`, with
+> `tools/nightly_instrument_keepalive.sh` as the (UNARMED) nightly. **Two figures above did not
+> survive re-derivation and are corrected in the entry at the end of this file:** the population
+> reconciles (84 construct a `BusClient`, an 85th shims the class), but **"29 referenced by
+> nothing" does not reproduce under any of five definitions** — the count ranges 18 to 50
+> depending on what counts as a reference, and the honest "nothing executes this" figure is **50**,
+> because raw-text matching credits a tool that is merely NAMED IN A COMMENT as live.
+
 
 **Also open from that sweep, and smaller:** `tile_cache_fill_gate.py`'s documented poison —
 "`--post 0` reintroduces the drain-lag false positive" — is UNREACHABLE. The bus refuses it:
@@ -38225,6 +38234,151 @@ committed set. Cheap, and it protects evidence an owner ruling was taken from.
 DEFAULT arguments. The defect the previous leg found lived on a non-default arm
 (`--extra-right-frames`), so the non-default surface is the same blind spot one level along and
 is NOT swept.
+
+---
+
+### INSTRUMENT KEEPALIVE — BUILT 2026-09-18 (`INSTRUMENT-KEEPALIVE`), UNARMED
+
+**The defect, in one sentence: a channel that cannot report is indistinguishable from a
+channel reporting nothing wrong.** `tools/parallax_hscroll_probe.py` crashed on startup from
+2026-08-26 until it was found on 2026-09-18, hiding 35 findings;
+`tools/parallax_hscroll_identity.py` had not run since 2026-08-29. Nothing noticed, because
+nothing ran them.
+
+**What landed.** `tools/keepalive_lane.py` (the runner, three outcomes),
+`tools/keepalive_manifest.toml` (the declared invocation list, and a disposition for every
+bus instrument in the tree), `tools/keepalive_population.py` (the census),
+`tools/test_keepalive_lane.py` (27 tests, 0.05 s, no emulator, runs in `pytest tools`), and
+`tools/nightly_instrument_keepalive.sh` — **NOT ARMED**; the systemd units are written out in
+a comment at the bottom of that script, and arming is the owner's.
+
+#### ⚠ THE RELAYED POPULATION FIGURE WAS WRONG, AND THE ERROR IS INSTRUCTIVE
+
+"29 of 84 bus instruments are referenced by nothing" was the figure handed to this parcel.
+**The denominator reconciles; the numerator does not reproduce under any definition tried,
+and the spread is 18 to 50:**
+
+| definition of "referenced" | unreachable |
+|---|---|
+| any mention in any tracked file | 0 |
+| mention in a runner file (`.sh`/`.py`/`.toml`/…) | 18 |
+| same, excluding `test_*.py` | 21 |
+| transitive reachability, references matched in RAW text | 25 |
+| **transitive reachability, references matched in CODE ONLY** | **50** |
+
+The first four over-credit, and that was checked rather than argued: of the tools raw-text
+reachability called live, `dplc_coherence_witness` was reached through a **sentence in
+`test_tool_selftests.py`'s docstring**, `floor_capture` and `floor_hscroll_dump` through a
+**paragraph in `perspective_floor_witness.py`'s prose**, and `sec5_band_witness` and
+`lens_residue_raster_witness` through a **comment in `effects_gen.py`**. A tool named in a
+comment is not a tool anybody runs. Stripping comments and docstrings — while KEEPING short
+string literals, because an invocation lives in `"tools/foo.py"` and prose does not — roughly
+doubles the count.
+
+**Consequence for the design, and it is the important part:** the count is ADVISORY. The
+lane's coverage rests on the ACCOUNTING instead — the manifest must carry a disposition for
+every one of the 85, the census is re-derived from the tree on every run, and an UNDECLARED
+(in the tree, not in the manifest) or MISSING (in the manifest, not in the tree) name is
+COULD NOT RUN. That invariant holds whether or not the heuristic is exactly right.
+
+#### WHAT IT REPORTS TODAY
+
+Final run 2026-09-18, against `s4.debug.bin` crc32 `62238a15` / 848,075 B:
+
+```
+  bus instruments in tools/          85
+  declared in the manifest           85  (35 wired, 50 not wired)
+  accounting: every bus instrument in the tree has a disposition.
+  PASSED 34   FAILED 0   COULD NOT RUN 1       finished=35 of 35    exit 2
+```
+
+**Cost: 5.0 to 7.0 min wall for 35 instruments**, measured across three full runs at load
+average 5.09 to 8.22 (`uptime` 3 days, 3:55 / 3:46 / 4:06). That is well under the ~12 min
+the previous parcel priced for 29, because the median instrument here is far cheaper than
+the ~25 s the two known-dead ones cost.
+
+#### THE LANE IS NOT VACUOUS — ⚠ OPEN DEFECT FOUND ON ITS FIRST RUN
+
+**`tools/ramp_authored_witness.py` is DEAD and stays LOUD.** It runs arms 1-4, prints a full
+authored-vs-wire comparison that looks entirely healthy, and then dies:
+
+```
+  File "tools/ramp_authored_witness.py", line 841, in run_arm5
+    want_total = want_val(longest[-1] + 1, st_) - want_val(longest[0], st_)
+TypeError: unsupported operand type(s) for -: 'NoneType' and 'int'
+```
+
+`want_val()` returned `None`. This is the `parallax_hscroll_probe` shape exactly — a crash
+deep in a run, after plenty of plausible output, exiting **1**. It is **not** baselined, and
+it cannot be: no `expect` value makes a traceback green, by construction and by test
+(`test_no_declared_baseline_can_make_a_crash_green`). A measured negative is a legitimate
+thing to baseline; a crash never is. The lane will report COULD NOT RUN every run until
+someone fixes `run_arm5`. **Nobody has run arm 5 for long enough that the fix is unknown work.**
+
+#### ⚠ SEVEN INSTRUMENTS CANNOT MEASURE THE SHIPPING ROM AT ALL
+
+Found by running them. Each is `[not_wired]` with its own verbatim refusal as the reason —
+this is a declared gap, not a silent one. **They need a different ARTIFACT, not a different
+argument**, which is why none of them is wired:
+
+| instrument | what it says |
+|---|---|
+| `blank_priority_probe` | pinned to crc `9ce1c2ff`; the shipping ROM is `62238a15` |
+| `lens_residue_object_witness` | same pin: "Refusing to report on a different ROM" |
+| `tick_variance_probe` | borrows symbols from crc `d22dda85` (sigil `7b46f075`'s golden) |
+| `song_load_mid_drum_witness` | needs the **config-A** listing; `Sound_DebugMirror` is absent |
+| `sec5_band_witness` | "measures exactly ONE band; the document has 3 — extend it, do not guess" |
+| `deform_own_cost_probe` | "band record is 32 bytes, expected 20 … grew by something this probe does not know how to fill" |
+| `dma_straddle_reading` | "THIS RUN SAYS NOTHING — REFUSING TO REPORT IT AS A PASS" on default arms |
+
+`--any-rom` would silence the first one without making its reading mean anything, which is
+why it is not the fix.
+
+**This run also corrected the classifier.** These seven came back FAILED at first, and
+reading them that way both loses the distinction the lane exists for and blames the engine
+for a stale instrument. The lane now honours an instrument's own verdict word — a vocabulary
+that is the tree's, not this parcel's: measured over `tools/*.py`, `UNMEASURABLE` appears in
+82 files, `REFUSED` in 58, `VACUOUS` in 31, `COULD NOT RUN` in 28.
+
+#### THREE MORE REDS, DECLARED RATHER THAN SILENCED
+
+Each ran, measured, and reported a red that is **instrument-side and understood**, so each is
+baselined at `expect = 1` with the reason recorded verbatim in the manifest. A change from
+that red — **including going green** — is reported FAILED, so baselining is not silencing:
+
+* `loop_step_over_witness` — SETUP: "THE PLAYER NEVER LANDED, so this run cannot say anything
+  about the loop." It names its own fix (`--start-y` from the ground top under editor column
+  137); choosing that value was a reading this parcel had no basis to make.
+* `sprite_owner_probe` — VACUOUS: "THIN: the widest frame sampled carried 3 sprite(s), below
+  the 4 this probe treats as a real witness. The claims above did not fail — they had almost
+  nothing to check." It fails *because* it refuses to call an empty scene a verification.
+* `waterline_art_witness` — VACUOUS ARM, and **not** an engine finding; that was read off the
+  output, not assumed. Both substantive arms PASS (`POSITIVE 12/12`, `CONTROL 12/12`); the
+  `VERDICT FAIL` comes from the guard arm being unpopulated on one side.
+
+#### THE REMAINING GAP — 15 unexecuted instruments this lane does NOT cover
+
+All named in `[not_wired]` with reasons. Beyond the seven above: `bg_nt_gate`,
+`display_ab_gate` and `sec7_waterline_probe` need a **before/after ROM pair from two
+different builds** (`display_ab_gate` has `--allow-same-rom`, but a same-ROM run measures
+nothing, so wiring it that way would be a green row that cannot fail); `fade_busy_stale_witness`
+and `fm6_foreign_sample_witness` **build their own purpose-made ROM**; `sfx_audition` posts
+into a **running** emulator for a human to listen to; `canopy_gap_exercise` and
+`dma_straddle_exercise` are past a keepalive cost budget at default arms, and running them at
+reduced frames would keep a DIFFERENT tool alive than the one anybody runs.
+
+#### STILL OPEN
+
+1. **`ramp_authored_witness.run_arm5` is broken** (above). Highest value of anything here.
+2. **The lane is not armed.** Units are in the script's trailing comment; pick an hour that
+   does not collide with `aeon-effects-gates.timer` — both build a ROM and boot emulators,
+   and this lane's timeouts are sized against a measured load average, not an idle machine.
+3. **The non-default surface is unswept.** Every wired instrument runs on DEFAULT arguments.
+   The defect that started all this lived on a non-default arm (`--extra-right-frames`), so
+   the blind spot is the same one, one level along.
+4. **`waterline_art_witness` writes `waterline_art_witness.json` into the repo root** on every
+   run. Gitignored today, so it pollutes nothing tracked, but a keepalive lane running
+   nightly makes it a standing write.
 
 ## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, booked 2026-09-19)
 
