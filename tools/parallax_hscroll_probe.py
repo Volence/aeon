@@ -776,7 +776,16 @@ async def arm_frozen(b, sym, rom, positions, out, settle_frames=30):
         sm = smoothness(act, edge_tops(st["cfg"], sh))
         print("  smoothness (first differences of the buffer):")
         print_smoothness(sm, indent="    ")
-        out.append({"camera": [cx, cy], "mode": mode, "entries": total,
+        # `mode` was the live per-line/per-cell key until 2026-08-26, when
+        # `per_line_mode(cfg)` was deleted under owner ruling d-29-corrected (see the
+        # note where it used to live, above `derive_hscroll`): the fill is per-line for
+        # EVERY config now. That deletion left this reference dangling, and it is on the
+        # tool's main reporting path, so every run since has died with
+        # `NameError: name 'mode' is not defined` -- this probe has had no verdict for
+        # three weeks. The record keeps the key, stating the fact that is now invariant,
+        # rather than dropping it: the printed line twelve lines up already says
+        # "per-line" as a literal for the same reason.
+        out.append({"camera": [cx, cy], "mode": "per-line", "entries": total,
                     "stage_a_ok": a_ok, "stage_b_ok": b_ok, "shadow_tops": sh.tops,
                     "split_line": sh.split_line, "mismatches": bad[:16],
                     "smoothness": sm})

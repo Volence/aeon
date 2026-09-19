@@ -37988,3 +37988,67 @@ identical across the same N samples — and keep the bare name. **(a) is the rec
 costs a rename and a docstring line, it cannot be wrong, and (b) can be added later under the
 narrowed name without invalidating anything captured in the meantime. Do NOT re-certify existing
 captures as a precondition: they were correctly certified for colour and are cited for colour.
+
+---
+
+### Two parallax HScroll instruments cannot run, and one of them is RED underneath — found 2026-09-18 (`CROSSING-TRANSITION-SWEEP`)
+
+Both surfaced while deriving that sweep's population: they could not be classified because they
+could not RUN. Neither is a race; both are booked here because a dead instrument has no verdict
+and nothing in the tree notices.
+
+**(1) `tools/parallax_hscroll_probe.py` — REPAIRED, but its red is not.** It died on every run
+with `NameError: name 'mode' is not defined` at the `out.append` on its main reporting path.
+`per_line_mode(cfg)` was deleted at **`55ab501f` (2026-08-26)** under owner ruling
+d-29-corrected — the fill is per-line for every config now — and that edit left the reference
+dangling while the printed line twelve above it was updated to the literal `"per-line"`. Dated
+by `git log -S per_line_mode` and `git log -S '"mode": mode'`, not by reading the comment.
+**23 days unrunnable.** The one-line repair landed with the sweep.
+
+⚠ **THE OPEN ITEM IS WHAT THE CRASH WAS HIDING.** With it gone the probe completes and reports
+`FAIL — 10 failing check(s)`, rc=1: **STAGE A and STAGE B both fail at all five camera
+positions** ("the derived shadow view disagrees with the machine's"; "all derived entries match
+`Hscroll_Buffer`" refuted). The red is PRE-EXISTING and cannot be the repair's — both
+`fails += 1` sites are ABOVE the line touched, so the count is complete before the dict is
+built, and the crash fired on the FIRST position, which is why the other nine have never been
+seen. **Hypothesis, flagged as a hypothesis and NOT measured:** the same 2026-08-26 edit that
+deleted `per_line_mode` also changed the fill, and this probe's derivation was left stale.
+Wants its own red-first parcel.
+
+⚠ **And one thing the sweep's claims-audit could not clear.** `docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md`
+names this probe as THE instrument and was written **2026-08-20, before the break**, so its
+numbers came from a tool that ran. But **the vintage of the 10 failures is unknown**: if STAGE
+A/B were already disagreeing then, that document's numbers came from a tool that was WRONG
+rather than merely dead, and the date argument does not save them. Settling it means running
+the repaired probe at `1b14c624`. Named, not resolved.
+
+**(2) `tools/parallax_hscroll_identity.py` — NOT repaired, needs a ruling.** It dies with
+`TypeError: cannot convert 'NoneType' object to bytearray`, three frames deep in
+`parallax_cost_probe.band()`. Cause: it imports `build()` from `parallax_cost_probe` but never
+calls `set_stride()`, so `BE_SIZE` is still its declared `None` — the sentinel introduced
+2026-08-29 when the stride stopped being the literal 10 (`docs/benchmarks/scanline-p4/BAND-DRIFT.md`).
+So it has not run since that change. Left alone deliberately: unlike a dangling name, this needs
+a decision about where the stride is primed for an importing caller, and the tool's verdict once
+it runs is unknown — a repair here could well surface a second red like (1)'s.
+
+**Also open from that sweep, and smaller:** `tile_cache_fill_gate.py`'s documented poison —
+"`--post 0` reintroduces the drain-lag false positive" — is UNREACHABLE. The bus refuses it:
+`[-32602] 'frames' = 0 is outside 1..=3600`. The minimum is `--post 1`, which does move the
+graded count (47,502 against 47,560), so the poison's intent survives at 1; the docstring
+promises a value the server will not accept.
+
+⚠ **`tools/e2_snap_capture.py` OVERWRITES a committed capture record in place, with no
+guard.** Run with default arguments during the sweep, it rewrote
+`docs/captures/2026-09-15-regions-p2-e2/README.md` — a hand-curated record of a foreground
+controller run on aeon `ec513055`, naming six specific PNGs — into a generated 44-frame index,
+and dropped 44 new PNGs beside the originals. Restored from HEAD here; nothing was lost. The
+point is that **its sibling `night_settle_capture.py` has exactly this guard and refuses**
+("already holds a `report.json` from an earlier run … you would get two runs' PNGs under one
+README describing one of them. Point `--outdir` at a new directory, or pass `--force`"). The
+same refusal belongs on `e2_snap_capture`, whose default `--outdir` points straight at a
+committed set. Cheap, and it protects evidence an owner ruling was taken from.
+
+**And the sweep's own stated gap:** every tool but `tile_cache_fill_gate` was classified on
+DEFAULT arguments. The defect the previous leg found lived on a non-default arm
+(`--extra-right-frames`), so the non-default surface is the same blind spot one level along and
+is NOT swept.

@@ -488,6 +488,149 @@ A SECTION rather than by driving the lab cursor — is named above and NOT swept
 `tools/` read a `Parallax_*` cell. The two consumers already flagged in this row
 (`ojz_effects.emp:2884`, `tools/boot_override_gate.py`) are part of it and remain (b)'s.
 
+**CROSSING LEG: CLOSED 2026-09-18** — branch `parcel/crossing-transition-sweep`, own worktree
+`.aeon-crossing-sweep` off `03951e93`, against the attested `s4.debug.bin` (848,075 B, crc32
+`62238a15`, NOT rebuilt — no engine source was touched). ~~Still open~~ above is now answered.
+
+*The marker, and it is BEHAVIOURAL, not a grep for a symbol.* The brief's candidate marker
+(files naming a `Parallax_*` cell, 31; minus the 12 naming `Debug_Lab_Index`, 22) re-derives
+exactly — and it is wrong in both directions, which is the point. A transition is staged by
+`Parallax_CheckBoundary`, the ONLY caller of `Parallax_StartTransition`, and it fires on a
+CAMERA CROSSING. So the population is *harness tools that move the camera* — by held direction
+input OR by a camera/player poke, a warp included — *and sample something the transition
+mutates*. Derived in three cuts over `tools/`: 358 `.py` → **93** reach the bus at all
+(`AetherInstance`/`BusClient`/`aether`) → **61** move the camera → **32** also sample a mutated
+surface, after removing the 12 already swept. The static filter removed 265 generators, linters,
+unit tests, `.md` and `.toml` files, which cannot race because they never run the machine — the
+brief's 22 included four such (`effects_budget_model.toml`, `EFFECTS_CONSUMER_CONTRACT.md`,
+`effects_gen.py`, three `test_*.py`).
+
+⚠ **The symbol marker misses 15 of the 32, and they are the interesting ones.**
+`canopy_gap_exercise`, `e2_snap_capture`, `night_settle_capture`, `dplc_coherence_witness`,
+`display_ab_gate`, `spring_clip_ab`, `region_fade_witness`, `sec5_band_witness`,
+`bganim_vprobe_witness`, `bg_nt_gate`, `tile_cache_fill_gate`, `warp_mailbox_gate`,
+`vsplit_landing_gate`, `blank_priority_probe`, `test_night_settle_capture` never spell a
+`Parallax_*` symbol, and several travel and screenshot — exposed through the rendered frame
+alone. **What MY marker cannot see:** (i) a tool reached only through a non-default argument
+— every run below is on DEFAULTS, and yesterday's defect lived on `--extra-right-frames`, so
+this is the same blind spot one level along, closed for `tile_cache_fill_gate` only; (ii) a
+route other than each tool's built-in one; (iii) the 9 tools that COULD NOT RUN, which have no
+verdict at all and are listed as such, never as passes.
+
+*The instrument: `tools/transition_window_probe.py` (new).* It runs the subject tool UNMODIFIED
+under a shim on `aether.BusClient.call` and reads `Parallax_Transition_Frames` off the machine
+immediately before every read the tool performs. **Control, stated before any number:** the
+shim issues only `read_memory`, which advances no frames, and `parallax_crossing_gate`'s stdout
+with and without it is BYTE-IDENTICAL. **And its validity gate is load-bearing:** the first
+un-gated run reported `frames=158` on 219 of 282 reads of a tool that is in fact clean — 158 is
+not a possible value of a counter the engine only writes as 16 and decrements. A read counts as
+in-window only when `1 <= frames <= 16` AND `Parallax_Current_Config` is an even in-image
+pointer. That gate cut 282 reads to 74 live, of which 11 were genuinely in a window.
+
+⚠ **The instrument had its own blind spot and it was the worst possible one.** The first
+`READS` set omitted `emulator/read`, which is how six tools in this tree read **VSRAM** — one of
+the quantities the transition LERPS — and `emulator/read_vdp_registers`, which reads the reg
+`$0B` bit 2 that the per-frame mode shadow re-asserts from the ACTIVE (mid-window: TARGET)
+config. Closing it flipped `parallax_scratch_probe` from 0 in-window reads to 8. The set is now
+derived from what the tools actually call, with that instruction written at it.
+
+*THE MECHANISM IS NOT UNIFORM, and this was not in the brief.* `Parallax_StartTransition` tests
+`pcfg_transition` and takes `.instant` when it is NON-ZERO. **Not every crossing opens a
+window.** `parallax_crossing_gate`'s own output measures both arms on the boot route: crossing
+RIGHT into section (1,0) is `pcfg_transition=0` → smooth, 16 frames; crossing back LEFT into
+(0,0) is `pcfg_transition=1` → **snapped, 0 frames**. Travelling right races; travelling back
+does not.
+
+*Classification. 32 candidates; 11 read inside a live window, 12 measured clean with live
+samples, 9 could not run. Every verdict is a measurement off the running machine.*
+
+| tool | INWIN / maxF | verdict |
+|---|---|---|
+| `parallax_crossing_gate.py` | 11 / 15 | NOT RACY — **the window IS its subject**; it prints `15 frames left` and grades only after `settled +18f` |
+| `e2_snap_capture.py` | 210 / 15 | NOT RACY — **the window IS its subject**; captures PRE=4 to POST=16 ticks around the crossing, every frame named by its distance `k`, and its docstring forbids the word `settled` |
+| `bg_switch_gate.py` | 270 / 15 | NOT RACY — **per-tick sampling ACROSS the crossing is its ORDER subject.** The ordered trace shows the counter walking 15,14,…,1,0 twice; its last reads are all at 0 |
+| `bg_wipe_gate.py` | 258 / 15 | NOT RACY — **settles.** Exactly 6 plane reads, ordered `[0,0] [7,7] [0,0]`: BOTH settled FINAL assertions are at `Frames == 0`, and the mid-window pair is the declared `run_midsweep` read its docstring says is not asserted on |
+| `bg_vscroll_rate_witness.py` | 271 / 15 | NOT RACY — **continuous by design.** Its assertion is a per-tick rate bound on `Parallax_Current_Vscroll_BG` that must hold DURING a transition too; it reads the counter itself |
+| `region_fade_witness.py` | 990 / 15 | NOT RACY — **samples nothing the PARALLAX transition mutates.** Its subject is CRAM under the `Pal_Fade_*` machinery, a different mechanism staged by the same crossing, which it models frame-exactly |
+| `dplc_coherence_witness.py` | 117 / 15 | NOT RACY — samples player art (VRAM `$7800`/`$B800`) and `Player_1` fields; the lerp drives BG band scroll and BG vscroll, neither of which touches sprite art |
+| `bg_window_gate.py` | 1 / 14 | NOT RACY — its ONE in-window read is `Warp_Req_Flag`, a mailbox byte; every graded VRAM read measured outside a window |
+| `canopy_gap_exercise.py` | 1 / 14 | NOT RACY — same: one `Warp_Req_Flag` read; zero in-window pixel reads |
+| `parallax_scratch_probe.py` | 8 / 2 | **RACY BUT HARMLESS** — all 8 are at the PRE-ARM premise site (`Camera_X`, and a `Parallax_Current_Config` that is PRINTED, not graded); the graded post-arm checks are separate, and its own determinism rung (runs 1 and 2 byte-identical) would have failed had the approach not repeated |
+| `tile_cache_fill_gate.py` | 21 / 9 | **RACY BUT HARMLESS — proven, with a control and a sensitivity control.** MEASURED below |
+| 12 tools | 0 / 0, with live samples | NOT RACY by measurement: `spring_clip_ab` (4293 live), `boot_override_gate` (239), `warp_mailbox_gate` (149), `row_remap_witness` (149), `bganim_vprobe_witness` (106), `parallax_hscroll_probe` (97, after the repair below), `display_ab_gate` (92), `engine_baseline_probe` (51), `waterline_art_witness` (37), `vsplit_landing_gate` (32), `parallax_cost_probe` (10), `reels_witness` (10) |
+| 9 tools | COULD NOT RUN | **no verdict, and not counted as passes** — see below |
+
+**`tile_cache_fill_gate` is the one that has yesterday's exact shape, and it is harmless.** It
+holds RIGHT for `--step` frames, releases, waits **`--post`, default 3**, then samples — 3
+frames against a 16-frame window, the same arithmetic as the `--extra-right-frames 4` defect.
+It does land inside: 21 reads with the counter at 9.
+*Control FIRST, before any difference number:* `--post 20` and `--post 37`, both settled
+(INWIN=0 for both, so the window is measurably closed at the sample), agree on every graded
+quantity — 47,560 cells compared, 0 partial fills, GREEN — and differ only in the camera
+end-point (5120 vs 5088 px), which is coasting distance, not a graded value.
+*Sensitivity control, because two agreeing settled runs prove only that the metric CAN be
+constant:* `--post 1` moves the graded count to **47,502**. The metric responds to timing.
+*The difference:* `--post 3`, the racing default, reports **47,560 — identical to both settled
+controls**. Mechanism agrees: its subject is plane A, the FG tile cache and the streamer's own
+record, all camera-driven; the lerp drives the BG. **No fix. Nothing to fix.**
+⚠ Side finding: the tool's documented poison, "`0` reintroduces the drain-lag false positive",
+is UNREACHABLE — the bus refuses it (`[-32602] `frames` = 0 is outside 1..=3600`).
+
+*Could not run — 9 tools, no verdict.* `bg_nt_gate` and `display_ab_gate`'s A/B arm need two
+ROMs; `curve_desc_probe --arm`, `depth_onset_probe --phase`, `blank_priority_probe`,
+`curve_probe` need arguments this sweep did not supply; `night_settle_capture` refuses over an
+existing `report.json`; **`sec5_band_witness` refuses on this tree by construction** — "this
+instrument measures exactly ONE band; the document has 3". And two CRASH, which is the real
+hole:
+
+⚠ **`tools/parallax_hscroll_probe.py` has been dead for three weeks, and underneath it is RED.**
+`NameError: name 'mode' is not defined` at `:779`, on the main reporting path — `per_line_mode`
+was deleted 2026-08-26 under d-29-corrected and left that reference dangling. **Repaired here**
+(the record states the now-invariant `"per-line"`; nothing reads this tool's `mode` key,
+checked). Sweep verdict once it ran: NOT RACY, 97 live reads, 0 in-window. **But the repair is
+not the finding:** it now completes and reports `FAIL — 10 failing check(s)`, STAGE A and STAGE B
+both failing at all five camera positions. That red is PRE-EXISTING and cannot be the repair's —
+both `fails += 1` sites are ABOVE the line touched, so the count is complete before the dict is
+built; the crash simply fired on the first position. NOT DIAGNOSED HERE; booked below.
+
+⚠ **`tools/parallax_hscroll_identity.py` has never run since 2026-08-29.** It imports `build()`
+from `parallax_cost_probe` but never calls `set_stride()`, so `BE_SIZE` is still its declared
+`None` and `bytearray(None)` raises `TypeError`. NOT REPAIRED — unlike the one-line dangling
+name, this needs a ruling on where the stride is primed, and the tool's verdict after it runs is
+unknown. Booked below.
+
+*Claims that rest on a tool changed here.* Only `parallax_hscroll_probe` changed, and the
+other 31 tools are unmodified, so nothing else this sweep touched disturbs a past claim.
+⚠ **The first draft of this paragraph said "nothing rests on it" and that was WRONG** — 30
+citations name it across `docs/`, one of them a benchmark document that names it as THE
+instrument. Corrected here at the source rather than caveated:
+
+* The break is dated. `git log -S per_line_mode` puts the deletion at **`55ab501f`,
+  2026-08-26**, while `git log -S '"mode": mode'` shows the dangling reference standing from
+  `1b14c624` (2026-08-20) until this parcel. So the tool has been unrunnable for 23 days.
+* ✅ **`docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md` — the one doc that names it as its
+  tool — was written 2026-08-20 and never touched since, i.e. BEFORE the break.** Its
+  measurements came from a tool that ran. The crash does not disturb them.
+* ✅ **The post-break citations are narrative, not measurements.** `BAND-DRIFT.md:252`
+  (2026-09-02) cites it only for the stride *lesson* its banner records — read, not assumed.
+  The `DEFERRED_WORK.md` and `docs/superpowers/notes/` hits are the same shape.
+* ⚠ **What is NOT cleared, because it was not measured: the vintage of the 10 failures.** If
+  STAGE A/B were already disagreeing with the machine on 2026-08-20, then
+  `CURVE-INSTRUMENT.md`'s numbers were taken from a tool that was wrong rather than merely
+  dead, and the date argument above does not save them. Establishing that means running the
+  repaired probe at `1b14c624`, which this parcel did not do. **Named, not resolved.**
+
+`tools/transition_window_probe.py` is new and nothing rests on it yet.
+
+*Still open, and booked.* (1) `parallax_hscroll_probe`'s 10 pre-existing failures — the
+hypothesis to test, stated as a hypothesis, is that the same 2026-08-26 edit left its derivation
+stale while the NameError hid it. (2) `parallax_hscroll_identity`'s unprimed `BE_SIZE`.
+(3) The non-default-argument surface: every tool but `tile_cache_fill_gate` was swept on
+DEFAULTS, and yesterday's defect lived on a non-default arm. (4) `left_edge_vsram_probe`'s
+magic `limit=300` is still not collapsed onto `fg_left_edge_gate._trans_default()`; this parcel
+changed nothing near it, so collapsing it did not become natural and it was left alone
+deliberately, as the previous row asked.
+
 ---
 
 ## Added 2026-09-02 — open work that did not fit the 20-row bound
