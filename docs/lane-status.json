@@ -1,5 +1,5 @@
 {
-  "focus": "Three measuring tools were reading the screen mid-fade; fixed and landed. Re-shooting your left-edge screenshots next.",
+  "focus": "Your left-edge screenshots audited: the decision stands, but one of the two pairs shows behaviour we later removed.",
   "inFlight": [
     {
       "what": "Teaching the Z80-bus safety check to follow a call instead of stopping at it",
@@ -16,13 +16,6 @@
   ],
   "nextBoundary": "When the bus-hold check is back and the re-shot screenshots have either confirmed or overturned what you were shown.",
   "queue": [
-    {
-      "id": "D41-RECAPTURE",
-      "title": "The twelve screenshots behind your left-edge price decision were taken by a tool that never waited; re-shoot and see if the picture actually changes",
-      "state": "next",
-      "size": "S",
-      "blockedBy": null
-    },
     {
       "id": "SETTLE-IMPL-COLLAPSE",
       "title": "A third copy of the settle helper uses a magic number instead of deriving it; correct today, worth collapsing",
@@ -91,5 +84,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-18T23:52:11Z"
+  "updatedAt": "2026-09-19T00:01:12Z"
 }
