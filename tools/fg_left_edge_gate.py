@@ -6,13 +6,20 @@ the 16-px grain, that plane's leading sliver renders at `VSRAM[$4C] & VSRAM[$4E]
 bitwise AND of column-pair 19's two words, the same value for both planes, H40 only.
 That is Eke-Eke's hardware test (PAL MD2, 2010), and it is what Genesis Plus GX and Oracle
 both implement. `Parallax_Step5_Vscroll`'s column-19 borrow exists to make that AND come
-out equal to the FOREGROUND's V-scroll. So the gate's question is exactly:
+out equal to the FOREGROUND's V-scroll. So the gate asks TWO questions on every scene that
+raises the mode bit and ACCEPTS the borrow:
 
-    (VSRAM[$4C] & VSRAM[$4E]) & $7FF  ==  (Camera_Y >> 16) & $7FF
+    (VSRAM[$4C] & VSRAM[$4E]) & $7FF  ==  (Camera_Y >> 16) & $7FF      # the screen
+     VSRAM[$4E]               & $7FF  ==  (Camera_Y >> 16) & $7FF      # the store
 
-on every scene that raises the mode bit. Both sides are read out of the SAME frame of the
-SAME running machine — the expectation is the engine's own camera, never a pinned number,
-so it re-derives itself at whatever camera position the run happens to reach.
+The first is what the VDP consumes at that sliver, so a tree failing it renders wrong
+whatever the cause. The second is what the borrow's one instruction does, and it exists
+because the first does NOT imply it: plane A's word is camY (asserted separately), so the
+AND reduces to "plane B's bits COVER the foreground's" — satisfied by any superset, which a
+deform sample near $7FF supplies for free. That blind spot was measured and closed on
+2026-09-18; the POISON section below carries both the measurement and the closure. Neither
+question is a pinned number: both sides of both are read out of the SAME frame of the SAME
+running machine, so they re-derive at whatever camera position the run happens to reach.
 
 WHY THIS AND NOT PIXELS. Reading the pixels back would put Oracle's renderer between the
 subject and the verdict, and Oracle's model of this quirk carries a KNOWN interim
@@ -50,11 +57,19 @@ POISON (what must make it red). Delete the one instruction the borrow is:
     engine/level/parallax.emp, Parallax_Step5_Vscroll, end of the Step-5b fill:
         move.w  d1, Parallax_Vscroll_Column_Buf + VSCROLL_COL19_BG_OFF
 
-Rebuild `DEBUG=1 ./build.sh` and re-run. Every sampled scene must fail with
+Rebuild `DEBUG=1 ./build.sh` and re-run. Every sampled ACCEPT scene must fail, with either
 
     FAIL scene NN: the leftmost partial column will render at V-scroll $XXX, not $YYY
 
-where `$YYY` is `(Camera_Y >> 16) & $7FF` and `$XXX` is the AND. With the borrow gone,
+where `$YYY` is `(Camera_Y >> 16) & $7FF` and `$XXX` is the AND, or — when plane B's own word
+happens to cover the foreground's bits and the AND comes out right anyway — with
+
+    FAIL scene NN: ... column-pair 19's plane-B word is $XXX, not the foreground's
+    V-scroll $YYY — the borrow's store did not land
+
+which is the assertion added when that second case was measured; see CLOSED, below. The two
+DECLINING scenes stay green, since the store this poison deletes is the one they skip. With
+the borrow gone,
 VSRAM[$4E] carries plane B's own scroll, and on all six shipped per-column scenes plane B
 is vertically LOCKED (`v_factor: 15, v_offset: 0`), so that word is 0 or a small deform
 sample — which makes the AND collapse to near zero while `expected` is the live camera Y.
@@ -62,16 +77,35 @@ Expect `and=$0000..$00xx` against a three-digit `expected`. The gate prints all 
 numbers (`vsram4C`, `vsram4E`, `and`, `expected`) on the failing line so the poison's
 signature is visible rather than inferred.
 
-MEASURED 2026-09-18, AND "every sampled scene must fail" ABOVE IS TOO STRONG — kept, with
-this correction under it, because the row it is wrong about is the interesting one. The
-poison was built and run (`s4.debug.bin` 848043 B, crc32 e8308fe3): scenes 10, 12 and 15
-failed exactly as written; 13 and 14 correctly stayed GREEN on the declining arm, since the
-store this poison deletes is the one they already skip; and SCENE 11 PASSED. Plane B's own
-word read $07FA there, and $07FA & $0090 == $0090. The AND rule passes on any plane-B word
-whose bits are a SUPERSET of the foreground's, so a deform sample near $7FF launders a
-missing borrow. That is a blind spot in the ACCEPT arm — camera-dependent, not an engine
-defect — and the honest reading of the poison is "the accept scenes go red, most of them at
-any one camera Y". Never conclude a borrow is present from one green accept row.
+MEASURED 2026-09-18 (first run). "Every sampled scene must fail" was TOO STRONG, and the row
+it was wrong about is the interesting one. The poison was built and run (`s4.debug.bin`
+848043 B, crc32 e8308fe3): scenes 10, 12 and 15 failed exactly as written; 13 and 14
+correctly stayed GREEN on the declining arm, since the store this poison deletes is the one
+they already skip; and SCENE 11 PASSED. Plane B's own word read $07FA there, and
+$07FA & $0090 == $0090. The AND rule passes on any plane-B word whose bits are a SUPERSET of
+the foreground's, so a deform sample near $7FF launders a missing borrow. That was a blind
+spot in the ACCEPT arm — camera-dependent, not an engine defect. The reading at the time was
+"never conclude a borrow is present from one green accept row".
+
+CLOSED 2026-09-18 (same day, second run), and the paragraph above is kept because deleting it
+would leave the next reader to rediscover why the arm has two assertions. The accept arm now
+asserts BOTH the AND (what the screen renders) and `VSRAM[$4E] == camY` directly (what the
+store did), each with its own message; the AND alone reduces, given plane A's word already
+checked equal to camY, to "plane B's bits cover the foreground's", which is not injective.
+Re-run against the SAME poison ROM (848043 B, e8308fe3): scene 11 now FAILS with "the
+borrow's store did not land ... vsram4E=$07FA", the laundering value printed on the failing
+line, and all four accept scenes are red. A third refusal backs it up, so the closure does
+not depend on the camera being lucky either: when Camera_Y masks INTO the interval plane B's
+own words occupy in that frame (measured from column pairs 0..18 of the same VSRAM read, not
+pinned), a missing store would leave pair 19 carrying a word indistinguishable from the
+borrow, and the run says UNMEASURABLE instead of green. So "every sampled ACCEPT scene must
+fail" is true now — at any camera Y, either as a FAIL or as a refusal, never as a pass.
+
+The widening in that interval EARNED ITS KEEP on the very run that closed this, which is the
+only reason to trust it: on scene 11 the nineteen sampled plane-B words spanned -4..20 raw,
+and pair 19's own word was -6 — OUTSIDE the first nineteen, INSIDE the interval only because
+it is widened by the largest column-to-column step observed. An unwidened min/max would have
+called that camera Y measurable and been wrong about the one column it was extrapolating to.
 
 TWO ARMS SINCE d-50 (2026-09-02), PICKED PER SCENE FROM THE ROM. The column-19 borrow is
 per scene now, default on. This gate reads `Parallax_Current_Config`'s
@@ -123,7 +157,17 @@ s4.debug.bin 848075 B crc32 62238a15, one oracle-aether per run on its own socke
   * delete the `bmi .col19_borrow_declined` skip in Step 5b so the store runs on a declining
     scene: the declining arm's own FAIL branch fires on 13 AND 14 ("the store ran anyway",
     b19 == $090), accept scenes untouched, rc=1. The arm is not vacuously green.
-Nothing in `./build.sh`'s lanes noticed either engine mutation — both trees built rc=0.
+  * delete the accept arm's own store (the POISON below, s4.debug.bin 848043 B crc32
+    e8308fe3): BEFORE the direct assertion, 10/12/15 red and 11 GREEN on $07FA; AFTER it,
+    10/11/12/15 all red, rc=1, with 13/14 still green on the declining arm and the clean tree
+    back to GREEN 6 of 6 at crc32 62238a15. The accept arm is not vacuously green either, and
+    it is no longer green on a laundering plane-B word.
+  * the `bmi` mutation above RE-RUN under the replacement ambiguity guard (2026-09-18,
+    s4.debug.bin 848075 B crc32 1f02fe01), because that guard is what the declining arm
+    refuses on and it was rewritten in the same edit: 13 and 14 red on "the store ran anyway"
+    (b19 == $090), 10/11/12/15 untouched and green, rc=1. Replacing the typed `<= 0x1F` with
+    the measured interval did NOT make the declining arm stop discriminating.
+Nothing in `./build.sh`'s lanes noticed any of these engine mutations — every tree built rc=0.
 
 USAGE
     python3 tools/fg_left_edge_gate.py                       # all six per-column scenes
@@ -193,6 +237,63 @@ def _decline_borrow_bit() -> int:
                          "engine/level/parallax.emp — the per-scene switch this gate reads "
                          "is not where it was, and a default would be a guess")
     return int(m.group(1), 16)
+
+
+def _col_pairs() -> int:
+    """VSCROLL_COL_PAIRS, re-derived the way the engine derives it: SCREEN_WIDTH / 16, out of
+    engine/system/constants.emp. The gate used to type $4C for column-pair 19's plane-A word;
+    that number is (pairs - 1) * 4 and it is an H40 fact, so it is computed here from the same
+    constant the engine computes it from. Loud when absent — a guessed screen width would aim
+    every VSRAM read in this file at the wrong column pair and still print numbers."""
+    import re as _re
+    txt = open(os.path.join(REPO, "engine", "system", "constants.emp"), encoding="utf-8").read()
+    m = _re.search(r"^\s*pub\s+const\s+SCREEN_WIDTH\s*=\s*(\d+)", txt, _re.M)
+    if not m:
+        raise SystemExit("FAIL: cannot find `pub const SCREEN_WIDTH` in "
+                         "engine/system/constants.emp — the column-pair count this gate aims "
+                         "its VSRAM reads with is derived from it, and a default would be a guess")
+    width = int(m.group(1))
+    if width % 16:
+        raise SystemExit(f"FAIL: SCREEN_WIDTH {width} is not a whole number of 16-px column "
+                         f"pairs, so VSCROLL_COL_PAIRS is not an integer and this gate cannot "
+                         f"say which VSRAM entry the leftmost partial column re-reads")
+    return width // 16
+
+
+def _signed11(word: int) -> int:
+    """VSRAM words are 11 bits and the V-scroll they carry is SIGNED: a locked plane's small
+    negative deform sample stores as $7FA, not as a large positive scroll. Every comparison in
+    this file that asks 'is this value near zero' has to ask it on the signed axis, or $7FA
+    reads as 2042 and lands nowhere near the 0..$1F it actually neighbours."""
+    v = word & VSRAM_MASK
+    return v - (VSRAM_MASK + 1) if v > (VSRAM_MASK >> 1) else v
+
+
+def _planeb_family(vs: bytes, pairs: int):
+    """The interval column-pair 19's plane-B word WOULD occupy if the borrow had not written it.
+
+    MEASURED FROM THE SAME FRAME, not pinned. Step 5b's fill writes plane B's own base plus its
+    deform sample into EVERY pair's second word; the borrow then overwrites exactly one of them,
+    pair 19. So the other `pairs - 1` second words in this very VSRAM frame are a direct sample
+    of the distribution pair 19's own word is drawn from — on whatever scene, at whatever camera
+    Y, under whatever deform amplitude this run happens to be standing in. Nothing about the
+    scene's authored amplitude is restated here, which is the point: a pinned bound (this file
+    carried `expected <= 0x1F`) is a second copy of an engine fact and goes stale green.
+
+    Returns (lo, hi, step) on the SIGNED axis, widened on each side by the largest
+    column-to-column step observed. The widening is what makes this a bound on the TWENTIETH
+    column rather than a description of the first nineteen: the deform is one wave sampled per
+    column, so pair 19 sits one step from pair 18 and the largest step across the row bounds how
+    far one step can carry. That is an assumption about the wave's slope and it is stated here
+    rather than buried — a deform whose slope at column 19 exceeded every slope across columns
+    0..18 could land outside this interval.
+    """
+    own = [_signed11((vs[i * 4 + 2] << 8) | vs[i * 4 + 3]) for i in range(pairs - 1)]
+    if not own:
+        raise SystemExit("FAIL: fewer than two column pairs — there is no plane-B sample to "
+                         "bound column 19's own word against")
+    step = max((abs(b - a) for a, b in zip(own, own[1:])), default=0)
+    return min(own) - step, max(own) + step, step
 
 
 def _trans_default() -> int:
@@ -395,14 +496,47 @@ async def check_scene(client, syms, index, want_pixels):
                        f"trust the scene cursor: the DEBUG warp clears bit 2 and travelling "
                        f"re-applies the section's own scene")
 
+    # WHICH WORD IS WHOSE (2026-09-18, added with the direct assertion below). Step 5b aims
+    # the borrow at VSCROLL_COL19_FG_OFF instead of _BG_OFF when `Parallax_Roles_Swapped` is
+    # set, because the camera-tracked plane then presents through reg $02. This file's word
+    # roles — a19 is the foreground's, b19 is the borrow's target — are the UNSWAPPED ones,
+    # and they are the only ones either arm has ever been attested against. Under a swap both
+    # arms would grade the wrong word and print confident numbers doing it, so the run says so
+    # instead. It is read at the sample point for the same reason reg $0B is: nothing here may
+    # be inferred from the cursor.
+    swapped = await read_bus(client, addr=syms["Parallax_Roles_Swapped"], length=1)
+    if swapped:
+        return False, (f"UNMEASURABLE scene {index}: Parallax_Roles_Swapped reads ${swapped:02X} "
+                       f"at the sample point, so Step 5b aims the column-19 borrow at the FIRST "
+                       f"word of the pair (VSCROLL_COL19_FG_OFF) and the plane roles this gate "
+                       f"asserts on are inverted. Neither arm is attested under a role swap; "
+                       f"refusing to grade rather than grade the wrong word")
+
     cam_y_raw = await read_bus(client, addr=syms["Camera_Y"], length=4)
     cam_y = (cam_y_raw >> 16) & 0xFFFF            # Camera_Y is 16.16; the engine swaps for pixels
     expected = cam_y & VSRAM_MASK
 
-    vs = await read_vsram(client, 0x4C, 4)
-    a19 = (vs[0] << 8) | vs[1]                    # VSRAM $4C — column-pair 19, plane A
-    b19 = (vs[2] << 8) | vs[3]                    # VSRAM $4E — column-pair 19, plane B
+    # THE WHOLE COLUMN-PAIR TABLE, not just pair 19, and the offset is DERIVED (2026-09-18).
+    # $4C was typed here; it is (VSCROLL_COL_PAIRS - 1) * 4 and the engine derives it from
+    # SCREEN_WIDTH, so this does too. The other pairs are read because they ARE the control:
+    # see _planeb_family.
+    pairs = _col_pairs()
+    col19 = (pairs - 1) * 4                       # $4C on H40 — column-pair 19's first word
+    vs = await read_vsram(client, 0x00, pairs * 4)
+    if len(vs) != pairs * 4:
+        return False, (f"UNMEASURABLE scene {index}: asked the machine for {pairs * 4} bytes of "
+                       f"VSRAM and got {len(vs)}. The column-pair table this gate grades is not "
+                       f"all there, so the words it would read are not the words it names")
+    a19 = (vs[col19] << 8) | vs[col19 + 1]        # column-pair 19, plane A (reg $02's word)
+    b19 = (vs[col19 + 2] << 8) | vs[col19 + 3]    # column-pair 19, plane B (reg $04's word)
     and_val = (a19 & b19) & VSRAM_MASK
+    fam_lo, fam_hi, fam_step = _planeb_family(vs, pairs)
+    # Can plane B's OWN word at pair 19 be mistaken for the foreground's V-scroll? If it can,
+    # "the borrow stored camY here" and "this is plane B's own word" predict the SAME VSRAM and
+    # neither arm's assertion discriminates. Both arms refuse on it, loudly, rather than take
+    # the luck: the accept arm would green on a missing borrow, the declining arm on a store
+    # that ran. Signed, because $7FA is -6 and neighbours zero.
+    indistinguishable = fam_lo <= _signed11(expected) <= fam_hi
 
     # WHICH EXPECTATION THIS SCENE IS OWED (d-50, 2026-09-02). The borrow is per scene now,
     # so the gate reads the ACTIVE CONFIG rather than carrying a list of which scenes decline
@@ -435,7 +569,9 @@ async def check_scene(client, syms, index, want_pixels):
 
     detail = (f"vsram4C=${a19:04X} vsram4E=${b19:04X} and=${and_val:03X} "
               f"expected=${expected:03X} (Camera_Y={cam_y}, reg$0B=${mode3:02X}, "
-              f"cfg=${cfg:06X} vds=${vds:02X} borrow={'DECLINED' if declined else 'ON'})")
+              f"cfg=${cfg:06X} vds=${vds:02X} borrow={'DECLINED' if declined else 'ON'}, "
+              f"planeB own words over pairs 0..{pairs - 2} span [{fam_lo},{fam_hi}] signed "
+              f"incl. a {fam_step} max step)")
 
     if declined:
         # THE DECLINING ARM. The store is skipped, so column-pair 19's plane-B word must still
@@ -447,11 +583,18 @@ async def check_scene(client, syms, index, want_pixels):
         # LOUD ON UNMEASURABLE rather than lucky: when the camera happens to sit where camY
         # masks to a value the deform could also produce, the two hypotheses are
         # indistinguishable and this run proves nothing. It says so instead of passing.
-        if expected <= 0x1F:
-            return False, (f"UNMEASURABLE scene {index}: Camera_Y masks to ${expected:03X}, which "
-                           f"is inside the range plane B's own locked-plus-deform word occupies, "
-                           f"so 'the store was skipped' and 'the store happened' predict the same "
-                           f"VSRAM. Re-run at a different camera Y. {detail}")
+        # The bound was `expected <= 0x1F`, typed. It is MEASURED now (_planeb_family), for
+        # two reasons: a typed bound is a second copy of "plane B is locked plus a small
+        # deform" and goes stale green the day a scene authors a bigger amplitude; and the
+        # typed one was one-sided, blind to the fact that these words are SIGNED — plane B's
+        # own word reads $07FA on scene 11, six below zero, and a camera at Y 2042 would have
+        # masked to exactly that and sailed past a `<= 0x1F` test.
+        if indistinguishable:
+            return False, (f"UNMEASURABLE scene {index}: Camera_Y masks to ${expected:03X} "
+                           f"({_signed11(expected)} signed), inside the interval plane B's own "
+                           f"locked-plus-deform word occupies in this very frame, so 'the store "
+                           f"was skipped' and 'the store happened' predict the same VSRAM. "
+                           f"Re-run at a different camera Y. {detail}")
         if (b19 & VSRAM_MASK) == expected:
             return False, (f"FAIL scene {index}: this scene DECLINES the column-19 borrow "
                            f"(pcfg_v_deform_shift_bg=${vds:02X}), but column-pair 19's plane-B "
@@ -464,11 +607,45 @@ async def check_scene(client, syms, index, want_pixels):
         return False, (f"FAIL scene {index}: column-pair 19's PLANE-A word is not the foreground's "
                        f"V-scroll — the column buffer's FG words disagree with Camera_Y, so the "
                        f"borrow has nothing correct to borrow. {detail}")
+    # TWO ASSERTIONS, AND THEY ARE DIFFERENT STATEMENTS (2026-09-18). The first is about the
+    # SCREEN: the AND is the value the VDP actually consumes at the leftmost partial column, so
+    # a tree that fails it renders wrong whatever the cause. The second is about OUR CODE: the
+    # borrow's whole job is to put camY in pair 19's plane-B word, and that word carrying camY
+    # is the thing the store either did or did not do.
+    #
+    # The screen statement alone was NOT ENOUGH, and that is why the second exists. Given plane
+    # A's word already equals camY (checked above), `(a19 & b19) == expected` reduces to "b19's
+    # bits are a SUPERSET of expected's" — which is not injective. Measured 2026-09-18: with the
+    # store deleted, scene 11's plane B carried its own $07FA and $07FA & $0090 == $0090, so the
+    # arm reported the borrow present on a tree that had none. Scenes 10/12/15 went red at the
+    # same camera Y; scene 11 was laundered by one deform sample. `b19 == expected` is injective
+    # where the AND is not, and it is what makes the poison red on EVERY accept scene.
     if and_val != expected:
         return False, (f"FAIL scene {index}: the leftmost partial column will render at V-scroll "
                        f"${and_val:03X}, not ${expected:03X}. VSRAM[$4C] & VSRAM[$4E] is what the "
                        f"VDP uses there (H40, hardware-tested), and it does not equal the "
                        f"foreground's V-scroll. {detail}")
+    if (b19 & VSRAM_MASK) != expected:
+        return False, (f"FAIL scene {index}: this scene ACCEPTS the column-19 borrow "
+                       f"(pcfg_v_deform_shift_bg=${vds:02X}), but column-pair 19's plane-B word "
+                       f"is ${b19 & VSRAM_MASK:03X}, not the foreground's V-scroll "
+                       f"${expected:03X} — the borrow's store did not land. The AND above came "
+                       f"out right anyway because ${b19 & VSRAM_MASK:03X}'s bits happen to cover "
+                       f"${expected:03X}'s; that is laundering, not a borrow. {detail}")
+
+    # REFUSED LAST HERE, FIRST IN THE DECLINING ARM, and the asymmetry is deliberate. Both
+    # assertions above are definite findings when they fail — the screen IS wrong, the store did
+    # NOT land — and a definite red beats "cannot tell", so ambiguity is only consulted on the
+    # path that would otherwise return green. The declining arm's one assertion is the opposite
+    # shape: `b19 == expected` there is a FAILURE, and under ambiguity it would convict a scene
+    # for a coincidence, so it has to be refused before it is made.
+    if indistinguishable:
+        return False, (f"UNMEASURABLE scene {index}: everything here looks like a landed borrow, "
+                       f"but Camera_Y masks to ${expected:03X} ({_signed11(expected)} signed), "
+                       f"inside the interval plane B's own locked-plus-deform word occupies in "
+                       f"this very frame — so a MISSING store would have left pair 19 carrying a "
+                       f"word this run could not tell from the borrow. Proving nothing is not "
+                       f"passing. Re-run at a different camera Y. {detail}")
 
     msg = f"ok   scene {index}: leftmost partial column renders the foreground's V-scroll. {detail}"
     if want_pixels:
@@ -529,7 +706,7 @@ def main():
         # If you add a syms[...] read to check_scene(), add its name HERE in the same edit.
         for name in ("Debug_Lab_Index", "Camera_Y", "VDP_Shadow_Table",
                      "Parallax_Current_Config", "Parallax_Target_Config",
-                     "Parallax_Transition_Frames"):
+                     "Parallax_Transition_Frames", "Parallax_Roles_Swapped"):
             syms[name] = await lookup(c, name)
 
         await c.call("emulator/run_frames", {"frames": args.settle})

@@ -1,12 +1,6 @@
 {
-  "focus": "Closing the last hole in the left-edge check: it can pass by luck depending on where the camera is.",
-  "inFlight": [
-    {
-      "what": "Making the left-edge check fail when the effect is missing, rather than only usually failing",
-      "where": "branch parcel/accept-arm-blind-spot",
-      "agent": true
-    }
-  ],
+  "focus": "The left-edge check can no longer pass by luck, and a second blind spot turned up inside it.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,20 +8,13 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the blind-spot parcel lands; the crossing-transition sweep is named and ready to follow it.",
+  "nextBoundary": "Here. Everything landed and pushed; the crossing-transition sweep is named and ready.",
   "queue": [
     {
       "id": "CROSSING-TRANSITION-SWEEP",
       "title": "Tonight's sweep covered tools that step through the effects lab. Tools that trigger the same scene change by CROSSING a section were named and not swept -- and that is the path the showcase act uses",
       "state": "next",
       "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "ACCEPT-ARM-BLIND-SPOT",
-      "title": "The left-edge check's other arm can pass when it should fail, depending on where the camera is",
-      "state": "doing",
-      "size": "S",
       "blockedBy": null
     },
     {
@@ -89,7 +76,7 @@
       "blockedBy": "parked, not scheduled"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T01:05:33Z"
+  "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T01:08:47Z"
 }
