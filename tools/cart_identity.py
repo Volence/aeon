@@ -143,11 +143,15 @@ async def reload_rom_verified(b, rom_path, out=None, full=True):
     the evidence: a method that returned a dict and changed nothing produces exactly the
     same log as one that worked.
 
-    There is a measured near-miss in this tree already. `tools/evict_witness.py` reloads
-    and then hashes the cart — good — but `emulator/reload_rom` re-binds the symbol table
-    it already holds rather than re-reading the `.lst`, and REPORTS `symbolsDropped:
-    false`, which reads as reassurance (oracle's own finding, 2026-09-04). A reply field
-    that says nothing while looking like it says something is the whole hazard class.
+    There is a measured near-miss in this tree already — HISTORICAL as of 2026-09-19, and
+    kept because the hazard is not. `tools/evict_witness.py` used to reload and then hash
+    the cart — good — but `emulator/reload_rom` re-binds the symbol table it already holds
+    rather than re-reading the `.lst`, and REPORTS `symbolsDropped: false`, which reads as
+    reassurance (oracle's own finding, 2026-09-04). A reply field that says nothing while
+    looking like it says something is the whole hazard class. That tool no longer reloads
+    at all: its reload existed to make somebody ELSE's running oracle_gui hold our ROM, and
+    it spawns its own private instance now, which is handed the ROM on its command line.
+    The example stands for every tool that DOES reload.
 
     Uses the same comparison as the spawn-time check, so a reload is defended exactly as
     well as a boot, and raises the same `CartMismatch`.

@@ -2077,7 +2077,20 @@ def main() -> int:
     if a_k in table and p_k in table:
         want = ((FX[a_k].get("split_want") or 0) - (FX[p_k].get("split_want") or 0))
         got_a, got_p = table[a_k]["split_line"], table[p_k]["split_line"]
-        if got_a is None or got_p is None:
+        # THE ASK ITSELF IS GRADED, and this row was added because the check above SURVIVED a
+        # mutation without it (M4, 2026-09-19: `alt_l = base_l`). Comparing the realized delta
+        # against the REQUESTED delta is blind to a request of zero — 0 == 0 passes, and the
+        # position fixture quietly becomes a duplicate row of its own reference, contributing
+        # nothing to the fit while looking like a measurement. A split-POSITION fixture that
+        # asks for no move is not a position fixture.
+        if want == 0:
+            failures.append(
+                f"{a_k} vs {p_k}: split POSITION — the fixture asks for the SAME split as its "
+                f"reference ({FX[a_k].get('split_want')}), so it is a duplicate row rather "
+                f"than a position fixture. split_line_alt() must return a line different from "
+                f"split_line()'s.")
+            verdict = f"!! ASKS FOR NO MOVE — a duplicate row of {p_k}"
+        elif got_a is None or got_p is None:
             failures.append(f"{a_k} vs {p_k}: split POSITION — one of the two realized no "
                             f"split at all ({a_k}={got_a}, {p_k}={got_p})")
             verdict = "!! NO SPLIT on one side"

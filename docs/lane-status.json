@@ -1,5 +1,5 @@
 {
-  "focus": "Checked why 50 tools sit outside the nightly: 47 reasons still true, 3 had rotted, and 2 more tools are broken.",
+  "focus": "Three instruments that were wrong in three different ways: all three repaired, one arm left red on purpose, and the fixes found two defects nobody had booked.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -8,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "Here. The three-instruments parcel is landed and pushed; nothing running.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
@@ -18,8 +18,36 @@
       "blockedBy": null
     },
     {
-      "id": "TWO-BROKEN-TOOLS",
-      "title": "One tool dies instantly on a hard-coded socket path; another prints a control as fired and then calls the run unmeasurable",
+      "id": "STRESS-CLAMP-EQU-WRONG",
+      "title": "The forced-eviction fixture's own listing publishes a cache clamp of 12 while the ROM it was built with compares against 9 -- the three constants it is folded from are all published correctly",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "DPLC-STRADDLE-REACHABLE",
+      "title": "A sprite frame we had argued was unreachable is reached by ordinary grounded play, and it straddles -- the argument for expecting zeros needs re-running, not the numbers",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "COST-PROBE-SWEEP-ANCHOR",
+      "title": "A sweep advertises coverage it measures none of; giving it that coverage means breaking its own promise to poke nothing, so it is red until someone decides which the arm is for",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "EVICT-WITNESS-WIRING",
+      "title": "The nightly builds the forced-eviction ROM every night and nothing grades it; the witness that would now runs headless, so wiring it is two lines plus the accounting",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "PARALLAX-ANCHOR-COEFFS-REPUBLISH",
+      "title": "The overlay's measured cost went back up 4.4x once its fixture was whole; whether the published cost table takes a new record is the table owner's call",
       "state": "open",
       "size": "S",
       "blockedBy": null
@@ -28,13 +56,6 @@
       "id": "CENSUS-CRITERION-TOO-NARROW",
       "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
       "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "COST-PROBE-W20-STALE",
-      "title": "A cost probe nudges a value that now holds a no-anchor marker, so its 'split moved 80 to 96' is really 32767 to 32783 -- off screen. Same defect we just fixed, one tool over",
-      "state": "next",
       "size": "S",
       "blockedBy": null
     },
