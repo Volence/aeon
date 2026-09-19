@@ -22649,6 +22649,42 @@ twins constant) is blind to values by construction. The +1 px/line value map set
 direction — the pre-advance is real AND the line is `top + 2`; they are two independent facts, not
 one fact double-counted.
 
+### THE LANE, RUN WHOLE ON WHAT CHANGED
+
+`python3 tools/keepalive_lane.py`, started 2026-09-19T03:01:29-04:00 on `s4.debug.bin` crc32
+`62238a15` / 848,075 B:
+
+```
+  bus instruments in tools/          85
+  declared in the manifest           85  (35 wired, 50 not wired)
+  wired INVOCATIONS (rows)           36  (1 extra arm(s) past each tool's default row)
+  accounting: every bus instrument in the tree has a disposition.
+  ...
+RESULTS  36 wired invocation(s) run over 35 instrument(s)
+  PASSED          36
+  FAILED          0
+  COULD NOT RUN   0
+wall 7.0 min over 36 invocation(s)
+finished=36 of 36
+LANE_EXIT=0
+```
+
+The three touched rows: `loop_step_over_witness.py` PASSED 0.8 s (exit 1, declared),
+`loop_step_over_witness.py#no-assert-grounded` PASSED 3.1 s (exit 0, declared),
+`parallax_hscroll_identity.py` PASSED 20.7 s (exit 0, declared).
+
+⚠ **7.0 min is not comparable to the 5.0 min floor measured on 2026-09-19 by
+`KEEPALIVE-DEFAULT-ARGS`, and is not evidence the arm cost 2 minutes.** Load average was 3.18
+at the start and **14.84** at the end — other agents were live on this machine throughout. The
+arm's own cost was measured alone at 3.07 s.
+
+**`pytest tools -m "not needs_build"`: 3147 passed, 4 failed, 2 skipped, 55 errors, 76 s — and
+the failures are NOT this parcel's, with a control.** All 59 are artifact-provenance and
+extern-guard-reachability tests that need a build made FROM THIS TREE, and this worktree only
+symlinks the main checkout's artifacts. Control: a detached worktree at the base commit
+`62686dc6`, same symlinks, same five files — the FAILED/ERROR sets are **byte-identical**
+(`diff` of the sorted sets is empty). The condition is an unbuilt worktree, not the change.
+
 ### WHAT IS STILL OPEN — and it is bigger than the number it replaces
 
 **The 2026-08-14 captures show this ONE LINE HIGHER, and which side moved is not established.**

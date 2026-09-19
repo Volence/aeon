@@ -90,8 +90,8 @@ a manifest key is `tool.py` or `tool.py#arm-label`, and the part before the `#` 
 part that names a file. That is the whole schema change, and it exists because of a measured
 trap.
 
-THE TRAP, MEASURED 2026-09-19 by `KEEPALIVE-DEFAULT-ARGS`. Four wired rows declare a
-NON-ZERO baseline -- their normal, understood state is a red, and baselining it is what makes
+THE TRAP, MEASURED 2026-09-19 by `KEEPALIVE-DEFAULT-ARGS`. Several wired rows declare a
+NON-ZERO baseline (four that day; three since `parallax_hscroll_identity` went to 0) -- their normal, understood state is a red, and baselining it is what makes
 a known-red GOING GREEN report as FAILED. But `loop_step_over_witness --phase-sweep` enters
 its arm, hits the same tool-wide SETUP red the default arm hits, and exits 1; graded against
 the TOOL's `expect = 1` it reports PASSED. **A check that can see perfectly and whose output

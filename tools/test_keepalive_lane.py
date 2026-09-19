@@ -47,8 +47,10 @@ def test_a_crash_is_could_not_run_not_failed():
 def test_a_crash_that_exits_the_declared_baseline_is_still_could_not_run():
     """The decisive case, and the one a naive exit-code lane gets wrong.
 
-    parallax_hscroll_identity's declared baseline IS exit 1 (three deliberate stale-fixture
-    reds). An uncaught exception also exits 1. A lane comparing only exit statuses would
+    A declared baseline of exit 1 is real -- three rows carry one on 2026-09-19, and
+    parallax_hscroll_identity carried one until IDENTITY-FIXTURE-RULING settled its three
+    stale-fixture reds that day. An uncaught exception also exits 1, so a lane comparing
+    only exit statuses would
     call a crashed instrument PASSED -- a dead channel wearing a healthy channel's badge,
     which is the exact defect this lane exists to close.
     """
@@ -108,8 +110,8 @@ def test_the_clean_pass():
 def test_no_declared_baseline_can_make_a_crash_green():
     """There must be no manifest setting that accepts a crash as an instrument's normal state.
 
-    A measured negative is a legitimate thing to baseline -- parallax_hscroll_identity's
-    three stale-fixture reds are declared. A CRASH never is: baselining one would mean the
+    A measured negative is a legitimate thing to baseline -- loop_step_over_witness's
+    setup refusal is declared. A CRASH never is: baselining one would mean the
     lane agreeing to stop noticing that a channel cannot report, which is the defect.
     """
     tb = "Traceback (most recent call last):\nNameError: boom\n"
