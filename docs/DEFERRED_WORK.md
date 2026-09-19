@@ -38037,6 +38037,17 @@ it runs is unknown — a repair here could well surface a second red like (1)'s.
 graded count (47,502 against 47,560), so the poison's intent survives at 1; the docstring
 promises a value the server will not accept.
 
+⚠ **`tools/e2_snap_capture.py` OVERWRITES a committed capture record in place, with no
+guard.** Run with default arguments during the sweep, it rewrote
+`docs/captures/2026-09-15-regions-p2-e2/README.md` — a hand-curated record of a foreground
+controller run on aeon `ec513055`, naming six specific PNGs — into a generated 44-frame index,
+and dropped 44 new PNGs beside the originals. Restored from HEAD here; nothing was lost. The
+point is that **its sibling `night_settle_capture.py` has exactly this guard and refuses**
+("already holds a `report.json` from an earlier run … you would get two runs' PNGs under one
+README describing one of them. Point `--outdir` at a new directory, or pass `--force`"). The
+same refusal belongs on `e2_snap_capture`, whose default `--outdir` points straight at a
+committed set. Cheap, and it protects evidence an owner ruling was taken from.
+
 **And the sweep's own stated gap:** every tool but `tile_cache_fill_gate` was classified on
 DEFAULT arguments. The defect the previous leg found lived on a non-default arm
 (`--extra-right-frames`), so the non-default surface is the same blind spot one level along and
