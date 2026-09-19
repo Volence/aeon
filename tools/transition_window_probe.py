@@ -62,7 +62,8 @@ READS = {"emulator/read_memory", "emulator/read_vram", "emulator/read_cram",
 _orig = aether.BusClient.call
 _busy = {"n": 0}
 REC = {"samples": [], "open_reads": 0, "total_reads": 0, "live_reads": 0,
-       "preboot_reads": 0, "max_frames": 0, "cfgs": [], "err": None}
+       "preboot_reads": 0, "max_frames": 0, "cfgs": [], "err": None,
+       "open_targets": {}, "vram_seq": []}
 
 
 def _hex(r):
@@ -90,14 +91,28 @@ async def patched(self, method, params=None):
             live = 0 < cfgv < ROM_MAX and cfgv % 2 == 0
             if live:
                 REC["live_reads"] += 1
+                # An ORDERED trace of the plane/art reads. "Is the tool's FINAL,
+                # settled assertion the one that landed in a window?" is a question
+                # about WHICH read, and only the order answers it.
+                if method != "emulator/read_memory":
+                    REC["vram_seq"].append([method.rsplit("/", 1)[-1],
+                                            (params or {}).get("addr", ""), f])
                 REC["max_frames"] = max(REC["max_frames"], f if f <= TRANS_DEFAULT else 0)
                 if cfg not in REC["cfgs"] and len(REC["cfgs"]) < 12:
                     REC["cfgs"].append(cfg)
                 if 1 <= f <= TRANS_DEFAULT:
                     REC["open_reads"] += 1
+                    # WHICH read matters, not just how many. A tool that reads
+                    # Logic_Tick inside a window is untouched by the lerp; a tool
+                    # that reads the HScroll table or VSRAM inside one is reading
+                    # the lerp itself. So the target is recorded and tallied.
+                    tgt = "%s %s" % (method.rsplit("/", 1)[-1],
+                                     (params or {}).get("addr", ""))
+                    REC["open_targets"][tgt] = REC["open_targets"].get(tgt, 0) + 1
                     if len(REC["samples"]) < 12:
                         REC["samples"].append({"method": method, "frames": f,
-                                               "cur": cfg, "camx": cam})
+                                               "cur": cfg, "camx": cam,
+                                               "addr": (params or {}).get("addr")})
             else:
                 REC["preboot_reads"] += 1
         except Exception as e:                        # never fail the subject's run
