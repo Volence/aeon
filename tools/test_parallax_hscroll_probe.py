@@ -14,12 +14,16 @@ import os
 import sys
 import unittest
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from raster_cost_probe import parse_lst        # noqa: E402
 from parallax_hscroll_probe import (            # noqa: E402
-    BE_DSHIFT_A, BE_DSHIFT_B, BE_PHASE, BE_SIZE, BE_TOP,
+    BE_DSHIFT_A, BE_DSHIFT_B, BE_PHASE, BE_SIZE, BE_TOP, LEGACY_BE_SIZE,
     CFG_ANCHOR_CH, CFG_ANCHOR_DSA, CFG_ANCHOR_DSB, CFG_BAND_COUNT,
     CFG_DEFORM_TAB_BG, CFG_DEFORM_TAB_FG, CFG_SIZE,
-    ANCHOR_NONE, HSCROLL_BYTES, HSCROLL_LINES, NO_DEFORM,
+    ANCHOR_NONE, HSCROLL_BYTES, HSCROLL_LINES, NO_DEFORM, PLANE_B_SPAN,
     _patch_band, buffer_pairs, check, curve_ramp, derive_hscroll, derive_shadow,
     pack_pairs, resolve_anchor_line, s16, s8, smoothness, u16,
 )
@@ -371,6 +375,84 @@ class TestSmoothness(unittest.TestCase):
         sm = smoothness(pairs, [0])
         self.assertEqual(sm["BG"]["interior_max_abs_d1"], 2)
         self.assertEqual(sm["BG"]["interior_max_abs_d2"], 4)
+
+
+class TestBandArrayStride(unittest.TestCase):
+    """The guard for the defect found 2026-09-18, and the reason nothing above could see it.
+
+    WHY EVERY TEST ABOVE IS BLIND TO IT. `mkcfg` lays its fixture entries out at `BE_SIZE` and
+    `derive_shadow` steps through them at `BE_SIZE`. One symbol on both sides of the
+    comparison: change it from 10 to 32 or back and every one of those tests still passes,
+    because the fixture moves with the parser. That is not a weak test, it is a test that
+    CANNOT fail for this class, and it stayed green through three weeks in which the module's
+    ROM reader was striding a 32-byte array by 10.
+
+    So these two do not build their own fixture. The first reads the stride from
+    `tools/band_geometry.py` — the tree's one reader of the per-game tail geometry, which gets
+    it from engine/level/parallax.emp and games/<game>/map.toml and has never been through
+    this module. The second reads the SHIPPED configs and checks a property of
+    `band_top_plane` that the struct itself declares.
+    """
+
+    def test_be_size_is_the_record_stride_not_the_legacy_prefix(self):
+        # engine/level/parallax.emp:607
+        #     const band_top_line_next = offsetof(band_entry, band_top_plane)
+        #                              + sizeof(band_record)
+        # The walker advances by sizeof(band_RECORD). So must every reader of the same array,
+        # in ROM and in RAM alike. Derived here from band_geometry, never typed: if sonic4's
+        # GAME_SCANLINE_CAPS changes, this test follows the build instead of pinning a number.
+        import band_geometry
+        want = band_geometry.record_stride("sonic4")
+        self.assertEqual(BE_SIZE, want)
+        # ... and it is NOT the legacy prefix today, which is the whole point: an equality
+        # that happens to hold would make the test above vacuous again without saying so.
+        self.assertEqual(LEGACY_BE_SIZE, 10)
+        self.assertGreater(
+            want, LEGACY_BE_SIZE,
+            "sonic4's band_record has lost every capability tail, so record stride == "
+            "sizeof(band_entry) and this file can no longer tell a correct stride from the "
+            "literal 10. Not a failure of the probe — a failure of THIS test's power, and it "
+            "says so rather than passing quietly")
+
+    @pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+    def test_every_shipped_config_decodes_to_legal_band_tops(self):
+        """The ground-truth arm: the shipped ROM, parsed the way the probe parses it.
+
+        `band_top_plane: u16,  // ROM: first PLANE LINE of the band (0..511)` —
+        engine/level/parallax.emp:110. And Step 4a's k-search
+        (`for probe in range(1, n): if be_top(ent[probe]) > vs: break`) only finds the right
+        band if the tops are non-decreasing. Both are properties of the DECLARATION, not of
+        any value in this tree, so neither can be satisfied by a stride that reads the array
+        wrong: at stride 10 the five-band OJZ default decodes as 0, 3855, 0, 0, 3840 — seven
+        times the plane span and not monotonic — and this test is red.
+        """
+        rom_p = os.path.join(AEON, "s4.debug.bin")
+        lst_p = os.path.join(AEON, "s4.debug.lst")
+        rom = open(rom_p, "rb").read()
+        sym = parse_lst(lst_p)
+        names = sorted(n for n in sym if n.startswith("ParallaxConfig_"))
+        self.assertTrue(names, "no ParallaxConfig_* symbols in the listing — measured nothing")
+        multiband = 0
+        for name in names:
+            base = sym[name] & 0xFFFFFF
+            n = rom[base + CFG_BAND_COUNT]
+            self.assertGreater(n, 0, f"{name} declares zero bands")
+            tops = [int.from_bytes(
+                rom[base + CFG_SIZE + i * BE_SIZE: base + CFG_SIZE + i * BE_SIZE + 2], "big")
+                for i in range(n)]
+            if n > 1:
+                multiband += 1
+            for i, t in enumerate(tops):
+                self.assertLess(t, PLANE_B_SPAN,
+                                f"{name} band {i} top {t} is outside band_top_plane's "
+                                f"declared 0..{PLANE_B_SPAN - 1}; tops {tops}")
+            self.assertEqual(tops, sorted(tops),
+                             f"{name} band tops are not non-decreasing: {tops} — Step 4a's "
+                             f"k-search cannot find the right band in them")
+        self.assertGreaterEqual(
+            multiband, 1,
+            "every shipped config has one band, so a wrong stride cannot corrupt any of them "
+            "(band 0 is the one index a wrong stride cannot reach) and this test is vacuous")
 
 
 if __name__ == "__main__":

@@ -125,7 +125,8 @@ BE_OPS          = 6    # band_factor_ops — bit 0 = plane A op, bit 1 = plane B
 BE_DSHIFT_A     = 7    # band_deform_shift_a (15 = no FG deform)
 BE_DSHIFT_B     = 8    # band_deform_shift_b
 BE_PHASE        = 9    # band_phase_offset
-BE_SIZE         = 10   # sizeof(band_entry); mirrored as BAND_ENTRY_LEN at engine/ram.emp:38
+LEGACY_BE_SIZE  = 10   # sizeof(band_entry); mirrored as BAND_ENTRY_LEN at engine/ram.emp:38.
+                       # THE PREFIX ONLY. It is NOT the stride — see the BE_SIZE banner below.
 PLANE_B_SPAN    = 512  # engine/level/parallax.emp PLANE_B_SPAN — Step 4a's rotation modulus
 
 
@@ -206,9 +207,43 @@ try:
     SHADOW_STRIDE = band_geometry.record_stride("sonic4")
 except band_geometry.Unreadable as _e:
     raise SystemExit(f"parallax_hscroll_probe: {_e}")
-assert SHADOW_STRIDE >= BE_SIZE, (
+assert SHADOW_STRIDE >= LEGACY_BE_SIZE, (
     "derived shadow stride %d is smaller than sizeof(band_entry) %d — ram.emp's mirrors "
-    "and parallax.emp's struct disagree" % (SHADOW_STRIDE, BE_SIZE))
+    "and parallax.emp's struct disagree" % (SHADOW_STRIDE, LEGACY_BE_SIZE))
+
+# ---- THE *ROM* BAND ARRAY IS STRIDED BY THE RECORD TOO. FOUND 2026-09-18. ----------
+#
+# Everything above this line is about the RAM shadow array, and the banner got it right there.
+# The ROM config's band array was left at the literal 10 for another three weeks, in two
+# places — `sample_state`'s `_read(cfg_ptr + CFG_SIZE, n * BE_SIZE)` and `derive_shadow`'s
+# `cfg[CFG_SIZE + i * BE_SIZE : ...]` — and the engine does not stride it that way:
+#
+#     engine/level/parallax.emp:607
+#     const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_record)
+#
+# `sizeof(band_record)`, not `sizeof(band_entry)`. One array, one stride, both ends.
+#
+# WHAT IT COST. Against the attested s4.debug.bin (crc32 62238a15) the shipped config at
+# $01486E lowers five bands at stride 32 with plane tops 0/32/80/112/160; read at stride 10
+# they decode as 0/3855/0/0/3840, every top past the screen, so `derive_shadow` clamped bands
+# 1..4 to 224 and produced the degenerate view [0,224,224,224,224]. Stage A then reported the
+# machine's CORRECT tops as the disagreement, and Stage B applied band 0's BG factor
+# (b_s1 = 4) to all 224 lines against a machine that correctly switches to 3, 2 and 1 at lines
+# 80/112/160 — 144 mismatching words per position, each exactly a power of two off, at five
+# frozen positions, plus the sweep arm's 24 "discontinuities" (the real band edges, classified
+# as interior because the derived view had none) and the red-first arm's control. Thirty-five
+# failures, none of them the engine's: the ROM and the buffer agreed with each other the whole
+# time. This is the SAME defect, in the same file, as the RAM one the banner above narrates,
+# and its sibling tools/parallax_cost_probe.py was repaired for it on 2026-08-29 while this
+# ROM read was not.
+#
+# WHY `BE_SIZE` IS THE NAME FOR THE STRIDE AND NOT FOR THE PREFIX. tools/curve_probe.py
+# already assigns `php.BE_SIZE = stride` (curve_probe.py:641) and tools/parallax_cost_probe.py
+# carries `BE_SIZE = sizeof(band_record)` with its own banner. That convention is the one the
+# tree settled on; making this module's `BE_SIZE` mean the prefix instead would have turned
+# curve_probe's override into a silent no-op. The prefix is `LEGACY_BE_SIZE` above, and it is
+# used in exactly the two places that slice a record's legacy head out of a wider record.
+BE_SIZE = SHADOW_STRIDE
 ANCHOR_NONE        = 0xFF
 NO_DEFORM          = 15     # the shift sentinel: this plane takes no deform on this band
 
@@ -343,7 +378,18 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     every band from the split down takes pcfg_anchor_dsa/dsb.
     """
     n = cfg[CFG_BAND_COUNT]
-    ent = [cfg[CFG_SIZE + i * BE_SIZE: CFG_SIZE + (i + 1) * BE_SIZE] for i in range(n)]
+    # Step by the RECORD, read the legacy PREFIX — the two are different lengths, and this
+    # is the ROM half of the stride defect the BE_SIZE banner narrates (found 2026-09-18).
+    ent = [cfg[CFG_SIZE + i * BE_SIZE: CFG_SIZE + i * BE_SIZE + LEGACY_BE_SIZE]
+           for i in range(n)]
+    short = [i for i, e in enumerate(ent) if len(e) < LEGACY_BE_SIZE]
+    if short:
+        raise ValueError(
+            f"config band array is short: band(s) {short} of {n} do not have "
+            f"{LEGACY_BE_SIZE} bytes at stride {BE_SIZE} in a {len(cfg)}-byte config. "
+            f"The caller read fewer than CFG_SIZE + {n} * {BE_SIZE} bytes, so every top "
+            f"below would be decoded out of the wrong place — refusing rather than "
+            f"deriving a shadow view from a truncated array")
 
     vs = u16(vscroll_bg) & (PLANE_B_SPAN - 1)    # plane LINE at the screen top
     k = 0
@@ -691,7 +737,7 @@ def stage_a(st):
     raw = st["shadow_raw"]
     for i in range(sh.n):
         # Step by the RECORD, read the legacy PREFIX: the two are different lengths.
-        got = raw[i * SHADOW_STRIDE:i * SHADOW_STRIDE + BE_SIZE]
+        got = raw[i * SHADOW_STRIDE:i * SHADOW_STRIDE + LEGACY_BE_SIZE]
         # THE TOP IS A WORD AND THE OTHER THREE ARE BYTES (P3 Task 7). Comparing the top
         # byte-wise would read its always-zero high half against `want & 0xFF` and pass for
         # every top in 0..224 — a check that cannot fail is worse than no check.
