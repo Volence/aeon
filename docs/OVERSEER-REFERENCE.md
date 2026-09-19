@@ -39,6 +39,25 @@ That block is superseded. Everything below it moved here from the boot file on 2
 
 ## Landing lane (aeon certifies ALONE — the paired freeze is RETIRED)
 
+**⚠ BEFORE ANY CHECK THAT READS ANOTHER LANE'S TREE: RESOLVE ITS DEFAULT BRANCH, NEVER TYPE ONE.**
+*Cited as: resolve the default branch; the assumed-default family.* **Measured 2026-09-19, and the
+suite is split 3/3:** `master` for aeon, sigil and aurora; `main` for oracle, seraph and empyrean.
+**So a typed default is wrong for half the suite** — and the command below hardcodes
+`origin/master` for aurora, which is correct for aurora and is exactly the line someone will copy
+for a lane where it is not. Resolve it:
+```sh
+git -C ../<lane> symbolic-ref --short refs/remotes/origin/HEAD   # unset? resolve before citing
+```
+**Why this and not a warning: the wrong branch makes a check ANSWER, not fail.**
+`git merge-base --is-ancestor <sha> origin/master` against a lane that uses `main` returns a clean
+false; `git -C ../lane grep ... origin/master` returns clean empty. No error, no warning — a
+confident wrong finding instead of a visible one. The hub nearly banked a false "did not land"
+against oracle this way, and this lane's own aurora read-path check on 2026-09-18 was typed rather
+than resolved and happened to be right, which is the same defect with a luckier outcome. **General
+form, now protocol (empyrean `c6ebebc2`, cited as the assumed-default family — read it there, this
+is a pointer and not a fork): before trusting a check that took a default, name the default and say
+where you resolved it from; if the answer is "I typed it", the check has not been aimed.**
+
 - **AURORA READS THIS TREE, SO "ZERO ROM BYTES" SAYS NOTHING ABOUT ITS SUITE (hub, 2026-09-17).**
   `e2af59ea` moved zero bytes and still turned aurora's master red: 5 tests in 4 files read aeon
   `origin/master` source, and aurora's `npm run land` refuses a red suite. **At every landing that
