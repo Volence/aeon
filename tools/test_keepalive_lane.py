@@ -195,10 +195,11 @@ def test_every_not_wired_entry_carries_a_reason():
 
 
 def test_every_wired_entry_names_a_file_that_exists_and_a_baseline():
-    for name, spec in _manifest()["wired"].items():
-        assert os.path.isfile(os.path.join(lane.REPO, "tools", name)), name
-        assert isinstance(spec.get("expect"), int), f"{name} has no declared baseline"
-        assert isinstance(spec.get("timeout"), int) and spec["timeout"] > 0, name
+    for row, spec in _manifest()["wired"].items():
+        # A row key is an INVOCATION; only the part before the `#` is a filename.
+        assert os.path.isfile(os.path.join(lane.REPO, "tools", row.split("#")[0])), row
+        assert isinstance(spec.get("expect"), int), f"{row} has no declared baseline"
+        assert isinstance(spec.get("timeout"), int) and spec["timeout"] > 0, row
 
 
 def test_the_lane_excuses_only_its_own_two_files_from_the_census():
@@ -218,3 +219,131 @@ def test_the_two_instruments_that_motivated_this_lane_are_accounted_for(name):
         f"{name} is one of the two instruments found dead on 2026-09-18; "
         "it must not fall out of this lane's accounting"
     )
+
+
+# ---------------------------------------------------------------------------------
+#  A BASELINE DESCRIBES AN INVOCATION, NOT A TOOL
+# ---------------------------------------------------------------------------------
+# Measured 2026-09-19 (`KEEPALIVE-DEFAULT-ARGS`): `loop_step_over_witness --phase-sweep`
+# enters its arm, hits the same tool-wide SETUP red the default arm hits, and exits 1.
+# Graded against a TOOL-keyed `expect = 1` it reports PASSED -- a row that reports PASSED
+# whatever it does. These pin the rule that stops a red baseline travelling onto an arm
+# nobody measured.
+#
+# ⚠ THE FIXTURES SPELL "COULD NOT RUN" AND THE ARGV OUT IN FULL, for the module
+#   docstring's reason: a fixture that imported `lane.ARM_SEP` or `lane.CNR` would move
+#   with the code and measure self-consistency.
+
+DEFAULT_ARGV = ["--rom", "{rom}", "--lst", "{lst}"]
+SWEEP_ARGV = ["--rom", "{rom}", "--lst", "{lst}", "--phase-sweep"]
+
+
+def test_a_row_key_names_the_tool_before_the_separator():
+    assert lane.tool_of("loop_step_over_witness.py#phase-sweep") == "loop_step_over_witness.py"
+    assert lane.arm_of("loop_step_over_witness.py#phase-sweep") == "phase-sweep"
+    assert lane.tool_of("loop_step_over_witness.py") == "loop_step_over_witness.py"
+    assert lane.arm_of("loop_step_over_witness.py") == ""
+
+
+def test_a_zero_baseline_needs_no_argv_because_zero_cannot_travel():
+    assert lane.baseline_drift("x.py", {"args": DEFAULT_ARGV, "expect": 0}) is None
+    assert lane.baseline_drift("x.py", {"args": DEFAULT_ARGV}) is None
+
+
+def test_a_non_zero_baseline_with_no_declared_argv_is_refused():
+    why = lane.baseline_drift("loop_step_over_witness.py",
+                              {"args": DEFAULT_ARGV, "expect": 1})
+    assert why is not None
+    assert "baseline_args" in why
+
+
+def test_a_baseline_measured_on_a_different_arm_cannot_grade_this_row():
+    """THE MEASURED CASE. The `--phase-sweep` arm carrying the default arm's baseline."""
+    why = lane.baseline_drift("loop_step_over_witness.py#phase-sweep",
+                              {"args": SWEEP_ARGV, "expect": 1,
+                               "baseline_args": DEFAULT_ARGV})
+    assert why is not None
+    assert "DIFFERENT invocation" in why
+
+
+def test_a_baseline_that_names_its_own_argv_grades_normally():
+    assert lane.baseline_drift("loop_step_over_witness.py#phase-sweep",
+                               {"args": SWEEP_ARGV, "expect": 1,
+                                "baseline_args": SWEEP_ARGV}) is None
+
+
+def test_a_stale_declared_argv_is_caught_even_on_a_zero_baseline():
+    """Zero is exempt from NEEDING the field, not from meaning it once it is there."""
+    assert lane.baseline_drift("x.py", {"args": SWEEP_ARGV, "expect": 0,
+                                        "baseline_args": DEFAULT_ARGV}) is not None
+
+
+def test_a_drifting_row_is_could_not_run_and_is_never_spawned(tmp_path):
+    """Both halves matter: the verdict is the third outcome, and no emulator is booted.
+
+    PASSED and FAILED are both wrong answers for a run the declared baseline is not
+    entitled to grade, and a headless boot spent for no verdict is the cost this refuses.
+    """
+    res = lane.run_one("loop_step_over_witness.py#phase-sweep",
+                       {"args": SWEEP_ARGV, "expect": 1, "baseline_args": DEFAULT_ARGV,
+                        "timeout": 5},
+                       str(tmp_path / "rom.bin"), str(tmp_path / "x.lst"),
+                       lane.REPO, False)
+    assert res["verdict"] == "COULD NOT RUN"
+    assert res["cmd"] == "(not run)"
+    assert res["rc"] is None
+
+
+def test_a_new_arm_that_declares_nothing_reports_failed_on_a_known_red_tool():
+    """The default is the third guard, and it is the one that needs no author at all.
+
+    `expect` absent means 0. An arm added to a tool whose red is understood therefore
+    reports FAILED on its first run rather than inheriting the tool's declared red -- the
+    lane says "this invocation exits 1 and nobody has declared that", which is true.
+    """
+    spec = {"args": SWEEP_ARGV}
+    assert lane.baseline_drift("loop_step_over_witness.py#phase-sweep", spec) is None
+    verdict, _ = lane.classify(rc=1, output="THE PLAYER NEVER LANDED\n",
+                               expect=int(spec.get("expect", 0)), timed_out=False)
+    assert verdict == "FAILED"
+
+
+def test_two_rows_of_one_tool_running_the_same_argv_are_ambiguous():
+    twins = lane.twin_rows({"a.py": {"args": DEFAULT_ARGV},
+                            "a.py#copy": {"args": DEFAULT_ARGV},
+                            "a.py#sweep": {"args": SWEEP_ARGV},
+                            "b.py": {"args": DEFAULT_ARGV}})
+    assert twins == [("a.py", "a.py#copy")]
+
+
+def test_an_arm_row_is_one_disposition_not_two_in_the_accounting():
+    """Adding an arm must not make the tree look like it grew an instrument."""
+    manifest = {"wired": {"alpha.py": {"args": []}, "alpha.py#second": {"args": ["--x"]}},
+                "not_wired": {"beta.py": "a reason long enough to pass the other test"}}
+    declared, undeclared, missing, dupes = lane.account(manifest, ["alpha.py", "beta.py"])
+    assert declared == {"alpha.py", "beta.py"}
+    assert (undeclared, missing, dupes) == ([], [], [])
+
+
+def test_an_arm_wired_while_the_tool_is_not_wired_is_still_ambiguous():
+    manifest = {"wired": {"alpha.py#second": {"args": ["--x"]}},
+                "not_wired": {"alpha.py": "a reason long enough to pass the other test"}}
+    assert lane.account(manifest, ["alpha.py"])[3] == ["alpha.py"]
+
+
+def test_the_shipped_manifest_has_no_row_whose_baseline_describes_another_invocation():
+    wired = _manifest()["wired"]
+    bad = {row: lane.baseline_drift(row, spec) for row, spec in wired.items()
+           if lane.baseline_drift(row, spec)}
+    assert bad == {}, f"rows whose declared baseline does not describe their own argv: {bad}"
+    assert lane.twin_rows(wired) == []
+
+
+def test_every_non_zero_baseline_in_the_shipped_manifest_spells_its_argv():
+    """The population this rule exists for, held to a count rather than a spot check."""
+    wired = _manifest()["wired"]
+    reds = {r for r, s in wired.items() if int(s.get("expect", 0)) != 0}
+    assert reds, "no row declares a non-zero baseline any more -- this rule now guards nothing"
+    for row in reds:
+        assert [str(a) for a in wired[row]["baseline_args"]] == \
+               [str(a) for a in wired[row]["args"]], row

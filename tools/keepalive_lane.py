@@ -83,6 +83,44 @@ more, and that is a lane that cannot run rather than a tool that failed.
     surface.
 
 =============================================================================
+A BASELINE DESCRIBES AN INVOCATION, NOT A TOOL
+=============================================================================
+`expect` used to be keyed to the TOOL. It is keyed to the ROW, and a ROW IS AN INVOCATION:
+a manifest key is `tool.py` or `tool.py#arm-label`, and the part before the `#` is the only
+part that names a file. That is the whole schema change, and it exists because of a measured
+trap.
+
+THE TRAP, MEASURED 2026-09-19 by `KEEPALIVE-DEFAULT-ARGS`. Four wired rows declare a
+NON-ZERO baseline -- their normal, understood state is a red, and baselining it is what makes
+a known-red GOING GREEN report as FAILED. But `loop_step_over_witness --phase-sweep` enters
+its arm, hits the same tool-wide SETUP red the default arm hits, and exits 1; graded against
+the TOOL's `expect = 1` it reports PASSED. **A check that can see perfectly and whose output
+carries no information.** An extra arm on a tool with a non-zero baseline inherits a baseline
+that was measured on a DIFFERENT arm, and is then a green row that cannot fail.
+
+THE RULE, AND IT IS ONE SENTENCE: a NON-ZERO `expect` must be accompanied by `baseline_args`,
+spelled out, and EQUAL to that row's own `args`. The redundancy IS the check. A row whose
+declared baseline does not describe its own invocation is COULD NOT RUN -- never PASSED,
+never FAILED -- because a baseline measured somewhere else cannot grade this run. Three
+things it catches, and one it does not, stated so nobody expects more of it:
+
+  * adding an arm to an existing non-zero row's `args` and leaving `expect` alone: CAUGHT,
+    `baseline_args` no longer matches `args`.
+  * copying a non-zero row to a new `tool.py#arm` key and changing only `args`: CAUGHT, same
+    way.
+  * writing a new arm and thinking about nothing: CAUGHT by the DEFAULT. `expect` defaults to
+    0, so a new arm on a known-red tool reports FAILED, loudly, on its first run.
+  * copying the row AND editing `baseline_args` to match: NOT caught, and cannot be. That is
+    an author asserting "I measured THIS argv and it exits N", which is a claim, not an
+    inheritance. No mechanism short of running it can tell a true claim from a false one.
+
+⚠ THE ZERO BASELINE IS DELIBERATELY EXEMPT. `expect = 0` is not a measurement that can
+travel -- it is "this tool is supposed to work" -- so requiring `baseline_args` on 31 rows
+would buy nothing and rot on the first `args` edit. The hazard is a RED that travels, and
+that is what the rule is keyed to. A row that carries `baseline_args` anyway is still held to
+the equality, so a stale one cannot sit there looking like evidence.
+
+=============================================================================
 THE POPULATION REFUSES TO SHRINK SILENTLY
 =============================================================================
 `keepalive_population.py` derives the 85 bus instruments FROM THE TREE on every run. This
@@ -203,18 +241,99 @@ def load_manifest(path):
         return tomllib.load(fh)
 
 
+# A manifest row is keyed by an INVOCATION, not by a tool: `tool.py` names the tool's one
+# declared invocation, `tool.py#arm-label` names another one of the same tool's. Only the
+# part before the separator is a filename. See the module docstring.
+ARM_SEP = "#"
+
+
+def tool_of(row):
+    """The tools/ filename a manifest row names."""
+    return row.split(ARM_SEP, 1)[0]
+
+
+def arm_of(row):
+    """The arm label, or "" for a tool's default row."""
+    head, sep, label = row.partition(ARM_SEP)
+    return label if sep else ""
+
+
+def baseline_drift(row, spec):
+    """None if this row's declared baseline describes THIS row's invocation, else why not.
+
+    THE WHOLE POINT IS THE REDUNDANCY. `baseline_args` restates the argv the baseline was
+    measured against, so a baseline that was moved onto a different invocation stops
+    matching and the row becomes ungradeable instead of silently grading. See the module
+    docstring for the three cases this catches and the one it cannot.
+    """
+    expect = int(spec.get("expect", 0))
+    args = [str(a) for a in spec.get("args", [])]
+    declared = spec.get("baseline_args")
+    if declared is None:
+        if expect == 0:
+            return None
+        return (f"declares `expect = {expect}` -- a NON-ZERO baseline, i.e. a measured red -- "
+                f"and no `baseline_args`. A red baseline is a measurement of ONE invocation "
+                f"and this row does not say which. Add `baseline_args` spelling out the argv "
+                f"the baseline was measured on; it must equal this row's `args`")
+    declared = [str(a) for a in declared]
+    if declared != args:
+        return (f"`baseline_args` {declared} is not this row's `args` {args}, so the declared "
+                f"baseline (`expect = {expect}`) was measured on a DIFFERENT invocation than "
+                f"the one this row runs. Re-measure this arm and write its own baseline; do "
+                f"not carry another arm's over")
+    return None
+
+
 def account(manifest, pop):
-    """Reconcile the manifest against the tree-derived population."""
+    """Reconcile the manifest against the tree-derived population.
+
+    Rows are per-INVOCATION and the population is per-TOOL, so both sides of every set
+    operation below are folded through `tool_of` first. A tool with three arms is one
+    declaration, not three, and a tool declared `not_wired` while an arm of it is wired is
+    still AMBIGUOUS.
+    """
     wired = manifest.get("wired", {})
     not_wired = manifest.get("not_wired", {})
-    declared = set(wired) | set(not_wired)
-    dupes = sorted(set(wired) & set(not_wired))
+    wired_tools = {tool_of(r) for r in wired}
+    nw_tools = {tool_of(r) for r in not_wired}
+    declared = wired_tools | nw_tools
+    dupes = sorted(wired_tools & nw_tools)
     undeclared = sorted(set(pop) - declared)
     missing = sorted(declared - set(pop))
     return declared, undeclared, missing, dupes
 
 
-def run_one(name, spec, rom, lst, repo, verbose):
+def twin_rows(wired):
+    """Rows of ONE tool whose `args` are identical -- two names for one invocation.
+
+    Not a style complaint. Two rows that run the same argv carry two baselines for one
+    measurement, so one of them is unfalsifiable bookkeeping and nothing says which. It is
+    also the exact residue of copying a row to make an arm and forgetting to change the
+    argv, which is the copy this lane's baseline rule is aimed at.
+    """
+    seen = {}
+    out = []
+    for row in sorted(wired):
+        key = (tool_of(row), tuple(str(a) for a in wired[row].get("args", [])))
+        if key in seen:
+            out.append((seen[key], row))
+        else:
+            seen[key] = row
+    return out
+
+
+def run_one(row, spec, rom, lst, repo, verbose):
+    name = tool_of(row)
+    # THE BASELINE IS CHECKED BEFORE THE TOOL IS RUN, and a drifting one makes the row
+    # UNGRADEABLE rather than merely noisy: there is no exit status this invocation could
+    # return that the declared baseline is entitled to grade, so PASSED and FAILED are both
+    # wrong answers and COULD NOT RUN is the honest one. The tool is not spawned -- a run
+    # nothing can grade is a headless boot spent for no verdict.
+    drift = baseline_drift(row, spec)
+    if drift:
+        return {"name": row, "verdict": CNR, "why": f"the baseline does not describe this "
+                f"invocation: {drift}", "wall": 0.0, "cmd": "(not run)", "output": "", "rc": None}
     args = []
     outdir = None
     raw = list(spec.get("args", []))
@@ -244,7 +363,7 @@ def run_one(name, spec, rom, lst, repo, verbose):
     verdict, why = classify(rc, out, int(spec.get("expect", 0)), timed_out,
                             refusal_is_expected=bool(spec.get("refusal_is_expected", False)))
     return {
-        "name": name, "verdict": verdict, "why": why, "wall": wall,
+        "name": row, "verdict": verdict, "why": why, "wall": wall,
         "cmd": " ".join(cmd[1:]), "output": out, "rc": rc,
     }
 
@@ -272,12 +391,16 @@ def main(argv=None):
     declared, undeclared, missing, dupes = account(manifest, pop)
 
     print()
+    wired_tools = {tool_of(r) for r in wired}
+    arms = sorted(r for r in wired if arm_of(r))
     print("POPULATION (derived from the tree, every run)")
     print(f"  bus instruments in tools/          {len(pop)}")
     print(f"  of those, nothing executes         {len(dead)}  (advisory; see keepalive_population.py)")
     print(f"  declared in the manifest           {len(declared)}  "
-          f"({len(wired)} wired, {len(not_wired)} not wired)")
-    dead_unwired = sorted(set(dead) - set(wired))
+          f"({len(wired_tools)} wired, {len(not_wired)} not wired)")
+    print(f"  wired INVOCATIONS (rows)           {len(wired)}  "
+          f"({len(arms)} extra arm(s) past each tool's default row)")
+    dead_unwired = sorted(set(dead) - wired_tools)
     print(f"  unexecuted AND not wired here      {len(dead_unwired)}  "
           f"(the honest remaining gap, all named in [not_wired])")
 
@@ -291,6 +414,18 @@ def main(argv=None):
     for nm in dupes:
         print(f"  AMBIGUOUS   {nm}  -- declared BOTH wired and not_wired")
         drift += 1
+    for first, second in twin_rows(wired):
+        print(f"  AMBIGUOUS   {second}  -- same tool and same `args` as {first}: two "
+              f"baselines for ONE invocation, and nothing says which is the measurement")
+        drift += 1
+    # THE BASELINE ACCOUNTING, printed here so `--list` reaches it without a 5-minute run.
+    # `run_one` refuses the same rows independently -- this is the cheap early warning, not
+    # the enforcement, because a lane invoked with `--only` must not be able to skip it.
+    for row in sorted(wired):
+        why = baseline_drift(row, wired[row])
+        if why:
+            print(f"  BASELINE    {row}  -- {why}")
+            drift += 1
     if not drift:
         print("  accounting: every bus instrument in the tree has a disposition.")
 
@@ -302,23 +437,29 @@ def main(argv=None):
             print(f"\nCOULD NOT RUN: no {what} at {path}")
             return 2
 
-    todo = sorted(wired) if not args.only else [t for t in sorted(wired) if
-                                                t in args.only or t[:-3] in args.only]
-    print(f"\nRUNNING {len(todo)} wired instrument(s), serially "
+    # `--only` names a TOOL or a ROW: `loop_step_over_witness`, `loop_step_over_witness.py`,
+    # or `loop_step_over_witness.py#phase-sweep`. Naming the tool runs every arm of it,
+    # because "run that instrument" has to mean all of it once a tool has more than one row.
+    def _picked(row):
+        tool = tool_of(row)
+        return row in args.only or tool in args.only or tool[:-3] in args.only
+    todo = sorted(wired) if not args.only else [r for r in sorted(wired) if _picked(r)]
+    print(f"\nRUNNING {len(todo)} wired invocation(s) over "
+          f"{len({tool_of(r) for r in todo})} instrument(s), serially "
           f"(each boots its own headless emulator)\n")
 
     if args.logdir:
         os.makedirs(args.logdir, exist_ok=True)
 
     results = []
-    for i, name in enumerate(todo, 1):
-        spec = wired[name]
-        print(f"[{i:2d}/{len(todo)}] {name:38s} ", end="", flush=True)
-        res = run_one(name, spec, args.rom, args.lst, REPO, args.verbose)
+    for i, row in enumerate(todo, 1):
+        spec = wired[row]
+        print(f"[{i:2d}/{len(todo)}] {row:46s} ", end="", flush=True)
+        res = run_one(row, spec, args.rom, args.lst, REPO, args.verbose)
         results.append(res)
         print(f"{res['verdict']:14s} {res['wall']:6.1f}s  {res['why']}")
         if args.logdir:
-            with open(os.path.join(args.logdir, name + ".log"), "w") as fh:
+            with open(os.path.join(args.logdir, row.replace(ARM_SEP, "--") + ".log"), "w") as fh:
                 fh.write(f"$ {res['cmd']}\nexit {res['rc']}  {res['verdict']}: {res['why']}\n\n")
                 fh.write(res["output"])
 
@@ -328,7 +469,8 @@ def main(argv=None):
 
     print()
     print("=" * 78)
-    print(f"RESULTS  {len(results)} wired instrument(s) run")
+    print(f"RESULTS  {len(results)} wired invocation(s) run over "
+          f"{len({tool_of(r['name']) for r in results})} instrument(s)")
     print(f"  PASSED          {counts[PASSED]}")
     print(f"  FAILED          {counts[FAILED]}")
     print(f"  COULD NOT RUN   {counts[CNR]}")
@@ -338,12 +480,12 @@ def main(argv=None):
             print(f"\n  {label}:")
             for r in named:
                 note = wired[r["name"]].get("note", "")
-                print(f"    {r['name']:38s} {r['why']}")
+                print(f"    {r['name']:46s} {r['why']}")
                 if note:
                     print(f"      declared: {note}")
     print("=" * 78)
     total = sum(r["wall"] for r in results)
-    print(f"wall {total/60:.1f} min over {len(results)} instrument(s); "
+    print(f"wall {total/60:.1f} min over {len(results)} invocation(s); "
           f"uptime:{subprocess.run(['uptime'], capture_output=True, text=True).stdout.strip()}")
     print(f"finished={len(results)} of {len(todo)}")
 

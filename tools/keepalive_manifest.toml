@@ -24,6 +24,28 @@
 #  complaining.
 #
 #  timeout = seconds. A timeout is COULD NOT RUN, not FAILED.
+#
+#  ===================================================================================
+#  A ROW IS AN INVOCATION, NOT A TOOL -- and `expect` belongs to the ROW
+#  ===================================================================================
+#  A key is `tool.py` or `tool.py#arm-label`. Only the part before the `#` names a file;
+#  the label names one more declared invocation of the SAME tool. The population
+#  accounting folds every row through that split, so N arms of one tool are still ONE
+#  disposition, and two rows of one tool with IDENTICAL `args` are reported AMBIGUOUS --
+#  two baselines for one measurement, with nothing to say which is the measured one.
+#
+#  A NON-ZERO `expect` MUST CARRY `baseline_args`, SPELLED OUT AND EQUAL TO THIS ROW'S
+#  `args`. The redundancy is the check. Measured 2026-09-19: `loop_step_over_witness
+#  --phase-sweep` enters its arm, hits the same tool-wide SETUP red the default arm hits,
+#  exits 1, and against a TOOL-keyed `expect = 1` grades PASSED -- a row that reports
+#  PASSED whatever it does. A baseline is a measurement of ONE argv; this field is where
+#  the row says WHICH, and a row whose baseline names a different argv than it runs is
+#  COULD NOT RUN (not PASSED, not FAILED) and is not even spawned.
+#
+#  `expect = 0` is exempt and that is deliberate: zero is not a measurement that can
+#  travel, it is "this tool is supposed to work". The hazard is a measured RED carried
+#  onto an arm nobody measured. A zero row that carries `baseline_args` anyway is still
+#  held to the equality, so a stale one cannot sit there looking like evidence.
 
 # =====================================================================================
 #  WIRED -- the lane runs these
@@ -34,6 +56,7 @@
 [wired."parallax_hscroll_identity.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 300
 note = """KNOWN RED, and the red is the point. Measured 2026-09-18 on s4.debug.bin crc32
 62238a15: exits 1 with exactly three complaints -- ID7 and ID8 sample a buffer identical
@@ -77,6 +100,7 @@ timeout = 600
 [wired."loop_step_over_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 300
 note = """DECLARED RED, classification: SETUP, instrument-side. Measured 2026-09-18 on crc32
 62238a15: 'THE PLAYER NEVER LANDED, so this run cannot say anything about the loop. placed
@@ -182,6 +206,7 @@ timeout = 300
 [wired."sprite_owner_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 300
 note = """DECLARED RED, classification: VACUOUS, instrument-side. Measured 2026-09-18:
 'THIN: the widest frame sampled carried 3 sprite(s), below the 4 this probe treats as a
@@ -203,6 +228,7 @@ timeout = 600
 [wired."waterline_art_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
+baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
 timeout = 600
 note = """DECLARED RED, classification: VACUOUS ARM, instrument-side -- NOT an engine
 finding, and that was read off the output rather than assumed. Measured 2026-09-18: the two
