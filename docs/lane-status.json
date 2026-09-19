@@ -1,12 +1,6 @@
 {
-  "focus": "A test build publishes a cache limit of 12 while the ROM it built compares against 9.",
-  "inFlight": [
-    {
-      "what": "Chasing a published constant that disagrees with the code the same build emitted",
-      "where": "branch parcel/stress-clamp-equ",
-      "agent": true
-    }
-  ],
+  "focus": "The clamp disagreement is the assembler's, not ours -- and I checked the shipping ROM's bytes, not its listing.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the clamp disagreement is diagnosed to one side: our source, or the assembler's listing.",
+  "nextBoundary": "Here. Everything landed and pushed.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
@@ -32,10 +26,10 @@
     },
     {
       "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "The forced-eviction fixture's own listing publishes a cache clamp of 12 while the ROM it was built with compares against 9 -- the three constants it is folded from are all published correctly",
-      "state": "doing",
+      "title": "A test build's listing answers a question about a different build; diagnosed to the toolchain, your shipping ROM verified unaffected",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": "diagnosed to the assembler and routed to that lane; nothing of ours to fix"
     },
     {
       "id": "DPLC-STRADDLE-REACHABLE",
@@ -153,6 +147,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-19T09:36:08Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-19T09:48:52Z"
 }
