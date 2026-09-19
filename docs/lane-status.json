@@ -1,6 +1,12 @@
 {
-  "focus": "All three dead measuring tools are alive, and the last one had been reporting failures against a correct engine.",
-  "inFlight": [],
+  "focus": "Finding out what the new nightly CANNOT see, since a claim that it covers us is already written down.",
+  "inFlight": [
+    {
+      "what": "Measuring what the new nightly cannot see, so the claim that it covers this is either true or made precise",
+      "where": "branch parcel/keepalive-default-args",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +14,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When the nightly's blind spot is measured and the written claim is either confirmed or narrowed.",
   "queue": [
     {
       "id": "KEEPALIVE-DEFAULT-ARGS",
       "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -27,7 +33,7 @@
     {
       "id": "IDENTITY-FIXTURE-RULING",
       "title": "A revived tool reports three failures we left red on purpose: its test fixtures expect an anchor the game does not set, and one live config's authoring intent needs whoever wrote the OJZ sections",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -98,6 +104,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T05:14:56Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T05:35:27Z"
 }
