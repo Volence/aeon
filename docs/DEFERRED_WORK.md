@@ -39285,6 +39285,27 @@ both trees. Read the id sets, not the totals.
 5. **The `.sh` comment asymmetry in `strip_prose`** — measured harmless today (50 → 50), live
    the moment a `build.sh` comment names a tool nothing else reaches.
 
+## ⚠ EVERY INSTRUMENT-POPULATION FIGURE IN THIS FILE IS OVER A NARROW CRITERION — 2026-09-19
+
+**Read this before citing 85, 84, 35, 50, or 47/3.** The census counts `tools/*.py` that **name
+`BusClient`**. Four files drive a headless emulator through `aether_instance` **without** naming it
+— `effects_gates`, `cart_identity`, `depth_onset_probe`, `cart_verify_spawn_proof` — so they carry
+**no manifest disposition at all**: not wired, not excluded, not counted. One of them,
+`cart_verify_spawn_proof.py`, has **zero code references anywhere in the tree** (its only mention
+is a comment in `test_aether_instance.py` saying it is kept out of pytest because it boots a
+server).
+
+**The numbers are not wrong; their DENOMINATOR is.** The criterion is a superset of *bus clients*
+and a **subset** of *tools that drive a headless emulator*, which is the population the census's own
+docstring claims to define. So "85 instruments" means 85 bus clients, and the exclusion audit's
+**47 hold / 3 rotted** is a rate over that same narrow base.
+
+**This is a coverage gap in the instrument that counts the instruments** — which is why it is
+stated here rather than only in the row that fixes it. **Widening the criterion changes the
+accounting**, including whether the four gain dispositions and whether the guard that enforces the
+bookkeeping list still passes, so it is a decision about the lane and not a correction to make in
+passing. Booked as `CENSUS-CRITERION-TOO-NARROW`.
+
 ## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (OPEN, booked 2026-09-19, M)
 
 **Oracle's finding, relayed 2026-09-19 and recorded as THEIRS.** Their `drift` guard was in truth
