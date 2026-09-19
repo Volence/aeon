@@ -39019,3 +39019,36 @@ generic, or named as a witness the way theirs is.
 **Not fixed 2026-09-19:** an agent was live across `tools/` and this lane had just declined to
 build an engine change for the same reason. A one-line docstring is not worth an exception to a
 rule that is worth keeping.
+
+## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (OPEN, booked 2026-09-19, M)
+
+**Oracle's finding, relayed 2026-09-19 and recorded as THEIRS.** Their `drift` guard was in truth
+answering *"something moved near this"* while its message and every reader believed it answered
+*"the layout you are about to write through has changed."* **Consequence, measured on their side:
+two of three effect channels were DEAD on a current build, under a green suite.** The guard fired
+correctly, on the wrong question, for as long as nobody compared its predicate against its promise.
+
+**This is a DIFFERENT class from `PRINTED-NOT-GATED` above and the two should not be merged.** There
+the check reports and the action proceeds — the failure is in the WIRING. Here the check genuinely
+refuses, and the failure is in the PREDICATE: it is not a statement about the thing the refusal
+claims to protect. **A printed-not-gated defect leaves a red on screen; this one leaves a green.**
+
+**The test oracle distilled, which is the copyable part: gate on what your refusal actually
+protects.** For every guard, ask what a reader takes its red to MEAN, then ask what its predicate
+literally decides, and see whether the second entails the first. A guard whose predicate is a
+proxy for the subject is sound exactly until the proxy and the subject part company, and **nothing
+about that parting produces a red** — by construction, since the guard is watching the proxy.
+
+**THE INWARD QUESTION, NOT YET ASKED HERE.** This tree has many gates, several written tonight.
+At least one candidate is already known from the same day: `shipped_precedent()` in
+`tools/parallax_hscroll_identity.py` **guards content drift and is blind to a wrong field OFFSET**
+— mutation B3 of the `KEEPALIVE-PERARM-IDENTITY` parcel changed `ep_patch_world_ys[0]` by 2 and
+the check SURVIVED, exit 0. That is disclosed in the tool rather than hidden, which is the right
+handling, but it is precisely this shape: a predicate over content standing in for a promise about
+the overlay. **Whether other gates here share it is UNMEASURED.**
+
+**Not swept 2026-09-19:** an agent was live across `tools/` and this lane has twice declined to
+two-sweep a directory for that reason. **When taken, derive the population from PREDICATES vs
+PROMISES — never from a grep for the word "drift"**, which finds the one instance whose name
+happens to match and misses every gate that does the same thing under another name. Names are not
+behaviour; that is this repo's own standing lesson and it is the exact trap here.
