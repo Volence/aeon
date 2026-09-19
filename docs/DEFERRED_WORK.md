@@ -39643,3 +39643,36 @@ parcel touched no engine code, only the fixture that was mis-measuring. The new 
 (anchor 1068.3, anchor_ops 102.9) sits beside the published 1024.5 / 84.9 rather than replacing
 them, and whether it earns a `remeasured_2026_09_19_*` record — given the band record is 32 bytes
 now, not the 20 the 2026-08-29 row was taken at — is a call for whoever owns that file.
+
+## KEEPALIVE-IS-BLIND-TO-LOSSY: a tool that measures correctly and discards the result passes every check we have (OPEN, booked 2026-09-19, M)
+
+**Named by the empyrean hub from tonight's own results, and it is a gap in the instrument this lane
+built today.** The class of broken instrument has now produced **three distinct failure modes** here,
+and **they are indistinguishable from the board**:
+
+1. **SILENT** — the tool cannot report at all. `parallax_hscroll_probe` crashed on startup from
+   2026-08-26 until 2026-09-18. **The keepalive catches this**: that is what it was built for.
+2. **FALSE-POSITIVE** — the tool runs and reports failures against a correct engine. The same tool,
+   once revived, striding a band array at 10 where the engine uses 32. **The keepalive does not
+   catch this** and never claimed to; a declared-red baseline absorbs it.
+3. **LOSSY** — the tool measures correctly and **throws the measurement away**.
+   `dma_straddle_exercise` did this from 2026-09-05 to 2026-09-19: its counters moved, and its
+   verdict discarded them and blamed a dead control. **NOTHING WE HAVE CATCHES THIS.**
+
+**Why the keepalive is STRUCTURALLY blind to (3), and this is the important part: a lossy tool
+still runs, still exits with the code its baseline declares, and still passes.** The lane's
+predicate is *did it exit as expected*; its promise, as everyone reads it, is *the instrument is
+working*. **Those come apart exactly here** — which makes this an instance of
+`GATE-ON-WHAT-THE-REFUSAL-PROTECTS` living inside the keepalive itself, not a separate discovery.
+
+**What would close it is not obvious and should not be guessed.** An output fingerprint was already
+priced and not bought in the per-arm baseline parcel — it would separate two runs that exit
+identically for different reasons, which exit codes cannot — but it rots on prose edits. **That
+row's reasoning is the starting point, not a fresh design.** A cheaper partial: a tool whose own
+counters moved while its verdict says nothing was measured is detectable *by the tool*, and
+`dma_straddle_exercise` now does exactly that — **the repair is a pattern other instruments could
+adopt without any lane change at all.**
+
+**Do not read this row as a demand for a mechanism.** It may be that the honest answer is: the
+keepalive covers (1), nothing covers (2) or (3), and that is stated rather than closed. **Saying so
+precisely is worth more than a mechanism that appears to cover them.**
