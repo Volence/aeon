@@ -38141,6 +38141,68 @@ and the other 20 are `$FF`. But it is a content question about authoring intent 
 had no basis to settle, so it is recorded as **UNCLASSIFIED** rather than rounded to "fine".
 Deciding it needs whoever authored the OJZ sections.
 
+### PREVENTION — why a dead instrument stayed dead, PRICED AND NOT BUILT (2026-09-18, `DEAD-INSTRUMENT-PAIR`)
+
+The brief's question was "what would have noticed, and is it cheap". The measured answer is that
+**the obvious cheap thing does not work**, and the thing that works is affordable but is not
+free in the way people assume.
+
+**The obvious cheap thing, measured: a startup smoke over every bus instrument.** Population
+**85** tools under `tools/` that construct a `BusClient` (excluding `test_*`). Invoking each with
+`--help` costs **7.9 s for all 85, 0.09 s each** — three orders of magnitude under running them.
+**It would have caught NEITHER of today's two defects.** `parallax_hscroll_identity`'s `TypeError`
+fires inside `main()` at the first `build()`, *after* `parse_args`, so `--help` exits 0 on a tool
+that cannot do anything; `parallax_hscroll_probe`'s `NameError` was on the reporting path, deep
+inside a run. The smoke also has a **9% false-positive rate** as written (8 of 85 exit non-zero
+on `--help`: `band_capture`, `band_witness`, `bganim_vprobe_witness`, `cache_hold_probe`,
+`plane_buffer_headroom_probe`, `reels_witness`, `sh_probe`, `transition_window_probe` — mostly
+tools that take positionals or wrap another tool, not tools that are dead). A lane with a 9%
+false-positive rate and 0% true-positive rate on the real population is worse than nothing.
+
+**The thing that works is running the tool, and that is the honest price.** Measured on this
+machine at load average 7.6–8.0: `parallax_hscroll_probe --arm all` **30 s** (three headless
+boots), `parallax_hscroll_identity` **23 s** (one boot, 10 fixtures x 24 frames). There is no
+observation short of execution that distinguishes "this channel reports nothing wrong" from
+"this channel cannot report".
+
+**The at-risk population is a measured number, not a guess: 29 of the 84 bus instruments are
+referenced by NOTHING** — no `.sh`, no other tool, no lane, nothing but themselves. Both of
+today's are in that 29. At the ~25 s median measured here, running all 29 nightly is
+**≈12 minutes of wall clock**, which is not the obstacle.
+
+**The real cost is not compute — it is ~29 declared invocation lines.** A blanket runner cannot
+exist: 8 of 85 do not even accept `--help`, several need a ROM/.lst pair, several need positional
+arguments, and a few need an argument that makes them non-vacuous (`curve_probe` REFUSES every
+canonical image by design). Each tool needs one line saying how to run it and what exit status
+means alive. **The shape is already proven in this tree** — `tools/nightly_effects_gates.sh`
+behind `aeon-effects-gates.timer` runs exactly this pattern (a headless emulator per gate, a
+desktop notification on failure *or on a lane that could not run*). A sibling list is a small,
+known-shaped job, and the distinction that matters is the one that lane already draws:
+**FAILED and COULD-NOT-RUN must be different exit statuses**, because collapsing them is the
+whole defect.
+
+⚠ **AND THE SECOND PREVENTION, which is not about lanes at all and is the one I would rank
+first.** `parallax_hscroll_probe` had **34 unit tests pinning its arithmetic**, run in `pytest
+tools` on every build, and not one of them could fail for this defect: `mkcfg` laid its fixtures
+out at `BE_SIZE` and `derive_shadow` parsed them at `BE_SIZE`. **One symbol on both sides of the
+comparison.** Measured, not argued: with the stride mutated back to 10, **32 of 34 still pass**.
+The lane was green for three weeks *and would have stayed green under a correct lane too*. The
+generalizable rule, and the one worth writing down:
+
+> **A fixture builder and the parser under test must not read the same symbol for the quantity
+> being tested.** When they do, the fixture moves with the parser and the test measures
+> self-consistency, which is never the property in question.
+
+The two tests added here obey it — one reads the record stride independently through
+`tools/band_geometry.py`, the other checks the SHIPPED configs against `band_top_plane`'s own
+declared domain — and they cost **0.02 s**. That is the cheap prevention. It is per-file and
+cannot be mechanized into a lint, but it is a review question that can be asked of any new
+instrument in one sentence.
+
+**NOT BUILT HERE, deliberately.** The brief said price it rather than build it on my own
+authority, and a 29-line invocation manifest is a decision about what this tree promises to keep
+alive, not a tidy-up.
+
 
 **Also open from that sweep, and smaller:** `tile_cache_fill_gate.py`'s documented poison —
 "`--post 0` reintroduces the drain-lag false positive" — is UNREACHABLE. The bus refuses it:
