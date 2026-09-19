@@ -35,6 +35,42 @@ matrix that misses either is a gate that cannot fail:
 Both witnesses are printed on every run, pass or fail, so a future change that quietly makes
 the matrix cell-aligned again is visible rather than silently green.
 
+STATUS 2026-09-18: IT RUNS AGAIN AND IT IS RED, AND THAT IS THE WITNESSES WORKING.
+On the first run after the `set_stride` repair below, against s4.debug.bin (crc32 62238a15) it
+reports three failures, and they are ONE cause:
+
+    ID7: sampled buffer is identical to the flat fixture ID1 -- the curve did not deflect
+    ID8: sampled buffer is identical to the flat fixture ID1 -- the curve did not deflect
+    COVERAGE: no non-multiple-of-8 span in the whole matrix -- the remainder tail is untested
+
+THE ANCHORED SPLIT NEVER FIRES. ID7/ID8 are the fixtures whose sampling is turned on BY the
+anchor (ROM bands all 15, anchor_dsb = 2), so with no split they emit the flat buffer; and the
+ragged spans the matrix needs can only come from a split landing off the 8-pixel grid, so they
+do not exist either. The tell is in the printed spans -- ID7/ID8 show [56, 56, 56, -8, 64] and
+ID6/ID9 [112, -32, 144]. A NEGATIVE span: `nshadow = bands + 1` assumes the anchor split, and
+with no split that extra slot is the previous frame's leftover.
+
+IT IS NOT AN ENGINE DEFECT. Measured on the booted ROM at 240 frames, no freeze, no written
+camera, Camera_Y = 144:
+
+    Effects_World_Y   [32767, 314, 32767, 32767]      ($7FFF = the no-anchor sentinel)
+    Effects_Screen_L  [32623, 170, 32623, 32623]
+
+Screen_L = World_Y - Camera_Y EXACTLY on all four channels, sentinels included, so
+Effects_LatchWorldLines is working. The only channel carrying a real world anchor is CHANNEL 1.
+These fixtures hardcode `anchor=0`, and so does the live boot config at $01486E -- which is why
+tools/parallax_hscroll_probe.py also reports "L 32623 past band_hi 220 -- record not emitted, no
+split" at every camera position it samples.
+
+VERDICT: STALE FIXTURE EXPECTATION. The fixture picks its anchor channel by NUMBER, and which
+channel carries a world anchor is a property of the scene, which changed under it.
+
+DELIBERATELY NOT MADE GREEN. Weakening either witness to get a pass is exactly the vacuous-gate
+pattern this file exists to refuse, and authoring a fixture that installs its own channel-0
+world anchor is a real design decision -- should an identity fixture poke the effects bank, and
+does the state it creates correspond to anything the game reaches? -- that should not be taken
+blind. Booked in docs/DEFERRED_WORK.md under "Two parallax HScroll instruments cannot run".
+
 Usage:
     python3 tools/parallax_hscroll_identity.py --rom s4.debug.bin --lst s4.debug.lst \
         --out ref.json                       # capture a reference
@@ -57,10 +93,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient            # noqa: E402
 from launcher import headless_emulator   # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
+import parallax_cost_probe as pcp        # noqa: E402
 from parallax_cost_probe import (        # noqa: E402
-    ANCHOR_NONE, BE_SIZE, CFG_ANCHOR_CH, CFG_BAND_COUNT, CFG_SIZE, CFG_V_FACTOR_BG,
+    ANCHOR_NONE, CFG_ANCHOR_CH, CFG_BAND_COUNT, CFG_SIZE, CFG_V_FACTOR_BG,
     NO_DEFORM, build,
 )
+
+# `BE_SIZE` IS NOT IMPORTED BY VALUE, AND THAT IS THE WHOLE REPAIR (2026-09-18).
+#
+# It used to be, on the line above. On 2026-08-29 08:56 (57bd877c) parallax_cost_probe stopped
+# carrying `BE_SIZE = 10` and made it `BE_SIZE = None`, to be installed from the .lst under
+# measure by `set_stride()` — deliberately None so that a caller who forgets gets an immediate
+# TypeError instead of a plausible number. Every sibling took the call: curve_probe's main(),
+# deform_own_cost_probe's derive_stride(), parallax_cost_probe's own main(). This module did
+# not, and `from parallax_cost_probe import BE_SIZE` binds the VALUE at import time, so even a
+# later `pcp.set_stride()` by somebody else could not have reached it.
+#
+# The result, every run since 2026-08-29:
+#     File "tools/parallax_cost_probe.py", line 240, in band
+#       b = bytearray(BE_SIZE)
+#   TypeError: cannot convert 'NoneType' object to bytearray
+# — raised out of the first `build()` in `matrix()`, before a single emulator boot.
+#
+# IT FAILED THE SAFE WAY AND THAT IS WORTH SAYING. A stale 10 would have laid every fixture
+# out at half the walker's stride and captured a reference that looked like a clean 896-byte
+# buffer; this refused to start instead. Loud beats plausible. The two reads below now name
+# `pcp.BE_SIZE` through the module so they cannot go stale again the same way, and main()
+# calls `pcp.set_stride(sym)` from the .lst being measured.
 
 HSCROLL_BYTES = 224 * 4          # the whole buffer: 224 lines x (FG word + BG word)
 FRAMES = 24                      # consecutive frames per fixture; the phase sweeps the wrap
@@ -180,11 +239,11 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes, settle: int,
                            {"addr": hex(sym["Hscroll_Buffer"]), "len": HSCROLL_BYTES})
         frames.append(buf["bytes"].upper())
         sh = await b.call("emulator/read_memory",
-                          {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": BE_SIZE * 6})
+                          {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": pcp.BE_SIZE * 6})
         # FOUR hex chars: `band_top_plane` is a u16 since P3 Task 7. A two-char read returns
         # the always-zero HIGH byte of every shadow top in 0..224 and this list silently
         # becomes [0,0,0,...].
-        tops_seen.append([int(sh["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 4], 16)
+        tops_seen.append([int(sh["bytes"][i * pcp.BE_SIZE * 2:i * pcp.BE_SIZE * 2 + 4], 16)
                           for i in range(6)])
         ph = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Deform_Phase_FG"]), "len": 2})
@@ -228,6 +287,11 @@ def main() -> int:
     if missing:
         print(f"symbols missing: {', '.join(missing)}", file=sys.stderr)
         return 3
+
+    # INSTALL THE RECORD STRIDE BEFORE THE FIRST `build()`. See the banner at the import.
+    # Derived from THIS .lst's own symbol span, never typed: `set_stride` refuses if
+    # `Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands` is not a whole number of records.
+    stride = pcp.set_stride(sym)
 
     rom = Path(args.rom).read_bytes()
     off = sym["ParallaxConfig_OJZ_Default"]
