@@ -31,6 +31,13 @@
       "blockedBy": null
     },
     {
+      "id": "PRINTED-NOT-GATED",
+      "title": "Some of our checks report a problem and then let the thing proceed anyway; two did exactly that tonight, in one line each",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
       "id": "CAPTURE-SETTLE-NAME",
       "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
       "state": "open",
@@ -91,5 +98,5 @@
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
   "atBoundary": false,
-  "updatedAt": "2026-09-19T03:05:19Z"
+  "updatedAt": "2026-09-19T03:07:40Z"
 }

@@ -38225,3 +38225,36 @@ committed set. Cheap, and it protects evidence an owner ruling was taken from.
 DEFAULT arguments. The defect the previous leg found lived on a non-default arm
 (`--extra-right-frames`), so the non-default surface is the same blind spot one level along and
 is NOT swept.
+
+## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, booked 2026-09-19)
+
+**Two measured instances in one evening, from two different seats, and neither was caught by the
+check that fired.**
+
+- **Sigil's:** an assertion fired correctly, and the `git add` on the next line of the same
+  invocation let the commit proceed anyway.
+- **This lane's, and it is the worse one:** fixing the exactly-one-`next` queue rule, the status
+  writer printed `next rows: 2` and the same shell invocation went on to commit a message
+  *claiming the row was fixed*. **The refuting evidence and the false claim were in one
+  screenful, and it still shipped.** Caught one call later by reading the output again.
+
+**The class: a verdict PRINTED next to an action is not a verdict GATING it.** `cmd && git commit`
+proceeds whenever `cmd` exits 0, and a check that reports its problem on stdout while exiting 0 is
+exactly such a check. This is the same family as a gate that cannot fail and a sweep whose silence
+reads as coverage — the artifact looks like it was checked.
+
+**The fix that worked here, and it is the shape to prefer: make the writer REFUSE.** The status
+writer now raises rather than emitting a file with anything but exactly one `next` row. **Three
+attempts to hold that rule in prose failed; the mechanical one has held.** That is the register
+rule demonstrated rather than argued — a rule is live where you argue it and absent where you fill
+in a field, so the only fix that crosses the gap is one the field itself enforces.
+
+**What this row is: sweep this tree's own gates and helper scripts for the pattern** — a check
+whose failure path is a `print` rather than a non-zero exit or a raise, especially where a caller
+chains an action after it with `&&`. Each hit is either made to exit non-zero, or its caller is
+made to read the result. **Derive the population from what the code DOES** (a failure branch that
+does not exit/raise), never from a grep for the word "warn" — that marker cannot see the silent
+cases, which are the ones that matter.
+
+**Deliberately not swept on 2026-09-19:** an agent was live across `tools/` on the keepalive
+parcel and two sweeps in one directory is how a parcel loses its baseline. Take it when that lands.
