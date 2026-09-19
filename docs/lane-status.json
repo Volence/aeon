@@ -1,6 +1,12 @@
 {
-  "focus": "A nightly now notices when a measuring tool stops working; on its first run it found a third one already dead.",
-  "inFlight": [],
+  "focus": "The nightly is armed and running at 5am; now fixing the dead tool it found.",
+  "inFlight": [
+    {
+      "what": "Fixing the measuring tool whose fifth check crashes after four healthy-looking ones",
+      "where": "branch parcel/ramp-witness-arm5",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,19 +14,19 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here. Everything landed and pushed, nothing running.",
+  "nextBoundary": "When the ramp witness runs end to end, or its intent is ruled unrecoverable.",
   "queue": [
     {
       "id": "RAMP-WITNESS-ARM5",
       "title": "A third measuring tool is dead: its first four checks look healthy and the fifth crashes, so nobody saw it. The fix is unknown work -- nobody has run that arm",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "KEEPALIVE-DEFAULT-ARGS",
       "title": "Every tool the keepalive runs uses its DEFAULT settings, and the bug that started this lived on a non-default one, so the blind spot survives one level along",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -98,6 +104,6 @@
     }
   ],
   "awaiting": "two when you have a moment, neither urgent: the spring sound A/B from 09-09, and a flythrough of s4.s2clip.bin (md5 45268bc1, still on disk) -- press B, hold RIGHT, tell me if the ground runs unbroken. Two floorless pits and no signpost are expected.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-19T04:05:55Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-19T04:35:35Z"
 }
