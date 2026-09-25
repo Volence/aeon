@@ -34,11 +34,10 @@ Duplication on that scale is what CLAUDE.md's "clean, not bolted-on" refuses.
 WHAT THE THROWAWAY INHERITS FROM THE SHIPPED ACT, deliberately and stated rather
 than hidden — these are the parts of the picture that are NOT Emerald Hill:
 
-  * THE BACKGROUND. `ojz_strip_gen` Pass 6b builds Plane B from the sonic_hack donor
-    unconditionally ("BG layout always uses sonic_hack data"), so a clip act shows
-    Emerald Hill's FOREGROUND over Oracle Jungle's BACKGROUND. Not a defect to fix
-    here: a per-clip background is the design's §9.1 corridor work (row 7+), and a
-    second act's BG animation has nowhere to live yet (DEFERRED_WORK, risk 5).
+  * THE BACKGROUND — NO LONGER (2026-09-25, research (B) parcel B-1). Each donor zone now
+    shows its own Sonic 2 background: the start zone's as the act default, every other
+    zone's through its region rows, and Oracle Jungle's (with its animation bank) is gone
+    from the clip act. See the BACKGROUNDS block. Parallax is still the act default's.
   * THE OBJECTS AND RINGS. Pass 8 (`ojz_entity_gen`) reads the shipped act's editor
     objects/rings, so OJZ's entities appear at OJZ's world positions over Emerald
     Hill geometry. Objects are out of scope for the whole first cut (owner's scope).
@@ -94,6 +93,7 @@ the `bake` mode refuses to start on a dirty tree for the same reason STRESS_ART 
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -402,11 +402,8 @@ def check_tree_is_clean(paths, git="git"):
 # runs over the shipped document (per-row rules, overlap, exact coverage).
 #
 # ⚠ WHAT THE CLIP ACT STILL INHERITS: the shipped act's region TABLE is still assembled
-# (it is unused data in a clip ROM), and the background, objects and rings are still the
-# shipped act's. The BACKGROUND now shows in each zone's palette rather than Oracle
-# Jungle's: Plane B uses CRAM lines 2 and 3 (games/sonic4/test/ojz_scroll_test.emp's
-# boot-palette note), so it is recoloured by whichever zone the camera is in. TAGGED for
-# the owner's look; a per-region background is the region-BG-switch machinery's job.
+# (it is unused data in a clip ROM), and the objects and rings are still the shipped act's.
+# The BACKGROUND stopped being inherited on 2026-09-25: see the BACKGROUNDS block.
 
 CLIP_MODULE_REL = GEN_REL + "/clip_act.emp"
 CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
@@ -455,16 +452,28 @@ CLIP_DATA_USES = ("use engine.structs.{Region}\n"
                   "use engine.effects.preset.{EffectsPreset, preset}\n"
                   "use engine.effects.raster.{Raster_Program_None}\n"
                   "use engine.effects.palette.{Pal_Cycle_None}\n")
+#: Only when a zone carries a region background (the BACKGROUNDS block).
+CLIP_DATA_BG_USES = "use engine.bg.{BG_LAYOUT_SIZE}\n"
 
 
 def _region_rows_text(plan):
     # The trailing comma goes BEFORE the comment: a comma after `//` is inside the comment
     # (measured — the first emission of this table did that and sigil refused row 2).
+    # rg_bg_layout / rg_bg_tiles: 0 is "the act's own" (the start zone's background, the
+    # BACKGROUNDS block); a row of any other zone names that zone's own blobs.
     return "\n    ".join(
         f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
-        f"rg_effects: {r['preset_label']}, rg_parallax: 0, rg_bg_layout: 0, rg_bg_span: 0, "
-        f"rg_bg_tiles: 0 }},  // {r['why']}"
+        f"rg_effects: {r['preset_label']}, rg_parallax: 0, "
+        f"rg_bg_layout: {r.get('bg_layout') or 0}, rg_bg_span: 0, "
+        f"rg_bg_tiles: {r.get('bg_tiles') or 0} }},  // {r['why']}"
         for r in plan["rows"])
+
+
+def _region_bg_labels(plan):
+    """Every per-zone background label the rows name, in zone order (none for the act
+    default's zone)."""
+    return [lab for z in plan["zones"] for lab in (z.get("bg_layout_label"),
+                                                  z.get("bg_tiles_label")) if lab]
 
 
 def clip_module_text(plan=None):
@@ -481,12 +490,17 @@ def clip_module_text(plan=None):
                 "// S2CLIP build overwrites this file and build.sh's EXIT trap restores it.\n\n"
                 f"module {CLIP_MODULE_NAME}\n\n"
                 "pub const OJZ_CLIP_ACT = 0\n"
+                "// The clip act's VDP register-7 byte (backdrop line/entry). Read ONLY under\n"
+                "// `if OJZ_CLIP_ACT == 1` (games/sonic4/test/ojz_scroll_test.emp), so this 0\n"
+                "// is never written by a canonical shape; the boot table's $00 stands.\n"
+                "pub const OJZ_CLIP_BACKDROP = 0\n"
                 "pub const OJZ_CLIP_REGION_ROWS: array = []\n\n"
                 "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
                 "    return hand\n"
                 "}\n")
-    presets = ", ".join(z["preset_label"] for z in plan["zones"])
+    presets = ", ".join([z["preset_label"] for z in plan["zones"]] + _region_bg_labels(plan))
     n = len(plan["rows"])
+    backdrop = plan.get("backdrop_reg", 0)
     return (_CLIP_HEADER +
             f"// CLIP ACT {plan['act']} — {len(plan['zones'])} donor zone(s), {n} region row(s).\n"
             "// Written by a THROWAWAY S2CLIP bake; build.sh's EXIT trap restores the neutral\n"
@@ -495,7 +509,10 @@ def clip_module_text(plan=None):
             f"module {CLIP_MODULE_NAME}\n\n"
             "use engine.structs.{Region}\n"
             f"use {CLIP_DATA_MODULE}.{{{presets}}}\n\n"
-            "pub const OJZ_CLIP_ACT = 1\n\n"
+            "pub const OJZ_CLIP_ACT = 1\n"
+            "// VDP register 7 (backdrop = CRAM line/entry), Sonic 2's own `Level:` write\n"
+            "// (`move.w #$87xx`), read out of the donor's s2.asm by tools/clip_bg_lower.py.\n"
+            f"pub const OJZ_CLIP_BACKDROP = ${backdrop:02X}\n\n"
             "// The rows the descriptor re-checks. The SAME text is emitted as the table\n"
             "// `OJZ_Clip_Regions` in the data block; Z2 holds the two byte-identical.\n"
             f"pub const OJZ_CLIP_REGION_ROWS: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n\n"
@@ -527,6 +544,22 @@ def clip_data_block(plan):
             f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n")
     n = len(plan["rows"])
     out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
+    for z in plan["zones"]:
+        if not z.get("bg_layout_label"):
+            continue
+        bg = z["bg"]
+        # TYPED, both of them, like act_assets.emp's act default: the length is the guard.
+        # (align: 2) on the tile blob because it is a DMA SOURCE — BG_Stream_Update's
+        # overwrite queues it word-wise and raise_errors on an odd address in DEBUG.
+        out.append(
+            f"// zone key {z['key']}: {z['donor']} {z['zone']}'s own Sonic 2 background "
+            f"(tools/clip_bg_lower.py): {bg['tiles']} tiles,\n// crop start chunk "
+            f"{bg['crop_start_chunk']} of a {bg['period_cells']}-cell period, invented-seam "
+            f"cost {bg['seam_cost_pixels']} px. Named by this zone's region rows.\n"
+            f"pub data {z['bg_layout_label']} (align: 2): [u8; BG_LAYOUT_SIZE] = "
+            f"embed(\"{z['bg_layout_embed']}\")\n"
+            f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}] = "
+            f"embed(\"{z['bg_tiles_embed']}\")\n")
     out.append(CLIP_DATA_END + "\n")
     return "".join(out)
 
@@ -545,8 +578,9 @@ def append_clip_data(plan, path=CLIP_DATA):
     if not heads:
         raise ClipRomError(f"{os.path.relpath(path, REPO)} has no `module` line — not the "
                            f"generated module this bake appends to")
+    uses = CLIP_DATA_USES + (CLIP_DATA_BG_USES if _region_bg_labels(plan) else "")
     lines.insert(max(heads) + 1, "// clip act (row 7) imports, with the appended block below\n"
-                 + CLIP_DATA_USES.rstrip("\n"))
+                 + uses.rstrip("\n"))
     text = "\n".join(lines).rstrip("\n") + "\n\n" + clip_data_block(plan)
     with open(path, "w") as fh:
         fh.write(text)
@@ -763,9 +797,188 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
     return out
 
 
-def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log=None):
-    """Write the clip act's module + append its data, then run Z2 over what was WRITTEN."""
+# ---------------------------------------------------------------------------
+# EACH ZONE'S OWN SONIC 2 BACKGROUND (research 2026-09-25 (B), parcel B-1)
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS REPLACES. Until B-1 the clip bake re-ran tools/inject_editor_bg.py on the
+# SHIPPED act's editor_bg_override.json, so every clip act showed Oracle Jungle's
+# editor-drawn background (recoloured by whichever Sonic 2 palette was installed) and
+# carried its 8 KB animation bank, which is `default_off` and which nothing in a clip act
+# can switch on except the DEBUG effects lab — where it would animate OJZ art over a
+# Sonic 2 picture. The owner flew it and asked for "the bgs ... from the games".
+#
+# THE DESIGN (research doc §4.2), and why each half is where it is:
+#   * THE START ZONE'S BACKGROUND IS THE ACT DEFAULT. BG_Init blits Act.act_bg_layout
+#     before the camera exists (BG-BOOT-REGION-BLIT), so the boot picture is right only if
+#     the zone the act starts in IS the default. "Starts in" is DERIVED: the region row
+#     that holds the spawn engine_spawn() re-derives from the descriptor and the engine's
+#     camera constants — never "clip 0". It is written by inject_editor_bg.main() itself,
+#     handed a synthetic override (clip_bg_lower.override_doc) with no `anims`, so
+#     zone_bg.bin, bg_tiles.bin and a ZERO-BAND bg_anim.emp (`BgAnim_Banks = Data.empty`)
+#     come out of the shipped emitter, not a copy of it. That drops the OJZ bank.
+#   * EVERY OTHER ZONE GETS A REGION OVERRIDE: its layout and tile blobs are written into
+#     the generated tree (clip_bg_*_<key>.bin, removed by the trap's `git clean`),
+#     embedded in the CLIP ACT DATA block and named by that zone's rows through the
+#     existing rg_bg_layout / rg_bg_tiles fields. The crossing's tile overwrite and repaint
+#     (engine/level/bg.emp BG_Stream_Update) are the region-BG-switch machinery, unchanged.
+#   * THE BACKDROP. A Sonic 2 sky is mostly colour-0 pixels over the backdrop register,
+#     which S2 sets to line 2 entry 0 ($8720) and Aeon boots at $00 (black). The clip
+#     module carries that byte as OJZ_CLIP_BACKDROP, and ojz_scroll_test.emp's level init
+#     stores it into the VDP shadow under `if OJZ_CLIP_ACT == 1` — zero bytes in every
+#     canonical shape, whose neutral module says OJZ_CLIP_ACT = 0.
+#   * NOT HERE: parallax. Rows keep rg_parallax 0 and presets bind none, so both zones
+#     scroll with the act default exactly as before (research B-2 is the parallax parcel).
+#
+# BG1 (check_backgrounds) re-reads what was EMITTED: the rows' background fields parsed
+# back out of both module texts, and the blobs on disk against a fresh lowering.
+
+CLIP_BG_LAYOUT_BIN = "clip_bg_layout_{key}.bin"
+CLIP_BG_TILES_BIN = "clip_bg_tiles_{key}.bin"
+DEFAULT_BG_OVERRIDE = "clip_bg_act_default.json"
+
+
+def start_zone_key(plan, spawn):
+    """The zone key of the ONE region row holding the spawn point (x, y)."""
+    x, y = spawn
+    hit = [r for r in plan["rows"] if r["x0"] <= x <= r["x1"] and r["y0"] <= y <= r["y1"]]
+    if len(hit) != 1:
+        raise ClipRomError(f"BG1 the spawn ({x}, {y}) is in {len(hit)} region rows; the act "
+                           f"default background is the START zone's, so it must be exactly one")
+    return hit[0]["key"]
+
+
+class _ClipDefaultBgAct:
+    """An inject_editor_bg.BgActNames with the override and output redirected. Built
+    lazily (the injector derives its act from project.json at import)."""
+
+    def __new__(cls, override, out_dir):
+        import inject_editor_bg as ieb
+
+        class _Act(ieb.BgActNames):
+            def out_dir(self, repo=None):
+                return out_dir
+
+            def override_path(self, repo=None):
+                return override
+        base = ieb.ACT
+        return _Act(base.zone_id, base.act_id, base.repo)
+
+
+def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None, log=None):
+    """Lower every zone's own background, write the act default through the shipped
+    injector and each other zone's blobs into `gen_dir`, and bind them into `plan` (zones
+    and rows) for the module and data-block emitters. Returns the default zone's key."""
+    import clip_bg_lower as CBL
+    lower = lower or CBL.lower
+    start = start_zone_key(plan, spawn)
+    lowered = {}
+    for z in plan["zones"]:
+        words, tiles, info = lower(z["donor"], z["zone"])
+        lowered[z["key"]] = (words, tiles)
+        z["bg"] = info
+        if info["line0_cells"] and log:
+            log(f"clip_rom_bake: BG WARNING — {z['donor']}:{z['zone']}'s background draws "
+                f"{info['line0_cells']} cell(s) on CRAM line 0, the character line; kept as "
+                f"the donor has them (TAGGED)")
+        if z["key"] == start:
+            override = os.path.join(baked_dir, DEFAULT_BG_OVERRIDE)
+            with open(override, "w") as fh:
+                json.dump(CBL.override_doc(words, tiles), fh)
+            import inject_editor_bg as ieb
+            ieb.main(_ClipDefaultBgAct(override, gen_dir))
+            z["bg_role"] = "act_default"
+            continue
+        z["bg_role"] = "region"
+        lay = CLIP_BG_LAYOUT_BIN.format(key=z["key"])
+        til = CLIP_BG_TILES_BIN.format(key=z["key"])
+        blob = CBL.tiles_blob(tiles)
+        with open(os.path.join(gen_dir, lay), "wb") as fh:
+            fh.write(CBL.layout_blob(words))
+        with open(os.path.join(gen_dir, til), "wb") as fh:
+            fh.write(blob)
+        z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
+                 bg_tiles_label=f"OJZ_Clip_BG_Tiles_{z['key']}",
+                 bg_layout_embed=f"{GEN_REL}/{lay}", bg_tiles_embed=f"{GEN_REL}/{til}",
+                 bg_tiles_bytes=len(blob))
+    zones = {z["key"]: z for z in plan["zones"]}
+    for r in plan["rows"]:
+        r["bg_layout"] = zones[r["key"]].get("bg_layout_label")
+        r["bg_tiles"] = zones[r["key"]].get("bg_tiles_label")
+    plan["bg_default_key"] = start
+    plan["backdrop_reg"] = (CBL.s2_backdrop_register(zones[start]["donor"])
+                            if backdrop is None else backdrop)
+    plan["_bg_lowered"] = lowered
+    if log:
+        log("clip_rom_bake: backgrounds — " + "; ".join(
+            f"{z['zone']} {z['bg']['tiles']} tiles as the "
+            + ("ACT DEFAULT" if z["bg_role"] == "act_default" else "region override")
+            for z in plan["zones"]) + f"; backdrop register 7 = ${plan['backdrop_reg']:02X}")
+    return start
+
+
+_BG_ROW_RE = re.compile(r"rg_bg_layout:\s*(\w+),\s*rg_bg_span:\s*(\d+),\s*rg_bg_tiles:\s*(\w+)")
+
+
+def check_backgrounds(plan, mod_text, data_text, gen_dir):
+    """BG1 — each zone is drawn over ITS OWN background, read back out of what was EMITTED.
+
+    * every row in both tables (the descriptor's OJZ_CLIP_REGION_ROWS and the Act's
+      OJZ_Clip_Regions) carries rg_bg_span 0, and rg_bg_layout / rg_bg_tiles that are 0 on
+      the act-default zone's rows and that zone's OWN pair on every other zone's rows;
+    * every label a row names is declared in the data block;
+    * the act default on disk (zone_bg.bin, bg_tiles.bin) and every region blob are the
+      bytes a fresh lowering of that zone produces — so a skipped or stale write, or the
+      shipped act's background left in place, is refused by name."""
+    import clip_bg_lower as CBL
+    zones = {z["key"]: z for z in plan["zones"]}
+    for text, name, what in ((mod_text, "OJZ_CLIP_REGION_ROWS", "the clip module"),
+                             (data_text, "OJZ_Clip_Regions", "the clip data block")):
+        m = re.search(name + r":\s*\[Region;\s*(\d+)\]\s*=\s*\[(.*?)\n\]", text, re.S)
+        got = _BG_ROW_RE.findall(m.group(2)) if m else []
+        if len(got) != len(plan["rows"]):
+            raise ClipRomError(f"BG1 {what}'s {name} carries {len(got)} background field "
+                               f"triple(s) for {len(plan['rows'])} row(s) — UNMEASURABLE")
+        for r, (lay, span, til) in zip(plan["rows"], got):
+            z = zones[r["key"]]
+            want = ((z["bg_layout_label"], z["bg_tiles_label"])
+                    if z["key"] != plan["bg_default_key"] else ("0", "0"))
+            if (lay, til) != want or span != "0":
+                raise ClipRomError(
+                    f"BG1 {what}: the row x {r['x0']}..{r['x1']} ({z['zone']}) names "
+                    f"background ({lay}, span {span}, {til}); its zone's own is {want}, span 0")
+    for lab in _region_bg_labels(plan):
+        if not re.search(rf"pub data {lab}\b", data_text):
+            raise ClipRomError(f"BG1 a region row names {lab} and the data block declares "
+                               f"no such data")
+    for key, (words, tiles) in plan["_bg_lowered"].items():
+        z = zones[key]
+        if key == plan["bg_default_key"]:
+            files = (("zone_bg.bin", CBL.layout_blob(words)), ("bg_tiles.bin", CBL.tiles_blob(tiles)))
+        else:
+            files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),
+                     (CLIP_BG_TILES_BIN.format(key=key), CBL.tiles_blob(tiles)))
+        for fname, want in files:
+            with open(os.path.join(gen_dir, fname), "rb") as fh:
+                if fh.read() != want:
+                    raise ClipRomError(
+                        f"BG1 {GEN_REL}/{fname} is not {z['donor']}:{z['zone']}'s lowered "
+                        f"background — the write did not happen, or something wrote over it "
+                        f"(the shipped act's background, if the injector ran on its own "
+                        f"override afterwards)")
+    return {"default": zones[plan["bg_default_key"]]["zone"],
+            "regions": [zones[k]["zone"] for k in sorted(zones) if k != plan["bg_default_key"]],
+            "backdrop_reg": plan["backdrop_reg"]}
+
+
+def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log=None,
+                     gen_dir=GEN_DIR, baked_dir=None):
+    """Write the clip act's module + append its data, then run Z2 and BG1 over what was
+    WRITTEN."""
     plan = region_plan(act, donor_root)
+    desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                        "act_descriptor.emp")
+    plan_backgrounds(plan, engine_spawn(desc), gen_dir, baked_dir or gen_dir, log=log)
     with open(path, "w") as fh:
         fh.write(clip_module_text(plan))
     append_clip_data(plan, data_path)
@@ -779,7 +992,13 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         mod = fh.read()
     with open(data_path) as fh:
         data = fh.read()
-    return check_palette_crossings(act, mod, data, log=log), plan
+    z2 = check_palette_crossings(act, mod, data, log=log)
+    plan["bg1"] = check_backgrounds(plan, mod, data, gen_dir)
+    if log:
+        log(f"clip_rom_bake: BG1 {plan['bg1']['default']} is the act default background and "
+            f"{', '.join(plan['bg1']['regions']) or 'no zone'} carr(ies) its own on its "
+            f"region rows — rows and blobs read back from what was emitted")
+    return z2, plan
 
 
 # ---------------------------------------------------------------------------
@@ -937,27 +1156,16 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     # generate()'s Pass 8 rewrites whole — written before it, the block was erased and the
     # clip module's imports named presets that no longer existed (measured, 2026-09-25).
     # `ojz_palette.bin` is left to the shipped act.
-    z2, region_plan_ = emit_clip_module(act, donor_root, data_path=os.path.join(
-        gen_dir, os.path.basename(CLIP_DATA)), log=log)
-
-    # THE EDITOR-AUTHORED BG OVERRIDE, exactly as tools/regenerate-level.sh runs it.
-    # Skipping it was a REAL failure and not a cosmetic one: the raw generated zone BG is
-    # 4,096 B and the override's is 8,192, and act_assets.emp declares
-    # OJZ_Act1_BG_Layout at the override's size, so the clip build died with
+    #
+    # THE BACKGROUNDS ride the same call (the BACKGROUNDS block): the start zone's own
+    # Sonic 2 background is written as the act default THROUGH inject_editor_bg.main(), so
+    # the full-plane 8,192-B zone_bg.bin act_assets.emp types OJZ_Act1_BG_Layout at still
+    # replaces Pass 6b's 4,096-B one (skipping that was a real link failure once:
     # `[emit.size-mismatch] data OJZ_Act1_BG_Layout: declared type is 8192 byte(s),
-    # initializer produced 4096`. The clip act keeps the shipped act's background (see
-    # this file's header), so it must keep the whole shipped BG path.
-    override = os.path.join(REPO, "games", "sonic4", "data", "editor_bg_override.json")
-    if os.path.isfile(override):
-        log("clip_rom_bake: editor BG override...")
-        r = subprocess.run([sys.executable, os.path.join(REPO, "tools", "inject_editor_bg.py")],
-                           cwd=REPO)
-        if r.returncode != 0:
-            raise ClipRomError(
-                f"inject_editor_bg.py exited {r.returncode}. The clip act keeps the "
-                f"shipped act's background, so it needs the same BG injection the shipped "
-                f"re-bake runs; without it OJZ_Act1_BG_Layout is emitted at half its "
-                f"declared size and the build dies at the link.")
+    # initializer produced 4096`). The shipped act's editor override is no longer run: the
+    # clip act does not show Oracle Jungle's background any more, so it does not carry it.
+    z2, region_plan_ = emit_clip_module(act, donor_root, data_path=os.path.join(
+        gen_dir, os.path.basename(CLIP_DATA)), log=log, gen_dir=gen_dir, baked_dir=baked_dir)
 
     page_bytes = _art_pool_page_bytes()
     elect_pool_pages.elect(
@@ -998,8 +1206,14 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         "regions": [{k: r[k] for k in ("x0", "x1", "y0", "y1", "preset_label", "why")}
                     for r in region_plan_["rows"]],
         "palette_crossings": z2,
+        "backgrounds": {
+            "act_default": region_plan_["bg1"]["default"],
+            "regions": region_plan_["bg1"]["regions"],
+            "backdrop_reg": region_plan_["bg1"]["backdrop_reg"],
+            "per_zone": {z["zone"]: z["bg"] for z in region_plan_["zones"]},
+            "parallax": "the act default (unchanged); research B-2 is the parallax parcel",
+        },
         "inherited_from_the_shipped_act": [
-            "background (Plane B is built from the sonic_hack donor by Pass 6b)",
             "objects and rings (Pass 8 reads the shipped act's editor entities)",
             "the shipped region table is still ASSEMBLED (unused: act_regions points at "
             "the clip act's own table)",
