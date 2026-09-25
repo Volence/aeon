@@ -2,9 +2,9 @@
   "focus": "Sonic 2 backgrounds now scroll like Sonic 2; still running: the screen-wide tunnel test and the longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "384 px tunnel built (glitch-free) with a small engine speed-up; finishing its checks before it lands",
+      "what": "384 px tunnel and its engine speed-up: all checks passed; lands after the longer Chemical Plant (both touch the same level tool)",
       "where": "branch research/shorter-connector",
-      "agent": true
+      "agent": false
     },
     {
       "what": "Chemical Plant extended about 1,060 px further (to a wall only a layer switch gets past); re-checking on top of the scrolling change, then landing",
@@ -19,7 +19,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
+  "nextBoundary": "Longer Chemical Plant lands, then the 384 px tunnel test merges it and the scrolling change, re-checks, and lands.",
   "queue": [
     {
       "id": "S2CLIP-CONNECTOR-SHORTER",
@@ -133,5 +133,5 @@
   ],
   "awaiting": "Fly s4.s2clip-short.debug.bin (crc 95db1392, the 384 px tunnel) whenever you like; say if you want to see the 336 px version that glitches briefly",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T19:10:35Z"
+  "updatedAt": "2026-09-25T19:13:11Z"
 }
