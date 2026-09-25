@@ -40235,3 +40235,8 @@ Z80's pc and no fc; the old `$4000-$4003` / `$7F11` stop matching, so the L0 poi
 `YM_A0..A3` in `tools/song_load_mid_drum_witness.py` (`tools/fm6_foreign_sample_witness.py` inherits them through
 `YmTap`), and check `tools/poke_storm_sound_cost_witness.py`. Land in the same window as oracle; oracle coordinates timing.
 Low priority: all three are off-runner (`tools/keepalive_manifest.toml`), so nothing reddens until someone runs them.
+- **Oracle's notes for the move (oracle-9d, 2026-09-25, from its CR at oracle `94665a6` ~l.374):** only `$A04000-3` and
+  `$A07F11` become live for Z80 writes; the `$A00000-3` poison stays valid, so leave it where it is. **Filter YmTap on
+  `via == "z80"`**, because the 68000's own YM writes at `$A04000-3` arrive in the same stream as `via:"bus"`, fc 5, and the
+  address-only classifier would count them. `fc` and `symbol` are absent on Z80 hits. Re-vendor if anything validates
+  replies against a bus-protocol schema.
