@@ -343,6 +343,87 @@ def zone_separation(act, zone_id, constants=None):
 
 
 # ---------------------------------------------------------------------------
+# Per-clip pool readout — design §8, "unique tiles and pages this clip adds"
+# ---------------------------------------------------------------------------
+#
+# ADDED 2026-09-25 for aurora's Sonic 2 donor page (row-8 ask, design §8 RULED block).
+# Written into clipact.json as `pool.per_clip` (index-aligned with `clips`) and
+# `pool.per_corridor` (index-aligned with `corridors`), one row shape for both, with the
+# meaning of every field carried beside them in `pool.per_clip_fields` so a reader never
+# has to find this comment to know what a number means.
+#
+# SAME CODE PATH AS THE ACT-LEVEL FIGURES. `pool.tiles` is len(placement["unique"]) and
+# `pool.pages` is len(placement["pages"]); the rows below read the same placement dict —
+# `canon` (the post-split canonical id of every cell) and `page_grid` (the per-cell page
+# index `_evaluate` builds and the window budget counts, global slot 0 = -1 = no page) —
+# sliced by each rectangle. Nothing is re-deduped or re-placed.
+#
+# WHY "PAGES TOUCHED" AND "PAGES EXCLUSIVE", and not a single "pages" number. A page is
+# 64 tiles of ONE placement of the WHOLE act, so when two clips share a page (two clips of
+# one zone always can; page 0 is everyone's) there is no true per-clip share of it. The two
+# numbers an author choosing what to paste can act on are:
+#   * pages_touched — how many pages must be resident to draw ALL of this clip. It is the
+#     clip's own streaming footprint, it is what the camera-window budget is made of, and
+#     it OVER-COUNTS across clips by design: the sum over clips can exceed pool.pages.
+#   * pages_exclusive — the touched pages no OTHER clip or corridor touches: the pages that
+#     exist in this pool only because of this clip. The sum over rows never exceeds
+#     pool.pages. (It is not a promise of what deleting the clip would save — a re-bake
+#     re-places the pool.)
+# A single "pages" field would be read as one of these by one reader and the other by the
+# next, so there is no field called "pages".
+
+#: Field meanings, copied VERBATIM into clipact.json `pool.per_clip_fields`.
+PER_CLIP_POOL_FIELDS = {
+    "id": "the clip's (or corridor's) id from clips.json",
+    "index": "its position in clips.json's `clips` (per_clip) or `corridors` (per_corridor) list",
+    "tiles": "distinct pool tiles (post-dedupe canonical tiles, flips folded) this rectangle's "
+             "cells reference, EXCLUDING the blank tile at pool slot 0, which the act always "
+             "carries whatever is pasted",
+    "tiles_added": "of `tiles`, those no EARLIER row references; rows are ordered clips (in "
+                   "manifest order) then corridors. sum(tiles_added over per_clip and "
+                   "per_corridor) + 1 (the blank) == pool.tiles",
+    "pages_touched": "pool pages holding at least one of this rectangle's `tiles` (the pages "
+                     "that must be resident to draw ALL of it). Shared pages count for every "
+                     "row that touches them, so the sum over rows can exceed pool.pages",
+    "pages_exclusive": "of pages_touched, the pages NO other clip or corridor touches (the "
+                       "pages in this pool only because of this rectangle). Sum over rows "
+                       "<= pool.pages. Not a prediction of what removing it saves: a re-bake "
+                       "re-places the whole pool",
+}
+
+
+def pool_contributions(act, pl):
+    """(per_clip rows, per_corridor rows) — see PER_CLIP_POOL_FIELDS for each field.
+
+    Reads the placement `place_pool` returned (`canon`, `page_grid`, `slot_of`) and slices
+    it by each rectangle's dst cells; the blank is identified by its SLOT (0), the same
+    rule `_evaluate`'s page grid uses to give it no page."""
+    canon, pg, slot_of = pl["canon"], pl["page_grid"], pl["slot_of"]
+    blank = {int(c) for c in np.flatnonzero(slot_of == 0)}
+    rects = ([("clip", r) for r in act.clips] + [("corridor", r) for r in act.corridors])
+    sets = []
+    for _kind, r in rects:
+        dx, dy, w, h = (v // clip_manifest.TILE_PX for v in r.dst)
+        tiles = {int(c) for c in np.unique(canon[dy:dy + h, dx:dx + w])} - blank
+        sub_pg = pg[dy:dy + h, dx:dx + w]
+        pages = {int(p) for p in np.unique(sub_pg[sub_pg >= 0])}
+        sets.append((tiles, pages))
+    touch = {}
+    for _t, pages in sets:
+        for p in pages:
+            touch[p] = touch.get(p, 0) + 1
+    seen, clips, corridors = set(), [], []
+    for (kind, r), (tiles, pages) in zip(rects, sets):
+        row = {"id": r.id, "index": r.index,
+               "tiles": len(tiles), "tiles_added": len(tiles - seen),
+               "pages_touched": len(pages),
+               "pages_exclusive": sum(1 for p in pages if touch[p] == 1)}
+        seen |= tiles
+        (clips if kind == "clip" else corridors).append(row)
+    return clips, corridors
+
+
+# ---------------------------------------------------------------------------
 # Emission
 # ---------------------------------------------------------------------------
 
@@ -419,6 +500,7 @@ def emit(act, st, out_dir, donor_root=None):
         r0, c0 = sy * sect, sx * sect
         with open(os.path.join(out_dir, f"section_{s_idx}.zonekey.bin"), "wb") as fh:
             fh.write(zone_id[r0:r0 + sect, c0:c0 + sect].astype(np.int8).tobytes())
+    per_clip, per_corridor = pool_contributions(act, pl)
     sheet_files = []
     for i, (d, z, b, zm) in enumerate(st["sheets"]):
         if (d, z) == clip_manifest.CORRIDOR_SHEET:
@@ -453,7 +535,9 @@ def emit(act, st, out_dir, donor_root=None):
         "pool": {"tiles": len(unique), "pages": len(pages),
                  "page_tiles": page_tiles,
                  "page_lengths": [len(p) for p in pages],
-                 "pool_bin": "pool.bin (pages padded to page_tiles; slot = page*page_tiles + i)"},
+                 "pool_bin": "pool.bin (pages padded to page_tiles; slot = page*page_tiles + i)",
+                 "per_clip": per_clip, "per_corridor": per_corridor,
+                 "per_clip_fields": dict(PER_CLIP_POOL_FIELDS)},
         "placement": {"rung": pl["rung"], "pins": [int(p) for p in pl["pins"]],
                       "rule_pins": [int(p) for p in pl["rule_pins"]],
                       "stats": pl["stats"], "seconds": pl["seconds"]},
