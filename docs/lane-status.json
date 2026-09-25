@@ -10,11 +10,6 @@
       "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
       "where": "branch parcel/s2clip-bg-scroll-2",
       "agent": true
-    },
-    {
-      "what": "Aeon's half of the clip's own sound positions file",
-      "where": "branch parcel/clip-anchor-overlay-2",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -67,10 +62,10 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
-      "state": "doing",
+      "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil landing parcel/clip-overlay a1ff8796 and rebuilding the shared assembler; ours staged on parcel/clip-anchor-overlay-2",
       "project": "REGIONS"
     },
     {
@@ -168,5 +163,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:15:54Z"
+  "updatedAt": "2026-09-25T16:19:50Z"
 }
