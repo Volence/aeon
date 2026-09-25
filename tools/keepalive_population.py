@@ -352,29 +352,34 @@ def _tool_sources(repo):
     return out
 
 
-def _driver_callables(tree, prose, conn_names, borrowed):
+def _def_facts(tree, prose):
+    """{top-level def/class name: (names read, (root, attr) pairs, touches the bus itself)}."""
+    out = {}
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names, attrs = _used_names(n)
+            direct = (("socket", "AF_UNIX") in attrs
+                      or any(AETHER_METHOD.match(s) for s in _code_strings(n, prose)))
+            out[n.name] = (names, attrs, direct)
+    return out
+
+
+def _driver_callables(facts, conn_names, borrowed):
     """Top-level defs/classes of a module whose bodies reach a connection.
 
     `conn_names` are names the module bound by importing from a connection module;
     `borrowed` are names it bound to a sibling's driver callable, plus (alias, attr)
     pairs for `import sibling` + `sibling.attr`. Closed over calls within the module.
     """
-    defs = {n.name: n for n in tree.body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
     bare, pairs = borrowed
     reach = set()
     changed = True
     while changed:
         changed = False
-        for name, node in defs.items():
+        for name, (names, attrs, direct) in facts.items():
             if name in reach:
                 continue
-            names, attrs = _used_names(node)
-            hit = (names & (conn_names | bare | reach)
-                   or attrs & pairs
-                   or ("socket", "AF_UNIX") in attrs
-                   or any(AETHER_METHOD.match(s) for s in _code_strings(node, prose)))
-            if hit:
+            if direct or names & (conn_names | bare | reach) or attrs & pairs:
                 reach.add(name)
                 changed = True
     return reach
@@ -404,14 +409,13 @@ def drives(repo=REPO):
             arms[f].add("socket")
 
     stems = {f[:-3]: f for f in srcs}
+    facts = {f: (_imports(t), _used_names(t), _def_facts(t, prose[f]))
+             for f, t in parsed.items() if t is not None}
     drivers = {}          # tool -> driver callables it defines
     changed = True
     while changed:
         changed = False
-        for f, tree in parsed.items():
-            if tree is None:
-                continue
-            imps = _imports(tree)
+        for f, (imps, (names, attrs), dfacts) in facts.items():
             conn = {b for m, n, b in imps if m.split(".")[0] in CONNECTION_MODULES}
             bare, pairs = set(), set()
             for m, n, b in imps:
@@ -423,12 +427,11 @@ def drives(repo=REPO):
                         pairs.add((b, d))
                 elif n in drivers.get(lender, ()):
                     bare.add(b)
-            names, attrs = _used_names(tree)
             used_borrow = (bare & names) | {f"{a}.{d}" for a, d in pairs & attrs}
             if used_borrow and "borrow" not in arms[f]:
                 arms[f].add("borrow")
                 changed = True
-            new = _driver_callables(tree, prose[f], conn, (bare, pairs))
+            new = _driver_callables(dfacts, conn, (bare, pairs))
             if new != drivers.get(f, set()):
                 drivers[f] = new
                 changed = True

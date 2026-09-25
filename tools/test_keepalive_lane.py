@@ -349,3 +349,129 @@ def test_every_non_zero_baseline_in_the_shipped_manifest_spells_its_argv():
     for row in reds:
         assert [str(a) for a in wired[row]["baseline_args"]] == \
                [str(a) for a in wired[row]["args"]], row
+
+
+# ---------------------------------------------------------------------------------
+#  CENSUS-CRITERION-TOO-NARROW (2026-09-25): the population is what the code DOES,
+#  and "reachable" is what something EXECUTES
+# ---------------------------------------------------------------------------------
+# The fixtures are tiny synthetic trees, spelled out in full, so each arm is graded by a
+# file whose ONLY route in is that arm. On the real tree most drivers carry three arms at
+# once, so a broken arm cannot drop them and the accounting test above cannot see it.
+
+def _tree(tmp_path, files):
+    for rel, text in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    return str(tmp_path)
+
+
+LENDER = (
+    "from aether import BusClient\n"
+    "class Server:\n"
+    "    def open(self):\n"
+    "        return BusClient()\n"
+    "def parse(text):\n"
+    "    return text.split()\n"
+)
+
+
+@pytest.mark.parametrize("name,text,arm", [
+    ("imp.py", "from aether_instance import aether_emulator\n", "import"),
+    ("legacy.py", "from launcher import headless_emulator\n", "import"),
+    ("proto.py", "def peek(c):\n    return c.call('emulator/read_memory', {})\n", "protocol"),
+    ("sock.py", "import socket\ns = socket.socket(socket.AF_UNIX)\n", "socket"),
+    ("borrower.py", "from lender import Server\nServer().open()\n", "borrow"),
+    ("modborrower.py", "import lender\nlender.Server().open()\n", "borrow"),
+    ("parent.py", "import subprocess\nsubprocess.run(['python3', 'tools/lender.py'])\n", "child"),
+    ("scenes.py", "import subprocess, sys\nsubprocess.run([sys.executable, 'x/ab_runner.py'])\n",
+     "child"),
+])
+def test_each_arm_admits_a_file_that_only_it_reaches(tmp_path, name, text, arm):
+    repo = _tree(tmp_path, {"tools/lender.py": LENDER, f"tools/{name}": text})
+    arms = kpop.drives(repo)
+    assert name in arms, f"{name} drives an emulator by the {arm!r} arm and was not counted"
+    assert arm in arms[name], (name, arms[name])
+
+
+@pytest.mark.parametrize("name,text", [
+    # the cart_coverage_census shape: names the class, drives nothing
+    ("census.py", 'CANARY = {"sfx.py": "reached solely by `from aether import BusClient`"}\n'),
+    ("prose.py", '"""Talks to emulator/read_memory through BusClient."""\nX = 1\n'),
+    # borrowing a member's ARITHMETIC is not driving an emulator
+    ("arith.py", "from lender import parse\nparse('a b')\n"),
+    # a table of scripts is not a child process
+    ("table.py", "RUNNERS = ('lender.py', 'other.sh')\n"),
+])
+def test_a_file_that_only_names_the_bus_is_not_a_driver(tmp_path, name, text):
+    repo = _tree(tmp_path, {"tools/lender.py": LENDER, f"tools/{name}": text})
+    assert name not in kpop.drives(repo)
+
+
+def test_the_real_population_contains_the_drivers_the_old_criterion_missed():
+    """The four booked 2026-09-19 plus the two this change found; and not the census.
+
+    Each is here for a reason read off its source, not copied from a count:
+    effects_gates runs ab_runner.py and sixteen member gates as children;
+    cart_identity speaks `emulator/read_memory` on a client it is handed;
+    depth_onset_probe imports `aether_instance.assert_rust_server` and borrows
+    `curve_desc_probe.Server`; cart_verify_spawn_proof constructs `AetherInstance`;
+    base_swap_witness calls `ramp_authored_witness.run`, which spawns; and
+    staging_lifetime_timeline borrows `tick_variance_probe.Server`.
+    cart_coverage_census names BusClient in strings and drives nothing.
+    """
+    pop = set(kpop.population(lane.REPO))
+    for name in ("effects_gates.py", "cart_identity.py", "depth_onset_probe.py",
+                 "cart_verify_spawn_proof.py", "base_swap_witness.py",
+                 "staging_lifetime_timeline.py"):
+        assert name in pop, name
+    assert "cart_coverage_census.py" not in pop
+
+
+RUNNER_TEST = (
+    "import subprocess, sys\n"
+    "import c_lib, e_main\n"
+    "TOOLS = ['a_table.py']\n"
+    "PATTERN = r'python3 tools/b_regex\\.py'\n"
+    "PROBE = 'tools/f_bound.py'\n"
+    "def test_x():\n"
+    "    c_lib.helper()\n"
+    "    subprocess.run([sys.executable, 'tools/d_argv.py'])\n"
+    "    e_main.main([])\n"
+    "    subprocess.run([sys.executable, str(PROBE)])\n"
+)
+RUNNER_SH = (
+    "#!/bin/bash\n"
+    "# python3 tools/g_comment.py\n"
+    "echo \"then run python3 tools/g_echo.py by hand\"\n"
+    "python3 tools/h_sh.py --rom x.bin\n"
+)
+TARGETS = ("a_table", "b_regex", "c_lib", "d_argv", "e_main", "f_bound",
+           "g_comment", "g_echo", "h_sh")
+
+
+def test_only_an_executing_reference_makes_a_tool_reachable(tmp_path):
+    files = {"tools/test_runner.py": RUNNER_TEST, "tools/landing_build.sh": RUNNER_SH}
+    files.update({f"tools/{t}.py": "def helper():\n    pass\ndef main(a):\n    pass\n"
+                  for t in TARGETS})
+    repo = _tree(tmp_path, files)
+    parent = kpop.reach(repo, files=sorted(files))
+    got = {t for t in TARGETS if f"tools/{t}.py" in parent}
+    assert got == {"d_argv", "e_main", "f_bound", "h_sh"}, (
+        "credited as executed: " + ", ".join(sorted(got)))
+
+
+def test_a_reachable_reason_is_true():
+    """A `[not_wired]` reason that says "reachable" is a claim this census can check.
+
+    It rotted twice before anything checked it: evict_witness was "reachable" through a
+    string in cart_coverage_census's classification table while it was dead, and when
+    that string moved, sfx_audition inherited the same false credit.
+    """
+    parent = kpop.reach(lane.REPO)
+    false = sorted(name for name, reason in _manifest()["not_wired"].items()
+                   if reason.lower().startswith("reachable")
+                   and "tools/" + name not in parent)
+    assert false == [], (
+        "[not_wired] reasons claim 'reachable' for tools nothing executes: " + ", ".join(false))
