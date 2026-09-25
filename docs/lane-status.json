@@ -2,11 +2,6 @@
   "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
-      "where": "detached origin/master, candidate sigil 1d19e60b",
-      "agent": true
-    },
-    {
       "what": "How short the connector can go: what each limit protects, plus a separate test level you can fly",
       "where": "branch research/shorter-connector",
       "agent": true
@@ -14,6 +9,11 @@
     {
       "what": "Longer Chemical Plant, built on top of the sound positions file and the new assembler",
       "where": "branch parcel/s2clip-cpz-longer",
+      "agent": true
+    },
+    {
+      "what": "Landing the Sonic 2 level's own sound positions file",
+      "where": "branch land/0925-clip-overlay",
       "agent": true
     }
   ],
@@ -67,18 +67,11 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
-      "state": "blocked",
+      "title": "The Sonic 2 level's own sound positions file: the new assembler is in, so it's landing now",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "sigil landing parcel/clip-overlay a1ff8796 and rebuilding the shared assembler; ours staged on parcel/clip-anchor-overlay-2",
+      "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "A test build's listing answered a question about a different build; the assembler lane has fixed it, and it reaches us when our installed assembler is next rebuilt",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
@@ -168,5 +161,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:41:28Z"
+  "updatedAt": "2026-09-25T17:17:46Z"
 }
