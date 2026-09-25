@@ -12,11 +12,6 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "S2-TWO-ZONE-FLYTHROUGH",
-      "what": "Fly the two-zone Sonic 2 act: s4.s2clip.debug.bin (crc 441f1db0) or s4.s2clip.bin (crc 9a3533f1), both built from master 481ac02e",
-      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "When the two-zone act lands and its ROM is on disk for your flythrough.",
@@ -31,9 +26,9 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "The debug build of the two-zone Sonic 2 act is 18 KB over its memory-space limit; the plain build fits. Fixing it means moving the sound banks, with the assembler lane",
-      "state": "open",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "asked the hub to rule in your place: accept for now vs give the test act its own sound-bank anchors vs move the shipping ones",
       "project": "REGIONS"
     },
     {
@@ -118,7 +113,7 @@
       "title": "Sonic 2 test act: Chemical Plant landed beside Emerald Hill; waiting on your flythrough",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "waits on your eye: the two-zone act is landed and needs your flythrough",
+      "blockedBy": "waits on your eye: fly s4.s2clip.debug.bin (crc 441f1db0) or s4.s2clip.bin (crc 9a3533f1), both built from master 481ac02e",
       "project": "REGIONS"
     },
     {
@@ -152,5 +147,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:09:19Z"
+  "updatedAt": "2026-09-25T09:09:43Z"
 }
