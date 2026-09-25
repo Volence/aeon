@@ -1,6 +1,8 @@
 # aeon overseer handoff 26 (2026-09-25, session aeon-68)
 
-CLEAN boundary: nothing in flight, no agent holding a branch, and master is pushed. The owner asked for a /clear
+NOTE: after this file was written the owner asked "real sonic 2 level should switch to short tunnel"; check lane-status and lane-log for whether S2CLIP-ADOPT-SHORT-TUNNEL landed before starting.
+
+CLEAN boundary (as first written): nothing in flight, no agent holding a branch, and master is pushed. The owner asked for a /clear
 with this as the next job, so START WITH THE PERFORMANCE SURVEY BELOW. He said go ("If so let me /clear and you can
 get going yeah?"), so do not boot into a stop.
 
