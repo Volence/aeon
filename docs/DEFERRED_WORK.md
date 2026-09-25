@@ -39072,7 +39072,7 @@ all, which that file's own docstring says. 28 of 35 carry unset surface.)
    drift, which is what rotted this fixture; a code-side offset error is guarded only by
    `_preset_field` refusing a missing annotation.
 
-## PUBLISH-BAND-RECORD-LEN: consumers each derive a stride we could publish once (OPEN, booked 2026-09-19)
+## PUBLISH-BAND-RECORD-LEN: consumers each derive a stride we could publish once (CLOSED 2026-09-25, `parcel/band-record-len`; booked 2026-09-19)
 
 **Asked by oracle** (reported, not requested — they own a working route and were explicit that no
 CR was needed): publish a **`band_record_len`** equate, or `PARALLAX_SCRATCH_BYTES`, beside the
@@ -39097,6 +39097,24 @@ published equate is the derived form, held by the one tree that owns the struct.
 source, so it lands as its own parcel with the full landing build rather than riding behind
 something else. **Check before building whether sigil's equate publication already covers it** —
 the `band_entry_*` rows are served, so this may be one line beside them rather than a mechanism.
+
+**CLOSED 2026-09-25 (`parcel/band-record-len`, report `docs/research/2026-09-25-band-record-len.md`).**
+It was one line, not a mechanism. The `band_entry_*` rows come from sigil's ambient
+`STRUCT_OFFSET_TWINS` harvest, which has no defines and no contract and so could not size the
+per-game `band_record`. A `pub equ` in parallax.emp, which lowers per game, reaches the Equate
+Table by the existing `EquSym` route: `pub equ band_record_len = sizeof(band_record)`.
+- **Listings:** `EQU band_record_len = $00000020` in `s4.lst` and `s4.debug.lst`,
+  `$0000000A` in `demo.debug.lst`. Each is the per-game value; the shape-blind constant
+  harvest (STRESS-CLAMP-EQU-WRONG) is not on this route.
+- **Zero bytes, same sigil binary:** s4.bin 6d1af7a3 (821479 B), s4.debug.bin 62238a15
+  (848075 B), demo.debug.bin ce922bf7 (104707 B), identical before and after.
+- **Consumers:** ten tools now read it through `band_geometry.published_stride(lst)`, which
+  refuses a missing, duplicated or sub-prefix row. Two of them were transcriptions:
+  `parallax_scratch_probe`'s typed `BAND_REC = 32`, and `curve_probe`'s `20 * 8` shadow read.
+  The rest were derivations. Red-first: with the line removed on disk and the tree rebuilt,
+  all eleven invocations refused and the three `needs_build` rows went red. After restoring
+  from the commit, they are green again.
+- **Oracle** can read `band_record_len` with `lookup_equate` in place of the division.
 
 ## STALE-ADDRESS-IN-A-DOCSTRING: one illustrative example carries the number that cost a peer a live defect (OPEN, booked 2026-09-19, S)
 
