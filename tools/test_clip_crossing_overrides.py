@@ -16,9 +16,15 @@ WHAT IS PINNED:
     max(SNAP_FRAMES, background frames).
   * `co_resident` backgrounds: every zone's cells draw, through the shared blob, exactly
     the tile a fresh lowering of its own zone draws; a union past the arena is refused.
-  * the feasibility clip `s2_ehz_cpz_short` is the SHORTEST corridor on the 16-px grid that
-    Z1 and the re-derived Z2 admit, and the landed `s2_ehz_cpz` is untouched by the new
-    term (its margins are what they were).
+  * the real act `s2_ehz_cpz` carries the overrides (owner, 2026-09-25: "real sonic 2 level
+    should switch to short tunnel"; the short-tunnel test clip it replaced is deleted), and
+    its tunnel is the width DERIVED from them: under crossing_margin = report, the shortest
+    on the 16-px grid that Z1 admits and whose reported Z2 shortfall is at most the one frame
+    a side Z2's model keeps for a slipped DMA — never a typed 384;
+  * an act WITHOUT the overrides is held to the default rule exactly as before: the real
+    act with its overrides stripped is fade + overwrite, needs HALF_W + FADE x STEP a side,
+    and is REFUSED at the real act's width (test_clip_two_zone derives the default rule's
+    own shortest width, 832 today, on the same twin).
 
 What these rows CANNOT see is the screen: whether the swap and the repaint really happen
 unseen is tools/crossing_witness.py's job (a witness, run by hand on a clip ROM).
@@ -41,8 +47,7 @@ from suite_paths import SuitePathError      # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 CLIPS = os.path.join(REPO, "games", "sonic4", "data", "clips")
-SHORT = os.path.join(CLIPS, "s2_ehz_cpz_short", "clips.json")
-LANDED = os.path.join(CLIPS, "s2_ehz_cpz", "clips.json")
+REAL = os.path.join(CLIPS, "s2_ehz_cpz", "clips.json")
 DESCRIPTOR = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                           "act_descriptor.emp")
 
@@ -208,8 +213,8 @@ def test_snap_override_refuses_a_preset_that_still_fades():
 # co_resident backgrounds (real donors)
 # ---------------------------------------------------------------------------
 
-def _short_plan(donors, tmp_path):
-    act = CM.load(SHORT, donor_root=donors)
+def _real_plan(donors, tmp_path, path=REAL):
+    act = CM.load(path, donor_root=donors)
     plan = CRB.region_plan(act, donors)
     gen = tmp_path / "gen"
     gen.mkdir()
@@ -221,7 +226,7 @@ def test_co_resident_blob_draws_every_zones_own_tiles(donors, tmp_path):
     _need(S.S2_FINAL)
     import clip_bg_lower as CBL
     from vram_map import BG_TILE_CAPACITY
-    act, plan, gen = _short_plan(donors, tmp_path)
+    act, plan, gen = _real_plan(donors, tmp_path)
     union = None
     for z in plan["zones"]:
         words, tiles = plan["_bg_lowered"][z["key"]]
@@ -248,7 +253,7 @@ def test_bg1_refuses_a_co_resident_cell_that_draws_another_tile(donors, tmp_path
     cell in the plan AND on disk; only that comparison can see it."""
     _need(S.S2_FINAL)
     import clip_bg_lower as CBL
-    act, plan, gen = _short_plan(donors, tmp_path)
+    act, plan, gen = _real_plan(donors, tmp_path)
     mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
     CRB.check_backgrounds(plan, mod, data, gen)                          # control
     key = next(k for k in plan["_bg_lowered"] if k != plan["bg_default_key"])
@@ -291,12 +296,12 @@ def test_co_resident_refuses_a_union_past_the_arena(donors, tmp_path, monkeypatc
     import vram_map
     monkeypatch.setattr(vram_map, "BG_TILE_CAPACITY", 300)
     with pytest.raises(CRB.ClipRomError) as exc:
-        _short_plan(donors, tmp_path)
+        _real_plan(donors, tmp_path)
     assert "BG_TILE_CAPACITY" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
-# the feasibility clip and the landed act
+# the real act (overrides) and the default rule (no overrides)
 # ---------------------------------------------------------------------------
 
 def _shortest(act, z2_side_frames, z1_cells):
@@ -312,13 +317,26 @@ def _shortest(act, z2_side_frames, z1_cells):
     return next(w for w in range(16, 1 << 14, 16) if fits(w))
 
 
-def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
-    """Z1 (on the SCREEN under this clip's override: SCREEN_WIDTH / 8 cells, else
-    TILE_CACHE_COLS - 1) and Z2 re-derived (HALF_W + STEP x max(SNAP_FRAMES, the co-resident
-    background's visible DMA sweep)), all read from source."""
+#: Frames of shortfall a side that crossing_margin = report is expected to leave on the real
+#: act: the ONE frame Z2's model keeps for a DMA that slips a frame (the background term is
+#: ceil(BG_SCREEN_ROWS / BG_WIPE_DMA_ROWS) frames; measured, the visible rows land one frame
+#: sooner when no DMA slips — docs/research/2026-09-25-shorter-connector.md §8.4). This is the
+#: CONTRACT of the limit the owner asked for, not a measured width: the width is derived from it.
+REPORT_SLIP_FRAMES = 1
+
+
+def test_the_real_act_is_the_shortest_its_overrides_allow(donors, tmp_path):
+    """The owner (2026-09-25): "real sonic 2 level should switch to short tunnel". The real
+    act's tunnel is DERIVED, not typed: Z1 (on the SCREEN under this act's override:
+    SCREEN_WIDTH / 8 cells, else TILE_CACHE_COLS - 1) and Z2 re-derived (HALF_W + STEP x
+    max(SNAP_FRAMES, the co-resident background's visible DMA sweep)), all read from source.
+    Under crossing_margin = report the width is the shortest on the 16-px grid that Z1 admits
+    and whose REPORTED Z2 shortfall is at most REPORT_SLIP_FRAMES a side; under enforce it is
+    the shortest Z2 admits outright. Either way the shortfall is printed, never waived
+    silently, and it is exactly the deficit the bake reports."""
     _need(S.S2_FINAL)
     import fg_page_order as FPO
-    act, plan, gen = _short_plan(donors, tmp_path)
+    act, plan, gen = _real_plan(donors, tmp_path)
     ov = CRB.crossing_overrides(act)
     assert ov["declared"] and (ov["palette"], ov["background"]) == ("snap", "co_resident")
     bgf = CRB.background_switch_frames(plan)
@@ -329,16 +347,19 @@ def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
     out = CRB.check_palette_crossings(act, CRB.clip_module_text(plan),
                                       CRB.clip_data_block(plan), bg_frames=bgf)
     assert out[0]["palette"] == "snap"
+    w = act.corridors[0].dst[2]
+    assert w >= z1 * CM.TILE_PX
     if ov["crossing_margin"] == "report":
-        # THE LIMIT TEST (owner, 2026-09-25: "slightly above screen width"): wider than the
-        # screen, and every px it is short of Z2's model is REPORTED, never waived silently
-        w = act.corridors[0].dst[2]
+        slip = [f - REPORT_SLIP_FRAMES for f in frames]
+        assert w == _shortest(act, slip, z1), (w, _shortest(act, slip, z1))
         assert c["SCREEN_WIDTH"] < w < _shortest(act, frames, z1)
-        assert w >= z1 * CM.TILE_PX
-        assert out[0]["shortfall"] and (out[0]["shortfall"]["left_px"]
-                                        + out[0]["shortfall"]["right_px"]) > 0
+        sf = out[0]["shortfall"]
+        assert sf and 0 < max(sf["left_frames"], sf["right_frames"]) <= REPORT_SLIP_FRAMES
+        for side in ("left", "right"):
+            assert sf[f"{side}_px"] == max(0, out[0][f"margin_needed_{side}"]
+                                           - out[0][f"margin_{side}"])
     else:
-        assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
+        assert w == _shortest(act, frames, z1)
 
 
 def test_parallax_snap_override_makes_the_clip_scenes_instant(donors):
@@ -357,7 +378,7 @@ def test_parallax_snap_override_makes_the_clip_scenes_instant(donors):
     on = CBS.data_block_text([(1, spec)], 6144, CRB._scroll_transition(snap))
     off = CBS.data_block_text([(1, spec)], 6144, CRB._scroll_transition(default))
     assert "transition: 1)" in on and "transition:" not in off
-    assert CRB.crossing_overrides(CM.load(SHORT, donor_root=donors))["parallax"] == "snap"
+    assert CRB.crossing_overrides(CM.load(REAL, donor_root=donors))["parallax"] == "snap"
 
 
 def test_crossing_margin_report_prints_the_shortfall_and_enforce_refuses():
@@ -380,22 +401,26 @@ def test_crossing_margin_report_prints_the_shortfall_and_enforce_refuses():
     assert any("SHORTFALL" in ln for ln in lines)
 
 
-def test_the_landed_act_is_held_to_what_it_was(donors, tmp_path):
-    """s2_ehz_cpz carries no override: fade, overwrite, and the background term does not
-    move its margin (its backgrounds switch in fewer frames than PAL_FADE_FRAMES)."""
+def test_an_act_without_overrides_is_held_to_the_default_rule(donors, tmp_path):
+    """The default rule is unchanged by the overrides: the REAL act with its
+    crossing_overrides stripped (built from the committed manifest, never a stale copy) is
+    fade + overwrite, its backgrounds switch in no more frames than PAL_FADE_FRAMES, it needs
+    HALF_W + FADE x STEP a side and emits transition 1 — and at the real act's own width
+    (which only the overrides admit) Z2 REFUSES it. test_clip_two_zone derives the default
+    rule's own shortest tunnel on the same twin and holds the bake to it."""
     _need(S.S2_FINAL)
-    act = CM.load(LANDED, donor_root=donors)
+    doc = json.load(open(REAL))
+    assert doc.pop(CRB.CROSSING_OVERRIDES_KEY, None), "the real act carries no overrides"
+    path = tmp_path / "clips.json"
+    path.write_text(json.dumps(doc))
+    act, plan, gen = _real_plan(donors, tmp_path, str(path))
     assert not CRB.crossing_overrides(act)["declared"]
-    plan = CRB.region_plan(act, donors)
-    gen = tmp_path / "gen"
-    gen.mkdir()
-    CRB.plan_backgrounds(plan, CRB.engine_spawn(DESCRIPTOR), str(gen), str(tmp_path), log=None)
     fade, step, half_w = CRB.crossing_constants()
     bgf = CRB.background_switch_frames(plan)
     assert max(bgf.values()) <= fade
-    out = CRB.check_palette_crossings(act, CRB.clip_module_text(plan),
-                                      CRB.clip_data_block(plan), bg_frames=bgf)
-    assert out[0]["palette"] == "fade"
-    assert out[0]["margin_needed_left"] == out[0]["margin_needed_right"] == half_w + fade * step
     assert "transition: 1)" in CRB.clip_data_block(plan)
-    assert json.load(open(LANDED)).get("crossing_overrides") is None
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_palette_crossings(act, CRB.clip_module_text(plan),
+                                    CRB.clip_data_block(plan), bg_frames=bgf)
+    msg = str(exc.value)
+    assert "Z2" in msg and "a cross-fade" in msg and f"needs {half_w + fade * step} px" in msg, msg

@@ -12,7 +12,11 @@ WHAT IS PINNED HERE, and where the rest of the row's evidence lives:
     typed), and K1-K3 refuse a corridor the bake could not honour;
   * the S2CLIP-TUNNEL rows (2026-09-25): the tunnel hides the background (no transparent
     pixel), its rect covers every row a camera inside it shows, no floor step at either seam
-    (K6's measured ramp), its width is the shortest Z1+Z2 admit, and K4-K6 refuse by tag;
+    (K6's measured ramp), and K4-K6 refuse by tag. Its WIDTH is test_clip_crossing_overrides'
+    (the real act carries crossing_overrides since the owner's "real sonic 2 level should
+    switch to short tunnel", 2026-09-25); here the DEFAULT rule is held on the act's
+    override-free twin (`_default_rule_doc`): Z2 passes it at the shortest width Z1+Z2 admit
+    and refuses it shorter, including at the real act's own width;
   * Z2, the palette-crossing check, on synthetic modules: both arms of every refusal;
   * region_plan's refusals (butted zones, a stacked layout);
   * the COMMITTED neutral clip module is byte-for-byte what the emitter writes, so the
@@ -85,6 +89,25 @@ def _write(tmp_path, doc):
     p = tmp_path / "clips.json"
     p.write_text(json.dumps(doc))
     return str(p)
+
+
+def _default_rule_doc(width=None):
+    """The real act WITHOUT its `crossing_overrides` — the fixture that keeps the DEFAULT
+    rule (16-frame fade, overwritten backgrounds, Z1 on the tile cache, Z2 enforced) under
+    test now that the real act carries the overrides (owner, 2026-09-25: "real sonic 2 level
+    should switch to short tunnel"). Built from the committed manifest every time, never a
+    stale copy. `width` re-cuts the tunnel and moves every clip right of it by the same
+    amount, so only the connector changes."""
+    doc = _doc()
+    doc.pop(CRB.CROSSING_OVERRIDES_KEY, None)
+    if width is not None:
+        co = doc["corridors"][0]["dst_rect"]
+        delta = width - co["w"]
+        for c in doc["clips"]:
+            if c["dst_rect"]["x"] >= co["x"] + co["w"]:
+                c["dst_rect"]["x"] += delta
+        co["w"] = width
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -229,30 +252,56 @@ def test_the_tunnel_rect_covers_every_row_a_camera_inside_it_can_show(donors):
     assert co.dst[1] + co.dst[3] > bottom, f"rows down to y {bottom} are on screen"
 
 
-def test_the_tunnel_is_as_short_as_the_crossing_allows(donors):
-    """The owner (2026-09-25): "Can we make the connector a little shorter". The floor on
-    its length is DERIVED from two rules, read from source, never typed:
+def _z2_default_rule(doc, tmp_path, donors, sub):
+    """Z2 over the default-rule twin `doc`, the way the bake runs it (backgrounds planned,
+    so the background term is in)."""
+    d = tmp_path / sub
+    d.mkdir()
+    act = CM.load(_write(d, doc), donor_root=donors)
+    assert not CRB.crossing_overrides(act)["declared"]
+    plan = CRB.region_plan(act, donors)
+    gen = d / "gen"
+    gen.mkdir()
+    CRB.plan_backgrounds(plan, CRB.engine_spawn(DESCRIPTOR), str(gen), str(d), log=None)
+    return act, plan, CRB.check_palette_crossings(
+        act, CRB.clip_module_text(plan), CRB.clip_data_block(plan),
+        bg_frames=CRB.background_switch_frames(plan))
+
+
+def test_without_overrides_the_tunnel_is_held_to_the_default_rules_shortest(donors, tmp_path):
+    """An act WITHOUT crossing_overrides is held to the rule the landed 832-px tunnel was
+    cut to (the owner, 2026-09-25: "Can we make the connector a little shorter"). The floor
+    is DERIVED from two rules, read from source, never typed:
       Z2 — the crossing sits at the corridor's middle (rounded down to 16) and needs
            CAM_SCREEN_HALF_W + PAL_FADE_FRAMES x CAM_MAX_X_STEP px of corridor each side;
       Z1 — the gap between the two zones must be at least TILE_CACHE_COLS - 1 cells.
-    The tunnel must satisfy both and be the SHORTEST width on the 16-px grid that does."""
+    Since the real act carries its overrides (a 384-px tunnel: test_clip_crossing_overrides
+    derives THAT width), the default rule is held on its override-free twin: the bake's Z2
+    PASSES it at the derived shortest width, REFUSES it 16 px shorter, and REFUSES the real
+    act's own width without the overrides."""
     _need(S.S2_FINAL)
     import fg_page_order as FPO
     fade, step, half_w = CRB.crossing_constants()
     margin = half_w + fade * step
     z1_min = (FPO.load_budget_constants()["TILE_CACHE_COLS"] - 1) * CM.TILE_PX
-    act = CM.load(MANIFEST, donor_root=donors)
-    co = act.corridors[0]
-    left = co.dst[0]
+    real = _doc()["corridors"][0]["dst_rect"]
+    left = real["x"]
 
     def fits(w):
         mid = ((left + left + w) // 2) & ~15
         return mid - left >= margin and left + w - mid >= margin and w >= z1_min
 
     shortest = next(w for w in range(16, 1 << 14, 16) if fits(w))
-    assert co.dst[2] == shortest, (co.dst[2], shortest)
-    plan = CRB.region_plan(act, donors)
-    assert plan["crossings"][0]["gap"] == [left, left + co.dst[2]]
+    act, plan, z2 = _z2_default_rule(_default_rule_doc(shortest), tmp_path, donors, "at")
+    assert act.corridors[0].dst[2] == shortest
+    assert plan["crossings"][0]["gap"] == [left, left + shortest]
+    assert z2[0]["palette"] == "fade" and z2[0]["shortfall"] is None
+    assert z2[0]["margin_needed_left"] == z2[0]["margin_needed_right"] == margin
+    for sub, w in (("under", shortest - 16), ("real", real["w"])):
+        assert w < shortest
+        with pytest.raises(CRB.ClipRomError) as exc:
+            _z2_default_rule(_default_rule_doc(w), tmp_path, donors, sub)
+        assert "Z2" in str(exc.value) and str(margin) in str(exc.value), (sub, str(exc.value))
 
 
 def test_corridor_floor_is_the_banks_full_solid_odd_angle_block():
@@ -335,9 +384,15 @@ def test_the_real_act_plans_two_regions_crossing_mid_corridor(donors):
         (0, mid - 1, 0), (mid, act.grid_w * act.section_px - 1, 1)]
     mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
     z2 = CRB.check_palette_crossings(act, mod, data, log=None)
-    fade, step, half_w = CRB.crossing_constants()
     assert z2 and z2[0]["x"] == mid
-    assert min(z2[0]["margin_left"], z2[0]["margin_right"]) >= half_w + fade * step
+    # each side meets what Z2 says THIS act needs, or — only under the act's own
+    # crossing_margin = report — the whole deficit is the shortfall the bake prints
+    report = CRB.crossing_overrides(act)["crossing_margin"] == "report"
+    sf = z2[0]["shortfall"] or {}
+    for side in ("left", "right"):
+        need, have = z2[0][f"margin_needed_{side}"], z2[0][f"margin_{side}"]
+        if have < need:
+            assert report and sf[f"{side}_px"] == need - have, (side, have, need, sf)
 
 
 def test_region_plan_refuses_two_zones_with_no_corridor(donors, tmp_path):
@@ -461,10 +516,10 @@ DESCRIPTOR = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act
                           "act_descriptor.emp")
 
 
-def _planned(donors, tmp_path):
-    """The real act's region plan with its backgrounds planned into a tmp generated dir,
-    and the two module texts emitted from it."""
-    act = CM.load(MANIFEST, donor_root=donors)
+def _planned(donors, tmp_path, doc=None):
+    """The real act's region plan (or `doc`'s, e.g. the default-rule twin) with its
+    backgrounds planned into a tmp generated dir, and the two module texts emitted from it."""
+    act = CM.load(MANIFEST if doc is None else _write(tmp_path, doc), donor_root=donors)
     plan = CRB.region_plan(act, donors)
     gen = tmp_path / "gen"
     gen.mkdir()
@@ -473,13 +528,21 @@ def _planned(donors, tmp_path):
     return act, plan, str(gen), spawn
 
 
-def test_the_act_default_background_is_the_start_zones_own(donors, tmp_path):
+@pytest.mark.parametrize("which", ["real", "default_rule"])
+def test_the_act_default_background_is_the_start_zones_own(donors, tmp_path, which):
     """The act default is the zone the act STARTS in (BG_Init blits it before the camera
     exists), derived here from the descriptor's spawn and the manifest's own rectangles —
     the clip whose destination holds the spawn — never typed as 'EHZ'. Its rows name no
-    background of their own; every other zone's rows name that zone's own pair."""
+    background of their own; every other zone's rows name that zone's own LAYOUT, and its
+    own TILES unless the act's crossing_overrides.background = co_resident (then every zone
+    draws from the one shared blob the act default already holds, and naming a second blob
+    would re-arm the overwrite the override removes). Run on the real act (co-resident) and
+    on its override-free twin (each zone's own blob)."""
     _need(S.S2_FINAL)
-    act, plan, gen, spawn = _planned(donors, tmp_path)
+    act, plan, gen, spawn = _planned(donors, tmp_path,
+                                     None if which == "real" else _default_rule_doc())
+    co_resident = CRB.crossing_overrides(act)["background"] == "co_resident"
+    assert co_resident == (which == "real")
     holder = [c for c in act.clips
               if c.dst[0] <= spawn[0] < c.dst[0] + c.dst[2]
               and c.dst[1] <= spawn[1] < c.dst[1] + c.dst[3]]
@@ -492,10 +555,18 @@ def test_the_act_default_background_is_the_start_zones_own(donors, tmp_path):
             assert (r["bg_layout"], r["bg_tiles"]) == (None, None)
         else:
             assert (r["bg_layout"], r["bg_tiles"]) == (
-                f"OJZ_Clip_BG_Layout_{r['key']}", f"OJZ_Clip_BG_Tiles_{r['key']}")
+                f"OJZ_Clip_BG_Layout_{r['key']}",
+                None if co_resident else f"OJZ_Clip_BG_Tiles_{r['key']}")
     # the injector really wrote the start zone's lowering as the act default
     import clip_bg_lower as CBL
     words, tiles, _ = CBL.lower(holder[0].donor, holder[0].zone)
+    if co_resident:
+        # the act default is the start zone's layout re-indexed into the shared blob, so
+        # compare what each cell DRAWS (test_clip_crossing_overrides pins the blob itself)
+        dw, dt = plan["_bg_lowered"][plan["bg_default_key"]]
+        assert [(w & ~0x7FF, dt[w & 0x7FF]) if w else None for w in dw] == \
+               [(w & ~0x7FF, tiles[w & 0x7FF]) if w else None for w in words]
+        words, tiles = dw, dt
     assert open(os.path.join(gen, "zone_bg.bin"), "rb").read() == CBL.layout_blob(words)
     assert open(os.path.join(gen, "bg_tiles.bin"), "rb").read() == CBL.tiles_blob(tiles)
     # ...and with no animation band: the shipped OJZ bank does not ride along
@@ -506,9 +577,13 @@ def test_the_act_default_background_is_the_start_zones_own(donors, tmp_path):
 def test_every_other_zone_carries_its_own_background_on_its_region_rows(donors, tmp_path):
     """Chemical Plant (every zone but the start one) is named in BOTH emitted tables — the
     rows the descriptor checks and the rows the Act binds — and its blobs are embedded in
-    the data block, typed, and on disk as its own lowering. BG1 reads all of that back."""
+    the data block, typed, and on disk as its own lowering. BG1 reads all of that back.
+    The DEFAULT rule's path (each zone its own tile blob, overwritten at the crossing), so it
+    runs on the real act's override-free twin: the real act's co-resident blob is
+    test_clip_crossing_overrides' subject."""
     _need(S.S2_FINAL)
-    act, plan, gen, _ = _planned(donors, tmp_path)
+    act, plan, gen, _ = _planned(donors, tmp_path, _default_rule_doc())
+    assert CRB.crossing_overrides(act)["background"] == "overwrite"
     others = [z for z in plan["zones"] if z["key"] != plan["bg_default_key"]]
     assert others, "a two-zone act has a zone that is not the start zone"
     mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)

@@ -177,8 +177,13 @@ both built from engine constants. Z2 (clip_rom_bake.check_palette_crossings): th
 sits at the middle of the gap rounded down to 16, with CAM_SCREEN_HALF_W + PAL_FADE_FRAMES
 x CAM_MAX_X_STEP = 160 + 16 x 16 = 416 px of corridor each side, so at least 832 px. Z1
 (clip_act_bake.zone_separation): at least TILE_CACHE_COLS - 1 = 79 cells = 632 px between
-two zones' cells. Z2 binds. tools/test_clip_two_zone.py holds s2_ehz_cpz's tunnel to the
-shortest width that passes both.
+two zones' cells. Z2 binds. That is the DEFAULT rule; an act may carry a named, per-clip
+`crossing_overrides` block (clip_rom_bake.crossing_overrides: palette snap, co-resident
+backgrounds, Z1 counted on the screen, parallax snap, Z2's margin reported instead of
+enforced), and s2_ehz_cpz does since 2026-09-25 (a 384-px tunnel, the owner: "real sonic 2
+level should switch to short tunnel"). tools/test_clip_crossing_overrides.py derives the
+real act's width from its overrides; tools/test_clip_two_zone.py holds the act's
+override-free twin to the default rule's shortest width (832).
 
 WHAT A CORRIDOR PAINTS, and why each choice. It is SYNTHESISED by the bake (`corridor_art`),
 PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree:

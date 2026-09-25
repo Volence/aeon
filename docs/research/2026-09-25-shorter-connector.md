@@ -1,5 +1,15 @@
 # A shorter EHZ -> CPZ connector: what sets its length, and a 640-px feasibility clip
 
+> **ADOPTED (2026-09-25, `parcel/s2clip-adopt-short-tunnel`).** The owner: *"real sonic 2 level
+> should switch to short tunnel"*. The real act `s2_ehz_cpz` now carries the 384-px connector
+> and the same `crossing_overrides` this document built, and the test clip `s2_ehz_cpz_short`
+> is DELETED (its content was the real act's apart from the tunnel). Every mention of
+> `s2_ehz_cpz_short` below is the record of that clip as it was; to reproduce a measurement,
+> build `S2CLIP=s2_ehz_cpz`. Its tests now run on the real act (the width DERIVED from the
+> overrides, `tools/test_clip_crossing_overrides.py`), and the default rule's 832 is held on the
+> act's override-free twin (`tools/test_clip_two_zone.py`). Re-measured numbers:
+> DEFERRED_WORK S2CLIP-TUNNEL.
+
 > **UPDATE, same day (the limit test, §8).** The owner then asked for *"slightly longer than a
 > screen"*, then *"slightly above screen width and that's it ... it can be our new full cpz"*.
 > One engine change (the one-plane background is now repainted by DMA from ROM, 0 B RAM) plus
