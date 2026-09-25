@@ -40337,6 +40337,102 @@ worktree, then read the `bganim_room: FAIL` block.
   DEBUG's rule at about 0xB8000 (re-derive, do not inherit). If a growth overruns the file's current anchor, `sigil
   build` refuses before any listing exists, so there is nothing to derive from: raise both rows by hand by a bank
   step or two, build both shapes, then `--derive` (the check will call the hand value STALE until you do).
+  **STARTED 2026-09-25 on `parcel/s2clip-cpz-longer`, stacked on this branch: see the S2CLIP-CPZ-LONGER row below.**
+  The growth never overran the file's anchor (0xB0000 left 82 KB of physical room), so the by-hand raise was not needed.
+
+## S2CLIP-CPZ-LONGER: Chemical Plant 2048 -> 2528 px, the 480-px void filled; the planned A2 is BLOCKED by donor floor pinholes (booked 2026-09-25)
+
+The owner, verbatim: *"I'd like to extend chemical plant zone a bit."* Plan (`docs/research/2026-09-25-s2clip-longer-cpz-and-original-bgs.md`
+§3.5): A2, CPZ to its second checkpoint (x 6143 in CPZ's own coordinates). Branch `parcel/s2clip-cpz-longer`, cut from
+`parcel/clip-anchor-overlay-2` (bce9a0ca, NOT landed) and merged with origin/master e9184e76 (tunnel + lag fix; no conflicts).
+Every build uses the candidate sigil pair built from sigil master 1d19e60b (`/home/volence/sonic_hacks/.sigil-pin-1d19e60b`,
+sigil md5 fed84c1967b3b92a57402e86d494cc89, emit md5 3f2e7322d1cdb1e41dec32ed1637d5e8), because the installed pair
+does not know `--anchor-overlay` yet. **Lands only after (or with) the overlay pair.**
+
+**CLOSED (what landed on the branch)**
+
+- **Step 1, anchors re-derived on the merged tree** (73c2f37a). Rule value still 0xB0000 in both shapes; only the
+  `# measured:` lines moved (the tunnel added +3,972 B plain / +3,976 B DEBUG). Clip builds then: plain `ebb43f48`
+  855,679 B, DEBUG `e5d14145` 882,155 B, both exit 0.
+- **Step 2, CPZ widened to 2528 px** (f712ec1c). CPZ was CPZ x 0..2047 = act x 11808..13855; it is now CPZ x 0..2527
+  = act x 11808..14335, which is the act's own right edge (grid stays 7x3 = 14336 px). **The 480-px void is filled**:
+  `unpainted_remainder.x_from` = 14336 = the act width, `unbounded_fall.columns` 1684 -> 1744 (CPZ's 256 -> 316, all
+  re-derived by `clip_reachability`), floorless columns unchanged (48, Emerald Hill's two pits). The player now
+  meets `Player_BoundsInit`'s right clamp (act width - `PBOUND_RIGHT_MARGIN`) on CPZ ground. Anchors re-derived:
+  dac_banks 0xB0000 -> **0xB8000**, sound_bank 0xC0000 -> **0xC8000** (both shapes bind).
+- **Builds** (full, every lane, exit 0 each; pre-build lane 3389 passed / 3 skipped / 33 deselected in each):
+
+  | shape | crc | size | packed end | room above reserve |
+  |---|---|---|---|---|
+  | `S2CLIP=s2_ehz_cpz ./build.sh` | `e49d0a36` | 888,445 B | 0x9CAC8 | 62,776 B |
+  | `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` | `89aac8a7` | 914,923 B | 0x9D5E0 | 59,936 B |
+
+  Growth +5,948 B in both shapes (the research priced it at +5,962). FG page budget worst window 9 of 12.
+  dplc_straddle OK in both (Art_Sonic's nearest VERDICT C shift: plain +14,137 B up; DEBUG answered VERDICT A).
+- **Headless witnesses, all on the DEBUG clip ROM `89aac8a7`** (`tools/tunnel_run_witness.py`; uptime load ~6):
+  - the tunnel: 6 of 6 runs crossed, 23 stall frames, 0 airborne inside, 0 faulted: the same totals as the tunnel's
+    own post-lag-fix booking.
+  - the new strip, `--control-window 14016 14040` (runs start at x 13856 on flat 768 ground and end at 14200, and the
+    reverse): 6 of 6 crossed, 0 stalls, 0 faulted, 13 airborne frames inside (the left runs leave the 704 ledge).
+  - the whole CPZ clip, `--control-window 12100 14080 --frames 1500`: 5 of 6 crossed, 0 faulted, nobody fell out of
+    the world. The 6th (left, `PHYS_GSP_CAP`) ends parked at x 13544 y 863 with gsp 100 on the rising side of CPZ's
+    bowl (act x 13408..13856, bottom y 895): **old CPZ ground, not the new strip**, and the shape of the open
+    S2CLIP-SLOPE-PHYSICS row (a player on a slope is not pushed). Not a new defect; not fixed here.
+  - the harness's first try at `--control-window 13856 14100` refused, correctly: its start x 13696 is on the bowl's
+    slope and `y_vel` is not 0 there. The witness assumes flat start ground.
+- **Lag, S2CLIP-LAG research harness** (`docs/research/2026-09-25-s4-lag/lag_flythrough_probe.py`, run_legs.sh's
+  arguments, leg format `lag / video frames in motion`):
+
+  | leg | this branch | S2CLIP-LAG "after" |
+  |---|---|---|
+  | clip DEBUG fly right | 14/884 (camera to 14016; the 13824 bucket 73/0) | 14/884 |
+  | clip DEBUG fly down, EHZ band (cam y < 1024) | 3/59 | 3/59 |
+  | clip DEBUG diagonal, EHZ band (cam y < 1024) | 26/82 (whole leg 40/910) | 26/82 |
+  | clip DEBUG physics run | 61/2,487 | 63/2,485 |
+  | clip plain physics run | 14/2,437 | 14/2,437 |
+
+  The physics legs do not reach Chemical Plant: the player drops into the unbounded fall early and runs along the
+  act bottom (camera y 5824), so **no lag leg exercises physics on the new strip**; the fly legs stream it, lag 0
+  in the new bucket.
+- **Landing** (`tools/landing_build.sh`, candidate pair exported): exit 0, `finished=0`, land-gate stamp at HEAD
+  f712ec1c. Canonical shapes: s4 `e4f3f8fd` 822,037 B, s4.debug `762fa8db` 848,702 B, demo.debug `72b0a8d1` 105,333 B.
+  Pre-build lane 3389 passed / 3 skipped; emp_expect_fail 56/56; needs_build lane 32 passed, 0 failed, 1 EXEMPTED
+  (`test_deb2_appendix[demo.bin]`). Whether these CRCs equal the installed pair's is the separate control's question.
+
+**OPEN**
+
+- **A2 (CPZ to its 2nd checkpoint) is BLOCKED by `tools/collision_consistency.py`, not by ROM room.** Measured at
+  width 6624 (act grid 9, painted to the act edge; 6144 would leave a new 480-px void at x 17952..18431): it links
+  with its own anchors (rule 0xC8000 both shapes, packed ends 0xACCE4 / 0xAD7FC, **+72,024 B**), passes the room
+  rule, clip_reachability (2256 unbounded columns), the page budget (worst 11 of 12) and dplc_straddle (run by hand
+  on FAST ROMs `23c95b8d` / `1438fc02`; Art_Sonic is past the VERDICT C band, answered VERDICT A). It FAILS **RULE B:
+  34 floor pinholes** (16-px gaps in a floor row: the single-point ledge probe reports a false ledge, i.e. a teeter)
+  in the donor's own CPZ collision, act sections 7 and 8. The sites, act (x, y) -> CPZ (x, y), plane:
+  sec 7: (14656, 576/592) -> (2848, 320/336) A+B; (16128, 672/688/704/736) -> (4320, 416..480) A+B;
+  (14832, 1712) -> (3024, 1456) A+B; (15520, 800) -> (3712, 544) B; (15136, 1184) -> (3328, 928) B;
+  (14480, 1888/1904) -> (2672, 1632/1648) B.
+  sec 8: (17216, 1568/1584/1600/1632) -> (5408, 1312..1376) A+B; (16784, 1696) -> (4976, 1440) A+B;
+  (18112, 1856/1872) -> (6304, 1600/1616) A+B; (16704, 1872) -> (4896, 1616) A; (16672, 1904) -> (4864, 1648) A.
+  The first is at CPZ x 2672 (plane B) / 2848 (plane A), so **no section-aligned end past act x 14336 is clean**,
+  and an unaligned one brings the void back. That is why the branch stops at 2528 px.
+  **Why it is not fixed here:** `tools/collision_baseline.json` says outright not to add entries to get a build green.
+  Repainting donor cells (the gate's own FIX: an all-16 shape) is a content decision about Sonic 2's geometry, and the
+  code would go in `tools/clip_rom_bake.py` / `tools/clip_act_bake.py`, which a parallel parcel may be editing.
+  **Options for whoever picks it up (owner/hub call):** (a) a clip-bake pinhole fill (the gate's own FIX) scoped to
+  clip acts, reported per cell; (b) look first at what Sonic 2 puts on those cells: several are vertical runs of 4
+  rows at one x (CPZ x 4320, 5408), which reads like a gap an object (a pipe, a platform) fills in the original.
+  Once cleared, A2 needs nothing else measured here: re-widen to 6624 / grid 9 (`x_from` 18432, unbounded 2256),
+  build both shapes, `--derive` (expect 0xC8000 / 0xD8000), rebuild.
+
+**TAGGED FOR THE OWNER'S LOOK:** the new 480 px of Chemical Plant at the act's right end (x 13856..14335: the bowl's
+far side, a flat 768 floor, then a 704 ledge up to the edge); what the act's right edge looks like now that the
+camera stops on painted ground; that CPZ is still only past its opening, not to its first checkpoint (4272).
+
+**Files touched under `games/sonic4/data/clips/`** (aurora vendors clips.json and `tools/clip_manifest.py`):
+`games/sonic4/data/clips/s2_ehz_cpz/clips.json` (cpz_act1 src/dst w, `unpainted_remainder` x_from + why,
+`unbounded_fall.columns` + why, floorless why, name, note, unaligned_dst_reason) and
+`games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived twice). `tools/clip_manifest.py`,
+`tools/clip_rom_bake.py` and `tools/clip_act_bake.py` are **untouched**; `s2_ehz_cpz_short` is untouched.
 
 ## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z)
 
