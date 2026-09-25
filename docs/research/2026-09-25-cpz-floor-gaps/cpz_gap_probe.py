@@ -31,7 +31,9 @@ if args.s2 is None:
     args.s2 = s2_donor.donor_root("s2disasm")
 S2 = os.path.abspath(args.s2)
 
-# CPZ -> act placement in the s2_ehz_cpz clip (clips.json cpz_act1 dst_rect)
+# CPZ -> act placement in the s2_ehz_cpz clip (clips.json cpz_act1 dst_rect) AT THE TIME OF THIS
+# REPORT (832-px tunnel). Kept so the report's act coordinates reproduce; since the 384-px tunnel
+# was adopted (2026-09-25) the act pastes CPZ at x 11360, so subtract 448 for today's act x.
 ACT_DX, ACT_DY = 11808, 256
 # act sections 7 and 8 of the 6624-px variant, in CPZ coordinates
 SECTIONS = ((2528, 4576), (4576, 6624))

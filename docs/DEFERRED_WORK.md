@@ -38100,6 +38100,14 @@ CPZ's invented seam every 512 px; CPZ's 2 line-0 cells; both backgrounds scroll 
 
 ### S2CLIP-TUNNEL — the EHZ->CPZ connector is a short enclosed tunnel (2026-09-25, `parcel/s2clip-tunnel-2`)
 
+> **SUPERSEDED IN LENGTH (2026-09-25, `parcel/s2clip-adopt-short-tunnel`): the tunnel is now 384 px, not
+> 832.** The owner: *"real sonic 2 level should switch to short tunnel"*. `s2_ehz_cpz` carries the
+> 384-px connector (x 10976..11359, CPZ at act x 11360, crossing x 11168) and `crossing_overrides`
+> (palette/parallax SNAP, co-resident backgrounds, Z1 on the screen, Z2 margin REPORTED); see
+> S2CLIP-ADOPT-SHORT-TUNNEL below. What stays true from this entry: the tunnel's art, ceiling,
+> opaque rect and seam ramp; 832 is still the length the DEFAULT rule (no overrides) is held to,
+> now on the act's override-free twin. The numbers below are this parcel's, at 832.
+
 The owner, verbatim: *"the tunnel to tranisition has to be like an FG hiding the bg, right now it's
 just something we walk on. It doens't have to be so long either and the fg can use ehz or cpz art ...
 Can we make the connector a little shorter, I think having it so long takes away a bit from the
@@ -38107,12 +38115,14 @@ dramatic effect"*. No engine code changed; the tunnel is content plus the clip t
 
 **CLOSED**
 
-- **Length 1312 -> 832 px, the shortest the engine allows, and the binding rule is Z2, not Z1** (the
+- **Length 1312 -> 832 px (then 384, see the note above), the shortest the DEFAULT rule allows, and the binding rule is Z2, not Z1** (the
   brief named Z1). Z2 (`clip_rom_bake.check_palette_crossings`) puts the crossing at the gap's middle
   rounded down to 16 and needs `CAM_SCREEN_HALF_W` 160 + `PAL_FADE_FRAMES` 16 x `CAM_MAX_X_STEP` 16 =
   416 px each side, so 832. Z1 (`clip_act_bake.zone_separation`) needs `TILE_CACHE_COLS` - 1 = 79 cells
-  (632 px) and gets 104. Crossing now x = 11392 (was 11632), 416 px each side. Held by
-  `test_the_tunnel_is_as_short_as_the_crossing_allows` (red-first: w 848 -> `assert 848 == 832`).
+  (632 px) and gets 104. Crossing then x = 11392 (was 11632), 416 px each side. Held by
+  `test_the_tunnel_is_as_short_as_the_crossing_allows` (red-first: w 848 -> `assert 848 == 832`); since the
+  adoption that row is `test_without_overrides_the_tunnel_is_held_to_the_default_rules_shortest`, on the
+  override-free twin.
 - **Enclosed, background hidden.** Corridor `tunnel` (clip_manifest K4/K5): solid ceiling y 512..671,
   walkway 672..767 (96 px, >= 2 x `PLAYER_Y_RADIUS` + 1 = 39), floor 768..1023. Every pixel of the rect
   is painted: 0 transparent pixels (`test_the_tunnel_hides_the_background...`; the open-corridor
@@ -38147,7 +38157,9 @@ dramatic effect"*. No engine code changed; the tunnel is content plus the clip t
 
 **OPEN**
 
-- **The act's last 480 px are an unpainted remainder** (x 13856..14335, declared in clips.json). Moving
+- **The act's last 480 px are an unpainted remainder** (x 13856..14335, declared in clips.json). [CLOSED by
+  S2CLIP-CPZ-LONGER (CPZ 2528, then 4576 px); since the 384-px adoption the act has a NEW 448-px remainder,
+  x 15936..16383, booked under S2CLIP-ADOPT-SHORT-TUNNEL.] Moving
   Chemical Plant left to meet the shorter tunnel leaves the 7-section act 480 px wider than its content;
   widening CPZ to 2528 px to fill it MEASURED +5,962 B (FAST clip builds, Art_Sonic address), which
   neither clip shape has. A player who runs off the end of CPZ's clip falls. Rides on the same ROM-room
@@ -38156,6 +38168,7 @@ dramatic effect"*. No engine code changed; the tunnel is content plus the clip t
   over it; that is why the wall is a 32x32 piece. Any further clip content in the debug shape needs the
   anchor move first.
 - **The 1,684-column unbounded fall** (was 1,744: the tunnel is 104 columns, not 164) is unchanged in kind.
+  [Now 1,944: CPZ 4576 px wide, the tunnel 48 columns.]
 
 **TAGGED FOR THE OWNER'S LOOK:** the tunnel's picture (recoloured CPZ panels and mesh on Sonic's
 palette line, 96-px walkway); the EHZ mouth (a flat metal face from y 512 at x 10976, sky above it); the
@@ -38221,14 +38234,15 @@ room above the reserve plain 59,300 B / DEBUG 62,140 B under the clip anchors 0x
 - Ripple static (no sub-frame deform phase speed; aurora survey gap, S).
 - CPZ: rows past 511 do not exist in the 64-row plane, so the BG stops at BG Y 288 (camera Y 1408 in this act)
   where S2 continues to 456; the 96-cell period is cropped to 64 (B-1's invented seam) and the plane's column 0
-  is S2 BG x 384 (crop start chunk 3), and CPZ is pasted at act x 11808, so each band's horizontal phase is
-  offset from S2's by 11808·r mod 512 (452 px for camX/8, 272 px for camX/2) on top of that 384. S2's partial-block ripple quirk
+  is S2 BG x 384 (crop start chunk 3), and CPZ is pasted at act x 11360 (11808 until the 384-px tunnel was
+  adopted), so each band's horizontal phase is offset from S2's by 11360·r mod 512 (396 px for camX/8, 48 px for
+  camX/2; at 11808 it was 452 / 272) on top of that 384. S2's partial-block ripple quirk
   (screen-anchored on a part-visible block 18) is not reproduced; the engine's ripple is plane-anchored.
 - The crossing between the two configs uses the default smooth lerp (pcfg_transition 0).
 
 **TAGGED FOR THE OWNER'S LOOK (runtime):** EHZ motion (esp. the lower ramp's per-line vs S2's 2/3-line slats);
 CPZ vertical follow and where it stops (camera Y ≈ 1408); the static ripples; the config lerp at the x = 11392
-crossing (moved there by the tunnel parcel) together with the BG wipe and palette fade.
+crossing [since the 384-px adoption: a SNAP at x 11168, crossing_overrides.parallax = snap] (moved there by the tunnel parcel) together with the BG wipe and palette fade.
 
 **OPEN:** animated ripple (sub-frame phase, S); stepped-curve band (S) if the owner wants EHZ's slats; faithful
 CPZ (tall BG with BG-space bands + wide BG, L each — unchanged from B-1).
@@ -38255,7 +38269,8 @@ a gate, not a defect in the engine.
 
 ## SHORT-TUNNEL-VSCROLL-RATCHET: a one-plane background still slides 16 px a frame after a crossing (OPEN, booked 2026-09-25, `research/shorter-connector`)
 
-Measured on `s2_ehz_cpz_short` (384-px tunnel, after B-2): EHZ's and CPZ's Sonic 2 scroll
+Measured on `s2_ehz_cpz_short` (384-px tunnel, after B-2; that test clip is now the real act `s2_ehz_cpz`,
+and the same 3 / 4 glitch frames re-measured there, S2CLIP-ADOPT-SHORT-TUNNEL): EHZ's and CPZ's Sonic 2 scroll
 records put the BG vscroll ~87 px apart at the tunnel, and `parallax.emp` Step 5's rate clamp
 (`BG_VSCROLL_MAX_STEP` = 16 px a frame) makes the far background slide vertically for ~6
 frames after the crossing. At the camera cap the far zone reaches the screen 2-3 frames after
@@ -38265,6 +38280,92 @@ booking's sibling BG-RATE-PRIME-EXEMPTION, narrowed: skip the clamp when the reg
 one plane tall, since the clamp exists so the row streamer is never outrun and a one-plane map
 has no window to outrun. It changes canonical one-plane crossings and warps and is graded by
 `bg_vscroll_rate`, so it wants its own parcel. Research: docs/research/2026-09-25-shorter-connector.md §8.7.
+
+## S2CLIP-ADOPT-SHORT-TUNNEL: the real Sonic 2 act switches to the 384-px connector (CLOSED 2026-09-25, `parcel/s2clip-adopt-short-tunnel`)
+
+The owner, verbatim (2026-09-25): *"real sonic 2 level should switch to short tunnel"*. **Done.**
+Data and tests only: no engine file, no canonical byte (the clip act is a throwaway S2CLIP shape).
+
+- **What changed in `games/sonic4/data/clips/s2_ehz_cpz/clips.json`:** corridor `w` 832 -> **384**
+  (x 10976..11359); Chemical Plant `dst_rect.x` 11808 -> **11360**; `unpainted_remainder.x_from`
+  16384 -> **15936**; `unbounded_fall.columns` 2000 -> **1944** (tunnel 104 -> 48 columns); the
+  `crossing_overrides` block of the deleted test clip, unchanged in value (palette snap,
+  background co_resident, zone_separation screen, crossing_margin report, parallax snap), its `why`
+  re-worded for the real act; notes updated. Region crossing x 11392 -> **11168**.
+- **Content parity was checked by script, not by eye:** with the tunnel-dependent fields removed,
+  `s2_ehz_cpz_short`'s manifest equalled `s2_ehz_cpz`'s (same EHZ crop, CPZ src 4576 x 2048, 256-px
+  lowering, tunnel art, 8 x 3 grid). So the real act's content is kept; only the connector and the
+  overrides moved. The built clip ROMs are byte-identical to the ones section 8.7 of the research
+  doc booked for the short clip (plain `aa258967`, debug `c7d567ab`).
+- **NEW VOID, booked not hidden:** CPZ keeps its 4576 px, so the act's last **448 px (x 15936..16383)
+  are unpainted**, declared two-sided in `unpainted_remainder`. Out of reach on plane A: every one of
+  the 13 traversal drives stops at the wall at CPZ x 3591 (act x 14951), 985 px before the void. If
+  the owner wants the act filled again, widening CPZ by 448 px (to 5024) is a content decision with a
+  ROM cost that was not measured here.
+- **`s2_ehz_cpz_short` is DELETED** (its `clips.json` and `anchors.toml`). References updated: the
+  two test modules below, `tools/clip_manifest.py`'s corridor docstring (it claimed
+  test_clip_two_zone holds the real tunnel to 832), the research doc (an ADOPTED banner; its
+  measurements of the short clip are kept as the record), the SHORT-TUNNEL-VSCROLL-RATCHET booking,
+  and the S2CLIP-TUNNEL / B-2 entries above (length and CPZ paste x). Left as history, deliberately:
+  `docs/lane-log.jsonl`, the handoff-26 doc, and two other parcels' "s2_ehz_cpz_short is untouched"
+  lines further down. The keepalive manifest and build.sh never named it.
+- **Tests re-pointed, none deleted, red-first on disk** (mutations restored from the committed
+  baseline with `git show HEAD:<path>`, each diffed clean; 8 mutations, every re-pointed row red
+  under at least one):
+  - `test_clip_crossing_overrides.test_the_real_act_is_the_shortest_its_overrides_allow` (was
+    `..._the_short_clip_...`): TIGHTENED from a bracket to an equality DERIVED from the overrides:
+    under crossing_margin = report the width is the shortest 16-px width Z1 (on the screen) admits
+    whose reported Z2 shortfall is at most `REPORT_SLIP_FRAMES` = 1 a side (the slipped-DMA frame
+    Z2's model keeps), and the shortfall equals the deficit. Red under tunnel 400 and 368 and
+    crossing_margin -> enforce. The `1` is the contract of the limit, stated in the test; the width
+    is never typed.
+  - `test_clip_crossing_overrides.test_an_act_without_overrides_is_held_to_the_default_rule` (was
+    `test_the_landed_act_is_held_to_what_it_was`): the real act with its overrides stripped is
+    fade / overwrite / transition 1 and **Z2 REFUSES it at 384** ("needs 416 px"). Red when the
+    bake's report arm runs without the override, and when the fade term is one frame short.
+  - `test_clip_two_zone.test_without_overrides_the_tunnel_is_held_to_the_default_rules_shortest`
+    (was `test_the_tunnel_is_as_short_as_the_crossing_allows`): on `_default_rule_doc` (the
+    committed manifest minus its overrides, tunnel re-cut, built fresh every run) the bake's Z2
+    PASSES at the derived default-rule shortest (**832** today, derived) and REFUSES 16 px shorter
+    and at the real 384. Same two red mutations.
+  - `test_the_real_act_plans_two_regions_crossing_mid_corridor` checks each side against what Z2
+    says THIS act needs (deficit only as the reported shortfall); the start-zone background row is
+    parametrized over the real (co-resident) act and the twin; the own-tile-blob row runs on the
+    twin. Red under "crossing_overrides ignores the manifest", "every act planned co-resident" and
+    "co-resident zone still emits its own tile blob".
+- **Builds** (`uptime` load 3-7 through all of them):
+
+  | shape | crc | size | room above the reserve | clip_anchors |
+  |---|---|---|---|---|
+  | `S2CLIP=s2_ehz_cpz ./build.sh` | `aa258967` | 921,571 B | +59,462 B | FRESH (0xC0000) |
+  | `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` | `c7d567ab` | 948,046 B | +56,622 B | FRESH (0xC0000) |
+
+  `anchors.toml` re-derived with `clip_anchors.py --derive` from both shapes: rule 0xC0000 in both
+  (unchanged), only the `# measured:` lines moved. Each build prints the Z2 SHORTFALL banner
+  (192 / 192 px against 208 / 208, 1 frame a side at the cap). Pre-build lane 3437 passed / 3
+  skipped in each.
+- **Witnesses on DEBUG `c7d567ab`** (headless subprocesses, no MCP):
+  - `crossing_witness.py`, 12 runs (walk / top speed / cap x right / left, plain and `--jump`):
+    **0 glitch frames at walk and top speed; at the camera cap 3 arriving CPZ and 4 arriving EHZ**,
+    plain and jump identical, 0 faulted; every glitch is the background's vertical-scroll slide
+    (SHORT-TUNNEL-VSCROLL-RATCHET), plus, on the leftward cap run, visible plane rows 2-7 not yet
+    EHZ's for 3 of those frames. Palette on screen +0 (+1 leftward at the cap). Exactly as booked.
+  - `tunnel_run_witness.py`: **6 of 6 crossed**, 0 airborne inside, 0 faulted, 4 stall frames, y
+    748..750.
+  - `clip_bg_scroll_witness.py`: **24 of 24 probes exact**, 0 FAIL, 0 could not measure. The CPZ
+    probes are derived from the manifest, so they moved with the paste (x 11424..15613); nothing
+    was edited to fit.
+  - `cpz_traverse.py` from act x 13512 (the old 13960 less 448), the same 13 drives: hold 13643,
+    top / cap / spin 14167, **jump-when-stuck 14951**, 8 random explorers all 14951. **Furthest act x
+    14951 = CPZ x 3591 (feet y 749)**, every drive exactly 448 px left of its 832-px number (15399,
+    14615, 14091). 0 fell, 0 faulted.
+- **FILES aurora must be told about** (they vendor `clips.json` and `tools/clip_manifest.py`):
+  `games/sonic4/data/clips/s2_ehz_cpz/clips.json` (corridor w, CPZ dst x, remainder, counts,
+  notes, NEW top-level `crossing_overrides` key), `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml`,
+  `tools/clip_manifest.py` (docstring only), and the deleted
+  `games/sonic4/data/clips/s2_ehz_cpz_short/{clips.json,anchors.toml}`.
+- **Still OPEN, unchanged:** SHORT-TUNNEL-VSCROLL-RATCHET (the 3-4 frame slide at the cap; 480 px is
+  the shortest glitch-free connector on today's engine) and BG-SWITCH-POISON-MARGIN.
 
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
