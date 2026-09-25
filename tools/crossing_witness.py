@@ -70,6 +70,9 @@ SCREEN_H = 224
 #: plane rows the screen can touch at once — engine/level/bg.emp BG_SCREEN_ROWS
 #: (SCREEN_HEIGHT / BG_STREAM_ROW_PX + 1). Read from the listing when it is there.
 BG_PLANE_ROWS = 64
+#: engine/level/parallax.emp BG_VSCROLL_MAX_STEP = BG_VSCROLL_MAX_STEP_ROWS (2) x 8 px: the
+#: Step 5 ratchet's clamp. main() re-reads it from the engine source and refuses if it cannot.
+BG_VSCROLL_MAX_STEP = 16
 ROW_BYTES = 128           # PLANE_H_CELLS (64) words: one plane row, one layout row
 RUN_MARGIN = 400          # start/end this far outside the corridor: past every mouth
 NEED = ("Camera_X", "Camera_Y", "Region_Current", "Palette_Buffer", "Pal_Fade_Frames",
@@ -287,6 +290,7 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
             order.append(r["region"])
     lay_ptr = {z: k[1] for k, z in blobs_seen.items() if isinstance(k, tuple) and k[0] == "lay"}
     out_rows, glitches = [], []
+    glide_prev = False
     for i, r in enumerate(live):
         pal = classify(r["pbuf"], pals, names)
         # SAME-SAMPLE ALIGNMENT (measured 2026-09-25 on the 336-px clip: the tick-710 install
@@ -318,8 +322,22 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
             bad_rows[z] = wrong
             bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"]
                                 and wrong is not None and not wrong)
+        # THE BACKGROUND'S VERTICAL SCROLL STILL RATCHETING (engine/level/parallax.emp Step 5:
+        # at most BG_VSCROLL_MAX_STEP px a frame toward its target). The mapping is
+        # ((camY - v_center) >> v_factor) + v_offset, never steeper than 1:1. The ratchet is
+        # ENGAGED on a frame whose next step is the clamp itself (|step| >= BG_VSCROLL_MAX_STEP
+        # with the camera moving less), and its last, partial step is the frame after an
+        # engaged one whose step still outruns the camera. Such a frame's value is not yet the
+        # zone's. (Small steps with a still camera happen in CPZ's own mapping and are NOT
+        # counted: measured, they are 1-4 px and never follow a clamped step.)
+        after = live[i + 1] if i + 1 < len(live) else None
+        step = abs(after["vs_bg"] - r["vs_bg"]) if after is not None else 0
+        cam_step = abs(after["camy"] - r["camy"]) if after is not None else 0
+        glide = after is not None and step > cam_step and (
+            step >= BG_VSCROLL_MAX_STEP or glide_prev)
+        glide_prev = glide
         inflight = (pal == "mix" or r["fade"] or r["bg_tgt"] or r["wipe"] or not r["bg_cur"]
-                    or r["plx"]
+                    or r["plx"] or glide
                     or (cram != pal and nxt is not None))
         r["_inflight"] = bool(inflight)
         bad = []
@@ -328,6 +346,10 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
                 continue
             if cram != z and nxt is not None:
                 bad.append(f"{z} on screen, scanned out in {cram} colours")
+            if glide:
+                bad.append(f"{z} on screen, background vertical scroll still sliding "
+                           f"({r['vs_bg']} -> {after['vs_bg']} while the camera moved "
+                           f"{after['camy'] - r['camy']} px)")
             if r["plx"]:
                 bad.append(f"{z} on screen, background scroll mid-lerp ({r['plx']} frame(s) of "
                            f"the parallax config transition left)")
@@ -339,7 +361,8 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
                "bg_ok": dict(bg_visible_ok),
                "shows": shows or "-", "pal": pal, "cram": cram, "fade": r["fade"],
                "bg": bg_blob + ("->" + bg_tgt if bg_tgt else ""), "lay": lay,
-               "wipe": r["wipe"], "plx": r["plx"], "lag": r["lag"], "bad": bad}
+               "wipe": r["wipe"], "plx": r["plx"], "vs_bg": r["vs_bg"], "glide": glide,
+               "lag": r["lag"], "bad": bad}
         out_rows.append(row)
         if bad:
             glitches.append(row)
@@ -368,6 +391,12 @@ def main():
     a = ap.parse_args()
     syms, equs = L.parse_lst(a.lst)
     T._EQUS.update(equs)
+    global BG_VSCROLL_MAX_STEP
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    for rel in ("engine/system/constants.emp", "engine/level/parallax.emp"):
+        src.load_file(str(TOOLS.parent / rel))
+    BG_VSCROLL_MAX_STEP = int(src.get("BG_VSCROLL_MAX_STEP"))
     missing = [n for n in NEED if n not in syms]
     if missing:
         raise SystemExit(f"crossing_witness: {a.lst} carries no {missing} — COULD NOT RUN")
@@ -437,7 +466,7 @@ def main():
                 c0 = cross["i"]
                 t_pal = next((r["i"] - c0 for r in out_rows[c0:] if r["cram"] == far), None)
                 t_bg = next((r["i"] - c0 for r in out_rows[c0:]
-                             if r["bg_ok"][far] and not r["plx"]), None)
+                             if r["bg_ok"][far] and not r["plx"] and not r["glide"]), None)
                 t_show = next((r["i"] - c0 for r in out_rows[c0:] if arrive in r["shows"]), None)
                 done = max(t_pal, t_bg) if None not in (t_pal, t_bg) else None
                 slack = (t_show - done) if None not in (t_show, done) else None
