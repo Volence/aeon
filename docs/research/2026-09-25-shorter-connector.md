@@ -1,5 +1,17 @@
 # A shorter EHZ -> CPZ connector: what sets its length, and a 640-px feasibility clip
 
+> **UPDATE, same day (the limit test, §8).** The owner then asked for *"slightly longer than a
+> screen"*, then *"slightly above screen width and that's it ... it can be our new full cpz"*.
+> One engine change (the one-plane background is now repainted by DMA from ROM, 0 B RAM) plus
+> a Z1 screen override takes the connector to **384 px, the shortest MEASURED glitch-free**
+> (0 glitch frames in 12 runs, 0 frames of slack at the camera cap); **336 px was built and shows
+> 2 glitch frames arriving EHZ at every speed and 1 arriving CPZ at the cap** (§8). `s2_ehz_cpz_short` is now the real act (full 2528-px CPZ) with a
+> 384-px tunnel; the 640-px version below is commit 5e720fe1. The hysteresis lever costed in §3
+> turned out to need a DIRECTIONAL region, not a sticky one, and was not built (§8.3).
+> **§2-§4's frame counts were taken with a one-frame alignment error in the witness** (§8.1):
+> the landed act re-measured is palette +12 / background +12 into CPZ, +12-13 / +10-11 into EHZ,
+> slack 4 at the cap; the 640-px clip's slack is 3 / 4 as stated.
+
 2026-09-25, branch `research/shorter-connector`. The owner, verbatim: *"I'd like the make the
 connector quite a bit shorter if possible, I just want to test the feesibility."*
 
@@ -205,3 +217,106 @@ The first short DEBUG build failed on `test_every_bus_instrument_in_the_tree_is_
   (f) and (g) cost RAM or content and are not recommended.
 - Z2's background term now applies to every clip act. It passed the landed act unchanged, and it
   would have refused a fade-only trim that showed garbage BG at the mouth.
+
+## 8. The limit test: "slightly above screen width" (same day, second round)
+
+The owner, verbatim, in order: *"let's make the tunnel slightly longer than a screen, I want to
+limit test."*, *"we can make this connector test even shorter I think for clip-short."*, and
+*"the shorter tunnel itself I want to test as even shorter, like slightly above screen width and
+that's it, Idc what's on the other side it can be our new full cpz."* So `s2_ehz_cpz_short` is
+now `s2_ehz_cpz`'s own content (origin/master 18e96e47, Chemical Plant 2528 px) with ONLY the
+tunnel changed, and its own `anchors.toml` (`tools/clip_anchors.py --derive`, rule 0xB8000 in
+both shapes).
+
+### 8.1 The witness had a one-frame alignment error (found and fixed first)
+
+`crossing_witness` paired tick i's camera with the CRAM and VRAM read at sample i+1, on the
+belief that a sample precedes its tick's VBlank. Measured on the 336-px clip, it does not: the
+tick-710 install is already in CRAM at the sample whose `Logic_Tick` reads 710, and the pixel
+scan's first line 1-3 pixels land on the same row where the camera geometry says the zone enters.
+`run_frames` stops after the VBlank that follows tick i. The witness now pairs the same sample
+(commit "crossing_witness: same-sample alignment"). It also now reads the background ON SCREEN
+from VRAM: every visible Plane B row is compared, whole, with the zone's layout row in ROM, where
+it used to trust the wipe cursor. `--jump` presses jump at the tunnel mouth, which gives the
+vertical camera move asked for.
+
+### 8.2 The engine change: a one-plane background is repainted by DMA from ROM
+
+With palette SNAP (0 frames, measured) and co-resident tiles (no overwrite), the only thing
+left inside the tunnel is the wipe: 29 visible rows at 4 rows a frame through `Plane_Buffer` =
+8 frames. A map no taller than the plane (every clip background) has plane row p = map row p,
+and a run of rows is one contiguous span in the ROM layout AND in the Plane B nametable. So
+`BG_Stream_Update` now queues ONE Deferrable DMA a frame of up to `BG_WIPE_DMA_ROWS` = 14 rows
+(`engine/level/bg.emp`, `.wipe_dma`; the CPU path stays for taller maps).
+
+| Cost | Value |
+|---|---|
+| RAM | **0 B** (no new variable; no `Plane_Buffer` bytes) |
+| Code | +66 B in the canonical DEBUG ROM; ~40 lines of `.emp` in one proc, 1 constant + 1 `ensure` |
+| Cycles | on a wipe frame only: one `QueueDMA_Deferrable` call plus ~20 instructions (a few hundred cycles), replacing the CPU path's 4 x 32 `move.l` row copies + their VBlank drain (~3k cycles each side). 0 on every other frame (`tst.b BG_Wipe_Cursor` as before) |
+| VBlank DMA | up to 1792 B per wipe frame on the Deferrable queue: the size `BG_OVERWRITE_CHUNK_BYTES` was already derived to fit (the overwrite and the sweep never share a frame) |
+
+Measured: the visible rows are right from frame +2 (14 + 14 rows by +1; the 29th row,
+visible when BG vscroll is not 8-aligned, lands at +2).
+
+### 8.3 Hysteresis: built? No, and why
+
+A STICKY region (overlapping rows, which the engine's fast path already honours: the centre
+stays in the live row until it leaves it) switches LATE, at the far edge, which is the opposite
+of what we want. The lever needs a DIRECTIONAL middle region that installs the zone you are
+heading into as soon as the screen has cleared the one you left: rightward at centre >= a_right
++ 160, leftward at centre <= b_left - 160. Its gain, measured against the rule above, is
+`G >= 319 + 16k` instead of `G >= 2 x (160 + 16k)`. With k = 2 that is 352 against 384: **32
+px**. At 336 it would still show 1 glitch frame. Its costs:
+
+- **a glitch on reversal**: turn back inside the middle band near its entry edge and the old
+  zone comes back on screen with the new zone's background for up to k frames. The fixed
+  crossing has no such case.
+- **a Region flag** (the struct has no spare field: `size: 26`) or a new sentinel, which moves
+  every region table and every tool that strides it.
+
+Not built. It is small in cycles but not small in surface, and it buys 32 px while trading
+a glitch the fixed crossing does not have.
+
+### 8.4 The shortest connector, measured
+
+Every probe is a FAST debug clip build of this act at that width, driven by `crossing_witness`
+at walk, top speed and the camera cap, both directions, plain and with a jump at the mouth
+(12 runs), all with the same-sample alignment:
+
+| Connector | Crossing (left/right margin) | Glitch frames | Worst slack at the cap | ROM crc |
+|---|---|---|---|---|
+| 416 | 208 / 208 | 0 | 1 | 6b4c36d8 (older CPZ) |
+| **384** | 192 / 192 | **0** | **0** | 95db1392 |
+| 368 | 176 / 192 | 2 | -2 | 21ec1051 |
+| 336 | 160 / 176 | 7 over 6 runs (plain and jump identical) | -2 | c112cec1 |
+
+**Binding rule at 384: the background repaint.** Each side needs 160 + 16 x k with k = 2
+frames of not-yet-repainted visible rows: 192, and the crossing sits at the middle. Z2's static
+model keeps a third frame as the allowance for a DMA that slips a frame (`ceil(29/14)` = 3), so
+it asks for 208 a side (416). The clip carries `crossing_margin = report`, and the bake prints
+the 16-px-a-side shortfall instead of refusing. Z1 counted on the screen (40 cells) has 8
+cells to spare (gap 48 cells). The palette never binds: it is on screen in the crossing frame.
+
+**What 336 looks like** (built, both shapes, and measured; commit `s2_ehz_cpz_short: the limit
+test, 336 px`):
+- **arriving EHZ (leftward), every speed: 2 frames.** On the crossing frame the leftmost
+  2-16 px of the screen already show Emerald Hill, and in that strip the lower 15 of the 29
+  background rows are still Chemical Plant's picture (the pixel scan counts at most 616 background
+  pixels in the whole strip at the cap). On the next frame only the bottom background row (8 px
+  tall, 16-32 px wide) is still wrong.
+- **arriving CPZ (rightward): 0 frames at walk and top speed, 1 at the camera cap.** The first
+  ~13 px of Chemical Plant, bottom background row only.
+- It is the other zone's REAL background, in the right palette line, not garbage tiles (both
+  zones' tiles are resident). The palette is never wrong.
+
+### 8.5 What the owner should expect in `s2_ehz_cpz_short` (384 px)
+
+- A tunnel 1.2 screens long (landed: 2.6). Walk through at any speed, either way, jump at the
+  mouth: the colours and background change instantly while only tunnel is on screen, and
+  nothing wrong was measured on the frame the far zone appears.
+- It has **no margin at the camera cap**: the background is finished exactly as the far zone
+  scrolls in. One slipped DMA there (a Deferrable queue refusal on that frame) would show the
+  bottom background row of the far zone's first 16 px for one frame. None was seen in 12 runs.
+- Past Chemical Plant's 2528 px there is a 448-px unpainted void (the act stays 7 sections), which the owner said
+  does not matter.
