@@ -1,9 +1,19 @@
 {
-  "focus": "Sound positions file landed; landing the longer Chemical Plant, then Sonic 2's background scrolling.",
+  "focus": "Chemical Plant is longer; landing Sonic 2's background scrolling next, while the limit test and further extension run.",
   "inFlight": [
     {
-      "what": "Landing the longer Chemical Plant on top of the positions file",
-      "where": "branch parcel/s2clip-cpz-longer",
+      "what": "Short test level: the real Sonic 2 level with the tunnel cut to just over one screen wide (limit test)",
+      "where": "branch research/shorter-connector",
+      "agent": true
+    },
+    {
+      "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
+      "where": "branch parcel/rule-b-reachable",
+      "agent": true
+    },
+    {
+      "what": "Re-checking Sonic 2's background scrolling on top of today's landings, then landing it",
+      "where": "branch parcel/s2clip-bg-scroll-2",
       "agent": true
     }
   ],
@@ -12,21 +22,16 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "S2CLIP-CPZ-FURTHER",
-      "what": "How much further to take Chemical Plant, given its tubes and boosters don't exist yet",
-      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
     {
       "id": "S2CLIP-CONNECTOR-SHORTER",
-      "title": "A 640 px connector works with no engine change (the landed one is 832): a test build is ready for you to fly",
-      "state": "blocked",
+      "title": "Limit test you asked for: a connector just over a screen wide (a small engine change, on a separate test level)",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "your flight of s4.s2clip-short.debug.bin (crc 2f641ad0): a 640 px connector, no engine code; ~480 px needs a small engine change",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -39,7 +44,7 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant made 480 px longer (the gap you'd fall into is filled), landing after the sound positions file; going further hits 34 holes in Sonic 2's own floors, being researched",
+      "title": "Chemical Plant: 480 px added and landed; now fixing the floor-hole check and extending it as far as Sonic can run",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -47,10 +52,10 @@
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Sonic 2's own background scrolling is built and checked; it lands after the sound positions file, because the debug build has no room for it before then",
-      "state": "blocked",
+      "title": "Sonic 2's own background scrolling is built and checked; it lands next, now there's room",
+      "state": "doing",
       "size": "L",
-      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -139,7 +144,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Two calls: fly the 640 px connector test (s4.s2clip-short.debug.bin) and say whether to adopt it; and how much further to take Chemical Plant (card S2CLIP-CPZ-FURTHER)",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:52:30Z"
+  "updatedAt": "2026-09-25T18:08:11Z"
 }
