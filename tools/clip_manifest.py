@@ -285,7 +285,9 @@ _RECT_KEYS = ("x", "y", "w", "h")
 #: A refusal's or warning's rule tag is the LEADING token of its message ("R7 clip ...") —
 #: the header's VALIDATION RULES contract ("each is named in the message it raises or warns
 #: with"). `--json` reads it back from there, so the tag has one spelling, in one place.
-_TAG_RE = re.compile(r"^([RKW]\d+) ")
+#: C is `tools/clip_act_bake.py`'s family (C1-C3, the collision refusals). `bake --json`
+#: reads its tags through this same reader, so the two tools agree on what a tag is.
+_TAG_RE = re.compile(r"^([RKWC]\d+) ")
 
 
 def rule_of(message):
@@ -1073,6 +1075,22 @@ USAGE = "Usage: python3 tools/clip_manifest.py validate <clips.json> [--donor-ro
 VALIDATE_JSON_SCHEMA = 1
 
 
+def refusal_record(exc):
+    """One `--json` refusal entry, `{rule, subjects, message}`, from a refusal exception.
+
+    Shared by `validate --json` and `tools/clip_act_bake.py bake --json`, so the two
+    documents cannot drift apart. `exc` is a ClipManifestError or the bake's ClipBakeError;
+    both carry `.rule` (the message's leading tag, or None) and `.subjects`."""
+    return {"rule": exc.rule, "subjects": [dict(s) for s in exc.subjects],
+            "message": str(exc)}
+
+
+def json_text(doc):
+    """How every clip tool prints its `--json` document: ONE document, indent 2, sorted
+    keys, ASCII-escaped (json.dumps' default)."""
+    return json.dumps(doc, indent=2, sort_keys=True)
+
+
 def validate_json(path, donor_root=None):
     """(the `validate --json` document, exit code). See "--json" in the module header."""
     warnings = []
@@ -1080,8 +1098,7 @@ def validate_json(path, donor_root=None):
     try:
         load(path, donor_root=_root(donor_root), warning_records=warnings)
     except ClipManifestError as exc:
-        doc["refusals"].append({"rule": exc.rule, "subjects": exc.subjects,
-                                "message": str(exc)})
+        doc["refusals"].append(refusal_record(exc))
         return doc, 1
     doc["ok"] = True
     return doc, 0
@@ -1106,7 +1123,7 @@ def _mode_validate(rest):
             return 1
     if as_json:
         doc, rc = validate_json(path, root)
-        print(json.dumps(doc, indent=2, sort_keys=True))
+        print(json_text(doc))
         return rc
     try:
         act = load(path, donor_root=_root(root), warn=lambda m: print(f"  WARNING: {m}"))
