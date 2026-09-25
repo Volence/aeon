@@ -5,6 +5,11 @@
       "what": "Sonic 2 act row 7: Emerald Hill + corridor + Chemical Plant, per-zone palettes",
       "where": "branch parcel/s2-two-zone-act (agent worktree)",
       "agent": true
+    },
+    {
+      "what": "Which sprite frame crosses a memory boundary in ordinary play, and why the tool said none could",
+      "where": "branch parcel/dplc-straddle-reachable (agent worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -26,7 +31,7 @@
     {
       "id": "KEEPALIVE-BLIND-TO-LOSSY",
       "title": "A tool that measures correctly and throws the answer away passes every check we have; one did exactly that for two weeks",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -40,7 +45,7 @@
     {
       "id": "DPLC-STRADDLE-REACHABLE",
       "title": "Ordinary grounded play straddles six times in an act we had argued could not straddle at all; the frame that did it is not identified, but the argument for expecting zeros needs re-running -- not the numbers, which stand",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -154,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T07:47:07Z"
+  "updatedAt": "2026-09-25T07:47:56Z"
 }
