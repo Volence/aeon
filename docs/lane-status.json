@@ -1,17 +1,6 @@
 {
-  "focus": "Performance list is ready for your pick; tracking down a slowdown in the Sonic 2 act; building zone music.",
-  "inFlight": [
-    {
-      "what": "Zone music step 1: teach the song converter Sonic 2's format (tools only, no ROM change)",
-      "where": "branch parcel/s2-smps-import",
-      "agent": true
-    },
-    {
-      "what": "Find what made the Sonic 2 act's Emerald Hill diagonal slower (26 to 44 lag frames)",
-      "where": "branch research/ehz-diag-regression",
-      "agent": true
-    }
-  ],
+  "focus": "Waiting a few minutes for a shared tool swap, then building a cheaper background curve and the Sonic 2 songs.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,12 +13,12 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Converter step and the slowdown hunt back and reviewed; then your performance pick gets built.",
+  "nextBoundary": "Shared sigil swap to f52609fe (hub's window); then the curve fix and music steps 2-3 get dispatched.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "You asked: Emerald Hill's music switching to Chemical Plant's at the crossing. Design done; converter being built; sigil asked for one small change",
-      "state": "next",
+      "title": "Emerald Hill to Chemical Plant music: converter landed; next the sound envelopes and drum mapping, then the songs and the switch",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -43,8 +32,8 @@
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Sonic 2 act: Emerald Hill diagonal got slower since the lag fix (26 to 44 lag frames); finding the cause",
-      "state": "doing",
+      "title": "Emerald Hill's slowdown found (its Sonic 2 background); a cheaper curve with the identical picture wins back 9 of 18 lost lag frames. Next to build",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -135,7 +124,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Your pick from the performance list (card PERF-PICK): I recommend the debug hitch plus the faster tile copy.",
+  "awaiting": "Your pick from the performance list (card PERF-PICK). Separately, I'm waiting on the hub's shared-tool swap before starting the next builds.",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T22:12:05Z"
+  "updatedAt": "2026-09-25T23:06:57Z"
 }
