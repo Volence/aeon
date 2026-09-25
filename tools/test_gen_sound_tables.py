@@ -363,6 +363,79 @@ class TestFmVolEnvTable(unittest.TestCase):
         self.assertLess(a.index("PsgVolEnv_Ids:"), a.index("FmVolEnv_Ids:"))
 
 
+class TestPsgVolEnvTable(unittest.TestCase):
+    """S2CLIP-REGION-MUSIC step 2 appended Sonic 2's PSG envelopes. The S3K
+    entries every existing song and SFX resolves must be untouched: same ids, same
+    order, same bodies (derived from skdisasm, not restated), with the S2 ids after
+    them and outside the S3K sTone range."""
+
+    # The id list as it stood before step 2 (origin/master e1aa532b), in order.
+    S3K_IDS_BEFORE = [0x01, 0x02, 0x03, 0x08, 0x0A, 0x0C, 0x0D, 0x0E, 0x0F, 0x11, 0x1D]
+    S3K_STONE_MAX = 0x27    # skdisasm _smps2asm_inc.asm:72-78
+
+    def setUp(self):
+        from gen_sound_tables import _PSG_VOL_ENVS
+        self.envs = _PSG_VOL_ENVS
+
+    @staticmethod
+    def _s3k_volenv_bodies():
+        from suite_paths import suite_path
+        drv = str(suite_path("skdisasm", "Sound", "Z80 Sound Driver.asm"))
+        out, cur = {}, None
+        for ln in open(drv, encoding="utf-8", errors="replace"):
+            code = ln.split(";", 1)[0].rstrip()
+            m = re.match(r"^VolEnv_([0-9A-F]{2}):\s*db\s+(.*)$", code)
+            rest = None
+            if m:
+                cur = int(m.group(1), 16); out[cur] = []; rest = m.group(2)
+            else:
+                m = re.match(r"^\s+db\s+(.*)$", code)
+                if m and cur is not None:
+                    rest = m.group(1)
+                elif code.strip():
+                    cur = None
+            if rest is not None:
+                for t in rest.split(","):
+                    t = t.strip()
+                    if t:
+                        out[cur].append(int(t[:-1], 16) if t.lower().endswith("h") else int(t))
+        return out
+
+    def test_s3k_entries_unchanged_at_the_head(self):
+        ids = [e[0] for e in self.envs]
+        self.assertEqual(ids[:len(self.S3K_IDS_BEFORE)], self.S3K_IDS_BEFORE)
+        s3k = self._s3k_volenv_bodies()
+        for env_id, _lbl, body in self.envs[:len(self.S3K_IDS_BEFORE)]:
+            self.assertEqual(body, s3k[env_id - 1], "id $%02X != S3K VolEnv_%02X"
+                             % (env_id, env_id - 1))
+
+    def test_s2_entries_appended_outside_the_s3k_range(self):
+        from gen_sound_tables import _S2_ENV_ID_BASE, _S2_PSG_ENV_SRC
+        tail = self.envs[len(self.S3K_IDS_BEFORE):]
+        self.assertEqual([e[0] for e in tail],
+                         [_S2_ENV_ID_BASE + n for n in sorted(_S2_PSG_ENV_SRC)])
+        self.assertTrue(all(e[0] > self.S3K_STONE_MAX for e in tail))
+        self.assertEqual(len({e[0] for e in self.envs}), len(self.envs), "duplicate id")
+
+    def test_s2_hold_terminator_becomes_sustain_not_loop(self):
+        # S2's $80 holds (zVolEnvHold); the engine's $80 loops. Every S2 body ends in
+        # the engine's sustain-hold $81 and carries no $80.
+        from gen_sound_tables import _S2_PSG_ENV_SRC, _S2_ENV_ID_BASE, _CTL_SUSTAIN, _CTL_LOOP
+        shipped = {e[0]: e[2] for e in self.envs}
+        for n, src in _S2_PSG_ENV_SRC.items():
+            body = shipped[_S2_ENV_ID_BASE + n]
+            self.assertEqual(body, src[:-1] + [_CTL_SUSTAIN])
+            self.assertNotIn(_CTL_LOOP, body)
+
+    def test_committed_emp_is_what_the_generator_emits(self):
+        # smps_import reads the shipped ids out of the committed .emp, so a stale
+        # file would make its mapping checks answer about a different table.
+        from gen_sound_tables import emit_emp_z80
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "engine",
+                         "sound", "sound_tables_z80.emp")
+        self.assertEqual(open(p).read(), emit_emp_z80())
+
+
 class TestEmpDataOnlyTwin(unittest.TestCase):
     """Bank-D co-location hook (package 3, plans/2026-07-03-dac-drum-library-
     readiness.md Task 4): `emit_emp_z80_data_only()` is the label-free twin of

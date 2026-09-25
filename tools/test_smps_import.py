@@ -1616,12 +1616,86 @@ def test_s2_generator_default_output_is_under_tools_generated():
     assert os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/") == "tools/generated/s2_music"
 
 
-# ---- step 3: the drum table, filled, exercised on the real songs ----------------
+# ---- steps 2 and 3: the declared tables, filled, exercised on the real songs ----
 #
-# The owner's ruling S2CLIP-MUSIC-DRUMS = s3k-drums (docs/decisions.jsonl): Sonic 2's
-# drum notes play the S3K drums the engine already carries. The expected ids are
-# derived from HCZ2_DAC_REMAP and the song files, not restated. The fTone table is
-# still empty (step 2 waits on sigil), so the real songs refuse naming ONLY fTones.
+# Step 2 imported Sonic 2's own PSG envelopes as NEW engine envelope ids (disjoint
+# from the S3K sTone ids $01..$27) and S2_FTONE_MAP points each fTone the two songs
+# use at its imported S2 body. Step 3 filled S2_DAC_MAP per the owner's ruling
+# S2CLIP-MUSIC-DRUMS = s3k-drums (docs/decisions.jsonl): Sonic 2's drum notes play
+# the S3K drums the engine already carries. Every expectation below is derived from
+# a source (s2disasm's driver, the song files, HCZ2_DAC_REMAP), not restated.
+
+_S2_DRIVER = str(suite_path("s2disasm", "s2.sounddriver.asm"))
+_S3K_STONE_MAX = 0x27    # skdisasm _smps2asm_inc.asm:72-78: sTone_01..sTone_27
+
+
+def _s2_env_bodies():
+    """{N: bytes} for S2's zPSG_EnvN, read verbatim out of s2disasm's Z80 driver
+    (the label, then its `db` lines up to the first line that is not one)."""
+    out, cur = {}, None
+    for ln in open(_S2_DRIVER, encoding="utf-8", errors="replace"):
+        code = ln.split(";", 1)[0].rstrip()
+        m = _re.match(r"^zPSG_Env(\d+):\s*$", code)
+        if m:
+            cur = int(m.group(1)); out[cur] = []; continue
+        m = _re.match(r"^\s+db\s+(.*)$", code)
+        if m and cur is not None:
+            for t in m.group(1).split(","):
+                t = t.strip()
+                out[cur].append(int(t[:-1], 16) if t.lower().endswith("h") else int(t))
+            continue
+        if code.strip():
+            cur = None
+    return out
+
+
+def _shipped_psg_envs():
+    import gen_sound_tables
+    return {eid: body for eid, _lbl, body in gen_sound_tables._PSG_VOL_ENVS}
+
+
+def test_s2_env_body_parser_reads_the_driver():
+    # Control for the parser the rows below lean on: 13 envelopes, each ending in
+    # S2's one terminator $80 (and no other byte >= $80), zPSG_Env1 as the design
+    # doc quotes it (s2.sounddriver.asm:3736).
+    b = _s2_env_bodies()
+    assert sorted(b) == list(range(1, 14))
+    assert all(v[-1] == 0x80 and all(x < 0x80 for x in v[:-1]) for v in b.values())
+    assert b[1] == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 0x80]
+
+
+def test_s2_ftone_map_covers_exactly_what_ehz_and_cpz_use():
+    used = set()
+    for p in (_S2_EHZ, _S2_CPZ):
+        ftones, _ = _si.s2_mapping_requirements(open(p).readlines())
+        used |= set(ftones)
+    assert set(_si.S2_FTONE_MAP) == used
+
+
+def test_s2_ftone_map_points_at_imported_s2_bodies_never_s3k_ones():
+    # The silent trap the design found (Q1 row f): S2 fTone_NN is not the engine's
+    # S3K envelope NN. Each mapped id must (1) be shipped, (2) lie OUTSIDE the S3K
+    # sTone range so no S3K song can ever resolve to it, and (3) carry S2's
+    # zPSG_EnvNN body with S2's terminator $80 (hold the last level: zVolEnvHold)
+    # re-spelled as the engine's sustain-hold $81, because the engine's $80 LOOPS.
+    shipped = _shipped_psg_envs()
+    s2 = _s2_env_bodies()
+    assert _si.S2_FTONE_MAP
+    for sid, eid in _si.S2_FTONE_MAP.items():
+        assert eid in shipped, "fTone_%02X -> $%02X is not shipped" % (sid, eid)
+        assert eid in _si._PSG_ENV_IDS
+        assert eid > _S3K_STONE_MAX, "fTone_%02X maps into the S3K id range" % sid
+        assert shipped[eid] == s2[sid][:-1] + [0x81], "fTone_%02X body" % sid
+
+
+def test_s2_ftone_02_is_not_the_s3k_body_of_the_same_number():
+    # The design said fTone_02 "happens to match" S3K's; it matches only up to the
+    # terminator: S3K VolEnv_01 ends in $83 (rest, key off), S2 zPSG_Env2 in $80
+    # (hold). Pinning that the map does not take the S3K id for it.
+    shipped = _shipped_psg_envs()
+    assert shipped[0x02][:-1] == _s2_env_bodies()[2][:-1]
+    assert shipped[0x02][-1] == 0x83
+    assert _si.S2_FTONE_MAP[0x02] != 0x02
 
 
 def test_s2_dac_map_is_the_s3k_drums_ruling():
@@ -1638,29 +1712,27 @@ def test_s2_dac_map_is_the_s3k_drums_ruling():
 
 
 @pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
-def test_s2_real_songs_refuse_naming_only_their_ftones(path, nvoices):
-    # With the declared tables: every drum resolves, and what is still refused is
-    # exactly the song's fTones (step 2), each by name.
+def test_s2_real_song_converts_through_the_declared_tables(path, nvoices):
+    # The module defaults, no fixture: every PsgEnv the song emits is 0 or an
+    # imported S2 id, every Dac event an S3K drum, and the ids follow the source's
+    # own references.
     src = open(path).readlines()
+    song = convert_song(src, None, {v: v for v in range(nvoices)})
+    envs = [e.env_id for c in song.channels for e in c.events if isinstance(e, PsgEnv)]
+    s2_ids = set(_si.S2_FTONE_MAP.values())
+    assert envs and set(envs) <= s2_ids | {0}
     ftones, dacs = _si.s2_mapping_requirements(src)
-    assert ftones and dacs
-    with pytest.raises(_si.S2Refusal) as ei:
-        convert_song(src, None, {v: v for v in range(nvoices)})
-    msg = str(ei.value)
-    for sid in ftones:
-        assert "fTone_%02X" % sid in msg
-    for name in _si.S2_DAC_ENUM:
-        assert name not in msg, name
-
-
-@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
-def test_s2_real_song_drums_convert_through_the_declared_dac_map(path, nvoices):
-    # Every Dac event of the real song is an S3K drum id, exactly the set the
-    # source's drum notes map to. fTones are declared "none" HERE ONLY so the song
-    # converts far enough to count its drums; that is a test fixture, not a mapping.
-    src = open(path).readlines()
-    ftones, dacs = _si.s2_mapping_requirements(src)
-    song = convert_song(src, None, {v: v for v in range(nvoices)},
-                        ftone_map={s: 0 for s in ftones})
+    assert {_si.S2_FTONE_MAP[s] for s in ftones} <= set(envs)
     dac_ids = {e.sample_id for c in song.channels for e in c.events if isinstance(e, Dac)}
     assert dac_ids == {_si.S2_DAC_MAP[n] for n in dacs}
+    assert len(pack_song(song)) > 0
+
+
+def test_s2_generator_writes_both_songs_with_the_declared_tables(tmp_path):
+    gen = _load_s2_generator()
+    written = gen.generate(out_dir=str(tmp_path))
+    sizes = {os.path.basename(p): n for p, n in written}
+    assert sorted(sizes) == ["s2_cpz_patches.bin", "s2_ehz_patches.bin",
+                             "song_s2_cpz.bin", "song_s2_ehz.bin"]
+    assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
+    assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN

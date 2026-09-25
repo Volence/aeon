@@ -24,11 +24,10 @@ bodies are not the engine's same-numbered S3K ones, and the engine has no S2 dru
 samples. So the converter resolves them ONLY through its declared tables
 (smps_import.S2_FTONE_MAP / S2_DAC_MAP) and refuses any reference they do not
 name; on a refusal this script prints every missing name and exits 1, writing
-nothing. Step 3 of the plan (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC) filled
-the drum table (the S3K kick, snare and toms, owner ruling S2CLIP-MUSIC-DRUMS =
-s3k-drums). The fTone table stays empty until step 2 (Sonic 2's own envelopes as
-new engine ids) can land, which waits on sigil, so TODAY BOTH SONGS STILL REFUSE,
-naming only their fTones. NOTHING HAS BEEN LISTENED TO.
+nothing. Steps 2 and 3 of the plan (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC)
+filled the tables: the fTones point at Sonic 2's own envelopes, imported as engine
+ids $41..$4B (tools/gen_sound_tables.py), and the drums at the S3K kick, snare and
+toms (owner ruling S2CLIP-MUSIC-DRUMS = s3k-drums). NOTHING HAS BEEN LISTENED TO.
 
 `generate(out_dir, ftone_map=..., dac_map=...)` takes explicit tables, which is
 how tools/test_smps_import.py exercises the writing path.
