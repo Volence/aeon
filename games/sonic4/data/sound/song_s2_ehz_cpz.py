@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """data/sound/song_s2_ehz_cpz.py — Sonic 2 Emerald Hill + Chemical Plant import
-(S2CLIP-REGION-MUSIC step 1: the converter's S2 mode).
+(S2CLIP-REGION-MUSIC: the converter's S2 mode + its declared tables).
 
 Converts the two Sonic 2 songs straight from s2disasm's smps2asm source through
 tools/smps_import.py, whose S2 mode (SourceDriver 2, read from each song's own
@@ -18,15 +18,17 @@ input names: these songs have no SONG_* id, no mt_bank embed and no map.toml
 line, so this script cannot move a ROM byte. Adding the songs is a later step
 (it needs sigil to stop hardcoding the song count first: plan step 0).
 
-TODAY IT REFUSES, by design. Both songs reference S2 PSG envelopes (fTone_NN)
-and S2 drum notes (dKick, dSnare, and for EHZ dMidTom/dFloorTom). Neither
-resolves by number: S2's envelope bodies are not the engine's same-numbered S3K
-ones, and the engine has no S2 drum samples. So the converter refuses any
-reference its declared tables do not name, and the tables are empty
-(smps_import.S2_FTONE_MAP / S2_DAC_MAP). This script prints every missing name
-and exits 1, writing nothing. Filling the tables is steps 2 (import S2's PSG
-envelopes) and 3 (the drums; the owner ruled "map onto the S3K kick/snare") of
-the plan in docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC.
+Both songs reference S2 PSG envelopes (fTone_NN) and S2 drum notes (dKick,
+dSnare, and for EHZ dMidTom/dFloorTom). Neither resolves by number: S2's envelope
+bodies are not the engine's same-numbered S3K ones, and the engine has no S2 drum
+samples. So the converter resolves them ONLY through its declared tables
+(smps_import.S2_FTONE_MAP / S2_DAC_MAP) and refuses any reference they do not
+name; on a refusal this script prints every missing name and exits 1, writing
+nothing. Step 3 of the plan (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC) filled
+the drum table (the S3K kick, snare and toms, owner ruling S2CLIP-MUSIC-DRUMS =
+s3k-drums). The fTone table stays empty until step 2 (Sonic 2's own envelopes as
+new engine ids) can land, which waits on sigil, so TODAY BOTH SONGS STILL REFUSE,
+naming only their fTones. NOTHING HAS BEEN LISTENED TO.
 
 `generate(out_dir, ftone_map=..., dac_map=...)` takes explicit tables, which is
 how tools/test_smps_import.py exercises the writing path.
@@ -68,7 +70,7 @@ def _convert(stem, fname, ftone_map, dac_map):
 
 def generate(out_dir=OUT_DIR, ftone_map=None, dac_map=None):
     """Convert both songs, then write them. Returns [(path, nbytes), ...].
-    ftone_map / dac_map None = the converter's declared (empty) tables. Every song
+    ftone_map / dac_map None = the converter's declared tables. Every song
     is converted BEFORE any file is written, so a refusal leaves out_dir untouched."""
     blobs = []
     refusals = []

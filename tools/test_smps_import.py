@@ -1316,10 +1316,6 @@ def test_s2_modset_units_converted():
 
 # ---- (e)+(f) fTone: the probe's first crash, and the SILENT wrong envelope -------
 
-def test_s2_default_mapping_tables_are_empty():
-    # "Map nothing by default": filling these is steps 2 (envelopes) and 3 (drums).
-    assert _si.S2_FTONE_MAP == {}
-    assert _si.S2_DAC_MAP == {}
 
 
 def test_s2_ftone_with_declared_mapping_converts():
@@ -1338,7 +1334,7 @@ def test_s2_ftone_without_mapping_is_refused_by_name():
 
 def test_s2_ftone_in_psg_header_is_refused_by_name():
     with pytest.raises(_si.S2Refusal, match="fTone_03"):
-        parse_header(_s2_song({}, psg_voice="fTone_03"))
+        parse_header(_s2_song({}, psg_voice="fTone_03"), ftone_map={})
     cfg = parse_header(_s2_song({}, psg_voice="fTone_03"), ftone_map={0x03: 0x0C})
     assert [c.psg_voice for c in cfg.channels if c.kind == "PSG"][0] == 0x0C
 
@@ -1350,6 +1346,26 @@ def test_s2_ftone_mapped_to_absent_engine_envelope_is_refused():
     with pytest.raises(_si.S2Refusal, match="fTone_03"):
         convert_channel("PSG", ["\tsmpsPSGvoice fTone_03", "\tdc.b nC4, $0C"],
                         {}, _s2_cfg(ftone_map={0x03: 0x19}), ConvState())
+
+
+def test_s2_psg_header_envelope_is_applied_at_channel_start():
+    # S2's smpsHeaderPSG 5th arg is the track's initial envelope (zTrack.VoiceIndex
+    # at song init), in force until an in-body smpsPSGvoice replaces it. CPZ's only
+    # envelope reference is one of these (CPZ_PSG3 ... fTone_02), and EHZ's three PSG
+    # channels all start on one, so dropping it silently plays their first notes
+    # with no envelope. It must reach the stream ahead of the first note, and ahead
+    # of any loop point (S2 applies it once, at init, not on each loop).
+    src = _s2_song({"Tst_PSG1": ["Tst_Loop:", "\tdc.b nC4, $0C", "\tsmpsJump Tst_Loop"]},
+                   psg_voice="fTone_03")
+    song = convert_song(src, None, {0: 0}, dac_map={}, ftone_map={0x03: 0x0C})
+    psg1 = next(c for c in song.channels if c.route == CHROUTE_PSG1)
+    kinds = [type(e).__name__ for e in psg1.events]
+    first_env = next(i for i, e in enumerate(psg1.events) if isinstance(e, PsgEnv))
+    assert psg1.events[first_env].env_id == 0x0C
+    assert first_env < kinds.index("Note") and first_env < kinds.index("LoopPoint")
+    # A header voice of 0 (none) adds nothing.
+    psg2 = next(c for c in song.channels if c.route == CHROUTE_PSG2)
+    assert not any(isinstance(e, PsgEnv) for e in psg2.events)
 
 
 def test_s2_psgvoice_zero_is_no_envelope():
@@ -1438,17 +1454,20 @@ def test_s2_voice_tl_masked_to_7_bits():
 
 # ---- the two real songs ----------------------------------------------------------
 
-def test_s2_real_songs_refuse_with_the_default_empty_tables():
-    # Nothing is mapped yet, so both songs refuse, and the refusal NAMES every
-    # missing fTone and DAC note (steps 2 and 3 are what fill the tables).
+def test_s2_real_songs_refuse_with_empty_tables():
+    # With nothing declared both songs refuse, and the refusal NAMES every missing
+    # fTone and DAC note (the tables passed explicitly: the module defaults are
+    # filled since steps 2 and 3).
     with pytest.raises(_si.S2Refusal) as ei:
-        convert_song(open(_S2_EHZ).readlines(), None, {v: v for v in range(9)})
+        convert_song(open(_S2_EHZ).readlines(), None, {v: v for v in range(9)},
+                     dac_map={}, ftone_map={})
     msg = str(ei.value)
     for name in ("fTone_01", "fTone_02", "fTone_03", "fTone_08", "fTone_0B",
                  "dKick", "dSnare", "dMidTom", "dFloorTom"):
         assert name in msg, name
     with pytest.raises(_si.S2Refusal) as ei:
-        convert_song(open(_S2_CPZ).readlines(), None, {v: v for v in range(6)})
+        convert_song(open(_S2_CPZ).readlines(), None, {v: v for v in range(6)},
+                     dac_map={}, ftone_map={})
     msg = str(ei.value)
     for name in ("fTone_02", "dKick", "dSnare"):
         assert name in msg, name
@@ -1506,8 +1525,23 @@ def test_s2_real_song_matches_the_design_probe(path, nvoices):
     src = open(path).readlines()
     patch_remap = {v: v for v in range(nvoices)}
     s3k = pack_song(convert_song(_probe_prepass(src), _PROBE_DAC_RAW, patch_remap))
-    s2 = pack_song(convert_song(src, None, patch_remap, dac_map=_PROBE_DAC_BY_NAME,
-                                ftone_map=_PROBE_FTONE))
+    song = convert_song(src, None, patch_remap, dac_map=_PROBE_DAC_BY_NAME,
+                        ftone_map=_PROBE_FTONE)
+    # Since step 2 the native mode also emits each PSG header envelope at stream
+    # start (test_s2_psg_header_envelope_is_applied_at_channel_start), which the
+    # probe's S3K path drops. Remove exactly those, checking each is there, and
+    # the rest must still be byte-identical to the probe.
+    hdr = [c.psg_voice for c in parse_header(src, ftone_map=_PROBE_FTONE).channels
+           if c.kind == "PSG"]
+    psg = [c for c in song.channels if c.route in (CHROUTE_PSG1, CHROUTE_PSG2,
+                                                   CHROUTE_PSG3, CHROUTE_PSGN)]
+    assert len(psg) == len(hdr) == 3
+    for c, want in zip(psg, hdr):
+        if want:
+            i = next(k for k, e in enumerate(c.events) if isinstance(e, PsgEnv))
+            assert c.events[i].env_id == want and i <= 1   # after the Vol prologue
+            del c.events[i]
+    s2 = pack_song(song)
     assert len(s2) > 0
     assert s2 == s3k
     # The voice bank, as the probe's `voices()` built it (S3K voice path, label
@@ -1530,10 +1564,10 @@ def _load_s2_generator():
     return mod
 
 
-def test_s2_generator_refuses_and_writes_nothing_with_default_tables(tmp_path):
+def test_s2_generator_refuses_and_writes_nothing_with_empty_tables(tmp_path):
     gen = _load_s2_generator()
     with pytest.raises(_si.S2Refusal):
-        gen.generate(out_dir=str(tmp_path))
+        gen.generate(out_dir=str(tmp_path), ftone_map={}, dac_map={})
     assert list(tmp_path.iterdir()) == []
 
 
@@ -1555,3 +1589,53 @@ def test_s2_generator_default_output_is_under_tools_generated():
     gen = _load_s2_generator()
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/") == "tools/generated/s2_music"
+
+
+# ---- step 3: the drum table, filled, exercised on the real songs ----------------
+#
+# The owner's ruling S2CLIP-MUSIC-DRUMS = s3k-drums (docs/decisions.jsonl): Sonic 2's
+# drum notes play the S3K drums the engine already carries. The expected ids are
+# derived from HCZ2_DAC_REMAP and the song files, not restated. The fTone table is
+# still empty (step 2 waits on sigil), so the real songs refuse naming ONLY fTones.
+
+
+def test_s2_dac_map_is_the_s3k_drums_ruling():
+    # s3k-drums: each S2 drum the songs play goes to the S3K sample of the same
+    # role, named through HCZ2_DAC_REMAP (the S3K-source ids: 1-based dSnareS3=1,
+    # dMidTomS3=3, dFloorTomS3=5, dKickS3=6), so the ids are not restated here.
+    s3k = {"dKick": HCZ2_DAC_REMAP[6], "dSnare": HCZ2_DAC_REMAP[1],
+           "dMidTom": HCZ2_DAC_REMAP[3], "dFloorTom": HCZ2_DAC_REMAP[5]}
+    assert _si.S2_DAC_MAP == s3k
+    used = set()
+    for p in (_S2_EHZ, _S2_CPZ):
+        used |= set(_si.s2_mapping_requirements(open(p).readlines())[1])
+    assert set(_si.S2_DAC_MAP) == used
+
+
+@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
+def test_s2_real_songs_refuse_naming_only_their_ftones(path, nvoices):
+    # With the declared tables: every drum resolves, and what is still refused is
+    # exactly the song's fTones (step 2), each by name.
+    src = open(path).readlines()
+    ftones, dacs = _si.s2_mapping_requirements(src)
+    assert ftones and dacs
+    with pytest.raises(_si.S2Refusal) as ei:
+        convert_song(src, None, {v: v for v in range(nvoices)})
+    msg = str(ei.value)
+    for sid in ftones:
+        assert "fTone_%02X" % sid in msg
+    for name in _si.S2_DAC_ENUM:
+        assert name not in msg, name
+
+
+@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
+def test_s2_real_song_drums_convert_through_the_declared_dac_map(path, nvoices):
+    # Every Dac event of the real song is an S3K drum id, exactly the set the
+    # source's drum notes map to. fTones are declared "none" HERE ONLY so the song
+    # converts far enough to count its drums; that is a test fixture, not a mapping.
+    src = open(path).readlines()
+    ftones, dacs = _si.s2_mapping_requirements(src)
+    song = convert_song(src, None, {v: v for v in range(nvoices)},
+                        ftone_map={s: 0 for s in ftones})
+    dac_ids = {e.sample_id for c in song.channels for e in c.events if isinstance(e, Dac)}
+    assert dac_ids == {_si.S2_DAC_MAP[n] for n in dacs}

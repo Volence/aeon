@@ -136,8 +136,10 @@ FLAG_BYTES: dict[str, int] = {
 # design probe (docs/research/2026-09-25-region-music-design.md Q1 row f). And
 # S2's DAC notes name S2's drum samples, which the engine does not have. So both
 # go through an explicit table, and a reference with no entry is REFUSED by name.
-# The tables start EMPTY: filling them is steps 2 (envelopes) and 3 (drums) of the
-# S2CLIP-REGION-MUSIC plan (docs/DEFERRED_WORK.md).
+# Step 3 (drums) of the S2CLIP-REGION-MUSIC plan (docs/DEFERRED_WORK.md) filled the
+# DAC table for what EHZ and CPZ use. The fTone table is still empty: step 2
+# (importing S2's own envelopes) is blocked on sigil, see the table below. Anything
+# an S2 song references without an entry is refused by name.
 SOURCE_S1 = 1
 SOURCE_S2 = 2
 SOURCE_S3K = 3
@@ -161,11 +163,31 @@ _S2_NOTE_EXTRAS: dict[str, int] = {
     "nMaxPSG": NOTE_BYTES["nBb6"] - PSG_DELTA,
 }
 
-# THE DECLARED MAPPINGS. Empty on purpose (see above). Keys: S2 envelope id
-# (fTone_NN -> NN) -> engine PsgVolEnv id (0 = none); S2 DAC note NAME -> engine
-# DacSampleTable id. A caller may pass its own; nothing is ever inferred.
+# THE DECLARED MAPPINGS. Keys: S2 envelope id (fTone_NN -> NN) -> engine PsgVolEnv
+# id (0 = none); S2 DAC note NAME -> engine DacSampleTable id. A caller may pass its
+# own; nothing is ever inferred.
+#
+# fTone (step 2): EMPTY, and on purpose. Its entries must point at Sonic 2's OWN
+# envelope bodies imported as new engine ids, never at the S3K id of the same number
+# (those bodies differ; even fTone_02, whose levels match S3K's, ends in S2's hold
+# where S3K's rests). The import grows the sound_tables_z80 head, and sigil's
+# seam-1 pins the $8000-window addresses of everything after the PSG id list
+# (banked_carriers), so it cannot land until sigil derives those
+# (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC step 2). Until then both songs are
+# refused by fTone name, which is the honest answer.
 S2_FTONE_MAP: dict[int, int] = {}
-S2_DAC_MAP: dict[str, int] = {}
+# DAC (step 3): the owner's ruling S2CLIP-MUSIC-DRUMS = s3k-drums
+# (docs/decisions.jsonl, 2026-09-25): Sonic 2's drum notes play the Sonic 3 drums
+# the engine already carries, the same DacSampleTable ids HCZ2_DAC_REMAP uses. The
+# toms go onto the S3K toms (the ruling's "kick and snare" wording did not name
+# them; the controller read the owner's "the Sonic 3 drums are fine" as covering
+# them). Sonic 2's own samples (s2disasm/sound/DAC/*.wav) stay a later option.
+S2_DAC_MAP: dict[str, int] = {
+    "dKick":     5,   # -> s3k_kick     (EHZ, CPZ)
+    "dSnare":    6,   # -> s3k_snare    (EHZ, CPZ)
+    "dMidTom":   8,   # -> s3k_midtom   (EHZ)
+    "dFloorTom": 10,  # -> s3k_floortom (EHZ)
+}
 
 
 class S2Refusal(ValueError):
@@ -304,7 +326,7 @@ def parse_header(lines, ftone_map=None):
       args[1] = mod  (tempo accumulator addend, e.g. $25 -> zCurrentTempo)
 
     The song's `smpsHeaderStartSong` picks the source rules (see SOURCE DRIVER).
-    `ftone_map` is used by an S2 song only (default: the empty S2_FTONE_MAP).
+    `ftone_map` is used by an S2 song only (default: the declared S2_FTONE_MAP, empty today).
     """
     cfg = SongConfig()
     src = cfg.source_driver = detect_source_driver(lines)
@@ -1546,9 +1568,9 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None, *,
     pitchtable   : optional per-song pitch table reference, stored on the SongDesc
                    for the loader (None = engine default).
     dac_map      : S2 song only: {S2 DAC note name -> v0 DacSampleTable id}
-                   (default S2_DAC_MAP, empty). An undeclared name is refused.
+                   (default S2_DAC_MAP). An undeclared name is refused.
     ftone_map    : S2 song only: {S2 envelope id -> engine PSG envelope id, 0 =
-                   none} (default S2_FTONE_MAP, empty). Undeclared is refused.
+                   none} (default S2_FTONE_MAP). Undeclared is refused.
 
     Returns a SongDesc(tempo=0x80, tempo_mod=cfg.tempo_mod, flags=SH_F_STREAM,
     channels=[...]) ready for pack_song. Each channel is route-assigned by kind,
@@ -1581,6 +1603,16 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None, *,
         ev = convert_channel(ch.kind, blocks.get(ch.label, []), blocks, cfg, st,
                              start_label=ch.label, noise=ch._is_noise)
         _apply_remaps(ev, dac_remap, patch_remap, cfg.source_driver)
+        if cfg.source_driver == SOURCE_S2 and ch.kind == "PSG" and ch.psg_voice:
+            # The smpsHeaderPSG voice is the track's INITIAL envelope (S2 sets
+            # zTrack.VoiceIndex from it at song init; an in-body smpsPSGvoice
+            # replaces it later). Emitted once at stream index 0, ahead of any
+            # LoopPoint, because S2 applies it at init only, not per loop. ch.psg_voice
+            # is already the ENGINE id (parse_header resolved it through ftone_map).
+            # S2 songs only: the S3K path drops its header envelope too (HCZ2's
+            # three PSG headers name sTone_0C), but fixing that moves HCZ2's bytes and
+            # is booked separately (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC).
+            ev.insert(0, PsgEnv(ch.psg_voice))
         ev = _make_packable(ch, route, ev)
         channels.append(ChannelDesc(route, ev))
 
