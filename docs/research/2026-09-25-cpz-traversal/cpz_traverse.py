@@ -15,6 +15,9 @@ Then it drives RIGHT under one of four strategies and records the furthest x rea
             for HOP_AFTER frames, jump (C held JUMP_HOLD frames, the full-height jump).
   spin      as hop, but alternate a jump with a spindash (release RIGHT, hold DOWN,
             press C SPIN_REVS times, release DOWN, hold RIGHT again).
+  randomN   a crude random explorer, seed N: every 20..90 frames pick RIGHT, LEFT,
+            RIGHT+jump, LEFT+jump (random hold length), a spindash, or nothing held.
+            Stuck = no new max x for 4 x STUCK_FRAMES.
 
 A run ENDS when (a) x reaches --end-x (crossed), (b) no new max x for STUCK_FRAMES frames
 (stuck: the reason is read from the last frames' x / y / gsp / state), (c) y passes
