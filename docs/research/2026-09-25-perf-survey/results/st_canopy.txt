@@ -1,0 +1,21 @@
+== fly: canopy.bin crc=bf585877 size=848768 mode=fly dirs=right load 12.67->12.67
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 6/364 (1.65%), 1.017 frames/tick, cam end [5824, 144]; LFC_delta=8 whole-leg lag=8
+   cam_y<1024: 8/424
+   (no profile)
+== down: canopy.bin crc=bf585877 size=848768 mode=fly dirs=down load 12.67->12.22
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 6/369 (1.63%), 1.017 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 2/58
+   (no profile)
+== diag: canopy.bin crc=bf585877 size=848768 mode=fly dirs=right,down load 12.22->12.22
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 41/404 (10.15%), 1.113 frames/tick, cam end [5824, 5920]; LFC_delta=42 whole-leg lag=42
+   cam_y<1024: 14/70
+   (no profile)
+== run: canopy.bin crc=bf585877 size=848768 mode=run dirs=right load 12.22->11.72
+   notes: ['DEBUG free flight left with B (y 256->256)', 'camera stalled at (5824,5816) for 60 frames; stopped']
+   IN MOTION 60/1202 (4.99%), 1.053 frames/tick, cam end [5824, 5816]; LFC_delta=61 whole-leg lag=61
+   cam_y<1024: 28/611
+   (no profile)
+legs with results: 4 of 4

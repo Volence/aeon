@@ -1,0 +1,37 @@
+== rel_stuck: s4.bin crc=950f7d28 size=822103 mode=run dirs=right load 9.16->9.47
+   notes: ['no free flight to leave (y 573->573, release shape or physics)']
+   IN MOTION 34/1000 (3.4%), 1.035 frames/tick, cam end [987, 397]; LFC_delta=None whole-leg lag=34
+   cam_y<1024: 34/1000
+   WINDOW rows [400,1000): lag 24/600; cam [1025, 411] -> [987, 397]
+   PROFILE ticks=576 133117 cyc/tick, work 59651/tick = 0.467 fr/tick; identity remainder 0 truncated=False
+     GameState_OJZScroll_Update               incl  122027 self     138 calls   0.00  <- None:122027
+     VSync_Wait                               incl   73466 self   73135 calls   1.00  <- GameState_OJZScroll_Update:73466
+     GameState_OJZScroll_Update               incl   48266 self     553 calls   1.00  <- GameState_OJZScroll_Update:48266
+     RunObjects                               incl   13279 self     168 calls   1.00  <- GameState_OJZScroll_Update:13279
+     Tile_Cache_Fill                          incl   12536 self    1834 calls   1.00  <- GameState_OJZScroll_Update:12536
+     Parallax_Update                          incl   10126 self    8857 calls   1.00  <- GameState_OJZScroll_Update:10126
+     VBlank_Handler                           incl    9528 self     394 calls   1.04  <- None:9528
+     $engine.objects.core$RunObjects$run_alwa incl    9296 self     724 calls   2.00  <- RunObjects:9296
+     VInt_Level                               incl    8843 self     999 calls   1.00  <- VBlank_Handler:8843
+     Player_Main                              incl    8400 self    1157 calls   1.00  <- $engine.objects.core$RunObjects$run_always:8400
+     TileCache_DecompressBlock                incl    6112 self     550 calls   0.68  <- Tile_Cache_Fill:2845, TileCache_FillRow:1753, TileCache_FillColumn:1513
+     S4LZ_DecompressDict                      incl    5562 self    5562 calls   0.53  <- TileCache_DecompressBlock:5562
+     TileCache_FillColumn                     incl    4245 self     429 calls   0.21  <- Tile_Cache_Fill:4245
+     $engine.objects.core$RunObjects$run_cull incl    3815 self    1497 calls   1.00  <- RunObjects:3815
+     EntityWindow_Scan                        incl    3525 self    2164 calls   1.00  <- GameState_OJZScroll_Update:3525
+     TileCache_FillRow                        incl    3412 self     721 calls   0.11  <- Tile_Cache_Fill:3412
+     Process_DMA_Critical                     incl    2738 self    2738 calls   1.04  <- VInt_Level:2634, VInt_Lag:104
+     PState_Jump                              incl    2624 self     239 calls   0.46  <- Player_Main:2624
+     Render_Sprites                           incl    2536 self    1495 calls   1.00  <- GameState_OJZScroll_Update:2536
+     Player_SensorPair                        incl    2428 self     214 calls   1.26  <- Player_SensorFloor:1390, Player_SensorCeiling:1038
+     TouchResponse                            incl    2309 self    2309 calls   1.00  <- GameState_OJZScroll_Update:2309
+     Collision_GetType                        incl    2190 self    2190 calls   7.60  <- $games.sonic4.player_sensors$asm1$cell:672, $games.sonic4.player_sensors$asm12$cell:626, $games.sonic4.player_sensors$asm23$cell:473
+     TileCache_CopyBlockColumn                incl    2121 self     822 calls   1.00  <- TileCache_FillColumn:2121
+     Spring_Main                              incl    2088 self    1298 calls   4.99  <- $engine.objects.core$RunObjects$run_culled:2088
+     Player_SensorFloor                       incl    1663 self     273 calls   0.73  <- PState_Ground:652, PState_AirBall:522, PState_Jump:480
+     PState_Ground                            incl    1506 self     169 calls   0.32  <- Player_Main:1506
+     Enqueue_Dirty_Buffers                    incl    1427 self    1373 calls   1.04  <- VInt_Level:1383, VInt_Lag:44
+     PState_AirBall                           incl    1327 self     107 calls   0.22  <- Player_Main:1327
+     PageCache_PatchRun_Col                   incl    1299 self    1299 calls   1.21  <- TileCache_CopyBlockColumn:1299
+     HBlank_Vector_Slot                       incl    1260 self    1260 calls   3.12  <- None:1260
+legs with results: 1 of 1

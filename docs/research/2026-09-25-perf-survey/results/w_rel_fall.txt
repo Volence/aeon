@@ -1,0 +1,37 @@
+== rel_fall: s4.bin crc=950f7d28 size=822103 mode=run dirs=right load 9.47->9.39
+   notes: ['no free flight to leave (y 573->573, release shape or physics)']
+   IN MOTION 55/1500 (3.67%), 1.038 frames/tick, cam end [3791, 4616]; LFC_delta=None whole-leg lag=55
+   cam_y<1024: 38/1243
+   WINDOW rows [1250,1500): lag 17/250; cam [2405, 1136] -> [3791, 4616]
+   PROFILE ticks=233 136796 cyc/tick, work 99239/tick = 0.776 fr/tick; identity remainder 0 truncated=False
+     $games.sonic4.player_sensors$asm1$empty_ incl  123349 self     137 calls   0.00  <- None:123349
+     GameState_OJZScroll_Update               incl   85519 self     552 calls   1.00  <- $games.sonic4.player_sensors$asm1$empty_fwd:85519
+     Tile_Cache_Fill                          incl   47504 self    2303 calls   1.00  <- GameState_OJZScroll_Update:47504
+     VSync_Wait                               incl   37557 self   37227 calls   1.00  <- $games.sonic4.player_sensors$asm1$empty_fwd:37557
+     TileCache_FillRow                        incl   31840 self   12345 calls   1.89  <- Tile_Cache_Fill:31840
+     PageCache_PatchRun_Seq                   incl   14400 self   14400 calls  11.07  <- TileCache_FillRow:14400
+     Parallax_Update                          incl   12787 self   11764 calls   1.00  <- GameState_OJZScroll_Update:12787
+     VBlank_Handler                           incl   11597 self     404 calls   1.07  <- None:11597
+     TileCache_FillColumn                     incl   11134 self    1481 calls   0.75  <- Tile_Cache_Fill:11134
+     VInt_Level                               incl   10747 self     954 calls   1.00  <- VBlank_Handler:10747
+     RunObjects                               incl   10485 self     167 calls   1.00  <- GameState_OJZScroll_Update:10485
+     $engine.objects.core$RunObjects$run_alwa incl   10268 self     719 calls   1.99  <- RunObjects:10268
+     Player_Main                              incl    9549 self    1154 calls   1.00  <- $engine.objects.core$RunObjects$run_always:9549
+     TileCache_CopyBlockColumn                incl    7409 self    2881 calls   3.46  <- TileCache_FillColumn:7409
+     TileCache_DecompressBlock                incl    6485 self    1597 calls   1.97  <- TileCache_FillRow:2989, Tile_Cache_Fill:1889, TileCache_FillColumn:1608
+     Section_UpdateColumns                    incl    6280 self    1335 calls   1.00  <- GameState_OJZScroll_Update:6280
+     PState_AirBall                           incl    5280 self     458 calls   1.00  <- Player_Main:5280
+     S4LZ_DecompressDict                      incl    4888 self    4888 calls   0.43  <- TileCache_DecompressBlock:4888
+     PageCache_PatchRun_Col                   incl    4528 self    4528 calls   4.18  <- TileCache_CopyBlockColumn:4528
+     Draw_TileRow_FromCache                   incl    3250 self     896 calls   1.87  <- Section_UpdateColumns:3250
+     VInt_DrawLevel                           incl    3041 self    3041 calls   1.00  <- VInt_Level:3041
+     TileCache_FindStagedBlock                incl    2934 self    2934 calls  15.83  <- TileCache_FillRow:2107, TileCache_FillColumn:636, Tile_Cache_Fill:191
+     Process_DMA_Critical                     incl    2714 self    2714 calls   1.07  <- VInt_Level:2534, VInt_Lag:179
+     Collision_GetType                        incl    2570 self    2570 calls   8.96  <- $games.sonic4.player_sensors$asm1$cell:1143, $games.sonic4.player_sensors$asm23$cell:571, $games.sonic4.player_sensors$asm34$cell:571
+     $engine.plane_buffer$Draw_TileRow_FromCa incl    2354 self    2354 calls   3.70  <- Draw_TileRow_FromCache:2354
+     EntityWindow_Scan                        incl    2337 self     638 calls   1.00  <- GameState_OJZScroll_Update:2337
+     Render_Sprites                           incl    2325 self    1456 calls   1.00  <- GameState_OJZScroll_Update:2325
+     Player_SensorFloor                       incl    2290 self     378 calls   1.00  <- PState_AirBall:2290
+     Player_SensorWallAt                      incl    2026 self     287 calls   1.99  <- Air_WallProbeRight:1019, Air_WallProbeLeft:1007
+     Player_SensorPair                        incl    1912 self     171 calls   1.00  <- Player_SensorFloor:1912
+legs with results: 1 of 1

@@ -1,0 +1,21 @@
+== fly: audit.bin crc=1c663b20 size=848768 mode=fly dirs=right load 11.72->11.34
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== down: audit.bin crc=1c663b20 size=848768 mode=fly dirs=down load 11.34->11.34
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: audit.bin crc=1c663b20 size=848768 mode=fly dirs=right,down load 11.34->11.23
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 44/407 (10.81%), 1.121 frames/tick, cam end [5824, 5920]; LFC_delta=44 whole-leg lag=44
+   cam_y<1024: 15/71
+   (no profile)
+== run: audit.bin crc=1c663b20 size=848768 mode=run dirs=right load 11.23->10.73
+   notes: ['DEBUG free flight left with B (y 256->256)']
+   IN MOTION 109/2999 (3.63%), 1.038 frames/tick, cam end [1074, 379]; LFC_delta=109 whole-leg lag=109
+   cam_y<1024: 109/3000
+   (no profile)
+legs with results: 4 of 4

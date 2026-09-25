@@ -1,0 +1,21 @@
+== fly: parallax.bin crc=1a1e8846 size=848768 mode=fly dirs=right load 10.69->10.64
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 6/364 (1.65%), 1.017 frames/tick, cam end [5824, 144]; LFC_delta=8 whole-leg lag=8
+   cam_y<1024: 8/424
+   (no profile)
+== down: parallax.bin crc=1a1e8846 size=848768 mode=fly dirs=down load 10.64->10.64
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 6/369 (1.63%), 1.017 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 2/58
+   (no profile)
+== diag: parallax.bin crc=1a1e8846 size=848768 mode=fly dirs=right,down load 10.64->10.27
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 32/395 (8.1%), 1.088 frames/tick, cam end [5824, 5920]; LFC_delta=33 whole-leg lag=33
+   cam_y<1024: 12/68
+   (no profile)
+== run: parallax.bin crc=1a1e8846 size=848768 mode=run dirs=right load 10.27->9.85
+   notes: ['DEBUG free flight left with B (y 256->256)', 'camera stalled at (5824,5816) for 60 frames; stopped']
+   IN MOTION 49/1191 (4.11%), 1.043 frames/tick, cam end [5824, 5816]; LFC_delta=50 whole-leg lag=50
+   cam_y<1024: 26/611
+   (no profile)
+legs with results: 4 of 4

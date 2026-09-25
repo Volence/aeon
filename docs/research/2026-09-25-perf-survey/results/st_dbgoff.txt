@@ -1,0 +1,21 @@
+== fly: dbgoff.bin crc=03dc2bb0 size=848768 mode=fly dirs=right load 10.73->10.67
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== down: dbgoff.bin crc=03dc2bb0 size=848768 mode=fly dirs=down load 10.67->10.67
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: dbgoff.bin crc=03dc2bb0 size=848768 mode=fly dirs=right,down load 10.67->10.62
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 34/397 (8.56%), 1.094 frames/tick, cam end [5824, 5920]; LFC_delta=34 whole-leg lag=34
+   cam_y<1024: 11/67
+   (no profile)
+== run: dbgoff.bin crc=03dc2bb0 size=848768 mode=run dirs=right load 10.62->10.69
+   notes: ['DEBUG free flight left with B (y 256->256)']
+   IN MOTION 94/2999 (3.13%), 1.032 frames/tick, cam end [1073, 378]; LFC_delta=94 whole-leg lag=94
+   cam_y<1024: 94/3000
+   (no profile)
+legs with results: 4 of 4

@@ -1,0 +1,195 @@
+{
+ "rom": "s4.bin",
+ "crc": "950f7d28",
+ "size": 822103,
+ "mode": "run",
+ "dirs": "right",
+ "frames_cap": 3000,
+ "boot": 300,
+ "server": "/home/volence/sonic_hacks/oracle/target/release/oracle-aether",
+ "syms": {
+  "Frame_Counter": "0xff8002",
+  "Logic_Tick": "0xff8004",
+  "Camera_X": "0xffa6be",
+  "Camera_Y": "0xffa6c2",
+  "Camera_Target": "0xffadda"
+ },
+ "after_boot": {
+  "fc": 296,
+  "lt": 264,
+  "cx": 96,
+  "cy": 429,
+  "lag": null,
+  "px": 256,
+  "py": 573
+ },
+ "notes": [
+  "free flight detected (y 573->573); pressed B; y -> 540",
+  "camera stalled at (5824,5821) for 60 frames; stopped"
+ ],
+ "stepped_wall_s": 7.741,
+ "host": {
+  "frames": 1800,
+  "wall_s": 5.224,
+  "fps": 344.6,
+  "loadavg_before": [
+   "16.17",
+   "12.36",
+   "11.23"
+  ],
+  "loadavg_after": [
+   "16.76",
+   "12.63",
+   "11.33"
+  ],
+  "cam_end": [
+   155,
+   429
+  ],
+  "date_utc": "2026-09-25T21:38:21Z"
+ },
+ "summary": {
+  "frames_stepped": 1221,
+  "sum_dFrame_Counter": 1221,
+  "sum_dLogic_Tick": 1188,
+  "lag_frames": 33,
+  "lag_pct": 2.7,
+  "cam_x_start": 96,
+  "cam_x_end": 5824,
+  "cam_x_max": 5824,
+  "by_camx512": {
+   "0": {
+    "video_frames": 163,
+    "lag": 6,
+    "LFC": 0
+   },
+   "512": {
+    "video_frames": 158,
+    "lag": 3,
+    "LFC": 0
+   },
+   "1024": {
+    "video_frames": 101,
+    "lag": 4,
+    "LFC": 0
+   },
+   "1536": {
+    "video_frames": 92,
+    "lag": 2,
+    "LFC": 0
+   },
+   "2048": {
+    "video_frames": 85,
+    "lag": 0,
+    "LFC": 0
+   },
+   "2560": {
+    "video_frames": 93,
+    "lag": 8,
+    "LFC": 0
+   },
+   "3072": {
+    "video_frames": 92,
+    "lag": 6,
+    "LFC": 0
+   },
+   "3584": {
+    "video_frames": 89,
+    "lag": 4,
+    "LFC": 0
+   },
+   "4096": {
+    "video_frames": 85,
+    "lag": 0,
+    "LFC": 0
+   },
+   "4608": {
+    "video_frames": 86,
+    "lag": 0,
+    "LFC": 0
+   },
+   "5120": {
+    "video_frames": 85,
+    "lag": 0,
+    "LFC": 0
+   },
+   "5632": {
+    "video_frames": 92,
+    "lag": 0,
+    "LFC": 0
+   }
+  },
+  "by_camy512": {
+   "0": {
+    "video_frames": 520,
+    "lag": 15
+   },
+   "512": {
+    "video_frames": 45,
+    "lag": 0
+   },
+   "1024": {
+    "video_frames": 34,
+    "lag": 0
+   },
+   "1536": {
+    "video_frames": 39,
+    "lag": 5
+   },
+   "2048": {
+    "video_frames": 37,
+    "lag": 3
+   },
+   "2560": {
+    "video_frames": 35,
+    "lag": 0
+   },
+   "3072": {
+    "video_frames": 34,
+    "lag": 0
+   },
+   "3584": {
+    "video_frames": 40,
+    "lag": 6
+   },
+   "4096": {
+    "video_frames": 38,
+    "lag": 4
+   },
+   "4608": {
+    "video_frames": 34,
+    "lag": 0
+   },
+   "5120": {
+    "video_frames": 34,
+    "lag": 0
+   },
+   "5632": {
+    "video_frames": 331,
+    "lag": 0
+   }
+  },
+  "motion": {
+   "video_frames": 1161,
+   "ticks": 1128,
+   "lag": 33,
+   "lag_pct": 2.84,
+   "frames_per_tick": 1.029,
+   "cam_end": [
+    5824,
+    5821
+   ]
+  }
+ },
+ "rows_cols": [
+  "i",
+  "dFrame_Counter",
+  "dLogic_Tick",
+  "dLag_Frame_Count",
+  "cam_x",
+  "cam_y",
+  "player_x",
+  "player_y"
+ ]
+}
+finished=1

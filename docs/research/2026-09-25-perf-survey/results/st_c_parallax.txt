@@ -1,0 +1,28 @@
+== fly: c_parallax.bin crc=7685c9e0 size=948046 mode=fly dirs=right load 15.20->14.30
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped']
+   IN MOTION 16/1014 (1.58%), 1.016 frames/tick, cam end [16064, 144]; LFC_delta=16 whole-leg lag=16
+   cam_y<1024: 16/1074
+   (no profile)
+== down: c_parallax.bin crc=7685c9e0 size=948046 mode=fly dirs=down load 14.30->13.48
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 7/370 (1.89%), 1.019 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 3/59
+   (no profile)
+== diag: c_parallax.bin crc=7685c9e0 size=948046 mode=fly dirs=right,down load 13.48->13.48
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 29/1027 (2.82%), 1.029 frames/tick, cam end [16064, 5920]; LFC_delta=29 whole-leg lag=29
+   cam_y<1024: 15/71
+   (no profile)
+== cpzdown: c_parallax.bin crc=7685c9e0 size=948046 mode=fly dirs=right load 12.72->12.02
+   notes: ['switched to down at frame 907 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped']
+   IN MOTION 41/1299 (3.16%), 1.033 frames/tick, cam end [14400, 5920]; LFC_delta=41 whole-leg lag=41
+   cam_y<1024: 29/980
+   before switch 14/908; after switch 27/451
+   (no profile)
+== cpzdiag: c_parallax.bin crc=7685c9e0 size=948046 mode=fly dirs=right load 12.02->12.02
+   notes: ['switched to right,down at frame 907 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 80/1340 (5.97%), 1.063 frames/tick, cam end [16064, 5920]; LFC_delta=80 whole-leg lag=80
+   cam_y<1024: 59/1012
+   before switch 14/908; after switch 66/492
+   (no profile)
+legs with results: 5 of 5
