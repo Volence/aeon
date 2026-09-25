@@ -2,7 +2,7 @@
   "focus": "Sonic 2 backgrounds now scroll like Sonic 2; still running: the screen-wide tunnel test and the longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "Short test level: the real Sonic 2 level with the tunnel cut to just over one screen wide (limit test)",
+      "what": "384 px tunnel built (glitch-free) with a small engine speed-up; finishing its checks before it lands",
       "where": "branch research/shorter-connector",
       "agent": true
     },
@@ -23,7 +23,7 @@
   "queue": [
     {
       "id": "S2CLIP-CONNECTOR-SHORTER",
-      "title": "Limit test you asked for: a connector just over a screen wide (a small engine change, on a separate test level)",
+      "title": "Limit test: a 384 px tunnel (1.2 screens) is glitch-free after a small engine speed-up; fly s4.s2clip-short.debug.bin (336 px glitches for 2 frames)",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -131,7 +131,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Fly s4.s2clip-short.debug.bin (crc 95db1392, the 384 px tunnel) whenever you like; say if you want to see the 336 px version that glitches briefly",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:56:55Z"
+  "updatedAt": "2026-09-25T19:10:35Z"
 }
