@@ -87,7 +87,7 @@ use games.sonic4.ojz_regions_act1.{OJZ_ACT1_GENERATED_REGION_ROWS,
 use games.sonic4.ojz_effects_editor_act1.{OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec5_KEY,
                                           OJZ_Preset_Plain_KEY, OJZ_Preset_Sec3_KEY}
 // THE CLIP ACT'S OWN REGION TABLE (S2-COMPRESSED-ACT row 7, 2026-09-25). A GENERATED module
-// (games/sonic4/data/generated/ojz/act1/effects_scenes_clip.emp, written by tools/clip_rom_bake.py).
+// (games/sonic4/data/generated/ojz/act1/clip_act.emp, written by tools/clip_rom_bake.py).
 // The COMMITTED module is NEUTRAL — `OJZ_CLIP_ACT = 0`, `OJZ_CLIP_REGION_ROWS = []`, and the
 // chooser hands back its `hand:` — so every canonical shape binds this file's own table,
 // byte for byte, exactly as before. A throwaway S2CLIP bake overwrites it with the clip
@@ -95,7 +95,7 @@ use games.sonic4.ojz_effects_editor_act1.{OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec5_K
 // that table instead; the rows are checked below by THIS file's own table walk. The same
 // always-live binding-function seam `ojz_act1_act_default(hand:)` uses, for the same reason:
 // one path, no conditional import, no name that appears or vanishes with the shape.
-use games.sonic4.ojz_effects_editor_act1_clip.{OJZ_CLIP_ACT, OJZ_CLIP_REGION_ROWS, ojz_clip_act_regions}
+use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_ACT, OJZ_CLIP_REGION_ROWS, ojz_clip_act_regions}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -230,7 +230,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
     act_art_budget:      ACT_ART_BUDGET,                  // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling; guarded above
     // painted-regions v1 — the table at the end of this file, unless a clip act is baked in
-    // (the chooser then names that act's own table; see the effects_scenes_clip import above)
+    // (the chooser then names that act's own table; see the clip_act import above)
     act_regions:         ojz_clip_act_regions(hand: OJZ_Act1_Regions),
     act_region_count:    OJZ_ACT_REGION_COUNT,           // the SAME rows the guards below read
 }
@@ -1065,7 +1065,7 @@ pub data OJZ_Act1_Regions: [Region; 10 + OJZ_E2_SNAP_ROWS_LEN + OJZ_TALL_BG_ROWS
 // not the one the Act names.
 const OJZ_ACT_REGION_COUNT = if OJZ_CLIP_ACT == 1 { OJZ_CLIP_REGION_ROWS.len } else { OJZ_ACT1_REGION_ROWS.len }
 ensure(OJZ_CLIP_ACT == 1 || OJZ_CLIP_REGION_ROWS.len == 0,
-       "the NEUTRAL effects_scenes_clip module carries {OJZ_CLIP_REGION_ROWS.len} region row(s); rows with OJZ_CLIP_ACT == 0 would be checked and then ignored. Re-emit it: python3 tools/clip_rom_bake.py emit-neutral")
+       "the NEUTRAL clip_act module carries {OJZ_CLIP_REGION_ROWS.len} region row(s); rows with OJZ_CLIP_ACT == 0 would be checked and then ignored. Re-emit it: python3 tools/clip_rom_bake.py emit-neutral")
 ensure(OJZ_CLIP_ACT == 0 || OJZ_CLIP_REGION_ROWS.len >= 1,
        "a clip act's region table is empty — Region_Resolve's dbf would count down from $FFFF")
 const OJZ_CLIP_REGION_ROW_FAULTS = ojz_region_table_fault_count(OJZ_CLIP_REGION_ROWS)

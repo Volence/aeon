@@ -9,7 +9,7 @@
 // the chooser returns `hand`, and nothing here emits a byte or a label. An
 // S2CLIP build overwrites this file and build.sh's EXIT trap restores it.
 
-module games.sonic4.ojz_effects_editor_act1_clip
+module games.sonic4.ojz_clip_act_act1
 
 pub const OJZ_CLIP_ACT = 0
 pub const OJZ_CLIP_REGION_ROWS: array = []
