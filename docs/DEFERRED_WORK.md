@@ -40549,6 +40549,10 @@ run"*, then (after a brief "one more section" detour he reversed) *"as far as he
   Growth +33,524 B in both shapes (packed end). FG page worst window 11 of 12. dplc_straddle OK in both, with a MARGIN
   WARNING: Art_Sonic can move only 2,205 B (plain) / 5,045 B (DEBUG) DOWN before VERDICT A, less than the 49,152-B growth
   reserve, so a clip SHRINK is the next thing to trip it. Pre-build lane 3402 passed / 3 skipped in each.
+  **As LANDED (9acc5120, merged over B-2 ed48f9a9, which adds 636 B of bake data; the table above is the pre-merge build):**
+  plain `b8548b49` 921,505 B, packed end 0xA5038, room 61,384 B; DEBUG `8c69555a` 947,980 B, packed end 0xA5B50, room 58,544 B;
+  anchors FRESH at 0xC0000/0xD0000; dplc_straddle down-margin now 2,841 B plain / 5,681 B DEBUG (B-2 moved Art_Sonic up 636 B);
+  bg-scroll witness 24/24, tunnel 6/6 (28 stall frames at loadavg ~7), traversal still 15399; landing_build exit 0 finished=0, 3419 passed.
 - **Witnesses on DEBUG `efa02ea1`:** tunnel 6 of 6 crossed, 23 stall frames, 0 airborne inside, 0 faulted (unchanged);
   cpz_traverse, the same 13 drives: furthest 15399, identical per drive to the 6624 build, 0 fell, 0 faulted.
 - **Lag, S2CLIP-LAG harness** (`run_legs.sh`, `lag / video frames in motion`, loadavg 4-7):
