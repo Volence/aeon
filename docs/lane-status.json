@@ -1,5 +1,5 @@
 {
-  "focus": "Booted fresh after six quiet days. Still waiting on you: keep fixing measuring tools, or turn back to the game?",
+  "focus": "You were flying an old copy of the Sonic 2 act. I rebuilt it five sections wide; it is ready for your flythrough.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -10,6 +10,14 @@
   ],
   "nextBoundary": "Here, and it is a clean one: nothing running, nothing unbanked, console green.",
   "queue": [
+    {
+      "id": "S2CLIP-BANK-ROOM-GATE",
+      "title": "The debug build of the Sonic 2 test act passes everything but one room check that stops the build; the room check's own message also looks wrong (58,962 B reported as less than 49,152 B). The ROM still boots",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
@@ -146,7 +154,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. The queue is 12 instrument rows against 7 game rows, and every game row needs you: the Sonic 2 act flythrough (s4.s2clip.bin), the spring sound A/B, and a ruling on an act that is not a whole number of sections. Say which and I start; nothing is running.",
+  "awaiting": "your flythrough of s4.s2clip.debug.bin, rebuilt from master at 2026-09-25 (crc 19e78bdb). The copy you were running was from 09-17, before the act went from three sections to five, so it stopped after section 3. The act now ends at x=10240.",
   "atBoundary": true,
-  "updatedAt": "2026-09-25T05:40:14Z"
+  "updatedAt": "2026-09-25T05:59:52Z"
 }
