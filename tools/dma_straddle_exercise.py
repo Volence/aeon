@@ -206,6 +206,11 @@ def sst_offsets_from_source() -> dict[str, int]:
     return want
 
 
+def default_control_ladder(lst: str, rom: str) -> tuple[int, ...]:
+    """The mapping frames control B forces when --control-frame is not given."""
+    return (0x65, 0x9F, 0x85)
+
+
 def st_in_air_bit() -> int:
     src = os.path.join(AEON, "engine/system/constants.emp")
     with open(src) as fh:
@@ -271,7 +276,7 @@ class Driver:
         self.control: dict = {}           # control_body()'s record
         self.recover_after = 2            # consecutive airborne polls before a rescue warp
         # The straddling frame per character, from tools/dplc_straddle.py's per-build report.
-        self.control_ladder = (0x65, 0x9F, 0x85)
+        self.control_ladder: tuple[int, ...] = ()   # set by body() from default_control_ladder()
         self.control_tries = 12           # attempts per frame: the force is a PHASE RACE
         # first non-zero sighting of each subject cell: (frame, phase, value, x, y, in_air)
         self.first_hit: dict[str, dict] = {}
@@ -569,7 +574,8 @@ async def body(sock: str, rom: str, lst: str, blob: bytes, args) -> Driver:
     await b.connect()
     d = Driver(b, sym, off, air_bit)
     d.recover_after = max(1, args.recover_after)
-    d.control_ladder = tuple(f & 0xFF for f in args.control_frame)
+    d.control_ladder = tuple(f & 0xFF for f in (args.control_frame
+                                                 or default_control_ladder(lst, rom)))
     d.control_tries = max(1, args.control_tries)
 
     st = await d.call("emulator/status", {})
@@ -1039,7 +1045,7 @@ def main() -> int:
                          "as fire-every-time at the base offset and fail-every-time two "
                          "frames off it -- so this sweeps the phase rather than retrying.")
     ap.add_argument("--control-frame", type=lambda v: int(v, 0), nargs="+",
-                    default=[0x65, 0x9F, 0x85],
+                    default=None,
                     help="mapping frames the post-campaign positive control tries, in order, "
                          "stopping at the first that fires. Defaults are the ONE straddling "
                          "frame per character that tools/dplc_straddle.py names on every "
