@@ -1,9 +1,19 @@
 {
-  "focus": "Tunnel and lag fix landed; waiting on the new assembler swap to land the Sonic 2 sound positions file, then scrolling.",
+  "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
   "inFlight": [
     {
       "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
       "where": "detached origin/master, candidate sigil 1d19e60b",
+      "agent": true
+    },
+    {
+      "what": "How short the connector can go: what each limit protects, plus a separate test level you can fly",
+      "where": "branch research/shorter-connector",
+      "agent": true
+    },
+    {
+      "what": "Longer Chemical Plant, built on top of the sound positions file and the new assembler",
+      "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
     }
   ],
@@ -17,6 +27,14 @@
   "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
     {
+      "id": "S2CLIP-CONNECTOR-SHORTER",
+      "title": "You asked whether the connector can be much shorter: finding what each length limit protects and building a separate test level to fly",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
       "id": "S2CLIP-LAG",
       "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
       "state": "open",
@@ -26,10 +44,10 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant is too short: add more of it (costed: to its second checkpoint once d-35 lands)",
-      "state": "blocked",
+      "title": "Chemical Plant is too short: extending it toward its second checkpoint (being built now; lands after the sound positions file)",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "the sound-bank positions file you chose (d-35): waits on the assembler lane naming its switch, then both halves land",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -150,5 +168,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:33:09Z"
+  "updatedAt": "2026-09-25T16:41:28Z"
 }
