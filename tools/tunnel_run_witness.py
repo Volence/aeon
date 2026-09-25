@@ -36,6 +36,9 @@ corridor) counts 107 stalls in 314 frames at a walk, against 44 in 199 through t
 under this harness's per-frame stepping the game skips player updates that the lag counter
 does not see. A snag shows as |gsp| collapsing (a wall zeroes it) or a player left
 short of the far end; read `|gsp| inside` and `crossed`, and always beside a control.
+RE-MEASURED after merging the lag fix (origin/master 8939377f): the same six tunnel runs
+count 23 stalls in total (was 299) and at most 3 lag frames per run, so most of that count
+was the page-cache lag the fix removed, not the harness and not the tunnel.
 
 WHAT IT CANNOT SEE, said out loud: pixels. Whether the tunnel LOOKS right, whether the
 background is hidden on screen, and how the palette fade reads are the owner's look.

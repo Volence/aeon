@@ -38133,13 +38133,16 @@ dramatic effect"*. No engine code changed; the tunnel is content plus the clip t
   and is flush at 768. `test_the_walk_through_the_tunnel_has_no_step_at_either_seam` checks every column
   from 32 px before to 32 px after, both planes (red-first: ramps disabled -> `step(s) [(10976, 772, 768)]`).
 - **Walkable at speed, measured headless** (`tools/tunnel_run_witness.py`, a witness, not a gate) on
-  `s4.s2clip.debug.bin` crc `4dfe4107`: 6 of 6 runs crossed (right and left; walk from rest,
+  `s4.s2clip.debug.bin` crc `4dfe4107` (and again on the merged tree, crc `e4ce79c9`): 6 of 6 runs crossed (right and left; walk from rest,
   `PHYS_TOP_SPEED`, `PHYS_GSP_CAP`), 0 faults, 0 airborne frames inside; |gsp| does not drop at either
   seam; y 753 -> 749 over the ramp, 749..750 through the tunnel. Its "stall" count is harness pacing,
-  not snags: the plain-EHZ control window shows more (107/314 vs 44/199).
-- **Builds** (all exit 0, every gate green): `S2CLIP=s2_ehz_cpz ./build.sh` -> `s4.s2clip.bin` 822,366 B
-  crc `50ab8c64`, bganim_room 52,336 B free (+3,184 over the 49,152 reserve). `S2CLIP=s2_ehz_cpz DEBUG=1`
-  -> `s4.s2clip.debug.bin` 848,764 B crc `4dfe4107`, 49,500 B free (**+348**, tight). FG page budget worst
+  not snags: the plain-EHZ control window shows more (107/314 vs 44/199); after merging the lag fix
+  (8939377f) the six runs total 23 stalls, down from 299.
+- **Builds** (all exit 0, every gate green), on the tree merged with origin/master `c838a30f` (lag fix
+  included): `S2CLIP=s2_ehz_cpz ./build.sh` -> `s4.s2clip.bin` 822,909 B crc `3e4404b5`, bganim_room
+  52,340 B free (+3,188 over the 49,152 reserve). `S2CLIP=s2_ehz_cpz DEBUG=1` -> `s4.s2clip.debug.bin`
+  849,389 B crc `e4ce79c9`, 49,500 B free (**+348**, tight; unchanged by the merge). Pre-merge the same
+  shapes were 822,366 B `50ab8c64` (+3,184) and 848,764 B `4dfe4107` (+348). FG page budget worst
   window 9 of 12 (was 8). Canonical shapes: see the landing evidence in the parcel report.
 
 **OPEN**
@@ -38160,8 +38163,9 @@ ramp at the mouth; the fade at x = 11392 now happening inside a closed tunnel; t
 CPZ's end.
 
 **FILES aurora must be told about** (changing clips.json reddens its currency test):
-`games/sonic4/data/clips/s2_ehz_cpz/clips.json` only (corridor rect, new `tunnel` key, CPZ dst x 11808,
-`unpainted_remainder` x_from 13856 + counts, notes). The corridor schema grew an optional `tunnel`
+`games/sonic4/data/clips/s2_ehz_cpz/clips.json` (corridor rect, new `tunnel` key, CPZ dst x 11808,
+`unpainted_remainder` x_from 13856 + counts, notes), and `tools/clip_manifest.py`, which aurora also
+vendors (its currency gate hashes that blob). The corridor schema grew an optional `tunnel`
 object (clip_manifest K4/K5; `validate --json` schema number unchanged, no new top-level fields).
 Shared with the parallel parcels: none of their files; the background parcel's region crossing moved
 with the tunnel (x 11632 -> 11392, derived by `region_plan`, not typed).
