@@ -208,3 +208,21 @@ A short run on a live instrument would have reported it as unmeasurable.
   so it says nothing about Tails or Knuckles there.
 * `docs/lane-status.json` still lists `DPLC-STRADDLE-REACHABLE` as `next`. I left that shared
   file for the lander, because a parallel parcel is also writing it.
+
+## Verification
+
+Only tools, tests and docs changed. No `.emp`, map or build script was touched.
+`./tools/landing_build.sh` at `1209dfde` ran from `uptime` 04:22:43 (load 40.6) to 04:37:29
+(load 22.9) and ended `finished=0`:
+
+* pre-build `pytest tools -m "not needs_build"`: 3215 passed, 3 skipped, 30 deselected
+* `EXIT_s4=0` (821,479 B, crc32 `6d1af7a3`), `EXIT_s4.debug=0` (848,075 B, crc32 `62238a15`),
+  `EXIT_demo.debug=0` (104,707 B, crc32 `ce922bf7`)
+* needs_build lane: 29 ran, 0 deferred, 0 failed, 1 exempted (`test_deb2_appendix[demo.bin]`,
+  as that lane expects). The new test is among the 29 (`RAN
+  tools.test_dma_straddle_exercise::test_every_forced_control_frame_straddles_in_the_built_rom`).
+  `EXIT_needs_build=0`.
+
+`s4.debug.bin` has the same crc32 as the base build of `1efd5fb3` made before any change
+(`62238a15`). I did not build `s4.bin` or `demo.debug.bin` at the base, so I have no before/after
+pair for those two. This parcel cannot change their bytes, because it touches no build input.
