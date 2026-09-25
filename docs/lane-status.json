@@ -7,13 +7,13 @@
       "agent": true
     },
     {
-      "what": "Costing a longer Chemical Plant and each zone's original background against the room we have",
-      "where": "branch research/s2clip-cpz-bgs",
+      "what": "CLIP-BAKE-JSON: the editor can tell a bake crash from a refusal",
+      "where": "branch parcel/clip-bake-json",
       "agent": true
     },
     {
-      "what": "CLIP-BAKE-JSON: the editor can tell a bake crash from a refusal",
-      "where": "branch parcel/clip-bake-json",
+      "what": "Giving Emerald Hill and Chemical Plant their own Sonic 2 backgrounds (still images first) and freeing room in the debug build",
+      "where": "branch parcel/s2clip-original-bgs",
       "agent": true
     }
   ],
@@ -22,6 +22,10 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "what": "The assembler lane's card d-35-revised: longer Chemical Plant cannot fit until it is answered",
+      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "When the lag measurement and the costing come back and I've picked what lands first.",
@@ -36,15 +40,15 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant is too short: add more of the level",
-      "state": "doing",
+      "title": "Chemical Plant is too short: add more of it (costed: to its second checkpoint once d-35 lands)",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "your answer on the assembler lane's card d-35-revised: one more Chemical Plant section is 28 KB and runs into the sound-bank position that card moves",
       "project": "REGIONS"
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Each zone should show its own Sonic 2 background",
+      "title": "Each zone shows its own Sonic 2 background: still images first, scrolling after",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -160,5 +164,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T13:14:25Z"
+  "updatedAt": "2026-09-25T13:32:50Z"
 }
