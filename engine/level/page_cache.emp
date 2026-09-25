@@ -52,6 +52,18 @@ use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FR
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
 use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, TILE_CACHE_STRIDE}
 use engine.constants.{BLOCKS_PER_SECTION_AXIS, BLOCKS_PER_SECTION_SHIFT, SECTION_SIZE_SHIFT}
+use engine.constants.{BLOCK_STAGE_SLOTS, PAGE_FRAMES_MAX}
+
+// PageCache_Prefetch's resumable scan (streaming-lag fix, 2026-09-25) spells three
+// facts by shape rather than by loop: the proof cursors are cleared with four clr.l
+// (BLOCK_STAGE_SLOTS bytes), a row's byte offset is `row << (BLOCK_TILE_SHIFT+1)`, and
+// a Page_Table entry is tested with `tst.b / bmi` (PAGE_NOT_RESIDENT must be the ONLY
+// negative byte, so every real frame index must stay below $80).
+ensure(BLOCK_STAGE_SLOTS == 16, "PageCache_Prefetch clears Page_Pfx_Scan_Pos with FOUR clr.l (16 bytes) — re-derive that unroll if BLOCK_STAGE_SLOTS moves (BLOCK_STAGE_SLOTS = {BLOCK_STAGE_SLOTS})")
+ensure(BLOCK_TILE_SIZE * 2 == 1 << (BLOCK_TILE_SHIFT + 1) && BLOCK_NT_SIZE == BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2,
+       "PageCache_Prefetch's row offset `row << (BLOCK_TILE_SHIFT+1)` assumes a staged block row is BLOCK_TILE_SIZE words")
+ensure(PAGE_NOT_RESIDENT >= $80 && PAGE_NOT_RESIDENT <= $FF && PAGE_FRAMES_MAX <= $80,
+       "PageCache_Prefetch tests residency with `tst.b / bmi`: PAGE_NOT_RESIDENT must be a negative byte and every frame index a non-negative one")
 
 // ---- LS-8 family pins: the hand-spelled decompose literals in THIS module ----
 // PageCache_Prefetch_Strips decomposes a world tile coord into (sec_x, sec_y,
@@ -117,8 +129,11 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         // fills: the general loop is always correct, the direct one only under the
         // proof, so the safe value is the one that costs cycles.
         clr.b   PageCache_Direct_Map
+        // Every page is about to be non-resident: the prefetch scan's row proofs
+        // (Page_Pfx_Scan_Pos) are all void. One bump; the scan clears at its next sync.
+        addq.w  #1, Page_Evict_Gen
 
-        lea     Page_Table, a0                  // Page_Table[..] = PAGE_NOT_RESIDENT
+        lea     Page_Table, a0                 // Page_Table[..] = PAGE_NOT_RESIDENT
         move.w  #PAGE_TABLE_MAX-1, d0
     .clr_table:
         move.b  #PAGE_NOT_RESIDENT, (a0)+
@@ -300,6 +315,10 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
     .victim_ok:
     }
         move.w  PF_PAGE(a3, d1.w), d2           // departing page id
+        // A page leaves residency: every "row proven all-resident" the prefetch scan
+        // holds may now be false (it does not know which blocks referenced this page).
+        // Register-free, so this proc's d1-d2/a3 contract is untouched.
+        addq.w  #1, Page_Evict_Gen
         lea     Page_Table, a3
         move.b  #PAGE_NOT_RESIDENT, (a3, d2.w)  // Page_Table[page] = NOT_RESIDENT
         move.w  d2, d1                          // clear its queued bit too
@@ -736,6 +755,27 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
 // staged is skipped (its pages are unknown until the block-tier prefetch stages
 // it a few frames ahead; the demand-stall path is the correctness backstop).
 //
+// BOUNDED AND RESUMABLE (streaming-lag fix, 2026-09-25 — docs/research/2026-09-25-s4-lag.md).
+// This scan used to re-walk every staged ahead-strip block's 256 words EVERY frame
+// (23k-94k cycles per tick measured on the two-zone clip act, the first flown act
+// that streams), and it did not stop at VBlank, so it ran into the next tick — and
+// PageIn_Process then started a decode AFTER that VBlank, which the bookmark only
+// banks at the NEXT one: a whole frame lost. Three changes, each measured:
+//   * RESUMABLE CURSOR, one byte per staging slot (Page_Pfx_Scan_Pos): how many of
+//     the block's rows are proven all-resident. A row is walked at most once per
+//     (slot claim, eviction epoch); a block whose 16 rows are proven costs one probe.
+//     What can falsify a proof is an EVICTION (Page_Evict_Gen) or a re-CLAIM of the
+//     slot (Block_Stage_Gen/_Next, the round-robin claim) — both synced at entry. A
+//     page becoming resident can only make a proof truer, so Publish invalidates
+//     nothing.
+//   * COOPERATIVE YIELD at VBlank: VBlank_Flag (cleared by VSync_Wait before this
+//     runs, set by the VBlank) is polled once per block ROW (16 words, ~2k cycles),
+//     so the scan's overrun past VBlank is bounded by one row. The yield returns
+//     Z-clear so PageIn_Process knows not to start a decode on a stolen frame.
+//   * A QUEUED page (claim bit set: in the FIFO or in flight) is PENDING, not a new
+//     request: it holds the row's proof back but spends no budget, so one slow
+//     decode no longer stops the scan from reaching the rest of the strip.
+//
 // D3: this is the ENQUEUE side (never gated — it only warms the FIFO, bounded). The
 // admission gate on speculative decode STARTS lives in PageIn_Process.
 //
@@ -750,19 +790,20 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
 //
 // Preserves EVERY register (movem-banks its whole working set) so PageIn_Process's
 // declared clobber set — and hence VSync_Wait's folded license — never widens. The
-// two loop bodies hold their invariants in d5-d7 (preserved across
-// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4
-// (preserved across PageCache_Request's d0-d3/a0-a1 clobber).
+// two strip loops hold their invariants in d5-d7 (preserved across
+// TileCache_FindStagedBlock's d3-d4/a1 clobber); .scan_block banks d5-d7 itself and
+// holds its own state in d4-d7/a2-a5 (preserved across PageCache_Request's
+// d0-d3/a0-a1 clobber).
+// A yield leaves VBlank_Flag set, which is how PageIn_Process knows not to start a
+// decode on the frame that is already over (it tests the flag after this call).
 // In: none   Out: none   Clobbers: () — preserves d0-d7/a0-a6
 // -----------------------------------------------
 pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         // FULLY-RESIDENT degenerate path (§9.7): when the whole pool fits the
         // frame clamp (latched by Level_LoadArt), the bulk load ends with every
         // page permanently resident — nothing this scan could ever find is
-        // non-resident, so the entire ahead-strip word walk (up to ~6 blocks x
-        // 256 words per moving frame) is pure waste. One tst deletes it for
-        // every act that fits, i.e. all shipped content; streaming acts fall
-        // through.
+        // non-resident. One tst deletes it for every act that fits; streaming
+        // acts fall through.
         tst.b   PageIn_Fully_Resident
         bne     .ret
         // DEMAND-FIRST discipline (chain 74): while the fill has an unresolved demand
@@ -775,10 +816,9 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         bne     .ret
         // BULK-FIRST discipline (chain 78, mirror of the demand-first gate above): while
         // Level_LoadArt's init bulk pool load + drain-wait is active, speculative prefetch
-        // must NOT enqueue. The drain spins on queue-empty + idle; with 41 pages vs 15
-        // frames a prefetch landing evicts a resident page whose ahead-strip refs get re-scanned
-        // and re-requested — a prefetch<->evict cycle that never drains (black-screen
-        // livelock, Preempts/Resumes climbing ~1/frame with Demands stuck at 0). The bulk
+        // must NOT enqueue. With more pages than frames a prefetch landing evicts a
+        // resident page whose ahead-strip refs get re-scanned and re-requested — a
+        // prefetch<->evict cycle that never drains (black-screen livelock). The bulk
         // drain has no Cache_Art_Stall, so the demand-first gate does not cover it; this
         // flag does. (Also covers act-transition reloads — it spans the whole bulk load.)
         tst.b   PageIn_Bulk_Drain
@@ -786,6 +826,44 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         tst.w   Page_Pfx_Budget
         beq     .ret                            // no budget left this frame — cheap exit
         movem.l d0-d7/a0-a6, -(sp)
+
+        // ---- SYNC the per-slot row proofs (see the header) ----
+        lea     Page_Pfx_Scan_Pos, a0
+        move.w  Page_Evict_Gen, d0
+        cmp.w   Page_Pfx_Evict_Seen, d0
+        beq     .sync_claims
+        move.w  d0, Page_Pfx_Evict_Seen         // an eviction (or act reset) since: void every proof
+    .sync_all:
+        move.w  (Block_Stage_Gen).w, (Page_Pfx_Stage_Gen).w // widths pinned: mem-to-mem two-symbolic operands
+        clr.l   (a0)                            // BLOCK_STAGE_SLOTS bytes (ensure'd 16 at the module head)
+        clr.l   4(a0)
+        clr.l   8(a0)
+        clr.l   12(a0)
+        jbra    .synced
+    .sync_claims:
+        // Claims are strictly round-robin from Block_Stage_Next (DecompressBlock is
+        // the one claim site), so the `delta` claims since the last sync re-keyed
+        // exactly the slots [Next - delta .. Next) mod BLOCK_STAGE_SLOTS — the same
+        // derivation Tile_Cache_Fill's F2 memo uses. TileCache_InvalidateStaging
+        // bumps the generation once and resets Next to 0; the formula then also
+        // clears slot BLOCK_STAGE_SLOTS-1 (harmless: conservative), and every slot it
+        // does not clear holds the $FFFFFFFF key, which no probe can hit until the
+        // slot is claimed again — and that claim is counted here.
+        move.w  Block_Stage_Gen, d0
+        sub.w   Page_Pfx_Stage_Gen, d0          // d0 = claims since the last sync
+        beq     .synced
+        cmpi.w  #BLOCK_STAGE_SLOTS, d0
+        bhs     .sync_all                       // a full turnover: every slot re-claimed
+        move.w  (Block_Stage_Gen).w, (Page_Pfx_Stage_Gen).w // widths pinned: mem-to-mem two-symbolic operands
+        move.w  Block_Stage_Next, d1
+        sub.w   d0, d1                          // first slot claimed since (masked per step)
+        subq.w  #1, d0
+    .sync_slot:
+        andi.w  #BLOCK_STAGE_SLOTS-1, d1
+        clr.b   (a0, d1.w)                      // re-claimed: its block's rows are unproven
+        addq.w  #1, d1
+        dbf     d0, .sync_slot
+    .synced:
 
         // ---- ROW strip: ahead block-row across cache cols [Left..Head] ----
         move.w  Cache_Pfx_Row_Target, d6
@@ -801,6 +879,8 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
     .row_scan:
         tst.w   Page_Pfx_Budget
         beq     .strips_done
+        tst.b   VBlank_Flag
+        bne     .strips_done                     // the idle window is over — yield
         cmp.w   Cache_Head_Col, d7
         bhi     .col_strip                       // past the cache head — row strip done
         move.w  d7, d0
@@ -810,9 +890,10 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         lsr.w   #BLOCK_TILE_SHIFT, d2
         andi.w  #$F, d2                           // block_x
         add.w   d6, d2                            // block_index = block_y*16 + block_x
-        jbsr    TileCache_FindStagedBlock         // Z on hit, a1 = slot; d0-d2 preserved
+        jbsr    TileCache_FindStagedBlock         // Z on hit, a1 = slot, d4 = slot*4; d0-d2 preserved
         bne     .row_next                         // not staged -> pages unknown, skip
-        jbsr    .scan_block                       // a1 = slot base
+        jbsr    .scan_block                       // Z clear = stop this frame (yield / budget)
+        bne     .strips_done
     .row_next:
         addi.w  #BLOCK_TILE_SIZE, d7
         jbra    .row_scan
@@ -831,6 +912,8 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
     .col_scan:
         tst.w   Page_Pfx_Budget
         beq     .strips_done
+        tst.b   VBlank_Flag
+        bne     .strips_done                     // the idle window is over — yield
         cmp.w   Cache_Bottom_Row, d7
         bhi     .strips_done                      // past the cache bottom — col strip done
         move.w  d5, d0                            // sec_x
@@ -844,6 +927,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         jbsr    TileCache_FindStagedBlock
         bne     .col_next
         jbsr    .scan_block
+        bne     .strips_done
     .col_next:
         addi.w  #BLOCK_TILE_SIZE, d7
         jbra    .col_scan
@@ -854,18 +938,41 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         rts
 
     .scan_block:
-        // Scan a staged block's BLOCK_NT_SIZE/2 LOCAL nametable words; map each
-        // local->global (a3 = the block's section map, per-block via
-        // Cache_Cur_LocalMap); for each non-blank global whose page is a REAL
-        // pool page and not resident, PageCache_Request(prefetch) and decrement
-        // Page_Pfx_Budget. Stops at budget 0. a2 (cursor) + d4 (counter) + a3
-        // (map) survive PageCache_Request (it clobbers d0-d3/a0-a1). Nothing
-        // act-related is live here — the pool bound is read from
-        // PageIn_Pool_Pages. a1 = slot base (in).
-        movea.l a1, a2                            // a2 = scan cursor
-        movea.l Cache_Cur_LocalMap, a3            // a3 = this block's local->global map
-        move.w  #(BLOCK_NT_SIZE/2)-1, d4          // word count - 1
-    .sb_loop:
+        // Walk a staged block's unproven rows, resuming at its slot's cursor. Each
+        // LOCAL nametable word maps local->global through the block's section map
+        // (Cache_Cur_LocalMap, published by the probe that found it); a non-blank
+        // global whose page is a REAL pool page and not resident is either PENDING
+        // (claim bit set: queued or in flight — spends no budget) or Requested
+        // (prefetch; spends one unit of Page_Pfx_Budget). A row with no such page
+        // advances the cursor; once any row of the block has missed, the cursor
+        // freezes there for this pass so the next frame re-checks from it.
+        // In:  a1 = slot base, d4 = slot*4 (FindStagedBlock's hit outputs)
+        // Out: Z set = carry on along the strip; Z clear = stop this frame (VBlank
+        //      yield or budget spent). Banks the strip walk's d5-d7; d0-d4/a0-a5 are
+        //      the enclosing proc's (all restored by its epilogue movem).
+        // State across PageCache_Request (clobbers d0-d3/a0-a1): d4 = row-missed
+        //   flag, d5 = pool pages, d6 = word counter, d7 = row, a2 = word cursor,
+        //   a3 = section map, a4 = Page_Table, a5 = this slot's cursor byte.
+        movem.l d5-d7, -(sp)
+        lsr.w   #2, d4                            // slot*4 -> slot
+        lea     Page_Pfx_Scan_Pos, a5
+        adda.w  d4, a5                            // a5 = &Page_Pfx_Scan_Pos[slot]
+        moveq   #0, d7
+        move.b  (a5), d7                          // d7 = first unproven row
+        cmpi.w  #BLOCK_TILE_SIZE, d7
+        bhs     .sb_continue                      // every row proven — one probe, no walk
+        move.w  d7, d0
+        lsl.w   #BLOCK_TILE_SHIFT + 1, d0         // row * BLOCK_TILE_SIZE words * 2 bytes
+        lea     (a1, d0.w), a2                    // a2 = the first unproven row's first word
+        movea.l Cache_Cur_LocalMap, a3            // this block's local->global map
+        lea     Page_Table, a4
+        move.w  PageIn_Pool_Pages, d5             // pool-bounds invariant (see the header)
+        moveq   #0, d4                            // no row of this block has missed yet
+    .sb_row:
+        tst.b   VBlank_Flag
+        bne     .sb_stop                          // yield at a row boundary (<= one row of overrun)
+        moveq   #BLOCK_TILE_SIZE-1, d6
+    .sb_word:
         move.w  (a2)+, d0
         andi.w  #NT_TILE_MASK, d0                 // LOCAL tile index
         beq     .sb_next                          // local 0 = blank (map[0]==0) — skip the map read
@@ -873,23 +980,43 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         move.w  (a3, d0.w), d0                    // d0 = GLOBAL slot (full u16)
         beq     .sb_next                          // global 0 = blank -> no page
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d0        // page id
-        cmp.w   PageIn_Pool_Pages, d0             // pool-bounds invariant: a REAL pool page?
+        cmp.w   d5, d0                            // pool-bounds invariant: a REAL pool page?
         bhs     .sb_next                          // page >= pages -> scan artifact, skip silently
-        lea     Page_Table, a0
-        move.b  (a0, d0.w), d1
-        cmpi.b  #PAGE_NOT_RESIDENT, d1
-        bne     .sb_next                          // resident -> nothing to prefetch
-        move.w  #PGRQ_PREFETCH, d1               // non-resident -> request (Request dedups queued)
-        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4 survive
+        tst.b   (a4, d0.w)                        // frame (0..PAGE_FRAMES_MAX-1) or PAGE_NOT_RESIDENT
+        bmi     .sb_miss                          // $FF is the only negative entry (ensure'd at the head)
+    .sb_next:
+        dbf     d6, .sb_word
+        tst.w   d4
+        bne     .sb_row_done                      // a row missed: the cursor stays put
+        addq.b  #1, (a5)                          // this row is proven all-resident
+    .sb_row_done:
+        addq.w  #1, d7
+        cmpi.w  #BLOCK_TILE_SIZE, d7
+        blo     .sb_row
+    .sb_continue:
+        movem.l (sp)+, d5-d7                      // (movem leaves the CCR alone)
+        moveq   #0, d0                            // Z set: carry on along the strip
+        rts
+    .sb_stop:
+        movem.l (sp)+, d5-d7
+        moveq   #1, d0                            // Z clear: stop scanning this frame
+        rts
+
+    .sb_miss:
+        moveq   #1, d4                            // this row stays unproven (and so do later ones)
+        move.w  d0, d1
+        lsr.w   #3, d1                            // claim bitset byte (page/8)
+        lea     Page_Queued_Bits, a0
+        btst    d0, (a0, d1.w)                    // bit page&7 (btst on a byte operand is mod 8)
+        bne     .sb_next                          // already claimed: pending, no budget spent
+        move.w  #PGRQ_PREFETCH, d1                // non-resident, unclaimed -> request
+        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1
     if DEBUG == 1 {
         addq.w  #1, Dbg_PageCache_Prefetches
     }
         subq.w  #1, Page_Pfx_Budget
-        beq     .sb_done                          // budget exhausted this frame
-    .sb_next:
-        dbf     d4, .sb_loop
-    .sb_done:
-        rts
+        bne     .sb_next
+        jbra    .sb_stop                          // budget spent this frame
 }
 
 

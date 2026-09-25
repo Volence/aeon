@@ -157,6 +157,13 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         // FIFO (bounded PAGE_PREFETCH_MAX/frame). Preserves every register, so this
         // proc's clobber set — and VSync_Wait's folded license — does NOT widen.
         jbsr    PageCache_Prefetch
+        // The prefetch scan yields at VBlank (streaming-lag fix, 2026-09-25). If the
+        // VBlank has ALREADY fired, the idle window is over: a decode started now is
+        // only banked at the NEXT VBlank, so it would take the whole of the next
+        // tick's frame (the measured lag mechanism on the first streaming act). Start
+        // nothing; a queued request waits one frame.
+        tst.b   VBlank_Flag
+        bne     .idle
 
         tst.b   PageIn_Queue_Count
         beq     .idle                           // no requests -> nothing to do
