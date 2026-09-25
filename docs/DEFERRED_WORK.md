@@ -38233,6 +38233,26 @@ crossing (moved there by the tunnel parcel) together with the BG wipe and palett
 **OPEN:** animated ripple (sub-frame phase, S); stepped-curve band (S) if the owner wants EHZ's slats; faithful
 CPZ (tall BG with BG-space bands + wide BG, L each — unchanged from B-1).
 
+## BG-SWITCH-POISON-MARGIN: the POISON leg reaches its precondition by one tick (OPEN, booked 2026-09-25, `research/shorter-connector`)
+
+`tools/bg_switch_gate.py` leg POISON grades "an overwrite that cancels a sweep still ends with
+the whole plane repainted" (the `clr.l BG_Plane_Layout` in `BG_Stream_Update`'s overwrite arm,
+C6). Its precondition is a sweep STILL IN FLIGHT when the camera crosses into the patched
+neighbour. Since a one-plane background is swept by DMA from ROM (`.wipe_dma`,
+`BG_WIPE_DMA_ROWS` = 14 rows a frame, 5 frames for 64 rows, where the CPU sweep took 16), the
+leg's old route (three fly steps inside the subject) arrived after the sweep had finished and
+refused as COULD NOT RUN. The route now starts one fly step inside, and the gate's own line
+reads `in at 11, sweep at 14, into patched neighbour at 18 (cursor the tick before: 8)`.
+**8 rows, i.e. ONE tick of margin.** It is proven red against the C6 mutation (`nop` for the
+`clr.l`: "8 of 64 Plane B rows do not hold the patched neighbour's layout"), but any further
+speed-up of the sweep, or of the fly, puts it back into COULD NOT RUN.
+
+**The redesign:** hold the sweep in flight by starving the Deferrable queue, the way leg
+ORDER_STARVED holds the last tile chunk, so the crossing happens while the cursor is pinned
+instead of racing it. Then the precondition no longer depends on the sweep rate or the route.
+Not done here: the leg is green and discriminating today, and this is a robustness change to
+a gate, not a defect in the engine.
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
