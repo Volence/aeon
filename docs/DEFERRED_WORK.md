@@ -38253,6 +38253,19 @@ instead of racing it. Then the precondition no longer depends on the sweep rate 
 Not done here: the leg is green and discriminating today, and this is a robustness change to
 a gate, not a defect in the engine.
 
+## SHORT-TUNNEL-VSCROLL-RATCHET: a one-plane background still slides 16 px a frame after a crossing (OPEN, booked 2026-09-25, `research/shorter-connector`)
+
+Measured on `s2_ehz_cpz_short` (384-px tunnel, after B-2): EHZ's and CPZ's Sonic 2 scroll
+records put the BG vscroll ~87 px apart at the tunnel, and `parallax.emp` Step 5's rate clamp
+(`BG_VSCROLL_MAX_STEP` = 16 px a frame) makes the far background slide vertically for ~6
+frames after the crossing. At the camera cap the far zone reaches the screen 2-3 frames after
+the crossing, so crossing_witness counts 3 glitch frames arriving CPZ and 4 arriving EHZ. The
+shortest glitch-free connector on today's engine is 480 px. The candidate lever is this
+booking's sibling BG-RATE-PRIME-EXEMPTION, narrowed: skip the clamp when the region's map is
+one plane tall, since the clamp exists so the row streamer is never outrun and a one-plane map
+has no window to outrun. It changes canonical one-plane crossings and warps and is graded by
+`bg_vscroll_rate`, so it wants its own parcel. Research: docs/research/2026-09-25-shorter-connector.md §8.7.
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
