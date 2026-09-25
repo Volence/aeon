@@ -25,10 +25,10 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The debug build of the two-zone Sonic 2 act is 18 KB over its memory-space limit; the plain build fits. Fixing it means moving the sound banks, with the assembler lane",
-      "state": "blocked",
+      "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
+      "state": "open",
       "size": "M",
-      "blockedBy": "asked the hub to rule in your place: accept for now vs give the test act its own sound-bank anchors vs move the shipping ones",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -147,5 +147,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:09:43Z"
+  "updatedAt": "2026-09-25T09:10:19Z"
 }

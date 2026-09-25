@@ -39926,3 +39926,27 @@ table answering "what is this name worth in this ROM" in two different senses wi
 
 **Not fixed here, by rule: this is another tree, and this lane does not edit it.** `evict_witness.py`
 already prints both numbers and goes with the ROM, so no aeon instrument is currently misled.
+
+## S2CLIP-DEBUG-ROOM: the two-zone clip act's DEBUG shape exits 1 at the room gate, KNOWN and RULED (booked 2026-09-25T09:10:19Z)
+
+**Ruled (C) by the hub in the owner's place, non-look, overturnable by one word** (empyrean `e229e1a3`,
+`docs/OVERSEER-LOG.md`, heading "2026-09-25T09:09:45Z HUB RULING ... clip DEBUG shape short of the growth
+reserve"; read there, verified reachable from `origin/main`).
+
+- **The known failure, one shape only:** `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` exits 1 at
+  `tools/bganim_room.py --gate`. Packed data ends at **0xA074C**, leaving **30,900 B** under `dac_banks` at
+  **0xA8000** against `DATA_GROWTH_RESERVE` **49,152 B** (short by 18,252 B). Measured by the row-7 agent and
+  reproduced on master `481ac02e`, where the ROM it writes is crc `441f1db0`, 848,912 B.
+- **The gate is NOT loosened, skipped or special-cased.** The ROM that shape writes is intact (no overlap; the gate
+  protects future growth) and **may be flown**.
+- **Every other shape passes:** plain `S2CLIP=s2_ehz_cpz` with 8,974 B above the reserve; all canonical shapes
+  untouched; the nightly does not build clip shapes.
+- **(A) REFUSED:** shipping layout must not follow a test fixture, so the clip shapes do not enter
+  map.toml's anchor max.
+- **(B) IS ROW 8's FIRST JOB:** give the clip shape its own anchor pair, the rule applied to itself. It is **priced
+  on both sides (aeon + sigil) before any row-8 zone work dispatches.** The sigil half is a paired ask to sigil,
+  not aeon's to write. Expect row 8 to fail the PLAIN clip shape too without it: 8,974 B of room left against a
+  third zone.
+
+**Re-derive, do not inherit:** `export SIGIL_BUILD=... SIGIL_EMIT=...; DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` in a
+worktree, then read the `bganim_room: FAIL` block.
