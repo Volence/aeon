@@ -7,7 +7,7 @@
       "agent": true
     },
     {
-      "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
+      "what": "Chemical Plant extended about 1,060 px further (to a wall only a layer switch gets past); re-checking on top of the scrolling change, then landing",
       "where": "branch parcel/rule-b-reachable",
       "agent": true
     }
@@ -133,5 +133,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:21:03Z"
+  "updatedAt": "2026-09-25T18:56:55Z"
 }
