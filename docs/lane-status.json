@@ -15,6 +15,11 @@
       "what": "Making Emerald Hill and Chemical Plant's backgrounds scroll like Sonic 2's",
       "where": "branch parcel/s2clip-bg-scroll",
       "agent": true
+    },
+    {
+      "what": "Turning the Emerald Hill to Chemical Plant connector into a shorter enclosed tunnel",
+      "where": "branch parcel/s2clip-tunnel-corridor",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -47,6 +52,14 @@
       "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
       "state": "doing",
       "size": "L",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "S2CLIP-TUNNEL",
+      "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
+      "state": "doing",
+      "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -167,5 +180,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T14:58:13Z"
+  "updatedAt": "2026-09-25T14:59:47Z"
 }
