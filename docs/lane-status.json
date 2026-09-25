@@ -1,6 +1,17 @@
 {
-  "focus": "Waiting a few minutes for a shared tool swap, then building a cheaper background curve and the Sonic 2 songs.",
-  "inFlight": [],
+  "focus": "Building a cheaper background curve for Emerald Hill (same picture, less lag) and the Sonic 2 songs' sounds and drums.",
+  "inFlight": [
+    {
+      "what": "Cheaper background curve for Emerald Hill, identical picture",
+      "where": "branch parcel/parallax-curve-loop",
+      "agent": true
+    },
+    {
+      "what": "Zone music steps 2-3: Sonic 2 sound envelopes and drums mapped onto Sonic 3's",
+      "where": "branch parcel/s2-music-envelopes-drums",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -13,12 +24,12 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Shared sigil swap to f52609fe (hub's window); then the curve fix and music steps 2-3 get dispatched.",
+  "nextBoundary": "Both parcels landed with their checks; then the songs go into the ROM and the switch at the tunnel exit gets built.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
       "title": "Emerald Hill to Chemical Plant music: converter landed; next the sound envelopes and drum mapping, then the songs and the switch",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -33,7 +44,7 @@
     {
       "id": "S2CLIP-LAG",
       "title": "Emerald Hill's slowdown found (its Sonic 2 background); a cheaper curve with the identical picture wins back 9 of 18 lost lag frames. Next to build",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -90,7 +101,7 @@
     {
       "id": "S2-COMPRESSED-ACT",
       "title": "Sonic 2 test act: you flew it (09-25); your three asks are the S2CLIP rows above",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -124,7 +135,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Your pick from the performance list (card PERF-PICK). Separately, I'm waiting on the hub's shared-tool swap before starting the next builds.",
+  "awaiting": "Your pick from the performance list (card PERF-PICK) when you have a minute.",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T23:06:57Z"
+  "updatedAt": "2026-09-25T23:08:24Z"
 }
