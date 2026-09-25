@@ -399,6 +399,12 @@ def test_each_arm_admits_a_file_that_only_it_reaches(tmp_path, name, text, arm):
     # the cart_coverage_census shape: names the class, drives nothing
     ("census.py", 'CANARY = {"sfx.py": "reached solely by `from aether import BusClient`"}\n'),
     ("prose.py", '"""Talks to emulator/read_memory through BusClient."""\nX = 1\n'),
+    # the two protocol-arm guards, one fixture each (a first single fixture passed under
+    # either guard alone, so neither guard could fail it): a method name inside a CODE
+    # sentence is held off by the whole-string match; a docstring that IS a method name
+    # is held off by the prose exclusion
+    ("helpstr.py", 'HELP = "reads through emulator/read_memory, see its docs"\n'),
+    ("bare_doc.py", 'def f():\n    """emulator/read_memory"""\n    return 1\n'),
     # borrowing a member's ARITHMETIC is not driving an emulator
     ("arith.py", "from lender import parse\nparse('a b')\n"),
     # a table of scripts is not a child process
