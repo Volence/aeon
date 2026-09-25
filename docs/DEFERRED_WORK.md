@@ -40226,3 +40226,12 @@ worktree, then read the `bganim_room: FAIL` block.
   reserve, crc `9e9e1979`) because the clip DEBUG build no longer carries the canonical act's DEBUG-only test
   backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
   growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".
+
+## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z)
+
+Hub ruling empyrean `616c2026` §11.52, option C, on oracle's F-Z80 CR (oracle `docs/2026-09-25-z80-watch-cr.md` at `94665a6`).
+Once oracle lands it, Z80 YM/PSG writes reach bus watches at `$A04000-$A04003` / `$A07F11` with `via: "z80"`, the
+Z80's pc and no fc; the old `$4000-$4003` / `$7F11` stop matching, so the L0 poison control goes loud. **aeon half:** move
+`YM_A0..A3` in `tools/song_load_mid_drum_witness.py` (`tools/fm6_foreign_sample_witness.py` inherits them through
+`YmTap`), and check `tools/poke_storm_sound_cost_witness.py`. Land in the same window as oracle; oracle coordinates timing.
+Low priority: all three are off-runner (`tools/keepalive_manifest.toml`), so nothing reddens until someone runs them.

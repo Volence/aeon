@@ -156,9 +156,16 @@
       "state": "blocked",
       "size": "L",
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
+    },
+    {
+      "id": "Z80-TAP-ADDR-MOVE",
+      "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T14:50:44Z"
+  "updatedAt": "2026-09-25T14:58:13Z"
 }
