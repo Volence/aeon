@@ -1,6 +1,6 @@
 # aeon overseer handoff 26 (2026-09-25, session aeon-68)
 
-NOTE: after this file was written the owner asked "real sonic 2 level should switch to short tunnel"; check lane-status and lane-log for whether S2CLIP-ADOPT-SHORT-TUNNEL landed before starting.
+UPDATE: S2CLIP-ADOPT-SHORT-TUNNEL LANDED at 64ab0221. The real act `s2_ehz_cpz` has the 384 px tunnel; `s2_ehz_cpz_short` no longer exists. Installed clip ROMs: s4.s2clip.bin aa258967, s4.s2clip.debug.bin c7d567ab. New: a declared 448 px unpainted remainder at the act end (x 15936..16383), unreachable on plane A.
 
 CLEAN boundary (as first written): nothing in flight, no agent holding a branch, and master is pushed. The owner asked for a /clear
 with this as the next job, so START WITH THE PERFORMANCE SURVEY BELOW. He said go ("If so let me /clear and you can
