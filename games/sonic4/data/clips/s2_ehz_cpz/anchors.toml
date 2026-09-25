@@ -10,17 +10,17 @@
 # Rule (map.toml BANK PLACEMENT RULE, tools/bganim_room.py rule_anchor):
 #   dac_banks = align_up(packed_end + reserve + grace, 0x8000), max over the
 #   clip's shapes; sound_bank = dac_banks + 0x10000.
-# measured: shape=s4.s2clip packed_end=0x9B38C rule=0xB0000 rom_crc=ebb43f48 rom_size=855679
-# measured: shape=s4.s2clip.debug packed_end=0x9BEA4 rule=0xB0000 rom_crc=e5d14145 rom_size=882155
+# measured: shape=s4.s2clip packed_end=0x9CAC8 rule=0xB8000 rom_crc=ec7846ec rom_size=855679
+# measured: shape=s4.s2clip.debug packed_end=0x9D5E0 rule=0xB8000 rom_crc=151d6927 rom_size=882153
 # binding shape: s4.s2clip, s4.s2clip.debug
 
 [[anchor]]
 name = "dac_banks"
-at = 0xB0000
+at = 0xB8000
 when = "sound_on"
 
 [[anchor]]
 name = "sound_bank"
-at = 0xC0000
+at = 0xC8000
 vma = 0x8000
 when = "sound_on"
