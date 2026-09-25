@@ -410,21 +410,23 @@ def check_tree_is_clean(paths, git="git"):
 CLIP_MODULE_REL = GEN_REL + "/effects_scenes_clip.emp"
 CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
 CLIP_MODULE_NAME = "games.sonic4.ojz_effects_editor_act1_clip"
-#: The section the clip act's data joins. effects_gen's own generated block, placed in
-#: games/sonic4/map.toml by SECTION NAME, so new bytes there need no map.toml edit (its
-#: header says so) — a clip act adds bytes without adding a placement row, which is what
-#: keeps the canonical map untouched.
+#: WHERE THE CLIP ACT'S BYTES GO: appended to effects_gen's generated module
+#: (effects_scenes.emp), whose section `ojz_effects_editor_act1` games/sonic4/map.toml places
+#: by SECTION NAME — so new bytes there need no map.toml row (that file's header says so),
+#: and the canonical map is untouched. The clip MODULE above carries no data at all.
 #:
-#: ⚠ THE FILE AND MODULE NAMES SORT AFTER effects_scenes.emp ON PURPOSE, and it is
-#: load-bearing. MEASURED on the first clip build (2026-09-25): named `clip_act.emp` /
-#: `games.sonic4.ojz_clip_act_act1`, the clip data landed AHEAD of effects_gen's block,
-#: `OJZ_Clip_Palette_0` became the section's head label, and sigil refused the build with
-#: `[layout.undeclared-alignment] section ojz_effects_editor_act1 (head label
-#: OJZ_Clip_Palette_0) has NO declared alignment` — its alignment table is keyed by the
-#: head label, and declaring a new one is a sigil change this lane may not make. Named
-#: `effects_scenes_clip.emp` / `..._act1_clip`, it sorts after both the file and the module
-#: it shares the section with, the head stays `EditorSceneBinding_OJZ_Act1_Sec0`, and if a
-#: rename ever moves it ahead again, that same refusal says so by name.
+#: ⚠ WHY APPENDED AND NOT A MODULE OF ITS OWN IN THAT SECTION — measured, twice, on
+#: 2026-09-25. With the data in its own module declared `in ojz_effects_editor_act1`, the
+#: clip data landed AHEAD of effects_gen's block, `OJZ_Clip_Palette_0` became the section's
+#: head label, and sigil refused the build: `[layout.undeclared-alignment] section
+#: ojz_effects_editor_act1 (head label OJZ_Clip_Palette_0) has NO declared alignment` — its
+#: alignment table (sigil-harness section_align.rs) is keyed by the HEAD LABEL, and adding a
+#: row is a sigil change this lane may not make. Renaming the module and file so both sort
+#: after effects_scenes (the obvious guess) changed NOTHING — the second build refused
+#: identically — so the intra-section order is not the name order, and nothing here relies
+#: on guessing it. Appended to the SAME module, the bytes follow its existing data in source
+#: order, and the head stays `EditorSceneBinding_OJZ_Act1_Sec0`. Should that ever move, the
+#: same sigil refusal names it.
 CLIP_MODULE_SECTION = "ojz_effects_editor_act1"
 
 _CLIP_HEADER = """\
@@ -437,10 +439,37 @@ _CLIP_HEADER = """\
 """
 
 
+#: effects_gen's generated module — the one module whose section is placed by NAME, so the
+#: clip act's BYTES go at its END (see the ⚠ block above for why they cannot come first).
+EFFECTS_SCENES_REL = GEN_REL + "/effects_scenes.emp"
+EFFECTS_SCENES = os.path.join(REPO, EFFECTS_SCENES_REL)
+EFFECTS_SCENES_MODULE = "games.sonic4.ojz_effects_editor_act1"
+CLIP_DATA_BEGIN = "// ==== BEGIN CLIP ACT DATA (tools/clip_rom_bake.py, S2-COMPRESSED-ACT row 7) ===="
+CLIP_DATA_END = "// ==== END CLIP ACT DATA ===="
+#: The imports the appended block needs, inserted after the module's own `use` block (an
+#: import is a declaration of the module, not of the block).
+CLIP_DATA_USES = ("use engine.structs.{Region}\n"
+                  "use engine.effects.preset.{EffectsPreset, preset}\n"
+                  "use engine.effects.raster.{Raster_Program_None}\n"
+                  "use engine.effects.palette.{Pal_Cycle_None}\n")
+
+
+def _region_rows_text(plan):
+    # The trailing comma goes BEFORE the comment: a comma after `//` is inside the comment
+    # (measured — the first emission of this table did that and sigil refused row 2).
+    return "\n    ".join(
+        f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
+        f"rg_effects: {r['preset_label']}, rg_parallax: 0, rg_bg_layout: 0, rg_bg_span: 0, "
+        f"rg_bg_tiles: 0 }},  // {r['why']}"
+        for r in plan["rows"])
+
+
 def clip_module_text(plan=None):
-    """The module text. `plan` None is the NEUTRAL module the tree commits: no clip act, the
-    chooser hands back the descriptor's own table, zero bytes and zero labels — so the
-    canonical ROMs are the shipped act exactly. A plan (from `region_plan`) is a clip act."""
+    """The clip module's text. `plan` None is the NEUTRAL module the tree commits: no clip
+    act, the chooser hands back the descriptor's own table, zero bytes and zero labels — so
+    the canonical ROMs are the shipped act exactly. A plan (from `region_plan`) is a clip
+    act: its constants, its region ROWS (for the descriptor's table walk) and the chooser.
+    It carries NO data — the bytes are `clip_data_block`'s, appended to effects_scenes.emp."""
     if plan is None:
         return (_CLIP_HEADER +
                 "// THIS IS THE NEUTRAL MODULE — the one the tree commits and the canonical\n"
@@ -453,46 +482,67 @@ def clip_module_text(plan=None):
                 "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
                 "    return hand\n"
                 "}\n")
-    lines = [_CLIP_HEADER,
-             f"// CLIP ACT {plan['act']} — {len(plan['zones'])} donor zone(s), "
-             f"{len(plan['rows'])} region row(s).\n",
-             "// Written by a THROWAWAY S2CLIP bake into the shipped act's slot; build.sh's\n"
-             "// EXIT trap restores the neutral module. Never commit this version.\n\n",
-             f"module {CLIP_MODULE_NAME} in {CLIP_MODULE_SECTION}\n\n",
-             "use engine.structs.{Region}\n",
-             "use engine.effects.preset.{EffectsPreset, preset}\n",
-             "use engine.effects.raster.{Raster_Program_None}\n",
-             "use engine.effects.palette.{Pal_Cycle_None}\n\n",
-             "pub const OJZ_CLIP_ACT = 1\n\n"]
+    presets = ", ".join(z["preset_label"] for z in plan["zones"])
+    n = len(plan["rows"])
+    return (_CLIP_HEADER +
+            f"// CLIP ACT {plan['act']} — {len(plan['zones'])} donor zone(s), {n} region row(s).\n"
+            "// Written by a THROWAWAY S2CLIP bake; build.sh's EXIT trap restores the neutral\n"
+            "// module. Never commit this version. The palettes, presets and the emitted table\n"
+            f"// are appended to {EFFECTS_SCENES_REL} (between its CLIP ACT DATA markers).\n\n"
+            f"module {CLIP_MODULE_NAME}\n\n"
+            "use engine.structs.{Region}\n"
+            f"use {EFFECTS_SCENES_MODULE}.{{{presets}}}\n\n"
+            "pub const OJZ_CLIP_ACT = 1\n\n"
+            "// The rows the descriptor re-checks. The SAME text is emitted as the table\n"
+            "// `OJZ_Clip_Regions` in the data block; Z2 holds the two byte-identical.\n"
+            f"pub const OJZ_CLIP_REGION_ROWS: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n\n"
+            "// `OJZ_Clip_Regions` is not imported at the call site: a comptime fn's free names\n"
+            "// resolve THERE (docs/EMP_PITFALLS.md §2), and an unknown name in a Label position\n"
+            "// becomes a link extern — the route effects_gen's choosers already take.\n"
+            "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
+            "    return OJZ_Clip_Regions\n"
+            "}\n")
+
+
+def clip_data_block(plan):
+    """The clip act's BYTES: per zone a palette and an EffectsPreset, then the region table
+    the Act names. Appended to effects_scenes.emp so they follow effects_gen's own block."""
+    out = [CLIP_DATA_BEGIN + "\n",
+           f"// CLIP ACT {plan['act']}. A THROWAWAY S2CLIP bake appended this; build.sh's EXIT\n"
+           "// trap restores the committed file. NOT effects_gen output — never commit it.\n"]
     for z in plan["zones"]:
         words = z["palette_words"]
         body = ",\n    ".join(", ".join(f"${w:04X}" for w in words[i:i + 8])
                               for i in range(0, 48, 8))
-        lines.append(
+        out.append(
             f"// zone key {z['key']}: {z['donor']} {z['zone']} — the donor's own 96 palette "
             f"bytes (CRAM lines 1-3),\n// {z['palette_file']} sha256 {z['palette_sha256']}\n"
             f"pub data {z['palette_label']}: [u16; 48] = [\n    {body}\n]\n"
             f"// transition: 1 — the 16-frame cross-fade arms on EVERY install of this "
             f"preset,\n// so the crossing fades both ways (engine/effects/preset.emp).\n"
             f"pub data {z['preset_label']}: EffectsPreset = preset(pal: {z['palette_label']}, "
-            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n\n")
-    # The trailing comma goes BEFORE the comment: a comma after `//` is inside the comment
-    # (measured — the first emission of this table did that and sigil refused row 2).
-    rows = "\n    ".join(
-        f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
-        f"rg_effects: {r['preset_label']}, rg_parallax: 0, rg_bg_layout: 0, rg_bg_span: 0, "
-        f"rg_bg_tiles: 0 }},  // {r['why']}"
-        for r in plan["rows"])
-    lines.append(
-        f"pub const OJZ_CLIP_REGION_ROWS: [Region; {len(plan['rows'])}] = [\n    {rows}\n]\n"
-        f"pub data OJZ_Clip_Regions: [Region; {len(plan['rows'])}] = OJZ_CLIP_REGION_ROWS\n\n"
-        "// `OJZ_Clip_Regions` is not imported at the call site: a comptime fn's free names\n"
-        "// resolve THERE (docs/EMP_PITFALLS.md §2), and an unknown name in a Label position\n"
-        "// becomes a link extern — the route effects_gen's choosers already take.\n"
-        "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
-        "    return OJZ_Clip_Regions\n"
-        "}\n")
-    return "".join(lines)
+            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n")
+    n = len(plan["rows"])
+    out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
+    out.append(CLIP_DATA_END + "\n")
+    return "".join(out)
+
+
+def append_clip_data(plan, path=EFFECTS_SCENES):
+    """Insert CLIP_DATA_USES after the module's `use` block and append the data block.
+    Refuses a file that already carries a block (a stale throwaway) rather than stacking."""
+    text = open(path).read()
+    if CLIP_DATA_BEGIN in text:
+        raise ClipRomError(
+            f"{os.path.relpath(path, REPO)} already carries a CLIP ACT DATA block — a previous "
+            f"clip bake's throwaway was not restored. git checkout -- {GEN_REL}")
+    lines = text.split("\n")
+    last_use = max(i for i, ln in enumerate(lines) if ln.startswith("use "))
+    lines.insert(last_use + 1, "// clip act (row 7) imports, with the appended block below\n"
+                 + CLIP_DATA_USES.rstrip("\n"))
+    text = "\n".join(lines).rstrip("\n") + "\n\n" + clip_data_block(plan)
+    with open(path, "w") as fh:
+        fh.write(text)
 
 
 def _palette_words(path):
@@ -574,29 +624,43 @@ def region_plan(act, donor_root, act_h_px=None):
 _ROW_RE = None
 
 
-def parse_clip_module_rows(text):
-    """The region rows back OUT of an emitted clip module: [(x0, x1, y0, y1, preset label)].
-    Z2 is run on THIS, not on the plan — so it measures what the ROM will carry."""
+def _parse_rows(text, name, what):
     import re
     global _ROW_RE
     if _ROW_RE is None:
         _ROW_RE = re.compile(
             r"Region\{\s*rg_x0:\s*(\d+),\s*rg_x1:\s*(\d+),\s*rg_y0:\s*(\d+),\s*rg_y1:\s*(\d+),"
             r"\s*rg_effects:\s*(\w+)")
-    m = re.search(r"OJZ_CLIP_REGION_ROWS:\s*\[Region;\s*(\d+)\]\s*=\s*\[(.*?)\n\]", text, re.S)
+    m = re.search(name + r":\s*\[Region;\s*(\d+)\]\s*=\s*\[(.*?)\n\]", text, re.S)
     if not m:
-        raise ClipRomError("Z2 the clip module carries no OJZ_CLIP_REGION_ROWS table — UNMEASURABLE")
+        raise ClipRomError(f"Z2 {what} carries no {name} table — UNMEASURABLE")
     rows = [(int(a), int(b), int(c), int(d), e) for a, b, c, d, e in _ROW_RE.findall(m.group(2))]
     if len(rows) != int(m.group(1)):
-        raise ClipRomError(f"Z2 the clip module declares {m.group(1)} region rows and "
-                           f"{len(rows)} parse — UNMEASURABLE")
+        raise ClipRomError(f"Z2 {what} declares {m.group(1)} rows for {name} and {len(rows)} "
+                           f"parse — UNMEASURABLE")
+    return rows
+
+
+def parse_clip_module_rows(mod_text, data_text):
+    """The region rows back OUT of what was EMITTED: [(x0, x1, y0, y1, preset label)] and
+    {preset label: (palette label, transition)}. Z2 runs on THIS, not on the plan, so it
+    measures what the ROM will carry. The descriptor checks the module's
+    `OJZ_CLIP_REGION_ROWS`; the Act names the data block's `OJZ_Clip_Regions`; they are one
+    table written twice, and a difference between them is refused here by name."""
+    import re
+    rows = _parse_rows(mod_text, "OJZ_CLIP_REGION_ROWS", "the clip module")
+    emitted = _parse_rows(data_text, "OJZ_Clip_Regions", "the clip data block")
+    if rows != emitted:
+        raise ClipRomError(
+            f"Z2 the rows the descriptor checks (OJZ_CLIP_REGION_ROWS, {len(rows)}) are not the "
+            f"rows the Act names (OJZ_Clip_Regions, {len(emitted)}): {rows} vs {emitted}")
     presets = {p: (pal, int(t)) for p, pal, t in re.findall(
         r"pub data (OJZ_Clip_Preset_\d+): EffectsPreset = preset\(pal: (\w+),"
-        r"[^\n]*?transition: (\d)\)", text)}
+        r"[^\n]*?transition: (\d)\)", data_text)}
     return rows, presets
 
 
-def check_palette_crossings(act, text, consts=None, log=None):
+def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
     """Z2 — each zone is drawn under its OWN palette, and walking from one zone to the next
     installs the other palette EXACTLY ONCE, where the screen shows only corridor for the
     whole cross-fade. Run over the rows parsed back out of the EMITTED module.
@@ -619,10 +683,14 @@ def check_palette_crossings(act, text, consts=None, log=None):
     """
     fade, step, half_w = consts or crossing_constants()
     margin = half_w + fade * step
-    rows, presets = parse_clip_module_rows(text)
+    rows, presets = parse_clip_module_rows(mod_text, data_text)
     if not presets:
-        raise ClipRomError("Z2 no OJZ_Clip_Preset_* records parse out of the clip module — "
-                           "UNMEASURABLE")
+        raise ClipRomError("Z2 no OJZ_Clip_Preset_* records parse out of the clip data "
+                           "block — UNMEASURABLE")
+    unbound = sorted({r[4] for r in rows} - set(presets))
+    if unbound:
+        raise ClipRomError(f"Z2 region rows bind {unbound}, which the data block does not "
+                           f"define as presets")
     for lab, (_pal, trans) in presets.items():
         if trans != 1:
             raise ClipRomError(f"Z2 {lab} does not arm the cross-fade (transition {trans}); "
@@ -688,19 +756,23 @@ def check_palette_crossings(act, text, consts=None, log=None):
     return out
 
 
-def emit_clip_module(act, donor_root, path=CLIP_MODULE, log=None):
-    """Write the clip act's module and run Z2 over what was written. Returns the Z2 rows."""
+def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=EFFECTS_SCENES, log=None):
+    """Write the clip act's module + append its data, then run Z2 over what was WRITTEN."""
     plan = region_plan(act, donor_root)
-    text = clip_module_text(plan)
     with open(path, "w") as fh:
-        fh.write(text)
+        fh.write(clip_module_text(plan))
+    append_clip_data(plan, data_path)
     if log:
-        log(f"clip_rom_bake: {os.path.relpath(path, REPO)} — "
+        log(f"clip_rom_bake: {os.path.relpath(path, REPO)} + a CLIP ACT DATA block in "
+            f"{os.path.relpath(data_path, REPO)} — "
             + ", ".join(f"{z['zone']} palette + preset" for z in plan["zones"])
             + f", {len(plan['rows'])} region row(s): "
             + "; ".join(f"x {r['x0']}..{r['x1']} {r['preset_label']}" for r in plan["rows"]))
     with open(path) as fh:
-        return check_palette_crossings(act, fh.read(), log=log), plan
+        mod = fh.read()
+    with open(data_path) as fh:
+        data = fh.read()
+    return check_palette_crossings(act, mod, data, log=log), plan
 
 
 # ---------------------------------------------------------------------------
