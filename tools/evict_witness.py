@@ -89,9 +89,9 @@ from aether_instance import AetherInstance  # noqa: E402
 # EVICT-WITNESS-WIRING). Until then it was `PHASE1_SECONDS = 15` of free-running emulation
 # read every 50 ms of WALL time, and that is a race the witness loses most of the time.
 # MEASURED on s4.stress.bin crc32 cd308561, stepped one frame at a time from the
-# GameState_OJZScroll_Init breakpoint: pages 0..8 stream in every 2 frames from +34, page 2
-# is resident for exactly 12 FRAMES (+38..+49) and is evicted at +50 to admit page 8, and
-# the table is settled by +51. The old sampler read a free-running machine every 50 ms of
+# GameState_OJZScroll_Init breakpoint (frame +N = N frames past it, the numbering the PHASE 1
+# line prints): pages 0..8 stream in every 2 frames from +35, page 2 is resident for exactly
+# 12 FRAMES (+39..+50) and is evicted at +51 to admit page 8, and the table is settled by +52. The old sampler read a free-running machine every 50 ms of
 # wall time, so whether a 12-frame window fell between two reads was up to the host: the
 # wall-clock witness exited 1 ("no eviction proven", distinct pages [0,1,3..9] = 9, page 2
 # never seen) in 11 of 16 back-to-back runs on the same ROM on 2026-09-25 (runs 1-3, 10 and
@@ -99,7 +99,7 @@ from aether_instance import AetherInstance  # noqa: E402
 # measured and is not claimed. A verdict that changes between identical runs of one ROM is
 # not a verdict about the engine. Frame-stepped, the sample sequence is the ROM's.
 # The budget is emulated frames: 900 (15 s at 60 Hz, the window the old constant nominally
-# bought) against a measured settle at +51, so ~17x margin for a slower load; ~5 ms of wall
+# bought) against a measured settle at +52, so ~17x margin for a slower load; ~5 ms of wall
 # per frame over the bus, so ~4.5 s.
 PHASE1_FRAMES = 900
 BURST_FRAMES = 90
