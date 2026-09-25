@@ -1,0 +1,12 @@
+Fri Sep 25 09:46:18 PM UTC 2026
+set=canon
+11.85 10.26 10.39 23/4476 2012192
+dbg_fly rc=0 loadavg=13.31 10.59 10.50 43/4591 2013906
+dbg_down rc=0 loadavg=15.05 11.00 10.63 26/4492 2015776
+dbg_diag rc=0 loadavg=17.04 11.48 10.79 27/4493 2017099
+dbg_run rc=0 loadavg=20.06 12.30 11.06 42/4494 2019587
+dbg_spin rc=0 loadavg=21.90 12.81 11.23 39/4506 2020809
+rel_run rc=0 loadavg=26.46 14.29 11.74 28/4442 2026320
+rel_spin rc=0 loadavg=25.92 14.58 11.86 24/4323 2028233
+Fri Sep 25 09:47:11 PM UTC 2026
+finished=7

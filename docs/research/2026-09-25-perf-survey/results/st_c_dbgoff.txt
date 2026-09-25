@@ -1,0 +1,28 @@
+== fly: c_dbgoff.bin crc=3972aac2 size=948046 mode=fly dirs=right load 9.85->9.46
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped']
+   IN MOTION 0/998 (0.0%), 1.0 frames/tick, cam end [16064, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/1058
+   (no profile)
+== down: c_dbgoff.bin crc=3972aac2 size=948046 mode=fly dirs=down load 9.46->9.46
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: c_dbgoff.bin crc=3972aac2 size=948046 mode=fly dirs=right,down load 9.46->9.02
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 33/1031 (3.2%), 1.033 frames/tick, cam end [16064, 5920]; LFC_delta=33 whole-leg lag=33
+   cam_y<1024: 31/87
+   (no profile)
+== cpzdown: c_dbgoff.bin crc=3972aac2 size=948046 mode=fly dirs=right load 9.02->8.62
+   notes: ['switched to down at frame 893 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped']
+   IN MOTION 26/1283 (2.03%), 1.021 frames/tick, cam end [14400, 5920]; LFC_delta=26 whole-leg lag=26
+   cam_y<1024: 15/965
+   before switch 0/894; after switch 26/449
+   (no profile)
+== cpzdiag: c_dbgoff.bin crc=3972aac2 size=948046 mode=fly dirs=right load 8.62->8.49
+   notes: ['switched to right,down at frame 893 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 59/1319 (4.47%), 1.047 frames/tick, cam end [16064, 5920]; LFC_delta=59 whole-leg lag=59
+   cam_y<1024: 45/998
+   before switch 0/894; after switch 59/485
+   (no profile)
+legs with results: 5 of 5

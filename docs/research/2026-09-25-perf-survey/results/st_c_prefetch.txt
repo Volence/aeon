@@ -1,0 +1,28 @@
+== fly: c_prefetch.bin crc=cb105649 size=948046 mode=fly dirs=right load 12.02->12.02
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped']
+   IN MOTION 16/1014 (1.58%), 1.016 frames/tick, cam end [16064, 144]; LFC_delta=16 whole-leg lag=16
+   cam_y<1024: 16/1074
+   (no profile)
+== down: c_prefetch.bin crc=cb105649 size=948046 mode=fly dirs=down load 12.02->11.54
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 7/370 (1.89%), 1.019 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 3/59
+   (no profile)
+== diag: c_prefetch.bin crc=cb105649 size=948046 mode=fly dirs=right,down load 11.54->11.09
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 53/1051 (5.04%), 1.053 frames/tick, cam end [16064, 5920]; LFC_delta=53 whole-leg lag=53
+   cam_y<1024: 37/93
+   (no profile)
+== cpzdown: c_prefetch.bin crc=cb105649 size=948046 mode=fly dirs=right load 11.09->10.44
+   notes: ['switched to down at frame 907 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped']
+   IN MOTION 51/1312 (3.89%), 1.04 frames/tick, cam end [14400, 5920]; LFC_delta=51 whole-leg lag=51
+   cam_y<1024: 30/984
+   before switch 14/908; after switch 37/464
+   (no profile)
+== cpzdiag: c_prefetch.bin crc=cb105649 size=948046 mode=fly dirs=right load 10.44->9.85
+   notes: ['switched to right,down at frame 907 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 83/1345 (6.17%), 1.066 frames/tick, cam end [16064, 5920]; LFC_delta=83 whole-leg lag=83
+   cam_y<1024: 64/1019
+   before switch 14/908; after switch 69/497
+   (no profile)
+legs with results: 5 of 5

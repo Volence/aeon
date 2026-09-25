@@ -1,0 +1,38 @@
+== cpzband: s4.s2clip.debug.bin crc=c7d567ab size=948046 mode=fly dirs=right load 5.29->5.18
+   notes: ['switched to down at frame 907 cam (14400,144)', "read_at_end {'PageCache_Direct_Map': 0}"]
+   IN MOTION 44/1060 (4.15%), 1.043 frames/tick, cam end [14400, 2032]; LFC_delta=44 whole-leg lag=44
+   cam_y<1024: 30/982
+   before switch 14/908; after switch 30/152
+   WINDOW rows [910,1060): lag 30/150; cam [14400, 160] -> [14400, 2032]
+   PROFILE ticks=120 158940 cyc/tick, work 111445/tick = 0.872 fr/tick; identity remainder 0 truncated=False
+     GameLoop                                 incl  147962 self     139 calls   0.00  <- None:147962
+     GameState_OJZScroll_Update               incl  100387 self     812 calls   0.99  <- GameLoop:100387
+     Tile_Cache_Fill                          incl   70472 self    2689 calls   0.99  <- GameState_OJZScroll_Update:70472
+     TileCache_FillRow                        incl   55481 self   12541 calls   1.94  <- Tile_Cache_Fill:55481
+     VSync_Wait                               incl   47495 self   19560 calls   0.99  <- GameLoop:47495
+     PageCache_PatchRun_Seq                   incl   33233 self   33197 calls  11.28  <- TileCache_FillRow:33233
+     PageIn_Process                           incl   27935 self    4293 calls   0.99  <- VSync_Wait:27935
+     PageCache_Prefetch                       incl   21877 self    2071 calls   0.93  <- PageIn_Process:21877
+     TileCache_DecompressBlock                incl   19193 self    1385 calls   1.58  <- Tile_Cache_Fill:11657, TileCache_FillRow:7536
+     $engine.page_cache$PageCache_Prefetch$sc incl   18671 self   18662 calls   4.26  <- PageCache_Prefetch:18671
+     S4LZ_DecompressDict                      incl   17808 self   17808 calls   1.51  <- TileCache_DecompressBlock:17808
+     VBlank_Handler                           incl   10619 self     474 calls   1.24  <- None:10619
+     Section_UpdateColumns                    incl    9002 self    1241 calls   0.99  <- GameState_OJZScroll_Update:9002
+     VInt_Level                               incl    8817 self    1021 calls   0.99  <- VBlank_Handler:8817
+     Parallax_Update                          incl    8300 self    7459 calls   0.99  <- GameState_OJZScroll_Update:8300
+     Canopy_Probe                             incl    3992 self    3992 calls   0.99  <- Section_UpdateColumns:3992
+     TileCache_FindStagedBlock                incl    3870 self    3870 calls  21.85  <- TileCache_FillRow:2172, PageCache_Prefetch:1135, Tile_Cache_Fill:564
+     Draw_TileRow_FromCache                   incl    3769 self    1444 calls   1.82  <- Section_UpdateColumns:3769
+     Process_DMA_Critical                     incl    3060 self    3060 calls   1.24  <- VInt_Level:2467, VInt_Lag:593
+     Render_Sprites                           incl    3039 self    2592 calls   0.99  <- GameState_OJZScroll_Update:3039
+     $engine.plane_buffer$Draw_TileRow_FromCa incl    2325 self    2325 calls   3.65  <- Draw_TileRow_FromCache:2325
+     PageCache_Audit                          incl    2264 self    2264 calls   0.01  <- GameState_OJZScroll_Update:2264
+     VInt_DrawLevel                           incl    2130 self    2130 calls   0.99  <- VInt_Level:2130
+     RunObjects                               incl    2126 self     200 calls   0.99  <- GameState_OJZScroll_Update:2126
+     $engine.objects.core$RunObjects$run_alwa incl    1848 self    1039 calls   2.98  <- RunObjects:1848
+     PageCache_AllocFrame                     incl    1733 self      42 calls   0.03  <- PageIn_Process:1733
+     PageCache_EndBoundedRegime               incl    1691 self    1691 calls   0.01  <- PageCache_AllocFrame:1691
+     VInt_Lag                                 incl    1328 self      89 calls   0.25  <- VBlank_Handler:1328
+     Read_Controllers                         incl    1301 self     447 calls   1.24  <- VInt_Level:1039, VInt_Lag:262
+     EntityWindow_Scan                        incl    1198 self     630 calls   0.99  <- GameState_OJZScroll_Update:1198
+legs with results: 1 of 1

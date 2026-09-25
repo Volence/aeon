@@ -1,0 +1,6 @@
+== diag: plaincopy_par.bin crc=58fa73a1 size=848768 mode=fly dirs=right,down load 5.40->5.40
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 11/374 (2.94%), 1.03 frames/tick, cam end [5824, 5920]; LFC_delta=11 whole-leg lag=11
+   cam_y<1024: 6/62
+   (no profile)
+legs with results: 1 of 1

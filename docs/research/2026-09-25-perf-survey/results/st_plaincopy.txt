@@ -1,0 +1,21 @@
+== fly: plaincopy.bin crc=e206b300 size=848768 mode=fly dirs=right load 5.34->5.34
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== down: plaincopy.bin crc=e206b300 size=848768 mode=fly dirs=down load 5.34->5.48
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: plaincopy.bin crc=e206b300 size=848768 mode=fly dirs=right,down load 5.48->5.48
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 20/383 (5.22%), 1.055 frames/tick, cam end [5824, 5920]; LFC_delta=20 whole-leg lag=20
+   cam_y<1024: 7/63
+   (no profile)
+== run: plaincopy.bin crc=e206b300 size=848768 mode=run dirs=right load 5.48->5.62
+   notes: ['DEBUG free flight left with B (y 256->256)']
+   IN MOTION 90/2981 (3.02%), 1.031 frames/tick, cam end [1033, 405]; LFC_delta=90 whole-leg lag=90
+   cam_y<1024: 90/3000
+   (no profile)
+legs with results: 4 of 4

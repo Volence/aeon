@@ -1,0 +1,14 @@
+Fri Sep 25 09:57:33 PM UTC 2026
+set=clip
+6.48 8.83 10.50 5/4381 567692
+clipdbg_fly rc=0 loadavg=6.52 8.80 10.48 3/4298 567764
+clipdbg_down rc=0 loadavg=6.32 8.72 10.44 3/4283 567875
+clipdbg_diag rc=0 loadavg=6.32 8.72 10.44 2/4270 568015
+clipdbg_run rc=0 loadavg=5.80 8.49 10.34 6/4268 568365
+clipdbg_spin rc=0 loadavg=5.80 8.49 10.34 10/4307 568451
+clipdbg_cpzdown rc=0 loadavg=6.46 8.58 10.36 4/4321 568689
+clipdbg_cpzdiag rc=0 loadavg=6.34 8.52 10.33 7/4383 568910
+clip_run rc=0 loadavg=6.62 8.49 10.29 3/4347 569365
+clip_spin rc=0 loadavg=6.62 8.49 10.29 5/4347 569405
+Fri Sep 25 09:58:23 PM UTC 2026
+finished=9

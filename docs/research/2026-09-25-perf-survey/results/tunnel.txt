@@ -1,0 +1,9 @@
+tunnel_run_witness: /tmp/claude-1000/-home-volence-sonic-hacks-aeon/49f49cb1-d570-40ef-a8a2-ffb2dc8e8dbc/scratchpad/b/s4.s2clip.debug.bin — corridor ehz_to_cpz x 10976..11360
+  right gsp $0000: crossed=True frames=185 inside=72 stalls=0 lag-frames=3 airborne-inside=0 |gsp| inside=(988, 1536) y inside=(749, 749)
+  right gsp $0600: crossed=True frames=121 inside=67 stalls=0 lag-frames=3 airborne-inside=0 |gsp| inside=(1536, 1536) y inside=(749, 750)
+  right gsp $1000: crossed=True frames=45 inside=25 stalls=1 lag-frames=0 airborne-inside=0 |gsp| inside=(4092, 4096) y inside=(748, 750)
+   left gsp $0000: crossed=True frames=184 inside=75 stalls=1 lag-frames=3 airborne-inside=0 |gsp| inside=(996, 1536) y inside=(749, 750)
+   left gsp $0600: crossed=True frames=120 inside=64 stalls=1 lag-frames=0 airborne-inside=0 |gsp| inside=(1536, 1540) y inside=(749, 749)
+   left gsp $1000: crossed=True frames=44 inside=24 stalls=1 lag-frames=0 airborne-inside=0 |gsp| inside=(4096, 4096) y inside=(749, 749)
+tunnel_run_witness: 6 of 6 runs crossed the whole corridor; 4 stall frame(s) at or inside it (frames the game ticked and x did not move); 0 airborne frame(s) inside; 0 faulted
+finished=1
