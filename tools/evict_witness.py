@@ -5,8 +5,8 @@ Proves the residency cache actually evicts, on the STRESS_EVICT shape, against a
 headless `oracle-aether` IT SPAWNS ITSELF (PAGE_FRAMES_CLAMP frames vs the act's larger
 page pool; both numbers are derived at run time, see the banner below).
 
-PHASE 1 (the proof, famine-free): sample Page_Table rapidly while the OJZ
-init loads the act. More pages must stream through than there are frames to
+PHASE 1 (the proof, famine-free): sample Page_Table ONCE PER EMULATED FRAME
+(stepped, not wall-clock timed; see PHASE1_FRAMES) while the OJZ init loads the act. More pages must stream through than there are frames to
 hold them, so the load itself evicts: the sampler observes a page transition
 resident->absent while the distinct-ever-resident count exceeds the frame
 clamp (pigeonhole — no engine instrumentation needed). Both sides of that
@@ -76,7 +76,6 @@ import asyncio
 import os
 import re
 import sys
-import time
 from pathlib import Path
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -86,7 +85,23 @@ add_client_path()  # the Aether client, resolved from the suite root; loud if ab
 from aether import BusClient  # noqa: E402
 from aether_instance import AetherInstance  # noqa: E402
 
-PHASE1_SECONDS = 15          # covers the ~2,700-frame init swallow with margin
+# PHASE 1 IS SAMPLED ONCE PER EMULATED FRAME, NOT ON A WALL-CLOCK TIMER (2026-09-25,
+# EVICT-WITNESS-WIRING). Until then it was `PHASE1_SECONDS = 15` of free-running emulation
+# read every 50 ms of WALL time, and that is a race the witness loses most of the time.
+# MEASURED on s4.stress.bin crc32 cd308561, stepped one frame at a time from the
+# GameState_OJZScroll_Init breakpoint: pages 0..8 stream in every 2 frames from +34, page 2
+# is resident for exactly 12 FRAMES (+38..+49) and is evicted at +50 to admit page 8, and
+# the table is settled by +51. The old sampler read a free-running machine every 50 ms of
+# wall time, so whether a 12-frame window fell between two reads was up to the host: the
+# wall-clock witness exited 1 ("no eviction proven", distinct pages [0,1,3..9] = 9, page 2
+# never seen) in 11 of 16 back-to-back runs on the same ROM on 2026-09-25 (runs 1-3, 10 and
+# 16 passed; load average 16-35 throughout). How the miss rate depends on host speed was NOT
+# measured and is not claimed. A verdict that changes between identical runs of one ROM is
+# not a verdict about the engine. Frame-stepped, the sample sequence is the ROM's.
+# The budget is emulated frames: 900 (15 s at 60 Hz, the window the old constant nominally
+# bought) against a measured settle at +51, so ~17x margin for a slower load; ~5 ms of wall
+# per frame over the bus, so ~4.5 s.
+PHASE1_FRAMES = 900
 BURST_FRAMES = 90
 ACT_ART_POOL_PAGES_OFF = 0x1E   # engine/structs.emp, Act.act_art_pool_pages (u16)
 CMPI_W_D6 = b"\x0c\x46"        # cmpi.w #imm,d6 — the residency-clamp compare's opcode
@@ -265,40 +280,43 @@ async def main(sock, rom_path: Path, lst_path: Path):
         n = int.from_bytes(await read(b, ptr + ACT_ART_POOL_PAGES_OFF, 2), "big")
         return (n if 0 < n <= page_table_max else None), ptr
 
-    # ---- PHASE 1: init-load residency churn, sampled live ----
-    await b.call("emulator/resume", {})
+    # ---- PHASE 1: init-load residency churn, sampled EVERY EMULATED FRAME ----
+    # The machine stays stopped at the breakpoint and is advanced one frame per sample, so
+    # the sample sequence is a property of the ROM, not of the host's load. See the block at
+    # PHASE1_FRAMES for the measured 12-frame residency window the wall-clock sampler missed.
     seen = set()
     evicted_pages = set()
+    first_eviction = None
     prev = None
     valid_samples = 0
     pool_pages = None
     act_ptr = 0
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < PHASE1_SECONDS:
+    for frame in range(1, PHASE1_FRAMES + 1):
+        await b.call("emulator/run_frames", {"frames": 1})
         if pool_pages is None:
             pool_pages, act_ptr = await try_pool_pages()
             if pool_pages is None:
-                await asyncio.sleep(0.05)
                 continue
-            print(f"act descriptor ${act_ptr:06X}: act_art_pool_pages={pool_pages} "
-                  f"vs PAGE_FRAMES_CLAMP={clamp}")
+            print(f"act descriptor ${act_ptr:06X} (frame +{frame}): "
+                  f"act_art_pool_pages={pool_pages} vs PAGE_FRAMES_CLAMP={clamp}")
         table = await read(b, a_page_table, pool_pages)
         if not_resident in table:      # guard vs the boot-zeroed table
             resident = {i for i, f in enumerate(table) if f != not_resident}
             valid_samples += 1
             seen |= resident
             if prev is not None:
-                evicted_pages |= prev - resident
+                gone = prev - resident
+                if gone and first_eviction is None:
+                    first_eviction = (frame, sorted(gone), sorted(resident - prev))
+                evicted_pages |= gone
             prev = resident
-        await asyncio.sleep(0.05)
-    await b.call("emulator/pause", {})
     if await in_fault():
         print("FAIL: fault raise during init load (Phase 1 must be famine-free)")
         return 1
     if pool_pages is None:
         print(f"FAIL: Current_Act_Ptr never resolved to a usable act descriptor in "
-              f"{PHASE1_SECONDS}s (last value ${act_ptr:06X}). act_art_pool_pages could not "
-              f"be derived, and a transcribed one is what this tool just stopped using.")
+              f"{PHASE1_FRAMES} frames (last value ${act_ptr:06X}). act_art_pool_pages could "
+              f"not be derived, and a transcribed one is what this tool just stopped using.")
         return 1
 
     # ---- IS THIS SHAPE EVEN A FORCED-EVICTION FIXTURE? ----
@@ -327,10 +345,12 @@ async def main(sock, rom_path: Path, lst_path: Path):
               f"(= {len(seen)}) never exceeded the {clamp}-frame clamp "
               f"({valid_samples} samples)")
         return 1
+    first = (f"; first at frame +{first_eviction[0]}: evicted {first_eviction[1]} admitting "
+             f"{first_eviction[2]}" if first_eviction else "")
     print(f"PHASE 1: eviction proven — {len(seen)} distinct pages "
           f"> {clamp} frames; directly observed evictions: "
-          f"{sorted(evicted_pages) or '(transition not sampled)'} "
-          f"[{valid_samples} samples]")
+          f"{sorted(evicted_pages) or '(transition not sampled)'}{first} "
+          f"[{valid_samples} per-frame samples over {PHASE1_FRAMES} frames]")
 
     # ---- PHASE 2: one scroll burst, famine-triaged ----
     await b.call("emulator/press", {"buttons": ["right"], "frames": BURST_FRAMES})
