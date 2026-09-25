@@ -338,3 +338,39 @@ when it crosses, and the 5-frame DMA sweep had finished. Its route now starts on
 inside the subject instead of three (commit "bg_switch_gate POISON"). Re-run: **exit 0, 41 of
 41 rows PASS over 22 of 22 gates**, `bg_wipe` (the tall, CPU-path map) unchanged. The canonical
 CRCs are the landing build's.
+
+### 8.7 After merging B-2 (per-zone Sonic 2 scroll) and the 8-section CPZ
+
+`s2_ehz_cpz_short` was re-based on `s2_ehz_cpz` at origin/master 9457042f (8 x 3 sections,
+CPZ 4576 px): the same 384-px tunnel, CPZ at x 11360, own `anchors.toml` re-derived
+(dac_banks 0xC0000). Clip builds: plain aa258967 (921,571 B, room +59,462 B), debug c7d567ab
+(948,046 B, +56,622 B), anchors FRESH in both.
+
+**B-2 added two crossing terms, and the short tunnel is shorter than one of them.**
+- **The parallax CONFIG lerp.** Each zone's preset now binds its own scroll record, and a
+  default scene lerps the band scrolls for PARALLAX_TRANS_DEFAULT = 16 frames. Handled with no
+  engine code: `crossing_overrides.parallax = snap` puts `transition: 1` (TRANS_INSTANT) in the
+  clip's scenes. The witness reads `Parallax_Transition_Frames` and saw 0 on every frame.
+- **The background's vertical-scroll RATCHET, which is NOT handled.** The two zones' mappings
+  put the BG vscroll ~87 px apart at the tunnel, and `parallax.emp` Step 5 moves it at most
+  `BG_VSCROLL_MAX_STEP` = 16 px a frame, so the far background slides vertically for ~6 frames
+  after the crossing. On the left run, the rows that slide into view from above are also the
+  last the sweep reaches (rows 2-7 for 3 frames).
+
+`crossing_witness` now counts the ratchet. The 12-run matrix at 384: **0 glitch frames at
+walk and top speed, 3 at the camera cap arriving CPZ, 4 arriving EHZ** (plain and jump
+identical). Probes of the merged tree: 416 → 1, 448 → 2, **480 → 0 (slack 0)**, 512 → 0
+(slack 1). So after B-2 the shortest glitch-free connector with today's engine is 480. At 384
+the owner sees, at the camera cap only, the far zone's background finishing a vertical slide
+of up to ~48 px over 3-4 frames as it comes on screen.
+
+**The lever that would restore 384, NOT built:** exempt the ratchet when the region's map is
+one plane tall. The clamp exists so the row streamer is never outrun (`BG_Stream_Update`'s
+containment proof), and a one-plane map has no window to outrun. This is the booked
+BG-RATE-PRIME-EXEMPTION with a narrower condition. It is a few lines in `parallax.emp`
+Step 5, but it changes canonical behaviour on every one-plane crossing and warp and is graded
+by `bg_vscroll_rate`, so it wants its own parcel and sign-off.
+
+Unchanged by this parcel's engine change: `tools/clip_bg_scroll_witness.py` on the real act
+(`S2CLIP=s2_ehz_cpz DEBUG=1`, crc 9b65fdf1): **24 probes, 24 exact, 0 FAIL**.
+`tunnel_run_witness` at 384: 6 of 6 crossed, 0 airborne, 0 faults.
