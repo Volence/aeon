@@ -173,3 +173,16 @@ CPZ's first 2,048 px (13,306 B of blocks + a 1,600 B fringe). Suppose a third zo
   provisional-drift behaves for a whole re-packed tail.
 - Why the clip DEBUG shape carries 27 KB more ahead of `Art_Sonic` than plain does.
 - Whether flying a ROM with banks at 0xB8000 or 0xC0000 plays correctly. No emulator was used.
+
+## Correction (appended 2026-09-25, from sigil, re-checked here at aeon master `c20d9b5e`)
+
+Two errors in the "measured in this worktree" list above:
+
+1. **`3E 15` at blob 0x41F is NOT a bank id.** The bytes there are `3E 15 32 01 40`: `ld a,$15 ; ld ($4001),a`,
+   a YM2612 data write of `SND_TIMERA_CTRL_REARM` (= $15, `engine/sound/sound_constants.emp:159`, used at
+   `engine/sound/z80_sound_driver.emp:1450`) to register $27. It equals bankid(0xA8000) only by coincidence.
+   A consistency check or patcher keyed on "every `ld a,$15`" would corrupt the timer rearm.
+2. **Offsets 0x235, 0xD5E, 0xED4, 0x122C are the `ld a,n` OPCODE bytes (`3E`).** The bank-id operand bytes
+   are one later: **0x236, 0xD5F, 0xED5, 0x122D**. Re-checked: each of the four reads `3E 17 CD 71 03`.
+   These offsets hold for the plain blob at this revision only; the debug blob differs, and any edit to the
+   driver moves them, so derive them, never pin them.
