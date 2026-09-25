@@ -2,13 +2,13 @@
   "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, built and on disk for your flythrough.",
   "inFlight": [
     {
-      "what": "Whether our tool checks can catch a tool that measures correctly then throws the answer away",
-      "where": "branch parcel/keepalive-lossy (agent worktree)",
+      "what": "Pricing a separate sound-bank position for the Sonic 2 test act (our half; the assembler lane prices theirs)",
+      "where": "branch research/clip-own-anchor (agent worktree)",
       "agent": true
     },
     {
-      "what": "Pricing a separate sound-bank position for the Sonic 2 test act (our half; the assembler lane prices theirs)",
-      "where": "branch research/clip-own-anchor (agent worktree)",
+      "what": "Hook the nightly's forced-eviction test build up to the check that grades it",
+      "where": "branch parcel/evict-witness-wiring (agent worktree)",
       "agent": true
     }
   ],
@@ -33,15 +33,8 @@
       "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
       "state": "doing",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil priced its half (M, owner card d-35 on their board); ours is being priced now",
       "project": "REGIONS"
-    },
-    {
-      "id": "KEEPALIVE-BLIND-TO-LOSSY",
-      "title": "A tool that measures correctly and throws the answer away passes every check we have; one did exactly that for two weeks",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
     },
     {
       "id": "STRESS-CLAMP-EQU-WRONG",
@@ -53,14 +46,14 @@
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
       "title": "A sweep advertises coverage it measures none of; giving it that coverage means breaking its own promise to poke nothing, so it is red until someone decides which the arm is for",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "EVICT-WITNESS-WIRING",
       "title": "The nightly builds the forced-eviction ROM every night and nothing grades it; the witness that would now runs headless, so wiring it is two lines plus the accounting",
-      "state": "open",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -74,7 +67,7 @@
     {
       "id": "CENSUS-CRITERION-TOO-NARROW",
       "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -152,5 +145,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:10:56Z"
+  "updatedAt": "2026-09-25T09:23:02Z"
 }
