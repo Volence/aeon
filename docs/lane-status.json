@@ -34,10 +34,10 @@
     },
     {
       "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "A test build's listing answers a question about a different build; diagnosed to the toolchain, your shipping ROM verified unaffected",
+      "title": "A test build's listing answered a question about a different build; the assembler lane has fixed it, and it reaches us when our installed assembler is next rebuilt",
       "state": "blocked",
       "size": "S",
-      "blockedBy": "diagnosed to the assembler and routed to that lane; nothing of ours to fix"
+      "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
       "id": "DPLC-STRADDLE-REACHABLE",
@@ -156,5 +156,5 @@
   ],
   "awaiting": "whether to recover the last stretch before Emerald Hill's signpost (six-section act with the camera stopped at Sonic 2's own limit), or accept the act ending where it does",
   "atBoundary": true,
-  "updatedAt": "2026-09-25T06:07:27Z"
+  "updatedAt": "2026-09-25T06:16:59Z"
 }
