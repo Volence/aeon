@@ -1,32 +1,6 @@
 {
-  "focus": "Your Sonic 2 flythrough: finding the lag first, then a longer Chemical Plant and the games' own backgrounds.",
-  "inFlight": [
-    {
-      "what": "CLIP-BAKE-JSON: the editor can tell a bake crash from a refusal",
-      "where": "branch parcel/clip-bake-json",
-      "agent": true
-    },
-    {
-      "what": "Fixing the lag: the level-art streamer does too much work per frame when a level doesn't fit in video memory",
-      "where": "branch parcel/pagecache-stream-lag",
-      "agent": true
-    },
-    {
-      "what": "Making Emerald Hill and Chemical Plant's backgrounds scroll like Sonic 2's",
-      "where": "branch parcel/s2clip-bg-scroll",
-      "agent": true
-    },
-    {
-      "what": "Turning the Emerald Hill to Chemical Plant connector into a shorter enclosed tunnel",
-      "where": "branch parcel/s2clip-tunnel-corridor",
-      "agent": true
-    },
-    {
-      "what": "Our half of the sound-data change you picked: the Sonic 2 act's own positions file",
-      "where": "branch parcel/clip-anchor-overlay",
-      "agent": true
-    }
-  ],
+  "focus": "Stopped mid-work for an account switch: lag fix, tunnel, Sonic 2 scrolling and the sound-data change were in progress.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -34,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the lag measurement and the costing come back and I've picked what lands first.",
+  "nextBoundary": "Resume from docs/superpowers/2026-09-25-aeon-overseer-handoff-25.md: check each agent worktree for uncommitted work, lag fix first.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
@@ -183,7 +157,7 @@
       "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-25T15:01:54Z"
+  "awaiting": "Nothing from you: switch accounts, then Clear+Reboot this lane and it resumes from handoff 25.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-25T15:04:09Z"
 }
