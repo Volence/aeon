@@ -19,7 +19,7 @@
     {
       "id": "S2CLIP-BANK-ROOM-GATE",
       "title": "The debug build of the Sonic 2 test act passes everything but one room check that stops the build; the room check's own message also looks wrong (58,962 B reported as less than 49,152 B). The ROM still boots",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -162,5 +162,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T06:18:55Z"
+  "updatedAt": "2026-09-25T06:19:09Z"
 }
