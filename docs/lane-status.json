@@ -1,5 +1,5 @@
 {
-  "focus": "Stopped mid-work for an account switch: lag fix, tunnel, Sonic 2 scrolling and the sound-data change were in progress.",
+  "focus": "Back after the account switch: landing the lag fix first, then restarting the tunnel, Sonic 2 scrolling and sound-data work.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -8,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Resume from docs/superpowers/2026-09-25-aeon-overseer-handoff-25.md: check each agent worktree for uncommitted work, lag fix first.",
+  "nextBoundary": "Lag fix and the editor's bake answer landed; tunnel, background scrolling and positions-file agents re-dispatched.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
@@ -29,7 +29,7 @@
     {
       "id": "S2CLIP-ORIGINAL-BGS",
       "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "doing",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -37,7 +37,7 @@
     {
       "id": "S2CLIP-TUNNEL",
       "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
-      "state": "doing",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -59,7 +59,7 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
-      "state": "doing",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -157,7 +157,7 @@
       "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
     }
   ],
-  "awaiting": "Nothing from you: switch accounts, then Clear+Reboot this lane and it resumes from handoff 25.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-25T15:04:09Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-25T15:07:22Z"
 }
