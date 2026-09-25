@@ -1367,7 +1367,7 @@ def test_s2_stone_name_in_s2_source_is_refused():
 # ---- (g) S2 DAC enum through a name-keyed mapping --------------------------------
 
 def test_s2_dac_enum_values():
-    # _smps2asm_inc.asm:153-158 (case 2).
+    # _smps2asm_inc.asm:92-95 (case 2).
     e = _si.S2_DAC_ENUM
     assert (e["dKick"], e["dSnare"], e["dMidTom"], e["dFloorTom"], e["dLowClap"]) == \
         (0x81, 0x82, 0x8C, 0x8E, 0x91)
@@ -1510,6 +1510,14 @@ def test_s2_real_song_matches_the_design_probe(path, nvoices):
                                 ftone_map=_PROBE_FTONE))
     assert len(s2) > 0
     assert s2 == s3k
+    # The voice bank, as the probe's `voices()` built it (S3K voice path, label
+    # found by hand) against the song-local S2 entry point.
+    label = next(l.split()[1] for l in src if l.strip().startswith("smpsHeaderVoice"))
+    i = next(k for k, l in enumerate(src) if l.strip() == label + ":")
+    blocks = _si._parse_vc_blocks([l.split(";")[0] if "smpsVc" in l else l for l in src], i + 1)
+    probe = b"".join(bytes(_si.smps_voice_to_fmpatch(blocks[v])).ljust(FMPATCH_LEN, b"\0")
+                     for v in range(nvoices))
+    assert _si.pack_song_patch_table(src, list(range(nvoices))) == probe
 
 
 def _load_s2_generator():
