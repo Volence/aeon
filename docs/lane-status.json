@@ -28,7 +28,7 @@
       "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "both halves priced; your call on the assembler lane's card d-35 (where the test act's own sound-bank position is declared). Ours is at docs/research/2026-09-25-clip-own-anchor-pricing.md",
+      "blockedBy": "your call on the assembler lane's card d-35-revised: it now recommends our option, a small sound-bank settings file inside the test act's folder",
       "project": "REGIONS"
     },
     {
@@ -140,5 +140,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:39:29Z"
+  "updatedAt": "2026-09-25T09:40:18Z"
 }
