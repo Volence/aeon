@@ -1,0 +1,37 @@
+s4.bin crc=6d1af7a3 dirs=right press_b=False pre=200 window=110 frameCount=110
+camera (41,429) -> (64,429); video frames 111, logic ticks 111, lag 0; Lag_Frame_Count n/a
+identity remainder 0 (must be 0); truncated=False abandoned=0 depthExceeded=0
+sampleCycles 14080623  = 126852 per tick; vint self 44/tick, hint self 131/tick
+work (sample - VSync_Wait inclusive) 52266 cyc/tick = 0.409 frames/tick
+routine                             incl/tick  self/tick calls/tick
+GameState_OJZScroll_Update             115689        137       0.00
+VSync_Wait                              74587      74281       0.99
+GameState_OJZScroll_Update              41381        549       0.99
+RunObjects                              14072        166       0.99
+Parallax_Update                         10053       8792       0.99
+VBlank_Handler                           9099        377       0.99
+$engine.objects.core$RunObjects$ru       9022        731       1.98
+VInt_Level                               8723        993       0.99
+Player_Main                              7971       1148       0.99
+Render_Sprites                           5935       3160       0.99
+$engine.objects.core$RunObjects$ru       4884       1455       0.99
+PState_Ground                            4860        440       0.99
+Spring_Main                              3285       2317       5.95
+EntityWindow_Scan                        3040       1958       0.99
+Process_DMA_Critical                     2802       2802       0.99
+Player_SensorFloor                       2622        323       0.99
+Player_SensorPair                        2299        170       0.99
+TouchResponse                            2168       2153       0.99
+Collision_ProbeDown                      2167        468       2.02
+Tile_Cache_Fill                          2147       1463       0.99
+Collision_GetType                        1809       1809       6.32
+Emit_ObjectPieces                        1784       1784       5.27
+$games.sonic4.player_sensors$asm1$       1699        545       4.04
+Ground_Move                              1585        628       0.99
+Enqueue_Dirty_Buffers                    1381       1330       0.99
+AnimateSprite                            1253       1251       7.40
+HBlank_Vector_Slot                       1201       1201       2.97
+Raster_VBlank                            1138        252       0.99
+Read_Controllers                         1039        357       0.99
+DrawRings                                 991        991       0.99
+finished=1

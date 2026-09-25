@@ -1,0 +1,47 @@
+s4.s2clip.debug.bin crc=441f1db0 dirs=right,down press_b=False pre=0 window=60 frameCount=60
+camera (96,144) -> (608,624); video frames 61, logic ticks 32, lag 29; Lag_Frame_Count 29
+identity remainder 0 (must be 0); truncated=False abandoned=0 depthExceeded=0
+sampleCycles 7680344  = 240011 per tick; vint self 82/tick, hint self 0/tick
+work (sample - VSync_Wait inclusive) 171223 cyc/tick = 1.339 frames/tick
+routine                             incl/tick  self/tick calls/tick
+$games.sonic4.ojz_scroll_test$Game     221149        139       0.00
+GameState_OJZScroll_Update             152357        799       0.97
+Tile_Cache_Fill                        112728       2469       0.97
+VSync_Wait                              68788      38810       1.00
+TileCache_FillRow                       61977      12065       1.84
+TileCache_FillColumn                    42975       3448       1.75
+PageCache_PatchRun_Seq                  40904      40904      10.81
+TileCache_CopyBlockColumn               30620       6820       8.19
+PageIn_Process                          29977       4095       0.97
+PageCache_Prefetch                      25811       1934       0.91
+PageCache_PatchRun_Col                  23800      23800       9.94
+$engine.page_cache$PageCache_Prefe      22895      22868       1.25
+TileCache_DecompressBlock               19582       1420       1.62
+S4LZ_DecompressDict                     18162      18162       1.62
+VBlank_Handler                          15160        704       1.88
+Section_UpdateColumns                   11076       1315       0.97
+VInt_Level                              10051       1039       1.00
+Parallax_Update                          8674       7672       0.97
+RunObjects                               8604        202       1.00
+$engine.objects.core$RunObjects$ru       6418       1746       1.00
+Render_Sprites                           5018       3586       0.97
+TileCache_FindStagedBlock                4786       4786      28.78
+Process_DMA_Critical                     4589       4589       1.88
+VInt_Lag                                 4405        312       0.88
+Canopy_Probe                             3900       3900       0.97
+EntityWindow_Scan                        3743       2042       0.97
+VInt_DrawLevel                           3173       3173       1.00
+Spring_Main                              3154       2056       6.41
+Draw_TileColumn                          3087       1213       1.22
+Draw_TileRow_FromCache                   2773       1064       1.34
+TouchResponse                            2491       2481       0.97
+Read_Controllers                         1965        675       1.88
+$engine.objects.core$RunObjects$ru       1886       1048       3.00
+$engine.plane_buffer$Draw_TileColu       1874       1277       2.44
+$engine.plane_buffer$Draw_TileRow_       1709       1709       2.69
+Debug_AssertObjLoop                      1440       1440       8.38
+Flush_VDP_Shadow                         1309       1309       1.88
+$engine.controllers$Read_Controlle       1290       1290       3.75
+Enqueue_Dirty_Buffers                    1222       1125       1.88
+AnimateSprite                            1110       1103       6.44
+finished=1

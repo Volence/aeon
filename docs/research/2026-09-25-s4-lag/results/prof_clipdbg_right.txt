@@ -1,0 +1,37 @@
+s4.s2clip.debug.bin crc=441f1db0 dirs=right press_b=False pre=100 window=56 frameCount=56
+camera (1632,144) -> (2544,144); video frames 57, logic ticks 57, lag 0; Lag_Frame_Count 0
+identity remainder 0 (must be 0); truncated=False abandoned=0 depthExceeded=0
+sampleCycles 7168321  = 125760 per tick; vint self 43/tick, hint self 0/tick
+work (sample - VSync_Wait inclusive) 80156 cyc/tick = 0.627 frames/tick
+routine                             incl/tick  self/tick calls/tick
+$engine.tile_cache$TileCache_CopyB     115384        138       0.00
+GameState_OJZScroll_Update              70125        804       0.98
+VSync_Wait                              45604      13811       0.98
+Tile_Cache_Fill                         34302       2280       0.98
+PageIn_Process                          31793        266       1.00
+PageCache_Prefetch                      31527       1214       1.00
+$engine.page_cache$PageCache_Prefe      29609      29609       3.21
+TileCache_FillColumn                    26664       3281       1.96
+TileCache_CopyBlockColumn               21826       6861       7.86
+PageCache_PatchRun_Col                  14965      14965       7.86
+Section_UpdateColumns                    9710       1250       0.98
+VBlank_Handler                           9606        373       0.98
+VInt_Level                               9233       1020       0.98
+Parallax_Update                          8783       7767       0.98
+TileCache_DecompressBlock                4890        429       0.49
+Draw_TileColumn                          4505       1868       1.96
+S4LZ_DecompressDict                      4460       4460       0.49
+Render_Sprites                           4309       2851       0.98
+EntityWindow_Scan                        4140       2180       0.98
+Canopy_Probe                             3955       3955       0.98
+RunObjects                               3507        198       0.98
+VInt_DrawLevel                           2690       2690       0.98
+$engine.plane_buffer$Draw_TileColu       2637        189       1.96
+TouchResponse                            2582       2582       0.98
+TileCache_FindStagedBlock                2552       2552      13.51
+Process_DMA_Critical                     2469       2469       0.98
+$engine.plane_buffer$Draw_TileColu       2448       2448       1.96
+$engine.objects.core$RunObjects$ru       1831       1030       2.95
+EntityWindow_DespawnRings                1720       1720       0.98
+$engine.objects.core$RunObjects$ru       1477        991       0.98
+finished=1

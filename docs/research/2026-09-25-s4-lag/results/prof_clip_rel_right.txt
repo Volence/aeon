@@ -1,0 +1,37 @@
+s4.s2clip.bin crc=9a3533f1 dirs=right press_b=False pre=200 window=110 frameCount=110
+camera (407,506) -> (894,541); video frames 111, logic ticks 79, lag 32; Lag_Frame_Count n/a
+identity remainder 0 (must be 0); truncated=False abandoned=0 depthExceeded=0
+sampleCycles 14080622  = 178236 per tick; vint self 61/tick, hint self 0/tick
+work (sample - VSync_Wait inclusive) 73386 cyc/tick = 0.574 frames/tick
+routine                             incl/tick  self/tick calls/tick
+$engine.page_cache$PageCache_Prefe     166165        136       0.00
+VSync_Wait                             104849       7246       0.99
+PageIn_Process                          97607       1831       0.99
+PageCache_Prefetch                      96382       1362       0.96
+$engine.page_cache$PageCache_Prefe      94296      94290       4.10
+GameState_OJZScroll_Update              60936        547       0.99
+Tile_Cache_Fill                         25196       1753       0.99
+TileCache_FillColumn                    17391       1411       0.76
+TileCache_CopyBlockColumn               14725       2892       3.39
+RunObjects                              14362        166       0.99
+PageCache_PatchRun_Col                  11833      11833       4.15
+VBlank_Handler                          11212        523       1.39
+$engine.objects.core$RunObjects$ru       9740        713       1.97
+Player_Main                              9027       1143       0.99
+Parallax_Update                          8748       7822       0.99
+VInt_Level                               8628        930       0.99
+TileCache_DecompressBlock                4750        340       0.42
+PState_Ground                            4579        490       0.99
+$engine.objects.core$RunObjects$ru       4456       1487       0.99
+S4LZ_DecompressDict                      4410       4410       0.42
+Process_DMA_Critical                     3464       3464       1.39
+Spring_Main                              2969       1873       6.90
+Section_UpdateColumns                    2910       1087       0.99
+Render_Sprites                           2593       1737       0.99
+EntityWindow_Scan                        2514       1952       0.99
+TileCache_FillRow                        2248        341       0.05
+TouchResponse                            2094       2094       0.99
+Player_SensorFloor                       2080        348       0.99
+VInt_Lag                                 2062        134       0.41
+TileCache_FindStagedBlock                1785       1785       9.59
+finished=1
