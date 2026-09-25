@@ -125,6 +125,10 @@ THE POPULATION REFUSES TO SHRINK SILENTLY
 =============================================================================
 `keepalive_population.py` derives the 85 bus instruments FROM THE TREE on every run. This
 lane refuses to grade unless the manifest carries a disposition for every one of them:
+(⚠ CORRECTED 2026-09-25, `CENSUS-CRITERION-TOO-NARROW`: "85 bus instruments" was the
+population under the old criterion, "names `BusClient`". The population is now every tool
+that DRIVES a headless emulator, read off its code -- 90 on 2026-09-25; see
+keepalive_population.py. The accounting rule below is unchanged.)
 
     UNDECLARED   a bus instrument exists in the tree and the manifest does not name it.
                  COULD NOT RUN. Somebody added an instrument and the lane silently did
@@ -394,6 +398,9 @@ def main(argv=None):
     wired_tools = {tool_of(r) for r in wired}
     arms = sorted(r for r in wired if arm_of(r))
     print("POPULATION (derived from the tree, every run)")
+    # The label keeps its 2026-09-18 spelling although the population is now "drives a
+    # headless emulator" (keepalive_population.py): nightly_instrument_keepalive.sh greps
+    # for it to build its one-line summary, and renaming it would blank that summary.
     print(f"  bus instruments in tools/          {len(pop)}")
     print(f"  of those, nothing executes         {len(dead)}  (advisory; see keepalive_population.py)")
     print(f"  declared in the manifest           {len(declared)}  "
@@ -409,7 +416,7 @@ def main(argv=None):
         print(f"  UNDECLARED  {nm}  -- in the tree, absent from the manifest")
         drift += 1
     for nm in missing:
-        print(f"  MISSING     {nm}  -- in the manifest, absent from the tree")
+        print(f"  MISSING     {nm}  -- in the manifest, not in the tree's population")
         drift += 1
     for nm in dupes:
         print(f"  AMBIGUOUS   {nm}  -- declared BOTH wired and not_wired")
