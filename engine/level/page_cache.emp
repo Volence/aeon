@@ -64,6 +64,10 @@ ensure(BLOCK_TILE_SIZE * 2 == 1 << (BLOCK_TILE_SHIFT + 1) && BLOCK_NT_SIZE == BL
        "PageCache_Prefetch's row offset `row << (BLOCK_TILE_SHIFT+1)` assumes a staged block row is BLOCK_TILE_SIZE words")
 ensure(PAGE_NOT_RESIDENT >= $80 && PAGE_NOT_RESIDENT <= $FF && PAGE_FRAMES_MAX <= $80,
        "PageCache_Prefetch tests residency with `tst.b / bmi`: PAGE_NOT_RESIDENT must be a negative byte and every frame index a non-negative one")
+// The general patch loop reads Page_Table with `move.b (a3,d2.w),d2 / bmi` and uses d2
+// as a WORD frame index with no zero-extend: sound only while a page id's high byte is
+// 0, i.e. every in-bounds page id is < 256.
+ensure(PAGE_TABLE_MAX <= 256, "pc_patch_run_loop drops the frame zero-extend: a page id must fit a byte (PAGE_TABLE_MAX = {PAGE_TABLE_MAX})")
 
 // ---- LS-8 family pins: the hand-spelled decompose literals in THIS module ----
 // PageCache_Prefetch_Strips decomposes a world tile coord into (sec_x, sec_y,
@@ -550,30 +554,42 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
         raise_error "PageCache patch run: mapped page >= pool pages (corrupt/stale local map)"
     .pw_page_ok:
     }
-        move.b  (a3, d2.w), d2                  // frame (or NOT_RESIDENT)
-        cmpi.b  #PAGE_NOT_RESIDENT, d2
-        beq     .pw_miss
-        andi.w  #$00FF, d2                      // zero-extend frame
+        // frame (or NOT_RESIDENT). d2's high byte is already 0 — page < PAGE_TABLE_MAX
+        // = 256, ensure'd at the module head — so the byte load leaves a clean
+        // zero-extended frame, and PAGE_NOT_RESIDENT is the only negative byte.
+        move.b  (a3, d2.w), d2
+        bmi     .pw_miss
 
-        andi.w  #PAGE_FRAME_TILE_MASK, d1       // physical = attrs | (frame<<6 | (global&63))
+        andi.w  #PAGE_FRAME_TILE_MASK, d1       // physical = frame<<6 | (global&63)
         move.w  d2, d4
         lsl.w   #PAGE_FRAME_TILE_SHIFT, d4      // frame << 6
-        or.w    d4, d1                          // physical tile index
+        or.w    d4, d1                          // d1 = physical tile index
         andi.w  #NT_ATTR_MASK, d0               // keep pal/pri/flip
         or.w    d1, d0                          // physical nametable word
 
         move.w  (a1), d3                        // capture OLD cell (unref) BEFORE overwrite
         move.w  d0, (a1)                        // write the patched word
-
-        // inline ref of the new frame (d2): 0->1 clears PF_EVICTABLE
+        andi.w  #NT_TILE_MASK, d3               // old physical index; 0 = was blank
+        beq     .pw_ref_new                     // blank before: ref the new frame only
+        // SAME-FRAME SHORTCUT (streaming-lag fix, 2026-09-25). If the old cell
+        // already referenced the frame the new word references, the ref and the
+        // unref cancel exactly: no refcount changes, and no transition either way
+        // (the count stays >= 1 throughout), so PF_EVICTABLE and pf_stamp are
+        // untouched by the pair. Old and new share a frame iff their indices agree
+        // above bit PAGE_FRAME_TILE_SHIFT: (old ^ new) <= PAGE_FRAME_TILE_MASK.
+        eor.w   d1, d3
+        cmpi.w  #PAGE_FRAME_TILE_MASK, d3
+        bls     .pw_next                        // same frame: refcount-neutral
+        eor.w   d1, d3                          // restore the old index (non-zero)
+    .pw_ref_new:
+        // inline ref of the new frame (d2). A referenced frame is never a candidate,
+        // so PF_EVICTABLE is cleared unconditionally: on 0->1 that is the transition,
+        // on n->n+1 it is already clear (the audit's invariant: evictable => rc 0).
         lsl.w   #3, d2                          // frame * sizeof(PageFrame)
         addq.w  #1, PF_RC(a4, d2.w)
-        cmpi.w  #1, PF_RC(a4, d2.w)
-        bne     .pw_ref_done                    // already referenced -> no change
         bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a4, d2.w)
-    .pw_ref_done:
-        andi.w  #NT_TILE_MASK, d3               // old physical index; 0 = was blank
-        beq     .pw_next
+        tst.w   d3
+        beq     .pw_next                        // nothing was there to unref
     .pw_unref_old:
         // inline unref of the old frame (d3 = old physical index, nonzero)
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d3      // old frame
