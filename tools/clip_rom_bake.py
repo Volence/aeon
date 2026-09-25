@@ -496,6 +496,15 @@ def _region_bg_labels(plan):
                                                   z.get("bg_tiles_label")) if lab]
 
 
+def _scroll_transition(plan):
+    """scene()'s transition for the clip's scroll records: TRANS_INSTANT (1) under the per-clip
+    override crossing_overrides.parallax = snap, else the default TRANS_SMOOTH (0). B-2 bound a
+    parallax record to each zone's preset, so a crossing now also LERPS the background scroll
+    for PARALLAX_TRANS_DEFAULT frames, which a short tunnel cannot hide past its mouth. Inside
+    the tunnel the background is covered, so an instant switch there cannot be seen."""
+    return 1 if (plan.get("overrides") or {}).get("parallax") == "snap" else 0
+
+
 def _scroll_zones(plan):
     """[(zone key, scroll spec)] for every zone the SCROLL block derived one for, in key order."""
     return [(z["key"], z["scroll"]) for z in plan["zones"] if z.get("scroll")]
@@ -559,7 +568,7 @@ def clip_data_block(plan):
     scrolled = _scroll_zones(plan)
     if scrolled:
         import clip_bg_scroll as CBS
-        out.append(CBS.data_block_text(scrolled, plan["act_span"]))
+        out.append(CBS.data_block_text(scrolled, plan["act_span"], _scroll_transition(plan)))
     for z in plan["zones"]:
         words = z["palette_words"]
         body = ",\n    ".join(", ".join(f"${w:04X}" for w in words[i:i + 8])
@@ -670,7 +679,8 @@ CROSSING_OVERRIDES_KEY = "crossing_overrides"
 CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
                             "background": ("overwrite", "co_resident"),
                             "zone_separation": ("tile_cache", "screen"),
-                            "crossing_margin": ("enforce", "report")}
+                            "crossing_margin": ("enforce", "report"),
+                            "parallax": ("lerp", "snap")}
 
 
 def crossing_overrides(act):
@@ -678,7 +688,7 @@ def crossing_overrides(act):
     "declared"}. `declared` is False for an act without the key (the defaults)."""
     raw = (getattr(act, "raw", None) or {}).get(CROSSING_OVERRIDES_KEY)
     out = {"palette": "fade", "background": "overwrite", "zone_separation": "tile_cache",
-           "crossing_margin": "enforce", "why": None, "declared": False}
+           "crossing_margin": "enforce", "parallax": "lerp", "why": None, "declared": False}
     if raw is None:
         return out
     if not isinstance(raw, dict):
@@ -1358,7 +1368,7 @@ def check_scroll(plan, data_text):
                                f"no such lowered record")
     scrolled = _scroll_zones(plan)
     if scrolled:
-        want = CBS.data_block_text(scrolled, plan["act_span"])
+        want = CBS.data_block_text(scrolled, plan["act_span"], _scroll_transition(plan))
         if want not in data_text:
             raise ClipRomError("SC1 the data block's scroll text is not a fresh derivation's — "
                                "something rewrote it after the bake emitted it")
@@ -1393,7 +1403,8 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         log("clip_rom_bake: " + "!" * 72)
         log(f"clip_rom_bake: PER-CLIP OVERRIDE {CROSSING_OVERRIDES_KEY} on act {act.id!r}: "
             f"palette = {ov['palette'].upper()}, background = {ov['background'].upper()}, "
-            f"zone_separation = {ov['zone_separation'].upper()}. "
+            f"zone_separation = {ov['zone_separation'].upper()}, "
+            f"parallax = {ov['parallax'].upper()}, crossing_margin = {ov['crossing_margin'].upper()}. "
             f"This act is NOT held to the default crossing rule (16-frame fade, tile "
             f"overwrite); Z2 below holds it to the re-derived one. Why: {ov['why']}")
         log("clip_rom_bake: " + "!" * 72)

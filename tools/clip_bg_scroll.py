@@ -710,8 +710,10 @@ def uses_ripple(spec):
     return any(b["kind"] == "ripple" for b in spec["bands"])
 
 
-def scene_text(spec, scene_name, table_label):
-    """`pub const <scene_name>: Scene = scene(...)` for one spec."""
+def scene_text(spec, scene_name, table_label, transition=0):
+    """`pub const <scene_name>: Scene = scene(...)` for one spec. `transition` is scene()'s
+    TRANS_SMOOTH (0, the default: the config crossing lerps PARALLAX_TRANS_DEFAULT frames) or
+    TRANS_INSTANT (1); it is written only when nonzero, so a default scene's text is unchanged."""
     fa = factor_text((0, LOCKED, 0))                     # plane A: camX, the foreground
     rows = []
     for b in spec["bands"]:
@@ -729,7 +731,8 @@ def scene_text(spec, scene_name, table_label):
             f"    count: {len(spec['bands'])},\n"
             f"    v_factor: {spec['v_factor']},\n"
             f"    v_center: {spec['v_center']},\n"
-            f"    v_offset: {spec['v_offset']}{deform})\n")
+            f"    v_offset: {spec['v_offset']}{deform}"
+            + (f",\n    transition: {transition}" if transition else "") + ")\n")
 
 
 SCENE_LABEL = "OJZ_Clip_Scene_{key}"
@@ -752,7 +755,7 @@ def data_uses(counts):
             + ", ".join([f"SceneCfg{n}" for n in shapes] + [f"lower{n}" for n in shapes]) + "}\n")
 
 
-def data_block_text(zones, act_span):
+def data_block_text(zones, act_span, transition=0):
     """The scroll half of the CLIP ACT DATA block. `zones` is [(key, spec)] for every zone
     that HAS a spec. Emits the ripple table (once), one scene per zone through the real
     constructors, the three registry-level folds the editor module runs (budget, caps
@@ -784,7 +787,7 @@ def data_block_text(zones, act_span):
             f"//   plane line {top:>3}{'' if end is None else f'..{end - 1:<3}'}  {what}"
             for top, end, what, _f, _src in band_rows(spec))
         out.append(f"// zone key {key}: {spec['zone']} ({spec['routine']}; {prov})\n{rows}\n")
-        out.append(scene_text(spec, lab, TABLE_LABEL))
+        out.append(scene_text(spec, lab, TABLE_LABEL, transition))
     n = len(names)
     tops = sum(len(spec["bands"]) for _k, spec in zones)
     out.append(

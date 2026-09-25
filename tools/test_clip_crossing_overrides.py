@@ -341,6 +341,25 @@ def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
         assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
 
 
+def test_parallax_snap_override_makes_the_clip_scenes_instant(donors):
+    """B-2 binds each zone's scroll record to its preset, and a scene() without `transition`
+    is TRANS_SMOOTH: the crossing lerps the background scroll for PARALLAX_TRANS_DEFAULT
+    frames. Under crossing_overrides.parallax = snap every clip scene carries
+    `transition: 1` (TRANS_INSTANT); without it the scene text is B-2's, unchanged."""
+    _need(S.S2_FINAL)
+    import clip_bg_scroll as CBS
+    spec = CBS.derive(S.S2_FINAL, "CPZ", 256)
+    assert spec is not None, "no CPZ transcription: this row has no subject"
+    snap = {"overrides": CRB.crossing_overrides(
+        _act(640, {"crossing_overrides": {"parallax": "snap", "why": "t"}}))}
+    default = {"overrides": CRB.crossing_overrides(_act(640))}
+    assert (CRB._scroll_transition(snap), CRB._scroll_transition(default)) == (1, 0)
+    on = CBS.data_block_text([(1, spec)], 6144, CRB._scroll_transition(snap))
+    off = CBS.data_block_text([(1, spec)], 6144, CRB._scroll_transition(default))
+    assert "transition: 1)" in on and "transition:" not in off
+    assert CRB.crossing_overrides(CM.load(SHORT, donor_root=donors))["parallax"] == "snap"
+
+
 def test_crossing_margin_report_prints_the_shortfall_and_enforce_refuses():
     """The same too-short crossing: refused by default, REPORTED (in frames at the camera
     cap) under crossing_margin = report — never silently passed."""

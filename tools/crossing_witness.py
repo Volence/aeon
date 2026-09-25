@@ -73,6 +73,7 @@ BG_PLANE_ROWS = 64
 ROW_BYTES = 128           # PLANE_H_CELLS (64) words: one plane row, one layout row
 RUN_MARGIN = 400          # start/end this far outside the corridor: past every mouth
 NEED = ("Camera_X", "Camera_Y", "Region_Current", "Palette_Buffer", "Pal_Fade_Frames",
+        "Parallax_Transition_Frames",
         "BG_Tiles_Current", "BG_Tiles_Target", "BG_Plane_Layout", "BG_Wipe_Cursor",
         "Lag_Frame_Count", "Logic_Tick", "Player_1")
 
@@ -180,6 +181,11 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, ju
             "wipe": (await rd("BG_Wipe_Cursor", 1))[0],
             "cram": await cram_1_3(client),
             "vs_bg": int.from_bytes(await rd("Parallax_Current_Vscroll_BG", 2), "big"),
+            # the parallax CONFIG lerp (Parallax_StartTransition): frames left, 0 = settled.
+            # Since B-2 each zone's preset binds its own scroll record, so a crossing lerps
+            # the background SCROLL too; a zone on screen mid-lerp shows its background
+            # sliding toward where it belongs.
+            "plx": (await rd("Parallax_Transition_Frames", 1))[0],
             "plane": await read_plane_b(client, equs["VRAM_PLANE_B_BYTES"]),
         }
 
@@ -313,6 +319,7 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
             bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"]
                                 and wrong is not None and not wrong)
         inflight = (pal == "mix" or r["fade"] or r["bg_tgt"] or r["wipe"] or not r["bg_cur"]
+                    or r["plx"]
                     or (cram != pal and nxt is not None))
         r["_inflight"] = bool(inflight)
         bad = []
@@ -321,6 +328,9 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
                 continue
             if cram != z and nxt is not None:
                 bad.append(f"{z} on screen, scanned out in {cram} colours")
+            if r["plx"]:
+                bad.append(f"{z} on screen, background scroll mid-lerp ({r['plx']} frame(s) of "
+                           f"the parallax config transition left)")
             if not bg_visible_ok[z] and nxt is not None:
                 bad.append(f"{z} on screen, background {bg_blob}{'->' + bg_tgt if bg_tgt else ''}"
                            f" layout {lay} wipe {r['wipe']}; visible plane rows not {z}'s: "
@@ -329,7 +339,7 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
                "bg_ok": dict(bg_visible_ok),
                "shows": shows or "-", "pal": pal, "cram": cram, "fade": r["fade"],
                "bg": bg_blob + ("->" + bg_tgt if bg_tgt else ""), "lay": lay,
-               "wipe": r["wipe"], "lag": r["lag"], "bad": bad}
+               "wipe": r["wipe"], "plx": r["plx"], "lag": r["lag"], "bad": bad}
         out_rows.append(row)
         if bad:
             glitches.append(row)
@@ -426,7 +436,8 @@ def main():
                 arrive = "B" if direction == "right" else "A"
                 c0 = cross["i"]
                 t_pal = next((r["i"] - c0 for r in out_rows[c0:] if r["cram"] == far), None)
-                t_bg = next((r["i"] - c0 for r in out_rows[c0:] if r["bg_ok"][far]), None)
+                t_bg = next((r["i"] - c0 for r in out_rows[c0:]
+                             if r["bg_ok"][far] and not r["plx"]), None)
                 t_show = next((r["i"] - c0 for r in out_rows[c0:] if arrive in r["shows"]), None)
                 done = max(t_pal, t_bg) if None not in (t_pal, t_bg) else None
                 slack = (t_show - done) if None not in (t_show, done) else None
