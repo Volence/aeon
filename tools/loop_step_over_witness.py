@@ -44,8 +44,13 @@ Usage:
     loop_step_over_witness.py --rom s4.debug.bin --lst s4.debug.lst --gsp 0x900
     loop_step_over_witness.py --rom A.bin --lst A.lst --compare B.bin B.lst   (A/B at all
                                                                               three speeds)
-Exit 0 always for a bare run — this is a WITNESS, it reports. `--require-flips N` turns
-it into an assertion.
+Exit 0 when every drive ran to its end — this is a WITNESS, it reports flips, it does not
+grade them. Exit 1 when the ROM FAULTED: before the drive (check_alive, a SystemExit with the
+reason) or DURING it (a drive that reached ErrorHandler, in any arm including --phase-sweep and
+--no-assert-grounded). A faulted machine is a measurement, and reporting it as a completed
+witness would throw it away (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25). The setup refusal
+(player never landed) is also exit 1, via SystemExit. (This line used to name a
+`--require-flips N` flag; no such flag exists in this parser.)
 """
 
 import argparse
@@ -273,8 +278,11 @@ def run_one(rom, lst, gsp, frames, verbose, label, start_dx=0, quiet=False,
     if quiet:
         live = [r for r in rows if "layer" in r]
         flips = sum(1 for a, c in zip(live, live[1:]) if a["layer"] != c["layer"])
+        faulted = [r for r in rows if "fault" in r]
         return {"flips": flips, "layers": "".join(str(r["layer"]) for r in live),
-                "cols": [r["x"] // equs["COLL_CELL_W"] for r in live]}, equs
+                "cols": [r["x"] // equs["COLL_CELL_W"] for r in live],
+                "faulted": bool(faulted),
+                "fault": faulted[0]["fault"] if faulted else None}, equs
     return summarise(rows, gsp, equs, label, verbose), equs
 
 
@@ -345,7 +353,8 @@ def main():
         differing = [d for d, r, c in rows if c and r["flips"] != c["flips"]]
         print("  phases where the sweep changed the outcome: %s of %d"
               % (differing if differing else "NONE", cw))
-        return 0
+        return _fault_verdict([(f"dx={d} {side}", x) for d, r, c in rows
+                               for side, x in (("subject", r), ("control", c)) if x])
 
     out = {}
     for gsp in speeds:
@@ -366,7 +375,26 @@ def main():
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps(out, indent=2) + "\n")
         print("wrote %s" % args.json)
-    return 0
+    return _fault_verdict([(f"gsp ${k} {side}", x) for k, v in out.items()
+                           for side, x in v.items()])
+
+
+def _fault_verdict(runs):
+    """0, or 1 when any drive reached ErrorHandler. `runs` is [(label, run dict)].
+
+    WHY THIS EXISTS (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25). drive() records a fault row
+    and stops, summarise() prints "FAULTED at frame N", and main() used to return 0 anyway,
+    so a ROM that crashed mid-drive exited exactly like a clean witness. The same tool
+    treats a fault BEFORE the drive as fatal (check_alive), and the `#no-assert-grounded`
+    keepalive row is declared `expect = 0` -- so that row stayed PASSED over a crashing ROM.
+    """
+    faulted = [label for label, r in runs if r.get("faulted")]
+    if not faulted:
+        return 0
+    print("RESULT: the ROM FAULTED during %d drive(s): %s. The flips above are from a "
+          "machine that stopped; this run is not a completed witness." % (len(faulted),
+                                                                           ", ".join(faulted)))
+    return 1
 
 
 if __name__ == "__main__":
