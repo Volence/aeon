@@ -330,12 +330,13 @@ def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
                                       CRB.clip_data_block(plan), bg_frames=bgf)
     assert out[0]["palette"] == "snap"
     if ov["crossing_margin"] == "report":
-        # THE LIMIT TEST (owner, 2026-09-25: "slightly above screen width"): the shortest
-        # 16-px width wider than the screen, with Z2's shortfall REPORTED, not waived silently
+        # THE LIMIT TEST (owner, 2026-09-25: "slightly above screen width"): wider than the
+        # screen, and every px it is short of Z2's model is REPORTED, never waived silently
         w = act.corridors[0].dst[2]
-        assert w == next(v for v in range(16, 1 << 14, 16) if v > c["SCREEN_WIDTH"])
+        assert c["SCREEN_WIDTH"] < w < _shortest(act, frames, z1)
         assert w >= z1 * CM.TILE_PX
-        assert out[0]["shortfall"] and w < _shortest(act, frames, z1)
+        assert out[0]["shortfall"] and (out[0]["shortfall"]["left_px"]
+                                        + out[0]["shortfall"]["right_px"]) > 0
     else:
         assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
 
