@@ -1,0 +1,25 @@
+== clipdbg_fly s4.s2clip.debug.bin crc=441f1db0 size=848912 mode=fly dirs=right notes=['camera x stalled at 14016 for 240 frames; stopped']
+   stepped=1134 video_frames=1134 ticks=1108 lag=26 (2.29%) Lag_Frame_Count_delta=26 cam_x 112->14016 (max 14016)
+   host: 1800 frames in 4.536 s = 396.8 fps; loadavg ['4.75', '5.15', '4.70'] -> ['4.69', '5.13', '4.69'] at 2026-09-25T13:17:51Z; cam_end [14016, 144]
+   by cam_x/512 (video_frames, lag): 0:27/2 512:34/2 1024:33/1 1536:31/-1 2048:32/0 2560:36/3 3072:33/2 3584:32/0 4096:32/0 4608:34/2 5120:34/2 5632:34/2 6144:32/0 6656:34/2 7168:32/0 7680:34/2 8192:31/-1 8704:34/2 9216:32/0 9728:32/0 10240:32/0 10752:34/2 11264:32/0 11776:32/0 12288:32/0 12800:34/2 13312:32/0 13824:253/2
+== clipdbg_run s4.s2clip.debug.bin crc=441f1db0 size=848912 mode=run dirs=right notes=['free flight detected (y 256->256); pressed B; y -> 265', 'camera x stalled at 14016 for 240 frames; stopped']
+   stepped=2946 video_frames=2946 ticks=2701 lag=245 (8.32%) Lag_Frame_Count_delta=245 cam_x 96->14016 (max 14016)
+   host: 1800 frames in 4.479 s = 401.9 fps; loadavg ['4.82', '5.15', '4.70'] -> ['4.75', '5.13', '4.70'] at 2026-09-25T13:18:06Z; cam_end [14016, 144]
+   by cam_x/512 (video_frames, lag): 0:206/43 512:105/16 1024:209/81 1536:114/26 2048:105/20 2560:107/22 3072:95/9 3584:85/0 4096:87/2 4608:88/2 5120:85/0 5632:87/2 6144:88/2 6656:85/0 7168:87/2 7680:88/2 8192:85/0 8704:87/2 9216:88/2 9728:85/0 10240:87/2 10752:88/2 11264:85/0 11776:87/2 12288:88/2 12800:85/0 13312:87/2 13824:273/2
+== clip_run s4.s2clip.bin crc=9a3533f1 size=822334 mode=run dirs=right notes=['free flight detected (y 650->650); pressed B; y -> 616']
+   stepped=3000 video_frames=3000 ticks=2815 lag=185 (6.17%) Lag_Frame_Count_delta=None cam_x 72->14016 (max 14016)
+   host: 1800 frames in 4.704 s = 382.7 fps; loadavg ['4.72', '5.11', '4.70'] -> ['4.66', '5.09', '4.69'] at 2026-09-25T13:18:23Z; cam_end [8725, 5824]
+   by cam_x/512 (video_frames, lag): 0:150/31 512:219/41 1024:355/82 1536:97/9 2048:95/11 2560:93/7 3072:90/4 3584:85/0 4096:85/0 4608:86/0 5120:85/0 5632:85/0 6144:86/0 6656:85/0 7168:85/0 7680:86/0 8192:85/0 8704:85/0 9216:86/0 9728:85/0 10240:85/0 10752:86/0 11264:85/0 11776:85/0 12288:86/0 12800:85/0 13312:85/0 13824:195/0
+== dbg_fly s4.debug.bin crc=62238a15 size=848075 mode=fly dirs=right notes=['camera x stalled at 5824 for 240 frames; stopped']
+   stepped=604 video_frames=604 ticks=594 lag=10 (1.66%) Lag_Frame_Count_delta=10 cam_x 112->5824 (max 5824)
+   host: 1800 frames in 5.751 s = 313.0 fps; loadavg ['4.77', '5.10', '4.70'] -> ['5.27', '5.20', '4.73'] at 2026-09-25T13:18:32Z; cam_end [5824, 144]
+   by cam_x/512 (video_frames, lag): 0:26/0 512:34/2 1024:31/0 1536:32/0 2048:32/0 2560:34/2 3072:32/0 3584:32/0 4096:32/0 4608:34/2 5120:32/0 5632:253/4
+== dbg_run s4.debug.bin crc=62238a15 size=848075 mode=run dirs=right notes=['free flight detected (y 256->256); pressed B; y -> 265', 'camera x stalled at 5824 for 240 frames; stopped']
+   stepped=1419 video_frames=1419 ticks=1351 lag=68 (4.79%) Lag_Frame_Count_delta=68 cam_x 96->5824 (max 5824)
+   host: 1800 frames in 4.682 s = 384.5 fps; loadavg ['6.26', '5.42', '4.81'] -> ['6.32', '5.45', '4.82'] at 2026-09-25T13:18:44Z; cam_end [5824, 144]
+   by cam_x/512 (video_frames, lag): 0:165/9 512:159/9 1024:87/0 1536:95/5 2048:87/2 2560:102/16 3072:97/12 3584:94/9 4096:86/0 4608:87/2 5120:87/2 5632:273/2
+== rel_run s4.bin crc=6d1af7a3 size=821479 mode=run dirs=right notes=['free flight detected (y 573->573); pressed B; y -> 540', 'camera x stalled at 5824 for 240 frames; stopped']
+   stepped=1401 video_frames=1401 ticks=1368 lag=33 (2.36%) Lag_Frame_Count_delta=None cam_x 96->5824 (max 5824)
+   host: 1800 frames in 6.038 s = 298.1 fps; loadavg ['6.14', '5.43', '4.82'] -> ['6.21', '5.45', '4.83'] at 2026-09-25T13:18:56Z; cam_end [155, 429]
+   by cam_x/512 (video_frames, lag): 0:163/6 512:158/3 1024:101/4 1536:92/2 2048:85/0 2560:93/8 3072:92/6 3584:89/4 4096:85/0 4608:86/0 5120:85/0 5632:272/0
+legs with results: 6 of 6

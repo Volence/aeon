@@ -1,0 +1,4 @@
+s4.s2clip.debug.bin 441f1db0 {'PageIn_Fully_Resident': 0, 'PageCache_Direct_Map': 0, 'PageIn_Pool_Pages': 14} missing: []
+s4.s2clip.bin 9a3533f1 {'PageIn_Fully_Resident': 0, 'PageCache_Direct_Map': 0, 'PageIn_Pool_Pages': 14} missing: []
+s4.debug.bin 62238a15 {'PageIn_Fully_Resident': 255, 'PageCache_Direct_Map': 255, 'PageIn_Pool_Pages': 10} missing: []
+s4.bin 6d1af7a3 {'PageIn_Fully_Resident': 255, 'PageCache_Direct_Map': 255, 'PageIn_Pool_Pages': 10} missing: []

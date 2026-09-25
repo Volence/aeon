@@ -1,0 +1,18 @@
+pid 2950 window 10.00s loadavg 10.59 8.05 6.06 33/3701 2363104 utc 2026-09-25T13:23:14Z
+  tid     2950 oracle-player        state R cpu   95.9%
+  tid    11441 smithay-clipboa      state S cpu    0.7%
+  tid    11426 data-loop.0          state S cpu    0.3%
+  tid    11428 cpal_alsa_out        state S cpu    0.1%
+  tid    11429 aether-accept        state S cpu    0.1%
+  tid    11437 [vkps] Update        state S cpu    0.1%
+  tid    11439 oracle-player        state S cpu    0.1%
+  tid    11424 module-rt            state S cpu    0.0%
+  tid    11425 alsa-pipewire        state S cpu    0.0%
+  tid    11433 oracle-player        state S cpu    0.0%
+  tid    11434 [vkcf] Analysis      state S cpu    0.0%
+  tid    11436 [vkrt] Analysis      state S cpu    0.0%
+  tid    11440 oracle-player        state S cpu    0.0%
+  tid    11442 oracle-player        state S cpu    0.0%
+  tid    11443 blocking-1           state S cpu    0.0%
+  tid    11444 async-io             state S cpu    0.0%
+  total 97.3% of one core

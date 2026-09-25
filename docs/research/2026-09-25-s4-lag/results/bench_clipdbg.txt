@@ -1,0 +1,49 @@
+8.41 7.84 6.09 10/3621 2425866
+Fri Sep 25 01:24:05 PM UTC 2026
+oracle-player: rom=scratch/roms/s4.s2clip.debug.bin (848912 bytes) mode=bench-cpu audio=false gain=0
+symbols: 3266 loaded from scratch/roms/s4.s2clip.debug.lst (matches this ROM: deb2 appendix at $0C126C, 57764 bytes)
+aether: not serving. No --aether given, so nothing can attach to this window (pass --aether, or --socket PATH, or set ORACLE_AETHER=1)
+SRAM: no save yet at scratch/roms/s4.s2clip.debug.srm (a `.srm` is written only once the game saves)
+states: 10 slots, 0 occupied. F2 saves, F4 loads, F6/F7 pick (slot 0 now, e.g. scratch/roms/s4.s2clip.debug.state0)
+dock: EVERY TAB IN ITS OWN LEAF, so every panel body runs every frame (--dock every-tab)
+
+================ oracle-player pacing report ================
+run                  bench-cpu (governor-paced, no window, no GPU)
+wall seconds         30.01
+loop iterations      1799
+frame iterations     1798  (59.91/s)
+emulated frames      1798  (59.909/s)   <-- the machine's speed; 60.000 is real time
+pictures completed   1798  (59.909/s)
+presented frame rate 59.909/s   <-- set by the GOVERNOR, not by vsync, so this figure is display-independent
+last picture         320x224, 71680 non-black pixels (100.0%), 15 distinct colours
+
+FRAME PERIOD         median 16.664 ms, WORST 37.857 ms  (target 16.667 ms)
+
+-- the fine trim: emulated frames the audio ring asked for, per iteration --
+0 frame(s)                   0  (0.000%)
+1 frame(s)                1798  (100.000%)
+2 frame(s)                   0  (0.000%)
+
+-- governor (the coarse rate limit) --
+rebases              2   <-- iterations that started a whole frame or more late
+early wakes          1   <-- repaints turned away before their deadline
+worst lateness       24.818 ms
+
+-- per-iteration cost, milliseconds --
+part               mean   median      p95      p99      max        n
+emulate           2.927    2.594    4.564    7.594   13.143     1798
+audio             0.000    0.000    0.000    0.000    0.000     1798
+convert           0.066    0.055    0.107    0.131    0.753     1798
+tex-upload        0.007    0.006    0.010    0.027    0.079     1798
+ui-build          0.741    0.655    1.067    2.041   19.776     1798
+tessellate        0.099    0.087    0.147    0.176    2.783     1797
+bus-pump          0.001    0.001    0.002    0.002    0.014     1798
+CPU TOTAL         3.741    3.320    5.907    9.048   21.141     1798
+period           16.690   16.664   17.974   21.331   37.857     1797
+
+-- audio --
+switched off for this pass (--audio off), so nothing paced the emulator but the governor.
+=============================================================
+
+rc=0
+9.25 8.13 6.25 24/3618 2452685

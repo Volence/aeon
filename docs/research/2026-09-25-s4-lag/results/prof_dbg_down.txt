@@ -1,0 +1,37 @@
+s4.debug.bin crc=62238a15 dirs=down press_b=False pre=0 window=56 frameCount=56
+camera (96,144) -> (96,992); video frames 57, logic ticks 55, lag 2; Lag_Frame_Count 2
+identity remainder 0 (must be 0); truncated=False abandoned=0 depthExceeded=0
+sampleCycles 7168318  = 130333 per tick; vint self 45/tick, hint self 134/tick
+work (sample - VSync_Wait inclusive) 89112 cyc/tick = 0.697 frames/tick
+routine                             incl/tick  self/tick calls/tick
+GameLoop                               117403        137       0.00
+GameState_OJZScroll_Update              76578        804       0.98
+VSync_Wait                              41221      40919       0.98
+Tile_Cache_Fill                         33177       2307       0.98
+TileCache_FillRow                       27939      10999       1.89
+PageCache_PatchRun_Seq                  15067      15067       9.45
+VBlank_Handler                          10716        386       1.02
+VInt_Level                              10086       1074       0.98
+Parallax_Update                         10075       8732       0.98
+Section_UpdateColumns                    8427       1194       0.98
+RunObjects                               7409        199       0.98
+$engine.objects.core$RunObjects$ru       5283       1368       0.98
+Render_Sprites                           4955       3616       0.98
+PageCache_Audit                          4465       4465       0.02
+Canopy_Probe                             3953       3953       0.98
+Draw_TileRow_FromCache                   3280       1280       1.62
+EntityWindow_Scan                        3049       1779       0.98
+Spring_Main                              2933       2041       5.71
+Process_DMA_Critical                     2723       2723       1.02
+TileCache_DecompressBlock                2438        521       0.60
+TileCache_FindStagedBlock                2284       2284      11.84
+TouchResponse                            2170       2170       0.98
+$engine.plane_buffer$Draw_TileRow_       2000       2000       3.24
+S4LZ_DecompressDict                      1917       1917       0.18
+VInt_DrawLevel                           1885       1885       0.98
+$engine.objects.core$RunObjects$ru       1830       1029       2.95
+Enqueue_Dirty_Buffers                    1399       1346       1.02
+HBlank_Vector_Slot                       1234       1234       3.05
+Raster_VBlank                            1169        259       1.02
+Debug_AssertObjLoop                      1151       1151       6.69
+finished=1
