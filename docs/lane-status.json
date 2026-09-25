@@ -5,11 +5,6 @@
       "what": "Tunnel is done; re-checking it on top of the lag fix before it lands",
       "where": "branch parcel/s2clip-tunnel-2",
       "agent": true
-    },
-    {
-      "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
-      "where": "branch parcel/s2clip-bg-scroll-2",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -19,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "The three Sonic 2 test-level agents return and land one at a time, rebuilding the Sonic 2 ROMs after each.",
+  "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
@@ -39,10 +34,10 @@
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "doing",
+      "title": "Sonic 2's own background scrolling is built and checked; it lands after the sound positions file, because the debug build has no room for it before then",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
       "project": "REGIONS"
     },
     {
@@ -163,5 +158,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:19:50Z"
+  "updatedAt": "2026-09-25T16:26:07Z"
 }
