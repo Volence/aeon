@@ -1,6 +1,17 @@
 {
-  "focus": "Everything from today is landed, including the short tunnel; next session starts the performance survey and Sonic 2 zone music.",
-  "inFlight": [],
+  "focus": "Measuring where the game lags so you can pick what to speed up; designing Sonic 2 zone music that switches at the crossing.",
+  "inFlight": [
+    {
+      "what": "Performance survey: fly every shape, rank the slow spots with costs",
+      "where": "branch research/perf-survey",
+      "agent": true
+    },
+    {
+      "what": "Zone music design: import Emerald Hill and Chemical Plant songs, find where the switch goes",
+      "where": "branch research/region-music",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +19,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Start from docs/superpowers/2026-09-25-aeon-overseer-handoff-26.md: performance survey and region music.",
+  "nextBoundary": "Both research reports back and reviewed; the ranked list goes to you, the music feel (cut or fade) comes to you as a card.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
       "title": "You asked: play Emerald Hill's music and switch to Chemical Plant's at the crossing (needs Sonic 2 songs converted and a zone-music switch; design first)",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -21,14 +32,14 @@
     {
       "id": "PERF-SURVEY",
       "title": "You asked: fly through everything, find where it lags, and bring back a ranked list of what's worth speeding up",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "S2CLIP-LAG",
       "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -119,7 +130,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Ready for you to clear this lane. The short tunnel is in the real Sonic 2 level; the performance survey and zone music are queued first for the next session.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-25T21:11:37Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-25T21:27:03Z"
 }
