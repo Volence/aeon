@@ -111,7 +111,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Fly s4.s2clip-short.debug.bin (crc 95db1392, the 384 px tunnel) whenever you like; say if you want to see the 336 px version that glitches briefly",
-  "atBoundary": false,
-  "updatedAt": "2026-09-25T20:05:06Z"
+  "awaiting": "Ready for you to clear this lane: everything is landed and the performance survey is written up as the first job for the next session.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-25T20:19:12Z"
 }
