@@ -24,6 +24,7 @@ def main():
     ap.add_argument("legs")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--band-y", type=int, default=1024, help="report lag for cam_y < this too")
+    ap.add_argument("--window", default="", help="lo,hi rows to report lag over (profile windows)")
     a = ap.parse_args()
     ran = 0
     legs = a.legs.split(",")
@@ -51,6 +52,10 @@ def main():
             fc, lag = window(rows, 0, k)
             fc2, lag2 = window(rows, k)
             print(f"   before switch {lag}/{fc}; after switch {lag2}/{fc2}")
+        if a.window:
+            lo, hi = (int(x) for x in a.window.split(","))
+            fc, lag = window(rows, lo, hi)
+            print(f"   WINDOW rows [{lo},{hi}): lag {lag}/{fc}; cam {rows[lo][4:6]} -> {rows[min(hi, len(rows)) - 1][4:6]}")
         pr = d.get("profile")
         if not pr:
             print("   (no profile)")

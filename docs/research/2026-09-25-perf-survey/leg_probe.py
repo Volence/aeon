@@ -128,7 +128,13 @@ async def main_async(a):
         first = prev
         stall = 0
         switched = False
+        wlo, whi = (int(x) for x in a.profile_window.split(",")) if a.profile_window else (-1, -1)
         for i in range(a.frames):
+            if i == wlo:   # window profile: arm here, read at whi (same drive, same path)
+                await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
+                first = prev
+            if i == whi:
+                break
             await drive(c, a.mode, i, dirs)
             await c.call("emulator/run_frames", {"frames": 1})
             cur = await snap(c, s)
@@ -157,7 +163,7 @@ async def main_async(a):
                 notes.append(f"camera stalled at ({cur['cx']},{cur['cy']}) for {stall} frames; stopped")
                 break
         prof = None
-        if a.profile:
+        if a.profile or a.profile_window:
             pf = await c.call("emulator/get_profiler_frames", {"top": a.top, "topCallers": 4})
             await c.call("emulator/set_profiler", {"enabled": False})
             items = pf["routines"]["items"]
@@ -211,6 +217,8 @@ def main():
     ap.add_argument("--then-at-x", type=int, default=0, help="switch when camera x >= this")
     ap.add_argument("--profile-from-switch", action="store_true",
                     help="(with --then-dirs) arm the profiler at the switch, not at leg start")
+    ap.add_argument("--profile-window", default="", help="lo,hi: profile only frames [lo,hi) "
+                    "and STOP the leg at hi (the lag rows then cover [0,hi))")
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--top", type=int, default=512)
     ap.add_argument("--print-top", type=int, default=30)
