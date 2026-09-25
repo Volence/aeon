@@ -1,0 +1,23 @@
+A c7d567ab ticks 56 sample/tick 226296 work/tick 150091
+B cf8d5d4a ticks 56 sample/tick 205723 work/tick 143464  d work -6627
+routine                                        A incl   B incl   d incl   A self   B self   d self A calls B calls
+$engine.page_cache$PageCache_Prefetch$scan_b    15945     5601   -10344    15945     5601   -10344    2.79    0.84
+VSync_Wait                                      76205    62259   -13945    56321    53103    -3218    0.98    0.98
+S4LZ_DecompressDict                             15390    12226    -3163    15390    12226    -3163    1.38    1.07
+Parallax_Update                                 16913    15251    -1662    15299    13636    -1662    0.98    0.98
+TileCache_DecompressBlock                       17133    13488    -3645     1743     1261     -482    2.00    1.45
+TileCache_FindStagedBlock                        5157     4764     -393     5157     4764     -393   30.27   28.79
+Process_DMA_Critical                             4316     3945     -370     4316     3945     -370    1.77    1.61
+Tile_Cache_Fill                                 78318    74219    -4099     2602     2313     -289    0.98    0.98
+PageCache_Prefetch                              19604     8878   -10726     2485     2335     -149    0.98    0.98
+Flush_VDP_Shadow                                 1234     1122     -112     1234     1122     -112    1.77    1.61
+$engine.controllers$Read_Controllers$read_pa     1216     1106     -111     1216     1106     -111    3.54    3.21
+Read_Controllers                                 1853     1684     -168      636      579      -58    1.77    1.61
+VBlank_Handler                                  14945    14087     -859      654      597      -58    1.77    1.61
+VInt_Lag                                         4335     3468     -867      280      222      -57    0.79    0.62
+Enqueue_Dirty_Buffers                            1177     1127      -51     1085     1043      -42    1.77    1.61
+Vscroll_Write                                     325      296      -30      233      212      -21    1.77    1.61
+Parallax_Active_Config                            184      167      -17      184      167      -17    3.54    3.21
+Raster_VBlank                                     226      206      -21      152      138      -14    1.77    1.61
+TileCache_FillRow                               37618    36845     -773    12381    12368      -14    1.89    1.89
+TileCache_FillColumn                            31261    32010     +749     3552     3562       +9    1.82    1.82

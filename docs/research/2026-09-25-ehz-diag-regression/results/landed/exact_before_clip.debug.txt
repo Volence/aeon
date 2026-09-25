@@ -1,0 +1,6 @@
+before_clip.debug.bin crc=c7d567ab size=948046 hoist $8246..$825E fill $865C..$8686
+  exhaustive: cases=50400 mismatches=0
+  split: cases=20000 mismatches=0
+rc=0
+finished=1
+exit=0

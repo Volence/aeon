@@ -1,0 +1,17 @@
+uptime_before:  19:41:20 up 2 days,  8:42,  1 user,  load average: 6.43, 5.09, 4.81
+A before_canon.debug.bin crc=a0e248e7 samples=1014
+B floor_canon.debug.bin crc=3aec5f08 samples=1014
+common camera positions 1014 (EHZ band y<1024: 513); differing 133
+  cam (2874, 1983): 1 lines differ, first [24]
+  cam (2886, 2013): 2 lines differ, first [128, 176]
+  cam (2892, 2028): 3 lines differ, first [60, 72, 84]
+  cam (2922, 2103): 7 lines differ, first [118, 124, 130, 136, 142, 148, 154]
+  cam (2940, 2148): 1 lines differ, first [136]
+  cam (2970, 2223): 1 lines differ, first [136]
+  cam (2988, 2268): 15 lines differ, first [115, 118, 121, 124, 127, 130, 133, 136]
+  cam (3018, 2343): 3 lines differ, first [124, 136, 148]
+  cam (3036, 2388): 1 lines differ, first [136]
+  cam (3066, 2463): 1 lines differ, first [136]
+finished=1
+rc=0
+uptime_after:  19:41:29 up 2 days,  8:42,  1 user,  load average: 5.98, 5.04, 4.80

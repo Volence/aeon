@@ -1,0 +1,6 @@
+after_canon.debug.bin crc=831cf561 size=848746 hoist $8242..$8264 fill $8662..$867C
+  exhaustive: cases=50400 mismatches=0
+  split: cases=20000 mismatches=0
+rc=0
+finished=1
+exit=0

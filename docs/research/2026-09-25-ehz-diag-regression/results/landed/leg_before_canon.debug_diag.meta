@@ -1,0 +1,8 @@
+Fri Sep 25 11:30:08 PM UTC 2026
+rom=before_canon.debug mode=diag args=
+crc=a0e248e7 size=848768
+uptime_before:  19:30:08 up 2 days,  8:31,  1 user,  load average: 3.18, 4.30, 4.77
+leg rc=0
+uptime_after:  19:30:11 up 2 days,  8:31,  1 user,  load average: 3.16, 4.28, 4.76
+Fri Sep 25 11:30:11 PM UTC 2026
+finished=1

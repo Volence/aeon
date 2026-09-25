@@ -1,0 +1,8 @@
+Fri Sep 25 11:25:49 PM UTC 2026
+rom=before_clip.debug mode=pw args=--profile-window 0,100
+crc=c7d567ab size=948046
+uptime_before:  19:25:49 up 2 days,  8:27,  1 user,  load average: 7.02, 5.52, 5.18
+leg rc=0
+uptime_after:  19:25:51 up 2 days,  8:27,  1 user,  load average: 7.02, 5.52, 5.18
+Fri Sep 25 11:25:51 PM UTC 2026
+finished=1

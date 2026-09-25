@@ -1,0 +1,6 @@
+before_canon.debug.bin crc=a0e248e7 size=848768 mode=fly dirs=right,down notes=['camera stalled at (5824,5920) for 60 frames; stopped']
+IN MOTION: 412 video frames, 363 ticks, lag 49 (11.89%), 1.135 frames/tick, cam end [5824, 5920]
+WHOLE: stepped=472 lag=50 LFC_delta=50 loadavg ['3.18', '4.30', '4.77'] -> ['3.16', '4.28', '4.76']
+by cam_y/512: 0:36/11 512:37/6 1024:32/0 1536:38/6 2048:37/5 2560:34/2 3072:32/0 3584:44/12 4096:37/5 4608:35/2 5120:31/0 5632:79/1
+by cam_x/512: 0:38/12 512:36/5 1024:32/0 1536:38/6 2048:37/5 2560:34/2 3072:33/1 3584:43/11 4096:37/5 4608:35/2 5120:31/0 5632:78/1
+finished=1
