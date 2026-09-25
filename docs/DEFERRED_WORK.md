@@ -40401,7 +40401,7 @@ does not know `--anchor-overlay` yet. **Lands only after (or with) the overlay p
 
 **OPEN**
 
-- **A2 (CPZ to its 2nd checkpoint) is BLOCKED by `tools/collision_consistency.py`, not by ROM room.** Measured at
+- **SUPERSEDED 2026-09-25 by part 2 below: RULE B refined (all 34 cleared, none repainted), and CPZ widened to 4576 px, as far as the player can run on plane A (not to the checkpoint).** Original text: **A2 (CPZ to its 2nd checkpoint) is BLOCKED by `tools/collision_consistency.py`, not by ROM room.** Measured at
   width 6624 (act grid 9, painted to the act edge; 6144 would leave a new 480-px void at x 17952..18431): it links
   with its own anchors (rule 0xC8000 both shapes, packed ends 0xACCE4 / 0xAD7FC, **+72,024 B**), passes the room
   rule, clip_reachability (2256 unbounded columns), the page budget (worst 11 of 12) and dplc_straddle (run by hand
@@ -40433,6 +40433,93 @@ camera stops on painted ground; that CPZ is still only past its opening, not to 
 `unbounded_fall.columns` + why, floorless why, name, note, unaligned_dst_reason) and
 `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived twice). `tools/clip_manifest.py`,
 `tools/clip_rom_bake.py` and `tools/clip_act_bake.py` are **untouched**; `s2_ehz_cpz_short` is untouched.
+
+### S2CLIP-CPZ-LONGER, part 2: RULE B refined, Chemical Plant 2528 -> 4576 px (booked 2026-09-25, branch `parcel/rule-b-reachable`)
+
+Owner answer to decision card S2CLIP-CPZ-FURTHER: *"fix the floor-hole check, then extend as far as Sonic can actually
+run"*, then (after a brief "one more section" detour he reversed) *"as far as he can run in cpz"*. Branch cut from origin/master
+8ccf0d5a, merged with origin/master 18e96e47 (carries 96dcfc8f, the +480 landing; no conflicts).
+
+**CLOSED**
+
+- **RULE B refined** (3121eaa7, 28844681; `tools/collision_consistency.py`). The one-row scan is now the CANDIDATE stage; a
+  candidate is a violation only when some position is (1) STANDING (floor pair reads 0, `Collision_ProbeDown` emulated cell
+  for cell), (2) has ROOM (no SOLID_LRB pixel in the 19x38 body box), (3) is REACHABLE (its air region, walls = full LRB cells
+  on BOTH planes, touches the section edge) and (4) its ledge probe at x +/- `LEDGE_PROBE_REACH` reads the gap and finds
+  nothing within `LEDGE_NO_GROUND`. Both constants are read from `player_sensors.emp` (`PLAYER_X_RADIUS+2` is evaluated, not
+  copied). Collision bytes untouched; `tools/collision_baseline.json` untouched (still empty).
+  - Tests (`tools/test_collision_consistency.py`, 6 new, pre-build lane): a synthetic grid with a reachable pinhole (refused),
+    a sealed pocket, an under-slab notch and a 1-px dip (each allowed, each by ONE named stage). Red-first, each mutation on
+    disk then restored from the committed file: M0 every candidate counts -> 4 failed (sealed, notch, dip, side-by-side),
+    reachable stays green; M1 reachability short-circuited -> 2 failed (sealed, side-by-side); M2 distance test dropped ->
+    2 failed (dip, side-by-side). Restored: 39 passed.
+  - CPZ x 2528..6623 (the 6624 variant): 34 candidates -> 0 (21 no_stand, 10 no_room, 2 sealed, 1 ground_within_limit = the
+    L site 4864 A), identical on the probe path and inside the real 6624 build.
+  - Beyond, CPZ x 6624..10111: 21 -> 1, plane B (8688,1408), the one open real ledge. **Correction to the research**
+    (docs/research/2026-09-25-cpz-floor-gaps.md "Beyond the checkpoint"): it named (9328,864) and (9456,1376) as open too;
+    its own `flood()`, run from the standing position its own `standable()` returns, puts each in a sealed 12-block (64x48)
+    cavity on BOTH planes. The gate clears them as sealed. So "3 in open space" is 1.
+  - A plane-only flood was not enough (it called 2 large plane-B regions sealed); plane switches can be anywhere the gate
+    does not read, so the flood opens a cell open on EITHER plane.
+  - Canonical: OJZ act 1 at HEAD has 0 candidates before and after (the gate only reads the OJZ slot). OJZ history, 134
+    revisions touching the generated tree: raw 17, refined 15; the 2 cleared (78ac6882, sec0 plane B rows 25/26) are
+    16-px air slots under a solid ceiling, no room for a body.
+- **Traversal measured** (`docs/research/2026-09-25-cpz-traversal/cpz_traverse.py`, headless, no MCP) on a 6624-px DEBUG
+  build (crc d77aa393), from act x 13960, 13 drives: hold RIGHT from rest 14091 (stuck on the slope up to the 704 ledge,
+  the S2CLIP-SLOPE-PHYSICS shape); top speed / cap 14615 (a 32-px step at x 14620, and the upper route hits a wall at the
+  same x); jump-when-stuck 15399; jump+spindash 14615; 8 random explorers all 15399. **Nobody passes act x 15399 = CPZ x
+  3591 (feet y 768)**: plane A has a solid wall there from about y 600 to 1024 (the left leg of an arch topped at y 512);
+  plane B is open, which is Sonic 2's route (its Obj03 lines, e.g. #38 at CPZ (3328,704)). No drive fell, none faulted.
+- **Extent: act 16384 (grid 8), CPZ 4576** (398557bb), the first section edge past 15399. Reading of "furthest
+  section-aligned extent he can reach": the smallest aligned end that contains everything he reaches; 14336 would drop the
+  1063 px he can run, 18432 adds only unreachable ground. **985 px behind the wall (15399..16383) are painted but out of
+  reach on plane A.** No void: `x_from` 16384 = act width. `unbounded_fall.columns` 1744 -> 2000 (+256, every new column),
+  floorless 48 unchanged, both re-measured by clip_reachability. RULE B at this width: 18 candidates, all cleared
+  (12 no_stand / 4 no_room / 2 sealed). Anchors re-derived: dac_banks 0xB8000 -> **0xC0000**, sound_bank 0xC8000 ->
+  **0xD0000** (both shapes bind).
+
+  | shape | crc | size | packed end | room above reserve |
+  |---|---|---|---|---|
+  | `S2CLIP=s2_ehz_cpz ./build.sh` | `8477fdd2` | 921,449 B | 0xA4DBC | 62,020 B |
+  | `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` | `efa02ea1` | 947,924 B | 0xA58D4 | 59,180 B |
+
+  Growth +33,524 B in both shapes (packed end). FG page worst window 11 of 12. dplc_straddle OK in both, with a MARGIN
+  WARNING: Art_Sonic can move only 2,205 B (plain) / 5,045 B (DEBUG) DOWN before VERDICT A, less than the 49,152-B growth
+  reserve, so a clip SHRINK is the next thing to trip it. Pre-build lane 3402 passed / 3 skipped in each.
+- **Witnesses on DEBUG `efa02ea1`:** tunnel 6 of 6 crossed, 23 stall frames, 0 airborne inside, 0 faulted (unchanged);
+  cpz_traverse, the same 13 drives: furthest 15399, identical per drive to the 6624 build, 0 fell, 0 faulted.
+- **Lag, S2CLIP-LAG harness** (`run_legs.sh`, `lag / video frames in motion`, loadavg 4-7):
+
+  | leg | this branch | S2CLIP-CPZ-LONGER (2528) |
+  |---|---|---|
+  | clip DEBUG fly right | 16/1,014 (camera to 16064; buckets 14336..15872: 0, 2, 0, 0) | 14/884 |
+  | clip DEBUG fly down, EHZ band (cam y < 1024) | 3/59 | 3/59 |
+  | clip DEBUG diagonal, EHZ band (cam y < 1024) | 26/82 (whole leg 41/1,039) | 26/82 |
+  | clip DEBUG physics run | 67/2,835 | 61/2,487 |
+  | clip plain physics run | 14/2,779 | 14/2,437 |
+
+  The extra lag frames sit in the 2-per-2048-px section-crossing pattern the whole act shows; the physics legs still run
+  along the act bottom (camera y 5824) and never exercise the new strip.
+- **Landing** (`tools/landing_build.sh`, installed sigil pair): exit 0, `finished=0`, stamp at HEAD bb477cb8. Canonical
+  s4 `e4f3f8fd` 822,037 B, s4.debug `762fa8db` 848,702 B, demo.debug `72b0a8d1` 105,333 B (all equal to the +480
+  landing's: canonical ROMs unchanged). Pre-build 3402 passed / 3 skipped; emp_expect_fail 56/56; needs_build 32 passed,
+  1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+
+**OPEN**
+
+- **Past x 15399 needs plane switching**, which the clip does not carry: aeon's crossover marks are one-directional and the
+  bidirectional Obj03 needs `path_swap.emp` (parked). Extending further is that work first, plus the spin tubes and
+  boosters.
+- Walking from rest cannot climb from the flat 768 floor to the 704 ledge at ~14091 (S2CLIP-SLOPE-PHYSICS); with run-up
+  speed he gets over it.
+
+**TAGGED FOR THE OWNER'S LOOK:** Chemical Plant from x 14336 to the wall at 15399 (a 32-px step at 14620 needs a jump), the
+wall itself, and the painted but unreachable 985 px behind it that the camera may show part of.
+
+**Files touched under `games/sonic4/data/clips/`:** `games/sonic4/data/clips/s2_ehz_cpz/clips.json` (cpz_act1 src/dst w,
+act grid_w, `unpainted_remainder` x_from + why, `unbounded_fall.columns` + why, floorless why, name, note,
+unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived). `tools/clip_manifest.py`,
+`tools/clip_rom_bake.py`, `tools/clip_act_bake.py` and the `s2_ehz_cpz_short` / `_limit` clips are untouched.
 
 ## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). **LANDED at `06adbfbe` (2026-09-25)**
 
