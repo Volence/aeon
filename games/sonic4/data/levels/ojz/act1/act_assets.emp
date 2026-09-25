@@ -8,6 +8,17 @@
 module games.sonic4.ojz_act_assets_act1 in ojz_act_assets
 
 use engine.bg.{BG_LAYOUT_SIZE}
+use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_ACT}
+
+// ---- WHO CARRIES THE DEBUG TEST BACKGROUNDS (the tall map and the showcase, below) ----
+// The canonical DEBUG shape, and nothing else. A clip act (OJZ_CLIP_ACT == 1, a throwaway
+// S2CLIP bake — games/sonic4/data/generated/ojz/act1/clip_act.emp) replaces the region table
+// whose DEBUG rows are the ONLY readers of these three blobs, so in a clip ROM they were
+// 24,258 B nobody could reach (research 2026-09-25 §6 item 2, ruled into the S2 clip BG
+// parcel by the aeon overseer). The committed neutral clip module says OJZ_CLIP_ACT = 0, so
+// every canonical shape folds this to exactly `DEBUG == 1` and emits the same bytes as before.
+// NOT the clip shape's anchor fix (sigil card d-35-revised): it only drops unused test data.
+const OJZ_DEBUG_TEST_BGS = if DEBUG == 1 && OJZ_CLIP_ACT == 0 { 1 } else { 0 }
 
 pub data OJZ_Palette        = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
 pub data BGND_Palette       = embed("art/palettes/SonicAndTails.bin")
@@ -50,10 +61,10 @@ pub data OJZ_Act1_BG_Tiles  = embed("games/sonic4/data/generated/ojz/act1/bg_til
 // build error.
 pub const BG_LAYOUT_TALL_ROWS = 96
 pub const BG_LAYOUT_TALL_SPAN = BG_LAYOUT_TALL_ROWS * 8      // px — the authored rg_bg_span
-pub const BG_LAYOUT_TALL_SIZE = if DEBUG == 1 { BG_LAYOUT_TALL_ROWS * 64 * 2 } else { 0 }
+pub const BG_LAYOUT_TALL_SIZE = if OJZ_DEBUG_TEST_BGS == 1 { BG_LAYOUT_TALL_ROWS * 64 * 2 } else { 0 }
 ensure(BG_LAYOUT_TALL_ROWS * 64 * 2 > BG_LAYOUT_SIZE,
        "games/sonic4/data/levels/ojz/act1/act_assets.emp: the step-5 test map is {BG_LAYOUT_TALL_ROWS} rows = {BG_LAYOUT_TALL_ROWS * 64 * 2} bytes, which is NOT taller than a full plane ({BG_LAYOUT_SIZE} bytes). Its entire purpose is to be taller than the plane: at or below that height rg_bg_span's ceiling collapses back onto VSCROLL_BG_MAX, BG_Stream_Update's max_top is 0, and every step-5 gate goes green while measuring nothing")
-pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_tall_debug.bin") } else { [] }
+pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if OJZ_DEBUG_TEST_BGS == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_tall_debug.bin") } else { [] }
 
 // ---- THE REGION BG SWITCH SHOWCASE (region bg switch, task 2; DEBUG ONLY) ----
 // A second background with its OWN TILES, so a crossing that overwrites the BG tile arena
@@ -76,9 +87,9 @@ pub data OJZ_Act1_BG_Layout_Tall: [u8; BG_LAYOUT_TALL_SIZE] = if DEBUG == 1 { em
 // source in DEBUG.
 pub const BG_REGION_STATIC_TILE_BUDGET = 320                  // vram.toml bg_region tiles - band_reserve
 pub const BG_SHOWCASE_TILE_COUNT = 118
-pub const BG_SHOWCASE_TILES_SIZE = if DEBUG == 1 { 2 + BG_SHOWCASE_TILE_COUNT * 32 } else { 0 }
-pub const BG_SHOWCASE_LAYOUT_SIZE = if DEBUG == 1 { BG_LAYOUT_SIZE } else { 0 }
+pub const BG_SHOWCASE_TILES_SIZE = if OJZ_DEBUG_TEST_BGS == 1 { 2 + BG_SHOWCASE_TILE_COUNT * 32 } else { 0 }
+pub const BG_SHOWCASE_LAYOUT_SIZE = if OJZ_DEBUG_TEST_BGS == 1 { BG_LAYOUT_SIZE } else { 0 }
 ensure(BG_SHOWCASE_TILE_COUNT <= BG_REGION_STATIC_TILE_BUDGET,
        "games/sonic4/data/levels/ojz/act1/act_assets.emp: the region showcase blob holds {BG_SHOWCASE_TILE_COUNT} tiles and a region's background may use at most the static budget, {BG_REGION_STATIC_TILE_BUDGET} (vram.toml bg_region tiles - band_reserve). The overwrite clamps at BG_TILE_CAPACITY at run time, but past the static budget the blob would eat the reserve the band importer keeps")
-pub data OJZ_Act1_BG_Showcase_Layout: [u8; BG_SHOWCASE_LAYOUT_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_showcase_debug.bin") } else { [] }
-pub data OJZ_Act1_BG_Showcase_Tiles: [u8; BG_SHOWCASE_TILES_SIZE] = if DEBUG == 1 { embed("games/sonic4/data/generated/ojz/act1/bg_tiles_showcase_debug.bin") } else { [] }
+pub data OJZ_Act1_BG_Showcase_Layout: [u8; BG_SHOWCASE_LAYOUT_SIZE] = if OJZ_DEBUG_TEST_BGS == 1 { embed("games/sonic4/data/generated/ojz/act1/zone_bg_showcase_debug.bin") } else { [] }
+pub data OJZ_Act1_BG_Showcase_Tiles: [u8; BG_SHOWCASE_TILES_SIZE] = if OJZ_DEBUG_TEST_BGS == 1 { embed("games/sonic4/data/generated/ojz/act1/bg_tiles_showcase_debug.bin") } else { [] }

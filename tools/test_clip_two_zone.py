@@ -395,3 +395,35 @@ def test_the_backdrop_is_the_donors_own_register_7_byte_and_neutral_is_zero(dono
     assert m, ("GameState_OJZScroll_Init no longer stores OJZ_CLIP_BACKDROP into the shadow "
                "register 7 under `if OJZ_CLIP_ACT == 1` — the clip sky would be black, or "
                "the store would reach a canonical shape")
+
+
+def test_the_debug_test_backgrounds_are_not_in_a_clip_build(donors, tmp_path):
+    """The canonical act's DEBUG-only test backgrounds (the tall map, the showcase layout and
+    tiles) are emitted ONLY when a region table that names them is live — never in a clip
+    act, whose own table replaces it. DERIVED, not listed: the labels are whatever the
+    shipped descriptor's rows name as a background (`bg_layout:` / `bg_tiles:`); the clip
+    act's emitted rows must name none of them; and each one's `pub data` and its SIZE const
+    must be gated on a predicate that is false when OJZ_CLIP_ACT == 1. The bytes' absence
+    from the built clip DEBUG ROM is the build's evidence (listing spans), not this row's."""
+    _need(S.S2_FINAL)
+    desc = open(DESCRIPTOR).read()
+    labels = sorted(set(re.findall(r"\bbg_(?:layout|tiles):\s*(OJZ_Act1_\w+)", desc)))
+    assert labels, "the shipped descriptor names no background blob on any row — re-derive"
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    emitted = CRB.clip_module_text(plan) + CRB.clip_data_block(plan)
+    assert not [lab for lab in labels if lab in emitted]
+    assets = open(os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                               "act_assets.emp")).read()
+    for lab in labels:
+        m = re.search(rf"^pub data {lab}:\s*\[u8;\s*(\w+)\]\s*=\s*if (\w+) == 1 \{{\s*embed\("
+                      rf"[^)]*\)\s*\}} else \{{ \[\] \}}", assets, re.M)
+        assert m, f"{lab} is not a gated `if <GATE> == 1 {{ embed }} else {{ [] }}` in act_assets.emp"
+        size, gate = m.groups()
+        assert re.search(rf"^pub const {size}\s*=\s*if {gate} == 1 \{{", assets, re.M), (
+            f"{lab}'s length {size} is not gated on the same predicate {gate}")
+        g = re.search(rf"^const {gate}\s*=\s*if (.+?) \{{ 1 \}} else \{{ 0 \}}", assets, re.M)
+        assert g, f"the gate {gate} is not a `if <predicate> {{ 1 }} else {{ 0 }}` const"
+        terms = [t.strip() for t in g.group(1).split("&&")]
+        assert "OJZ_CLIP_ACT == 0" in terms and "DEBUG == 1" in terms, (
+            f"{lab} is gated on `{g.group(1)}`, which does not exclude a clip act — the "
+            f"clip DEBUG ROM would carry test data its region table cannot reach")
