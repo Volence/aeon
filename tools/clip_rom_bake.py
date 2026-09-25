@@ -530,18 +530,24 @@ def clip_data_block(plan):
     out = [CLIP_DATA_BEGIN + "\n",
            f"// CLIP ACT {plan['act']}. A THROWAWAY S2CLIP bake appended this; build.sh's EXIT\n"
            "// trap restores the committed file. NOT effects_gen output — never commit it.\n"]
+    snap = (plan.get("overrides") or {}).get("palette") == "snap"
     for z in plan["zones"]:
         words = z["palette_words"]
         body = ",\n    ".join(", ".join(f"${w:04X}" for w in words[i:i + 8])
                               for i in range(0, 48, 8))
+        why = ("// transition: 0 — PER-CLIP OVERRIDE crossing_overrides.palette = snap: the "
+               "palette is\n// installed in one frame while the screen shows only line-0 "
+               "corridor (Z2 holds it).\n" if snap else
+               "// transition: 1 — the 16-frame cross-fade arms on EVERY install of this "
+               "preset,\n// so the crossing fades both ways (engine/effects/preset.emp).\n")
         out.append(
             f"// zone key {z['key']}: {z['donor']} {z['zone']} — the donor's own 96 palette "
             f"bytes (CRAM lines 1-3),\n// {z['palette_file']} sha256 {z['palette_sha256']}\n"
             f"pub data {z['palette_label']}: [u16; 48] = [\n    {body}\n]\n"
-            f"// transition: 1 — the 16-frame cross-fade arms on EVERY install of this "
-            f"preset,\n// so the crossing fades both ways (engine/effects/preset.emp).\n"
+            + why +
             f"pub data {z['preset_label']}: EffectsPreset = preset(pal: {z['palette_label']}, "
-            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n")
+            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, "
+            f"transition: {0 if snap else 1})\n")
     n = len(plan["rows"])
     out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
     for z in plan["zones"]:
@@ -551,15 +557,18 @@ def clip_data_block(plan):
         # TYPED, both of them, like act_assets.emp's act default: the length is the guard.
         # (align: 2) on the tile blob because it is a DMA SOURCE — BG_Stream_Update's
         # overwrite queues it word-wise and raise_errors on an odd address in DEBUG.
+        tiles_line = (f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}] = "
+                      f"embed(\"{z['bg_tiles_embed']}\")\n" if z.get("bg_tiles_label") else
+                      "// NO tile blob: PER-CLIP OVERRIDE crossing_overrides.background = "
+                      "co_resident. This zone's\n// tiles are inside the act default's blob "
+                      "(rg_bg_tiles 0), so the crossing overwrites nothing.\n")
         out.append(
             f"// zone key {z['key']}: {z['donor']} {z['zone']}'s own Sonic 2 background "
             f"(tools/clip_bg_lower.py): {bg['tiles']} tiles,\n// crop start chunk "
             f"{bg['crop_start_chunk']} of a {bg['period_cells']}-cell period, invented-seam "
             f"cost {bg['seam_cost_pixels']} px. Named by this zone's region rows.\n"
             f"pub data {z['bg_layout_label']} (align: 2): [u8; BG_LAYOUT_SIZE] = "
-            f"embed(\"{z['bg_layout_embed']}\")\n"
-            f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}] = "
-            f"embed(\"{z['bg_tiles_embed']}\")\n")
+            f"embed(\"{z['bg_layout_embed']}\")\n" + tiles_line)
     out.append(CLIP_DATA_END + "\n")
     return "".join(out)
 
@@ -604,6 +613,106 @@ def crossing_constants():
     return (get("engine/effects/palette.emp", "PAL_FADE_FRAMES"),
             get("engine/level/camera.emp", "CAM_MAX_X_STEP"),
             get("engine/system/constants.emp", "CAM_SCREEN_HALF_W"))
+
+
+#: Frames a SNAP install takes to reach the screen, counted the way Z2 counts the fade (the
+#: camera may travel this many CAM_MAX_X_STEPs after the crossing frame before the new
+#: palette is certain to be scanned out). The install runs in the crossing tick
+#: (Parallax_CheckBoundary -> Effects_InstallPreset -> Palette_LoadPal's snap arm), the base
+#: copy in that tick's Palette_Compose (engine/system/game_loop.emp, after the state), and
+#: the CRAM DMA in the VBlank that ships the same tick's HScroll — so 0 frames when the
+#: Critical queue accepts the line, and ONE more when it refuses it and
+#: Enqueue_Dirty_Buffers leaves the line dirty for the next VBlank (buffers.emp `bcs`).
+#: 1 is that worst case. Measured by tools/crossing_witness.py (docs/research/
+#: 2026-09-25-shorter-connector.md), not assumed.
+SNAP_FRAMES = 1
+
+#: The manifest key a clip act uses to change HOW its zones cross, and the only values it
+#: may take. Absent = the rule every clip act gets: a 16-frame palette cross-fade and a
+#: background whose tiles are overwritten at the crossing. Any other value is a NAMED,
+#: PER-CLIP override — reported loudly by the bake, carried with a `why`, and it never
+#: changes what an act without the key is held to.
+CROSSING_OVERRIDES_KEY = "crossing_overrides"
+CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
+                            "background": ("overwrite", "co_resident")}
+
+
+def crossing_overrides(act):
+    """The act's `crossing_overrides`, validated: {"palette", "background", "why",
+    "declared"}. `declared` is False for an act without the key (the defaults)."""
+    raw = (getattr(act, "raw", None) or {}).get(CROSSING_OVERRIDES_KEY)
+    out = {"palette": "fade", "background": "overwrite", "why": None, "declared": False}
+    if raw is None:
+        return out
+    if not isinstance(raw, dict):
+        raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} must be an object")
+    unknown = sorted(set(raw) - set(CROSSING_OVERRIDE_VALUES) - {"why"})
+    if unknown:
+        raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} carries {unknown}; the keys it may "
+                           f"carry are {sorted(CROSSING_OVERRIDE_VALUES)} and `why`")
+    for k, allowed in CROSSING_OVERRIDE_VALUES.items():
+        if k in raw:
+            if raw[k] not in allowed:
+                raise ClipRomError(f"{CROSSING_OVERRIDES_KEY}.{k} is {raw[k]!r}; it may be "
+                                   f"one of {list(allowed)}")
+            out[k] = raw[k]
+    if not (isinstance(raw.get("why"), str) and raw["why"].strip()):
+        raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} without a `why`: an override of how "
+                           f"zones cross is the author's decision and has to say why")
+    out["why"], out["declared"] = raw["why"], True
+    return out
+
+
+def background_constants():
+    """(overwrite chunk bytes, wipe rows per frame, rows the screen can show) — READ from the
+    engine (engine/level/bg.emp and the files its expressions reach), never typed."""
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    for path in ("engine/system/constants.emp", "engine/level/parallax.emp",
+                 "engine/level/bg.emp"):
+        src.load_file(os.path.join(REPO, path))
+    return (int(src.get("BG_OVERWRITE_CHUNK_BYTES")), int(src.get("BG_WIPE_ROWS_PER_FRAME")),
+            int(src.get("BG_SCREEN_ROWS")))
+
+
+def background_switch_frames(plan, consts=None):
+    """{zone key: frames the background takes to settle when the camera crosses INTO that
+    zone}, from the blobs the plan emitted — the term Z2 did not have until 2026-09-25.
+
+    THE MECHANISM (engine/level/bg.emp, BG_Stream_Update). On the crossing frame the region
+    names a tile blob; if the arena does not already hold it, ONE chunk of
+    BG_OVERWRITE_CHUNK_BYTES is queued per frame until it has all landed, and the wipe and
+    the streamer are SUSPENDED for the whole overwrite (the plane shows the old layout over
+    tiles that are being replaced — garbage, if it is on screen). Then the wipe repaints the
+    plane BG_WIPE_ROWS_PER_FRAME rows a frame starting at the top VISIBLE row, so the rows
+    the screen can show are repainted after ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME)
+    frames. A zone whose effective blob is the one the arena already holds (co-resident)
+    pays no overwrite at all.
+
+    MODEL = chunks + visible-wipe frames. MEASURED against tools/crossing_witness.py on the
+    landed s2_ehz_cpz (crc e4ce79c9): CPZ 7584 B -> 5 + 8 = 13 modelled, 12 measured; EHZ
+    4512 B -> 3 + 8 = 11 modelled, 10-11 measured. The model is conservative by <= 1 frame
+    (the completion frame falls through into the wipe's first rows)."""
+    chunk, rows_per_frame, screen_rows = consts or background_constants()
+    wipe = -(-screen_rows // rows_per_frame)
+    blob_of = {}
+    for z in plan["zones"]:
+        lab = z.get("bg_tiles_label")
+        blob_of[z["key"]] = lab if lab else "__act_default__"
+    out = {}
+    for z in plan["zones"]:
+        others = {blob_of[o["key"]] for o in plan["zones"] if o["key"] != z["key"]}
+        if others == {blob_of[z["key"]]}:
+            chunks = 0                  # every other zone's rows already hold this blob
+        else:
+            nbytes = z.get("bg_tile_bytes_effective")
+            if nbytes is None:
+                raise ClipRomError(f"Z2 the background switch into {z.get('zone')} cannot be "
+                                   f"timed: the plan carries no tile-blob size for it — "
+                                   f"UNMEASURABLE")
+            chunks = -(-nbytes // chunk)
+        out[z["key"]] = chunks + wipe
+    return out
 
 
 def region_plan(act, donor_root, act_h_px=None):
@@ -658,6 +767,7 @@ def region_plan(act, donor_root, act_h_px=None):
                      "preset_label": zones[key]["preset_label"], "why": why})
         x0 = x1 + 1
     return {"act": act.id, "zones": zones, "rows": rows,
+            "overrides": crossing_overrides(act),
             "crossings": [{"x": c[0], "from_key": c[1], "to_key": c[2], "corridor": c[3],
                            "gap": [c[4], c[5]]} for c in cuts]}
 
@@ -701,7 +811,7 @@ def parse_clip_module_rows(mod_text, data_text):
     return rows, presets
 
 
-def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
+def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_frames=None):
     """Z2 — each zone is drawn under its OWN palette, and walking from one zone to the next
     installs the other palette EXACTLY ONCE, where the screen shows only corridor for the
     whole cross-fade. Run over the rows parsed back out of the EMITTED module.
@@ -721,9 +831,29 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
         corridor from BOTH zones' nearest cells, or a zone is on screen in a half-faded
         palette, or the old zone is on screen when the new palette lands.
     Every preset the rows bind must arm the fade (transition 1), or the crossing snaps.
+
+    THE BACKGROUND TERM (2026-09-25, docs/research/2026-09-25-shorter-connector.md). The
+    region also switches the BACKGROUND, and that takes frames too (background_switch_frames:
+    the tile overwrite, then the visible-row wipe). tools/crossing_witness.py measured it on
+    the landed act at 12 frames into CPZ and 10-11 into EHZ, no shorter than the 11-12-frame
+    fade those palettes actually take, so it was a real floor and nothing modelled it.
+    `bg_frames` ({zone key: frames to settle INTO that zone}) adds it: the side of the
+    crossing a zone lies on needs HALF_W + STEP x max(palette frames, that zone's background
+    frames). For an act on the default rule (fade 16, backgrounds <= 16) that is exactly the
+    old HALF_W + FADE x STEP both sides; None (a caller with no plan) leaves it at 0.
+
+    THE SNAP OVERRIDE. With `crossing_overrides.palette = "snap"` (a named, per-clip
+    override, see crossing_overrides) every preset must carry transition 0 instead, and the
+    palette term is SNAP_FRAMES instead of PAL_FADE_FRAMES: the swap is instant, so what has
+    to be true is only that the screen shows no zone cell on the frames it lands. The
+    tunnel is drawn on CRAM line 0, which no install writes. An act WITHOUT the override is
+    held to the fade exactly as before, and a transition-0 preset there is still refused.
     """
     fade, step, half_w = consts or crossing_constants()
-    margin = half_w + fade * step
+    ov = crossing_overrides(act)
+    want_trans = 0 if ov["palette"] == "snap" else 1
+    pal_frames = SNAP_FRAMES if want_trans == 0 else fade
+    bgf = bg_frames or {}
     rows, presets = parse_clip_module_rows(mod_text, data_text)
     if not presets:
         raise ClipRomError("Z2 no OJZ_Clip_Preset_* records parse out of the clip data "
@@ -733,9 +863,13 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
         raise ClipRomError(f"Z2 region rows bind {unbound}, which the data block does not "
                            f"define as presets")
     for lab, (_pal, trans) in presets.items():
-        if trans != 1:
+        if trans != want_trans and want_trans == 1:
             raise ClipRomError(f"Z2 {lab} does not arm the cross-fade (transition {trans}); "
                                f"the crossing would SNAP the palette")
+        if trans != want_trans:
+            raise ClipRomError(f"Z2 {lab} carries transition {trans}, but this act's "
+                               f"{CROSSING_OVERRIDES_KEY}.palette = snap says every crossing "
+                               f"snaps (transition 0)")
 
     def row_at(x, y):
         hit = [r for r in rows if r[0] <= x <= r[1] and r[2] <= y <= r[3]]
@@ -779,21 +913,35 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
                     f"installs {len(changes)} preset(s) and changes the palette "
                     f"{len(pal_changes)} time(s), not exactly once: {changes}")
             x_c = changes[0][0]
-            if x_c - margin < a_right or x_c + margin > b_left:
+            fr_l = max(pal_frames, bgf.get(a.zone_key, 0))
+            fr_r = max(pal_frames, bgf.get(b.zone_key, 0))
+            need_l, need_r = half_w + fr_l * step, half_w + fr_r * step
+            if x_c - need_l < a_right or x_c + need_r > b_left:
+                what = "a cross-fade" if want_trans == 1 else "a SNAP (per-clip override)"
+                pal_term = (f"PAL_FADE_FRAMES {fade}" if want_trans == 1
+                            else f"SNAP_FRAMES {SNAP_FRAMES}")
                 raise ClipRomError(
-                    f"Z2 the crossing from {a.id!r} to {b.id!r} is at x={x_c}, but a "
-                    f"cross-fade needs {margin} px of corridor on EACH side of it "
-                    f"(CAM_SCREEN_HALF_W {half_w} + PAL_FADE_FRAMES {fade} x CAM_MAX_X_STEP "
-                    f"{step}) and the corridor runs x {a_right}..{b_left - 1}: "
-                    f"{x_c - a_right} px on the left, {b_left - x_c} on the right")
-        out.append({"from": a.id, "to": b.id, "x": x_c, "margin_needed": margin,
+                    f"Z2 the crossing from {a.id!r} to {b.id!r} is at x={x_c}, but {what} "
+                    f"needs {need_l} px of corridor on the left of it and {need_r} on the "
+                    f"right (CAM_SCREEN_HALF_W {half_w} + CAM_MAX_X_STEP {step} x the larger "
+                    f"of {pal_term} and the background switch into that side's zone, "
+                    f"{bgf.get(a.zone_key, 0)} / {bgf.get(b.zone_key, 0)} frames) and the "
+                    f"corridor runs x {a_right}..{b_left - 1}: {x_c - a_right} px on the "
+                    f"left, {b_left - x_c} on the right")
+        out.append({"from": a.id, "to": b.id, "x": x_c, "margin_needed": max(need_l, need_r),
+                    "margin_needed_left": need_l, "margin_needed_right": need_r,
+                    "palette": "snap" if want_trans == 0 else "fade",
+                    "palette_frames": pal_frames,
+                    "background_frames": [bgf.get(a.zone_key, 0), bgf.get(b.zone_key, 0)],
                     "margin_left": x_c - a_right, "margin_right": b_left - x_c,
                     "ys_walked": len(list(ys))})
         if log:
             log(f"clip_rom_bake: Z2 {a.id} -> {b.id}: ONE preset install and ONE palette "
                 f"change at x={x_c} on every one of {len(list(ys))} corridor rows; "
                 f"{x_c - a_right} px of corridor left of it and {b_left - x_c} right, "
-                f"{margin} needed each side")
+                f"{need_l} / {need_r} needed (palette {'SNAP' if want_trans == 0 else 'fade'} "
+                f"{pal_frames} frames, background switch {bgf.get(a.zone_key, 0)} / "
+                f"{bgf.get(b.zone_key, 0)} frames)")
     return out
 
 
@@ -865,6 +1013,78 @@ class _ClipDefaultBgAct:
         return _Act(base.zone_id, base.act_id, base.repo)
 
 
+def co_resident_backgrounds(plan, own, start, log=None):
+    """PER-CLIP OVERRIDE crossing_overrides.background = "co_resident": every zone's
+    background tiles in ONE blob, the act default's, so a crossing changes only the LAYOUT
+    and BG_Stream_Update overwrites nothing (its `cmpa.l BG_Tiles_Current` finds the arena
+    already holding the region's effective blob, rg_bg_tiles 0 = the act default).
+
+    `own` is {zone key: (words, tiles, info)} as clip_bg_lower.lower() returned them. The
+    union keeps the start zone's tiles at their own indices and appends every other zone's
+    tiles that are not already in it — by clip_bg_lower's CANONICAL form (the least of a
+    tile's four flips), which is the form both lowerings store, so a word's flip bits stay
+    valid when only its index is rewritten. Returns the same shape with every zone's words
+    re-indexed into the union and the union as every zone's tile list.
+
+    WHAT IT MAY SPEND, and why that is legal here only. The arena is BG_TILE_CAPACITY tiles
+    (vram.toml bg_region, a hard VRAM boundary: the SAT follows it). BG_STATIC_TILE_BUDGET
+    (tiles - band_reserve) is what a STATIC background may use, the reserve being held for
+    BgAnim bands. A clip act has NO band (the injector writes its zero-band stub, checked in
+    plan_backgrounds), so the union may reach into the reserve; it may never pass the arena.
+    Both numbers are printed."""
+    from vram_map import BG_TILE_CAPACITY, BG_STATIC_TILE_BUDGET
+    order = [start] + sorted(k for k in own if k != start)
+    union, index = [], {}
+    for t in own[start][1]:
+        index.setdefault(t, len(union))
+        union.append(t)
+    out = {}
+    for k in order:
+        words, tiles, info = own[k]
+        remap = []
+        for t in tiles:
+            if t not in index:
+                index[t] = len(union)
+                union.append(t)
+            remap.append(index[t])
+        new = []
+        for i, w in enumerate(words):
+            if w == 0:
+                new.append(0)
+                continue
+            nw = (w & ~0x7FF) | remap[w & 0x7FF]
+            if nw == 0:
+                raise ClipRomError(
+                    f"BG co-resident: {info['zone']} cell {i} re-indexes to word $0000, which "
+                    f"inject_editor_bg.rebase_layout keeps as the TRANSPARENT word — this "
+                    f"opaque tile would vanish")
+            # FIDELITY: the union entry the new word names IS the tile the old word named
+            if union[nw & 0x7FF] != tiles[w & 0x7FF]:
+                raise ClipRomError(f"BG co-resident: {info['zone']} cell {i} re-indexed to a "
+                                   f"different tile")
+            new.append(nw)
+        out[k] = [new, None, dict(info, co_resident=True)]
+    if len(union) > BG_TILE_CAPACITY:
+        raise ClipRomError(
+            f"BG co-resident: the zones' backgrounds need {len(union)} tiles together and the "
+            f"arena holds BG_TILE_CAPACITY = {BG_TILE_CAPACITY} (vram.toml bg_region, a hard "
+            f"VRAM boundary). They cannot be co-resident; drop the override.")
+    for k in out:
+        out[k][1] = list(union)
+        out[k] = tuple(out[k])
+    if log:
+        log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.background = co_resident — "
+            f"{' + '.join(str(len(own[k][1])) for k in order)} tiles of "
+            f"{', '.join(own[k][2]['zone'] for k in order)} background share ONE "
+            f"{len(union)}-tile blob (the act default); arena {BG_TILE_CAPACITY} tiles, "
+            f"static budget {BG_STATIC_TILE_BUDGET}, so "
+            + (f"{len(union) - BG_STATIC_TILE_BUDGET} tile(s) of the band reserve are USED "
+               f"(legal only because this act has no BgAnim band)"
+               if len(union) > BG_STATIC_TILE_BUDGET else "the band reserve is untouched")
+            + f"; {BG_TILE_CAPACITY - len(union)} arena tile(s) spare")
+    return out
+
+
 def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None, log=None):
     """Lower every zone's own background, write the act default through the shipped
     injector and each other zone's blobs into `gen_dir`, and bind them into `plan` (zones
@@ -872,11 +1092,17 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
     import clip_bg_lower as CBL
     lower = lower or CBL.lower
     start = start_zone_key(plan, spawn)
-    lowered = {}
+    co_resident = (plan.get("overrides") or {}).get("background") == "co_resident"
+    lowered, own = {}, {}
     for z in plan["zones"]:
-        words, tiles, info = lower(z["donor"], z["zone"])
+        own[z["key"]] = lower(z["donor"], z["zone"])
+    if co_resident:
+        own = co_resident_backgrounds(plan, own, start, log=log)
+    for z in plan["zones"]:
+        words, tiles, info = own[z["key"]]
         lowered[z["key"]] = (words, tiles)
         z["bg"] = info
+        z["bg_tile_bytes_effective"] = len(tiles) * 32
         if info["line0_cells"] and log:
             log(f"clip_rom_bake: BG WARNING — {z['donor']}:{z['zone']}'s background draws "
                 f"{info['line0_cells']} cell(s) on CRAM line 0, the character line; kept as "
@@ -887,20 +1113,31 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
                 json.dump(CBL.override_doc(words, tiles), fh)
             import inject_editor_bg as ieb
             ieb.main(_ClipDefaultBgAct(override, gen_dir))
+            if co_resident:
+                # the co-resident blob may reach into the band reserve ONLY because no band
+                # exists to use it: read that back out of what the injector wrote
+                with open(os.path.join(gen_dir, "bg_anim.emp")) as fh:
+                    if "BgAnim_Table: u16 = 0" not in fh.read():
+                        raise ClipRomError(
+                            "BG co-resident: the act default's bg_anim.emp is not the "
+                            "zero-band stub, so the band reserve the shared blob uses may "
+                            "be claimed by a band — refused")
             z["bg_role"] = "act_default"
             continue
         z["bg_role"] = "region"
         lay = CLIP_BG_LAYOUT_BIN.format(key=z["key"])
-        til = CLIP_BG_TILES_BIN.format(key=z["key"])
-        blob = CBL.tiles_blob(tiles)
         with open(os.path.join(gen_dir, lay), "wb") as fh:
             fh.write(CBL.layout_blob(words))
+        z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
+                 bg_layout_embed=f"{GEN_REL}/{lay}")
+        if co_resident:
+            continue                    # its tiles are in the act default's blob
+        til = CLIP_BG_TILES_BIN.format(key=z["key"])
+        blob = CBL.tiles_blob(tiles)
         with open(os.path.join(gen_dir, til), "wb") as fh:
             fh.write(blob)
-        z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
-                 bg_tiles_label=f"OJZ_Clip_BG_Tiles_{z['key']}",
-                 bg_layout_embed=f"{GEN_REL}/{lay}", bg_tiles_embed=f"{GEN_REL}/{til}",
-                 bg_tiles_bytes=len(blob))
+        z.update(bg_tiles_label=f"OJZ_Clip_BG_Tiles_{z['key']}",
+                 bg_tiles_embed=f"{GEN_REL}/{til}", bg_tiles_bytes=len(blob))
     zones = {z["key"]: z for z in plan["zones"]}
     for r in plan["rows"]:
         r["bg_layout"] = zones[r["key"]].get("bg_layout_label")
@@ -941,7 +1178,9 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
                                f"triple(s) for {len(plan['rows'])} row(s) — UNMEASURABLE")
         for r, (lay, span, til) in zip(plan["rows"], got):
             z = zones[r["key"]]
-            want = ((z["bg_layout_label"], z["bg_tiles_label"])
+            # co-resident (per-clip override): the rows name their own LAYOUT and tile blob
+            # 0, the act default's, which holds every zone's tiles
+            want = ((z["bg_layout_label"], z.get("bg_tiles_label") or "0")
                     if z["key"] != plan["bg_default_key"] else ("0", "0"))
             if (lay, til) != want or span != "0":
                 raise ClipRomError(
@@ -953,8 +1192,27 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
                                f"no such data")
     for key, (words, tiles) in plan["_bg_lowered"].items():
         z = zones[key]
+        if z["bg"].get("co_resident"):
+            # the planned words are RE-INDEXED, so "bytes of a fresh lowering" is not the
+            # comparison: every cell must name, through the shared blob, the same tile with
+            # the same flip, line and priority bits as a fresh lowering of its own zone
+            fw, ft, _ = CBL.lower(z["donor"], z["zone"])
+            for i, (a, b) in enumerate(zip(fw, words)):
+                if (a == 0) != (b == 0) or (a & ~0x7FF) != (b & ~0x7FF) or \
+                        (a and ft[a & 0x7FF] != tiles[b & 0x7FF]):
+                    raise ClipRomError(f"BG1 {z['zone']} cell {i}: the shared blob does not "
+                                       f"draw what a fresh lowering draws (word ${a:04X} -> "
+                                       f"${b:04X})")
+            if len(fw) != len(words):
+                raise ClipRomError(f"BG1 {z['zone']}: {len(words)} planned cells against "
+                                   f"{len(fw)} lowered")
         if key == plan["bg_default_key"]:
             files = (("zone_bg.bin", CBL.layout_blob(words)), ("bg_tiles.bin", CBL.tiles_blob(tiles)))
+        elif not z.get("bg_tiles_label"):          # co-resident: layout only
+            files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),)
+            if os.path.exists(os.path.join(gen_dir, CLIP_BG_TILES_BIN.format(key=key))):
+                raise ClipRomError(f"BG1 {z['zone']} is co-resident but a tile blob "
+                                   f"{CLIP_BG_TILES_BIN.format(key=key)} was written for it")
         else:
             files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),
                      (CLIP_BG_TILES_BIN.format(key=key), CBL.tiles_blob(tiles)))
@@ -992,7 +1250,16 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         mod = fh.read()
     with open(data_path) as fh:
         data = fh.read()
-    z2 = check_palette_crossings(act, mod, data, log=log)
+    ov = plan.get("overrides") or crossing_overrides(act)
+    if ov["declared"] and log:
+        log("clip_rom_bake: " + "!" * 72)
+        log(f"clip_rom_bake: PER-CLIP OVERRIDE {CROSSING_OVERRIDES_KEY} on act {act.id!r}: "
+            f"palette = {ov['palette'].upper()}, background = {ov['background'].upper()}. "
+            f"This act is NOT held to the default crossing rule (16-frame fade, tile "
+            f"overwrite); Z2 below holds it to the re-derived one. Why: {ov['why']}")
+        log("clip_rom_bake: " + "!" * 72)
+    bgf = background_switch_frames(plan)
+    z2 = check_palette_crossings(act, mod, data, log=log, bg_frames=bgf)
     plan["bg1"] = check_backgrounds(plan, mod, data, gen_dir)
     if log:
         log(f"clip_rom_bake: BG1 {plan['bg1']['default']} is the act default background and "

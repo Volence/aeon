@@ -268,10 +268,10 @@ def analyse(rows, scans, pals, names, geo, blobs_seen):
         rows_done = BG_PLANE_ROWS - r["wipe"] if r["wipe"] else BG_PLANE_ROWS
         bg_visible_ok = {}
         for z in names:
-            bg_visible_ok[z] = (bg_blob == z and not r["bg_tgt"] and lay == z
+            bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"] and lay == z
                                 and rows_done >= BG_SCREEN_ROWS)
         inflight = (pal == "mix" or r["fade"] or r["bg_tgt"] or r["wipe"] or not r["bg_cur"]
-                    or cram != pal)
+                    or (cram != pal and nxt is not None))
         r["_inflight"] = bool(inflight)
         bad = []
         for z, flag in ((names[0], "A" in shows), (names[1], "B" in shows)):
@@ -345,8 +345,12 @@ def main():
             # the camera centre is deep inside that zone's side (first and last rows).
             first, last = live[0], live[-1]
             start_zone, end_zone = (names[0], names[1]) if direction == "right" else (names[1], names[0])
-            blobs = {first["bg_cur"]: start_zone, last["bg_cur"]: end_zone,
-                     ("lay", first["bg_lay"]): start_zone, ("lay", last["bg_lay"]): end_zone}
+            # ONE arena blob on both sides = the zones' tiles are CO-RESIDENT (clip_rom_bake's
+            # per-clip override): the arena is right for either zone, `*`.
+            shared = first["bg_cur"] == last["bg_cur"]
+            blobs = ({first["bg_cur"]: "*"} if shared else
+                     {first["bg_cur"]: start_zone, last["bg_cur"]: end_zone})
+            blobs.update({("lay", first["bg_lay"]): start_zone, ("lay", last["bg_lay"]): end_zone})
             out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs)
             scans = {}
             if a.scan:
