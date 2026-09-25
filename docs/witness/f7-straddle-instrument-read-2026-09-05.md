@@ -64,6 +64,14 @@ correct reading rather than a dead instrument:
    Tails `$9F`, Knuckles `$85` — are all **unreachable** through their anim tables.
    The straddle population in ordinary play is therefore **empty by construction**.
 
+   > **⚠ DATED, 2026-09-25 (DPLC-STRADDLE-REACHABLE).** This was true of the ROM measured
+   > here and is not true now. Which DPLC frames straddle moves whenever the art moves. On
+   > `s4.debug.bin` crc32 `62238a15` (2026-09-19 onward) `dplc_straddle` names Sonic `$29` and
+   > `$2B` as straddling and **REACHABLE**. Ordinary grounded play hits them six times in the
+   > default campaign, every one of them Sonic's DPLC (run tilt block 2). The `$65` forced
+   > control below no longer straddles either. Read `dplc_straddle` for the build in hand.
+   > Details: `docs/research/2026-09-25-dplc-straddle-reachable.md`.
+
 3. **A forced control fires.** Writing Sonic's straddling frame `$65` into the player's
    `mapping_frame` and running ONE frame moved `Dbg_DMA_Straddle_All` 0 → 1 **and** the
    Important-only `Dbg_DMA_Straddle_Frame` 0 → 1, with `prev_frame` committing to `$65` —

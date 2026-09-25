@@ -73,6 +73,15 @@ would break the moment an art-base move gives Sonic a reachable straddling frame
 and then two straddling landings in one frame would need four slots against a
 reserve of two, and one would be dropped whole.
 
+> **⚠ DATED, 2026-09-25 (DPLC-STRADDLE-REACHABLE).** Half of that condition has arrived.
+> On `s4.debug.bin` crc32 `62238a15` Sonic's `$29` and `$2B` straddle and are reachable,
+> and grounded play hits them. The pair bound still holds, for a different reason: Tails'
+> only straddler (`$63`) and Knuckles' (`$4C`) are unreachable on that ROM, so
+> `dplc_straddle` prints concurrent demand `sonic 1 + knuckles 0 + tails 0 = 1` against the
+> reserve of 2. Its `--gate` fails the build if that sum exceeds the reserve, so the case
+> this paragraph warns about is checked on every canonical (non-FAST) sonic4 build. See
+> `docs/research/2026-09-25-dplc-straddle-reachable.md`.
+
 The reserve is 2 slots = 28 bytes, and it was untouched: 140 + 28 = 168 = the
 wall exactly.
 
