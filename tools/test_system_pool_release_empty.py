@@ -61,6 +61,11 @@ WHAT THIS FILE DOES **NOT** COVER — read this before adding a System-slot writ
     store through a form not listed would pass unseen. `_PATTERNS` is the honest
     extent and adding to it is cheap.
 
+  * Code vs data INSIDE the image. The scan stops at `EndOfRom`, so the deb2 symbol
+    appendix past it is not read as code (`image_end`). Below EndOfRom, data is still
+    scanned as if it were code, because the listing lists labels only. That can only
+    produce a false positive (loud), never hide a store.
+
   * The DEMO game. Only sonic4 shapes are scanned. `games/demo` has no System-slot
     code at all today; if it ever gains some this file will not notice.
 
@@ -125,10 +130,13 @@ COMPARE_KINDS = frozenset({"cmpa.w #", "cmpa.l #"})
 LOAD_KINDS = frozenset({"lea abs.w", "lea abs.l", "movea.l #", "movea.w #"})
 
 
-def scan_pool_refs(rom, lo, hi):
-    """Every instruction in `rom` whose literal operand lands in [lo, hi].
+def scan_pool_refs(rom, lo, hi, end=None):
+    """Every instruction in `rom[:end]` whose literal operand lands in [lo, hi].
 
     `lo`/`hi` are LOW WORDS of Work RAM addresses (the form absolute-short carries).
+    `end` is where the assembled image stops (`image_end()`); an opcode at or past it
+    is not scanned, though its operand words may be read from past it. None scans
+    the whole buffer (the hermetic tests' planted snippets).
     Returns a list of (rom_offset, kind, target_word), ROM order.
     """
     if not (0 <= lo <= hi <= 0xFFFF):
@@ -140,8 +148,9 @@ def scan_pool_refs(rom, lo, hi):
     def w(o):
         return (rom[o] << 8) | rom[o + 1]
 
+    stop = len(rom) - 7 if end is None else min(end, len(rom) - 7)
     out = []
-    for off in range(0, len(rom) - 7, 2):
+    for off in range(0, stop, 2):
         op = w(off)
         for mask, val, idx, prefix, name in _PATTERNS:
             if (op & mask) != val:
@@ -196,6 +205,51 @@ def pool_range(lst_path):
                            "the RAM order this gate assumes has changed"
                            % (syms["Effect_Slots"], syms["System_Slots"]))
     return lo, hi
+
+
+#: The two bytes convsym's deb2 symbol appendix starts with (build.sh's "THE MAGIC IS
+#: THE BYTE PAIR DE B2" block).
+APPENDIX_MAGIC = b"\xde\xb2"
+
+
+def image_end(rom, lst_path):
+    """Where the ASSEMBLED image stops: `EndOfRom` from THIS shape's listing.
+
+    WHY THE SCAN STOPS HERE (2026-09-25, land/0925-lag-bake). Both shapes append
+    convsym's deb2 symbol table after `EndOfRom`. That appendix is compressed symbol
+    data: the CPU never executes it, and its bytes change whenever any symbol does.
+    The unbounded scan read it as code, and on the pagecache-stream-lag merge a run
+    of it (`21 C0 9E 37`, EndOfRom+$270A) decoded as `move.l d0,$9E37.w`, a store
+    into the pool. The pool range and every instruction below EndOfRom were the same
+    as master's; only the appendix bytes had changed.
+
+    The exclusion is MEASURED, not assumed. If the bytes at EndOfRom are not the
+    appendix magic, something other than the symbol table sits past the image, and
+    this raises instead of skipping bytes it cannot name. A missing EndOfRom, or one
+    past the end of the file, raises too.
+
+    What this does NOT fix: data inside the image (level blocks, sound banks, art) is
+    still scanned as if it were code. The sigil listing lists labels only, not
+    instructions, so it cannot separate code from data below EndOfRom. A hit in that
+    data is a false POSITIVE: loud, the safe direction. If one appears, find its
+    section from `rom_symbol_at` before touching COMPARE_KINDS.
+    """
+    syms = _lst_symbols(lst_path)
+    if "EndOfRom" not in syms:
+        raise Unmeasurable("EndOfRom is not in %s, so the assembled image cannot be "
+                           "told from the symbol appendix past it"
+                           % os.path.basename(lst_path))
+    end = syms["EndOfRom"]
+    if not 0 < end <= len(rom):
+        raise Unmeasurable("EndOfRom $%X is outside the %d-byte ROM"
+                           % (end, len(rom)))
+    tail = rom[end:end + len(APPENDIX_MAGIC)]
+    if tail and tail != APPENDIX_MAGIC:
+        raise Unmeasurable(
+            "the bytes at EndOfRom ($%X) are %s, not the deb2 appendix magic %s. "
+            "Something other than the symbol table sits past the image, and this gate "
+            "will not skip bytes it cannot name." % (end, tail.hex(), APPENDIX_MAGIC.hex()))
+    return end
 
 
 def rom_symbol_at(lst_path, off):
@@ -341,6 +395,53 @@ class TestScannerMechanism:
             pool_range(str(lst))
         assert "cannot answer" in str(e.value)
 
+    # --- the image bound (2026-09-25) ---------------------------------------
+    # A fake ROM: 16 bytes of image with a planted store at offset 4, EndOfRom = 16,
+    # then an "appendix" whose own bytes also decode as a store into the pool.
+    _STORE = bytes.fromhex("21C09E37")          # move.l d0,$9E37.w
+    _IMAGE = b"\x4e\x71" * 2 + _STORE + b"\x4e\x71" * 4
+
+    @staticmethod
+    def _lst(tmp_path, end):
+        p = tmp_path / "x.lst"
+        p.write_text("(0) 1/0 :        Vectors:\n(0) 2/%X :        EndOfRom:\n" % end)
+        return str(p)
+
+    def test_a_store_inside_the_image_is_still_caught(self, tmp_path):
+        rom = self._IMAGE + b"\xde\xb2" + self._STORE + b"\x00" * 8
+        end = image_end(rom, self._lst(tmp_path, len(self._IMAGE)))
+        assert [(h[0], h[1]) for h in scan_pool_refs(rom, 0x9CB0, 0x9F2F, end=end)] \
+            == [(4, "move.l dn,abs.w")]
+
+    def test_a_store_shaped_run_in_the_appendix_is_not_code(self, tmp_path):
+        rom = b"\x4e\x71" * 8 + b"\xde\xb2" + self._STORE + b"\x00" * 8
+        end = image_end(rom, self._lst(tmp_path, 16))
+        assert scan_pool_refs(rom, 0x9CB0, 0x9F2F, end=end) == []
+        # ...and the same bytes WERE a hit before the bound: the case it exists for.
+        assert [h[0] for h in scan_pool_refs(rom, 0x9CB0, 0x9F2F)] == [18]
+
+    def test_unnamed_bytes_past_the_image_refuse(self, tmp_path):
+        """Not the appendix magic past EndOfRom: code could be hiding there."""
+        rom = self._IMAGE + self._STORE + b"\x00" * 8
+        with pytest.raises(Unmeasurable) as e:
+            image_end(rom, self._lst(tmp_path, len(self._IMAGE)))
+        assert "will not skip bytes it cannot name" in str(e.value)
+
+    def test_a_listing_without_endofrom_refuses(self, tmp_path):
+        lst = tmp_path / "x.lst"
+        lst.write_text("(0) 1/0 :        Vectors:\n")
+        with pytest.raises(Unmeasurable):
+            image_end(self._IMAGE, str(lst))
+
+    def test_an_endofrom_past_the_file_refuses(self, tmp_path):
+        with pytest.raises(Unmeasurable):
+            image_end(self._IMAGE, self._lst(tmp_path, len(self._IMAGE) + 2))
+
+    def test_a_rom_that_ends_at_endofrom_is_accepted(self, tmp_path):
+        """No appendix at all (a lean shape) is not a refusal: nothing is skipped."""
+        assert image_end(self._IMAGE, self._lst(tmp_path, len(self._IMAGE))) \
+            == len(self._IMAGE)
+
     def test_a_listing_with_no_symbols_at_all_refuses(self, tmp_path):
         lst = tmp_path / "empty.lst"
         lst.write_text("nothing that parses\n")
@@ -382,7 +483,7 @@ def test_release_rom_never_loads_a_system_slot_address():
     rom_path, lst_path = os.path.join(AEON, "s4.bin"), os.path.join(AEON, "s4.lst")
     lo, hi = pool_range(lst_path)
     rom = open(rom_path, "rb").read()
-    hits = scan_pool_refs(rom, lo, hi)
+    hits = scan_pool_refs(rom, lo, hi, end=image_end(rom, lst_path))
 
     offenders = [h for h in hits if h[1] not in COMPARE_KINDS]
     assert not offenders, (
@@ -423,7 +524,8 @@ def test_debug_rom_still_contains_the_writers_the_release_rom_lacks():
     rom_path = os.path.join(AEON, "s4.debug.bin")
     lst_path = os.path.join(AEON, "s4.debug.lst")
     lo, hi = pool_range(lst_path)
-    hits = scan_pool_refs(open(rom_path, "rb").read(), lo, hi)
+    rom = open(rom_path, "rb").read()
+    hits = scan_pool_refs(rom, lo, hi, end=image_end(rom, lst_path))
 
     loads = [h for h in hits if h[1] in LOAD_KINDS]
     assert loads, (

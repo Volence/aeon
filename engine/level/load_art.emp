@@ -13,6 +13,9 @@ module engine.load_art in load_art
 
 use engine.structs.{Act}
 use engine.constants.{DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
+use engine.constants.{PAGE_NOT_RESIDENT, PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED}
+
+ensure(PAGE_FRAMES_CLAMP <= 127, "Level_LoadArt caps the bulk load with `moveq #PAGE_FRAMES_CLAMP` (PAGE_FRAMES_CLAMP = {PAGE_FRAMES_CLAMP})")
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // PageCache_Init (engine.page_cache) / PageIn_Enqueue (engine.page_in), BG_Init (engine.bg),
@@ -91,6 +94,17 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
     .streaming_pool:
         tst.w   d6
         beq     .bg                                 // empty pool -> straight to BG
+        // A STREAMING act bulk-loads only its first PAGE_FRAMES_CLAMP pages (streaming-
+        // lag fix, 2026-09-25). Loading the whole pool into fewer frames made the bulk
+        // load itself evict (measured on the two-zone clip act: pages 12/13 landed in
+        // frames 1/2 over pages 2/3, which the spawn window then had to demand back),
+        // and it destroyed the identity layout the bounded-direct patch regime below
+        // needs. The rest arrive by prefetch/demand when the camera nears them. A fully
+        // resident act has pages <= CLAMP, so this changes nothing for it.
+        cmpi.w  #PAGE_FRAMES_CLAMP, d6
+        bls     .bulk_count_ok
+        moveq   #PAGE_FRAMES_CLAMP, d6              // d6 = pages to bulk-load (PageIn_Pool_Pages keeps the pool count)
+    .bulk_count_ok:
 
         // Point the dispatcher at this act's page-address table (FIFO resolution base).
         move.l  Act.act_art_pool_table(a4), PageIn_Pool_Table
@@ -108,7 +122,8 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         move.w  DMA_Budget_Default, d7              // save the active-display budget
         move.w  #DMA_BUDGET_BLANKED_INIT, DMA_Budget_Default
 
-        // Enqueue every page as a request, INCREMENTALLY (tripwire 1): at the
+        // Enqueue pages [0, d6) — the whole pool, or the first PAGE_FRAMES_CLAMP pages
+        // of a streaming act (see above) — as requests, INCREMENTALLY (tripwire 1): at the
         // 64-tile cutover a pool is ~10+ pages > PAGEIN_QUEUE_SLOTS(8), so a
         // blind up-front enqueue would drop pages. Enqueue one page at a time; on a
         // full queue, spin a VSync_Wait to drain a slot, then retry the SAME page.
@@ -177,21 +192,43 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         // An EMPTY pool satisfies the identity vacuously and is latched: with no
         // pool pages every translated word is blank, and any non-blank one is
         // already a loud DEBUG failure on both loop variants.
+        //
+        // THE BOUNDED VARIANT (streaming-lag fix, 2026-09-25). A STREAMING act (pool >
+        // clamp) bulk-loaded exactly pages [0, PAGE_FRAMES_CLAMP) above, in order, into
+        // the free list's frames 0.., so its resident set is those pages AT IDENTITY and
+        // every other page is absent. Until anything else is allocated a frame, that is
+        // as good as (2) for every resident word, and residency itself is one compare:
+        // global < PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT. No eviction can happen
+        // without PageCache_AllocFrame, whose first call ENDS the regime (it rebuilds
+        // the refcounts from the nametable first — PageCache_EndBoundedRegime), so
+        // "no refcounts maintained" is safe for exactly as long as the latch is set.
+        // The same scan verifies it: Page_Table[p] == p below the clamp and
+        // PAGE_NOT_RESIDENT above it; for a fully resident act the pool never exceeds
+        // the clamp, so the scan is the identity check (2) unchanged.
         clr.b   PageCache_Direct_Map
-        tst.b   PageIn_Fully_Resident
-        beq     .no_direct
         lea     Page_Table, a0
         move.w  PageIn_Pool_Pages, d0
         subq.w  #1, d0
         bmi     .direct_ok                          // empty pool -> identity holds vacuously
-        moveq   #0, d1                              // d1 = expected frame id (== page id)
+        moveq   #0, d1                              // d1 = page id (== expected frame id below the clamp)
     .direct_scan:
-        cmp.b   (a0)+, d1
+        move.b  (a0)+, d2
+        cmpi.w  #PAGE_FRAMES_CLAMP, d1
+        bhs     .direct_absent
+        cmp.b   d1, d2
         bne     .no_direct                          // not the identity -> keep the general loop
+        bra     .direct_next
+    .direct_absent:
+        cmpi.b  #PAGE_NOT_RESIDENT, d2
+        bne     .no_direct                          // a page above the clamp is resident -> general loop
+    .direct_next:
         addq.w  #1, d1
         dbf     d0, .direct_scan
     .direct_ok:
-        st.b    PageCache_Direct_Map
+        move.b  #PAGECACHE_DIRECT_BOUNDED, PageCache_Direct_Map
+        tst.b   PageIn_Fully_Resident
+        beq     .no_direct                          // streaming act: the bounded variant
+        move.b  #PAGECACHE_DIRECT_RESIDENT, PageCache_Direct_Map
     .no_direct:
 
         // -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --

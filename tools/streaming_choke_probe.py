@@ -36,7 +36,8 @@ this ROM, in this game state:
   * DecompressBlock, CopyBlockColumn, PatchRun_Seq, PatchRun_Col, S4LZ_DecompressDict
     and the three slides have exactly ONE live parent each (init-time callers do not
     run inside the sample).
-  * FindStagedBlock has a SECOND caller, PageCache_Prefetch (page_cache.emp:677,708).
+  * FindStagedBlock has a SECOND caller, PageCache_Prefetch (page_cache.emp, its row
+    and col strip walks).
     That routine early-outs on `PageIn_Fully_Resident` and OJZ act 1 is fully resident
     (10 pages against PAGE_FRAMES=15), so the second parent contributes ZERO. This
     probe READS PageIn_Fully_Resident and prints it; if it is ever 0, the FindStagedBlock

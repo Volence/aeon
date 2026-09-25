@@ -2,26 +2,26 @@
   "schema": 1,
   "units": "world_px",
   "id": "s2_ehz_cpz",
-  "name": "S2-COMPRESSED-ACT row 7: Emerald Hill act 1, a neutral corridor, then the opening of Chemical Plant act 1",
-  "note": "TWO ZONES, ONE ACT, NEVER ON ONE SCREEN (owner ruling S2ACT-SEAM-CORRIDORS). Left to right: ALL of Emerald Hill act 1's painted crop, x 0..10975 (to its signpost stretch and 320 px past Sonic 2's own camera box at 10656); a 1312-px corridor x 10976..12287; the first 2048 px of Chemical Plant act 1, x 12288..14335, lowered 256 px. Each zone is drawn in its OWN palette through its own region (tools/clip_rom_bake.py's ROW 7 block); the palette cross-fades at x = 11632, the corridor's middle. WHY THESE RECTANGLES \u2014 every one is a ROM-ROOM decision first. (1) THE BINDING BUDGET IS ROM ROOM, NOT VRAM OR COLLISION. Every byte a clip act adds lands in the data region below the Z80 bank anchor at 0xA8000 (games/sonic4/map.toml, BANK PLACEMENT RULE). Measured on the base clip ROMs (s2_ehz_boot): 86,188 B free under the anchor in the plain shape, 58,962 B in the debug shape. A Chemical Plant section painted 2048 px tall costs 13-25 KB of S4LZ blocks; ALL of Chemical Plant act 1 measured +123 KB of block stream, which does not LINK in either shape. (2) CHEMICAL PLANT IS ITS FIRST 2048 PX, from its own start, because the player enters where Sonic 2 starts the zone; measured 13,306 B of blocks plus a 1,600 B fringe (the 256 px it hangs into the second section row). Wider CPZ is the owner's call against the room. (3) EMERALD HILL TAKES ITS WHOLE 10976-PX CROP. The brief's rule was: do it if it costs nothing real. MEASURED against the same act with Emerald Hill stopped at 10240: +3,386 B of block stream (98,884 vs 95,498), and NOTHING else moves \u2014 same 872 pool tiles in 14 pages, same worst camera window (8 of 12), same 163 attr entries, and no gate's verdict changes either way. That recovers the 736 px the five-section act truncated, 416 of them playable (S2CLIP-TRUNCATION): it is recovered HERE because a second zone makes the act wider than Emerald Hill, so its clip no longer has to end on a section boundary. (4) CHEMICAL PLANT IS LOWERED 256 PX so its start floor meets the corridor's: see its unaligned_dst_reason. (5) THE CORRIDOR fills the gap between the two clips exactly, 1312 px: wider than the 80-cell tile-cache window (Z1 \u2014 no camera window holds both zones; the gap is 164 cells), and wide enough for the cross-fade, which needs 416 px on each side of the crossing (CAM_SCREEN_HALF_W 160 + PAL_FADE_FRAMES 16 x CAM_MAX_X_STEP 16, Z2) and has 656. Its rect is 1024 px tall (floor slab 768..1023) because a deeper slab buys nothing the rest of this act has \u2014 no column in it has a bottom \u2014 and every block row is ROM. (6) HOW THE CORRIDOR LOOKS IS THE OWNER'S CALL: a plain grey floor on CRAM line 0, the one line no region install writes, so it is the same picture under both palettes and through the fade.",
+  "name": "S2-COMPRESSED-ACT row 7: Emerald Hill act 1, a short enclosed tunnel, then the opening of Chemical Plant act 1",
+  "note": "TWO ZONES, ONE ACT, NEVER ON ONE SCREEN (owner ruling S2ACT-SEAM-CORRIDORS). Left to right: ALL of Emerald Hill act 1's painted crop, x 0..10975 (to its signpost stretch and 320 px past Sonic 2's own camera box at 10656); an 832-px ENCLOSED TUNNEL x 10976..11807; the first 2048 px of Chemical Plant act 1, x 11808..13855, lowered 256 px. Each zone is drawn in its OWN palette through its own region (tools/clip_rom_bake.py's ROW 7 block); the palette cross-fades at x = 11392, the tunnel's middle. WHY THESE RECTANGLES \u2014 every one is a ROM-ROOM decision first. (1) THE BINDING BUDGET IS ROM ROOM, NOT VRAM OR COLLISION: every byte a clip act adds lands below the Z80 bank anchor at 0xA8000 (games/sonic4/map.toml, BANK PLACEMENT RULE), and the clip DEBUG shape is the tighter of the two. (2) CHEMICAL PLANT IS ITS FIRST 2048 PX, from its own start, because the player enters where Sonic 2 starts the zone. It is NOT widened to the act edge: MEASURED (FAST clip builds, Art_Sonic's address) the extra 480 px cost 5,962 B, which neither clip shape has; see unpainted_remainder. (3) EMERALD HILL TAKES ITS WHOLE 10976-PX CROP (S2CLIP-TRUNCATION, +3,386 B, measured when row 7 landed). (4) CHEMICAL PLANT IS LOWERED 256 PX so its start floor meets the tunnel's: see its unaligned_dst_reason. (5) THE TUNNEL IS AS SHORT AS THE ENGINE ALLOWS (owner, 2026-09-25: \"Can we make the connector a little shorter, I think having it so long takes away a bit from the dramatic effect\"). Two checks bound it, both from engine constants: Z2 puts the crossing at the gap's middle rounded down to 16 and needs CAM_SCREEN_HALF_W 160 + PAL_FADE_FRAMES 16 x CAM_MAX_X_STEP 16 = 416 px of tunnel each side, so 832; Z1 needs TILE_CACHE_COLS - 1 = 79 cells (632 px) between the zones and gets 104. Z2 binds; tools/test_clip_two_zone.py holds this width to the shortest that passes both. It was 1312. (6) THE TUNNEL HIDES THE BACKGROUND (owner, 2026-09-25: \"the tunnel to transition has to be like an FG hiding the bg\"): a solid ceiling from y 512 to 672, the walkway 672..767 (96 px), the floor from 768 down to 1023, and every pixel of the rectangle painted. It is drawn in Chemical Plant's own art (\"the fg can use ehz or cpz art\") RECOLOURED onto CRAM line 0, the one line no region install writes, so it is the same picture under both palettes and through the fade; drawn on a Chemical Plant line it would be on screen in Emerald Hill's colours until the crossing. wall_src is a 32x32 piece of CPZ's riveted panels, back_src its X-lattice mesh, dimmed. The 32x32 wall (not the whole 128x128 panel) is a ROM decision: the full panel measured 584 B over the DEBUG shape's room. The rectangle starts at y 512 because no camera inside the tunnel sees higher (test_clip_two_zone derives the bound: ceiling + BALL_Y_RADIUS - CAM_Y_DEADZONE - CAM_SCREEN_HALF_H = 542), and painting y 0..511 cost ROM for rows nobody can see from inside. (7) THE SEAM STEP IS GONE: Emerald Hill's ground at its crop edge is shape 164 (height 12, surface y 772) against the tunnel floor at 768 \u2014 the 4-px step the owner hit. clip_manifest K6 MEASURES it and makes the tunnel's first block the bank's gentlest ramp from 12 to 16 (shape 208): the surface runs 772 -> 768 over 16 px, never more than 1 px per column. HOW THE TUNNEL LOOKS IS THE OWNER'S CALL.",
   "act": {
     "grid_w": 7,
     "grid_h": 3
   },
   "unpainted_remainder": {
-    "x_from": 14336,
-    "why": "NOTHING IS UNPAINTED ON THE X AXIS. 14336 is the act's own width (grid_w 7 x SECTION_SIZE 2048) and Chemical Plant's clip ends exactly there, so the painted world runs to the camera's own clamp. The corridor (x 10976..12287) is painted art on every column. Kept as a two-sided declaration: clip_reachability.py refuses if the painted world ends anywhere else.",
+    "x_from": 13856,
+    "why": "THE LAST 480 PX OF THE ACT ARE UNPAINTED, x 13856..14335. The act is grid_w 7 x SECTION_SIZE 2048 = 14336 px and it cannot be 6 sections (Emerald Hill 10976 + tunnel 832 + Chemical Plant 2048 = 13856 > 12288). Painting it means widening Chemical Plant's clip to 2528 px, MEASURED at +5,962 B that neither clip shape has room for (S2CLIP-TUNNEL in docs/DEFERRED_WORK.md; it rides on the same ROM-room remedy as a longer Chemical Plant). Past x 13856 there is no art and no collision: a player who runs off the end of Chemical Plant's clip falls. The tunnel (x 10976..11807) is painted art on every column. Kept as a two-sided declaration: clip_reachability.py refuses if the painted world ends anywhere else.",
     "unbounded_fall": {
-      "columns": 1744,
+      "columns": 1684,
       "donor_bottom_boundary": {
         "EHZ": 800,
         "CPZ": 1824,
         "note": "each donor level's own bottom y (s2_donor.level_size); Chemical Plant is pasted 256 px lower, so its boundary would sit at y=2080 in this act"
       },
-      "why": "THE ACT STILL HAS NO BOTTOM, in all three parts. 1744 of the 1792 columns have air below their LAST landing surface: Emerald Hill's 1324 (its 1372 painted columns less the 48 of its two pits \u2014 s2_ehz_boot's 1232 plus the 92 columns of the recovered crop), the corridor's 164 (its floor slab ends at y=1024 and the act runs to 6144), and Chemical Plant's 256 (its clip ends at y=2304). The other 48 are Emerald Hill's two pits, counted in floorless_columns instead. Sonic 2 survives this with a level bottom boundary that kills and restarts; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: add a floor, a death plane or a bottom boundary and it drops, and this gate says so."
+      "why": "THE ACT STILL HAS NO BOTTOM, in all three parts. 1684 of the 1732 painted columns have air below their LAST landing surface: Emerald Hill's 1324 (its 1372 painted columns less the 48 of its two pits \u2014 s2_ehz_boot's 1232 plus the 92 columns of the recovered crop), the tunnel's 104 (its floor ends at y=1024 and the act runs to 6144), and Chemical Plant's 256 (its clip ends at y=2304). The other 48 are Emerald Hill's two pits, counted in floorless_columns instead. Sonic 2 survives this with a level bottom boundary that kills and restarts; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: add a floor, a death plane or a bottom boundary and it drops, and this gate says so."
     },
     "floorless_columns": {
-      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663 \u2014 faithful donor content, exactly as s2_ehz_boot declares them (see its floorless_columns note). Neither the recovered crop x 10240..10975, nor the corridor, nor Chemical Plant's first 2048 px adds one: every column there has a landing surface on plane A. Plane B stays informational (unreachable: no crossover mark).",
+      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663 \u2014 faithful donor content, exactly as s2_ehz_boot declares them (see its floorless_columns note). Neither the recovered crop x 10240..10975, nor the tunnel, nor Chemical Plant's first 2048 px adds one: every column there has a landing surface on plane A. Plane B stays informational (unreachable: no crossover mark).",
       "planes": {
         "A": {
           "columns": 48,
@@ -68,12 +68,12 @@
         "h": 2048
       },
       "dst_rect": {
-        "x": 12288,
+        "x": 11808,
         "y": 256,
         "w": 2048,
         "h": 2048
       },
-      "unaligned_dst_reason": "Chemical Plant is lowered 256 px so its start floor meets the corridor's. Its own start ground is a full block at y=512 (s2disasm startpos/CPZ_1.bin puts the player at (96, 492), feet at 511); the corridor's floor is at y=768, one collision row above Emerald Hill's ground where its crop ends (x 10960..10975: shape 164, height 12, surface y=772 \u2014 a 4-px step up onto the corridor, inside a floor sensor's reach). 768 - 512 = 256, a multiple of R12's 16-px collision quantum, so the paste moves art and collision together. The price is 256 px of Chemical Plant in the act's second section row (2048..2303), measured at 1,600 B of blocks."
+      "unaligned_dst_reason": "x: Chemical Plant starts where the 832-px tunnel ends (11808 = 10976 + 832), which is not a section boundary \u2014 act section 5 holds Emerald Hill's crop end, the tunnel and Chemical Plant's first 480 px (W3; the bake refuses a local map past 2047 and did not). y: Chemical Plant is lowered 256 px so its start floor meets the tunnel's. Its own start ground is a full block at y=512 (s2disasm startpos/CPZ_1.bin puts the player at (96, 492), feet at 511); the tunnel's floor is at y=768, one collision row above Emerald Hill's ground where its crop ends (x 10960..10975: shape 164, height 12, surface y=772 \u2014 bridged by the tunnel's seam ramp, clip_manifest K6). 768 - 512 = 256, a multiple of R12's 16-px collision quantum, so the paste moves art and collision together. The price is 256 px of Chemical Plant in the act's second section row (2048..2303), measured at 1,600 B of blocks."
     }
   ],
   "corridors": [
@@ -81,11 +81,30 @@
       "id": "ehz_to_cpz",
       "dst_rect": {
         "x": 10976,
-        "y": 0,
-        "w": 1312,
-        "h": 1024
+        "y": 512,
+        "w": 832,
+        "h": 512
       },
-      "floor_y": 768
+      "floor_y": 768,
+      "tunnel": {
+        "ceiling_y": 672,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
     }
   ]
 }

@@ -38098,6 +38098,78 @@ CPZ's invented seam every 512 px; CPZ's 2 line-0 cells; both backgrounds scroll 
   `clip_act.emp`) at its next aeon pin advance. `ojz_scroll_test.emp` also gains two names from the clip
   module (not lowered standalone by any port found).
 
+### S2CLIP-TUNNEL — the EHZ->CPZ connector is a short enclosed tunnel (2026-09-25, `parcel/s2clip-tunnel-2`)
+
+The owner, verbatim: *"the tunnel to tranisition has to be like an FG hiding the bg, right now it's
+just something we walk on. It doens't have to be so long either and the fg can use ehz or cpz art ...
+Can we make the connector a little shorter, I think having it so long takes away a bit from the
+dramatic effect"*. No engine code changed; the tunnel is content plus the clip tools that paint it.
+
+**CLOSED**
+
+- **Length 1312 -> 832 px, the shortest the engine allows, and the binding rule is Z2, not Z1** (the
+  brief named Z1). Z2 (`clip_rom_bake.check_palette_crossings`) puts the crossing at the gap's middle
+  rounded down to 16 and needs `CAM_SCREEN_HALF_W` 160 + `PAL_FADE_FRAMES` 16 x `CAM_MAX_X_STEP` 16 =
+  416 px each side, so 832. Z1 (`clip_act_bake.zone_separation`) needs `TILE_CACHE_COLS` - 1 = 79 cells
+  (632 px) and gets 104. Crossing now x = 11392 (was 11632), 416 px each side. Held by
+  `test_the_tunnel_is_as_short_as_the_crossing_allows` (red-first: w 848 -> `assert 848 == 832`).
+- **Enclosed, background hidden.** Corridor `tunnel` (clip_manifest K4/K5): solid ceiling y 512..671,
+  walkway 672..767 (96 px, >= 2 x `PLAYER_Y_RADIUS` + 1 = 39), floor 768..1023. Every pixel of the rect
+  is painted: 0 transparent pixels (`test_the_tunnel_hides_the_background...`; the open-corridor
+  control has some; red-first: back wall made transparent -> 79,899). The rect starts at y 512 because
+  no camera inside the walkway sees higher: `test_the_tunnel_rect_covers_every_row_a_camera_inside_it_can_show`
+  derives 542 from ceiling + `BALL_Y_RADIUS` - `CAM_Y_DEADZONE` - `CAM_SCREEN_HALF_H` (red-first: y 576
+  -> "rows 34 px above the rect are on screen").
+- **Drawn in Chemical Plant's art, recoloured onto CRAM line 0.** `corridor_art` paints the corridor
+  pixel by pixel from its own collision (art and ground cannot disagree). Wall = a 32x32 piece of CPZ's
+  riveted panels (`wall_src` 768,784), back wall = CPZ's X-lattice mesh dimmed to half (`back_src`
+  512,896), 29 sheet tiles. Line 0 because it is the one line no region install writes; on a CPZ line the tunnel would
+  be in Emerald Hill's colours until the crossing (exactly what Z2 forbids).
+- **The 4-px seam step is fixed.** BEFORE: Emerald Hill's crop edge x 10960..10975 is shape 164 (height
+  12, surface y 772); the corridor at x 10976 was shape 255 (surface 768), a 4-px step UP. AFTER: K6
+  measures the neighbour's height on the floor row and makes the tunnel's first block the bank's gentlest
+  one-block ramp from 12 to 16, shape 208 (`12,12,13,13,13,14,14,14,15,15,15,15,16,16,16,16`, angle $FC):
+  surface 772 at x 10976 to 768 at x 10988, never more than 1 px per column. The CPZ seam (x 11808) was
+  and is flush at 768. `test_the_walk_through_the_tunnel_has_no_step_at_either_seam` checks every column
+  from 32 px before to 32 px after, both planes (red-first: ramps disabled -> `step(s) [(10976, 772, 768)]`).
+- **Walkable at speed, measured headless** (`tools/tunnel_run_witness.py`, a witness, not a gate) on
+  `s4.s2clip.debug.bin` crc `4dfe4107` (and again on the merged tree, crc `e4ce79c9`): 6 of 6 runs crossed (right and left; walk from rest,
+  `PHYS_TOP_SPEED`, `PHYS_GSP_CAP`), 0 faults, 0 airborne frames inside; |gsp| does not drop at either
+  seam; y 753 -> 749 over the ramp, 749..750 through the tunnel. Its "stall" count is harness pacing,
+  not snags: the plain-EHZ control window shows more (107/314 vs 44/199); after merging the lag fix
+  (8939377f) the six runs total 23 stalls, down from 299.
+- **Builds** (all exit 0, every gate green), on the tree merged with origin/master `c838a30f` (lag fix
+  included): `S2CLIP=s2_ehz_cpz ./build.sh` -> `s4.s2clip.bin` 822,909 B crc `3e4404b5`, bganim_room
+  52,340 B free (+3,188 over the 49,152 reserve). `S2CLIP=s2_ehz_cpz DEBUG=1` -> `s4.s2clip.debug.bin`
+  849,389 B crc `e4ce79c9`, 49,500 B free (**+348**, tight; unchanged by the merge). Pre-merge the same
+  shapes were 822,366 B `50ab8c64` (+3,184) and 848,764 B `4dfe4107` (+348). FG page budget worst
+  window 9 of 12 (was 8). Canonical shapes: see the landing evidence in the parcel report.
+
+**OPEN**
+
+- **The act's last 480 px are an unpainted remainder** (x 13856..14335, declared in clips.json). Moving
+  Chemical Plant left to meet the shorter tunnel leaves the 7-section act 480 px wider than its content;
+  widening CPZ to 2528 px to fill it MEASURED +5,962 B (FAST clip builds, Art_Sonic address), which
+  neither clip shape has. A player who runs off the end of CPZ's clip falls. Rides on the same ROM-room
+  remedy as (A) a longer Chemical Plant (sigil card d-35-revised).
+- **The clip DEBUG shape has 348 B of room left.** The full 128x128 CPZ panel as the wall measured ~584 B
+  over it; that is why the wall is a 32x32 piece. Any further clip content in the debug shape needs the
+  anchor move first.
+- **The 1,684-column unbounded fall** (was 1,744: the tunnel is 104 columns, not 164) is unchanged in kind.
+
+**TAGGED FOR THE OWNER'S LOOK:** the tunnel's picture (recoloured CPZ panels and mesh on Sonic's
+palette line, 96-px walkway); the EHZ mouth (a flat metal face from y 512 at x 10976, sky above it); the
+ramp at the mouth; the fade at x = 11392 now happening inside a closed tunnel; the 480-px void past
+CPZ's end.
+
+**FILES aurora must be told about** (changing clips.json reddens its currency test):
+`games/sonic4/data/clips/s2_ehz_cpz/clips.json` (corridor rect, new `tunnel` key, CPZ dst x 11808,
+`unpainted_remainder` x_from 13856 + counts, notes), and `tools/clip_manifest.py`, which aurora also
+vendors (its currency gate hashes that blob). The corridor schema grew an optional `tunnel`
+object (clip_manifest K4/K5; `validate --json` schema number unchanged, no new top-level fields).
+Shared with the parallel parcels: none of their files; the background parcel's region crossing moved
+with the tunnel (x 11632 -> 11392, derived by `region_plan`, not typed).
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
@@ -40279,3 +40351,46 @@ Low priority: all three are off-runner (`tools/keepalive_manifest.toml`), so not
   `via == "z80"`**, because the 68000's own YM writes at `$A04000-3` arrive in the same stream as `via:"bus"`, fc 5, and the
   address-only classifier would count them. `fc` and `symbol` are absent on Z80 hits. Re-vendor if anything validates
   replies against a bus-protocol schema.
+
+## S2CLIP-LAG: the Sonic 2 clip act lagged on the streaming path. ENGINE FIX on `parcel/pagecache-stream-lag`, residue OPEN (booked 2026-09-25T14:58:26Z)
+
+**What was wrong** (`docs/research/2026-09-25-s4-lag.md`): the two-zone act is the first flown act that streams (14
+pages, 12 frames). Its page prefetch scan re-walked every staged ahead block every frame and ran past VBlank, a decode
+then started after the VBlank and took the next frame, and the general patch loop paid a translation + refcount pair
+per word. **What the parcel built** (ARCH §9.7, "The streaming path, made as cheap as the resident one where it can
+be"): a resumable, VBlank-yielding prefetch scan; no decode start after the VBlank; a streaming act bulk-loads only its
+first `PAGE_FRAMES_CLAMP` pages and runs the bounded-direct patch regime until its first frame allocation.
+
+**Measured, lag / video frames in motion, research harness** (clip DEBUG unless named; resident same-zone control
+`s2_ehz_boot` from the research run in brackets):
+
+| leg | before | after | control |
+|---|---|---|---|
+| fly down, Emerald Hill band (cam y < 1024; all at x < 3600) | 30/86 | 3/59 | [2/58] |
+| fly diagonal, same band | 56/112 | 26/82 | [21/77] |
+| fly right, whole leg | 24/894 | 14/884 (the 7 DEBUG audit pairs) | [10/624] |
+| physics run | 243/2,706 | 63/2,485 | [49/1,794] |
+| clip release physics | 185/2,838 | 14/2,437 | canonical release 33/1,161 |
+
+Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, down 6/369, diagonal 49/412, physics
+66/1,179, release physics 33/1,161).
+
+**Still open, in order of size:**
+1. **After the bounded regime ends, the act runs the general loop for the rest of the act.** On this act that is
+   only once the camera nears Chemical Plant's own pages (it ended at (14000,720), 2 lag frames once); a mega-act would
+   live in the general loop. Its remaining cost is the per-word page->frame translation and refcount pair (~3.9k per
+   row run against 1.6k). Levers, not measured: an idle-time mark-sweep liveness pass instead of per-word refcounts,
+   or a per-section translated map. Needs its own design parcel.
+2. **The diagonal band is 26/82 against the resident control's 21/77.** Profiled work 1.14 frames/tick against the
+   control's 1.06 (the control's window reached (752,768), this one (688,704): not the same camera path). Of the
+   ~9.7k/tick gap, `TileCache_DecompressBlock` inclusive is +2.2k (18.1k vs 15.9k, this act's blocks) and the patch
+   runs +2.0k (32.4k vs 30.3k); the rest was not decomposed. Max-diagonal free flight is over
+   budget on every act (the known ARC-CLOSEOUT cost).
+3. **No lane exercises the streaming path on a built shape.** Every canonical act is fully resident, so the nightly
+   and `landing_build.sh` run none of this code past its early-outs; the clip shapes are not built there. A lag-leg
+   lane over a clip shape would be the regression net; not built (clip shapes are unfrozen dev shapes today).
+4. **The owner's window (host side)** is unchanged from the research report's open item: his player thread at 95.9%
+   of a core was not measured. Game-side is what this parcel fixed.
+5. **Needs an on-screen look (owner):** fly the rebuilt `s4.s2clip.debug.bin` / `s4.s2clip.bin` through Emerald Hill
+   and into Chemical Plant. The DEBUG audit ran clean across the regime change and the art pages were checked by the
+   audit's bijectivity/refcount arms, but nobody has looked at the picture.

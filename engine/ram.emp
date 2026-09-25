@@ -1448,7 +1448,10 @@ pub vars upper_ram {
                                         // the whole pool is permanently resident after the bulk load, so
                                         // PageCache_Prefetch early-outs — its ahead-strip scan can never find a
                                         // non-resident page (§9.7 degenerate path, all shipped content)
-    PageCache_Direct_Map:   u8,         // nonzero = the DIRECT-MAP patch regime (streaming fix F1): fully
+    PageCache_Direct_Map:   u8,         // PAGECACHE_DIRECT_BOUNDED ($01) = the bounded-direct regime of a STREAMING act
+                                        // (streaming-lag fix 2026-09-25: resident set == pages [0, PAGE_FRAMES_CLAMP) at
+                                        // identity; ended by the first AllocFrame — see engine.page_cache). Otherwise:
+                                        // nonzero ($FF, PAGECACHE_DIRECT_RESIDENT) = the DIRECT-MAP patch regime (streaming fix F1): fully
                                         // resident AND Page_Table is the identity (Page_Table[p]==p for every
                                         // p < PageIn_Pool_Pages), verified by Level_LoadArt once the pool has
                                         // landed. Under it `physical == global` for every word, so the copy-site
@@ -1510,6 +1513,22 @@ pub vars upper_ram {
     // Placed at the RAM TAIL, before the @shape_divergent block: ripples ZERO engine-RAM
     // addresses; Engine_RAM_End + all game RAM shift — a full game-side repin, routine.
     Palette_Ship_Snap:      [u8; 128],
+
+    // --- Streaming-lag fix (2026-09-25): the page prefetch scan's resumable cursor ---
+    // RELEASE (the streaming path is present in every shape). PageCache_Prefetch used
+    // to re-walk every staged ahead-strip block's 256 words every frame and run past
+    // VBlank (docs/research/2026-09-25-s4-lag.md). Page_Pfx_Scan_Pos[slot] is how many
+    // of that staging slot's block ROWS are proven all-resident, so a row is walked at
+    // most once per (slot claim, eviction epoch). The two counters beside it are how the
+    // proof is invalidated, synced at the scan's entry: Page_Evict_Gen is bumped by
+    // every eviction (PageCache_AllocFrame's victim path) and every act reset
+    // (PageCache_Init); the claims come from Block_Stage_Gen / Block_Stage_Next, which
+    // the staging ring already keeps. Placed at the RAM TAIL (ripples zero engine-RAM
+    // addresses; Engine_RAM_End + the game RAM chained after it shift).
+    Page_Pfx_Scan_Pos:      [u8; BLOCK_STAGE_SLOTS],   // per staging slot: rows proven all-resident (BLOCK_TILE_SIZE = whole block)
+    Page_Pfx_Stage_Gen:     u16,        // Block_Stage_Gen at the scan's last sync (claims since = delta)
+    Page_Evict_Gen:         u16,        // bumped on every page eviction + PageCache_Init
+    Page_Pfx_Evict_Seen:    u16,        // Page_Evict_Gen at the scan's last sync
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed

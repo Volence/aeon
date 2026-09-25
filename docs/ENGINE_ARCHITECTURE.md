@@ -5559,6 +5559,50 @@ refcounts (the "variants got mixed" detector), no cache word referencing an unas
 (the no-dangling-index property the refcounts protected), and that `Page_Table` is still the
 identity. See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
 
+**The streaming path, made as cheap as the resident one where it can be (S2CLIP-LAG, 2026-09-25).**
+The two-zone Sonic 2 clip act (14 pages against 12 frames) was the first flown act that does not
+fit, and the owner found it "super laggy" (`docs/research/2026-09-25-s4-lag.md`). Three changes,
+each measured with that report's harness:
+- **The prefetch scan is bounded and resumable.** `PageCache_Prefetch` used to re-walk every staged
+  ahead-strip block's 256 words every frame (23k-94k cycles/tick) and run past VBlank. It now keeps a
+  per-staging-slot cursor, `Page_Pfx_Scan_Pos[slot]` = rows of that block proven all-resident, so a
+  row is walked at most once per (slot claim, eviction epoch). The proofs are voided by
+  `Page_Evict_Gen` (bumped by `PageCache_AllocFrame`'s victim path and `PageCache_Init`) and by the
+  staging ring's own round-robin claim count (`Block_Stage_Gen`/`_Next`, the F2 memo's derivation),
+  both synced at scan entry; a page arriving can only make a proof truer. The scan polls
+  `VBlank_Flag` per block row (<= one row of overrun) and a queued/in-flight page is PENDING (no
+  budget spent re-asking). This is cooperative preemption, not the bookmark: the scan calls
+  procs and keeps state on the stack, so it cannot be `@resumable`; abandoning it loses at most one
+  row because the cursor holds the rest.
+- **No decode starts after the VBlank.** `PageIn_Process` tests `VBlank_Flag` after the prefetch
+  call: a decode started once the VBlank has fired is only banked at the NEXT one, so it took the
+  whole of the next tick's frame. That was half of the measured lag.
+- **The bounded-direct patch regime.** A streaming act bulk-loads only pages `[0,
+  PAGE_FRAMES_CLAMP)` (loading the whole pool into fewer frames made the bulk load itself evict, and
+  broke the identity layout), and `Level_LoadArt` verifies that its resident set is exactly that
+  block at identity with every other page absent. It then latches `PageCache_Direct_Map =
+  PAGECACHE_DIRECT_BOUNDED` ($01; F1's fully resident latch is `PAGECACHE_DIRECT_RESIDENT`, $FF): the
+  patch runs take F1's collapsed loop plus ONE residency compare, `global < PAGE_FRAMES_CLAMP << 6`,
+  and a word above it takes the general loop's miss arm. No refcounts are kept, which is safe for
+  exactly as long as the latch holds, because nothing can be evicted without
+  `PageCache_AllocFrame` and its first call ends the regime: `PageCache_EndBoundedRegime` rebuilds
+  every refcount and candidacy flag from `Tile_Cache_Nametable` (the audit's ground truth), and the
+  general loop takes over for the rest of the act. `PageCache_Audit`'s latched arm checks identity
+  below the clamp and ABSENT above it (red-first: with the regime end removed, the first page past
+  the block halts the DEBUG shape at the next audit). The general loop itself also got a
+  same-frame ref/unref shortcut (-5 to -9% per run).
+
+Measured (lag / video frames in motion, clip DEBUG shape; the resident same-zone control
+`s2_ehz_boot` in brackets): fly down, Emerald Hill band 30/86 → 3/59 [2/58]; fly diagonal, band
+56/112 → 26/82 [21/77]; physics run 243/2,706 → 63/2,485; fly right 24/894 → 14/884 (= the DEBUG
+audit pairs alone); clip release physics 185/2,838 → 14/2,437. Down-leg work 0.707 frames/tick
+against canonical's 0.697. The regime ended at camera (14000,720) flying down into Chemical Plant:
+**2 lag frames, once per act load**. Canonical ROMs take the same F1 path and their legs are
+unchanged. **Still open:** once the regime has ended the act runs the general loop for good (a
+mega-act would live there); the loop's per-word translation + refcount pair is the remaining
+cost, and dropping per-word refcounts (a mark-sweep liveness pass in idle time, or a translated
+per-section map) is the next lever. See `docs/DEFERRED_WORK.md` S2CLIP-LAG.
+
 **Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
 empties the FIFO and drops any suspended decode (main-loop context only). Called at
 cache-invalidating transitions (act/zone change); NOT at pure teleport rebases — page
