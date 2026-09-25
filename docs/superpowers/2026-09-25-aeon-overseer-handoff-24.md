@@ -52,3 +52,9 @@ No owner-free GAME row remains. Instrument rows in queue order: GATE-PREDICATE-V
 PRINTED-NOT-GATED, CAPTURE-SETTLE-NAME, SETTLE-IMPL-COLLAPSE. RAMP-ARM4-SPAN, COST-PROBE-SWEEP-ANCHOR
 and PARALLAX-ANCHOR-COEFFS-REPUBLISH are decisions (the owner's, or the table owner's); do not take them.
 STRESS-CLAMP-EQU-WRONG closes at the next deliberate rebuild of the shared sigil binary (fix at sigil 74914fa8).
+
+## Added after the boundary: CLIP-BAKE-JSON (aurora's ask, accepted, game tooling so it goes ahead of instrument rows)
+Aurora (ROADMAP row 213, open half) asks for `tools/clip_act_bake.py bake` to separate a crash from a refusal,
+in the same shape `clip_manifest.py validate --json` has (see `docs/research/2026-09-25-clip-tooling-aurora-asks.md`):
+a refusal names its rule and subjects, and anything else is recognisably a crash. Keep exit codes and human output
+unchanged; the clip ROM must stay byte-identical. When it lands, message the aurora lane.

@@ -11,6 +11,13 @@
   "nextBoundary": "Here. Nothing running, everything landed and pushed; handoff at docs/superpowers/2026-09-25-aeon-overseer-handoff-24.md.",
   "queue": [
     {
+      "id": "CLIP-BAKE-JSON",
+      "title": "The editor's Sonic 2 page cannot tell the level bake crashing from the bake refusing a paste; give the bake the same machine-readable answer the checker got",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
       "state": "open",
@@ -49,7 +56,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -113,5 +120,5 @@
   ],
   "awaiting": "your flythrough of the two-zone Sonic 2 act (s4.s2clip.debug.bin crc 441f1db0), and your answer on the assembler lane's card d-35-revised. This session is clearable.",
   "atBoundary": true,
-  "updatedAt": "2026-09-25T11:24:16Z"
+  "updatedAt": "2026-09-25T12:13:32Z"
 }
