@@ -38206,8 +38206,11 @@ exactly at every camX multiple of 128 except the ramp's holds; elsewhere within 
 CPZ reader refusals; SC1 (bake read-back of each preset's binding). Red-first mutations: EHZ ripple phase +1
 (3 rows red), SC1 binding check disabled (2 rows red), CPZ ripple phase +1 (witness 8 FAIL). Headless
 `tools/clip_bg_scroll_witness.py` (manual; keepalive not_wired) on the DEBUG clip ROM: **24/24 probes exact**
-against the model, incl. CPZ vscroll 0/173/288. Room: plain +7,160 -> **+6,524 B** (−636 B); DEBUG +4,324 ->
-**+3,688 B**.
+against the model, incl. CPZ vscroll 0/173/288. Room at the parcel's own base `dba08ef9`: plain +7,160 -> +6,524 B
+(−636 B); DEBUG +4,324 -> +3,688 B. **Re-verified after merging origin/master `140aad69`** (tunnel 832 px, crossing
+x 11392, CPZ at act x 11808 and 2528 wide, the clip's own anchors): both clip shapes build, SC1 green, anchors.toml
+FRESH for both, witness 24/24 exact (probes derived from the new manifest), tunnel_run_witness 6/6 crossed;
+room above the reserve plain 59,300 B / DEBUG 62,140 B under the clip anchors 0xB8000/0xC8000.
 
 **APPROXIMATED (engine can't express it as data; not built, test act):**
 - EHZ ramp: S2 writes it per line, then in held PAIRS, then held TRIPLES; the curve is per line. Exact on the
@@ -38218,13 +38221,14 @@ against the model, incl. CPZ vscroll 0/173/288. Room: plain +7,160 -> **+6,524 B
 - Ripple static (no sub-frame deform phase speed; aurora survey gap, S).
 - CPZ: rows past 511 do not exist in the 64-row plane, so the BG stops at BG Y 288 (camera Y 1408 in this act)
   where S2 continues to 456; the 96-cell period is cropped to 64 (B-1's invented seam) and the plane's column 0
-  is S2 BG x 384 (crop start chunk 3), so the horizontal phase is not S2's. S2's partial-block ripple quirk
+  is S2 BG x 384 (crop start chunk 3), and CPZ is pasted at act x 11808, so each band's horizontal phase is
+  offset from S2's by 11808·r mod 512 (452 px for camX/8, 272 px for camX/2) on top of that 384. S2's partial-block ripple quirk
   (screen-anchored on a part-visible block 18) is not reproduced; the engine's ripple is plane-anchored.
 - The crossing between the two configs uses the default smooth lerp (pcfg_transition 0).
 
 **TAGGED FOR THE OWNER'S LOOK (runtime):** EHZ motion (esp. the lower ramp's per-line vs S2's 2/3-line slats);
-CPZ vertical follow and where it stops (camera Y ≈ 1408); the static ripples; the config lerp at the x = 11632
-crossing together with the BG wipe and palette fade.
+CPZ vertical follow and where it stops (camera Y ≈ 1408); the static ripples; the config lerp at the x = 11392
+crossing (moved there by the tunnel parcel) together with the BG wipe and palette fade.
 
 **OPEN:** animated ripple (sub-frame phase, S); stepped-curve band (S) if the owner wants EHZ's slats; faithful
 CPZ (tall BG with BG-space bands + wide BG, L each — unchanged from B-1).
