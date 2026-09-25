@@ -113,7 +113,8 @@ this one somewhere is booked (docs/DEFERRED_WORK.md, "CHAR-4 LEFT TWO THINGS OPE
 
     python3 tools/glide_ceiling_witness.py --rom s4.debug.bin --lst s4.debug.lst [-v]
 
-Exit 0 every asserted leg held · 1 one did NOT hold · 2 UNMEASURABLE · 3 BLOCKED.
+Exit 0 every asserted leg held · 1 one did NOT hold (even if a LATER leg was then unmeasurable:
+a measured failure outranks a later refusal) · 2 UNMEASURABLE · 3 BLOCKED.
 """
 import argparse
 import asyncio
@@ -726,7 +727,12 @@ async def leg_c(drv, model, out, verbose):
             "feet_embedded_updates": len(emb), "fails": fails}
 
 
-async def main_async(sock, rom, syms, equs, out, verbose):
+async def main_async(sock, rom, syms, equs, out, verbose, done):
+    """Run legs A, B, C, recording each leg's result in the caller's `done` AS IT RETURNS.
+
+    `done` belongs to the caller so a later leg's Unmeasurable cannot take an earlier leg's
+    measured findings with it (KEEPALIVE-IS-BLIND-TO-LOSSY; see main()).
+    """
     client = BusClient(socket_path=sock, client_id="glideceil", client_name="glide_ceiling")
     await client.connect()
     try:
@@ -740,10 +746,9 @@ async def main_async(sock, rom, syms, equs, out, verbose):
         out.append(f"  model: last solid LRB row above y 520, plane A, x 912..1007 = {rows} "
                    f"(derived from the editor collision, not typed in)")
         drv = Drive(client, syms, equs, state_off, dbg_off)
-        a = await leg_a(drv, model, out, verbose)
-        b = await leg_b(drv, model, out, verbose)
-        c = await leg_c(drv, model, out, verbose)
-        return a, b, c
+        done["leg_a"] = await leg_a(drv, model, out, verbose)
+        done["leg_b"] = await leg_b(drv, model, out, verbose)
+        done["leg_c"] = await leg_c(drv, model, out, verbose)
     finally:
         await client.close()
 
@@ -756,31 +761,55 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     out = [f"glide_ceiling_witness  ROM {args.rom}"]
+    # A MEASURED FAILURE OUTRANKS A LATER REFUSAL (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25).
+    # Each leg boots Knuckles afresh and runs its OWN model/stepping control on its OWN rows
+    # before it grades anything, so a finding leg A returned is valid whatever leg B or C
+    # later says about B's or C's subject. Until this change the three results were only
+    # combined after all three returned, so a raise in B or C threw A's measured findings
+    # away and the run exited 2, "could not measure", with a failure in hand. It is the
+    # dma_straddle_exercise shape: the "nothing measured" exit consulted less than the tool
+    # had measured. `done` now survives the raise and is graded first.
+    #
+    # SCOPE: this is ACROSS legs only. Inside leg C, the floor-model control can still
+    # raise after C's own model-independent findings were appended (the release mechanism,
+    # the dead stop); whether a floor-model failure should void those is a reading this
+    # change did not make. Stated in docs/research/2026-09-25-keepalive-lossy.md.
+    done, stopped = {}, None
     try:
         for f in (args.rom, args.lst):
             if not os.path.isfile(f):
                 raise Blocked(f"{f} does not exist — build the DEBUG sonic4 shape first")
         syms, equs = parse_lst(args.lst)
         with aether_emulator(args.rom, symbols=args.lst) as sock:
-            a, b, c = asyncio.run(main_async(sock, args.rom, syms, equs, out, args.verbose))
+            asyncio.run(main_async(sock, args.rom, syms, equs, out, args.verbose, done))
     except Blocked as e:
         print("\n".join(out))
         print(f"\nBLOCKED: {e}")
         return 3
-    except (Unmeasurable, CartMismatch) as e:
+    except Unmeasurable as e:
+        stopped = str(e)
+    except CartMismatch as e:
         print("\n".join(out))
         print(f"\nUNMEASURABLE: {e}")
         return 2
     print("\n".join(out))
     if args.json:
-        Path(args.json).write_text(json.dumps({"leg_a": a, "leg_b": b, "leg_c": c},
-                                              indent=2) + "\n")
-    fails = a["fails"] + b["fails"] + c["fails"]
+        Path(args.json).write_text(json.dumps(done, indent=2) + "\n")
+    fails = [f for leg in ("leg_a", "leg_b", "leg_c") if leg in done
+             for f in done[leg]["fails"]]
     if fails:
         print("\nRESULT: FAIL")
         for f in fails:
             print(f"  - {f}")
+        if stopped:
+            print(f"  NOTE: a later leg then stopped the run as unmeasurable ({stopped}); "
+                  f"legs completed: {', '.join(sorted(done)) or 'none'}. The findings above "
+                  f"were measured before it stopped.")
         return 1
+    if stopped:
+        print(f"\nUNMEASURABLE: {stopped}")
+        return 2
+    a, b, c = done["leg_a"], done["leg_b"], done["leg_c"]
     print(f"\nRESULT: PASS — A: the move put the head in the ceiling on {a['contact']} frame(s), "
           f"the engine ejected {a['ejected']} time(s), no probing-class glide frame ends "
           f"embedded. B: the release kept the centre and the head ended at "
