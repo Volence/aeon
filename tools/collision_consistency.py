@@ -113,13 +113,31 @@ The per-pixel floor line is reconstructed the way the engine reads it:
 `probe_core` indexes the height profile with `andi.w #$F, d0` on the WORLD X
 pixel, so world X uses column `x & 15` of the attr found at 8 px column `x >> 3`.
 
+A narrow gap in one row is only a CANDIDATE (refined 2026-09-25, S2CLIP-CPZ-
+FURTHER). The harm above needs a standing player whose ledge probe lands in the
+gap, and a one-row scan cannot see whether one can exist: Sonic 2's Chemical
+Plant has 34 such candidates, and every one is the floor of an air pocket
+sealed inside rock, a notch in the underside of a slab, or an air cell with
+solid ground 1 px under it (docs/research/2026-09-25-cpz-floor-gaps.md). None
+can make anyone teeter. So a candidate is a VIOLATION only when some position
+is (1) STANDING, the floor sensor pair reads distance 0; (2) has ROOM, no
+SOLID_LRB pixel in the standing body box; (3) is REACHABLE, its air region on
+that plane is connected to the section edge; and (4) its ledge probe SEES the
+gap and finds no ground within LEDGE_NO_GROUND. The four stages and why every
+simplification in them errs toward flagging are spelled out at
+`classify_pinhole`. The collision bytes are never changed by this refinement:
+it is a change to what the gate calls a defect, not to the data.
+LEDGE_PROBE_REACH and LEDGE_NO_GROUND are read from
+games/sonic4/player/player_sensors.emp, PLAYER_Y_RADIUS and SOLID_LRB from
+engine/system/constants.emp.
+
 -----------------------------------------------------------------------------
 WHAT A GREEN RESULT RULES OUT — AND WHAT IT DOES NOT
 -----------------------------------------------------------------------------
 Green means: across every committed OJZ act-1 section and BOTH collision planes,
 no floor surface that the engine can actually read claims a slope it does not
 have (Rule A), and no floor has a hole too narrow for the sensor pair to see
-(Rule B).
+that a reachable standing player's ledge probe reports as a ledge (Rule B).
 
 Green does NOT mean:
   * that BURIED full blocks are consistent. A full cell with a solid cell above
@@ -194,6 +212,12 @@ def coll_dir_for(root=None):
 
 def constants_emp_for(root=None):
     return os.path.join(root or ROOT, "engine", "system", "constants.emp")
+
+
+def player_sensors_emp_for(root=None):
+    """Where LEDGE_PROBE_REACH / LEDGE_NO_GROUND live (Player_AtLedgeEdge)."""
+    return os.path.join(root or ROOT, "games", "sonic4", "player",
+                        "player_sensors.emp")
 
 
 GEN = gen_dir_for()
@@ -297,6 +321,61 @@ def read_emp_const(path: str, name: str) -> int:
             f"measuring the thing it names.")
     tok = m.group(1)
     return int(tok[1:], 16) if tok.startswith("$") else int(tok)
+
+
+def read_emp_const_expr(path: str, name: str, names: dict) -> int:
+    """Read `const NAME = <expr>` where <expr> is integers, names from `names`
+    and + - *, e.g. `LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2`. Loud on anything
+    else: an expression this cannot evaluate is a GateError, never a guess."""
+    import ast
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+    except OSError as exc:
+        raise GateError(f"cannot read {path} to derive {name}: {exc}") from exc
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*"
+                  r"([^/\n]+?)\s*(?://.*)?$", src, re.M)
+    if not m:
+        raise GateError(f"could not find `const {name} = ...` in {path}; this "
+                        f"gate derives its thresholds from source and will not "
+                        f"fall back to a copied value.")
+    text = re.sub(r"\$([0-9A-Fa-f]+)", lambda mm: str(int(mm.group(1), 16)),
+                  m.group(1))
+
+    def ev(node):
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant) and type(node.value) is int:
+            return node.value
+        if isinstance(node, ast.Name) and node.id in names:
+            return names[node.id]
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -ev(node.operand)
+        if isinstance(node, ast.BinOp) and isinstance(node.op,
+                                                      (ast.Add, ast.Sub, ast.Mult)):
+            a, b = ev(node.left), ev(node.right)
+            if isinstance(node.op, ast.Add):
+                return a + b
+            return a - b if isinstance(node.op, ast.Sub) else a * b
+        raise GateError(f"`const {name} = {m.group(1)}` in {path} is not an "
+                        f"expression this gate can evaluate (known names: "
+                        f"{sorted(names)}). Refusing to guess.")
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError as exc:
+        raise GateError(f"`const {name} = {m.group(1)}` in {path}: {exc}") from exc
+    return ev(tree)
+
+
+def ledge_params(root=None):
+    """Every threshold RULE B uses, derived from the engine/game source."""
+    cpath = constants_emp_for(root)
+    p = {n: read_emp_const(cpath, n) for n in
+         ("SOLID_TOP", "SOLID_LRB", "PLAYER_X_RADIUS", "PLAYER_Y_RADIUS")}
+    spath = player_sensors_emp_for(root)
+    p["LEDGE_PROBE_REACH"] = read_emp_const_expr(spath, "LEDGE_PROBE_REACH", p)
+    p["LEDGE_NO_GROUND"] = read_emp_const_expr(spath, "LEDGE_NO_GROUND", p)
+    return p
 
 
 def load_attr_tables(coll_dir=None):
@@ -467,6 +546,236 @@ def find_pinhole_violations(coll_rows, heights, solidity, solid_top, min_gap_px)
 
 
 # ---------------------------------------------------------------------------
+# RULE B, second stage: is the candidate EXPOSED to the ledge probe?
+#
+# `find_pinhole_violations` reads ONE collision row at a time, so it cannot tell
+# a hole in open floor from the floor of an air pocket sealed inside rock, from a
+# notch in the underside of a slab, or from an air cell with solid ground one
+# pixel under it (docs/research/2026-09-25-cpz-floor-gaps.md: all 34 Sonic 2 CPZ
+# candidates are one of those three). RULE B's derivation names exactly one
+# harm: a standing player's single-point ledge probe (`Player_AtLedgeEdge`) lands
+# in the gap and reports a false ledge. A candidate is therefore a violation only
+# when some position satisfies ALL FOUR stages, in this order:
+#
+#   1. STANDING   the floor sensor pair (x -/+ PLAYER_X_RADIUS at the foot,
+#                 `Player_SensorFloor`, closer result wins) reads distance 0, with
+#                 `Collision_ProbeDown` emulated as probe_core runs it: primary
+#                 cell, ONE cell forward when empty, ONE cell back when full,
+#                 hanging runs by the bmi rule. The foot is searched over the gap's
+#                 row and the row above it: those are the only primaries whose
+#                 single probe can read the gap (a primary two rows up never
+#                 reaches it; one row down only looks back into it when full,
+#                 which returns <= 0 = supported).
+#   2. ROOM       the standing body box, (2*PLAYER_X_RADIUS+1) x (2*PLAYER_Y_RADIUS)
+#                 above the foot, holds no SOLID_LRB pixel. Top-only cells do not
+#                 block the body (a player jumps up through them).
+#   3. REACHABLE  the body's cell lies in an air region connected to the section
+#                 edge. A cell is a wall for this flood only when it is a FULL
+#                 (every column |h| >= 16) SOLID_LRB cell on BOTH planes: a player
+#                 can change planes inside a region (Sonic 2's plane-switch lines,
+#                 aeon's crossover marks), and this gate does not read where those
+#                 are, so every cell is assumed to be a possible switch. Partial and
+#                 sloped cells count as open, and touching the section edge counts
+#                 as open because the neighbour section is not read.
+#   4. SEEN       the single ledge probe at x +/- LEDGE_PROBE_REACH lands on a gap
+#                 pixel, reads the gap's row there (as its primary, or as the one
+#                 forward cell of an empty primary), and returns more than
+#                 LEDGE_NO_GROUND: the exact test `Player_AtLedgeEdge` makes.
+#
+# Every relaxation above (top-only cells never block, partial cells are open, the
+# section edge is open, object placement is never credited) finds MORE positions,
+# never fewer, so the second stage can only clear a candidate that no player can
+# be beside. Thresholds are read from the engine/game source by `check`.
+# ---------------------------------------------------------------------------
+
+EXPOSURE_STAGES = ("no_stand", "no_room", "sealed", "ground_within_limit",
+                   "exposed")
+
+
+def _signed(b):
+    return b - 256 if b >= 128 else b
+
+
+class CollisionPlane:
+    """Pixel-level reading of ONE plane's collision grid, the way probe_core
+    reads it. Anything outside the grid reads as air. `other_rows` is the
+    OTHER plane of the same section: the reachability flood treats a cell as
+    open when either plane leaves it open (stage 3)."""
+
+    def __init__(self, coll_rows, heights, solidity, other_rows=None):
+        self.rows = coll_rows
+        self.other = other_rows
+        self.nr = len(coll_rows)
+        self.nc = len(coll_rows[0]) if self.nr else 0
+        self.heights = heights
+        self.solidity = solidity
+        self._comp = None
+        self._open = None
+
+    def attr(self, x, y):
+        if x < 0 or y < 0:
+            return 0
+        col, row = x // CELL_PX_W, y // CELL_PX_H
+        if col >= self.nc or row >= self.nr:
+            return 0
+        return self.rows[row][col]
+
+    def cell_h(self, x, y, mask):
+        """probe_core `.cell`: effective height, 0 (air/rejected) .. 16 (full)."""
+        a = self.attr(x, y)
+        if a == 0 or not (self.solidity[a] & mask):
+            return 0
+        h = _signed(self.heights[a][x & (PROFILE_LEN - 1)])
+        if h == 0:
+            return 0
+        if h < 0:                  # hanging run: embedded = full, else air
+            return PROFILE_LEN if (y & (CELL_PX_H - 1)) + h < 0 else 0
+        return min(h, PROFILE_LEN)
+
+    def probe_down(self, x, y, mask):
+        """Collision_ProbeDown's returned distance for a probe at (x, y)."""
+        sub = y & (CELL_PX_H - 1)
+        h = self.cell_h(x, y, mask)
+        if h == 0:                                   # `.empty_fwd`
+            h2 = self.cell_h(x, y + CELL_PX_H, mask)
+            return 32 if h2 == 0 else 32 - h2 - sub  # 32 = `.nothing`
+        if h == PROFILE_LEN:                         # `.full_back`
+            return -(self.cell_h(x, y - CELL_PX_H, mask) + sub)
+        return 16 - h - sub
+
+    def pixel_solid(self, x, y, mask):
+        """Is world pixel (x, y) inside a solid shape of this class?"""
+        a = self.attr(x, y)
+        if a == 0 or not (self.solidity[a] & mask):
+            return False
+        h = _signed(self.heights[a][x & (PROFILE_LEN - 1)])
+        r = y & (CELL_PX_H - 1)
+        if h == 0:
+            return False
+        if abs(h) >= PROFILE_LEN:
+            return True
+        return r >= PROFILE_LEN - h if h > 0 else r < -h
+
+    def _is_wall(self, row, col, lrb):
+        if not self._full_lrb(self.rows, row, col, lrb):
+            return False
+        return self.other is None or self._full_lrb(self.other, row, col, lrb)
+
+    def _full_lrb(self, grid, row, col, lrb):
+        a = grid[row][col]
+        if a == 0 or not (self.solidity[a] & lrb):
+            return False
+        x0 = col * CELL_PX_W
+        return all(abs(_signed(self.heights[a][(x0 + i) & (PROFILE_LEN - 1)]))
+                   >= PROFILE_LEN for i in range(CELL_PX_W))
+
+    def open_region(self, x, y, lrb):
+        """Is the cell holding pixel (x, y) in an air region connected to the
+        section edge? Regions are labelled once per plane, on first use."""
+        if self._comp is None:
+            from collections import deque
+            comp = [[-1] * self.nc for _ in range(self.nr)]
+            is_open = []
+            for r0 in range(self.nr):
+                for c0 in range(self.nc):
+                    if comp[r0][c0] != -1 or self._is_wall(r0, c0, lrb):
+                        continue
+                    cid = len(is_open)
+                    touches = False
+                    comp[r0][c0] = cid
+                    q = deque([(r0, c0)])
+                    while q:
+                        r, c = q.popleft()
+                        if r in (0, self.nr - 1) or c in (0, self.nc - 1):
+                            touches = True
+                        for rr, c2 in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
+                            if (0 <= rr < self.nr and 0 <= c2 < self.nc
+                                    and comp[rr][c2] == -1
+                                    and not self._is_wall(rr, c2, lrb)):
+                                comp[rr][c2] = cid
+                                q.append((rr, c2))
+                    is_open.append(touches)
+            self._comp, self._open = comp, is_open
+        col, row = x // CELL_PX_W, y // CELL_PX_H
+        if not (0 <= col < self.nc and 0 <= row < self.nr):
+            return True            # outside this section: not read, so open
+        cid = self._comp[row][col]
+        return cid == -1 or self._open[cid]
+
+
+def classify_pinhole(plane, v, solid_top, solid_lrb, x_radius, y_radius,
+                     ledge_reach, ledge_no_ground):
+    """(stage, witness) for one RULE-B candidate `v` on `plane` (a CollisionPlane).
+
+    `stage` is the furthest of EXPOSURE_STAGES any position reached; only
+    "exposed" is a violation. `witness` is (player x, foot y, facing) of the
+    position that reached it, or None when nothing stood at all.
+    """
+    row = v["row"]
+    best, witness = 0, None
+    for probe_x in range(v["x_start"], v["x_end"] + 1):
+        for facing, x in (("right", probe_x - ledge_reach),
+                          ("left", probe_x + ledge_reach)):
+            for foot_y in range((row - 1) * CELL_PX_H, (row + 1) * CELL_PX_H):
+                if min(plane.probe_down(x - x_radius, foot_y, solid_top),
+                       plane.probe_down(x + x_radius, foot_y, solid_top)) != 0:
+                    continue
+                if best < 1:
+                    best, witness = 1, (x, foot_y, facing)
+                if any(plane.pixel_solid(xx, yy, solid_lrb)
+                       for yy in range(foot_y - 2 * y_radius, foot_y)
+                       for xx in range(x - x_radius, x + x_radius + 1)):
+                    continue
+                if best < 2:
+                    best, witness = 2, (x, foot_y, facing)
+                if not plane.open_region(x, foot_y - 1, solid_lrb):
+                    continue
+                if best < 3:
+                    best, witness = 3, (x, foot_y, facing)
+                # SEEN: the gap pixel is the primary (foot in the gap's row), or
+                # the one forward cell of an EMPTY primary (foot in the row above).
+                seen = (foot_y // CELL_PX_H == row
+                        or plane.cell_h(probe_x, foot_y, solid_top) == 0)
+                if seen and plane.probe_down(probe_x, foot_y,
+                                             solid_top) > ledge_no_ground:
+                    return "exposed", (x, foot_y, facing)
+    return EXPOSURE_STAGES[best], witness
+
+
+def find_exposed_pinhole_violations(coll_rows, heights, solidity, solid_top,
+                                    solid_lrb, x_radius, y_radius, ledge_reach,
+                                    ledge_no_ground, other_rows=None):
+    """RULE B as the gate applies it: the one-row candidates of
+    `find_pinhole_violations` (gap < 2 * x_radius, floor both sides), kept only
+    when `classify_pinhole` finds a reachable standing position whose ledge probe
+    reports a false ledge in them. `other_rows` is the section's other plane,
+    read only by the reachability flood; None floods this plane alone (which
+    can only call MORE regions sealed, so every real caller passes it).
+
+    Returns (violations, stats). stats adds the candidate count and how many were
+    cleared at each stage, so a green line says what it cleared and why.
+    """
+    cand, stats = find_pinhole_violations(coll_rows, heights, solidity,
+                                          solid_top, 2 * x_radius)
+    stats = dict(stats, candidates=len(cand),
+                 **{f"cleared_{s}": 0 for s in EXPOSURE_STAGES[:-1]})
+    if not cand:
+        return [], stats
+    plane = CollisionPlane(coll_rows, heights, solidity, other_rows)
+    out = []
+    for v in cand:
+        stage, witness = classify_pinhole(plane, v, solid_top, solid_lrb,
+                                          x_radius, y_radius, ledge_reach,
+                                          ledge_no_ground)
+        if stage == "exposed":
+            v["stand"] = witness
+            out.append(v)
+        else:
+            stats[f"cleared_{stage}"] += 1
+    return out, stats
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -494,9 +803,8 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
     population is empty — an unmeasurable run is never rendered as green.
     """
     gen_dir = gen_dir or gen_dir_for(root)
-    solid_top = read_emp_const(constants_emp_for(root), "SOLID_TOP")
-    x_radius = read_emp_const(constants_emp_for(root), "PLAYER_X_RADIUS")
-    min_gap_px = 2 * x_radius        # the floor sensor pair's separation
+    lp = ledge_params(root)
+    solid_top = lp["SOLID_TOP"]
     heights, angles, solidity = load_attr_tables(coll_dir_for(root))
 
     sections = enumerate_sections(gen_dir)
@@ -508,7 +816,8 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
 
     pop = {"sections": 0, "planes": 0, "cells": 0, "nonair_cells": 0,
            "exposed_full_cells": 0, "exposed_runs": 0,
-           "floor_rows": 0, "floor_pixels": 0}
+           "floor_rows": 0, "floor_pixels": 0, "candidates": 0,
+           **{f"cleared_{s}": 0 for s in EXPOSURE_STAGES[:-1]}}
     va, vb = [], []
 
     for sec, path in sections:
@@ -527,12 +836,17 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
             pop["nonair_cells"] += sum(1 for r in grid for a in r if a)
             ra, sa = find_flat_run_violations(grid, heights, angles, solidity,
                                               solid_top)
-            rb, sb = find_pinhole_violations(grid, heights, solidity, solid_top,
-                                             min_gap_px)
+            rb, sb = find_exposed_pinhole_violations(
+                grid, heights, solidity, solid_top, lp["SOLID_LRB"],
+                lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
+                lp["LEDGE_PROBE_REACH"], lp["LEDGE_NO_GROUND"],
+                other_rows=cb if plane_name == "A" else ca)
             pop["exposed_full_cells"] += sa["exposed_full_cells"]
             pop["exposed_runs"] += sa["exposed_runs"]
             pop["floor_rows"] += sb["floor_rows"]
             pop["floor_pixels"] += sb["floor_pixels"]
+            for k in ["candidates"] + [f"cleared_{s}" for s in EXPOSURE_STAGES[:-1]]:
+                pop[k] += sb[k]
             for v in ra:
                 v.update(section=sec, plane=plane_name)
                 va.append(v)
@@ -622,6 +936,11 @@ def main(argv):
           f"({pop['exposed_full_cells']} cells), "
           f"RULE B examined {pop['floor_rows']} rows carrying floor "
           f"({pop['floor_pixels']} floor px).")
+    print(f"Collision consistency: RULE B found {pop['candidates']} one-row gap "
+          f"candidate(s) and cleared "
+          + ", ".join(f"{pop['cleared_' + s]} {s}" for s in EXPOSURE_STAGES[:-1])
+          + " (no reachable standing position whose ledge probe reports a false "
+          "ledge in them).")
 
     # Split into exempted (baseline) and new. Only NEW violations fail.
     seen = set()
@@ -689,7 +1008,9 @@ def main(argv):
             print(f"    sec{v['section']} plane {v['plane']} row {v['row']} "
                   f"(world y={v['world_y']}): {v['gap_px']} px gap at world x "
                   f"{v['x_start']}..{v['x_end']}; attrs "
-                  f"{[f'${a:02X}' for a in v['attrs']]}")
+                  f"{[f'${a:02X}' for a in v['attrs']]}; a player standing at "
+                  f"x={v['stand'][0]} foot y={v['stand'][1]} facing "
+                  f"{v['stand'][2]} teeters on it")
         if len(vb) > 40:
             print(f"    ... and {len(vb) - 40} more")
         print("  FIX: repaint the offending cells with an all-16 shape (S&K 255).")
