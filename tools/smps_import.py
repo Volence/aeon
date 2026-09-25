@@ -136,10 +136,9 @@ FLAG_BYTES: dict[str, int] = {
 # design probe (docs/research/2026-09-25-region-music-design.md Q1 row f). And
 # S2's DAC notes name S2's drum samples, which the engine does not have. So both
 # go through an explicit table, and a reference with no entry is REFUSED by name.
-# Step 3 (drums) of the S2CLIP-REGION-MUSIC plan (docs/DEFERRED_WORK.md) filled the
-# DAC table for what EHZ and CPZ use. The fTone table is still empty: step 2
-# (importing S2's own envelopes) is blocked on sigil, see the table below. Anything
-# an S2 song references without an entry is refused by name.
+# Steps 2 (envelopes) and 3 (drums) of the S2CLIP-REGION-MUSIC plan
+# (docs/DEFERRED_WORK.md) filled them for what EHZ and CPZ use; anything else an
+# S2 song references is still refused by name until it is declared.
 SOURCE_S1 = 1
 SOURCE_S2 = 2
 SOURCE_S3K = 3
@@ -167,15 +166,17 @@ _S2_NOTE_EXTRAS: dict[str, int] = {
 # id (0 = none); S2 DAC note NAME -> engine DacSampleTable id. A caller may pass its
 # own; nothing is ever inferred.
 #
-# fTone (step 2): EMPTY, and on purpose. Its entries must point at Sonic 2's OWN
-# envelope bodies imported as new engine ids, never at the S3K id of the same number
-# (those bodies differ; even fTone_02, whose levels match S3K's, ends in S2's hold
-# where S3K's rests). The import grows the sound_tables_z80 head, and sigil's
-# seam-1 pins the $8000-window addresses of everything after the PSG id list
-# (banked_carriers), so it cannot land until sigil derives those
-# (docs/DEFERRED_WORK.md, S2CLIP-REGION-MUSIC step 2). Until then both songs are
-# refused by fTone name, which is the honest answer.
-S2_FTONE_MAP: dict[int, int] = {}
+# fTone (step 2): each points at Sonic 2's OWN zPSG_EnvNN body, imported by
+# tools/gen_sound_tables.py (_S2_PSG_ENV_SRC) as engine id $40+NN. Never the S3K
+# id NN: those bodies differ (and fTone_02, which matches S3K's levels, differs in
+# its terminator: S2 holds, S3K rests). Only the five EHZ/CPZ use are imported.
+S2_FTONE_MAP: dict[int, int] = {
+    0x01: 0x41,   # fTone_01 -> S2 zPSG_Env1   (EHZ)
+    0x02: 0x42,   # fTone_02 -> S2 zPSG_Env2   (EHZ, CPZ)
+    0x03: 0x43,   # fTone_03 -> S2 zPSG_Env3   (EHZ)
+    0x08: 0x48,   # fTone_08 -> S2 zPSG_Env8   (EHZ)
+    0x0B: 0x4B,   # fTone_0B -> S2 zPSG_Env11  (EHZ)
+}
 # DAC (step 3): the owner's ruling S2CLIP-MUSIC-DRUMS = s3k-drums
 # (docs/decisions.jsonl, 2026-09-25): Sonic 2's drum notes play the Sonic 3 drums
 # the engine already carries, the same DacSampleTable ids HCZ2_DAC_REMAP uses. The
@@ -326,7 +327,7 @@ def parse_header(lines, ftone_map=None):
       args[1] = mod  (tempo accumulator addend, e.g. $25 -> zCurrentTempo)
 
     The song's `smpsHeaderStartSong` picks the source rules (see SOURCE DRIVER).
-    `ftone_map` is used by an S2 song only (default: the declared S2_FTONE_MAP, empty today).
+    `ftone_map` is used by an S2 song only (default: the declared S2_FTONE_MAP).
     """
     cfg = SongConfig()
     src = cfg.source_driver = detect_source_driver(lines)
