@@ -1,8 +1,20 @@
 # aeon overseer handoff 26 (2026-09-25, session aeon-68)
 
-CLEAN boundary: nothing in flight, no agent holding a branch, and master is pushed. The owner asked for a /clear
+NOTE: after this file was written the owner asked "real sonic 2 level should switch to short tunnel"; check lane-status and lane-log for whether S2CLIP-ADOPT-SHORT-TUNNEL landed before starting.
+
+CLEAN boundary (as first written): nothing in flight, no agent holding a branch, and master is pushed. The owner asked for a /clear
 with this as the next job, so START WITH THE PERFORMANCE SURVEY BELOW. He said go ("If so let me /clear and you can
 get going yeah?"), so do not boot into a stop.
+
+## ALSO NEXT: region music transitions (owner, verbatim, 2026-09-25)
+*"after this shall we test the music transitions per region from sonic 2 ehz to cpz?"* Queued as S2CLIP-REGION-MUSIC.
+Where it starts, as told to him: no canonical shape plays music (only the SOUND_DEBUG_HOTKEYS / `--config-a` shape
+calls `Sound_PlayMusic`; memory `reference_no_music_in_canonical_shapes`); a grep of engine/ and games/sonic4/config found no
+region/zone music switching; Sonic 2's EHZ/CPZ songs are not converted, although an S3K import path exists (HCZ2). So the
+first step is a design pass: (1) import S2 EHZ + CPZ through the existing importer (fidelity?); (2) where the region
+crossing starts the next zone's song, and whether an S2CLIP build plays music in play at all; (3) the FEEL, cut vs fade
+and whether it waits for the tunnel. (3) is HIS call: park it with a recommendation. The rest is ours to build. Run it
+alongside the perf survey; both are his asks. Deliverable: a clip build that plays EHZ and switches to CPZ at the crossing.
 
 ## The owner's next ask (verbatim, 2026-09-25)
 *"Next up can you fly through things and see if you can detect any lag and see if we want to do anything for
@@ -11,7 +23,7 @@ performance?"*
 Dispatch it as a RESEARCH parcel (headless only; no MCP in agents), and deliver a ranked shortlist he can pick from.
 Suggested scope, to test rather than trust:
 - **Shapes:** canonical `s4.debug.bin` / `s4.bin` (OJZ act 1), the Sonic 2 clip `s4.s2clip[.debug].bin`
-  (`S2CLIP=s2_ehz_cpz`), and the short-tunnel clip (`S2CLIP=s2_ehz_cpz_short`).
+  (`S2CLIP=s2_ehz_cpz`), and (only if S2CLIP-ADOPT-SHORT-TUNNEL has NOT landed) the short-tunnel clip (`S2CLIP=s2_ehz_cpz_short`).
 - **Legs:** the S2CLIP-LAG harness `docs/research/2026-09-25-s4-lag/run_legs.sh` (fly right/down/diagonal, physics run,
   release physics), `tools/tunnel_run_witness.py`, `docs/research/2026-09-25-cpz-traversal/cpz_traverse.py`, and
   the oracle profiler for per-function cost (`reference_oracle_profiler_instrument`: interrupts.hint is HBlank PLUS
@@ -41,8 +53,10 @@ Suggested scope, to test rather than trust:
 
 ## Owner calls this session
 - Card S2CLIP-CPZ-FURTHER answered: fix-check-and-extend (decisions.jsonl).
-- He flew the 384 short clip: *"the short one seems like it's fast enough honestly."* NOT a ruling to move the real act
-  to 384. Ask before changing `s2_ehz_cpz`'s connector.
+- He flew the 384 short clip: *"the short one seems like it's fast enough honestly."* Then RULED, verbatim: *"real sonic 2
+  level should switch to short tunnel"*. Dispatched as S2CLIP-ADOPT-SHORT-TUNNEL (branch
+  `parcel/s2clip-adopt-short-tunnel`). `s2_ehz_cpz` takes the 384 px connector and `s2_ehz_cpz_short` is DELETED, so
+  the survey's short-clip shape below no longer exists once it lands.
 
 ## Open items worth knowing (all booked in DEFERRED_WORK)
 - **SHORT-TUNNEL-VSCROLL-RATCHET:** since B-2, 384 px shows a 3-4 frame vertical BG slide at the camera cap. 480 px is

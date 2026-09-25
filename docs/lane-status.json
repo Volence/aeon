@@ -1,6 +1,12 @@
 {
-  "focus": "Today's Sonic 2 work is all landed; next session starts the lag and performance survey you asked for.",
-  "inFlight": [],
+  "focus": "Switching the real Sonic 2 level to the short tunnel you picked; then this lane is ready to clear.",
+  "inFlight": [
+    {
+      "what": "The real Sonic 2 level switches to the short 384 px tunnel; the separate test level is removed",
+      "where": "branch parcel/s2clip-adopt-short-tunnel",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,8 +14,24 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Start from docs/superpowers/2026-09-25-aeon-overseer-handoff-26.md: the performance survey is first.",
+  "nextBoundary": "Short tunnel lands in the real level; then clearable, with the performance survey first for the next session.",
   "queue": [
+    {
+      "id": "S2CLIP-ADOPT-SHORT-TUNNEL",
+      "title": "You asked: the real Sonic 2 level switches to the short tunnel",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "S2CLIP-REGION-MUSIC",
+      "title": "You asked: play Emerald Hill's music and switch to Chemical Plant's at the crossing (needs Sonic 2 songs converted and a zone-music switch; design first)",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "PERF-SURVEY",
       "title": "You asked: fly through everything, find where it lags, and bring back a ranked list of what's worth speeding up",
@@ -111,7 +133,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Ready for you to clear this lane: everything is landed and the performance survey is written up as the first job for the next session.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-25T20:19:12Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-25T20:33:54Z"
 }
