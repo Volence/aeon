@@ -1,5 +1,5 @@
 {
-  "focus": "Chemical Plant is longer; landing Sonic 2's background scrolling next, while the limit test and further extension run.",
+  "focus": "Sonic 2 backgrounds now scroll like Sonic 2; still running: the screen-wide tunnel test and the longer Chemical Plant.",
   "inFlight": [
     {
       "what": "Short test level: the real Sonic 2 level with the tunnel cut to just over one screen wide (limit test)",
@@ -9,11 +9,6 @@
     {
       "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
       "where": "branch parcel/rule-b-reachable",
-      "agent": true
-    },
-    {
-      "what": "Re-checking Sonic 2's background scrolling on top of today's landings, then landing it",
-      "where": "branch parcel/s2clip-bg-scroll-2",
       "agent": true
     }
   ],
@@ -47,14 +42,6 @@
       "title": "Chemical Plant: 480 px added and landed; now fixing the floor-hole check and extending it as far as Sonic can run",
       "state": "doing",
       "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Sonic 2's own background scrolling is built and checked; it lands next, now there's room",
-      "state": "doing",
-      "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -146,5 +133,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:08:11Z"
+  "updatedAt": "2026-09-25T18:21:03Z"
 }

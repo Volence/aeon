@@ -373,6 +373,8 @@ it is not a verdict about pagecache_audit_poison."""
 "fade_busy_stale_witness.py" = "builds its own purpose-made ROM: no path on the bus starts a fade ($A00000-$A0FFFF is unreadable and unwritable through the bus, and Sound_FadeOut has zero call sites), so the question can only be asked by a ROM that makes the call. That is a build, not an instrument run."
 "fm6_foreign_sample_witness.py" = "same shape: carries --build-only and constructs its own ROM."
 
+# -- need the S2CLIP clip ROM, which the keepalive lane does not build ------------------
+"clip_bg_scroll_witness.py" = "needs s4.s2clip.debug.bin / .lst from `S2CLIP=s2_ehz_cpz DEBUG=1 ./build.sh`; the keepalive lane hands tools the canonical {rom}, which carries no OJZ_Clip_Parallax_* records (the witness exits 2 COULD NOT RUN on it by design). Manual lane, S2CLIP-ORIGINAL-BGS B-2: 24 probes exact on the clip DEBUG ROM, 2026-09-25."
 "tunnel_run_witness.py" = "needs a CLIP ROM, not the canonical one: it runs a player through a clip act's corridor (S2CLIP-TUNNEL, 2026-09-25) and reads the corridor out of a clips.json through the converted donor trees, which are gitignored. The canonical s4.debug.bin carries no corridor, and an S2CLIP build is a throwaway shape (minutes of re-bake plus donors), not one emulator boot."
 
 # -- need a live emulator someone is listening to --------------------------------------

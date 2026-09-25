@@ -45,7 +45,7 @@ REFUSED (ClipBgError): no painted background; no horizontal period; a donor narr
 the plane; more tiles than BG_STATIC_TILE_BUDGET (vram.toml `tiles - band_reserve`); a
 nonzero word that the rebase would read as the transparent word 0; a word naming a tile past
 the list. WHAT IS NOT DONE HERE: parallax (EHZ's 7 bands, the ripple, CPZ's BG-row bands)
-and palette cycles. Those are the research doc's B-2 and later.
+is tools/clip_bg_scroll.py's (parcel B-2); palette cycles are not done anywhere yet.
 """
 
 import os
