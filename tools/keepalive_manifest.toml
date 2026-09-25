@@ -11,6 +11,12 @@
 #  keepalive_population.py) and reports COULD NOT RUN if any name is undeclared here, or
 #  if any name here has left the tree. A keepalive lane quietly covering 84 of 85 is the
 #  artifact it was built to prevent, so the accounting is checked rather than intended.
+#  ⚠ CORRECTED 2026-09-25 (CENSUS-CRITERION-TOO-NARROW): "bus instrument" meant "names
+#  BusClient" (85). The population is now every tools/*.py that DRIVES a headless emulator,
+#  read off its code (90 on 2026-09-25; keepalive_population.drives). Six drivers joined
+#  it (effects_gates, cart_identity, depth_onset_probe, cart_verify_spawn_proof,
+#  base_swap_witness, staging_lifetime_timeline) and one non-driver left it
+#  (cart_coverage_census, a static AST census that drives nothing).
 #
 #  PLACEHOLDERS: {rom} {lst} {repo} {outdir}. {outdir} is a fresh temp directory made per
 #  tool per run -- it is how a capture tool is kept from writing over committed evidence.
@@ -356,6 +362,7 @@ it is not a verdict about pagecache_audit_poison."""
 # -- the harness itself, not instruments ----------------------------------------------
 "aether_bytes.py" = "not an instrument: the bus byte-decoding helper every instrument imports"
 "aether_instance.py" = "not an instrument: the harness that spawns the headless emulator"
+"cart_identity.py" = "not an instrument: the cart-identity helper (no __main__). It reads the cart back over a client it is handed; aether_instance calls it on every AetherInstance spawn, and five tools import it directly. Counted since 2026-09-25 because it speaks emulator/read_memory."
 
 # -- need a SECOND ROM from a different build (A/B differentials) ----------------------
 "bg_nt_gate.py" = "A/B: requires --before-rom/--before-lst and --after-rom/--after-lst from two different builds. A keepalive run has one ROM, and pointing both arms at it makes the gate vacuous rather than alive."
@@ -371,6 +378,7 @@ it is not a verdict about pagecache_audit_poison."""
 
 # -- cost: default arms are far past a keepalive budget --------------------------------
 "canopy_gap_exercise.py" = "⚠ COST REASON CORRECTED 2026-09-19 -- IT WAS MEASURED, AND THE PHASE BUDGETS ARE MAXIMA, NOT A COST. This line used to read 'default phases are 2400+2400+(24x30)+9000+600+2400 frames plus settles; wiring it at defaults would dominate the lane'. The frame arithmetic is right and the conclusion drawn from it was not: the exercise is a SEARCH and it stops when the instrument fires. RUN AT DEFAULTS on s4.debug.bin crc32 62238a15 / 848075 B, 2026-09-19: exit 0 in 20 s at load average 3.05, printing 'RESULT: the instrument FIRED during this campaign' after ~4700 of the ~17520 budgeted frames. Its own wall-clock column gives 382-385 frames/s, so even the worst case -- a ROM on which it never fires and it burns the whole budget -- is about 46 s of driven play. Against the lane's 5.0 min floor that is +7% today and +15% worst case, which is not domination. STILL NOT WIRED, and that is a decision rather than a consequence: the lane fires at 05:00 on the owner's machine and growing it is his call. Note also that the 20 s is contingent on the instrument firing early, so this row's price is 'about 20 s today, about 46 s if the engine stops reproducing the gap' -- not a constant."
+"effects_gates.py" = "reachable: tools/nightly_effects_gates.sh runs it every night, the effects-gate ritual runs it by hand before a merge touching engine/effects, and tools/test_effects_gates_segments.py runs it (--only arms). It is the RUNNER of the 16 gates marked reachable below, not one instrument with one verdict, so a row here would run the effects lane a second time each night. Counted since 2026-09-25: it drives emulators only through children (member gates and oracle-old's ab_runner.py). CORRECTED 2026-09-25: the 09-19 audit table said tools/landing_build.sh runs it; it does not."
 "dma_straddle_exercise.py" = "cost: default phases total ~13k frames plus a 29-point camera survey at 180-frame settles. Same reasoning as canopy_gap_exercise."
 
 # -- reachable in code from a real entry point ------------------------------------------
@@ -386,43 +394,54 @@ it is not a verdict about pagecache_audit_poison."""
 #  not the thing that covers them. keepalive_population.py prints the reachability it
 #  derived beside this accounting, so a tool that STOPS being reachable shows up as a gap
 #  here.
-"bg_switch_gate.py" = "reachable in code from a real entry point"
-"bg_vscroll_rate_witness.py" = "reachable in code from a real entry point"
-"bg_window_gate.py" = "reachable in code from a real entry point"
-"bg_wipe_gate.py" = "reachable in code from a real entry point"
-"boot_override_gate.py" = "reachable in code from a real entry point"
-"cache_hold_probe.py" = "reachable in code from a real entry point"
-"canopy_record.py" = "reachable in code from a real entry point"
-"cart_coverage_census.py" = "reachable in code from a real entry point"
-"curve_desc_probe.py" = "reachable in code from a real entry point"
-"curve_probe.py" = "reachable in code from a real entry point"
-"e2_snap_capture.py" = "reachable in code from a real entry point; ALSO overwrites a committed capture record on default arguments (booked 2026-09-18), so it must not be run unattended until that guard exists"
-"engine_baseline_probe.py" = "reachable in code from a real entry point"
+#
+#  ⚠ TIGHTENED 2026-09-25 (CENSUS-CRITERION-TOO-NARROW). "Reachable" now means an
+#  EXECUTING reference: a runner (build.sh, landing_build.sh, the effects nightly, a test)
+#  that runs the tool as a program or calls its main(). A name in a table, a regex, prose
+#  or an import of its arithmetic no longer counts. Thirteen rows below lost the credit and
+#  now say "UNEXECUTED" with what does touch them. And the claim is CHECKED now:
+#  test_keepalive_lane.test_a_reachable_reason_is_true fails on any reason beginning
+#  "reachable" for a tool the census says nothing executes.
+"bg_switch_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"bg_vscroll_rate_witness.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"bg_window_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"bg_wipe_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"boot_override_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"cache_hold_probe.py" = "reachable, but THINLY: tools/test_cli_dispatch_refuses.py drives its main() on an unknown mode, with run_probe and analyze_runs tripwired, and requires the usage refusal (exit 1). So the dispatch ladder runs every build and no emulator is ever booted. CORRECTED 2026-09-25: the 09-19 audit graded it D ('nothing imports them and nothing runs them'); that test was already driving its main() then."
+"canopy_record.py" = "UNEXECUTED as a program (census 2026-09-25): its main() runs nowhere. tools/test_canopy_record.py imports its functions, canopy_gap_exercise.py (itself not wired) imports it, and tile_cache_fill_gate.py only PRINTS its command line. That print was its old 'reachable' credit."
+"curve_desc_probe.py" = "UNEXECUTED (census 2026-09-25): only depth_onset_probe.py imports it (for its hand-rolled Server), and nothing executes depth_onset_probe. Its old 'reachable' credit came through a string in cart_coverage_census.py's CANARIES table."
+"curve_probe.py" = "UNEXECUTED as a program (census 2026-09-25): tools/test_perspective_floor.py imports its derive_curve_buffer arithmetic, and curve_desc_probe, depth_onset_probe and perspective_floor_predict import it. None of them runs its main()."
+"e2_snap_capture.py" = "UNEXECUTED (census 2026-09-25): nothing imports it or runs it; night_settle_capture.py names it only in strings. ALSO overwrites a committed capture record on default arguments (booked 2026-09-18), so it must not be run unattended until that guard exists. Priced 2026-09-19 at exit 0 in about 1 s with --outdir, the cheapest row to wire."
+"engine_baseline_probe.py" = "UNEXECUTED as a program (census 2026-09-25): parallax_cost_probe.py imports its _scan_dma helper; its main() runs nowhere."
 "evict_witness.py" = "reachable: tools/nightly_effects_gates.sh runs it every night on the STRESS_EVICT artifact it has just built (EVICT-WITNESS-WIRING, 2026-09-25), with its own log and rc in that script's worst-wins fold; tools/test_landing_lane_shapes.py fails if that leg goes. DELIBERATELY NOT MOVED TO [wired], though the booking said to move it: this lane hands every wired row ONE artifact, {rom} = s4.debug.bin (tools/nightly_instrument_keepalive.sh builds nothing else), and on the canonical shape the act's 10-page pool fits the clamp, so the witness prints a line-leading UNMEASURABLE and exits 2, which classify() reads as COULD NOT RUN. A [wired] row would turn this lane red every night; pointing its args at s4.stress.* would grade an artifact this lane never builds. Same disposition as preset_lab_witness.py. ALSO REPAIRED the same day: the 2026-09-19 version sampled Page_Table every 50 ms of wall time and exited 1 in 11 of 16 back-to-back runs on s4.stress.bin crc32 cd308561, because page 2 is resident for only 12 frames; it now steps the machine one frame per sample and passed 12 of 12 (10 distinct pages > the 9-frame clamp, page 2 evicted at frame +51 admitting page 8). Earlier reasons are kept in docs/DEFERRED_WORK.md (TWO-BROKEN-TOOLS, EVICT-WITNESS-WIRING)."
-"fg_left_edge_gate.py" = "reachable in code from a real entry point"
-"hblank_window_sweep.py" = "reachable in code from a real entry point"
-"night_settle_capture.py" = "reachable in code from a real entry point"
-"palette_variant_gate.py" = "reachable in code from a real entry point"
-"parallax_cost_probe.py" = "reachable in code from a real entry point"
-"parallax_crossing_gate.py" = "reachable in code from a real entry point"
-"parallax_hscroll_probe.py" = "reachable in code from a real entry point: the DEAD-INSTRUMENT-PAIR parcel gave it 34 unit tests on 2026-09-18. Note those tests were green through the three weeks it was crashing, so reachability here means 'a test imports its arithmetic', not 'somebody runs it'. A candidate to wire."
+"fg_left_edge_gate.py" = "UNEXECUTED as a program (census 2026-09-25): its main() runs nowhere. Four WIRED instruments (fg_left_edge_capture, left_edge_vsram_probe, pcc_lab_probe, perspective_floor_witness) import its functions, so those functions do run under this lane every night. Its old 'reachable' credit was a string in cart_coverage_census.py's CANARIES table."
+"hblank_window_sweep.py" = "UNEXECUTED as a program (census 2026-09-25): tools/test_hblank_subline.py imports its arithmetic; its main() runs nowhere."
+"night_settle_capture.py" = "UNEXECUTED as a program (census 2026-09-25): tools/test_night_settle_capture.py imports it and drives its naming, report and README path without a machine; its main() runs nowhere."
+"palette_variant_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"parallax_cost_probe.py" = "UNEXECUTED as a program (census 2026-09-25): parallax_hscroll_identity.py (WIRED), curve_probe.py and deform_own_cost_probe.py import it, so its imported functions run under this lane every night; its main() runs nowhere."
+"parallax_crossing_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"parallax_hscroll_probe.py" = "UNEXECUTED as a program (census 2026-09-25; it was listed as 'reachable in code from a real entry point'): the DEAD-INSTRUMENT-PAIR parcel gave it 34 unit tests on 2026-09-18. Note those tests were green through the three weeks it was crashing, so reachability here means 'a test imports its arithmetic', not 'somebody runs it'. A candidate to wire."
 "preset_lab_witness.py" = "reachable: tools/nightly_effects_gates.sh runs it every night"
-"ramp_boundary_probe.py" = "reachable in code from a real entry point"
-"raster_cost_probe.py" = "reachable in code from a real entry point"
-"raster_off_gate.py" = "reachable in code from a real entry point"
-"raster_source_gate.py" = "reachable in code from a real entry point"
-"reels_witness.py" = "reachable in code from a real entry point"
-"region_fade_witness.py" = "reachable in code from a real entry point"
-"row_remap_witness.py" = "reachable in code from a real entry point"
-"snapshot_poison_gate.py" = "reachable in code from a real entry point"
-"tile_cache_fill_gate.py" = "reachable in code from a real entry point"
-"vsplit_landing_gate.py" = "reachable in code from a real entry point"
-"warp_mailbox_gate.py" = "reachable in code from a real entry point"
-"waterline_stamp_witness.py" = "reachable in code from a real entry point"
+"ramp_boundary_probe.py" = "UNEXECUTED (census 2026-09-25): nothing imports or runs it; tools/test_land_gate_classifier.py names it in a path table. Priced 2026-09-19: exit 0 in 97 s, a candidate to wire."
+"raster_cost_probe.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night (its cost_model segment)"
+"raster_off_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"raster_source_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"reels_witness.py" = "UNEXECUTED as a program (census 2026-09-25): tools/test_reels_witness.py imports its pure halves and reads its source text; its main() runs nowhere."
+"region_fade_witness.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"row_remap_witness.py" = "UNEXECUTED (census 2026-09-25): nothing imports or runs it; row_remap_gate.py names it in prose and in a printed message. Priced 2026-09-19: exit 1 in 1 s with three substantive FAILs, so a row would be declared-red and need baseline_args and --out {outdir}."
+"snapshot_poison_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"tile_cache_fill_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"vsplit_landing_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"warp_mailbox_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"waterline_stamp_witness.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
 "blank_priority_probe.py" = "pinned to a ROM that is not the shipping one: it says 'COULD NOT RUN - ROM crc32 62238a15 is not the measured 9ce1c2ff; pass --any-rom'. Measured 2026-09-18, re-measured 2026-09-19 (same refusal, exit 2, 0 s). ⚠ CORRECTED 2026-09-19: this line used to read 'pinned to a ROM that NO LONGER EXISTS', and that clause was false. The artifact exists -- s4.debug.bin crc32 9ce1c2ff / 847533 B is sitting in the sibling worktree .aeon-ls9-land, and the probe's own header names the tree it came from (9fe9ee91), which is in history and rebuildable. What actually excludes this row is the NEXT sentence, which is unchanged and still true: keepalive runs the SHIPPING ROM, so this instrument cannot report here at all. Wiring it needs a second artifact the lane has no placeholder for (it has {rom}/{lst} only), or a decision to re-measure the pin; --any-rom would silence the refusal without making the reading mean anything."
 "lens_residue_object_witness.py" = "same pinned-ROM refusal: 'COULD NOT RUN (setup): ROM ... is crc32 62238a15 / 848075 B, not the 9ce1c2ff / 847533 this run expects. Refusing to report on a different ROM.' Measured 2026-09-18 on the c2a6 witness."
 "song_load_mid_drum_witness.py" = "needs a DIFFERENT BUILD SHAPE, not a different argument: 'UNMEASURABLE: Sound_DebugMirror is not a label in s4.debug.lst - this is not the config-A (music-capable, mirror-bearing) listing, and without the Z80-RAM mirror this bus cannot read SND_STAT_DAC_ACTIVE at all'. Measured 2026-09-18. A keepalive that built config-A too is a bigger lane than this one."
 "tick_variance_probe.py" = "borrows symbol addresses from another ROM: 'BLOCKED: [idle] the borrowed symbol addresses do not describe this ROM: Camera_X 0 Camera_Y 0 leader $000000 (A/B: 96 / 144 / $FF8DB0)' - its control arm is pinned to crc d22dda85 from sigil 7b46f075's golden. Measured 2026-09-18."
 "sec5_band_witness.py" = "stale against the authored preset it reads: 'REFUSED: games/sonic4/data/editor/effects/presets/ojz_sec5_showcase.json: this instrument measures exactly ONE band; the document has 3 - extend it, do not guess'. Measured 2026-09-18. The instrument is explicitly refusing to guess, which is correct behaviour and also means it cannot report until someone extends it."
 "deform_own_cost_probe.py" = "stale against a record that grew under it: 'REFUSED: band record is 32 bytes, expected 20 (legacy prefix + one band_ext). The record grew by something this probe does not know how to fill.' Measured 2026-09-18."
+"depth_onset_probe.py" = "UNEXECUTED (counted since 2026-09-25): nothing imports it or runs it. Its only code mention outside itself was a string in cart_coverage_census.py's CANARIES table. It drives through curve_desc_probe's hand-rolled Server. Never run or baselined by this lane's parcels, so wiring it needs a measured argv and exit first."
+"base_swap_witness.py" = "UNEXECUTED as a program (counted since 2026-09-25): its main() runs nowhere; role_swap_witness.py (WIRED) imports only its read_const helper. It drives through ramp_authored_witness.run, which spawns. Never run by this lane's parcels, so wiring it needs a measured argv and exit first."
+"staging_lifetime_timeline.py" = "UNEXECUTED (counted since 2026-09-25): zero references anywhere outside itself. It drives through tick_variance_probe's Server, and tick_variance_probe is excluded below for a borrowed-symbol refusal on the shipping ROM, which this tool may inherit. NOT measured: that is a reading of its imports, not a run."
+"cart_verify_spawn_proof.py" = "DEAD, by the census's definition: nothing executes it and nothing imports it (counted since 2026-09-25). It is the one-off five-leg proof of the spawn-time cart check, run by hand on 2026-09-12 (5d9e0990). Its only mention elsewhere is a comment in tools/test_aether_instance.py keeping it out of pytest because it boots a server. Not deleted (not this parcel's call) and not re-run since, so whether it still passes is unmeasured."
 "dma_straddle_reading.py" = "self-reports vacuity on the canonical ROM: 'THIS RUN SAYS NOTHING - REFUSING TO REPORT IT AS A PASS'. Measured 2026-09-18 on default arms. Making it say something needs arguments that reach a straddle, which is a reading this parcel had no basis to choose."
