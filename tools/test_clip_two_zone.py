@@ -201,6 +201,31 @@ def test_the_walk_through_the_tunnel_has_no_step_at_either_seam(donors):
     assert min(floor) - co.tunnel.ceiling_y >= need
 
 
+def test_the_tunnel_rect_covers_every_row_a_camera_inside_it_can_show(donors):
+    """The tunnel rectangle need not run to y 0 (the rows above it cost ROM and nobody inside
+    can see them), but it MUST cover every row the screen can show while the player is in
+    the walkway, or the background shows at the top or bottom of the screen. DERIVED from
+    engine source, never typed: the player's centre is at most BALL_Y_RADIUS below the
+    ceiling and at least BALL_Y_RADIUS above the lowest floor surface (the ball is the
+    smaller body, so it reaches furthest); the camera centre stays within CAM_Y_DEADZONE
+    of the player (engine/level/camera.emp) and the screen is CAM_SCREEN_HALF_H either
+    side of it."""
+    _need(S.S2_FINAL)
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    src.load_file(os.path.join(REPO, "engine", "system", "constants.emp"))
+    src.load_file(os.path.join(REPO, "engine", "level", "camera.emp"))
+    half_h, ball, dz = (int(src.get(n)) for n in
+                        ("CAM_SCREEN_HALF_H", "BALL_Y_RADIUS", "CAM_Y_DEADZONE"))
+    act = CM.load(MANIFEST, donor_root=donors)
+    co = act.corridors[0]
+    floor = _surface(act, donors, list(range(co.dst[0], co.dst[0] + co.dst[2])))[0]
+    top = co.tunnel.ceiling_y + ball - dz - half_h
+    bottom = max(floor) - ball + dz + half_h
+    assert co.dst[1] <= top, f"rows {co.dst[1] - top} px above the rect are on screen"
+    assert co.dst[1] + co.dst[3] > bottom, f"rows down to y {bottom} are on screen"
+
+
 def test_the_tunnel_is_as_short_as_the_crossing_allows(donors):
     """The owner (2026-09-25): "Can we make the connector a little shorter". The floor on
     its length is DERIVED from two rules, read from source, never typed:
