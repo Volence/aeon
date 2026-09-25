@@ -121,8 +121,9 @@ sealed inside rock, a notch in the underside of a slab, or an air cell with
 solid ground 1 px under it (docs/research/2026-09-25-cpz-floor-gaps.md). None
 can make anyone teeter. So a candidate is a VIOLATION only when some position
 is (1) STANDING, the floor sensor pair reads distance 0; (2) has ROOM, no
-SOLID_LRB pixel in the standing body box; (3) is REACHABLE, its air region on
-that plane is connected to the section edge; and (4) its ledge probe SEES the
+SOLID_LRB pixel in the standing body box; (3) is REACHABLE, its air region (a
+cell is open when EITHER plane leaves it open, since a plane switch can be
+anywhere) is connected to the section edge; and (4) its ledge probe SEES the
 gap and finds no ground within LEDGE_NO_GROUND. The four stages and why every
 simplification in them errs toward flagging are spelled out at
 `classify_pinhole`. The collision bytes are never changed by this refinement:
