@@ -1,0 +1,14 @@
+A J.bin crc=c7d567ab samples=2274
+B Pfloor.bin crc=14dabf3a samples=2208
+common camera positions 1772 (EHZ band y<1024: 97); differing 630
+  cam (6, 513): 3 lines differ, first [164, 184, 204]
+  cam (42, 513): 1 lines differ, first [184]
+  cam (45, 514): 3 lines differ, first [164, 184, 204]
+  cam (60, 513): 1 lines differ, first [184]
+  cam (76, 512): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (77, 513): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (91, 499): 7 lines differ, first [154, 164, 174, 184, 194, 204, 214]
+  cam (102, 157): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (102, 513): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (103, 162): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+finished=1

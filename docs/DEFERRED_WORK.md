@@ -40813,6 +40813,13 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
    ~9.7k/tick gap, `TileCache_DecompressBlock` inclusive is +2.2k (18.1k vs 15.9k, this act's blocks) and the patch
    runs +2.0k (32.4k vs 30.3k); the rest was not decomposed. Max-diagonal free flight is over
    budget on every act (the known ARC-CLOSEOUT cost).
+   **2026-09-25, bisected** (`docs/research/2026-09-25-ehz-diag-regression.md`). The band then went 26/82 → 44/100
+   (survey). The camera path is the same, 56 ticks, and the extra frames are all lag. First bad commit: **`ed48f9a9`
+   (B-2)**, 26 → 40. It is CONTENT: EHZ's own 7-band S2 scroll record (80-line curve plus a static ripple band) takes
+   `Parallax_Update` from 8.8k to 16.9k per tick. `9acc5120` adds +3 and `64ab0221` +1, but only on top of that
+   record: unbinding it (4 bytes) gives 26/82 on today's ROM. Measured options: an exact fixed-point curve loop
+   (prototype diff in the doc, not landed, moves canonical bytes) takes 44 → 35. Dropping the static ripple
+   (content) takes 44 → 37.
 3. **No lane exercises the streaming path on a built shape.** Every canonical act is fully resident, so the nightly
    and `landing_build.sh` run none of this code past its early-outs; the clip shapes are not built there. A lag-leg
    lane over a clip shape would be the regression net; not built (clip shapes are unfrozen dev shapes today).
