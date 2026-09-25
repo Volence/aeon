@@ -41,10 +41,19 @@ that distinction turned out to be the whole result:
 Control A failing is not the same as a broken instrument, and the difference is decidable:
 static_straddle_survey() reads the act's page manifest out of the ROM and asks whether any
 page-in landing -- a DIRECT ROM->VRAM DMA on the RAW form -- can cross a 128 KB boundary at
-all. If none can, and tools/dplc_straddle.py already says every straddling DPLC frame in the
-cast is unreachable through its anim table, then the straddle population in ordinary play is
-EMPTY BY CONSTRUCTION and a zero from control A is the correct answer. Only both controls
-failing is exit 2 (could-not-measure).
+all. If none can, AND tools/dplc_straddle.py's "straddling REACHABLE" line is empty for every
+subject, then the straddle population in ordinary play is EMPTY BY CONSTRUCTION and a zero
+from control A is the correct answer. Only both controls failing is exit 2 (could-not-measure).
+
+⚠ THAT CONJUNCTION IS A FACT ABOUT ONE BUILD, NOT ABOUT THE ENGINE. Which DPLC frames straddle
+depends on where the linker put each character's art, so it moves whenever data above the art
+grows or shrinks. On 2026-09-05 dplc_straddle named Sonic $65, Tails $9F and Knuckles $85, all
+unreachable, and this docstring said so. On s4.debug.bin crc32 62238a15 (2026-09-19 through
+at least 2026-09-25) it names Sonic $29 and $2B and marks BOTH REACHABLE (run tilt block 2,
+Player_ApplyTilt), and a default campaign straddles six times in grounded play, every one of
+them Sonic's DPLC loading $29 or $2B (DPLC-STRADDLE-REACHABLE,
+docs/research/2026-09-25-dplc-straddle-reachable.md). Read dplc_straddle's output for the
+build in hand; never quote a frame list from an older one.
 
 AND THE SECOND REASON: the prior attempt (RIGHT held 600 frames) ended at y5587 -- the
 player had run off the built ground in the first seconds and spent the window in FREE FALL,
@@ -207,8 +216,44 @@ def sst_offsets_from_source() -> dict[str, int]:
 
 
 def default_control_ladder(lst: str, rom: str) -> tuple[int, ...]:
-    """The mapping frames control B forces when --control-frame is not given."""
-    return (0x65, 0x9F, 0x85)
+    """The mapping frames control B forces when --control-frame is not given: EVERY DPLC
+    frame that straddles a 128 KB boundary in THIS build, for each PLAYER subject in
+    tools/dplc_straddle.py's order (Sonic first -- the character the control boots as).
+
+    DERIVED, NOT TRANSCRIBED, and the reason is measured. This used to be the literal
+    (0x65, 0x9F, 0x85), copied from dplc_straddle's 2026-09-05 output. Which frames straddle
+    is a property of where the linker put each character's art, and the art moved: on
+    s4.debug.bin crc32 62238a15 the straddlers are Sonic $29/$2B, Tails $63 and Knuckles $4C,
+    none of the three literals straddles, and a full campaign printed "the instrument did
+    NOT fire on any forced mapping frame of $65, $9F, $85" (DPLC-STRADDLE-REACHABLE,
+    docs/research/2026-09-25-dplc-straddle-reachable.md). A control that cannot fire is a
+    control that reports a live instrument as dead. tools/test_dma_straddle_exercise.py
+    grades this against the built ROM.
+
+    Reachability does not matter here: the control WRITES the frame, so an unreachable
+    straddler is as good a stimulus as a reachable one. The appendage subject is left out
+    because the control writes Player_1, whose table is a player character's.
+
+    An empty result is a real state of a ROM (no player art crosses a boundary), and it is
+    returned as empty: control B then has nothing to force, and the verdict rests on
+    control A alone, which is what the report says."""
+    import dplc_straddle as dplc   # tools/, already on sys.path; kept local: only this uses it
+    try:
+        tile = dplc.const_from_emp("engine/system/constants.emp", "TILE_SIZE")
+        boundary = dplc.boundary_from_source()
+        labels = dplc.lst_labels(lst)
+        subs = dplc.load_subjects(labels)
+        dplc.check_subject_extents(subs, dplc.rom_bytes(rom), rom)
+        kind = {art: b["kind"] for art, b in dplc.subject_bindings().items()}
+    except dplc.Unmeasurable as e:
+        raise SetupError(f"cannot derive control B's straddling frames from {lst}: {e}")
+    ladder: list[int] = []
+    for s in subs:
+        if kind.get(s["art_label"]) != "player":
+            continue
+        costs = dplc.frame_costs(s["frames"], s["art_base"], tile, boundary)
+        ladder.extend(i for i, c in enumerate(costs) if c[2] and i not in ladder)
+    return tuple(ladder)
 
 
 def st_in_air_bit() -> int:
@@ -495,13 +540,14 @@ def static_straddle_survey(blob: bytes, sym: dict) -> dict:
     the largest non-player Important consumer, and a DIRECT ROM->VRAM DMA on the RAW form
     (page_in.emp:272-287) -- can cross a 128 KB DMA-source boundary in this act.
 
-    This is what makes a zero control readable. If no page can straddle and no REACHABLE
-    DPLC frame straddles (tools/dplc_straddle.py, run on every build, says the ROM's three
-    straddling frames -- Sonic $65, Tails $9F, Knuckles $85 -- are all unreachable through
-    their anim tables), then the straddle population in ordinary play is EMPTY BY
-    CONSTRUCTION, and Dbg_DMA_Straddle_All = 0 is the correct answer rather than a broken
-    instrument. The ZX0 form cannot straddle at all: it DMAs from Art_Staging_Buffer in
-    work RAM, and $FF0000-$FFFFFF lies wholly inside one 128 KB block."""
+    This is HALF of what makes a zero control readable. If no page can straddle AND no
+    REACHABLE DPLC frame straddles, the straddle population in ordinary play is EMPTY BY
+    CONSTRUCTION and Dbg_DMA_Straddle_All = 0 is the correct answer rather than a broken
+    instrument. The DPLC half is tools/dplc_straddle.py's "straddling REACHABLE" line for the
+    build in hand, and it is NOT always empty: on s4.debug.bin crc32 62238a15 it is Sonic $29
+    and $2B, and ordinary play reaches them (see the module docstring). This survey answers
+    only the page-in half. The ZX0 form cannot straddle at all: it DMAs from
+    Art_Staging_Buffer in work RAM, and $FF0000-$FFFFFF lies wholly inside one 128 KB block."""
     name = next((k for k in sym if k.endswith("_Act_Pool_PageTable")), None)
     if name is None:
         return {"error": "no *_Act_Pool_PageTable symbol in the listing"}
@@ -756,9 +802,18 @@ async def control_body(sock: str, lst: str, blob: bytes, args, d: Driver) -> dic
     LANDING straddle 128 KB in this act?" and the answer is still False -- but "the straddle
     population in ordinary play is EMPTY" was the conjunction of that with dplc_straddle.py's
     "every straddling DPLC frame in the cast is unreachable through its anim table", and the
-    observation above contradicts the DPLC half: $2C is a walk/run tilt frame, it straddles,
-    and grounded play reaches it. Treat the second half of that conjunction as OPEN until
-    dplc_straddle is re-run; it is booked in docs/DEFERRED_WORK.md.
+    observation above contradicts the DPLC half. Treat the second half of that conjunction as
+    OPEN until dplc_straddle is re-run; it is booked in docs/DEFERRED_WORK.md.
+
+    ⚠ RESOLVED 2026-09-25 (DPLC-STRADDLE-REACHABLE, docs/research/2026-09-25-dplc-straddle-
+    reachable.md). Two corrections to the paragraph above. (1) The quoted dplc_straddle claim
+    was not dplc_straddle's claim on this ROM. It was the 2026-09-05 build's output, copied into
+    this file and never re-read. Run on crc32 62238a15, dplc_straddle says Sonic $29 and $2B
+    straddle and are REACHABLE. The tool was right and this prose was stale. (2) $2C does not
+    straddle. It is the frame at the POLL. With an execution breakpoint on `.split`, the same
+    campaign reproduces frame 13005 / (1082,497) / $2C exactly, and all six straddles are
+    Perform_DPLC's entry loop enqueueing Art_Sonic+$5960 (0x7FFC2, crossing 0x80000) for Sonic
+    in ANIM_RUN at ground angle $34-$4C: four loads of $29 (512 B) and two of $2B (224 B).
 
     The forced control keeps its job regardless: it is the control available when the act's
     straddle population really is empty, and a run where A fires does not need it. The force uses the
@@ -965,9 +1020,15 @@ def summarise(d: Driver, args, elapsed: float) -> int:
           + ("" if forced else " -- control B never fired, so nothing here rests on it"))
     if not control_moved:
         print()
+        # This used to say "read the zeros as 'the straddle population reachable by this act
+        # is empty'". That is a claim about the ROM that this run cannot make: whether a
+        # straddling frame is REACHABLE is dplc_straddle's answer, and on crc32 62238a15 it is
+        # yes (Sonic $29/$2B) while a short campaign still reads zero. What the zeros say is
+        # narrower, and that is what is printed (DPLC-STRADDLE-REACHABLE).
         print("  NOTE: the control never moved in PLAY, only when forced. Read the zeros as")
-        print("  'the straddle population reachable by this act is empty', NOT as 'straddles")
-        print("  were possible and none happened' -- see the static survey printed above.")
+        print("  'THIS campaign never enqueued a straddling transfer', NOT as 'none is")
+        print("  reachable'. Reachability is tools/dplc_straddle.py's 'straddling REACHABLE'")
+        print("  line for this build; the page-in half is the static survey printed above.")
 
     print()
     if peak_rej > 0:
@@ -1047,11 +1108,13 @@ def main() -> int:
     ap.add_argument("--control-frame", type=lambda v: int(v, 0), nargs="+",
                     default=None,
                     help="mapping frames the post-campaign positive control tries, in order, "
-                         "stopping at the first that fires. Defaults are the ONE straddling "
-                         "frame per character that tools/dplc_straddle.py names on every "
-                         "build: sonic $65, tails $9F, knuckles $85. The ladder exists "
-                         "because the campaign's own A presses can cycle the active "
-                         "character, and the DPLC only walks the active one's table.")
+                         "stopping at the first that fires. Default: DERIVED per build by "
+                         "default_control_ladder() -- every straddling DPLC frame of each "
+                         "player character, Sonic first (it was the literal $65 $9F $85 "
+                         "until 2026-09-25, and those stopped straddling when the art "
+                         "moved). The ladder spans characters because the campaign's own A "
+                         "presses can cycle the active character, and the DPLC only walks "
+                         "the active one's table.")
     ap.add_argument("--physics-probe", type=int, default=180,
                     help="frames to wait for the player to start animating after the B "
                          "press that leaves debug fly, before declaring the run unmeasurable")
