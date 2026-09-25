@@ -1,8 +1,18 @@
 {
-  "focus": "Making the Sonic 2 act's level bake say clearly whether it crashed or refused a paste, for the editor.",
+  "focus": "Your Sonic 2 flythrough: finding the lag first, then a longer Chemical Plant and the games' own backgrounds.",
   "inFlight": [
     {
-      "what": "CLIP-BAKE-JSON: machine-readable crash-vs-refusal answer from the clip bake",
+      "what": "Measuring the lag you saw in the Sonic 2 test build, with the regular build as a control",
+      "where": "branch research/s4-lag-2026-09-25",
+      "agent": true
+    },
+    {
+      "what": "Costing a longer Chemical Plant and each zone's original background against the room we have",
+      "where": "branch research/s2clip-cpz-bgs",
+      "agent": true
+    },
+    {
+      "what": "CLIP-BAKE-JSON: the editor can tell a bake crash from a refusal",
       "where": "branch parcel/clip-bake-json",
       "agent": true
     }
@@ -14,8 +24,32 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the clip-bake JSON parcel lands and aurora is told.",
+  "nextBoundary": "When the lag measurement and the costing come back and I've picked what lands first.",
   "queue": [
+    {
+      "id": "S2CLIP-LAG",
+      "title": "The Sonic 2 test build felt very laggy to you: measure where (game or emulator) and fix",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "S2CLIP-CPZ-LONGER",
+      "title": "Chemical Plant is too short: add more of the level",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "S2CLIP-ORIGINAL-BGS",
+      "title": "Each zone should show its own Sonic 2 background",
+      "state": "doing",
+      "size": "L",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "CLIP-BAKE-JSON",
       "title": "The editor's Sonic 2 page cannot tell the level bake crashing from the bake refusing a paste; give the bake the same machine-readable answer the checker got",
@@ -89,10 +123,10 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: Chemical Plant landed beside Emerald Hill; waiting on your flythrough",
-      "state": "blocked",
+      "title": "Sonic 2 test act: you flew it (09-25); your three asks are the S2CLIP rows above",
+      "state": "open",
       "size": "L",
-      "blockedBy": "waits on your eye: fly s4.s2clip.debug.bin (crc 441f1db0) or s4.s2clip.bin (crc 9a3533f1), both built from master 481ac02e",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -126,5 +160,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T13:12:02Z"
+  "updatedAt": "2026-09-25T13:14:25Z"
 }
