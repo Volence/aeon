@@ -961,7 +961,13 @@ async def leg_poison(rig, F, K, fails):
     tmp = tempfile.mkdtemp(prefix="bgswitch-poison-")
     patched = Path(tmp) / Path(rig.rom_path).name
     patched.write_bytes(bytes(image))
-    x = F.S["x0"] + 3 * K.FLY
+    # ONE fly step inside the left edge, not three (2026-09-25): the subject is one plane tall,
+    # so its sweep is now the DMA sweep (engine/level/bg.emp `.wipe_dma`, BG_WIPE_DMA_ROWS a
+    # frame, ceil(64 / 14) = 5 frames) and no longer the 16-frame CPU one. From three steps in,
+    # the camera reached the neighbour after the sweep had finished and the leg refused as
+    # COULD NOT RUN ("no sweep in flight"); one step in is the shortest route that still enters
+    # the subject from above inside its own rectangle.
+    x = F.S["x0"] + K.FLY
     above = region_table.region_at(F.rows, x, F.S["y0"] - 1)
     start = (x, F.S["y0"] - 8 * K.FLY)
     st = {"in": None, "sweep": None, "left": None, "settled": None}
