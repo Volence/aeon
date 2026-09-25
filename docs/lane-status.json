@@ -5,6 +5,11 @@
       "what": "Publish the background-band record size once, so no tool has to guess it",
       "where": "branch parcel/band-record-len (agent worktree)",
       "agent": true
+    },
+    {
+      "what": "Sonic 2 act tooling for the editor's donor page: per-zone tile and page counts, and a machine-readable refusal",
+      "where": "branch parcel/clip-tooling-aurora-asks (agent worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -126,5 +131,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T10:30:28Z"
+  "updatedAt": "2026-09-25T10:50:27Z"
 }
