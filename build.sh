@@ -1058,15 +1058,15 @@ if [[ -n "${S2CLIP:-}" ]]; then
     }
     trap _restore_s2clip_tree EXIT
     echo "S2CLIP: throwaway re-bake of clip act '${S2CLIP}' into the OJZ act slot..."
-    # S2CLIP_PALETTE: `shipped` (default) or `clip`. The clip's own palette is the right
-    # picture and is BLOCKED on a ruling — eight comptime pins in
-    # games/sonic4/data/effects/ojz_effects.emp describe the SHIPPED act's palette and
-    # refuse any other. tools/clip_rom_bake.py's PALETTE block states the three options.
+    # Each donor zone is drawn in ITS OWN palette (S2-COMPRESSED-ACT row 7): the bake writes
+    # the act's palettes, presets and region table into the generated clip_act.emp, which
+    # the trap above restores to its neutral form. The old S2CLIP_PALETTE knob is gone —
+    # tools/clip_rom_bake.py's ROW 7 block says why. The Z1/Z2/K4 refusals it prints are
+    # the row's static checks (zone separation, palette crossing, keyed pool).
     # --keep: this shape owns the EXIT trap above, so the bake must NOT restore the tree
     # on its way out (a bare `bake` does — tools/clip_rom_bake.py's STAMP block). --keep
     # also writes the stamp the gates read to prove they are measuring THIS clip act.
-    python3 "${TOOLS}/clip_rom_bake.py" bake "$S2CLIP_MANIFEST" --allow-dirty --keep \
-        --palette "${S2CLIP_PALETTE:-shipped}" || {
+    python3 "${TOOLS}/clip_rom_bake.py" bake "$S2CLIP_MANIFEST" --allow-dirty --keep || {
         echo "S2CLIP: the clip bake refused (see above)" >&2; exit 1; }
     S2CLIP_PROJECT="games/sonic4/data/clips/${S2CLIP}/baked/project.json"
     S2CLIP_BANK=$(python3 -c "import sys,json; sys.path.insert(0, sys.argv[1]); import clip_manifest as m; a = m.load(sys.argv[2]); print(m.collision_banks(a))" "${TOOLS}" "$S2CLIP_MANIFEST") || {

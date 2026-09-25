@@ -159,7 +159,9 @@ _FIXED = [
     # unknown mode reaching it would rewrite tracked build inputs with no trap above it
     # to put them back -- the ojz_strip_gen shape of LS-15d again. `ground` is read-only
     # but is the parcel's falsifiable check and must not run unasked.
-    ("clip_rom_bake", ["_mode_bake", "_mode_ground", "bake", "ground"]),
+    # Row 7 (2026-09-25) added `emit-neutral`, which OVERWRITES the committed neutral
+    # games/sonic4/data/generated/ojz/act1/clip_act.emp; its handler joins the same row.
+    ("clip_rom_bake", ["_mode_bake", "_mode_ground", "_mode_emit_neutral", "bake", "ground"]),
     # S2-COMPRESSED-ACT parcel 7 (2026-09-17): born in the table form. Every mode is
     # READ-ONLY -- it measures a baked tree and writes nothing -- so an unknown mode
     # reaching a handler would not lose data. It is in _FIXED anyway, for the reason the
