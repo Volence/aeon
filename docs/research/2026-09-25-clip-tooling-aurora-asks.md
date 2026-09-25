@@ -256,5 +256,13 @@ Red-first, with the mutations on disk and restored from the committed baseline:
 
 ## Totals, landing and CRC
 
-These figures are filled in from the runs in the final report of this parcel (see the commit
-that adds them).
+- **Clip tool tests** (`test_clip_*.py`, `test_s2_*.py`, `test_cli_dispatch_refuses.py`, which
+  is 10 files and includes the two new ones): **268 passed, 1 skipped, 0 failed**. The skip was
+  already there before this parcel. It is `test_clip_manifest.py:557`, and it skips because the
+  empyrean contract is not checked out next to a worktree.
+- **`./tools/landing_build.sh`** at `e6daa4db`: **exit 0, `finished=0`**. The pre-build tool lane
+  gave 3326 passed, 3 skipped. The shapes s4, s4.debug and demo.debug all gave EXIT 0. The
+  needs_build lane ran 29 cases with 0 deferred, 0 failed and 1 exempted
+  (`test_deb2_appendix[demo.bin]`, as that script documents).
+- **Clip ROM** `S2CLIP=s2_ehz_cpz ./build.sh`: `s4.s2clip.bin` gave crc `9a3533f1` at 822,334 B
+  before the change, and crc `9a3533f1` at 822,334 B after both tool changes.
