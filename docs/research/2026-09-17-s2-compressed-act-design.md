@@ -796,12 +796,26 @@ explicitly, so a converted tree validates without touching `project.json` or the
 
 **What aurora writes when the author marquees and pastes:**
 
-1. **Into the target act's section files** — the clip's nametable words and both collision
-   planes, at the target world rectangle. Straight writes to existing formats.
-2. **Into `regions.json`** — one row for the pasted rectangle:
+> **RULED 2026-09-25 (aeon overseer, answering aurora's question at aurora `35aeb92b`): items 1
+> and 2 are RETIRED. A paste writes `clips.json` and nothing else.** The landed clip bake
+> (`tools/clip_act_bake.py`, `tools/clip_rom_bake.py`, row 7 at aeon `481ac02e`) composes the
+> act's section files AND its region rows (one per donor zone, plus the corridor crossing, emitted
+> into `games/sonic4/data/generated/ojz/act1/clip_act.emp`) from the manifest alone. The only
+> editor act tree is OJZ act 1, which Sonic 2 tiles would corrupt. **The manifest is the single
+> authority, and there is no editable clip act tree planned.** If one is ever wanted, it is a new
+> design question, not a revival of these two items. `region_id` stays OPTIONAL and aurora may omit
+> it: `tools/clip_manifest.py` validates it only as a naming-pattern write-back
+> (`clip_manifest.py:58`), and nothing in the bake requires it.
+> Aurora's two further asks are accepted as row 8 work, not booked as rows: per-clip unique-tile
+> and page counts in the bake's JSON (`clipact.json`), and a `--json` mode on
+> `tools/clip_manifest.py validate` that names the refused clip.
+
+1. ~~**Into the target act's section files** — the clip's nametable words and both collision
+   planes, at the target world rectangle. Straight writes to existing formats.~~ RETIRED 2026-09-25.
+2. ~~**Into `regions.json`** — one row for the pasted rectangle:
    `{id, name, rect:{x,y,w,h}, preset, bg:{layoutRef, span}}`. The `preset` names an `.emp`
    record; aurora validates it against the game's effects library
-   (`tools/effects_gen.py:3686-3691`).
+   (`tools/effects_gen.py:3686-3691`).~~ RETIRED 2026-09-25.
 3. **Into a new clip manifest** — the one genuinely new file, and the answer to §1.3 item 1.
    **Built by parcel 3 (2026-09-17): `tools/clip_manifest.py`, and the sketch below is
    corrected in place.**
