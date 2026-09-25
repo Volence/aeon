@@ -1185,3 +1185,365 @@ def test_dac_route_regwrite_limited_to_b6():
         assert False, "expected PackError"
     except PackError:
         pass
+
+
+# ── S2CLIP-REGION-MUSIC step 1 ─ Sonic 2 SMPS source (SourceDriver 2) ──────────
+#
+# The rows below pin the S2 -> S3K conversions that s2disasm/sound/_smps2asm_inc.asm
+# itself defines (the design pass, docs/research/2026-09-25-region-music-design.md
+# Q1 rows a-h, found them by running the converter behind a throwaway pre-pass).
+# The converter reads the source driver from the song's own `smpsHeaderStartSong`.
+# New names are reached through the module (`_si.X`) rather than imported at the
+# top, so a converter without the S2 mode fails each row on its own instead of the
+# whole file failing at collection.
+
+import os
+import smps_import as _si
+from song_packer import NoteFill
+
+_S2_MUSIC = suite_path("s2disasm", "sound", "music")
+_S2_EHZ = str(_S2_MUSIC / "82 - EHZ.asm")
+_S2_CPZ = str(_S2_MUSIC / "8E - CPZ.asm")
+
+
+def _s2_song(body_by_label, psg_voice="$00", start="2", tempo="$9E"):
+    """A minimal, complete S2 song: header + the 9 channel blocks + one voice."""
+    out = [
+        "Tst_Header:",
+        "\tsmpsHeaderStartSong %s" % start,
+        "\tsmpsHeaderVoice     Tst_Voices",
+        "\tsmpsHeaderChan      $06, $03",
+        "\tsmpsHeaderTempo     $01, %s" % tempo,
+        "\tsmpsHeaderDAC       Tst_DAC",
+        "\tsmpsHeaderFM        Tst_FM1, $00, $0E",
+        "\tsmpsHeaderFM        Tst_FM2, $00, $16",
+        "\tsmpsHeaderFM        Tst_FM3, $00, $16",
+        "\tsmpsHeaderFM        Tst_FM4, $00, $20",
+        "\tsmpsHeaderFM        Tst_FM5, $00, $25",
+        "\tsmpsHeaderPSG       Tst_PSG1, $DC, $04, $00, %s" % psg_voice,
+        "\tsmpsHeaderPSG       Tst_PSG2, $DC, $04, $00, $00",
+        "\tsmpsHeaderPSG       Tst_PSG3, $00, $02, $00, $00",
+    ]
+    for lbl in ("Tst_DAC", "Tst_FM1", "Tst_FM2", "Tst_FM3", "Tst_FM4", "Tst_FM5",
+                "Tst_PSG1", "Tst_PSG2", "Tst_PSG3"):
+        out.append(lbl + ":")
+        out.extend(body_by_label.get(lbl, []))
+        out.append("\tsmpsStop")
+    out += [
+        "Tst_Voices:",
+        ";\tVoice $00",
+        "\tsmpsVcAlgorithm     $07",
+        "\tsmpsVcFeedback      $00",
+        "\tsmpsVcUnusedBits    $00",
+        "\tsmpsVcDetune        $00, $00, $00, $00",
+        "\tsmpsVcCoarseFreq    $02, $01, $00, $05",
+        "\tsmpsVcRateScale     $00, $00, $00, $00",
+        "\tsmpsVcAttackRate    $1F, $1F, $1F, $1F",
+        "\tsmpsVcAmpMod        $00, $00, $00, $00",
+        "\tsmpsVcDecayRate1    $0E, $0E, $0E, $0E",
+        "\tsmpsVcDecayRate2    $02, $02, $02, $02",
+        "\tsmpsVcDecayLevel    $05, $05, $05, $05",
+        "\tsmpsVcReleaseRate   $04, $05, $05, $05",
+        "\tsmpsVcTotalLevel    $00, $00, $00, $00",
+    ]
+    return out
+
+
+def _s2_cfg(divider=1, ftone_map=None):
+    c = SongConfig(); c.divider = divider; c.source_driver = _si.SOURCE_S2
+    c.ftone_map = {} if ftone_map is None else ftone_map
+    return c
+
+
+def _signed(v):
+    v &= 0xFF
+    return v - 256 if v >= 128 else v
+
+
+# ---- (a) tempo: the S2 TempoWait model is inverted (silent tempo error) --------
+
+def test_s2_tempo_is_inverted_to_s3k():
+    # _smps2asm_inc.asm:184 s2TempotoS3(n) = ($100 - n) & $FF. EHZ $9E -> $62,
+    # CPZ $EE -> $12. The S3K source path stays a raw pass-through ($25).
+    assert parse_header(_s2_song({}, tempo="$9E")).tempo_mod == 0x62
+    assert parse_header(_s2_song({}, tempo="$EE")).tempo_mod == 0x12
+    assert parse_header(HCZ2_HEADER).tempo_mod == 0x25
+
+
+def test_s2_tempo_zero_is_refused():
+    # The include `fatal`s on an S2 main tempo of 0; so do we, by name.
+    with pytest.raises(_si.S2Refusal, match="tempo"):
+        parse_header(_s2_song({}, tempo="$00"))
+
+
+# ---- (b) PSG header pitch is 12 semitones apart (silent octave error) -----------
+
+def test_s2_psg_header_pitch_gets_psgdelta():
+    # PSGPitchConvert (:224-231): PSG header pitch + psgdelta (12). FM untouched.
+    cfg = parse_header(_s2_song({}))
+    psg = [c for c in cfg.channels if c.kind == "PSG"]
+    fm = [c for c in cfg.channels if c.kind == "FM"]
+    assert [c.transpose for c in psg] == [_signed(0xDC + 12), _signed(0xDC + 12), 12]
+    assert all(c.transpose == 0 for c in fm)
+    # S3K source: no delta (HCZ2's PSG header pitch $F4 stays -12).
+    hcz = [c for c in parse_header(HCZ2_HEADER).channels if c.kind == "PSG"]
+    assert hcz[0].transpose == -12
+
+
+# ---- (c) nMaxPSG (the probe's second crash) -------------------------------------
+
+def test_s2_nmaxpsg_resolves():
+    # :57 for an S3K target: nMaxPSG = nBb6 - psgdelta.
+    assert _si.resolve_const("nMaxPSG", _si.SOURCE_S2) == NOTE_BYTES["nBb6"] - 12
+    ev = convert_channel("PSG", ["\tdc.b nMaxPSG, $06"], {}, _s2_cfg(), ConvState())
+    assert [e.pitch for e in ev if isinstance(e, Note)] == [NOTE_BYTES["nBb6"] - 12 - 0x81]
+    # Not an S3K name: the S3K path still refuses it.
+    with pytest.raises(KeyError):
+        resolve_const("nMaxPSG")
+
+
+# ---- (d) ModSet units ------------------------------------------------------------
+
+def test_s2_modset_units_converted():
+    # smpsModSet w,s,c,st -> w+1, s, c, ((st+1)*s)&$FF (the include's smpsModSet).
+    ev = convert_channel("FM", ["\tsmpsModSet $30, $01, $04, $04"], {}, _s2_cfg(), ConvState())
+    m = [(e.wait, e.speed, e.change, e.step) for e in ev if isinstance(e, ModSet)]
+    assert m == [(0x31, 0x01, 0x04, 0x05)]
+    ev = convert_channel("FM", ["\tsmpsModSet $30, $01, $04, $04"], {}, _cfg(), ConvState())
+    m = [(e.wait, e.speed, e.change, e.step) for e in ev if isinstance(e, ModSet)]
+    assert m == [(0x30, 0x01, 0x04, 0x04)]
+
+
+# ---- (e)+(f) fTone: the probe's first crash, and the SILENT wrong envelope -------
+
+def test_s2_default_mapping_tables_are_empty():
+    # "Map nothing by default": filling these is steps 2 (envelopes) and 3 (drums).
+    assert _si.S2_FTONE_MAP == {}
+    assert _si.S2_DAC_MAP == {}
+
+
+def test_s2_ftone_with_declared_mapping_converts():
+    ev = convert_channel("PSG", ["\tsmpsPSGvoice fTone_02", "\tdc.b nC4, $0C"],
+                         {}, _s2_cfg(ftone_map={0x02: 0x02}), ConvState())
+    assert [e.env_id for e in ev if isinstance(e, PsgEnv)] == [0x02]
+
+
+def test_s2_ftone_without_mapping_is_refused_by_name():
+    # The hazard: S2 fTone_01 is not S3K envelope 1, and renaming fTone -> sTone
+    # made the converter take it with no warning. An undeclared fTone is REFUSED.
+    with pytest.raises(_si.S2Refusal, match="fTone_01"):
+        convert_channel("PSG", ["\tsmpsPSGvoice fTone_01", "\tdc.b nC4, $0C"],
+                        {}, _s2_cfg(), ConvState())
+
+
+def test_s2_ftone_in_psg_header_is_refused_by_name():
+    with pytest.raises(_si.S2Refusal, match="fTone_03"):
+        parse_header(_s2_song({}, psg_voice="fTone_03"))
+    cfg = parse_header(_s2_song({}, psg_voice="fTone_03"), ftone_map={0x03: 0x0C})
+    assert [c.psg_voice for c in cfg.channels if c.kind == "PSG"][0] == 0x0C
+
+
+def test_s2_ftone_mapped_to_absent_engine_envelope_is_refused():
+    # A declared mapping must name an envelope the engine HAS (or 0 = none); the
+    # S3K path's warn-and-emit-0 fallback does not apply to a declaration.
+    assert 0x19 not in _si._PSG_ENV_IDS
+    with pytest.raises(_si.S2Refusal, match="fTone_03"):
+        convert_channel("PSG", ["\tsmpsPSGvoice fTone_03", "\tdc.b nC4, $0C"],
+                        {}, _s2_cfg(ftone_map={0x03: 0x19}), ConvState())
+
+
+def test_s2_psgvoice_zero_is_no_envelope():
+    # S2 zPSGUpdateVolFX: envelope 0 = none (`or a / ret z`); the engine's 0 = none.
+    ev = convert_channel("PSG", ["\tsmpsPSGvoice $00", "\tdc.b nC4, $0C"],
+                         {}, _s2_cfg(), ConvState())
+    assert [e.env_id for e in ev if isinstance(e, PsgEnv)] == [0]
+
+
+def test_s2_stone_name_in_s2_source_is_refused():
+    with pytest.raises(_si.S2Refusal, match="sTone_08"):
+        _si.resolve_const("sTone_08", _si.SOURCE_S2)
+
+
+# ---- (g) S2 DAC enum through a name-keyed mapping --------------------------------
+
+def test_s2_dac_enum_values():
+    # _smps2asm_inc.asm:153-158 (case 2).
+    e = _si.S2_DAC_ENUM
+    assert (e["dKick"], e["dSnare"], e["dMidTom"], e["dFloorTom"], e["dLowClap"]) == \
+        (0x81, 0x82, 0x8C, 0x8E, 0x91)
+
+
+def test_s2_dac_mapped_by_name():
+    src = _s2_song({"Tst_DAC": ["\tdc.b dKick, $0C, dSnare"]})
+    song = convert_song(src, None, {}, dac_map={"dKick": 2, "dSnare": 3}, ftone_map={})
+    dac = next(c for c in song.channels if c.route == CHROUTE_DAC)
+    assert [e.sample_id for e in dac.events if isinstance(e, Dac)] == [2, 3]
+    pack_song(song)
+
+
+def test_s2_dac_unmapped_is_refused_by_name():
+    src = _s2_song({"Tst_DAC": ["\tdc.b dKick, $0C, dMidTom"]})
+    with pytest.raises(_si.S2Refusal, match="dMidTom"):
+        convert_song(src, None, {}, dac_map={"dKick": 2}, ftone_map={})
+
+
+def test_s2_raw_id_dac_remap_is_refused():
+    # The S3K raw-id remap is ambiguous across the two enums ($81 is dSnareS3 in
+    # one and dKick in the other): an S2 song takes the name-keyed map only.
+    src = _s2_song({"Tst_DAC": ["\tdc.b dKick, $0C"]})
+    with pytest.raises(_si.S2Refusal, match="dac_map"):
+        convert_song(src, {1: 2}, {}, ftone_map={})
+
+
+# ---- the header declares the source; S1 is not supported -----------------------
+
+def test_s1_source_is_refused():
+    with pytest.raises(_si.S2Refusal, match="SourceDriver 1"):
+        parse_header(_s2_song({}, start="1"))
+
+
+# ---- note fill: S3K multiplies by the divider, S2 does not ----------------------
+
+def test_s2_notefill_not_multiplied_by_divider():
+    # S3K cfNoteFill calls zComputeNoteDuration ("Multiply note fill by tempo
+    # divider", skdisasm Z80 Sound Driver.asm:3231); S2 cfNoteFill stores the
+    # operand raw (s2disasm s2.sounddriver.asm:3189-3191).
+    ev = convert_channel("FM", ["\tsmpsNoteFill $05"], {}, _s2_cfg(divider=2), ConvState())
+    assert [e.master for e in ev if isinstance(e, NoteFill)] == [5]
+    ev = convert_channel("FM", ["\tsmpsNoteFill $05"], {}, _cfg(divider=2), ConvState())
+    assert [e.master for e in ev if isinstance(e, NoteFill)] == [10]
+
+
+# ---- (h) song-local voice bank ---------------------------------------------------
+
+def test_s2_song_local_voice_bank():
+    src = open(_S2_EHZ).readlines()
+    assert _si.song_used_voice_ids(src) == list(range(9))
+    blob = _si.pack_song_patch_table(src, _si.song_used_voice_ids(src))
+    assert len(blob) == 9 * FMPATCH_LEN
+    src = open(_S2_CPZ).readlines()
+    assert _si.song_used_voice_ids(src) == list(range(6))
+    assert len(_si.pack_song_patch_table(src, _si.song_used_voice_ids(src))) == 6 * FMPATCH_LEN
+
+
+def test_s2_voice_tl_masked_to_7_bits():
+    # smpsVcTotalLevel, (SonicDriverVer>=3)&&(SourceDriver<3): vcTLn &= 127.
+    voice = [("smpsVcAlgorithm", ["$07"]), ("smpsVcFeedback", ["$00"]),
+             ("smpsVcTotalLevel", ["$80", "$81", "$82", "$83"])]
+    s2 = _si.smps_voice_to_fmpatch(voice, _si.SOURCE_S2)
+    s2_ref = _si.smps_voice_to_fmpatch(
+        voice[:2] + [("smpsVcTotalLevel", ["$00", "$01", "$02", "$03"])])
+    assert s2 == s2_ref
+
+
+# ---- the two real songs ----------------------------------------------------------
+
+def test_s2_real_songs_refuse_with_the_default_empty_tables():
+    # Nothing is mapped yet, so both songs refuse, and the refusal NAMES every
+    # missing fTone and DAC note (steps 2 and 3 are what fill the tables).
+    with pytest.raises(_si.S2Refusal) as ei:
+        convert_song(open(_S2_EHZ).readlines(), None, {v: v for v in range(9)})
+    msg = str(ei.value)
+    for name in ("fTone_01", "fTone_02", "fTone_03", "fTone_08", "fTone_0B",
+                 "dKick", "dSnare", "dMidTom", "dFloorTom"):
+        assert name in msg, name
+    with pytest.raises(_si.S2Refusal) as ei:
+        convert_song(open(_S2_CPZ).readlines(), None, {v: v for v in range(6)})
+    msg = str(ei.value)
+    for name in ("fTone_02", "dKick", "dSnare"):
+        assert name in msg, name
+    assert "dMidTom" not in msg
+
+
+def _probe_prepass(lines):
+    """The design pass's throwaway pre-pass (docs/research/2026-09-25-region-music/
+    s2_probe.py `fix`), re-spelled so the S3K path accepts it WITHOUT mutating the
+    converter's tables: the S2 DAC names and nMaxPSG become hex literals."""
+    out = []
+    for ln in lines:
+        code = ln.split(";", 1)[0]
+        code = _re.sub(r"fTone_", "sTone_", code)
+        code = _re.sub(r"\bnMaxPSG\b", "$%02X" % (NOTE_BYTES["nBb6"] - 12), code)
+        for name, val in _si.S2_DAC_ENUM.items():
+            code = _re.sub(r"\b%s\b" % name, "$%02X" % val, code)
+        m = _re.match(r"(\s*)smpsHeaderStartSong\s+2", code)
+        if m:
+            out.append("%ssmpsHeaderStartSong 3\n" % m.group(1)); continue
+        m = _re.match(r"(\s*)smpsHeaderTempo\s+(\S+),\s*(\S+)", code)
+        if m:
+            mod = resolve_const(m.group(3))
+            out.append("%ssmpsHeaderTempo %s, $%02X\n" % (m.group(1), m.group(2), (0x100 - mod) & 0xFF))
+            continue
+        m = _re.match(r"(\s*)smpsHeaderPSG\s+(.*)", code)
+        if m:
+            a = [x.strip() for x in m.group(2).split(",")]
+            a[1] = "$%02X" % ((resolve_const(a[1]) + 12) & 0xFF)
+            out.append("%ssmpsHeaderPSG %s\n" % (m.group(1), ", ".join(a)))
+            continue
+        m = _re.match(r"(\s*)smpsModSet\s+(.*)", code)
+        if m:
+            w, s, c, st = [resolve_const(x.strip()) for x in m.group(2).split(",")]
+            out.append("%ssmpsModSet $%02X, $%02X, $%02X, $%02X\n"
+                       % (m.group(1), (w + 1) & 0xFF, s, c, ((st + 1) * s) & 0xFF))
+            continue
+        out.append(code + "\n")
+    return out
+
+
+# The design probe's placeholder mapping, as a TEST FIXTURE, not a ruling: these are
+# exactly what fTone -> sTone renaming resolved to on the S3K path ($0B -> 0 because
+# that path fell back to PsgEnv(0) for it), and its raw-id DAC remap onto S3K drums.
+_PROBE_FTONE = {1: 1, 2: 2, 3: 3, 8: 8, 0x0B: 0}
+_PROBE_DAC_RAW = {1: 2, 2: 3, 0x0C: 8, 0x0E: 10}
+_PROBE_DAC_BY_NAME = {"dKick": 2, "dSnare": 3, "dMidTom": 8, "dFloorTom": 10}
+
+
+@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
+def test_s2_real_song_matches_the_design_probe(path, nvoices):
+    """Differential: the native S2 mode, given the probe's mapping as an explicit
+    declaration, packs byte-identical to the S3K path run behind the probe's pre-pass
+    (the pre-pass the design measured assembling and sequencing on the real Z80)."""
+    src = open(path).readlines()
+    patch_remap = {v: v for v in range(nvoices)}
+    s3k = pack_song(convert_song(_probe_prepass(src), _PROBE_DAC_RAW, patch_remap))
+    s2 = pack_song(convert_song(src, None, patch_remap, dac_map=_PROBE_DAC_BY_NAME,
+                                ftone_map=_PROBE_FTONE))
+    assert len(s2) > 0
+    assert s2 == s3k
+
+
+def _load_s2_generator():
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    p = os.path.join(here, "..", "games", "sonic4", "data", "sound", "song_s2_ehz_cpz.py")
+    spec = importlib.util.spec_from_file_location("song_s2_ehz_cpz", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_s2_generator_refuses_and_writes_nothing_with_default_tables(tmp_path):
+    gen = _load_s2_generator()
+    with pytest.raises(_si.S2Refusal):
+        gen.generate(out_dir=str(tmp_path))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_s2_generator_writes_both_songs_given_declared_maps(tmp_path):
+    gen = _load_s2_generator()
+    written = gen.generate(out_dir=str(tmp_path), dac_map=_PROBE_DAC_BY_NAME,
+                           ftone_map=_PROBE_FTONE)
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ["s2_cpz_patches.bin", "s2_ehz_patches.bin",
+                     "song_s2_cpz.bin", "song_s2_ehz.bin"]
+    sizes = {os.path.basename(p): n for p, n in written}
+    assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
+    assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
+
+
+def test_s2_generator_default_output_is_under_tools_generated():
+    # Nothing the build reads names tools/generated/ (sigil places ROM content
+    # from games/<game>/map.toml + the .emp embeds), so its output moves no byte.
+    gen = _load_s2_generator()
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/") == "tools/generated/s2_music"
