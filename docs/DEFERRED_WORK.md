@@ -40227,7 +40227,48 @@ worktree, then read the `bganim_room: FAIL` block.
   backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
   growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".
 
-## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z)
+## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). STAGED on `parcel/z80-tap-addr-move`, WAITS ON ORACLE'S PUSH
+
+**Status (2026-09-25): staged on aeon branch `parcel/z80-tap-addr-move`, not landed. It waits on oracle pushing its
+Z80-WATCH-TAP change** (in progress on oracle `parcel/z80-watch-tap`; unmerged at `fd9217c` when this was staged). Land
+the branch in the same window, after oracle's push and after the verification below goes green. Do NOT land it
+before: against today's oracle the moved witnesses go loud at L0/L1, by design.
+
+What the branch does: `YM_A0..A3` = `$A04000-$A04003`; `YmTap` records every hit's `seq` but decodes only
+`via == "z80"` (the 68000's own `$A04000-3` writes are counted in `foreign` and skipped); a new
+`YmTap.liveness_fault()` gates L0 (song_load) and L1 (fm6) on the kept Z80 count, NOT on the server's `matched`,
+which also counts 68000 writes. `fm6_foreign_sample_witness.py` inherits `YM_A0` and `YmTap` by import. The
+`$A00000` poison is unchanged and still goes loud (the contract offers no Z80 access in Z80 RAM, and a 68000 write
+there is now `foreign`, so it cannot make the liveness leg read live). `poke_storm_sound_cost_witness.py` needs no
+move: it watches `SND_DMA_ACTIVE_SLOT`, a Z80-RAM byte the **68000** writes at its `$A0xxxx` address (a 68000 bus
+hit, untouched by the CR). Grep of `tools/` for `$4000`/`0x4000`/`$7F11`/`$A04000` found no other Z80-tap user.
+Proven today: `tools/test_ymtap_via_filter.py` (hermetic, 7 tests, red-first under three mutations, in build.sh's
+pre-build pytest lane). Control run today against the PRE-tap `oracle-aether` (built 2026-09-25 10:48, before
+oracle's WIP): config-A crc32 `0ed5409c`, L0 `seen=852598 matched=0 z80=0 foreign=0` -> exit 1 (loud, expected);
+`--poison` -> exit 0 `POISON OK`. Not discriminating by itself (both go loud pre-tap); the post-push run below is.
+**Correction to the paragraph below:** "all three are off-runner" is wrong for `poke_storm_sound_cost_witness.py`.
+It is `[wired]` in `tools/keepalive_manifest.toml` (the nightly instrument keepalive, `expect = 0`); song_load and
+fm6 are `[not_wired]`. None of the three is read by `build.sh` or `landing_build.sh`, and poke_storm is unaffected.
+
+**Verification the controller runs once oracle has pushed** (oracle's release `oracle-aether` rebuilt from the pushed
+commit, which is `aether_instance.SERVER` = `<suite root>/oracle/target/release/oracle-aether`):
+
+    cd <aeon checkout on parcel/z80-tap-addr-move>
+    export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+    export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+    ./tools/landing_build.sh                  # generates engine/debug/generated/*; expect 0, finished=0
+    "$SIGIL_BUILD" build --aeon . --native --config-a -o cfga.bin --emit-lst cfga.lst
+    python3 tools/song_load_mid_drum_witness.py --rom cfga.bin --lst cfga.lst            # expect 0; L0 z80 > 0
+    python3 tools/song_load_mid_drum_witness.py --rom cfga.bin --lst cfga.lst --poison   # expect 0, POISON OK
+    python3 tools/fm6_foreign_sample_witness.py            # expect 0 (patches + restores its target from HEAD)
+    python3 tools/fm6_foreign_sample_witness.py --poison   # expect 0, POISON OK
+    python3 tools/poke_storm_sound_cost_witness.py --rom s4.debug.bin --lst s4.debug.lst # expect 0, unchanged
+
+Read on L0/L1: `z80` > 0 (today's figure on the old address was ~662 writes in 30 idle frames) and `foreign` = 0
+(aeon's 68000 never writes the YM; a nonzero `foreign` means the Z80-only latch reconstruction is suspect, see
+`YmTap`'s docstring). Oracle has shipped only when a live run shows `z80` > 0; a green run with `z80` = 0 is
+impossible by construction (`liveness_fault`).
+
 
 Hub ruling empyrean `616c2026` §11.52, option C, on oracle's F-Z80 CR (oracle `docs/2026-09-25-z80-watch-cr.md` at `94665a6`).
 Once oracle lands it, Z80 YM/PSG writes reach bus watches at `$A04000-$A04003` / `$A07F11` with `via: "z80"`, the

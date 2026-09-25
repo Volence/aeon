@@ -17,9 +17,16 @@ The hit records below are typed from that CR text, NOT from the witness's consta
 moving `YM_A0..A3` back or dropping the `via` filter turns this file red. The fake bus
 answers only the two methods `YmTap` calls; it is not an emulator.
 
-Red-first evidence (2026-09-25, recorded in this file's commit body): with the
-`via` filter deleted from `YmTap.poll` the bus-hit and old-address tests fail; with
-`YM_A0..A3` put back at `$4000-$4003` the part/latch test fails.
+Red-first evidence (2026-09-25, measured against committed e29983cb, each mutation
+restored from HEAD before the next):
+  M1 delete the `via` filter in `YmTap.poll`         -> 4 failed, 3 passed
+     (68000 bus hit, old $4000 hit, mixed stream, poison shape)
+  M2 put `YM_A0..A3` back at $4000-$4003             -> 3 failed, 4 passed
+     (armed address, z80 decode, mixed stream)
+  M3 drop the `z80 == 0` arm of `liveness_fault`     -> 3 failed, 4 passed
+     (68000 bus hit, old $4000 hit, poison shape)
+Runner: build.sh's pre-build `pytest tools -m "not needs_build"` lane (unmarked, no
+build artifact read), so `tools/landing_build.sh` grades it.
 """
 import asyncio
 import sys
