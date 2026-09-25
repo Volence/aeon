@@ -1,19 +1,24 @@
 {
-  "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
+  "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
-      "where": "branch parcel/s2clip-tunnel-2",
+      "what": "How short the connector can go: what each limit protects, plus a separate test level you can fly",
+      "where": "branch research/shorter-connector",
       "agent": true
     },
     {
-      "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
-      "where": "branch parcel/s2clip-bg-scroll-2",
+      "what": "Longer Chemical Plant, built on top of the sound positions file and the new assembler",
+      "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
     },
     {
-      "what": "Aeon's half of the clip's own sound positions file",
-      "where": "branch parcel/clip-anchor-overlay-2",
+      "what": "Landing the Sonic 2 level's own sound positions file",
+      "where": "branch land/0925-clip-overlay",
+      "agent": true
+    },
+    {
+      "what": "Checking our sound-debugging tools against oracle's new emulator, then landing them",
+      "where": "branch parcel/z80-tap-addr-move",
       "agent": true
     }
   ],
@@ -24,8 +29,16 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "The three Sonic 2 test-level agents return and land one at a time, rebuilding the Sonic 2 ROMs after each.",
+  "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
+    {
+      "id": "S2CLIP-CONNECTOR-SHORTER",
+      "title": "You asked whether the connector can be much shorter: finding what each length limit protects and building a separate test level to fly",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "S2CLIP-LAG",
       "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
@@ -36,26 +49,18 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant is too short: add more of it (costed: to its second checkpoint once d-35 lands)",
-      "state": "blocked",
+      "title": "Chemical Plant is too short: extending it toward its second checkpoint (being built now; lands after the sound positions file)",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "the sound-bank positions file you chose (d-35): waits on the assembler lane naming its switch, then both halves land",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "doing",
+      "title": "Sonic 2's own background scrolling is built and checked; it lands after the sound positions file, because the debug build has no room for it before then",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-TUNNEL",
-      "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
+      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
       "project": "REGIONS"
     },
     {
@@ -67,18 +72,11 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
+      "title": "The Sonic 2 level's own sound positions file: the new assembler is in, so it's landing now",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "A test build's listing answered a question about a different build; the assembler lane has fixed it, and it reaches us when our installed assembler is next rebuilt",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
@@ -160,13 +158,13 @@
     },
     {
       "id": "Z80-TAP-ADDR-MOVE",
-      "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
-      "state": "blocked",
+      "title": "Oracle's sound-chip change is out: checking our sound-debugging tools against it, then landing",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:50:06Z"
+  "updatedAt": "2026-09-25T17:26:38Z"
 }

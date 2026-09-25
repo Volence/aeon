@@ -302,7 +302,16 @@ def test_success_is_the_same_shape_and_bakes_the_same_tree(capsys, monkeypatch, 
     path = os.path.join(FIXTURE_DIR, "s2_ehz_cpz", "clips.json")
     rc_h, out_h, rc_j, j = _both(capsys, monkeypatch, tmp_path, donors, path)
     assert rc_h == rc_j == 0, out_h[-400:]
-    assert j == {"schema": BAKE.BAKE_JSON_SCHEMA, "ok": True, "refusals": [], "warnings": []}
+    # Since S2CLIP-TUNNEL (2026-09-25) this act carries ONE warning, W3 on section 5 (the
+    # shortened tunnel puts Chemical Plant's first 480 px in Emerald Hill's last section).
+    # The bake reports exactly the manifest's own warnings, so they are derived from
+    # validate_json rather than pinned here.
+    want = [(w["rule"], w["subjects"]) for w in CM.validate_json(path, donors)[0]["warnings"]]
+    assert want == [("W3", [{"kind": "clip", "index": 0, "id": "ehz_act1"},
+                            {"kind": "clip", "index": 1, "id": "cpz_act1"}])], want
+    assert j == {"schema": BAKE.BAKE_JSON_SCHEMA, "ok": True, "refusals": [],
+                 "warnings": j["warnings"]}
+    assert [(w["rule"], w["subjects"]) for w in j["warnings"]] == want
     assert out_h.splitlines()[-1].startswith("clip act baked: ")
     h, js = tmp_path / "human", tmp_path / "json"
     names = sorted(os.listdir(h))
