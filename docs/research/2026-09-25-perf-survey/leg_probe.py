@@ -121,12 +121,13 @@ async def main_async(a):
             await c.call("emulator/run_frames", {"frames": 120})
         head["notes"] = notes
         await btn(c, dirs, True)
-        if a.profile:
+        if a.profile and not a.profile_from_switch:
             await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
         rows = []
         prev = await snap(c, s)
         first = prev
         stall = 0
+        switched = False
         for i in range(a.frames):
             await drive(c, a.mode, i, dirs)
             await c.call("emulator/run_frames", {"frames": 1})
@@ -137,6 +138,18 @@ async def main_async(a):
             rows.append([i, dfc, dlt, dlag, cur["cx"], cur["cy"], cur["px"], cur["py"]])
             stall = stall + 1 if (cur["cx"], cur["cy"]) == (prev["cx"], prev["cy"]) else 0
             prev = cur
+            if a.then_dirs and not switched and cur["cx"] >= a.then_at_x:
+                # two-phase leg: e.g. fly right along the top to Chemical Plant, then down
+                await btn(c, dirs, False)
+                dirs = a.then_dirs.split(",")
+                await btn(c, dirs, True)
+                switched = True
+                if a.profile and a.profile_from_switch:
+                    await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
+                    first = cur
+                    head["rows_before_switch"] = len(rows)
+                notes.append(f"switched to {a.then_dirs} at frame {i} cam ({cur['cx']},{cur['cy']})")
+                stall = 0
             if a.stop_x and cur["cx"] >= a.stop_x:
                 notes.append(f"reached stop_x at ({cur['cx']},{cur['cy']})")
                 break
@@ -194,6 +207,10 @@ def main():
     ap.add_argument("--stop-x", type=int, default=0)
     ap.add_argument("--stall-stop", type=int, default=60)
     ap.add_argument("--dirs", default="right")
+    ap.add_argument("--then-dirs", default="", help="second-phase held buttons")
+    ap.add_argument("--then-at-x", type=int, default=0, help="switch when camera x >= this")
+    ap.add_argument("--profile-from-switch", action="store_true",
+                    help="(with --then-dirs) arm the profiler at the switch, not at leg start")
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--top", type=int, default=512)
     ap.add_argument("--print-top", type=int, default=30)
