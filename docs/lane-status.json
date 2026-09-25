@@ -1,11 +1,6 @@
 {
-  "focus": "Landing the lag fix; the tunnel, Sonic 2 background scrolling and the positions file are being rebuilt after the stop.",
+  "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
   "inFlight": [
-    {
-      "what": "Landing check for the lag fix and the editor's bake answer, together on current master",
-      "where": "branch land/0925-lag-bake",
-      "agent": true
-    },
     {
       "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
       "where": "branch parcel/s2clip-tunnel-2",
@@ -29,12 +24,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "The lag fix lands and its ROMs go into the main checkout for your look; the three clip parcels then land one at a time.",
+  "nextBoundary": "The three Sonic 2 test-level agents return and land one at a time, rebuilding the Sonic 2 ROMs after each.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
-      "title": "The Sonic 2 build lags because it is the first level too big to keep all its art in video memory; the art streamer overruns the frame. Fixing it in the engine",
-      "state": "doing",
+      "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -62,13 +57,6 @@
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "CLIP-BAKE-JSON",
-      "title": "The editor's Sonic 2 page cannot tell the level bake crashing from the bake refusing a paste; give the bake the same machine-readable answer the checker got",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     },
     {
       "id": "RAMP-ARM4-SPAN",
@@ -180,5 +168,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:09:39Z"
+  "updatedAt": "2026-09-25T15:50:06Z"
 }
