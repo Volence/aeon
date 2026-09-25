@@ -46,6 +46,36 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## ~~S2CLIP-BANK-ROOM-GATE~~ — FIXED 2026-09-25 (`parcel/s2clip-room-gate`): `bganim_room`'s bank-rule arm fired at RESERVE + GRACE, not RESERVE
+
+`DEBUG=1 S2CLIP=s2_ehz_boot ./build.sh` exited 1 on `tools/bganim_room.py --gate`: "leaving 58962 B <
+DATA_GROWTH_RESERVE 49152 B". **The room was measured correctly** (0xA8000 − packed end 0x999AE =
+58,962 B, terminus checked in the image). **The threshold was wrong.** Since 446a27d9 (09-04),
+`rule_anchor()` includes GRACE, and the fail arm compared `anchor < rule_anchor(end)`. That
+fires at `room < RESERVE + GRACE` (window-rounded), but the ruling in map.toml's rule block puts
+GRACE "outside the gate's threshold". The message still described the 08-26 condition, so it
+read as an inverted comparison. **The clip ROM is not short:** it is 9,810 B above the reserve,
+with 22,958 B of the 32,768 B grace spent. **The canonical shapes were affected too, silently.**
+At base, `s4.debug` printed "growth before this gate fires again: 36094 B" when the arm would
+have fired after 3,326 B.
+
+**Fix:** the arm now tests `room < DATA_GROWTH_RESERVE`. The message names both quantities and
+states the relation. A new report-only band handles "anchor below this shape's rule value, but
+the reserve holds". The new test is red-first and mutation-proven (report:
+`docs/research/2026-09-25-s2clip-bank-room-gate.md`). **Effect:** the gate fires up to one grace
+window later than the code did before, at the ruled threshold. A stricter floor would need a
+new ruling (raise RESERVE), not this arm.
+
+**Canonical ROMs are byte-identical before and after** (same sigil, sha256 `e79152d8…`): `s4.bin`
+`6d1af7a3` 821,479 B · `s4.debug.bin` `62238a15` 848,075 B · `demo.debug.bin` `ce922bf7`
+104,707 B.
+
+**Still open:** the two-zone clip (`parcel/s2-two-zone-act`) has **9,810 B** of growth before
+this gate fires at packed end > 0x9C000, and that firing will be real. The remedy then is to
+move both anchors via sigil, or to rule the clip shape off the shared anchor.
+
+---
+
 ## CTRL-3 LAND GATE — BUILT 2026-09-13 (`parcel/ctrl3-land-gate`); LIVE ONLY ONCE THE CONTROLLER INSTALLS THE HOOK
 
 **What shipped.** `tools/landing_build.sh` writes a content-keyed stamp for a completed green
