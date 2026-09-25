@@ -157,7 +157,7 @@ W1-W3 are warnings.
           the control holds clip ADJACENCY fixed; the separated act's 7 is adjacency, not
           section purity. The exact refusal that does bite is downstream and precise
           (build_section_local_map raises past 2047), so this stays a warning.
-      A CORRIDOR does not count as a zone here: its sheet is a few dozen tiles (52 for
+      A CORRIDOR does not count as a zone here: its sheet is a few dozen tiles (29 for
       s2_ehz_cpz's tunnel), far from moving a local map toward the cap, and warning on
       every corridor-meets-clip section would bury the warning that means something.
 

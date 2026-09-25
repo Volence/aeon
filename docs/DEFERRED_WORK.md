@@ -38098,6 +38098,74 @@ CPZ's invented seam every 512 px; CPZ's 2 line-0 cells; both backgrounds scroll 
   `clip_act.emp`) at its next aeon pin advance. `ojz_scroll_test.emp` also gains two names from the clip
   module (not lowered standalone by any port found).
 
+### S2CLIP-TUNNEL — the EHZ->CPZ connector is a short enclosed tunnel (2026-09-25, `parcel/s2clip-tunnel-2`)
+
+The owner, verbatim: *"the tunnel to tranisition has to be like an FG hiding the bg, right now it's
+just something we walk on. It doens't have to be so long either and the fg can use ehz or cpz art ...
+Can we make the connector a little shorter, I think having it so long takes away a bit from the
+dramatic effect"*. No engine code changed; the tunnel is content plus the clip tools that paint it.
+
+**CLOSED**
+
+- **Length 1312 -> 832 px, the shortest the engine allows, and the binding rule is Z2, not Z1** (the
+  brief named Z1). Z2 (`clip_rom_bake.check_palette_crossings`) puts the crossing at the gap's middle
+  rounded down to 16 and needs `CAM_SCREEN_HALF_W` 160 + `PAL_FADE_FRAMES` 16 x `CAM_MAX_X_STEP` 16 =
+  416 px each side, so 832. Z1 (`clip_act_bake.zone_separation`) needs `TILE_CACHE_COLS` - 1 = 79 cells
+  (632 px) and gets 104. Crossing now x = 11392 (was 11632), 416 px each side. Held by
+  `test_the_tunnel_is_as_short_as_the_crossing_allows` (red-first: w 848 -> `assert 848 == 832`).
+- **Enclosed, background hidden.** Corridor `tunnel` (clip_manifest K4/K5): solid ceiling y 512..671,
+  walkway 672..767 (96 px, >= 2 x `PLAYER_Y_RADIUS` + 1 = 39), floor 768..1023. Every pixel of the rect
+  is painted: 0 transparent pixels (`test_the_tunnel_hides_the_background...`; the open-corridor
+  control has some; red-first: back wall made transparent -> 79,899). The rect starts at y 512 because
+  no camera inside the walkway sees higher: `test_the_tunnel_rect_covers_every_row_a_camera_inside_it_can_show`
+  derives 542 from ceiling + `BALL_Y_RADIUS` - `CAM_Y_DEADZONE` - `CAM_SCREEN_HALF_H` (red-first: y 576
+  -> "rows 34 px above the rect are on screen").
+- **Drawn in Chemical Plant's art, recoloured onto CRAM line 0.** `corridor_art` paints the corridor
+  pixel by pixel from its own collision (art and ground cannot disagree). Wall = a 32x32 piece of CPZ's
+  riveted panels (`wall_src` 768,784), back wall = CPZ's X-lattice mesh dimmed to half (`back_src`
+  512,896), 29 sheet tiles. Line 0 because it is the one line no region install writes; on a CPZ line the tunnel would
+  be in Emerald Hill's colours until the crossing (exactly what Z2 forbids).
+- **The 4-px seam step is fixed.** BEFORE: Emerald Hill's crop edge x 10960..10975 is shape 164 (height
+  12, surface y 772); the corridor at x 10976 was shape 255 (surface 768), a 4-px step UP. AFTER: K6
+  measures the neighbour's height on the floor row and makes the tunnel's first block the bank's gentlest
+  one-block ramp from 12 to 16, shape 208 (`12,12,13,13,13,14,14,14,15,15,15,15,16,16,16,16`, angle $FC):
+  surface 772 at x 10976 to 768 at x 10988, never more than 1 px per column. The CPZ seam (x 11808) was
+  and is flush at 768. `test_the_walk_through_the_tunnel_has_no_step_at_either_seam` checks every column
+  from 32 px before to 32 px after, both planes (red-first: ramps disabled -> `step(s) [(10976, 772, 768)]`).
+- **Walkable at speed, measured headless** (`tools/tunnel_run_witness.py`, a witness, not a gate) on
+  `s4.s2clip.debug.bin` crc `4dfe4107`: 6 of 6 runs crossed (right and left; walk from rest,
+  `PHYS_TOP_SPEED`, `PHYS_GSP_CAP`), 0 faults, 0 airborne frames inside; |gsp| does not drop at either
+  seam; y 753 -> 749 over the ramp, 749..750 through the tunnel. Its "stall" count is harness pacing,
+  not snags: the plain-EHZ control window shows more (107/314 vs 44/199).
+- **Builds** (all exit 0, every gate green): `S2CLIP=s2_ehz_cpz ./build.sh` -> `s4.s2clip.bin` 822,366 B
+  crc `50ab8c64`, bganim_room 52,336 B free (+3,184 over the 49,152 reserve). `S2CLIP=s2_ehz_cpz DEBUG=1`
+  -> `s4.s2clip.debug.bin` 848,764 B crc `4dfe4107`, 49,500 B free (**+348**, tight). FG page budget worst
+  window 9 of 12 (was 8). Canonical shapes: see the landing evidence in the parcel report.
+
+**OPEN**
+
+- **The act's last 480 px are an unpainted remainder** (x 13856..14335, declared in clips.json). Moving
+  Chemical Plant left to meet the shorter tunnel leaves the 7-section act 480 px wider than its content;
+  widening CPZ to 2528 px to fill it MEASURED +5,962 B (FAST clip builds, Art_Sonic address), which
+  neither clip shape has. A player who runs off the end of CPZ's clip falls. Rides on the same ROM-room
+  remedy as (A) a longer Chemical Plant (sigil card d-35-revised).
+- **The clip DEBUG shape has 348 B of room left.** The full 128x128 CPZ panel as the wall measured ~584 B
+  over it; that is why the wall is a 32x32 piece. Any further clip content in the debug shape needs the
+  anchor move first.
+- **The 1,684-column unbounded fall** (was 1,744: the tunnel is 104 columns, not 164) is unchanged in kind.
+
+**TAGGED FOR THE OWNER'S LOOK:** the tunnel's picture (recoloured CPZ panels and mesh on Sonic's
+palette line, 96-px walkway); the EHZ mouth (a flat metal face from y 512 at x 10976, sky above it); the
+ramp at the mouth; the fade at x = 11392 now happening inside a closed tunnel; the 480-px void past
+CPZ's end.
+
+**FILES aurora must be told about** (changing clips.json reddens its currency test):
+`games/sonic4/data/clips/s2_ehz_cpz/clips.json` only (corridor rect, new `tunnel` key, CPZ dst x 11808,
+`unpainted_remainder` x_from 13856 + counts, notes). The corridor schema grew an optional `tunnel`
+object (clip_manifest K4/K5; `validate --json` schema number unchanged, no new top-level fields).
+Shared with the parallel parcels: none of their files; the background parcel's region crossing moved
+with the tunnel (x 11632 -> 11392, derived by `region_plan`, not typed).
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**

@@ -10,6 +10,9 @@ WHAT IS PINNED HERE, and where the rest of the row's evidence lives:
     install writes (DERIVED from Palette_LoadPal's own `Pal_Compose_Lines` write, not from a
     comment), its floor is the bank's full solid block with the odd-angle flag (FOUND, not
     typed), and K1-K3 refuse a corridor the bake could not honour;
+  * the S2CLIP-TUNNEL rows (2026-09-25): the tunnel hides the background (no transparent
+    pixel), its rect covers every row a camera inside it shows, no floor step at either seam
+    (K6's measured ramp), its width is the shortest Z1+Z2 admit, and K4-K6 refuse by tag;
   * Z2, the palette-crossing check, on synthetic modules: both arms of every refusal;
   * region_plan's refusals (butted zones, a stacked layout);
   * the COMMITTED neutral clip module is byte-for-byte what the emitter writes, so the
