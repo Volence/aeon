@@ -15,6 +15,11 @@
       "what": "Landing the Sonic 2 level's own sound positions file",
       "where": "branch land/0925-clip-overlay",
       "agent": true
+    },
+    {
+      "what": "Checking our sound-debugging tools against oracle's new emulator, then landing them",
+      "where": "branch parcel/z80-tap-addr-move",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -153,13 +158,13 @@
     },
     {
       "id": "Z80-TAP-ADDR-MOVE",
-      "title": "Our sound-debugging tools are ready for the emulator's new sound-chip addresses; they land the moment oracle pushes",
-      "state": "blocked",
+      "title": "Oracle's sound-chip change is out: checking our sound-debugging tools against it, then landing",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "oracle pushing parcel/z80-watch-tap (they message us first); staged on branch parcel/z80-tap-addr-move"
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:17:46Z"
+  "updatedAt": "2026-09-25T17:26:38Z"
 }
