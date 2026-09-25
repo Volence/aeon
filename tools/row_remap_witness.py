@@ -359,7 +359,19 @@ async def run(a) -> int:
     rom_path = os.path.abspath(a.rom)
     lst = os.path.abspath(a.lst) if a.lst else rom_path[:-4] + ".lst"
     rom = open(rom_path, "rb").read()
-    tail_base, stride = record_stride(a.repo)
+    tail_base, source_stride = record_stride(a.repo)
+    # THE STRIDE IS THE ONE THE BUILD PUBLISHED (PUBLISH-BAND-RECORD-LEN, 2026-09-25): the
+    # listing's `EQU band_record_len` row, refused when absent. The source-side sum is kept
+    # only to check that the tail offset derived beside it describes the published record.
+    import band_geometry
+    try:
+        stride = band_geometry.published_stride(lst)
+    except band_geometry.Unreadable as e:
+        raise refuse(str(e))
+    if stride != source_stride:
+        raise refuse(f"{lst} publishes band_record_len {stride} but this tree's source derives "
+                     f"{source_stride}; br_remap's offset {tail_base} is from that source, so "
+                     f"it would address the wrong bytes")
     phase_off = legacy_field_offset(a.repo, "band_phase_offset")
     foff = field_offsets(a.repo, tail_base)
     print(f"  br_remap at record offset {tail_base}; displacements {foff}; "

@@ -158,36 +158,33 @@ LEGACY_BE_SIZE = 10  # sizeof(band_entry) — the PREFIX, which never grows (des
 # learned it; this file did not, and its `[parallax.cost_model]` rows were fitted BEFORE
 # the record widened (2026-08-22, T13 promotion, when 10 was correct).
 #
-# IT IS DERIVED FROM THE BUILD, NOT FROM A FLAG AND NOT FROM A LITERAL — `set_stride()` is
-# called from main() with the symbols of the .lst being measured, exactly as
-# tools/deform_own_cost_probe.py's derive_stride() and tools/curve_probe.py's main() do.
+# IT IS READ FROM THE BUILD, NOT FROM A FLAG AND NOT FROM A LITERAL — `set_stride()` is
+# called from main() with the .lst being measured and reads its `EQU band_record_len` row
+# (PUBLISH-BAND-RECORD-LEN, 2026-09-25), as tools/deform_own_cost_probe.py, tools/curve_probe.py
+# and tools/parallax_hscroll_identity.py do through the same reader.
 # The module-level value stays None so that a caller who imports this module and forgets to
 # set it gets an immediate TypeError rather than a plausible number: a probe that measures
 # the wrong bytes and prints a clean fit is the failure mode this whole comment exists for.
 BE_SIZE = None       # sizeof(band_record); set by set_stride() from the .lst under measure
 
 
-def set_stride(sym: dict) -> int:
-    """Derive and install `sizeof(band_record)` from the build being measured.
+def set_stride(lst) -> int:
+    """Install `sizeof(band_record)` as the build being measured PUBLISHED it.
 
-    `Parallax_Shadow_Bands` reserves one record per MAX_PARALLAX_BANDS and the next symbol
-    starts immediately after it; engine/level/parallax.emp pins that span to
-    `sizeof(band_record) * MAX_PARALLAX_BANDS` on EVERY build, so this is the same number
-    the walker's own displacement arithmetic used. Never typed, never inferred.
+    Since PUBLISH-BAND-RECORD-LEN (2026-09-25) the listing carries `EQU band_record_len`,
+    engine/level/parallax.emp's `pub equ band_record_len = sizeof(band_record)`, lowered for
+    the game that listing was built for. This reads that row through
+    tools/band_geometry.py's `published_stride` and REFUSES when it is absent. It used to
+    divide `Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands` by MAX_PARALLAX_BANDS: a
+    correct derivation, but a derivation, repeated in four tools, and the thing a published
+    authority exists to end. Never typed, never inferred, never derived here.
     """
     global BE_SIZE
-    span = sym["Parallax_Shadow_Scroll_A"] - sym["Parallax_Shadow_Bands"]
-    if span % MAX_SHADOW:
-        raise SystemExit(
-            f"parallax_cost_probe: shadow span {span} is not a multiple of "
-            f"MAX_PARALLAX_BANDS ({MAX_SHADOW}) — the symbols moved, or this .lst is not "
-            f"this ROM's. Refusing to guess a stride.")
-    stride = span // MAX_SHADOW
-    if stride < LEGACY_BE_SIZE:
-        raise SystemExit(
-            f"parallax_cost_probe: derived record stride {stride} is smaller than "
-            f"sizeof(band_entry) ({LEGACY_BE_SIZE}) — ram.emp's mirrors and parallax.emp's "
-            f"struct disagree, and every fixture below would be short.")
+    import band_geometry
+    try:
+        stride = band_geometry.published_stride(str(lst))
+    except band_geometry.Unreadable as e:
+        raise SystemExit(f"parallax_cost_probe: REFUSED: {e}")
     BE_SIZE = stride
     return stride
 
@@ -1818,8 +1815,8 @@ def main() -> int:
     # 2026-08-26, so every fixture below was laid out at half the walker's stride. It is
     # printed because it is the one number that silently invalidates every row if it is
     # wrong, and a reader comparing two runs needs to see it agreed.
-    stride = set_stride(sym)
-    print(f"band_record stride (derived from {Path(args.lst).name}): {stride} bytes"
+    stride = set_stride(args.lst)
+    print(f"band_record stride (published in {Path(args.lst).name}): {stride} bytes"
           f"  [legacy prefix {LEGACY_BE_SIZE} + {stride - LEGACY_BE_SIZE} of capability tails]")
 
     if args.sweep and args.transition:

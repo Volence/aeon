@@ -137,7 +137,8 @@ from parallax_cost_probe import (        # noqa: E402
 # out at half the walker's stride and captured a reference that looked like a clean 896-byte
 # buffer; this refused to start instead. Loud beats plausible. The two reads below now name
 # `pcp.BE_SIZE` through the module so they cannot go stale again the same way, and main()
-# calls `pcp.set_stride(sym)` from the .lst being measured.
+# calls `pcp.set_stride(args.lst)` from the .lst being measured (its published
+# `EQU band_record_len` row since 2026-09-25).
 
 HSCROLL_BYTES = 224 * 4          # the whole buffer: 224 lines x (FG word + BG word)
 FRAMES = 24                      # consecutive frames per fixture; the phase sweeps the wrap
@@ -440,9 +441,9 @@ def main() -> int:
         return 3
 
     # INSTALL THE RECORD STRIDE BEFORE THE FIRST `build()`. See the banner at the import.
-    # Derived from THIS .lst's own symbol span, never typed: `set_stride` refuses if
-    # `Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands` is not a whole number of records.
-    stride = pcp.set_stride(sym)
+    # Read from THIS .lst's `EQU band_record_len` row, never typed and never derived here:
+    # `set_stride` refuses when the listing does not publish it (PUBLISH-BAND-RECORD-LEN).
+    stride = pcp.set_stride(args.lst)
 
     rom = Path(args.rom).read_bytes()
     off = sym["ParallaxConfig_OJZ_Default"]

@@ -244,6 +244,31 @@ assert SHADOW_STRIDE >= LEGACY_BE_SIZE, (
 # curve_probe's override into a silent no-op. The prefix is `LEGACY_BE_SIZE` above, and it is
 # used in exactly the two places that slice a record's legacy head out of a wider record.
 BE_SIZE = SHADOW_STRIDE
+
+
+# ---- AT RUN TIME THE STRIDE IS THE ONE THE BUILD PUBLISHED (PUBLISH-BAND-RECORD-LEN, 2026-09-25)
+#
+# The import-time value above is the SOURCE derivation, kept because the offline unit tests lay
+# their fixtures out at it with no listing in hand. A run against a ROM has the listing, and the
+# listing carries `EQU band_record_len` (engine/level/parallax.emp's `pub equ`), the build's own
+# statement of sizeof(band_record) for the game it built. main() installs THAT, and refuses when
+# the row is absent rather than falling back to the source sum, and refuses when the two disagree
+# (the listing is then not this tree's, or band_geometry has drifted from the struct).
+def install_stride(lst):
+    global SHADOW_STRIDE, BE_SIZE
+    try:
+        published = band_geometry.published_stride(lst)
+    except band_geometry.Unreadable as e:
+        raise SystemExit(f"parallax_hscroll_probe: REFUSED: {e}")
+    if published != SHADOW_STRIDE:
+        raise SystemExit(
+            f"parallax_hscroll_probe: REFUSED: {lst} publishes band_record_len {published} "
+            f"but tools/band_geometry.py derives {SHADOW_STRIDE} for sonic4 from this tree's "
+            f"source. The listing is not this tree's build, or the source reader drifted")
+    SHADOW_STRIDE = BE_SIZE = published
+    return published
+
+
 ANCHOR_NONE        = 0xFF
 NO_DEFORM          = 15     # the shift sentinel: this plane takes no deform on this band
 
@@ -1045,6 +1070,7 @@ def main() -> int:
     from raster_cost_probe import parse_lst          # noqa: E402 — needs the sys.path above
     from aether import BusClient                     # noqa: E402
     from launcher import headless_emulator           # noqa: E402
+    install_stride(args.lst)
     sym = parse_lst(args.lst)
     missing = [s for s in SYMS if s not in sym]
     if missing:
