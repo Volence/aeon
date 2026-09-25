@@ -2,7 +2,7 @@
   "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
   "inFlight": [
     {
-      "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
+      "what": "Tunnel is done; re-checking it on top of the lag fix before it lands",
       "where": "branch parcel/s2clip-tunnel-2",
       "agent": true
     },
@@ -14,11 +14,6 @@
     {
       "what": "Aeon's half of the clip's own sound positions file",
       "where": "branch parcel/clip-anchor-overlay-2",
-      "agent": true
-    },
-    {
-      "what": "Getting our sound-debugging tools ready for the emulator's new sound-chip watch addresses, to land right after oracle's change",
-      "where": "branch parcel/z80-tap-addr-move",
       "agent": true
     }
   ],
@@ -165,13 +160,13 @@
     },
     {
       "id": "Z80-TAP-ADDR-MOVE",
-      "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
-      "state": "doing",
+      "title": "Our sound-debugging tools are ready for the emulator's new sound-chip addresses; they land the moment oracle pushes",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": "oracle pushing parcel/z80-watch-tap (they message us first); staged on branch parcel/z80-tap-addr-move"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:50:53Z"
+  "updatedAt": "2026-09-25T16:15:54Z"
 }
