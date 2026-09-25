@@ -1,5 +1,5 @@
 {
-  "focus": "Holding. The question about instruments-versus-game is yours, and my own fallback turned out to need you too.",
+  "focus": "Booted fresh after six quiet days. Still waiting on you: keep fixing measuring tools, or turn back to the game?",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -146,7 +146,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. Fourteen landings overnight, all instruments; the queue they left is 12 instrument rows against 7 game rows. CORRECTION to what I said earlier: I claimed I would take the one unblocked game row absent an answer -- but that row's fix needs an act that is not a whole number of sections, which is a design change and yours. So there is no non-instrument work I can start without you. Also still yours: the spring sound A/B, and the s4.s2clip.bin flythrough.",
+  "awaiting": "whether to keep going on measuring-tool repairs or turn back to the game. The queue is 12 instrument rows against 7 game rows, and every game row needs you: the Sonic 2 act flythrough (s4.s2clip.bin), the spring sound A/B, and a ruling on an act that is not a whole number of sections. Say which and I start; nothing is running.",
   "atBoundary": true,
-  "updatedAt": "2026-09-19T10:07:20Z"
+  "updatedAt": "2026-09-25T05:40:14Z"
 }
