@@ -40165,3 +40165,11 @@ worktree, then read the `bganim_room: FAIL` block.
 - **(B) aeon half PRICED 2026-09-25:** `docs/research/2026-09-25-clip-own-anchor-pricing.md` (recommends a per-clip
   `anchors.toml` overlay, S-M on aeon; needs sigil to accept an anchor overlay in BOTH `sigil build` and `emit_sound_blob`,
   because the bank ids are also folded at emit time; rule gives the clip pair 0xB8000/0xC8000 today).
+- **OWNER RULED d-35-revised = `clip-overlay-file`, 2026-09-25 ~14:20Z, heard directly in the aeon session (aeon-76).**
+  Verbatim: *"I go with the recommendation"*, answering the card as put to him: "a small positions file in the test
+  build's own folder, recommended by both lanes". Relayed to sigil (card owner) and the hub the same turn. **Next:**
+  sigil names the switch and overlay format, then the pair lands (aeon: per-clip overlay + build.sh wiring; sigil:
+  the switch in `sigil build` and `emit_sound_blob` + the bank-id consistency check). **Size note for the aeon half:**
+  0xB8000/0xC8000 fits TODAY's act only; one extra CPZ section already needs 0xC0000/0xD0000 in DEBUG
+  (`docs/research/2026-09-25-s2clip-longer-cpz-and-original-bgs.md`), so the overlay is re-derived as the act grows.
+  S2CLIP-CPZ-LONGER (his "add more sections") waits on this pair.
