@@ -40437,3 +40437,7 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
 5. **Needs an on-screen look (owner):** fly the rebuilt `s4.s2clip.debug.bin` / `s4.s2clip.bin` through Emerald Hill
    and into Chemical Plant. The DEBUG audit ran clean across the regime change and the art pages were checked by the
    audit's bijectivity/refcount arms, but nobody has looked at the picture.
+
+## CLIP-ANCHORS-MISSING-FILE: a clip whose anchors.toml goes missing falls back silently (booked 2026-09-25T17:45:38Z)
+
+Found by the landing agent's anti-trap check on the clip anchor overlay (landed 8886d1cc). With `s2_ehz_cpz/anchors.toml` moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exits 0 and places the banks on the canonical 0xA8000/0xB8000 (crc 3e4404b5); `clip_anchors` only prints a notice. A full build refuses, but only through `test_clip_anchors.py::Live::test_every_committed_clip_overlay_is_its_own_derivation`, which asserts that AT LEAST ONE clip carries a file, so it goes blind the moment a second clip has one. `bganim_room`'s `anchor < want` branch only reports (read, not run). The ROM stays correct (canonical anchors are legal while the clip fits under them, and sigil refuses loudly once it does not), so this costs room, not correctness. Fix when convenient: make the clip manifest declare that it has an overlay, and have `clip_anchors` refuse a missing declared file in every shape, FAST included.

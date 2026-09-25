@@ -1,14 +1,14 @@
 {
-  "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
+  "focus": "Sound positions file landed; landing the longer Chemical Plant, then Sonic 2's background scrolling.",
   "inFlight": [
-    {
-      "what": "Landing the Sonic 2 level's own sound positions file",
-      "where": "branch land/0925-clip-overlay",
-      "agent": true
-    },
     {
       "what": "Finding what Sonic 2 puts over 34 holes in Chemical Plant's floors, which stop the level going further",
       "where": "branch research/cpz-floor-gaps",
+      "agent": true
+    },
+    {
+      "what": "Landing the longer Chemical Plant on top of the positions file",
+      "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
     }
   ],
@@ -40,9 +40,9 @@
     {
       "id": "S2CLIP-CPZ-LONGER",
       "title": "Chemical Plant made 480 px longer (the gap you'd fall into is filled), landing after the sound positions file; going further hits 34 holes in Sonic 2's own floors, being researched",
-      "state": "blocked",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (stacked on it); staged at parcel/s2clip-cpz-longer 47c43013",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -59,14 +59,6 @@
       "state": "open",
       "size": "S",
       "blockedBy": null
-    },
-    {
-      "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The Sonic 2 level's own sound positions file: the new assembler is in, so it's landing now",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
     },
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
@@ -149,5 +141,5 @@
   ],
   "awaiting": "Fly s4.s2clip-short.debug.bin (the 640 px connector test) and say whether to adopt it, or go for ~480 px with a small engine change",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:39:01Z"
+  "updatedAt": "2026-09-25T17:45:38Z"
 }
