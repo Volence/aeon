@@ -374,6 +374,7 @@ it is not a verdict about pagecache_audit_poison."""
 "fm6_foreign_sample_witness.py" = "same shape: carries --build-only and constructs its own ROM."
 
 "tunnel_run_witness.py" = "needs a CLIP ROM, not the canonical one: it runs a player through a clip act's corridor (S2CLIP-TUNNEL, 2026-09-25) and reads the corridor out of a clips.json through the converted donor trees, which are gitignored. The canonical s4.debug.bin carries no corridor, and an S2CLIP build is a throwaway shape (minutes of re-bake plus donors), not one emulator boot."
+"crossing_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player through a two-clip act's corridor and times the palette and background switch at the zone crossing (docs/research/2026-09-25-shorter-connector.md). The canonical s4.debug.bin has one zone and no crossing, so a run there has no subject."
 
 # -- need a live emulator someone is listening to --------------------------------------
 "sfx_audition.py" = "posts an SFX id into a RUNNING emulator's sound ring so a HUMAN can hear it. It takes --socket and expects an instance that is already up with audio. There is no headless verdict for it to produce."
