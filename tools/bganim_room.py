@@ -175,6 +175,7 @@ it did not derive. A MISSING listing is a build bug (sigil was asked for
 import os
 import re
 import sys
+import tomllib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import artifact_provenance  # noqa: E402
@@ -292,7 +293,36 @@ def lst_labels(lst_path):
     return out
 
 
-def declared_addresses(map_toml):
+def load_anchor_overlay(path):
+    """{anchor name: at} from a clip's anchor overlay (`--anchor-overlay`, owner ruling
+    d-35-revised): `[[anchor]]` rows that REPLACE the `at` of the map anchors of the same
+    name for one build, exactly as `sigil build --anchor-overlay` applies them. Parsed as
+    real TOML because sigil parses it as real TOML. The refusals sigil owns (off-grid,
+    unknown anchor, a changed vma/when) fail the build inside `sigil build`, before this
+    runs; the ones here are only what this reader needs to be true to give any answer.
+    """
+    if not os.path.exists(path):
+        raise Unmeasurable(f"no anchor overlay at {path}")
+    try:
+        with open(path, "rb") as f:
+            doc = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise Unmeasurable(f"anchor overlay {path} is not TOML: {e}")
+    rows = doc.get("anchor", [])
+    if not rows or set(doc) != {"anchor"}:
+        raise Unmeasurable(f"anchor overlay {path} holds {sorted(doc)}; an overlay is one or "
+                           f"more [[anchor]] rows and nothing else")
+    out = {}
+    for row in rows:
+        if "name" not in row or not isinstance(row.get("at"), int):
+            raise Unmeasurable(f"anchor overlay {path}: a row without name and an integer at")
+        if row["name"] in out:
+            raise Unmeasurable(f"anchor overlay {path}: two rows for `{row['name']}`")
+        out[row["name"]] = row["at"]
+    return out
+
+
+def declared_addresses(map_toml, overlay=None):
     """Every declared FIXED address in the placement map: `[[anchor]] at` and
     `[[hole]] at`, as a sorted list of (address, what).
 
@@ -326,6 +356,11 @@ def declared_addresses(map_toml):
                 continue
             m = _TOML_AT.match(line)
             if m and kind is not None:
+                # An overlaid anchor is pinned at its OVERLAY address in this build, and
+                # its map address pins nothing: the growth path must see the former.
+                if kind == "anchor" and overlay and cur in overlay:
+                    out.append((overlay[cur], f"[[anchor]] {cur} (overlay)"))
+                    continue
                 out.append((int(m.group(1), 0), f"[[{kind}]] {cur or '(unnamed)'}"))
     if not out:
         raise Unmeasurable(
@@ -335,8 +370,11 @@ def declared_addresses(map_toml):
     return sorted(out)
 
 
-def anchor_addr(map_toml, name=ANCHOR_NAME):
-    """The declared `[[anchor]]` address, from the game's placement map."""
+def anchor_addr(map_toml, name=ANCHOR_NAME, overlay=None):
+    """The declared `[[anchor]]` address, from the game's placement map, or from the
+    anchor overlay (`load_anchor_overlay`) when it names this anchor."""
+    if overlay and name in overlay:
+        return overlay[name]
     if not os.path.exists(map_toml):
         raise Unmeasurable(f"no placement map at {map_toml}")
     cur = None
@@ -547,7 +585,7 @@ def check_extent(aeon, lma, blob, blob_len, const_name, rom_path=None):
     return {"section": section, "emits": [n for n, _ in defs], "image_identical": identical}
 
 
-def check_growth_path(labels, aeon, map_toml, packed_end, anchor):
+def check_growth_path(labels, aeon, map_toml, packed_end, anchor, overlay=None):
     """ASSERT THE ORDERING PREMISE the room figure rests on (sigil's F7).
 
     `room = anchor - packed_end` is offered as room for `ojz_bg_anim`, and that
@@ -606,7 +644,7 @@ def check_growth_path(labels, aeon, map_toml, packed_end, anchor):
             f"of ROM. Re-derive the room against wherever the section now sits.")
 
     # (2) nothing pinned inside the path
-    pinned = [(a, what) for a, what in declared_addresses(map_toml)
+    pinned = [(a, what) for a, what in declared_addresses(map_toml, overlay)
               if head < a < anchor]
     if pinned:
         listed = ", ".join(f"0x{a:X} {what}" for a, what in pinned)
@@ -779,7 +817,7 @@ def check_terminus(lst_path, labels, packed_end, anchor, rom_path=None):
     return {"intruders": intruders, "image_scan": scan}
 
 
-def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
+def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None, anchor_overlay=None):
     """Physical bytes between the end of the packed data run and the hardware anchor.
 
     DERIVATION (every term from an instrument, none from the frozen table):
@@ -808,7 +846,10 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
             f"{lst_path} defines no {LAST_PACKED_LABEL} — either this shape does not place "
             f"the character data island, or the label was renamed. Not a zero-room answer.")
     blob, blob_len, const_name = art_sonic_bytes(aeon)
-    anchor = anchor_addr(map_toml)
+    # A clip build's anchors come from its overlay (d-35-revised), because that is what
+    # sigil placed it by; measuring its room against map.toml would describe another ROM.
+    overlay = load_anchor_overlay(anchor_overlay) if anchor_overlay else None
+    anchor = anchor_addr(map_toml, overlay=overlay)
     lma = labels[LAST_PACKED_LABEL]
     # BOTH halves of `end`, checked independently and in this order: the LENGTH term
     # (F2, check_extent) before the TERMINUS (F1, check_terminus). They are separate
@@ -824,7 +865,7 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
     # can float. Checked after the two halves of `end` because it is stated in terms
     # of `end`, and independent of both: a correct terminus with a correct length
     # still says nothing about whether growth reaches this room.
-    growth = check_growth_path(labels, aeon, map_toml, end, anchor)
+    growth = check_growth_path(labels, aeon, map_toml, end, anchor, overlay)
     return {
         "art_sonic_lma": lma,
         "art_blob": blob,
@@ -837,6 +878,8 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None):
         "image_scan": terminus["image_scan"],
         "extent": extent,
         "map_toml": map_toml,
+        "overlay": overlay,
+        "overlay_path": anchor_overlay,
     }
 
 
@@ -938,7 +981,7 @@ def fixture_freshness(lst_path, fixture_path):
 
 
 def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
-           built_after=None, fixture_path=None):
+           built_after=None, fixture_path=None, anchor_overlay=None):
     """Print the ROM-room derivation and this SHAPE's ruled ceiling; with `gate`, fail
     on a breach. Returns the exit code. The verdict line names which of the two binds."""
     aeon = AEON if aeon is None else aeon    # late-bound; see rom_room
@@ -963,7 +1006,11 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
         labels = fixture_freshness(lst_path, fixture_path)
         print(f"  fixture: {os.path.relpath(fixture_path, aeon)} — {len(labels)} label "
               f"rows re-found in the fresh listing with the same shape", file=out)
-    r = rom_room(lst_path, aeon, rom_path=rom_path)
+    r = rom_room(lst_path, aeon, rom_path=rom_path, anchor_overlay=anchor_overlay)
+    if r["overlay"]:
+        print(f"  anchors: from the overlay {anchor_overlay} "
+              + ", ".join(f"{n} 0x{a:X}" for n, a in r["overlay"].items())
+              + " (map.toml's rows of those names do not apply to this build)", file=out)
     live = live_section_bytes(aeon)
     # The ALIGNMENT SLOP is subtracted (F7 arm 3): growth of K shifts the terminus
     # by up to K + slop, so the largest the section can be and still fit under the
@@ -1029,7 +1076,7 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
         # nothing noticing, and the remedy line would then hand the sigil lane a
         # sound_bank address the map disagrees with. Derived from the same parser as
         # dac_banks, never a literal.
-        declared_sound = anchor_addr(r["map_toml"], SOUND_ANCHOR_NAME)
+        declared_sound = anchor_addr(r["map_toml"], SOUND_ANCHOR_NAME, r["overlay"])
         if declared_sound != anchor + SOUND_BANK_OFFSET:
             print(
                 f"bganim_room: FAIL — the two bank anchors have drifted apart.\n"
@@ -1070,10 +1117,14 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
                 f"dac_banks = align_up(packed_end + reserve + grace, 0x{BANK_ALIGN:X}) "
                 f"= 0x{want:X}, sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} "
                 f"= 0x{want + SOUND_BANK_OFFSET:X}.\n"
-                f"  Move BOTH anchors there AND hand the two addresses to the sigil "
-                f"lane: a map anchor VALIDATES placement, sigil's frozen tables PERFORM "
-                f"it, and until the matching rows move in every sound-on table the "
-                f"build stops at `[map.undeclared-island]`. Do NOT shrink the reserve.",
+                + (f"  These anchors are the clip's OWN ({r['overlay_path']}), so the "
+                   f"remedy is that file, never map.toml: build both clip shapes, then "
+                   f"`python3 tools/clip_anchors.py --derive --clip <id>`. Do NOT shrink "
+                   f"the reserve." if r["overlay"] else
+                   f"  Move BOTH anchors there AND hand the two addresses to the sigil "
+                   f"lane: a map anchor VALIDATES placement, sigil's frozen tables PERFORM "
+                   f"it, and until the matching rows move in every sound-on table the "
+                   f"build stops at `[map.undeclared-island]`. Do NOT shrink the reserve."),
                 file=out)
             rc = 1 if gate else rc
         elif anchor < want:
@@ -1128,8 +1179,8 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     usage = (f"usage: {sys.argv[0]} --lst <rom.lst> [--gate] [--rom <rom.bin> "
-             f"--built-after <epoch>] [--fixture <cut.lst>]")
-    lst, gate, rom, built_after, fixture = None, False, None, None, None
+             f"--built-after <epoch>] [--fixture <cut.lst>] [--anchor-overlay <anchors.toml>]")
+    lst, gate, rom, built_after, fixture, overlay = None, False, None, None, None, None
     try:
         while argv:
             a = argv.pop(0)
@@ -1143,6 +1194,10 @@ def main(argv=None):
                 built_after = float(argv.pop(0))
             elif a == "--fixture":
                 fixture = argv.pop(0)
+            elif a == "--anchor-overlay":
+                if overlay is not None:
+                    raise IndexError
+                overlay = argv.pop(0)
             else:
                 raise IndexError
     except (IndexError, ValueError):
@@ -1156,7 +1211,7 @@ def main(argv=None):
         return 2
     try:
         return report(lst, gate=gate, rom_path=rom, built_after=built_after,
-                      fixture_path=fixture)
+                      fixture_path=fixture, anchor_overlay=overlay)
     except Stale as e:
         print(str(e), file=sys.stderr)
         return artifact_provenance.UNMEASURABLE

@@ -194,6 +194,8 @@ fi
 # ground", and the DEBUG shape boots the harness into free flight — the default state
 # IS the condition under test. Plain is the shape to look at; DEBUG=1 S2CLIP=... builds
 # the debug twin for the MD Debugger and the hotkeys.
+# Empty on every canonical shape, so `"${ANCHOR_OVERLAY_ARGS[@]}"` adds no argv word there.
+ANCHOR_OVERLAY_ARGS=()
 if [[ -n "${S2CLIP:-}" ]]; then
     if [[ "$GAME" != "sonic4" ]]; then
         echo "ERROR: S2CLIP is a sonic4-only shape (the OJZ act slot is the target)."
@@ -218,6 +220,17 @@ if [[ -n "${S2CLIP:-}" ]]; then
     ROM_NAME="s4.s2clip"
     if [[ "${DEBUG:-0}" == "1" ]]; then
         ROM_NAME="s4.s2clip.debug"
+    fi
+    # The clip's OWN sound-bank positions (owner ruling d-35-revised, clip-overlay-file):
+    # when games/sonic4/data/clips/<id>/anchors.toml exists it goes to BOTH `sigil build`
+    # and `emit_sound_blob` (and to bganim_room) as `--anchor-overlay`; a clip without one
+    # builds on map.toml's anchors exactly as before. The file is DERIVED by
+    # tools/clip_anchors.py and checked for staleness after the link. Contract: sigil
+    # docs/superpowers/notes/2026-09-25-clip-overlay-contract.md.
+    S2CLIP_ANCHORS="games/sonic4/data/clips/${S2CLIP}/anchors.toml"
+    if [[ -f "$S2CLIP_ANCHORS" ]]; then
+        ANCHOR_OVERLAY_ARGS=(--anchor-overlay "$S2CLIP_ANCHORS")
+        echo "S2CLIP: clip anchor overlay ${S2CLIP_ANCHORS}"
     fi
 fi
 MAIN_ASM="games/${GAME}/game_root.asm"
@@ -761,7 +774,7 @@ if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     fi
     echo "Emitting the native-linked resident sound blob (sigil)..."
     mkdir -p engine/sound/generated
-    if ! "${SIGIL_EMIT}" --aeon . --out-dir engine/sound/generated; then
+    if ! "${SIGIL_EMIT}" --aeon . --out-dir engine/sound/generated "${ANCHOR_OVERLAY_ARGS[@]}"; then
         echo "ERROR: sigil emit_sound_blob failed — cannot build the resident sound blob."
         exit 1
     fi
@@ -1286,13 +1299,31 @@ echo "Building ${MAIN_ASM} (sigil)..."
 # Source Digest to reproduce (the ROM it names, every file the build read, the scan,
 # the assembler). A stale pair is exit 2 at every one of them.
 SIGIL_T0=$(date +%s)
-"${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} \
+"${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} "${ANCHOR_OVERLAY_ARGS[@]}" \
     -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"
 
 ROM_SIZE=$(stat -c%s "${ROM_NAME}.bin")
 ROM_KB=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/1024}")
 ROM_PCT=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/4194304*100}")
 echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM_PCT}% of 4MB)"
+
+# S2CLIP ANCHOR STALENESS (d-35-revised). The clip's anchors.toml is DERIVED from both
+# clip shapes' packed ends by the bank placement rule; this shape's measured rule value
+# must equal the one the file was derived from, the islands must sit at the effective
+# anchors, and the Source Digest must show sigil read the file exactly when it exists.
+# Runs on FAST too: it reads only this build's listing and ROM (~0.1 s), and a clip
+# built on stale positions is the silent case. It records this shape's measurement
+# beside the ROM (<rom>.clip_anchors.json) EVEN WHEN STALE, which is what
+# `tools/clip_anchors.py --derive` reads. Exit 0 fresh / 2 STALE / 1 could not measure;
+# `strict`, so both non-zero codes fail the build.
+if [[ -n "${S2CLIP:-}" ]]; then
+    if ! gate strict "clip_anchors.py" python3 "${TOOLS}/clip_anchors.py" \
+            --clip "${S2CLIP}" --lst "${ROM_NAME}.lst" --rom "${ROM_NAME}.bin" \
+            --built-after "${SIGIL_T0}"; then
+        echo "S2CLIP: the clip's sound-bank positions are stale or unverifiable (see above)."
+        exit 1
+    fi
+fi
 
 # --- CROSS-GAME GUARD EVALUATION (LS-16a, 2026-09-07) ------------------------
 # WHY THIS EXISTS. engine/system/z80_init.emp carries
@@ -1717,7 +1748,8 @@ if [[ "$FAST" == "0" ]]; then
         # both; the right fix would be in the gate, where a usage error is an exit 1.
         if ! gate strict "bganim_room.py" python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
-                --fixture "${TOOLS}/fixtures/bganim_room_excerpt.lst" --gate; then
+                --fixture "${TOOLS}/fixtures/bganim_room_excerpt.lst" --gate \
+                "${ANCHOR_OVERLAY_ARGS[@]}"; then
             echo "BG-animation section room — see above (tools/bganim_room.py, the post-sigil gate)."
             exit 1
         fi
