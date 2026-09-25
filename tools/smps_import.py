@@ -1,4 +1,4 @@
-# tools/smps_import.py  — SMPS (S3K) -> music-format-v0 converter.
+# tools/smps_import.py  — SMPS (S3K, and Sonic 2 via SourceDriver 2) -> music-format-v0 converter.
 import os, sys, re
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -109,13 +109,101 @@ FLAG_BYTES: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
+# SOURCE DRIVER. smps2asm songs declare the driver they were written for in their
+# own header (`smpsHeaderStartSong N`), and the shared include
+# (s2disasm/sound/_smps2asm_inc.asm, byte-identical to skdisasm's) converts a
+# `SourceDriver` song to its `SonicDriverVer` target itself. Our target is the
+# S3K model (the engine adopted S3K's TempoWait, PSG table and DAC-track rules), so
+# a SourceDriver >= 3 song passes through, and a SourceDriver 2 (Sonic 2) song gets
+# exactly the include's S2 -> S3 rules, each applied at the one place it bites:
+#
+#   rule (include line)                          where here
+#   s2TempotoS3: mod' = ($100 - mod) & $FF  :184  parse_header      (mod 0 is `fatal`)
+#   PSGPitchConvert: PSG pitch + psgdelta   :224  parse_header      (PSG headers only)
+#   nMaxPSG = nBb6 - psgdelta               :57   resolve_const(source=S2)
+#   smpsModSet w+1, s, c, ((st+1)*s)&$FF    :556  _dispatch_flag
+#   smpsNoteFill: S3K multiplies the fill by the divider (skdisasm cfNoteFill ->
+#     zComputeNoteDuration), S2 stores it raw (s2.sounddriver.asm cfNoteFill)
+#                                                 _dispatch_flag
+#   smpsVcTotalLevel: vcTLn & 127           :937  smps_voice_to_fmpatch
+#   fTone_NN PSG envelopes, S2 DAC enum          NAME-KEYED MAPPINGS, refused if absent
+#   smpsHeaderVoice <song>_Voices                parse_song_voices (song-local bank)
+#
+# The two mappings are the part the include does NOT settle. S2's PSG envelope
+# BODIES differ from S3K's at the same number (fTone_01 is S2 zPSG_Env1; the
+# engine's envelope 1 is S3K's), so resolving fTone_NN to id NN would convert
+# silently to the wrong timbre, which is what renaming fTone -> sTone did in the
+# design probe (docs/research/2026-09-25-region-music-design.md Q1 row f). And
+# S2's DAC notes name S2's drum samples, which the engine does not have. So both
+# go through an explicit table, and a reference with no entry is REFUSED by name.
+# The tables start EMPTY: filling them is steps 2 (envelopes) and 3 (drums) of the
+# S2CLIP-REGION-MUSIC plan (docs/DEFERRED_WORK.md).
+SOURCE_S1 = 1
+SOURCE_S2 = 2
+SOURCE_S3K = 3
 
-def resolve_const(tok: str) -> int:
+PSG_DELTA = 12        # _smps2asm_inc.asm:19 psgdelta
+
+# S2 DAC enum, _smps2asm_inc.asm:92-95 (`case 2`). (The design doc cites :153-158; that is the
+# SonicDriverVer>=5 "for conversions" arm, same values.)
+S2_DAC_ENUM: dict[str, int] = {
+    name: 0x81 + i for i, name in enumerate((
+        "dKick", "dSnare", "dClap", "dScratch", "dTimpani", "dHiTom", "dVLowClap",
+        "dHiTimpani", "dMidTimpani", "dLowTimpani", "dVLowTimpani", "dMidTom",
+        "dLowTom", "dFloorTom", "dHiClap", "dMidClap", "dLowClap"))
+}
+
+# S2 PSG envelope ids, _smps2asm_inc.asm:67-70 (`case 2`: fTone_01..fTone_0D).
+S2_FTONE_IDS = range(0x01, 0x0E)
+
+# Names only an S2 source defines (for an S3K target), :56-59.
+_S2_NOTE_EXTRAS: dict[str, int] = {
+    "nMaxPSG": NOTE_BYTES["nBb6"] - PSG_DELTA,
+}
+
+# THE DECLARED MAPPINGS. Empty on purpose (see above). Keys: S2 envelope id
+# (fTone_NN -> NN) -> engine PsgVolEnv id (0 = none); S2 DAC note NAME -> engine
+# DacSampleTable id. A caller may pass its own; nothing is ever inferred.
+S2_FTONE_MAP: dict[int, int] = {}
+S2_DAC_MAP: dict[str, int] = {}
+
+
+class S2Refusal(ValueError):
+    """The converter refuses a source it cannot convert faithfully: an S2 fTone or
+    DAC note with no declared mapping, a mapping naming something that does not
+    exist, an S2 tempo of 0, or a SourceDriver it does not support. Always names the
+    offending source spelling."""
+
+
+def _source_of(cfg) -> int:
+    """The source driver a config carries (S3K when absent: every pre-S2 caller,
+    including the tests that pass cfg=None for DAC pan)."""
+    return getattr(cfg, "source_driver", SOURCE_S3K)
+
+
+def resolve_const(tok: str, source: int = SOURCE_S3K) -> int:
     tok = tok.strip()
     if tok.startswith("$"):
         return int(tok[1:], 16)
     if re.fullmatch(r"-?\d+", tok):
         return int(tok)
+    if source == SOURCE_S2:
+        # An S2 song is assembled with SonicDriverVer 2 semantics in its source:
+        # its DAC names are the S2 enum (the S3K names do not exist there), its PSG
+        # envelopes are fTone_NN (sTone_NN does not exist there).
+        for table in (NOTE_BYTES, _S2_NOTE_EXTRAS, PAN_BYTES, S2_DAC_ENUM, FLAG_BYTES):
+            if tok in table:
+                return table[tok]
+        if re.fullmatch(r"fTone_[0-9A-Fa-f]{1,2}", tok):
+            raise S2Refusal(
+                "%s is an S2 PSG envelope name; it is accepted only as a "
+                "smpsPSGvoice / smpsHeaderPSG voice operand, through the declared "
+                "fTone mapping" % tok)
+        if re.fullmatch(r"sTone_[0-9A-Fa-f]{1,2}", tok):
+            raise S2Refusal(
+                "%s is an S3K PSG envelope name in a SourceDriver 2 song (S2 source "
+                "spells its envelopes fTone_NN)" % tok)
+        raise KeyError("unknown SMPS constant in S2 source: %r" % tok)
     for table in (NOTE_BYTES, PAN_BYTES, DAC_IDS, FLAG_BYTES):
         if tok in table:
             return table[tok]
@@ -155,29 +243,92 @@ class SongConfig:
     # error the exact model fixes).
     def __init__(self):
         self.divider = 1; self.tempo_mod = 0; self.channels = []
+        # The song's declared source driver (smpsHeaderStartSong) and, for an S2
+        # song, the fTone mapping its PSG voice operands resolve through.
+        self.source_driver = SOURCE_S3K
+        self.ftone_map = None
 
 def _signed8(v):
     return v - 256 if v >= 128 else v
 
-def parse_header(lines):
+
+def detect_source_driver(lines) -> int:
+    """The song's `smpsHeaderStartSong ver` (SOURCE_S3K when absent, as in the
+    header-less unit-test snippets). 1 (Sonic 1) is refused: none of its rules are
+    implemented, and converting it with S3K rules would be silently wrong."""
+    for ln in lines:
+        mnem, args, _ = tokenize_line(ln)
+        if mnem == "smpsHeaderStartSong":
+            ver = resolve_const(args[0]) if args else SOURCE_S3K
+            if ver == SOURCE_S2:
+                return SOURCE_S2
+            if ver >= SOURCE_S3K:
+                return SOURCE_S3K
+            raise S2Refusal("smpsHeaderStartSong %s: SourceDriver %d songs are not "
+                            "supported (only 2 = Sonic 2 and >= 3 = S3K)" % (args[0], ver))
+    return SOURCE_S3K
+
+
+def _s2_psg_env(tok: str, ftone_map) -> int:
+    """Resolve an S2 PSG voice operand (smpsPSGvoice / the smpsHeaderPSG 5th arg)
+    through the DECLARED fTone mapping. 0 is "no envelope" in both drivers (S2
+    zPSGUpdateVolFX `or a / ret z`; the engine's MEV_PSGENV 0 = none) and needs no
+    entry. Anything else with no entry, or an entry naming an envelope the engine
+    does not have, is refused by its fTone name."""
+    tok = tok.strip()
+    m = re.fullmatch(r"fTone_([0-9A-Fa-f]{1,2})", tok)
+    sid = int(m.group(1), 16) if m else resolve_const(tok, SOURCE_S2)
+    if sid == 0:
+        return 0
+    name = "fTone_%02X" % sid
+    if sid not in S2_FTONE_IDS:
+        raise S2Refusal("%s (from %r) is not an S2 PSG envelope (fTone_01..fTone_0D)"
+                        % (name, tok))
+    if ftone_map is None or sid not in ftone_map:
+        raise S2Refusal(
+            "%s has no declared mapping: S2 envelope bodies differ from the engine's "
+            "same-numbered S3K ones, so it is not resolved by number (add it to the "
+            "fTone map once S2's envelope is imported)" % name)
+    eng = ftone_map[sid]
+    if eng != 0 and eng not in _PSG_ENV_IDS:
+        raise S2Refusal("%s is mapped to engine PSG envelope $%02X, which the engine "
+                        "does not have (PsgVolEnv_Ids)" % (name, eng))
+    return eng
+
+
+def parse_header(lines, ftone_map=None):
     """Parse SMPS2ASM header lines into a SongConfig.
 
     smpsHeaderTempo macro signature: div, mod
       args[0] = div  (TempoDivider — per-note duration multiplier, small value e.g. $01)
       args[1] = mod  (tempo accumulator addend, e.g. $25 -> zCurrentTempo)
+
+    The song's `smpsHeaderStartSong` picks the source rules (see SOURCE DRIVER).
+    `ftone_map` is used by an S2 song only (default: the empty S2_FTONE_MAP).
     """
     cfg = SongConfig()
+    src = cfg.source_driver = detect_source_driver(lines)
+    if src == SOURCE_S2:
+        cfg.ftone_map = dict(S2_FTONE_MAP if ftone_map is None else ftone_map)
     for ln in lines:
         mnem, args, _ = tokenize_line(ln)
         if mnem == "smpsHeaderTempo":
             if len(args) < 2:
                 raise ValueError("smpsHeaderTempo needs div,mod: %r" % args)
-            cfg.divider = resolve_const(args[0])
-            cfg.tempo_mod = resolve_const(args[1])
+            cfg.divider = resolve_const(args[0], src)
+            mod = resolve_const(args[1], src)
+            if src == SOURCE_S2:
+                # S2's TempoWait plays the tick ON accumulator carry; S3K (and the
+                # engine) stalls on carry. s2TempotoS3(n) = ($100 - n) & $FF.
+                if mod == 0:
+                    raise S2Refusal("smpsHeaderTempo main tempo 0 in an S2 song "
+                                    "(the include's `fatal` case)")
+                mod = (0x100 - mod) & 0xFF
+            cfg.tempo_mod = mod
         elif mnem == "smpsHeaderDAC":
             # smpsHeaderDAC macro loc,pitch,vol — volume present but unused for DAC
             # (the DAC route only triggers samples; it has no melodic volume op).
-            dac_vol = resolve_const(args[2]) if len(args) >= 3 else None
+            dac_vol = resolve_const(args[2], src) if len(args) >= 3 else None
             cfg.channels.append(ChannelHdr("DAC", args[0], volume=dac_vol))
         elif mnem == "smpsHeaderFM":
             # smpsHeaderFM macro loc,pitch,vol — _smps2asm_inc.asm:332.
@@ -185,17 +336,24 @@ def parse_header(lines):
             if len(args) < 3:
                 raise ValueError("smpsHeaderFM needs loc,pitch,vol: %r" % args)
             cfg.channels.append(ChannelHdr("FM", args[0],
-                transpose=_signed8(resolve_const(args[1])),
-                volume=resolve_const(args[2])))
+                transpose=_signed8(resolve_const(args[1], src)),
+                volume=resolve_const(args[2], src)))
         elif mnem == "smpsHeaderPSG":
             # smpsHeaderPSG macro loc,pitch,vol,mod,voice — _smps2asm_inc.asm:338.
             # args[2] = volume; args[4] (if present) = initial PSG envelope (sTone).
             if len(args) < 3:
                 raise ValueError("smpsHeaderPSG needs loc,pitch,vol: %r" % args)
-            psg_voice = resolve_const(args[4]) if len(args) >= 5 else None
+            pitch = resolve_const(args[1], src)
+            if src == SOURCE_S2:
+                # PSGPitchConvert: the S2 and S3K PSG frequency tables sit 12
+                # semitones apart. Headers only; body notes are untouched.
+                pitch = (pitch + PSG_DELTA) & 0xFF
+                psg_voice = _s2_psg_env(args[4], cfg.ftone_map) if len(args) >= 5 else None
+            else:
+                psg_voice = resolve_const(args[4]) if len(args) >= 5 else None
             cfg.channels.append(ChannelHdr("PSG", args[0],
-                transpose=_signed8(resolve_const(args[1])),
-                volume=resolve_const(args[2]), psg_voice=psg_voice))
+                transpose=_signed8(pitch),
+                volume=resolve_const(args[2], src), psg_voice=psg_voice))
     return cfg
 
 def split_blocks(lines):
@@ -332,7 +490,7 @@ class ConvState:
         self._prev_note_dur = None
 
 
-def _flatten_tokens(lines):
+def _flatten_tokens(lines, source=SOURCE_S3K):
     """Flatten a channel's source lines into an ordered token list, preserving
     source order. Each token is one of:
         ('byte', int)          — a dc.b/dc.w arg (incl. inline flag bytes >=$E0)
@@ -345,7 +503,7 @@ def _flatten_tokens(lines):
             continue                     # blank / comment / stray label
         if mnem in ("dc.b", "dc.w"):
             for a in args:
-                toks.append(("byte", resolve_const(a)))
+                toks.append(("byte", resolve_const(a, source)))
         elif mnem in _FLAG_MNEMONICS:
             toks.append(("flag", mnem, args))
         else:
@@ -614,10 +772,22 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     elif mnem in ("smpsSetvoice", "smpsFMvoice"):
         out.append(Patch(resolve_const(args[0])))    # FM patch
     elif mnem == "smpsModSet":
-        out.append(ModSet(resolve_const(args[0]), resolve_const(args[1]),
-                          _signed8(resolve_const(args[2])), resolve_const(args[3])))
+        w, s, c, n = (resolve_const(a, _source_of(cfg)) for a in args[:4])
+        if _source_of(cfg) == SOURCE_S2:
+            # The include's smpsModSet, (SonicDriverVer>=3)&&(SourceDriver<3):
+            # `wait+1, speed, change, ((step+1) * speed) & $FF` (S2 counts the wait
+            # and the step count in different units from S3K).
+            if w + 1 > 0xFF:
+                raise S2Refusal("smpsModSet wait $%02X: wait+1 overflows the S3K byte"
+                                % w)
+            w, n = w + 1, ((n + 1) * s) & 0xFF
+        out.append(ModSet(w, s, _signed8(c), n))
     elif mnem == "smpsModOff":
         out.append(ModSet(0, 0, 0, 0))
+    elif mnem == "smpsPSGvoice" and _source_of(cfg) == SOURCE_S2:
+        # S2 fTone_NN goes through the DECLARED mapping only (see SOURCE DRIVER);
+        # an undeclared one is refused by name, never resolved by number.
+        out.append(PsgEnv(_s2_psg_env(args[0], cfg.ftone_map)))
     elif mnem == "smpsPSGvoice":
         # PSG voice = an S3K PSG volume-envelope id (sTone_NN). Map to the engine's
         # imported PsgEnv(id) so each PSG hit gets its S3K decay contour (the hi-hat
@@ -631,7 +801,10 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
             env_id = 0
         out.append(PsgEnv(env_id))
     elif mnem == "smpsNoteFill":
-        out.append(NoteFill(resolve_const(args[0]) * cfg.divider))
+        # S3K's cfNoteFill multiplies the fill by the tempo divider
+        # (zComputeNoteDuration); S2's cfNoteFill stores the operand raw.
+        fill = resolve_const(args[0])
+        out.append(NoteFill(fill if _source_of(cfg) == SOURCE_S2 else fill * cfg.divider))
     elif mnem == "smpsStop":
         out.append(End())
     elif mnem == "smpsSetVol":
@@ -757,7 +930,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
 
     def toks_for(label):
         if label not in tok_cache:
-            tok_cache[label] = _flatten_tokens(blocks.get(label, []))
+            tok_cache[label] = _flatten_tokens(blocks.get(label, []), _source_of(cfg))
         return tok_cache[label]
 
     # label -> output index where that label's events begin (for jump-loopback
@@ -1185,14 +1358,21 @@ def _first_timing_index(events):
     return len(events)
 
 
-def _apply_remaps(events, dac_remap, patch_remap):
+def _apply_remaps(events, dac_remap, patch_remap, source=SOURCE_S3K):
     """Rewrite every Dac.sample_id through dac_remap (raw S3K 1-based id -> v0
     DacSampleTable id) and every Patch.patch through patch_remap (in-body
     smpsSetvoice id -> v0 patch-table index), IN PLACE. A missing key raises a
-    clear error naming the unmapped id so the caller can extend the remap."""
+    clear error naming the unmapped id so the caller can extend the remap. For an
+    S2 song the raw id is named back to its S2 DAC note (dac_remap was derived
+    from the name-keyed dac_map)."""
     for ev in events:
         if isinstance(ev, Dac):
             if ev.sample_id not in dac_remap:
+                if source == SOURCE_S2:
+                    name = next((n for n, v in S2_DAC_ENUM.items()
+                                 if v & 0x7F == ev.sample_id),
+                                "S2 DAC $%02X" % (ev.sample_id | 0x80))
+                    raise S2Refusal("%s has no declared mapping in dac_map" % name)
                 raise KeyError("DAC sample id %d (raw S3K id $%02X) not in "
                                "dac_remap" % (ev.sample_id, ev.sample_id))
             ev.sample_id = dac_remap[ev.sample_id]
@@ -1244,7 +1424,7 @@ def _make_packable(ch, route, events):
     return out
 
 
-def _channel_reaches_noise_form(start_label, blocks):
+def _channel_reaches_noise_form(start_label, blocks, source=SOURCE_S3K):
     """Pre-scan (Bug 2): does the channel starting at `start_label` reach a
     smpsPSGform with a NONZERO operand in its data? Such a channel is a PSG NOISE
     channel (the smpsPSGform selects the SN76489 noise mode/rate) and must route
@@ -1263,7 +1443,7 @@ def _channel_reaches_noise_form(start_label, blocks):
         if cur in visited or cur not in order_index:
             continue
         visited.add(cur)
-        toks = _flatten_tokens(blocks.get(cur, []))
+        toks = _flatten_tokens(blocks.get(cur, []), source)
         terminated = False
         for tok in toks:
             if tok[0] != "flag":
@@ -1291,37 +1471,116 @@ def _channel_reaches_noise_form(start_label, blocks):
     return False
 
 
-def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None):
-    """Convert a whole SMPS (S3K) song source into a packable SongDesc.
+def s2_mapping_requirements(src_lines):
+    """What an S2 song needs declared: ({fTone id: references}, {DAC name:
+    references}), counted over the code (comments stripped) of the whole source.
+    Envelope 0 (none) needs no entry and is not counted."""
+    ftones, dacs = {}, {}
+    for ln in src_lines:
+        mnem, args, _ = tokenize_line(ln)
+        if mnem is None:
+            continue
+        ops = []
+        if mnem == "smpsPSGvoice" and args:
+            ops = [args[0]]
+        elif mnem == "smpsHeaderPSG" and len(args) >= 5:
+            ops = [args[4]]
+        for op in ops:
+            m = re.fullmatch(r"fTone_([0-9A-Fa-f]{1,2})", op)
+            if m:
+                sid = int(m.group(1), 16)
+            elif op.startswith("$") or re.fullmatch(r"\d+", op):
+                sid = resolve_const(op)
+            else:
+                continue            # anything else refuses in resolve_const later
+            if sid:
+                ftones[sid] = ftones.get(sid, 0) + 1
+        for a in args:
+            if a in S2_DAC_ENUM:
+                dacs[a] = dacs.get(a, 0) + 1
+    return ftones, dacs
+
+
+def _check_s2_mappings(src_lines, ftone_map, dac_map):
+    """Refuse an S2 song up front, naming EVERY undeclared fTone and DAC note at
+    once (the per-reference checks in the walk stay as the backstop)."""
+    unknown = sorted(n for n in dac_map if n not in S2_DAC_ENUM)
+    if unknown:
+        raise S2Refusal("dac_map names %s, which %s not in the S2 DAC enum"
+                        % (", ".join(unknown), "is" if len(unknown) == 1 else "are"))
+    ftones, dacs = s2_mapping_requirements(src_lines)
+    problems = []
+    for sid in sorted(ftones):
+        name = "fTone_%02X" % sid
+        if sid not in ftone_map:
+            problems.append("%s (x%d): no declared fTone mapping" % (name, ftones[sid]))
+        elif ftone_map[sid] != 0 and ftone_map[sid] not in _PSG_ENV_IDS:
+            problems.append("%s (x%d): mapped to engine PSG envelope $%02X, which the "
+                            "engine does not have" % (name, ftones[sid], ftone_map[sid]))
+    for name in sorted(dacs, key=lambda n: S2_DAC_ENUM[n]):
+        if name not in dac_map:
+            problems.append("%s (x%d): no declared mapping in dac_map" % (name, dacs[name]))
+    if problems:
+        raise S2Refusal(
+            "S2 song refused, undeclared mappings (S2 envelope bodies and drum samples "
+            "are not the engine's same-numbered ones, so nothing is resolved by "
+            "number):\n  " + "\n  ".join(problems))
+
+
+def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None, *,
+                 dac_map=None, ftone_map=None):
+    """Convert a whole SMPS song source into a packable SongDesc.
+
+    The song's own `smpsHeaderStartSong` picks the source rules (SOURCE DRIVER):
+    an S3K song (3, or no header) passes through; an S2 song (2) gets the
+    include's S2 -> S3K rules and resolves its fTones and DAC notes through the
+    NAME-KEYED declared mappings below instead of dac_remap.
 
     src_lines    : the song's .asm lines (header + all channel blocks).
-    dac_remap    : {raw S3K 1-based DAC id -> v0 DacSampleTable id}. Every Dac
-                   event's sample id is rewritten through this; a missing id
-                   raises.
+    dac_remap    : S3K song: {raw S3K 1-based DAC id -> v0 DacSampleTable id}. Every
+                   Dac event's sample id is rewritten through this; a missing id
+                   raises. S2 song: must be None (a raw id is ambiguous across the
+                   two enums: $81 is dSnareS3 in one and dKick in the other).
     patch_remap  : {in-body smpsSetvoice id -> v0 FM patch-table index}. Every
                    Patch event is rewritten through this; a missing id raises.
     pitchtable   : optional per-song pitch table reference, stored on the SongDesc
                    for the loader (None = engine default).
+    dac_map      : S2 song only: {S2 DAC note name -> v0 DacSampleTable id}
+                   (default S2_DAC_MAP, empty). An undeclared name is refused.
+    ftone_map    : S2 song only: {S2 envelope id -> engine PSG envelope id, 0 =
+                   none} (default S2_FTONE_MAP, empty). Undeclared is refused.
 
     Returns a SongDesc(tempo=0x80, tempo_mod=cfg.tempo_mod, flags=SH_F_STREAM,
     channels=[...]) ready for pack_song. Each channel is route-assigned by kind,
     converted via convert_channel, remapped, made packable (Vol/Patch prologue +
     terminator), and validated by pack_song's _validate_channel at pack time."""
-    cfg = parse_header(src_lines)
+    source = detect_source_driver(src_lines)
+    if source == SOURCE_S2:
+        if dac_remap is not None:
+            raise S2Refusal("an S2 song takes the name-keyed dac_map, not a raw-id "
+                            "dac_remap (the raw ids of the S2 and S3K enums collide)")
+        dac_map = dict(S2_DAC_MAP if dac_map is None else dac_map)
+        ftone_map = dict(S2_FTONE_MAP if ftone_map is None else ftone_map)
+        _check_s2_mappings(src_lines, ftone_map, dac_map)
+        dac_remap = {S2_DAC_ENUM[n] & 0x7F: v for n, v in dac_map.items()}
+    elif dac_map is not None or ftone_map is not None:
+        raise S2Refusal("dac_map / ftone_map are S2-song mappings; this song declares "
+                        "an S3K source (use dac_remap)")
+    cfg = parse_header(src_lines, ftone_map=ftone_map)
     blocks = split_blocks(src_lines)
 
     # Bug 2: pre-scan each PSG channel for a nonzero smpsPSGform -> the NOISE
     # channel. It routes to CHROUTE_PSGN; the other PSG channels stay tone routes.
     noise_labels = frozenset(
         ch.label for ch in cfg.channels
-        if ch.kind == "PSG" and _channel_reaches_noise_form(ch.label, blocks))
+        if ch.kind == "PSG" and _channel_reaches_noise_form(ch.label, blocks, cfg.source_driver))
 
     channels = []
     for ch, route in _assign_routes(cfg.channels, noise_labels):
         st = ConvState(transpose=ch.transpose, noise=ch._is_noise)
         ev = convert_channel(ch.kind, blocks.get(ch.label, []), blocks, cfg, st,
                              start_label=ch.label, noise=ch._is_noise)
-        _apply_remaps(ev, dac_remap, patch_remap)
+        _apply_remaps(ev, dac_remap, patch_remap, cfg.source_driver)
         ev = _make_packable(ch, route, ev)
         channels.append(ChannelDesc(route, ev))
 
@@ -1393,7 +1652,7 @@ def _normalize_vc_token(tok: str) -> str:
     return tok
 
 
-def smps_voice_to_fmpatch(voice_macros) -> bytes:
+def smps_voice_to_fmpatch(voice_macros, source_driver=SOURCE_S3K) -> bytes:
     """Convert one parsed UVB voice into our 32-byte FmPatch (BASE patch).
 
     `voice_macros` is a list of (macro_name, [arg_tokens]) pairs covering one
@@ -1405,7 +1664,11 @@ def smps_voice_to_fmpatch(voice_macros) -> bytes:
 
     Returns exactly FMPATCH_LEN (32) bytes laid out per sound_constants.asm
     FmPatch: fp_alg_fb, fp_lr_ams_fms, fp_dt_mul[4], fp_tl[4], fp_rs_ar[4],
-    fp_am_d1r[4], fp_d2r[4], fp_d1l_rr[4]."""
+    fp_am_d1r[4], fp_d2r[4], fp_d1l_rr[4].
+
+    source_driver SOURCE_S2: the include's smpsVcTotalLevel rule for an S2 source on
+    an S3K target, `vcTLn & 127` (the carrier bit is re-derived from the algorithm
+    there; this builder never reads it)."""
     b = _SmpsVoiceBuilder()
     saw_total_level = False
     for macro, args in voice_macros:
@@ -1415,7 +1678,10 @@ def smps_voice_to_fmpatch(voice_macros) -> bytes:
             raise TranscodeError(
                 "unknown smpsVc* sub-macro %r (args %r) in UVB voice block"
                 % (macro, args))
-        b.apply(macro, [_normalize_vc_token(a) for a in args])
+        args = [_normalize_vc_token(a) for a in args]
+        if macro == "smpsVcTotalLevel" and source_driver == SOURCE_S2:
+            args = ["$%02X" % (resolve_const(a) & 0x7F) for a in args]
+        b.apply(macro, args)
         if macro == "smpsVcTotalLevel":
             saw_total_level = True
     if not saw_total_level:
@@ -1529,6 +1795,65 @@ def write_patch_table_bin(out_path: str, driver_asm_path: str = S3K_Z80_DRIVER,
     emit_patch_table's .asm output)."""
     with open(out_path, "wb") as f:
         f.write(pack_patch_table(driver_asm_path, used_ids))
+
+
+# ---------------------------------------------------------------------------
+# Song-local voice banks (`smpsHeaderVoice <Zone>_Voices`), which every S2 song
+# uses where HCZ2 used the S3K Universal Voice Bank. Same block parser, same voice
+# converter; only the entry point differs (the bank is a label in the song file).
+# ---------------------------------------------------------------------------
+
+def song_used_voice_ids(src_lines) -> list:
+    """Sorted distinct in-body smpsSetvoice / smpsFMvoice ids in the song's code
+    (textual, comments stripped; the same set the design probe used)."""
+    ids = set()
+    for ln in src_lines:
+        mnem, args, _ = tokenize_line(ln)
+        if mnem in ("smpsSetvoice", "smpsFMvoice") and args:
+            ids.add(resolve_const(args[0]))
+    return sorted(ids)
+
+
+def parse_song_voices(src_lines, used_ids, label=None) -> dict:
+    """Parse the song's OWN voice bank -> {voice_id: 32-byte FmPatch}. `label`
+    defaults to the song's `smpsHeaderVoice` operand. The song's source driver
+    (smpsHeaderStartSong) picks the TL rule (smps_voice_to_fmpatch)."""
+    source = detect_source_driver(src_lines)
+    if label is None:
+        for ln in src_lines:
+            mnem, args, _ = tokenize_line(ln)
+            if mnem == "smpsHeaderVoice" and args:
+                label = args[0]
+                break
+        else:
+            raise TranscodeError("song has no smpsHeaderVoice (a UVB song? use "
+                                 "parse_uvb_voices)")
+    # Comments stripped first: a voice-block comment may carry commas.
+    code = [ln.split(";", 1)[0].rstrip() for ln in src_lines]
+    start = next((i for i, ln in enumerate(code) if ln.strip() == label + ":"), None)
+    if start is None:
+        raise TranscodeError("voice bank label %r not found in the song" % label)
+    blocks = _parse_vc_blocks(code, start + 1)
+    out = {}
+    for vid in used_ids:
+        if vid >= len(blocks):
+            raise TranscodeError("song voice $%02X out of range (%s has %d voices)"
+                                 % (vid, label, len(blocks)))
+        out[vid] = smps_voice_to_fmpatch(blocks[vid], source)
+    return out
+
+
+def pack_song_patch_table(src_lines, used_ids) -> bytes:
+    """The song-local counterpart of pack_patch_table: each used voice's FmPatch
+    record, padded to FMPATCH_LEN, in build_patch_remap (sorted-id) order."""
+    voices = parse_song_voices(src_lines, used_ids)
+    remap = build_patch_remap(used_ids)
+    idx_to_id = {i: vid for vid, i in remap.items()}
+    out = bytearray()
+    for i in range(len(remap)):
+        rec = bytes(voices[idx_to_id[i]])
+        out += rec + b"\x00" * (FMPATCH_LEN - len(rec))
+    return bytes(out)
 
 
 def emit_patch_table(driver_asm_path: str = S3K_Z80_DRIVER,
