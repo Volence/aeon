@@ -12,6 +12,10 @@
 module games.sonic4.ojz_clip_act_act1
 
 pub const OJZ_CLIP_ACT = 0
+// The clip act's VDP register-7 byte (backdrop line/entry). Read ONLY under
+// `if OJZ_CLIP_ACT == 1` (games/sonic4/test/ojz_scroll_test.emp), so this 0
+// is never written by a canonical shape; the boot table's $00 stands.
+pub const OJZ_CLIP_BACKDROP = 0
 pub const OJZ_CLIP_REGION_ROWS: array = []
 
 pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {

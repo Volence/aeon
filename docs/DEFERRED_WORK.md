@@ -38049,6 +38049,55 @@ install fades); **76 Chemical Plant cells on CRAM line 0** in its first 2048 px 
 - The two `dplc_straddle` margins moved (a warning, not a gate): plain nearest forbidden shift
   6,093 B up → 4,179 B down (sonic); debug 3,343 B → knuckles 919 B up.
 
+### S2-COMPRESSED-ACT (B) parcel B-1 LANDED 2026-09-25 — EACH ZONE SHOWS ITS OWN SONIC 2 BACKGROUND
+
+Branch `parcel/s2clip-original-bgs` (base `7d409cdb`). Spec + costing:
+`docs/research/2026-09-25-s2clip-longer-cpz-and-original-bgs.md` §4 (B-1) and §6 item 2. The owner,
+verbatim: *"Also the bgs should be from the games and such"*. The row-7 TAG above ("the BACKGROUND
+(still Oracle Jungle's Plane B ...)") is what this closes.
+
+**CLOSED**
+
+- **Static per-zone backgrounds.** New `tools/clip_bg_lower.py` lowers one S2 zone's background plane
+  (first 64 tile rows, 64-column crop at the least-cost wrap) in its NATIVE palette bits, flip-aware
+  pixel dedupe, priority kept. EHZ: 141 tiles, period exactly 64 cells, invented seam 0. CPZ: 237 tiles,
+  96-cell period cropped at chunk 3 (one 1,341-px invented seam), 2 line-0 cells (warned), **0 opaque
+  priority cells** (the research's "26% priority cells" are blank chunk-0 cells, which lower to word 0).
+- **The start zone is the act default**, written by `inject_editor_bg.main()` itself from a synthetic
+  override with no `anims`, so the clip bake no longer runs the shipped `editor_bg_override.json` and
+  **the OJZ BgAnim bank is gone from clip builds** (`BgAnim_Banks` span 0 in both clip listings). "Start
+  zone" = the region row holding the engine-derived spawn. **CPZ is a region override**: its layout and
+  tiles are embedded in the CLIP ACT DATA block and named by its rows' `rg_bg_layout`/`rg_bg_tiles`.
+  **BG1** (clip_rom_bake) re-reads both emitted row tables and the blobs on disk.
+- **Backdrop.** `OJZ_CLIP_BACKDROP` (S2 `Level:`'s `$8720` → `$20`, parsed from s2.asm) is stored into the
+  shadow of VDP reg 7 in `GameState_OJZScroll_Init` under `if OJZ_CLIP_ACT == 1`; the neutral module says 0/0.
+- **Clip DEBUG shape drops the canonical act's DEBUG-only test BGs** (overseer addition, its own commit):
+  `act_assets.emp` gates the tall map + showcase layout/tiles on `DEBUG == 1 && OJZ_CLIP_ACT == 0`.
+  Exactly −24,258 B in the clip DEBUG ROM. NOT the d-35 fix.
+- **Measured (full `S2CLIP=s2_ehz_cpz ./build.sh`, both exit 0, bganim_room green):**
+  plain `s4.s2clip.bin` crc `073b25f4`, 822,332 B, packed end 0x9A408, **+7,160 B** above the reserve
+  (was +8,974; research predicted +6.4..7.1 KB). DEBUG `s4.s2clip.debug.bin` crc `9e9e1979`, 848,724 B,
+  packed end 0x9AF1C, **+4,324 B** (was −18,252; B-1 alone measured −19,934, predicted −20.1..−20.8 KB;
+  with the DEBUG-BG drop predicted about +3.4 KB). **S2CLIP-DEBUG-ROOM's gate now passes** in that shape.
+
+**TAGGED FOR THE OWNER'S RUNTIME LOOK:** the two pictures; EHZ's sky colour ($C20 backdrop); the crossing
+at x = 11632 (BG tile overwrite + repaint while the palette fades — the backdrop fades with line 2 entry 0);
+CPZ's invented seam every 512 px; CPZ's 2 line-0 cells; both backgrounds scroll with the act-default
+(OJZ) parallax, not Sonic 2's.
+
+**OPEN**
+
+- **B-2 parallax** (research §4.6): EHZ's 7 bands + ripple, CPZ's 3 BG-row bands, through the scene DSL;
+  ripple speed below 1 step/frame is an engine gap (static ripple until then). Not started.
+- **Faithful CPZ** needs a background taller than the plane with BG-space bands and a wider-than-64-cell
+  background (aurora survey gaps; L each). Not started.
+- **(A) a longer Chemical Plant** stays blocked on sigil card **d-35-revised** (the clip shape's own
+  anchors). The +4,324 B DEBUG / +7,160 B plain margins above do NOT cover even A1 (+28,434 B).
+- **NAME RISK for sigil:** `act_assets.emp` now imports `OJZ_CLIP_ACT`; sigil's `ojz_run_b_port` lowers it
+  standalone with only a `BG_LAYOUT_SIZE` prelude and will need an `OJZ_CLIP_ACT` prelude (0, from the neutral
+  `clip_act.emp`) at its next aeon pin advance. `ojz_scroll_test.emp` also gains two names from the clip
+  module (not lowered standalone by any port found).
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
@@ -40173,3 +40222,7 @@ worktree, then read the `bganim_room: FAIL` block.
   0xB8000/0xC8000 fits TODAY's act only; one extra CPZ section already needs 0xC0000/0xD0000 in DEBUG
   (`docs/research/2026-09-25-s2clip-longer-cpz-and-original-bgs.md`), so the overlay is re-derived as the act grows.
   S2CLIP-CPZ-LONGER (his "add more sections") waits on this pair.
+- **2026-09-25, parcel `s2clip-original-bgs`: the DEBUG clip shape now PASSES the gate** (+4,324 B above the
+  reserve, crc `9e9e1979`) because the clip DEBUG build no longer carries the canonical act's DEBUG-only test
+  backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
+  growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".

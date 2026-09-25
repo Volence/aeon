@@ -26,6 +26,10 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 // scene readout stamps into its two glyph objects (Debug_SceneReadout_Show).
 use engine.objects.objdef.{vram_bytes, vram_art}
 use engine.structs.{Act, Sec, Region}
+// VdpShadow + the clip act's two constants — the S2 clip backdrop store in
+// GameState_OJZScroll_Init (zero bytes unless OJZ_CLIP_ACT == 1).
+use engine.structs.{VdpShadow}
+use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_ACT, OJZ_CLIP_BACKDROP}
 // Act_grid_w_lo / Act_grid_h_lo — the blessed low-byte views of the word grid dims
 // (they live WITH the layout, engine.structs). Debug_PresetCycleHotkey reads the
 // LIVE act's section count out of them rather than mirroring a constant, which is
@@ -595,6 +599,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
         // -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // shadow is the authority for reg $0B
+
+        // -- the backdrop (reg $07), S2 CLIP ACTS ONLY. A Sonic 2 sky is mostly colour-0
+        //    pixels over the backdrop, which Sonic 2's `Level:` sets to line 2 entry 0 and
+        //    this act boots at $00 (black). OJZ_CLIP_ACT is 0 in the committed neutral clip
+        //    module, so this emits ZERO bytes in every canonical shape; an S2CLIP bake sets
+        //    both constants (tools/clip_rom_bake.py, the BACKGROUNDS block). One store holds
+        //    for the act: Flush_VDP_Shadow re-blits every shadowed register each VBlank. --
+        if OJZ_CLIP_ACT == 1 {
+                move.b  #OJZ_CLIP_BACKDROP, VDP_Shadow_Table + offsetof(VdpShadow, vdp_bgcolor)
+        }
 
         // -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
         // -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --

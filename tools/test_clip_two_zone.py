@@ -279,3 +279,151 @@ def test_the_committed_clip_module_is_the_neutral_one_byte_for_byte():
         assert CRB.CLIP_DATA_BEGIN not in fh.read(), (
             "the committed entity_data.emp carries a CLIP ACT DATA block — a clip bake's "
             "throwaway was committed")
+
+
+# ---------------------------------------------------------------------------
+# Each zone's own Sonic 2 background (research 2026-09-25 (B), parcel B-1)
+# ---------------------------------------------------------------------------
+
+DESCRIPTOR = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                          "act_descriptor.emp")
+
+
+def _planned(donors, tmp_path):
+    """The real act's region plan with its backgrounds planned into a tmp generated dir,
+    and the two module texts emitted from it."""
+    act = CM.load(MANIFEST, donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    gen = tmp_path / "gen"
+    gen.mkdir()
+    spawn = CRB.engine_spawn(DESCRIPTOR)
+    CRB.plan_backgrounds(plan, spawn, str(gen), str(tmp_path), log=None)
+    return act, plan, str(gen), spawn
+
+
+def test_the_act_default_background_is_the_start_zones_own(donors, tmp_path):
+    """The act default is the zone the act STARTS in (BG_Init blits it before the camera
+    exists), derived here from the descriptor's spawn and the manifest's own rectangles —
+    the clip whose destination holds the spawn — never typed as 'EHZ'. Its rows name no
+    background of their own; every other zone's rows name that zone's own pair."""
+    _need(S.S2_FINAL)
+    act, plan, gen, spawn = _planned(donors, tmp_path)
+    holder = [c for c in act.clips
+              if c.dst[0] <= spawn[0] < c.dst[0] + c.dst[2]
+              and c.dst[1] <= spawn[1] < c.dst[1] + c.dst[3]]
+    assert len(holder) == 1, f"the spawn {spawn} is in {len(holder)} clips"
+    assert plan["bg_default_key"] == holder[0].zone_key
+    zones = {z["key"]: z for z in plan["zones"]}
+    assert zones[plan["bg_default_key"]]["zone"] == holder[0].zone
+    for r in plan["rows"]:
+        if r["key"] == plan["bg_default_key"]:
+            assert (r["bg_layout"], r["bg_tiles"]) == (None, None)
+        else:
+            assert (r["bg_layout"], r["bg_tiles"]) == (
+                f"OJZ_Clip_BG_Layout_{r['key']}", f"OJZ_Clip_BG_Tiles_{r['key']}")
+    # the injector really wrote the start zone's lowering as the act default
+    import clip_bg_lower as CBL
+    words, tiles, _ = CBL.lower(holder[0].donor, holder[0].zone)
+    assert open(os.path.join(gen, "zone_bg.bin"), "rb").read() == CBL.layout_blob(words)
+    assert open(os.path.join(gen, "bg_tiles.bin"), "rb").read() == CBL.tiles_blob(tiles)
+    # ...and with no animation band: the shipped OJZ bank does not ride along
+    bganim = open(os.path.join(gen, "bg_anim.emp")).read()
+    assert "BgAnim_Table: u16 = 0" in bganim and "bg_anim_banks.bin" not in bganim
+
+
+def test_every_other_zone_carries_its_own_background_on_its_region_rows(donors, tmp_path):
+    """Chemical Plant (every zone but the start one) is named in BOTH emitted tables — the
+    rows the descriptor checks and the rows the Act binds — and its blobs are embedded in
+    the data block, typed, and on disk as its own lowering. BG1 reads all of that back."""
+    _need(S.S2_FINAL)
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    others = [z for z in plan["zones"] if z["key"] != plan["bg_default_key"]]
+    assert others, "a two-zone act has a zone that is not the start zone"
+    mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
+    for z in others:
+        for text in (mod, data):
+            assert f"rg_bg_layout: {z['bg_layout_label']}, rg_bg_span: 0, " \
+                   f"rg_bg_tiles: {z['bg_tiles_label']}" in text
+        assert f"pub data {z['bg_layout_label']} (align: 2): [u8; BG_LAYOUT_SIZE]" in data
+        assert f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}]" in data
+    out = CRB.check_backgrounds(plan, mod, data, gen)
+    assert out["regions"] == [z["zone"] for z in others]
+
+
+def test_bg1_refuses_the_shipped_background_left_as_the_act_default(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
+    CRB.check_backgrounds(plan, mod, data, gen)                          # control
+    shipped = os.path.join(CRB.GEN_DIR, "zone_bg.bin")
+    with open(os.path.join(gen, "zone_bg.bin"), "wb") as fh:
+        fh.write(open(shipped, "rb").read())
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_backgrounds(plan, mod, data, gen)
+    assert "BG1" in str(exc.value) and "zone_bg.bin" in str(exc.value)
+
+
+def test_bg1_refuses_a_row_under_another_zones_background(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    other = next(z for z in plan["zones"] if z["key"] != plan["bg_default_key"])
+    data = CRB.clip_data_block(plan)
+    mod = CRB.clip_module_text(plan)
+    CRB.check_backgrounds(plan, mod, data, gen)                          # control
+    bad = mod.replace(f"rg_bg_layout: {other['bg_layout_label']}", "rg_bg_layout: 0", 1)
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_backgrounds(plan, bad, data, gen)
+    assert "BG1" in str(exc.value)
+
+
+def test_the_backdrop_is_the_donors_own_register_7_byte_and_neutral_is_zero(donors, tmp_path):
+    """The clip module carries Sonic 2's own `Level:` backdrop byte; the neutral module a 0
+    that nothing reads (ojz_scroll_test.emp stores it only under OJZ_CLIP_ACT == 1)."""
+    _need(S.S2_FINAL)
+    import re as _re
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    s2asm = open(os.path.join(S.donor_root(S.S2_FINAL), "s2.asm"), errors="replace").read()
+    level = s2asm[s2asm.index("\nLevel:"):s2asm.index("\nLevel_LoadPal:")]
+    want = int(_re.findall(r"move\.w\s+#\$87([0-9A-Fa-f]{2}),\(a6\)", level)[0], 16)
+    assert f"pub const OJZ_CLIP_BACKDROP = ${want:02X}\n" in CRB.clip_module_text(plan)
+    assert "pub const OJZ_CLIP_BACKDROP = 0\n" in CRB.clip_module_text(None)
+    src = open(os.path.join(REPO, "games", "sonic4", "test", "ojz_scroll_test.emp")).read()
+    body = src[src.index("pub proc GameState_OJZScroll_Init"):]
+    body = body[:body.index("\n}\n")]
+    m = _re.search(r"if OJZ_CLIP_ACT == 1 \{\s*move\.b\s+#OJZ_CLIP_BACKDROP,\s*VDP_Shadow_Table"
+                   r" \+ offsetof\(VdpShadow, vdp_bgcolor\)\s*\}", body)
+    assert m, ("GameState_OJZScroll_Init no longer stores OJZ_CLIP_BACKDROP into the shadow "
+               "register 7 under `if OJZ_CLIP_ACT == 1` — the clip sky would be black, or "
+               "the store would reach a canonical shape")
+
+
+def test_the_debug_test_backgrounds_are_not_in_a_clip_build(donors, tmp_path):
+    """The canonical act's DEBUG-only test backgrounds (the tall map, the showcase layout and
+    tiles) are emitted ONLY when a region table that names them is live — never in a clip
+    act, whose own table replaces it. DERIVED, not listed: the labels are whatever the
+    shipped descriptor's rows name as a background (`bg_layout:` / `bg_tiles:`); the clip
+    act's emitted rows must name none of them; and each one's `pub data` and its SIZE const
+    must be gated on a predicate that is false when OJZ_CLIP_ACT == 1. The bytes' absence
+    from the built clip DEBUG ROM is the build's evidence (listing spans), not this row's."""
+    _need(S.S2_FINAL)
+    desc = open(DESCRIPTOR).read()
+    labels = sorted(set(re.findall(r"\bbg_(?:layout|tiles):\s*(OJZ_Act1_\w+)", desc)))
+    assert labels, "the shipped descriptor names no background blob on any row — re-derive"
+    act, plan, gen, _ = _planned(donors, tmp_path)
+    emitted = CRB.clip_module_text(plan) + CRB.clip_data_block(plan)
+    assert not [lab for lab in labels if lab in emitted]
+    assets = open(os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                               "act_assets.emp")).read()
+    for lab in labels:
+        m = re.search(rf"^pub data {lab}:\s*\[u8;\s*(\w+)\]\s*=\s*if (\w+) == 1 \{{\s*embed\("
+                      rf"[^)]*\)\s*\}} else \{{ \[\] \}}", assets, re.M)
+        assert m, f"{lab} is not a gated `if <GATE> == 1 {{ embed }} else {{ [] }}` in act_assets.emp"
+        size, gate = m.groups()
+        assert re.search(rf"^pub const {size}\s*=\s*if {gate} == 1 \{{", assets, re.M), (
+            f"{lab}'s length {size} is not gated on the same predicate {gate}")
+        g = re.search(rf"^const {gate}\s*=\s*if (.+?) \{{ 1 \}} else \{{ 0 \}}", assets, re.M)
+        assert g, f"the gate {gate} is not a `if <predicate> {{ 1 }} else {{ 0 }}` const"
+        terms = [t.strip() for t in g.group(1).split("&&")]
+        assert "OJZ_CLIP_ACT == 0" in terms and "DEBUG == 1" in terms, (
+            f"{lab} is gated on `{g.group(1)}`, which does not exclude a clip act — the "
+            f"clip DEBUG ROM would carry test data its region table cannot reach")
