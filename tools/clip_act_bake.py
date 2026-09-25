@@ -172,7 +172,20 @@ def rule_pins(pages, sets):
 
 
 class ClipBakeError(RuntimeError):
-    """The clip act cannot be composed, placed or re-counted."""
+    """The clip act cannot be composed, placed or re-counted.
+
+    `subjects` names the clip(s)/corridor(s) the refusal is about (`clip_manifest.subject()`
+    dicts; empty for an act-level refusal) and `rule` is the message's leading tag, read by
+    the same reader `clip_manifest` uses. Neither changes the message: str(exc) is exactly
+    what it always was, so the human mode cannot move."""
+
+    def __init__(self, message, subjects=()):
+        super().__init__(message)
+        self.subjects = [dict(s) for s in subjects]
+
+    @property
+    def rule(self):
+        return clip_manifest.rule_of(str(self))
 
 
 # ---------------------------------------------------------------------------
@@ -722,7 +735,7 @@ def check_severed_crossovers(act, donor_root, log=None):
                 f"tell a severed loop from two unrelated ones and errs toward refusing. "
                 f"If you know the ones left behind are a different loop, say so in "
                 f"\"severed_xover_reason\" on this clip and it will be carried into "
-                f"clipact.json.")
+                f"clipact.json.", [clip_manifest.subject("clip", cl.index, cl.id)])
         if inside and outside and log:
             log(f"  C1 OPT-OUT clip {cl.id!r}: {inside} mark(s) taken, {outside} left "
                 f"behind — {cl.severed_xover_reason}")
@@ -901,10 +914,19 @@ def recount_collision(act, out_dir, bank_dir):
 # ---------------------------------------------------------------------------
 
 def bake(manifest_path, out_dir=None, expect_worst=None,
-         donor_root=None, log=print):
+         donor_root=None, log=print, warning_records=None, refuse_budget=True):
+    """Bake the act. Raises ClipManifestError / ClipBakeError on a refusal.
+
+    `warning_records` is handed to `clip_manifest.load` (the `--json` warnings list).
+    `refuse_budget=False` skips ONLY the final `fpo.refuse_over_budget` call, which refuses
+    by raising SystemExit (it is fg_page_order's, shared with the OJZ generator). The
+    `--json` mode takes that one decision itself, from the verdict this returns, so it can
+    report it as a refusal without catching SystemExit around the whole bake. It is the
+    last statement, so skipping it changes nothing that runs before it."""
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root,
-                             warn=(lambda m: log(f"  WARNING: {m}")) if log else None)
+                             warn=(lambda m: log(f"  WARNING: {m}")) if log else None,
+                             warning_records=warning_records)
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(manifest_path)), "baked")
     if log:
@@ -953,25 +975,88 @@ def bake(manifest_path, out_dir=None, expect_worst=None,
         raise ClipBakeError(
             f"--expect-worst {expect_worst} but the act's worst camera window needs "
             f"{v1['worst']} page frame(s)")
-    fpo.refuse_over_budget(v1, f"clip act {act.id}")
+    if refuse_budget:
+        fpo.refuse_over_budget(v1, f"clip act {act.id}")
     return act, st, manifest, v1, v2
+
+
+#: `bake --json` document schema. The SHAPE is `clip_manifest.py validate --json`'s
+#: (VALIDATE_JSON_SCHEMA 1); this number is bumped on its own, on any change a vendored
+#: reader of THIS document could notice.
+BAKE_JSON_SCHEMA = 1
+
+#: The rule tag of the FG page-budget refusal. Every other tag is read back from its
+#: message's leading token; this one cannot be, because the sentence is
+#: `fg_page_order.refuse_over_budget`'s (shared with the OJZ generator) and the human mode
+#: prints it unchanged. So the tag is named here, once.
+BUDGET_RULE = "FG_PAGE_BUDGET"
+#: What `refuse_over_budget`'s sentence starts with. The human mode prints it whole on
+#: stderr; the `--json` message is the rest of it, as validate's message is the rest of
+#: "clips.json REFUSED — ".
+_BUDGET_PREFIX = "REFUSED — "
+
+
+def budget_refusal(v, act):
+    """The FG page-budget refusal as a `--json` refusal entry, or None when the act fits.
+
+    Asks `fpo.refuse_over_budget` itself, the call the human mode makes, so the verdict and
+    the sentence are that function's and nothing is restated. Only its own SystemExit is
+    caught, and only around that one call."""
+    try:
+        fpo.refuse_over_budget(v, f"clip act {act.id}")
+    except SystemExit as exc:
+        msg = str(exc.code)
+        if msg.startswith(_BUDGET_PREFIX):
+            msg = msg[len(_BUDGET_PREFIX):]
+        return {"rule": BUDGET_RULE, "subjects": [], "message": msg}
+    return None
+
+
+def bake_json(manifest_path, out_dir=None, expect_worst=None, donor_root=None):
+    """(the `bake --json` document, exit code). See "--json" in the module header.
+
+    A refusal is exactly what the human mode reports as REFUSED: a ClipManifestError or a
+    ClipBakeError (stdout "clip act REFUSED — ..."), or the FG page budget (stderr
+    "REFUSED — FG page budget: ..."). Anything else propagates, as it does in the human
+    mode, and is a crash."""
+    warnings = []
+    doc = {"schema": BAKE_JSON_SCHEMA, "ok": False, "refusals": [], "warnings": warnings}
+    try:
+        act, _st, _m, v1, _v2 = bake(manifest_path, out_dir, expect_worst,
+                                     donor_root=donor_root, log=None,
+                                     warning_records=warnings, refuse_budget=False)
+    except (clip_manifest.ClipManifestError, ClipBakeError) as exc:
+        doc["refusals"].append(clip_manifest.refusal_record(exc))
+        return doc, 1
+    over = budget_refusal(v1, act)
+    if over is not None:
+        doc["refusals"].append(over)
+        return doc, 1
+    doc["ok"] = True
+    return doc, 0
 
 
 def _mode_bake(rest):
     if not rest:
         print(USAGE)
         return 1
-    path, out_dir, expect = rest[0], None, None
+    path, out_dir, expect, as_json = rest[0], None, None, False
     extra = rest[1:]
     while extra:
         if extra[0] == "--out" and len(extra) > 1:
             out_dir, extra = extra[1], extra[2:]
         elif extra[0] == "--expect-worst" and len(extra) > 1:
             expect, extra = int(extra[1]), extra[2:]
+        elif extra[0] == "--json":
+            as_json, extra = True, extra[1:]
         else:
             print(f"ERROR: unknown argument {extra[0]!r}")
             print(USAGE)
             return 1
+    if as_json:
+        doc, rc = bake_json(path, out_dir, expect)
+        print(clip_manifest.json_text(doc))
+        return rc
     t0 = time.time()
     try:
         _act, _st, m, v1, _v2 = bake(path, out_dir, expect)
