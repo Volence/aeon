@@ -13,7 +13,7 @@ performance?"*
 Dispatch it as a RESEARCH parcel (headless only; no MCP in agents), and deliver a ranked shortlist he can pick from.
 Suggested scope, to test rather than trust:
 - **Shapes:** canonical `s4.debug.bin` / `s4.bin` (OJZ act 1), the Sonic 2 clip `s4.s2clip[.debug].bin`
-  (`S2CLIP=s2_ehz_cpz`), and the short-tunnel clip (`S2CLIP=s2_ehz_cpz_short`).
+  (`S2CLIP=s2_ehz_cpz`), and (only if S2CLIP-ADOPT-SHORT-TUNNEL has NOT landed) the short-tunnel clip (`S2CLIP=s2_ehz_cpz_short`).
 - **Legs:** the S2CLIP-LAG harness `docs/research/2026-09-25-s4-lag/run_legs.sh` (fly right/down/diagonal, physics run,
   release physics), `tools/tunnel_run_witness.py`, `docs/research/2026-09-25-cpz-traversal/cpz_traverse.py`, and
   the oracle profiler for per-function cost (`reference_oracle_profiler_instrument`: interrupts.hint is HBlank PLUS
@@ -43,8 +43,10 @@ Suggested scope, to test rather than trust:
 
 ## Owner calls this session
 - Card S2CLIP-CPZ-FURTHER answered: fix-check-and-extend (decisions.jsonl).
-- He flew the 384 short clip: *"the short one seems like it's fast enough honestly."* NOT a ruling to move the real act
-  to 384. Ask before changing `s2_ehz_cpz`'s connector.
+- He flew the 384 short clip: *"the short one seems like it's fast enough honestly."* Then RULED, verbatim: *"real sonic 2
+  level should switch to short tunnel"*. Dispatched as S2CLIP-ADOPT-SHORT-TUNNEL (branch
+  `parcel/s2clip-adopt-short-tunnel`). `s2_ehz_cpz` takes the 384 px connector and `s2_ehz_cpz_short` is DELETED, so
+  the survey's short-clip shape below no longer exists once it lands.
 
 ## Open items worth knowing (all booked in DEFERRED_WORK)
 - **SHORT-TUNNEL-VSCROLL-RATCHET:** since B-2, 384 px shows a 3-4 frame vertical BG slide at the camera cap. 480 px is
