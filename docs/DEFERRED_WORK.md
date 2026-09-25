@@ -39762,8 +39762,50 @@ it also contradicts the arm's declared contract ("nothing is poked but Camera_Y 
 word"), which is the property that makes its out-of-sample reading worth anything. **That is a
 decision about what the arm is, not a bug fix**, and it is the owner's or the arm's.
 
-**`EVICT-WITNESS-WIRING`: the nightly builds `STRESS_EVICT` and grades nothing.**
-`nightly_effects_gates.sh:321` builds `s4.stress.bin`, and reading the whole stress block: the
+**`EVICT-WITNESS-WIRING`: CLOSED 2026-09-25 (`parcel/evict-witness-wiring`). The nightly now
+runs `evict_witness.py` on the STRESS_EVICT artifact. Before that could happen the witness itself
+had to be repaired: it was flaky, exiting 1 in 11 of 16 runs on its own fixture. And the
+booked `[wired]` move was WRONG, so it was not made.** Report:
+`docs/research/2026-09-25-evict-witness-wiring.md`.
+
+*Witness.* `STRESS_EVICT=1 ./build.sh` exit 0, `s4.stress.bin` crc32 `cd308561`. The 09-19
+witness sampled a free-running machine every 50 ms of wall time. It exited 1 ("no eviction
+proven", pages `[0,1,3..9]`, page 2 never seen) in 11 of 16 back-to-back runs. Stepped a frame
+at a time from `GameState_OJZScroll_Init`, page 2 is resident for only 12 frames (+39..+50) and
+is evicted at +51 to admit page 8. Phase 1 now advances the stopped machine one frame per sample
+(`run_frames 1`, 900-frame budget, about 4 s). Result: 12 of 12 runs exit 0, all identical (10
+distinct pages > clamp 9, first eviction at +51). Red-first: a stride of 17 (samples at +34 and
++51) gives exit 1 with the flaky signature. A stride of 13 SURVIVED, because 13 x 3 = 39 falls
+inside the window by phase. On `s4.debug.bin` crc32 `62238a15` the result is unchanged: exit 2
+UNMEASURABLE.
+
+*Nightly.* The leg runs right after the STRESS_EVICT build and only when that build exited 0; on
+a failed build the log says NOT RUN and `rc_ew=1`. It has its own
+`stress_evict_witness.log` with uptime stamps. Exits map like the gates and the lab witness: 0
+is OK, 1 is FAILED, anything else is COULD NOT RUN (2). `rc_ew` is in the worst-wins fold. I ran
+the leg's lines, extracted unchanged, in the worktree and hit all four branches: pass, build
+failed, listing absent, and mutated witness. `tools/test_landing_lane_shapes.py` now parses the
+real script for the leg: one invocation, after the build and before STRESS_ART, in the THEN
+branch of `if [ "$rc_se" = 0 ]`, `rc_ew=$?` captured, in the fold, never set to 0 by hand. Each
+of seven one-clause controls is reported. Red on the real script with the leg deleted, and red
+again with `"$rc_ew"` dropped from the fold.
+
+*Manifest: NOT moved to `[wired]`.* The keepalive lane gives every wired row one artifact,
+`s4.debug.bin`. Measured with a scratch manifest that wires the witness at `expect = 2` and
+`--only evict_witness`: **COULD NOT RUN, lane exit 2**. The line-leading `UNMEASURABLE:` refusal
+is checked before the baseline, so no `expect` value can make that row green. The witness stays
+`[not_wired]`, and its reason now reads "reachable: the effects nightly runs it", the same
+disposition as `preset_lab_witness.py`. Census: `unreachable()` goes from 44 to 43. Caveat: the
+new test's regex literal also credits the witness as reachable, independently of the nightly. A
+deleted leg would still read as reachable, but the test would be red.
+
+*Listing EQU.* The verdict reads the clamp only from the emitted `cmpi.w`. The EQU feeds only the
+informational DISAGREEMENT line. Control: a copy of today's listing with `PAGE_FRAMES_CLAMP`
+edited to `$00000009` (what sigil `df055bd1` publishes; sigil's `dd20a3ec` says the ROMs are
+unchanged). The witness exits 0 with no disagreement line. So exit 0 holds on today's sigil
+binary and after its rebuild.
+
+*As booked (2026-09-19):* `nightly_effects_gates.sh:321` builds `s4.stress.bin`, and reading the whole stress block: the
 leg checks the BUILD's exit code and, after both stress legs, that the tree restored. **Nothing
 reads the artifact.** Grepped across `tools/*.sh`, `tools/*.py` and `build.sh`, the only runnable
 consumer of `s4.stress.*` is a shape CLASSIFIER (`gate_cut_shape.py`) and a per-listing ceiling

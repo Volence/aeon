@@ -375,3 +375,139 @@ def test_a_stress_fixture_invocation_claims_no_canonical_shape():
     assert shapes_built_by(text) == set()
     control = text + 'if ! DEBUG=1 ./build.sh demo >> "$STATE/build.log" 2>&1; then\n'
     assert shapes_built_by(control) == {("demo", True)}
+
+
+#: The one instrument the STRESS_EVICT fixture exists for, and the argv the nightly must run it
+#: on (EVICT-WITNESS-WIRING, 2026-09-25). Spelled as the nightly spells it: a literal
+#: invocation, like the build lines, so a reader and this parse see the same thing.
+_EVICT_WITNESS = re.compile(
+    r"^python3 tools/evict_witness\.py --rom s4\.stress\.bin --lst s4\.stress\.lst\b")
+_EVICT_BUILD = re.compile(r"^STRESS_EVICT=1 \./build\.sh\b")
+_ART_BUILD = re.compile(r"^STRESS_ART=1 \./build\.sh\b")
+
+
+def stress_evict_witness_leg(script_text):
+    """What is wrong with how a script grades the STRESS_EVICT artifact: [] means wired.
+
+    Comment lines are stripped first, for the reason `shapes_built_by` strips them: the
+    stress block's header DESCRIBES the witness leg at length, and prose that names it must
+    not count as running it.
+
+    "Wired" is six separate checks, because each is a separate way to lose the leg:
+      1. exactly one witness invocation on s4.stress.{bin,lst}, and exactly one STRESS_EVICT
+         build line;
+      2. the invocation comes AFTER that build and BEFORE the STRESS_ART build (the witness
+         belongs to the leg that wrote its artifact);
+      3. it sits in the THEN branch of the innermost `if` around it, and that `if` tests the
+         build's rc for 0 (`"$rc_se" = 0`), so a failed build never grades a stale artifact
+         left from the night before;
+      4. its exit is captured (`rc_ew=$?` on one of the two statements after it);
+      5. `rc_ew` is in the worst-wins `for r in ...` fold;
+      6. no branch assigns `rc_ew=0` by hand, which would be a leg that reports green
+         without having run.
+    """
+    lines = []
+    for raw in script_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(re.split(r"\s#", line, maxsplit=1)[0].strip())
+    wit = [i for i, l in enumerate(lines) if _EVICT_WITNESS.search(l)]
+    build = [i for i, l in enumerate(lines) if _EVICT_BUILD.search(l)]
+    art = [i for i, l in enumerate(lines) if _ART_BUILD.search(l)]
+    if len(wit) != 1 or len(build) != 1:
+        return ["expected exactly one STRESS_EVICT build and one evict_witness invocation on "
+                "s4.stress.{bin,lst}; found %d build(s), %d invocation(s)"
+                % (len(build), len(wit))]
+    problems = []
+    w, b = wit[0], build[0]
+    if not b < w:
+        problems.append("the witness runs BEFORE the STRESS_EVICT build that writes its artifact")
+    if len(art) != 1 or not w < art[0]:
+        problems.append("the witness is not before the (one) STRESS_ART build, i.e. it is "
+                        "outside its own leg")
+    depth, enclosing, in_else = 0, None, False
+    for i in range(w - 1, -1, -1):
+        l = lines[i]
+        if l == "fi" or l.endswith("; fi"):
+            depth += 1
+        elif re.match(r"^if\b", l):
+            if depth == 0:
+                enclosing = l
+                break
+            depth -= 1
+        elif depth == 0 and (l == "else" or l.startswith("elif")):
+            in_else = True
+    if enclosing is None or in_else or not re.search(r'"\$rc_se"\s*=\s*0\b', enclosing):
+        problems.append("the witness is not in the THEN branch of `if [ \"$rc_se\" = 0 ]` "
+                        "(innermost enclosing if: %r, in an else branch: %s)"
+                        % (enclosing, in_else))
+    after = lines[w + 1:w + 3]
+    if not any(re.fullmatch(r"rc_ew=\$\?", l) for l in after):
+        problems.append("the witness's exit is not captured as `rc_ew=$?` right after it "
+                        "(next statements: %r)" % after)
+    folds = [l for l in lines if re.match(r'^for r in .*"\$rc"', l)]
+    if len(folds) != 1 or '"$rc_ew"' not in folds[0]:
+        problems.append("rc_ew is not in the (one) worst-wins fold: %r" % folds)
+    if any(re.search(r"\brc_ew=0\b", l) for l in lines):
+        problems.append("a branch sets rc_ew=0 by hand: a leg that can report green without "
+                        "running")
+    return problems
+
+
+def test_the_nightly_grades_the_stress_evict_artifact():
+    """The STRESS_EVICT leg builds s4.stress.{bin,lst} AND runs the eviction witness on it.
+
+    Until 2026-09-25 the nightly built that fixture and nothing read it (EVICT-WITNESS-WIRING
+    in docs/DEFERRED_WORK.md): a green line about a ROM nobody booted. The leg's shape is
+    checked here, in build.sh's pre-build lane, against the real script."""
+    path = os.path.join(TOOLS, "nightly_effects_gates.sh")
+    with open(path, encoding="utf-8") as fh:
+        problems = stress_evict_witness_leg(fh.read())
+    assert not problems, (
+        "%s does not grade the STRESS_EVICT artifact:\n  - %s"
+        % (path, "\n  - ".join(problems)))
+
+
+_GOOD_LEG = (
+    'STRESS_EVICT=1 ./build.sh >> "$STATE/stress_evict.log" 2>&1\n'
+    'rc_se=$?\n'
+    'if [ "$rc_se" = 0 ]; then\n'
+    '    echo ok\n'
+    'fi\n'
+    'if [ "$rc_se" = 0 ]; then\n'
+    '    python3 tools/evict_witness.py --rom s4.stress.bin --lst s4.stress.lst \\\n'
+    '        >> "$STATE/stress_evict_witness.log" 2>&1\n'
+    '    rc_ew=$?\n'
+    'else\n'
+    '    rc_ew=1\n'
+    'fi\n'
+    'STRESS_ART=1 ./build.sh >> "$STATE/stress_art.log" 2>&1\n'
+    'for r in "$rc" "$rc_se" "$rc_ew" "$rc_sa"; do\n'
+    'done\n'
+)
+_W = '    python3 tools/evict_witness.py --rom s4.stress.bin --lst s4.stress.lst \\\n'
+_ART = 'STRESS_ART=1 ./build.sh >> "$STATE/stress_art.log" 2>&1\n'
+_BROKEN_LEGS = {
+    "absent": _GOOD_LEG.replace(_W, "    # " + _W.lstrip()),
+    "ungated": _GOOD_LEG.replace('if [ "$rc_se" = 0 ]; then\n    python3',
+                                 'if true; then\n    python3'),
+    "else-branch": _GOOD_LEG.replace('if [ "$rc_se" = 0 ]; then\n    python3',
+                                     'if [ "$rc_se" = 0 ]; then\n    true\nelse\n    python3'),
+    "uncaptured": _GOOD_LEG.replace("    rc_ew=$?\n", "    true\n"),
+    "unfolded": _GOOD_LEG.replace(' "$rc_ew"', ""),
+    "hand-green": _GOOD_LEG.replace("    rc_ew=1\n", "    rc_ew=0\n"),
+    "after-art": _GOOD_LEG.replace(_ART, "").replace("rc_se=$?\n", "rc_se=$?\n" + _ART),
+}
+
+
+def test_the_stress_evict_leg_parse_accepts_the_good_shape():
+    assert stress_evict_witness_leg(_GOOD_LEG) == []
+
+
+@pytest.mark.parametrize("name", sorted(_BROKEN_LEGS))
+def test_the_stress_evict_leg_parse_reports_each_broken_shape(name):
+    """Each control differs from the accepted shape by ONE clause, so a green on the real
+    script is a statement about that script and not about a parse that always passes."""
+    assert stress_evict_witness_leg(_BROKEN_LEGS[name]), (
+        "the %r control was not reported" % name)
