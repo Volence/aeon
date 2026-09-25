@@ -1,6 +1,12 @@
 {
-  "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, built and on disk for your flythrough.",
-  "inFlight": [],
+  "focus": "Overnight: Sonic 2 act with Chemical Plant is ready for you; now working through the tool-check backlog, as ruled.",
+  "inFlight": [
+    {
+      "what": "Count every tool that drives the emulator, not just ones using one class name, and stop crediting a tool as 'run' just for being named",
+      "where": "branch parcel/census-criterion (agent worktree)",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -49,14 +55,14 @@
     {
       "id": "CENSUS-CRITERION-TOO-NARROW",
       "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "PUBLISH-BAND-RECORD-LEN",
       "title": "Another tool derives a size we could publish once; a tool of ours got that size wrong for three weeks and blamed the engine for it",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -127,5 +133,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:56:44Z"
+  "updatedAt": "2026-09-25T09:57:22Z"
 }
