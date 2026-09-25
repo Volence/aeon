@@ -1,5 +1,5 @@
 {
-  "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, ready for your flythrough once its ROM is built.",
+  "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, built and on disk for your flythrough.",
   "inFlight": [
     {
       "what": "Whether our tool checks can catch a tool that measures correctly then throws the answer away",
@@ -12,6 +12,11 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "S2-TWO-ZONE-FLYTHROUGH",
+      "what": "Fly the two-zone Sonic 2 act: s4.s2clip.debug.bin (crc 441f1db0) or s4.s2clip.bin (crc 9a3533f1), both built from master 481ac02e",
+      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "When the two-zone act lands and its ROM is on disk for your flythrough.",
@@ -147,5 +152,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:08:49Z"
+  "updatedAt": "2026-09-25T09:09:19Z"
 }
