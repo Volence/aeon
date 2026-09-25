@@ -368,6 +368,13 @@ things are removed: its wall-clock `seconds` keys, and the corridor sheet's `til
 path, which names the out dir it was written into. Before those were normalised the comparison
 reported exactly those differences, so it can see one.
 
+The clip ROM: `S2CLIP=s2_ehz_cpz ./build.sh` gave `s4.s2clip.bin` crc `9a3533f1` at 822,334 B
+with this branch's tools, and the same crc and size with the `e9edfef3` versions of
+`clip_act_bake.py` and `clip_manifest.py` put back temporarily (`cmp`: identical). The stale
+ROM was deleted before the base build, so the second figure is not a leftover. A first attempt
+at the base build failed in the tool lane, because the new gate was still on disk and it tests
+code the base does not have. That attempt produced no ROM, and nothing from it is used here.
+
 ### Gate
 
 `tools/test_clip_bake_json.py`, 13 rows, run by the pre-build tool lane. Every refusal row
