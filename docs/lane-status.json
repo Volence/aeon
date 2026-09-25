@@ -5,11 +5,6 @@
       "what": "Cheaper background curve for Emerald Hill, identical picture",
       "where": "branch parcel/parallax-curve-loop",
       "agent": true
-    },
-    {
-      "what": "Zone music steps 2-3: Sonic 2 sound envelopes and drums mapped onto Sonic 3's",
-      "where": "branch parcel/s2-music-envelopes-drums",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -24,14 +19,14 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Both parcels landed with their checks; then the songs go into the ROM and the switch at the tunnel exit gets built.",
+  "nextBoundary": "Curve fix landed; the envelopes go in once sigil's address fix lands.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Emerald Hill to Chemical Plant music: converter landed; next the sound envelopes and drum mapping, then the songs and the switch",
-      "state": "doing",
+      "title": "Emerald Hill to Chemical Plant music: drums mapped; sound envelopes built but wait on a small assembler fix (sigil asked)",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil: derive seam1 banked_carriers addresses (asked 2026-09-25)",
       "project": "REGIONS"
     },
     {
@@ -137,5 +132,5 @@
   ],
   "awaiting": "Your pick from the performance list (card PERF-PICK) when you have a minute.",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T23:08:24Z"
+  "updatedAt": "2026-09-25T23:48:39Z"
 }
