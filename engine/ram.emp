@@ -1448,7 +1448,10 @@ pub vars upper_ram {
                                         // the whole pool is permanently resident after the bulk load, so
                                         // PageCache_Prefetch early-outs — its ahead-strip scan can never find a
                                         // non-resident page (§9.7 degenerate path, all shipped content)
-    PageCache_Direct_Map:   u8,         // nonzero = the DIRECT-MAP patch regime (streaming fix F1): fully
+    PageCache_Direct_Map:   u8,         // PAGECACHE_DIRECT_BOUNDED ($01) = the bounded-direct regime of a STREAMING act
+                                        // (streaming-lag fix 2026-09-25: resident set == pages [0, PAGE_FRAMES_CLAMP) at
+                                        // identity; ended by the first AllocFrame — see engine.page_cache). Otherwise:
+                                        // nonzero ($FF, PAGECACHE_DIRECT_RESIDENT) = the DIRECT-MAP patch regime (streaming fix F1): fully
                                         // resident AND Page_Table is the identity (Page_Table[p]==p for every
                                         // p < PageIn_Pool_Pages), verified by Level_LoadArt once the pool has
                                         // landed. Under it `physical == global` for every word, so the copy-site

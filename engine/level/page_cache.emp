@@ -24,7 +24,12 @@
 // take a collapsed variant that skips the page->frame indirection and the refcount
 // pair entirely. The invariant above is not weakened, it is VACUOUS in that regime,
 // and PageCache_Audit checks the three that replace it instead of a number nobody
-// writes. Every other proc in this module is regime-independent.
+// writes. A THIRD, transient regime (streaming-lag fix, 2026-09-25): a STREAMING act
+// whose resident set is still exactly its bulk-loaded block [0, PAGE_FRAMES_CLAMP) at
+// identity takes the same collapsed loop plus one residency compare
+// (pc_patch_run_bounded), until its first frame allocation ends it and rebuilds the
+// refcounts (PageCache_EndBoundedRegime). Every other proc in this module is
+// regime-independent.
 //
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
