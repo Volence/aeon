@@ -38734,6 +38734,14 @@ each.** Corrected at four places, and the corrected claim is:
 > the one selector, the 84 subject tools `transition_window_probe` is not pointed at, or the
 > three tools' `os.environ` inputs.
 
+**⚠ CORRECTED 2026-09-25 (`CENSUS-CRITERION-TOO-NARROW`, `docs/research/2026-09-25-census-criterion.md`).** "All 35 are in the
+census's 'nothing else runs this' set" is no longer true, and not because the lane changed:
+under the executing-reference criterion five wired tools are executed by their own tests'
+`main()` or argv (`dplc_coherence_witness`, `glide_ceiling_witness`, `loop_step_over_witness`,
+`spring_launch_witness`, `transition_window_probe`, all since the 09-25 keepalive-lossy parcel's
+tests). 35 wired tools / 36 rows is unchanged; 30 of the 35 are executed by nothing else.
+"84 subject tools" was 85 − 1 under the old population; the population is now 90.
+
 #### THE SURFACE, DERIVED FROM THE PARSERS AND THE CODE
 
 `tools/keepalive_surface.py` (new) re-derives this on demand. It reads no docstrings — this
@@ -39142,6 +39150,18 @@ manifest [wired]:      36 rows / 35 tools     [not_wired]:  50 entries
 accounting: population - (wired | not_wired) = {} ; declared-but-absent = {}
 ```
 
+**⚠ CORRECTED 2026-09-25 (`CENSUS-CRITERION-TOO-NARROW`, `docs/research/2026-09-25-census-criterion.md`), figures kept above as
+measured on `fd7e5dc6`.** Under the population "drives a headless emulator" and
+reachability "an executing reference", the same derivation gives:
+
+```
+emulator drivers (tools/*.py, not test_*):        90   (was 85 bus clients)
+EXECUTED from a real entry point:                 25   (was 35)
+UNREACHABLE -- nothing executes these:            65   (was 50)
+manifest [wired]:  36 rows / 35 tools   [not_wired]: 55 entries   (was 50)
+|unreachable AND not_wired| = 35   (was 15)   wired and unreachable = 30 (was 35)
+```
+
 **The two 50s are the same NUMBER and mostly not the same SET.** `|unreachable ∩ not_wired| =
 15`. The other 35 unreachable tools are the wired ones — every single tool the lane runs is in
 the census's unreachable set, which is correct and is what `LANE_BOOKKEEPING` is for: the lane
@@ -39160,13 +39180,17 @@ never sees them:
 
 | tool | what runs it |
 |---|---|
-| `effects_gates.py` | `nightly_effects_gates.sh`, `landing_build.sh`, the merge ritual — well covered |
-| `cart_identity.py` | imported by 9 tools incl. wired ones — library-covered |
-| `depth_onset_probe.py` | imported by `cart_coverage_census.py` only |
+| `effects_gates.py` | `nightly_effects_gates.sh`, `landing_build.sh`, the merge ritual — well covered. **⚠ CORRECTED 2026-09-25: `landing_build.sh` does NOT run it** (its only python invocations are `land_gate.py` and `needs_build_lane.py`); the nightly, the ritual and `test_effects_gates_segments.py` do. It drives emulators only through children, not through `aether_instance` |
+| `cart_identity.py` | imported by 9 tools incl. wired ones — library-covered. **⚠ 2026-09-25:** it spawns nothing and has no `__main__`; it reads the cart over a client it is handed (counted now by the `protocol` arm) |
+| `depth_onset_probe.py` | imported by `cart_coverage_census.py` only. **⚠ CORRECTED 2026-09-25: not imported by anything**; `cart_coverage_census.py` names it in its CANARIES table, a string, and nothing executes it |
 | `cart_verify_spawn_proof.py` | **NOTHING. Zero code references anywhere in the tree.** |
 
 `cart_verify_spawn_proof.py` is an emulator-spawning tool that no runner, no test and no other
-tool names, and it is invisible to this lane by construction. **Not fixed here** — widening the
+tool names, and it is invisible to this lane by construction. **⚠ 2026-09-25: two more were
+found by the new predicate** — `base_swap_witness.py` (drives through `ramp_authored_witness.run`)
+and `staging_lifetime_timeline.py` (through `tick_variance_probe.Server`) — so the gap was six
+tools, not four; and `cart_coverage_census.py`, which drives nothing, was inside it. All six now
+carry a disposition (`docs/research/2026-09-25-census-criterion.md`). (As written 09-19:) **Not fixed here** — widening the
 criterion changes the population and therefore the accounting, and that is a decision about the
 lane, not a consequence of auditing it.
 
@@ -39180,7 +39204,16 @@ comment.** Latent, not live. Recorded because the next `build.sh` comment could 
 
 Each classified from what the tool and the tree do, never from the reason's own wording.
 **47 HOLD · 3 ROTTED · 0 UNDETERMINED** (each of the three is corrected in the manifest in this
-same change, and every correction keeps its row's disposition).
+same change, and every correction keeps its row's disposition). **⚠ RE-GRADED 2026-09-25
+(`CENSUS-CRITERION-TOO-NARROW`):** the 47/3 is a rate over the 50 entries of the old, narrow
+population and the old, name-matching reachability. Under the executing-reference rule, **13 of
+the 47 "hold" rows did not hold** — each said "reachable" for a tool nothing executes
+(`canopy_record`, `curve_desc_probe`, `curve_probe`, `e2_snap_capture`, `engine_baseline_probe`,
+`fg_left_edge_gate`, `hblank_window_sweep`, `night_settle_capture`, `parallax_cost_probe`,
+`parallax_hscroll_probe`, `ramp_boundary_probe`, `reels_witness`, `row_remap_witness`) —
+so it reads **34 HOLD · 16 NOT (3 rotted + 13 false 'reachable')** over those 50. All 13 are
+rewritten as UNEXECUTED; the manifest now has 55 entries (6 new, `cart_coverage_census` gone),
+and `test_keepalive_lane.test_a_reachable_reason_is_true` checks the claim on every build.
 
 **Re-run and reproduced exactly, on `s4.debug.bin` crc32 `62238a15` / 848,075 B** — six rows
 whose reason quotes a refusal. All six printed the quoted refusal, verbatim:
@@ -39219,6 +39252,13 @@ Graded by what actually runs them:
 | D — named only in prose, strings or data tables | 5 | `cache_hold_probe`, `e2_snap_capture`, `evict_witness`, `ramp_boundary_probe`, `row_remap_witness` — **nothing imports them and nothing runs them.** As dead as the 15 explicitly excluded, filed as somebody else's problem |
 
 Grade D is where the reason is weakest, and running those five is what found the dead tool below.
+
+**⚠ CORRECTED 2026-09-25 (`docs/research/2026-09-25-census-criterion.md`).** Two cells of this table were wrong. `cache_hold_probe`
+is not grade D: `tools/test_cli_dispatch_refuses.py` drives its `main()` on an unknown mode (to the
+usage refusal, handlers tripwired) on every build, and did on 09-19. `evict_witness` has been run
+by the effects nightly since 2026-09-25. Grade B's `cart_coverage_census` has left the population
+(it drives nothing). Under the executing-reference rule, grades C and D (except `cache_hold_probe`
+and `evict_witness`) are UNEXECUTED, and the manifest says so.
 
 ### (2) THE THREE ROTTED REASONS
 
@@ -39305,7 +39345,9 @@ Specifically still unmeasured after this parcel:
   nowhere. `parallax_hscroll_probe` spent 2026-08-26→2026-09-18 crashing in exactly that
   region with 34 green unit tests beside it.
 * **`cart_verify_spawn_proof.py` has no disposition and no runner**, and three sibling tools
-  sit outside the population criterion with it.
+  sit outside the population criterion with it. **⚠ 2026-09-25: it has a disposition now
+  (`[not_wired]`, DEAD: nothing executes or imports it); it still has no runner.** Five other
+  drivers joined the population with it; see `docs/research/2026-09-25-census-criterion.md`.
 * **The lane has not yet produced a scheduled run.** `aeon-instrument-keepalive.timer` is
   enabled with a next elapse of 2026-09-19 05:00; `~/.local/state/aeon-keepalive/` contains
   only `SELFTEST: the failure-notification path works` (2026-09-19T00:05:36-04:00) and **no
@@ -39373,7 +39415,8 @@ both trees. Read the id sets, not the totals.
 ### (8) STILL OPEN
 
 1. **The four emulator-driving tools outside the population criterion**, `cart_verify_spawn_proof`
-   most of all: nothing names it anywhere. Widening the criterion from "names `BusClient`" to
+   most of all: nothing names it anywhere. **CLOSED 2026-09-25 by `CENSUS-CRITERION-TOO-NARROW`**
+   (six tools, not four; all six carry a disposition.) (As written 09-19:) Widening the criterion from "names `BusClient`" to
    "spawns an emulator" changes the accounting and is a decision about the lane.
 2. **43 of 50 unwired tools have still never been executed by anything.** Only running one can
    find the `evict_witness` shape.
@@ -39382,9 +39425,11 @@ both trees. Read the id sets, not the totals.
    an argparse exit 2 before the refusal the reason quotes. Left as-is; it is a wording gap, not
    a wrong disposition.
 5. **The `.sh` comment asymmetry in `strip_prose`** — measured harmless today (50 → 50), live
-   the moment a `build.sh` comment names a tool nothing else reaches.
+   the moment a `build.sh` comment names a tool nothing else reaches. **CLOSED 2026-09-25:**
+   `strip_prose` is gone; `.sh` sources are read for commands only, with comment lines and
+   `echo`/`printf` segments removed, and a fixture pins both.
 
-## ⚠ EVERY INSTRUMENT-POPULATION FIGURE IN THIS FILE IS OVER A NARROW CRITERION — 2026-09-19
+## ⚠ EVERY INSTRUMENT-POPULATION FIGURE IN THIS FILE IS OVER A NARROW CRITERION — 2026-09-19 (CLOSED 2026-09-25)
 
 **Read this before citing 85, 84, 35, 50, or 47/3.** The census counts `tools/*.py` that **name
 `BusClient`**. Four files drive a headless emulator through `aether_instance` **without** naming it
@@ -39404,6 +39449,40 @@ stated here rather than only in the row that fixes it. **Widening the criterion 
 accounting**, including whether the four gain dispositions and whether the guard that enforces the
 bookkeeping list still passes, so it is a decision about the lane and not a correction to make in
 passing. Booked as `CENSUS-CRITERION-TOO-NARROW`.
+
+### CLOSED 2026-09-25 (`parcel/census-criterion`, base `db0d0f23`): record `docs/research/2026-09-25-census-criterion.md`
+
+**The population is now what the code DOES.** `keepalive_population.drives()` admits a
+`tools/*.py` (not `test_*`, not the lane's two files) by five AST arms: **import** (anything from
+`aether`, `aether_instance` or `launcher`, the three modules that hand out a connection),
+**protocol** (an Aether method name, `"emulator/..."`, as a code string), **socket** (its own
+`AF_UNIX`), **borrow** (uses a sibling member's DRIVER callable: a top-level def/class whose body
+reaches a connection; a sibling's arithmetic does not count) and **child** (runs a member, or
+oracle-old's `ab_runner.py`, from an argv display). **Reachable is now an EXECUTING reference**: a
+`python3 … x.py` command on a non-comment, non-echo `.sh` line; an argv display with an
+interpreter (following `NAME = …` bindings); a shell string passed to `subprocess`; `x.main()`;
+`runpy`; or a dynamic `import_module` + `.main(` over the names in that same file. A name in a
+table, a regex, prose, or an arithmetic import credits nothing.
+
+| figure (old criterion) | was | now (2026-09-25) |
+|---|---|---|
+| population | 85 bus clients (84 construct one) | **90 emulator drivers** (+6, −`cart_coverage_census`) |
+| executed from a real entry point | 35 (09-19) / 42 (09-25) | **25** |
+| unreachable | 50 (09-19), 44 → 43 (09-25) | **65** |
+| manifest `[not_wired]` | 50 | **55** (35 tools / 36 rows wired, unchanged) |
+| exclusion audit over the 50 | 47 hold / 3 rotted | **34 hold / 16 not** (13 false "reachable") |
+
+**What was wrong in this booking's own statement:** the gap was six drivers, not four
+(`base_swap_witness`, `staging_lifetime_timeline` were found by the new predicate); `cart_identity`
+and `effects_gates` do not drive "through `aether_instance`" (one is a helper handed a client,
+the other drives only through children); and `cart_coverage_census` was inside the old
+population while driving nothing. **Guarded:** a `[not_wired]` reason beginning "reachable" must
+be one the census agrees with (`test_a_reachable_reason_is_true`, red on the shipped manifest
+with 13 names before this change), and each arm and each non-credit has a synthetic fixture
+shown red under a quoted mutation. **Still uncovered** (not booked; stated in the record): runners
+that spell a tool through a parametrized variable are under-credited; `docs/` scripts that drive
+an emulator (`f3rt_run.py`, `f3rt_watch.py`) are outside the `tools/` population by scope;
+`cart_verify_spawn_proof` is dead and unmeasured since 2026-09-12.
 
 ## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (OPEN, booked 2026-09-19, M)
 
@@ -39640,6 +39719,8 @@ census once already, and the census guard's scope is the substring `keepalive`, 
 ```
 manifest      [wired] 36 rows / 35 tools     [not_wired] 50 entries      (unchanged)
 census        bus instruments 85 · reachable 35 · UNREACHABLE 50         (all three unchanged)
+(⚠ 2026-09-25: over the old criterion. Now 90 drivers · 25 executed · 65 unreachable; see
+`CENSUS-CRITERION-TOO-NARROW`, CLOSED.)
 lane_status_audit   9 findings, byte-identical output at base and here, exit 1 both
 pytest tools -m "not needs_build"   3215 passed, 2 skipped, 29 deselected, exit 0
 DEBUG=1 ./build.sh  exit 0, s4.debug.bin crc32 62238a15 / 848,075 bytes -- UNCHANGED
@@ -39663,7 +39744,11 @@ own exclusion reason called out, in the entry landed the same day by `8b3ea95c`
 ("the ONLY code reference to it anywhere in the tree is a string inside
 `cart_coverage_census.py`'s own TABLE OF TOOL CLASSIFICATIONS"). Nothing in the accounting is wrong today;
 it is the same known hole, wearing a different name, and it belongs to
-`CENSUS-CRITERION-TOO-NARROW` rather than to this parcel.
+`CENSUS-CRITERION-TOO-NARROW` rather than to this parcel. **⚠ CLOSED 2026-09-25:** a table of
+classifications no longer credits anything. `sfx_audition.py` lost the credit (it is UNEXECUTED;
+its `[not_wired]` reason, "needs a live emulator a human is listening to", never claimed
+otherwise), and `evict_witness.py` is credited only by the nightly's command line, not by the
+test's regex.
 
 Three accounting edits were required anyway:
 
@@ -39797,7 +39882,10 @@ is checked before the baseline, so no `expect` value can make that row green. Th
 `[not_wired]`, and its reason now reads "reachable: the effects nightly runs it", the same
 disposition as `preset_lab_witness.py`. Census: `unreachable()` goes from 44 to 43. Caveat: the
 new test's regex literal also credits the witness as reachable, independently of the nightly. A
-deleted leg would still read as reachable, but the test would be red.
+deleted leg would still read as reachable, but the test would be red. **⚠ CORRECTED 2026-09-25
+(`CENSUS-CRITERION-TOO-NARROW`):** 44 → 43 is over the old criterion. Under the new one the census
+reads 65 unreachable of 90, and the regex no longer credits anything: the nightly's
+`python3 tools/evict_witness.py` line is the witness's only credit.
 
 *Listing EQU.* The verdict reads the clamp only from the emitted `cmpi.w`. The EQU feeds only the
 informational DISAGREEMENT line. Control: a copy of today's listing with `PAGE_FRAMES_CLAMP`
