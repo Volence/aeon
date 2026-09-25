@@ -2,11 +2,6 @@
   "focus": "Your Sonic 2 flythrough: finding the lag first, then a longer Chemical Plant and the games' own backgrounds.",
   "inFlight": [
     {
-      "what": "Measuring the lag you saw in the Sonic 2 test build, with the regular build as a control",
-      "where": "branch research/s4-lag-2026-09-25",
-      "agent": true
-    },
-    {
       "what": "CLIP-BAKE-JSON: the editor can tell a bake crash from a refusal",
       "where": "branch parcel/clip-bake-json",
       "agent": true
@@ -14,6 +9,11 @@
     {
       "what": "Giving Emerald Hill and Chemical Plant their own Sonic 2 backgrounds (still images first) and freeing room in the debug build",
       "where": "branch parcel/s2clip-original-bgs",
+      "agent": true
+    },
+    {
+      "what": "Fixing the lag: the level-art streamer does too much work per frame when a level doesn't fit in video memory",
+      "where": "branch parcel/pagecache-stream-lag",
       "agent": true
     }
   ],
@@ -32,7 +32,7 @@
   "queue": [
     {
       "id": "S2CLIP-LAG",
-      "title": "The Sonic 2 test build felt very laggy to you: measure where (game or emulator) and fix",
+      "title": "The Sonic 2 build lags because it is the first level too big to keep all its art in video memory; the art streamer overruns the frame. Fixing it in the engine",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -164,5 +164,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T13:32:50Z"
+  "updatedAt": "2026-09-25T13:46:47Z"
 }
