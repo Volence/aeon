@@ -15,6 +15,11 @@
       "what": "Aeon's half of the clip's own sound positions file",
       "where": "branch parcel/clip-anchor-overlay-2",
       "agent": true
+    },
+    {
+      "what": "Getting our sound-debugging tools ready for the emulator's new sound-chip watch addresses, to land right after oracle's change",
+      "where": "branch parcel/z80-tap-addr-move",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -161,12 +166,12 @@
     {
       "id": "Z80-TAP-ADDR-MOVE",
       "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
-      "state": "blocked",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:50:06Z"
+  "updatedAt": "2026-09-25T15:50:53Z"
 }
