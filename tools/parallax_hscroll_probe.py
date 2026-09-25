@@ -477,10 +477,10 @@ def derive_hscroll(cfg, shadow, tab_fg, tab_bg, phase_fg, phase_bg, cam_y_hi, vs
                                     >> shift_a)   when it samples
         BG word = the same with tab_bg, Parallax_Deform_Phase_BG, Vscroll_BG and shift_b.
     A channel samples iff its table pointer is non-NULL AND the band's shift != 15
-    (parallax.emp:1297-1311, 1344-1348).
+    (engine/level/parallax.emp, Parallax_Fill_PerLine's per-band channel setup).
 
-    The two phase folds are the layer anchor (Harmony study defect #2, parallax.emp:1306-1310
-    and :1317-1320): the FG index folds Camera_Y's pixel high word, the BG index folds
+    The two phase folds are the layer anchor (Harmony study defect #2, the same routine's FG
+    and BG phase folds): the FG index folds Camera_Y's pixel high word, the BG index folds
     Parallax_Current_Vscroll_BG, so the wave rides the ART rather than the screen.
 
     There is no per-cell arm any more (2026-08-26, d-29-corrected): every config runs the
