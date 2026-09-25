@@ -1,5 +1,5 @@
 {
-  "focus": "Measuring where the game lags so you can pick what to speed up; designing Sonic 2 zone music that switches at the crossing.",
+  "focus": "Measuring where the game lags; building Sonic 2 zone music, with two choices about how it sounds waiting on you.",
   "inFlight": [
     {
       "what": "Performance survey: fly every shape, rank the slow spots with costs",
@@ -7,8 +7,8 @@
       "agent": true
     },
     {
-      "what": "Zone music design: import Emerald Hill and Chemical Plant songs, find where the switch goes",
-      "where": "branch research/region-music",
+      "what": "Zone music step 1: teach the song converter Sonic 2's format (tools only, no ROM change)",
+      "where": "branch parcel/s2-smps-import",
       "agent": true
     }
   ],
@@ -17,13 +17,23 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "S2CLIP-MUSIC-FEEL",
+      "what": "When the music changes between Emerald Hill and Chemical Plant: I recommend as you come out of the tunnel.",
+      "since": "2026-09-25"
+    },
+    {
+      "id": "S2CLIP-MUSIC-DRUMS",
+      "what": "Which drums the Sonic 2 songs use: I recommend the Sonic 3 drums we have, for now.",
+      "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Both research reports back and reviewed; the ranked list goes to you, the music feel (cut or fade) comes to you as a card.",
+  "nextBoundary": "Performance shortlist back and reviewed; converter step landed. The music build then waits on sigil's song-count change and your two cards.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "You asked: play Emerald Hill's music and switch to Chemical Plant's at the crossing (needs Sonic 2 songs converted and a zone-music switch; design first)",
+      "title": "You asked: Emerald Hill's music switching to Chemical Plant's at the crossing. Design done; converter being built; sigil asked for one small change",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -130,7 +140,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Two music choices when you have a minute: when the song changes (I recommend at the tunnel exit) and which drums (I recommend the Sonic 3 ones for now).",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T21:27:03Z"
+  "updatedAt": "2026-09-25T21:45:53Z"
 }
