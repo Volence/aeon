@@ -1,5 +1,5 @@
 {
-  "focus": "Booted fresh. The Sonic 2 test act is rebuilt five sections wide and waiting on your flythrough.",
+  "focus": "You reached the end of the Sonic 2 act as built; it ends 416 px of walkable level short of the signpost.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -154,7 +154,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "your flythrough of s4.s2clip.debug.bin (crc 19e78bdb, rebuilt 2026-09-25, act now ends at x=10240), and whether I take game work or instrument work next",
+  "awaiting": "whether to recover the last stretch before Emerald Hill's signpost (six-section act with the camera stopped at Sonic 2's own limit), or accept the act ending where it does",
   "atBoundary": true,
-  "updatedAt": "2026-09-25T06:01:03Z"
+  "updatedAt": "2026-09-25T06:07:27Z"
 }
