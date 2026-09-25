@@ -2,11 +2,6 @@
   "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, built and on disk for your flythrough.",
   "inFlight": [
     {
-      "what": "Pricing a separate sound-bank position for the Sonic 2 test act (our half; the assembler lane prices theirs)",
-      "where": "branch research/clip-own-anchor (agent worktree)",
-      "agent": true
-    },
-    {
       "what": "Hook the nightly's forced-eviction test build up to the check that grades it",
       "where": "branch parcel/evict-witness-wiring (agent worktree)",
       "agent": true
@@ -31,9 +26,9 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
-      "state": "doing",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil priced its half (M, owner card d-35 on their board); ours is being priced now",
+      "blockedBy": "both halves priced; your call on the assembler lane's card d-35 (where the test act's own sound-bank position is declared). Ours is at docs/research/2026-09-25-clip-own-anchor-pricing.md",
       "project": "REGIONS"
     },
     {
@@ -145,5 +140,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:23:02Z"
+  "updatedAt": "2026-09-25T09:39:29Z"
 }
