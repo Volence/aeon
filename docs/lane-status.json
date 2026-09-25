@@ -2,11 +2,6 @@
   "focus": "Sound positions file landed; landing the longer Chemical Plant, then Sonic 2's background scrolling.",
   "inFlight": [
     {
-      "what": "Finding what Sonic 2 puts over 34 holes in Chemical Plant's floors, which stop the level going further",
-      "where": "branch research/cpz-floor-gaps",
-      "agent": true
-    },
-    {
       "what": "Landing the longer Chemical Plant on top of the positions file",
       "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
@@ -17,6 +12,11 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "S2CLIP-CPZ-FURTHER",
+      "what": "How much further to take Chemical Plant, given its tubes and boosters don't exist yet",
+      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
@@ -139,7 +139,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Fly s4.s2clip-short.debug.bin (the 640 px connector test) and say whether to adopt it, or go for ~480 px with a small engine change",
+  "awaiting": "Two calls: fly the 640 px connector test (s4.s2clip-short.debug.bin) and say whether to adopt it; and how much further to take Chemical Plant (card S2CLIP-CPZ-FURTHER)",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:45:38Z"
+  "updatedAt": "2026-09-25T17:52:30Z"
 }
