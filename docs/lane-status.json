@@ -7,11 +7,6 @@
       "agent": true
     },
     {
-      "what": "Giving Emerald Hill and Chemical Plant their own Sonic 2 backgrounds (still images first) and freeing room in the debug build",
-      "where": "branch parcel/s2clip-original-bgs",
-      "agent": true
-    },
-    {
       "what": "Fixing the lag: the level-art streamer does too much work per frame when a level doesn't fit in video memory",
       "where": "branch parcel/pagecache-stream-lag",
       "agent": true
@@ -44,8 +39,8 @@
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Each zone shows its own Sonic 2 background: still images first, scrolling after",
-      "state": "doing",
+      "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -160,5 +155,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T14:20:43Z"
+  "updatedAt": "2026-09-25T14:50:11Z"
 }
