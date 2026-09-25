@@ -40226,6 +40226,45 @@ worktree, then read the `bganim_room: FAIL` block.
   reserve, crc `9e9e1979`) because the clip DEBUG build no longer carries the canonical act's DEBUG-only test
   backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
   growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".
+- **2026-09-25, parcel `clip-anchor-overlay-2`: the aeon half of d-35-revised is BUILT, on its branch, waiting to land
+  with sigil's `parcel/clip-overlay` on sigil's reviewed SHA.** Tested end to end against sigil **a1ff8796** (own
+  detached worktree + own target dir; the shared binary was not touched). It cannot land alone: the shared sigil
+  binary refuses `--anchor-overlay` as an unknown argument, so every `S2CLIP=s2_ehz_cpz` build breaks until the
+  pair lands. What it is:
+  - `build.sh`: when `games/sonic4/data/clips/<id>/anchors.toml` exists, S2CLIP builds pass `--anchor-overlay` to
+    `sigil build` and to `bganim_room`, **never to the preflight `emit_sound_blob`** (contract a1ff8796; the first
+    wiring, to both binaries, reddened `test_check_does_not_perturb_generated_sound_artifacts` in the pre-build
+    lane, plain and DEBUG, reproduced here before the correction arrived). The argv is an array that is empty on every
+    other shape. Canonical CRCs below.
+  - `tools/clip_anchors.py` (in every S2CLIP build, FAST included, right after `sigil build`, `gate strict`):
+    measures this shape's packed end through `bganim_room.rom_room`, writes `<rom>.clip_anchors.json` (gitignored),
+    checks the islands sit at the effective anchors (`Dac_Temp_Blip` LMA; `SoundTablesZ80_Head` from its `PHASE` row)
+    and that the Source Digest has a READ row for `anchors.toml` exactly when the file exists, then compares this
+    shape's RULE VALUE with the file's `# measured:` line. 0 fresh / 2 STALE / 1 could not measure.
+    `--derive --clip <id>` writes the file from both shapes' records and refuses a record that no longer matches the
+    ROM + listing on disk. Unit tests: `tools/test_clip_anchors.py` (12, pre-build lane).
+  - `tools/bganim_room.py --anchor-overlay`: overlay rows replace `anchor_addr` and `declared_addresses` by name.
+    Needed, not optional: without it the room gate measures a clip ROM against map.toml's 0xA8000 and the growth-path
+    check sees canonical `dac_banks` as a pin inside the path. Its remedy text names the overlay, never map.toml.
+  - **`s2_ehz_cpz/anchors.toml` = dac_banks 0xB0000, sound_bank 0xC0000** (both shapes bind: packed ends 0x9A408 /
+    0x9AF1C, rule 0xB0000 each). NOT the pricing's 0xB8000: that was measured before B-1's −24 KB. DEBUG room 86,244 B,
+    37,092 B above the reserve (was 4,324 B).
+  - **Measured:** canonical on this branch, shared sigil: s4 `6d1af7a3`/821,479, s4.debug `62238a15`/848,075,
+    demo.debug `ce922bf7`/104,707, identical to origin/master 941e49d8. Clip without the file (shared sigil):
+    `073b25f4`/822,332 and `9e9e1979`/848,724, identical to master's clip builds. Clip WITH the overlay (sigil
+    a1ff8796, full build, every lane): plain `effef69b`/855,100, DEBUG `5176daca`/881,490, both exit 0, islands at
+    0xB0000/0xC0000, `bganim_room` "this shape binds exactly", pre-build lane 3358 passed / 3 skipped.
+  - **Red-first proofs:** (a) overlay wired to the emit only (FAST=1, plain): `clip_anchors: FAIL (could not measure)
+    ... no READ row`, exit 1, and the ROM was `073b25f4`, the no-overlay ROM, which is why the row check exists;
+    (b) `anchors.toml` replaced by a self-consistent older derivation (rules 0xA8000): `STALE ... GREW across a bank
+    boundary`, exit 2; (c) unit: the rule-value compare disabled reddens 1 of 12. Each restored from HEAD.
+- **S2CLIP-CPZ-LONGER (extend CPZ to its 2nd checkpoint, x 6143) is NOT started; it waits on this pair landing.**
+  What it needs after the pair lands: widen the clip rectangle in `s2_ehz_cpz/clips.json`; build BOTH clip shapes
+  (the first will fail STALE if the rule value moves, and records its measurement anyway); `python3
+  tools/clip_anchors.py --derive --clip s2_ehz_cpz`; commit the file; rebuild both. A1's estimated +28,434 B puts
+  DEBUG's rule at about 0xB8000 (re-derive, do not inherit). If a growth overruns the file's current anchor, `sigil
+  build` refuses before any listing exists, so there is nothing to derive from: raise both rows by hand by a bank
+  step or two, build both shapes, then `--derive` (the check will call the hand value STALE until you do).
 
 ## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z)
 

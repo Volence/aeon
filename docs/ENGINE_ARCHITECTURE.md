@@ -184,6 +184,16 @@ has five kinds of entry:
   Before the re-layout the anchors were `0x48000` / `0x58000` and capped the data region,
   which exiled the Tails and Knuckles sprite data to the ROM tail twice and made the
   BG-animation room depend on Sonic's art size; both are retired.
+  **Clip acts carry their own pair** (owner ruling d-35-revised, `clip-overlay-file`): the
+  S2CLIP dev shapes are NOT in the max above (a test fixture must not move the shipping
+  layout). A clip that outgrows the canonical anchors gets
+  `games/sonic4/data/clips/<id>/anchors.toml`, the same rule taken over that clip's two
+  shapes, written by `tools/clip_anchors.py --derive` and passed by build.sh as
+  `sigil build --anchor-overlay` (and to `bganim_room`) on that clip's builds only; never to
+  the preflight `emit_sound_blob`, because `sigil build` re-emits the sound artifacts from
+  its own switch. Every S2CLIP build re-derives its own shape's rule value and fails STALE
+  on a mismatch, and fails when the file exists but the listing's Source Digest shows sigil
+  never read it. `map.toml` and the frozen tables are untouched by a clip's move.
 - **`[[hole]]`** — a declared gap: the sound-off Z80 idle program occupies `$3d8..$3fe`,
   so the map declares a hole `after = "Z80_IdleProgram"` at `0x3FE` filled by
   `engine.z80_init`, gated `when = "sound_off"`.
