@@ -439,6 +439,19 @@ pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N
     br_drift: [band_drift; BAND_DRIFT_N],
     br_remap: [band_remap; BAND_REMAP_N],
 }
+// THE STRIDE, PUBLISHED (PUBLISH-BAND-RECORD-LEN, 2026-09-25). `band_record_len` is
+// sizeof(band_record) for THIS game, as one row in the listing's Equate Table beside the
+// harvested `band_entry_*` rows, so a tool reads the stride instead of re-deriving it. It is
+// per game (sonic4 32, demo 10: the four tails fold GAME_SCANLINE_CAPS), which is exactly why
+// a transcribed number went wrong: parallax_hscroll_probe strode sonic4's 32-byte array by 10
+// for three weeks. `pub equ`, not `pub const`: only a link-level equate reaches the listing
+// (games/sonic4/data/collision/collision_data.emp's DPLC_PEAK_TILES_* banner has the
+// measurement); an equ emits no bytes. It is NOT a sigil STRUCT_OFFSET_TWINS row like
+// `band_entry_len`: that harvest lays structs out ambiently with no defines and no contract,
+// so it could not size this record per game (the WHY-A-SECOND-STRUCT banner above). The
+// `_len` suffix is the listing's existing spelling for a struct SIZE (`band_entry_len`,
+// `parallax_config_len`, `SST_len`); it is a byte count per record, never a band count.
+pub equ band_record_len = sizeof(band_record)
 ensure(offsetof(band_record, br_base) == 0,
        "band_record's legacy prefix is at offset {offsetof(band_record, br_base)}, not 0 — every `band_entry.<field>(aN)` displacement in this file addresses through the record base, so a non-zero prefix offset silently mis-addresses all ten legacy fields")
 // THE CAPABILITY-OFF IDENTITY, as an assertion rather than a comment: with no extension the
