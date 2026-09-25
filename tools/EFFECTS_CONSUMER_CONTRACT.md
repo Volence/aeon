@@ -530,8 +530,8 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
     generator refuses them **by name** — the alternative is an emission that fails on an
     undefined Label and names a missing symbol instead of the thing the author wrote. The
     generated ladder for the other four shifts is EFFECTS-W1 item **9b**.
-  - `plane_y`'s bounds are `layer()`'s two `ensure`s (`scene_dsl.emp:1008` for `>= 0`,
-    `:1017` for the `< 512` ceiling added 2026-09-04 — before that the upper bound was PROSE
+  - `plane_y`'s bounds are `layer()`'s two `ensure`s (`scene_dsl.emp` `layer()`: the `plane_y >= 0`
+    one, and the `< 512` ceiling added 2026-09-04 — before that the upper bound was PROSE
     and `brm_plane_y` is a `u16`, so 512..65535 was silently a wrong window). Not re-checked
     here, per the same rule as `drift`. This key is only authorable in a game whose
     `SCANLINE_CAPS` raise `CAP_ROW_REMAP` (`$0800`). **AT MOST ONE LAYER PER SCENE** may

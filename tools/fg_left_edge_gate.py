@@ -136,7 +136,7 @@ sample point and REFUSES to grade a frame where a transition is in flight. At
 `Transition_Frames == 0` the raw `Parallax_Current_Config` cell IS the active config, by the
 engine's own promotion, in both the CAP_TRANSITIONS and the cap-elided shape.
 
-THE ALTERNATIVE, AND WHY NOT IT. `Parallax_Active_Config` (parallax.emp:1480) is the
+THE ALTERNATIVE, AND WHY NOT IT. `Parallax_Active_Config` (parallax.emp, `Parallax_Active_Config`) is the
 engine's selector: `Frames != 0 -> Target, else Current`. The gate could have restated that
 rule in Python and sampled mid-transition. Rejected for two reasons. (1) It would put a
 SECOND COPY of an engine rule in a test — the exact shape of staleness the per-scene read

@@ -21,9 +21,9 @@
 // design doc gives. §2 says "the fill loop's register file is exhausted (verified: .lp_both
 // uses all 16)"; `.lp_both` uses FOURTEEN (d0-d7, a1-a6), with a0 spilled at the proc's entry
 // movem and a7 bracketing the proc. The real position is `.lp_curve`'s own allocation: it
-// spends all seven usable data registers — accumulator, whole step, Bresenham remainder,
-// error, span modulus, constant FG word, line index — plus a4 and a0, with d7 carrying the
-// band countdown. A sampled channel needs a phase base, an amplitude shift and a sample
+// spends all seven usable data registers — accumulator, whole step, 0.16 fraction, its
+// accumulator, line counter, constant FG word, band end line — plus a4, with d7 carrying the
+// band countdown (re-checked when the loop went fixed-point, 2026-09-25). A sampled channel needs a phase base, an amplitude shift and a sample
 // scratch. There are none.
 //
 // THE ELABORATION HOOK is the three ensures below plus the constructors themselves — an

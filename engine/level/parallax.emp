@@ -227,12 +227,19 @@ pub struct band_ext (size: 10) {
 // pay for deform pointers it never reads and vice versa. `band_record` composes them, and
 // with both N's at 0 it is still byte-for-byte the legacy `band_entry`.
 //
-// FOUR ROM BYTES AND THREE RUNTIME WORDS, and the split is the design:
+// FOUR ROM BYTES, TWO RUNTIME WORDS AND ONE SPARE WORD, and the split is the design:
 //   * bc_to_s1/bc_to_s2/bc_flags are AUTHORED — the far-end factor's packed shift pair and
 //     its op/active bits, lowered by scene_band().
-//   * bc_step/bc_rem/bc_span are DERIVED EVERY FRAME by the curve hoist
+//   * bc_step/bc_frac are DERIVED EVERY FRAME by the curve hoist
 //     (Parallax_Step4_Fill, `.cap_factor_curve_hoist`) into the SHADOW copy. Their ROM
 //     image is zero and is never read.
+//   * bc_spare is written by nothing and read by nothing. Until 2026-09-25 it was bc_span,
+//     the Bresenham modulus the line loop compared against; the fixed-point loop that
+//     replaced it (PARALLAX-CURVE-LOOP, see `.lp_curve`) has no modulus. The word STAYS
+//     rather than the tail shrinking to 8 because the size is load-bearing: 10 + the
+//     prefix's 10 + the drift tail's 4 is what keeps sizeof(band_record) a multiple of 4
+//     (copy_run_longs()' fast path, band_drift's banner), and a shrink would move every
+//     band record in every image for no cycle.
 //
 // WHY THE DERIVED WORDS LIVE IN THE RECORD RATHER THAN IN THREE PARALLEL RAM ARRAYS. The
 // anchored overlay (Step 4b) SPLITS a band by copying a whole entry down and duplicating
@@ -255,10 +262,11 @@ pub struct band_curve (size: 10) {
     bc_to_s1:  u8,   // far-end factor shift1 (15 = whole-factor zero, "ramp to locked")
     bc_to_s2:  u8,   // far-end factor shift2 (15 = single-term factor)
     bc_flags:  u8,   // CURVE_FLAG_* bits
-    bc_pad:    u8,   // keeps the three derived words on even offsets (68000 address error)
+    bc_pad:    u8,   // keeps the derived words on even offsets (68000 address error)
     bc_step:   i16,  // DERIVED: floor(spread / span), the whole part of the per-line delta
-    bc_rem:    i16,  // DERIVED: spread mod span, normalised to [0, span) — the Bresenham term
-    bc_span:   u16,  // DERIVED: the layer's on-screen line span, the Bresenham modulus
+    bc_frac:   u16,  // DERIVED: ceil(rem * 65536 / span), rem = spread mod span in [0, span) —
+                     //   the per-line fraction in 0.16 fixed point (the hoist's divu argument)
+    bc_spare:  u16,  // RESERVED: never written, never read — keeps the tail 10 bytes (banner)
 }
 
 // BAND_CURVE_N — 1 in a game whose SCANLINE_CAPS include CAP_FACTOR_CURVE, else 0, folded
@@ -293,7 +301,7 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 //   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM EVERY FRAME. Step 4a walks every
 //       band and calls copy_band_entry_fwd(), which copies the WHOLE record, tails included.
 //       An accumulator in a shadow tail is overwritten with its ROM image (zero) before it is
-//       ever read. band_curve's three derived words survive only because they are RE-DERIVED
+//       ever read. band_curve's two derived words survive only because they are RE-DERIVED
 //       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
 //       escape.
 //   (b) THE SHADOW VIEW IS ROTATED, so slot index != layer index. Step 4a's `.find_k` starts
@@ -635,29 +643,28 @@ const band_ext_table_b = offsetof(band_record, br_ext) + offsetof(band_ext, bx_d
 ensure(BAND_EXT_N == 0 || offsetof(band_record, br_ext) == sizeof(band_entry),
        "band_record's extension starts at {offsetof(band_record, br_ext)}, not immediately after the legacy prefix ({sizeof(band_entry)}) — Parallax_Fill_PerLine's per-band table load addresses the extension by a constant displacement from the record base, so a gap or an overlap there reads legacy fields as a curve pointer")
 
-// The curve tail's six displacements FROM THE RECORD BASE (P3 Task 10), named for
+// The curve tail's five displacements FROM THE RECORD BASE (P3 Task 10), named for
 // band_ext_table_a/b's reason: the .field-in-disp sugar does not compose in displacement
-// arithmetic, and each of these is two offsetofs deep. All six fold to constants whatever
+// arithmetic, and each of these is two offsetofs deep. All five fold to constants whatever
 // BAND_CURVE_N is — a zero-length array still has a position — and their only readers are
 // the three CAP_FACTOR_CURVE-gated blocks, which do not exist when the array is empty.
 const band_curve_to_s1  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_to_s1)
 const band_curve_to_s2  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_to_s2)
 const band_curve_flags  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_flags)
 const band_curve_step   = offsetof(band_record, br_curve) + offsetof(band_curve, bc_step)
-const band_curve_rem    = offsetof(band_record, br_curve) + offsetof(band_curve, bc_rem)
-const band_curve_span   = offsetof(band_record, br_curve) + offsetof(band_curve, bc_span)
+const band_curve_frac   = offsetof(band_record, br_curve) + offsetof(band_curve, bc_frac)
 // THE CURVE TAIL SITS AFTER BOTH THE LEGACY PREFIX AND THE DEFORM TAIL, and the hoist
-// writes three WORDS through those displacements — so an overlap would not merely read the
+// writes two WORDS through those displacements — so an overlap would not merely read the
 // wrong bytes, it would CORRUPT a neighbouring band's fields every frame. Same claim as the
 // br_ext pin above, for the tail that is written rather than only read.
 ensure(BAND_CURVE_N == 0 || offsetof(band_record, br_curve) == sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N,
-       "band_record's curve tail starts at {offsetof(band_record, br_curve)}, not immediately after the legacy prefix plus the deform tail ({sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N}) — the per-frame curve hoist WRITES three words at constant displacements from the record base, so a gap or an overlap there scribbles over band fields once per frame")
-// The three derived words are written with `move.w`, so each must land on an EVEN
+       "band_record's curve tail starts at {offsetof(band_record, br_curve)}, not immediately after the legacy prefix plus the deform tail ({sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N}) — the per-frame curve hoist WRITES two words at constant displacements from the record base, so a gap or an overlap there scribbles over band fields once per frame")
+// The two derived words are written with `move.w`, so each must land on an EVEN
 // displacement from a record base that is itself even (copy_run_longs() pins both the
 // record stride and the config header's size for the same reason). An odd one is a 68000
 // address error at runtime, not a wrong picture.
-ensure(BAND_CURVE_N == 0 || (band_curve_step % 2 == 0 && band_curve_rem % 2 == 0 && band_curve_span % 2 == 0),
-       "a curve tail word lands on an ODD displacement from the record base (step {band_curve_step}, rem {band_curve_rem}, span {band_curve_span}) — the per-frame hoist writes all three with move.w and would address-error")
+ensure(BAND_CURVE_N == 0 || (band_curve_step % 2 == 0 && band_curve_frac % 2 == 0),
+       "a curve tail word lands on an ODD displacement from the record base (step {band_curve_step}, frac {band_curve_frac}) — the per-frame hoist writes both with move.w and would address-error")
 // The drift tail's ONE displacement FROM THE RECORD BASE, named for band_curve_*'s reason and
 // NOT optional sugar: `band_drift.bd_rate_1616(a1)` would assemble to displacement 0 — the
 // field's offset WITHIN band_drift — and read band_top_plane + band_factor_a as a rate, every
@@ -2215,10 +2222,10 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //
         // ONCE PER FRAME PER CURVE LAYER, and this is the whole of a curve's arithmetic:
         // the far-end factor is decoded against this frame's camX, the SPREAD between the
-        // two ends is divided by the layer's line span, and the quotient/remainder pair is
-        // parked in the band's own curve tail for the fill's per-line accumulator. The line
-        // loop then does two adds and a conditional correction — no divide, no multiply,
-        // and no factor decode per line, which is what design section 2 rules ("computed
+        // two ends is divided by the layer's line span, and the whole step plus a 0.16
+        // fixed-point fraction are parked in the band's own curve tail for the fill's
+        // per-line accumulator. The line loop then does one add and one add-with-extend —
+        // no divide, no multiply, no branch and no factor decode per line, which is what design section 2 rules ("computed
         // once per frame per curve layer in the band hoist ... never in the line loop,
         // never a multiply").
         //
@@ -2233,14 +2240,29 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // whole-entry copy hands it to the split unchanged, and the split's accumulator
         // picks up where its parent left off (CURVE_FLAG_CONT_BIT).
         //
-        // WHY BRESENHAM AND NOT A FIXED-POINT STEP. A ramp of 300 px over 100 lines is 3 px
-        // a line; a ramp of 30 px over 100 lines is a THIRD of a pixel a line, and a whole
-        // integer step would round it to zero and emit no ramp at all. The obvious fix — an
-        // 8.8 step, `(spread << 8) / span` — cannot be BOUNDED: at span 1 it needs
-        // |spread| <= 127 to keep the quotient inside a word, and spread is a camera-scaled
-        // quantity with no such bound. Carrying the exact remainder costs one compare and
-        // one conditional add per line and is exact at every span. See the divisor argument
-        // at the divide itself.
+        // WHOLE STEP PLUS A FRACTION OF THE REMAINDER, NOT A FIXED-POINT STEP OF THE SPREAD.
+        // A ramp of 300 px over 100 lines is 3 px a line; a ramp of 30 px over 100 lines is
+        // a THIRD of a pixel a line, and a whole integer step would round it to zero and
+        // emit no ramp at all. An 8.8 step of the SPREAD, `(spread << 8) / span`, cannot be
+        // BOUNDED: at span 1 it needs |spread| <= 127 to keep the quotient inside a word,
+        // and spread is a camera-scaled quantity with no such bound. So the spread is split
+        // first — divs.w gives the whole step and a remainder in [0, span) — and only the
+        // REMAINDER becomes a fraction, `ceil(rem * 65536 / span)`, which is < 65536 at
+        // every span (the argument at the divu). The line loop adds the fraction into a
+        // 16-bit accumulator and the carry out of it into the scroll word (`addx.w`).
+        //
+        // IT IS EXACT, NOT APPROXIMATE: the carries land on precisely the lines the old
+        // Bresenham loop's `err >= span` corrections did (that loop shipped until
+        // 2026-09-25, PARALLAX-CURVE-LOOP). frac exceeds rem*65536/span by less than 1, so
+        // after k <= 224 lines the fixed-point sum runs less than 224 above the exact one,
+        // while the exact sum sits at least 65536/span >= 292 below the next multiple of
+        // 65536 whenever it is not on one — so no carry comes a line early, and none late.
+        // The ceiling is load-bearing: a FLOOR fraction runs below the exact sum and drops
+        // the carry on every line where k*rem/span is a whole number. Proven over every
+        // span 1..224, every remainder and 224 lines on the BUILT machine code (and red
+        // against a floor mutant): docs/research/2026-09-25-ehz-diag-regression/
+        // curve_rom_exact.py. A layer, split or not, never emits more than 224 lines from
+        // its own start, which is the k the argument needs.
         //
         // COST: this loop runs over EVERY shadow band and pays one `btst` for the bands
         // that are not curves. A frame with no curve layer at all still walks it — the
@@ -2270,7 +2292,6 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
                                                     //   there is nothing to ramp across. THIS
                                                     //   TEST IS THE DIVISOR'S ZERO GUARD —
                                                     //   see the divide below.
-        move.w  d4, band_curve_span(a1)
         // -- the far-end factor, decoded exactly as Decode_Factor_B decodes the base --
         // Spelled out rather than called: a `Decode_Factor_Curve` proc would emit a body
         // (and, gated, a stub) in every game, and the two extra registers this block has
@@ -2317,7 +2338,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //     step this design rejected) is exactly what would break that argument.
         //   * THE ALTERNATIVE, AND WHY IT LOST (added 2026-09-11, lens item B1-5). A
         //     reciprocal table over span 1..224 would give the quotient by a muls.w, but
-        //     the line loop's Bresenham correction needs the exact REMAINDER too, and
+        //     the fraction below is taken of the exact REMAINDER, so it needs that too, and
         //     divs.w delivers both in one instruction (quotient low, remainder high). The
         //     reciprocal form needs a second multiply to recover the remainder
         //     (spread - q * span) and a +-1 correction for the reciprocal's rounding: two
@@ -2348,7 +2369,51 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         subq.w  #1, d1                              // ...and the quotient becomes the floor
     .curve_rem_ok:
         move.w  d1, band_curve_step(a1)
-        move.w  d2, band_curve_rem(a1)
+        // THE 0.16 FRACTION OF THE REMAINDER — the second divide, argued at the instruction
+        // as CODING_CONVENTIONS.md §2.1 requires:
+        //   * THE DIVISOR IS NON-ZERO, STRUCTURALLY. It is d4, the same span the divs.w above
+        //     divided by, untouched since: reached only past `ble .curve_next`, so 1..224.
+        //   * THE QUOTIENT CANNOT OVERFLOW. The dividend is `rem << 16 | (span - 1)`, built
+        //     by `swap`/`clr.w` over the normalised remainder (in [0, span) past
+        //     `.curve_rem_ok` on both paths — the fixup above is what makes it non-negative,
+        //     so the unsigned divide reads it correctly). Its quotient is
+        //     ceil(rem * 65536 / span) <= ceil((span - 1) * 65536 / span) < 65536 for every
+        //     span >= 1, so it fits the word divu.w returns; at span 224 the largest is
+        //     65,244. The `add.w`/`subq.w` pair touches only the low word, which is zero after
+        //     the clr.w and at most 223 after it: no carry into the remainder half.
+        //   * THE ALTERNATIVES, AND WHY THEY LOST (costed 2026-09-25):
+        //       - A BUILD-TIME RECIPROCAL FROM THE RECORD. The house default, and it does not
+        //         apply: the divisor is the layer's ON-SCREEN span, which Step 4a derives from
+        //         two CLAMPED shadow tops every frame. It changes with Camera_Y whenever the
+        //         layer crosses the screen's top or bottom edge (EHZ's 80-line curve does), so
+        //         nothing at bake time knows it. Ramping over the authored PLANE span instead
+        //         would bake, and would change the picture of every partly off-screen curve.
+        //       - A COMPTIME RECIPROCAL TABLE OVER span 1..224. Exactness needs the fraction
+        //         within 65536 / (224 * span) of the true value (the argument above), so a
+        //         word reciprocal is too coarse (span 224, rem 223 already misses) and a
+        //         26-bit one needs a 32x16 product: two mulu.w (<= 70 each) plus the combine
+        //         is >= this divu's <= 140, for a 896-byte table and a new exactness proof.
+        //       - A COMPTIME 2-D TABLE frac[span][rem]: 25,200 words = 50,400 ROM bytes to
+        //         save < ~120 cycles per curve band per frame.
+        //       - NO DIVIDE, KEEP BRESENHAM with a biased error so the test is a carry and
+        //         the counter a dbf: ~44-48 cycles a line against this loop's 34, so it loses
+        //         ~10 cycles on every curve line to save one <= 140-cycle divide per layer —
+        //         behind from ~14 lines on (EHZ's curve is 80).
+        //   * COST AND COUNT. <= 140 cycles (divu.w, register source, sigil's table) plus 16
+        //     for swap/clr/add/subq, once per frame per shadow band that is curve-active with
+        //     a positive span — the divs.w's own count: at most pcfg_band_count <= 16 per
+        //     Step 4 call (<= 2,496 cycles at the ceiling), in practice one or two. Dropping
+        //     the old span store pays back 12 of it. The line loop it feeds is 34 cycles a
+        //     line instead of 54-60 plus a cheaper entry setup, so a layer of more than ~6
+        //     on-screen lines comes out ahead; one of fewer lines pays up to ~100 cycles more
+        //     than before. Measured on EHZ's 80-line curve: Parallax_Update 16.9k -> 15.3k
+        //     cycles per tick (docs/research/2026-09-25-ehz-diag-regression.md, prototype P).
+        swap    d2                                  // d2 = rem : (garbage)
+        clr.w   d2                                  // d2 = rem << 16
+        add.w   d4, d2
+        subq.w  #1, d2                              // + (span - 1): the division rounds UP
+        divu.w  d4, d2                              // d2.w = ceil(rem * 65536 / span)
+        move.w  d2, band_curve_frac(a1)
     .curve_next:
         adda.w  #sizeof(band_record), a1
         addq.l  #2, a3
@@ -3337,14 +3402,18 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //                 through a0, a walking pointer, reset at the 256-byte wrap. d5 is the
 //                 sample scratch, so the post-wrap line count lives on the stack. See the
 //                 banner above those two loops for why, and for which halves of d0 go where.
-//   `.lp_curve` — the RAMPING BG factor (P3 Task 10). Spends every data register: d1 acc,
-//                 d2 whole step, d3 remainder, d6 error, d5 span (the Bresenham modulus,
-//                 free because d4 has already jumped to the band end), d0.w the constant FG
-//                 word, plus a4 as the output cursor and a0 as its end. That allocation IS
-//                 the measured reason a layer may not have a curve AND a deform ref: a
-//                 sampled channel needs a phase base, an amplitude shift and a scratch, and
-//                 there are none left. Its state crosses BANDS through two stack words —
-//                 the only loop here that does — so an anchored split continues the ramp.
+//   `.lp_curve` — the RAMPING BG factor (P3 Task 10; fixed-point since 2026-09-25,
+//                 PARALLAX-CURVE-LOOP). Spends every data register: d1 acc, d2 whole
+//                 step, d3 the 0.16 fraction, d6 its accumulator, d5 the dbf line count
+//                 (free because d4 has already jumped to the band end, and d4 must keep
+//                 it), d0.w the constant FG word, plus a4 as the output cursor. a0 is no
+//                 longer borrowed — the Bresenham loop it replaced needed an end pointer
+//                 there. That allocation IS the measured reason a layer may not have a
+//                 curve AND a deform ref: a sampled channel needs a phase base, an
+//                 amplitude shift and a scratch, and there are no data registers left. Its
+//                 state crosses BANDS through Parallax_Curve_Carry (RAM; two words of stack
+//                 were tried first, see `.curve_continue`) — the only loop here that does —
+//                 so an anchored split continues the ramp.
 // ----------------------------------------------------------------------
 proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // UNCONDITIONAL since 2026-08-26 (d-29-corrected). This body used to sit under a
@@ -3473,8 +3542,8 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // by every flat band on the way past.
         //
         // WHAT THE HOIST INHERITS FROM THE PER-FRAME PASS (Parallax_Step4_Fill's
-        // `.cap_factor_curve_hoist`): the whole step, the Bresenham remainder and the span
-        // are already in this band's curve tail, computed against the LAYER's span before
+        // `.cap_factor_curve_hoist`): the whole step and the 0.16 fraction are already in
+        // this band's curve tail, computed against the LAYER's span before
         // the anchored overlay could split it. Nothing per-band is recomputed here except
         // the output extent and the accumulator's seed.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
@@ -3485,12 +3554,12 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         btst    #CURVE_FLAG_CONT_BIT, band_curve_flags(a1)
         bne     .curve_continue
         move.w  d0, d1                              // acc = this layer's BG base scroll
-        moveq   #0, d6                              // err = 0: the ramp starts at this line
+        moveq   #0, d6                              // frac acc = 0: the ramp starts here
         jbra    .curve_seeded
     .curve_continue:
         // THE ANCHORED SPLIT'S HALF OF "AN ANCHOR SPLIT CONTINUES THE CURVE". Step 4b set
         // this bit on the entry it manufactured from the band above, whose loop parked its
-        // final accumulator and error in Parallax_Curve_Carry. Resuming from them is what
+        // final accumulator and fraction accumulator in Parallax_Curve_Carry. Resuming from them is what
         // makes the delta a function of the ABSOLUTE screen line rather than of the entry's
         // own top — the split moves a boundary, it does not re-parametrise a ramp.
         //
@@ -3504,7 +3573,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // other line of this block stayed. The reservation is capability-sized in
         // engine/ram.emp, so a game without curves still spends nothing.
         move.w  Parallax_Curve_Carry, d1            // (Parallax_Curve_Carry).w — acc
-        move.w  Parallax_Curve_Carry+2, d6          // (Parallax_Curve_Carry+2).w — err
+        move.w  Parallax_Curve_Carry+2, d6          // (Parallax_Curve_Carry+2).w — frac acc
     .curve_seeded:
         // PARK THE SEED BEFORE THE EMPTY-ENTRY EARLY-OUT, not only at the loop's end. Step
         // 4a can clamp a layer to ZERO lines (two shadow tops both at 224), and a split
@@ -3517,30 +3586,24 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         sub.w   d4, d2                              // d2 = lines in THIS entry
         ble     .band_done                          // empty/malformed entry
         move.w  d5, d4                              // line index jumps to the band end
-        add.w   d2, d2
-        add.w   d2, d2                              // d2 = bytes this entry writes
-        movea.l a4, a0                              // a0 = the run's END cursor. a0 is the
-        adda.w  d2, a0                              //   caller's config ptr, dead since the
-                                                    //   table hoist and restored by the exit
-                                                    //   movem — the same borrow the two
-                                                    //   single-channel loops make for their
-                                                    //   curve walk pointer.
+        move.w  d2, d5
+        subq.w  #1, d5                              // d5 = dbf count: lines - 1, 0..223
+                                                    //   (d5 is free — d4 holds the end)
         move.w  band_curve_step(a1), d2             // whole pixels per line (may be negative)
-        move.w  band_curve_rem(a1), d3              // the fraction's numerator, in [0, span)
-        move.w  band_curve_span(a1), d5             // d5 is free — d4 already holds the end
+        move.w  band_curve_frac(a1), d3             // the per-line fraction, 0.16 fixed point
         swap    d0                                  // d0.w = FG base scroll (constant word)
+        // 34 CYCLES A LINE (8 + 8 + 4 + 4 + 10), and no branch but the counter. The
+        // Bresenham loop this replaced (until 2026-09-25) was 54 on a line with no carry and
+        // 60 on one with: an add, a compare, a conditional correction and a pointer compare.
+        // The fraction's carry out of d6 IS the correction — `addx.w` adds it with the whole
+        // step in one instruction — and the hoist's divu argument is why it lands on exactly
+        // the lines the old correction did.
     .lp_curve:
         move.w  d0, (a4)+                           // FG word — constant across the layer
         move.w  d1, (a4)+                           // BG word — the ramp's value at this line
-        add.w   d2, d1                              // acc += whole
-        add.w   d3, d6                              // err += remainder
-        cmp.w   d5, d6                              // both are in [0, 2*span); unsigned is
-        blo     .lc_next                            //   exact and needs no sign handling
-        sub.w   d5, d6
-        addq.w  #1, d1                              // the fraction carried one whole pixel
-    .lc_next:
-        cmpa.l  a0, a4
-        blo     .lp_curve
+        add.w   d3, d6                              // frac acc += fraction; X = the carry
+        addx.w  d2, d1                              // acc += whole + carry
+        dbf     d5, .lp_curve
         move.w  d1, Parallax_Curve_Carry            // (Parallax_Curve_Carry).w — park the
         move.w  d6, Parallax_Curve_Carry+2          //   carry: the next entry may be this
                                                     //   layer's anchored continuation
