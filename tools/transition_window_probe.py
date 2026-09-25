@@ -146,7 +146,21 @@ rc = 0
 try:
     runpy.run_path(tool, run_name="__main__")
 except SystemExit as e:
-    rc = e.code if isinstance(e.code, int) else 0
+    # THE SUBJECT'S EXIT STATUS IS PASSED THROUGH EXACTLY AS PYTHON WOULD HAVE SET IT.
+    # `sys.exit("message")` / `raise SystemExit("message")` is exit 1 with the message on
+    # stderr; only None is 0. This line used to map every non-int code to 0, so a subject
+    # that REFUSED or FAILED with a message (loop_step_over_witness's setup refusal,
+    # fg_left_edge_capture's REFUSED paths, band_capture, plane_buffer_headroom_probe's
+    # BLOCKED) came out of the shim as a success -- the shim measured the refusal and threw
+    # it away (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25). The wired subject exits with an
+    # int, so the keepalive row did not move.
+    if e.code is None:
+        rc = 0
+    elif isinstance(e.code, int):
+        rc = e.code
+    else:
+        print(e.code, file=sys.stderr)
+        rc = 1
 except BaseException as e:
     REC["err"] = "%s: %s" % (type(e).__name__, e)
     rc = 99
