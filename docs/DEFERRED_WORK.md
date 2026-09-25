@@ -39950,3 +39950,7 @@ reserve"; read there, verified reachable from `origin/main`).
 
 **Re-derive, do not inherit:** `export SIGIL_BUILD=... SIGIL_EMIT=...; DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` in a
 worktree, then read the `bganim_room: FAIL` block.
+
+- **(B) aeon half PRICED 2026-09-25:** `docs/research/2026-09-25-clip-own-anchor-pricing.md` (recommends a per-clip
+  `anchors.toml` overlay, S-M on aeon; needs sigil to accept an anchor overlay in BOTH `sigil build` and `emit_sound_blob`,
+  because the bank ids are also folded at emit time; rule gives the clip pair 0xB8000/0xC8000 today).
