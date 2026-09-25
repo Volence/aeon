@@ -224,3 +224,55 @@ def test_encode_factor_refuses_what_the_engine_cannot_decode():
     with pytest.raises(CBS.ClipScrollError):
         CBS.encode_factor(Fraction(11, 32))
 
+
+# ---------------------------------------------------------------------------
+# SC1 — the bake's read-back of the presets it emitted
+# ---------------------------------------------------------------------------
+
+def _sc1_plan(s2asm, ehz):
+    zones = []
+    for key, (zone, spec) in enumerate((("EHZ", ehz), ("CPZ", CBS.derive_cpz(s2asm, 256)))):
+        zones.append({"key": key, "donor": S.S2_FINAL, "zone": zone, "scroll": spec,
+                      "preset_label": f"OJZ_Clip_Preset_{key}",
+                      "palette_label": f"OJZ_Clip_Palette_{key}",
+                      "parallax_label": CBS.PARALLAX_LABEL.format(key=key)})
+    return {"act_span": 6144, "zones": zones}
+
+
+def _sc1_text(plan, bind=None):
+    import clip_rom_bake as CRB
+    out = [CBS.data_block_text(CRB._scroll_zones(plan), plan["act_span"])]
+    for z in plan["zones"]:
+        lab = z["parallax_label"] if bind is None else bind.get(z["key"], z["parallax_label"])
+        out.append(f"pub data {z['preset_label']}: EffectsPreset = preset(pal: "
+                   f"{z['palette_label']}, " + (f"parallax: {lab}, " if lab else "")
+                   + "raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n")
+    return "".join(out)
+
+
+def test_sc1_accepts_each_preset_binding_its_own_record(s2asm, ehz):
+    import clip_rom_bake as CRB
+    plan = _sc1_plan(s2asm, ehz)
+    assert CRB.check_scroll(plan, _sc1_text(plan)) == {
+        "EHZ": len(ehz["bands"]), "CPZ": len(plan["zones"][1]["scroll"]["bands"])}
+
+
+@pytest.mark.parametrize("bind,frag", [
+    ({1: None}, "binds parallax none"),
+    ({0: "OJZ_Clip_Parallax_1", 1: "OJZ_Clip_Parallax_0"}, "its zone's own record"),
+])
+def test_sc1_refuses_a_preset_bound_to_the_wrong_record(s2asm, ehz, bind, frag):
+    import clip_rom_bake as CRB
+    plan = _sc1_plan(s2asm, ehz)
+    with pytest.raises(CRB.ClipRomError, match=frag):
+        CRB.check_scroll(plan, _sc1_text(plan, bind))
+
+
+def test_sc1_refuses_a_scroll_block_that_is_not_a_fresh_derivation(s2asm, ehz):
+    import clip_rom_bake as CRB
+    plan = _sc1_plan(s2asm, ehz)
+    text = _sc1_text(plan)
+    wrong = text.replace("fb: packed(s1: 6, s2: 15, op: 0)", "fb: packed(s1: 5, s2: 15, op: 0)", 1)
+    assert wrong != text, "the mutation found nothing to change — re-derive its target"
+    with pytest.raises(CRB.ClipRomError, match="fresh derivation"):
+        CRB.check_scroll(plan, wrong)
