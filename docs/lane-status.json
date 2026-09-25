@@ -2,11 +2,6 @@
   "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
-      "where": "detached origin/master, candidate sigil 1d19e60b",
-      "agent": true
-    },
-    {
       "what": "How short the connector can go: what each limit protects, plus a separate test level you can fly",
       "where": "branch research/shorter-connector",
       "agent": true
@@ -70,7 +65,7 @@
       "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil landing parcel/clip-overlay a1ff8796 and rebuilding the shared assembler; ours staged on parcel/clip-anchor-overlay-2",
+      "blockedBy": "sigil swapping the shared assembler through the hub's window; our check found the new one changes none of our four standard ROMs",
       "project": "REGIONS"
     },
     {
@@ -168,5 +163,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:41:28Z"
+  "updatedAt": "2026-09-25T17:16:12Z"
 }
