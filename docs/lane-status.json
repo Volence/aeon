@@ -7,7 +7,7 @@
       "agent": true
     },
     {
-      "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
+      "what": "Adding one more section of Chemical Plant, fixing the floor-hole check it needs first",
       "where": "branch parcel/rule-b-reachable",
       "agent": true
     },
@@ -44,7 +44,7 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant: 480 px added and LANDED; now fixing the floor-hole check and extending it as far as Sonic can run",
+      "title": "Chemical Plant: 480 px added and landed; now adding one more whole section, with the floor-hole check fixed first",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -146,5 +146,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:02:07Z"
+  "updatedAt": "2026-09-25T18:04:53Z"
 }
