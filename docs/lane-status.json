@@ -7,13 +7,13 @@
       "agent": true
     },
     {
-      "what": "Longer Chemical Plant, built on top of the sound positions file and the new assembler",
-      "where": "branch parcel/s2clip-cpz-longer",
+      "what": "Landing the Sonic 2 level's own sound positions file",
+      "where": "branch land/0925-clip-overlay",
       "agent": true
     },
     {
-      "what": "Landing the Sonic 2 level's own sound positions file",
-      "where": "branch land/0925-clip-overlay",
+      "what": "Finding what Sonic 2 puts over 34 holes in Chemical Plant's floors, which stop the level going further",
+      "where": "branch research/cpz-floor-gaps",
       "agent": true
     }
   ],
@@ -44,10 +44,10 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant is too short: extending it toward its second checkpoint (being built now; lands after the sound positions file)",
-      "state": "doing",
+      "title": "Chemical Plant made 480 px longer (the gap you'd fall into is filled), landing after the sound positions file; going further hits 34 holes in Sonic 2's own floors, being researched",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (stacked on it); staged at parcel/s2clip-cpz-longer 47c43013",
       "project": "REGIONS"
     },
     {
@@ -154,5 +154,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:33:50Z"
+  "updatedAt": "2026-09-25T17:36:10Z"
 }
