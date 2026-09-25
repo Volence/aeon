@@ -1,12 +1,6 @@
 {
-  "focus": "Overnight: Sonic 2 act with Chemical Plant is ready for you; now working through the tool-check backlog, as ruled.",
-  "inFlight": [
-    {
-      "what": "Sonic 2 act tooling for the editor's donor page: per-zone tile and page counts, and a machine-readable refusal",
-      "where": "branch parcel/clip-tooling-aurora-asks (agent worktree)",
-      "agent": true
-    }
-  ],
+  "focus": "At a clean stop: Chemical Plant is in the Sonic 2 act and on disk for your flythrough; eight other fixes landed overnight.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,7 +8,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "When the two-zone act lands and its ROM is on disk for your flythrough.",
+  "nextBoundary": "Here. Nothing running, everything landed and pushed; handoff at docs/superpowers/2026-09-25-aeon-overseer-handoff-24.md.",
   "queue": [
     {
       "id": "RAMP-ARM4-SPAN",
@@ -117,7 +111,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-25T10:53:56Z"
+  "awaiting": "your flythrough of the two-zone Sonic 2 act (s4.s2clip.debug.bin crc 441f1db0), and your answer on the assembler lane's card d-35-revised. This session is clearable.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-25T11:24:16Z"
 }
