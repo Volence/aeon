@@ -1,6 +1,12 @@
 {
   "focus": "Overnight: Sonic 2 act with Chemical Plant is ready for you; now working through the tool-check backlog, as ruled.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Publish the background-band record size once, so no tool has to guess it",
+      "where": "branch parcel/band-record-len (agent worktree)",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -49,14 +55,14 @@
     {
       "id": "PUBLISH-BAND-RECORD-LEN",
       "title": "Another tool derives a size we could publish once; a tool of ours got that size wrong for three weeks and blamed the engine for it",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -120,5 +126,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T10:29:56Z"
+  "updatedAt": "2026-09-25T10:30:28Z"
 }
