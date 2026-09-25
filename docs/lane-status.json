@@ -2,23 +2,13 @@
   "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
   "inFlight": [
     {
-      "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
+      "what": "Tunnel is done; re-checking it on top of the lag fix before it lands",
       "where": "branch parcel/s2clip-tunnel-2",
       "agent": true
     },
     {
-      "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
-      "where": "branch parcel/s2clip-bg-scroll-2",
-      "agent": true
-    },
-    {
-      "what": "Aeon's half of the clip's own sound positions file",
-      "where": "branch parcel/clip-anchor-overlay-2",
-      "agent": true
-    },
-    {
-      "what": "Getting our sound-debugging tools ready for the emulator's new sound-chip watch addresses, to land right after oracle's change",
-      "where": "branch parcel/z80-tap-addr-move",
+      "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
+      "where": "detached origin/master, candidate sigil 1d19e60b",
       "agent": true
     }
   ],
@@ -29,7 +19,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "The three Sonic 2 test-level agents return and land one at a time, rebuilding the Sonic 2 ROMs after each.",
+  "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
@@ -49,10 +39,10 @@
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "doing",
+      "title": "Sonic 2's own background scrolling is built and checked; it lands after the sound positions file, because the debug build has no room for it before then",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
       "project": "REGIONS"
     },
     {
@@ -72,10 +62,10 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
-      "state": "doing",
+      "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil landing parcel/clip-overlay a1ff8796 and rebuilding the shared assembler; ours staged on parcel/clip-anchor-overlay-2",
       "project": "REGIONS"
     },
     {
@@ -165,13 +155,13 @@
     },
     {
       "id": "Z80-TAP-ADDR-MOVE",
-      "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
-      "state": "doing",
+      "title": "Our sound-debugging tools are ready for the emulator's new sound-chip addresses; they land the moment oracle pushes",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": "oracle pushing parcel/z80-watch-tap (they message us first); staged on branch parcel/z80-tap-addr-move"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:50:53Z"
+  "updatedAt": "2026-09-25T16:29:46Z"
 }
