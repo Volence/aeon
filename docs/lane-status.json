@@ -1,5 +1,5 @@
 {
-  "focus": "Overnight, game first: adding Chemical Plant to the Sonic 2 act. The debug build's stopping check is fixed and landed.",
+  "focus": "Overnight, game first: Chemical Plant is being added to the Sonic 2 act; two smaller fixes landed.",
   "inFlight": [
     {
       "what": "Sonic 2 act row 7: Emerald Hill + corridor + Chemical Plant, per-zone palettes",
@@ -7,8 +7,8 @@
       "agent": true
     },
     {
-      "what": "Which sprite frame crosses a memory boundary in ordinary play, and why the tool said none could",
-      "where": "branch parcel/dplc-straddle-reachable (agent worktree)",
+      "what": "Whether our tool checks can catch a tool that measures correctly then throws the answer away",
+      "where": "branch parcel/keepalive-lossy (agent worktree)",
       "agent": true
     }
   ],
@@ -31,7 +31,7 @@
     {
       "id": "KEEPALIVE-BLIND-TO-LOSSY",
       "title": "A tool that measures correctly and throws the answer away passes every check we have; one did exactly that for two weeks",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -43,16 +43,9 @@
       "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
-      "id": "DPLC-STRADDLE-REACHABLE",
-      "title": "Ordinary grounded play straddles six times in an act we had argued could not straddle at all; the frame that did it is not identified, but the argument for expecting zeros needs re-running -- not the numbers, which stand",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
       "id": "COST-PROBE-SWEEP-ANCHOR",
       "title": "A sweep advertises coverage it measures none of; giving it that coverage means breaking its own promise to poke nothing, so it is red until someone decides which the arm is for",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -154,10 +147,10 @@
       "title": "Floor: mechanism reopened -- you watched planks change angle, which painted art cannot do",
       "state": "blocked",
       "size": "L",
-      "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
+      "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T07:47:56Z"
+  "updatedAt": "2026-09-25T08:39:00Z"
 }
