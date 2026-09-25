@@ -1112,7 +1112,8 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         dict(donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
                                  log=log, clip=c), clip=c.id)
         for c in act.clips]
-    out["donor_corroboration"] = out["donor_corroborations"][0]
+    out["donor_corroboration"] = (out["donor_corroborations"][0] if act.clips else
+                                  {"measured": False, "why": "the act names no clip"})
     return out
 
 
