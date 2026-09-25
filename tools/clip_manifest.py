@@ -168,7 +168,7 @@ two clips that the palette cross-fade plays inside. Schema, beside `clips`:
 
     "corridors": [
       { "id": "ehz_to_cpz",                               // region-id pattern, unique
-        "dst_rect": { "x": 10976, "y": 0, "w": 1312, "h": 6144 },
+        "dst_rect": { "x": 10976, "y": 0, "w": 1312, "h": 1024 },
         "floor_y": 768 } ]                                // world px, top of the floor
 
 WHAT A CORRIDOR PAINTS, and why each choice. It is SYNTHESISED by the bake, never taken

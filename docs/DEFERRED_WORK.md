@@ -37524,7 +37524,7 @@ place at §10 row 6, §11 risk 4 and §13, where this parcel made a sentence in 
   because `games/demo` has zero Sonic code and "Sonic stands on its ground" would need a fork
   of the whole `games/sonic4` game layer.
 
-**BLOCKED — THE PALETTE, and it wants a ruling before row 7**
+~~**BLOCKED — THE PALETTE, and it wants a ruling before row 7**~~ **RESOLVED BY ROW 7 (2026-09-25) WITHOUT A RULING: neither (a) nor (b).** A clip act no longer writes `ojz_palette.bin` at all — it carries its own palettes, presets and region table in the generated `clip_act.emp` + a data block (option (c), built) — so the eight pins keep describing exactly the palette they were written for. See the row-7 entry below.
 
 `--palette clip` is the right picture and does not build. `games/sonic4/data/effects/
 ojz_effects.emp` carries **EIGHT top-level comptime `ensure`s pinned to statistics OF THE
@@ -37644,16 +37644,22 @@ the sweep was odd before padding.
 
 **WHAT ROW 7 (two clips + a corridor) INHERITS**
 
-- **The ROM path is open for ONE clip, and R20 is row 7's first job.** Two clips need the
+- ~~**The ROM path is open for ONE clip, and R20 is row 7's first job.**~~ **DONE (row 7):**
+  the ROM path bakes a KEYED project (`tilesets` + `section_N.zonekey.bin`), R20 is deleted, and
+  K4 holds the ROM pool to the composed pool byte for byte. Two clips need the
   per-cell tileset key ON THE ROM PATH; `clip_act_bake` already computes it
   (`clip_manifest.cell_grids`) and `ojz_strip_gen.generate()` does not read it — it hands
   `place_pool` a `zone_grid` of zeros and loads ONE tileset (`project.json` zones[0].tileset).
-- **The act grid is 3x3 and fixed by the descriptor (R21).** Two clips plus a corridor wider
+- ~~**The act grid is 3x3 and fixed by the descriptor (R21).**~~ **MOOT since parcel 9 (the act
+  declares its own grid); the corridor's art is a synthesised line-0 sheet (row 7).** Two clips plus a corridor wider
   than the 640 px camera window fit in one 6,144 px row with room to spare — but the corridor's
   own art has to come from somewhere, and today that somewhere is the one tileset.
-- **THE PALETTE BLOCKER IS ON ROW 7'S CRITICAL PATH**, not a nicety.
-- **A clip act's own effects, regions and background do not exist**; all three are inherited
-  from the shipped act. Row 7's corridor needs at least the region rows.
+- ~~**THE PALETTE BLOCKER IS ON ROW 7'S CRITICAL PATH**, not a nicety.~~ **CLOSED by row 7**
+  (clip-owned palettes; the pins untouched).
+- ~~**A clip act's own effects, regions and background do not exist**; all three are inherited
+  from the shipped act. Row 7's corridor needs at least the region rows.~~ **Regions and palettes:
+  DONE (row 7).** The BACKGROUND is still the shipped act's (now drawn in each zone's palette —
+  TAGGED), and so are objects and rings.
 - **The `$18` tripwire is still armed** and still costs nothing: no showcase zone references it.
 
 **OPEN RIDERS (small, none blocking)**
@@ -37666,8 +37672,10 @@ the sweep was odd before padding.
   moment a clip act's tree is COMMITTED, which would be the second-act-entry design this parcel
   rejected. The `.gitignore` comments were left as written rather than edited, because the
   condition they name is still the right condition — it just has not arrived.
-- **`S2CLIP_PALETTE=clip` is expected to FAIL** until the ruling above. It is wired, refused by
-  the pins, and says so; it is not a dormant scaffold but the named subject of an open card.
+- ~~**`S2CLIP_PALETTE=clip` is expected to FAIL** until the ruling above. It is wired, refused by
+  the pins, and says so; it is not a dormant scaffold but the named subject of an open card.~~
+  **DELETED by row 7**, with `--palette`: no ruling was needed and a knob with one working
+  position is a scaffold.
 - **`donor_provenance` still records both S2 donors with `contributes_to_rebake=false`, and that
   is still correct** — no committed byte comes from them. A clip bake DOES stamp
   `DONOR_PROVENANCE.json` with them as it runs, and the trap restores it.
@@ -37974,11 +37982,72 @@ doc's extent paragraph are patched in place where this falsifies them.
   beside a row taking `OJZ_SEC10_BLOCK_DICT_LEN` (also 0, imported only there) that did not. Same
   shape as `EMP_PITFALLS` §2. Worked around by emitting the number as a literal. **Reported from
   aeon's side as a symptom only; not raised with sigil and no claim made about its internals.**
-- **STILL OPEN, unchanged:** the act has no bottom (1,232 of 1,280 columns). A NON-section-aligned
+- **STILL OPEN, unchanged:** the act has no bottom (1,232 of 1,280 columns). ⚠ **ROW 7
+  (2026-09-25) RECOVERED THE 736 px IN THE TWO-ZONE ACT** (`s2_ehz_cpz` paints Emerald Hill's
+  whole 10,976-px crop before its corridor: an act wider than Emerald Hill does not need its
+  clip to end on a section boundary; measured price +3,386 B of block stream and nothing else).
+  `s2_ehz_boot` alone still truncates. The sentence that follows is about a ONE-zone act: A NON-section-aligned
   act extent is the only thing that recovers the truncated 736 px — the parcel-7 idea in its last
   surviving form, not needed here. And `OJZ_WIDE_FILL_ROWS` is a floor, not a design: a clip act wider than its region
   document shows one flat preset past 6,144 px, because `effects_gen` does not run in the S2CLIP
   bake. Per-act region documents are the real answer and are not booked beyond this sentence.
+
+### S2-COMPRESSED-ACT row 7 LANDED 2026-09-25 — TWO ZONES, ONE ACT, A CORRIDOR, EACH ZONE IN ITS OWN COLOURS
+
+Branch `parcel/s2-two-zone-act` (base `7a48b130`, `origin/master` `57b75d6c` merged before the
+final builds). Report: `docs/research/s2-compressed-act/2026-09-25-two-zone-act.md`. The owner's
+ask, verbatim: *"can we add in chemical plant now and test them together?"*
+
+**CLOSED**
+
+- **Row 7's static half.** `S2CLIP=s2_ehz_cpz ./build.sh` **exit 0**, every gate green →
+  `s4.s2clip.bin` 822,334 B crc32 `9a3533f1`. The act (7 x 3 sections): ALL of Emerald Hill
+  act 1's crop x 0..10975, a 1312-px corridor x 10976..12287, Chemical Plant act 1's first 2048
+  px x 12288..14335 (pasted +256 so its start floor meets the corridor's at y 768). The row's
+  two checks: **Z1** — 0 of 629,079 tile-cache windows hold both zones (gap 164 cells); **Z2** —
+  over the rows parsed back out of the emitted module, one preset install and one palette change
+  at x = 11632 on all 64 corridor rows, 656 px of corridor each side against the 416 the fade
+  needs (CAM_SCREEN_HALF_W + PAL_FADE_FRAMES x CAM_MAX_X_STEP, read from engine source).
+  `verify_level_bin` all ten lanes on the keyed tree (21 sections, 1,376,256 words);
+  `clip_reachability` OK; `ground` corroborates BOTH donors' own start positions (EHZ 2 px, CPZ
+  1 px).
+- **R20 → the per-cell tileset key on the ROM path.** Keyed project (`tilesets` +
+  `section_N.zonekey.bin`); **K4** holds the ROM pool to the composed pool byte for byte. Control:
+  `s2_ehz_boot` baked keyed was byte-identical to the base clip ROM (`9ea6d7c2`).
+- **The palette blocker, with neither (a) nor (b)** — see the parcel-6 entry's struck header.
+  `clip_act.emp` (neutral when committed; canonical ROMs byte-identical) + `act_descriptor.emp`'s
+  `ojz_clip_act_regions(hand:)` seam; the descriptor re-checks the clip rows with its own walk.
+- **S2CLIP-TRUNCATION, in the two-zone act:** the 736 px are back (+3,386 B, nothing else moved).
+
+**OPEN — BLOCKED ON A SIGIL-LANE PARCEL**
+
+- **`DEBUG=1 S2CLIP=s2_ehz_cpz` exits 1 at `bganim_room`, and it is REAL:** room under
+  `dac_banks` 0xA8000 is 30,900 B against the 49,152 B reserve, **short by 18,252 B** (packed end
+  0xA074C; the act adds 28,062 B before `Art_Sonic`). Every other gate of that build, before and
+  after it (the tail five re-run by hand on a provenance-FRESH re-bake), is green; the ROM
+  (848,912 B, crc32 `441f1db0`) is written. Remedy: move both bank anchors (map.toml + sigil's
+  frozen tables). The plain shape passes with 8,974 B to spare.
+- **ROM ROOM IS THE BINDING BUDGET for every further row** (not VRAM, not collision, not
+  sections): ALL of CPZ act 1 measured +123 KB of block stream and would not link; a CPZ section
+  painted 2048 px tall is 13-25 KB. Rows 8-9 (three and six clips) are ROM-room parcels first.
+- **The clip act's data lives in a borrowed vehicle.** It is appended to `entity_data.emp` (the
+  one regenerated module whose section head it cannot displace) after three MEASURED refusals: its
+  own module in `ojz_effects_editor_act1` became the section head and sigil refused
+  `[layout.undeclared-alignment]` (sigil keys alignment by HEAD LABEL); renaming it to sort later
+  changed nothing; appended to `effects_scenes.emp` it tripped `effects_gen.py check` (correctly).
+  Its proper home is a section of its own — a map.toml row AND a sigil `section_align` row.
+
+**TAGGED FOR THE OWNER'S RUNTIME LOOK** (report §8): the picture; the fade at x = 11632 both ways;
+the BACKGROUND (still Oracle Jungle's Plane B, now in each zone's palette — likely wrong); a
+≤16-frame fade from OJZ's colours into EHZ's at boot (the boot copies `OJZ_Palette`, the first
+install fades); **76 Chemical Plant cells on CRAM line 0** in its first 2048 px (Sonic's colours;
+§5.3's open decision); the 4-px step onto the corridor; CPZ geometry without its objects.
+
+**RIDERS**
+
+- `s2_ehz_boot` now also draws Emerald Hill in its own colours (its ROM changed by design).
+- The two `dplc_straddle` margins moved (a warning, not a gate): plain nearest forbidden shift
+  6,093 B up → 4,179 B down (sonic); debug 3,343 B → knuckles 919 B up.
 
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
