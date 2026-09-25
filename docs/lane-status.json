@@ -1,11 +1,6 @@
 {
-  "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
+  "focus": "Tunnel and lag fix landed; waiting on the new assembler swap to land the Sonic 2 sound positions file, then scrolling.",
   "inFlight": [
-    {
-      "what": "Tunnel is done; re-checking it on top of the lag fix before it lands",
-      "where": "branch parcel/s2clip-tunnel-2",
-      "agent": true
-    },
     {
       "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
       "where": "detached origin/master, candidate sigil 1d19e60b",
@@ -43,14 +38,6 @@
       "state": "blocked",
       "size": "L",
       "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-TUNNEL",
-      "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -163,5 +150,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:29:46Z"
+  "updatedAt": "2026-09-25T16:33:09Z"
 }
