@@ -1,5 +1,5 @@
 {
-  "focus": "You were flying an old copy of the Sonic 2 act. I rebuilt it five sections wide; it is ready for your flythrough.",
+  "focus": "Booted fresh. The Sonic 2 test act is rebuilt five sections wide and waiting on your flythrough.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -154,7 +154,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "your flythrough of s4.s2clip.debug.bin, rebuilt from master at 2026-09-25 (crc 19e78bdb). The copy you were running was from 09-17, before the act went from three sections to five, so it stopped after section 3. The act now ends at x=10240.",
+  "awaiting": "your flythrough of s4.s2clip.debug.bin (crc 19e78bdb, rebuilt 2026-09-25, act now ends at x=10240), and whether I take game work or instrument work next",
   "atBoundary": true,
-  "updatedAt": "2026-09-25T05:59:52Z"
+  "updatedAt": "2026-09-25T06:01:03Z"
 }
