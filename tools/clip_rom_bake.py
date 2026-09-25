@@ -929,12 +929,16 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         collision_dir=coll_dir,
         bank_dir=bank_dir,
     )
-    # THE CLIP ACT'S OWN REGIONS AND PALETTES (the ROW 7 block). Written before the strip
-    # bake so a Z2 refusal costs nothing; `ojz_palette.bin` is left to the shipped act.
-    z2, region_plan_ = emit_clip_module(act, donor_root, log=log)
     log("clip_rom_bake: strips, local maps, art pool, palette, collision tables...")
     ojz_strip_gen.generate()
     check_rom_pool_is_composed_pool(baked_dir, gen_dir, log=log)
+    # THE CLIP ACT'S OWN REGIONS AND PALETTES (the ROW 7 block). AFTER generate(), and that
+    # order is load-bearing: the data block is appended to entity_data.emp, which
+    # generate()'s Pass 8 rewrites whole — written before it, the block was erased and the
+    # clip module's imports named presets that no longer existed (measured, 2026-09-25).
+    # `ojz_palette.bin` is left to the shipped act.
+    z2, region_plan_ = emit_clip_module(act, donor_root, data_path=os.path.join(
+        gen_dir, os.path.basename(CLIP_DATA)), log=log)
 
     # THE EDITOR-AUTHORED BG OVERRIDE, exactly as tools/regenerate-level.sh runs it.
     # Skipping it was a REAL failure and not a cosmetic one: the raw generated zone BG is
