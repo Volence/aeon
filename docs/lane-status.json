@@ -2,11 +2,6 @@
   "focus": "Working your two asks: how short the connector can go (as a separate test level), and a longer Chemical Plant.",
   "inFlight": [
     {
-      "what": "How short the connector can go: what each limit protects, plus a separate test level you can fly",
-      "where": "branch research/shorter-connector",
-      "agent": true
-    },
-    {
       "what": "Landing the Sonic 2 level's own sound positions file",
       "where": "branch land/0925-clip-overlay",
       "agent": true
@@ -28,10 +23,10 @@
   "queue": [
     {
       "id": "S2CLIP-CONNECTOR-SHORTER",
-      "title": "You asked whether the connector can be much shorter: finding what each length limit protects and building a separate test level to fly",
-      "state": "doing",
+      "title": "A 640 px connector works with no engine change (the landed one is 832): a test build is ready for you to fly",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "your flight of s4.s2clip-short.debug.bin (crc 2f641ad0): a 640 px connector, no engine code; ~480 px needs a small engine change",
       "project": "REGIONS"
     },
     {
@@ -152,7 +147,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Fly s4.s2clip-short.debug.bin (the 640 px connector test) and say whether to adopt it, or go for ~480 px with a small engine change",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:36:10Z"
+  "updatedAt": "2026-09-25T17:39:01Z"
 }
