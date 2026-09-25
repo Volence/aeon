@@ -22,10 +22,6 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "what": "The assembler lane's card d-35-revised: longer Chemical Plant cannot fit until it is answered",
-      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "When the lag measurement and the costing come back and I've picked what lands first.",
@@ -43,7 +39,7 @@
       "title": "Chemical Plant is too short: add more of it (costed: to its second checkpoint once d-35 lands)",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "your answer on the assembler lane's card d-35-revised: one more Chemical Plant section is 28 KB and runs into the sound-bank position that card moves",
+      "blockedBy": "the sound-bank positions file you chose (d-35): waits on the assembler lane naming its switch, then both halves land",
       "project": "REGIONS"
     },
     {
@@ -73,7 +69,7 @@
       "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "your call on the assembler lane's card d-35-revised: it now recommends our option, a small sound-bank settings file inside the test act's folder",
+      "blockedBy": "the assembler lane naming the switch for the positions file you chose; then aeon writes its half",
       "project": "REGIONS"
     },
     {
@@ -164,5 +160,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T13:46:47Z"
+  "updatedAt": "2026-09-25T14:20:43Z"
 }
