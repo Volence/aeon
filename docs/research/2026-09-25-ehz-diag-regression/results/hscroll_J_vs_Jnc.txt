@@ -1,0 +1,14 @@
+A J.bin crc=c7d567ab samples=995
+B Jnc.bin crc=a812797b samples=996
+common camera positions 994 (EHZ band y<1024: 53); differing 679
+  cam (112, 144): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (128, 144): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (144, 160): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (160, 176): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (176, 192): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (208, 224): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (224, 240): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (240, 256): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (256, 272): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+  cam (272, 288): 79 lines differ, first [145, 146, 147, 148, 149, 150, 151, 152]
+finished=1

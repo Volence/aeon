@@ -1,0 +1,53 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index 3cd1d94c..c49d7d77 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -2348,6 +2348,11 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
+         subq.w  #1, d1                              // ...and the quotient becomes the floor
+     .curve_rem_ok:
+         move.w  d1, band_curve_step(a1)
++        swap    d2
++        clr.w   d2                                  // PROTOTYPE: d2 = rem << 16
++        add.w   d4, d2
++        subq.w  #1, d2                              // + span - 1 (ceil)
++        divu.w  d4, d2                              // PROTOTYPE: ceil(rem*65536/span) < 65536
+         move.w  d2, band_curve_rem(a1)
+     .curve_next:
+         adda.w  #sizeof(band_record), a1
+@@ -3517,30 +3522,17 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
+         sub.w   d4, d2                              // d2 = lines in THIS entry
+         ble     .band_done                          // empty/malformed entry
+         move.w  d5, d4                              // line index jumps to the band end
+-        add.w   d2, d2
+-        add.w   d2, d2                              // d2 = bytes this entry writes
+-        movea.l a4, a0                              // a0 = the run's END cursor. a0 is the
+-        adda.w  d2, a0                              //   caller's config ptr, dead since the
+-                                                    //   table hoist and restored by the exit
+-                                                    //   movem — the same borrow the two
+-                                                    //   single-channel loops make for their
+-                                                    //   curve walk pointer.
++        move.w  d2, d5
++        subq.w  #1, d5                              // PROTOTYPE: dbf line count
+         move.w  band_curve_step(a1), d2             // whole pixels per line (may be negative)
+-        move.w  band_curve_rem(a1), d3              // the fraction's numerator, in [0, span)
+-        move.w  band_curve_span(a1), d5             // d5 is free — d4 already holds the end
++        move.w  band_curve_rem(a1), d3              // PROTOTYPE: 0.16 fraction ceil(rem*65536/span)
+         swap    d0                                  // d0.w = FG base scroll (constant word)
+     .lp_curve:
+         move.w  d0, (a4)+                           // FG word — constant across the layer
+         move.w  d1, (a4)+                           // BG word — the ramp's value at this line
+-        add.w   d2, d1                              // acc += whole
+-        add.w   d3, d6                              // err += remainder
+-        cmp.w   d5, d6                              // both are in [0, 2*span); unsigned is
+-        blo     .lc_next                            //   exact and needs no sign handling
+-        sub.w   d5, d6
+-        addq.w  #1, d1                              // the fraction carried one whole pixel
+-    .lc_next:
+-        cmpa.l  a0, a4
+-        blo     .lp_curve
++        add.w   d3, d6                              // frac acc; X = carry out
++        addx.w  d2, d1                              // acc += whole + carry
++        dbf     d5, .lp_curve
+         move.w  d1, Parallax_Curve_Carry            // (Parallax_Curve_Carry).w — park the
+         move.w  d6, Parallax_Curve_Carry+2          //   carry: the next entry may be this
+                                                     //   layer's anchored continuation

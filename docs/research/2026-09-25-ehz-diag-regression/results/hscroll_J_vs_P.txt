@@ -1,0 +1,4 @@
+A J.bin crc=c7d567ab samples=995
+B P.bin crc=5a4fc938 samples=996
+common camera positions 994 (EHZ band y<1024: 53); differing 0
+finished=1

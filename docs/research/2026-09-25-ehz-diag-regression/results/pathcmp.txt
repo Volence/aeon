@@ -1,0 +1,9 @@
+A_diag.json      samples 56 vs 56; differing 1, max |d| 16 px
+F_diag.json      samples 56 vs 56; differing 3, max |d| 16 px
+G_diag.json      samples 56 vs 56; differing 1, max |d| 16 px
+H_diag.json      samples 56 vs 56; differing 1, max |d| 16 px
+I_diag.json      samples 56 vs 56; differing 2, max |d| 16 px
+J_diag.json      samples 56 vs 56; differing 2, max |d| 16 px
+P_diag.json      samples 56 vs 56; differing 0, max |d| 0 px
+Fnp_diag.json    samples 56 vs 56; differing 0, max |d| 0 px
+Jnp_diag.json    samples 56 vs 56; differing 1, max |d| 16 px
