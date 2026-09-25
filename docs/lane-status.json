@@ -1,19 +1,9 @@
 {
-  "focus": "Chemical Plant is longer; landing Sonic 2's background scrolling next, while the limit test and further extension run.",
+  "focus": "Chemical Plant now runs as far as Sonic can; landing the 384 px tunnel test and its engine speed-up last.",
   "inFlight": [
     {
-      "what": "Short test level: the real Sonic 2 level with the tunnel cut to just over one screen wide (limit test)",
+      "what": "Merging the 384 px tunnel test onto today's landings, final check, then landing",
       "where": "branch research/shorter-connector",
-      "agent": true
-    },
-    {
-      "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
-      "where": "branch parcel/rule-b-reachable",
-      "agent": true
-    },
-    {
-      "what": "Re-checking Sonic 2's background scrolling on top of today's landings, then landing it",
-      "where": "branch parcel/s2clip-bg-scroll-2",
       "agent": true
     }
   ],
@@ -24,11 +14,11 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
+  "nextBoundary": "Longer Chemical Plant lands, then the 384 px tunnel test merges it and the scrolling change, re-checks, and lands.",
   "queue": [
     {
       "id": "S2CLIP-CONNECTOR-SHORTER",
-      "title": "Limit test you asked for: a connector just over a screen wide (a small engine change, on a separate test level)",
+      "title": "Limit test: a 384 px tunnel (1.2 screens) is glitch-free after a small engine speed-up; fly s4.s2clip-short.debug.bin (336 px glitches for 2 frames)",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -39,22 +29,6 @@
       "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
       "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant: 480 px added and landed; now fixing the floor-hole check and extending it as far as Sonic can run",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Sonic 2's own background scrolling is built and checked; it lands next, now there's room",
-      "state": "doing",
-      "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -144,7 +118,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Fly s4.s2clip-short.debug.bin (crc 95db1392, the 384 px tunnel) whenever you like; say if you want to see the 336 px version that glitches briefly",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:08:11Z"
+  "updatedAt": "2026-09-25T19:16:54Z"
 }

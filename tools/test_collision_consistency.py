@@ -198,6 +198,144 @@ def test_rule_b_ignores_gaps_running_off_the_section_edge():
 
 
 # ---------------------------------------------------------------------------
+# RULE B, second stage — only a gap a reachable standing player's ledge probe
+# reports as a ledge is a violation (S2CLIP-CPZ-FURTHER, 2026-09-25).
+#
+# Four synthetic scenes, one per class the CPZ research found
+# (docs/research/2026-09-25-cpz-floor-gaps.md). Every scene has the SAME one-row
+# candidate: a 16 px gap in floor row 10, cols 20-21, floor on both sides. The
+# one-row scan (`find_pinhole_violations`) flags all four; only the geometry
+# around the gap differs, and each allowed scene is cleared by ONE named stage.
+# Thresholds come from the source (`cc.ledge_params()`), never from this file.
+# ---------------------------------------------------------------------------
+
+B_ROWS, B_COLS, B_FLOOR_ROW, B_GAP_COLS = 16, 40, 10, (20, 21)
+B_FULL, B_THIN = 1, 2       # attrs: full SOLID_ALL block; 1 px high SOLID_ALL shape
+
+
+def _b_tables():
+    heights, _angles, solidity = _tables({B_FULL: (FULL, 0xFF, SOLID_ALL),
+                                          B_THIN: ([1] * 16, 0xFF, SOLID_ALL)})
+    return heights, solidity
+
+
+def _scene(kind):
+    """One 40x16-cell scene holding the row-10 gap. Returns {(row, col): attr}."""
+    cells = {}
+    if kind == "reachable":
+        # open floor with a 16 px hole: thick ground from row 10 down, air above
+        for r in range(B_FLOOR_ROW, B_ROWS):
+            for c in range(B_COLS):
+                cells[(r, c)] = B_FULL
+    elif kind == "sealed":
+        # solid rock holding a 160 x 64 px room (rows 6-9, cols 10-29) whose
+        # floor is row 10: a player fits in the room, but nothing leads into it
+        for r in range(B_ROWS):
+            for c in range(B_COLS):
+                if not (6 <= r < B_FLOOR_ROW and 10 <= c < 30):
+                    cells[(r, c)] = B_FULL
+    elif kind == "notch":
+        # a slab (rows 4-10) with a 16 px notch in its underside; open air below
+        for r in range(4, B_FLOOR_ROW + 1):
+            for c in range(B_COLS):
+                cells[(r, c)] = B_FULL
+    elif kind == "dip":
+        # a 1 px high floor surface (row 10) over solid ground (rows 11+): the air
+        # cell has solid ground 1 px under the probe point
+        for c in range(B_COLS):
+            cells[(B_FLOOR_ROW, c)] = B_THIN
+        for r in range(B_FLOOR_ROW + 1, B_ROWS):
+            for c in range(B_COLS):
+                cells[(r, c)] = B_FULL
+    else:
+        raise ValueError(kind)
+    for c in B_GAP_COLS:
+        cells.pop((B_FLOOR_ROW, c), None)
+    return cells
+
+
+def _exposed(grid):
+    heights, solidity = _b_tables()
+    lp = cc.ledge_params()
+    return cc.find_exposed_pinhole_violations(
+        grid, heights, solidity, lp["SOLID_TOP"], lp["SOLID_LRB"],
+        lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"], lp["LEDGE_PROBE_REACH"],
+        lp["LEDGE_NO_GROUND"], other_rows=grid)
+
+
+def _stage(kind):
+    heights, solidity = _b_tables()
+    lp = cc.ledge_params()
+    grid = _grid(B_ROWS, B_COLS, _scene(kind))
+    cand, _ = cc.find_pinhole_violations(grid, heights, solidity, lp["SOLID_TOP"],
+                                         2 * lp["PLAYER_X_RADIUS"])
+    # The precondition every scene shares: the ONE-ROW scan flags exactly the
+    # row-10 gap, so whatever clears it below is the second stage, not the scan.
+    assert [(v["row"], v["x_start"], v["gap_px"]) for v in cand] == [
+        (B_FLOOR_ROW, B_GAP_COLS[0] * 8, 16)], (kind, cand)
+    plane = cc.CollisionPlane(grid, heights, solidity, grid)
+    return cc.classify_pinhole(plane, cand[0], lp["SOLID_TOP"], lp["SOLID_LRB"],
+                               lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
+                               lp["LEDGE_PROBE_REACH"], lp["LEDGE_NO_GROUND"])
+
+
+def test_rule_b_refuses_a_reachable_pinhole():
+    """RED-able: open floor, a player walks up to the hole and teeters."""
+    stage, witness = _stage("reachable")
+    assert stage == "exposed"
+    x, foot_y, _facing = witness
+    assert foot_y == B_FLOOR_ROW * 16          # standing on the floor's top
+    v, stats = _exposed(_grid(B_ROWS, B_COLS, _scene("reachable")))
+    assert len(v) == 1 and stats["candidates"] == 1
+
+
+def test_rule_b_allows_a_sealed_pocket():
+    """A room a player would fit in, sealed inside rock on both planes."""
+    assert _stage("sealed")[0] == "sealed"
+    assert _exposed(_grid(B_ROWS, B_COLS, _scene("sealed")))[0] == []
+
+
+def test_rule_b_allows_an_under_slab_notch():
+    """The gap is in the slab's underside: no one can stand beside it."""
+    assert _stage("notch")[0] == "no_stand"
+    assert _exposed(_grid(B_ROWS, B_COLS, _scene("notch")))[0] == []
+
+
+def test_rule_b_allows_a_one_pixel_dip():
+    """The probe finds ground 1 px down, within LEDGE_NO_GROUND: no teeter."""
+    assert _stage("dip")[0] == "ground_within_limit"
+    assert _exposed(_grid(B_ROWS, B_COLS, _scene("dip")))[0] == []
+
+
+def test_rule_b_refuses_only_the_reachable_one_of_four_side_by_side():
+    """All four scenes in one grid: four one-row candidates, one violation, at
+    the reachable scene's gap."""
+    order = ("sealed", "reachable", "notch", "dip")
+    cells = {}
+    for i, kind in enumerate(order):
+        cells.update({(r, c + i * B_COLS): a for (r, c), a in _scene(kind).items()})
+    v, stats = _exposed(_grid(B_ROWS, B_COLS * len(order), cells))
+    assert stats["candidates"] == 4
+    assert [(x["row"], x["x_start"]) for x in v] == [
+        (B_FLOOR_ROW, (order.index("reachable") * B_COLS + B_GAP_COLS[0]) * 8)]
+    assert (stats["cleared_sealed"], stats["cleared_no_stand"],
+            stats["cleared_ground_within_limit"]) == (1, 1, 1)
+
+
+def test_rule_b_ledge_thresholds_derive_from_the_source():
+    """LEDGE_PROBE_REACH is `PLAYER_X_RADIUS+2` in player_sensors.emp: it must be
+    EVALUATED from the source, and anything unreadable must be loud."""
+    lp = cc.ledge_params()
+    assert lp["LEDGE_PROBE_REACH"] == lp["PLAYER_X_RADIUS"] + 2 == 11
+    assert lp["LEDGE_NO_GROUND"] == 8
+    assert lp["SOLID_LRB"] == 2 and lp["PLAYER_Y_RADIUS"] == 19
+    with pytest.raises(cc.GateError):
+        cc.read_emp_const_expr(cc.player_sensors_emp_for(), "LEDGE_PROBE_REACH", {})
+    with pytest.raises(cc.GateError):
+        cc.read_emp_const_expr(cc.player_sensors_emp_for(), "NO_SUCH_CONSTANT", lp)
+
+
+# ---------------------------------------------------------------------------
 # Loud-on-unmeasurable
 # ---------------------------------------------------------------------------
 

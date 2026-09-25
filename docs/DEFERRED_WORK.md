@@ -38170,6 +38170,69 @@ object (clip_manifest K4/K5; `validate --json` schema number unchanged, no new t
 Shared with the parallel parcels: none of their files; the background parcel's region crossing moved
 with the tunnel (x 11632 -> 11392, derived by `region_plan`, not typed).
 
+### S2CLIP-ORIGINAL-BGS parcel B-2 (2026-09-25) — EACH BACKGROUND SCROLLS THE WAY SONIC 2 SCROLLS IT
+
+Branch `parcel/s2clip-bg-scroll-2` (base `dba08ef9`). **Data only: no engine file touched** (so no
+effects-gates ritual). Each zone's region preset now binds `preset(parallax: OJZ_Clip_Parallax_<key>)`, a
+scene built through the real `layer()`/`scene()` constructors and lowered by the registry's `lowerN`, emitted
+in the CLIP ACT DATA block (entity_data vehicle; the research's worry that the scene DSL is unreachable there
+did not materialise). Rows keep `rg_parallax 0`. Canonical shapes are untouched (the neutral module is
+unchanged).
+
+**Where the numbers come from:** `tools/clip_bg_scroll.py`. EHZ by EXECUTING `SwScrl_EHZ` (s2.asm, a 68000-
+subset interpreter) and reading the band structure off the store loops; CPZ read from `InitCam_CPZ` shifts
+cross-checked against `SwScrl_CPZ`'s per-frame rates, the 16-line block index and `cmpi.b #18,d4`.
+
+| zone | plane lines | BG scroll | s2.asm (loop/instruction line) |
+|---|---|---|---|
+| EHZ | 0..21 | 0 | 15273 |
+| EHZ | 22..79 | camX/64 | 15281 |
+| EHZ | 80..100 | camX/64 + ripple (static) | 15302 |
+| EHZ | 101..111 | 0 | 15309 |
+| EHZ | 112..127 | camX/16 | 15317 |
+| EHZ | 128..143 | 3camX/32 (1/16 + 1/32) | 15328 |
+| EHZ | 144..223 | curve camX/8 -> 3camX/4 (= camX/128 per line) | 15353, 15365, 15380 |
+| CPZ | 0..287 | camX/8 | 15035 (InitCam), 17353 |
+| CPZ | 288..303 | camX/8 + ripple (static) | 17353 |
+| CPZ | 304..511 | camX/2 | 15035, 17353 |
+
+EHZ BG locked (v_factor 15, InitCam_EHZ 14906). CPZ v_factor 2 (camY/4, 15032 + rate 17247), v_center 256 (the
+clip's paste). Ripple table = `SwScrl_RippleData` (15398) 32-entry cycle repeated to 256, speed 0.
+**Correction to the research doc §2.3:** the EHZ ramp does not end "at about 0.43 camX": it grows camX/128 per
+line from camX/8, reaching 0.71 camX on line 221 (3/4 at 224).
+
+**Verified.** `tools/test_clip_bg_scroll.py` (build.sh pre-build lane, 17 rows): the model equals SwScrl_EHZ
+exactly at every camX multiple of 128 except the ramp's holds; elsewhere within the per-shift-term floor bound;
+CPZ reader refusals; SC1 (bake read-back of each preset's binding). Red-first mutations: EHZ ripple phase +1
+(3 rows red), SC1 binding check disabled (2 rows red), CPZ ripple phase +1 (witness 8 FAIL). Headless
+`tools/clip_bg_scroll_witness.py` (manual; keepalive not_wired) on the DEBUG clip ROM: **24/24 probes exact**
+against the model, incl. CPZ vscroll 0/173/288. Room at the parcel's own base `dba08ef9`: plain +7,160 -> +6,524 B
+(−636 B); DEBUG +4,324 -> +3,688 B. **Re-verified after merging origin/master `140aad69`** (tunnel 832 px, crossing
+x 11392, CPZ at act x 11808 and 2528 wide, the clip's own anchors): both clip shapes build, SC1 green, anchors.toml
+FRESH for both, witness 24/24 exact (probes derived from the new manifest), tunnel_run_witness 6/6 crossed;
+room above the reserve plain 59,300 B / DEBUG 62,140 B under the clip anchors 0xB8000/0xC8000.
+
+**APPROXIMATED (engine can't express it as data; not built, test act):**
+- EHZ ramp: S2 writes it per line, then in held PAIRS, then held TRIPLES; the curve is per line. Exact on the
+  first line of every group, 1-2 steps (camX/128 px each) ahead inside a group (up to 166 px at camX 10653).
+  Faithful needs 39 bands > MAX_PARALLAX_BANDS 16, or a "stepped curve" band option (engine, S).
+- Flat bands differ from S2 by <=1 px per shift term (floor of +camX vs of −camX).
+- S2 leaves lines 222-223 unwritten (bug); the curve covers them (K&S2's fix).
+- Ripple static (no sub-frame deform phase speed; aurora survey gap, S).
+- CPZ: rows past 511 do not exist in the 64-row plane, so the BG stops at BG Y 288 (camera Y 1408 in this act)
+  where S2 continues to 456; the 96-cell period is cropped to 64 (B-1's invented seam) and the plane's column 0
+  is S2 BG x 384 (crop start chunk 3), and CPZ is pasted at act x 11808, so each band's horizontal phase is
+  offset from S2's by 11808·r mod 512 (452 px for camX/8, 272 px for camX/2) on top of that 384. S2's partial-block ripple quirk
+  (screen-anchored on a part-visible block 18) is not reproduced; the engine's ripple is plane-anchored.
+- The crossing between the two configs uses the default smooth lerp (pcfg_transition 0).
+
+**TAGGED FOR THE OWNER'S LOOK (runtime):** EHZ motion (esp. the lower ramp's per-line vs S2's 2/3-line slats);
+CPZ vertical follow and where it stops (camera Y ≈ 1408); the static ripples; the config lerp at the x = 11392
+crossing (moved there by the tunnel parcel) together with the BG wipe and palette fade.
+
+**OPEN:** animated ripple (sub-frame phase, S); stepped-curve band (S) if the owner wants EHZ's slats; faithful
+CPZ (tall BG with BG-space bands + wide BG, L each — unchanged from B-1).
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
@@ -40401,7 +40464,7 @@ does not know `--anchor-overlay` yet. **Lands only after (or with) the overlay p
 
 **OPEN**
 
-- **A2 (CPZ to its 2nd checkpoint) is BLOCKED by `tools/collision_consistency.py`, not by ROM room.** Measured at
+- **SUPERSEDED 2026-09-25 by part 2 below: RULE B refined (all 34 cleared, none repainted), and CPZ widened to 4576 px, as far as the player can run on plane A (not to the checkpoint).** Original text: **A2 (CPZ to its 2nd checkpoint) is BLOCKED by `tools/collision_consistency.py`, not by ROM room.** Measured at
   width 6624 (act grid 9, painted to the act edge; 6144 would leave a new 480-px void at x 17952..18431): it links
   with its own anchors (rule 0xC8000 both shapes, packed ends 0xACCE4 / 0xAD7FC, **+72,024 B**), passes the room
   rule, clip_reachability (2256 unbounded columns), the page budget (worst 11 of 12) and dplc_straddle (run by hand
@@ -40433,6 +40496,97 @@ camera stops on painted ground; that CPZ is still only past its opening, not to 
 `unbounded_fall.columns` + why, floorless why, name, note, unaligned_dst_reason) and
 `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived twice). `tools/clip_manifest.py`,
 `tools/clip_rom_bake.py` and `tools/clip_act_bake.py` are **untouched**; `s2_ehz_cpz_short` is untouched.
+
+### S2CLIP-CPZ-LONGER, part 2: RULE B refined, Chemical Plant 2528 -> 4576 px (booked 2026-09-25, branch `parcel/rule-b-reachable`)
+
+Owner answer to decision card S2CLIP-CPZ-FURTHER: *"fix the floor-hole check, then extend as far as Sonic can actually
+run"*, then (after a brief "one more section" detour he reversed) *"as far as he can run in cpz"*. Branch cut from origin/master
+8ccf0d5a, merged with origin/master 18e96e47 (carries 96dcfc8f, the +480 landing; no conflicts).
+
+**CLOSED**
+
+- **RULE B refined** (3121eaa7, 28844681; `tools/collision_consistency.py`). The one-row scan is now the CANDIDATE stage; a
+  candidate is a violation only when some position is (1) STANDING (floor pair reads 0, `Collision_ProbeDown` emulated cell
+  for cell), (2) has ROOM (no SOLID_LRB pixel in the 19x38 body box), (3) is REACHABLE (its air region, walls = full LRB cells
+  on BOTH planes, touches the section edge) and (4) its ledge probe at x +/- `LEDGE_PROBE_REACH` reads the gap and finds
+  nothing within `LEDGE_NO_GROUND`. Both constants are read from `player_sensors.emp` (`PLAYER_X_RADIUS+2` is evaluated, not
+  copied). Collision bytes untouched; `tools/collision_baseline.json` untouched (still empty).
+  - Tests (`tools/test_collision_consistency.py`, 6 new, pre-build lane): a synthetic grid with a reachable pinhole (refused),
+    a sealed pocket, an under-slab notch and a 1-px dip (each allowed, each by ONE named stage). Red-first, each mutation on
+    disk then restored from the committed file: M0 every candidate counts -> 4 failed (sealed, notch, dip, side-by-side),
+    reachable stays green; M1 reachability short-circuited -> 2 failed (sealed, side-by-side); M2 distance test dropped ->
+    2 failed (dip, side-by-side). Restored: 39 passed.
+  - CPZ x 2528..6623 (the 6624 variant): 34 candidates -> 0 (21 no_stand, 10 no_room, 2 sealed, 1 ground_within_limit = the
+    L site 4864 A), identical on the probe path and inside the real 6624 build.
+  - Beyond, CPZ x 6624..10111: 21 -> 1, plane B (8688,1408), the one open real ledge. **Correction to the research**
+    (docs/research/2026-09-25-cpz-floor-gaps.md "Beyond the checkpoint"): it named (9328,864) and (9456,1376) as open too;
+    its own `flood()`, run from the standing position its own `standable()` returns, puts each in a sealed 12-block (64x48)
+    cavity on BOTH planes. The gate clears them as sealed. So "3 in open space" is 1.
+  - A plane-only flood was not enough (it called 2 large plane-B regions sealed); plane switches can be anywhere the gate
+    does not read, so the flood opens a cell open on EITHER plane.
+  - Canonical: OJZ act 1 at HEAD has 0 candidates before and after (the gate only reads the OJZ slot). OJZ history, 134
+    revisions touching the generated tree: raw 17, refined 15; the 2 cleared (78ac6882, sec0 plane B rows 25/26) are
+    16-px air slots under a solid ceiling, no room for a body.
+- **Traversal measured** (`docs/research/2026-09-25-cpz-traversal/cpz_traverse.py`, headless, no MCP) on a 6624-px DEBUG
+  build (crc d77aa393), from act x 13960, 13 drives: hold RIGHT from rest 14091 (stuck on the slope up to the 704 ledge,
+  the S2CLIP-SLOPE-PHYSICS shape); top speed / cap 14615 (a 32-px step at x 14620, and the upper route hits a wall at the
+  same x); jump-when-stuck 15399; jump+spindash 14615; 8 random explorers all 15399. **Nobody passes act x 15399 = CPZ x
+  3591 (feet y 768)**: plane A has a solid wall there from about y 600 to 1024 (the left leg of an arch topped at y 512);
+  plane B is open, which is Sonic 2's route (its Obj03 lines, e.g. #38 at CPZ (3328,704)). No drive fell, none faulted.
+- **Extent: act 16384 (grid 8), CPZ 4576** (398557bb), the first section edge past 15399. Reading of "furthest
+  section-aligned extent he can reach": the smallest aligned end that contains everything he reaches; 14336 would drop the
+  1063 px he can run, 18432 adds only unreachable ground. **985 px behind the wall (15399..16383) are painted but out of
+  reach on plane A.** No void: `x_from` 16384 = act width. `unbounded_fall.columns` 1744 -> 2000 (+256, every new column),
+  floorless 48 unchanged, both re-measured by clip_reachability. RULE B at this width: 18 candidates, all cleared
+  (12 no_stand / 4 no_room / 2 sealed). Anchors re-derived: dac_banks 0xB8000 -> **0xC0000**, sound_bank 0xC8000 ->
+  **0xD0000** (both shapes bind).
+
+  | shape | crc | size | packed end | room above reserve |
+  |---|---|---|---|---|
+  | `S2CLIP=s2_ehz_cpz ./build.sh` | `8477fdd2` | 921,449 B | 0xA4DBC | 62,020 B |
+  | `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` | `efa02ea1` | 947,924 B | 0xA58D4 | 59,180 B |
+
+  Growth +33,524 B in both shapes (packed end). FG page worst window 11 of 12. dplc_straddle OK in both, with a MARGIN
+  WARNING: Art_Sonic can move only 2,205 B (plain) / 5,045 B (DEBUG) DOWN before VERDICT A, less than the 49,152-B growth
+  reserve, so a clip SHRINK is the next thing to trip it. Pre-build lane 3402 passed / 3 skipped in each.
+  **As LANDED (9acc5120, merged over B-2 ed48f9a9, which adds 636 B of bake data; the table above is the pre-merge build):**
+  plain `b8548b49` 921,505 B, packed end 0xA5038, room 61,384 B; DEBUG `8c69555a` 947,980 B, packed end 0xA5B50, room 58,544 B;
+  anchors FRESH at 0xC0000/0xD0000; dplc_straddle down-margin now 2,841 B plain / 5,681 B DEBUG (B-2 moved Art_Sonic up 636 B);
+  bg-scroll witness 24/24, tunnel 6/6 (28 stall frames at loadavg ~7), traversal still 15399; landing_build exit 0 finished=0, 3419 passed.
+- **Witnesses on DEBUG `efa02ea1`:** tunnel 6 of 6 crossed, 23 stall frames, 0 airborne inside, 0 faulted (unchanged);
+  cpz_traverse, the same 13 drives: furthest 15399, identical per drive to the 6624 build, 0 fell, 0 faulted.
+- **Lag, S2CLIP-LAG harness** (`run_legs.sh`, `lag / video frames in motion`, loadavg 4-7):
+
+  | leg | this branch | S2CLIP-CPZ-LONGER (2528) |
+  |---|---|---|
+  | clip DEBUG fly right | 16/1,014 (camera to 16064; buckets 14336..15872: 0, 2, 0, 0) | 14/884 |
+  | clip DEBUG fly down, EHZ band (cam y < 1024) | 3/59 | 3/59 |
+  | clip DEBUG diagonal, EHZ band (cam y < 1024) | 26/82 (whole leg 41/1,039) | 26/82 |
+  | clip DEBUG physics run | 67/2,835 | 61/2,487 |
+  | clip plain physics run | 14/2,779 | 14/2,437 |
+
+  The extra lag frames sit in the 2-per-2048-px section-crossing pattern the whole act shows; the physics legs still run
+  along the act bottom (camera y 5824) and never exercise the new strip.
+- **Landing** (`tools/landing_build.sh`, installed sigil pair): exit 0, `finished=0`, stamp at HEAD bb477cb8. Canonical
+  s4 `e4f3f8fd` 822,037 B, s4.debug `762fa8db` 848,702 B, demo.debug `72b0a8d1` 105,333 B (all equal to the +480
+  landing's: canonical ROMs unchanged). Pre-build 3402 passed / 3 skipped; emp_expect_fail 56/56; needs_build 32 passed,
+  1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+
+**OPEN**
+
+- **Past x 15399 needs plane switching**, which the clip does not carry: aeon's crossover marks are one-directional and the
+  bidirectional Obj03 needs `path_swap.emp` (parked). Extending further is that work first, plus the spin tubes and
+  boosters.
+- Walking from rest cannot climb from the flat 768 floor to the 704 ledge at ~14091 (S2CLIP-SLOPE-PHYSICS); with run-up
+  speed he gets over it.
+
+**TAGGED FOR THE OWNER'S LOOK:** Chemical Plant from x 14336 to the wall at 15399 (a 32-px step at 14620 needs a jump), the
+wall itself, and the painted but unreachable 985 px behind it that the camera may show part of.
+
+**Files touched under `games/sonic4/data/clips/`:** `games/sonic4/data/clips/s2_ehz_cpz/clips.json` (cpz_act1 src/dst w,
+act grid_w, `unpainted_remainder` x_from + why, `unbounded_fall.columns` + why, floorless why, name, note,
+unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived). `tools/clip_manifest.py`,
+`tools/clip_rom_bake.py`, `tools/clip_act_bake.py` and the `s2_ehz_cpz_short` / `_limit` clips are untouched.
 
 ## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). **LANDED at `06adbfbe` (2026-09-25)**
 

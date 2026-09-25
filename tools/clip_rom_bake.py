@@ -496,6 +496,11 @@ def _region_bg_labels(plan):
                                                   z.get("bg_tiles_label")) if lab]
 
 
+def _scroll_zones(plan):
+    """[(zone key, scroll spec)] for every zone the SCROLL block derived one for, in key order."""
+    return [(z["key"], z["scroll"]) for z in plan["zones"] if z.get("scroll")]
+
+
 def clip_module_text(plan=None):
     """The clip module's text. `plan` None is the NEUTRAL module the tree commits: no clip
     act, the chooser hands back the descriptor's own table, zero bytes and zero labels — so
@@ -551,6 +556,10 @@ def clip_data_block(plan):
            f"// CLIP ACT {plan['act']}. A THROWAWAY S2CLIP bake appended this; build.sh's EXIT\n"
            "// trap restores the committed file. NOT effects_gen output — never commit it.\n"]
     snap = (plan.get("overrides") or {}).get("palette") == "snap"
+    scrolled = _scroll_zones(plan)
+    if scrolled:
+        import clip_bg_scroll as CBS
+        out.append(CBS.data_block_text(scrolled, plan["act_span"]))
     for z in plan["zones"]:
         words = z["palette_words"]
         body = ",\n    ".join(", ".join(f"${w:04X}" for w in words[i:i + 8])
@@ -566,8 +575,9 @@ def clip_data_block(plan):
             f"pub data {z['palette_label']}: [u16; 48] = [\n    {body}\n]\n"
             + why +
             f"pub data {z['preset_label']}: EffectsPreset = preset(pal: {z['palette_label']}, "
-            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, "
-            f"transition: {0 if snap else 1})\n")
+            + (f"parallax: {z['parallax_label']}, " if z.get("parallax_label") else "")
+            + "raster: Raster_Program_None, cycle: Pal_Cycle_None, "
+            + f"transition: {0 if snap else 1})\n")
     n = len(plan["rows"])
     out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
     for z in plan["zones"]:
@@ -608,6 +618,10 @@ def append_clip_data(plan, path=CLIP_DATA):
         raise ClipRomError(f"{os.path.relpath(path, REPO)} has no `module` line — not the "
                            f"generated module this bake appends to")
     uses = CLIP_DATA_USES + (CLIP_DATA_BG_USES if _region_bg_labels(plan) else "")
+    scrolled = _scroll_zones(plan)
+    if scrolled:
+        import clip_bg_scroll as CBS
+        uses += CBS.data_uses([len(spec["bands"]) for _k, spec in scrolled])
     lines.insert(max(heads) + 1, "// clip act (row 7) imports, with the appended block below\n"
                  + uses.rstrip("\n"))
     text = "\n".join(lines).rstrip("\n") + "\n\n" + clip_data_block(plan)
@@ -1026,8 +1040,9 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
 #     module carries that byte as OJZ_CLIP_BACKDROP, and ojz_scroll_test.emp's level init
 #     stores it into the VDP shadow under `if OJZ_CLIP_ACT == 1` — zero bytes in every
 #     canonical shape, whose neutral module says OJZ_CLIP_ACT = 0.
-#   * NOT HERE: parallax. Rows keep rg_parallax 0 and presets bind none, so both zones
-#     scroll with the act default exactly as before (research B-2 is the parallax parcel).
+#   * PARALLAX IS THE SCROLL BLOCK's (below, parcel B-2): each zone's preset binds its own
+#     Sonic 2 scroll through preset(parallax:). Rows keep rg_parallax 0 — the preset's binding
+#     is the rung Effects_ResolveParallax falls to — so the row text Z2 and BG1 read is unchanged.
 #
 # BG1 (check_backgrounds) re-reads what was EMITTED: the rows' background fields parsed
 # back out of both module texts, and the blobs on disk against a fresh lowering.
@@ -1280,6 +1295,77 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
             "backdrop_reg": plan["backdrop_reg"]}
 
 
+# ---------------------------------------------------------------------------
+# EACH ZONE'S OWN SONIC 2 SCROLL (research 2026-09-25 (B), parcel B-2)
+# ---------------------------------------------------------------------------
+#
+# B-1 put each zone's own background on Plane B; it scrolled with the act default (OJZ's
+# config). This binds each zone's region preset to a parallax record derived from ITS donor's
+# s2.asm by tools/clip_bg_scroll.py (EHZ by running SwScrl_EHZ; CPZ read from InitCam_CPZ /
+# SwScrl_CPZ). The records are scene_dsl scenes — the engine's existing band mechanism, as
+# data; no engine code — emitted into the CLIP ACT DATA block and lowered there by the
+# registry's lowerN. A zone with no transcription keeps the act default and the bake SAYS SO.
+#
+# THE VERTICAL PASTE IS PER ZONE: a scrolling background maps act Y to its plane through
+# v_center, and the clip act moved Sonic 2's Y 0 to dst.y - src.y. Every clip of one zone must
+# agree on it (one region, one record); two that do not are refused (SC0).
+#
+# SC1 (check_scroll) re-reads what was EMITTED: each preset binds exactly its own zone's
+# record (or none, for a zone with no transcription), every bound record is declared, and the
+# scroll block is byte-for-byte a fresh derivation's text.
+
+def plan_scroll(plan, act, log=None, derive=None):
+    """Derive each zone's scroll spec and bind its labels into `plan`."""
+    import clip_bg_scroll as CBS
+    derive = derive or CBS.derive
+    plan["act_span"] = act.grid_h * act.section_px
+    for z in plan["zones"]:
+        dys = sorted({c.dst[1] - c.src[1] for c in act.clips if c.zone_key == z["key"]})
+        if len(dys) != 1:
+            raise ClipRomError(f"SC0 zone {z['donor']}:{z['zone']} is pasted at {len(dys)} "
+                               f"different vertical offsets {dys}; its one region and one "
+                               f"scroll record can anchor only one")
+        spec = derive(z["donor"], z["zone"], dys[0])
+        z["scroll"] = spec
+        if spec is None:
+            if log:
+                log(f"clip_rom_bake: SCROLL WARNING — no Sonic 2 scroll transcription for "
+                    f"{z['donor']}:{z['zone']}; it scrolls with the act default (TAGGED)")
+            continue
+        z["parallax_label"] = CBS.PARALLAX_LABEL.format(key=z["key"])
+    if log:
+        log("clip_rom_bake: scroll — " + "; ".join(
+            f"{z['zone']} {len(z['scroll']['bands'])} band(s) from {z['scroll']['routine']} "
+            f"(v_factor {z['scroll']['v_factor']}, v_center {z['scroll']['v_center']})"
+            if z.get("scroll") else f"{z['zone']} act default" for z in plan["zones"]))
+
+
+def check_scroll(plan, data_text):
+    """SC1 — each zone's preset binds its OWN scroll record, read back from what was EMITTED."""
+    import clip_bg_scroll as CBS
+    got = dict(re.findall(r"pub data (OJZ_Clip_Preset_\d+): EffectsPreset = "
+                          r"preset\(pal: \w+, (?:parallax: (\w+), )?", data_text))
+    for z in plan["zones"]:
+        if z["preset_label"] not in got:
+            raise ClipRomError(f"SC1 the data block declares no {z['preset_label']} — UNMEASURABLE")
+        bound = got[z["preset_label"]] or None
+        want = z.get("parallax_label")
+        if bound != want:
+            raise ClipRomError(f"SC1 {z['preset_label']} ({z['donor']}:{z['zone']}) binds parallax "
+                               f"{bound or 'none'}; its zone's own record is {want or 'none'}")
+        if want and not re.search(rf"pub data {want} \(align: 2\): SceneCfg\d+ = lower\d+\(", data_text):
+            raise ClipRomError(f"SC1 {z['preset_label']} binds {want} and the data block declares "
+                               f"no such lowered record")
+    scrolled = _scroll_zones(plan)
+    if scrolled:
+        want = CBS.data_block_text(scrolled, plan["act_span"])
+        if want not in data_text:
+            raise ClipRomError("SC1 the data block's scroll text is not a fresh derivation's — "
+                               "something rewrote it after the bake emitted it")
+    return {z["zone"]: (len(z["scroll"]["bands"]) if z.get("scroll") else None)
+            for z in plan["zones"]}
+
+
 def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log=None,
                      gen_dir=GEN_DIR, baked_dir=None):
     """Write the clip act's module + append its data, then run Z2 and BG1 over what was
@@ -1288,6 +1374,7 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
     plan_backgrounds(plan, engine_spawn(desc), gen_dir, baked_dir or gen_dir, log=log)
+    plan_scroll(plan, act, log=log)
     with open(path, "w") as fh:
         fh.write(clip_module_text(plan))
     append_clip_data(plan, data_path)
@@ -1317,6 +1404,11 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         log(f"clip_rom_bake: BG1 {plan['bg1']['default']} is the act default background and "
             f"{', '.join(plan['bg1']['regions']) or 'no zone'} carr(ies) its own on its "
             f"region rows — rows and blobs read back from what was emitted")
+    plan["sc1"] = check_scroll(plan, data)
+    if log:
+        log("clip_rom_bake: SC1 " + ", ".join(
+            f"{zone} {'binds its own ' + str(n) + '-band scroll' if n else 'keeps the act default'}"
+            for zone, n in plan["sc1"].items()) + " — presets read back from what was emitted")
     return z2, plan
 
 
@@ -1535,8 +1627,18 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
             "regions": region_plan_["bg1"]["regions"],
             "backdrop_reg": region_plan_["bg1"]["backdrop_reg"],
             "per_zone": {z["zone"]: z["bg"] for z in region_plan_["zones"]},
-            "parallax": "the act default (unchanged); research B-2 is the parallax parcel",
         },
+        "scroll": {z["zone"]: ({"routine": z["scroll"]["routine"],
+                                "v_factor": z["scroll"]["v_factor"],
+                                "v_center": z["scroll"]["v_center"],
+                                "record": z["parallax_label"],
+                                "bands": [{"plane_top": b["plane_top"], "kind": b["kind"],
+                                           "ratio": str(b["ratio"]),
+                                           "to_ratio": str(b["to_ratio"]) if "to_ratio" in b else None,
+                                           "factor": list(b["factor"])}
+                                          for b in z["scroll"]["bands"]]}
+                               if z.get("scroll") else "the act default (no transcription)")
+                   for z in region_plan_["zones"]},
         "inherited_from_the_shipped_act": [
             "objects and rings (Pass 8 reads the shipped act's editor entities)",
             "the shipped region table is still ASSEMBLED (unused: act_regions points at "
