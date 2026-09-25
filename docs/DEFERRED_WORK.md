@@ -40299,7 +40299,9 @@ worktree, then read the `bganim_room: FAIL` block.
   backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
   growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".
 
-## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). STAGED on `parcel/z80-tap-addr-move`, WAITS ON ORACLE'S PUSH
+## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). **LANDED at `06adbfbe` (2026-09-25)**
+
+**Closed by measurement against oracle origin/main `87805bf3`** (oracle-aether md5 `f294816197fd3dc5a5fd48ce7cf9cae5`, mtime 2026-09-25 13:20:30 -0400), sigil 1d19e60b. Drum witness L0 `seen=852598 matched=662 z80=662 foreign=0 dropped=0 holes=0` over 30 idle frames (662 = the old `$4000` watch's count, so nothing was lost in the move); `--poison` POISON OK (z80=0). fm6 L1 `z80=662 foreign=0`, its poison OK. poke_storm exit 0 (its keepalive expectation; no pre-tap figures exist to compare). landing_build exit 0 finished=0, 3381 passed. Open: none. The shared-latch caveat (68000 must not interleave YM writes) stays in YmTap's docstring, and `foreign` would show it. The text below is the booking as staged.
 
 **Status (2026-09-25): staged on aeon branch `parcel/z80-tap-addr-move`, not landed. It waits on oracle pushing its
 Z80-WATCH-TAP change** (in progress on oracle `parcel/z80-watch-tap`; unmerged at `fd9217c` when this was staged). Land
