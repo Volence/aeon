@@ -110,7 +110,9 @@ Usage:
     tools/dplc_coherence_witness.py --rom s4.debug.bin --lst s4.debug.lst \
         --start 120,170 --cam 60,120 --tilt-inject --frames 300
 
-Exit 0 always for a bare run — this is a WITNESS, it reports.
+Exit 0 when the drive ran to its end -- this is a WITNESS, it reports; the ART/SAT verdicts
+are printed, not graded. Exit 1 when the machine FAULTED or the drive wedged part-way
+(see drive_verdict), or faulted during setup (check_alive, a SystemExit).
 """
 
 import argparse
@@ -1255,7 +1257,32 @@ def main():
                                        a.force_frame_advance, starve))
     report(rows, tail, gsp, "run-right", a.verbose, model, mapmodel, a.poison, tilt,
            attrib)
-    return 0
+    return drive_verdict(rows)
+
+
+def drive_verdict(rows):
+    """0 when the drive ran to its end, 1 when it FAULTED or wedged part-way.
+
+    WHY THIS EXISTS (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25). drive() records a fault row
+    and stops when the sample pc lands in ErrorHandler or run_to never reaches its target,
+    report() prints "FAULTED at frame N", and main() used to return 0 anyway -- so a ROM
+    that crashed mid-drive exited exactly like a clean witness, while the SAME fault during
+    setup (check_alive) already exits 1 via SystemExit. The keepalive row is `expect = 0`, so
+    it stayed PASSED over a crashing ROM.
+
+    ⚠ SCOPE: ONLY the fault. The ART/SAT/deferral counts, the positive-control and tilt
+    VACUOUS banners and the --poison arm are still reported and NOT graded; this is still
+    a witness. Grading them moves the declared baseline (the default drive prints its own
+    tilt control VACUOUS today) and is a ruling, named in
+    docs/research/2026-09-25-keepalive-lossy.md rather than taken here.
+    """
+    faults = [r for r in rows if "fault" in r]
+    if not faults:
+        return 0
+    print("RESULT: the drive FAULTED at frame %d (%s) and stopped. The samples above are "
+          "from a machine that halted part-way; this run is not a completed witness."
+          % (faults[0]["frame"], faults[0]["fault"]))
+    return 1
 
 
 if __name__ == "__main__":

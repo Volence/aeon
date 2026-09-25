@@ -39779,7 +39779,7 @@ parcel touched no engine code, only the fixture that was mis-measuring. The new 
 them, and whether it earns a `remeasured_2026_09_19_*` record — given the band record is 32 bytes
 now, not the 20 the 2026-08-29 row was taken at — is a call for whoever owns that file.
 
-## KEEPALIVE-IS-BLIND-TO-LOSSY: a tool that measures correctly and discards the result passes every check we have (OPEN, booked 2026-09-19, M)
+## KEEPALIVE-IS-BLIND-TO-LOSSY: a tool that measures correctly and discards the result passes every check we have (NARROWED 2026-09-25 — surveyed, 5 tools fixed, the rest stated; still OPEN for 3c and the listed instances; booked 2026-09-19, M)
 
 **Named by the empyrean hub from tonight's own results, and it is a gap in the instrument this lane
 built today.** The class of broken instrument has now produced **three distinct failure modes** here,
@@ -39811,6 +39811,69 @@ adopt without any lane change at all.**
 **Do not read this row as a demand for a mechanism.** It may be that the honest answer is: the
 keepalive covers (1), nothing covers (2) or (3), and that is stated rather than closed. **Saying so
 precisely is worth more than a mechanism that appears to cover them.**
+
+### NARROWED 2026-09-25 (`parcel/keepalive-lossy`, base `b2820dc3`): record `docs/research/2026-09-25-keepalive-lossy.md`
+
+All 35 wired tools (36 rows) were read against their exit paths. **No lane mechanism was added
+and no baseline moved.** Measured: `--only` over the five changed tools, before and after, on
+the parcel's own `s4.debug.bin`, both 6 PASSED / 0 FAILED / 0 COULD NOT RUN.
+
+**LOSSY is three shapes, and the lane does something different with each** (derived from
+`keepalive_lane.classify`, not assumed):
+- **3a lossy-to-refusal** (the dma_straddle shape): on an `expect = 0` row the lane DOES see
+  it, but reports it as a stale instrument (FAILED, or COULD NOT RUN if the line starts with a
+  refusal marker), not as the failure the tool measured.
+- **3b lossy-to-green**: the lane is structurally blind.
+- **3c lossy-by-collision**: a vacuous or setup red shares exit 1 with real failures on an
+  `expect = 1` row. The lane is structurally blind, and **every new real failure on that row
+  grades PASSED**.
+
+**Now covered, in exactly these tools and no others. The tool itself refuses to discard what it
+measured**, and each change is proven by a pre-build test that drives the shipped entry point,
+shown red under a mutation restoring the old line:
+- 3a `spring_launch_witness`: across all eleven legs and inside C1 (`a492a9ff`);
+- 3a `glide_ceiling_witness`: across legs A/B/C, NOT inside leg C (`5d0f3b5d`);
+- 3b `transition_window_probe`: a subject's `sys.exit("msg")` was reported as 0 (`adc66d9f`);
+- 3b `loop_step_over_witness`: a drive that reached ErrorHandler exited 0, in all arms
+  (`1def2145`);
+- 3b `dplc_coherence_witness`: the fault/wedge only (`086f8992`).
+
+**STILL OPEN, precisely:**
+1. **(2) FALSE-POSITIVE: nothing covers it** (unchanged).
+2. **3c on all three declared-red rows: nothing covers it, and it is live today.** The rows are
+   `loop_step_over_witness` (default), `sprite_owner_probe` and `waterline_art_witness`. The
+   fix is per tool: give the vacuous or setup outcome its own exit code, then re-measure and
+   rebaseline through the lane. Not done here, because it moves three baselines, and because
+   `sprite_owner_probe` needs a ruling on THIN's code (its docstring reserves 2 for
+   setup/spawn). **This buys most of what the rejected output fingerprint would have bought,
+   without the prose-rot cost.** The fingerprint itself also would NOT close (3), because it
+   pins whatever a lossy tool printed when it was baselined.
+3. **3b instances found and not fixed** (each needs a measurement or a ruling first):
+   - `dplc_coherence_witness`: the ART/SAT/VACUOUS results are printed and never graded, and
+     the wired row prints its own tilt control VACUOUS today and exits 0;
+   - `raster_frame_epoch_probe`: wedged, stalled, zero-frame and control results;
+   - `parallax_scratch_probe`: STEP 4, "Reported, not excused", then PASS;
+   - `streaming_choke_probe`: `frames_recorded`;
+   - `poke_storm_sound_cost_witness`: `--poison` returns 0 unchecked; C2 and `dropped` are
+     never graded;
+   - `plane_buffer_headroom_probe`: `hits == 0`.
+4. **3a instances found and not fixed:**
+   - `lens_residue_raster_witness` efx4b (the lane's selector): a judgement call, because a
+     dead control fits an engine fault and an instrument fault equally well;
+   - `lens_residue_raster_witness` c3b2/c3b2s7 (off-lane): `missed` is checked before direct
+     `hits`;
+   - `glide_ceiling` leg C in-leg;
+   - `spring_sfx_witness` (dormant);
+   - `spring_launch`'s L5-vs-L7 reading of "entered the face, no hook" (a semantic ruling).
+5. **A baseline recorded while a tool was already lossy: nothing covers it.** Only reading the
+   tool against its own measurements finds it, and that reading does not repeat itself.
+6. Not lossy, but noted: five tools refuse with `SystemExit("…")`, which exits 1, the same code
+   as a measured failure (`role_swap_witness`, `ramp_authored_witness`, `parallax_scratch_probe`,
+   `left_edge_vsram_probe`, `bganim_vprobe_witness`).
+
+**Do not read the five fixes as coverage of the class.** They cover the instances named above,
+in those tools, on those paths. The lane's predicate is unchanged and is still structurally
+blind to 3b and 3c everywhere else.
 
 ## STRESS-CLAMP-EQU-WRONG — DIAGNOSIS: sigil publishes the shape-BLIND fold of an engine `pub const` (OPEN against sigil, diagnosed 2026-09-19)
 
