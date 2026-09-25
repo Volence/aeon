@@ -64,13 +64,13 @@
       "src_rect": {
         "x": 0,
         "y": 0,
-        "w": 2048,
+        "w": 2528,
         "h": 2048
       },
       "dst_rect": {
-        "x": 12288,
+        "x": 11808,
         "y": 256,
-        "w": 2048,
+        "w": 2528,
         "h": 2048
       },
       "unaligned_dst_reason": "Chemical Plant is lowered 256 px so its start floor meets the corridor's. Its own start ground is a full block at y=512 (s2disasm startpos/CPZ_1.bin puts the player at (96, 492), feet at 511); the corridor's floor is at y=768, one collision row above Emerald Hill's ground where its crop ends (x 10960..10975: shape 164, height 12, surface y=772 \u2014 a 4-px step up onto the corridor, inside a floor sensor's reach). 768 - 512 = 256, a multiple of R12's 16-px collision quantum, so the paste moves art and collision together. The price is 256 px of Chemical Plant in the act's second section row (2048..2303), measured at 1,600 B of blocks."
@@ -82,10 +82,29 @@
       "dst_rect": {
         "x": 10976,
         "y": 0,
-        "w": 1312,
+        "w": 832,
         "h": 1024
       },
-      "floor_y": 768
+      "floor_y": 768,
+      "tunnel": {
+        "ceiling_y": 672,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 768,
+            "w": 128,
+            "h": 128
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
     }
   ]
 }

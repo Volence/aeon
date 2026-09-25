@@ -88,11 +88,10 @@ def _write(tmp_path, doc):
 # The corridor
 # ---------------------------------------------------------------------------
 
-def test_corridor_art_is_on_the_one_cram_line_no_install_writes():
+def _cram_line_no_install_writes():
     """DERIVED, not asserted from a comment: Palette_LoadPal (every region install reaches
     it) marks the lines its 96-byte base touched in Pal_Compose_Lines, and that literal is
-    read out of engine/effects/palette.emp here. The corridor's line must be CLEAR in it —
-    then no palette install, snap or fade, can recolour the corridor."""
+    read out of engine/effects/palette.emp here."""
     src = open(os.path.join(REPO, "engine", "effects", "palette.emp")).read()
     body = src[src.index("pub proc Palette_LoadPal"):]
     body = body[:body.index("\n}\n")]
@@ -100,27 +99,132 @@ def test_corridor_art_is_on_the_one_cram_line_no_install_writes():
     assert m, "Palette_LoadPal no longer writes a Pal_Compose_Lines literal — re-derive"
     touched = int(m.group(1), 2)
     assert touched, "an install that touches no line proves nothing"
+    return touched, m.group(1)
+
+
+def test_corridor_art_is_on_the_one_cram_line_no_install_writes(donors):
+    """The corridor's line must be CLEAR in Pal_Compose_Lines — then no palette install,
+    snap or fade, can recolour it — and every painted word of the REAL tunnel is on it
+    (its CPZ art is recoloured onto that line, never left on a zone line)."""
+    _need(S.S2_FINAL)
+    touched, lit = _cram_line_no_install_writes()
     assert not (touched >> CM.CORRIDOR_PAL_LINE) & 1, (
         f"the corridor is drawn on CRAM line {CM.CORRIDOR_PAL_LINE}, which a region install "
-        f"writes (Pal_Compose_Lines %{m.group(1)}) — the fade would recolour it")
-    co = CM.Corridor({"id": "k", "dst_rect": {"x": 0, "y": 0, "w": 64, "h": 64},
-                      "floor_y": 32}, 0)
-    words, _ = CM.corridor_cells(co)
+        f"writes (Pal_Compose_Lines %{lit}) — the fade would recolour it")
+    act = CM.load(MANIFEST, donor_root=donors)
+    _sheet, grids = CM.corridor_art(act, donors)
+    words = grids[0][0]
     painted = words[(words & 0x7FF) != 0]
     assert painted.size and all(((int(w) >> 13) & 3) == CM.CORRIDOR_PAL_LINE for w in painted)
 
 
-def test_corridor_cells_put_the_edge_on_the_floor_row_and_fill_below():
-    co = CM.Corridor({"id": "k", "dst_rect": {"x": 0, "y": 64, "w": 32, "h": 64},
-                      "floor_y": 96}, 0)
-    words, _ = CM.corridor_cells(co)
-    floor_row = (96 - 64) // 8
-    assert set((words[:floor_row] & 0x7FF).ravel().tolist()) == {CM.CORRIDOR_TILE_BLANK}
-    assert set((words[floor_row] & 0x7FF).tolist()) == {CM.CORRIDOR_TILE_EDGE}
-    assert set((words[floor_row + 1:] & 0x7FF).ravel().tolist()) == {CM.CORRIDOR_TILE_FILL}
-    sheet = CM.corridor_sheet()
-    assert len(sheet) == 3 * 32 and sheet[:32] == bytes(32)
-    assert sheet[32:64] != sheet[64:96] and sheet[32:64] != bytes(32)
+def _pixels(sheet, words):
+    """A corridor's painted pixels (colour indices) from its sheet and words."""
+    import numpy as np
+    h, w = words.shape
+    out = np.zeros((h * 8, w * 8), dtype=np.uint8)
+    for ty in range(h):
+        for tx in range(w):
+            t = sheet[(int(words[ty, tx]) & 0x7FF) * 32:][:32]
+            for py in range(8):
+                for px in range(8):
+                    b = t[py * 4 + px // 2]
+                    out[ty * 8 + py, tx * 8 + px] = (b >> 4) if px % 2 == 0 else b & 0xF
+    return out
+
+
+def test_the_tunnel_hides_the_background_and_an_open_corridor_does_not(donors, tmp_path):
+    """The owner's ask (2026-09-25): "the tunnel to transition has to be like an FG hiding
+    the bg". MEASURED on the painted pixels: every pixel of the tunnel's rectangle is
+    opaque (colour index 0 is the one the VDP shows the background through). CONTROL: the
+    same manifest with the tunnel removed paints transparent pixels above its floor, so
+    the count is able to see a see-through corridor."""
+    _need(S.S2_FINAL)
+    act = CM.load(MANIFEST, donor_root=donors)
+    assert act.corridors[0].tunnel is not None
+    sheet, grids = CM.corridor_art(act, donors)
+    pix = _pixels(sheet, grids[0][0])
+    assert pix.size and int((pix == 0).sum()) == 0, (
+        f"{int((pix == 0).sum())} transparent pixel(s) in the tunnel — the background shows")
+    doc = _doc()
+    doc["corridors"][0].pop("tunnel")
+    open_act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    s2, g2 = CM.corridor_art(open_act, donors)
+    see_through = int((_pixels(s2, g2[0][0]) == 0).sum())
+    assert see_through > 0, "the control corridor is opaque too — the count cannot see"
+
+
+def _surface(act, donors, xs):
+    """World floor surface y (first TOP-solid pixel scanning down from the tunnel's
+    ceiling underside — the walkway's top) per pixel column, plane A and B, from the act's
+    own collision grids and bank."""
+    import collision_pipeline as CP
+    pa, pb = CM.collision_grids(act, donors)
+    hm, _an = CM._bank(CM.collision_banks(act, donors))
+    y0 = act.corridors[0].tunnel.ceiling_y
+    out = []
+    for plane in (pa, pb):
+        col = []
+        for x in xs:
+            s = None
+            for y in range(y0, y0 + 2048):
+                h = CM._word_heights(int(plane[y // 8 // 2 * 2, x // 8]), hm)
+                if h is not None and CP.covers(h[x % 16], y % 16):
+                    s = y
+                    break
+            col.append(s)
+        out.append(col)
+    return out
+
+
+def test_the_walk_through_the_tunnel_has_no_step_at_either_seam(donors):
+    """The owner hit a 4-px step where Emerald Hill's ground (shape 164, height 12, surface
+    y = floor_y + 4) met the corridor's full-block floor. MEASURED over every pixel column
+    from 32 px before the tunnel to 32 px after it, on both planes: the floor surface never
+    moves more than 1 px between neighbouring columns (a slope, never a step), it is
+    continuous across both seams, and the ceiling leaves a standing player room
+    (player_clearance_px, read from engine source) over the whole walkway."""
+    _need(S.S2_FINAL)
+    act = CM.load(MANIFEST, donor_root=donors)
+    co = act.corridors[0]
+    xs = list(range(co.dst[0] - 32, co.dst[0] + co.dst[2] + 32))
+    for plane_name, surf in zip("AB", _surface(act, donors, xs)):
+        assert None not in surf, f"plane {plane_name}: a column with no floor"
+        jumps = [(xs[i], surf[i - 1], surf[i]) for i in range(1, len(xs))
+                 if abs(surf[i] - surf[i - 1]) > 1]
+        assert not jumps, f"plane {plane_name}: step(s) {jumps[:5]}"
+    _w, ramps = CM.corridor_collision(act, co, donors)
+    assert ramps["left"] and ramps["left"]["neighbour_surface_y"] == co.floor_y + 4
+    assert ramps["right"] is None
+    need = CM.player_clearance_px()
+    floor = _surface(act, donors, xs[32:-32])[0]
+    assert min(floor) - co.tunnel.ceiling_y >= need
+
+
+def test_the_tunnel_is_as_short_as_the_crossing_allows(donors):
+    """The owner (2026-09-25): "Can we make the connector a little shorter". The floor on
+    its length is DERIVED from two rules, read from source, never typed:
+      Z2 — the crossing sits at the corridor's middle (rounded down to 16) and needs
+           CAM_SCREEN_HALF_W + PAL_FADE_FRAMES x CAM_MAX_X_STEP px of corridor each side;
+      Z1 — the gap between the two zones must be at least TILE_CACHE_COLS - 1 cells.
+    The tunnel must satisfy both and be the SHORTEST width on the 16-px grid that does."""
+    _need(S.S2_FINAL)
+    import fg_page_order as FPO
+    fade, step, half_w = CRB.crossing_constants()
+    margin = half_w + fade * step
+    z1_min = (FPO.load_budget_constants()["TILE_CACHE_COLS"] - 1) * CM.TILE_PX
+    act = CM.load(MANIFEST, donor_root=donors)
+    co = act.corridors[0]
+    left = co.dst[0]
+
+    def fits(w):
+        mid = ((left + left + w) // 2) & ~15
+        return mid - left >= margin and left + w - mid >= margin and w >= z1_min
+
+    shortest = next(w for w in range(16, 1 << 14, 16) if fits(w))
+    assert co.dst[2] == shortest, (co.dst[2], shortest)
+    plan = CRB.region_plan(act, donors)
+    assert plan["crossings"][0]["gap"] == [left, left + co.dst[2]]
 
 
 def test_corridor_floor_is_the_banks_full_solid_odd_angle_block():
@@ -140,6 +244,13 @@ def test_corridor_floor_is_the_banks_full_solid_odd_angle_block():
     ("K1", lambda d: d["corridors"][0].__setitem__("id", "ehz_act1")),
     ("K2", lambda d: d["corridors"][0]["dst_rect"].__setitem__("w", 1300)),
     ("R10", lambda d: d["corridors"][0]["dst_rect"].__setitem__("x", 10960)),
+    ("K4", lambda d: d["corridors"][0]["tunnel"].__setitem__("ceiling_y", 680)),
+    ("K4", lambda d: d["corridors"][0]["tunnel"].__setitem__("ceiling_y", 752)),
+    ("K4", lambda d: d["corridors"][0]["tunnel"].__setitem__("ceiling_y", 0)),
+    ("K4", lambda d: d["corridors"][0]["tunnel"].pop("art")),
+    ("K5", lambda d: d["corridors"][0]["tunnel"]["art"].__setitem__("zone", "HTZ")),
+    ("K5", lambda d: d["corridors"][0]["tunnel"]["art"]["wall_src"].__setitem__("x", 772)),
+    ("K5", lambda d: d["corridors"][0]["tunnel"]["art"]["back_src"].__setitem__("y", 1 << 15)),
 ])
 def test_the_corridor_rules_refuse_by_their_own_tag(donors, tmp_path, tag, mutate):
     _need(S.S2_FINAL)
@@ -151,6 +262,37 @@ def test_the_corridor_rules_refuse_by_their_own_tag(donors, tmp_path, tag, mutat
     assert str(exc.value).split()[0] == tag, str(exc.value)[:200]
 
 
+def test_k6_refuses_a_seam_one_ramp_block_cannot_bridge(donors, tmp_path):
+    """K6 is MEASURED at the seam, so it refuses where the collision is built, not in
+    `load`. Control: the real act bridges its 4-px seam with one ramp. Mutation: the floor
+    raised one collision row (752) puts Emerald Hill's ground (y 772) a whole row below the
+    corridor's floor row — more than one block can bridge — and K6 names it."""
+    _need(S.S2_FINAL)
+    CM.collision_grids(CM.load(MANIFEST, donor_root=donors), donors)        # control
+    doc = _doc()
+    doc["corridors"][0]["floor_y"] = 752
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    with pytest.raises(CM.ClipManifestError) as exc:
+        CM.collision_grids(act, donors)
+    assert str(exc.value).split()[0] == "K6", str(exc.value)[:200]
+
+
+def test_the_seam_ramp_is_the_banks_gentlest_found_not_typed():
+    """For Emerald Hill's height-12 edge the bank's gentlest one-block ramp is found by
+    corridor_ramp_shape's own ordering: monotone, 12 at its left, 16 at its right, a real
+    angle, and no candidate in the bank rises more gently."""
+    bank = os.path.join(REPO, "games", "sonic4", "data", "collision", "base_s2")
+    s = CM.corridor_ramp_shape(bank, 12)
+    hm = open(os.path.join(bank, "heightmaps.bin"), "rb").read()
+    an = open(os.path.join(bank, "angles.bin"), "rb").read()
+    h = list(hm[s * 16:(s + 1) * 16])
+    assert h[0] == 12 and h[-1] == 16 and h == sorted(h) and not an[s] & 1
+    assert max(b - a for a, b in zip(h, h[1:])) == 1
+    with pytest.raises(CM.ClipManifestError) as exc:
+        CM.corridor_ramp_shape(bank, 17)
+    assert str(exc.value).startswith("K6 ")
+
+
 # ---------------------------------------------------------------------------
 # region_plan and Z2 on the real manifest
 # ---------------------------------------------------------------------------
@@ -159,12 +301,14 @@ def test_the_real_act_plans_two_regions_crossing_mid_corridor(donors):
     _need(S.S2_FINAL)
     act = CM.load(MANIFEST, donor_root=donors)
     plan = CRB.region_plan(act, donors)
+    ehz, cpz = sorted(act.clips, key=lambda c: c.dst[0])
+    mid = ((ehz.dst[0] + ehz.dst[2] + cpz.dst[0]) // 2) & ~15      # region_plan's rule
     assert [(r["x0"], r["x1"], r["key"]) for r in plan["rows"]] == [
-        (0, 11631, 0), (11632, act.grid_w * act.section_px - 1, 1)]
+        (0, mid - 1, 0), (mid, act.grid_w * act.section_px - 1, 1)]
     mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
     z2 = CRB.check_palette_crossings(act, mod, data, log=None)
     fade, step, half_w = CRB.crossing_constants()
-    assert z2 and z2[0]["x"] == 11632
+    assert z2 and z2[0]["x"] == mid
     assert min(z2[0]["margin_left"], z2[0]["margin_right"]) >= half_w + fade * step
 
 
