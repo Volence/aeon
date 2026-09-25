@@ -214,3 +214,7 @@ games/sonic4/data/donors/
 # The same rule the donors block states applies here: the moment a clip act's
 # bytes reach the ROM (row 6), this line has to go and the tree has to be tracked.
 games/sonic4/data/clips/*/baked/
+
+# tools/clip_anchors.py check: the per-shape measurement record an S2CLIP build writes
+# beside its ROM, read by `clip_anchors.py derive`. Describes a local build only.
+*.clip_anchors.json

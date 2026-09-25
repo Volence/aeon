@@ -254,10 +254,11 @@ async def main_async(sock, rom, lst, probe_crc, plain_crc, poison, out):
     await tap1.arm("ym-L1")
     await settle(b, tap1, 30)
     out.append(f"L1 THE WATCH IS LIVE: seen={tap1.seen} matched={tap1.matched} "
+               f"z80={tap1.z80} foreign={tap1.foreign} "
                f"holes={tap1.holes()} over 30 frames of Moving Trucks")
-    if tap1.seen == 0 or tap1.matched == 0:
-        fails.append("L1: the YM watch saw or matched nothing — every 'no write' below "
-                     "would be an artefact of the aim")
+    fault = tap1.liveness_fault()   # the song_load witness's verdict: gates on via == "z80"
+    if fault:
+        fails.append(f"L1: {fault}")
     legs.append("L1 the watch is live")
     if poison:
         out.append("LEGS RUN: 2 — L0 and L1 only (poison mode stops here by design)")

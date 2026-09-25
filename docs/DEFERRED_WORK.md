@@ -40298,8 +40298,90 @@ worktree, then read the `bganim_room: FAIL` block.
   reserve, crc `9e9e1979`) because the clip DEBUG build no longer carries the canonical act's DEBUG-only test
   backgrounds (−24,258 B). That is a one-time 24 KB, not the anchor fix: (B)/d-35 is still needed for any zone
   growth (row 8, the longer CPZ). See "S2-COMPRESSED-ACT (B) parcel B-1 LANDED".
+- **2026-09-25, parcel `clip-anchor-overlay-2`: the aeon half of d-35-revised is BUILT, on its branch, waiting to land
+  with sigil's `parcel/clip-overlay` on sigil's reviewed SHA.** Tested end to end against sigil **a1ff8796** (own
+  detached worktree + own target dir; the shared binary was not touched). It cannot land alone: the shared sigil
+  binary refuses `--anchor-overlay` as an unknown argument, so every `S2CLIP=s2_ehz_cpz` build breaks until the
+  pair lands. What it is:
+  - `build.sh`: when `games/sonic4/data/clips/<id>/anchors.toml` exists, S2CLIP builds pass `--anchor-overlay` to
+    `sigil build` and to `bganim_room`, **never to the preflight `emit_sound_blob`** (contract a1ff8796; the first
+    wiring, to both binaries, reddened `test_check_does_not_perturb_generated_sound_artifacts` in the pre-build
+    lane, plain and DEBUG, reproduced here before the correction arrived). The argv is an array that is empty on every
+    other shape. Canonical CRCs below.
+  - `tools/clip_anchors.py` (in every S2CLIP build, FAST included, right after `sigil build`, `gate strict`):
+    measures this shape's packed end through `bganim_room.rom_room`, writes `<rom>.clip_anchors.json` (gitignored),
+    checks the islands sit at the effective anchors (`Dac_Temp_Blip` LMA; `SoundTablesZ80_Head` from its `PHASE` row)
+    and that the Source Digest has a READ row for `anchors.toml` exactly when the file exists, then compares this
+    shape's RULE VALUE with the file's `# measured:` line. 0 fresh / 2 STALE / 1 could not measure.
+    `--derive --clip <id>` writes the file from both shapes' records and refuses a record that no longer matches the
+    ROM + listing on disk. Unit tests: `tools/test_clip_anchors.py` (12, pre-build lane).
+  - `tools/bganim_room.py --anchor-overlay`: overlay rows replace `anchor_addr` and `declared_addresses` by name.
+    Needed, not optional: without it the room gate measures a clip ROM against map.toml's 0xA8000 and the growth-path
+    check sees canonical `dac_banks` as a pin inside the path. Its remedy text names the overlay, never map.toml.
+  - **`s2_ehz_cpz/anchors.toml` = dac_banks 0xB0000, sound_bank 0xC0000** (both shapes bind: packed ends 0x9A408 /
+    0x9AF1C, rule 0xB0000 each). NOT the pricing's 0xB8000: that was measured before B-1's −24 KB. DEBUG room 86,244 B,
+    37,092 B above the reserve (was 4,324 B).
+  - **Measured:** canonical on this branch, shared sigil: s4 `6d1af7a3`/821,479, s4.debug `62238a15`/848,075,
+    demo.debug `ce922bf7`/104,707, identical to origin/master 941e49d8. Clip without the file (shared sigil):
+    `073b25f4`/822,332 and `9e9e1979`/848,724, identical to master's clip builds. Clip WITH the overlay (sigil
+    a1ff8796, full build, every lane): plain `effef69b`/855,100, DEBUG `5176daca`/881,490, both exit 0, islands at
+    0xB0000/0xC0000, `bganim_room` "this shape binds exactly", pre-build lane 3358 passed / 3 skipped.
+  - **Red-first proofs:** (a) overlay wired to the emit only (FAST=1, plain): `clip_anchors: FAIL (could not measure)
+    ... no READ row`, exit 1, and the ROM was `073b25f4`, the no-overlay ROM, which is why the row check exists;
+    (b) `anchors.toml` replaced by a self-consistent older derivation (rules 0xA8000): `STALE ... GREW across a bank
+    boundary`, exit 2; (c) unit: the rule-value compare disabled reddens 1 of 12. Each restored from HEAD.
+- **S2CLIP-CPZ-LONGER (extend CPZ to its 2nd checkpoint, x 6143) is NOT started; it waits on this pair landing.**
+  What it needs after the pair lands: widen the clip rectangle in `s2_ehz_cpz/clips.json`; build BOTH clip shapes
+  (the first will fail STALE if the rule value moves, and records its measurement anyway); `python3
+  tools/clip_anchors.py --derive --clip s2_ehz_cpz`; commit the file; rebuild both. A1's estimated +28,434 B puts
+  DEBUG's rule at about 0xB8000 (re-derive, do not inherit). If a growth overruns the file's current anchor, `sigil
+  build` refuses before any listing exists, so there is nothing to derive from: raise both rows by hand by a bank
+  step or two, build both shapes, then `--derive` (the check will call the hand value STALE until you do).
 
-## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z)
+## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). **LANDED at `06adbfbe` (2026-09-25)**
+
+**Closed by measurement against oracle origin/main `87805bf3`** (oracle-aether md5 `f294816197fd3dc5a5fd48ce7cf9cae5`, mtime 2026-09-25 13:20:30 -0400), sigil 1d19e60b. Drum witness L0 `seen=852598 matched=662 z80=662 foreign=0 dropped=0 holes=0` over 30 idle frames (662 = the old `$4000` watch's count, so nothing was lost in the move); `--poison` POISON OK (z80=0). fm6 L1 `z80=662 foreign=0`, its poison OK. poke_storm exit 0 (its keepalive expectation; no pre-tap figures exist to compare). landing_build exit 0 finished=0, 3381 passed. Open: none. The shared-latch caveat (68000 must not interleave YM writes) stays in YmTap's docstring, and `foreign` would show it. The text below is the booking as staged.
+
+**Status (2026-09-25): staged on aeon branch `parcel/z80-tap-addr-move`, not landed. It waits on oracle pushing its
+Z80-WATCH-TAP change** (in progress on oracle `parcel/z80-watch-tap`; unmerged at `fd9217c` when this was staged). Land
+the branch in the same window, after oracle's push and after the verification below goes green. Do NOT land it
+before: against today's oracle the moved witnesses go loud at L0/L1, by design.
+
+What the branch does: `YM_A0..A3` = `$A04000-$A04003`; `YmTap` records every hit's `seq` but decodes only
+`via == "z80"` (the 68000's own `$A04000-3` writes are counted in `foreign` and skipped); a new
+`YmTap.liveness_fault()` gates L0 (song_load) and L1 (fm6) on the kept Z80 count, NOT on the server's `matched`,
+which also counts 68000 writes. `fm6_foreign_sample_witness.py` inherits `YM_A0` and `YmTap` by import. The
+`$A00000` poison is unchanged and still goes loud (the contract offers no Z80 access in Z80 RAM, and a 68000 write
+there is now `foreign`, so it cannot make the liveness leg read live). `poke_storm_sound_cost_witness.py` needs no
+move: it watches `SND_DMA_ACTIVE_SLOT`, a Z80-RAM byte the **68000** writes at its `$A0xxxx` address (a 68000 bus
+hit, untouched by the CR). Grep of `tools/` for `$4000`/`0x4000`/`$7F11`/`$A04000` found no other Z80-tap user.
+Proven today: `tools/test_ymtap_via_filter.py` (hermetic, 7 tests, red-first under three mutations, in build.sh's
+pre-build pytest lane). Control run today against the PRE-tap `oracle-aether` (built 2026-09-25 10:48, before
+oracle's WIP): config-A crc32 `0ed5409c`, L0 `seen=852598 matched=0 z80=0 foreign=0` -> exit 1 (loud, expected);
+`--poison` -> exit 0 `POISON OK`. Not discriminating by itself (both go loud pre-tap); the post-push run below is.
+**Correction to the paragraph below:** "all three are off-runner" is wrong for `poke_storm_sound_cost_witness.py`.
+It is `[wired]` in `tools/keepalive_manifest.toml` (the nightly instrument keepalive, `expect = 0`); song_load and
+fm6 are `[not_wired]`. None of the three is read by `build.sh` or `landing_build.sh`, and poke_storm is unaffected.
+
+**Verification the controller runs once oracle has pushed** (oracle's release `oracle-aether` rebuilt from the pushed
+commit, which is `aether_instance.SERVER` = `<suite root>/oracle/target/release/oracle-aether`):
+
+    cd <aeon checkout on parcel/z80-tap-addr-move>
+    export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+    export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+    ./tools/landing_build.sh                  # generates engine/debug/generated/*; expect 0, finished=0
+    "$SIGIL_BUILD" build --aeon . --native --config-a -o cfga.bin --emit-lst cfga.lst
+    python3 tools/song_load_mid_drum_witness.py --rom cfga.bin --lst cfga.lst            # expect 0; L0 z80 > 0
+    python3 tools/song_load_mid_drum_witness.py --rom cfga.bin --lst cfga.lst --poison   # expect 0, POISON OK
+    python3 tools/fm6_foreign_sample_witness.py            # expect 0 (patches + restores its target from HEAD)
+    python3 tools/fm6_foreign_sample_witness.py --poison   # expect 0, POISON OK
+    python3 tools/poke_storm_sound_cost_witness.py --rom s4.debug.bin --lst s4.debug.lst # expect 0, unchanged
+
+Read on L0/L1: `z80` > 0 (today's figure on the old address was ~662 writes in 30 idle frames) and `foreign` = 0
+(aeon's 68000 never writes the YM; a nonzero `foreign` means the Z80-only latch reconstruction is suspect, see
+`YmTap`'s docstring). Oracle has shipped only when a live run shows `z80` > 0; a green run with `z80` = 0 is
+impossible by construction (`liveness_fault`).
+
 
 Hub ruling empyrean `616c2026` §11.52, option C, on oracle's F-Z80 CR (oracle `docs/2026-09-25-z80-watch-cr.md` at `94665a6`).
 Once oracle lands it, Z80 YM/PSG writes reach bus watches at `$A04000-$A04003` / `$A07F11` with `via: "z80"`, the
@@ -40355,3 +40437,7 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
 5. **Needs an on-screen look (owner):** fly the rebuilt `s4.s2clip.debug.bin` / `s4.s2clip.bin` through Emerald Hill
    and into Chemical Plant. The DEBUG audit ran clean across the regime change and the art pages were checked by the
    audit's bijectivity/refcount arms, but nobody has looked at the picture.
+
+## CLIP-ANCHORS-MISSING-FILE: a clip whose anchors.toml goes missing falls back silently (booked 2026-09-25T17:45:38Z)
+
+Found by the landing agent's anti-trap check on the clip anchor overlay (landed 8886d1cc). With `s2_ehz_cpz/anchors.toml` moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exits 0 and places the banks on the canonical 0xA8000/0xB8000 (crc 3e4404b5); `clip_anchors` only prints a notice. A full build refuses, but only through `test_clip_anchors.py::Live::test_every_committed_clip_overlay_is_its_own_derivation`, which asserts that AT LEAST ONE clip carries a file, so it goes blind the moment a second clip has one. `bganim_room`'s `anchor < want` branch only reports (read, not run). The ROM stays correct (canonical anchors are legal while the clip fits under them, and sigil refuses loudly once it does not), so this costs room, not correctness. Fix when convenient: make the clip manifest declare that it has an overlay, and have `clip_anchors` refuse a missing declared file in every shape, FAST included.

@@ -1,9 +1,9 @@
 {
-  "focus": "Tunnel and lag fix landed; waiting on the new assembler swap to land the Sonic 2 sound positions file, then scrolling.",
+  "focus": "Sound positions file landed; landing the longer Chemical Plant, then Sonic 2's background scrolling.",
   "inFlight": [
     {
-      "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
-      "where": "detached origin/master, candidate sigil 1d19e60b",
+      "what": "Landing the longer Chemical Plant on top of the positions file",
+      "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
     }
   ],
@@ -12,10 +12,23 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "S2CLIP-CPZ-FURTHER",
+      "what": "How much further to take Chemical Plant, given its tubes and boosters don't exist yet",
+      "since": "2026-09-25"
     }
   ],
   "nextBoundary": "Land order: tunnel (re-checking now), then the sound positions file once sigil's assembler swap is done, then background scrolling.",
   "queue": [
+    {
+      "id": "S2CLIP-CONNECTOR-SHORTER",
+      "title": "A 640 px connector works with no engine change (the landed one is 832): a test build is ready for you to fly",
+      "state": "blocked",
+      "size": "M",
+      "blockedBy": "your flight of s4.s2clip-short.debug.bin (crc 2f641ad0): a 640 px connector, no engine code; ~480 px needs a small engine change",
+      "project": "REGIONS"
+    },
     {
       "id": "S2CLIP-LAG",
       "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
@@ -26,10 +39,10 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant is too short: add more of it (costed: to its second checkpoint once d-35 lands)",
-      "state": "blocked",
+      "title": "Chemical Plant made 480 px longer (the gap you'd fall into is filled), landing after the sound positions file; going further hits 34 holes in Sonic 2's own floors, being researched",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "the sound-bank positions file you chose (d-35): waits on the assembler lane naming its switch, then both halves land",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -46,21 +59,6 @@
       "state": "open",
       "size": "S",
       "blockedBy": null
-    },
-    {
-      "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "sigil landing parcel/clip-overlay a1ff8796 and rebuilding the shared assembler; ours staged on parcel/clip-anchor-overlay-2",
-      "project": "REGIONS"
-    },
-    {
-      "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "A test build's listing answered a question about a different build; the assembler lane has fixed it, and it reaches us when our installed assembler is next rebuilt",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
@@ -139,16 +137,9 @@
       "state": "blocked",
       "size": "L",
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
-    },
-    {
-      "id": "Z80-TAP-ADDR-MOVE",
-      "title": "Our sound-debugging tools are ready for the emulator's new sound-chip addresses; they land the moment oracle pushes",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "oracle pushing parcel/z80-watch-tap (they message us first); staged on branch parcel/z80-tap-addr-move"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Two calls: fly the 640 px connector test (s4.s2clip-short.debug.bin) and say whether to adopt it; and how much further to take Chemical Plant (card S2CLIP-CPZ-FURTHER)",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:33:09Z"
+  "updatedAt": "2026-09-25T17:52:30Z"
 }
