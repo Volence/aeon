@@ -186,6 +186,13 @@ frame in the cast unreachable. A forced control (Sonic's `$65`, on a separate ma
 moved both `Dbg_DMA_Straddle_All` and the Important-only `Dbg_DMA_Straddle_Frame` 0 → 1,
 proving the instrument live.
 
+> **⚠ DATED, 2026-09-25 (DPLC-STRADDLE-REACHABLE).** "Every straddling DPLC frame
+> unreachable" was `dplc_straddle`'s answer for the 09-05 ROM only. On crc32 `62238a15`
+> it names Sonic `$29`/`$2B` REACHABLE, and grounded play hits them (six times in the default
+> campaign, Peak 1, Reject 0). The exoneration of the DPLC starvation path still stands on
+> the counters (no drop on any path). The "cannot straddle" reason does not. See
+> `docs/research/2026-09-25-dplc-straddle-reachable.md`.
+
 **So the DPLC starvation path is exonerated and `DRAW_SPRITE.NO_PARENT` points at the
 sprite emit.** Two corrections to what is written above:
 

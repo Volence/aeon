@@ -39646,16 +39646,45 @@ from the shape's own lowering at all — they come from a SHAPE-BLIND harvest th
 cited sigil revision: **`STRESS-CLAMP-EQU-WRONG — DIAGNOSIS` at the end of this file.** Nothing
 here is ours to fix; `evict_witness.py`'s "go with the ROM" is the correct handling and stays.
 
-**`DPLC-STRADDLE-REACHABLE`: a straddling DPLC frame IS reachable in ordinary grounded play.**
-`Dbg_DMA_Straddle_All` went 0 → 6 and `Dbg_DMA_Straddle_Peak` 0 → 1 during ordinary grounded
-play, first seen at frame 13005 with the player at (1082,497), `mapping_frame $2C` at the poll
-(which is a 30-frame window, not a frame attribution — see the caveat in section 3).
-`dplc_straddle.py`'s claim that every straddling DPLC frame in the cast is unreachable through
-its anim table is what `dma_straddle_exercise`'s "empty by construction" argument rests on, and
-with the page-in half excluded by the static survey the DPLC path is the only candidate left, so
-that claim is contradicted by observation even though the specific frame is not named. **Re-run `dplc_straddle.py` before quoting that argument again.** This does not
-touch the campaign's verdict — Peak 1 ≤ reserve 2, Reject 0 — it touches the *reason* anyone gave
-for expecting zeros.
+**`DPLC-STRADDLE-REACHABLE`: CLOSED 2026-09-25 (`parcel/dplc-straddle-reachable`). The straddling
+frames are Sonic's `$29` and `$2B`. `dplc_straddle.py` already called them REACHABLE on the ROM this
+was observed on. The stale sentence was a copy of its 2026-09-05 output inside
+`dma_straddle_exercise.py`.** Full report: `docs/research/2026-09-25-dplc-straddle-reachable.md`.
+
+*As booked (2026-09-19):* `Dbg_DMA_Straddle_All` went 0 → 6 and `Dbg_DMA_Straddle_Peak` 0 → 1 in
+ordinary grounded play, first seen at frame 13005 with the player at (1082,497) and `mapping_frame
+$2C` at the poll. That contradicted "every straddling DPLC frame in the cast is unreachable", the
+premise of `dma_straddle_exercise`'s "empty by construction" argument.
+
+*Finding.* I ran the campaign's own input timeline under an execution breakpoint on `.split`. It
+reproduces frame 13005 / (1082,497) / `$2C` exactly. All six straddles are `Perform_DPLC`'s entry
+loop enqueueing `Art_Sonic+$5960` (0x7FFC2, crossing 0x80000) on the Important queue, for `Player_1`
+= Sonic in `ANIM_RUN` at ground angles $34-$4C. That is four loads of `$29` (512 B) and two of `$2B`
+(224 B), which is run-tilt block 2. `$2C` itself does not straddle: it was the frame at the poll.
+**Reading (a), "the reachability analysis is wrong", is REJECTED.** On that ROM (crc32 `62238a15`,
+which is also today's master `s4.debug.bin`, byte-identical) both the 09-19 and today's
+`dplc_straddle.py` print `straddling REACHABLE: 2: $29, $2B`. Every one of the 37 mapping frames
+seen at the campaign's 735 polls is inside the tool's reachable set. **Reading (b), "not a DPLC
+transfer", is REJECTED.** All six return into Perform_DPLC with the source inside `Art_Sonic`, and the
+page survey shows that no page-in landing can cross. What was actually wrong: the 09-05 list (Sonic
+`$65`, Tails `$9F`, Knuckles `$85`, all unreachable) had been copied into `dma_straddle_exercise.py`'s
+prose and its control-B ladder, and nothing re-read it after the art moved. **The copy also killed
+control B.** None of those three frames straddles on `62238a15`. The same short campaign exits 2
+UNMEASURABLE with the literal ladder and exits 0 with the ladder derived per build (it fires on `$29`
+on the first attempt).
+
+*Fixed.* `default_control_ladder()` derives the ladder from the built listing and ROM.
+`tools/test_dma_straddle_exercise.py` (needs_build) grades it. It was red on the committed baseline
+with no mutation, is green after the fix, and two mutations turn it red. The prose in the tool is
+corrected, including a printed NOTE that read a silent control A as "none reachable". Dated notes
+sit beside the stale sentence in the two 09-05 witness docs and the 09-03 measurement. **Not an
+engine defect.** Every split got its two slots: Reject 0, Peak 1 against a reserve of 2, and
+dplc_straddle's concurrent bound is 1 (Tails' and Knuckles' straddlers are unreachable). The 09-03
+measurement's warning ("the moment ... Sonic [gets] a reachable straddling frame") has half
+arrived. `dplc_straddle --gate` VERDICT C is the check that will catch the other half.
+**TAGGED:** whether per-hit attribution becomes a committed `--attribute` flag. The S2-clip shape's
+`Art_Sonic` (0x80D0E) was swept for Sonic alone (0 straddles at that shift). Tails and Knuckles
+were not measured there.
 
 **`COST-PROBE-SWEEP-ANCHOR`: does the `--sweep` arm get to poke a world anchor?** It is red now,
 with the cause on the line, and it will stay red until somebody decides. Installing an anchor per
