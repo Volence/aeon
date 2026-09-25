@@ -132,8 +132,54 @@ PER-CLIP POOL ROWS (2026-09-25, aurora's row-8 ask; design §8 RULED block). `cl
   is sliced out of the same placement dict `pool.tiles`/`pool.pages` come from;
   `tools/test_clip_pool_per_clip.py` re-derives each one off the emitted tree.
 
+`bake --json` (added 2026-09-25 for aurora's Sonic 2 donor page, aurora ROADMAP row 213 open
+item (a); aeon row CLIP-BAKE-JSON). Same bake, same output tree, same exit codes (0 baked, 1
+refused), and the human mode's output is unchanged byte for byte. Instead of the progress
+lines it prints ONE JSON document on stdout, in `clip_manifest.py validate --json`'s shape
+(built by the same `clip_manifest.refusal_record` / `json_text`), so one reader reads both:
+
+    { "schema": 1,              // BAKE_JSON_SCHEMA; bumped on its own, on any change a
+                                //   reader of this document could see
+      "ok": false,              // true iff exit code 0
+      "refusals": [             // [] when ok. At most ONE entry: the bake stops at the first
+        {                       //   refusal. A list so that never changes the shape.
+          "rule": "C1",         // the message's leading tag: R1-R12 / K1-K3 (the manifest,
+                                //   as validate --json gives them), C1-C3 (this file's
+                                //   collision refusals); "FG_PAGE_BUDGET" for the page
+                                //   budget; null for an untagged refusal (--expect-worst
+                                //   not met, an emitted tree that does not re-count as it
+                                //   was placed, a tileset shorter than a clip's indices)
+          "subjects": [         // WHICH clip(s)/corridor(s), validate --json's subject
+            { "kind": "clip",   //   dicts. [] = about the act as a whole: C2 (the act's
+              "index": 0,       //   attr-set cap), C3 (a profile in the act's merged set),
+              "id": "ehz_cut" } //   the page budget (a camera window, not a clip), and
+          ],                    //   every untagged one. C1 names its clip.
+          "message": "C1 clip 'ehz_cut': its source rectangle takes ..." } ],
+                                // the human sentence: what the human mode prints after
+                                //   "clip act REFUSED — ", or for the page budget, the
+                                //   stderr sentence after its leading "REFUSED — "
+      "warnings": [ ... ] }     // W2/W3 from the manifest loader, validate --json's shape
+
+A refusal is EXACTLY what the human mode reports as REFUSED, and nothing else:
+  * a `clip_manifest.ClipManifestError`. It does reach `bake`: `load()` is the first call,
+    and `place()`/`collision()` reach the loader's tree readers, which raise it too;
+  * a `ClipBakeError` or subclass (`ClipCollisionError`);
+  * the FG page budget. That one is `fg_page_order.refuse_over_budget`'s SystemExit, shared
+    with the OJZ generator; the human mode lets it print "REFUSED — FG page budget: ..." on
+    stderr. `--json` asks that same function itself (`budget_refusal`, `bake(...,
+    refuse_budget=False)`), catching its SystemExit around that ONE call only.
+Anything else is a crash and is not wrapped: a manifest that is not JSON, a path that does
+not exist, a non-integer --expect-worst, a BudgetError. Traceback, exit code 1, and NO JSON on
+stdout, in either mode. A caller must read "exit 1 and stdout that is not JSON" as a crash,
+never as a refusal. A usage error prints USAGE (unchanged, still human) and exits 1.
+`--json` goes after the manifest path, anywhere among the other options.
+
+A refusal can come AFTER the tree is written: --expect-worst and the page budget are decided
+on the emitted tree, so `--out` then holds a complete tree, `clipact.json` included, exactly
+as the human mode leaves it. An ok of false means: do not use that tree.
+
 Usage:
-    python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N]
+    python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N] [--json]
     python3 tools/clip_act_bake.py recount <baked DIR>
     python3 tools/clip_act_bake.py measure-alignment
 """
