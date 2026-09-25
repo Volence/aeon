@@ -17,13 +17,24 @@ THE INSTRUMENT, and why this one. The 68k never writes the YM here; the Z80 does
 at its own $4000-$4003. oracle's Rust core answers `capabilities.vgm: false` — the
 six sound methods (`vgm_start`, `audio_spectrum`, `get_channel_states`, ...) are
 catalogued and NOT served — so there is no VGM log and no audio to render. What IS
-available: `crates/oracle-core/src/z80/bus.rs` taps every Z80-side $4000-$4003 and
-$7F11 write into the same `BusEvent` sink the 68k bus feeds, at the RAW Z80-side
-address, and `Watchpoints` is a consumer of that sink. So a v1 `bus`-space write
-watch over $4000-$4003 records the driver's YM register traffic with a per-hit
-mclk. Measured, not assumed: leg L0 asserts the watch is live, and a `--poison`
-run aims it where nothing writes and requires L0 to go loud (a dead instrument and
-a silent machine look identical otherwise).
+available is the Z80's YM/PSG register writes on the bus watch surface. Since
+oracle's Z80-WATCH-TAP change (contract §6 "The Z80 and the watch surface", hub
+ruling §11.52 option C; oracle CR `94665a6:docs/2026-09-25-z80-watch-cr.md` §5.1)
+a Z80 YM write reaches a `bus` watch at the register's 68000-MAP address,
+$A04000-$A04003 (PSG: $A07F11), with `via: "z80"`, the Z80's own `pc`, and no `fc`
+or `symbol`. So a v1 `bus`-space write watch over $A04000-$A04003 records the
+driver's YM register traffic with a per-hit mclk. Two things follow, both enforced
+in `YmTap`:
+  * the OLD Z80-side addresses ($4000-$4003, $7F11) no longer match anything — in
+    this space they name cartridge ROM. Before that change this file watched
+    $4000-$4003; against an oracle WITHOUT the change the watch below records no
+    Z80 traffic and L0 goes loud, which is correct, not a regression;
+  * the 68000's own writes to $A04000-$A04003 arrive in the SAME stream, as
+    `via: "bus"`, fc 5. The server's `matched` counts them, so `YmTap` keeps only
+    `via == "z80"` hits and L0 gates on that count, never on `matched`.
+Measured, not assumed: leg L0 asserts the watch is live, and a `--poison` run aims
+it where nothing writes and requires L0 to go loud (a dead instrument and a silent
+machine look identical otherwise).
 
 Second instrument, for the state the YM stream cannot show: the config-A profile
 places `Sound_DebugMirror` (engine/debug/sound_debug.emp) and calls it every
@@ -100,8 +111,14 @@ DRUM_WAIT_FRAMES = 240     # generous: wait for the drum song's first $E2
 TAIL_FRAMES = 24           # capture window after the request lands
 MCLK_HZ = 53_693_175       # NTSC master clock (oracle-core scheduler)
 
-# YM part-I/part-II port pairs, Z80-side raw addresses (crates/oracle-core/src/z80/bus.rs).
-YM_A0, YM_A1, YM_A2, YM_A3 = 0x4000, 0x4001, 0x4002, 0x4003
+# YM part-I/part-II port pairs at their 68000-MAP addresses: the Z80 writes them at
+# $4000-$4003, and oracle reports a Z80 hit at `$A00000 | a` (contract §6, "The Z80
+# and the watch surface"; §11.52). A watch at the raw Z80-side $4000 would be a watch
+# on cartridge ROM and would record nothing.
+YM_A0, YM_A1, YM_A2, YM_A3 = 0xA04000, 0xA04001, 0xA04002, 0xA04003
+# The `via` a hit carries when the Z80 drove it. The 68000's own writes to the same
+# ports arrive as "bus" (fc 5) in the same stream and are NOT the driver's traffic.
+VIA_Z80 = "z80"
 REG_KEY, REG_DAC_DATA, REG_DAC_ENABLE = 0x28, 0x2A, 0x2B
 
 # Mirror layout — engine/debug/sound_debug.emp IS the layout authority:
@@ -196,9 +213,19 @@ async def mirror(b, base):
 class YmTap:
     """A live record-mode watch over the Z80's four YM ports, drained by cursor.
 
+    Only hits with `via == "z80"` are the driver's: the watch also records the 68000's
+    own writes to the same ports (`via: "bus"`, fc 5), which the server counts in
+    `matched`. Those are counted in `foreign` and never enter `events`; `z80` counts
+    the kept hits, and that — not `matched` — is what a liveness leg must gate on.
+    Every hit's `seq` is still recorded, so `holes()` stays a complete lost-hit check.
+    Scope: the chip's address latch is SHARED by both masters, so if the 68000 ever
+    interleaved YM writes with the driver's, this Z80-only reconstruction could pin a
+    data byte on the wrong register. aeon's 68k never writes the YM (see the module
+    docstring); `foreign` is printed on the liveness leg so a nonzero share is seen.
+
     Reconstructs (register, value, mclk) from the raw port stream the way the chip
     does: a $4000/$4002 write LATCHES a register select and a $4001/$4003 write is
-    that latched register's data. The DAC stream is exactly the case that makes this
+    that latched register's data (68000-map $A04000/$A04002 and $A04001/$A04003). The DAC stream is exactly the case that makes this
     necessary — the driver PARKS the address port on $2A and then writes bare $4001
     bytes at the sample rate, so a reader that only looked at $4000 writes would see
     none of the drum at all.
@@ -211,6 +238,7 @@ class YmTap:
         self.events = []          # (seq, mclk, part, reg, value); value None = a select
         self.latch = {0: None, 1: None}
         self.dropped = self.matched = self.seen = 0
+        self.z80 = self.foreign = 0   # kept (via == "z80") / skipped (any other via)
         self.seqs = []
         self.handle = None
 
@@ -238,6 +266,10 @@ class YmTap:
                 seq = h["seq"]
                 self.cursor = seq
                 self.seqs.append(seq)
+                if h.get("via") != VIA_Z80:
+                    self.foreign += 1
+                    continue
+                self.z80 += 1
                 addr = int(str(h["addr"]).replace("0x", ""), 16)
                 val = int(str(h["value"]).replace("0x", ""), 16) & 0xFF
                 mclk = h["mclk"]
@@ -252,6 +284,28 @@ class YmTap:
             self.matched = r.get("matched", self.matched)
             if not r.get("truncated"):
                 return
+
+    def liveness_fault(self):
+        """None if this tap recorded the Z80's YM traffic, else why it did not.
+
+        The one liveness verdict both YM witnesses gate on. It reads `z80`, never
+        `matched` alone: `matched` also counts the 68000's own writes to the same
+        ports, so a watch receiving none of the driver's traffic could still show
+        matched > 0, and a poison aim that caught a 68000 write would read as live.
+        """
+        if self.seen == 0:
+            return ("seen == 0 — the watch was never attached to the run; every "
+                    "number below would be about an instrument, not about the driver")
+        if self.matched == 0:
+            return ("the YM watch matched NOTHING — live, but aimed where no FM "
+                    "traffic goes (or the oracle predates the Z80-WATCH-TAP change and "
+                    "still reports Z80 YM writes at $4000, not $A04000), so every "
+                    "'no writes' result below would be an artefact of the aim")
+        if self.z80 == 0:
+            return (f"the YM watch matched {self.matched} hit(s) but NONE via "
+                    f"\"{VIA_Z80}\" ({self.foreign} from another master) — the driver's "
+                    f"writes are not reaching this watch")
+        return None
 
     def holes(self):
         """Gaps in the captured `seq` run — the AUTHORITATIVE lost-hit check.
@@ -501,23 +555,21 @@ async def main_async(sock, rom, lst_path, poison, out):
     await clean_boot(b, lst_path)
     tap0 = YmTap(b, base_addr=(0x00A00000 if poison else YM_A0))
     if poison:
-        out.append("  --poison: the YM watch is aimed at $A00000, which the Z80 never "
-                   "writes and which carries no FM traffic — L0 MUST go loud")
+        out.append("  --poison: the YM watch is aimed at $A00000 (Z80 RAM), where no Z80 "
+                   "access is offered to a watch and no FM traffic goes — L0 MUST go loud")
     await tap0.arm("ym-L0")
     await b.call("emulator/run_frames", {"frames": 30})
     await tap0.poll()
     span = await frame_mclk(b)
     out.append(f"L0 THE WATCH IS LIVE: seen={tap0.seen} matched={tap0.matched} "
-               f"dropped={tap0.dropped} holes={tap0.holes()} over 30 idle frames")
-    if tap0.seen == 0:
-        fails.append("L0: seen == 0 — the watch was never attached to the run; every "
-                     "number below would be about an instrument, not about the driver")
-    elif tap0.matched == 0:
-        fails.append("L0: the YM watch matched NOTHING — live, but aimed where no FM "
-                     "traffic goes, so every 'no writes' result below would be an "
-                     "artefact of the aim")
+               f"z80={tap0.z80} foreign={tap0.foreign} dropped={tap0.dropped} "
+               f"holes={tap0.holes()} over 30 idle frames")
+    fault = tap0.liveness_fault()
+    if fault:
+        fails.append(f"L0: {fault}")
     else:
-        out.append(f"  L0: live — {tap0.matched} YM writes captured, {tap0.holes()} holes")
+        out.append(f"  L0: live — {tap0.z80} Z80 YM writes captured "
+                   f"({tap0.foreign} from another master skipped), {tap0.holes()} holes")
     legs.append("L0 the watch is live")
     if poison:
         out.append("LEGS RUN: 1 — L0 only (poison mode stops here by design)")
