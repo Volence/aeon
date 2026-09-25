@@ -1,6 +1,12 @@
 {
-  "focus": "You reached the end of the Sonic 2 act as built; it ends 416 px of walkable level short of the signpost.",
-  "inFlight": [],
+  "focus": "Adding Chemical Plant beside Emerald Hill, joined by a corridor, each zone in its own colours, for you to fly.",
+  "inFlight": [
+    {
+      "what": "Sonic 2 act row 7: Emerald Hill + corridor + Chemical Plant, per-zone palettes",
+      "where": "branch parcel/s2-two-zone-act (agent worktree)",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,7 +14,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Here, and it is a clean one: nothing running, nothing unbanked, console green.",
+  "nextBoundary": "When the two-zone act lands and its ROM is on disk for your flythrough.",
   "queue": [
     {
       "id": "S2CLIP-BANK-ROOM-GATE",
@@ -28,7 +34,7 @@
     {
       "id": "KEEPALIVE-BLIND-TO-LOSSY",
       "title": "A tool that measures correctly and throws the answer away passes every check we have; one did exactly that for two weeks",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -111,18 +117,18 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Sonic 2 test act: LANDED five sections wide; waiting on your eye, not on work",
-      "state": "blocked",
+      "title": "Sonic 2 test act: adding Chemical Plant beside Emerald Hill with a corridor between, as you asked today",
+      "state": "doing",
       "size": "L",
-      "blockedBy": "waits on your eye only: the act is built and landed, and needs your flythrough to be accepted",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
       "id": "S2CLIP-TRUNCATION",
-      "title": "The act stops 736 px before Emerald Hill's signpost, and 416 px of that is level you could walk; recovering it needs an act that is not a whole number of sections",
-      "state": "blocked",
+      "title": "The act stops 416 px of walkable level short of Emerald Hill's signpost; the two-zone parcel recovers it if a zone can end mid-section cheaply",
+      "state": "open",
       "size": "L",
-      "blockedBy": "its own fix is a design change: recovering the 416 playable px needs an act that is not a whole number of sections, which is yours to rule, not mine to take",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -154,7 +160,7 @@
       "blockedBy": "parked by us, not by a dependency: nothing is stopping it but it is not scheduled"
     }
   ],
-  "awaiting": "whether to recover the last stretch before Emerald Hill's signpost (six-section act with the camera stopped at Sonic 2's own limit), or accept the act ending where it does",
-  "atBoundary": true,
-  "updatedAt": "2026-09-25T06:16:59Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-25T06:18:55Z"
 }
