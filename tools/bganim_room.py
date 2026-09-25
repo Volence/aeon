@@ -1047,13 +1047,25 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
             print(f"  anchor pair: `{SOUND_ANCHOR_NAME}` 0x{declared_sound:X} = "
                   f"`{ANCHOR_NAME}` 0x{anchor:X} + SOUND_BANK_OFFSET "
                   f"0x{SOUND_BANK_OFFSET:X}, as the rule encodes", file=out)
+        # THE THRESHOLD IS THE RESERVE ALONE (S2CLIP-BANK-ROOM-GATE, 2026-09-25). `want`
+        # is where a RE-LAYOUT puts the anchor (reserve + grace inside the align_up);
+        # the gate fires only when the room drops under the reserve — GRACE is
+        # "INSIDE the align_up and OUTSIDE the gate's threshold" (map.toml's rule
+        # block, commit 446a27d9). From 446a27d9 to this parcel the arm read
+        # `anchor < want`, which fired at room < reserve + grace (window-rounded)
+        # while this message claimed room < reserve: measured as "58962 B < 49152 B"
+        # on the S2 clip debug shape. Comparing the room itself makes the message's
+        # relation true by construction.
         want = rule_anchor(packed_end)
-        if anchor < want:
+        room = r["room"]
+        if room < DATA_GROWTH_RESERVE:
             print(
                 f"bganim_room: FAIL — the bank placement rule is broken in this shape.\n"
-                f"  `{ANCHOR_NAME}` is declared at 0x{anchor:X} but packed data ends at "
-                f"0x{packed_end:X}, leaving {r['room']} B < DATA_GROWTH_RESERVE "
-                f"{DATA_GROWTH_RESERVE} B.\n"
+                f"  room under `{ANCHOR_NAME}` = 0x{anchor:X} - 0x{packed_end:X} = {room} B, "
+                f"which is LESS than DATA_GROWTH_RESERVE {DATA_GROWTH_RESERVE} B "
+                f"(short by {DATA_GROWTH_RESERVE - room} B). `{ANCHOR_NAME}` is the "
+                f"map's declared anchor; 0x{packed_end:X} is where the packed data ends "
+                f"(Art_Sonic's LMA + its blob).\n"
                 f"  The rule (games/sonic4/map.toml, BANK PLACEMENT RULE): "
                 f"dac_banks = align_up(packed_end + reserve + grace, 0x{BANK_ALIGN:X}) "
                 f"= 0x{want:X}, sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} "
@@ -1064,6 +1076,19 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
                 f"build stops at `[map.undeclared-island]`. Do NOT shrink the reserve.",
                 file=out)
             rc = 1 if gate else rc
+        elif anchor < want:
+            # Inside the grace: the reserve still holds, so this is reported, never
+            # failed — but the "guaranteed >= grace" sentence below is not true here.
+            print(f"  bank placement rule: packed end 0x{packed_end:X} + reserve "
+                  f"{DATA_GROWTH_RESERVE} B + grace {DATA_GROWTH_GRACE} B -> "
+                  f"{ANCHOR_NAME} >= 0x{want:X} at the next re-layout; declared "
+                  f"0x{anchor:X}, 0x{want - anchor:X} BELOW this shape's rule value — "
+                  f"{DATA_GROWTH_RESERVE + DATA_GROWTH_GRACE - room} B of the "
+                  f"{DATA_GROWTH_GRACE} B grace is spent, the reserve is intact", file=out)
+            print(f"  growth before this gate fires again: {room - DATA_GROWTH_RESERVE} B "
+                  f"(the room above the reserve; the grace is NOT guaranteed here — "
+                  f"it is only guaranteed in the shape the anchor was derived for)",
+                  file=out)
         else:
             slack = ("this shape binds exactly" if anchor == want else
                      f"0x{anchor - want:X} of slack above this shape's rule value — another "
