@@ -10,6 +10,11 @@
       "what": "Longer Chemical Plant, built on top of the sound positions file and the new assembler",
       "where": "branch parcel/s2clip-cpz-longer",
       "agent": true
+    },
+    {
+      "what": "Landing the Sonic 2 level's own sound positions file",
+      "where": "branch land/0925-clip-overlay",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -62,18 +67,11 @@
     },
     {
       "id": "S2CLIP-DEBUG-ROOM",
-      "title": "The Sonic 2 level's own sound positions file: our half is built and works with sigil's; it lands right after sigil lands theirs",
-      "state": "blocked",
+      "title": "The Sonic 2 level's own sound positions file: the new assembler is in, so it's landing now",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "sigil swapping the shared assembler through the hub's window; our check found the new one changes none of our four standard ROMs",
+      "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "STRESS-CLAMP-EQU-WRONG",
-      "title": "A test build's listing answered a question about a different build; the assembler lane has fixed it, and it reaches us when our installed assembler is next rebuilt",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "fixed upstream at sigil 74914fa8 (verified on their origin); our installed sigil binary dates from 09-17 and predates it, so close this at the next deliberate rebuild of that shared binary"
     },
     {
       "id": "COST-PROBE-SWEEP-ANCHOR",
@@ -163,5 +161,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:16:12Z"
+  "updatedAt": "2026-09-25T17:17:46Z"
 }
