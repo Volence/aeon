@@ -25,6 +25,14 @@
       "project": "REGIONS"
     },
     {
+      "id": "S2CLIP-REGION-MUSIC",
+      "title": "You asked: play Emerald Hill's music and switch to Chemical Plant's at the crossing (needs Sonic 2 songs converted and a zone-music switch; design first)",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
       "id": "PERF-SURVEY",
       "title": "You asked: fly through everything, find where it lags, and bring back a ranked list of what's worth speeding up",
       "state": "next",
@@ -127,5 +135,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T20:32:21Z"
+  "updatedAt": "2026-09-25T20:33:54Z"
 }

@@ -6,6 +6,16 @@ CLEAN boundary (as first written): nothing in flight, no agent holding a branch,
 with this as the next job, so START WITH THE PERFORMANCE SURVEY BELOW. He said go ("If so let me /clear and you can
 get going yeah?"), so do not boot into a stop.
 
+## ALSO NEXT: region music transitions (owner, verbatim, 2026-09-25)
+*"after this shall we test the music transitions per region from sonic 2 ehz to cpz?"* Queued as S2CLIP-REGION-MUSIC.
+Where it starts, as told to him: no canonical shape plays music (only the SOUND_DEBUG_HOTKEYS / `--config-a` shape
+calls `Sound_PlayMusic`; memory `reference_no_music_in_canonical_shapes`); a grep of engine/ and games/sonic4/config found no
+region/zone music switching; Sonic 2's EHZ/CPZ songs are not converted, although an S3K import path exists (HCZ2). So the
+first step is a design pass: (1) import S2 EHZ + CPZ through the existing importer (fidelity?); (2) where the region
+crossing starts the next zone's song, and whether an S2CLIP build plays music in play at all; (3) the FEEL, cut vs fade
+and whether it waits for the tunnel. (3) is HIS call: park it with a recommendation. The rest is ours to build. Run it
+alongside the perf survey; both are his asks. Deliverable: a clip build that plays EHZ and switches to CPZ at the crossing.
+
 ## The owner's next ask (verbatim, 2026-09-25)
 *"Next up can you fly through things and see if you can detect any lag and see if we want to do anything for
 performance?"*
