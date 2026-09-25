@@ -157,9 +157,9 @@ W1-W3 are warnings.
           the control holds clip ADJACENCY fixed; the separated act's 7 is adjacency, not
           section purity. The exact refusal that does bite is downstream and precise
           (build_section_local_map raises past 2047), so this stays a warning.
-      A CORRIDOR does not count as a zone here: its sheet is three tiles, so it cannot
-      move a local map toward the cap, and warning on every corridor-meets-clip section
-      would bury the warning that means something.
+      A CORRIDOR does not count as a zone here: its sheet is a few dozen tiles (29 for
+      s2_ehz_cpz's tunnel), far from moving a local map toward the cap, and warning on
+      every corridor-meets-clip section would bury the warning that means something.
 
 CORRIDORS (row 7, owner ruling S2ACT-SEAM-CORRIDORS 2026-09-17: "that was the plan not
 butting them together"). Two Sonic 2 zones disagree about which CRAM line their ground is
@@ -168,29 +168,53 @@ two clips that the palette cross-fade plays inside. Schema, beside `clips`:
 
     "corridors": [
       { "id": "ehz_to_cpz",                               // region-id pattern, unique
-        "dst_rect": { "x": 10976, "y": 0, "w": 1312, "h": 1024 },
-        "floor_y": 768 } ]                                // world px, top of the floor
+        "dst_rect": { "x": 10976, "y": 0, "w": 832, "h": 1024 },
+        "floor_y": 768,                                   // world px, top of the floor
+        "tunnel": { ... } } ]                             // OPTIONAL, see CorridorTunnel
 
-WHAT A CORRIDOR PAINTS, and why each choice. It is SYNTHESISED by the bake, never taken
-from a donor:
+HOW SHORT A CORRIDOR CAN BE is not a rule of this file; two checks downstream bound it,
+both built from engine constants. Z2 (clip_rom_bake.check_palette_crossings): the crossing
+sits at the middle of the gap rounded down to 16, with CAM_SCREEN_HALF_W + PAL_FADE_FRAMES
+x CAM_MAX_X_STEP = 160 + 16 x 16 = 416 px of corridor each side, so at least 832 px. Z1
+(clip_act_bake.zone_separation): at least TILE_CACHE_COLS - 1 = 79 cells = 632 px between
+two zones' cells. Z2 binds. tools/test_clip_two_zone.py holds s2_ehz_cpz's tunnel to the
+shortest width that passes both.
+
+WHAT A CORRIDOR PAINTS, and why each choice. It is SYNTHESISED by the bake (`corridor_art`),
+PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree:
   * ART on CRAM LINE 0 — the character's line, which the engine never writes
     (engine/effects/palette.emp: a preset palette is 96 bytes = lines 1-3, never line 0).
     So the corridor is the one thing on screen a region's palette install CANNOT recolour,
-    before, during or after the fade. That is the whole argument for the line; the
-    colours inside it (greys of art/palettes/SonicAndTails.bin) are a plain legible
-    default, and how the corridor LOOKS is the owner's call.
-  * THREE TILES of its own sheet (`corridor_sheet()`): 0 blank, 1 fill, 2 the floor's top
-    edge. The sheet is a zone key of its own (the LAST one), so its tiles cannot collide
-    with a donor's in the keyed dedupe, and the "no camera window holds two zones" check
-    (clip_act_bake Z1) can tell a corridor cell from a zone cell.
+    before, during or after the fade. That is the whole argument for the line. An open
+    corridor is plain stone in the greys of art/palettes/SonicAndTails.bin; a TUNNEL is
+    a donor zone's own art RECOLOURED to the nearest colours of that line (the owner,
+    2026-09-25: "the fg can use ehz or cpz art"). Recolouring is what lets zone art sit
+    inside the fade at all: drawn on its own zone line it would be on screen in the other
+    zone's colours, which is exactly what Z2 exists to prevent. How it LOOKS is the
+    owner's call.
+  * ITS OWN SHEET, deduplicated, tile 0 blank. The sheet is a zone key of its own (the
+    LAST one), so its tiles cannot collide with a donor's in the keyed dedupe, and the
+    "no camera window holds two zones" check (clip_act_bake Z1) can tell a corridor cell
+    from a zone cell.
   * COLLISION: the bank's full solid block, solid on every side, on BOTH planes, from
-    `floor_y` to the rectangle's bottom — a floor with nothing under it to fall into.
-    The shape is FOUND in the bank (`corridor_floor_shape`), not typed.
+    `floor_y` to the rectangle's bottom — a floor with nothing under it to fall into —
+    and, for a tunnel, from the rectangle's top to `tunnel.ceiling_y`. The shape is FOUND
+    in the bank (`corridor_floor_shape`), not typed.
+  * SEAMS: where the floor meets a neighbour whose ground is lower by less than a block,
+    the end block is the bank's gentlest ramp between them (`_seam_ramps`, K6), MEASURED
+    from the neighbour's own collision. s2_ehz_cpz's Emerald Hill edge stands at y 772
+    (shape 164, height 12) against a 768 floor: that was the 4-px step the owner hit.
   K1  id matches the region-id pattern, unique across clips AND corridors.
   K2  the rect obeys R5/R6/R8/R10 like a clip's dst (non-negative, 8-px grid, inside the
       act, overlapping nothing).
   K3  floor_y is a multiple of COLL_QUANTUM_PX (16) — a collision row — and lies inside
       the rect: a floor at y=770 would be a floor at y=768 that the art draws at 770.
+  K4  a tunnel's ceiling_y is a collision row, leaves at least one ceiling row in the rect
+      and 2 x PLAYER_Y_RADIUS + 1 px to the floor (engine/system/constants.emp), and the
+      tunnel's x and w are on the 16-px block grid.
+  K5  a tunnel's art names a zone some clip of the act uses, and its wall_src/back_src are
+      on the 8-px grid inside that zone's crop.
+  K6  (at bake, from the collision) each seam is flush or bridgeable by one ramp block.
 
 `validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
 row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
@@ -285,7 +309,9 @@ _RECT_KEYS = ("x", "y", "w", "h")
 #: A refusal's or warning's rule tag is the LEADING token of its message ("R7 clip ...") —
 #: the header's VALIDATION RULES contract ("each is named in the message it raises or warns
 #: with"). `--json` reads it back from there, so the tag has one spelling, in one place.
-_TAG_RE = re.compile(r"^([RKW]\d+) ")
+#: C is `tools/clip_act_bake.py`'s family (C1-C3, the collision refusals). `bake --json`
+#: reads its tags through this same reader, so the two tools agree on what a tag is.
+_TAG_RE = re.compile(r"^([RKWC]\d+) ")
 
 
 def rule_of(message):
@@ -377,17 +403,22 @@ class Clip:
 class Corridor:
     """One synthesised neutral stretch between clips (see CORRIDORS in the header)."""
 
-    __slots__ = ("id", "dst", "floor_y", "index")
+    __slots__ = ("id", "dst", "floor_y", "index", "tunnel")
 
     def __init__(self, raw, index):
         self.index = index
         self.id = raw["id"]
         self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
         self.floor_y = int(raw["floor_y"])
+        #: None (an open corridor: a floor and air above it) or a CorridorTunnel.
+        self.tunnel = None
 
     def as_json(self):
-        return {"id": self.id, "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
-                "floor_y": self.floor_y}
+        out = {"id": self.id, "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
+               "floor_y": self.floor_y}
+        if self.tunnel is not None:
+            out["tunnel"] = self.tunnel.as_json()
+        return out
 
     def __repr__(self):
         return f"<Corridor {self.id} dst={self.dst} floor_y={self.floor_y}>"
@@ -395,8 +426,9 @@ class Corridor:
 
 #: The corridor sheet's name in the zone table. Not a donor: `tilesets()` synthesises it.
 CORRIDOR_SHEET = ("corridor", "neutral")
-#: The corridor sheet's three tiles (indices into `corridor_sheet()`).
-CORRIDOR_TILE_BLANK, CORRIDOR_TILE_FILL, CORRIDOR_TILE_EDGE = 0, 1, 2
+#: The corridor sheet's tile 0 is always the blank tile (`corridor_art`), so a corridor
+#: word of index 0 is air exactly as a donor's is.
+CORRIDOR_TILE_BLANK = 0
 #: The CRAM line corridor art is drawn on. 0, the character's line, and the reason is
 #: DERIVED rather than chosen: a preset palette is 96 bytes = lines 1-3 and never line 0
 #: (engine/effects/palette.emp, Palette_LoadPal's contract), so line 0 is the one line no
@@ -412,25 +444,123 @@ CORRIDOR_PAL_LINE = 0
 CORRIDOR_COLOURS = {"fill": 9, "mortar": 1, "edge_hi": 6, "edge": 7}
 
 
-def _tile_from_rows(rows):
-    """A 4bpp tile from eight rows of eight colour indices (one nibble per pixel)."""
+#: The palette CRAM line 0 holds at runtime: the character palette the boot state loads
+#: there (games/sonic4/test/ojz_scroll_test.emp `BGND_Palette`). A tunnel's donor art is
+#: RECOLOURED into it (`_recolour_to_line0`), so this is what "nearest colour" is measured
+#: against — the colours the screen will actually show, not a restatement of them.
+LINE0_PALETTE = os.path.join(REPO, "art", "palettes", "SonicAndTails.bin")
+#: A tunnel's transparent donor pixels are PAINTED, never left transparent: the point of a
+#: tunnel is that no background shows through it (owner, 2026-09-25: "the tunnel to
+#: transition has to be like an FG hiding the bg"). They take this line-0 index — 1, $0222,
+#: the darkest non-transparent colour in the line — so a donor's see-through mesh reads as
+#: a dark grille in front of nothing.
+TUNNEL_HOLE_COLOUR = 1
+#: The tunnel's back wall is its donor texture at this fraction of its brightness (per
+#: channel, then nearest line-0 colour), so the open interior reads as BEHIND the solid
+#: ceiling and floor. A LOOK: the owner rules on it.
+TUNNEL_BACK_DIM = (1, 2)
+
+
+class CorridorTunnel:
+    """A corridor ENCLOSED: a solid ceiling above the walkway, and every cell of the
+    rectangle painted, so no background shows while the camera is inside it.
+
+        "tunnel": { "ceiling_y": 672,                     // world px, the ceiling's UNDERSIDE
+                    "art": { "donor": "s2disasm", "zone": "CPZ",
+                             "wall_src": { "x": 768, "y": 768, "w": 128, "h": 128 },
+                             "back_src": { "x": 512, "y": 896, "w": 32,  "h": 32 } } }
+
+    `wall_src` textures the solid ceiling and floor, `back_src` the open back wall between
+    them; both are rectangles of the named donor zone, tiled across the tunnel and
+    RECOLOURED onto CRAM line 0 (see CORRIDOR_PAL_LINE for why that line and no other)."""
+
+    __slots__ = ("ceiling_y", "donor", "zone", "wall_src", "back_src")
+
+    def __init__(self, raw):
+        self.ceiling_y = int(raw["ceiling_y"])
+        art = raw["art"]
+        self.donor, self.zone = art["donor"], art["zone"]
+        self.wall_src = tuple(int(art["wall_src"][k]) for k in _RECT_KEYS)
+        self.back_src = tuple(int(art["back_src"][k]) for k in _RECT_KEYS)
+
+    @property
+    def tree_key(self):
+        return (self.donor, self.zone)
+
+    def as_json(self):
+        return {"ceiling_y": self.ceiling_y,
+                "art": {"donor": self.donor, "zone": self.zone,
+                        "wall_src": dict(zip(_RECT_KEYS, self.wall_src)),
+                        "back_src": dict(zip(_RECT_KEYS, self.back_src))}}
+
+
+def _pack_tile(px):
+    """A 4bpp tile from an 8x8 array of colour indices (one nibble per pixel)."""
     out = bytearray()
-    for row in rows:
-        assert len(row) == 8
+    for row in px:
         for i in range(0, 8, 2):
-            out.append(((row[i] & 0xF) << 4) | (row[i + 1] & 0xF))
+            out.append(((int(row[i]) & 0xF) << 4) | (int(row[i + 1]) & 0xF))
     return bytes(out)
 
 
-def corridor_sheet():
-    """The corridor's three-tile sheet: blank, fill (a course of stone with a mortar line
-    at its foot), and the floor's top edge (a white highlight over a light-grey lip)."""
-    c = CORRIDOR_COLOURS
-    blank = bytes(32)
-    fill = _tile_from_rows([[c["fill"]] * 8] * 7 + [[c["mortar"]] * 8])
-    edge = _tile_from_rows([[c["edge_hi"]] * 8, [c["edge"]] * 8]
-                           + [[c["fill"]] * 8] * 5 + [[c["mortar"]] * 8])
-    return blank + fill + edge
+def _genesis_rgb(word):
+    """A CRAM word's three 3-bit channels, (r, g, b), each 0..7."""
+    return ((word >> 1) & 7, (word >> 5) & 7, (word >> 9) & 7)
+
+
+def _palette_lines(blob):
+    return [[_genesis_rgb(int.from_bytes(blob[l * 32 + i * 2:l * 32 + i * 2 + 2], "big"))
+             for i in range(16)] for l in range(len(blob) // 32)]
+
+
+def _nearest_line0(rgb, line0):
+    """The line-0 index (1..15, never the transparent 0) nearest `rgb`, ties to the lower."""
+    best = None
+    for i in range(1, 16):
+        d = sum((a - b) ** 2 for a, b in zip(rgb, line0[i]))
+        if best is None or d < best[0]:
+            best = (d, i)
+    return best[1]
+
+
+def donor_pixels(donor_root, donor, zone, rect, section_tiles):
+    """One donor rectangle as (h, w) RGB triples (3-bit channels), None where transparent.
+
+    The zone's own words, tileset and palette, resolved the way the VDP would: a word's
+    palette field 0 is CRAM line 0 (the character line), 1..3 the zone's three lines."""
+    d = os.path.join(donor_root, donor, zone)
+    with open(os.path.join(d, "zone.json")) as fh:
+        zm = json.load(fh)
+    words = section_word_grid(d, zm, section_tiles)
+    with open(os.path.join(d, "tileset.bin"), "rb") as fh:
+        tiles = fh.read()
+    with open(os.path.join(d, "palette.bin"), "rb") as fh:
+        lines = _palette_lines(open(LINE0_PALETTE, "rb").read()[:32] + fh.read()[:96])
+    x, y, w, h = rect
+    out = [[None] * w for _ in range(h)]
+    for cy in range(h // TILE_PX):
+        for cx in range(w // TILE_PX):
+            wd = int(words[y // TILE_PX + cy, x // TILE_PX + cx])
+            t = tiles[(wd & 0x7FF) * 32:(wd & 0x7FF) * 32 + 32]
+            pal = lines[(wd >> 13) & 3]
+            for py in range(8):
+                for px in range(8):
+                    sx = 7 - px if wd & 0x800 else px
+                    sy = 7 - py if wd & 0x1000 else py
+                    b = t[sy * 4 + sx // 2] if len(t) == 32 else 0
+                    c = (b >> 4) if sx % 2 == 0 else (b & 0xF)
+                    if c:
+                        out[cy * 8 + py][cx * 8 + px] = pal[c]
+    return out
+
+
+def _recolour_to_line0(pixels, line0, dim=(1, 1)):
+    """A donor texture onto CRAM line 0: every pixel to its nearest line-0 colour after
+    scaling by `dim`, transparent pixels to TUNNEL_HOLE_COLOUR. Returns (h, w) indices."""
+    num, den = dim
+    return [[TUNNEL_HOLE_COLOUR if p is None
+             else _nearest_line0(tuple(v * num // den for v in p), line0) for p in row]
+            for row in pixels]
 
 
 def corridor_floor_shape(bank_dir):
@@ -452,6 +582,41 @@ def corridor_floor_shape(bank_dir):
         f"flag, so a corridor floor cannot be built from it")
 
 
+def corridor_ramp_shape(bank_dir, start_h):
+    """The bank's gentlest ONE-BLOCK ramp from height `start_h` at its left column up to a
+    full 16 at its right — found, not typed. Used where a corridor's floor meets a
+    neighbour whose ground sits `16 - start_h` px lower (`_seam_ramps`); mirrored with the
+    cell word's xflip for a neighbour on the right.
+
+    A candidate is monotone non-decreasing, starts at exactly `start_h`, ends at 16, and has
+    a real angle (the odd "no usable angle" flag would make probe_core treat a slope as
+    flat). Among candidates: the smallest largest single-column rise, then the one that
+    reaches 16 LATEST (the most gradual), then the lowest index — so the choice is a
+    function of the bank alone. In the Sonic 2 bank start_h 12 is shape 208,
+    12,12,13,13,13,14,14,14,15,15,15,15,16,16,16,16, angle $FC."""
+    with open(os.path.join(bank_dir, "heightmaps.bin"), "rb") as fh:
+        hm = fh.read()
+    with open(os.path.join(bank_dir, "angles.bin"), "rb") as fh:
+        an = fh.read()
+    n = collision_pipeline.PROFILE_LEN
+    best = None
+    for s in range(1, len(hm) // n):
+        h = list(hm[s * n:(s + 1) * n])
+        if h[0] != start_h or h[-1] != n or any(b < a for a, b in zip(h, h[1:])):
+            continue
+        if any(v > n for v in h) or an[s] & 1:
+            continue
+        key = (max(b - a for a, b in zip(h, h[1:])), -h.index(n), s)
+        if best is None or key < best:
+            best = key
+    if best is None:
+        raise ClipManifestError(
+            f"K6 the collision bank at {bank_dir} has no one-block ramp from height "
+            f"{start_h} to {n}, so a corridor cannot meet a neighbour {n - start_h} px below "
+            f"its floor without a step")
+    return best[2]
+
+
 class ClipAct:
     """A validated clips.json: the act grid, the clips, and the derived zone-key table."""
 
@@ -467,6 +632,9 @@ class ClipAct:
         self.grid_h = grid_h
         self.constants = constants
         self.warnings = warnings
+        #: (donor_root, what) -> result, for the corridor art/collision both
+        #: `cell_grids` and `tilesets` read (one derivation, never two that could differ).
+        self._memo = {}
 
     # -- derived geometry ---------------------------------------------------
     @property
@@ -549,6 +717,68 @@ def _zone_manifest(clip, donor_root):
             [_subject_of(clip)])
     with open(p) as fh:
         return json.load(fh)
+
+
+def player_clearance_px(path=CONSTANTS_EMP):
+    """The least ceiling-to-floor gap a standing player fits in: 2 x PLAYER_Y_RADIUS + 1
+    (the body spans y - radius .. y + radius inclusive), READ from engine source."""
+    src = ConstantSource()
+    src.load_file(path)
+    return 2 * int(src.get("PLAYER_Y_RADIUS")) + 1
+
+
+def _load_tunnel(kid, raw, co, clips, donor_root, here):
+    """K4-K5 — a corridor's optional `tunnel` (see CorridorTunnel)."""
+    if not isinstance(raw, dict) or "ceiling_y" not in raw or "art" not in raw:
+        raise ClipManifestError(
+            f"K4 corridor {kid!r}: `tunnel` must be an object with `ceiling_y` and `art`", here)
+    cy = raw["ceiling_y"]
+    if not isinstance(cy, int) or isinstance(cy, bool) or cy % COLL_QUANTUM_PX:
+        raise ClipManifestError(
+            f"K4 corridor {kid!r}: tunnel.ceiling_y = {cy!r} is not a multiple of "
+            f"{COLL_QUANTUM_PX} (a collision row, K3's reason)", here)
+    need = player_clearance_px()
+    if not (co.dst[1] < cy and co.floor_y - cy >= need):
+        raise ClipManifestError(
+            f"K4 corridor {kid!r}: tunnel.ceiling_y = {cy} must leave at least one ceiling "
+            f"row inside the rect (y > {co.dst[1]}) and at least {need} px to the floor at "
+            f"{co.floor_y} (2 x PLAYER_Y_RADIUS + 1, engine/system/constants.emp: a standing "
+            f"player must not touch it)", here)
+    for k, v in (("x", co.dst[0]), ("w", co.dst[2])):
+        if v % COLL_QUANTUM_PX:
+            raise ClipManifestError(
+                f"K4 corridor {kid!r}: a tunnel's dst_rect.{k} = {v} must be a multiple of "
+                f"{COLL_QUANTUM_PX}: its mouths are collision blocks and a seam ramp is one "
+                f"(R12's reason — probe_core indexes a profile by world x & 15)", here)
+    art = raw["art"]
+    if not isinstance(art, dict) or any(k not in art for k in
+                                        ("donor", "zone", "wall_src", "back_src")):
+        raise ClipManifestError(
+            f"K5 corridor {kid!r}: tunnel.art needs donor, zone, wall_src and back_src", here)
+    zones = {c.tree_key for c in clips}
+    if (art["donor"], art["zone"]) not in zones:
+        raise ClipManifestError(
+            f"K5 corridor {kid!r}: tunnel.art names {art['donor']}@{art['zone']}, which no "
+            f"clip of this act uses. The art is a zone of the ACT (its tree is validated by "
+            f"R4 through a clip, and the owner's ask was a tunnel in the act's own art).", here)
+    zm = None
+    for c in clips:
+        if c.tree_key == (art["donor"], art["zone"]):
+            zm = _zone_manifest(c, donor_root)
+            break
+    x0, x1, y0, y1 = (int(v) * TILE_PX for v in zm["extent"]["crop_tiles"])
+    for name in ("wall_src", "back_src"):
+        _require_rect(f"corridor {kid!r} tunnel.art.{name}", art[name], here)
+        r = tuple(int(art[name][k]) for k in _RECT_KEYS)
+        if any(v % TILE_PX for v in r):
+            raise ClipManifestError(
+                f"K5 corridor {kid!r}: tunnel.art.{name} ({_rect_str(r)}) is not on the "
+                f"{TILE_PX}-px cell grid", here)
+        if r[0] < x0 or r[1] < y0 or r[0] + r[2] > x1 or r[1] + r[3] > y1:
+            raise ClipManifestError(
+                f"K5 corridor {kid!r}: tunnel.art.{name} ({_rect_str(r)}) is not inside "
+                f"{art['donor']}@{art['zone']}'s crop (x {x0}..{x1}, y {y0}..{y1} px)", here)
+    return CorridorTunnel(raw)
 
 
 def load(path, donor_root=None, constants=None, warn=None, warning_records=None):
@@ -819,6 +1049,8 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                 f"`lsr.w #1` of the tile row, engine/level/collision_lookup.emp) and lie "
                 f"inside the rect's y span {co.dst[1]}..{co.dst[1] + co.dst[3] - 1}. A floor "
                 f"off the collision grid would be drawn at one y and stood on at another.", here)
+        if "tunnel" in kr:
+            co.tunnel = _load_tunnel(kid, kr["tunnel"], co, clips, donor_root, here)
         corridors.append(co)
 
     # R10 / K2 — dst overlap, over clips AND corridors
@@ -911,25 +1143,238 @@ def cell_grids(act, donor_root=None):
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
         words[dy:dy + sh, dx:dx + sw] = src_words[sy:sy + sh, sx:sx + sw]
         zone_id[dy:dy + sh, dx:dx + sw] = cl.zone_key
-    for co in act.corridors:
-        cw, ck = corridor_cells(co)
+    for co, (cw, _sheet) in zip(act.corridors, corridor_art(act, donor_root)[1]):
         dx, dy, w, h = (v // TILE_PX for v in co.dst)
         words[dy:dy + h, dx:dx + w] = cw
         zone_id[dy:dy + h, dx:dx + w] = act.corridor_key
     return words, zone_id
 
 
-def corridor_cells(co):
-    """(words, None) for one corridor's rect: blank above the floor, the edge tile ON the
-    floor row, the fill below it — all on CORRIDOR_PAL_LINE, priority 0, unflipped."""
+def _clip_collision(act, donor_root):
+    """(plane_a, plane_b) with the CLIPS only — what a corridor's seams are measured
+    against (`_seam_ramps`), before any corridor is written over its own rectangle."""
     import numpy as np
+    key = (donor_root, "clip_collision")
+    if key in act._memo:
+        return act._memo[key]
+    st = act.section_tiles
+    planes = [np.zeros((act.rows, act.cols), dtype=np.uint16) for _ in range(2)]
+    cache = {}
+    for cl in act.clips:
+        if cl.tree_key not in cache:
+            zm = _zone_manifest(cl, donor_root)
+            d = cl.tree_dir(donor_root)
+            cache[cl.tree_key] = tuple(
+                section_plane_grid(d, zm, st, s) for s in ("collattr", "collattrb"))
+        src = cache[cl.tree_key]
+        sx, sy, sw, sh = (v // TILE_PX for v in cl.src)
+        dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
+        for p in range(2):
+            planes[p][dy:dy + sh, dx:dx + sw] = src[p][sy:sy + sh, sx:sx + sw]
+    act._memo[key] = planes
+    return planes
+
+
+def _bank(bank_dir):
+    with open(os.path.join(bank_dir, "heightmaps.bin"), "rb") as fh:
+        hm = fh.read()
+    with open(os.path.join(bank_dir, "angles.bin"), "rb") as fh:
+        an = fh.read()
+    return hm, an
+
+
+def _word_heights(word, hm):
+    """A per-plane cell word's 16 signed height bytes after its flips, or None if the word
+    is not TOP-solid (a floor sensor would pass through it)."""
+    n = collision_pipeline.PROFILE_LEN
+    shape = word & collision_pipeline.BLOCK_ID_MASK
+    if not shape or not ((word >> collision_pipeline.PLANE_SOL_SHIFT) & collision_pipeline.SOL_TOP):
+        return None
+    h = hm[shape * n:(shape + 1) * n]
+    if word & collision_pipeline.CHUNK_XFLIP_BIT:
+        h = collision_pipeline.flip_profile_x(h)
+    if word & collision_pipeline.CHUNK_YFLIP_BIT:
+        h = collision_pipeline.flip_profile_y(h)
+    return h
+
+
+def _seam_ramps(act, co, planes, hm, bank_dir):
+    """K6 — where a corridor's floor meets a neighbour's ground, and what bridges them.
+
+    MEASURED, not declared: for each end, the neighbour pixel column just outside the
+    corridor (x - 1 on the left, x + w on the right) is read in the clips' own collision on
+    the corridor's floor row, both planes. Its height there says where the neighbour's
+    ground is against `floor_y`:
+      * 16 (a full column) — flush, nothing to bridge;
+      * 1..15 — the neighbour stands 16 - h px LOWER: the corridor's end block becomes the
+        bank's gentlest ramp from h to 16 (`corridor_ramp_shape`), xflipped on the right;
+      * anything else (air on that row, ground in the row above, planes that disagree) is a
+        step this corridor cannot bridge in one block, and is REFUSED rather than shipped.
+    No neighbour (the act edge, or a VOID column) is nothing to meet.
+    Returns {"left"/"right": None or {"neighbour_surface_y", "shape", "xflip"}}."""
+    n = collision_pipeline.PROFILE_LEN
+    act_w = act.cols * TILE_PX
+    fr = co.floor_y // TILE_PX
+    out = {}
+    for side, x in (("left", co.dst[0] - 1), ("right", co.dst[0] + co.dst[2])):
+        out[side] = None
+        if x < 0 or x >= act_w:
+            continue
+        col = x // TILE_PX
+        if all(int(p[r, col]) == 0 for p in planes for r in range(act.rows)):
+            continue
+        hs = []
+        for p in planes:
+            above = _word_heights(int(p[fr - 2, col]), hm) if fr >= 2 else None
+            if above is not None and above[x % n]:
+                raise ClipManifestError(
+                    f"K6 corridor {co.id!r}: its {side} neighbour has ground in the collision "
+                    f"row ABOVE floor_y {co.floor_y} at x={x}; the corridor floor would be a "
+                    f"wall to walk into. Raise floor_y or move the corridor.")
+            h = _word_heights(int(p[fr, col]), hm)
+            hs.append(h[x % n] if h is not None else 0)
+        if hs[0] != hs[1]:
+            raise ClipManifestError(
+                f"K6 corridor {co.id!r}: its {side} neighbour's two collision planes disagree "
+                f"at x={x} on the floor row (heights {hs[0]} and {hs[1]}); one ramp cannot "
+                f"meet both")
+        h = hs[0]
+        if h == n:
+            continue
+        if not 0 < h < n or h >= 0x80:
+            raise ClipManifestError(
+                f"K6 corridor {co.id!r}: its {side} neighbour's ground at x={x} is not on the "
+                f"corridor's floor row (height {h} in the row at y {co.floor_y}): more than one "
+                f"block from floor_y, which one ramp block cannot bridge")
+        edge = co.dst[0] if side == "left" else co.dst[0] + co.dst[2] - n
+        if edge % n:
+            raise ClipManifestError(
+                f"K6 corridor {co.id!r}: a ramp is needed on its {side} end but that end is "
+                f"not on the {n}-px collision block grid (x {edge})")
+        out[side] = {"neighbour_surface_y": co.floor_y + n - h,
+                     "shape": corridor_ramp_shape(bank_dir, h), "xflip": side == "right"}
+    return out
+
+
+def corridor_collision(act, co, donor_root=None):
+    """One corridor's per-plane collision words, (h, w) cells, and its seam ramps.
+
+    Floor: the bank's full solid block (`corridor_floor_shape`), solid on every side, from
+    `floor_y` to the rect's bottom, its end blocks replaced by the seam ramps K6 measured.
+    Tunnel ceiling: the same block from the rect's top to `tunnel.ceiling_y`. Both planes
+    carry the same word. Returns (words, ramps)."""
+    import numpy as np
+    donor_root = _root(donor_root)
+    key = (donor_root, "corridor_collision", co.index)
+    if key in act._memo:
+        return act._memo[key]
+    bank_dir = collision_banks(act, donor_root)
+    hm, _an = _bank(bank_dir)
+    sol = collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT
+    full = corridor_floor_shape(bank_dir) | sol
     w, h = co.dst[2] // TILE_PX, co.dst[3] // TILE_PX
-    out = np.full((h, w), CORRIDOR_TILE_BLANK, dtype=np.uint16)
+    words = np.zeros((h, w), dtype=np.uint16)
     floor_row = (co.floor_y - co.dst[1]) // TILE_PX
-    pal = CORRIDOR_PAL_LINE << 13
-    out[floor_row, :] = CORRIDOR_TILE_EDGE | pal
-    out[floor_row + 1:, :] = CORRIDOR_TILE_FILL | pal
-    return out, None
+    words[floor_row:, :] = full
+    if co.tunnel is not None:
+        words[:(co.tunnel.ceiling_y - co.dst[1]) // TILE_PX, :] = full
+    ramps = _seam_ramps(act, co, _clip_collision(act, donor_root), hm, bank_dir)
+    per_block = collision_pipeline.PROFILE_LEN // TILE_PX
+    for side, r in ramps.items():
+        if r is None:
+            continue
+        c0 = 0 if side == "left" else w - per_block
+        word = r["shape"] | sol | (collision_pipeline.CHUNK_XFLIP_BIT if r["xflip"] else 0)
+        words[floor_row:floor_row + per_block, c0:c0 + per_block] = word
+    act._memo[key] = (words, ramps)
+    return words, ramps
+
+
+def corridor_art(act, donor_root=None):
+    """(sheet bytes, [(words, None)] per corridor) — the corridor sheet and every corridor's
+    nametable words, painted PIXEL BY PIXEL FROM THE CORRIDOR'S OWN COLLISION so the art
+    and the ground cannot disagree (a seam ramp is drawn exactly where it is stood on).
+
+    Every pixel of the rectangle is one of:
+      * SOLID (its collision covers it, floor or ceiling): the tunnel's `wall_src` texture,
+        or for an open corridor the plain stone course (CORRIDOR_COLOURS fill with a mortar
+        line every 8 px). The floor's top two pixels are its lip (edge_hi, edge); a
+        ceiling's lowest pixel is the mortar shadow.
+      * OPEN, in a tunnel: the `back_src` texture dimmed by TUNNEL_BACK_DIM — painted, so
+        the background is hidden.
+      * OPEN, in an open corridor: transparent (index 0), the background shows as before.
+    Textures are anchored to the surface they hang from: the floor's to floor_y, the
+    ceiling's and back wall's to ceiling_y, and to the corridor's left edge in x.
+    All of it on CORRIDOR_PAL_LINE. Tiles are deduplicated exactly (the act's keyed dedupe
+    finds flips later); tile 0 is blank."""
+    import numpy as np
+    donor_root = _root(donor_root)
+    key = (donor_root, "corridor_art")
+    if key in act._memo:
+        return act._memo[key]
+    line0 = _palette_lines(open(LINE0_PALETTE, "rb").read()[:32])[0]
+    hm, _an = _bank(collision_banks(act, donor_root)) if act.corridors else (b"", b"")
+    c = CORRIDOR_COLOURS
+    stone = np.full((8, 8), c["fill"], dtype=np.uint8)
+    stone[7, :] = c["mortar"]
+    sheet, index = [bytes(32)], {bytes(32): 0}
+    grids = []
+    for co in act.corridors:
+        cw, _ramps = corridor_collision(act, co, donor_root)
+        x0, y0, W, H = co.dst
+        solid = np.zeros((H, W), dtype=bool)
+        n = collision_pipeline.PROFILE_LEN
+        for cy in range(0, H, n):               # collision rows are 16 px: sample the even cell
+            for cx in range(W // TILE_PX):
+                hts = _word_heights(int(cw[cy // TILE_PX, cx]), hm)
+                if hts is None:
+                    continue
+                for px in range(TILE_PX):
+                    hv = hts[(x0 + cx * TILE_PX + px) % n]
+                    for py in range(n):
+                        if collision_pipeline.covers(hv, py):
+                            solid[cy + py, cx * TILE_PX + px] = True
+        if co.tunnel is not None:
+            t = co.tunnel
+            wall = np.array(_recolour_to_line0(
+                donor_pixels(donor_root, t.donor, t.zone, t.wall_src, act.section_tiles),
+                line0), dtype=np.uint8)
+            back = np.array(_recolour_to_line0(
+                donor_pixels(donor_root, t.donor, t.zone, t.back_src, act.section_tiles),
+                line0, TUNNEL_BACK_DIM), dtype=np.uint8)
+            ceil_rel = t.ceiling_y - y0
+        else:
+            wall, back, ceil_rel = stone, None, None
+        floor_rel = co.floor_y - y0
+        ys, xs = np.mgrid[0:H, 0:W]
+        anchor = np.where(ys >= floor_rel, ys - floor_rel,
+                          ys - (ceil_rel if ceil_rel is not None else floor_rel))
+        pix = wall[anchor % wall.shape[0], xs % wall.shape[1]]
+        if back is not None:
+            open_pix = back[(ys - ceil_rel) % back.shape[0], xs % back.shape[1]]
+        else:
+            open_pix = np.zeros((H, W), dtype=np.uint8)
+        pix = np.where(solid, pix, open_pix)
+        above_open = np.vstack([np.zeros((1, W), dtype=bool), ~solid[:-1]])
+        below_open = np.vstack([~solid[1:], np.zeros((1, W), dtype=bool)])
+        lip = solid & above_open & (ys >= floor_rel - n)
+        pix[lip] = c["edge_hi"]
+        lip2 = solid & np.vstack([np.zeros((1, W), dtype=bool), lip[:-1]])
+        pix[lip2] = c["edge"]
+        if ceil_rel is not None:
+            pix[solid & below_open & (ys < ceil_rel)] = c["mortar"]
+        words = np.zeros((H // TILE_PX, W // TILE_PX), dtype=np.uint16)
+        for ty in range(H // TILE_PX):
+            for tx in range(W // TILE_PX):
+                tb = _pack_tile(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
+                if tb not in index:
+                    index[tb] = len(sheet)
+                    sheet.append(tb)
+                words[ty, tx] = index[tb] | (CORRIDOR_PAL_LINE << 13)
+        grids.append((words, None))
+    out = (b"".join(sheet), grids)
+    act._memo[key] = out
+    return out
 
 
 def section_plane_grid(tree_dir, manifest, section_tiles, suffix):
@@ -976,30 +1421,13 @@ def collision_grids(act, donor_root=None):
     base bank — `zone.json`'s `collision.base_bank`, NOT the S&K bank — so a caller
     that bakes these must select that bank. `collision_banks()` returns it.
     """
-    import numpy as np
     donor_root = _root(donor_root)
-    st = act.section_tiles
-    planes = [np.zeros((act.rows, act.cols), dtype=np.uint16) for _ in range(2)]
-    cache = {}
-    for cl in act.clips:
-        if cl.tree_key not in cache:
-            zm = _zone_manifest(cl, donor_root)
-            d = cl.tree_dir(donor_root)
-            cache[cl.tree_key] = tuple(
-                section_plane_grid(d, zm, st, s) for s in ("collattr", "collattrb"))
-        src = cache[cl.tree_key]
-        sx, sy, sw, sh = (v // TILE_PX for v in cl.src)
-        dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
+    planes = [p.copy() for p in _clip_collision(act, donor_root)]
+    for co in act.corridors:
+        cw, _ramps = corridor_collision(act, co, donor_root)
+        dx, dy, w, h = (v // TILE_PX for v in co.dst)
         for p in range(2):
-            planes[p][dy:dy + sh, dx:dx + sw] = src[p][sy:sy + sh, sx:sx + sw]
-    if act.corridors:
-        word = (corridor_floor_shape(collision_banks(act, donor_root))
-                | (collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT))
-        for co in act.corridors:
-            dx, dy, w, h = (v // TILE_PX for v in co.dst)
-            floor_row = (co.floor_y - co.dst[1]) // TILE_PX
-            for p in range(2):
-                planes[p][dy + floor_row:dy + h, dx:dx + w] = word
+            planes[p][dy:dy + h, dx:dx + w] = cw
     return planes[0], planes[1]
 
 
@@ -1053,12 +1481,12 @@ def tilesets(act, donor_root=None):
         out.append((donor, zone, blob, zm))
     if act.corridors:
         import hashlib
-        blob = corridor_sheet()
+        blob = corridor_art(act, donor_root)[0]
         out.append((CORRIDOR_SHEET[0], CORRIDOR_SHEET[1], blob,
                     {"tileset": {"bytes": len(blob),
                                  "sha256": hashlib.sha256(blob).hexdigest()},
                      "palette": None,
-                     "synthesised": "clip_manifest.corridor_sheet()"}))
+                     "synthesised": "clip_manifest.corridor_art()"}))
     return out
 
 
@@ -1073,6 +1501,22 @@ USAGE = "Usage: python3 tools/clip_manifest.py validate <clips.json> [--donor-ro
 VALIDATE_JSON_SCHEMA = 1
 
 
+def refusal_record(exc):
+    """One `--json` refusal entry, `{rule, subjects, message}`, from a refusal exception.
+
+    Shared by `validate --json` and `tools/clip_act_bake.py bake --json`, so the two
+    documents cannot drift apart. `exc` is a ClipManifestError or the bake's ClipBakeError;
+    both carry `.rule` (the message's leading tag, or None) and `.subjects`."""
+    return {"rule": exc.rule, "subjects": [dict(s) for s in exc.subjects],
+            "message": str(exc)}
+
+
+def json_text(doc):
+    """How every clip tool prints its `--json` document: ONE document, indent 2, sorted
+    keys, ASCII-escaped (json.dumps' default)."""
+    return json.dumps(doc, indent=2, sort_keys=True)
+
+
 def validate_json(path, donor_root=None):
     """(the `validate --json` document, exit code). See "--json" in the module header."""
     warnings = []
@@ -1080,8 +1524,7 @@ def validate_json(path, donor_root=None):
     try:
         load(path, donor_root=_root(donor_root), warning_records=warnings)
     except ClipManifestError as exc:
-        doc["refusals"].append({"rule": exc.rule, "subjects": exc.subjects,
-                                "message": str(exc)})
+        doc["refusals"].append(refusal_record(exc))
         return doc, 1
     doc["ok"] = True
     return doc, 0
@@ -1106,7 +1549,7 @@ def _mode_validate(rest):
             return 1
     if as_json:
         doc, rc = validate_json(path, root)
-        print(json.dumps(doc, indent=2, sort_keys=True))
+        print(json_text(doc))
         return rc
     try:
         act = load(path, donor_root=_root(root), warn=lambda m: print(f"  WARNING: {m}"))

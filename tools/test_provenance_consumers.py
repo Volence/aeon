@@ -41,7 +41,7 @@ sys.path.insert(0, TOOLS)
 import provenance_fixtures as pf  # noqa: E402
 
 #: gate -> (the arguments build.sh passes beyond --lst/--rom/--built-after, adjusted to a
-#: demo pair, whether the gate takes --gate). The eleven are build.sh's `--built-after
+#: demo pair, whether the gate takes --gate). The twelve are build.sh's `--built-after
 #: "${SIGIL_T0}"` call sites; tools/test_provenance_consumers.py::
 #: test_the_population_is_build_sh_s asserts the set against build.sh itself.
 GATES = {
@@ -56,6 +56,9 @@ GATES = {
     "sprite_tilt_gate": ([], True),
     "instashield_gate": ([], True),
     "loop_crossover_gate": ([], True),
+    # S2CLIP only (d-35-revised, 2026-09-25): the clip anchor staleness check. On a demo
+    # pair it reaches the primitive, reads FRESH, then refuses the non-clip listing (1).
+    "clip_anchors": (["--clip", "s2_ehz_cpz"], False),
 }
 
 

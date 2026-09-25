@@ -65,7 +65,8 @@ WEAKER on stderr when used. `tools/cart_coverage_census.py` re-derives the cover
     SO THE "DO NOT EXIST" PARAGRAPH BELOW IS OUT OF DATE, and that matters more than the
     numbers: `breakpoint_add`, `wait_for_break` AND the whole watchpoint surface are served
     now. Three witnesses in this tree depend on them — `tools/song_load_mid_drum_witness.py`
-    reads the Z80's own YM writes through a `bus`-space write watch over $4000-$4003, and
+    reads the Z80's own YM writes through a `bus`-space write watch over $A04000-$A04003
+    (their 68000-map address, `via: "z80"`, since oracle's Z80-WATCH-TAP change), and
     `tools/poke_storm_sound_cost_witness.py` times the sound driver's DMA-window bracket the
     same way. A reader who took that paragraph at its word would not try a watchpoint at all.
 

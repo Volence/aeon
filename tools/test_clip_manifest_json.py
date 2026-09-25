@@ -177,7 +177,11 @@ def test_an_accepted_manifest_has_the_same_shape_and_no_refusals(capsys, tmp_pat
     assert rc_h == rc_j == 0, out_h[-400:]
     assert j == {"schema": CM.VALIDATE_JSON_SCHEMA, "ok": True, "refusals": [],
                  "warnings": j["warnings"]}
-    assert out_h.startswith("clips.json OK — ")
+    # The human mode prints each warning BEFORE its verdict line (the loader warns as it
+    # validates), so a warned fixture — s2_ehz_cpz's W3 since its tunnel was shortened —
+    # leads with exactly the warnings the JSON mode lists, and then the same verdict.
+    human = "".join(f"  WARNING: {w['message']}\n" for w in j["warnings"])
+    assert out_h.startswith(human + "clips.json OK — ")
     assert out_h.endswith(f"  {len(j['warnings'])} warning(s)\n")
 
 
