@@ -222,10 +222,15 @@ if [[ -n "${S2CLIP:-}" ]]; then
         ROM_NAME="s4.s2clip.debug"
     fi
     # The clip's OWN sound-bank positions (owner ruling d-35-revised, clip-overlay-file):
-    # when games/sonic4/data/clips/<id>/anchors.toml exists it goes to BOTH `sigil build`
-    # and `emit_sound_blob` (and to bganim_room) as `--anchor-overlay`; a clip without one
-    # builds on map.toml's anchors exactly as before. The file is DERIVED by
-    # tools/clip_anchors.py and checked for staleness after the link. Contract: sigil
+    # when games/sonic4/data/clips/<id>/anchors.toml exists it goes to `sigil build` (and to
+    # bganim_room) as `--anchor-overlay`, and NEVER to the preflight `emit_sound_blob`:
+    # `sigil build` re-emits every sound artifact itself from its own switch, and an overlay
+    # on the preflight emit puts non-canonical artifacts in front of the pre-build lane's
+    # canonical `sigil build --check` runs (test_extern_guard_reachability's
+    # test_check_does_not_perturb_generated_sound_artifacts goes red; measured 2026-09-25).
+    # A clip without the file builds on map.toml's anchors exactly as before. The file is
+    # DERIVED by tools/clip_anchors.py, which also fails the build when the listing's Source
+    # Digest has no READ row for it (the switch was dropped). Contract: sigil
     # docs/superpowers/notes/2026-09-25-clip-overlay-contract.md.
     S2CLIP_ANCHORS="games/sonic4/data/clips/${S2CLIP}/anchors.toml"
     if [[ -f "$S2CLIP_ANCHORS" ]]; then
@@ -774,7 +779,7 @@ if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     fi
     echo "Emitting the native-linked resident sound blob (sigil)..."
     mkdir -p engine/sound/generated
-    if ! "${SIGIL_EMIT}" --aeon . --out-dir engine/sound/generated "${ANCHOR_OVERLAY_ARGS[@]}"; then
+    if ! "${SIGIL_EMIT}" --aeon . --out-dir engine/sound/generated; then
         echo "ERROR: sigil emit_sound_blob failed — cannot build the resident sound blob."
         exit 1
     fi

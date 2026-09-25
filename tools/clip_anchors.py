@@ -7,9 +7,11 @@ than the shipped act, and the two Z80 bank anchors (`dac_banks`, `sound_bank`) h
 above the packed data with the growth reserve free under them. Putting the clip shapes
 into `games/sonic4/map.toml`'s anchor max was REFUSED (a test fixture must not move the
 shipping layout). So each clip that needs its own positions carries ONE file,
-`games/sonic4/data/clips/<id>/anchors.toml`, and build.sh hands it to `sigil build` and
-`emit_sound_blob` as `--anchor-overlay <path>` on that clip's builds only. Sigil's contract
-for the switch: sigil `docs/superpowers/notes/2026-09-25-clip-overlay-contract.md`.
+`games/sonic4/data/clips/<id>/anchors.toml`, and build.sh hands it to `sigil build` as
+`--anchor-overlay <path>` on that clip's builds only (never to the preflight
+`emit_sound_blob`: `sigil build` re-emits the sound artifacts from its own switch). Sigil's
+contract for the switch: sigil `docs/superpowers/notes/2026-09-25-clip-overlay-contract.md`
+(the revision that says "sigil build only" is a1ff8796).
 
 THE VALUE IS THE BANK PLACEMENT RULE, APPLIED TO THE CLIP ITSELF. For each of the clip's
 two shapes (plain, DEBUG) the rule gives `dac_banks = align_up(packed_end + reserve +
@@ -193,8 +195,8 @@ def render_overlay(clip, measurements, map_rows):
         f"#   python3 tools/clip_anchors.py --derive --clip {clip}",
         "#",
         "# This clip's own sound-bank positions (owner ruling d-35-revised,",
-        "# clip-overlay-file), handed to `sigil build` and `emit_sound_blob` as",
-        "# --anchor-overlay on S2CLIP builds of this clip only; map.toml is untouched.",
+        "# clip-overlay-file), handed to `sigil build` as --anchor-overlay on S2CLIP",
+        "# builds of this clip only; map.toml is untouched.",
         "# Rule (map.toml BANK PLACEMENT RULE, tools/bganim_room.py rule_anchor):",
         "#   dac_banks = align_up(packed_end + reserve + grace, 0x8000), max over the",
         "#   clip's shapes; sound_bank = dac_banks + 0x10000.",
