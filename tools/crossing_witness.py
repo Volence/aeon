@@ -21,7 +21,7 @@ WHAT ONE TICK'S ROW SAYS (all read from RAM/CRAM, never inferred):
             the VBlank that follows ships it.
   pal       which zone's colours Palette_Buffer lines 1-3 hold after tick T's compose
             (A / B / `mix` = mid-fade), and `cram`, which zone's colours the HARDWARE held at
-            the NEXT sample — i.e. what tick T's frame is scanned out with. A row whose two
+            the SAME sample (read after the VBlank that follows tick T; see analyse) — i.e. what tick T's frame is scanned out with. A row whose two
             disagree is a dropped palette DMA (buffers.emp leaves the line dirty and retries).
   bg        the BG tile arena (BG_Tiles_Current / BG_Tiles_Target: `A`, `B`, or `->B` while
             an overwrite is in flight), the layout the plane is promised (BG_Plane_Layout),
@@ -283,15 +283,19 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
     out_rows, glitches = [], []
     for i, r in enumerate(live):
         pal = classify(r["pbuf"], pals, names)
-        nxt = live[i + 1] if i + 1 < len(live) else None
-        cram = classify(nxt["cram"], pals, names) if nxt else "?"
+        # SAME-SAMPLE ALIGNMENT (measured 2026-09-25 on the 336-px clip: the tick-710 install
+        # is already in CRAM at the sample whose Logic_Tick reads 710). run_frames stops after
+        # the VBlank that follows tick i, before tick i+1: the frame the player then sees is
+        # tick i's camera with the CRAM and nametable that VBlank shipped, all read here.
+        nxt = r
+        cram = classify(r["cram"], pals, names)
         zone_here = names[0] if r["cam"] + SCREEN_W // 2 < (a_right + b_left) // 2 else names[1]
         shows = ("A" if r["cam"] < a_right else "") + ("B" if r["cam"] + SCREEN_W > b_left else "")
         bg_blob = blobs_seen.get(r["bg_cur"], "?") if r["bg_cur"] else "partial"
         bg_tgt = blobs_seen.get(r["bg_tgt"], "?") if r["bg_tgt"] else ""
         lay = blobs_seen.get(("lay", r["bg_lay"]), "?")
         # THE BACKGROUND ON SCREEN, READ FROM VRAM (not the tracker's promise): the plane after
-        # the VBlank that follows tick i is the NEXT sample's; the rows the screen shows are
+        # the VBlank that follows tick i is read at the SAME sample (see above); the rows the screen shows are
         # BG_SCREEN_ROWS from the top visible one (a one-plane map: map row = plane row).
         # Each is compared, whole, with the zone's layout row in ROM.
         top = (r["vs_bg"] >> 3) & (BG_PLANE_ROWS - 1)
