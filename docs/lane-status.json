@@ -1,12 +1,6 @@
 {
-  "focus": "Chemical Plant now runs as far as Sonic can; landing the 384 px tunnel test and its engine speed-up last.",
-  "inFlight": [
-    {
-      "what": "Merging the 384 px tunnel test onto today's landings, final check, then landing",
-      "where": "branch research/shorter-connector",
-      "agent": true
-    }
-  ],
+  "focus": "Today's Sonic 2 work is all landed; next session starts the lag and performance survey you asked for.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -14,15 +8,14 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Longer Chemical Plant lands, then the 384 px tunnel test merges it and the scrolling change, re-checks, and lands.",
+  "nextBoundary": "Start from docs/superpowers/2026-09-25-aeon-overseer-handoff-26.md: the performance survey is first.",
   "queue": [
     {
-      "id": "S2CLIP-CONNECTOR-SHORTER",
-      "title": "Limit test: a 384 px tunnel (1.2 screens) is glitch-free after a small engine speed-up; fly s4.s2clip-short.debug.bin (336 px glitches for 2 frames)",
-      "state": "doing",
+      "id": "PERF-SURVEY",
+      "title": "You asked: fly through everything, find where it lags, and bring back a ranked list of what's worth speeding up",
+      "state": "next",
       "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
+      "blockedBy": null
     },
     {
       "id": "S2CLIP-LAG",
@@ -56,7 +49,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -120,5 +113,5 @@
   ],
   "awaiting": "Fly s4.s2clip-short.debug.bin (crc 95db1392, the 384 px tunnel) whenever you like; say if you want to see the 336 px version that glitches briefly",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T19:16:54Z"
+  "updatedAt": "2026-09-25T20:05:06Z"
 }
