@@ -1059,7 +1059,7 @@ if [[ -n "${S2CLIP:-}" ]]; then
     trap _restore_s2clip_tree EXIT
     echo "S2CLIP: throwaway re-bake of clip act '${S2CLIP}' into the OJZ act slot..."
     # Each donor zone is drawn in ITS OWN palette (S2-COMPRESSED-ACT row 7): the bake writes
-    # the act's palettes, presets and region table into the generated clip_act.emp, which
+    # the act's palettes, presets and region table into the generated effects_scenes_clip.emp, which
     # the trap above restores to its neutral form. The old S2CLIP_PALETTE knob is gone —
     # tools/clip_rom_bake.py's ROW 7 block says why. The Z1/Z2/K4 refusals it prints are
     # the row's static checks (zone separation, palette crossing, keyed pool).

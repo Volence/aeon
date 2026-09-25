@@ -387,7 +387,7 @@ def check_tree_is_clean(paths, git="git"):
 # `ojz_palette.bin`, which EIGHT top-level comptime pins in ojz_effects.emp hold to the
 # SHIPPED act's statistics (parcel 6's BLOCKED ruling; options a/b/c). Row 7 takes neither
 # (a) nor (b): the clip act no longer touches `ojz_palette.bin` at all. It carries its
-# own palettes and its own region table in a GENERATED module, `clip_act.emp`, which is
+# own palettes and its own region table in a GENERATED module, `effects_scenes_clip.emp`, which is
 # inside the tree the S2CLIP trap restores — so the pins keep describing exactly the
 # palette they were written for, unchanged, in every shape.
 #
@@ -407,13 +407,24 @@ def check_tree_is_clean(paths, git="git"):
 # boot-palette note), so it is recoloured by whichever zone the camera is in. TAGGED for
 # the owner's look; a per-region background is the region-BG-switch machinery's job.
 
-CLIP_MODULE_REL = GEN_REL + "/clip_act.emp"
+CLIP_MODULE_REL = GEN_REL + "/effects_scenes_clip.emp"
 CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
-CLIP_MODULE_NAME = "games.sonic4.ojz_clip_act_act1"
+CLIP_MODULE_NAME = "games.sonic4.ojz_effects_editor_act1_clip"
 #: The section the clip act's data joins. effects_gen's own generated block, placed in
 #: games/sonic4/map.toml by SECTION NAME, so new bytes there need no map.toml edit (its
 #: header says so) — a clip act adds bytes without adding a placement row, which is what
 #: keeps the canonical map untouched.
+#:
+#: ⚠ THE FILE AND MODULE NAMES SORT AFTER effects_scenes.emp ON PURPOSE, and it is
+#: load-bearing. MEASURED on the first clip build (2026-09-25): named `clip_act.emp` /
+#: `games.sonic4.ojz_clip_act_act1`, the clip data landed AHEAD of effects_gen's block,
+#: `OJZ_Clip_Palette_0` became the section's head label, and sigil refused the build with
+#: `[layout.undeclared-alignment] section ojz_effects_editor_act1 (head label
+#: OJZ_Clip_Palette_0) has NO declared alignment` — its alignment table is keyed by the
+#: head label, and declaring a new one is a sigil change this lane may not make. Named
+#: `effects_scenes_clip.emp` / `..._act1_clip`, it sorts after both the file and the module
+#: it shares the section with, the head stays `EditorSceneBinding_OJZ_Act1_Sec0`, and if a
+#: rename ever moves it ahead again, that same refusal says so by name.
 CLIP_MODULE_SECTION = "ojz_effects_editor_act1"
 
 _CLIP_HEADER = """\
@@ -465,10 +476,12 @@ def clip_module_text(plan=None):
             f"preset,\n// so the crossing fades both ways (engine/effects/preset.emp).\n"
             f"pub data {z['preset_label']}: EffectsPreset = preset(pal: {z['palette_label']}, "
             f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n\n")
-    rows = ",\n    ".join(
+    # The trailing comma goes BEFORE the comment: a comma after `//` is inside the comment
+    # (measured — the first emission of this table did that and sigil refused row 2).
+    rows = "\n    ".join(
         f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
         f"rg_effects: {r['preset_label']}, rg_parallax: 0, rg_bg_layout: 0, rg_bg_span: 0, "
-        f"rg_bg_tiles: 0 }}  // {r['why']}"
+        f"rg_bg_tiles: 0 }},  // {r['why']}"
         for r in plan["rows"])
     lines.append(
         f"pub const OJZ_CLIP_REGION_ROWS: [Region; {len(plan['rows'])}] = [\n    {rows}\n]\n"
@@ -767,7 +780,7 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR, sheet_files=None)
 # because the only palette a clip bake could reach was `ojz_palette.bin`, and eight comptime
 # pins in ojz_effects.emp refuse any palette but the shipped act's there (its BLOCKED
 # ruling, options a/b/c). A clip act now carries its OWN palettes and region table in the
-# generated clip_act.emp (the ROW 7 block above), so `ojz_palette.bin` is never rewritten,
+# generated effects_scenes_clip.emp (the ROW 7 block above), so `ojz_palette.bin` is never rewritten,
 # the pins describe exactly what they always did, and `clip` — which could only ever fail
 # — and `shipped` — which drew every zone in Oracle Jungle's colours — have nothing left
 # to choose between. Deleted, not defaulted: a knob with one working position is a scaffold.
@@ -898,7 +911,7 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
                       for k in ("attr_entries", "cap", "base_bank")},
         "verdict_at_placement": summary["verdict_at_placement"],
         "generated_dir": GEN_REL,
-        "palette": "per-zone, from each donor zone's palette.bin, in generated clip_act.emp",
+        "palette": "per-zone, from each donor zone's palette.bin, in generated effects_scenes_clip.emp",
         "regions": [{k: r[k] for k in ("x0", "x1", "y0", "y1", "preset_label", "why")}
                     for r in region_plan_["rows"]],
         "palette_crossings": z2,
@@ -1213,7 +1226,7 @@ def _mode_ground(rest):
 
 
 def _mode_emit_neutral(rest):
-    """Re-write the COMMITTED neutral clip_act.emp (the ROW 7 block). It is what every
+    """Re-write the COMMITTED neutral effects_scenes_clip.emp (the ROW 7 block). It is what every
     canonical shape compiles; tools/test_clip_two_zone.py holds the committed file to this
     text byte for byte, so a hand edit or a stale copy fails the pre-build lane."""
     if rest:
