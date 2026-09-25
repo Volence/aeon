@@ -1,5 +1,5 @@
 {
-  "focus": "Measuring where the game lags; building Sonic 2 zone music, with two choices about how it sounds waiting on you.",
+  "focus": "Measuring where the game lags; building Sonic 2 zone music (changes at the tunnel exit, Sonic 3 drums).",
   "inFlight": [
     {
       "what": "Performance survey: fly every shape, rank the slow spots with costs",
@@ -17,19 +17,9 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "S2CLIP-MUSIC-FEEL",
-      "what": "When the music changes between Emerald Hill and Chemical Plant: I recommend as you come out of the tunnel.",
-      "since": "2026-09-25"
-    },
-    {
-      "id": "S2CLIP-MUSIC-DRUMS",
-      "what": "Which drums the Sonic 2 songs use: I recommend the Sonic 3 drums we have, for now.",
-      "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Performance shortlist back and reviewed; converter step landed. The music build then waits on sigil's song-count change and your two cards.",
+  "nextBoundary": "Performance shortlist back and reviewed; converter step landed. The songs then go in once sigil's song-count change lands.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -140,7 +130,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Two music choices when you have a minute: when the song changes (I recommend at the tunnel exit) and which drums (I recommend the Sonic 3 ones for now).",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T21:45:53Z"
+  "updatedAt": "2026-09-25T21:48:15Z"
 }
