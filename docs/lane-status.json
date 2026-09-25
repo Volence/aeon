@@ -2,7 +2,7 @@
   "focus": "Chemical Plant is longer; landing Sonic 2's background scrolling next, while the limit test and further extension run.",
   "inFlight": [
     {
-      "what": "Making the short test level's connector even shorter: just over one screen wide, with a small engine change",
+      "what": "Short test level: the real Sonic 2 level with the tunnel cut to just over one screen wide (limit test)",
       "where": "branch research/shorter-connector",
       "agent": true
     },
@@ -146,5 +146,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:06:04Z"
+  "updatedAt": "2026-09-25T18:08:11Z"
 }
