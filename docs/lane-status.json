@@ -1,6 +1,27 @@
 {
-  "focus": "Back after the account switch: landing the lag fix first, then restarting the tunnel, Sonic 2 scrolling and sound-data work.",
-  "inFlight": [],
+  "focus": "Lag fix landed. The tunnel, Sonic 2 background scrolling and the sound positions file are still being built.",
+  "inFlight": [
+    {
+      "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
+      "where": "branch parcel/s2clip-tunnel-2",
+      "agent": true
+    },
+    {
+      "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
+      "where": "branch parcel/s2clip-bg-scroll-2",
+      "agent": true
+    },
+    {
+      "what": "Aeon's half of the clip's own sound positions file",
+      "where": "branch parcel/clip-anchor-overlay-2",
+      "agent": true
+    },
+    {
+      "what": "Getting our sound-debugging tools ready for the emulator's new sound-chip watch addresses, to land right after oracle's change",
+      "where": "branch parcel/z80-tap-addr-move",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,12 +29,12 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Lag fix and the editor's bake answer landed; tunnel, background scrolling and positions-file agents re-dispatched.",
+  "nextBoundary": "The three Sonic 2 test-level agents return and land one at a time, rebuilding the Sonic 2 ROMs after each.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
-      "title": "The Sonic 2 build lags because it is the first level too big to keep all its art in video memory; the art streamer overruns the frame. Fixing it in the engine",
-      "state": "doing",
+      "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -29,7 +50,7 @@
     {
       "id": "S2CLIP-ORIGINAL-BGS",
       "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "open",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -37,17 +58,10 @@
     {
       "id": "S2CLIP-TUNNEL",
       "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "CLIP-BAKE-JSON",
-      "title": "The editor's Sonic 2 page cannot tell the level bake crashing from the bake refusing a paste; give the bake the same machine-readable answer the checker got",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     },
     {
       "id": "RAMP-ARM4-SPAN",
@@ -59,7 +73,7 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -152,12 +166,12 @@
     {
       "id": "Z80-TAP-ADDR-MOVE",
       "title": "When the emulator changes where it reports the sound chip's writes, move four addresses in our sound-debugging tools to match",
-      "state": "blocked",
+      "state": "doing",
       "size": "S",
-      "blockedBy": "oracle landing its tap change (empyrean \u00a711.52); oracle coordinates timing"
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:07:22Z"
+  "updatedAt": "2026-09-25T15:50:53Z"
 }

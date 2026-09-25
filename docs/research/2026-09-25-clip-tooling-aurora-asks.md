@@ -266,3 +266,136 @@ Red-first, with the mutations on disk and restored from the committed baseline:
   (`test_deb2_appendix[demo.bin]`, as that script documents).
 - **Clip ROM** `S2CLIP=s2_ehz_cpz ./build.sh`: `s4.s2clip.bin` gave crc `9a3533f1` at 822,334 B
   before the change, and crc `9a3533f1` at 822,334 B after both tool changes.
+
+## Ask 3: `tools/clip_act_bake.py bake --json` (CLIP-BAKE-JSON)
+
+Source: aurora ROADMAP row 213, open item (a), read at aurora `origin/master`: "the BAKE stage
+has no machine answer, so a bake traceback still reads as 'aeon's bake refused'". Aeon booked
+it as CLIP-BAKE-JSON (handoff 24 addendum). Branch `parcel/clip-bake-json`. Files:
+`tools/clip_act_bake.py`, `tools/clip_manifest.py` (two shared helpers, one regex letter),
+`tools/test_clip_bake_json.py` (new).
+
+### Shape
+
+Validate's document, field for field, so aurora's `readValidateJson` reads it unchanged:
+`{schema, ok, refusals: [{rule, subjects, message}], warnings}`, printed by the same
+`clip_manifest.json_text` (indent 2, sorted keys, ASCII-escaped), each refusal built by the
+same `clip_manifest.refusal_record`. `schema` is `BAKE_JSON_SCHEMA = 1`, bumped on its own.
+Exit codes are unchanged (0 baked, 1 refused). **Invocation:** `bake <clips.json> [--out DIR]
+[--expect-worst N] --json`, with the flag anywhere after the path.
+
+| rule | from | subjects |
+|---|---|---|
+| R1-R12, K1-K3 | the manifest loader (`ClipManifestError`), the same record validate gives | as validate |
+| W2, W3 | manifest warnings, in `warnings` | as validate |
+| C1 | a clip's source rect severs a crossover (`ClipCollisionError`) | that clip |
+| C2 | the act's attr set is over `AttrSet.CAP` | `[]`: an act-wide cap (the message names each clip's cost) |
+| C3 | the act interns a profile `rotate_profile` refuses | `[]`: found in the act's merged set |
+| `FG_PAGE_BUDGET` | the worst camera window needs more page frames than the cache has | `[]`: a window, not a clip; the message names where |
+| `null` | an untagged `ClipBakeError`: `--expect-worst` not met, an emitted tree that does not re-count as placed, a tileset shorter than a clip's indices | `[]` |
+
+### What is a refusal, and a correction to the brief
+
+A refusal is exactly what the human mode reports as REFUSED. That is three things, not the one
+the brief named:
+
+- **`ClipManifestError` does reach `bake`.** `load()` is its first call, and `place()` and
+  `collision()` reach the loader's tree readers (`_zone_manifest`, `tilesets`), which raise it
+  too. The human mode already prints it as `clip act REFUSED — `, so it is a refusal, with the
+  record validate gives it. A row checks the two records are equal for one file.
+- **`ClipBakeError` and its subclass `ClipCollisionError`.** It now carries `subjects`
+  (default `[]`) and a `rule` read through `clip_manifest.rule_of`, whose tag pattern gained
+  `C`. `str(exc)` did not change. Only C1 has a clip in hand where it raises, so only C1
+  names one.
+- **The FG page budget is NOT a `ClipBakeError`.** `bake()` ends with
+  `fg_page_order.refuse_over_budget`, which raises `SystemExit` (the human mode prints
+  `REFUSED — FG page budget: ...` on stderr and exits 1). Under a `ClipBakeError`-only rule
+  the refusal an author pasting too much art is most likely to hit would read as a crash. So
+  `bake()` gained `refuse_budget=True`, which skips that final statement only when the caller
+  passes `False`, and the json path asks `refuse_over_budget` itself (`budget_refusal`),
+  catching its `SystemExit` around that one call. The rule is named (`BUDGET_RULE`), not read
+  from the message: the sentence belongs to `fg_page_order` and the OJZ generator prints it
+  too, so it cannot take a leading tag without changing that tool's output.
+
+Everything else stays a crash, unwrapped, in both modes: a manifest that is not JSON, a
+missing path, a non-integer `--expect-worst`, a `BudgetError`. The result is a traceback, exit
+1 and an **empty** stdout. A usage error prints the human USAGE and exits 1, which is also not
+JSON, the same as validate.
+
+A late refusal (`--expect-worst`, the budget) comes after the tree is written, as it always
+did: `--out` holds a complete tree, `clipact.json` included. `ok: false` means do not use it.
+
+### Examples
+
+A refusal by the bake itself (a one-clip EHZ act whose manifest `validate` ACCEPTS; the donor
+tree has a crossover painted in two bands of one column, and the rect takes only one of them):
+
+```json
+{
+  "ok": false,
+  "refusals": [
+    {
+      "message": "C1 clip 'ehz_cut': its source rectangle takes 4 crossover mark(s) from s2disasm/EHZ and leaves 2 behind. A crossover sends ... carried into clipact.json.",
+      "rule": "C1",
+      "subjects": [{"id": "ehz_cut", "index": 0, "kind": "clip"}]
+    }
+  ],
+  "schema": 1,
+  "warnings": []
+}
+```
+
+The page budget (`s2_ehz_boot` with `PAGE_FRAMES` patched to 3):
+`{"rule": "FG_PAGE_BUDGET", "subjects": [], "message": "FG page budget: clip act s2_ehz_boot:
+443223 camera windows (80x60 tiles), budget 3 frames x 64-tile pages; worst window needs 8
+(tile left 1086 top 18, ...)..."}`, exit 1.
+
+Success on `s2_ehz_cpz`: `{"ok": true, "refusals": [], "schema": 1, "warnings": []}`, exit 0,
+with the same tree the human mode writes.
+
+### Proof that the human mode and the outputs did not move
+
+The same 21 invocations were run in human mode before the change (at base `e9edfef3`, tree
+unedited) and after it, each through a runner that calls `main()` the way the script does. The
+invocations were: the 4 fixtures; W2; W2 then R12; R4; R7; C1, C2 and C3 on painted donor
+copies; `--expect-worst 99`; the budget with `PAGE_FRAMES` patched to 3; a file that is not
+JSON; a missing path; and 7 usage errors (no args, `bake` with no path, an unknown argument,
+`--out` with no value, a non-integer `--expect-worst`, and an unknown mode). **All 21 had
+identical stdout, exit code and stderr** (the full stderr where it is not a traceback, the last
+line where it is), with timing figures normalised. All **454 files** those bakes wrote
+(42.7 MB) are byte-identical. The one exception is `clipact.json`, which is equal once two
+things are removed: its wall-clock `seconds` keys, and the corridor sheet's `tileset_file`
+path, which names the out dir it was written into. Before those were normalised the comparison
+reported exactly those differences, so it can see one.
+
+The clip ROM: `S2CLIP=s2_ehz_cpz ./build.sh` gave `s4.s2clip.bin` crc `9a3533f1` at 822,334 B
+with this branch's tools, and the same crc and size with the `e9edfef3` versions of
+`clip_act_bake.py` and `clip_manifest.py` put back temporarily (`cmp`: identical). The stale
+ROM was deleted before the base build, so the second figure is not a leftover. A first attempt
+at the base build failed in the tool lane, because the new gate was still on disk and it tests
+code the base does not have. That attempt produced no ROM, and nothing from it is used here.
+
+### Gate
+
+`tools/test_clip_bake_json.py`, 13 rows, run by the pre-build tool lane. Every refusal row
+runs both modes and requires the human sentence to be the JSON message behind the human
+prefix. The rows cover: R7 through the bake; W2 kept before R12; C1 (validate accepts the
+manifest, the bake refuses); C3 with `[]`; `--expect-worst` with `rule: null`; the budget
+lowered to the MEASURED worst minus 1; success on `s2_ehz_cpz`, with the json tree equal to
+the human tree; success with W2; not-JSON and missing-path crashes in both modes by subprocess
+(exit 1, empty stdout); the crash not wrapped in-process; a usage error under `--json`; and
+subprocess exit codes.
+
+Red-first, with each mutation quoted back from disk, `__pycache__` cleared, and the file
+restored from the committed baseline. Every row went red at least once:
+
+- no subject on the C1 raise → 1 failed (C1);
+- catch every `Exception` as a `rule: null` refusal → 8 failed (both crash rows, the in-process
+  crash, subprocess codes, and 4 refusal rows);
+- `refuse_budget=True` in the json path → 1 failed (budget);
+- drop `warning_records` → 2 failed (both warning rows);
+- drop `C` from the tag pattern → 2 failed (C1, C3);
+- `log=print` in the json path → 8 failed;
+- JSON message `rstrip(".")` → 4 failed;
+- keep the `REFUSED — ` prefix in the budget message → 1 failed;
+- a usage error under `--json` prints `{}` → 1 failed (the usage row).

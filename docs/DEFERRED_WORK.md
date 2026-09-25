@@ -40308,3 +40308,46 @@ Low priority: all three are off-runner (`tools/keepalive_manifest.toml`), so not
   `via == "z80"`**, because the 68000's own YM writes at `$A04000-3` arrive in the same stream as `via:"bus"`, fc 5, and the
   address-only classifier would count them. `fc` and `symbol` are absent on Z80 hits. Re-vendor if anything validates
   replies against a bus-protocol schema.
+
+## S2CLIP-LAG: the Sonic 2 clip act lagged on the streaming path. ENGINE FIX on `parcel/pagecache-stream-lag`, residue OPEN (booked 2026-09-25T14:58:26Z)
+
+**What was wrong** (`docs/research/2026-09-25-s4-lag.md`): the two-zone act is the first flown act that streams (14
+pages, 12 frames). Its page prefetch scan re-walked every staged ahead block every frame and ran past VBlank, a decode
+then started after the VBlank and took the next frame, and the general patch loop paid a translation + refcount pair
+per word. **What the parcel built** (ARCH §9.7, "The streaming path, made as cheap as the resident one where it can
+be"): a resumable, VBlank-yielding prefetch scan; no decode start after the VBlank; a streaming act bulk-loads only its
+first `PAGE_FRAMES_CLAMP` pages and runs the bounded-direct patch regime until its first frame allocation.
+
+**Measured, lag / video frames in motion, research harness** (clip DEBUG unless named; resident same-zone control
+`s2_ehz_boot` from the research run in brackets):
+
+| leg | before | after | control |
+|---|---|---|---|
+| fly down, Emerald Hill band (cam y < 1024; all at x < 3600) | 30/86 | 3/59 | [2/58] |
+| fly diagonal, same band | 56/112 | 26/82 | [21/77] |
+| fly right, whole leg | 24/894 | 14/884 (the 7 DEBUG audit pairs) | [10/624] |
+| physics run | 243/2,706 | 63/2,485 | [49/1,794] |
+| clip release physics | 185/2,838 | 14/2,437 | canonical release 33/1,161 |
+
+Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, down 6/369, diagonal 49/412, physics
+66/1,179, release physics 33/1,161).
+
+**Still open, in order of size:**
+1. **After the bounded regime ends, the act runs the general loop for the rest of the act.** On this act that is
+   only once the camera nears Chemical Plant's own pages (it ended at (14000,720), 2 lag frames once); a mega-act would
+   live in the general loop. Its remaining cost is the per-word page->frame translation and refcount pair (~3.9k per
+   row run against 1.6k). Levers, not measured: an idle-time mark-sweep liveness pass instead of per-word refcounts,
+   or a per-section translated map. Needs its own design parcel.
+2. **The diagonal band is 26/82 against the resident control's 21/77.** Profiled work 1.14 frames/tick against the
+   control's 1.06 (the control's window reached (752,768), this one (688,704): not the same camera path). Of the
+   ~9.7k/tick gap, `TileCache_DecompressBlock` inclusive is +2.2k (18.1k vs 15.9k, this act's blocks) and the patch
+   runs +2.0k (32.4k vs 30.3k); the rest was not decomposed. Max-diagonal free flight is over
+   budget on every act (the known ARC-CLOSEOUT cost).
+3. **No lane exercises the streaming path on a built shape.** Every canonical act is fully resident, so the nightly
+   and `landing_build.sh` run none of this code past its early-outs; the clip shapes are not built there. A lag-leg
+   lane over a clip shape would be the regression net; not built (clip shapes are unfrozen dev shapes today).
+4. **The owner's window (host side)** is unchanged from the research report's open item: his player thread at 95.9%
+   of a core was not measured. Game-side is what this parcel fixed.
+5. **Needs an on-screen look (owner):** fly the rebuilt `s4.s2clip.debug.bin` / `s4.s2clip.bin` through Emerald Hill
+   and into Chemical Plant. The DEBUG audit ran clean across the regime change and the art pages were checked by the
+   audit's bijectivity/refcount arms, but nobody has looked at the picture.
