@@ -2,32 +2,26 @@
   "schema": 1,
   "units": "world_px",
   "id": "s2_ehz_cpz_short",
-  "name": "FEASIBILITY / LIMIT TEST (2026-09-25): Emerald Hill act 1, a 416-px enclosed tunnel (one screen + 96 px; the landed act's is 832), then the opening of Chemical Plant act 1",
-  "note": "A SEPARATE test clip; s2_ehz_cpz (the landed act) is unchanged. This clip was 640 px with no engine code (commit 5e720fe1); the owner then asked for the limit (\"we can make this connector test even shorter I think for clip-short\"). The owner, 2026-09-25: \"let's make the tunnel slightly longer than a screen, I want to limit test.\" Research: docs/research/2026-09-25-shorter-connector.md. Identical to the 640-px version except the tunnel is 416 px (x 10976..11391), Chemical Plant starts at x 11392, and crossing_overrides also counts Z1 on the screen. WHY 416. What must fit inside the tunnel is the palette swap (SNAP: 1 frame) and the background repaint of the rows the screen shows; since 2026-09-25 a one-plane background is swept by DMA from ROM, BG_WIPE_DMA_ROWS = 14 rows a frame, so the 29 visible rows take ceil(29/14) = 3 frames. Z2 therefore needs CAM_SCREEN_HALF_W 160 + CAM_MAX_X_STEP 16 x 3 = 208 px each side of the mid-tunnel crossing, 416 in all, crossing at x 11184. Z1 on the tile cache (632 px) would forbid it; its subject is the palette ON SCREEN and the cache's margin columns are never displayed, so this clip counts the screen (40 cells; gap here 52).",
-  "crossing_overrides": {
-    "palette": "snap",
-    "background": "co_resident",
-    "why": "LIMIT TEST of the connector length. SNAP: inside the tunnel the screen draws nothing from CRAM lines 1-3 (tools/crossing_witness.py --scan counted 0 such pixels on every in-flight frame), so an instant swap there is invisible. CO_RESIDENT: EHZ's 141 and CPZ's 237 background tiles share 2, so both fit the 376-tile BG arena (using the band reserve a clip act never uses) and a crossing overwrites no tiles. ZONE_SEPARATION = screen: Z1's own docstring says it protects the palette on screen, and it counts the 80-column tile-cache window, which is 20 columns wider than the screen on each side; cells in those margins are streamed but never displayed. Counting the screen instead (no two zones closer than SCREEN_WIDTH) keeps the protection and drops the margin; Z2's crossing walk still holds the exact screen geometry.",
-    "zone_separation": "screen"
-  },
+  "name": "LIMIT TEST (2026-09-25): the real s2_ehz_cpz act (Emerald Hill act 1, then Chemical Plant's 2528 px) with ONLY the connector changed, to 336 px (one screen + 16; landed: 832)",
+  "note": "A SEPARATE test clip; s2_ehz_cpz is unchanged. The owner, 2026-09-25: \"the shorter tunnel itself I want to test as even shorter, like slightly above screen width and that's it, Idc what's on the other side it can be our new full cpz.\" So this is s2_ehz_cpz's own content (copied from its clips.json at origin/master 18e96e47, Chemical Plant 2528 px wide) with the tunnel cut from 832 to 336 px: x 10976..11311, Chemical Plant at x 11312, everything after it 496 px further left. 336 is the shortest width on the 16-px collision grid that is wider than the 320-px screen. It is a LIMIT TEST and does NOT meet Z2's glitch-free margin: see crossing_overrides.crossing_margin and docs/research/2026-09-25-shorter-connector.md for the measured glitch. The earlier versions of this clip (640 px with no engine code, 416 px glitch-free) are in the branch history.",
   "act": {
     "grid_w": 7,
     "grid_h": 3
   },
   "unpainted_remainder": {
-    "x_from": 13440,
-    "why": "THE LAST 896 PX OF THE ACT ARE UNPAINTED, x 13440..14335: the act is grid_w 7 x SECTION_SIZE 2048 = 14336 px (Emerald Hill 10976 + tunnel 416 + Chemical Plant 2048 = 13440 > 12288, so it cannot be 6 sections), and Chemical Plant's clip is its first 2048 px as in s2_ehz_cpz. Past x 13440 there is no art and no collision: a player who runs off the end of Chemical Plant's clip falls. The tunnel (x 10976..11391) is painted art on every column. Two-sided: clip_reachability.py refuses if the painted world ends anywhere else.",
+    "x_from": 13840,
+    "why": "THE LAST 496 PX OF THE ACT ARE UNPAINTED, x 13840..14335: s2_ehz_cpz fills its 7 x 2048 = 14336-px act exactly with an 832-px tunnel, and this clip's tunnel is 496 px shorter while the act grid stays 7 sections (10976 + 336 + 2528 = 13840 > 12288). Past x 13840 there is no art and no collision: a player who runs off the end of Chemical Plant's clip falls (the owner: \"Idc what's on the other side\"). Two-sided: clip_reachability.py refuses if the painted world ends anywhere else.",
     "unbounded_fall": {
-      "columns": 1632,
+      "columns": 1682,
       "donor_bottom_boundary": {
         "EHZ": 800,
         "CPZ": 1824,
         "note": "each donor level's own bottom y (s2_donor.level_size); Chemical Plant is pasted 256 px lower, so its boundary would sit at y=2080 in this act"
       },
-      "why": "THE ACT HAS NO BOTTOM, as in s2_ehz_cpz. 1632 painted columns have air below their LAST landing surface: Emerald Hill's 1324, the tunnel's 52 (416 px / 8), and Chemical Plant's 256. The other 48 are Emerald Hill's two pits, counted in floorless_columns instead. THE COUNT IS THE CHECK."
+      "why": "THE ACT HAS NO BOTTOM, as in s2_ehz_cpz. 1682 painted columns have air below their LAST landing surface: Emerald Hill's 1324, the tunnel's 42 (336 px / 8; s2_ehz_cpz's 832-px tunnel has 104), and Chemical Plant's 316. The other 48 are Emerald Hill's two pits, counted in floorless_columns. THE COUNT IS THE CHECK."
     },
     "floorless_columns": {
-      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663, exactly as s2_ehz_cpz declares them. Neither the tunnel nor Chemical Plant's first 2048 px adds one. Plane B stays informational (unreachable: no crossover mark).",
+      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663 \u2014 faithful donor content, exactly as s2_ehz_boot declares them (see its floorless_columns note). Neither the recovered crop x 10240..10975, nor the tunnel, nor Chemical Plant's first 2528 px adds one (re-measured when it was widened from 2048): every column there has a landing surface on plane A. Plane B stays informational (unreachable: no crossover mark).",
       "planes": {
         "A": {
           "columns": 48,
@@ -70,16 +64,16 @@
       "src_rect": {
         "x": 0,
         "y": 0,
-        "w": 2048,
+        "w": 2528,
         "h": 2048
       },
       "dst_rect": {
-        "x": 11392,
+        "x": 11312,
         "y": 256,
-        "w": 2048,
+        "w": 2528,
         "h": 2048
       },
-      "unaligned_dst_reason": "x: Chemical Plant starts where the 416-px tunnel ends (11392 = 10976 + 416), which is not a section boundary: act section 5 holds Emerald Hill's crop end, the tunnel and Chemical Plant's first 896 px. y: lowered 256 px so its start floor (a full block at y=512, s2disasm startpos/CPZ_1.bin) meets the tunnel's floor at y=768, exactly as in s2_ehz_cpz; 256 is a multiple of R12's 16-px collision quantum, so the paste moves art and collision together."
+      "unaligned_dst_reason": "x: Chemical Plant starts where the 336-px tunnel ends (11312 = 10976 + 336), which is not a section boundary: act section 5 holds Emerald Hill's crop end, the tunnel and Chemical Plant's first 976 px. y: lowered 256 px exactly as in s2_ehz_cpz, so its start floor (y=512 in the donor) meets the tunnel's floor at y=768; 256 is a multiple of R12's 16-px collision quantum, so the paste moves art and collision together."
     }
   ],
   "corridors": [
@@ -88,7 +82,7 @@
       "dst_rect": {
         "x": 10976,
         "y": 512,
-        "w": 416,
+        "w": 336,
         "h": 512
       },
       "floor_y": 768,
@@ -112,5 +106,12 @@
         }
       }
     }
-  ]
+  ],
+  "crossing_overrides": {
+    "palette": "snap",
+    "background": "co_resident",
+    "zone_separation": "screen",
+    "crossing_margin": "report",
+    "why": "LIMIT TEST at the owner's request. SNAP: inside the tunnel the screen draws nothing from CRAM lines 1-3 (tools/crossing_witness.py --scan counted 0 such pixels on every in-flight frame), so an instant swap there is invisible. CO_RESIDENT: EHZ's 141 and CPZ's 237 background tiles share 2, so both fit the 376-tile BG arena (using the band reserve a clip act never uses) and a crossing only repaints the plane, which a one-plane background now does by DMA from ROM, 14 rows a frame. ZONE_SEPARATION = screen: Z1 protects the palette ON SCREEN and counts the tile cache, whose 20-column margins are never displayed. CROSSING_MARGIN = report: Z2 needs 160 + 16 x 3 = 208 px each side and a 336-px tunnel gives 160/176, so the bake PRINTS the shortfall instead of refusing; the owner asked to see the limit, glitch included."
+  }
 }

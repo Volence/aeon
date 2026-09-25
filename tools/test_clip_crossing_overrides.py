@@ -326,10 +326,38 @@ def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
     c = FPO.load_budget_constants()
     z1 = (c["SCREEN_WIDTH"] // CM.TILE_PX if ov["zone_separation"] == "screen"
           else c["TILE_CACHE_COLS"] - 1)
-    assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
     out = CRB.check_palette_crossings(act, CRB.clip_module_text(plan),
                                       CRB.clip_data_block(plan), bg_frames=bgf)
     assert out[0]["palette"] == "snap"
+    if ov["crossing_margin"] == "report":
+        # THE LIMIT TEST (owner, 2026-09-25: "slightly above screen width"): the shortest
+        # 16-px width wider than the screen, with Z2's shortfall REPORTED, not waived silently
+        w = act.corridors[0].dst[2]
+        assert w == next(v for v in range(16, 1 << 14, 16) if v > c["SCREEN_WIDTH"])
+        assert w >= z1 * CM.TILE_PX
+        assert out[0]["shortfall"] and w < _shortest(act, frames, z1)
+    else:
+        assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
+
+
+def test_crossing_margin_report_prints_the_shortfall_and_enforce_refuses():
+    """The same too-short crossing: refused by default, REPORTED (in frames at the camera
+    cap) under crossing_margin = report — never silently passed."""
+    plan = _plan([(0, 2048 + 159, 0), (2048 + 160, 6143, 1)],
+                 overrides={"palette": "snap"})
+    snap = _act(336, SNAP)
+    with pytest.raises(CRB.ClipRomError):
+        _z2(snap, plan, bg_frames={0: 3, 1: 3})
+    lines = []
+    rep = _act(336, {"crossing_overrides": {"palette": "snap", "crossing_margin": "report",
+                                            "why": "t"}})
+    out = CRB.check_palette_crossings(rep, CRB.clip_module_text(plan), CRB.clip_data_block(plan),
+                                      consts=(16, 16, 160), log=lines.append,
+                                      bg_frames={0: 3, 1: 3})
+    sf = out[0]["shortfall"]
+    assert (sf["left_px"], sf["right_px"]) == (208 - 160, 208 - 176)
+    assert (sf["left_frames"], sf["right_frames"]) == (3, 2)
+    assert any("SHORTFALL" in ln for ln in lines)
 
 
 def test_the_landed_act_is_held_to_what_it_was(donors, tmp_path):

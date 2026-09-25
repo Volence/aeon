@@ -655,7 +655,8 @@ SNAP_FRAMES = 1
 CROSSING_OVERRIDES_KEY = "crossing_overrides"
 CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
                             "background": ("overwrite", "co_resident"),
-                            "zone_separation": ("tile_cache", "screen")}
+                            "zone_separation": ("tile_cache", "screen"),
+                            "crossing_margin": ("enforce", "report")}
 
 
 def crossing_overrides(act):
@@ -663,7 +664,7 @@ def crossing_overrides(act):
     "declared"}. `declared` is False for an act without the key (the defaults)."""
     raw = (getattr(act, "raw", None) or {}).get(CROSSING_OVERRIDES_KEY)
     out = {"palette": "fade", "background": "overwrite", "zone_separation": "tile_cache",
-           "why": None, "declared": False}
+           "crossing_margin": "enforce", "why": None, "declared": False}
     if raw is None:
         return out
     if not isinstance(raw, dict):
@@ -926,6 +927,7 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
         corr = [k for k in act.corridors
                 if k.dst[0] <= a_right and k.dst[0] + k.dst[2] >= b_left]
         ys = range(corr[0].dst[1], corr[0].dst[1] + corr[0].dst[3], 16) if corr else [0]
+        reported = False
         for y in ys:
             changes = []
             prev = row_at(a_right - 1, y)
@@ -944,7 +946,26 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
             fr_l = max(pal_frames, bgf.get(a.zone_key, 0))
             fr_r = max(pal_frames, bgf.get(b.zone_key, 0))
             need_l, need_r = half_w + fr_l * step, half_w + fr_r * step
-            if x_c - need_l < a_right or x_c + need_r > b_left:
+            short_l, short_r = need_l - (x_c - a_right), need_r - (b_left - x_c)
+            if (short_l > 0 or short_r > 0) and ov["crossing_margin"] == "report":
+                # PER-CLIP OVERRIDE crossing_overrides.crossing_margin = report: a LIMIT TEST
+                # the owner asked to see glitch. The shortfall is NOT waived silently: it is
+                # printed on every bake and returned, in frames at the camera cap.
+                shortfall = {"left_px": max(0, short_l), "right_px": max(0, short_r),
+                             "left_frames": -(-max(0, short_l) // step),
+                             "right_frames": -(-max(0, short_r) // step)}
+                if log and not reported:
+                    reported = True
+                    log("clip_rom_bake: " + "!" * 72)
+                    log(f"clip_rom_bake: Z2 SHORTFALL, NOT ENFORCED (per-clip override "
+                        f"crossing_margin = report): the crossing at x={x_c} has "
+                        f"{x_c - a_right} px left / {b_left - x_c} px right and the rule needs "
+                        f"{need_l} / {need_r}. Expect up to {shortfall['left_frames']} frame(s) "
+                        f"arriving LEFT and {shortfall['right_frames']} arriving RIGHT, at the "
+                        f"camera cap, where the far zone is on screen before its palette or "
+                        f"background has landed")
+                    log("clip_rom_bake: " + "!" * 72)
+            elif x_c - need_l < a_right or x_c + need_r > b_left:
                 what = "a cross-fade" if want_trans == 1 else "a SNAP (per-clip override)"
                 pal_term = (f"PAL_FADE_FRAMES {fade}" if want_trans == 1
                             else f"SNAP_FRAMES {SNAP_FRAMES}")
@@ -957,6 +978,8 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
                     f"corridor runs x {a_right}..{b_left - 1}: {x_c - a_right} px on the "
                     f"left, {b_left - x_c} on the right")
         out.append({"from": a.id, "to": b.id, "x": x_c, "margin_needed": max(need_l, need_r),
+                    "shortfall": shortfall if ov["crossing_margin"] == "report" and
+                    (short_l > 0 or short_r > 0) else None,
                     "margin_needed_left": need_l, "margin_needed_right": need_r,
                     "palette": "snap" if want_trans == 0 else "fade",
                     "palette_frames": pal_frames,
