@@ -10,6 +10,11 @@
       "what": "Fixing the floor-hole check, then extending Chemical Plant as far as Sonic can actually run",
       "where": "branch parcel/rule-b-reachable",
       "agent": true
+    },
+    {
+      "what": "Re-checking Sonic 2's background scrolling on top of today's landings, then landing it",
+      "where": "branch parcel/s2clip-bg-scroll-2",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -48,7 +53,7 @@
     {
       "id": "S2CLIP-ORIGINAL-BGS",
       "title": "Sonic 2's own background scrolling is built and checked; it lands next, now there's room",
-      "state": "next",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -77,7 +82,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -141,5 +146,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T18:01:47Z"
+  "updatedAt": "2026-09-25T18:02:07Z"
 }
