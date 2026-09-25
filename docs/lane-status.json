@@ -1,6 +1,27 @@
 {
-  "focus": "Back after the account switch: landing the lag fix first, then restarting the tunnel, Sonic 2 scrolling and sound-data work.",
-  "inFlight": [],
+  "focus": "Landing the lag fix; the tunnel, Sonic 2 background scrolling and the positions file are being rebuilt after the stop.",
+  "inFlight": [
+    {
+      "what": "Landing check for the lag fix and the editor's bake answer, together on current master",
+      "where": "branch land/0925-lag-bake",
+      "agent": true
+    },
+    {
+      "what": "Short enclosed tunnel in Sonic 2 art, plus the 4 px step fix",
+      "where": "branch parcel/s2clip-tunnel-2",
+      "agent": true
+    },
+    {
+      "what": "Sonic 2's own background scrolling for Emerald Hill and Chemical Plant",
+      "where": "branch parcel/s2clip-bg-scroll-2",
+      "agent": true
+    },
+    {
+      "what": "Aeon's half of the clip's own sound positions file",
+      "where": "branch parcel/clip-anchor-overlay-2",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -8,7 +29,7 @@
       "since": "2026-09-09"
     }
   ],
-  "nextBoundary": "Lag fix and the editor's bake answer landed; tunnel, background scrolling and positions-file agents re-dispatched.",
+  "nextBoundary": "The lag fix lands and its ROMs go into the main checkout for your look; the three clip parcels then land one at a time.",
   "queue": [
     {
       "id": "S2CLIP-LAG",
@@ -29,7 +50,7 @@
     {
       "id": "S2CLIP-ORIGINAL-BGS",
       "title": "Each zone shows its own Sonic 2 background: still images LANDED; Sonic 2's own scrolling is next",
-      "state": "open",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -37,7 +58,7 @@
     {
       "id": "S2CLIP-TUNNEL",
       "title": "The connector should be a shorter enclosed tunnel that hides the background, drawn with Sonic 2 art",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -59,7 +80,7 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "The sound-data change you picked: the Sonic 2 act gets its own positions file (both lanes building their halves)",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -159,5 +180,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T15:07:22Z"
+  "updatedAt": "2026-09-25T15:09:39Z"
 }
