@@ -1,14 +1,14 @@
 {
-  "focus": "Measuring where the game lags; building Sonic 2 zone music (changes at the tunnel exit, Sonic 3 drums).",
+  "focus": "Performance list is ready for your pick; tracking down a slowdown in the Sonic 2 act; building zone music.",
   "inFlight": [
-    {
-      "what": "Performance survey: fly every shape, rank the slow spots with costs",
-      "where": "branch research/perf-survey",
-      "agent": true
-    },
     {
       "what": "Zone music step 1: teach the song converter Sonic 2's format (tools only, no ROM change)",
       "where": "branch parcel/s2-smps-import",
+      "agent": true
+    },
+    {
+      "what": "Find what made the Sonic 2 act's Emerald Hill diagonal slower (26 to 44 lag frames)",
+      "where": "branch research/ehz-diag-regression",
       "agent": true
     }
   ],
@@ -17,29 +17,34 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "PERF-PICK",
+      "what": "Which performance fixes to build: I recommend the debug hitch plus the faster tile copy.",
+      "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Performance shortlist back and reviewed; converter step landed. The songs then go in once sigil's song-count change lands.",
+  "nextBoundary": "Converter step and the slowdown hunt back and reviewed; then your performance pick gets built.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
       "title": "You asked: Emerald Hill's music switching to Chemical Plant's at the crossing. Design done; converter being built; sigil asked for one small change",
-      "state": "doing",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
     },
     {
       "id": "PERF-SURVEY",
-      "title": "You asked: fly through everything, find where it lags, and bring back a ranked list of what's worth speeding up",
-      "state": "doing",
+      "title": "Survey done: ranked list waiting for your pick",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "decision card PERF-PICK"
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Lag fix LANDED (fly s4.s2clip.debug.bin, crc 84fe49d0, to confirm); the leftover streaming cost is booked for later",
-      "state": "next",
+      "title": "Sonic 2 act: Emerald Hill diagonal got slower since the lag fix (26 to 44 lag frames); finding the cause",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -130,7 +135,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Your pick from the performance list (card PERF-PICK): I recommend the debug hitch plus the faster tile copy.",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T21:48:15Z"
+  "updatedAt": "2026-09-25T22:12:05Z"
 }
