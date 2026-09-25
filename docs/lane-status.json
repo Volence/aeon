@@ -1,12 +1,6 @@
 {
   "focus": "Overnight: Sonic 2 act with Chemical Plant is ready for you; now working through the tool-check backlog, as ruled.",
-  "inFlight": [
-    {
-      "what": "Count every tool that drives the emulator, not just ones using one class name, and stop crediting a tool as 'run' just for being named",
-      "where": "branch parcel/census-criterion (agent worktree)",
-      "agent": true
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -49,13 +43,6 @@
       "id": "PARALLAX-ANCHOR-COEFFS-REPUBLISH",
       "title": "The overlay's measured cost went back up 4.4x once its fixture was whole; whether the published cost table takes a new record is the table owner's call",
       "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "CENSUS-CRITERION-TOO-NARROW",
-      "title": "Four tools drive an emulator by another route, so the nightly's accounting has no verdict on them at all -- one has no code reference anywhere",
-      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -133,5 +120,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:57:22Z"
+  "updatedAt": "2026-09-25T10:29:56Z"
 }
