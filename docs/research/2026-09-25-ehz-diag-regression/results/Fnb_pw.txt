@@ -1,0 +1,41 @@
+Fnb.bin crc=1cb9b1ab size=914979 mode=fly dirs=right,down notes=[]
+IN MOTION: 89 video frames, 56 ticks, lag 33 (37.08%), 1.589 frames/tick, cam end [992, 1008]
+WHOLE: stepped=89 lag=33 LFC_delta=33 loadavg ['9.74', '11.71', '11.00'] -> ['9.74', '11.71', '11.00']
+by cam_y/512: 0:42/17 512:47/16
+by cam_x/512: 0:44/18 512:45/15
+PROFILE: ticks 56 sampleCycles 11264507 = 201152/tick; identity remainder 0 (0 means every cycle attributed within the returned rows); truncated=False abandoned=0 depthExceeded=0
+work (sample - VSync_Wait incl) 140667/tick = 1.100 frames/tick
+  interrupt vint: incl 13967/tick self 69/tick
+  interrupt hint: incl 0/tick self 0/tick
+routine                               incl/tick  self/tick calls/tick  callers(incl/tick)
+$games.sonic4.ojz_scroll_test$GameSt     186961        138       0.00  ?:186961
+GameState_OJZScroll_Update               126315        804       0.98  $games.sonic4.ojz_scroll_test$GameState_OJZScroll_Update$skip_entity_scan:126315
+Tile_Cache_Fill                           74207       2301       0.98  GameState_OJZScroll_Update:74207
+VSync_Wait                                60485      52190       0.98  $games.sonic4.ojz_scroll_test$GameState_OJZScroll_Update$skip_entity_scan:60485
+TileCache_FillRow                         36845      12368       1.89  Tile_Cache_Fill:36845
+TileCache_FillColumn                      32010       3562       1.82  Tile_Cache_Fill:32010
+TileCache_CopyBlockColumn                 20568       7065       8.46  TileCache_FillColumn:20568
+PageCache_PatchRun_Seq                    17853      17853      11.07  TileCache_FillRow:17853
+VBlank_Handler                            13898        584       1.57  ?:13898
+PageCache_PatchRun_Col                    13503      13503      10.25  TileCache_CopyBlockColumn:13503
+TileCache_DecompressBlock                 13488       1261       1.45  TileCache_FillColumn:6265, TileCache_FillRow:4495, Tile_Cache_Fill:2728
+Section_UpdateColumns                     12625       1411       0.98  GameState_OJZScroll_Update:12625
+Parallax_Update                           12369      10754       0.98  GameState_OJZScroll_Update:12369
+S4LZ_DecompressDict                       12226      12226       1.07  TileCache_DecompressBlock:12226
+VInt_Level                                10055        983       0.98  VBlank_Handler:10055
+PageIn_Process                             8295        281       0.98  VSync_Wait:8295
+RunObjects                                 8017        200       0.98  GameState_OJZScroll_Update:8017
+PageCache_Prefetch                         8013       2467       0.98  PageIn_Process:8013
+PageCache_Audit                            6143       6143       0.02  GameState_OJZScroll_Update:6143
+$engine.objects.core$RunObjects$run_       5769       1613       0.98  RunObjects:5769
+TileCache_FindStagedBlock                  4829       4829      29.48  TileCache_FillRow:2130, TileCache_FillColumn:1615, PageCache_Prefetch:1006, Tile_Cache_Fill:78
+$engine.page_cache$PageCache_Prefetc       4540       4540       0.80  PageCache_Prefetch:4540
+Render_Sprites                             4299       3281       0.98  GameState_OJZScroll_Update:4299
+Canopy_Probe                               3954       3954       0.98  Section_UpdateColumns:3954
+Draw_TileColumn                            3917       1537       1.55  Section_UpdateColumns:3917
+Process_DMA_Critical                       3863       3863       1.57  VInt_Level:2416, VInt_Lag:1447
+VInt_DrawLevel                             3806       3806       0.98  VInt_Level:3806
+EntityWindow_Scan                          3396       1998       0.98  GameState_OJZScroll_Update:3396
+Draw_TileRow_FromCache                     3344       1285       1.62  Section_UpdateColumns:3344
+VInt_Lag                                   3259        210       0.59  VBlank_Handler:3259
+finished=1
