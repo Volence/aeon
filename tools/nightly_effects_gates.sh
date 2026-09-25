@@ -44,6 +44,8 @@
 # AND IT BUILDS THE TWO STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17), LAST,
 # after every lane above has graded the canonical artifacts: see the block above the
 # worst-wins combination for why last, and why a failure there is FAILED, not COULD NOT RUN.
+# The STRESS_EVICT artifact is then graded by tools/evict_witness.py (2026-09-25), the one
+# lane in that block that boots an emulator; its exit is mapped like the lanes above.
 #
 # --selftest-fail exercises the notification path without running anything.
 set -uo pipefail
@@ -294,6 +296,28 @@ esac
 # its own rc and its own log, and neither is skipped when the other fails, so one cannot
 # mask the other; both fold into the same worst-wins combination as every lane above.
 #
+# THE EVICTION WITNESS (EVICT-WITNESS-WIRING, 2026-09-25). Until then this block built
+# s4.stress.{bin,lst} and nothing read them: the leg checked the build's exit and, after both
+# legs, the tree. tools/evict_witness.py is the instrument that fixture exists for. It boots
+# the STRESS_EVICT ROM in a headless emulator it spawns itself and proves the residency cache
+# evicts (more distinct act-art pages pass through Page_Table than the ROM's clamp has
+# frames). It runs right after the STRESS_EVICT build, and ONLY when that build exited 0: on
+# a failed build there is nothing to grade, the build leg's FAILED already carries the
+# verdict, and the witness log says NOT RUN rather than being left stale from the night
+# before. Its exit is mapped like the two emulator lanes at the top (the gates and the lab
+# witness), NOT like a build leg, because it is an instrument with its own three outcomes:
+# 0 OK; 1 FAILED, a named note and its own log (stress_evict_witness.log); anything else is
+# COULD NOT RUN (2). The witness's 2 means UNMEASURABLE (the ROM cannot force an eviction,
+# or the cart the server loaded is not the file on disk), and "could not ask" is not "the
+# answer is no". Its rc (rc_ew) folds into the same worst-wins combination. It writes nothing
+# into the tree, so the tree check below is unaffected. The invocation is spelled out
+# literally for the same reason the build lines are, and tools/test_landing_lane_shapes.py
+# grades that it is here, after the build, gated on the build's rc, and in the fold.
+# THE LISTING WRINKLE: on the sigil binary built 2026-09-17, s4.stress.lst publishes
+# `EQU PAGE_FRAMES_CLAMP = 12` while the ROM compares against 9. The witness reads the clamp
+# off the emitted `cmpi.w` and prints the disagreement as an informational line; the verdict
+# never reads the EQU, so the exit is the same before and after sigil's fix (df055bd1).
+#
 # TREE RESTORATION IS CHECKED, NOT TRUSTED. STRESS_ART refuses to start on a dirty
 # generated tree, and the checkout at the top of this script is --force, which reverts
 # tracked edits but leaves untracked files behind. A restore that stopped working would
@@ -327,6 +351,26 @@ else
     note "STRESS_EVICT BUILD FAILED (exit $rc_se) at $AT — see $STATE/stress_evict.log"
     rc_se=1
 fi
+# The STRESS_EVICT artifact is GRADED, not just built (EVICT-WITNESS-WIRING, 2026-09-25):
+# see "THE EVICTION WITNESS" in the block above for the exit mapping and why it runs here.
+if [ "$rc_se" = 0 ]; then
+    t_ew=$(date +%s)
+    echo "$(date -Is) evict_witness starting at $AT; uptime:$(uptime)" > "$STATE/stress_evict_witness.log"
+    python3 tools/evict_witness.py --rom s4.stress.bin --lst s4.stress.lst \
+        >> "$STATE/stress_evict_witness.log" 2>&1
+    rc_ew=$?
+    echo "$(date -Is) evict_witness exit $rc_ew after $(( $(date +%s) - t_ew )) s; uptime:$(uptime)" >> "$STATE/stress_evict_witness.log"
+    case $rc_ew in
+        0) echo "$(date -Is) OK at $AT (STRESS_EVICT eviction witness)" >> "$LOG" ;;
+        1) note "STRESS_EVICT EVICTION WITNESS FAILED at $AT — see $STATE/stress_evict_witness.log" ;;
+        *) note "COULD NOT RUN: STRESS_EVICT eviction witness (exit $rc_ew) at $AT — see $STATE/stress_evict_witness.log"
+           rc_ew=2 ;;
+    esac
+else
+    echo "$(date -Is) evict_witness NOT RUN at $AT: the STRESS_EVICT build exited non-zero, so there is no artifact to grade (that leg's FAILED already carries the verdict)" \
+        > "$STATE/stress_evict_witness.log"
+    rc_ew=1
+fi
 t_sa=$(date +%s)
 stress_stamp STRESS_ART "$STATE/stress_art.log" begin
 STRESS_ART=1 ./build.sh >> "$STATE/stress_art.log" 2>&1
@@ -359,7 +403,7 @@ fi
 
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_sa" "$rc_tree"; do
+for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_tree"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi
