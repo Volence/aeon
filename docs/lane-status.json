@@ -5,6 +5,11 @@
       "what": "Tunnel is done; re-checking it on top of the lag fix before it lands",
       "where": "branch parcel/s2clip-tunnel-2",
       "agent": true
+    },
+    {
+      "what": "Checking that the new assembler build leaves our four standard ROMs unchanged, before it's swapped in",
+      "where": "detached origin/master, candidate sigil 1d19e60b",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -158,5 +163,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T16:26:07Z"
+  "updatedAt": "2026-09-25T16:29:46Z"
 }
