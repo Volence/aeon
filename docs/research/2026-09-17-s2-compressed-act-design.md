@@ -809,6 +809,18 @@ explicitly, so a converted tree validates without touching `project.json` or the
 > Aurora's two further asks are accepted as row 8 work, not booked as rows: per-clip unique-tile
 > and page counts in the bake's JSON (`clipact.json`), and a `--json` mode on
 > `tools/clip_manifest.py validate` that names the refused clip.
+>
+> **BOTH DONE 2026-09-25** (branch `parcel/clip-tooling-aurora-asks`, report
+> `docs/research/2026-09-25-clip-tooling-aurora-asks.md`, which carries both JSON shapes).
+> (1) `clipact.json` `pool.per_clip` / `pool.per_corridor` rows: `tiles`, `tiles_added`,
+> `pages_touched`, `pages_exclusive`, with each field's meaning written into the file as
+> `pool.per_clip_fields`. There is deliberately no field called `pages`: a 64-tile page
+> belongs to one placement of the whole act, so a shared page has no per-clip share. On
+> `s2_ehz_cpz` page 7 is touched by `ehz_act1`, `cpz_act1` and the corridor alike, and the
+> touched counts sum to 16 against the pool's 14. (2) `validate --json`: `{schema, ok,
+> refusals:[{rule, subjects:[{kind, index, id}], message}], warnings:[same]}`; the human
+> mode is byte-identical (35 invocations checked against the pre-change tool). Neither
+> changes a baked byte: the clip ROM is still crc `9a3533f1`, 822,334 B.
 
 1. ~~**Into the target act's section files** — the clip's nametable words and both collision
    planes, at the target world rectangle. Straight writes to existing formats.~~ RETIRED 2026-09-25.
@@ -879,7 +891,10 @@ on three more (W1-W3), so the page can call it rather than reimplement it.
 scan of the crossover marks in the source rectangle.~~
 
 **ALL FOUR SHIP 2026-09-17.** Parcel 3 put tiles, pages and worst window in the bake's
-`clipact.json`; row 5 adds the other two, and the attr-set item turned out to be row 5's and
+`clipact.json`
+(**CORRECTED 2026-09-25: at the ACT level only** — `pool.tiles`, `pool.pages`, the verdicts.
+Nothing per clip existed for tiles or pages until the row-8 ask above added `pool.per_clip`;
+the worst window is still act-level only, and nothing per clip reports it); row 5 adds the other two, and the attr-set item turned out to be row 5's and
 not row 4's — it is a property of a baked CLIP, not of the shape bank. Per clip,
 `clipact.json` `collision.per_clip` now carries `attr_entries_alone` (what this rectangle
 needs on its own — the number to compare between two candidate marquees),
