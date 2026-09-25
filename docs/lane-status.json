@@ -1,11 +1,6 @@
 {
-  "focus": "Your two asks: a connector just over a screen wide as a limit test, and Chemical Plant extended as far as Sonic can run.",
+  "focus": "Chemical Plant is longer; landing Sonic 2's background scrolling next, while the limit test and further extension run.",
   "inFlight": [
-    {
-      "what": "Landing the longer Chemical Plant on top of the positions file",
-      "where": "branch parcel/s2clip-cpz-longer",
-      "agent": true
-    },
     {
       "what": "Limit test: a connector just over one screen wide, with a small engine change",
       "where": "branch research/shorter-connector",
@@ -44,7 +39,7 @@
     },
     {
       "id": "S2CLIP-CPZ-LONGER",
-      "title": "Chemical Plant: 480 px added (landing now); next, the floor-hole check gets fixed and it extends as far as Sonic can run",
+      "title": "Chemical Plant: 480 px added and LANDED; now fixing the floor-hole check and extending it as far as Sonic can run",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -52,10 +47,10 @@
     },
     {
       "id": "S2CLIP-ORIGINAL-BGS",
-      "title": "Sonic 2's own background scrolling is built and checked; it lands after the sound positions file, because the debug build has no room for it before then",
-      "state": "blocked",
+      "title": "Sonic 2's own background scrolling is built and checked; it lands next, now there's room",
+      "state": "next",
       "size": "L",
-      "blockedBy": "lands after S2CLIP-DEBUG-ROOM (tunnel + scrolling together are ~288 B over the debug shape's room until the positions file frees ~37 KB); staged on parcel/s2clip-bg-scroll-2",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -82,7 +77,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "next",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -146,5 +141,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T17:59:58Z"
+  "updatedAt": "2026-09-25T18:01:47Z"
 }
