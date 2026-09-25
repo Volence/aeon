@@ -1105,13 +1105,19 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     out = {"spawn": [spawn_x, spawn_y], "cell_y": y, "attr": attr, "height": h,
            "angle": ang, "solidity": solidity[attr], "surface_y": surface,
            "fall_px": surface - spawn_y, "hanging_passed": skipped}
-    out["donor_corroboration"] = donor_corroboration(
-        act, gen_dir, coll_dir, grid_w, grid_h, sect_px, log=log)
+    # EVERY clip whose donor start lies in its source rectangle is corroborated (row 7): a
+    # second zone is a second paste, and its shift is exactly as invisible in a screenshot
+    # as the first one's. Clip 0 is also kept under the old key for its readers.
+    out["donor_corroborations"] = [
+        dict(donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
+                                 log=log, clip=c), clip=c.id)
+        for c in act.clips]
+    out["donor_corroboration"] = out["donor_corroborations"][0]
     return out
 
 
 def donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
-                        donor_root=None, log=print):
+                        donor_root=None, log=print, clip=None):
     """The SECOND witness, and the one that can see a shifted paste.
 
     "Something solid is under the spawn" is a weak claim: air is the only thing it
@@ -1132,8 +1138,10 @@ def donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
     clip's source rectangle, or a nonzero paste shift in a version of this that has not
     worked out the shifted comparison: all say so and return a reason. None of them is
     a pass.
+
+    `clip` (row 7) names which clip to corroborate; None keeps the old meaning, clip 0.
     """
-    clip = act.clips[0]
+    clip = act.clips[0] if clip is None else clip
     import s2_donor
     try:
         droot = s2_donor.donor_root(clip.donor)
