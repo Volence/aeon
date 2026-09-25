@@ -150,10 +150,10 @@ async def main_async(a):
                 dirs = a.then_dirs.split(",")
                 await btn(c, dirs, True)
                 switched = True
+                head["rows_before_switch"] = len(rows)
                 if a.profile and a.profile_from_switch:
                     await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
                     first = cur
-                    head["rows_before_switch"] = len(rows)
                 notes.append(f"switched to {a.then_dirs} at frame {i} cam ({cur['cx']},{cur['cy']})")
                 stall = 0
             if a.stop_x and cur["cx"] >= a.stop_x:
@@ -162,6 +162,11 @@ async def main_async(a):
             if stall >= a.stall_stop:
                 notes.append(f"camera stalled at ({cur['cx']},{cur['cy']}) for {stall} frames; stopped")
                 break
+        if a.read_at_end:   # byte reads of named RAM symbols after the leg (e.g. residency mode)
+            names = a.read_at_end.split(",")
+            ss = await syms(c, names)
+            head["read_at_end"] = {n: (await rd(c, ss[n], 1)) if n in ss else "MISSING" for n in names}
+            notes.append(f"read_at_end {head['read_at_end']}")
         prof = None
         if a.profile or a.profile_window:
             pf = await c.call("emulator/get_profiler_frames", {"top": a.top, "topCallers": 4})
@@ -219,6 +224,7 @@ def main():
                     help="(with --then-dirs) arm the profiler at the switch, not at leg start")
     ap.add_argument("--profile-window", default="", help="lo,hi: profile only frames [lo,hi) "
                     "and STOP the leg at hi (the lag rows then cover [0,hi))")
+    ap.add_argument("--read-at-end", default="", help="comma list of RAM symbols, one byte each")
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--top", type=int, default=512)
     ap.add_argument("--print-top", type=int, default=30)

@@ -15,6 +15,8 @@ for L in ${LEGS//,/ }; do
         diag) a=(--mode fly --dirs right,down --frames 2000) ;;
         run)  a=(--mode run --dirs right --frames 3000) ;;
         spin) a=(--mode spin --dirs right --frames 3000) ;;
+        cpzdown) a=(--mode fly --dirs right --then-dirs down --then-at-x 14400 --frames 2000) ;;
+        cpzdiag) a=(--mode fly --dirs right --then-dirs right,down --then-at-x 14400 --frames 2000) ;;
         *) echo "unknown leg $L" >> "$M"; continue ;;
     esac
     python3 "$P" --rom "$ROM" --lst "$LST" "${a[@]}" --out "$O/${T}_$L.json" > "$O/${T}_$L.txt" 2>&1
