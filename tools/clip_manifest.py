@@ -211,7 +211,7 @@ on stdout:
           ],                    // TWO subjects for a pair rule: R10 (overlap), a duplicate
                                 //   id (R3/K1) or a duplicate region_id (R3) — first
                                 //   claimant first
-          "message": "R7 clip 'cpz_s2': src 2048x1024 != dst ..." } ],
+          "message": "R7 clip 'cpz_s2': src 2048x2048 != dst ..." } ],
                                 // the human sentence, EXACTLY what the human mode prints
                                 //   after "clips.json REFUSED — "
       "warnings": [             // W2/W3, same {rule, subjects, message} shape, in the

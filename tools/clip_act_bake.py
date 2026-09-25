@@ -114,6 +114,24 @@ OJZ act uses; the same index is a different shape in the two).
   references, over every row. A clip taller or shorter than its zone's grid is a different
   rectangle and the numbers are allowed to differ; this tool's is the one about the bytes.
 
+PER-CLIP POOL ROWS (2026-09-25, aurora's row-8 ask; design §8 RULED block). `clipact.json`
+`pool` carries, beside the act-level `tiles` / `pages`:
+
+    "per_clip":    [ {"id", "index", "tiles", "tiles_added",
+                      "pages_touched", "pages_exclusive"}, ... ]   // one per clips[i]
+    "per_corridor": [ same row shape ]                              // one per corridors[i]
+    "per_clip_fields": { field -> its meaning }   // PER_CLIP_POOL_FIELDS, verbatim
+
+  tiles            distinct pool tiles the rectangle's cells reference, blank (slot 0) excluded
+  tiles_added      of those, the ones no earlier row references (clips in manifest order,
+                   then corridors); sum over all rows + 1 == pool.tiles
+  pages_touched    pages holding any of its tiles: what must be resident to draw all of it.
+                   Shared pages count for every row, so the sum can exceed pool.pages
+  pages_exclusive  touched pages no other row touches; sum over rows <= pool.pages
+  There is NO field called "pages" — see "Per-clip pool readout" below for why. Every row
+  is sliced out of the same placement dict `pool.tiles`/`pool.pages` come from;
+  `tools/test_clip_pool_per_clip.py` re-derives each one off the emitted tree.
+
 Usage:
     python3 tools/clip_act_bake.py bake <clips.json> [--out DIR] [--expect-worst N]
     python3 tools/clip_act_bake.py recount <baked DIR>
