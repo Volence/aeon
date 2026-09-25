@@ -1697,7 +1697,10 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertEqual(rc, 1, text)
         self.assertNotIn("the ruled BG-animation ceiling no longer fits", text)
         self.assertIn("FAIL — the bank placement rule is broken", text)
-        self.assertIn(f"leaving {room} B < DATA_GROWTH_RESERVE {bganim_room.DATA_GROWTH_RESERVE} B", text)
+        self.assertIn(f"room under `dac_banks` = 0x{self.FIXTURE_ANCHOR:X} - 0x{packed_end:X} "
+                      f"= {room} B, which is LESS than DATA_GROWTH_RESERVE "
+                      f"{bganim_room.DATA_GROWTH_RESERVE} B "
+                      f"(short by {bganim_room.DATA_GROWTH_RESERVE - room} B)", text)
         self.assertIn(f"dac_banks = align_up(packed_end + reserve + grace, 0x8000) = 0x{want:X}", text)
         self.assertIn(f"sound_bank = dac_banks + 0x10000 = 0x{want + 0x10000:X}", text)
         self.assertIn("Do NOT shrink the reserve", text)
@@ -1712,6 +1715,57 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         buf = io.StringIO()
         self.assertEqual(bganim_room.report(lst, tree, gate=False, out=buf), 0)
         self.assertIn("the bank placement rule is broken", buf.getvalue())
+
+    def test_the_gate_threshold_is_the_reserve_and_grace_is_outside_it(self):
+        """S2CLIP-BANK-ROOM-GATE (2026-09-25). The ruled rule (games/sonic4/map.toml,
+        "WHY THE RULE GREW A SECOND TERM"; commit 446a27d9's message) puts GRACE
+        "INSIDE the align_up and OUTSIDE the gate's threshold": the anchor a
+        RE-LAYOUT picks is `rule_anchor(end)`, but the gate FIRES only at
+        `room < DATA_GROWTH_RESERVE`. From 446a27d9 until this parcel the fail arm
+        compared `anchor < rule_anchor(end)`, which put GRACE inside the threshold:
+        it fired at `room < RESERVE + GRACE` (rounded to the window) while its
+        message claimed `room < RESERVE` — measured as "leaving 58962 B <
+        DATA_GROWTH_RESERVE 49152 B" on `DEBUG=1 S2CLIP=s2_ehz_boot`.
+
+        Three rooms, all DERIVED from the fixture's packed end and the constants:
+          * room == RESERVE exactly: at the threshold, not under it -> passes, and
+            the report says the grace is spent (anchor below this shape's rule value)
+          * room == RESERVE - 2: under it -> fails, and the message's two numbers are
+            the room and the reserve with the true relation between them
+          * RESERVE < room < RESERVE + GRACE (the clip shape's band): passes.
+        RED-FIRST: against the pre-fix arm the first and third cases return rc 1."""
+        import bganim_room
+        R, G = bganim_room.DATA_GROWTH_RESERVE, bganim_room.DATA_GROWTH_GRACE
+        base_room = self.FIXTURE_ANCHOR - self.FIXTURE_PACKED_END
+        for room, want_rc in ((R, 0), (R - 2, 1), (R + G // 2, 0)):
+            with self.subTest(room=room):
+                grown = self.FIXTURE_ART_SONIC_BYTES + (base_room - room)
+                tree, lst = self._tree(blob_len=grown)
+                packed_end = self._hand_lma() + grown
+                self.assertEqual(self.FIXTURE_ANCHOR - packed_end, room)
+                # the band under test: the anchor is BELOW this shape's rule value,
+                # i.e. exactly where the old arm and the ruled threshold disagree
+                # (except for the R-2 row, where both must fail)
+                self.assertLess(self.FIXTURE_ANCHOR, bganim_room.rule_anchor(packed_end))
+                rc, text = self._report(tree, lst)
+                self.assertEqual(rc, want_rc, text)
+                if want_rc:
+                    self.assertIn("FAIL — the bank placement rule is broken", text)
+                    self.assertIn(
+                        f"room under `dac_banks` = 0x{self.FIXTURE_ANCHOR:X} - "
+                        f"0x{packed_end:X} = {room} B, which is LESS than "
+                        f"DATA_GROWTH_RESERVE {R} B (short by {R - room} B)", text)
+                else:
+                    self.assertNotIn("FAIL", text)
+                    self.assertRegex(
+                        text, rf"(?m)^\s*bank placement rule: .* declared "
+                              rf"0x{self.FIXTURE_ANCHOR:X}, 0x"
+                              rf"{bganim_room.rule_anchor(packed_end) - self.FIXTURE_ANCHOR:X}"
+                              rf" BELOW this shape's rule value", text)
+                    self.assertRegex(
+                        text, rf"(?m)^\s*growth before this gate fires again: "
+                              rf"{room - R} B \(the room above the reserve; the grace is "
+                              rf"NOT guaranteed here", text)
 
     def test_rule_reports_slack_when_another_shape_binds(self):
         """One anchor serves every sound-on shape, so an anchor ABOVE this shape's
