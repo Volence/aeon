@@ -223,22 +223,36 @@ def restore_tree(git="git", log=print):
 # Refusals
 # ---------------------------------------------------------------------------
 
-def check_single_clip(act):
-    """R20 — exactly one clip.
+def check_zone_separation(act, summary):
+    """Z1 — no camera position holds cells of two donor zones. REPLACES R20.
 
-    See the module header: the ROM bake reads ONE tileset, so a second clip's tile
-    indices would be resolved against the first clip's art. The failure is silent and
-    looks like a rendering bug, which is why this is a refusal and not a warning.
+    R20 refused every act with more than one clip, because the ROM path read ONE tileset
+    and a second clip's indices would have resolved against the first clip's art. Row 7
+    (2026-09-25) put the per-cell tileset key on the ROM path (`stage_project`'s
+    `tilesets`, ojz_strip_gen's keyed bake), so that refusal's reason is gone and R20 is
+    deleted rather than left to refuse a case that now works.
+
+    What a two-zone act still must not do is let one screen show both zones: they
+    disagree about which CRAM line their ground is (design §5.3) and one palette is
+    installed at a time. That is `clip_act_bake.zone_separation`'s count over every tile
+    cache window the act can produce, and it is refused HERE — at the ROM bake — rather
+    than in clip_act_bake, whose row-3 fixtures butt two zones on purpose to measure the
+    tileset key and have never been, and must never become, ROMs. The owner's ruling is
+    corridors, never butted zones (S2ACT-SEAM-CORRIDORS, 2026-09-17).
     """
-    if len(act.clips) != 1:
+    z = summary["zone_separation"]
+    if z["mixed"]:
+        f = z["first_mixed"]
         raise ClipRomError(
-            f"R20 this act has {len(act.clips)} clips and the ROM bake takes exactly "
-            f"one. An editor nametable word's tile index is 11 bits into ONE act-wide "
-            f"tileset (project.json zones[0].tileset), which ojz_strip_gen.generate() "
-            f"reads and hands place_pool as a uniform zone grid. A one-clip act has one "
-            f"donor zone and is an ordinary aeon act; a two-clip act needs the per-cell "
-            f"tileset key on the ROM path, which is staged plan row 7. "
-            f"Clips here: {', '.join(c.id for c in act.clips)}.")
+            f"Z1 {z['mixed']} of {z['windows']} camera windows hold cells of two donor "
+            f"zones (first at tile column {f['left_tile']}, row {f['top_tile']}, camera x "
+            f"~{f['camera_x_px_approx']} px). Two Sonic 2 zones disagree about which CRAM "
+            f"line their ground is and the act installs one palette at a time, so one of "
+            f"them is on screen in the other's colours. Put a corridor between them "
+            f"(clips.json `corridors`) wider than the {z['window_cells'][0]}-cell tile-cache "
+            f"window; the narrowest gap between two zones here is "
+            f"{z['min_column_gap_cells']} cell(s). Owner ruling S2ACT-SEAM-CORRIDORS: "
+            f"corridors, never butted zones.")
 
 
 def check_act_grid_matches_engine(act, descriptor=None):
@@ -295,6 +309,46 @@ def check_act_grid_matches_engine(act, descriptor=None):
             f"by hand.")
 
 
+def check_rom_pool_is_composed_pool(baked_dir, gen_dir, log=None):
+    """K4 — the ROM bake placed EXACTLY the art pool the composer placed.
+
+    THE PER-CELL KEY'S END-TO-END WITNESS ON THE ROM PATH (row 7). Two different programs
+    dedupe and place this act: `clip_act_bake` (from clips.json, keyed by construction)
+    and `ojz_strip_gen.generate()` (from the staged project's `tilesets` and the
+    `section_N.zonekey.bin` files). Both hand `fg_page_order.place_pool` a canonical grid
+    and a zone grid, so if the key reached the ROM path intact the two pools are the same
+    bytes, page for page. A ROM path that lost the key dedupes two zones' equal indices
+    into one entry and lands a SMALLER pool — which every self-consistency lane accepts,
+    because a smaller pool is internally consistent. This one does not.
+
+    Compared over the page CONTENTS padded to whole pages, which is what the ROM streams;
+    `pool.bin` is written that way by clip_act_bake.emit.
+    """
+    with open(os.path.join(baked_dir, "pool.bin"), "rb") as fh:
+        composed = fh.read()
+    with open(os.path.join(gen_dir, "ojz_act_pool_manifest.json")) as fh:
+        side = json.load(fh)
+    page_bytes = side["page_bytes"]
+    rom = bytearray()
+    for p in side["pages"]:
+        with open(os.path.join(gen_dir, f"act_pool_page{p['index']}.bin"), "rb") as fh:
+            blob = fh.read()
+        rom += blob + bytes(page_bytes - len(blob))
+    if bytes(rom) != composed:
+        first = next((i for i in range(min(len(rom), len(composed)))
+                      if rom[i] != composed[i]), min(len(rom), len(composed)))
+        raise ClipRomError(
+            f"K4 the ROM bake's art pool ({len(side['pages'])} pages, {len(rom)} B padded) "
+            f"is not the pool clip_act_bake composed ({len(composed)} B); first difference "
+            f"at byte {first} (page {first // page_bytes}). Both place the same act through "
+            f"fg_page_order.place_pool, so a difference means the per-cell tileset key did "
+            f"not reach ojz_strip_gen intact — the staged project's `tilesets` or a "
+            f"section_N.zonekey.bin is not what clip_act_bake wrote.")
+    if log:
+        log(f"clip_rom_bake: K4 the ROM bake's pool IS the composed pool — "
+            f"{len(side['pages'])} pages, {len(rom)} B, byte for byte")
+
+
 def check_tree_is_clean(paths, git="git"):
     """R22 — refuse to start over uncommitted work in what this OVERWRITES.
 
@@ -328,7 +382,7 @@ def check_tree_is_clean(paths, git="git"):
 # The staged project
 # ---------------------------------------------------------------------------
 
-def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
+def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR, sheet_files=None):
     """Write the `project.json` that points the shipped generators at the clip tree.
 
     Paths inside it are relative TO IT, which is the rule `validate_editor_inputs`
@@ -339,9 +393,20 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
     `dataPath` is "." — `clip_act_bake` already wrote the act directory, so the tree is
     the act. `bgLayout`/`bgTiles` are carried over from the shipped project verbatim and
     are inert: Pass 6b builds Plane B from the sonic_hack donor and reads neither.
+
+    `tilesets` (row 7) is THE PER-CELL TILESET KEY ON THE ROM PATH: every sheet the act's
+    cells index, in zone-key order (`clip_act_bake`'s `zone_table`, donor zones then the
+    corridor sheet), beside the `section_N.zonekey.bin` files clip_act_bake wrote into
+    this tree. `ojz_strip_gen._project_tilesets` reads it and bakes KEYED. Written for
+    EVERY clip act — one zone or several — so a one-clip act takes the same path as a
+    two-zone one and there is no case that is only exercised by the bigger act.
+    `tileset` stays too (sheet 0) for the readers that know only it.
     """
     clip = act.clips[0]
     zone_tree = os.path.join(donor_root, clip.donor, clip.zone)
+    if sheet_files is None:
+        sheet_files = [os.path.join(donor_root, d, z, "tileset.bin")
+                       for d, z in act.zone_table]
     with open(os.path.join(REPO, "project.json")) as fh:
         shipped = json.load(fh)
     sz, sa = shipped["zones"][0], shipped["zones"][0]["acts"][0]
@@ -353,10 +418,12 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
             "AUTO-GENERATED by tools/clip_rom_bake.py — a THROWAWAY project file for one "
             "clip act. It is NOT the shipped project.json; it exists so the shipped "
             "generators can be pointed at this clip's editor tree without editing the "
-            "real one. dataPath, tileset and palette are relative to THIS file."),
+            "real one. dataPath, tileset(s) and palette are relative to THIS file."),
         "zones": [{
-            "id": sz["id"], "name": f"{clip.donor}:{clip.zone}",
-            "tileset": rel(os.path.join(zone_tree, "tileset.bin")),
+            "id": sz["id"],
+            "name": " + ".join(f"{d}:{z}" for d, z in act.sheet_table),
+            "tileset": rel(sheet_files[0]),
+            "tilesets": [rel(p) for p in sheet_files],
             "palette": rel(os.path.join(zone_tree, "palette.bin")),
             "acts": [{
                 "id": sa["id"],
@@ -441,7 +508,6 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
           palette=PALETTE_SHIPPED, skip_clean_check=False, keep=False, log=print):
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
-    check_single_clip(act)
     if not skip_clean_check:
         check_tree_is_clean([os.path.relpath(gen_dir, REPO),
                              os.path.relpath(coll_dir, REPO)])
@@ -450,8 +516,11 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     log(f"clip_rom_bake: composing {act.id} -> {os.path.relpath(baked_dir, REPO)}")
     _act, _st, summary, _v1, _v2 = clip_act_bake.bake(
         manifest_path, out_dir=baked_dir, donor_root=donor_root, log=log)
+    check_zone_separation(act, summary)
 
-    project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir)
+    sheet_files = [os.path.join(REPO, z["tileset_file"]) for z in summary["zone_table"]]
+    project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir,
+                                            sheet_files=sheet_files)
 
     # THE ENGINE'S GRID, LOWERED FROM THE MANIFEST (S2-COMPRESSED-ACT parcel 9). This is
     # the whole of what lets a clip act be a different SHAPE from the shipped one: the
@@ -496,6 +565,7 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
             "and the ruling it is waiting on.")
     log("clip_rom_bake: strips, local maps, art pool, palette, collision tables...")
     ojz_strip_gen.generate()
+    check_rom_pool_is_composed_pool(baked_dir, gen_dir, log=log)
 
     # THE EDITOR-AUTHORED BG OVERRIDE, exactly as tools/regenerate-level.sh runs it.
     # Skipping it was a REAL failure and not a cosmetic one: the raw generated zone BG is
@@ -541,9 +611,10 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         "schema": 1,
         "produced_by": "tools/clip_rom_bake.py",
         "act": act.id,
-        "clip": {"id": act.clips[0].id, "donor": act.clips[0].donor,
-                 "zone": act.clips[0].zone,
-                 "src_rect": list(act.clips[0].src), "dst_rect": list(act.clips[0].dst)},
+        "clips": [{"id": c.id, "donor": c.donor, "zone": c.zone, "zone_key": c.zone_key,
+                   "src_rect": list(c.src), "dst_rect": list(c.dst)} for c in act.clips],
+        "corridors": [c.as_json() for c in act.corridors],
+        "zone_separation": summary["zone_separation"],
         "grid": [act.grid_w, act.grid_h],
         "pool": summary["pool"],
         "collision": {k: summary["collision"][k]

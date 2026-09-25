@@ -144,6 +144,7 @@ W1-W3 are warnings.
       src origin: a 16-px-aligned src pasted to a 16-px-aligned dst is correct, and so
       is an 8-px-aligned src pasted 2048 px away. R12 above is the rule that survives.
       The tag stays reserved so a future W1 cannot quietly inherit this one's meaning.
+  K1-K3 CORRIDORS (S2-COMPRESSED-ACT row 7, 2026-09-25) — see "CORRIDORS" below.
   W2  the src rect contains no painted cell.
   W3  an act section holds cells of two different ZONE KEYS. A WARNING, and the design's
       §2.2 gives two reasons for section-boundary placement of which the measurement
@@ -156,6 +157,40 @@ W1-W3 are warnings.
           the control holds clip ADJACENCY fixed; the separated act's 7 is adjacency, not
           section purity. The exact refusal that does bite is downstream and precise
           (build_section_local_map raises past 2047), so this stays a warning.
+      A CORRIDOR does not count as a zone here: its sheet is three tiles, so it cannot
+      move a local map toward the cap, and warning on every corridor-meets-clip section
+      would bury the warning that means something.
+
+CORRIDORS (row 7, owner ruling S2ACT-SEAM-CORRIDORS 2026-09-17: "that was the plan not
+butting them together"). Two Sonic 2 zones disagree about which CRAM line their ground is
+(design §5.3), so they cannot share a screen; a corridor is the neutral stretch between
+two clips that the palette cross-fade plays inside. Schema, beside `clips`:
+
+    "corridors": [
+      { "id": "ehz_to_cpz",                               // region-id pattern, unique
+        "dst_rect": { "x": 10976, "y": 0, "w": 1312, "h": 6144 },
+        "floor_y": 768 } ]                                // world px, top of the floor
+
+WHAT A CORRIDOR PAINTS, and why each choice. It is SYNTHESISED by the bake, never taken
+from a donor:
+  * ART on CRAM LINE 0 — the character's line, which the engine never writes
+    (engine/effects/palette.emp: a preset palette is 96 bytes = lines 1-3, never line 0).
+    So the corridor is the one thing on screen a region's palette install CANNOT recolour,
+    before, during or after the fade. That is the whole argument for the line; the
+    colours inside it (greys of art/palettes/SonicAndTails.bin) are a plain legible
+    default, and how the corridor LOOKS is the owner's call.
+  * THREE TILES of its own sheet (`corridor_sheet()`): 0 blank, 1 fill, 2 the floor's top
+    edge. The sheet is a zone key of its own (the LAST one), so its tiles cannot collide
+    with a donor's in the keyed dedupe, and the "no camera window holds two zones" check
+    (clip_act_bake Z1) can tell a corridor cell from a zone cell.
+  * COLLISION: the bank's full solid block, solid on every side, on BOTH planes, from
+    `floor_y` to the rectangle's bottom — a floor with nothing under it to fall into.
+    The shape is FOUND in the bank (`corridor_floor_shape`), not typed.
+  K1  id matches the region-id pattern, unique across clips AND corridors.
+  K2  the rect obeys R5/R6/R8/R10 like a clip's dst (non-negative, 8-px grid, inside the
+      act, overlapping nothing).
+  K3  floor_y is a multiple of COLL_QUANTUM_PX (16) — a collision row — and lies inside
+      the rect: a floor at y=770 would be a floor at y=768 that the art draws at 770.
 
 Usage:
     python3 tools/clip_manifest.py validate <clips.json> [--donor-root DIR]
@@ -273,15 +308,95 @@ class Clip:
         return f"<Clip {self.id} {self.donor}@{self.zone} src={self.src} dst={self.dst}>"
 
 
+class Corridor:
+    """One synthesised neutral stretch between clips (see CORRIDORS in the header)."""
+
+    __slots__ = ("id", "dst", "floor_y", "index")
+
+    def __init__(self, raw, index):
+        self.index = index
+        self.id = raw["id"]
+        self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
+        self.floor_y = int(raw["floor_y"])
+
+    def as_json(self):
+        return {"id": self.id, "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
+                "floor_y": self.floor_y}
+
+    def __repr__(self):
+        return f"<Corridor {self.id} dst={self.dst} floor_y={self.floor_y}>"
+
+
+#: The corridor sheet's name in the zone table. Not a donor: `tilesets()` synthesises it.
+CORRIDOR_SHEET = ("corridor", "neutral")
+#: The corridor sheet's three tiles (indices into `corridor_sheet()`).
+CORRIDOR_TILE_BLANK, CORRIDOR_TILE_FILL, CORRIDOR_TILE_EDGE = 0, 1, 2
+#: The CRAM line corridor art is drawn on. 0, the character's line, and the reason is
+#: DERIVED rather than chosen: a preset palette is 96 bytes = lines 1-3 and never line 0
+#: (engine/effects/palette.emp, Palette_LoadPal's contract), so line 0 is the one line no
+#: region install can recolour — the corridor looks the same under both zones' palettes
+#: and through the cross-fade between them. Held against the engine by
+#: tools/test_clip_two_zone.py, which reads that contract out of palette.emp.
+CORRIDOR_PAL_LINE = 0
+#: The colours inside the line — INDICES into art/palettes/SonicAndTails.bin, the
+#: character palette the boot state loads there (games/sonic4/test/ojz_scroll_test.emp
+#: `BGND_Palette`). Greys, because grey belongs to neither zone: 9 = $0444 mid grey fill,
+#: 1 = $0222 dark mortar line, 6 = $0EEE white and 7 = $0CAA light grey for the top edge.
+#: A LOOK, and a plain default: the owner rules how the corridor looks, not this file.
+CORRIDOR_COLOURS = {"fill": 9, "mortar": 1, "edge_hi": 6, "edge": 7}
+
+
+def _tile_from_rows(rows):
+    """A 4bpp tile from eight rows of eight colour indices (one nibble per pixel)."""
+    out = bytearray()
+    for row in rows:
+        assert len(row) == 8
+        for i in range(0, 8, 2):
+            out.append(((row[i] & 0xF) << 4) | (row[i + 1] & 0xF))
+    return bytes(out)
+
+
+def corridor_sheet():
+    """The corridor's three-tile sheet: blank, fill (a course of stone with a mortar line
+    at its foot), and the floor's top edge (a white highlight over a light-grey lip)."""
+    c = CORRIDOR_COLOURS
+    blank = bytes(32)
+    fill = _tile_from_rows([[c["fill"]] * 8] * 7 + [[c["mortar"]] * 8])
+    edge = _tile_from_rows([[c["edge_hi"]] * 8, [c["edge"]] * 8]
+                           + [[c["fill"]] * 8] * 5 + [[c["mortar"]] * 8])
+    return blank + fill + edge
+
+
+def corridor_floor_shape(bank_dir):
+    """The bank's FULL SOLID BLOCK with the odd-angle ("no usable angle") flag — found, not
+    typed. A full block is one whose 16 heights are all PROFILE_LEN; the odd angle makes
+    probe_core substitute the cardinal angle (games/sonic4/player/player_sensors.emp,
+    `btst #0, d1`), which is what a flat floor wants. In the Sonic 2 bank that is shape
+    255, angle $FF — the shape Chemical Plant's own start floor is made of."""
+    with open(os.path.join(bank_dir, "heightmaps.bin"), "rb") as fh:
+        hm = fh.read()
+    with open(os.path.join(bank_dir, "angles.bin"), "rb") as fh:
+        an = fh.read()
+    n = collision_pipeline.PROFILE_LEN
+    for s in range(len(hm) // n - 1, 0, -1):
+        if all(v == n for v in hm[s * n:(s + 1) * n]) and (an[s] & 1):
+            return s
+    raise ClipManifestError(
+        f"the collision bank at {bank_dir} has no full solid block with the odd-angle "
+        f"flag, so a corridor floor cannot be built from it")
+
+
 class ClipAct:
     """A validated clips.json: the act grid, the clips, and the derived zone-key table."""
 
-    def __init__(self, path, raw, clips, grid_w, grid_h, constants, warnings):
+    def __init__(self, path, raw, clips, grid_w, grid_h, constants, warnings,
+                 corridors=()):
         self.path = path
         self.raw = raw
         self.id = raw["id"]
         self.name = raw.get("name") or raw["id"]
         self.clips = clips
+        self.corridors = list(corridors)
         self.grid_w = grid_w
         self.grid_h = grid_h
         self.constants = constants
@@ -306,15 +421,28 @@ class ClipAct:
 
     @property
     def zone_table(self):
-        """[(donor, zone)] indexed by zone key, first-appearance order."""
+        """[(donor, zone)] indexed by zone key, first-appearance order. DONOR zones only:
+        the corridor sheet, when there is one, is `sheet_table`'s last entry."""
         out = []
         for c in self.clips:
             if c.tree_key not in out:
                 out.append(c.tree_key)
         return out
 
+    @property
+    def corridor_key(self):
+        """The corridor sheet's zone key (one past the donor zones), or None."""
+        return len(self.zone_table) if self.corridors else None
+
+    @property
+    def sheet_table(self):
+        """Every tileset the act's cells index, by zone key: the donor zones, then the
+        corridor sheet if the act has a corridor."""
+        return self.zone_table + ([CORRIDOR_SHEET] if self.corridors else [])
+
     def summary(self):
         return (f"{self.id}: {len(self.clips)} clip(s), {len(self.zone_table)} zone(s), "
+                f"{len(self.corridors)} corridor(s), "
                 f"act grid {self.grid_w}x{self.grid_h} sections "
                 f"({self.cols}x{self.rows} cells)")
 
@@ -555,9 +683,55 @@ def load(path, donor_root=None, constants=None, warn=None):
                       f"{cl.donor}@{cl.zone}'s painted bounding box "
                       f"(x {bx0}..{bx1}, y {by0}..{by1} px) — this clip is entirely blank.")
 
-    # R10 — dst overlap
-    for i, a in enumerate(clips):
-        for b in clips[i + 1:]:
+    # K1-K3 — corridors (see CORRIDORS in the header)
+    corridors = []
+    corr_raw = raw.get("corridors", [])
+    if not isinstance(corr_raw, list):
+        raise ClipManifestError(f"K1 {path}: `corridors` must be a list")
+    for i, kr in enumerate(corr_raw):
+        if not isinstance(kr, dict):
+            raise ClipManifestError(f"K1 {path}: corridors[{i}] is not an object")
+        for k in ("id", "dst_rect", "floor_y"):
+            if k not in kr:
+                raise ClipManifestError(f"K1 {path}: corridors[{i}] is missing {k!r}")
+        kid = str(kr["id"])
+        if not _ID_RE.match(kid):
+            raise ClipManifestError(
+                f"K1 {path}: corridor id {kid!r} does not match {REGION_ID_PATTERN} — a "
+                f"corridor is a place in the act exactly as a clip is, and its id is held to "
+                f"the same region-id pattern")
+        if kid in seen_ids:
+            raise ClipManifestError(
+                f"K1 {path}: corridor id {kid!r} is already used by clips[{seen_ids[kid]}] "
+                f"or an earlier corridor; one name is one rectangle")
+        seen_ids[kid] = f"corridors[{i}]"
+        _require_rect(f"corridors[{i}].dst_rect", kr["dst_rect"])
+        co = Corridor(kr, i)
+        for k, v in zip(_RECT_KEYS, co.dst):
+            if v % TILE_PX:
+                raise ClipManifestError(
+                    f"K2 corridor {kid!r}: dst_rect.{k} = {v} is not a multiple of "
+                    f"{TILE_PX} px (the editor cell grid, R6's reason)")
+        if co.dst[0] + co.dst[2] > grid_w * sec_px or co.dst[1] + co.dst[3] > grid_h * sec_px:
+            raise ClipManifestError(
+                f"K2 corridor {kid!r}: dst_rect ({_rect_str(co.dst)}) runs past the declared "
+                f"{grid_w}x{grid_h}-section act ({grid_w * sec_px}x{grid_h * sec_px} px)")
+        fy = kr["floor_y"]
+        if not isinstance(fy, int) or isinstance(fy, bool):
+            raise ClipManifestError(f"K3 corridor {kid!r}: floor_y = {fy!r} is not an integer")
+        if fy % COLL_QUANTUM_PX or not (co.dst[1] <= fy < co.dst[1] + co.dst[3]):
+            raise ClipManifestError(
+                f"K3 corridor {kid!r}: floor_y = {fy} must be a multiple of "
+                f"{COLL_QUANTUM_PX} (a collision row: the runtime picks the row with "
+                f"`lsr.w #1` of the tile row, engine/level/collision_lookup.emp) and lie "
+                f"inside the rect's y span {co.dst[1]}..{co.dst[1] + co.dst[3] - 1}. A floor "
+                f"off the collision grid would be drawn at one y and stood on at another.")
+        corridors.append(co)
+
+    # R10 / K2 — dst overlap, over clips AND corridors
+    placed = list(clips) + corridors
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
             if (a.dst[0] < b.dst[0] + b.dst[2] and b.dst[0] < a.dst[0] + a.dst[2]
                     and a.dst[1] < b.dst[1] + b.dst[3] and b.dst[1] < a.dst[1] + a.dst[3]):
                 raise ClipManifestError(
@@ -586,7 +760,7 @@ def load(path, donor_root=None, constants=None, warn=None):
                   f"the sum of both zones' tiles in it. The bake prints the map size per "
                   f"section and refuses past the cap.")
 
-    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings)
+    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors)
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +817,25 @@ def cell_grids(act, donor_root=None):
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
         words[dy:dy + sh, dx:dx + sw] = src_words[sy:sy + sh, sx:sx + sw]
         zone_id[dy:dy + sh, dx:dx + sw] = cl.zone_key
+    for co in act.corridors:
+        cw, ck = corridor_cells(co)
+        dx, dy, w, h = (v // TILE_PX for v in co.dst)
+        words[dy:dy + h, dx:dx + w] = cw
+        zone_id[dy:dy + h, dx:dx + w] = act.corridor_key
     return words, zone_id
+
+
+def corridor_cells(co):
+    """(words, None) for one corridor's rect: blank above the floor, the edge tile ON the
+    floor row, the fill below it — all on CORRIDOR_PAL_LINE, priority 0, unflipped."""
+    import numpy as np
+    w, h = co.dst[2] // TILE_PX, co.dst[3] // TILE_PX
+    out = np.full((h, w), CORRIDOR_TILE_BLANK, dtype=np.uint16)
+    floor_row = (co.floor_y - co.dst[1]) // TILE_PX
+    pal = CORRIDOR_PAL_LINE << 13
+    out[floor_row, :] = CORRIDOR_TILE_EDGE | pal
+    out[floor_row + 1:, :] = CORRIDOR_TILE_FILL | pal
+    return out, None
 
 
 def section_plane_grid(tree_dir, manifest, section_tiles, suffix):
@@ -706,6 +898,14 @@ def collision_grids(act, donor_root=None):
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
         for p in range(2):
             planes[p][dy:dy + sh, dx:dx + sw] = src[p][sy:sy + sh, sx:sx + sw]
+    if act.corridors:
+        word = (corridor_floor_shape(collision_banks(act, donor_root))
+                | (collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT))
+        for co in act.corridors:
+            dx, dy, w, h = (v // TILE_PX for v in co.dst)
+            floor_row = (co.floor_y - co.dst[1]) // TILE_PX
+            for p in range(2):
+                planes[p][dy + floor_row:dy + h, dx:dx + w] = word
     return planes[0], planes[1]
 
 
@@ -740,7 +940,9 @@ def collision_banks(act, donor_root=None):
 
 
 def tilesets(act, donor_root=None):
-    """[(donor, zone, tileset bytes, zone.json)] indexed by zone key."""
+    """[(donor, zone, tileset bytes, zone.json)] indexed by zone key — `sheet_table`'s
+    order, so the corridor sheet (synthesised, with a zone.json-shaped stand-in naming its
+    sha and no palette) is last when the act has a corridor."""
     donor_root = _root(donor_root)
     out = []
     for donor, zone in act.zone_table:
@@ -755,6 +957,14 @@ def tilesets(act, donor_root=None):
                 f"{zm['tileset']['bytes']} — the converted tree is inconsistent; re-run "
                 f"tools/s2_zone_convert.py convert {donor}@{zone}")
         out.append((donor, zone, blob, zm))
+    if act.corridors:
+        import hashlib
+        blob = corridor_sheet()
+        out.append((CORRIDOR_SHEET[0], CORRIDOR_SHEET[1], blob,
+                    {"tileset": {"bytes": len(blob),
+                                 "sha256": hashlib.sha256(blob).hexdigest()},
+                     "palette": None,
+                     "synthesised": "clip_manifest.corridor_sheet()"}))
     return out
 
 
@@ -793,6 +1003,9 @@ def _mode_validate(rest):
         if cl.unaligned_dst_reason:
             note = f"  [R11 opt-out: {cl.unaligned_dst_reason}]"
         print(f"  {cl.id}: src {_rect_str(cl.src)} -> dst {_rect_str(cl.dst)}{note}")
+    for co in act.corridors:
+        print(f"  corridor {co.id}: dst {_rect_str(co.dst)}, floor y={co.floor_y} "
+              f"(zone key {act.corridor_key}, synthesised)")
     print(f"  {len(act.warnings)} warning(s)")
     return 0
 

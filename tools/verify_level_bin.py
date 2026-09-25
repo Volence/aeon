@@ -837,16 +837,31 @@ def verify_editor_bake_fidelity():
     if declared is None:
         return
 
-    if not os.path.isfile(tileset_path):
-        check(False, f"editor bake: editor tileset {tileset_path} missing")
-        return
-    art = read(tileset_path)
-    check(len(art) > 0 and len(art) % TILE_SIZE == 0,
-          f"editor bake: editor tileset is {len(art)} bytes -- not a whole number "
-          f"of {TILE_SIZE}-byte tiles (a 0-byte tileset bakes a blank level and "
-          f"passes every other gate)")
-    if not art:
-        return
+    # A KEYED act (S2-COMPRESSED-ACT row 7: `zones[0].tilesets` + a section_N.zonekey.bin
+    # per section — tools/ojz_strip_gen._project_tilesets) names a tileset PER CELL, and
+    # claim 3 below must resolve each source word against the sheet ITS cell names. Held
+    # to the one-tileset reading, every Chemical Plant cell of a two-zone act would be
+    # compared against Emerald Hill's art and fail — or, worse, a bake that LOST the key
+    # would compare EHZ-against-EHZ and pass. So the key is read here from the same files
+    # the bake read, and a missing one is a failure, never a fallback to one tileset.
+    sheet_paths = zone.get("tilesets")
+    if sheet_paths is not None:
+        sheet_paths = [os.path.join(os.path.dirname(PROJECT_JSON), p) for p in sheet_paths]
+        tileset_path = sheet_paths[0]
+    arts = []
+    for p in (sheet_paths if sheet_paths is not None else [tileset_path]):
+        if not os.path.isfile(p):
+            check(False, f"editor bake: editor tileset {p} missing")
+            return
+        a = read(p)
+        check(len(a) > 0 and len(a) % TILE_SIZE == 0,
+              f"editor bake: editor tileset {os.path.basename(p)} is {len(a)} bytes -- not "
+              f"a whole number of {TILE_SIZE}-byte tiles (a 0-byte tileset bakes a blank "
+              f"level and passes every other gate)")
+        if not a:
+            return
+        arts.append(a)
+    art = arts[0]
 
     pages = []
     idx = 0
@@ -890,6 +905,16 @@ def verify_editor_bake_fidelity():
                          f"bytes, expected {grid * grid * 2} for a {grid}x{grid} grid")
             continue
         ed_words = struct.unpack(f">{grid * grid}H", ed)
+        ed_keys = None
+        if sheet_paths is not None:
+            kp = os.path.join(data_path, f"section_{n}.zonekey.bin")
+            if not os.path.isfile(kp) or os.path.getsize(kp) != grid * grid:
+                check(False, f"editor bake: keyed act, but section_{n}.zonekey.bin is "
+                             f"missing or not {grid * grid} bytes -- without the key a "
+                             f"cell's art cannot be named, and falling back to one tileset "
+                             f"is how a lost key would pass")
+                continue
+            ed_keys = struct.unpack(f">{grid * grid}b", read(kp))
         src = read(src_path)
         rem = read(rem_path)
         for label, blob, path in (("source", src, src_path), ("a", rem, rem_path)):
@@ -911,6 +936,7 @@ def verify_editor_bake_fidelity():
             col_src = struct.unpack(f">{grid}H", src[off: off + grid * 2])
             col_rem = struct.unpack(f">{grid}H", rem[off: off + grid * 2])
             ed_col = ed_words[c::grid]
+            key_col = ed_keys[c::grid] if ed_keys is not None else None
             if col_src != ed_col:
                 for r in range(grid):
                     if col_src[r] != ed_col[r]:
@@ -918,11 +944,12 @@ def verify_editor_bake_fidelity():
                         if first is None:
                             first = (r, c, ed_col[r], col_src[r])
             for r in range(grid):
-                pair = (col_src[r], col_rem[r])
+                key = 0 if key_col is None else key_col[r]
+                pair = (col_src[r], col_rem[r], key)
                 if pair in seen:
                     continue
                 seen.add(pair)
-                sw, rw = pair
+                sw, rw = col_src[r], col_rem[r]
                 if (sw & NAMETABLE_ATTR_MASK) != (rw & NAMETABLE_ATTR_MASK):
                     attr_bad += 1
                     continue
@@ -934,8 +961,17 @@ def verify_editor_bake_fidelity():
                 if (g + 1) * TILE_SIZE > len(pool):
                     range_bad += 1
                     continue
-                want = _tile_pixels(art, sw & NAMETABLE_TILE_MASK,
-                                    (sw >> 11) & 1, (sw >> 12) & 1)
+                if key < 0:
+                    # VOID in a keyed act: no clip or corridor covers the cell, the bake
+                    # renders the blank tile, and the editor word must be 0 (the bake's
+                    # own input check refuses a non-zero one).
+                    want = bytes(TILE_SIZE) if sw == 0 else None
+                else:
+                    if key >= len(arts):
+                        range_bad += 1
+                        continue
+                    want = _tile_pixels(arts[key], sw & NAMETABLE_TILE_MASK,
+                                        (sw >> 11) & 1, (sw >> 12) & 1)
                 if want is None:
                     src_oob += 1
                     src_oob_max = max(src_oob_max, sw & NAMETABLE_TILE_MASK)

@@ -195,12 +195,60 @@ class _Act:
         self.grid_w, self.grid_h = grid
 
 
-def test_r20_refuses_a_two_clip_act_and_admits_a_one_clip_act():
-    """The ROM path reads ONE tileset. Both arms, so the refusal is not vacuous."""
-    CRB.check_single_clip(_Act(1, (3, 3)))                 # control: admitted
+class _ZAct:
+    """The two things `clip_act_bake.zone_separation` reads off a ClipAct."""
+
+    def __init__(self, zones):
+        self.zone_table = [("d", f"Z{i}") for i in range(zones)]
+
+
+def _zone_grid(gap_cells, cols_each=200, rows=128, corridor=None):
+    """Two donor zones side by side, `gap_cells` apart, in a 1-section-tall act.
+
+    The gap is VOID unless `corridor` names the key to fill it with — the corridor is
+    not a zone, so filling the gap with it must not change the answer."""
+    import numpy as np
+    w = 2 * cols_each + gap_cells
+    g = np.full((256, max(w, 256)), -1, dtype=np.int16)
+    g[:rows, :cols_each] = 0
+    g[:rows, cols_each + gap_cells:w] = 1
+    if corridor is not None:
+        g[:rows, cols_each:cols_each + gap_cells] = corridor
+    return g
+
+
+def test_z1_counts_windows_that_hold_two_zones_and_the_gap_that_clears_it():
+    """Z1's instrument, both sides of the line, with the line DERIVED from the engine's
+    own tile-cache window (TILE_CACHE_COLS), never typed. A window of COLS cells holds the
+    last cell of one zone and the first of the next exactly when they are at most COLS-1
+    apart, i.e. when the gap between them is at most COLS-2 cells: so COLS-2 must count
+    mixed windows and COLS-1 must count none. Filling the gap with the corridor key
+    changes nothing — it is not a zone."""
+    import clip_act_bake as CAB
+    import fg_page_order as FPO
+    cols = FPO.load_budget_constants()["TILE_CACHE_COLS"]
+    narrow = CAB.zone_separation(_ZAct(2), _zone_grid(cols - 2))
+    assert narrow["mixed"] > 0 and narrow["min_column_gap_cells"] == cols - 2
+    wide = CAB.zone_separation(_ZAct(2), _zone_grid(cols - 1))
+    assert wide["mixed"] == 0 and wide["min_column_gap_cells"] == cols - 1
+    walled = CAB.zone_separation(_ZAct(2), _zone_grid(cols - 1, corridor=2))
+    assert walled["mixed"] == 0, "a corridor cell was counted as a zone"
+    one = CAB.zone_separation(_ZAct(1), _zone_grid(0, corridor=None))
+    assert one["mixed"] == 0 and one["donor_zones"] == 1
+
+
+def test_z1_refuses_at_the_rom_bake_and_admits_a_separated_act():
+    """R20 (one clip only) is DELETED: row 7 put the per-cell key on the ROM path. What
+    the ROM bake refuses now is a two-zone act a camera can see both halves of."""
+    CRB.check_zone_separation(None, {"zone_separation": {
+        "mixed": 0, "windows": 10, "first_mixed": None, "window_cells": [80, 60],
+        "min_column_gap_cells": 90}})                                   # control
     with pytest.raises(CRB.ClipRomError) as exc:
-        CRB.check_single_clip(_Act(2, (3, 3)))
-    assert "R20" in str(exc.value) and "row 7" in str(exc.value)
+        CRB.check_zone_separation(None, {"zone_separation": {
+            "mixed": 3, "windows": 10, "window_cells": [80, 60], "min_column_gap_cells": 5,
+            "first_mixed": {"left_tile": 7, "top_tile": 0, "camera_x_px_approx": 56}}})
+    assert "Z1" in str(exc.value) and "corridor" in str(exc.value)
+    assert not hasattr(CRB, "check_single_clip"), "R20 must be deleted, not left dormant"
 
 
 def _descriptor(tmp_path, w, h, name="act_grid.emp"):

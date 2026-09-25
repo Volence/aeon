@@ -139,8 +139,34 @@ def _project_act_data_dir() -> str:
         os.path.dirname(PROJECT_JSON), proj["zones"][0]["acts"][0]["dataPath"]))
 
 
+def _project_tilesets() -> list[str] | None:
+    """THE PER-CELL TILESET KEY'S SHEETS (S2-COMPRESSED-ACT row 7), or None.
+
+    A project whose zone carries `"tilesets": [..]` is a KEYED act: its editor act
+    directory holds one `section_N.zonekey.bin` per section (a signed byte per cell,
+    row-major like section_N.tiles.bin, -1 = void), and a cell's 11-bit tile index means
+    "tile N of tilesets[key]". Only tools/clip_rom_bake.py's staged project writes one; the
+    shipped project.json has no such key, returns None here, and bakes exactly as it
+    always has (one tileset, a uniform zone grid). Paths are relative to the project file.
+    """
+    with open(PROJECT_JSON, "r") as f:
+        proj = json.load(f)
+    sheets = proj["zones"][0].get("tilesets")
+    if sheets is None:
+        return None
+    return [os.path.join(os.path.dirname(PROJECT_JSON), p) for p in sheets]
+
+
 ZONE_TILESET_PATH = _project_tileset_path()
+ZONE_TILESETS = _project_tilesets()
 EDITOR_ACT_DIR = _project_act_data_dir()
+#: A keyed act's per-cell sheet key file, per section (see _project_tilesets).
+ZONE_KEY_FILE = "section_{n}.zonekey.bin"
+#: The keyed dedupe's stride: one slot per representable 11-bit tile index, so the
+#: virtual source index (key + 1) * stride + index is unique per (sheet, tile) and 0 is
+#: left for VOID. The SAME arithmetic tools/clip_act_bake.dedupe_keyed uses, so the two
+#: bakes of one clip act place the same pool (clip_rom_bake cross-checks it).
+KEY_STRIDE = 0x800
 
 # The collision shape bank the editor cell words index. None = the module default
 # inside load_base_bank (games/sonic4/data/collision/base/, the S&K vocabulary the
@@ -174,10 +200,11 @@ def configure(project_json: str | None = None,
     """
     global PROJECT_JSON, OUTPUT_DIR, COLLISION_DIR, COLLISION_BANK_DIR
     global AUTHORED_PALETTE_PATH
-    global ZONE_TILESET_PATH, EDITOR_ACT_DIR
+    global ZONE_TILESET_PATH, EDITOR_ACT_DIR, ZONE_TILESETS
     if project_json is not None:
         PROJECT_JSON = project_json
         ZONE_TILESET_PATH = _project_tileset_path()
+        ZONE_TILESETS = _project_tilesets()
         EDITOR_ACT_DIR = _project_act_data_dir()
     if output_dir is not None:
         OUTPUT_DIR = output_dir
@@ -621,6 +648,9 @@ def validate_editor_inputs(data_path: str | None = None,
         _zone, act = act_grid.project_act(PROJECT_JSON)
         data_path = os.path.join(os.path.dirname(PROJECT_JSON), act["dataPath"])
     if tileset_path is None:
+        if ZONE_TILESETS is not None:
+            _validate_keyed_inputs(data_path, num_sections, ZONE_TILESETS)
+            return
         tileset_path = ZONE_TILESET_PATH
 
     problems: list[str] = []
@@ -668,6 +698,75 @@ def validate_editor_inputs(data_path: str | None = None,
             + "\n  - ".join(problems)
             + "\nEach of these used to bake silently (an all-air section, a mirrored "
               "plane B, a short local-map table, blank tiles). Fix the files named.")
+
+
+def load_section_zone_keys(path: str):
+    """A keyed act's section_N.zonekey.bin as a (256, 256) int array, row-major, -1 void."""
+    import numpy as np
+    data = open(path, "rb").read()
+    if len(data) != STRIP_TILE_HEIGHT * STRIP_TILE_HEIGHT:
+        raise ValueError(f"{path} is {len(data)} bytes, expected "
+                         f"{STRIP_TILE_HEIGHT * STRIP_TILE_HEIGHT} (one signed byte per cell)")
+    return np.frombuffer(data, dtype=np.int8).reshape(
+        STRIP_TILE_HEIGHT, STRIP_TILE_HEIGHT).astype(np.int64)
+
+
+def _validate_keyed_inputs(data_path: str, num_sections: int, sheets: list[str]) -> None:
+    """validate_editor_inputs for a KEYED act (see _project_tilesets): every refusal the
+    one-tileset path makes, held per cell to the sheet THAT cell names — and three the
+    key adds: a key file that is missing or the wrong size, a key naming no sheet, and a
+    VOID cell (key -1) carrying a non-zero word, which the keyed dedupe would silently
+    render as the blank tile."""
+    import numpy as np
+    problems: list[str] = []
+    n_tiles = []
+    for p in sheets:
+        ln = os.path.getsize(p) if os.path.isfile(p) else -1
+        if ln <= 0 or ln % tile_dedupe.TILE_SIZE:
+            problems.append(f"tileset {p} is {ln if ln >= 0 else 'MISSING'} bytes — not a "
+                            f"non-empty whole number of {tile_dedupe.TILE_SIZE}-byte tiles")
+        n_tiles.append(max(ln, 0) // tile_dedupe.TILE_SIZE)
+    for i in range(num_sections):
+        tp = os.path.join(data_path, f"section_{i}.tiles.bin")
+        kp = os.path.join(data_path, ZONE_KEY_FILE.format(n=i))
+        if not os.path.isfile(tp) or os.path.getsize(tp) != EDITOR_CELL_FILE_BYTES:
+            problems.append(f"{tp} is missing or not {EDITOR_CELL_FILE_BYTES} bytes")
+            continue
+        if not os.path.isfile(kp):
+            problems.append(f"{kp} is MISSING — a keyed act names every cell's tileset")
+            continue
+        try:
+            keys = load_section_zone_keys(kp)
+        except ValueError as exc:
+            problems.append(str(exc))
+            continue
+        words = np.frombuffer(open(tp, "rb").read(), dtype=">u2").reshape(
+            STRIP_TILE_HEIGHT, STRIP_TILE_HEIGHT).astype(np.int64)
+        bad_key = int(np.count_nonzero((keys < -1) | (keys >= len(sheets))))
+        if bad_key:
+            problems.append(f"section {i}: {bad_key} cell(s) carry a key naming no sheet "
+                            f"(this act has {len(sheets)})")
+            continue
+        void_words = int(np.count_nonzero((keys == -1) & (words != 0)))
+        if void_words:
+            problems.append(f"section {i}: {void_words} VOID cell(s) (key -1) carry a "
+                            f"non-zero nametable word the bake would render blank")
+        for k, n in enumerate(n_tiles):
+            sel = keys == k
+            if n and np.any(sel):
+                over = int(np.count_nonzero((words[sel] & TILE_INDEX_MASK) >= n))
+                if over:
+                    problems.append(f"section {i}: {over} word(s) keyed to sheet {k} name "
+                                    f"a tile past its {n}-tile end ({sheets[k]})")
+        for suffix in ("collattr", "collattrb"):
+            cp_ = os.path.join(data_path, f"section_{i}.{suffix}.bin")
+            if os.path.isfile(cp_) and os.path.getsize(cp_) != EDITOR_CELL_FILE_BYTES:
+                problems.append(f"{cp_} is {os.path.getsize(cp_)} bytes, expected "
+                                f"{EDITOR_CELL_FILE_BYTES}")
+    if problems:
+        raise SystemExit(
+            "ojz_strip_gen: KEYED editor inputs refused BEFORE anything is written:\n  - "
+            + "\n  - ".join(problems))
 
 
 def preflight() -> None:
@@ -875,6 +974,50 @@ def collect_referenced_tiles(
         full_tile_blob[idx * tile_dedupe.TILE_SIZE:(idx + 1) * tile_dedupe.TILE_SIZE]
         for idx in sorted_indices
     ]
+    return sorted_indices, raw_tiles
+
+
+def virtual_source_index(words, keys):
+    """The dedupe key of each cell: the bare 11-bit tile index for a one-tileset act
+    (`keys` None — the shipped bake, unchanged), else (key + 1) * KEY_STRIDE + index with
+    VOID (key -1) mapped to 0. Works on numpy arrays of any matching shape."""
+    import numpy as np
+    idx = words & tile_dedupe.NAMETABLE_TILE_MASK
+    if keys is None:
+        return idx
+    return np.where(keys < 0, 0, (keys + 1) * KEY_STRIDE + idx)
+
+
+def collect_referenced_tiles_keyed(all_section_strips, all_section_keys, sheet_blobs,
+                                   sheet_paths):
+    """collect_referenced_tiles for a KEYED act: (sorted virtual indices, raw tiles).
+
+    Virtual index 0 is VOID and takes the blank tile, matching clip_act_bake.dedupe_keyed
+    and fg_page_order's "global slot 0 is the blank tile". An index past ITS OWN sheet's
+    end is refused exactly as the one-tileset path refuses one (the 2026-09-12 F3 rule:
+    art that does not exist is a broken tree, not a blank tile).
+    """
+    import numpy as np
+    referenced: set[int] = set()
+    for sec_id, strips in all_section_strips.items():
+        v = virtual_source_index(np.array(strips, dtype=np.int64),
+                                 np.array(all_section_keys[sec_id], dtype=np.int64))
+        referenced.update(int(x) for x in np.unique(v))
+    sorted_indices = sorted(referenced)
+    raw_tiles: list[bytes] = []
+    for v in sorted_indices:
+        if v == 0:
+            raw_tiles.append(tile_dedupe.BLANK_TILE)
+            continue
+        k, idx = v // KEY_STRIDE - 1, v % KEY_STRIDE
+        blob = sheet_blobs[k]
+        if (idx + 1) * tile_dedupe.TILE_SIZE > len(blob):
+            raise ValueError(
+                f"a cell keyed to sheet {k} ({sheet_paths[k]}) names tile {idx}, past that "
+                f"sheet's {len(blob) // tile_dedupe.TILE_SIZE}-tile end. Refusing: a keyed "
+                f"act resolves every cell against ITS OWN sheet, and art that does not "
+                f"exist is a broken tree, not a blank tile.")
+        raw_tiles.append(blob[idx * tile_dedupe.TILE_SIZE:(idx + 1) * tile_dedupe.TILE_SIZE])
     return sorted_indices, raw_tiles
 
 
@@ -2115,6 +2258,11 @@ def generate(stress_uniquify=0):
     os.makedirs(out_dir, exist_ok=True)
 
     use_editor = editor_data_available()
+    # A KEYED act's per-cell sheet key, [col][row] per section like the strips (see
+    # _project_tilesets). None for every act that names one tileset — the shipped one —
+    # and every line below that reads it is then exactly the one-tileset bake.
+    per_section_keys = None
+    sheet_blobs = None
 
     if use_editor:
         print("=== Using level editor data ===")
@@ -2140,6 +2288,18 @@ def generate(stress_uniquify=0):
             per_section_strips[str(sec_idx)] = strips
             n_cols = len(strips)
             print(f"  section_{sec_idx}: {len(nametable)} rows × {n_cols} cols → {n_cols} strips")
+
+        if ZONE_TILESETS is not None:
+            sheet_blobs = [load_editor_tile_art(p) for p in ZONE_TILESETS]
+            per_section_keys = {}
+            for sec_idx in range(len(section_paths)):
+                k = load_section_zone_keys(
+                    os.path.join(editor_data_path, ZONE_KEY_FILE.format(n=sec_idx)))
+                per_section_keys[str(sec_idx)] = k.T.tolist()          # [col][row]
+            print(f"  KEYED act: {len(sheet_blobs)} tileset(s), a sheet key per cell — "
+                  + ", ".join(f"{os.path.basename(os.path.dirname(p)) or p}/"
+                              f"{os.path.basename(p)} ({len(b) // 32} tiles)"
+                              for p, b in zip(ZONE_TILESETS, sheet_blobs)))
     else:
         print("=== Using sonic_hack reference data (no editor data found) ===")
         print(f"Loading block map: {BLOCK_MAP_PATH}")
@@ -2235,9 +2395,15 @@ def generate(stress_uniquify=0):
         print(f"Collision: {len(per_section_coll)} sections (air baseline, no editor data)")
 
     # ---- Pass 2: dedupe across all sections ----
-    sorted_indices, raw_tiles = collect_referenced_tiles(
-        per_section_strips, full_blob,
-        source=ZONE_TILESET_PATH if use_editor else OJZ_ART_PATH)
+    # A keyed act dedupes on the VIRTUAL source index (sheet, tile) instead of the bare
+    # 11-bit index — two zones' tile 5 are two different pieces of art.
+    if per_section_keys is None:
+        sorted_indices, raw_tiles = collect_referenced_tiles(
+            per_section_strips, full_blob,
+            source=ZONE_TILESET_PATH if use_editor else OJZ_ART_PATH)
+    else:
+        sorted_indices, raw_tiles = collect_referenced_tiles_keyed(
+            per_section_strips, per_section_keys, sheet_blobs, ZONE_TILESETS)
     unique, mapping = tile_dedupe.dedupe_tiles(raw_tiles)
 
     # src_idx → canonical_idx + flip_bits
@@ -2266,21 +2432,26 @@ def generate(stress_uniquify=0):
     for src_idx, (canon_idx, _flip) in src_to_canon.items():
         src_canon_lut[src_idx] = canon_idx
     canon_grid = np.zeros((grid_h * st, grid_w * st), dtype=np.int64)
+    # THE ZONE KEY: the tileset a cell's art comes from (NOT an effects region: OJZ act 1
+    # has 10 regions over one tileset). A one-tileset act (the shipped one) is zone 0 in
+    # every cell. A KEYED act (S2-COMPRESSED-ACT row 7 — a clip act with more than one
+    # donor zone, baked through tools/clip_rom_bake.py's staged project) hands place_pool
+    # its real per-cell key, VOID as -1, exactly the grid tools/clip_act_bake.py hands it
+    # (fg_page_order's header: "a stitched act's loader must supply the per-cell tileset
+    # key" — this is that key reaching the ROM path, which until row 7 it did not).
+    zone_grid = np.zeros(canon_grid.shape, dtype=np.int16)
     for s_idx, sec_id in enumerate(sec_ids_in_order):
         words = np.array(per_section_strips[sec_id], dtype=np.int64)       # (cols, rows)
         if words.shape != (st, st):
             raise SystemExit(f"ojz_strip_gen: section {sec_id} strips are {words.shape}, "
                              f"expected ({st}, {st})")
         sy, sx = divmod(s_idx, grid_w)
+        keys = (None if per_section_keys is None
+                else np.array(per_section_keys[sec_id], dtype=np.int64))
         canon_grid[sy * st:(sy + 1) * st, sx * st:(sx + 1) * st] = \
-            src_canon_lut[words & tile_dedupe.NAMETABLE_TILE_MASK].T
-    # THE ZONE KEY: the tileset a cell's art comes from (NOT an effects region: OJZ act 1
-    # has 10 regions over one tileset). This generator reads ONE tileset
-    # (project.json zones[0].tileset), so every cell is zone 0. The stitched-act loader
-    # that supplies a real per-cell key is tools/clip_manifest.py + tools/clip_act_bake.py
-    # (2026-09-17), which call place_pool directly rather than through here. See
-    # fg_page_order's header.
-    zone_grid = np.zeros(canon_grid.shape, dtype=np.int16)
+            src_canon_lut[virtual_source_index(words, keys)].T
+        if keys is not None:
+            zone_grid[sy * st:(sy + 1) * st, sx * st:(sx + 1) * st] = keys.T
 
     # ---- Pass 4: global act art pool — page ORDER + window-budget refusal ----
     # fg_page_order.place_pool: the shipped first-occurrence order when it already fits
@@ -2376,11 +2547,16 @@ def generate(stress_uniquify=0):
         sec_canon_cols = canon_grid[sy * st:(sy + 1) * st, sx * st:(sx + 1) * st].T.tolist()
 
         remapped_strips = []
+        sec_keys = None if per_section_keys is None else per_section_keys[sec_id]
         for col_i, col in enumerate(per_section_strips[sec_id]):
             remapped_col = []
             canon_col = sec_canon_cols[col_i]
+            key_col = None if sec_keys is None else sec_keys[col_i]
             for row_i, word in enumerate(col):
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+                if key_col is not None:
+                    k = key_col[row_i]
+                    src_idx = 0 if k < 0 else (k + 1) * KEY_STRIDE + src_idx
                 _src_canon, flip_bits = src_to_canon[src_idx]
                 canon_idx = canon_col[row_i]
                 vram_slot = canon_to_pool[canon_idx]         # global pool slot
