@@ -1,12 +1,6 @@
 {
   "focus": "Chemical Plant is in the Sonic 2 test act beside Emerald Hill, built and on disk for your flythrough.",
-  "inFlight": [
-    {
-      "what": "Hook the nightly's forced-eviction test build up to the check that grades it",
-      "where": "branch parcel/evict-witness-wiring (agent worktree)",
-      "agent": true
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -42,13 +36,6 @@
       "id": "COST-PROBE-SWEEP-ANCHOR",
       "title": "A sweep advertises coverage it measures none of; giving it that coverage means breaking its own promise to poke nothing, so it is red until someone decides which the arm is for",
       "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "EVICT-WITNESS-WIRING",
-      "title": "The nightly builds the forced-eviction ROM every night and nothing grades it; the witness that would now runs headless, so wiring it is two lines plus the accounting",
-      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -140,5 +127,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:40:18Z"
+  "updatedAt": "2026-09-25T09:56:44Z"
 }
