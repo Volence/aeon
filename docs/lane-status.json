@@ -5,6 +5,11 @@
       "what": "Whether our tool checks can catch a tool that measures correctly then throws the answer away",
       "where": "branch parcel/keepalive-lossy (agent worktree)",
       "agent": true
+    },
+    {
+      "what": "Pricing a separate sound-bank position for the Sonic 2 test act (our half; the assembler lane prices theirs)",
+      "where": "branch research/clip-own-anchor (agent worktree)",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -26,7 +31,7 @@
     {
       "id": "S2CLIP-DEBUG-ROOM",
       "title": "Before a third zone goes into the Sonic 2 act, give the test act its own sound-bank position (ruled first job of the next step); its debug build's overrun is accepted until then",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -147,5 +152,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-25T09:10:19Z"
+  "updatedAt": "2026-09-25T09:10:56Z"
 }
