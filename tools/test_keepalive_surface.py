@@ -151,7 +151,7 @@ def test_every_keepalive_file_is_excluded_as_a_reachability_source():
     tracked = subprocess.run(
         ["git", "-C", REPO, "ls-files"], capture_output=True, text=True, check=True
     ).stdout.split("\n")
-    # Scoped to what `_code_corpus` actually READS -- it skips anything that is not .py
+    # Scoped to what `_sources` (keepalive_population) admits -- it skips anything that is not .py
     # or .sh, so `keepalive_manifest.toml` is not a source today and flagging it would be
     # a red for a non-defect. If that filter ever widens, this widens with it.
     own = {f for f in tracked

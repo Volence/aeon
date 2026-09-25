@@ -473,18 +473,16 @@ LANE_BOOKKEEPING = frozenset({
 })
 
 
-def _code_corpus(repo, files=None):
-    """{rel: text} for every tracked .py/.sh that may act as a reachability source."""
-    corpus = {}
-    for rel in (files if files is not None else _tracked_files(repo)):
-        if not (rel.endswith(".py") or rel.endswith(".sh")):
-            continue
-        if rel in LANE_BOOKKEEPING:
-            continue
-        text = _read(repo, rel)
-        if text is not None:
-            corpus[rel] = text
-    return corpus
+def _sources(repo, files=None):
+    """Every tracked .py/.sh that may act as a reachability source -- PATHS only.
+
+    Nothing is read here. A file is read only once something reachable executes it, so a
+    script parked under docs/ that nothing runs is never opened (the land-gate audit sees
+    every read a test makes, and an unread file is also the honest statement: nothing
+    that runs has looked at it).
+    """
+    return [rel for rel in (files if files is not None else _tracked_files(repo))
+            if rel.endswith((".py", ".sh")) and rel not in LANE_BOOKKEEPING]
 
 
 def exec_edges(rel, text):
@@ -505,18 +503,21 @@ def exec_edges(rel, text):
 
 def reach(repo=REPO, files=None):
     """{rel: (parent_rel, kind) or None} for everything an entry point EXECUTES."""
-    corpus = _code_corpus(repo, files)
+    sources = _sources(repo, files)
     by_base = {}
-    for rel in corpus:
+    for rel in sources:
         by_base.setdefault(os.path.basename(rel), []).append(rel)
-    entries = [e for e in SCRIPT_ENTRY_POINTS if e in corpus]
-    entries += [rel for rel in corpus
+    entries = [e for e in SCRIPT_ENTRY_POINTS if e in sources]
+    entries += [rel for rel in sources
                 if rel.startswith("tools/") and os.path.basename(rel).startswith("test_")]
     parent = {e: None for e in entries}
     stack = list(entries)
     while stack:
         cur = stack.pop()
-        for target, kind in sorted(exec_edges(cur, corpus[cur])):
+        text = _read(repo, cur)
+        if text is None:
+            continue
+        for target, kind in sorted(exec_edges(cur, text)):
             for rel in by_base.get(target, ()):
                 if rel not in parent:
                     parent[rel] = (cur, kind)
