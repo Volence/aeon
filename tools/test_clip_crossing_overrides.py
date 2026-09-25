@@ -242,6 +242,29 @@ def test_co_resident_blob_draws_every_zones_own_tiles(donors, tmp_path):
         for z in plan["zones"]}
 
 
+def test_bg1_refuses_a_co_resident_cell_that_draws_another_tile(donors, tmp_path):
+    """The re-indexed layout is written from the plan, so comparing the file to the plan
+    proves nothing: BG1 must re-lower the zone and compare what each cell DRAWS. Corrupt one
+    cell in the plan AND on disk; only that comparison can see it."""
+    _need(S.S2_FINAL)
+    import clip_bg_lower as CBL
+    act, plan, gen = _short_plan(donors, tmp_path)
+    mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
+    CRB.check_backgrounds(plan, mod, data, gen)                          # control
+    key = next(k for k in plan["_bg_lowered"] if k != plan["bg_default_key"])
+    words, tiles = plan["_bg_lowered"][key]
+    i = next(i for i, w in enumerate(words) if w and (w & 0x7FF) + 1 < len(tiles)
+             and tiles[(w & 0x7FF) + 1] != tiles[w & 0x7FF])
+    words = list(words)
+    words[i] += 1
+    plan["_bg_lowered"][key] = (words, tiles)
+    with open(os.path.join(gen, CRB.CLIP_BG_LAYOUT_BIN.format(key=key)), "wb") as fh:
+        fh.write(CBL.layout_blob(words))
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_backgrounds(plan, mod, data, gen)
+    assert "BG1" in str(exc.value) and f"cell {i}" in str(exc.value)
+
+
 def test_co_resident_refuses_a_union_past_the_arena(donors, tmp_path, monkeypatch):
     _need(S.S2_FINAL)
     import vram_map
