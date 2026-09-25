@@ -70,6 +70,7 @@ SCREEN_H = 224
 #: plane rows the screen can touch at once — engine/level/bg.emp BG_SCREEN_ROWS
 #: (SCREEN_HEIGHT / BG_STREAM_ROW_PX + 1). Read from the listing when it is there.
 BG_PLANE_ROWS = 64
+ROW_BYTES = 128           # PLANE_H_CELLS (64) words: one plane row, one layout row
 RUN_MARGIN = 400          # start/end this far outside the corridor: past every mouth
 NEED = ("Camera_X", "Camera_Y", "Region_Current", "Palette_Buffer", "Pal_Fade_Frames",
         "BG_Tiles_Current", "BG_Tiles_Target", "BG_Plane_Layout", "BG_Wipe_Cursor",
@@ -122,7 +123,7 @@ async def scan_lines_1_3(client):
     return hits
 
 
-async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan):
+async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, jump=False):
     a_right, b_left, x_in, x_out = geo
     if direction == "right":
         start_x, end_x, button = x_in - RUN_MARGIN, x_out + RUN_MARGIN, "right"
@@ -178,6 +179,8 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan):
             "bg_lay": int.from_bytes(await rd("BG_Plane_Layout", 4), "big"),
             "wipe": (await rd("BG_Wipe_Cursor", 1))[0],
             "cram": await cram_1_3(client),
+            "vs_bg": int.from_bytes(await rd("Parallax_Current_Vscroll_BG", 2), "big"),
+            "plane": await read_plane_b(client, equs["VRAM_PLANE_B_BYTES"]),
         }
 
     rows = [await state()]
@@ -193,6 +196,14 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan):
         s = await state()
         s["frame"] = f
         rows.append(s)
+        # THE VERTICAL MOVE AT THE MOUTH (--jump): one jump press as the player leaves the
+        # tunnel, so the camera moves vertically while the background may still be finishing
+        # the rows the screen was not showing when the sweep started.
+        if jump and not s.get("_jumped_any") and not any(r.get("jumped") for r in rows):
+            leaving = (s["px"] >= x_out - 8) if direction == "right" else (s["px"] <= x_in + 8)
+            if leaving:
+                await client.call("emulator/press", {"buttons": ["c"]})
+                s["jumped"] = True
         if (s["px"] >= end_x) if direction == "right" else (s["px"] <= end_x):
             break
     await client.call("emulator/hold", {"buttons": [button], "down": False})
@@ -202,6 +213,19 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan):
                              feet, radius, A_X, A_Y, A_YVEL, A_GSP, A_DBG)
     await client.close()
     return rows, scans
+
+
+async def read_plane_b(client, base):
+    """Plane B's whole nametable (PLANE_H_CELLS x PLANE_V_CELLS words) out of VRAM."""
+    out = bytearray()
+    for off in range(0, BG_PLANE_ROWS * ROW_BYTES, 4096):
+        r = await client.call("emulator/read_vram", {"addr": hex(base + off), "len": 4096})
+        h = r["bytes"][2:] if r["bytes"][:2].lower() == "0x" else r["bytes"]
+        if len(h) != 8192:
+            raise SystemExit(f"crossing_witness: short VRAM read at ${base + off:04X} — "
+                             f"UNMEASURABLE")
+        out += bytes.fromhex(h)
+    return bytes(out)
 
 
 async def rescan(client, b, rows, button, gsp, direction, syms, equs, start_x, feet, radius,
@@ -244,7 +268,7 @@ async def rescan(client, b, rows, button, gsp, direction, syms, equs, start_x, f
     return out
 
 
-def analyse(rows, scans, pals, names, geo, blobs_seen):
+def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
     a_right, b_left, _x_in, _x_out = geo
     live = [r for r in rows if "tick" in r]
     zone_of_region = {}
@@ -255,6 +279,7 @@ def analyse(rows, scans, pals, names, geo, blobs_seen):
     for r in live:
         if r["region"] not in order:
             order.append(r["region"])
+    lay_ptr = {z: k[1] for k, z in blobs_seen.items() if isinstance(k, tuple) and k[0] == "lay"}
     out_rows, glitches = [], []
     for i, r in enumerate(live):
         pal = classify(r["pbuf"], pals, names)
@@ -265,11 +290,24 @@ def analyse(rows, scans, pals, names, geo, blobs_seen):
         bg_blob = blobs_seen.get(r["bg_cur"], "?") if r["bg_cur"] else "partial"
         bg_tgt = blobs_seen.get(r["bg_tgt"], "?") if r["bg_tgt"] else ""
         lay = blobs_seen.get(("lay", r["bg_lay"]), "?")
-        rows_done = BG_PLANE_ROWS - r["wipe"] if r["wipe"] else BG_PLANE_ROWS
-        bg_visible_ok = {}
+        # THE BACKGROUND ON SCREEN, READ FROM VRAM (not the tracker's promise): the plane after
+        # the VBlank that follows tick i is the NEXT sample's; the rows the screen shows are
+        # BG_SCREEN_ROWS from the top visible one (a one-plane map: map row = plane row).
+        # Each is compared, whole, with the zone's layout row in ROM.
+        top = (r["vs_bg"] >> 3) & (BG_PLANE_ROWS - 1)
+        vis = [(top + k) % BG_PLANE_ROWS for k in range(BG_SCREEN_ROWS)]
+        bg_visible_ok, bad_rows = {}, {}
         for z in names:
-            bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"] and lay == z
-                                and rows_done >= BG_SCREEN_ROWS)
+            ptr = lay_ptr.get(z)
+            if nxt is None or rom is None or ptr is None:
+                wrong = None
+            else:
+                wrong = [p for p in vis
+                         if nxt["plane"][p * ROW_BYTES:(p + 1) * ROW_BYTES]
+                         != rom[ptr + p * ROW_BYTES:ptr + (p + 1) * ROW_BYTES]]
+            bad_rows[z] = wrong
+            bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"]
+                                and wrong is not None and not wrong)
         inflight = (pal == "mix" or r["fade"] or r["bg_tgt"] or r["wipe"] or not r["bg_cur"]
                     or (cram != pal and nxt is not None))
         r["_inflight"] = bool(inflight)
@@ -279,9 +317,10 @@ def analyse(rows, scans, pals, names, geo, blobs_seen):
                 continue
             if cram != z and nxt is not None:
                 bad.append(f"{z} on screen, scanned out in {cram} colours")
-            if not bg_visible_ok[z]:
+            if not bg_visible_ok[z] and nxt is not None:
                 bad.append(f"{z} on screen, background {bg_blob}{'->' + bg_tgt if bg_tgt else ''}"
-                           f" layout {lay} wipe {r['wipe']}")
+                           f" layout {lay} wipe {r['wipe']}; visible plane rows not {z}'s: "
+                           f"{bad_rows[z]}")
         row = {"i": i, "tick": r["tick"], "cam": r["cam"], "px": r["px"], "zone": zone_here,
                "bg_ok": dict(bg_visible_ok),
                "shows": shows or "-", "pal": pal, "cram": cram, "fade": r["fade"],
@@ -309,6 +348,9 @@ def main():
     ap.add_argument("--scan", action="store_true",
                     help="replay each run and pixel-scan the in-flight window (slow: ~5 s a tick)")
     ap.add_argument("--trace", action="store_true", help="print every in-flight row")
+    ap.add_argument("--jump", action="store_true",
+                    help="press jump as the player leaves the tunnel: a vertical camera move at "
+                         "the mouth, while the background may still be finishing its rows")
     a = ap.parse_args()
     syms, equs = L.parse_lst(a.lst)
     T._EQUS.update(equs)
@@ -323,6 +365,10 @@ def main():
     co = act.corridors[0]
     geo = (a_right, b_left, co.dst[0], co.dst[0] + co.dst[2])
     pals = zone_palettes(act)
+    rom = open(a.rom, "rb").read()
+    if "VRAM_PLANE_B_BYTES" not in equs or "Parallax_Current_Vscroll_BG" not in syms:
+        raise SystemExit("crossing_witness: the listing carries no VRAM_PLANE_B_BYTES / "
+                         "Parallax_Current_Vscroll_BG — COULD NOT RUN")
     names = [z for _d, z in act.zone_table]
     speed_of = {"top": equs["PHYS_TOP_SPEED"], "cap": equs["PHYS_GSP_CAP"]}
     speeds = [speed_of.get(s, None) if s in speed_of else int(s, 0) for s in a.speeds.split(",")]
@@ -334,7 +380,7 @@ def main():
         for gsp in speeds:
             with aether_emulator(a.rom, symbols=a.lst) as sock:
                 rows, _ = asyncio.run(drive(sock, syms, equs, act, geo, direction, gsp,
-                                            a.frames, False))
+                                            a.frames, False, jump=a.jump))
             n += 1
             if any("fault" in r for r in rows):
                 faults += 1
@@ -351,7 +397,7 @@ def main():
             blobs = ({first["bg_cur"]: "*"} if shared else
                      {first["bg_cur"]: start_zone, last["bg_cur"]: end_zone})
             blobs.update({("lay", first["bg_lay"]): start_zone, ("lay", last["bg_lay"]): end_zone})
-            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs)
+            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs, rom=rom)
             scans = {}
             if a.scan:
                 with aether_emulator(a.rom, symbols=a.lst) as sock:

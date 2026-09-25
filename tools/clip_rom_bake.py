@@ -241,6 +241,26 @@ def check_zone_separation(act, summary):
     corridors, never butted zones (S2ACT-SEAM-CORRIDORS, 2026-09-17).
     """
     z = summary["zone_separation"]
+    if act is not None and crossing_overrides(act)["zone_separation"] == "screen":
+        # PER-CLIP OVERRIDE crossing_overrides.zone_separation = screen. What Z1 protects is
+        # the palette on SCREEN (its own docstring); the tile-cache window it counts is 20
+        # columns wider than the screen on each side, and those margin cells are never
+        # displayed. So the override counts the screen instead: no two donor zones may be
+        # closer than SCREEN_WIDTH px, i.e. no camera can put both on one screen. Z2 (which
+        # walks the actual crossing with the screen's half-width) is the precise statement
+        # and still runs; this is the floor under it.
+        from fg_working_set import ConstantSource
+        src = ConstantSource()
+        src.load_file(os.path.join(REPO, "engine/system/constants.emp"))
+        need = int(src.get("SCREEN_WIDTH")) // clip_manifest.TILE_PX
+        gap = z["min_column_gap_cells"]
+        if gap is None or gap < need:
+            raise ClipRomError(
+                f"Z1 (zone_separation = screen, per-clip override) the narrowest gap between two "
+                f"donor zones is {gap} cell(s); a screen is SCREEN_WIDTH / 8 = {need} cells, so "
+                f"one camera position can show both zones")
+        return {"window": "screen", "need_cells": need, "gap_cells": gap,
+                "tile_cache_windows_mixed": z["mixed"]}
     if z["mixed"]:
         f = z["first_mixed"]
         raise ClipRomError(
@@ -634,14 +654,16 @@ SNAP_FRAMES = 1
 #: changes what an act without the key is held to.
 CROSSING_OVERRIDES_KEY = "crossing_overrides"
 CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
-                            "background": ("overwrite", "co_resident")}
+                            "background": ("overwrite", "co_resident"),
+                            "zone_separation": ("tile_cache", "screen")}
 
 
 def crossing_overrides(act):
     """The act's `crossing_overrides`, validated: {"palette", "background", "why",
     "declared"}. `declared` is False for an act without the key (the defaults)."""
     raw = (getattr(act, "raw", None) or {}).get(CROSSING_OVERRIDES_KEY)
-    out = {"palette": "fade", "background": "overwrite", "why": None, "declared": False}
+    out = {"palette": "fade", "background": "overwrite", "zone_separation": "tile_cache",
+           "why": None, "declared": False}
     if raw is None:
         return out
     if not isinstance(raw, dict):
@@ -665,13 +687,18 @@ def crossing_overrides(act):
 
 def background_constants():
     """(overwrite chunk bytes, wipe rows per frame, rows the screen can show) — READ from the
-    engine (engine/level/bg.emp and the files its expressions reach), never typed."""
+    engine (engine/level/bg.emp and the files its expressions reach), never typed.
+
+    The wipe rate is BG_WIPE_DMA_ROWS: every clip background is ONE plane tall
+    (clip_bg_lower lowers to the plane, rows carry rg_bg_span 0), and since 2026-09-25 a
+    one-plane map is swept by DMA from ROM (BG_Stream_Update's `.wipe_dma`) at that many rows
+    a frame, not by the CPU path's BG_WIPE_ROWS_PER_FRAME."""
     from fg_working_set import ConstantSource
     src = ConstantSource()
     for path in ("engine/system/constants.emp", "engine/level/parallax.emp",
                  "engine/level/bg.emp"):
         src.load_file(os.path.join(REPO, path))
-    return (int(src.get("BG_OVERWRITE_CHUNK_BYTES")), int(src.get("BG_WIPE_ROWS_PER_FRAME")),
+    return (int(src.get("BG_OVERWRITE_CHUNK_BYTES")), int(src.get("BG_WIPE_DMA_ROWS")),
             int(src.get("BG_SCREEN_ROWS")))
 
 
@@ -690,9 +717,10 @@ def background_switch_frames(plan, consts=None):
     pays no overwrite at all.
 
     MODEL = chunks + visible-wipe frames. MEASURED against tools/crossing_witness.py on the
-    landed s2_ehz_cpz (crc e4ce79c9): CPZ 7584 B -> 5 + 8 = 13 modelled, 12 measured; EHZ
-    4512 B -> 3 + 8 = 11 modelled, 10-11 measured. The model is conservative by <= 1 frame
-    (the completion frame falls through into the wipe's first rows)."""
+    landed s2_ehz_cpz (crc e4ce79c9, the CPU sweep at 4 rows a frame): CPZ 7584 B -> 5 + 8 = 13
+    modelled, 12 measured; EHZ 4512 B -> 3 + 8 = 11 modelled, 10-11 measured. The model is
+    conservative by <= 1 frame (the completion frame falls through into the wipe's first
+    rows). The DMA sweep (BG_WIPE_DMA_ROWS a frame) re-measured in the research doc."""
     chunk, rows_per_frame, screen_rows = consts or background_constants()
     wipe = -(-screen_rows // rows_per_frame)
     blob_of = {}
@@ -1254,7 +1282,8 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
     if ov["declared"] and log:
         log("clip_rom_bake: " + "!" * 72)
         log(f"clip_rom_bake: PER-CLIP OVERRIDE {CROSSING_OVERRIDES_KEY} on act {act.id!r}: "
-            f"palette = {ov['palette'].upper()}, background = {ov['background'].upper()}. "
+            f"palette = {ov['palette'].upper()}, background = {ov['background'].upper()}, "
+            f"zone_separation = {ov['zone_separation'].upper()}. "
             f"This act is NOT held to the default crossing rule (16-frame fade, tile "
             f"overwrite); Z2 below holds it to the re-derived one. Why: {ov['why']}")
         log("clip_rom_bake: " + "!" * 72)
@@ -1380,7 +1409,12 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     log(f"clip_rom_bake: composing {act.id} -> {os.path.relpath(baked_dir, REPO)}")
     _act, _st, summary, _v1, _v2 = clip_act_bake.bake(
         manifest_path, out_dir=baked_dir, donor_root=donor_root, log=log)
-    check_zone_separation(act, summary)
+    z1 = check_zone_separation(act, summary)
+    if z1:
+        log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.zone_separation = screen — "
+            f"Z1 counted on the SCREEN ({z1['need_cells']} cells), not the tile cache: gap "
+            f"{z1['gap_cells']} cells; {z1['tile_cache_windows_mixed']} tile-cache window(s) "
+            f"hold both zones (their margin columns are never displayed)")
 
     sheet_files = [os.path.join(REPO, z["tileset_file"]) for z in summary["zone_table"]]
     project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir,

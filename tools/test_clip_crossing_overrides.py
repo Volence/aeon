@@ -265,6 +265,27 @@ def test_bg1_refuses_a_co_resident_cell_that_draws_another_tile(donors, tmp_path
     assert "BG1" in str(exc.value) and f"cell {i}" in str(exc.value)
 
 
+def _z1_summary(gap):
+    return {"zone_separation": {"mixed": 5, "windows": 10, "first_mixed": {
+        "left_tile": 1, "top_tile": 0, "camera_x_px_approx": 8}, "window_cells": [80, 60],
+        "min_column_gap_cells": gap, "donor_zones": 2}}
+
+
+def test_z1_screen_override_counts_the_screen_not_the_cache():
+    """With zone_separation = screen, tile-cache windows holding both zones are allowed and a
+    gap of SCREEN_WIDTH / 8 cells is the floor; without the override the same summary is
+    refused as before."""
+    import fg_page_order as FPO
+    need = FPO.load_budget_constants()["SCREEN_WIDTH"] // CM.TILE_PX
+    screen = _act(640, {"crossing_overrides": {"zone_separation": "screen", "why": "t"}})
+    assert CRB.check_zone_separation(screen, _z1_summary(need))["need_cells"] == need
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_zone_separation(screen, _z1_summary(need - 1))
+    assert "Z1" in str(exc.value) and "screen" in str(exc.value)
+    with pytest.raises(CRB.ClipRomError):
+        CRB.check_zone_separation(_act(640), _z1_summary(need))
+
+
 def test_co_resident_refuses_a_union_past_the_arena(donors, tmp_path, monkeypatch):
     _need(S.S2_FINAL)
     import vram_map
@@ -292,8 +313,9 @@ def _shortest(act, z2_side_frames, z1_cells):
 
 
 def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
-    """Z1 (TILE_CACHE_COLS - 1 cells) and Z2 re-derived (HALF_W + STEP x max(SNAP_FRAMES,
-    the co-resident background's visible wipe)), both read from source."""
+    """Z1 (on the SCREEN under this clip's override: SCREEN_WIDTH / 8 cells, else
+    TILE_CACHE_COLS - 1) and Z2 re-derived (HALF_W + STEP x max(SNAP_FRAMES, the co-resident
+    background's visible DMA sweep)), all read from source."""
     _need(S.S2_FINAL)
     import fg_page_order as FPO
     act, plan, gen = _short_plan(donors, tmp_path)
@@ -301,7 +323,9 @@ def test_the_short_clip_is_the_shortest_its_overrides_allow(donors, tmp_path):
     assert ov["declared"] and (ov["palette"], ov["background"]) == ("snap", "co_resident")
     bgf = CRB.background_switch_frames(plan)
     frames = [max(CRB.SNAP_FRAMES, bgf[k]) for k in (0, 1)]
-    z1 = FPO.load_budget_constants()["TILE_CACHE_COLS"] - 1
+    c = FPO.load_budget_constants()
+    z1 = (c["SCREEN_WIDTH"] // CM.TILE_PX if ov["zone_separation"] == "screen"
+          else c["TILE_CACHE_COLS"] - 1)
     assert act.corridors[0].dst[2] == _shortest(act, frames, z1)
     out = CRB.check_palette_crossings(act, CRB.clip_module_text(plan),
                                       CRB.clip_data_block(plan), bg_frames=bgf)
