@@ -276,6 +276,72 @@ def verify_art_fidelity(st):
     return checked
 
 
+def zone_separation(act, zone_id, constants=None):
+    """Z1 — does any camera position hold cells of two DONOR zones at once?
+
+    S2-COMPRESSED-ACT row 7's first static check, in the design's own words (§10 row 7):
+    "no camera position holds cells from both clips". WHY IT MATTERS: two Sonic 2 zones
+    disagree about which CRAM line their ground is (§5.3), and a region crossing installs
+    ONE palette for all three lines — so a screen showing two zones shows one of them in
+    the other's colours. The corridor (clip_manifest CORRIDORS) is what prevents it, and
+    this is what says whether it does.
+
+    THE WINDOW IS THE TILE CACHE'S, not the 320-px screen, and it is read rather than
+    typed: `fg_page_order.camera_windows` enumerates every window a camera in the act can
+    produce and each is TILE_CACHE_COLS x TILE_CACHE_ROWS cells from its (left, top) —
+    `require_clamp_binds` proves the held window is exactly that at every sub-tile offset.
+    It is the stronger statement of the two: the cache is what the page budget counts and
+    what streams, and it is wider than the screen (the screen is inside it), so a cache
+    window holding one zone is a screen holding one zone.
+
+    CORRIDOR and VOID cells are not zones and do not count: the corridor sheet is drawn on
+    the one CRAM line no install writes, and a void cell is the blank tile.
+
+    Returns a dict — `mixed` is the number of windows holding two zones (0 is the pass),
+    with the first such window and the narrowest gap between two zones' cells in the act,
+    against the window's width, so a near miss is visible before it is a failure.
+    """
+    c = constants or fpo.load_budget_constants()
+    H, W = zone_id.shape
+    lefts, tops, _mx, _my = fpo.camera_windows(c, W, H)
+    cols, rows = c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]
+    donors = list(range(len(act.zone_table)))
+    present = []
+    for k in donors:
+        m = (zone_id == k).astype(np.int32)
+        ii = np.zeros((H + 1, W + 1), dtype=np.int64)
+        np.cumsum(np.cumsum(m, axis=0), axis=1, out=ii[1:, 1:])
+        t0 = np.clip(tops, 0, H)[:, None]
+        t1 = np.clip(tops + rows, 0, H)[:, None]
+        l0 = np.clip(lefts, 0, W)[None, :]
+        l1 = np.clip(lefts + cols, 0, W)[None, :]
+        cnt = ii[t1, l1] - ii[t0, l1] - ii[t1, l0] + ii[t0, l0]
+        present.append(cnt > 0)
+    n_present = (np.sum(present, axis=0) if present
+                 else np.zeros((len(tops), len(lefts)), dtype=np.int64))
+    mixed = int(np.count_nonzero(n_present > 1))
+    first = None
+    if mixed:
+        ti, li = np.argwhere(n_present > 1)[0]
+        first = {"left_tile": int(lefts[li]), "top_tile": int(tops[ti]),
+                 "camera_x_px_approx": int(lefts[li]) * clip_manifest.TILE_PX}
+    # The narrowest horizontal gap between the column spans of two different zones, per
+    # tile row, in cells — reported against the window width so a near miss shows.
+    gap = None
+    col_has = [np.any(zone_id == k, axis=0) for k in donors]
+    for a in donors:
+        for b in donors:
+            if a >= b:
+                continue
+            ca, cb = np.flatnonzero(col_has[a]), np.flatnonzero(col_has[b])
+            if len(ca) and len(cb):
+                g = max(int(cb.min()) - int(ca.max()) - 1, int(ca.min()) - int(cb.max()) - 1)
+                gap = g if gap is None else min(gap, g)
+    return {"windows": int(len(lefts) * len(tops)), "mixed": mixed, "first_mixed": first,
+            "donor_zones": len(donors), "window_cells": [cols, rows],
+            "min_column_gap_cells": gap}
+
+
 # ---------------------------------------------------------------------------
 # Emission
 # ---------------------------------------------------------------------------
@@ -342,6 +408,27 @@ def emit(act, st, out_dir, donor_root=None):
                 fh.write(unique[cid])
             fh.write(bytes(tile_dedupe.TILE_SIZE * (page_tiles - len(page))))
 
+    # THE PER-CELL TILESET KEY, ON DISK (row 7). One signed byte per cell, row-major like
+    # section_N.tiles.bin, -1 = VOID. This is what lets the ROM bake
+    # (ojz_strip_gen.generate(), pointed at this tree by clip_rom_bake's staged project)
+    # resolve a cell against ITS OWN zone's tileset instead of project.json's one. Written
+    # for every clip act, one zone or many, so there is one path and no special case.
+    zone_id = st["zone_id"]
+    for s_idx in range(n_sections):
+        sy, sx = divmod(s_idx, act.grid_w)
+        r0, c0 = sy * sect, sx * sect
+        with open(os.path.join(out_dir, f"section_{s_idx}.zonekey.bin"), "wb") as fh:
+            fh.write(zone_id[r0:r0 + sect, c0:c0 + sect].astype(np.int8).tobytes())
+    sheet_files = []
+    for i, (d, z, b, zm) in enumerate(st["sheets"]):
+        if (d, z) == clip_manifest.CORRIDOR_SHEET:
+            p = os.path.join(out_dir, "corridor_sheet.bin")
+            with open(p, "wb") as fh:
+                fh.write(b)
+        else:
+            p = os.path.join(donor_root, d, z, "tileset.bin")
+        sheet_files.append(p)
+
     manifest = {
         "schema": 1,
         "produced_by": "tools/clip_act_bake.py",
@@ -352,12 +439,17 @@ def emit(act, st, out_dir, donor_root=None):
                 "section_px": act.section_px, "cells": [act.cols, act.rows]},
         "source_manifest": os.path.relpath(act.path, REPO),
         "clips": [c.as_json() for c in act.clips],
+        "corridors": [c.as_json() for c in act.corridors],
         "zone_table": [
             {"key": i, "donor": d, "zone": z, "tiles": len(b) // tile_dedupe.TILE_SIZE,
              "tileset_sha256": zm["tileset"]["sha256"],
-             "palette_sha256": zm["palette"]["sha256"],
-             "tree": os.path.relpath(os.path.join(donor_root, d, z), REPO)}
+             "palette_sha256": (zm.get("palette") or {}).get("sha256"),
+             "synthesised": zm.get("synthesised"),
+             "tileset_file": os.path.relpath(sheet_files[i], REPO),
+             "tree": (None if zm.get("synthesised") else
+                      os.path.relpath(os.path.join(donor_root, d, z), REPO))}
             for i, (d, z, b, zm) in enumerate(st["sheets"])],
+        "zone_separation": zone_separation(act, zone_id),
         "pool": {"tiles": len(unique), "pages": len(pages),
                  "page_tiles": page_tiles,
                  "page_lengths": [len(p) for p in pages],
@@ -722,6 +814,14 @@ def bake(manifest_path, out_dir=None, expect_worst=None,
         log(f"  art fidelity: {n_checked} (zone, tile) pair(s) resolve to their own zone's art")
     coll = collision(act, st, donor_root, log=log)
     manifest = emit(act, st, out_dir, donor_root)
+    if log:
+        z = manifest["zone_separation"]
+        log(f"  Z1 zone separation: {z['mixed']} of {z['windows']} camera windows "
+            f"({z['window_cells'][0]}x{z['window_cells'][1]} cells) hold two donor zones; "
+            f"{z['donor_zones']} donor zone(s), narrowest column gap between two zones "
+            f"{z['min_column_gap_cells']} cell(s)"
+            + (f" — FIRST MIXED window at tile ({z['first_mixed']['left_tile']}, "
+               f"{z['first_mixed']['top_tile']})" if z["mixed"] else ""))
     manifest["collision"] = emit_collision(act, coll, out_dir)
     n2_coll = recount_collision(act, out_dir, coll["bank_dir"])
     if n2_coll != coll["entries"]:

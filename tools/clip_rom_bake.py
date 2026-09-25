@@ -223,22 +223,36 @@ def restore_tree(git="git", log=print):
 # Refusals
 # ---------------------------------------------------------------------------
 
-def check_single_clip(act):
-    """R20 — exactly one clip.
+def check_zone_separation(act, summary):
+    """Z1 — no camera position holds cells of two donor zones. REPLACES R20.
 
-    See the module header: the ROM bake reads ONE tileset, so a second clip's tile
-    indices would be resolved against the first clip's art. The failure is silent and
-    looks like a rendering bug, which is why this is a refusal and not a warning.
+    R20 refused every act with more than one clip, because the ROM path read ONE tileset
+    and a second clip's indices would have resolved against the first clip's art. Row 7
+    (2026-09-25) put the per-cell tileset key on the ROM path (`stage_project`'s
+    `tilesets`, ojz_strip_gen's keyed bake), so that refusal's reason is gone and R20 is
+    deleted rather than left to refuse a case that now works.
+
+    What a two-zone act still must not do is let one screen show both zones: they
+    disagree about which CRAM line their ground is (design §5.3) and one palette is
+    installed at a time. That is `clip_act_bake.zone_separation`'s count over every tile
+    cache window the act can produce, and it is refused HERE — at the ROM bake — rather
+    than in clip_act_bake, whose row-3 fixtures butt two zones on purpose to measure the
+    tileset key and have never been, and must never become, ROMs. The owner's ruling is
+    corridors, never butted zones (S2ACT-SEAM-CORRIDORS, 2026-09-17).
     """
-    if len(act.clips) != 1:
+    z = summary["zone_separation"]
+    if z["mixed"]:
+        f = z["first_mixed"]
         raise ClipRomError(
-            f"R20 this act has {len(act.clips)} clips and the ROM bake takes exactly "
-            f"one. An editor nametable word's tile index is 11 bits into ONE act-wide "
-            f"tileset (project.json zones[0].tileset), which ojz_strip_gen.generate() "
-            f"reads and hands place_pool as a uniform zone grid. A one-clip act has one "
-            f"donor zone and is an ordinary aeon act; a two-clip act needs the per-cell "
-            f"tileset key on the ROM path, which is staged plan row 7. "
-            f"Clips here: {', '.join(c.id for c in act.clips)}.")
+            f"Z1 {z['mixed']} of {z['windows']} camera windows hold cells of two donor "
+            f"zones (first at tile column {f['left_tile']}, row {f['top_tile']}, camera x "
+            f"~{f['camera_x_px_approx']} px). Two Sonic 2 zones disagree about which CRAM "
+            f"line their ground is and the act installs one palette at a time, so one of "
+            f"them is on screen in the other's colours. Put a corridor between them "
+            f"(clips.json `corridors`) wider than the {z['window_cells'][0]}-cell tile-cache "
+            f"window; the narrowest gap between two zones here is "
+            f"{z['min_column_gap_cells']} cell(s). Owner ruling S2ACT-SEAM-CORRIDORS: "
+            f"corridors, never butted zones.")
 
 
 def check_act_grid_matches_engine(act, descriptor=None):
@@ -295,6 +309,46 @@ def check_act_grid_matches_engine(act, descriptor=None):
             f"by hand.")
 
 
+def check_rom_pool_is_composed_pool(baked_dir, gen_dir, log=None):
+    """K4 — the ROM bake placed EXACTLY the art pool the composer placed.
+
+    THE PER-CELL KEY'S END-TO-END WITNESS ON THE ROM PATH (row 7). Two different programs
+    dedupe and place this act: `clip_act_bake` (from clips.json, keyed by construction)
+    and `ojz_strip_gen.generate()` (from the staged project's `tilesets` and the
+    `section_N.zonekey.bin` files). Both hand `fg_page_order.place_pool` a canonical grid
+    and a zone grid, so if the key reached the ROM path intact the two pools are the same
+    bytes, page for page. A ROM path that lost the key dedupes two zones' equal indices
+    into one entry and lands a SMALLER pool — which every self-consistency lane accepts,
+    because a smaller pool is internally consistent. This one does not.
+
+    Compared over the page CONTENTS padded to whole pages, which is what the ROM streams;
+    `pool.bin` is written that way by clip_act_bake.emit.
+    """
+    with open(os.path.join(baked_dir, "pool.bin"), "rb") as fh:
+        composed = fh.read()
+    with open(os.path.join(gen_dir, "ojz_act_pool_manifest.json")) as fh:
+        side = json.load(fh)
+    page_bytes = side["page_bytes"]
+    rom = bytearray()
+    for p in side["pages"]:
+        with open(os.path.join(gen_dir, f"act_pool_page{p['index']}.bin"), "rb") as fh:
+            blob = fh.read()
+        rom += blob + bytes(page_bytes - len(blob))
+    if bytes(rom) != composed:
+        first = next((i for i in range(min(len(rom), len(composed)))
+                      if rom[i] != composed[i]), min(len(rom), len(composed)))
+        raise ClipRomError(
+            f"K4 the ROM bake's art pool ({len(side['pages'])} pages, {len(rom)} B padded) "
+            f"is not the pool clip_act_bake composed ({len(composed)} B); first difference "
+            f"at byte {first} (page {first // page_bytes}). Both place the same act through "
+            f"fg_page_order.place_pool, so a difference means the per-cell tileset key did "
+            f"not reach ojz_strip_gen intact — the staged project's `tilesets` or a "
+            f"section_N.zonekey.bin is not what clip_act_bake wrote.")
+    if log:
+        log(f"clip_rom_bake: K4 the ROM bake's pool IS the composed pool — "
+            f"{len(side['pages'])} pages, {len(rom)} B, byte for byte")
+
+
 def check_tree_is_clean(paths, git="git"):
     """R22 — refuse to start over uncommitted work in what this OVERWRITES.
 
@@ -325,10 +379,414 @@ def check_tree_is_clean(paths, git="git"):
 
 
 # ---------------------------------------------------------------------------
+# THE CLIP ACT'S OWN REGIONS AND PALETTES (S2-COMPRESSED-ACT row 7, 2026-09-25)
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS REPLACES. Parcel 6 shipped `S2CLIP_PALETTE=shipped` — every clip act drawn in
+# Oracle Jungle's colours — because the only palette a clip bake could reach was
+# `ojz_palette.bin`, which EIGHT top-level comptime pins in ojz_effects.emp hold to the
+# SHIPPED act's statistics (parcel 6's BLOCKED ruling; options a/b/c). Row 7 takes neither
+# (a) nor (b): the clip act no longer touches `ojz_palette.bin` at all. It carries its
+# own palettes and its own region table in a GENERATED module, `clip_act.emp` (plus a data block
+# appended to the regenerated entity_data.emp — see CLIP_DATA_REL), which is
+# inside the tree the S2CLIP trap restores — so the pins keep describing exactly the
+# palette they were written for, unchanged, in every shape.
+#
+# THE SEAM. act_descriptor.emp imports `ojz_clip_act_regions(hand:)` and `OJZ_CLIP_ACT`
+# from that module and binds `act_regions` / `act_region_count` through them — the same
+# always-live binding-function pattern effects_gen's `ojz_act1_act_default(hand:)` uses.
+# The COMMITTED module is the neutral one (`OJZ_CLIP_ACT = 0`, the chooser returns `hand`,
+# zero data, zero labels), so the canonical ROMs carry the shipped table exactly as before.
+# A clip bake overwrites it with the act's palettes, one EffectsPreset per donor zone and
+# the region rows; the descriptor then re-checks those rows with the SAME table walk it
+# runs over the shipped document (per-row rules, overlap, exact coverage).
+#
+# ⚠ WHAT THE CLIP ACT STILL INHERITS: the shipped act's region TABLE is still assembled
+# (it is unused data in a clip ROM), and the background, objects and rings are still the
+# shipped act's. The BACKGROUND now shows in each zone's palette rather than Oracle
+# Jungle's: Plane B uses CRAM lines 2 and 3 (games/sonic4/test/ojz_scroll_test.emp's
+# boot-palette note), so it is recoloured by whichever zone the camera is in. TAGGED for
+# the owner's look; a per-region background is the region-BG-switch machinery's job.
+
+CLIP_MODULE_REL = GEN_REL + "/clip_act.emp"
+CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
+CLIP_MODULE_NAME = "games.sonic4.ojz_clip_act_act1"
+#: WHERE THE CLIP ACT'S BYTES GO: appended to the END of `entity_data.emp`, the module
+#: tools/ojz_entity_gen.py writes — which the clip bake itself regenerates (ojz_strip_gen
+#: Pass 8), so in the S2CLIP shape the whole file is already this bake's output. Its
+#: section `entity_data` is placed by its head label `OJZ_Sec0_TypeTable`; appended bytes
+#: follow in source order and leave the head alone. The clip MODULE carries no data at all.
+#:
+#: ⚠ WHY THERE, AND WHY NOT A SECTION OF ITS OWN — three measured refusals, 2026-09-25:
+#:   1. A module of its own declared `in ojz_effects_editor_act1` (effects_gen's section,
+#:      placed by NAME, so no map.toml row) landed its data AHEAD of effects_gen's block,
+#:      `OJZ_Clip_Palette_0` became the section's head label, and sigil refused:
+#:      `[layout.undeclared-alignment] ... head label OJZ_Clip_Palette_0 has NO declared
+#:      alignment` — sigil keys section alignment by HEAD LABEL (sigil-harness
+#:      section_align.rs), and a new row there is a sigil change this lane may not make.
+#:   2. Renaming that module and file so both sort after effects_scenes changed nothing —
+#:      the build refused identically. The intra-section order is not the name order.
+#:   3. Appended to effects_scenes.emp itself, the build linked — and `effects_gen.py check`
+#:      (build.sh, strict) then refused the tree as DRIFT, correctly: that file is
+#:      effects_gen's output and the clip bake does not own it.
+#:   entity_data.emp is the one generated module the clip bake REGENERATES whose section is
+#:   placed by a head label the appended bytes cannot displace, and no lane holds its text to
+#:   another generator. The honest home is a section of the clip act's own — a map.toml row
+#:   plus a sigil section_align row — booked in docs/DEFERRED_WORK.md (row 7's entry).
+CLIP_DATA_REL = GEN_REL + "/entity_data.emp"
+CLIP_DATA = os.path.join(REPO, CLIP_DATA_REL)
+CLIP_DATA_MODULE = "games.sonic4.ojz_entity_data_act1"
+
+_CLIP_HEADER = """\
+// AUTO-GENERATED by tools/clip_rom_bake.py — DO NOT EDIT.
+//
+// THE CLIP ACT'S OWN REGIONS AND PALETTES (S2-COMPRESSED-ACT row 7). act_descriptor.emp
+// binds `act_regions` / `act_region_count` through `ojz_clip_act_regions(hand:)` and
+// `OJZ_CLIP_ACT` below; see the ROW 7 block in tools/clip_rom_bake.py for the design.
+//
+"""
+
+
+CLIP_DATA_BEGIN = "// ==== BEGIN CLIP ACT DATA (tools/clip_rom_bake.py, S2-COMPRESSED-ACT row 7) ===="
+CLIP_DATA_END = "// ==== END CLIP ACT DATA ===="
+#: The imports the appended block needs, inserted after the module's own `use` block (an
+#: import is a declaration of the module, not of the block).
+CLIP_DATA_USES = ("use engine.structs.{Region}\n"
+                  "use engine.effects.preset.{EffectsPreset, preset}\n"
+                  "use engine.effects.raster.{Raster_Program_None}\n"
+                  "use engine.effects.palette.{Pal_Cycle_None}\n")
+
+
+def _region_rows_text(plan):
+    # The trailing comma goes BEFORE the comment: a comma after `//` is inside the comment
+    # (measured — the first emission of this table did that and sigil refused row 2).
+    return "\n    ".join(
+        f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
+        f"rg_effects: {r['preset_label']}, rg_parallax: 0, rg_bg_layout: 0, rg_bg_span: 0, "
+        f"rg_bg_tiles: 0 }},  // {r['why']}"
+        for r in plan["rows"])
+
+
+def clip_module_text(plan=None):
+    """The clip module's text. `plan` None is the NEUTRAL module the tree commits: no clip
+    act, the chooser hands back the descriptor's own table, zero bytes and zero labels — so
+    the canonical ROMs are the shipped act exactly. A plan (from `region_plan`) is a clip
+    act: its constants, its region ROWS (for the descriptor's table walk) and the chooser.
+    It carries NO data — the bytes are `clip_data_block`'s, appended to entity_data.emp."""
+    if plan is None:
+        return (_CLIP_HEADER +
+                "// THIS IS THE NEUTRAL MODULE — the one the tree commits and the canonical\n"
+                "// build reads. OJZ_CLIP_ACT = 0: the descriptor's own region table stands,\n"
+                "// the chooser returns `hand`, and nothing here emits a byte or a label. An\n"
+                "// S2CLIP build overwrites this file and build.sh's EXIT trap restores it.\n\n"
+                f"module {CLIP_MODULE_NAME}\n\n"
+                "pub const OJZ_CLIP_ACT = 0\n"
+                "pub const OJZ_CLIP_REGION_ROWS: array = []\n\n"
+                "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
+                "    return hand\n"
+                "}\n")
+    presets = ", ".join(z["preset_label"] for z in plan["zones"])
+    n = len(plan["rows"])
+    return (_CLIP_HEADER +
+            f"// CLIP ACT {plan['act']} — {len(plan['zones'])} donor zone(s), {n} region row(s).\n"
+            "// Written by a THROWAWAY S2CLIP bake; build.sh's EXIT trap restores the neutral\n"
+            "// module. Never commit this version. The palettes, presets and the emitted table\n"
+            f"// are appended to {CLIP_DATA_REL} (between its CLIP ACT DATA markers).\n\n"
+            f"module {CLIP_MODULE_NAME}\n\n"
+            "use engine.structs.{Region}\n"
+            f"use {CLIP_DATA_MODULE}.{{{presets}}}\n\n"
+            "pub const OJZ_CLIP_ACT = 1\n\n"
+            "// The rows the descriptor re-checks. The SAME text is emitted as the table\n"
+            "// `OJZ_Clip_Regions` in the data block; Z2 holds the two byte-identical.\n"
+            f"pub const OJZ_CLIP_REGION_ROWS: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n\n"
+            "// `OJZ_Clip_Regions` is not imported at the call site: a comptime fn's free names\n"
+            "// resolve THERE (docs/EMP_PITFALLS.md §2), and an unknown name in a Label position\n"
+            "// becomes a link extern — the route effects_gen's choosers already take.\n"
+            "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
+            "    return OJZ_Clip_Regions\n"
+            "}\n")
+
+
+def clip_data_block(plan):
+    """The clip act's BYTES: per zone a palette and an EffectsPreset, then the region table
+    the Act names. Appended to entity_data.emp so they follow its own data."""
+    out = [CLIP_DATA_BEGIN + "\n",
+           f"// CLIP ACT {plan['act']}. A THROWAWAY S2CLIP bake appended this; build.sh's EXIT\n"
+           "// trap restores the committed file. NOT effects_gen output — never commit it.\n"]
+    for z in plan["zones"]:
+        words = z["palette_words"]
+        body = ",\n    ".join(", ".join(f"${w:04X}" for w in words[i:i + 8])
+                              for i in range(0, 48, 8))
+        out.append(
+            f"// zone key {z['key']}: {z['donor']} {z['zone']} — the donor's own 96 palette "
+            f"bytes (CRAM lines 1-3),\n// {z['palette_file']} sha256 {z['palette_sha256']}\n"
+            f"pub data {z['palette_label']}: [u16; 48] = [\n    {body}\n]\n"
+            f"// transition: 1 — the 16-frame cross-fade arms on EVERY install of this "
+            f"preset,\n// so the crossing fades both ways (engine/effects/preset.emp).\n"
+            f"pub data {z['preset_label']}: EffectsPreset = preset(pal: {z['palette_label']}, "
+            f"raster: Raster_Program_None, cycle: Pal_Cycle_None, transition: 1)\n")
+    n = len(plan["rows"])
+    out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
+    out.append(CLIP_DATA_END + "\n")
+    return "".join(out)
+
+
+def append_clip_data(plan, path=CLIP_DATA):
+    """Insert CLIP_DATA_USES after the module's `use` block and append the data block.
+    Refuses a file that already carries a block (a stale throwaway) rather than stacking."""
+    text = open(path).read()
+    if CLIP_DATA_BEGIN in text:
+        raise ClipRomError(
+            f"{os.path.relpath(path, REPO)} already carries a CLIP ACT DATA block — a previous "
+            f"clip bake's throwaway was not restored. git checkout -- {GEN_REL}")
+    lines = text.split("\n")
+    heads = [i for i, ln in enumerate(lines) if ln.startswith("use ")] or \
+            [i for i, ln in enumerate(lines) if ln.startswith("module ")]
+    if not heads:
+        raise ClipRomError(f"{os.path.relpath(path, REPO)} has no `module` line — not the "
+                           f"generated module this bake appends to")
+    lines.insert(max(heads) + 1, "// clip act (row 7) imports, with the appended block below\n"
+                 + CLIP_DATA_USES.rstrip("\n"))
+    text = "\n".join(lines).rstrip("\n") + "\n\n" + clip_data_block(plan)
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def _palette_words(path):
+    data = open(path, "rb").read()
+    if len(data) != 96:
+        raise ClipRomError(f"{path} is {len(data)} bytes; a zone palette is 96 (CRAM lines 1-3)")
+    return [(data[i] << 8) | data[i + 1] for i in range(0, 96, 2)]
+
+
+def crossing_constants():
+    """(fade frames, camera x step, screen half width) — READ from the engine, never typed."""
+    from fg_working_set import ConstantSource
+
+    def get(path, name):
+        src = ConstantSource()
+        src.load_file(os.path.join(REPO, path))
+        return int(src.get(name))
+    return (get("engine/effects/palette.emp", "PAL_FADE_FRAMES"),
+            get("engine/level/camera.emp", "CAM_MAX_X_STEP"),
+            get("engine/system/constants.emp", "CAM_SCREEN_HALF_W"))
+
+
+def region_plan(act, donor_root, act_h_px=None):
+    """The clip act's region rows: one vertical strip per run of same-zone clips, left to
+    right, each crossing at the MIDDLE of the corridor between two zones (rounded down to
+    the 16-px collision grid), full act height. Z2 refuses a layout this cannot express
+    rather than guessing: clips must form a left-to-right chain, and two neighbouring
+    clips of DIFFERENT zones must have a corridor filling the gap between them."""
+    sec = act.section_px
+    act_w = act.grid_w * sec
+    act_h = act_h_px or act.grid_h * sec
+    clips = sorted(act.clips, key=lambda c: c.dst[0])
+    for a, b in zip(clips, clips[1:]):
+        if b.dst[0] < a.dst[0] + a.dst[2]:
+            raise ClipRomError(
+                f"Z2 clips {a.id!r} and {b.id!r} overlap in x. The region plan is a "
+                f"left-to-right chain of full-height strips; a stacked layout needs a "
+                f"horizontal crossing this bake does not write.")
+    zones = []
+    for key, (donor, zone) in enumerate(act.zone_table):
+        pal = os.path.join(donor_root, donor, zone, "palette.bin")
+        with open(os.path.join(donor_root, donor, zone, "zone.json")) as fh:
+            zm = json.load(fh)
+        zones.append({"key": key, "donor": donor, "zone": zone,
+                      "palette_file": os.path.relpath(pal, REPO),
+                      "palette_sha256": zm["palette"]["sha256"],
+                      "palette_words": _palette_words(pal),
+                      "palette_label": f"OJZ_Clip_Palette_{key}",
+                      "preset_label": f"OJZ_Clip_Preset_{key}"})
+    cuts = []                       # (x of the crossing, left zone, right zone, corridor)
+    for a, b in zip(clips, clips[1:]):
+        if a.zone_key == b.zone_key:
+            continue
+        gap0, gap1 = a.dst[0] + a.dst[2], b.dst[0]
+        corr = [c for c in act.corridors if c.dst[0] <= gap0 and c.dst[0] + c.dst[2] >= gap1]
+        if not corr or gap1 <= gap0:
+            raise ClipRomError(
+                f"Z2 clips {a.id!r} ({'/'.join(a.tree_key)}) and {b.id!r} "
+                f"({'/'.join(b.tree_key)}) are different zones with no corridor filling "
+                f"the {max(0, gap1 - gap0)} px between them. Owner ruling "
+                f"S2ACT-SEAM-CORRIDORS: corridors, never butted zones.")
+        mid = ((gap0 + gap1) // 2) & ~15
+        cuts.append((mid, a.zone_key, b.zone_key, corr[0].id, gap0, gap1))
+    rows, x0 = [], 0
+    order = [clips[0].zone_key] + [c[2] for c in cuts]
+    for i, key in enumerate(order):
+        x1 = (cuts[i][0] - 1) if i < len(cuts) else act_w - 1
+        why = (f"{zones[key]['donor']} {zones[key]['zone']}"
+               + (f", to the middle of corridor {cuts[i][3]}" if i < len(cuts) else
+                  ", to the act's right edge"))
+        rows.append({"x0": x0, "x1": x1, "y0": 0, "y1": act_h - 1, "key": key,
+                     "preset_label": zones[key]["preset_label"], "why": why})
+        x0 = x1 + 1
+    return {"act": act.id, "zones": zones, "rows": rows,
+            "crossings": [{"x": c[0], "from_key": c[1], "to_key": c[2], "corridor": c[3],
+                           "gap": [c[4], c[5]]} for c in cuts]}
+
+
+_ROW_RE = None
+
+
+def _parse_rows(text, name, what):
+    import re
+    global _ROW_RE
+    if _ROW_RE is None:
+        _ROW_RE = re.compile(
+            r"Region\{\s*rg_x0:\s*(\d+),\s*rg_x1:\s*(\d+),\s*rg_y0:\s*(\d+),\s*rg_y1:\s*(\d+),"
+            r"\s*rg_effects:\s*(\w+)")
+    m = re.search(name + r":\s*\[Region;\s*(\d+)\]\s*=\s*\[(.*?)\n\]", text, re.S)
+    if not m:
+        raise ClipRomError(f"Z2 {what} carries no {name} table — UNMEASURABLE")
+    rows = [(int(a), int(b), int(c), int(d), e) for a, b, c, d, e in _ROW_RE.findall(m.group(2))]
+    if len(rows) != int(m.group(1)):
+        raise ClipRomError(f"Z2 {what} declares {m.group(1)} rows for {name} and {len(rows)} "
+                           f"parse — UNMEASURABLE")
+    return rows
+
+
+def parse_clip_module_rows(mod_text, data_text):
+    """The region rows back OUT of what was EMITTED: [(x0, x1, y0, y1, preset label)] and
+    {preset label: (palette label, transition)}. Z2 runs on THIS, not on the plan, so it
+    measures what the ROM will carry. The descriptor checks the module's
+    `OJZ_CLIP_REGION_ROWS`; the Act names the data block's `OJZ_Clip_Regions`; they are one
+    table written twice, and a difference between them is refused here by name."""
+    import re
+    rows = _parse_rows(mod_text, "OJZ_CLIP_REGION_ROWS", "the clip module")
+    emitted = _parse_rows(data_text, "OJZ_Clip_Regions", "the clip data block")
+    if rows != emitted:
+        raise ClipRomError(
+            f"Z2 the rows the descriptor checks (OJZ_CLIP_REGION_ROWS, {len(rows)}) are not the "
+            f"rows the Act names (OJZ_Clip_Regions, {len(emitted)}): {rows} vs {emitted}")
+    presets = {p: (pal, int(t)) for p, pal, t in re.findall(
+        r"pub data (OJZ_Clip_Preset_\d+): EffectsPreset = preset\(pal: (\w+),"
+        r"[^\n]*?transition: (\d)\)", data_text)}
+    return rows, presets
+
+
+def check_palette_crossings(act, mod_text, data_text, consts=None, log=None):
+    """Z2 — each zone is drawn under its OWN palette, and walking from one zone to the next
+    installs the other palette EXACTLY ONCE, where the screen shows only corridor for the
+    whole cross-fade. Run over the rows parsed back out of the EMITTED module.
+
+    The row-7 check as the design words it: "the palette cross-fade fires exactly once per
+    crossing". A runtime claim; this is how far a static check reaches, built from the
+    engine's own terms rather than restated ones:
+      * the region the engine installs is the one containing the camera CENTRE
+        (Parallax_CheckBoundary: Camera_X + CAM_SCREEN_HALF_W);
+      * an install is one change of EffectsPreset, and a palette change is one change of
+        ep_pal — so the walk counts both and requires exactly one of each per zone pair;
+      * the fade runs PAL_FADE_FRAMES frames (engine/effects/palette.emp) while the camera
+        moves up to CAM_MAX_X_STEP px a frame (engine/level/camera.emp). So from the frame
+        the centre crosses, the screen — CAM_SCREEN_HALF_W either side of the centre — may
+        travel FADE x STEP px before the new palette has fully arrived, in either
+        direction. The crossing must sit at least HALF_W + FADE x STEP px inside the
+        corridor from BOTH zones' nearest cells, or a zone is on screen in a half-faded
+        palette, or the old zone is on screen when the new palette lands.
+    Every preset the rows bind must arm the fade (transition 1), or the crossing snaps.
+    """
+    fade, step, half_w = consts or crossing_constants()
+    margin = half_w + fade * step
+    rows, presets = parse_clip_module_rows(mod_text, data_text)
+    if not presets:
+        raise ClipRomError("Z2 no OJZ_Clip_Preset_* records parse out of the clip data "
+                           "block — UNMEASURABLE")
+    unbound = sorted({r[4] for r in rows} - set(presets))
+    if unbound:
+        raise ClipRomError(f"Z2 region rows bind {unbound}, which the data block does not "
+                           f"define as presets")
+    for lab, (_pal, trans) in presets.items():
+        if trans != 1:
+            raise ClipRomError(f"Z2 {lab} does not arm the cross-fade (transition {trans}); "
+                               f"the crossing would SNAP the palette")
+
+    def row_at(x, y):
+        hit = [r for r in rows if r[0] <= x <= r[1] and r[2] <= y <= r[3]]
+        if len(hit) != 1:
+            raise ClipRomError(f"Z2 the camera centre ({x}, {y}) is in {len(hit)} region "
+                               f"rows; the rows must tile the act exactly")
+        return hit[0]
+
+    # (a) every clip cell sits under its own zone's preset
+    want = {c.zone_key: f"OJZ_Clip_Preset_{c.zone_key}" for c in act.clips}
+    for c in act.clips:
+        for r in rows:
+            if r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1] and r[4] != want[c.zone_key]:
+                raise ClipRomError(
+                    f"Z2 clip {c.id!r} ({'/'.join(c.tree_key)}) reaches region x "
+                    f"{r[0]}..{r[1]}, which binds {r[4]} — that zone is drawn in another "
+                    f"zone's colours there")
+    # (b) walk every neighbouring pair of different zones, at every 16-px y the corridor spans
+    clips = sorted(act.clips, key=lambda c: c.dst[0])
+    out = []
+    for a, b in zip(clips, clips[1:]):
+        if a.zone_key == b.zone_key:
+            continue
+        a_right = a.dst[0] + a.dst[2]            # first x past zone a
+        b_left = b.dst[0]
+        corr = [k for k in act.corridors
+                if k.dst[0] <= a_right and k.dst[0] + k.dst[2] >= b_left]
+        ys = range(corr[0].dst[1], corr[0].dst[1] + corr[0].dst[3], 16) if corr else [0]
+        for y in ys:
+            changes = []
+            prev = row_at(a_right - 1, y)
+            for x in range(a_right - 1, b_left + 1):
+                r = row_at(x, y)
+                if r is not prev:
+                    changes.append((x, prev[4], r[4]))
+                    prev = r
+            pal_changes = [ch for ch in changes if presets[ch[1]][0] != presets[ch[2]][0]]
+            if len(changes) != 1 or len(pal_changes) != 1:
+                raise ClipRomError(
+                    f"Z2 walking the camera centre from {a.id!r} to {b.id!r} at y={y} "
+                    f"installs {len(changes)} preset(s) and changes the palette "
+                    f"{len(pal_changes)} time(s), not exactly once: {changes}")
+            x_c = changes[0][0]
+            if x_c - margin < a_right or x_c + margin > b_left:
+                raise ClipRomError(
+                    f"Z2 the crossing from {a.id!r} to {b.id!r} is at x={x_c}, but a "
+                    f"cross-fade needs {margin} px of corridor on EACH side of it "
+                    f"(CAM_SCREEN_HALF_W {half_w} + PAL_FADE_FRAMES {fade} x CAM_MAX_X_STEP "
+                    f"{step}) and the corridor runs x {a_right}..{b_left - 1}: "
+                    f"{x_c - a_right} px on the left, {b_left - x_c} on the right")
+        out.append({"from": a.id, "to": b.id, "x": x_c, "margin_needed": margin,
+                    "margin_left": x_c - a_right, "margin_right": b_left - x_c,
+                    "ys_walked": len(list(ys))})
+        if log:
+            log(f"clip_rom_bake: Z2 {a.id} -> {b.id}: ONE preset install and ONE palette "
+                f"change at x={x_c} on every one of {len(list(ys))} corridor rows; "
+                f"{x_c - a_right} px of corridor left of it and {b_left - x_c} right, "
+                f"{margin} needed each side")
+    return out
+
+
+def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log=None):
+    """Write the clip act's module + append its data, then run Z2 over what was WRITTEN."""
+    plan = region_plan(act, donor_root)
+    with open(path, "w") as fh:
+        fh.write(clip_module_text(plan))
+    append_clip_data(plan, data_path)
+    if log:
+        log(f"clip_rom_bake: {os.path.relpath(path, REPO)} + a CLIP ACT DATA block in "
+            f"{os.path.relpath(data_path, REPO)} — "
+            + ", ".join(f"{z['zone']} palette + preset" for z in plan["zones"])
+            + f", {len(plan['rows'])} region row(s): "
+            + "; ".join(f"x {r['x0']}..{r['x1']} {r['preset_label']}" for r in plan["rows"]))
+    with open(path) as fh:
+        mod = fh.read()
+    with open(data_path) as fh:
+        data = fh.read()
+    return check_palette_crossings(act, mod, data, log=log), plan
+
+
+# ---------------------------------------------------------------------------
 # The staged project
 # ---------------------------------------------------------------------------
 
-def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
+def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR, sheet_files=None):
     """Write the `project.json` that points the shipped generators at the clip tree.
 
     Paths inside it are relative TO IT, which is the rule `validate_editor_inputs`
@@ -339,9 +797,20 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
     `dataPath` is "." — `clip_act_bake` already wrote the act directory, so the tree is
     the act. `bgLayout`/`bgTiles` are carried over from the shipped project verbatim and
     are inert: Pass 6b builds Plane B from the sonic_hack donor and reads neither.
+
+    `tilesets` (row 7) is THE PER-CELL TILESET KEY ON THE ROM PATH: every sheet the act's
+    cells index, in zone-key order (`clip_act_bake`'s `zone_table`, donor zones then the
+    corridor sheet), beside the `section_N.zonekey.bin` files clip_act_bake wrote into
+    this tree. `ojz_strip_gen._project_tilesets` reads it and bakes KEYED. Written for
+    EVERY clip act — one zone or several — so a one-clip act takes the same path as a
+    two-zone one and there is no case that is only exercised by the bigger act.
+    `tileset` stays too (sheet 0) for the readers that know only it.
     """
     clip = act.clips[0]
     zone_tree = os.path.join(donor_root, clip.donor, clip.zone)
+    if sheet_files is None:
+        sheet_files = [os.path.join(donor_root, d, z, "tileset.bin")
+                       for d, z in act.zone_table]
     with open(os.path.join(REPO, "project.json")) as fh:
         shipped = json.load(fh)
     sz, sa = shipped["zones"][0], shipped["zones"][0]["acts"][0]
@@ -353,10 +822,12 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
             "AUTO-GENERATED by tools/clip_rom_bake.py — a THROWAWAY project file for one "
             "clip act. It is NOT the shipped project.json; it exists so the shipped "
             "generators can be pointed at this clip's editor tree without editing the "
-            "real one. dataPath, tileset and palette are relative to THIS file."),
+            "real one. dataPath, tileset(s) and palette are relative to THIS file."),
         "zones": [{
-            "id": sz["id"], "name": f"{clip.donor}:{clip.zone}",
-            "tileset": rel(os.path.join(zone_tree, "tileset.bin")),
+            "id": sz["id"],
+            "name": " + ".join(f"{d}:{z}" for d, z in act.sheet_table),
+            "tileset": rel(sheet_files[0]),
+            "tilesets": [rel(p) for p in sheet_files],
             "palette": rel(os.path.join(zone_tree, "palette.bin")),
             "acts": [{
                 "id": sa["id"],
@@ -384,44 +855,18 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR):
 # The bake
 # ---------------------------------------------------------------------------
 
-PALETTE_CLIP = "clip"
-PALETTE_SHIPPED = "shipped"
-
-# THE PALETTE IS A KNOB, AND THAT IS A BLOCKER RECORDED RATHER THAN A PREFERENCE
-# (2026-09-17, row 6).
-#
-# `clip` is the RIGHT picture — the donor zone's own 96 bytes, which reach the screen
-# through the OJZ presets because nearly every one of them binds `OJZ_Palette`, and
-# OJZ_Palette is `embed(".../ojz_palette.bin")`, a generated file this bake rewrites.
-#
-# It does not build today. `games/sonic4/data/effects/ojz_effects.emp` carries EIGHT
-# top-level comptime `ensure`s pinned to statistics OF THE SHIPPED ACT'S PALETTE — the
-# night grade's lit-colour count, its retention ceiling, three blue-share permille
-# figures, the distinct-colour count, the merge budget, and the showcase palette's
-# agreement with it over CRAM lines 1-2. They are RIGHT and they fire correctly: their
-# job is to catch the act art changing under a hand-derived grade, and a clip act
-# changes the act art. Emerald Hill's palette has 46 lit colours where OJZ has 42.
-#
-# WHAT IT NEEDS IS A RULING, not a workaround, and the options are:
-#   (a) scope the pins to the shipped act — a top-level comptime conditional around a
-#       block of `ensure`s. NO SUCH PATTERN EXISTS IN THIS CODEBASE today (the `if
-#       DEBUG == 1` sites are expressions inside initializers, not statement blocks
-#       around guards), and inventing one inside the shipped effects library is not a
-#       clip parcel's call. Byte-neutral if it works: an `ensure` emits nothing.
-#   (b) derive the pins per act instead of pinning them. Their own messages forbid it
-#       in terms — "Re-derive, do not re-pin" is addressed to a person.
-#   (c) give a clip act its own effects library. That is the corridor/per-region
-#       palette work the design's §9.1 describes, i.e. row 7 and beyond.
-#
-# `shipped` keeps the SHIPPED act's palette, so the clip act boots today with Emerald
-# Hill's geometry and art in Oracle Jungle's colours. It is a wrong picture and it is a
-# LABELLED wrong picture, which is the honest half of a blocked ruling — the geometry
-# claim (the clip renders, and the ground is where Emerald Hill's ground is) does not
-# depend on the palette at all.
+# THE PALETTE KNOB IS GONE (row 7, 2026-09-25). Parcel 6 shipped `--palette shipped|clip`
+# because the only palette a clip bake could reach was `ojz_palette.bin`, and eight comptime
+# pins in ojz_effects.emp refuse any palette but the shipped act's there (its BLOCKED
+# ruling, options a/b/c). A clip act now carries its OWN palettes and region table in the
+# generated clip_act.emp (the ROW 7 block above), so `ojz_palette.bin` is never rewritten,
+# the pins describe exactly what they always did, and `clip` — which could only ever fail
+# — and `shipped` — which drew every zone in Oracle Jungle's colours — have nothing left
+# to choose between. Deleted, not defaulted: a knob with one working position is a scaffold.
 
 
 def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
-         palette=PALETTE_SHIPPED, skip_clean_check=False, keep=False, log=print):
+         skip_clean_check=False, keep=False, log=print):
     """Bake the clip act into the shipped act's slot.
 
     `keep=False` (a bare invocation) RESTORES the overwritten tree on the way out, win or
@@ -430,7 +875,7 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     """
     try:
         return _bake(manifest_path, donor_root=donor_root, gen_dir=gen_dir,
-                     coll_dir=coll_dir, palette=palette,
+                     coll_dir=coll_dir,
                      skip_clean_check=skip_clean_check, keep=keep, log=log)
     finally:
         if not keep:
@@ -438,10 +883,9 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
 
 
 def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
-          palette=PALETTE_SHIPPED, skip_clean_check=False, keep=False, log=print):
+          skip_clean_check=False, keep=False, log=print):
     donor_root = clip_manifest._root(donor_root)
     act = clip_manifest.load(manifest_path, donor_root=donor_root)
-    check_single_clip(act)
     if not skip_clean_check:
         check_tree_is_clean([os.path.relpath(gen_dir, REPO),
                              os.path.relpath(coll_dir, REPO)])
@@ -450,8 +894,11 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     log(f"clip_rom_bake: composing {act.id} -> {os.path.relpath(baked_dir, REPO)}")
     _act, _st, summary, _v1, _v2 = clip_act_bake.bake(
         manifest_path, out_dir=baked_dir, donor_root=donor_root, log=log)
+    check_zone_separation(act, summary)
 
-    project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir)
+    sheet_files = [os.path.join(REPO, z["tileset_file"]) for z in summary["zone_table"]]
+    project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir,
+                                            sheet_files=sheet_files)
 
     # THE ENGINE'S GRID, LOWERED FROM THE MANIFEST (S2-COMPRESSED-ACT parcel 9). This is
     # the whole of what lets a clip act be a different SHAPE from the shipped one: the
@@ -481,21 +928,17 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         output_dir=gen_dir,
         collision_dir=coll_dir,
         bank_dir=bank_dir,
-        authored_palette=(os.path.join(zone_tree, "palette.bin")
-                          if palette == PALETTE_CLIP else None),
     )
-    if palette == PALETTE_CLIP:
-        log("clip_rom_bake: PALETTE = clip (the donor zone's own 96 bytes). Expect the "
-            "eight night-grade pins in games/sonic4/data/effects/ojz_effects.emp to "
-            "REFUSE this build — see this file's PALETTE block; that is a ruling, not a "
-            "defect in this bake.")
-    else:
-        log("clip_rom_bake: PALETTE = shipped — THE COLOURS ON SCREEN WILL BE ORACLE "
-            "JUNGLE'S, not this zone's. Emerald Hill's geometry and art over OJZ's "
-            "palette. See this file's PALETTE block for the blocker this works around "
-            "and the ruling it is waiting on.")
     log("clip_rom_bake: strips, local maps, art pool, palette, collision tables...")
     ojz_strip_gen.generate()
+    check_rom_pool_is_composed_pool(baked_dir, gen_dir, log=log)
+    # THE CLIP ACT'S OWN REGIONS AND PALETTES (the ROW 7 block). AFTER generate(), and that
+    # order is load-bearing: the data block is appended to entity_data.emp, which
+    # generate()'s Pass 8 rewrites whole — written before it, the block was erased and the
+    # clip module's imports named presets that no longer existed (measured, 2026-09-25).
+    # `ojz_palette.bin` is left to the shipped act.
+    z2, region_plan_ = emit_clip_module(act, donor_root, data_path=os.path.join(
+        gen_dir, os.path.basename(CLIP_DATA)), log=log)
 
     # THE EDITOR-AUTHORED BG OVERRIDE, exactly as tools/regenerate-level.sh runs it.
     # Skipping it was a REAL failure and not a cosmetic one: the raw generated zone BG is
@@ -541,20 +984,25 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         "schema": 1,
         "produced_by": "tools/clip_rom_bake.py",
         "act": act.id,
-        "clip": {"id": act.clips[0].id, "donor": act.clips[0].donor,
-                 "zone": act.clips[0].zone,
-                 "src_rect": list(act.clips[0].src), "dst_rect": list(act.clips[0].dst)},
+        "clips": [{"id": c.id, "donor": c.donor, "zone": c.zone, "zone_key": c.zone_key,
+                   "src_rect": list(c.src), "dst_rect": list(c.dst)} for c in act.clips],
+        "corridors": [c.as_json() for c in act.corridors],
+        "zone_separation": summary["zone_separation"],
         "grid": [act.grid_w, act.grid_h],
         "pool": summary["pool"],
         "collision": {k: summary["collision"][k]
                       for k in ("attr_entries", "cap", "base_bank")},
         "verdict_at_placement": summary["verdict_at_placement"],
         "generated_dir": GEN_REL,
-        "palette": palette,
+        "palette": "per-zone, from each donor zone's palette.bin, in generated clip_act.emp",
+        "regions": [{k: r[k] for k in ("x0", "x1", "y0", "y1", "preset_label", "why")}
+                    for r in region_plan_["rows"]],
+        "palette_crossings": z2,
         "inherited_from_the_shipped_act": [
             "background (Plane B is built from the sonic_hack donor by Pass 6b)",
             "objects and rings (Pass 8 reads the shipped act's editor entities)",
-            "the region table and the effects presets (hand-written act_descriptor.emp)",
+            "the shipped region table is still ASSEMBLED (unused: act_regions points at "
+            "the clip act's own table)",
         ],
     }
     with open(os.path.join(baked_dir, "clip_rom_bake.json"), "w") as fh:
@@ -668,13 +1116,20 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     out = {"spawn": [spawn_x, spawn_y], "cell_y": y, "attr": attr, "height": h,
            "angle": ang, "solidity": solidity[attr], "surface_y": surface,
            "fall_px": surface - spawn_y, "hanging_passed": skipped}
-    out["donor_corroboration"] = donor_corroboration(
-        act, gen_dir, coll_dir, grid_w, grid_h, sect_px, log=log)
+    # EVERY clip whose donor start lies in its source rectangle is corroborated (row 7): a
+    # second zone is a second paste, and its shift is exactly as invisible in a screenshot
+    # as the first one's. Clip 0 is also kept under the old key for its readers.
+    out["donor_corroborations"] = [
+        dict(donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
+                                 log=log, clip=c), clip=c.id)
+        for c in act.clips]
+    out["donor_corroboration"] = (out["donor_corroborations"][0] if act.clips else
+                                  {"measured": False, "why": "the act names no clip"})
     return out
 
 
 def donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
-                        donor_root=None, log=print):
+                        donor_root=None, log=print, clip=None):
     """The SECOND witness, and the one that can see a shifted paste.
 
     "Something solid is under the spawn" is a weak claim: air is the only thing it
@@ -695,8 +1150,10 @@ def donor_corroboration(act, gen_dir, coll_dir, grid_w, grid_h, sect_px,
     clip's source rectangle, or a nonzero paste shift in a version of this that has not
     worked out the shifted comparison: all say so and return a reason. None of them is
     a pass.
+
+    `clip` (row 7) names which clip to corroborate; None keeps the old meaning, clip 0.
     """
-    clip = act.clips[0]
+    clip = act.clips[0] if clip is None else clip
     import s2_donor
     try:
         droot = s2_donor.donor_root(clip.donor)
@@ -838,9 +1295,6 @@ def _mode_bake(rest):
     ap = argparse.ArgumentParser(prog="clip_rom_bake.py bake")
     ap.add_argument("manifest")
     ap.add_argument("--donor-root", default=None)
-    ap.add_argument("--palette", choices=(PALETTE_SHIPPED, PALETTE_CLIP),
-                    default=PALETTE_SHIPPED,
-                    help="which 96 bytes reach ojz_palette.bin (see the PALETTE block)")
     ap.add_argument("--allow-dirty", action="store_true",
                     help="skip R22 (build.sh's S2CLIP shape owns the restore trap "
                          "and has already checked)")
@@ -849,7 +1303,7 @@ def _mode_bake(rest):
                          "it on exit. `ground` and clip_reachability.py need it; "
                          "build.sh's S2CLIP shape passes it and owns its own trap")
     a = ap.parse_args(rest)
-    bake(a.manifest, donor_root=a.donor_root, palette=a.palette,
+    bake(a.manifest, donor_root=a.donor_root,
          skip_clean_check=a.allow_dirty, keep=a.keep)
     return 0
 
@@ -863,7 +1317,20 @@ def _mode_ground(rest):
     return 0
 
 
-MODES = {"bake": _mode_bake, "ground": _mode_ground}
+def _mode_emit_neutral(rest):
+    """Re-write the COMMITTED neutral clip_act.emp (the ROW 7 block). It is what every
+    canonical shape compiles; tools/test_clip_two_zone.py holds the committed file to this
+    text byte for byte, so a hand edit or a stale copy fails the pre-build lane."""
+    if rest:
+        print("usage: clip_rom_bake.py emit-neutral")
+        return 1
+    with open(CLIP_MODULE, "w") as fh:
+        fh.write(clip_module_text(None))
+    print(f"clip_rom_bake: wrote the neutral {CLIP_MODULE_REL}")
+    return 0
+
+
+MODES = {"bake": _mode_bake, "ground": _mode_ground, "emit-neutral": _mode_emit_neutral}
 
 
 def main(argv=None):
