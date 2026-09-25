@@ -121,7 +121,9 @@ not penetrate it"; "the player never reached the spring" would satisfy "he was n
 launched wrongly"; "he never made contact" would satisfy "his speed was killed on
 contact". So each test first asserts CONTACT (he got within the combined half-width / he
 descended onto it) and only then asserts the response. Failing to make contact is
-exit 2, not a pass.
+exit 2, not a pass -- UNLESS an earlier leg (or earlier in the same leg) already measured
+a failure, in which case the run is exit 1 and says it stopped early: a guard voids what
+comes after it, never what was measured before it (KEEPALIVE-IS-BLIND-TO-LOSSY).
 
 THE BLOCK IN L2 IS A RETYPED SPRING, and that is a stated substitution rather than a
 quiet one. The OJZ act places three springs and three blocks, but every placed block is
@@ -1531,6 +1533,17 @@ async def test_back_face(pr, spring, want, out, leg):
     # push COMPLETES is still the right thing to assert and a frame-16 reading is still a
     # statement about the surroundings, so the structure stays as it is rather than being
     # re-fitted to the friendlier geometry.
+    # A MEASURED FINDING OUTRANKS THIS GUARD, for the reason the launch-evidence comment
+    # above gives and KEEPALIVE-IS-BLIND-TO-LOSSY names: the guard says the PUSH frame was
+    # not observed, which voids the push and speed-kill checks below and nothing else. The
+    # launch peaks and the animation above were sampled across the whole window and are
+    # valid however late he entered, so a finding already in `fails` is returned rather
+    # than thrown away inside an exit 2.
+    if pushed is None and fails:
+        fails.append(f"{leg}: (the push frame itself was not observed — he entered on the "
+                     f"last of {BACK_FRAMES} sampled frames — so the push and speed-kill "
+                     f"checks did not run; the finding(s) above do not depend on them)")
+        return fails
     if pushed is None:
         raise Unmeasurable(
             f"{leg}: the player entered the back face on the last sampled frame of "
@@ -2195,7 +2208,13 @@ async def test_underside_launch(pr, spring, want, out, leg):
 
 # --------------------------------------------------------------------------- driver
 
-async def run(sock, rom, lst, want_launch, table, subtypes, out):
+async def run(sock, rom, lst, want_launch, table, subtypes, out, fails):
+    """Drive every leg, appending each MEASURED finding to the caller's `fails` AS IT IS MADE.
+
+    `fails` belongs to the caller, not to this function, and that is the whole point of the
+    parameter: a later leg that raises Unmeasurable must not take the earlier legs'
+    findings down with it. See main()'s grading block (KEEPALIVE-IS-BLIND-TO-LOSSY).
+    """
     b = BusClient(socket_path=sock, client_id="springw", client_name="spring_launch_witness")
     await b.connect()
     await b.call("emulator/load_symbols", {"path": lst})
@@ -2262,7 +2281,6 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
     # also the better experiment — every leg starts from the identical settled state
     # rather than from the previous leg's leftovers, which is what makes L1 and L2
     # comparable at all.
-    fails = []
     legs = []          # names of the legs that ACTUALLY RAN, asserted against LEGS below
 
     out.append("BOOT 1 (L1 spring side + L3 escape):")
@@ -2391,7 +2409,7 @@ async def run(sock, rom, lst, want_launch, table, subtypes, out):
     legs.append("C3 side no tumble")
 
     # THE LEG COUNT IS ITSELF AN ASSERTION. A leg that raised Unmeasurable never reaches
-    # here (the run exits 2), but a leg deleted or short-circuited during an edit would
+    # here (the run exits 2, or 1 if a leg before it had already failed), but a leg deleted or short-circuited during an edit would
     # otherwise leave a smaller run reading exactly like a clean pass.
     out.append(f"LEGS RUN: {len(legs)} — " + ", ".join(legs))
     if len(legs) != LEGS:
@@ -2548,21 +2566,36 @@ def main():
         print(f"\nRESULT: UNMEASURABLE — {e}")
         return 2
 
+    # A MEASURED FAILURE OUTRANKS A LATER REFUSAL (KEEPALIVE-IS-BLIND-TO-LOSSY, 2026-09-25).
+    # The legs run in sequence and any of them can raise Unmeasurable. Until this change
+    # `fails` was a local inside run(), so a raise in L5 threw away everything L1-L4 had
+    # already MEASURED and the run exited 2, "could not measure", with findings in hand
+    # and never printed. The worst concrete case: side springs stop launching, L5 raises
+    # (entered the face, no hook), and L7 -- which grades that same observation as a FAIL --
+    # never runs. It is the dma_straddle_exercise shape: a verdict that consulted less than
+    # the tool had measured. So `fails` is owned HERE and survives the raise, and the
+    # "nothing measured" exit is only reachable when nothing failed.
     out.append("MACHINE:")
+    fails, stopped = [], None
     try:
         with aether_emulator(a.rom, symbols=a.lst) as sock:
-            fails = asyncio.run(run(sock, a.rom, a.lst, want, table, subtypes, out))
+            asyncio.run(run(sock, a.rom, a.lst, want, table, subtypes, out, fails))
     except Unmeasurable as e:
-        print("\n".join(out))
-        print(f"\nRESULT: UNMEASURABLE — {e}")
-        return 2
+        stopped = str(e)
 
     print("\n".join(out))
     if fails:
         print(f"\nRESULT: FAIL — {len(fails)} finding(s):")
         for f in fails:
             print(f"  * {f}")
+        if stopped:
+            print(f"  NOTE: a later leg then stopped the run as unmeasurable ({stopped}). "
+                  f"The legs after it did not run, so this is a smaller experiment than "
+                  f"{LEGS} legs; the findings above were measured before it stopped.")
         return 1
+    if stopped:
+        print(f"\nRESULT: UNMEASURABLE — {stopped}")
+        return 2
     print(f"\nRESULT: PASS — {LEGS} legs ({DRIVE_LEGS} drives + {CONTROL_LEGS} controls): a "
           f"spring AND a plain block are side-solid and kill the player's running speed on "
           f"contact, he can still walk away from them, a fall onto an up spring launches "
