@@ -39,6 +39,18 @@ That block is superseded. Everything below it moved here from the boot file on 2
 
 ## Landing lane (aeon certifies ALONE — the paired freeze is RETIRED)
 
+**⚠ BEFORE YOU PUSH, NAME EVERY PEER WHOSE TESTS READ A FILE YOU CHANGED, AND MESSAGE THEM IN THE SAME
+TURN (2026-09-25).** *Cited as: tell the consumers.* The row-7 landing (`481ac02e`) changed
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`. I told sigil and not aurora, and aurora's
+currency row went red on their master until they re-vendored. That is the protocol's "A CONTRACT EDIT REDS ITS
+CONSUMERS SILENTLY", and "canonical bytes identical" does not answer it, because their tests read our
+SOURCE. **Derive the list at landing and do not trust a pinned one:** for each changed path `P`, run
+`git -C ../<lane> fetch -q origin && git -C ../<lane> grep -l -F "$P" origin/<main|master>` for aurora,
+sigil and oracle. Any hit means that lane gets a one-line message naming the file and the commit.
+Frequent hits as of 2026-09-25: `engine/system/constants.emp`, `act_descriptor.emp`,
+`ojz_effects.emp`, `engine/structs.emp`, `games/sonic4/vram.toml`, the `engine/level/*_dsl.emp` files and
+`engine/effects/*`.
+
 **⚠ THE "A LANDING RUN MAKES THE TREE READ-ONLY, AND THE OVERSEER IS THE LIKELIEST VIOLATOR"
 EXPOSURE DOES NOT APPLY TO AEON'S NIGHTLY. Measured 2026-09-19 against the IMPLEMENTATION, after
 the hub relayed it from oracle having read only this script's comment block.** *Cited as: the
