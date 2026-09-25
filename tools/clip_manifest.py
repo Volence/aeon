@@ -192,8 +192,40 @@ from a donor:
   K3  floor_y is a multiple of COLL_QUANTUM_PX (16) — a collision row — and lies inside
       the rect: a floor at y=770 would be a floor at y=768 that the art draws at 770.
 
+`validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
+row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
+output is unchanged byte for byte. Instead of the human lines it prints ONE JSON document
+on stdout:
+
+    { "schema": 1,              // VALIDATE_JSON_SCHEMA; bumped on any change a reader sees
+      "ok": false,              // true iff exit code 0
+      "refusals": [             // [] when ok. At most ONE entry today: load() stops at the
+        {                       //   first refusal. A list so that never changes the shape.
+          "rule": "R7",         // the message's leading tag (R1-R12, K1-K3), or null for
+                                //   the few untagged refusals (a top level that is not an
+                                //   object; an engine constant this file cannot read)
+          "subjects": [         // WHICH clip(s)/corridor(s). [] = an act-level refusal
+            { "kind": "clip",   // "clip" or "corridor"
+              "index": 1,       // position in clips.json's `clips` / `corridors` list
+              "id": "cpz_s2" }  // its id, or null when it has none (not an object, no id)
+          ],                    // TWO subjects for a pair rule: R10 (overlap), a duplicate
+                                //   id (R3/K1) or a duplicate region_id (R3) — first
+                                //   claimant first
+          "message": "R7 clip 'cpz_s2': src 2048x1024 != dst ..." } ],
+                                // the human sentence, EXACTLY what the human mode prints
+                                //   after "clips.json REFUSED — "
+      "warnings": [             // W2/W3, same {rule, subjects, message} shape, in the
+        ... ] }                 //   order raised; kept even when a later rule refuses
+                                //   (W3 names every clip in the mixed section)
+
+Only a `ClipManifestError` is a refusal, in either mode. A manifest that is not JSON at all,
+or a path that does not exist, raises out of the loader as it always has (traceback, exit
+code 1, NO JSON on stdout): a caller must read a non-JSON stdout with exit 1 as a crash, not
+as a refusal. A usage error prints USAGE (unchanged, still human) and exits 1. `--json` goes
+after the manifest path, like `--donor-root`.
+
 Usage:
-    python3 tools/clip_manifest.py validate <clips.json> [--donor-root DIR]
+    python3 tools/clip_manifest.py validate <clips.json> [--donor-root DIR] [--json]
 """
 
 import json
@@ -250,8 +282,42 @@ UNITS = "world_px"
 _RECT_KEYS = ("x", "y", "w", "h")
 
 
+#: A refusal's or warning's rule tag is the LEADING token of its message ("R7 clip ...") —
+#: the header's VALIDATION RULES contract ("each is named in the message it raises or warns
+#: with"). `--json` reads it back from there, so the tag has one spelling, in one place.
+_TAG_RE = re.compile(r"^([RKW]\d+) ")
+
+
+def rule_of(message):
+    """The rule tag a message leads with (e.g. "R7"), or None for an untagged one."""
+    m = _TAG_RE.match(message)
+    return m.group(1) if m else None
+
+
+def subject(kind, index, ident):
+    """One `--json` subject: which clip or corridor a refusal/warning is about.
+    `ident` is None when the entry has no usable id (a non-object, a missing `id`)."""
+    return {"kind": kind, "index": index, "id": ident}
+
+
+def _subject_of(obj):
+    return subject("clip" if isinstance(obj, Clip) else "corridor", obj.index, obj.id)
+
+
 class ClipManifestError(ValueError):
-    """A clips.json this loader will not hand to a bake."""
+    """A clips.json this loader will not hand to a bake.
+
+    `subjects` names the clip(s)/corridor(s) the refusal is about (`subject()` dicts; empty
+    for an act-level refusal) and `rule` is the message's leading tag. Neither changes the
+    message: str(exc) is exactly what it always was."""
+
+    def __init__(self, message, subjects=()):
+        super().__init__(message)
+        self.subjects = [dict(s) for s in subjects]
+
+    @property
+    def rule(self):
+        return rule_of(str(self))
 
 
 def geometry_constants(path=CONSTANTS_EMP):
@@ -455,21 +521,22 @@ def _rect_str(r):
     return f"x={r[0]} y={r[1]} w={r[2]} h={r[3]}"
 
 
-def _require_rect(where, raw):
+def _require_rect(where, raw, subjects=()):
     if not isinstance(raw, dict):
-        raise ClipManifestError(f"R5 {where}: not an object")
+        raise ClipManifestError(f"R5 {where}: not an object", subjects)
     missing = [k for k in _RECT_KEYS if k not in raw]
     if missing:
-        raise ClipManifestError(f"R5 {where}: missing {missing}; a rect is x, y, w, h")
+        raise ClipManifestError(f"R5 {where}: missing {missing}; a rect is x, y, w, h", subjects)
     for k in _RECT_KEYS:
         v = raw[k]
         if not isinstance(v, int) or isinstance(v, bool):
             raise ClipManifestError(f"R5 {where}.{k} = {v!r} is not an integer "
-                                    f"(world pixels, never a float or a string)")
+                                    f"(world pixels, never a float or a string)", subjects)
         if v < 0:
-            raise ClipManifestError(f"R5 {where}.{k} = {v} is negative")
+            raise ClipManifestError(f"R5 {where}.{k} = {v} is negative", subjects)
     if raw["w"] <= 0 or raw["h"] <= 0:
-        raise ClipManifestError(f"R5 {where}: zero-area rect ({_rect_str([raw[k] for k in _RECT_KEYS])})")
+        raise ClipManifestError(f"R5 {where}: zero-area rect ({_rect_str([raw[k] for k in _RECT_KEYS])})",
+                                subjects)
 
 
 def _zone_manifest(clip, donor_root):
@@ -478,22 +545,30 @@ def _zone_manifest(clip, donor_root):
         raise ClipManifestError(
             f"R4 clip {clip.id!r}: no converted tree at {os.path.relpath(clip.tree_dir(donor_root), REPO)} "
             f"(looked for zone.json). Convert it first:\n"
-            f"    python3 tools/s2_zone_convert.py convert {clip.donor}@{clip.zone}")
+            f"    python3 tools/s2_zone_convert.py convert {clip.donor}@{clip.zone}",
+            [_subject_of(clip)])
     with open(p) as fh:
         return json.load(fh)
 
 
-def load(path, donor_root=None, constants=None, warn=None):
+def load(path, donor_root=None, constants=None, warn=None, warning_records=None):
     """Read and fully validate a clips.json. Returns a ClipAct or raises ClipManifestError.
 
     `warn` is called with each W-rule message; the messages are also kept on the
     returned ClipAct (`.warnings`) so a caller that swallowed them can still record them.
+    `warning_records`, if a list, receives one `{"rule", "subjects", "message"}` dict per
+    warning AS IT IS RAISED — so a caller still has them when a later rule refuses (the
+    `--json` mode's warnings list).
     """
     donor_root = _root(donor_root)
     warnings = []
 
-    def _warn(msg):
+    def _warn(msg, subjects=()):
         warnings.append(msg)
+        if warning_records is not None:
+            warning_records.append({"rule": rule_of(msg),
+                                    "subjects": [dict(x) for x in subjects],
+                                    "message": msg})
         if warn:
             warn(msg)
 
@@ -539,13 +614,19 @@ def load(path, donor_root=None, constants=None, warn=None):
         raise ClipManifestError(f"R3 {path}: `clips` must be a non-empty list")
 
     clips, seen_ids, seen_regions = [], {}, {}
+    #: id -> the --json subject that first claimed it (clips and corridors share one space)
+    owner = {}
     for i, cr in enumerate(clips_raw):
         if not isinstance(cr, dict):
-            raise ClipManifestError(f"R3 {path}: clips[{i}] is not an object")
+            raise ClipManifestError(f"R3 {path}: clips[{i}] is not an object",
+                                    [subject("clip", i, None)])
+        raw_id = cr.get("id")
+        here = [subject("clip", i, raw_id if isinstance(raw_id, str) else None)]
         for k in ("id", "donor", "zone", "src_rect", "dst_rect"):
             if k not in cr:
-                raise ClipManifestError(f"R3 {path}: clips[{i}] is missing {k!r}")
+                raise ClipManifestError(f"R3 {path}: clips[{i}] is missing {k!r}", here)
         cid = str(cr["id"])
+        here = [subject("clip", i, cid)]
         rid = cr.get("region_id") or None
         if not _ID_RE.match(cid):
             raise ClipManifestError(
@@ -554,33 +635,36 @@ def load(path, donor_root=None, constants=None, warn=None):
                 f"ids are validated against it, and a clip id that already satisfies it is "
                 f"one aurora can use verbatim — so one rectangle keeps one name across both "
                 f"documents. The donor and zone names (EHZ, s2disasm) live in their own "
-                f"fields, where upper case is fine.")
+                f"fields, where upper case is fine.", here)
         if cid in seen_ids:
             raise ClipManifestError(
-                f"R3 {path}: clip id {cid!r} used twice (clips[{seen_ids[cid]}] and clips[{i}])")
+                f"R3 {path}: clip id {cid!r} used twice (clips[{seen_ids[cid]}] and clips[{i}])",
+                [owner[cid]] + here)
         seen_ids[cid] = i
+        owner[cid] = here[0]
         if rid is not None:
             if rid in seen_regions:
                 raise ClipManifestError(
                     f"R3 {path}: region_id {rid!r} claimed by clips {seen_regions[rid]!r} and "
                     f"{cid!r}. A region is ONE rectangle in the regions document; two clips "
-                    f"cannot write back the same one.")
+                    f"cannot write back the same one.",
+                    [owner[seen_regions[rid]]] + here)
             seen_regions[rid] = cid
         if rid is not None and not (isinstance(rid, str) and _ID_RE.match(rid)):
             raise ClipManifestError(
                 f"R3 {path}: clip {cid!r} region_id {rid!r} does not match "
                 f"{REGION_ID_PATTERN}. `region_id` is aurora's WRITE-BACK of the id it "
                 f"derived, not a name this file gets to invent; an id that fails the "
-                f"contract's pattern is one no regions document could have carried.")
+                f"contract's pattern is one no regions document could have carried.", here)
         if "palette" in cr:
             raise ClipManifestError(
                 f"R3 {path}: clip {cid!r} carries a `palette` field. Schema 1 has none: a "
                 f"region's palette comes from its REQUIRED `preset`, which names a record in "
                 f"the game's effects library, and a Sonic 2 zone cannot supply that. What the "
                 f"clip supplies is donors/{cr.get('donor')}/{cr.get('zone')}/palette.bin; the "
-                f"preset that installs it is named at paste time.")
-        _require_rect(f"clips[{i}].src_rect", cr["src_rect"])
-        _require_rect(f"clips[{i}].dst_rect", cr["dst_rect"])
+                f"preset that installs it is named at paste time.", here)
+        _require_rect(f"clips[{i}].src_rect", cr["src_rect"], here)
+        _require_rect(f"clips[{i}].dst_rect", cr["dst_rect"], here)
         clips.append(Clip(cr, i))
 
     # R4 — donor registry, then the converted tree
@@ -588,13 +672,13 @@ def load(path, donor_root=None, constants=None, warn=None):
         if cl.donor not in s2_donor.DONORS:
             raise ClipManifestError(
                 f"R4 clip {cl.id!r}: donor {cl.donor!r} is not registered "
-                f"(tools/s2_donor.py knows {', '.join(s2_donor.DONORS)})")
+                f"(tools/s2_donor.py knows {', '.join(s2_donor.DONORS)})", [_subject_of(cl)])
         names = s2_donor.zone_names(cl.donor)
         if cl.zone not in names:
             raise ClipManifestError(
                 f"R4 clip {cl.id!r}: donor {cl.donor} has no zone {cl.zone!r} "
                 f"(it has {', '.join(names)}). Five zone names exist in both donors and "
-                f"mean different levels; the donor is not a guess.")
+                f"mean different levels; the donor is not a guess.", [_subject_of(cl)])
 
     # zone keys: distinct (donor, zone) in first-appearance order
     keys = {}
@@ -612,19 +696,21 @@ def load(path, donor_root=None, constants=None, warn=None):
                         f"R6 clip {cl.id!r}: {label}.{k} = {v} is not a multiple of "
                         f"{TILE_PX} px. An editor section file is a grid of {TILE_PX}-px "
                         f"cells (tools/ojz_strip_gen.py load_editor_section_nametable); "
-                        f"there is no sub-tile addressing to round to.")
+                        f"there is no sub-tile addressing to round to.", [_subject_of(cl)])
 
         # R7 — a clip is a paste, not a scale
         if cl.src[2:] != cl.dst[2:]:
             raise ClipManifestError(
                 f"R7 clip {cl.id!r}: src {cl.src[2]}x{cl.src[3]} != dst {cl.dst[2]}x{cl.dst[3]}. "
-                f"A clip is a paste; nothing in this pipeline rescales nametable cells.")
+                f"A clip is a paste; nothing in this pipeline rescales nametable cells.",
+                [_subject_of(cl)])
 
         # R8 — inside the declared act
         if cl.dst[0] + cl.dst[2] > grid_w * sec_px or cl.dst[1] + cl.dst[3] > grid_h * sec_px:
             raise ClipManifestError(
                 f"R8 clip {cl.id!r}: dst_rect ({_rect_str(cl.dst)}) runs past the declared "
-                f"{grid_w}x{grid_h}-section act ({grid_w * sec_px}x{grid_h * sec_px} px)")
+                f"{grid_w}x{grid_h}-section act ({grid_w * sec_px}x{grid_h * sec_px} px)",
+                [_subject_of(cl)])
 
         # R9 — inside the donor's CROP, not merely its padded grid
         x0, x1, y0, y1 = (int(v) for v in zm["extent"]["crop_tiles"])
@@ -637,7 +723,7 @@ def load(path, donor_root=None, constants=None, warn=None):
                 f"{cl.donor}@{cl.zone}'s camera-box crop "
                 f"(x {cx0}..{cx1}, y {cy0}..{cy1} px, from that tree's zone.json). "
                 f"Outside the crop there is only the converter's zero padding; a rect that "
-                f"runs past it is a clip that reads smaller than it looks.")
+                f"runs past it is a clip that reads smaller than it looks.", [_subject_of(cl)])
 
         # R11 — the design's §2.2 section-boundary recommendation, opt-out in the file
         if cl.dst[0] % sec_px or cl.dst[1] % sec_px:
@@ -652,7 +738,7 @@ def load(path, donor_root=None, constants=None, warn=None):
                     f"does NOT buy a better camera-window page budget — that measured the "
                     f"same either way. Finer placement is available: set "
                     f"\"unaligned_dst_reason\" on this clip to the argument for it, and it "
-                    f"will be carried into the bake's clipact.json.")
+                    f"will be carried into the bake's clipact.json.", [_subject_of(cl)])
 
         # R12 — the collision quantum. W1's replacement; see the rule table.
         shift = (cl.dst[0] - cl.src[0], cl.dst[1] - cl.src[1])
@@ -671,7 +757,7 @@ def load(path, donor_root=None, constants=None, warn=None):
                 f"word per 8-px cell, moves correctly — so this fails as ground that is "
                 f"8 px out of place, not as anything that looks broken in a screenshot. "
                 f"Move src_rect or dst_rect so the difference is a multiple of "
-                f"{COLL_QUANTUM_PX} in both axes.")
+                f"{COLL_QUANTUM_PX} in both axes.", [_subject_of(cl)])
 
         # W2 — an all-blank clip
         bbox = zm["extent"].get("painted_bbox_tiles")
@@ -681,7 +767,8 @@ def load(path, donor_root=None, constants=None, warn=None):
                     or cl.src[1] >= by1 or cl.src[1] + cl.src[3] <= by0):
                 _warn(f"W2 clip {cl.id!r}: src_rect ({_rect_str(cl.src)}) does not meet "
                       f"{cl.donor}@{cl.zone}'s painted bounding box "
-                      f"(x {bx0}..{bx1}, y {by0}..{by1} px) — this clip is entirely blank.")
+                      f"(x {bx0}..{bx1}, y {by0}..{by1} px) — this clip is entirely blank.",
+                      [_subject_of(cl)])
 
     # K1-K3 — corridors (see CORRIDORS in the header)
     corridors = []
@@ -690,42 +777,48 @@ def load(path, donor_root=None, constants=None, warn=None):
         raise ClipManifestError(f"K1 {path}: `corridors` must be a list")
     for i, kr in enumerate(corr_raw):
         if not isinstance(kr, dict):
-            raise ClipManifestError(f"K1 {path}: corridors[{i}] is not an object")
+            raise ClipManifestError(f"K1 {path}: corridors[{i}] is not an object",
+                                    [subject("corridor", i, None)])
+        raw_id = kr.get("id")
+        here = [subject("corridor", i, raw_id if isinstance(raw_id, str) else None)]
         for k in ("id", "dst_rect", "floor_y"):
             if k not in kr:
-                raise ClipManifestError(f"K1 {path}: corridors[{i}] is missing {k!r}")
+                raise ClipManifestError(f"K1 {path}: corridors[{i}] is missing {k!r}", here)
         kid = str(kr["id"])
+        here = [subject("corridor", i, kid)]
         if not _ID_RE.match(kid):
             raise ClipManifestError(
                 f"K1 {path}: corridor id {kid!r} does not match {REGION_ID_PATTERN} — a "
                 f"corridor is a place in the act exactly as a clip is, and its id is held to "
-                f"the same region-id pattern")
+                f"the same region-id pattern", here)
         if kid in seen_ids:
             raise ClipManifestError(
                 f"K1 {path}: corridor id {kid!r} is already used by clips[{seen_ids[kid]}] "
-                f"or an earlier corridor; one name is one rectangle")
+                f"or an earlier corridor; one name is one rectangle", [owner[kid]] + here)
         seen_ids[kid] = f"corridors[{i}]"
-        _require_rect(f"corridors[{i}].dst_rect", kr["dst_rect"])
+        owner[kid] = here[0]
+        _require_rect(f"corridors[{i}].dst_rect", kr["dst_rect"], here)
         co = Corridor(kr, i)
         for k, v in zip(_RECT_KEYS, co.dst):
             if v % TILE_PX:
                 raise ClipManifestError(
                     f"K2 corridor {kid!r}: dst_rect.{k} = {v} is not a multiple of "
-                    f"{TILE_PX} px (the editor cell grid, R6's reason)")
+                    f"{TILE_PX} px (the editor cell grid, R6's reason)", here)
         if co.dst[0] + co.dst[2] > grid_w * sec_px or co.dst[1] + co.dst[3] > grid_h * sec_px:
             raise ClipManifestError(
                 f"K2 corridor {kid!r}: dst_rect ({_rect_str(co.dst)}) runs past the declared "
-                f"{grid_w}x{grid_h}-section act ({grid_w * sec_px}x{grid_h * sec_px} px)")
+                f"{grid_w}x{grid_h}-section act ({grid_w * sec_px}x{grid_h * sec_px} px)", here)
         fy = kr["floor_y"]
         if not isinstance(fy, int) or isinstance(fy, bool):
-            raise ClipManifestError(f"K3 corridor {kid!r}: floor_y = {fy!r} is not an integer")
+            raise ClipManifestError(f"K3 corridor {kid!r}: floor_y = {fy!r} is not an integer",
+                                    here)
         if fy % COLL_QUANTUM_PX or not (co.dst[1] <= fy < co.dst[1] + co.dst[3]):
             raise ClipManifestError(
                 f"K3 corridor {kid!r}: floor_y = {fy} must be a multiple of "
                 f"{COLL_QUANTUM_PX} (a collision row: the runtime picks the row with "
                 f"`lsr.w #1` of the tile row, engine/level/collision_lookup.emp) and lie "
                 f"inside the rect's y span {co.dst[1]}..{co.dst[1] + co.dst[3] - 1}. A floor "
-                f"off the collision grid would be drawn at one y and stood on at another.")
+                f"off the collision grid would be drawn at one y and stood on at another.", here)
         corridors.append(co)
 
     # R10 / K2 — dst overlap, over clips AND corridors
@@ -737,7 +830,8 @@ def load(path, donor_root=None, constants=None, warn=None):
                 raise ClipManifestError(
                     f"R10 clips {a.id!r} ({_rect_str(a.dst)}) and {b.id!r} "
                     f"({_rect_str(b.dst)}) overlap in the act. Whichever the bake wrote "
-                    f"second would silently win; say which one you meant.")
+                    f"second would silently win; say which one you meant.",
+                    [_subject_of(a), _subject_of(b)])
 
     # W3 — sections holding more than one zone key. A warning, not a refusal: the only
     # cost MEASURED is the section's local tile map, and the exact limit on that lives
@@ -758,7 +852,7 @@ def load(path, donor_root=None, constants=None, warn=None):
                   f"ONE local tile map — a single 11-bit space capped at 2047 entries "
                   f"(ojz_strip_gen.build_section_local_map) — and a mixed section needs "
                   f"the sum of both zones' tiles in it. The bake prints the map size per "
-                  f"section and refuses past the cap.")
+                  f"section and refuses past the cap.", [_subject_of(m) for m in members])
 
     return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors)
 
@@ -975,20 +1069,45 @@ def tilesets(act, donor_root=None):
 USAGE = "Usage: python3 tools/clip_manifest.py validate <clips.json> [--donor-root DIR]"
 
 
+#: `validate --json` document schema. Bump it on any change a vendored reader could notice.
+VALIDATE_JSON_SCHEMA = 1
+
+
+def validate_json(path, donor_root=None):
+    """(the `validate --json` document, exit code). See "--json" in the module header."""
+    warnings = []
+    doc = {"schema": VALIDATE_JSON_SCHEMA, "ok": False, "refusals": [], "warnings": warnings}
+    try:
+        load(path, donor_root=_root(donor_root), warning_records=warnings)
+    except ClipManifestError as exc:
+        doc["refusals"].append({"rule": exc.rule, "subjects": exc.subjects,
+                                "message": str(exc)})
+        return doc, 1
+    doc["ok"] = True
+    return doc, 0
+
+
 def _mode_validate(rest):
     if not rest:
         print(USAGE)
         return 1
-    path, root = rest[0], None
+    path, root, as_json = rest[0], None, False
     extra = rest[1:]
     while extra:
         if extra[0] == "--donor-root" and len(extra) > 1:
             root = extra[1]
             extra = extra[2:]
+        elif extra[0] == "--json":
+            as_json = True
+            extra = extra[1:]
         else:
             print(f"ERROR: unknown argument {extra[0]!r}")
             print(USAGE)
             return 1
+    if as_json:
+        doc, rc = validate_json(path, root)
+        print(json.dumps(doc, indent=2, sort_keys=True))
+        return rc
     try:
         act = load(path, donor_root=_root(root), warn=lambda m: print(f"  WARNING: {m}"))
     except ClipManifestError as exc:
