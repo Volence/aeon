@@ -38098,6 +38098,65 @@ CPZ's invented seam every 512 px; CPZ's 2 line-0 cells; both backgrounds scroll 
   `clip_act.emp`) at its next aeon pin advance. `ojz_scroll_test.emp` also gains two names from the clip
   module (not lowered standalone by any port found).
 
+### S2CLIP-ORIGINAL-BGS parcel B-2 (2026-09-25) — EACH BACKGROUND SCROLLS THE WAY SONIC 2 SCROLLS IT
+
+Branch `parcel/s2clip-bg-scroll-2` (base `dba08ef9`). **Data only: no engine file touched** (so no
+effects-gates ritual). Each zone's region preset now binds `preset(parallax: OJZ_Clip_Parallax_<key>)`, a
+scene built through the real `layer()`/`scene()` constructors and lowered by the registry's `lowerN`, emitted
+in the CLIP ACT DATA block (entity_data vehicle; the research's worry that the scene DSL is unreachable there
+did not materialise). Rows keep `rg_parallax 0`. Canonical shapes are untouched (the neutral module is
+unchanged).
+
+**Where the numbers come from:** `tools/clip_bg_scroll.py`. EHZ by EXECUTING `SwScrl_EHZ` (s2.asm, a 68000-
+subset interpreter) and reading the band structure off the store loops; CPZ read from `InitCam_CPZ` shifts
+cross-checked against `SwScrl_CPZ`'s per-frame rates, the 16-line block index and `cmpi.b #18,d4`.
+
+| zone | plane lines | BG scroll | s2.asm (loop/instruction line) |
+|---|---|---|---|
+| EHZ | 0..21 | 0 | 15273 |
+| EHZ | 22..79 | camX/64 | 15281 |
+| EHZ | 80..100 | camX/64 + ripple (static) | 15302 |
+| EHZ | 101..111 | 0 | 15309 |
+| EHZ | 112..127 | camX/16 | 15317 |
+| EHZ | 128..143 | 3camX/32 (1/16 + 1/32) | 15328 |
+| EHZ | 144..223 | curve camX/8 -> 3camX/4 (= camX/128 per line) | 15353, 15365, 15380 |
+| CPZ | 0..287 | camX/8 | 15035 (InitCam), 17353 |
+| CPZ | 288..303 | camX/8 + ripple (static) | 17353 |
+| CPZ | 304..511 | camX/2 | 15035, 17353 |
+
+EHZ BG locked (v_factor 15, InitCam_EHZ 14906). CPZ v_factor 2 (camY/4, 15032 + rate 17247), v_center 256 (the
+clip's paste). Ripple table = `SwScrl_RippleData` (15398) 32-entry cycle repeated to 256, speed 0.
+**Correction to the research doc §2.3:** the EHZ ramp does not end "at about 0.43 camX": it grows camX/128 per
+line from camX/8, reaching 0.71 camX on line 221 (3/4 at 224).
+
+**Verified.** `tools/test_clip_bg_scroll.py` (build.sh pre-build lane, 17 rows): the model equals SwScrl_EHZ
+exactly at every camX multiple of 128 except the ramp's holds; elsewhere within the per-shift-term floor bound;
+CPZ reader refusals; SC1 (bake read-back of each preset's binding). Red-first mutations: EHZ ripple phase +1
+(3 rows red), SC1 binding check disabled (2 rows red), CPZ ripple phase +1 (witness 8 FAIL). Headless
+`tools/clip_bg_scroll_witness.py` (manual; keepalive not_wired) on the DEBUG clip ROM: **24/24 probes exact**
+against the model, incl. CPZ vscroll 0/173/288. Room: plain +7,160 -> **+6,524 B** (−636 B); DEBUG +4,324 ->
+**+3,688 B**.
+
+**APPROXIMATED (engine can't express it as data; not built, test act):**
+- EHZ ramp: S2 writes it per line, then in held PAIRS, then held TRIPLES; the curve is per line. Exact on the
+  first line of every group, 1-2 steps (camX/128 px each) ahead inside a group (up to 166 px at camX 10653).
+  Faithful needs 39 bands > MAX_PARALLAX_BANDS 16, or a "stepped curve" band option (engine, S).
+- Flat bands differ from S2 by <=1 px per shift term (floor of +camX vs of −camX).
+- S2 leaves lines 222-223 unwritten (bug); the curve covers them (K&S2's fix).
+- Ripple static (no sub-frame deform phase speed; aurora survey gap, S).
+- CPZ: rows past 511 do not exist in the 64-row plane, so the BG stops at BG Y 288 (camera Y 1408 in this act)
+  where S2 continues to 456; the 96-cell period is cropped to 64 (B-1's invented seam) and the plane's column 0
+  is S2 BG x 384 (crop start chunk 3), so the horizontal phase is not S2's. S2's partial-block ripple quirk
+  (screen-anchored on a part-visible block 18) is not reproduced; the engine's ripple is plane-anchored.
+- The crossing between the two configs uses the default smooth lerp (pcfg_transition 0).
+
+**TAGGED FOR THE OWNER'S LOOK (runtime):** EHZ motion (esp. the lower ramp's per-line vs S2's 2/3-line slats);
+CPZ vertical follow and where it stops (camera Y ≈ 1408); the static ripples; the config lerp at the x = 11632
+crossing together with the BG wipe and palette fade.
+
+**OPEN:** animated ripple (sub-frame phase, S); stepped-curve band (S) if the owner wants EHZ's slats; faithful
+CPZ (tall BG with BG-space bands + wide BG, L each — unchanged from B-1).
+
 ## PCC-RAW-CELL-READ: `Parallax_Current_Config` is read raw where `Parallax_Active_Config`'s rule is meant (found 2026-09-18, `diag/parallax-current-config-identity`)
 
 **The premise that sent this diagnostic out was wrong, and the correction is the finding.**
