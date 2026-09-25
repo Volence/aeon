@@ -50,7 +50,11 @@ from aether import BusClient                                    # noqa: E402
 
 HSCROLL_BYTES = 896            # 224 lines x {FG word, BG word}
 CFG_HDR = 30                   # sizeof(parallax_config)
-BAND_REC = 32                  # sizeof(band_record) for sonic4's capability set
+# sizeof(band_record) — PER GAME (sonic4 32, demo 10), so never typed. main() installs it from
+# the listing's published `EQU band_record_len` row (PUBLISH-BAND-RECORD-LEN, 2026-09-25) and
+# refuses when the row is absent. It was a typed 32 here until then. None until installed, so a
+# path that forgot to install it fails with a TypeError instead of using a plausible number.
+BAND_REC = None
 
 # Header field offsets a panel writes (docs/2026-09-06-live-effects-ram-surface.md §6.3)
 OFF_BAND_COUNT = 0x00
@@ -386,8 +390,15 @@ def main():
     for f in (rom, lst):
         if not os.path.isfile(f):
             raise SystemExit(f"UNMEASURABLE: {f} does not exist")
+    global BAND_REC
+    import band_geometry
+    try:
+        BAND_REC = band_geometry.published_stride(lst)
+    except band_geometry.Unreadable as e:
+        raise SystemExit(f"UNMEASURABLE: {e}")
     blob = open(rom, "rb").read()
     print(f"ROM   {rom}\n      {len(blob)} bytes, crc32 {zlib.crc32(blob) & 0xFFFFFFFF:08x}")
+    print(f"      band_record_len {BAND_REC} (published in {os.path.basename(lst)})")
 
     inst = AetherInstance(rom, symbols=lst)
     sock = inst.start()

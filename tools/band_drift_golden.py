@@ -252,11 +252,25 @@ def main() -> int:
         # the item-9 adoption build before this line was added. A tail added to band_record
         # must be added here in the same commit.
         remap_bytes = geo["bytes"]["BAND_REMAP_BYTES"]
-        stride = (emp_const(RAM, "BAND_ENTRY_LEN")
-                  + geo["bytes"]["BAND_EXT_BYTES"]
-                  + geo["bytes"]["BAND_CURVE_BYTES"]
-                  + drift_bytes
-                  + remap_bytes)
+        # THE STRIDE IS THE ONE THE BUILD PUBLISHED (PUBLISH-BAND-RECORD-LEN, 2026-09-25): the
+        # listing's `EQU band_record_len` row, refused when absent. The source sum below is no
+        # longer the stride; it is kept only as the CHECK that the tail geometry this gate takes
+        # its drift OFFSET from (drift_off, below) describes the record the build published.
+        try:
+            stride = band_geometry.published_stride(lst_path)
+        except band_geometry.Unreadable as e:
+            raise Unmeasurable(str(e)) from e
+        source_stride = (emp_const(RAM, "BAND_ENTRY_LEN")
+                         + geo["bytes"]["BAND_EXT_BYTES"]
+                         + geo["bytes"]["BAND_CURVE_BYTES"]
+                         + drift_bytes
+                         + remap_bytes)
+        if source_stride != stride:
+            raise Unmeasurable(
+                f"{lst_path} publishes band_record_len {stride} but this tree's tail geometry "
+                f"sums to {source_stride}: the drift offset derived from that geometry would "
+                f"address the wrong bytes. The listing is not this tree's build, or a tail was "
+                f"added that tools/band_geometry.py does not know")
         drift_n = geo["counts"]["BAND_DRIFT_N"]
         if drift_bytes == 0 or drift_n == 0:
             raise Unmeasurable(

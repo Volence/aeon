@@ -162,9 +162,51 @@ def tail_bytes(game, repo=REPO):
 
 
 def record_stride(game, repo=REPO):
-    """sizeof(band_record) for `game` = BAND_ENTRY_LEN + every tail this game carries."""
+    """sizeof(band_record) for `game` = BAND_ENTRY_LEN + every tail this game carries.
+
+    SOURCE-SIDE, for callers with no listing. A tool that holds the listing it measures reads
+    `published_stride(lst)` instead (the build's own `EQU band_record_len` row)."""
     g = geometry(game, repo)
     return g["entry"] + sum(g["bytes"].values())
+
+
+PUBLISHED_STRIDE = "band_record_len"
+PUBLISHED_PREFIX = "band_entry_len"
+
+
+def _equate(text, name, lst):
+    rows = re.findall(r"^EQU " + re.escape(name) + r" = \$([0-9A-Fa-f]+)\s*$", text, re.M)
+    if len(rows) != 1:
+        raise Unreadable(
+            f"{lst} carries {len(rows)} `EQU {name}` rows, not exactly one. The band stride is "
+            f"published by engine/level/parallax.emp (`pub equ {PUBLISHED_STRIDE} = "
+            f"sizeof(band_record)`) and read from the listing, never derived in a tool: a "
+            f"listing without it was built before PUBLISH-BAND-RECORD-LEN, is not this build's, "
+            f"or lost the row. Refusing rather than deriving or transcribing a stride")
+    return int(rows[0], 16)
+
+
+def published_stride(lst):
+    """sizeof(band_record) as the BUILD published it: the listing's `EQU band_record_len` row.
+
+    THIS is the stride for any tool holding a listing (PUBLISH-BAND-RECORD-LEN, 2026-09-25).
+    `record_stride` below is the source-side reader for callers with no listing in hand; a
+    tool that has the listing must not use it, because the listing is the build's own
+    statement for the game it was built for and the source reader is a second derivation.
+    Refuses (Unreadable) when the row is absent or duplicated, or when it is smaller than the
+    same listing's `band_entry_len` (the record's legacy prefix)."""
+    try:
+        with open(lst, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError as e:
+        raise Unreadable(f"cannot read listing {lst}: {e}") from e
+    stride = _equate(text, PUBLISHED_STRIDE, lst)
+    prefix = _equate(text, PUBLISHED_PREFIX, lst)
+    if stride < prefix:
+        raise Unreadable(
+            f"{lst}: {PUBLISHED_STRIDE} {stride} is smaller than {PUBLISHED_PREFIX} {prefix}; "
+            f"a record cannot be shorter than its own legacy prefix")
+    return stride
 
 
 def tail_offset(game, struct, repo=REPO):

@@ -312,7 +312,10 @@ async def ramp_at(b, sym, cfg, layers, settle, cam_x, split_line=None):
     cam = await php._read(b, sym["Camera_X"], 4)
     got_cam_x = int.from_bytes(cam[0:2], "big")
     hs = await php._read(b, sym["Hscroll_Buffer"], php.HSCROLL_BYTES)
-    tops = await php._read(b, sym["Parallax_Shadow_Bands"], 20 * 8)
+    # Eight records at the INSTALLED stride (main() set it from the published band_record_len);
+    # this read and the slice below were a transcribed 20 until 2026-09-25.
+    stride = pcp.BE_SIZE
+    tops = await php._read(b, sym["Parallax_Shadow_Bands"], stride * 8)
     # THE TRANSITION STATE IS A DERIVED CHECK, not decoration: a staged TARGET config wins
     # over Current_Config inside Parallax_Update's Step 1, so the pointer check alone reads
     # green while the walker builds from somebody else's config entirely. That is exactly
@@ -333,7 +336,7 @@ async def ramp_at(b, sym, cfg, layers, settle, cam_x, split_line=None):
     exp = derive_curve_buffer(layers, php.s16(got_cam_x), split_line, True)
     ok, bad = php.check(act, exp, label=f"camX {php.s16(got_cam_x)}")
     return {"cam_x": php.s16(got_cam_x), "ok": ok, "bad": bad, "act": act, "exp": exp,
-            "setup": setup, "shadow_tops": [int.from_bytes(tops[i * 20:i * 20 + 2], "big")
+            "setup": setup, "shadow_tops": [int.from_bytes(tops[i * stride:i * stride + 2], "big")
                                             for i in range(8)]}
 
 
@@ -376,7 +379,7 @@ def run_ramp(args, sym, base, stride, zero_tab) -> int:
     with headless_emulator(args.rom) as sock:
         asyncio.run(_go(sock))
 
-    print(f"ROM {args.rom}   arm ramp   stride {stride} B (DERIVED)")
+    print(f"ROM {args.rom}   arm ramp   stride {stride} B (PUBLISHED band_record_len)")
     print("fixture: 1 layer, BG factor ramps FACTOR_1_2 -> FACTOR_1_8 over all 224 lines;")
     print("         FG FACTOR_1 (constant). Expectation DERIVED from those factors + camX.\n")
     hdr = f"{'camX':>6} {'spread':>7} {'BG[0]':>7} {'BG[223]':>8} {'verdict':>9}  notes"
@@ -529,7 +532,7 @@ def run_cost(args, sym, base, stride, zero_tab) -> int:
         with headless_emulator(args.rom) as sock:
             asyncio.run(_sweep(sock))
 
-    print(f"ROM {args.rom}   arm cost   stride {stride} B (DERIVED)   sample {args.sample}"
+    print(f"ROM {args.rom}   arm cost   stride {stride} B (PUBLISHED band_record_len)   sample {args.sample}"
           f"   repeats {args.repeat}")
     print("response = Parallax_Update's per-routine row, INCLUSIVE of its callees.")
     print("Every pair is curve-vs-flat on the SAME ROM, so the capability's record stride,")
@@ -625,11 +628,9 @@ def main() -> int:
     if not Path(args.rom).exists():
         sys.exit(f"ROM not found: {args.rom}")
     sym = parse_lst(Path(args.lst))
-    span = sym["Parallax_Shadow_Scroll_A"] - sym["Parallax_Shadow_Bands"]
-    if span % pcp.MAX_SHADOW:
-        sys.exit(f"shadow span {span} is not a multiple of MAX_PARALLAX_BANDS — the symbols "
-                 f"moved, or this .lst is not this ROM's")
-    stride = span // pcp.MAX_SHADOW
+    # The stride is the listing's published `EQU band_record_len` row (PUBLISH-BAND-RECORD-LEN,
+    # 2026-09-25), read through parallax_cost_probe.set_stride, which refuses when it is absent.
+    stride = pcp.set_stride(args.lst)
     if stride != LEGACY_BE_SIZE + BC_SIZE:
         sys.exit(f"REFUSED: this build's band record is {stride} bytes, not the "
                  f"{LEGACY_BE_SIZE + BC_SIZE} a curve build has (legacy prefix + one "
@@ -637,7 +638,6 @@ def main() -> int:
                  f"SCANLINE_CAPS $001F and BAND_CURVE_N is 0. See "
                  f"docs/benchmarks/scanline-p3/CURVES.md for the instrument-build recipe. "
                  f"Refusing rather than measuring the flat path and calling it a curve.")
-    pcp.BE_SIZE = stride
     php.BE_SIZE = stride
 
     rom = Path(args.rom).read_bytes()

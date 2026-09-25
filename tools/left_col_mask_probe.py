@@ -170,10 +170,15 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
     # tools/band_geometry.py, which sums EVERY tail. The hand sum that stood here stopped at
     # the curve tail and so missed the drift (2026-09-02) and remap (2026-09-03) tails: 20
     # against a real 32, the exact wrong-stride failure the paragraph above describes.
+    #
+    # PUBLISHED SINCE 2026-09-25 (PUBLISH-BAND-RECORD-LEN): this reads the listing's own
+    # `EQU band_record_len` row, engine/level/parallax.emp's `pub equ band_record_len =
+    # sizeof(band_record)` lowered for the game this listing was built for, and REFUSES when
+    # it is absent. The source-side band_geometry.record_stride sum is no longer consulted here.
     sys.path.insert(0, str(AEON / "tools"))
     import band_geometry
     try:
-        stride = band_geometry.record_stride("sonic4", str(AEON))
+        stride = band_geometry.published_stride(str(lst_path))
     except band_geometry.Unreadable as e:
         raise SystemExit(f"FAIL: {e}")
     if stride < band["__sizeof__"]:

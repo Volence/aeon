@@ -584,7 +584,21 @@ def main() -> int:
                 return rc
         syms = parse_lst(a.lst)
         rom = open(a.rom, "rb").read()
-        tail_off, stride, remap_n = record_geometry(a.repo, a.game)
+        tail_off, source_stride, remap_n = record_geometry(a.repo, a.game)
+        # THE STRIDE IS THE ONE THE BUILD PUBLISHED (PUBLISH-BAND-RECORD-LEN, 2026-09-25): the
+        # listing's `EQU band_record_len` row for the game it was built for, refused when
+        # absent. The source sum stays only as the check that br_remap's offset, which IS
+        # derived from source, describes the record this listing published.
+        try:
+            stride = band_geometry.published_stride(a.lst)
+        except band_geometry.Unreadable as e:
+            raise Unmeasurable(str(e)) from e
+        if stride != source_stride:
+            raise Unmeasurable(
+                f"{a.lst} publishes band_record_len {stride} but this tree's {a.game} tail "
+                f"geometry sums to {source_stride}, so br_remap's offset {tail_off} would "
+                f"address the wrong bytes. The listing is not this --game's build, or "
+                f"tools/band_geometry.py no longer knows every tail")
         caps = game_caps(a.repo, a.game)
         anchor_off = pcfg_offset(a.repo, "pcfg_anchor_ch")
         hdr_len = pcfg_size(a.repo)

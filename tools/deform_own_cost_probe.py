@@ -21,9 +21,10 @@ THE FIXTURE MACHINERY IS parallax_cost_probe's, IMPORTED, NOT RE-TYPED. `_one()`
 Debug_Scene_Freeze + Replay_Record_Buf installer, the preemption-free window retry, the four
 derived checks) and `row()` are its; only the RECORD BUILDER is new, because a band is 20
 bytes here and carries two table pointers the legacy builder has no field for. `BE_SIZE` is
-DERIVED from the build under measurement — `Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands`
-over MAX_PARALLAX_BANDS, which is the same span engine/level/parallax.emp pins the record
-against — and pushed into that module, so nothing here types a stride.
+READ from the build under measurement — the listing's published `EQU band_record_len` row
+(engine/level/parallax.emp's `pub equ`, since 2026-09-25), through parallax_cost_probe's
+set_stride, which refuses when it is absent — and installed in that module, so nothing here
+types or derives a stride.
 
 WHAT THE TWO ARMS MEASURE
 -------------------------
@@ -184,21 +185,6 @@ def scan_bracket(lst: Path) -> tuple[int | None, int | None]:
     return a, b
 
 
-def derive_stride(sym: dict) -> int:
-    """The record stride, READ OFF THE BUILD — never typed, never inferred from a flag.
-
-    `Parallax_Shadow_Bands` reserves one record per MAX_PARALLAX_BANDS and the next symbol
-    starts immediately after it; engine/level/parallax.emp pins that span to
-    `sizeof(band_record) * MAX_PARALLAX_BANDS` on every build, so this is the same number
-    the walker's own displacement arithmetic used.
-    """
-    span = sym["Parallax_Shadow_Scroll_A"] - sym["Parallax_Shadow_Bands"]
-    if span % pcp.MAX_SHADOW:
-        sys.exit(f"shadow span {span} is not a multiple of MAX_PARALLAX_BANDS "
-                 f"({pcp.MAX_SHADOW}) — the symbols moved, or this .lst is not this ROM's")
-    return span // pcp.MAX_SHADOW
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", required=True)
@@ -214,7 +200,11 @@ def main() -> int:
         sys.exit(f"ROM not found: {args.rom}")
     sym = parse_lst(Path(args.lst))
 
-    stride = derive_stride(sym)
+    # The record stride, READ OFF THE BUILD: the listing's published `EQU band_record_len`
+    # row (PUBLISH-BAND-RECORD-LEN, 2026-09-25), through parallax_cost_probe.set_stride, which
+    # refuses when it is absent and installs it as pcp.BE_SIZE. This file used to derive it
+    # from the Parallax_Shadow_Bands span (derive_stride, removed).
+    stride = pcp.set_stride(args.lst)
     if stride == LEGACY_BE_SIZE:
         sys.exit(f"REFUSED: {args.rom} has a {stride}-byte band record, i.e. the LEGACY "
                  f"shape. This probe measures the per-band table reload, which only exists "
@@ -226,10 +216,9 @@ def main() -> int:
         sys.exit(f"REFUSED: band record is {stride} bytes, expected "
                  f"{LEGACY_BE_SIZE + BX_SIZE} (legacy prefix + one band_ext). The record "
                  f"grew by something this probe does not know how to fill.")
-    # Push the derived stride into the imported installer: its shadow-slot poison writes and
-    # reads exactly one record, and a 10-byte poison in a 20-byte world would leave half the
-    # slot un-poisoned and the two-sided witness half-blind.
-    pcp.BE_SIZE = stride
+    # set_stride above already pushed the stride into the imported installer: its shadow-slot
+    # poison writes and reads exactly one record, and a 10-byte poison in a 20-byte world would
+    # leave half the slot un-poisoned and the two-sided witness half-blind.
 
     rom = Path(args.rom).read_bytes()
     base = rom[sym["ParallaxConfig_OJZ_Default"]:
