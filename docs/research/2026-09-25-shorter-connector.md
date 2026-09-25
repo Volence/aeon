@@ -320,3 +320,21 @@ test, 336 px`):
   bottom background row of the far zone's first 16 px for one frame. None was seen in 12 runs.
 - Past Chemical Plant's 2528 px there is a 448-px unpainted void (the act stays 7 sections), which the owner said
   does not matter.
+
+### 8.6 Builds, gates and landing (shared sigil pair 1d19e60b)
+
+| Build | crc | size |
+|---|---|---|
+| canonical `s4.bin` | 950f7d28 | 822,103 B |
+| canonical `s4.debug.bin` | a0e248e7 | 848,768 B (+66 B: the DMA sweep) |
+| canonical `demo.debug.bin` | 0d9b88fd | 105,401 B (the engine change is in the demo too) |
+| `S2CLIP=s2_ehz_cpz_short` (384 px) | 5285c3b7 | 888,493 B, bank room +61,986 B over the reserve |
+| `S2CLIP=s2_ehz_cpz_short DEBUG=1` (384 px) | 95db1392 | 914,973 B, +59,146 B |
+
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` (headless, on a0e248e7):
+the first run was **exit 1, 1 of 41 rows**: `bg_switch` COULD NOT RUN at leg POISON ("entered
+the patched neighbour at tick 20 with no sweep in flight"). The leg needs a sweep still running
+when it crosses, and the 5-frame DMA sweep had finished. Its route now starts one fly step
+inside the subject instead of three (commit "bg_switch_gate POISON"). Re-run: **exit 0, 41 of
+41 rows PASS over 22 of 22 gates**, `bg_wipe` (the tall, CPU-path map) unchanged. The canonical
+CRCs are the landing build's.
