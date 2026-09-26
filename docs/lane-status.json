@@ -1,9 +1,9 @@
 {
-  "focus": "Building a cheaper background curve for Emerald Hill (same picture, less lag) and the Sonic 2 songs' sounds and drums.",
+  "focus": "Emerald Hill lags less (landed). Now fixing checks that report a problem without stopping; music waits on sigil.",
   "inFlight": [
     {
-      "what": "Cheaper background curve for Emerald Hill, identical picture",
-      "where": "branch parcel/parallax-curve-loop",
+      "what": "Sweep our checks for ones that print a problem but let the step go ahead anyway; fix each",
+      "where": "branch parcel/printed-not-gated",
       "agent": true
     }
   ],
@@ -19,7 +19,7 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Curve fix landed; the envelopes go in once sigil's address fix lands.",
+  "nextBoundary": "The check sweep landed; the music envelopes resume when sigil's address fix lands.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -38,8 +38,8 @@
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Emerald Hill's slowdown found (its Sonic 2 background); a cheaper curve with the identical picture wins back 9 of 18 lost lag frames. Next to build",
-      "state": "doing",
+      "title": "Emerald Hill curve fix landed (44 to 35 lag frames); Chemical Plant's slow tile patching is the booked leftover",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -75,14 +75,14 @@
     {
       "id": "PRINTED-NOT-GATED",
       "title": "Some of our checks report a problem and then let the thing proceed anyway; two did exactly that tonight, in one line each",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "CAPTURE-SETTLE-NAME",
       "title": "Frames are stamped 'settled' when what was proven is that the COLOURS settled; narrow the name to match the certificate",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -96,7 +96,7 @@
     {
       "id": "S2-COMPRESSED-ACT",
       "title": "Sonic 2 test act: you flew it (09-25); your three asks are the S2CLIP rows above",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -132,5 +132,5 @@
   ],
   "awaiting": "Your pick from the performance list (card PERF-PICK) when you have a minute.",
   "atBoundary": false,
-  "updatedAt": "2026-09-25T23:48:39Z"
+  "updatedAt": "2026-09-26T00:27:37Z"
 }
