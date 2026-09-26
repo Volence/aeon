@@ -87,7 +87,7 @@ port.
 ### 2.1 Tile format
 
 8 × 8 pixels, 4 bits per pixel, **32 bytes per tile** — `TILE_SIZE = 32`
-(`engine/system/constants.emp:728`). VRAM is 64 KB = **2048 tiles**
+(`engine/system/constants.emp`, `TILE_SIZE`). VRAM is 64 KB = **2048 tiles**
 (`TOTAL_TILES = 2048`, `tools/gen_vram_map.py:41`).
 
 Pixel index 0 is the transparent index on this hardware. Where every layer is

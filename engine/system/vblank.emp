@@ -533,6 +533,13 @@ pub proc VSync_Wait () clobbers(d0-d2/a0-a3) preserves(sr.mask) {
             moveq   #PAGE_AUDIT_IDLE, d0
             jbsr    PageCache_Audit
         }
+        // The general regime's liveness sweep (GPL-A3, 2026-09-27; engine.page_cache):
+        // re-derives row/column frame masks exactly while this frame still has room, so
+        // they shrink as content leaves. Last in the idle slot: decode first, then the
+        // DEBUG audit's DUE slices, then this. Gated on the scanline and VBlank_Flag like
+        // the audit; returns at once on a latched act. Clobbers d0-d2/a0-a1 (inside this
+        // proc's license).
+        jbsr    PageCache_LiveSweep
         moveq   #0, d0                          // re-establish d0=0: PageIn_Process clobbers it,
                                                 // and the .wait flag-clear below reuses it
     .wait:

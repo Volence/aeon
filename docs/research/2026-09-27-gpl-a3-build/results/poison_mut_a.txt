@@ -1,0 +1,23 @@
+Sat Sep 26 10:42:13 PM UTC 2026
+ 18:42:13 up 3 days,  7:43,  1 user,  load average: 11.10, 10.87, 9.99
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 tools/pagecache_audit_poison.py --rom /home/volence/.cache/aeon-tmp/gpla3/mut_a/s4.debug.bin --lst /home/volence/.cache/aeon-tmp/gpla3/mut_a/s4.debug.lst
+  booted: PageCache_Direct_Map=$80, first unassigned frame = 10, assigned frames = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15], first assigned unpinned frame = 2, nametable 4800 words in 120 slices, interval 128 ticks
+  CONTROL (no poke)                                still running (412 ticks run)   ok
+  (a) row liveness mask moved under the latch      still running (412 ticks run)   FAIL
+  (a2) column liveness mask moved under the latch  still running (412 ticks run)   FAIL
+  (b) unassigned frame referenced                  HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (c) Page_Table not the identity                  HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b1) one dangling word, first slice              HALTED (audit raised) after 16 ticks (bound 136)   ok
+  (b2) one dangling word, last slice               HALTED (audit raised) after 7 ticks (bound 136)   ok
+  (g0) general regime forced, valid masks: CONTROL still running (412 ticks run)   ok
+  (g1) general: word names an unassigned frame     HALTED (audit raised) after 1 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: frame.pf_page does not round-trip via Page_Table (wrong mapping)', 'PageCache_Audit: general regime: a cache word names an UNASSIGNED frame (dangling physical index)'])
+  (g2) general: frame in neither mask              HALTED (audit raised) after 1 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: frame.pf_page does not round-trip via Page_Table (wrong mapping)', 'PageCache_Audit: a cache word names a frame its row and column liveness masks both omit'])
+  (g3) general: row omits, column carries: CONTROL still running (412 ticks run)   ok
+  (h) demand hold with the gate disarmed           HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (hr) armed demand hold, must be released         still running (412 ticks run)   ok
+     (hr) after the run: flags $00, gate 0, stamp $00B1 released   ok
+RESULT: AT LEAST ONE ARM IS VACUOUS OR LATE
+Sat Sep 26 10:43:03 PM UTC 2026
+ 18:43:03 up 3 days,  7:44,  1 user,  load average: 13.65, 11.82, 10.37
+finished rc=1

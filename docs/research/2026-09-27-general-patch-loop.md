@@ -1,5 +1,14 @@
 # The general patch loop: row and column liveness masks instead of per-word refcounts (design, 2026-09-27)
 
+> **BUILT (2026-09-27, branch `perf/gpl-a3`): A3, as stage 1, plus stage 2's regression lane
+> (`tools/general_regime_witness.py`, nightly on the clip).** Record and measurements:
+> `docs/research/2026-09-27-gpl-a3-build.md`. What the build changed from this design, each
+> measured there: u16 masks (not u32); the column run is handed its column in `d1` instead of a
+> published pointer, and the latched audit arm (a) is sliced (the design's shapes each cost a
+> latched leg one frame); the GPL-2 demand-hold flag is kept instead of a new mask; the idle sweep
+> stamps what it sees named once per rotation (the eviction order, unmeasured here, measured
+> there). Below is the design as it was written.
+
 Design parcel with measured prototypes. Nothing here is merged. **Base:** origin/master
 `397b1c47` (branch `design/general-patch-loop`). Four prototype branches were cut from
 `997212b0`, which differs from `397b1c47` only in `docs/lane-status.json`. Every ROM was

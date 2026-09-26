@@ -1,0 +1,78 @@
+# every ROM measured, from buildset.sh logs (FAST builds; CRC32 of the .bin)
+base           clipdbg=3e1f7a33(rc 0)  cliprel=0f2ebd0d(rc 0)  candbg=8e6de1fa(rc 0)  canrel=f84c91a7(rc 0)  stress=none(rc 1)
+base_stress    stress=d75c0857(rc 0)
+a3c1           clipdbg=a1f5d928(rc 0)  cliprel=31c537e8(rc 0)  candbg=95fe99c5(rc 0)  canrel=03a81718(rc 0)
+a3c1_stress    stress=6b445acf(rc 0)
+a3c2           clipdbg=07bca63d(rc 0)  cliprel=da3cac0d(rc 0)  candbg=09d6b8ce(rc 0)  canrel=c5a42573(rc 0)
+a3c2_stress    stress=7e9f9c2b(rc 0)
+seen           clipdbg=26a6ba68(rc 0)  candbg=bf579aed(rc 0)
+seen_stress    stress=45a9ec4b(rc 0)
+final          clipdbg=26a6ba68(rc 0)  cliprel=59eb7b04(rc 0)  candbg=bf579aed(rc 0)  canrel=4aee3cae(rc 0)
+final_stress   stress=45a9ec4b(rc 0)
+
+# mutants (mutate.log, final code) and first-round mutants (mutate_v1.log, e20fcc51)
+MUT a: shape candbg build rc=0 crc=c208d364 restored=True
+   - bne     .lm_moved
+   + nop                                     // MUTATION a: latched mask check disarmed
+MUT g1: shape candbg build rc=0 crc=835f86df restored=True
+   - raise_error "PageCache_Audit: general regime: a cache word names an UNASSIGNED frame (dangling physical index)
+   + rts                                     // MUTATION g1: unassigned arm disarmed
+MUT g2: shape candbg build rc=0 crc=8ad1e4e2 restored=True
+   - raise_error "PageCache_Audit: a cache word names a frame its row and column liveness masks both omit"
+   + rts                                     // MUTATION g2: mask arm disarmed
+MUT col: shape candbg build rc=0 crc=cd98d608 restored=True
+   - beq     .gw_unmasked
+        rts
+    .gw_unassigned:
+   + jbra    .gw_unmasked                    // MUTATION col: column masks ignored
+        rts
+    .gw_unassigned:
+MUT seqbar: shape clipdbg build rc=0 crc=f272fb44 restored=True
+   - or.w    d4, (a4)                        // a sequential run lies in one cache row
+   + nop                                     // MUTATION seqbar: row barrier OR dropped
+MUT colbar: shape clipdbg build rc=0 crc=2ebc0b76 restored=True
+   - or.w    d4, (a4)                        // a column run lies in one cache column (the caller splits the wrap)
+   + nop                                     // MUTATION colbar: column barrier OR dropped
+git status of engine/level/page_cache.emp after all: clean
+finished=6
+
+# first round
+MUT a: shape candbg build rc=0 crc=3d8acc69 restored=True
+   - raise_error "PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop vari
+   + jbra    .common                         // MUTATION a: latched mask check disarmed
+MUT g1: shape candbg build rc=0 crc=81b415ab restored=True
+   - raise_error "PageCache_Audit: general regime: a cache word names an UNASSIGNED frame (dangling physical index)
+   + rts                                     // MUTATION g1: unassigned arm disarmed
+MUT g2: shape candbg build rc=0 crc=d605e81a restored=True
+   - raise_error "PageCache_Audit: a cache word names a frame its row and column liveness masks both omit"
+   + rts                                     // MUTATION g2: mask arm disarmed
+MUT col: shape candbg build rc=0 crc=e888f731 restored=True
+   - beq     .gw_unmasked
+        rts
+    .gw_unassigned:
+   + jbra    .gw_unmasked                    // MUTATION col: column masks ignored
+        rts
+    .gw_unassigned:
+MUT seqbar: shape clipdbg build rc=0 crc=f3decc09 restored=True
+   - or.w    d4, (a4)                        // a sequential run lies in one cache row
+   + nop                                     // MUTATION seqbar: row barrier OR dropped
+MUT colbar: shape clipdbg build rc=0 crc=d798f318 restored=True
+   - or.w    d4, (a4)                        // a column run lies in one cache column (the caller splits the wrap)
+   + nop                                     // MUTATION colbar: column barrier OR dropped
+git status of engine/level/page_cache.emp after all: clean
+finished=6
+
+# throwaway experiment builds (exp.log)
+EXP nocolgate candbg: rc=0 crc=13cdd71e
+EXP nocolgate clipdbg: rc=0 crc=9281f5be
+EXP nocolgate: restored=True
+EXP norowgate candbg: rc=0 crc=6214a52b
+EXP norowgate clipdbg: rc=0 crc=28633268
+EXP norowgate: restored=True
+EXP nomaskaudit candbg: rc=0 crc=45fc0854
+EXP nomaskaudit clipdbg: rc=0 crc=ccb8635e
+EXP nomaskaudit: restored=True
+EXP nosweepcall candbg: rc=0 crc=48c85770
+EXP nosweepcall clipdbg: rc=0 crc=51a60f45
+EXP nosweepcall: restored=True
+finished=4

@@ -606,6 +606,11 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d2
     .row_nowrap:
+        // GPL-A3: d1 is now the PHYSICAL column, and it stays so across both
+        // PageCache_PatchRun_Col calls below (the run preserves d1): the general arm
+        // reads it to find this column's liveness mask (engine.page_cache, the insertion
+        // barrier). Passing it costs the latched regimes nothing; a per-call publish here
+        // measurably did (docs/research/2026-09-27-gpl-a3-build.md).
         // source: slot base + (src_row * 16 + col) * 2
         movea.l a1, a0
         move.w  d4, d5
@@ -617,7 +622,8 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // F-3: the staged words are LOCAL; PageCache_PatchRun_Col maps each
         // local->global (Cache_Cur_LocalMap, published when this block was
-        // located/staged) then global->physical (frame) + ref/unref as it lands.
+        // located/staged) then global->physical (frame), with the liveness barrier
+        // into column d1's mask in the general regime, as it lands.
         // The patch run writes through a1, so a1 becomes the nametable dest cursor
         // here. a1 (the staged base) is a PRESERVED param — FillAll reuses it across
         // 16 columns — so SAVE it on the stack (the closure-recognised preserve
@@ -644,7 +650,7 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         // boundary at most once, so emit ≤2 straight runs split there instead
         // of a per-row sentinel test — byte-identical dest, no per-row wrap branch.
         // The per-word patch is PageCache_PatchRun_Col (global->physical +
-        // refcount, banked once per run); it returns a0/a1 advanced one stride
+        // liveness barrier, banked once per run); it returns a0/a1 advanced one stride
         // past the run, so run 2 continues from them. d0 (intra-block col) is
         // consumed by the collision phase below and PatchRun clobbers it — stack
         // it across the runs.
@@ -795,7 +801,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         jbsr    TileCache_FillAll
         jbsr    TileCache_WarmupBelowRow       // cold-start warmup: pre-stage the below-row
     if DEBUG == 1 {
-        // P2b Task 6: the first full fill populated every refcount — audit the
+        // P2b Task 6: the first full fill wrote every cache word — audit the
         // residency invariant before the display comes on, whole, in this one call.
         moveq   #PAGE_AUDIT_FULL, d0
         jbsr    PageCache_Audit
@@ -806,10 +812,12 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
 // -----------------------------------------------
 // TileCache_FillAll — fill entire cache from block data
 // Called once at init (from Tile_Cache_Init, display OFF).
-// PRECONDITION: requires all resident pf_refcount == 0 — guaranteed by
-// PageCache_Init at boot. The `.zero_nt` bulk-zero here bypasses the patch runs'
-// per-word unref, so a future WARM-cache refill must first reset refcounts and
-// rebuild the LRU before calling this, or residency accounting double-counts.
+// LIVENESS (GPL-A3): the `.zero_nt` bulk-zero here writes no barrier, so right after
+// it the liveness masks are RESET to the zeroed cache's exact value
+// (PageCache_LiveReset: every row {frame 0}, every column empty); the refill's runs
+// then add through the barrier (general regime) or add nothing (latched). A WARM
+// refill (the DEBUG warp) must first release the demand holds
+// (PageCache_ReleaseHolds); the masks need nothing more than this reset.
 // In:  none (reads Cache_Left_Col/Head_Col/Top_Row/Bottom_Row)
 // Out: none
 // Clobbers: d0-d7, a0-a6
@@ -825,6 +833,7 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
     .zero_nt:
         clr.l   (a0)+
         dbf     d0, .zero_nt
+        jbsr    PageCache_LiveReset            // the masks of a zeroed cache (clobbers d0/a0)
 
         lea     Tile_Cache_Collision, a0
         move.w  #(TILE_CACHE_COLL_SIZE*TILE_CACHE_COLL_PLANES/4)-1, d0
@@ -1942,8 +1951,9 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
 
         // P2b Task 6: a non-resident page in this block set Cache_Art_Stall. Treat it
         // exactly like a budget-out — resume this column at this block top next frame
-        // (d7 not yet advanced). Re-copy is refcount-neutral (the patch run pairs
-        // unref-old with ref-new), so blocks already copied this pass stay correct.
+        // (d7 not yet advanced). Re-copy is idempotent (the same words land again;
+        // the liveness barrier only re-adds frames already in the mask), so blocks
+        // already copied this pass stay correct.
         // DORMANT in Task 6 (whole pool resident); Task 7 eviction exercises it.
         tst.w   Cache_Art_Stall
         bne     .fc_budget_out
@@ -2011,6 +2021,18 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         blt     .fr_row_nowrap
         subi.w  #TILE_CACHE_ROWS, d2
     .fr_row_nowrap:
+        // GPL-A3: the general patch run ORs the frames it writes into THIS row's
+        // liveness mask (engine.page_cache, the insertion barrier). Publish it once per
+        // row, general regime only (a latched run keeps no liveness). d3/a0 are free
+        // here: d3 is set just below, a0 at the first block.
+        tst.b   PageCache_Direct_Map
+        bne     .fr_no_live
+        move.w  d2, d3
+        add.w   d3, d3                         // physical row * 2
+        lea     Page_Live_Masks, a0
+        adda.w  d3, a0
+        move.l  a0, Page_Live_RowPtr
+    .fr_no_live:
 
         // collision dest row offset (bytes); $FFFF = even row, skip collision
         move.w  #$FFFF, d3
@@ -2162,7 +2184,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
     .fr_nt_emit:
         // F-3: each staged word is LOCAL; PageCache_PatchRun_Seq maps each
         // local->global (Cache_Cur_LocalMap) then global->physical (frame) +
-        // ref/unref as it lands — banked once per RUN (the per-word PatchWord
+        // the liveness barrier as it lands — banked once per RUN (the per-word PatchWord
         // bracket was ~19% of the frame at terminal fall). The block-walk /
         // resume / budget structure is unchanged. PatchRun preserves d1-d7/a2-a6
         // and returns a0 advanced past the run, so d3 (n2), d4/a4 (run-2 dest
@@ -2272,8 +2294,8 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
     .fr_next_block:
         // P2b Task 6: a non-resident page (set during the nametable patch above)
         // stalls this row at the current column — treat like a budget-out (resume
-        // keyed to d7, the current col). Re-copy on resume is refcount-neutral
-        // (the patch run pairs unref-old with ref-new). DORMANT in Task 6.
+        // keyed to d7, the current col). Re-copy on resume is idempotent (the same
+        // words land again; the barrier only re-adds). DORMANT in Task 6.
         tst.w   Cache_Art_Stall
         bne     .fr_budget_out
         move.w  d7, d0

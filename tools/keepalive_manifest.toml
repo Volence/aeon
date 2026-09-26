@@ -170,6 +170,23 @@ mutated to emit no rows, the donor derivation left intact): FAILED, exit 1, 'the
 left plane A (0 on every frame)' on both drives and 'max x 4298 never passed the exit line at
 x 4368' on the rightward one. On a canonical ROM it exits 2 by design (no clip act)."""
 
+[wired."general_regime_witness.py"]
+args = ["--rom", "{repo}/s4.s2clip.debug.bin", "--lst", "{repo}/s4.s2clip.debug.lst"]
+expect = 0
+timeout = 600
+note = """GPL-A3 (2026-09-27), stage 2 of docs/research/2026-09-27-general-patch-loop.md. The
+page cache's GENERAL regime (liveness-mask barrier, idle sweep, PageCache_PickVictim, the
+sliced general-regime audit) runs on no canonical shape, and landing_build builds no clip
+shape, so this nightly clip row is the one lane that executes it. Flies the clip's two
+Chemical Plant legs (right to x 14400, then down / diagonal) in the DEBUG shape, where the
+audit checks the liveness invariant per word, and FAILS on any halt, naming the raise.
+UNMEASURABLE (2) unless each leg turned, spent >= 300 frames in the general regime and saw
+an eviction. Measured: base 3e1f7a33 (refcounts) and GPL-A3 26a6ba68 both PASS (1,096
+general-regime frames, 4 and 5 evictions per leg). Red-first by mutation on disk, restored from
+HEAD: the row barrier's `or.w` dropped (f272fb44) -> BOTH legs halt, "masks both omit"; the
+column barrier's dropped (2ebc0b76) -> the diagonal halts, the straight-down leg (no column
+runs) passes. docs/research/2026-09-27-gpl-a3-build.md. On a canonical ROM it exits 2."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 

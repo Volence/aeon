@@ -1,0 +1,7 @@
+mutation: '< 2 * TILE_CACHE_COLS' -> '< 1 * TILE_CACHE_COLS' in engine/level/page_cache.emp
+build rc=1
+lines naming the ensure: 1
+    ./engine/level/page_cache.emp:220:1: [Error] the latched audit's per-slice column check assumes TILE_CACHE_COLS <= PAGE_AUDIT_SLICES < 2*TILE_CACHE_COLS (one subtraction reaches every column) and PAGE_LIVE_COL_OFFSET <= 127 (a d8 displacement): PAGE_AUDIT_SLICES = 120, TILE_CACHE_COLS = 80, PAGE_LIVE_COL_OFFSET = 120
+restored=True
+git status: clean
+finished=1

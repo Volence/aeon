@@ -1,0 +1,17 @@
+A s4.stressart.bin crc=d75c0857   B s4.stressart.bin crc=45a9ec4b   switch A [208, 224] B [208, 224]
+  t=  25 cam=(608, 624) DM 0/0 lag 134/133 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=  50 cam=(1008, 1024) DM 0/0 lag 146/137 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=  75 cam=(1408, 1424) DM 0/0 lag 148/139 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(1808, 1824) DM 0/0 lag 156/145 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 125 cam=(2208, 2224) DM 0/0 lag 179/163 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(2608, 2624) DM 0/0 lag 190/169 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 175 cam=(3008, 3024) DM 0/0 lag 195/174 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(3408, 3424) DM 0/0 lag 200/178 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 225 cam=(3808, 3824) DM 0/0 lag 209/186 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 250 cam=(4208, 4224) DM 0/0 lag 227/201 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 275 cam=(4608, 4624) DM 0/0 lag 243/209 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 300 cam=(5008, 5024) DM 0/0 lag 249/213 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 325 cam=(5408, 5424) DM 0/0 lag 251/215 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(5808, 5824) DM 0/0 lag 255/217 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+points 14: visible window identical at 14, tile cache identical at 14
+verdict: IDENTICAL resolved picture at every matched point

@@ -1,0 +1,18 @@
+Sat Sep 26 10:48:15 PM UTC 2026
+ 18:48:15 up 3 days,  7:49,  1 user,  load average: 7.60, 9.27, 9.68
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 docs/research/2026-09-27-gpl-a3-build/evict_order_probe.py --rom /home/volence/.cache/aeon-tmp/gpla3/seen_stress/s4.stressart.bin --lst /home/volence/.cache/aeon-tmp/gpla3/seen_stress/s4.stressart.lst --then-at-x 96 --phases down:y:>=:3000,right:x:>=:600,up:y:<=:400,left:x:<=:80,down:y:>=:5000,right:x:>=:640,up:y:<=:2000,left:x:<=:0 --frames 4000 --out /home/volence/.cache/aeon-tmp/gpla3/evo_str_seen.json
+  switch at frame 0 cam (112,144) -> ['down']
+  phase at frame 183 cam (112,3008) -> ['right']
+  phase at frame 214 cam (608,3008) -> ['up']
+  phase at frame 390 cam (608,400) -> ['left']
+  phase at frame 431 cam (80,320) -> ['down']
+  phase at frame 729 cam (64,5008) -> ['right']
+  phase at frame 766 cam (640,5008) -> ['up']
+  phase at frame 958 cam (640,2000) -> ['left']
+  phases done at frame 1001 cam (0,2000)
+{"pool": 41, "frames": 1002, "ticks": 987, "video": 1002, "lag": 15, "evictions": 21, "loads": 21, "reloads": 12, "demands": 3, "evict_gen": 22, "cam_end": [0, 2000], "rom": "s4.stressart.bin", "crc": "45a9ec4b", "phases": "down:y:>=:3000,right:x:>=:600,up:y:<=:400,left:x:<=:80,down:y:>=:5000,right:x:>=:640,up:y:<=:2000,left:x:<=:0"}
+finished=1
+Sat Sep 26 10:48:19 PM UTC 2026
+ 18:48:19 up 3 days,  7:49,  1 user,  load average: 7.39, 9.20, 9.65
+finished rc=0

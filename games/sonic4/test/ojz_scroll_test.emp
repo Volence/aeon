@@ -1124,28 +1124,26 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    strictly fresher, never staler.
         //
         //    THE WITNESS IT PRESERVES. PageCache_Audit is the machine check on the
-        //    §5 safety invariant: pf_refcount == live nametable words pointing at
-        //    the frame, PF_EVICTABLE => assigned+rc0+unpinned, page<->frame is a
-        //    bijection, no assigned-but-unreclaimable frame. Every one of those
-        //    corruptions is MONOTONE — nothing re-derives pf_refcount from the
-        //    nametable, so once the two disagree they stay disagreeing until the
-        //    next act load (PageCache_Init) or warp (PageCache_ResetRefcounts). A
-        //    drift is therefore never MISSED by a periodic audit, only reported
-        //    late, and the maximum lateness is one interval: 128 ticks (~2.1 s at 60
-        //    Hz, ~4.3 s while the streaming path lags at 2 frames/tick). That is
-        //    exactly the window the in-fill gate had.
+        //    §5 safety invariant: in the general regime every cache word names an
+        //    assigned frame its row or column liveness mask carries (GPL-A3; it was
+        //    a per-frame refcount comparison until 2026-09-27), under a latch every
+        //    word names an assigned frame and the masks keep their reset value, and
+        //    in both page<->frame is a bijection and no demand hold is unbounded.
+        //    A frame-level corruption is MONOTONE and caught within one interval:
+        //    128 ticks (~2.1 s at 60 Hz, ~4.3 s while the streaming path lags at 2
+        //    frames/tick). That is exactly the window the in-fill gate had.
         //
         //    AMORTISED SINCE 2026-09-26 (audit-amortise). The call is now made EVERY
         //    tick in PAGE_AUDIT_TICK mode and the engine owns the counter it used to
-        //    be gated on here. In the latched regimes (every shipped act) the
+        //    be gated on here. In every regime the
         //    nametable walk is cut into slices that VSync_Wait's idle slot audits
         //    while the frame has room; this tick call only audits a slice the idle
         //    slot left overdue, and the interval tick runs the frame-level checks.
         //    That replaces one ~236k-cycle walk (two DEBUG lag frames) every 128
         //    ticks. Same invariants; the nametable half's latency bound is 128 + 8
         //    ticks. PageCache_Audit's header carries the argument that a slice cannot
-        //    combine two instants' state. The general regime keeps the whole walk on
-        //    the interval tick.
+        //    combine two instants' state. The general regime slices too since GPL-A3
+        //    (its check became a per-word predicate; AA-1).
         //
         //    Emits nothing in the plain shape. --
         if DEBUG == 1 {
@@ -1812,13 +1810,13 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         //    four resume sentinels, Cache_Prev_Cam_Row AND Cache_Prev_Cam_X (the
         //    stale baseline Aurora measured), the H-prefetch direction/accumulator,
         //    the $FFFF ahead-target sentinels — then invalidates block staging and
-        //    refills the whole 80x60 window. It is the boot proc verbatim; the one
-        //    thing it cannot do on a WARM cache is fix the page refcounts its own
-        //    FillAll is about to orphan, which is what the call above it exists for
-        //    (see PageCache_ResetRefcounts' header — it quotes FillAll's precondition).
+        //    refills the whole 80x60 window. It is the boot proc verbatim (its FillAll
+        //    resets the liveness masks itself); the one thing it cannot do on a WARM
+        //    cache is end the demand holds the old window left, which is what the
+        //    call above it exists for (see PageCache_ReleaseHolds' header).
         //    Tile_Cache_Init's DEBUG tail then runs PageCache_Audit, so the warp
         //    checks its own residency bookkeeping on every warp. --
-        jbsr    PageCache_ResetRefcounts
+        jbsr    PageCache_ReleaseHolds
         jbsr    Tile_Cache_Init
 
         // -- 6. planes. Drop any entry a pre-warp lag frame left undrained (it
