@@ -56,7 +56,8 @@
         "y": 0,
         "w": 10976,
         "h": 1024
-      }
+      },
+      "music": "SONG_S2_EHZ"
     },
     {
       "id": "cpz_act1",
@@ -74,7 +75,8 @@
         "w": 4576,
         "h": 2048
       },
-      "unaligned_dst_reason": "x: Chemical Plant starts where the 384-px tunnel ends (11360 = 10976 + 384), which is not a section boundary \u2014 act section 5 holds Emerald Hill's crop end, the tunnel and Chemical Plant's first 928 px (W3; the bake refuses a local map past 2047 and did not). y: Chemical Plant is lowered 256 px so its start floor meets the tunnel's. Its own start ground is a full block at y=512 (s2disasm startpos/CPZ_1.bin puts the player at (96, 492), feet at 511); the tunnel's floor is at y=768, one collision row above Emerald Hill's ground where its crop ends (x 10960..10975: shape 164, height 12, surface y=772 \u2014 bridged by the tunnel's seam ramp, clip_manifest K6). 768 - 512 = 256, a multiple of R12's 16-px collision quantum, so the paste moves art and collision together. The price is 256 px of Chemical Plant in the act's second section row (2048..2303), measured at 1,600 B of blocks when the clip was 2048 px wide (not re-measured at 2528 or 4576)."
+      "unaligned_dst_reason": "x: Chemical Plant starts where the 384-px tunnel ends (11360 = 10976 + 384), which is not a section boundary \u2014 act section 5 holds Emerald Hill's crop end, the tunnel and Chemical Plant's first 928 px (W3; the bake refuses a local map past 2047 and did not). y: Chemical Plant is lowered 256 px so its start floor meets the tunnel's. Its own start ground is a full block at y=512 (s2disasm startpos/CPZ_1.bin puts the player at (96, 492), feet at 511); the tunnel's floor is at y=768, one collision row above Emerald Hill's ground where its crop ends (x 10960..10975: shape 164, height 12, surface y=772 \u2014 bridged by the tunnel's seam ramp, clip_manifest K6). 768 - 512 = 256, a multiple of R12's 16-px collision quantum, so the paste moves art and collision together. The price is 256 px of Chemical Plant in the act's second section row (2048..2303), measured at 1,600 B of blocks when the clip was 2048 px wide (not re-measured at 2528 or 4576).",
+      "music": "SONG_S2_CPZ"
     }
   ],
   "corridors": [

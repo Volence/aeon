@@ -1608,12 +1608,32 @@ def test_s2_generator_writes_both_songs_given_declared_maps(tmp_path):
     assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
 
 
-def test_s2_generator_default_output_is_under_tools_generated():
-    # Nothing the build reads names tools/generated/ (sigil places ROM content
-    # from games/<game>/map.toml + the .emp embeds), so its output moves no byte.
+def test_s2_generator_default_output_is_the_embedded_sound_dir():
+    # Step 4 (S2CLIP-REGION-MUSIC): the songs joined the bank, so the default output is
+    # the directory mt_bank.emp embeds from (the HCZ2 convention), not tools/generated/.
     gen = _load_s2_generator()
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    assert os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/") == "tools/generated/s2_music"
+    assert (os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/")
+            == "games/sonic4/data/sound")
+    mt_bank = open(os.path.join(root, "games/sonic4/data/sound/mt_bank.emp")).read()
+    for name in ("song_s2_ehz.bin", "s2_ehz_patches.bin",
+                 "song_s2_cpz.bin", "s2_cpz_patches.bin"):
+        assert f'embed("{name}")' in mt_bank, f"mt_bank.emp does not embed {name}"
+
+
+def test_s2_committed_songs_are_the_generators_output(tmp_path):
+    # The build embeds the COMMITTED files and never re-runs the generator, so a converter
+    # or table change that alters either song must fail here until the files are
+    # regenerated and committed (a regeneration moves ROM bytes).
+    gen = _load_s2_generator()
+    written = gen.generate(out_dir=str(tmp_path))
+    assert len(written) == 4
+    for p, n in written:
+        committed = os.path.join(gen.OUT_DIR, os.path.basename(p))
+        assert os.path.isfile(committed), f"{committed} is not committed"
+        assert open(committed, "rb").read() == open(p, "rb").read(), (
+            f"{os.path.basename(p)}: the committed file is not the generator's output; "
+            f"run python3 games/sonic4/data/sound/song_s2_ehz_cpz.py and commit")
 
 
 # ---- steps 2 and 3: the declared tables, filled, exercised on the real songs ----

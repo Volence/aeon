@@ -27,7 +27,7 @@
 // section.
 //
 // SongTable / SongPatchTable are the last two SONG_COUNT*4-byte members (SONG_COUNT
-// = 1 plain / 3 debug). sound_api.emp externs them; the whole-ROM link resolves the
+// = 3 plain / 5 debug). sound_api.emp externs them; the whole-ROM link resolves the
 // externs against these native labels. Song_MovingTrucks is the body / section head
 // (the map-order / frozen boundary key; no runtime consumer).
 //
@@ -62,7 +62,7 @@ const _spt_active = if DEBUG == 1 {
 // standalone in its region gate, so — like mt_bank.emp — SONG_COUNT resolves
 // comptime-locally here; the drift guard binds it to the authority
 // (games.sonic4.sound_ids) at whole-ROM link.
-const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }
+const SONG_COUNT = if DEBUG == 1 { 5 } else { 3 }
 ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from games.sonic4.sound_ids: {SONG_COUNT}")
 
 // The three contiguous members: body, then the two SONG_COUNT*4 pointer tables.

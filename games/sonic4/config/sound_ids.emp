@@ -36,22 +36,34 @@ use engine.types.{SongId, SfxId}
 // playback of the song data (6 FM channels, DAC off). Its song + per-song pitch
 // table + FmPatch bank form one bank-aligned 32KB streaming block.
 pub const SONG_MOVINGTRUCKS : SongId = 1
+// SONG_S2_EHZ / SONG_S2_CPZ: Sonic 2's Emerald Hill and Chemical Plant act music,
+// converted from s2disasm by games/sonic4/data/sound/song_s2_ehz_cpz.py (the
+// converter's S2 mode; S2 PSG envelopes as engine ids $41..$4B; drums on the S3K
+// kick/snare/toms, owner ruling S2CLIP-MUSIC-DRUMS). Co-located in Moving Trucks'
+// bank, in EVERY sound-on shape (S2CLIP-REGION-MUSIC step 4): the clip act's
+// region rows name them (Region.rg_song), and the owner looks at the PLAIN clip.
+// No canonical OJZ row names a song, so s4.bin / s4.debug.bin never request them.
+pub const SONG_S2_EHZ : SongId = 2
+pub const SONG_S2_CPZ : SongId = 3
 // SONG_DRUMTEST: a DEBUG STREAM DAC-on song that fires $E2 kick/snare from the
 // shared DAC bank while FM/PSG music streams — the integrated per-frame-bank-swap
 // proof. Co-located in Moving Trucks' bank. DEBUG-only in use (fired only from
 // game_debug, a Config-A module); the id value is unconditional here.
-pub const SONG_DRUMTEST : SongId = 2
+// RENUMBERED 2 -> 4 at step 4 (and HCZ2 3 -> 5): the ids every shape carries come
+// first, so each shape's SongTable is a PREFIX of the debug one (plain = ids 1..3)
+// and no shape carries an id whose table cell points at a zero-length label.
+pub const SONG_DRUMTEST : SongId = 4
 // SONG_HCZ2: the S3K Hydrocity Zone Act 2 import — a faithful native sequencer
 // playback (9 channels, STREAM). Co-located in Moving Trucks' bank. DEBUG-only in
 // use; the id value is unconditional here.
-pub const SONG_HCZ2 : SongId = 3
+pub const SONG_HCZ2 : SongId = 5
 
 // SONG_COUNT — number of songs in SongTable (id 1..SONG_COUNT; id 0 = stop). A
 // bound, not a song id (stays a raw count). Shape-dependent: DEBUG adds DrumTest
 // + HCZ2. sound_api's DEBUG song-id bounds assert reads it cross-seam (via the
 // harvest EquSym; no .asm residual reads it any more); mt_bank sizes
-// SongTable/SongPatchTable by it.
-pub const SONG_COUNT         = if DEBUG == 1 { 3 } else { 1 }   // MovingTrucks (+ DrumTest + HCZ2 in DEBUG)
+// SongTable/SongPatchTable by it; sigil's seam-2 carrier derives it from this line.
+pub const SONG_COUNT         = if DEBUG == 1 { 5 } else { 3 }   // MovingTrucks + S2 EHZ + S2 CPZ (+ DrumTest + HCZ2 in DEBUG)
 ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")
 
 // -----------------------------------------------

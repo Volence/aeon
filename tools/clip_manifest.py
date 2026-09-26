@@ -38,7 +38,13 @@ what an author marquees and what `Region` rectangles already use
     //                                     ABSENT-CASE FIXTURE: games/sonic4/data/clips/s2_two_clip_pins/
     //                                     clips.json omits region_id on every clip. s2_two_clip carries it on both,
     //                                     so a reader built against that one alone will assume presence (aurora, 2026-09-17).
-          "unaligned_dst_reason": null      // OPTIONAL opt-out, see R11
+          "unaligned_dst_reason": null,     // OPTIONAL opt-out, see R11
+          "music": "SONG_S2_EHZ"            // OPTIONAL: a SONG_* NAME (games/sonic4/config/
+    //                                     sound_ids.emp). The bake gives this zone's region rows
+    //                                     that song, and splits each row at the corridor mouth so
+    //                                     the corridor names none (S2CLIP-REGION-MUSIC step 6,
+    //                                     tools/clip_rom_bake.py MUSIC). Every clip of one zone
+    //                                     must name the same song (R3). Absent = no song.
         }, ... ] }
 
 WHAT THIS FILE DOES NOT DECIDE, and why — verified 2026-09-17 against the suite contract
@@ -309,6 +315,8 @@ _ID_RE = re.compile(REGION_ID_PATTERN)
 #: The only unit this file speaks, on both sides, declared in the file itself.
 UNITS = "world_px"
 _RECT_KEYS = ("x", "y", "w", "h")
+#: a clip's `music`: a SONG_* constant NAME (games/sonic4/config/sound_ids.emp)
+_MUSIC_RE = re.compile(r"^SONG_[A-Z0-9_]+$")
 
 
 #: A refusal's or warning's rule tag is the LEADING token of its message ("R7 clip ...") —
@@ -369,7 +377,7 @@ class Clip:
     """One pasted rectangle. `zone_key` is assigned by the manifest, not the file."""
 
     __slots__ = ("id", "donor", "zone", "src", "dst", "region_id",
-                 "unaligned_dst_reason", "severed_xover_reason", "zone_key", "index")
+                 "unaligned_dst_reason", "severed_xover_reason", "music", "zone_key", "index")
 
     def __init__(self, raw, index):
         self.index = index
@@ -381,6 +389,9 @@ class Clip:
         self.region_id = raw.get("region_id") or None
         self.unaligned_dst_reason = raw.get("unaligned_dst_reason") or None
         self.severed_xover_reason = raw.get("severed_xover_reason") or None
+        #: the song this clip's zone plays (a SONG_* name from games/sonic4/config/
+        #: sound_ids.emp), or None: its region rows name no song (S2CLIP-REGION-MUSIC step 6)
+        self.music = raw.get("music") or None
         self.zone_key = -1
 
     @property
@@ -399,6 +410,7 @@ class Clip:
             "region_id": self.region_id,
             "unaligned_dst_reason": self.unaligned_dst_reason,
             "severed_xover_reason": self.severed_xover_reason,
+            "music": self.music,
         }
 
     def __repr__(self):
@@ -898,6 +910,13 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                 f"the game's effects library, and a Sonic 2 zone cannot supply that. What the "
                 f"clip supplies is donors/{cr.get('donor')}/{cr.get('zone')}/palette.bin; the "
                 f"preset that installs it is named at paste time.", here)
+        mus = cr.get("music")
+        if mus is not None and not (isinstance(mus, str) and _MUSIC_RE.match(mus)):
+            raise ClipManifestError(
+                f"R3 {path}: clip {cid!r} music {mus!r} is not a song id NAME "
+                f"({_MUSIC_RE.pattern}). It names a `pub const SONG_*` in "
+                f"games/sonic4/config/sound_ids.emp, never a number: ids are the game's "
+                f"authority and get renumbered (tools/clip_rom_bake.py resolves the name).", here)
         _require_rect(f"clips[{i}].src_rect", cr["src_rect"], here)
         _require_rect(f"clips[{i}].dst_rect", cr["dst_rect"], here)
         clips.append(Clip(cr, i))
@@ -919,6 +938,16 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
     keys = {}
     for cl in clips:
         cl.zone_key = keys.setdefault(cl.tree_key, len(keys))
+    # one zone, one song: a region row is per ZONE, so two clips of a zone naming
+    # different songs cannot both be honoured
+    zone_music = {}
+    for cl in clips:
+        prev = zone_music.setdefault(cl.zone_key, (cl.music, cl.id))
+        if prev[0] != cl.music:
+            raise ClipManifestError(
+                f"R3 {path}: clips {prev[1]!r} and {cl.id!r} are both {cl.donor} {cl.zone} "
+                f"but name different music ({prev[0]!r} vs {cl.music!r}); a zone's region "
+                f"rows carry ONE song", [_subject_of(cl)])
 
     for cl in clips:
         zm = _zone_manifest(cl, donor_root)
