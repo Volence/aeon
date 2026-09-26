@@ -548,7 +548,7 @@ pub proc Air_XDrag (a0: *Sst) clobbers(d0-d1) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
+        jbsr    Player_SensorLand               // d0 dist, d1 angle (CheckFloor policy)
         tst.w   d0
         bpl     .no_land                        // must be embedded to land
         // eligibility: dist ≥ −(y_vel>>8) − 8 — embed tolerance scales
@@ -616,7 +616,7 @@ proc Air_FloorLandBanded (a0: *Sst) clobbers(d0-d7/a1-a2) {
 proc Air_FloorLandFlat (a0: *Sst) clobbers(d0-d7/a1-a2) {
         tst.w   y_vel(a0)
         bmi     .no_land                        // rising — can't land
-        jbsr    Player_SensorFloor
+        jbsr    Player_SensorLand               // CheckFloor angle policy
         tst.w   d0
         bpl     .no_land
         jbsr    Air_TouchFloor
