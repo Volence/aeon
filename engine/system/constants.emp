@@ -61,39 +61,6 @@ pub const CTYPE_AIR = 0
 pub const LAYER_PATH_A = 0
 pub const LAYER_PATH_B = 1
 
-// LAYER LINES (S2CLIP-PLANE-SWITCH): the other layer writer that reaches level data. An act
-// may carry a table of Sonic 2 plane-switcher lines (engine/structs.emp `LayerLine`, named by
-// Act.act_layer_lines), run every frame by the game's player preamble with Obj03's rule
-// (games/sonic4/player/player_common.emp Player_LayerLines). These are the bit numbers of
-// LayerLine.ll_flags: Obj03's subtype bits 7..2 re-packed, plus its layout x-flip.
-// tools/s2_layer_lines.py reads them from THIS file when it bakes a table, so the producer
-// and the consumer cannot disagree about a bit.
-pub const LL_KEEP_PATH  = 0           // layout x-flip: leave the layer, set priority only
-pub const LL_GROUNDED   = 1           // Obj03 subtype bit 7: only while not ST_IN_AIR
-pub const LL_HORIZONTAL = 2           // subtype bit 2: a horizontal line (crossed on Y)
-pub const LL_FWD_B      = 3           // subtype bit 3: crossing right/down -> path B, else A
-pub const LL_BACK_B     = 4           // subtype bit 4: crossing left/up -> path B, else A
-pub const LL_FWD_HI     = 5           // subtype bit 5: crossing right/down -> high priority
-pub const LL_BACK_HI    = 6           // subtype bit 6: crossing left/up -> high priority
-// The widest horizontal-line segment a table may hold. A horizontal line is baked as
-// segments no wider than this so the runtime's window over the X-sorted table stays this
-// wide plus one frame's step (Player_LayerLines' header says why that is enough).
-pub const LL_SEG_W      = 64
-// The two sentinel keys every table starts and ends with. Signed word compares order every
-// key between them; the cursor walk and the scan stop on them without a bounds test.
-pub const LL_KEY_BEFORE = $8000
-pub const LL_KEY_AFTER  = $7FFF
-// A row's geometry, as the consumer's instructions spell it: the stride its addq.w/subq.w
-// step by and the displacements its reads use. Plain numbers HERE rather than sizeof/offsetof
-// at the read site on purpose: the read site (games/sonic4/player/player_common.emp) then
-// names no engine struct, so the standalone player lowering (sigil's port rigs, which carry
-// only the structs they list) needs nothing new. engine/structs.emp binds all four to
-// `LayerLine` itself with `ensure`s, so a re-laid row fails the build there.
-pub const LL_ROW        = 8           // sizeof(LayerLine)
-pub const LL_A_OFF      = 2           // offsetof(LayerLine, ll_a)
-pub const LL_B_OFF      = 4           // offsetof(LayerLine, ll_b)
-pub const LL_FLAGS_OFF  = 6           // offsetof(LayerLine, ll_flags)
-
 // Render flags — SST render_flags bit assignments (mirrors
 // this file).
 pub const RF_ONSCREEN  = 0            // set by Draw_Sprite if visible
@@ -1290,3 +1257,37 @@ pub const VDP_Shadow_len = 19
 pub const VDP_REG_PLANE_SIZE = $11
 ensure((PLANE_H_CELLS == 32 || PLANE_H_CELLS == 64 || PLANE_H_CELLS == 128) && (PLANE_V_CELLS == 32 || PLANE_V_CELLS == 64 || PLANE_V_CELLS == 128) && VDP_REG_PLANE_SIZE == (((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)),
        "BootData_VDPRegs writes reg $10 = VDP_REG_PLANE_SIZE = {VDP_REG_PLANE_SIZE}, but engine.constants says the planes are PLANE_H_CELLS x PLANE_V_CELLS = {PLANE_H_CELLS} x {PLANE_V_CELLS}, which encodes as {((PLANE_V_CELLS / 64 + PLANE_V_CELLS / 128) << 4) | (PLANE_H_CELLS / 64 + PLANE_H_CELLS / 128)} (VSZ bits 5:4, HSZ bits 1:0; 0 = 32, 1 = 64, 3 = 128; each size must be one of those three). If they disagree the VDP wraps the nametable at one size while the engine masks, strides and clamps at the other. THIS PIN RUNS FIRST AND HIDES THE REST: it is evaluated in the RAM-harvest pass, which stops the build before engine/level/section.emp and engine/level/plane_buffer.emp are reached, so after a plane-size change this is the only message you will see, and re-encoding VDP_REG_PLANE_SIZE as it asks is NOT the whole edit: the four plane-wrap family pins at the end of those two files, and the three at the end of engine/level/bg.emp, fire on the next build and list the 33 hand-spelled sites plus bg.emp's 4 (measured 2026-09-11). WHAT THIS PIN DOES NOT COVER: the VDP's own limit on the product of the two sizes (the combinations above 64 x 64 of area are not all legal, and nothing here checks which); the VRAM span a larger plane occupies (Plane A at VRAM_PLANE_A and Plane B at VRAM_PLANE_B must not overlap each other, the window, the SAT or the HScroll table, and no pin checks that); and the 33 hand-spelled engine sites, pinned per axis in engine/level/section.emp and engine/level/plane_buffer.emp, plus engine/level/bg.emp's own 4 sites, pinned at the end of that file (per axis, and its layout size on its own)")
+
+// LAYER LINES (S2CLIP-PLANE-SWITCH): the other layer writer that reaches level data (beside the
+// painted crossover marks: LAYER_PATH_A/B's comment, near the top of this file). An act
+// may carry a table of Sonic 2 plane-switcher lines (engine/structs.emp `LayerLine`, named by
+// Act.act_layer_lines), run every frame by the game's player preamble with Obj03's rule
+// (games/sonic4/player/player_common.emp Player_LayerLines). These are the bit numbers of
+// LayerLine.ll_flags: Obj03's subtype bits 7..2 re-packed, plus its layout x-flip.
+// tools/s2_layer_lines.py reads them from THIS file when it bakes a table, so the producer
+// and the consumer cannot disagree about a bit.
+pub const LL_KEEP_PATH  = 0           // layout x-flip: leave the layer, set priority only
+pub const LL_GROUNDED   = 1           // Obj03 subtype bit 7: only while not ST_IN_AIR
+pub const LL_HORIZONTAL = 2           // subtype bit 2: a horizontal line (crossed on Y)
+pub const LL_FWD_B      = 3           // subtype bit 3: crossing right/down -> path B, else A
+pub const LL_BACK_B     = 4           // subtype bit 4: crossing left/up -> path B, else A
+pub const LL_FWD_HI     = 5           // subtype bit 5: crossing right/down -> high priority
+pub const LL_BACK_HI    = 6           // subtype bit 6: crossing left/up -> high priority
+// The widest horizontal-line segment a table may hold. A horizontal line is baked as
+// segments no wider than this so the runtime's window over the X-sorted table stays this
+// wide plus one frame's step (Player_LayerLines' header says why that is enough).
+pub const LL_SEG_W      = 64
+// The two sentinel keys every table starts and ends with. Signed word compares order every
+// key between them; the cursor walk and the scan stop on them without a bounds test.
+pub const LL_KEY_BEFORE = $8000
+pub const LL_KEY_AFTER  = $7FFF
+// A row's geometry, as the consumer's instructions spell it: the stride its addq.w/subq.w
+// step by and the displacements its reads use. Plain numbers HERE rather than sizeof/offsetof
+// at the read site on purpose: the read site (games/sonic4/player/player_common.emp) then
+// names no engine struct, so the standalone player lowering (sigil's port rigs, which carry
+// only the structs they list) needs nothing new. engine/structs.emp binds all four to
+// `LayerLine` itself with `ensure`s, so a re-laid row fails the build there.
+pub const LL_ROW        = 8           // sizeof(LayerLine)
+pub const LL_A_OFF      = 2           // offsetof(LayerLine, ll_a)
+pub const LL_B_OFF      = 4           // offsetof(LayerLine, ll_b)
+pub const LL_FLAGS_OFF  = 6           // offsetof(LayerLine, ll_flags)
