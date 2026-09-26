@@ -1,6 +1,12 @@
 {
   "focus": "Overnight work done: music, slopes, speed fixes landed; a loop fix is ready for you to fly before it lands.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Design (measured, not landed): make Chemical Plant's tile patching as cheap as our act's",
+      "where": "branch design/general-patch-loop",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -23,7 +29,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "At a boundary: nothing running. Next is landing the loop branch once you pick, then the next row that doesn't need you.",
+  "nextBoundary": "The Chemical Plant lag design comes back as a write-up; nothing lands from it without review.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -58,8 +64,8 @@
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Emerald Hill curve fix landed (44 to 35 lag frames); Chemical Plant's slow tile patching is the booked leftover",
-      "state": "next",
+      "title": "Chemical Plant's slow tile patching: design with measured prototypes in progress",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -137,6 +143,6 @@
     }
   ],
   "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums; try a slope. Cards S2CLIP-PLANE-SWITCH, S2CLIP-DRUM-LEVEL, ROLL-FEEL.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-26T10:58:03Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-26T10:58:38Z"
 }
