@@ -1,9 +1,9 @@
 {
-  "focus": "Engine music switch landed. Finishing the Sonic 2 envelopes; sigil's tool swap is next, then the songs.",
+  "focus": "Last stretch of the Sonic 2 zone music is being built; the envelopes are ready and land once sigil's tool swap is in.",
   "inFlight": [
     {
-      "what": "Zone music step 2: Sonic 2 sound envelopes into the engine, table lengths derived instead of hand-typed",
-      "where": "branch parcel/s2-music-envelopes-table-2",
+      "what": "Zone music final stretch: both Sonic 2 songs into the game, the level's regions name them, switch at the tunnel exits, proven headless",
+      "where": "branch parcel/s2-music-songs",
       "agent": true
     }
   ],
@@ -19,7 +19,7 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Byte check on sigil's new version, the swap, then the envelopes land.",
+  "nextBoundary": "Sigil swap, the envelopes land, then the songs and switch; then a listening build for you.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -132,5 +132,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T02:48:02Z"
+  "updatedAt": "2026-09-26T03:20:15Z"
 }
