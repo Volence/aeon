@@ -251,18 +251,16 @@ _STONE_TO_ENV = {
     # equality from the skdisasm driver source, so the alias breaks LOUD if the
     # premise ever stops holding.
     #
-    # WHY ALIAS INSTEAD OF SHIPPING A 12th ENV: PsgVolEnv_Ids/_Ptrs/bodies live
-    # inside SoundTablesZ80_Head, which is a HARD ORG at VMA $8000 whose size is
-    # walled by soundbankhead.emp (`ensure(_sound_tables.len == $357)`). A new env
-    # adds 1 id byte + 2 ptr bytes + a 21-byte body and slides every downstream
-    # head off its fixed banked-carrier VMA — six address literals baked into the
-    # SHIPPED resident Z80 driver's operand bytes (sigil seam1.rs
-    # `banked_carriers`), of which THREE (PsgVolEnv_Ptrs, FmVolEnv_Ids,
-    # FmVolEnv_Ptrs) are documented there as "hand-maintained and unchecked". That
-    # is a silent-corruption path traded for zero audible difference. If a future
-    # sTone with a genuinely NEW body is imported, that head growth has to be done
-    # properly (and the sigil carriers updated in the same pair) — this alias does
-    # not make it any harder.
+    # WHY ALIAS INSTEAD OF SHIPPING A 12th ENV (written when the head was pinned):
+    # PsgVolEnv_Ids/_Ptrs/bodies live inside SoundTablesZ80_Head, and a new env
+    # (1 id byte + 2 ptr bytes + a 21-byte body) moved every downstream head off
+    # banked-carrier VMAs that sigil's seam-1 then hand-pinned into the resident
+    # Z80 driver's operand bytes. That is no longer so: since sigil 6b724981 all
+    # eleven carriers are DERIVED from the table's labels, and aeon's
+    # soundbankhead.emp no longer walls the table length (S2CLIP-REGION-MUSIC
+    # step 2 grew it by 130 B for five S2 envelopes). So a genuinely NEW sTone body
+    # can now simply be added to gen_sound_tables. The alias stays because the
+    # audio is identical by construction and it costs 24 B less.
     'sTone_17': 0x0A,
 }
 

@@ -210,7 +210,7 @@ def emit_pitchtable_emp():
     """Return the .emp text for the banked SndDefaultPitchTable head — the
     132-entry two-page (A4 then A0) pitch table as a self-contained cpu:z80
     data section sigil lowers to movingtrucks_pitchtable.bin (BINCLUDE'd by
-    soundBankHead at VMA $8357). Mirrors the sound_tables_z80.emp
+    soundBankHead right after the sound tables). Mirrors the sound_tables_z80.emp
     generator-emits-.emp precedent; SHAPE-INVARIANT."""
     assert len(A4_TBL) == PITCHTAB_COUNT and len(A0_TBL) == PITCHTAB_COUNT
     lines = []
@@ -223,14 +223,15 @@ def emit_pitchtable_emp():
     lines.append("//")
     lines.append("// The exact Zyrinx \"Moving Trucks\" 132-entry chromatic fnum table")
     lines.append("// (/tmp/zyrinx_re_timing_pitch.md §2.4). BANKED at the engine-table head")
-    lines.append("// (soundBankHead, VMA $8357, physically in the `sound_bank` bank — that")
+    lines.append("// (soundBankHead, right after sound_tables_z80, physically in the `sound_bank`")
+    lines.append("// bank — that")
     lines.append("// anchor's LMA is DERIVED by the bank placement rule in games/sonic4/map.toml,")
     lines.append("// not fixed); sigil lowers this to movingtrucks_pitchtable.bin and")
     lines.append("// soundBankHead BINCLUDE's it.")
     lines.append("// SHAPE-INVARIANT (264 bytes both shapes); soundBankHead's size wall + the")
     lines.append("// whole-ROM byte gate cover body-length drift.")
     lines.append("//")
-    lines.append("// LAYOUT (sound_constants.asm PITCHTAB_*): TWO PARALLEL PAGES.")
+    lines.append("// LAYOUT (engine/sound/sound_constants.emp PITCHTAB_*): TWO PARALLEL PAGES.")
     lines.append("//   page 0  = A4 bytes (YM $A4 = (block<<3)|fnumHi), %d entries" % PITCHTAB_COUNT)
     lines.append("//   page 1  = A0 bytes (YM $A0 = fnum low),          %d entries" % PITCHTAB_COUNT)
     lines.append("//   For note index i (0..$83):  $A4 = base[i], $A0 = base[%d + i]." % PITCHTAB_COUNT)
@@ -238,7 +239,11 @@ def emit_pitchtable_emp():
     lines.append("")
     lines.append("module data.movingtrucks_pitchtable (cpu: z80)")
     lines.append("")
-    lines.append("section movingtrucks_pitchtable (cpu: z80, vma: $8357) {")
+    lines.append("// The section vma is the $8000 WINDOW BASE, as for sound_tables_z80.emp and")
+    lines.append("// dac_sample_tab.emp: seam-2 lowers this pure-data table standalone, and no")
+    lines.append("// byte folds its own address. Its real window address is where soundbankhead.emp")
+    lines.append("// places it (after sound_tables_z80, whose length moves it): read the listing.")
+    lines.append("section movingtrucks_pitchtable (cpu: z80, vma: $8000) {")
     lines.append("    proc MovingTrucks_PitchTable () clobbers() {")
     lines.append("        // --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---")
     for i in range(0, PITCHTAB_COUNT, 12):

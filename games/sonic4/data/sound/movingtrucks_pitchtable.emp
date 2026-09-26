@@ -7,7 +7,8 @@
 //
 // The exact Zyrinx "Moving Trucks" 132-entry chromatic fnum table
 // (/tmp/zyrinx_re_timing_pitch.md §2.4). BANKED at the engine-table head
-// (soundBankHead, VMA $8357, physically in the `sound_bank` bank — that
+// (soundBankHead, right after sound_tables_z80, physically in the `sound_bank`
+// bank — that
 // anchor's LMA is DERIVED by the bank placement rule in games/sonic4/map.toml,
 // not fixed); sigil lowers this to movingtrucks_pitchtable.bin and
 // soundBankHead BINCLUDE's it.
@@ -22,7 +23,11 @@
 
 module data.movingtrucks_pitchtable (cpu: z80)
 
-section movingtrucks_pitchtable (cpu: z80, vma: $8357) {
+// The section vma is the $8000 WINDOW BASE, as for sound_tables_z80.emp and
+// dac_sample_tab.emp: seam-2 lowers this pure-data table standalone, and no
+// byte folds its own address. Its real window address is where soundbankhead.emp
+// places it (after sound_tables_z80, whose length moves it): read the listing.
+section movingtrucks_pitchtable (cpu: z80, vma: $8000) {
     proc MovingTrucks_PitchTable () clobbers() {
         // --- page 0: A4 (block|fnumHi) bytes, idx $00..$83 ---
         dc.b    $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00

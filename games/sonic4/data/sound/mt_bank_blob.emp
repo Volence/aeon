@@ -10,12 +10,13 @@
 // emitted equ artifact. The emit-tool architecture is untouched (`ensure_generated`
 // still lowers mt_bank.emp → the .bin); this module just places those bytes.
 //
-// SHAPE-DEPENDENT SIZE (shape-INVARIANT start): the body always starts at $58628
-// (the soundBankHead above it is $628 bytes both shapes since the 12-byte
-// DacSample growth + its head-tail 4-pad), but the debug build adds the
-// DrumTest + HCZ2 songs, and the mt_bank.emp tail pad (the SFX-base alignment
-// fix) pads per shape — so plain is 0x34E8 B (7-byte pad, ends $5BB10) and
-// debug is 0x4F38 B (5-byte pad, ends $5D560). Each member selects on DEBUG.
+// SHAPE-DEPENDENT SIZE (shape-INVARIANT start): the body always starts right
+// after the soundBankHead, whose length is the same in both shapes and ≡ 0 (mod 8)
+// (soundbankhead.emp's derived tail pad; the head grows whenever a head table
+// does, e.g. +130 B for the S2 PSG envelopes, so read the listing for the
+// address), but the debug build adds the DrumTest + HCZ2 songs, and the
+// mt_bank.emp tail pad (the SFX-base alignment fix) pads per shape. Each member
+// selects on DEBUG.
 // The tail is ≡ 0 (mod 8) BY CONSTRUCTION so the SFX block after it starts
 // 8-aligned (see mt_bank.emp).
 //

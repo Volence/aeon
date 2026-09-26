@@ -174,48 +174,21 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
     }
 
-    // --- Head-tail 8-alignment pad (package 3 fix, 2026-08-10) ---
-    // This table is the LAST engine-table head in the sound bank; the MT song
-    // bank packs immediately after it, and the SFX block after that. The SFX
-    // block's base must land ≡ 0 (mod 8): the placement chainer 8-aligns that
-    // section's base while seam-2's sound_layout fold packs contiguously — at
-    // a misaligned base every baked SfxTable pointer cell (and every
-    // SfxBlobWinTab window pointer) comes out short of the placed blobs
-    // (plain SFX went silent at -2 when this table's 9->12 growth flipped the
-    // tail parity; a mod-4-only pad still came out -4 — the placed base moved
-    // $5BB0C -> $5BB10, pinning the quantum at 8, with the old working bases
-    // $5BAE8/$5D558 ≡ 0 mod 8 excluding 16). The alignment is enforced in two
-    // comptime steps: THIS pad rounds the head total to ≡ 0 (mod 8) (so the
-    // MT bank — whose seam-2 lowering baseline assumes an aligned section
-    // base — starts ≡ 0 mod 8 at the `sound_bank` map anchor, which is 8-aligned
-    // for free because the placement rule aligns it to 0x8000), and
-    // mt_bank.emp's tail pad keeps the MT total ≡ 0 (mod 8). A source
-    // `align` CANNOT do this job here: seam-2 lowers these modules against
-    // baseline/vma positions that differ from final placement, so `align`'s
-    // pad count comes out wrong (its D2.29 link-time congruence assert
-    // catches it loudly — that is how this was learned). Comptime pad size
-    // instead: the four heads before this table are FIXED-size
-    // ($357+$108+$10E+$40 = $5AD, each individually walled in
-    // soundbankhead.emp, which also walls the head total % 8 == 0 — the loud
-    // tripwire if this prefix ever drifts), so the pad self-adjusts to any
-    // DacSampleTable growth (the S3K drum kit next).
-    ensure(DAC_HEAD_PAD < 8, "DAC head pad must be 0..7")
-    data DacHeadPad_a = if DAC_HEAD_PAD >= 1 { byte(0) } else { Data.empty }
-    data DacHeadPad_b = if DAC_HEAD_PAD >= 2 { byte(0) } else { Data.empty }
-    data DacHeadPad_c = if DAC_HEAD_PAD >= 3 { byte(0) } else { Data.empty }
-    data DacHeadPad_d = if DAC_HEAD_PAD >= 4 { byte(0) } else { Data.empty }
-    data DacHeadPad_e = if DAC_HEAD_PAD >= 5 { byte(0) } else { Data.empty }
-    data DacHeadPad_f = if DAC_HEAD_PAD >= 6 { byte(0) } else { Data.empty }
-    data DacHeadPad_g = if DAC_HEAD_PAD >= 7 { byte(0) } else { Data.empty }
+    // NO head-tail pad here (2026-09-25, S2CLIP-REGION-MUSIC step 2). This table
+    // is the LAST engine-table head in the sound bank, and the head total must
+    // end ≡ 0 (mod 8) (the SFX pointer fold and the MT bank's lowering baseline
+    // both assume it). The pad that rounds it used to live HERE, sized off a
+    // retyped prefix (`$357 + $108 + $112 + $40`): this module is lowered
+    // STANDALONE by seam-2 with only DAC_SAMPLE_COUNT / DacSample_len seeded, so
+    // it cannot see the other four heads' lengths, and the prefix went stale
+    // every time an upstream head grew (the SFX range growth moved $10E -> $112;
+    // the S2 PSG envelopes moved $357 -> $3D9). The pad now lives at the TAIL of
+    // games/sonic4/data/sound/soundbankhead.emp, the one module that embeds all
+    // five heads and so can size it off their MEASURED `.len`s. The ROM bytes are
+    // the same zeros in the same place; only this artifact
+    // (engine/sound/generated/dac_sample_tab.bin) no longer carries them, so its
+    // length is exactly DAC_SAMPLE_COUNT * DacSample_len (the span guard above).
+    // A source `align` would not do the job here either: seam-2 lowers this
+    // section at a vma/baseline that differs from its final placement, so the
+    // pad count would come out wrong (the D2.29 congruence assert caught that).
 }
-
-// The fixed-size head prefix before this table (soundbankhead.emp walls each
-// piece) + the pad formula: round the head total up to the next multiple of 8.
-// NOTE the third term is the SfxBlobWinTab span, which is SFX_TABLE_LEN*2 and so
-// MOVES whenever the SFX id range grows. $10E -> $112 when $BA/$BB extended the
-// range to $BB (2 more cells = 4 bytes). It is spelled as a literal rather than
-// read from the win-tab because this is the DAC head's own arithmetic and the
-// soundbankhead walls cross-check every term; if the two ever disagree the
-// head-total %8 wall below fires loudly rather than silently mis-padding.
-const DAC_HEAD_PREFIX = $357 + $108 + $112 + $40   // = $5B1
-const DAC_HEAD_PAD = (8 - ((DAC_HEAD_PREFIX + DAC_SAMPLE_COUNT * DacSample_len) % 8)) % 8
