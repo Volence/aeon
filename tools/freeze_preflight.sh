@@ -107,18 +107,22 @@ fi
 echo
 
 echo "freeze_preflight: step 1/2 — repin_pins (read-only staleness discriminator)"
-if cargo test --release -p sigil-harness --test repin_pins 2>&1 | tee /tmp/fp_repin.$$ | tail -3; then
+# Scratch files honour TMPDIR (2026-09-26): a hard-coded /tmp hit EDQUOT on a quota-full /tmp
+# and failed this gate's own tests even with TMPDIR pointed at a disk with room.
+SCRATCH_DIR=${TMPDIR:-/tmp}
+REPIN="$SCRATCH_DIR/fp_repin.$$"
+if cargo test --release -p sigil-harness --test repin_pins 2>&1 | tee "$REPIN" | tail -3; then
     PINS_CURRENT=1
     echo "  pins are CURRENT — any port failure below is the CROSS-SEAM class and is REAL"
 else
     PINS_CURRENT=0
-    if grep -q "is STALE against the live listings" /tmp/fp_repin.$$; then
+    if grep -q "is STALE against the live listings" "$REPIN"; then
         echo "  pins are STALE (expected for a byte-mover) — port failures below are"
         echo "  STALE-INSTRUMENT and the freeze's repin step clears them"
         # The matching arm ships its evidence for the same reason the else-branch does: a
         # correct verdict reached from the wrong tree looks exactly like this one.
         echo "  matched on:"
-        grep -m2 "is STALE against the live listings" /tmp/fp_repin.$$ | sed 's/^/    | /'
+        grep -m2 "is STALE against the live listings" "$REPIN" | sed 's/^/    | /'
     else
         echo "freeze_preflight: repin_pins failed for a reason that is NOT staleness — stopping"
         # NAME THE FAILING TESTS. Printing only the aggregate is what made a red undiagnosable
@@ -138,7 +142,7 @@ else
 # FAILED` and HAS SPACES, so that form drops real failures while fixing the overcount
 # - trading a defect that inflates for one that hides. Measured 2026-09-09; sigil's
 # scripts/landing-run.sh:667 had the end-anchored form already.
-        grep -E "^test .* \.\.\. FAILED$" /tmp/fp_repin.$$ | sed 's/^/    /' || echo "    (none named — read the log above)"
+        grep -E "^test .* \.\.\. FAILED$" "$REPIN" | sed 's/^/    /' || echo "    (none named — read the log above)"
         # ⚠ PRINT THE TEXT THE CLASSIFICATION WAS MADE ON, NOT THE CATEGORY (2026-09-09).
         # This arm names a CLASS — "not staleness" — and a reader carries that forward as
         # "investigate a cross-seam symbol break". On LS-17 the truth was "your parcel moved
@@ -150,20 +154,20 @@ else
         # and it is not enough: the panic body is usually further up than three lines.
         echo "  the text this classification was made on — the grep for"
         echo "  \"is STALE against the live listings\" did NOT match ANY of it:"
-        FAILTEXT=$(awk '/panicked at|^error(\[|:)|^thread /{p=1} p' /tmp/fp_repin.$$ | head -40)
-        [ -z "$FAILTEXT" ] && FAILTEXT=$(tail -20 /tmp/fp_repin.$$)
+        FAILTEXT=$(awk '/panicked at|^error(\[|:)|^thread /{p=1} p' "$REPIN" | head -40)
+        [ -z "$FAILTEXT" ] && FAILTEXT=$(tail -20 "$REPIN")
         [ -z "$FAILTEXT" ] && FAILTEXT="(the run produced NO output at all — suspect cargo itself, not the test)"
         printf '%s\n' "$FAILTEXT" | sed 's/^/    | /'
         echo "  If that text does NOT read like a failure of THIS parcel, re-read the SUBJECTS"
         echo "  block at the top before you re-read your diff."
-        rm -f /tmp/fp_repin.$$; exit 2
+        rm -f "$REPIN"; exit 2
     fi
 fi
-rm -f /tmp/fp_repin.$$
+rm -f "$REPIN"
 
 echo
 echo "freeze_preflight: step 2/2 — the port targets (the standalone-module case build.sh never exercises)"
-OUT=/tmp/fp_ports.$$
+OUT="$SCRATCH_DIR/fp_ports.$$"
 cargo test --release -p sigil-cli --no-fail-fast 2>&1 | tee "$OUT" | grep -E "^test result:|FAILED|panicked at" | tail -25
 # CARGO'S OWN EXIT STATUS, read on the next line and nowhere else (PRINTED-NOT-GATED,
 # 2026-09-25). The verdict below counts ` ... FAILED` names, and a crate that does not

@@ -153,6 +153,11 @@ def _run(tmp_path, *, step1_log, step1_rc, step2_log=CLEAN_PORTS_LOG, step2_rc=0
     env = dict(os.environ)
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["SIGIL_DIR"] = str(sigil)
+    # The script's scratch files follow TMPDIR; keep them in this test's own dir so a
+    # quota-full /tmp (EDQUOT, 2026-09-26) cannot fail the test.
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(exist_ok=True)
+    env["TMPDIR"] = str(scratch)
     env.pop("AEON_DIR", None)
     if aeon_dir is not None:
         env["AEON_DIR"] = str(aeon_dir)
