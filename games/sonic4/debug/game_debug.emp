@@ -46,8 +46,8 @@ use games.sonic4.sound_ids.{
 // Ctrl_1_Press). Key map:
 //   A     = restart Moving Trucks from pattern 0 (logger-safe re-trigger)
 //   B     = fire the next test SFX in the cycle (Dbg_Sfx_Sel)
-//   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 3)
-//   C     = play the DAC-drum-test song (id 2)
+//   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 5)
+//   C     = play the DAC-drum-test song (id 4)
 //   START = toggle Moving Trucks play/stop
 // PRIORITY CHAIN, not five independent keys: the checks fall through in the
 // listed order (A → B → UP → C → START), each `beq.s .next` else `rts`, so the
@@ -114,7 +114,7 @@ pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         bsr.w   Sound_PlayRing          // L/R-alternating ring SFX ($33/$34)
         rts
     .check_hcz2:
-        // UP = play the HCZ2 (S3K Hydrocity Zone Act 2) import song (id 3) on a fresh
+        // UP = play the HCZ2 (S3K Hydrocity Zone Act 2) import song (id 5) on a fresh
         // press. The plan/design proposed B for this, but B ($10) is already the SFX-
         // cycle hotkey (above), so the dedicated HCZ2 trigger uses UP — a free D-pad
         // bit unused by the debug harness and by the idle game state. Edge-detected on
@@ -127,7 +127,7 @@ pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         move.b  #1, (Dbg_Music_On).w         // keep START's play/stop toggle coherent
         rts
     .check_sample:
-        // C button = play the DEBUG STREAM DAC-on drum-test song (id 2) on a fresh
+        // C button = play the DEBUG STREAM DAC-on drum-test song (id 4) on a fresh
         // press. Exercises the DAC-drum phase end-to-end: $E2 kick/snare from the
         // shared DAC bank with the per-frame song<->sample bank swap (B1), the Layer-4
         // FM6 key-on gate, and FM/PSG music streaming alongside. (Supersedes the old

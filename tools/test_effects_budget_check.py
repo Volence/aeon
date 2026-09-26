@@ -74,7 +74,7 @@ class TestEmpConstants(unittest.TestCase):
         self.assertNotIn("ALSO_BLOCKED", c)
 
     def test_reads_the_type_annotated_form(self):
-        """`pub const SONG_HCZ2 : SongId = 3` — a real form in games/sonic4/config."""
+        """`pub const SONG_HCZ2 : SongId = 5` — a real form in games/sonic4/config."""
         c = emp_constants(self.path)
         self.assertEqual(eval_int_expr(c["TYPED"], c), 3)
         self.assertEqual(eval_int_expr(c["NEWTYPED"], c), 0x03E0)

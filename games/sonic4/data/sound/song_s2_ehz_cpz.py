@@ -7,16 +7,20 @@ tools/smps_import.py, whose S2 mode (SourceDriver 2, read from each song's own
 `smpsHeaderStartSong 2`) applies the S2 -> S3K rules s2disasm's _smps2asm_inc.asm
 defines and parses each song's own voice bank:
 
-  * tools/generated/s2_music/song_s2_ehz.bin    + s2_ehz_patches.bin
-  * tools/generated/s2_music/song_s2_cpz.bin    + s2_cpz_patches.bin
+  * games/sonic4/data/sound/song_s2_ehz.bin + s2_ehz_patches.bin
+  * games/sonic4/data/sound/song_s2_cpz.bin + s2_cpz_patches.bin
 
 Run from the repo root:
     python3 games/sonic4/data/sound/song_s2_ehz_cpz.py
 
-NOTHING CONSUMES THE OUTPUT. It lands under tools/generated/, which no build
-input names: these songs have no SONG_* id, no mt_bank embed and no map.toml
-line, so this script cannot move a ROM byte. Adding the songs is a later step
-(it needs sigil to stop hardcoding the song count first: plan step 0).
+THE OUTPUT IS COMMITTED AND THE BUILD EMBEDS IT (S2CLIP-REGION-MUSIC step 4), the HCZ2
+convention: games/sonic4/data/sound/mt_bank.emp embeds the four .bin files as
+SONG_S2_EHZ / SONG_S2_CPZ (games/sonic4/config/sound_ids.emp) in every sound-on shape,
+and the build never re-runs this script. A regeneration therefore MOVES ROM BYTES;
+tools/test_smps_import.py holds the committed files equal to a fresh run, so an edit
+to the converter or its tables that changes either song fails there until the files
+are regenerated and committed. (Until step 4 this wrote to tools/generated/s2_music/,
+which no build input named.)
 
 Both songs reference S2 PSG envelopes (fTone_NN) and S2 drum notes (dKick,
 dSnare, and for EHZ dMidTom/dFloorTom). Neither resolves by number: S2's envelope
@@ -53,7 +57,7 @@ SONGS = (
     ("cpz", "8E - CPZ.asm"),
 )
 
-OUT_DIR = os.path.join(_REPO, "tools", "generated", "s2_music")
+OUT_DIR = _HERE
 
 
 def _convert(stem, fname, ftone_map, dac_map):
