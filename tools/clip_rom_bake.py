@@ -495,7 +495,11 @@ def _region_rows_text(plan):
         f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
         f"rg_effects: {r['preset_label']}, rg_parallax: 0, "
         f"rg_bg_layout: {r.get('bg_layout') or 0}, rg_bg_span: 0, "
-        f"rg_bg_tiles: {r.get('bg_tiles') or 0} }},  // {r['why']}"
+        f"rg_bg_tiles: {r.get('bg_tiles') or 0}, "
+        # rg_song 0 = "no song named, leave the music alone" (S2CLIP-REGION-MUSIC step 5,
+        # the engine half). Step 6 makes this the clip's per-zone "music"; until then every
+        # clip row names none. rg_pad_1b is the record's even-stride pad.
+        f"rg_song: 0, rg_pad_1b: 0 }},  // {r['why']}"
         for r in plan["rows"])
 
 

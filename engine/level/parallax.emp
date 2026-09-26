@@ -1161,6 +1161,18 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
         // engine/ram.emp), so the zero loop above never touches it and this is its reset.
         move.l  #$FFFF0000, Region_Cur_X0                   // (Region_Cur_X0).w
         clr.l   Region_Current                              // (Region_Current).w — none resolved yet
+        // Region music (S2CLIP-REGION-MUSIC step 5): an act load forgets both the wanted
+        // and the last-posted song, so the start region's song (recorded by the first
+        // Parallax_CheckBoundary, which the sentinel above forces to rescan) restarts from
+        // the top even when it is the song already playing. A start region naming song 0
+        // leaves the previous music alone. The DEBUG warp does NOT come through here, so
+        // warping within a zone keeps the song. Two clr.b, not one clr.w over the adjacent
+        // pair: that would make the pair's alignment and adjacency a contract to pin, for
+        // 4 cycles saved once per act load.
+    if SOUND_DRIVER_ENABLED == 1 {
+        clr.b   Music_Want                                  // (Music_Want).w
+        clr.b   Music_Current                               // (Music_Current).w
+    }
 
         // EFFECTS-W1 item 10b: a role swap must not survive an act reload. The flag
         // lives OUTSIDE Parallax_State/_End (ram.emp's placement note explains why), so
@@ -1222,7 +1234,9 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 // $FFFF/$0000 sentinel is a rectangle nothing is inside, so the first call always rescans.
 //
 // In:  none (reads Camera_X/Y, Current_Act_Ptr, Region_Cur_X0..Y1)
-// Out: preset + config switched iff the centre entered a new region; Region_Current set.
+// Out: preset + config switched iff the centre entered a new region; Region_Current set;
+//      in a sound-on game, Music_Want = the new region's rg_song when that is non-zero
+//      (S2CLIP-REGION-MUSIC step 5; Music_Service posts it, this proc never does).
 // Clobbers: d0-d4, a0-a3 (d0/a2 are Region_Resolve's; a1/a3 enter the union via
 //   Effects_InstallPreset — the sole identity consumer since the legacy per-field
 //   installers were removed, effects-P3-C2 Task 13; d4 via Raster_BuildSchedule's table
@@ -1255,6 +1269,22 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         move.l  Region.rg_x0:l(a0), Region_Cur_X0   // x0:x1 — one long per axis, span-major
         move.l  Region.rg_y0:l(a0), Region_Cur_Y0   // y0:y1
         move.l  a0, Region_Current                  // the observable; engine logic never reads it
+
+        // -- the region's SONG (S2CLIP-REGION-MUSIC step 5): RECORD it, never post it here --
+        // A non-zero rg_song becomes the wanted song; 0 ("no song named") leaves the want
+        // alone, so a region that names nothing keeps whatever is playing. Posting is
+        // Music_Service's job (engine/sound/sound_api.emp, once a frame from GameLoop): it
+        // compares against what it last posted and posts only when the Z80's music slot is
+        // free, so THIS frame — which already carries Effects_InstallPreset — never waits on
+        // the sound handshake (Sound_PlayMusic SPINS while a previous load is unconsumed).
+        // Before the install because a0 is still the Region* here and is the resolved
+        // parallax config after it. Sound-off games (games/demo) assemble nothing here.
+    if SOUND_DRIVER_ENABLED == 1 {
+        move.b  Region.rg_song(a0), d0
+        beq     .no_song
+        move.b  d0, Music_Want                      // (Music_Want).w
+    .no_song:
+    }
 
         // -- the identity consumer (effects P3): TOTAL BINDING --
         // This is the ONE place the engine notices "the camera entered a new region", so

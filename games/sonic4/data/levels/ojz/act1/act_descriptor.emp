@@ -14,6 +14,10 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // module: it carries the layout + the per-field drift wall; act keeps the
 // validating constructor + field defaults below.
 use engine.structs.{Act, Sec, Region}
+// S2CLIP-REGION-MUSIC step 5: a region row's rg_song is checked against the game's song
+// count at build time (ojz_region() and ojz_region_table_check(), rule 9), so a row can
+// never name an id Sound_PlayMusic would index past SongTable with.
+use games.sonic4.sound_ids.{SONG_COUNT}
 
 // The Effects P1 gate fixtures (OJZ_TestRaster / OJZ_TestPal / OJZ_TestGradient /
 // OJZ_TestVsram / OJZ_TestRamp) were imported here to feed the pal:/raster: constructor
@@ -563,7 +567,8 @@ const BG_SPAN_ROW_PX = 8            // one nametable row: the streamer's quantum
 // ojz_region() — one Region row, with every per-row invariant checked HERE, at the call
 // site (a comptime fn's ensures evaluate where it is called, which is what makes them live).
 comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, parallax: Label = 0,
-                       bg_layout: Label = 0, bg_span: int = 0, bg_tiles: Label = 0) -> Region {
+                       bg_layout: Label = 0, bg_span: int = 0, bg_tiles: Label = 0,
+                       song: int = 0) -> Region {
     // A label beside 0 is the one cross-kind comparison sigil keeps DEFINED (EMP_PITFALLS
     // §12): a real label is never 0, so this is false exactly for a written zero.
     ensure(effects != 0,
@@ -602,9 +607,15 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, paral
     //     it is the same spelling the `effects != 0` guard above uses.
     ensure(bg_layout != 0 || bg_span == 0,
            "ojz_region(x0: {x0}, y0: {y0}): bg_span {bg_span} is written on a row whose bg_layout is 0. A row with no layout of its own shows the act's background, whose height is the act's fact — name a layout too, or leave bg_span 0")
+    // -- the region's song, S2CLIP-REGION-MUSIC step 5 --
+    // (9) 0 means "no song named: leave the music alone"; 1..SONG_COUNT names a song. Anything
+    //     else would make Music_Service post an id that Sound_PlayMusic indexes past
+    //     SongTable with (its bounds assert is DEBUG-only).
+    ensure(song >= 0 && song <= SONG_COUNT,
+           "ojz_region(x0: {x0}, y0: {y0}): song {song} is not 0 (leave the music alone) or a song id 1..{SONG_COUNT} (games/sonic4/config/sound_ids.emp's SONG_COUNT in this shape)")
     return Region{ rg_x0: x0, rg_x1: x1, rg_y0: y0, rg_y1: y1, rg_effects: effects,
                    rg_parallax: parallax, rg_bg_layout: bg_layout, rg_bg_span: bg_span,
-                   rg_bg_tiles: bg_tiles }
+                   rg_bg_tiles: bg_tiles, rg_song: song, rg_pad_1b: 0 }
 }
 
 // THE WIDTH THE REGION DOCUMENT WAS AUTHORED FOR, which since S2-COMPRESSED-ACT parcel 9
@@ -942,7 +953,8 @@ comptime fn ojz_cut_row(r: array, row: int, x1: int, was_preset: int, preset_key
                                    rg_y0: r[i].rg_y0, rg_y1: r[i].rg_y1,
                                    rg_effects: r[i].rg_effects, rg_parallax: r[i].rg_parallax,
                                    rg_bg_layout: r[i].rg_bg_layout, rg_bg_span: r[i].rg_bg_span,
-                                   rg_bg_tiles: r[i].rg_bg_tiles } ]
+                                   rg_bg_tiles: r[i].rg_bg_tiles, rg_song: r[i].rg_song,
+                                   rg_pad_1b: r[i].rg_pad_1b } ]
         } else {
             out = out ++ [ r[i] ]
         }
@@ -987,6 +999,7 @@ comptime fn ojz_region_table_check(r: array) -> int {
         if r[i].rg_bg_span % BG_SPAN_ROW_PX != 0 { return i * 16 + 6 }
         if r[i].rg_bg_span != 0 && r[i].rg_bg_span < SCREEN_HEIGHT { return i * 16 + 7 }
         if r[i].rg_bg_layout == 0 && r[i].rg_bg_span != 0 { return i * 16 + 8 }
+        if r[i].rg_song < 0 || r[i].rg_song > SONG_COUNT { return i * 16 + 9 }
     }
     return -1
 }
@@ -1034,7 +1047,7 @@ const OJZ_ACT1_REGION_ROW_FAULT = ojz_region_table_check(OJZ_ACT1_REGION_ROWS)
 const OJZ_ACT1_REGION_FAULT_ROW = OJZ_ACT1_REGION_ROW_FAULT / 16
 const OJZ_ACT1_REGION_FAULT_RULE = OJZ_ACT1_REGION_ROW_FAULT % 16
 ensure(OJZ_ACT1_REGION_ROW_FAULT == -1,
-       "OJZ act 1: {OJZ_ACT1_REGION_ROW_FAULTS} of {OJZ_ACT1_REGION_ROW_TOTAL} region rows break a per-row rule; the FIRST is row {OJZ_ACT1_REGION_FAULT_ROW}, rule {OJZ_ACT1_REGION_FAULT_RULE} — 0 null effects, 1 inverted rect, 2 past the act, 3 narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN}), 4 an interior X edge outside the camera centre's band [{CENTRE_X_MIN}, {CENTRE_X_MAX}], 5 the same on Y [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}], 6 bg_span off the {BG_SPAN_ROW_PX} px row grid, 7 bg_span below the {SCREEN_HEIGHT} px screen, 8 bg_span on a row with no layout. These are ojz_region()'s own rules; a generated row is a struct literal and never went through it")
+       "OJZ act 1: {OJZ_ACT1_REGION_ROW_FAULTS} of {OJZ_ACT1_REGION_ROW_TOTAL} region rows break a per-row rule; the FIRST is row {OJZ_ACT1_REGION_FAULT_ROW}, rule {OJZ_ACT1_REGION_FAULT_RULE} — 0 null effects, 1 inverted rect, 2 past the act, 3 narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN}), 4 an interior X edge outside the camera centre's band [{CENTRE_X_MIN}, {CENTRE_X_MAX}], 5 the same on Y [{CENTRE_Y_MIN}, {CENTRE_Y_MAX}], 6 bg_span off the {BG_SPAN_ROW_PX} px row grid, 7 bg_span below the {SCREEN_HEIGHT} px screen, 8 bg_span on a row with no layout, 9 rg_song past SONG_COUNT ({SONG_COUNT}). These are ojz_region()'s own rules; a generated row is a struct literal and never went through it")
 
 // THE WHOLE-TABLE INVARIANTS. Non-overlap plus "the areas sum to the act's" is exact
 // coverage, given every row is inside the act (ojz_region's own ensure): disjoint pieces
@@ -1074,7 +1087,7 @@ const OJZ_CLIP_REGION_ROW_FAULT = ojz_region_table_check(OJZ_CLIP_REGION_ROWS)
 const OJZ_CLIP_REGION_FAULT_ROW = OJZ_CLIP_REGION_ROW_FAULT / 16
 const OJZ_CLIP_REGION_FAULT_RULE = OJZ_CLIP_REGION_ROW_FAULT % 16
 ensure(OJZ_CLIP_REGION_ROW_FAULT == -1,
-       "the clip act: {OJZ_CLIP_REGION_ROW_FAULTS} of {OJZ_CLIP_REGION_ROW_TOTAL} region rows break a per-row rule; the FIRST is row {OJZ_CLIP_REGION_FAULT_ROW}, rule {OJZ_CLIP_REGION_FAULT_RULE} — the same rule numbers as the shipped table's check above (0 null effects, 1 inverted, 2 past the act, 3 under REGION_MIN_SPAN, 4/5 an interior edge outside the camera centre's band, 6-8 background)")
+       "the clip act: {OJZ_CLIP_REGION_ROW_FAULTS} of {OJZ_CLIP_REGION_ROW_TOTAL} region rows break a per-row rule; the FIRST is row {OJZ_CLIP_REGION_FAULT_ROW}, rule {OJZ_CLIP_REGION_FAULT_RULE} — the same rule numbers as the shipped table's check above (0 null effects, 1 inverted, 2 past the act, 3 under REGION_MIN_SPAN, 4/5 an interior edge outside the camera centre's band, 6-8 background, 9 rg_song past SONG_COUNT)")
 const OJZ_CLIP_REGION_OVERLAP = region_first_overlap(OJZ_CLIP_REGION_ROWS)
 const OJZ_CLIP_REGION_AREA = region_area_sum(OJZ_CLIP_REGION_ROWS)
 ensure(OJZ_CLIP_REGION_OVERLAP == -1,

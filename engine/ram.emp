@@ -1222,6 +1222,29 @@ pub vars upper_ram {
     Sfx_Ring_Wr:            u8,         // write cursor (0..SFX_RING_MASK)
     Sfx_Ring_Rd:            u8,         // read cursor  (0..SFX_RING_MASK); SFX_RING_DEPTH(8)+2 = 10 even
 
+    // Region music (S2CLIP-REGION-MUSIC step 5, 2026-09-25). The crossing
+    // (engine/level/parallax.emp, Parallax_CheckBoundary's slow path) writes the entered
+    // region's non-zero Region.rg_song into Music_Want; Music_Service
+    // (engine/sound/sound_api.emp, called once a frame from GameLoop) posts
+    // Sound_PlayMusic when Music_Want differs from Music_Current and the Z80's music slot
+    // is free, then records the id in Music_Current. Identity is the SONG ID: two regions
+    // naming one song never restart it. Both are zeroed by Parallax_Init (act load), so a
+    // reloaded act restarts its song; the DEBUG warp does not touch them.
+    //
+    // Music_Current is "the song the region service last posted", NOT driver truth: a
+    // Sound_PlayMusic/StopMusic from anywhere else (the off-canonical sound hotkeys) does
+    // not update it. Every canonical region row names song 0, so in canonical shapes
+    // Music_Want stays 0 and nothing is ever posted.
+    //
+    // DECLARED UNCONDITIONALLY, like the SFX ring above, although only sound-on shapes read
+    // or write them: gating them on SOUND_DRIVER_ENABLED is a conditional field group whose
+    // arms differ in size, which sigil refuses unless declared `@shape_divergent` (measured
+    // 2026-09-25), and a sound-shape RAM divergence is not worth two bytes. The cost is that a
+    // sound-off game (games/demo) carries two unused bytes and every RAM symbol after them
+    // sits two bytes later than it did before this parcel.
+    Music_Want:             u8,         // SongId the region under the camera names (0 = none yet)
+    Music_Current:          u8,         // SongId Music_Service last posted (0 = none)
+
     // Sound driver debug mirror. Declared unconditionally so that IT adds no
     // DEBUG/release divergence of its own; the shapes are NOT otherwise identical
     // (see the shape-divergence note under Dynamic_Live_Walking below, which is the

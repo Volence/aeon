@@ -82,14 +82,19 @@ def test_the_background_fields_are_appended_last_and_the_rectangle_is_still_two_
     assert off["rg_x0"] % 4 == 0 and off["rg_y0"] % 4 == 0, (
         f"a move.l cache fill starts at ${off['rg_x0']:02X} / ${off['rg_y0']:02X}; an odd "
         "base would address-error on 68000")
-    assert list(off)[-3:] == ["rg_bg_layout", "rg_bg_span", "rg_bg_tiles"], (
-        f"struct Region's last three fields are {list(off)[-3:]}; the background pair was "
-        "APPENDED (regions part 2 step 1) and the tile blob after it (region bg switch, "
-        "2026-09-16) so that no older offset moved. A field inserted before them slides "
-        "rg_effects and rg_parallax under every reader")
-    assert off["rg_bg_tiles"] + 4 == size, (
-        f"rg_bg_tiles at ${off['rg_bg_tiles']:02X} + 4 is not the {size}-byte record size — "
+    assert list(off)[-5:] == ["rg_bg_layout", "rg_bg_span", "rg_bg_tiles", "rg_song",
+                              "rg_pad_1b"], (
+        f"struct Region's last five fields are {list(off)[-5:]}; the background pair was "
+        "APPENDED (regions part 2 step 1), the tile blob after it (region bg switch, "
+        "2026-09-16) and the song byte + pad after that (region music, 2026-09-25) so that "
+        "no older offset moved. A field inserted before them slides rg_effects and "
+        "rg_parallax under every reader")
+    assert off["rg_pad_1b"] + 1 == size, (
+        f"rg_pad_1b at ${off['rg_pad_1b']:02X} + 1 is not the {size}-byte record size — "
         "something follows the field this test believes is last")
+    assert size % 2 == 0, (
+        f"sizeof(Region) is {size}, ODD: the table stride would put every second row's "
+        "rectangle on an odd address and the crossing's move.l cache fill would address-error")
 
 
 def test_region_record_carries_bg_tiles_at_offset_22():
@@ -110,7 +115,29 @@ def test_region_record_carries_bg_tiles_at_offset_22():
     assert re.search(r"^\s*rg_bg_tiles\s*:\s*\*u8\s*=\s*0\s*,", text, re.M), (
         "rg_bg_tiles must be `*u8 = 0`: a pointer whose 0 means the act default, the same "
         "sentinel convention as rg_bg_layout")
-    assert size == 26, f"sizeof(Region) is {size}; with rg_bg_tiles appended it is 26"
+    assert size == 28, (f"sizeof(Region) is {size}; with rg_bg_tiles appended it was 26, and "
+                        "rg_song + rg_pad_1b (region music, 2026-09-25) make it 28")
+
+
+def test_region_record_carries_the_song_byte_at_offset_26():
+    """Region music (S2CLIP-REGION-MUSIC step 5): a region names its song by SongId.
+
+    `rg_song` is a u8 defaulting to 0 ("no song named: leave the music alone"), appended at
+    $1A after `rg_bg_tiles`, and `rg_pad_1b` keeps the record even. The design's second byte
+    (`rg_music`, cut vs fade-in) was NOT added: the owner ruled a hard cut, so it would have
+    no reader. This pins what the engine reads (`move.b Region.rg_song(a0)`) and what
+    region_table.read_regions returns as `song`.
+    """
+    off, size = rt.region_layout()
+    assert off["rg_song"] == off["rg_bg_tiles"] + 4 == 0x1A, (
+        f"rg_song is at ${off.get('rg_song', -1):02X}; appended after rg_bg_tiles "
+        f"(${off['rg_bg_tiles']:02X}, a pointer) it must be $1A")
+    assert off["rg_pad_1b"] == 0x1B
+    text = (rt.AEON / rt.STRUCTS).read_text()
+    assert re.search(r"^\s*rg_song\s*:\s*u8\s*=\s*0\s*,", text, re.M), (
+        "rg_song must be `u8 = 0`: 0 is the 'leave the music alone' sentinel every shipped "
+        "row relies on")
+    assert "rg_music" not in off, "rg_music has no reader; it must not exist"
 
 
 def _row(i, x0, x1, y0, y1):

@@ -431,6 +431,64 @@ pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0/sr.ccr) preserves(sr.mask) {
 }
 
 // ----------------------------------------------------------------------
+// Music_Service — post the region's song, AT MOST ONE music request per frame, and never
+// spin on the sound handshake (S2CLIP-REGION-MUSIC step 5, 2026-09-25).
+//
+// The crossing (engine/level/parallax.emp, Parallax_CheckBoundary's slow path) RECORDS the
+// entered region's non-zero Region.rg_song in Music_Want and posts nothing. This proc, called
+// once a frame from GameLoop right after the game state (so a crossing is serviced on its own
+// frame), acts on it:
+//   * Music_Want == Music_Current -> nothing to do. This is the whole per-frame cost when no
+//     song changes: two byte reads, a compare and a branch. It is also the "already playing"
+//     rule: identity is the SONG ID, so two regions naming one song (an L-shape, a zone split
+//     into several rows) never restart it, and returning into a region whose song is the one
+//     last posted posts nothing. Both 0 (every canonical shape: no shipped row names a song)
+//     lands here too, so canonical shapes post ZERO music requests.
+//   * otherwise, probe SND_REQ_MUSIC under one masked bus hold (Sound_ReadStat). Non-zero
+//     means a previous load is still unconsumed: leave everything and retry next frame. This
+//     is what keeps the crossing frame (which already carries Effects_InstallPreset) free of
+//     Sound_PlayMusic's `.await_slot` spin: by the time PlayMusic runs, its own probe finds the
+//     slot clear and falls straight through. Nothing but the 68k ever writes a non-zero byte
+//     there, so the slot cannot re-fill between the two probes.
+//   * slot free -> Music_Current = Music_Want, then tail into Sound_PlayMusic. A hard cut:
+//     the driver silences the old song and starts the new one from pattern 0 (the owner's
+//     ruling, docs/decisions.jsonl S2CLIP-MUSIC-FEEL = cut-at-exit). Going back into a region
+//     whose song differs from the last posted one restarts that song from the top; resume is
+//     a later, large driver job.
+//
+// ONE TRANSPORT OP PER FRAME (this file's contract, above Sound_Pause): this proc posts at
+// most one music request a frame. It does not know about transport ops posted by OTHER
+// callers in the same frame; in every canonical shape there are none (the only other music
+// callers are the off-canonical sound hotkeys, games/sonic4/debug/game_debug.emp). A game
+// that adds one must not let it land on a frame this proc posts.
+//
+// WHY A 68k-SIDE COMPARE AT ALL (research, 2026-09-25): neither S3K nor S.C.E. has one.
+// Their Play_Music writes the mailbox unconditionally and the Z80 always stops and reloads
+// (skdisasm `Play_Music` sonic3k.asm:1470; Z80 `zPlayMusic` -> zPlayMusic_DoFade ->
+// zBGMLoad, no current-song compare; S.C.E. Flamedriver likewise). They get away with it
+// because their in-act music changes fire ONCE, from an event (a title card's
+// Restore_LevelMusic, a boss object, one camera threshold). A region crossing fires every
+// time the camera centre crosses an edge, so the compare is this engine's, and Music_Current
+// is its `Current_music`.
+//
+// Clobbers: d0-d4/a0-a1 (Sound_PlayMusic's set, reached by tail) and the CCR.
+// ----------------------------------------------------------------------
+pub proc Music_Service () clobbers(d0-d4/a0-a1) preserves(sr.mask) {
+        move.b  Music_Want, d0                  // (Music_Want).w
+        cmp.b   Music_Current, d0               // (Music_Current).w
+        beq     .ms_ret                         // already posted (or both 0): nothing to do
+        lea     MUSIC_SLOT, a0
+        jbsr    Sound_ReadStat                  // d0.b = SND_REQ_MUSIC, read under the hold
+        tst.b   d0
+        bne     .ms_ret                         // a load is still unconsumed: retry next frame
+        move.b  Music_Want, d0 as SongId        // (Music_Want).w
+        move.b  d0, Music_Current               // (Music_Current).w — record BEFORE the post
+        jbra    Sound_PlayMusic                 // tail: d0.b = the song id; its probe falls through
+    .ms_ret:
+        rts
+}
+
+// ----------------------------------------------------------------------
 // Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
 // Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
 // In: none. Clobbers: d0. `preserves(a0)` is CHECKED through the tail: the
