@@ -1,12 +1,6 @@
 {
-  "focus": "Overnight work done: music, slopes, speed fixes landed; a loop fix is ready for you to fly before it lands.",
-  "inFlight": [
-    {
-      "what": "Check object/ring loading when the camera crosses two section edges at once",
-      "where": "branch fix/entity-window-diagonal",
-      "agent": true
-    }
-  ],
+  "focus": "Overnight work done and landed; a loop fix is ready for you to fly. Stopped cleanly for a context clear.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -34,15 +28,14 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The camera corner-case check comes back; I review and land it.",
+  "nextBoundary": "At a boundary. Resume from docs/superpowers/2026-09-26-aeon-overnight-handoff.md.",
   "queue": [
     {
-      "id": "STRESSART-HALTS",
-      "title": "Stress build: leak fixed, budget fixed; checking a camera corner case",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
+      "id": "SAH-3a",
+      "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
     },
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -155,7 +148,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums in aeon/s4.s2clip.debug.bin (crc 3a807650); try a slope.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-26T14:38:27Z"
+  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin; listen to aeon/s4.s2clip.debug.bin (crc be774dc5) for drums; try a slope. Also: this lane is clearable (~200k context).",
+  "atBoundary": true,
+  "updatedAt": "2026-09-26T15:12:03Z"
 }
