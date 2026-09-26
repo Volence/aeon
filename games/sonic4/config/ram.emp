@@ -116,6 +116,21 @@ pub struct PlayerBlock {
                             // xover_cell is: the two are read and written together and
                             // a follower running two preambles must not share either.
                             // Even offset (24) — read and written with move.l/cmp.l.
+    ll_prev:        u32,    // THE LAYER LINES' SIDE MEMORY (S2CLIP-PLANE-SWITCH): this slot's
+                            // position (X px << 16 | Y px) when Player_LayerLines last ran.
+                            // Sonic 2's Obj03 keeps one "which side" byte per player PER
+                            // LINE; while a line runs every frame that byte always equals
+                            // "was he at or past the line last time", so this one long
+                            // stands in for every line's byte at once and the RAM does not
+                            // grow with the table. Seeded by Player_Init with the spawn
+                            // position. Even offset (28), move.l/cmp.l.
+    ll_cursor:      u32,    // THE LAYER LINES' WINDOW CURSOR: a pointer to the last row of
+                            // the act's LayerLine table whose key is at or below this slot's
+                            // window floor (Player_LayerLines' header). 0 = the act has no
+                            // table, and that null test in Player_Main is the whole per-frame
+                            // cost of an act without one. Seeded by Player_Init from
+                            // Act.act_layer_lines (the leading sentinel row, whose key is
+                            // below every floor). Even offset (32).
 }
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable

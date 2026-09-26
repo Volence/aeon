@@ -61,6 +61,29 @@ pub const CTYPE_AIR = 0
 pub const LAYER_PATH_A = 0
 pub const LAYER_PATH_B = 1
 
+// LAYER LINES (S2CLIP-PLANE-SWITCH): the other layer writer that reaches level data. An act
+// may carry a table of Sonic 2 plane-switcher lines (engine/structs.emp `LayerLine`, named by
+// Act.act_layer_lines), run every frame by the game's player preamble with Obj03's rule
+// (games/sonic4/player/player_common.emp Player_LayerLines). These are the bit numbers of
+// LayerLine.ll_flags: Obj03's subtype bits 7..2 re-packed, plus its layout x-flip.
+// tools/s2_layer_lines.py reads them from THIS file when it bakes a table, so the producer
+// and the consumer cannot disagree about a bit.
+pub const LL_KEEP_PATH  = 0           // layout x-flip: leave the layer, set priority only
+pub const LL_GROUNDED   = 1           // Obj03 subtype bit 7: only while not ST_IN_AIR
+pub const LL_HORIZONTAL = 2           // subtype bit 2: a horizontal line (crossed on Y)
+pub const LL_FWD_B      = 3           // subtype bit 3: crossing right/down -> path B, else A
+pub const LL_BACK_B     = 4           // subtype bit 4: crossing left/up -> path B, else A
+pub const LL_FWD_HI     = 5           // subtype bit 5: crossing right/down -> high priority
+pub const LL_BACK_HI    = 6           // subtype bit 6: crossing left/up -> high priority
+// The widest horizontal-line segment a table may hold. A horizontal line is baked as
+// segments no wider than this so the runtime's window over the X-sorted table stays this
+// wide plus one frame's step (Player_LayerLines' header says why that is enough).
+pub const LL_SEG_W      = 64
+// The two sentinel keys every table starts and ends with. Signed word compares order every
+// key between them; the cursor walk and the scan stop on them without a bounds test.
+pub const LL_KEY_BEFORE = $8000
+pub const LL_KEY_AFTER  = $7FFF
+
 // Render flags — SST render_flags bit assignments (mirrors
 // this file).
 pub const RF_ONSCREEN  = 0            // set by Draw_Sprite if visible

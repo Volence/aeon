@@ -478,7 +478,7 @@ CLIP_DATA_BEGIN = "// ==== BEGIN CLIP ACT DATA (tools/clip_rom_bake.py, S2-COMPR
 CLIP_DATA_END = "// ==== END CLIP ACT DATA ===="
 #: The imports the appended block needs, inserted after the module's own `use` block (an
 #: import is a declaration of the module, not of the block).
-CLIP_DATA_USES = ("use engine.structs.{Region}\n"
+CLIP_DATA_USES = ("use engine.structs.{Region, LayerLine}\n"
                   "use engine.effects.preset.{EffectsPreset, preset}\n"
                   "use engine.effects.raster.{Raster_Program_None}\n"
                   "use engine.effects.palette.{Pal_Cycle_None}\n")
@@ -501,6 +501,118 @@ def _region_rows_text(plan):
         # zone that names no music (the MUSIC block). rg_pad_1b is the even-stride pad.
         f"rg_song: {r.get('song_id') or 0}, rg_pad_1b: 0 }},  // {r['why']}"
         for r in plan["rows"])
+
+
+# ---------------------------------------------------------------------------
+# THE CLIP ACT'S LAYER LINES (S2CLIP-PLANE-SWITCH, 2026-09-26)
+# ---------------------------------------------------------------------------
+#
+# Sonic 2 moves the player between its two collision paths with Obj03 lines; a clip act
+# carries no Sonic 2 objects, so without these the player never left plane A and no loop
+# could be completed (docs/research/2026-09-26-s2clip-loops-planes.md). tools/s2_layer_lines.py
+# reads every Obj03 inside each clip's source rectangle out of the donor's own object layout;
+# this block emits them the way the regions are emitted: the ROWS as a const in the clip
+# module (act_descriptor.emp's layer_line_table_check walks them), the same text as the
+# `OJZ_Clip_LayerLines` table in the data block, and a chooser the descriptor binds
+# `act_layer_lines` through. LL1 below reads both back and holds them to the plan. An act with
+# no lines emits no table and the chooser hands back `hand` (0).
+
+_LAYER_LINES_NEUTRAL = (
+    "// THE LAYER LINES (S2CLIP-PLANE-SWITCH). None in the canonical act: the descriptor binds\n"
+    "// Act.act_layer_lines through this chooser and gets its `hand`, 0 (OJZ's loop uses painted\n"
+    "// crossover marks, not lines), and the rows the descriptor checks are empty.\n"
+    "pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []\n\n"
+    "pub comptime fn ojz_clip_act_layer_lines(hand: int) -> int {\n"
+    "    return hand\n"
+    "}\n")
+
+
+def _layer_lines_module_text(plan):
+    ll = plan.get("layer_lines") or {}
+    if not ll.get("rows"):
+        return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): none in this clip act's donor "
+                f"rectangles, so the\n// act binds no table and Player_Main's null test is "
+                f"all it pays.\n" + _LAYER_LINES_NEUTRAL.split("\n", 3)[3])
+    import s2_layer_lines as SLL
+    n = len(ll["rows"]) + 2
+    return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): {len(ll['lines'])} Sonic 2 Obj03 line(s) "
+            f"from the donors'\n// own object layouts, {len(ll['rows'])} row(s) with the horizontal "
+            f"ones cut into segments, between\n// two sentinels. tools/s2_layer_lines.py wrote "
+            f"them; the SAME text is the data block's\n// `OJZ_Clip_LayerLines`, and LL1 holds the "
+            f"two identical.\n"
+            f"pub const OJZ_CLIP_LAYER_LINE_ROWS: [LayerLine; {n}] = [\n    "
+            f"{SLL.rows_text(ll)}\n]\n\n"
+            "pub comptime fn ojz_clip_act_layer_lines(hand: int) -> Label {\n"
+            "    return OJZ_Clip_LayerLines\n"
+            "}\n")
+
+
+def _layer_lines_data_text(ll):
+    import s2_layer_lines as SLL
+    n = len(ll["rows"]) + 2
+    return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): Act.act_layer_lines names this table; "
+            f"Player_LayerLines\n// (games/sonic4/player/player_common.emp) runs it. "
+            f"(align: 2): every field is read as a word.\n"
+            f"pub data OJZ_Clip_LayerLines (align: 2): [LayerLine; {n}] = [\n    "
+            f"{SLL.rows_text(ll)}\n]\n")
+
+
+def layer_line_plan(act, log=None):
+    """tools/s2_layer_lines.plan() for the act, its refusals as ClipRomError."""
+    import s2_layer_lines as SLL
+    try:
+        ll = SLL.plan(act)
+    except SLL.LayerLineError as exc:
+        raise ClipRomError(str(exc)) from None
+    if log:
+        zones = {}
+        for ln in ll["lines"]:
+            zones[ln["zone"]] = zones.get(ln["zone"], 0) + 1
+        log(f"clip_rom_bake: LL {len(ll['lines'])} Sonic 2 plane-switcher line(s) -> "
+            f"{len(ll['rows'])} layer-line row(s) ("
+            + ", ".join(f"{z} {n}" for z, n in zones.items()) + ")")
+    return ll
+
+
+_LL_ROW_RE = None
+
+
+def _layer_line_rows(text, name, what):
+    """[(key, a, b, flags)] of a `NAME ... = [ LayerLine{...}, ... ]` block, sentinels included."""
+    import re
+    m = re.search(rf"{re.escape(name)}\b[^=]*=\s*\[(.*?)^\]", text, re.S | re.M)
+    if not m:
+        raise ClipRomError(f"LL1 {what} carries no `{name}` table")
+    out = []
+    for r in re.finditer(r"LayerLine\{\s*ll_key:\s*(\$?[0-9A-Fa-f]+),\s*ll_a:\s*(\d+),\s*"
+                         r"ll_b:\s*(\d+),\s*ll_flags:\s*(\$?[0-9A-Fa-f]+)", m.group(1)):
+        out.append(tuple(int(v[1:], 16) if v.startswith("$") else int(v) for v in r.groups()))
+    return out
+
+
+def check_layer_lines(plan, mod_text, data_text):
+    """LL1: the rows the descriptor checks (the clip module's OJZ_CLIP_LAYER_LINE_ROWS) and the
+    table the Act names (the data block's OJZ_Clip_LayerLines) are the plan's rows, read back
+    out of what was WRITTEN, in order, sentinels included. Returns the row count (0 = none)."""
+    ll = plan.get("layer_lines") or {}
+    if not ll.get("rows"):
+        if "OJZ_Clip_LayerLines" in data_text:
+            raise ClipRomError("LL1 the plan has no layer lines but the data block names a table")
+        return 0
+    c = ll["consts"]
+    want = ([(c["LL_KEY_BEFORE"], 0, 0, 0)]
+            + [(r["key"], r["a"], r["b"], r["flags"]) for r in ll["rows"]]
+            + [(c["LL_KEY_AFTER"], 0, 0, 0)])
+    for text, name, what in ((mod_text, "OJZ_CLIP_LAYER_LINE_ROWS", "the clip module"),
+                             (data_text, "OJZ_Clip_LayerLines", "the data block")):
+        got = _layer_line_rows(text, name, what)
+        if got != want:
+            first = next((i for i, (g, w) in enumerate(zip(got, want)) if g != w),
+                         min(len(got), len(want)))
+            raise ClipRomError(
+                f"LL1 {what}'s {name} is not the plan's table: {len(got)} row(s) against "
+                f"{len(want)}, first difference at row {first}")
+    return len(ll["rows"])
 
 
 def _region_bg_labels(plan):
@@ -545,8 +657,10 @@ def clip_module_text(plan=None):
                 "pub const OJZ_CLIP_REGION_ROWS: array = []\n\n"
                 "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
                 "    return hand\n"
-                "}\n")
+                "}\n\n"
+                + _LAYER_LINES_NEUTRAL)
     presets = ", ".join([z["preset_label"] for z in plan["zones"]] + _region_bg_labels(plan))
+    uses_ll = ", LayerLine" if (plan.get("layer_lines") or {}).get("rows") else ""
     n = len(plan["rows"])
     backdrop = plan.get("backdrop_reg", 0)
     return (_CLIP_HEADER +
@@ -555,7 +669,7 @@ def clip_module_text(plan=None):
             "// module. Never commit this version. The palettes, presets and the emitted table\n"
             f"// are appended to {CLIP_DATA_REL} (between its CLIP ACT DATA markers).\n\n"
             f"module {CLIP_MODULE_NAME}\n\n"
-            "use engine.structs.{Region}\n"
+            f"use engine.structs.{{Region{uses_ll}}}\n"
             f"use {CLIP_DATA_MODULE}.{{{presets}}}\n\n"
             "pub const OJZ_CLIP_ACT = 1\n"
             "// VDP register 7 (backdrop = CRAM line/entry), Sonic 2's own `Level:` write\n"
@@ -569,7 +683,8 @@ def clip_module_text(plan=None):
             "// becomes a link extern — the route effects_gen's choosers already take.\n"
             "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
             "    return OJZ_Clip_Regions\n"
-            "}\n")
+            "}\n\n"
+            + _layer_lines_module_text(plan))
 
 
 def clip_data_block(plan):
@@ -603,6 +718,9 @@ def clip_data_block(plan):
             + f"transition: {0 if snap else 1})\n")
     n = len(plan["rows"])
     out.append(f"pub data OJZ_Clip_Regions: [Region; {n}] = [\n    {_region_rows_text(plan)}\n]\n")
+    ll = plan.get("layer_lines") or {}
+    if ll.get("rows"):
+        out.append(_layer_lines_data_text(ll))
     for z in plan["zones"]:
         if not z.get("bg_layout_label"):
             continue
@@ -1598,6 +1716,7 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
                         "act_descriptor.emp")
     plan_backgrounds(plan, engine_spawn(desc), gen_dir, baked_dir or gen_dir, log=log)
     plan_scroll(plan, act, log=log)
+    plan["layer_lines"] = layer_line_plan(act, log=log)
     with open(path, "w") as fh:
         fh.write(clip_module_text(plan))
     append_clip_data(plan, data_path)
@@ -1630,6 +1749,10 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
             f"{', '.join(plan['bg1']['regions']) or 'no zone'} carr(ies) its own on its "
             f"region rows — rows and blobs read back from what was emitted")
     plan["sc1"] = check_scroll(plan, data)
+    plan["ll1"] = check_layer_lines(plan, mod, data)
+    if log:
+        log(f"clip_rom_bake: LL1 {plan['ll1']} layer-line row(s) in the clip module and the data "
+            f"block, read back from what was emitted and equal to the plan")
     if log:
         log("clip_rom_bake: SC1 " + ", ".join(
             f"{zone} {'binds its own ' + str(n) + '-band scroll' if n else 'keeps the act default'}"
@@ -1864,6 +1987,12 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
             "backdrop_reg": region_plan_["bg1"]["backdrop_reg"],
             "per_zone": {z["zone"]: z["bg"] for z in region_plan_["zones"]},
         },
+        "layer_lines": {"lines": len(region_plan_["layer_lines"]["lines"]),
+                        "rows": len(region_plan_["layer_lines"]["rows"]),
+                        "per_zone": {z: sum(1 for ln in region_plan_["layer_lines"]["lines"]
+                                            if ln["zone"] == z)
+                                     for z in sorted({ln["zone"] for ln in
+                                                      region_plan_["layer_lines"]["lines"]})}},
         "scroll": {z["zone"]: ({"routine": z["scroll"]["routine"],
                                 "v_factor": z["scroll"]["v_factor"],
                                 "v_center": z["scroll"]["v_center"],
