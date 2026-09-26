@@ -931,12 +931,9 @@ pub vars upper_ram {
         // STALL_WATCHDOG_FRAMES so a working-set-exceeds-dynamic-frames livelock is LOUD,
         // not a silent black hang. Reset to 0 the first frame the fill does not stall.
         Cache_Stall_Watchdog:   u16,
-        Page_Audit_Ticks:       u16,    // LOGIC TICKS since the last during-play refcount audit (PageCache_AuditTick)
-        Page_Audit_Scratch:     [u16; PAGE_FRAMES_MAX],   // per-frame refcount recomputed from the nametable (audit).
-                                                          // CAPACITY-sized like Page_Frames — this array shrinking by
-                                                          // 2 B is exactly what slid every debug cell below it (incl.
-                                                          // the free stacks) by -2 and desynced the replay fixtures
-                                                          // on the 2026-08-11 pool resize.
+        Page_Audit_Ticks:       u16,    // LOGIC TICKS since the last interval audit (PageCache_Audit, PAGE_AUDIT_TICK)
+        Page_Live_Forced:       u16,    // eviction choices that found no dead frame and forced a full
+                                        // liveness sweep (PageCache_PickVictim). A counter to read, not a gate.
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
         // compact readable copy of the residency map (Task-6 mapping-bug debug):
         //   [0]=Page_Free_Head [1]=[2]=$FF reserved (dead LRU heads) [3]=pad
@@ -1565,6 +1562,21 @@ pub vars upper_ram {
     Page_Pfx_Stage_Gen:     u16,        // Block_Stage_Gen at the scan's last sync (claims since = delta)
     Page_Evict_Gen:         u16,        // bumped on every page eviction + PageCache_Init
     Page_Pfx_Evict_Seen:    u16,        // Page_Evict_Gen at the scan's last sync
+
+    // --- General-regime frame liveness (GPL-A3, 2026-09-27; engine.page_cache) ---
+    // RELEASE (both shapes). Replaces the per-frame refcounts. Page_Live_Masks holds one
+    // u16 frame bitmask per cache ROW (units 0..TILE_CACHE_ROWS-1) and then one per cache
+    // COLUMN (byte offset PAGE_LIVE_COL_OFFSET on). Invariant, general regime: every cache
+    // cell (r, c) names a frame in row r's mask or column c's mask. Written only by the
+    // general patch runs (the insertion barrier), the idle sweep (exact re-derivation),
+    // PageCache_LiveSweepAll and PageCache_LiveReset. The two pointers are the masks of the
+    // row / column the copy site is about to fill (TileCache_FillRow /
+    // TileCache_CopyBlockColumn publish them, general regime only). Placed at the RAM
+    // TAIL like the block above: ripples zero engine-RAM addresses.
+    Page_Live_Masks:        [u16; PAGE_LIVE_UNITS],
+    Page_Live_RowPtr:       u32,        // &Page_Live_Masks[row] of the row TileCache_FillRow is filling
+    Page_Live_ColPtr:       u32,        // &Page_Live_Masks[col unit] of the column TileCache_CopyBlockColumn is filling
+    Page_Live_Unit:         u16,        // the idle sweep's next unit (0..PAGE_LIVE_UNITS-1)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed

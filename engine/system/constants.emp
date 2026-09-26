@@ -367,6 +367,13 @@ pub const TILE_CACHE_COLS    = 80                                 // viewport 40
 pub const TILE_CACHE_ROWS    = 60                                 // viewport 28 + margin 16×2
 pub const TILE_CACHE_STRIDE  = TILE_CACHE_COLS                    // row stride (cols)
 pub const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  // 9600 bytes
+// General-regime frame liveness (GPL-A3, 2026-09-27; engine.page_cache has the design).
+// Page_Live_Masks (engine/ram.emp) holds one u16 frame mask per cache row, then one per
+// cache column: row r at byte 2*r, column c at PAGE_LIVE_COL_OFFSET + 2*c. The copy
+// sites address it by these names (TileCache_FillRow / TileCache_CopyBlockColumn publish
+// the mask of the row / column they are about to fill).
+pub const PAGE_LIVE_UNITS      = TILE_CACHE_ROWS + TILE_CACHE_COLS
+pub const PAGE_LIVE_COL_OFFSET = TILE_CACHE_ROWS * 2
 
 // DMA-queue geometry — slot counts per priority sub-queue; the total is the
 // derived sum.
@@ -406,9 +413,9 @@ pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES
 ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
        "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
 // CAPACITY, deliberately split from the COUNT above (user style ruling
-// 2026-08-11). PAGE_FRAMES sizes two RAM arrays (Page_Frames,
-// Page_Audit_Scratch — the latter debug-only), so before this split a pool
-// resize was secretly a RAM-LAYOUT change: 960->896 slid every debug cell
+// 2026-08-11). PAGE_FRAMES sized two RAM arrays (Page_Frames, and the debug-only
+// Page_Audit_Scratch that died with the refcounts, GPL-A3), so before this split a
+// pool resize was secretly a RAM-LAYOUT change: 960->896 slid every debug cell
 // below the scratch array by -2, moved 126 pins, and desynced the replay
 // fixtures on a behaviour-identical build. The arrays are now sized by this
 // fixed capacity and PAGE_FRAMES is just the live count, so POOL_TILE_CEILING
@@ -424,12 +431,12 @@ ensure(PAGE_FRAMES <= PAGE_FRAMES_MAX,
 pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link terminator
 // PageCache_Direct_Map values — which copy-site patch loop a run takes (engine.page_cache;
 // latched by Level_LoadArt, see ARCH §9.7). 0 = the GENERAL loop (page->frame through
-// Page_Table + refcounts). DIRECT_RESIDENT ($FF, negative: `tst.b / bmi`) = streaming fix
+// Page_Table, plus the liveness-mask barrier). DIRECT_RESIDENT ($FF, negative: `tst.b / bmi`) = streaming fix
 // F1, a fully resident act whose Page_Table is the identity: physical == global, no
 // check. DIRECT_BOUNDED ($01, positive non-zero) = the streaming-lag fix of 2026-09-25: a
 // STREAMING act whose resident set is still exactly pages [0, PAGE_FRAMES_CLAMP) at
 // identity, so physical == global for every resident page and residency is one compare
-// against PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT. Ended (-> 0, refcounts rebuilt
+// against PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT. Ended (-> 0, liveness masks derived
 // from the nametable) by the act's first frame allocation after the bulk load.
 // DIRECT_PLAIN ($80, negative like RESIDENT) = the resident plain copy of 2026-09-26: the
 // RESIDENT conditions hold AND the act's words were baked PHYSICAL (Act.act_nt_physical),
@@ -438,16 +445,16 @@ pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link t
 pub const PAGECACHE_DIRECT_RESIDENT = $FF
 pub const PAGECACHE_DIRECT_PLAIN    = $80
 pub const PAGECACHE_DIRECT_BOUNDED  = $01
-// pf_flags bits (engine.structs PageFrame):
+// pf_flags bits (engine.structs PageFrame). Bit 1 is free: it was PF_EVICTABLE until the
+// liveness masks replaced the refcounts (GPL-A3, 2026-09-27) — eviction candidacy is now
+// computed at the choice (PageCache_PickVictim), never stored. PF_DEMAND_HELD keeps bit 2
+// (tools/pagecache_audit_poison.py reads the bit by name).
 pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
-pub const PF_EVICTABLE_BIT   = 1            // frame is an eviction candidate (assigned, refcount 0,
-                                            // unpinned, stamped) — F-1 stamp eviction; set on
-                                            // Unref 1->0 + speculative publish, cleared on Ref 0->1
 pub const PF_DEMAND_HELD_BIT = 2            // a DEMAND page published and protected from eviction until
-                                            // the first fill pass that ends without a demand stall
-                                            // (stressart-halts GPL-2 fix, 2026-09-26; PageCache_DemandHoldTick)
+                                            // the first fill pass that ends without a demand stall, or
+                                            // until an eviction choice sees it live (stressart-halts GPL-2
+                                            // fix, 2026-09-26; PageCache_DemandHoldTick, PageCache_PickVictim)
 pub const PF_PINNED          = 1 << PF_PINNED_BIT
-pub const PF_EVICTABLE       = 1 << PF_EVICTABLE_BIT
 pub const PF_DEMAND_HELD     = 1 << PF_DEMAND_HELD_BIT
 // The tile-index field of a nametable word (bits 0-10); bits 11-15 are pal/pri/flip.
 pub const NT_TILE_MASK       = $07FF
@@ -530,6 +537,9 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 //       whose windows CAN'T span the pool; OJZ is not one. So on OJZ this fixture
 //       serves as a loud thrash-CANARY (zero silent corruption), not a churn generator.
 //       Sustained-churn coverage = Task 11's stress-uniquify fixture (window << pool).
+//       (A historical finding, stated in the refcounts of its day. The liveness masks
+//       that replaced them (GPL-A3, 2026-09-27) are defined over the same 80x60 window,
+//       so the finding stands unchanged.)
 // If a working set ever exceeds the dynamic frames, the stall watchdog
 // (Tile_Cache_Fill, DEBUG) NAMES it instead of hanging.
 pub const STRESS_EVICT_FRAMES = 9

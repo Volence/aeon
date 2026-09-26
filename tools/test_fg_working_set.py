@@ -146,7 +146,7 @@ def test_windows_are_derived_from_engine_constants(model):
     # own `ensure` pair in constants.emp
     assert model.win_plane_fill[0] >= model.win_visible[0]
     assert model.win_plane_fill[1] >= model.win_visible[1]
-    # the residency window IS the tile cache (page_cache.emp's refcount
+    # the residency window IS the tile cache (page_cache.emp's liveness
     # invariant is stated over it), and it must contain the plane fill
     assert model.win_tile_cache == (c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"])
     assert model.win_tile_cache[0] >= model.win_plane_fill[0]

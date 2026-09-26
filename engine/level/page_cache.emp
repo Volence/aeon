@@ -5,33 +5,52 @@
 // 64-tile frames. A page id -> frame map (Page_Table) plus per-frame bookkeeping
 // (Page_Frames[]) turns "which 64-tile pool page lives in which VRAM slot" into a
 // runtime residency question. Blocks entering the 80x60 tile cache are patched
-// logical(global)->physical(frame) at the copy sites (engine.tile_cache) and their
-// pages ref-counted; a page whose refcount is 0 and is not pinned is an eviction
-// candidate (van Waveren SVT free/evictable/locked states adapted: a frame is
-// FREE-listed, PF_EVICTABLE (stamped, age-scanned at eviction), or neither —
-// referenced/pinned/detached). Eviction order is the pf_stamp age, not a list.
+// logical(global)->physical(frame) at the copy sites (engine.tile_cache). A frame is
+// FREE-listed, PINNED, DEMAND-HELD, or assigned; an assigned, unpinned, unheld frame
+// that no cache word names is an eviction candidate, the oldest pf_stamp first (van
+// Waveren SVT free/evictable/locked states adapted; eviction order is the stamp age,
+// not a list).
 //
-// SAFETY INVARIANT (spec §5): pf_refcount counts nametable words currently in the
-// tile cache that reference the frame. Eviction only of refcount-0 unpinned frames
-// => a physical index baked into a live cache word can never dangle. The audit
-// (PageCache_Audit, DEBUG) recomputes every frame's refcount from the whole
-// nametable and compares — the machine check on that invariant.
+// SAFETY INVARIANT (spec §5): no cache word may name a frame whose page has left. So a
+// frame is evicted only when no word of the 80x60 Tile_Cache_Nametable names it (the
+// scope is the tile cache: Plane A/B VRAM and Plane_Buffer hold copies of cache words
+// and never needed counting). The GENERAL regime answers "does any word name frame f"
+// with LIVENESS MASKS, not counts (GPL-A3, 2026-09-27; design and measurements in
+// docs/research/2026-09-27-general-patch-loop.md):
+//
+//   Page_Live_Masks holds a u16 frame bitmask per cache ROW and per cache COLUMN, and
+//   for every cache cell (r, c), at every instant anything reads it,
+//       frame(word) ∈ row_mask[r] ∪ col_mask[c].
+//   * The general patch runs are an INSERTION BARRIER: a sequential run (one cache row)
+//     ORs every frame it writes into its row's mask, a column run into its column's.
+//     The overwritten word needs nothing: a mask only has to be a SUPERSET.
+//   * Blank and zero-filled words are $0000, frame 0, and every row mask carries bit 0.
+//   * The idle sweep (PageCache_LiveSweep, VSync_Wait's idle slot) re-derives one row or
+//     one column EXACTLY at a time, so masks shrink when content leaves.
+//   * Eviction (PageCache_PickVictim) takes only a frame in NO mask: by the invariant no
+//     word names it. No candidate: one forced full sweep (PageCache_LiveSweepAll), then
+//     the test again on exact masks; still none is the thrash condition.
+// This replaced a per-word refcount pair (ref the new frame, unref the overwritten one,
+// with candidate-flag transitions). The pair was ~1.2k of the ~1.46k cycles per
+// sequential run that separated the general loop from a direct one; the barrier is one
+// `bset` per word. The DEBUG audit checks the invariant itself, per word, and so slices
+// like the latched regimes' check (PageCache_Audit).
 //
 // TWO REGIMES (streaming fix F1). The above is the GENERAL regime. An act that is
 // fully resident AND whose Page_Table is the IDENTITY (Level_LoadArt verifies both
-// and latches PageCache_Direct_Map) can never evict, so refcounts are not a live
+// and latches PageCache_Direct_Map) can never evict, so liveness is not a live
 // quantity there and physical == global for every word: the copy-site patch runs
-// take a collapsed variant that skips the page->frame indirection and the refcount
-// pair entirely. The invariant above is not weakened, it is VACUOUS in that regime,
-// and PageCache_Audit checks the three that replace it instead of a number nobody
-// writes. A THIRD, transient regime (streaming-lag fix, 2026-09-25): a STREAMING act
-// whose resident set is still exactly its bulk-loaded block [0, PAGE_FRAMES_CLAMP) at
-// identity takes the same collapsed loop plus one residency compare
-// (pc_patch_run_bounded), until its first frame allocation ends it and rebuilds the
-// refcounts (PageCache_EndBoundedRegime). A FOURTH (resident plain copy, 2026-09-26):
-// the F1 regime on an act whose words were baked PHYSICAL — the run is a plain word
-// copy with no map read (pc_patch_run_plain; see there for why it is exact). Every
-// other proc in this module is regime-independent.
+// take a collapsed variant that skips the page->frame indirection and the barrier
+// entirely. The invariant above is not weakened, it is VACUOUS in that regime,
+// and PageCache_Audit checks the ones that replace it instead. A THIRD, transient
+// regime (streaming-lag fix, 2026-09-25): a STREAMING act whose resident set is still
+// exactly its bulk-loaded block [0, PAGE_FRAMES_CLAMP) at identity takes the same
+// collapsed loop plus one residency compare (pc_patch_run_bounded), until its first
+// frame allocation ends it and derives the masks from the nametable
+// (PageCache_EndBoundedRegime). A FOURTH (resident plain copy, 2026-09-26): the F1
+// regime on an act whose words were baked PHYSICAL — the run is a plain word copy with
+// no map read (pc_patch_run_plain; see there for why it is exact). Under every latch
+// the masks keep their reset value (PageCache_LiveReset), which the audit checks.
 //
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
@@ -54,13 +73,14 @@ module engine.page_cache in page_cache
 
 use engine.structs.{PageManifest, PageFrame}
 use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
-use engine.constants.{PF_PINNED_BIT, PF_EVICTABLE_BIT, PF_PINNED, PF_EVICTABLE, ART_PAGE_FLAG_PINNED_BIT}
+use engine.constants.{PF_PINNED_BIT, PF_PINNED, ART_PAGE_FLAG_PINNED_BIT}
 use engine.constants.{PF_DEMAND_HELD_BIT, PF_DEMAND_HELD}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
 use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, TILE_CACHE_STRIDE}
 use engine.constants.{BLOCKS_PER_SECTION_AXIS, BLOCKS_PER_SECTION_SHIFT, SECTION_SIZE_SHIFT}
-use engine.constants.{BLOCK_STAGE_SLOTS, PAGE_FRAMES_MAX}
+use engine.constants.{BLOCK_STAGE_SLOTS, PAGE_FRAMES_MAX, TILE_CACHE_ROWS, TILE_CACHE_COLS}
+use engine.constants.{PAGE_LIVE_UNITS, PAGE_LIVE_COL_OFFSET}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL, PAGE_AUDIT_FULL, PAGE_AUDIT_TICK, PAGE_AUDIT_IDLE}
 use engine.constants.{SCREEN_HEIGHT, VDP_HV_COUNTER}
 use engine.constants.{PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED, PAGECACHE_DIRECT_PLAIN}
@@ -126,8 +146,8 @@ const SNAP_TABLE_ENTRIES = 16
 ensure(4 + SNAP_TABLE_ENTRIES + 2 * PAGE_FRAMES <= 52, "Page_Audit_Snapshot[52] overflow — grow the ram.emp array with PAGE_FRAMES")
 
 // DEBUG audit slicing (audit-amortise, 2026-09-26; PageCache_Audit's header has the
-// why). In a latched regime the nametable half of the audit is cut into
-// PAGE_AUDIT_SLICES slices of PAGE_AUDIT_SLICE_WORDS words that VSync_Wait's idle slot
+// why). In every regime (the general one since GPL-A3) the nametable half of the audit
+// is cut into PAGE_AUDIT_SLICES slices of PAGE_AUDIT_SLICE_WORDS words that VSync_Wait's idle slot
 // audits while the frame has room; the interval tick audits whatever it did not reach.
 // 40 words keeps one slice's price (below) small against the idle a frame usually has.
 const PAGE_AUDIT_SLICE_WORDS = 40
@@ -143,7 +163,9 @@ ensure((PAGE_AUDIT_SLICES - 1) * PAGE_AUDIT_SLICE_BYTES <= $7FFF,
 // gate + slice bookkeeping + call ~250: ~2,650 cycles = 5.4 scanlines at 488 cycles a
 // line (127,840 / 262). The margin is twice that, rounded up to 12 lines, so a slice
 // that passes the gate ends before VBlank with room left for the VBlank_Flag race the
-// .idle note describes. If the slice or PAGE_FRAMES grows, re-price this.
+// .idle note describes. The GENERAL regime's slice (the mask check, GPL-A3) was priced
+// the same way at ~2,900 cycles (5.9 lines; its own note at .general_slice), inside the
+// same margin. If the slice or PAGE_FRAMES grows, re-price both.
 // How long the idle slot may leave a due slice before the TICK call audits it in-tick
 // (PageCache_Audit, PACING). It widens the latency bound from INTERVAL to
 // INTERVAL + SLACK ticks and buys a sweep that rides out that many consecutive
@@ -171,10 +193,35 @@ const PAGE_HELD_SEEN = 2
 
 // Field displacements for the base(a3)+offset(dn) addressing (never baked literals).
 const PF_PAGE  = offsetof(PageFrame, pf_page)
-const PF_RC    = offsetof(PageFrame, pf_refcount)
 const PF_STAMP = offsetof(PageFrame, pf_stamp)
 const PF_NEXT  = offsetof(PageFrame, pf_next)
 const PF_FLAGS = offsetof(PageFrame, pf_flags)
+
+// ---- General-regime liveness masks (GPL-A3, 2026-09-27; the module header has the
+// invariant). Geometry and the shapes the code below spells by hand: ----
+// one u16 bit per frame: every frame a word can name that the pool can hold fits a word.
+ensure(PAGE_FRAMES_MAX <= 16,
+       "Page_Live_Masks keeps one bit per frame in a u16 (PAGE_FRAMES_MAX = {PAGE_FRAMES_MAX}). Widening the pool past 16 frames means widening every mask to u32: the RAM array, the barrier's `or.w`, the sweeps' stores, PageCache_LiveUnion's fold and the audit's packed row/assigned register")
+ensure(PAGE_LIVE_COL_OFFSET == TILE_CACHE_ROWS * 2 && PAGE_LIVE_UNITS == TILE_CACHE_ROWS + TILE_CACHE_COLS,
+       "Page_Live_Masks is the row masks followed by the column masks")
+// The row sweep reads two words per `move.l` and is unrolled 4 longs a pass; the column
+// sweep reads four rows a pass; PageCache_LiveReset clears the columns a long at a time;
+// PageCache_LiveUnion ORs the whole array a long at a time, 7 longs a pass.
+ensure(TILE_CACHE_COLS % 8 == 0 && TILE_CACHE_ROWS % 4 == 0 && TILE_CACHE_COLS % 2 == 0 && PAGE_LIVE_UNITS % 14 == 0,
+       "the liveness sweeps / union are unrolled for 80x60: re-derive their unrolls")
+// A cache row is exactly two audit slices, so a slice lies in one row and in 40
+// consecutive columns (PageCache_Audit's general slice check reads them by that).
+ensure(PAGE_AUDIT_SLICE_WORDS * 2 == TILE_CACHE_COLS && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
+       "a cache row must be exactly two audit slices")
+// The idle sweep's gate, the audit's twin (PAGE_AUDIT_IDLE_MARGIN_LINES). PRICED BY HAND
+// from the 68000 timings, 2026-09-27: a ROW unit is 10 passes of 4 x (move.l 12 + ror.l
+// 20 + bset 8 + swap 4 + bset 8) + dbf 10 = 218, i.e. ~2,180, plus ~150 of setup; a COLUMN
+// unit is 15 passes of (4 x (move.w 8..12 + lsr.w 18 + bset 8) + lea 8 + dbf 10) = ~2,150,
+// plus ~150; the gate and cursor ~120. So ~2,450 cycles = 5.0 scanlines at 488 a line. The
+// margin is twice that, rounded up, as the audit's is, so a unit that passes the gate ends
+// before VBlank with room for the VBlank_Flag race.
+const LIVE_SWEEP_MARGIN_LINES = 12
+const LIVE_SWEEP_LAST_LINE    = SCREEN_HEIGHT - LIVE_SWEEP_MARGIN_LINES
 
 // -----------------------------------------------
 // PageCache_Init — reset residency to "empty, all frames free" for an act load.
@@ -214,8 +261,8 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         clr.b   (a0)+
         dbf     d0, .clr_queued
 
-        // Frames: ALL PAGE_FRAMES records initialized (pf_page $FFFF, refcount 0,
-        // flags 0, stamp 0), chained through pf_next (0->1->...->N-1->FF) — the
+        // Frames: ALL PAGE_FRAMES records initialized (pf_page $FFFF, flags 0,
+        // stamp 0), chained through pf_next (0->1->...->N-1->FF) — the
         // FREE list is the only list left (F-1 stamp eviction: eviction order is
         // the pf_stamp age scan, not a linked list). The free list is TERMINATED
         // at frame PAGE_FRAMES_CLAMP-1 (== PAGE_FRAMES-1 in every shipped shape;
@@ -229,7 +276,6 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         move.w  #PAGE_FRAMES-1, d0
     .init_frames:
         move.w  #$FFFF, PF_PAGE(a0)
-        clr.w   PF_RC(a0)
         clr.w   PF_STAMP(a0)
         addq.w  #1, d1                          // next frame id
         move.b  d1, PF_NEXT(a0)                 // free-list link -> next
@@ -244,6 +290,12 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT + (PAGE_FRAMES_CLAMP-1-PAGE_FRAMES)*sizeof(PageFrame)(a0)
         move.b  #0, Page_Free_Head              // free list head = frame 0
         clr.b   Page_Demand_Held                // no demand hold survives an act reset (flags were cleared above)
+        // The liveness masks are NOT reset here: they describe the tile cache, and the
+        // cache still holds the previous act's words until TileCache_FillAll zeroes it,
+        // which is where they are reset (PageCache_LiveReset, exact at that instant).
+        // Nothing between here and there reads them for a decision that reaches the
+        // screen: the display is off, the audit is disarmed (Page_Audit_Ticks = 0 below),
+        // and every word they could mis-describe is about to be overwritten.
 
     if DEBUG == 1 {
         // Page_Audit_Ticks = 0 is also what keeps the idle-slot sweep off until the level
@@ -320,25 +372,27 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
 
 // -----------------------------------------------
 // PageCache_AllocFrame — hand out a frame to load a page into.
-//   free list first; else the oldest PF_EVICTABLE frame (refcount 0, !pinned
-//   by construction — the stamp age scan);
+//   free list first; else the victim PageCache_PickVictim chooses (the oldest
+//   assigned, unpinned, not demand-held frame that no cache word names);
 //   else THRASH — DEBUG raise_error (a bug, not a policy); release returns
 //   PAGE_NOT_RESIDENT for the caller to re-queue.
-// The returned frame is DETACHED (out of every list), refcount 0, flags 0, and
+// The returned frame is DETACHED (out of every list), flags 0, stamp 0, and
 // pf_page = $FFFF (UNASSIGNED) — it belongs to no page until PageCache_Publish stamps
 // its new id, so the bijectivity audit's $FFFF-skip covers the whole in-flight decode
 // window (chain-72 fix). The caller publishes it once its VRAM landing DMA is enqueued.
 // Evicting a victim clears BOTH residency directions: the departing page's Page_Table
-// entry + queued bit, and the frame's pf_page (via .detach).
+// entry + queued bit, and the frame's pf_page (via .detach). From that instant no
+// Page_Table entry names the frame, so no patch run can write a word naming it (nor set
+// its mask bit) until Publish assigns its new page.
 // In: none   Out: d0.b = frame (or PAGE_NOT_RESIDENT)   Clobbers: d0-d2/a3
 // -----------------------------------------------
 pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         // The bounded-direct patch regime (streaming-lag fix, 2026-09-25) holds only
-        // while the resident set is the bulk-loaded identity block, and it maintains
-        // no refcounts. The first allocation after the latch is the first moment
-        // either can change, so it ends the regime HERE, before any frame is handed
-        // out or any victim chosen: the refcounts are rebuilt from the nametable, and
-        // from now on every run takes the general loop.
+        // while the resident set is the bulk-loaded identity block, and it keeps no
+        // liveness. The first allocation after the latch is the first moment either
+        // can change, so it ends the regime HERE, before any frame is handed out or any
+        // victim chosen: the masks are derived from the nametable, and from now on every
+        // run takes the general loop.
         cmpi.b  #PAGECACHE_DIRECT_BOUNDED, PageCache_Direct_Map
         bne     .regime_ok
         jbsr    PageCache_EndBoundedRegime      // preserves every register
@@ -346,7 +400,7 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         moveq   #0, d0
         move.b  Page_Free_Head, d0
         cmpi.b  #PAGE_NOT_RESIDENT, d0
-        beq     .from_lru
+        beq     .evict
 
         lea     Page_Frames, a3                 // pop the free-list head
         move.w  d0, d1
@@ -354,52 +408,13 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         move.b  PF_NEXT(a3, d1.w), Page_Free_Head   // free head advances
         bra     .detach
 
-    .from_lru:
-        // DEMAND-PROTECTION INVARIANT (Task 7): a demand-loaded page that has been
-        // Published but not yet Ref'd by the resuming fill is NOT flagged
-        // PF_EVICTABLE (see PageCache_Publish), so it is NEVER a candidate here.
-        // That is what stops a second demand miss in the same frame from evicting
-        // the just-published page out from under the resuming fill (which would
-        // re-request the page it just evicted, forever). The hold is BOUNDED
-        // (PF_DEMAND_HELD, released by PageCache_DemandHoldTick once a fill pass
-        // ends without a stall), so a page the fill never wanted does not leak.
-        // Every candidate is refcount-0/unpinned — safe to evict.
-        // F-1 stamp eviction: victim = the OLDEST evictable frame — the max
-        // unsigned (Frame_Counter - pf_stamp) among PF_EVICTABLE frames. An
-        // O(PAGE_FRAMES) scan, paid only at eviction; it replaces the linked
-        // list whose end-choice WAS the MRU bug (the policy is now structural).
-        // blo-skip means age TIES replace the best — the LAST-seen (lowest
-        // frame index; the scan descends) wins, deterministically; all-age-0
-        // still selects a candidate.
-        // Stamp wrap at 65536 frames (~18 min) can only mis-age a candidate —
-        // every candidate is still refcount-0/unpinned, so safety never moves.
-        lea     Page_Frames, a3
-        move.w  #$FFFF, d0                       // best offset (sentinel: none found)
-        clr.w   -(sp)                            // best age slot = 0
-        move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
-    .ev_scan:
-        btst    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
-        beq     .ev_next
-        move.w  Frame_Counter, d2
-        sub.w   PF_STAMP(a3, d1.w), d2           // d2 = unsigned age
-        cmp.w   (sp), d2
-        blo     .ev_next                         // strictly younger than best -> skip
-        move.w  d2, (sp)                         // new best age
-        move.w  d1, d0                           // new best offset
-    .ev_next:
-        subq.w  #sizeof(PageFrame), d1
-        bpl     .ev_scan
-        addq.l  #2, sp                           // drop the best-age slot
+    .evict:
+        jbsr    PageCache_PickVictim            // d0.w = victim byte offset, or $FFFF
         cmpi.w  #$FFFF, d0
         beq     .thrash
+        lea     Page_Frames, a3
         move.w  d0, d1                           // d1 = victim byte offset
         lsr.w   #3, d0                           // d0 = victim frame id (sizeof ensure'd 8)
-    if DEBUG == 1 {
-        tst.w   PF_RC(a3, d1.w)
-        beq     .victim_ok
-        raise_error "PageCache_AllocFrame: evictable frame refcount>0 (flag corruption)"
-    .victim_ok:
-    }
         move.w  PF_PAGE(a3, d1.w), d2           // departing page id
         // A page leaves residency: every "row proven all-resident" the prefetch scan
         // holds may now be false (it does not know which blocks referenced this page).
@@ -429,8 +444,7 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         move.w  #$FFFF, PF_PAGE(a3, d1.w)
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT(a3, d1.w)
         clr.w   PF_STAMP(a3, d1.w)
-        clr.w   PF_RC(a3, d1.w)
-        clr.b   PF_FLAGS(a3, d1.w)              // clears PF_EVICTABLE: detached = not a candidate
+        clr.b   PF_FLAGS(a3, d1.w)              // detached: not pinned, not held
         rts
 
     .thrash:
@@ -438,6 +452,87 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         raise_error "PageCache_AllocFrame: no free/evictable frame (thrash bug)"
     }
         move.b  #PAGE_NOT_RESIDENT, d0          // $FF sentinel (moveq can't hold 255)
+        rts
+}
+
+// -----------------------------------------------
+// PageCache_PickVictim — choose the frame an eviction takes (GPL-A3, 2026-09-27).
+//
+// A CANDIDATE is an assigned, unpinned frame that is not demand-held and whose bit is
+// clear in the union of every row and column liveness mask (PageCache_LiveUnion). By the
+// invariant (module header) no cache word names such a frame, so evicting it cannot leave
+// a word naming a departed page. The union is read at one instant, in the idle slot, and
+// no copy site runs between it and AllocFrame's Page_Table clear: nothing interleaves.
+//
+// ORDER (F-1, unchanged in shape): the oldest candidate by unsigned (Frame_Counter -
+// pf_stamp) goes first; age TIES replace the best, so the lowest frame index wins,
+// deterministically. What the stamp MEANS moved: it was "released" (the refcount's 1->0);
+// it is now "last known wanted" — set at publish, and refreshed here for every frame this
+// choice sees LIVE. So a frame that stopped being named long ago is older than one a
+// recent choice saw in use. Coarser than a release time (it is refreshed only at choices),
+// never less safe: every candidate is still proven unnamed.
+//
+// DEMAND HOLD (stressart-halts GPL-2): a frame seen live here has its PF_DEMAND_HELD
+// cleared. The hold exists so a second eviction cannot take a demand page before the
+// stalled fill references it; once a word names it, liveness protects it (the refcount
+// design ended the hold at the first ref for the same reason). A held frame that is NOT
+// live is never a candidate; PageCache_DemandHoldTick bounds that hold.
+//
+// NO CANDIDATE: masks are supersets, so a frame can look live that is not. One forced
+// full sweep (PageCache_LiveSweepAll: every row exact, every column cleared, at one
+// instant) and the test again. Still none is the thrash condition (AllocFrame).
+// Page_Live_Forced (DEBUG) counts the forced sweeps.
+//
+// On the PageIn_Process path (license d0-d2/a0-a3, and AllocFrame's own contract is
+// d0-d2/a3): banks what it uses beyond that.
+// In: none   Out: d0.w = victim byte offset in Page_Frames, or $FFFF   Clobbers: d1-d2/a3
+// -----------------------------------------------
+pub proc PageCache_PickVictim () clobbers(d1-d2/a3) preserves(d3-d4/a0-a2) out(d0: u16) {
+        movem.l d3-d4/a0-a2, -(sp)
+        moveq   #1, d4                          // forced full sweeps left
+    .again:
+        jbsr    PageCache_LiveUnion             // d0.w = every frame some cell may name
+        move.w  d0, d3                          // d3 = live set
+        lea     Page_Frames, a3
+        movea.w Frame_Counter, a0               // a0.w = now
+        move.w  #$FFFF, d0                      // best offset (sentinel: none found)
+        suba.l  a1, a1                          // a1.w = best age (0)
+        movea.w #(PAGE_FRAMES-1)*sizeof(PageFrame), a2   // a2 = frame byte offset (descending)
+        moveq   #PAGE_FRAMES-1, d1              // d1 = frame id (descending with a2)
+    .scan:
+        cmpi.w  #$FFFF, PF_PAGE(a3, a2.w)
+        beq     .next                           // unassigned (free / in-flight decode)
+        btst    #PF_PINNED_BIT, PF_FLAGS(a3, a2.w)
+        bne     .next                           // pinned: never a victim
+        btst    d1, d3
+        beq     .dead
+        move.w  a0, PF_STAMP(a3, a2.w)          // live now: last known wanted
+        bclr    #PF_DEMAND_HELD_BIT, PF_FLAGS(a3, a2.w)   // named: liveness protects it now
+        jbra    .next
+    .dead:
+        btst    #PF_DEMAND_HELD_BIT, PF_FLAGS(a3, a2.w)
+        bne     .next                           // demand-held: not before its fill's pass
+        move.w  a0, d2
+        sub.w   PF_STAMP(a3, a2.w), d2          // d2 = unsigned age
+        cmp.w   a1, d2
+        blo     .next                           // strictly younger than best -> skip
+        movea.w d2, a1                          // new best age
+        move.w  a2, d0                          // new best offset
+    .next:
+        lea     -sizeof(PageFrame)(a2), a2
+        subq.w  #1, d1
+        bpl     .scan
+        cmpi.w  #$FFFF, d0
+        bne     .done
+        subq.w  #1, d4
+        bmi     .done                           // already forced once: thrash
+    if DEBUG == 1 {
+        addq.w  #1, Page_Live_Forced
+    }
+        jbsr    PageCache_LiveSweepAll          // exact masks at this instant (clobbers d0-d2/a0-a1)
+        jbra    .again
+    .done:
+        movem.l (sp)+, d3-d4/a0-a2
         rts
 }
 
@@ -472,21 +567,23 @@ pub proc PageCache_FreeFrame (d0: u8) clobbers(d1-d2/a3) {
 // fix, 2026-09-25) for the general one. Called ONLY from PageCache_AllocFrame's
 // entry, while PageCache_Direct_Map == PAGECACHE_DIRECT_BOUNDED.
 //
-// The bounded loop maintained no refcounts, so they are rebuilt here from the one
-// ground truth the audit also uses: every non-blank word of Tile_Cache_Nametable
-// references the frame (index >> PAGE_FRAME_TILE_SHIFT) it names. Nothing else in the
-// engine holds a physical index (the refcount invariant, spec §5). Then each ASSIGNED,
-// unpinned frame gets the candidacy the general loop would have given it: referenced
-// -> not PF_EVICTABLE; unreferenced -> PF_EVICTABLE, keeping its stamp if it already
-// was one (a bulk-published page is, from its publish) or stamping it NOW if not. The
-// post-state is exactly the general regime's invariant set, which PageCache_Audit
-// checks on its next pass.
+// The bounded loop kept no liveness (the masks still hold their reset value), so they
+// are derived here from the one ground truth the audit also uses: every word of
+// Tile_Cache_Nametable names the frame (index >> PAGE_FRAME_TILE_SHIFT) it names.
+// PageCache_LiveSweepAll makes every row mask exact and clears every column mask at this
+// one instant, which is the general regime's invariant with nothing to spare. Candidacy
+// needs nothing else: it is computed at the choice. The stamps stay as published (the
+// bulk load's publish times), which is "last known wanted" for a frame no choice has
+// seen yet.
 //
-// Cost: one walk of TILE_CACHE_NT_SIZE/2 words, ONCE per act load at most (the
-// regime never re-latches mid-act). Measured in the parcel's run (see ARCH §9.7): it
-// lands on the first page-in past the bulk-loaded block, i.e. where the camera first
-// nears a page outside it. Not sliced: it runs in the VSync_Wait idle slot like the
-// rest of AllocFrame's callers and may overrun one VBlank there, once.
+// Cost: one row-sweep of the whole nametable (~135k cycles), ONCE per act load at most
+// (the regime never re-latches mid-act). It lands on the first page-in past the
+// bulk-loaded block, i.e. where the camera first nears a page outside it. Not sliced: it
+// runs in the VSync_Wait idle slot like the rest of AllocFrame's callers and may overrun
+// one VBlank there, once.
+//
+// The latch clears FIRST: from here on a copy site publishes its mask pointer and every
+// run takes the general loop. No run can come between (the flip is in the idle slot).
 //
 // On the PageIn_Process path, so it preserves every register it touches (the path's
 // license is d0-d2/a0-a3 and AllocFrame's own contract is narrower still).
@@ -495,46 +592,7 @@ pub proc PageCache_FreeFrame (d0: u8) clobbers(d1-d2/a3) {
 pub proc PageCache_EndBoundedRegime () clobbers() preserves(d0-d2/a0-a1) {
         movem.l d0-d2/a0-a1, -(sp)
         clr.b   PageCache_Direct_Map            // from here on every run takes the general loop
-
-        lea     Page_Frames, a1                 // zero every refcount (defensive: nothing wrote them)
-        moveq   #PAGE_FRAMES-1, d0
-    .zero_rc:
-        clr.w   PF_RC(a1)
-        lea     sizeof(PageFrame)(a1), a1
-        dbf     d0, .zero_rc
-
-        lea     Tile_Cache_Nametable, a0        // count every live physical reference
-        lea     Page_Frames, a1
-        move.w  #(TILE_CACHE_NT_SIZE/2)-1, d0
-    .walk:
-        move.w  (a0)+, d1
-        andi.w  #NT_TILE_MASK, d1
-        beq     .walk_next                      // blank: no reference
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1      // frame id
-        lsl.w   #3, d1                          // * sizeof(PageFrame)
-        addq.w  #1, PF_RC(a1, d1.w)
-    .walk_next:
-        dbf     d0, .walk
-
-        move.w  Frame_Counter, d2               // one release time for the newly-unreferenced
-        lea     Page_Frames, a1
-        moveq   #PAGE_FRAMES-1, d0
-    .frame:
-        cmpi.w  #$FFFF, PF_PAGE(a1)
-        beq     .frame_next                     // unassigned: not a candidate, nothing to set
-        btst    #PF_PINNED_BIT, PF_FLAGS(a1)
-        bne     .frame_next                     // pinned: never a candidate
-        tst.w   PF_RC(a1)
-        beq     .unreferenced
-        bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a1) // referenced: never a candidate
-        jbra    .frame_next
-    .unreferenced:
-        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a1)
-        bne     .frame_next                     // already a candidate: keep its release stamp
-        move.w  d2, PF_STAMP(a1)                // newly a candidate: released now
-    .frame_next:
-        lea     sizeof(PageFrame)(a1), a1
-        dbf     d0, .frame
+        jbsr    PageCache_LiveSweepAll          // the masks, exact, at this instant
         movem.l (sp)+, d0-d2/a0-a1
         rts
 }
@@ -542,30 +600,33 @@ pub proc PageCache_EndBoundedRegime () clobbers() preserves(d0-d2/a0-a1) {
 // -----------------------------------------------
 // PageCache_Publish — mark a just-landed page resident in its frame. Called by
 // engine.page_in the instant a page's VRAM landing DMA is enqueued. Fills
-// Page_Table, stamps the frame's page id, applies the manifest's pinned flag, links
-// a non-pinned frame an eviction candidate (stamp + PF_EVICTABLE), and clears the
-// queued marker.
+// Page_Table, stamps the frame's page id, applies the manifest's pinned flag, stamps
+// a non-pinned frame's publish time, and clears the queued marker.
 // (On the PageIn_Process path -> d0-d2/a0-a3 only.)
 //
+// THE STAMP. A non-pinned frame's pf_stamp becomes Frame_Counter here: publish is the
+// first moment the page is known wanted, and the eviction age counts from it until a
+// choice sees the frame live (PageCache_PickVictim). So a freshly published page is the
+// NEWEST candidate if nothing ever names it, and is evicted only after every older one:
+// the prefetch-churn shape the old tail-pop had stays structurally gone (F-1).
+//
 // DEMAND-PROTECTION (Task 7, by construction): a SPECULATIVE (prefetch/bulk) page is
-// flagged PF_EVICTABLE (+stamped) immediately — a cold prefetched page must be
-// reclaimable if it is never referenced. A DEMAND page (PageIn_Cur_Flags PGRQ_DEMAND)
-// is instead HELD: not a candidate, refcount 0, PF_DEMAND_HELD set. AllocFrame's
-// candidate scan therefore cannot evict it before the resuming fill references it
-// (the deadlock the plan flags). The first Ref (0->1) leaves it referenced; a later
-// full Unref (1->0) stamps + flags it normally.
+// an ordinary frame from here on — a cold prefetched page must be reclaimable if nothing
+// ever names it. A DEMAND page (PageIn_Cur_Flags PGRQ_DEMAND) is instead HELD
+// (PF_DEMAND_HELD): PageCache_PickVictim never takes a held frame that no mask names, so
+// a second eviction cannot take the page before the resuming fill writes it (the
+// deadlock the plan flags). Once a word names it, liveness protects it and the next
+// choice drops the hold.
 //
 // THE HOLD ENDS (stressart-halts GPL-2, 2026-09-26). Task 7 assumed the resuming fill
 // always references the page. It need not: the words that missed can be overwritten
 // before the page lands (measured on STRESS_ART's diagonal: the camera flew into empty
 // sky, the stall cleared while the page was still decoding, and the page sat assigned,
-// unreferenced and unflagged for 65 frames — unreachable by every reclaim path, i.e.
-// leaked, until the orphan audit raised). So the hold is bounded: PF_DEMAND_HELD marks
-// the frame, Page_Demand_Held arms PageCache_DemandHoldTick, and the first fill pass
-// that SAW the page resident and ended WITHOUT a demand stall releases every held frame
-// still unreferenced as an ordinary candidate. While the fill keeps stalling, the hold
-// stands, which is the whole of what the protection was for. (See the matching
-// invariant note at AllocFrame's .from_lru arm.)
+// unnamed and protected for 65 frames — unreachable by every reclaim path, i.e. leaked,
+// until the orphan audit raised). So the hold is bounded: PF_DEMAND_HELD marks the frame,
+// Page_Demand_Held arms PageCache_DemandHoldTick, and the first fill pass that SAW the
+// page resident and ended WITHOUT a demand stall releases every hold. While the fill
+// keeps stalling, the hold stands, which is the whole of what the protection was for.
 // In: d0.w = page id, d1.b = frame idx   Out: none   Clobbers: d0-d2/a0/a3
 // -----------------------------------------------
 pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
@@ -599,13 +660,12 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         // frame*8 offset: ZERO-EXTEND d1 first. The caller (page_in) sets d1 via
         // `move.b PageIn_Cur_Frame, d1`, so d1's upper byte is STALE; a `move.w d1,d2`
         // would fold that garbage into the offset (frame*8 -> wild address), and every
-        // frame-record write (pf_page, refcount, flags) would miss its record — the
+        // frame-record write (pf_page, stamp, flags) would miss its record — the
         // Task-6 boot bug (pf_page $FFFF everywhere, pinned flags never set).
         moveq   #0, d2
         move.b  d1, d2                          // d2 = frame (0..14), clean
         lsl.w   #3, d2                           // d2 = frame * sizeof(PageFrame)=8
         move.w  d0, PF_PAGE(a3, d2.w)           // pf_page = page (d0 still = page)
-        clr.w   PF_RC(a3, d2.w)
 
         move.b  PageManifest.pm_flags(a0), d0   // pm_flags (page no longer needed)
         btst    #ART_PAGE_FLAG_PINNED_BIT, d0
@@ -613,26 +673,14 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never an eviction candidate
         rts
     .not_pinned:
-        // DEMAND-PROTECTION: a demand page is HELD (not PF_EVICTABLE) until the
-        // stalled fill's first Ref or PageCache_DemandHoldTick's release, whichever
-        // comes first — so AllocFrame's candidate scan cannot evict it before the
-        // fill has had its pass at it. Flags/refcount are already the detached state
-        // (0/0 from AllocFrame .detach).
         clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
+        move.w  Frame_Counter, d0               // (via d0: abs-sym + indexed in one op is a sigil gap)
+        move.w  d0, PF_STAMP(a3, d2.w)          // published now: the age origin (header)
         btst    #PGRQ_DEMAND_BIT, PageIn_Cur_Flags
-        beq     .speculative
+        beq     .done                           // speculative: an ordinary frame
         bset    #PF_DEMAND_HELD_BIT, PF_FLAGS(a3, d2.w)   // demand -> held (protected, bounded)
         move.b  #PAGE_HELD_NEW, Page_Demand_Held          // the next fill pass is the first to see it
-        rts
-    .speculative:
-        // SPECULATIVE (prefetch/bulk): immediately an eviction candidate — a cold
-        // prefetched page must be reclaimable if it is never referenced. Flag +
-        // stamp NOW (F-1): the stamp makes it the NEWEST candidate, so it is
-        // evicted only after every older release — the prefetch-churn shape the
-        // old tail-pop had is structurally gone.
-        move.w  Frame_Counter, d0               // (via d0: abs-sym + indexed in one op is a sigil gap)
-        move.w  d0, PF_STAMP(a3, d2.w)
-        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d2.w)
+    .done:
         rts
 }
 
@@ -647,21 +695,21 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
 //               run is the first to see the page resident; nothing is decided yet.
 //   SEEN, previous pass stalled -> keep every hold: the fill is still waiting on a page,
 //               and the held ones may be what its resume needs next.
-//   SEEN, previous pass did not stall -> release. That pass saw every held page
-//               resident and wanted nothing it could not have, so a held frame still at
-//               refcount 0 is one nothing wants: it becomes an ordinary candidate
-//               (PF_EVICTABLE + stamped now, the newest, so evicted after every older
-//               release). A held frame the fill DID reference just drops the mark; its
-//               own 1->0 unref flags it.
+//   SEEN, previous pass did not stall -> release every hold. That pass saw every held
+//               page resident and wanted nothing it could not have. A held frame that NO
+//               liveness mask names is one nothing wants: it becomes an ordinary
+//               candidate, stamped now (the newest, so evicted after every older one). A
+//               held frame some mask names just drops the mark: liveness protects it,
+//               and its stamp moves when a choice sees it (PageCache_PickVictim).
 //
 // Why a release cannot bring back the deadlock the hold exists for: that deadlock needs
 // a fill that is stalled, and a stalled pass keeps every hold. The worst a release can
-// cost is a re-demand, never a dangling word: eviction still takes only refcount-0,
-// unpinned frames.
+// cost is a re-demand, never a dangling word: eviction still takes only frames no mask
+// names.
 //
-// Cost: two compares on NEW/keep; one 12-frame walk (~450 cycles) on a release, which
-// happens at most once per demand episode. Never reached on a latched (resident or
-// bounded) act, which publishes no demand page.
+// Cost: two compares on NEW/keep; on a release the mask union (~1.1k cycles) and one
+// 12-frame walk (~400), at most once per demand episode. Never reached on a latched
+// (resident or bounded) act, which publishes no demand page.
 // In: none   Out: none   Clobbers: d0-d2/a0
 // -----------------------------------------------
 pub proc PageCache_DemandHoldTick () clobbers(d0-d2/a0) {
@@ -673,18 +721,19 @@ pub proc PageCache_DemandHoldTick () clobbers(d0-d2/a0) {
         tst.w   Cache_Art_Stall                 // the previous pass (it saw every hold) stalled?
         bne     .keep                           // yes: keep every hold
         clr.b   Page_Demand_Held
-        move.w  Frame_Counter, d2               // one release time for the whole walk
-        lea     Page_Frames, a0
-        moveq   #PAGE_FRAMES-1, d0
+        jbsr    PageCache_LiveUnion             // d0.w = every frame some cell may name
+        move.w  d0, d2
+        move.w  Frame_Counter, d1               // one release time for the whole walk
+        lea     Page_Frames + PAGE_FRAMES*sizeof(PageFrame), a0
+        moveq   #PAGE_FRAMES-1, d0              // frame id, descending with a0
     .frame:
+        lea     -sizeof(PageFrame)(a0), a0
         bclr    #PF_DEMAND_HELD_BIT, PF_FLAGS(a0)
         beq     .next                           // not held
-        tst.w   PF_RC(a0)
-        bne     .next                           // referenced: its own 1->0 unref will flag it
-        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a0) // never referenced: an ordinary candidate now
-        move.w  d2, PF_STAMP(a0)
+        btst    d0, d2
+        bne     .next                           // some mask names it: liveness protects it
+        move.w  d1, PF_STAMP(a0)                // named by nothing: an ordinary candidate from now
     .next:
-        lea     sizeof(PageFrame)(a0), a0
         dbf     d0, .frame
     .keep:
         rts
@@ -696,40 +745,41 @@ pub proc PageCache_DemandHoldTick () clobbers(d0-d2/a0) {
 // cache words, banking the working set ONCE per run instead of once per word.
 // The old per-word movem+jsr/rts bracket (~166 cycles) was the single largest
 // line item of the fall/scroll fill cost (2026-08-09 profile: 160 words/frame
-// at terminal fall ≈ 19% of frame in bracket+call overhead alone). Per-word
-// SEMANTICS are unchanged — the loop body is the old PatchWord body with the
-// old jbsr'd PageCache_Ref/Unref bodies inlined (this file was their only
-// caller): read the LOCAL word at (a0), local->global through the staged
-// block's section map (Cache_Cur_LocalMap — F-3 merge-translation),
-// global->physical, capture-old-BEFORE-write at (a1), ref the new frame /
-// unref the overwritten one, in the same per-word order.
+// at terminal fall ≈ 19% of frame in bracket+call overhead alone). Per word the
+// general loop reads the LOCAL word at (a0), maps local->global through the staged
+// block's section map (Cache_Cur_LocalMap — F-3 merge-translation), global->physical
+// through Page_Table, and writes the physical word at (a1).
 //
-// Refcount transitions (single source of truth, was PageCache_Ref/Unref):
-//   ref   0->1: clear PF_EVICTABLE (referenced frames are never candidates —
-//               F-1 stamp eviction, one bclr replaces the old list unlink)
-//   unref 1->0: stamp Frame_Counter + set PF_EVICTABLE unless pinned
+// THE INSERTION BARRIER (GPL-A3, 2026-09-27; the module header has the invariant). Every
+// frame a run writes is OR'd into the run's frame set (`bset d2, d4`, 8 cycles a word),
+// and the wrapping proc ORs the set into the mask of the one cache row (Seq) or column
+// (Col) the run lies in, once per run. The word being overwritten needs nothing: masks
+// are supersets, and the idle sweep shrinks them. This replaced a per-word refcount pair
+// (capture the old word, ref the new frame, unref the old one, candidate-flag and stamp
+// transitions: ~1.2k of the ~1.46k cycles per run the general loop cost over a direct
+// one, measured in docs/research/2026-09-27-general-patch-loop.md).
 //
-// Blank words (local 0 / mapped global 0) skip translation and ref on the new
-// side (panel C1-2 early-out: map[0]==0 is generator-guaranteed; the post-map
-// beq stays as the backstop for maps aliasing other locals to global 0).
+// Blank words (local 0 / mapped global 0) skip translation and write $0000 (panel
+// C1-2 early-out: map[0]==0 is generator-guaranteed; the post-map beq stays as the
+// backstop for maps aliasing other locals to global 0). $0000 names frame 0, which every
+// row mask carries, so the blank arm needs no barrier.
 //
 // Non-resident page: enqueue a demand PageCache_Request, set Cache_Art_Stall
 // (the fill returns partial + resumes this column/row next frame), LEAVE the
-// destination cell untouched (old content + ref intact), and CONTINUE the run —
-// re-copy on resume is refcount-neutral for the cells already done.
+// destination cell untouched (its old frame is still in a mask), and CONTINUE the run
+// — re-copy on resume is idempotent for the cells already done.
 //
-// Run hoists (why the run form is cheap): Cache_Cur_LocalMap (a2), Page_Table
-// (a3) and Page_Frames (a4) load once per run — the per-word form reloaded the
-// map every word and the Ref/Unref calls re-lea'd Page_Frames per transition.
-// All three survive the miss path (PageCache_Request clobbers only d0-d3/a0-a1).
+// Run hoists (why the run form is cheap): Cache_Cur_LocalMap (a2), Page_Table (a3) and
+// the published mask pointer (a4) load once per run. All three survive the miss path
+// (PageCache_Request clobbers only d0-d3/a0-a1), and so does the frame set in d4.
 // -----------------------------------------------
 
 // The shared run loop, emitted per stride shape (src_step/dest_step in bytes).
 // Register file inside the loop (all banked by the wrapping proc):
-//   d0 = new word scratch   d1 = local->global->intra   d2 = page->frame
-//   d3 = old word / old frame   d4 = build/stamp temp   d5 = dbf counter
+//   d0 = new word scratch   d1 = local->global->physical   d2 = page->frame
+//   d4 = the run's frame set (the barrier)   d5 = dbf counter
 //   a0/a1 = src/dest cursors (advance src_step/dest_step per word)
-//   a2 = Cache_Cur_LocalMap   a3 = Page_Table   a4 = Page_Frames
+//   a2 = Cache_Cur_LocalMap   a3 = Page_Table   (a4 = the mask, used by the caller)
 comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
     return asm {
         subq.w  #1, d5                          // count >= 1 (callers guarantee)
@@ -737,17 +787,14 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
 
         // --- cold arms first: both rejoin .pw_next ---
     .pw_new_blank:
-        move.w  (a1), d3                        // new is blank: unref old, write 0
-        clr.w   (a1)
-        andi.w  #NT_TILE_MASK, d3
-        bne     .pw_unref_old
+        clr.w   (a1)                            // $0000 = frame 0, which every row mask carries
         jbra    .pw_next
 
     .pw_miss:
         move.w  d1, d0                          // page = global >> 6
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d0
         move.w  #PGRQ_DEMAND, d1
-        movem.l a0/a1, -(sp)                    // Request clobbers d0-d3/a0-a1 (a2-a4 safe)
+        movem.l a0/a1, -(sp)                    // Request clobbers d0-d3/a0-a1 (d4, a2-a4 safe)
         jbsr    PageCache_Request
         movem.l (sp)+, a0/a1
         move.w  #1, Cache_Art_Stall             // fill returns partial + resumes this col/row
@@ -761,15 +808,16 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
         beq     .pw_new_blank                   // C1-2 blank early-out before the map read
         add.w   d1, d1                          // u16 table stride
         move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot (full u16 — no 11-bit ceiling)
-        beq     .pw_new_blank                   // global 0 = blank -> unref old, write 0, no ref
+        beq     .pw_new_blank                   // global 0 = blank -> write 0
 
         move.w  d1, d2                          // page = global >> 6 (u16-wide: up to 1023,
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d2      //   generator ensures < PAGE_TABLE_MAX)
     if DEBUG == 1 {
         // Pool bound (panel-convergent): F-3 removed the 11-bit structural cap,
         // so a corrupt/stale map could index past the PAGE_TABLE_MAX-byte table
-        // (OOB read, then an OOB refcount WRITE). The prefetch scan carries the
-        // same bound in release; here DEBUG raises loud at the source.
+        // (an OOB Page_Table read whose garbage frame the word would then carry).
+        // The prefetch scan carries the same bound in release; here DEBUG raises
+        // loud at the source.
         cmp.w   PageIn_Pool_Pages, d2
         blo     .pw_page_ok
         raise_error "PageCache patch run: mapped page >= pool pages (corrupt/stale local map)"
@@ -781,55 +829,13 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
         move.b  (a3, d2.w), d2
         bmi     .pw_miss
 
+        bset    d2, d4                          // BARRIER: this run now names frame d2
         andi.w  #PAGE_FRAME_TILE_MASK, d1       // physical = frame<<6 | (global&63)
-        move.w  d2, d4
-        lsl.w   #PAGE_FRAME_TILE_SHIFT, d4      // frame << 6
-        or.w    d4, d1                          // d1 = physical tile index
+        lsl.w   #PAGE_FRAME_TILE_SHIFT, d2      // frame << 6
+        or.w    d2, d1                          // d1 = physical tile index
         andi.w  #NT_ATTR_MASK, d0               // keep pal/pri/flip
         or.w    d1, d0                          // physical nametable word
-
-        move.w  (a1), d3                        // capture OLD cell (unref) BEFORE overwrite
         move.w  d0, (a1)                        // write the patched word
-        andi.w  #NT_TILE_MASK, d3               // old physical index; 0 = was blank
-        beq     .pw_ref_new                     // blank before: ref the new frame only
-        // SAME-FRAME SHORTCUT (streaming-lag fix, 2026-09-25). If the old cell
-        // already referenced the frame the new word references, the ref and the
-        // unref cancel exactly: no refcount changes, and no transition either way
-        // (the count stays >= 1 throughout), so PF_EVICTABLE and pf_stamp are
-        // untouched by the pair. Old and new share a frame iff their indices agree
-        // above bit PAGE_FRAME_TILE_SHIFT: (old ^ new) <= PAGE_FRAME_TILE_MASK.
-        eor.w   d1, d3
-        cmpi.w  #PAGE_FRAME_TILE_MASK, d3
-        bls     .pw_next                        // same frame: refcount-neutral
-        eor.w   d1, d3                          // restore the old index (non-zero)
-    .pw_ref_new:
-        // inline ref of the new frame (d2). A referenced frame is never a candidate,
-        // so PF_EVICTABLE is cleared unconditionally: on 0->1 that is the transition,
-        // on n->n+1 it is already clear (the audit's invariant: evictable => rc 0).
-        lsl.w   #3, d2                          // frame * sizeof(PageFrame)
-        addq.w  #1, PF_RC(a4, d2.w)
-        bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a4, d2.w)
-        tst.w   d3
-        beq     .pw_next                        // nothing was there to unref
-    .pw_unref_old:
-        // inline unref of the old frame (d3 = old physical index, nonzero)
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d3      // old frame
-        lsl.w   #3, d3                          // * sizeof(PageFrame)
-    if DEBUG == 1 {
-        tst.w   PF_RC(a4, d3.w)
-        bne     .pw_rc_ok
-        raise_error "PageCache patch run: refcount underflow (double-free of a cache word)"
-    .pw_rc_ok:
-    }
-        subq.w  #1, PF_RC(a4, d3.w)
-        bne     .pw_next                        // still referenced
-        btst    #PF_PINNED_BIT, PF_FLAGS(a4, d3.w)
-        bne     .pw_next                        // pinned frames are never candidates
-        // 1->0: eviction candidate NOW — stamp the release time (F-1: age =
-        // Frame_Counter - stamp, oldest wins)
-        move.w  Frame_Counter, d4               // (via d4: abs-sym + indexed in one op is a sigil gap)
-        move.w  d4, PF_STAMP(a4, d3.w)
-        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a4, d3.w)
     .pw_next:
         lea     {src_step}(a0), a0
         lea     {dest_step}(a1), a1
@@ -852,11 +858,11 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
 //              = global
 //
 // so the map's GLOBAL value IS the physical nametable index and the page->frame
-// indirection disappears. The refcount pair goes with it: refcounts exist to make
+// indirection disappears. The liveness barrier goes with it: liveness exists to make
 // eviction safe, and under the latch no page can ever be evicted (every page is
 // resident, so PageCache_Request early-outs and AllocFrame is never reached).
-// PageCache_Audit's refcount arm is conditioned on the same latch and replaced
-// there by the checks that ARE live in this regime — see it.
+// PageCache_Audit's general-regime check is conditioned on the same latch and
+// replaced there by the checks that ARE live in this regime — see it.
 //
 // The F-3 merge-translation contract is satisfied IDENTICALLY: staged words stay
 // LOCAL, the section map is applied per word, the full-width global lives only in
@@ -883,7 +889,7 @@ comptime fn pc_patch_run_direct(src_step: Int, dest_step: Int) -> Code {
 
         // --- cold arm: blank word (local 0, or a local the map sends to global 0) ---
     .pd_blank:
-        clr.w   (a1)                            // no refcount to unref in this regime
+        clr.w   (a1)                            // no liveness to keep in this regime
         jbra    .pd_next
 
         // --- per-word body ---
@@ -936,9 +942,9 @@ comptime fn pc_direct_bound_hoist() -> Code {
 // word for word (physical == global), and residency itself is `global <
 // PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT` (d4, hoisted per run). The resident set
 // cannot change while the latch holds: every page-in needs PageCache_AllocFrame, and
-// its first call ends the regime (PageCache_EndBoundedRegime rebuilds the refcounts
-// from the nametable, then the general loop takes over). So this loop maintains NO
-// refcounts, exactly like the F1 loop and for the same reason: nothing can be evicted
+// its first call ends the regime (PageCache_EndBoundedRegime derives the liveness masks
+// from the nametable, then the general loop takes over). So this loop keeps NO
+// liveness, exactly like the F1 loop and for the same reason: nothing can be evicted
 // while it runs.
 //
 // A word above the bound is a miss: the same demand request + Cache_Art_Stall + leave
@@ -957,7 +963,7 @@ comptime fn pc_patch_run_bounded(src_step: Int, dest_step: Int) -> Code {
 
         // --- cold arms: both rejoin .pb_next ---
     .pb_blank:
-        clr.w   (a1)                            // no refcount to unref in this regime
+        clr.w   (a1)                            // no liveness to keep in this regime
         jbra    .pb_next
 
     .pb_miss:
@@ -1063,7 +1069,15 @@ comptime fn pc_patch_run_plain_col(src_step: Int, dest_step: Int) -> Code {
 // -----------------------------------------------
 // The variant select is per RUN, not per word: one tst.b + bcc over the ~8-10 runs
 // a saturated tick issues (~200 cyc/tick) against the ~95 cyc/word the direct loop
-// saves over 280 words/tick. The fallback arm is the pre-F1 code byte-for-byte.
+// saves over 280 words/tick. The fallback arm is the general loop.
+//
+// THE GENERAL ARM'S MASK POINTER (GPL-A3). The run ORs its frame set into the u16 at
+// Page_Live_RowPtr (Seq) or Page_Live_ColPtr (Col). The one caller of each publishes it
+// for the row / column it is about to fill, and only while the latch reads 0
+// (TileCache_FillRow, TileCache_CopyBlockColumn). A published pointer cannot go stale
+// under a run: the latch changes only in PageCache_EndBoundedRegime, from the idle slot,
+// never between a caller's publish and its runs, and it never returns to non-zero
+// mid-act.
 //
 // DISPATCH ORDER (resident plain copy, 2026-09-26). The sign test runs BEFORE the
 // register bank so the plain arm can skip the bank entirely. The general and bounded
@@ -1079,8 +1093,10 @@ pub proc PageCache_PatchRun_Seq (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
         lea     Page_Table, a3
-        lea     Page_Frames, a4
+        movea.l Page_Live_RowPtr, a4            // this run's row mask (TileCache_FillRow published it)
+        moveq   #0, d4                          // the run's frame set (rows always carry frame 0)
         pc_patch_run_loop(2, 2)
+        or.w    d4, (a4)                        // a sequential run lies in one cache row
         movem.l (sp)+, d1-d5/a2-a4
         rts
     .bounded:
@@ -1112,8 +1128,10 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
         lea     Page_Table, a3
-        lea     Page_Frames, a4
+        movea.l Page_Live_ColPtr, a4            // this run's column mask (TileCache_CopyBlockColumn published it)
+        moveq   #0, d4                          // the run's frame set
         pc_patch_run_loop(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
+        or.w    d4, (a4)                        // a column run lies in one cache column (the caller splits the wrap)
         movem.l (sp)+, d1-d5/a2-a4
         rts
     .bounded:
@@ -1134,6 +1152,214 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         pc_direct_bound_hoist()
         pc_patch_run_direct(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         movem.l (sp)+, d1-d5/a2-a4
+        rts
+}
+
+// -----------------------------------------------
+// THE LIVENESS SWEEPS (GPL-A3, 2026-09-27; the module header has the invariant).
+//
+// A mask only has to be a SUPERSET of the frames its row / column names, and the barrier
+// only ever adds. These procs are what makes masks shrink: each re-derives a row's or a
+// column's mask EXACTLY, reading its words and storing the mask in one call with no
+// copy site in between, so the stored mask is exact at that instant and the barrier keeps
+// it a superset afterwards. Masks never under-state.
+//
+// A ROW's derivation seeds frame 0 (the blank tile, $0000): FillAll's bulk zero, the
+// blank arms and the miss arm's untouched cells all rely on every row mask carrying it.
+// A COLUMN's does not need to (its row covers every blank cell).
+//
+// Word -> frame, without masking: a nametable word shifted right by PAGE_FRAME_TILE_SHIFT
+// has the frame id in bits 0-4 (tile bits 6-10) and attribute bits above, and `bset dN,
+// dM` takes the bit number MOD 32, so the attribute bits are ignored. A frame id >= 16
+// (a tile >= 1024, which no pool can hold, PAGE_FRAMES_MAX ensure'd <= 16) sets a bit the
+// u16 store drops, so that word's frame is in no mask and the DEBUG audit names it.
+// -----------------------------------------------
+
+// The column walk's displacements: one pass reads four consecutive cache rows.
+const LIVE_COL_ROW1 = TILE_CACHE_STRIDE * 2
+const LIVE_COL_ROW2 = TILE_CACHE_STRIDE * 4
+const LIVE_COL_ROW3 = TILE_CACHE_STRIDE * 6
+const LIVE_COL_PASS = TILE_CACHE_STRIDE * 8
+
+// Emitted once per proc that walks whole rows. In: a0 = the row's first word.
+// Out: d2.w = the row's exact mask (frame 0 always set), a0 advanced one row.
+// Clobbers d0-d1. Two words per `move.l`: after `ror.l #6` the LOW word's frame is in
+// bits 0-4, and after `swap` the HIGH word's.
+comptime fn pc_live_row_walk() -> Code {
+    return asm {
+        moveq   #1, d2                          // frame 0 (the blank tile) always
+        moveq   #(TILE_CACHE_COLS / 8) - 1, d0
+    .lr_grp:
+        move.l  (a0)+, d1
+        ror.l   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        swap    d1
+        bset    d1, d2
+        move.l  (a0)+, d1
+        ror.l   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        swap    d1
+        bset    d1, d2
+        move.l  (a0)+, d1
+        ror.l   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        swap    d1
+        bset    d1, d2
+        move.l  (a0)+, d1
+        ror.l   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        swap    d1
+        bset    d1, d2
+        dbf     d0, .lr_grp
+    }
+}
+
+// -----------------------------------------------
+// PageCache_LiveSweep — VSync_Wait's idle slot, after PageIn_Process and the DEBUG
+// audit's paced slices. Re-derives liveness units round-robin — the TILE_CACHE_ROWS rows,
+// then the TILE_CACHE_COLS columns — one whole unit at a time, while the frame still has
+// room for one (LIVE_SWEEP_LAST_LINE, priced at the module head). General regime only:
+// under a latch nothing can evict and the masks must keep their reset value (the audit
+// checks it), so it returns at once.
+//
+// The V counter is read BEFORE VBlank_Flag is tested, as PageCache_Audit's idle arm does:
+// a unit never starts after this frame's VBlank. If VBlank lands mid-unit, the unit still
+// completes before any copy site runs (the VBlank handler writes neither the nametable
+// nor a mask, and the next tick starts only after VSync_Wait returns), so every unit is
+// exact at its own instant regardless.
+// In: none   Out: none   Clobbers: d0-d2/a0-a1 (inside VSync_Wait's d0-d2/a0-a3)
+// -----------------------------------------------
+pub proc PageCache_LiveSweep () clobbers(d0-d2/a0-a1) {
+        tst.b   PageCache_Direct_Map
+        bne     .done                           // latched: no liveness is kept
+    .unit:
+        move.w  VDP_HV_COUNTER, d1
+        lsr.w   #8, d1                          // V counter (scanline)
+        cmpi.w  #LIVE_SWEEP_LAST_LINE, d1
+        bhi     .done                           // too close to VBlank, or inside it
+        tst.b   VBlank_Flag
+        bne     .done                           // this frame's VBlank already came
+        move.w  Page_Live_Unit, d1
+        cmpi.w  #TILE_CACHE_ROWS, d1
+        bhs     .column
+        // ---- a row: Tile_Cache_Nametable + row * TILE_CACHE_STRIDE * 2 ----
+        move.w  d1, d2
+        add.w   d2, d2                          // row * 2 = its mask's byte offset
+        movea.w d2, a1                          // (a1 = mask offset; the walk needs d0-d2)
+        mul_const.w d1, #TILE_CACHE_STRIDE * 2, d0
+        lea     Tile_Cache_Nametable, a0
+        adda.w  d1, a0
+        pc_live_row_walk()                      // d2.w = the row's exact mask
+        lea     Page_Live_Masks, a0
+        move.w  d2, (a0, a1.w)                  // exact at this instant
+        jbra    .advance
+    .column:
+        // ---- a column: Tile_Cache_Nametable + col * 2, stride one cache row ----
+        subi.w  #TILE_CACHE_ROWS, d1            // col
+        add.w   d1, d1                          // col * 2 = its first word's byte offset
+        movea.w d1, a1                          // (also its mask's offset past PAGE_LIVE_COL_OFFSET)
+        lea     Tile_Cache_Nametable, a0
+        adda.w  d1, a0
+        moveq   #0, d2
+        moveq   #(TILE_CACHE_ROWS / 4) - 1, d0
+    .cw:
+        move.w  (a0), d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        move.w  LIVE_COL_ROW1(a0), d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        move.w  LIVE_COL_ROW2(a0), d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        move.w  LIVE_COL_ROW3(a0), d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        bset    d1, d2
+        lea     LIVE_COL_PASS(a0), a0
+        dbf     d0, .cw
+        lea     Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a0
+        move.w  d2, (a0, a1.w)                  // exact at this instant
+    .advance:
+        move.w  Page_Live_Unit, d1
+        addq.w  #1, d1
+        cmpi.w  #PAGE_LIVE_UNITS, d1
+        blo     .keep
+        moveq   #0, d1
+    .keep:
+        move.w  d1, Page_Live_Unit
+        jbra    .unit
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// PageCache_LiveSweepAll — every row mask exact and every column mask cleared, at one
+// instant. The rows alone cover every cell, and the invariant asks only "row OR column",
+// so clearing the columns at the SAME instant keeps it; clearing them at any other
+// instant would not. Called by PageCache_EndBoundedRegime (the masks' first derivation)
+// and by PageCache_PickVictim when no dead frame is visible (the forced sweep).
+// Cost: TILE_CACHE_ROWS row walks (~135k cycles). In: none   Out: none
+// Clobbers: d0-d2/a0-a1
+// -----------------------------------------------
+pub proc PageCache_LiveSweepAll () clobbers(d0-d2/a0-a1) {
+        lea     Tile_Cache_Nametable, a0        // the rows are contiguous: walk them in order
+        lea     Page_Live_Masks, a1
+    .row:
+        pc_live_row_walk()                      // d2.w = this row's exact mask, a0 -> next row
+        move.w  d2, (a1)+
+        cmpa.l  #Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a1
+        blo     .row
+        moveq   #(TILE_CACHE_COLS / 2) - 1, d0  // a1 = the first column mask
+    .col:
+        clr.l   (a1)+
+        dbf     d0, .col
+        rts
+}
+
+// -----------------------------------------------
+// PageCache_LiveReset — the masks of a ZEROED tile cache: every row {frame 0}, every
+// column empty. Exact at the instant TileCache_FillAll has just bulk-zeroed the
+// nametable, which is its one caller (act load, and the DEBUG warp's refill); the
+// refill's runs then add through the barrier, or add nothing under a latch, which is
+// what leaves the reset value the latched regimes' audit checks for.
+// In: none   Out: none   Clobbers: d0/a0
+// -----------------------------------------------
+pub proc PageCache_LiveReset () clobbers(d0/a0) {
+        lea     Page_Live_Masks, a0
+        moveq   #TILE_CACHE_ROWS - 1, d0
+    .row:
+        move.w  #1, (a0)+                       // frame 0: every word is $0000
+        dbf     d0, .row
+        moveq   #(TILE_CACHE_COLS / 2) - 1, d0
+    .col:
+        clr.l   (a0)+
+        dbf     d0, .col
+        clr.w   Page_Live_Unit                  // the idle sweep restarts at row 0
+        rts
+}
+
+// -----------------------------------------------
+// PageCache_LiveUnion — the union of every row and column mask: every frame some cache
+// cell may name. A frame outside it is named by no cell (the invariant). Read by
+// PageCache_PickVictim and PageCache_DemandHoldTick, at one instant each.
+// Cost: ~1.1k cycles. In: none   Out: d0.w = the union   Clobbers: d1/a0
+// -----------------------------------------------
+pub proc PageCache_LiveUnion () clobbers(d1/a0) out(d0: u16) {
+        lea     Page_Live_Masks, a0
+        moveq   #0, d0
+        moveq   #(PAGE_LIVE_UNITS / 14) - 1, d1 // 7 longs (14 masks) a pass
+    .pass:
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        or.l    (a0)+, d0
+        dbf     d1, .pass
+        move.l  d0, d1
+        swap    d1
+        or.w    d1, d0                          // fold the two masks of every long
         rts
 }
 
@@ -1419,44 +1645,30 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
 
 
 // -----------------------------------------------
-// PageCache_ResetRefcounts — the WARM-cache counterpart of PageCache_Init, and
-// the precondition TileCache_FillAll has been asking for in prose since P2b:
+// PageCache_ReleaseHolds — the WARM-cache counterpart of PageCache_Init: what the DEBUG
+// warp must reset before it re-runs Tile_Cache_Init on a cache that is still live.
 //
-//   "requires all resident pf_refcount == 0 — guaranteed by PageCache_Init at
-//    boot. The .zero_nt bulk-zero here bypasses the patch runs' per-word unref,
-//    so a future WARM-cache refill must first reset refcounts and rebuild the
-//    LRU before calling this, or residency accounting double-counts."
-//                                        — engine/level/tile_cache.emp, FillAll
-//
-// That future arrived with the DEBUG warp mailbox: a warp re-runs Tile_Cache_Init
-// mid-act, on a cache whose every live nametable word still holds a reference.
-// PageCache_Init is the wrong tool there — it drops RESIDENCY too, and residency
-// can only be rebuilt by Level_LoadArt, which spins VSync_Wait with the display
-// off. This proc resets exactly the half FillAll invalidates and leaves the
-// page->frame map alone, so the refill re-references the pages already in VRAM.
-//
-// THE POST-STATE IS THE AUDIT'S POST-STATE, not an approximation of it — every
-// invariant PageCache_Audit checks is re-established here:
-//   * pf_refcount = 0 for every frame (FillAll is about to zero the nametable
-//     that justified them).
-//   * an ASSIGNED, unpinned frame becomes an eviction candidate NOW: PF_EVICTABLE
-//     set and pf_stamp = Frame_Counter, which is exactly what the patch runs'
-//     1->0 unref does. Skipping the stamp would hand the F-1 age scan a stale
-//     release time and evict the wrong frame first.
-//   * an UNASSIGNED frame (free list, or the in-flight decode frame, which is
-//     unassigned by construction since soak-fix chain 72) and a PINNED frame both
-//     get PF_EVICTABLE CLEARED — the audit raises on either flavour of a wrongly
-//     flagged frame ("unassigned frame flagged PF_EVICTABLE" / "pinned frame
-//     flagged PF_EVICTABLE"), and clearing is also simply true.
-// Tile_Cache_Init's own DEBUG tail calls PageCache_Audit after the refill, so the
-// warp path checks this proc's work on every warp in the shape that has it.
+// A warp re-runs TileCache_FillAll mid-act. PageCache_Init is the wrong tool there — it
+// drops RESIDENCY too, and residency can only be rebuilt by Level_LoadArt, which spins
+// VSync_Wait with the display off. The refill keeps the page->frame map and re-names the
+// pages already in VRAM. What it invalidates, and who resets it:
+//   * the liveness masks: FillAll resets them itself (PageCache_LiveReset, exact right
+//     after its bulk zero), so nothing here;
+//   * the demand holds: a warp resolves every demand (the refill names whatever is
+//     resident and re-demands the rest), so every PF_DEMAND_HELD clears and the gate
+//     disarms together — the audit raises on a held frame with the gate disarmed.
+// The stamps stay: they are "last known wanted" times and remain true.
+// (Until GPL-A3, 2026-09-27, this was PageCache_ResetRefcounts, which also zeroed every
+// refcount and re-flagged every candidate — state the masks no longer keep.)
+// Tile_Cache_Init's own DEBUG tail calls PageCache_Audit after the refill, so the warp
+// path checks the post-state on every warp in the shape that has it.
 //
 // The page-in FIFO is deliberately NOT flushed. PageIn_Flush would cancel the
 // queue but leave a mid-decode frame DETACHED and unassigned — reachable from
 // neither the free list nor the candidate scan, i.e. leaked, and invisible to the
 // audit (which skips unassigned frames). Letting an in-flight page-in complete
 // normally is strictly safer: Publish only marks residency, and the refill
-// re-references whatever it finds. The shipped act is fully resident (10 pages,
+// names whatever it finds. The shipped act is fully resident (10 pages,
 // PAGE_FRAMES_CLAMP frames), so nothing is ever in flight at warp time anyway.
 //
 // DEBUG-SHAPE ONLY: the whole body, rts included, sits inside `if DEBUG == 1`, so
@@ -1468,34 +1680,22 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
 // release CHANGE: both canonical shapes append the convsym deb2 symbol table, so a
 // zero-byte release LABEL still lands in the appendix and moves the ROM's CRC and
 // its header ROM-end/checksum words. Parked here, this proc's release label
-// coincides with PageCache_Audit's address and the appendix dedupes it away, so
-// s4.bin and demo.bin stay byte-identical (measured: both CRCs unchanged). Anywhere
-// a real emitting symbol follows it — including end-of-file, where nothing does —
-// the appendix grows and the release ROM changes. Being the LAST proc also means
-// the `if DEBUG == 1` scope below cannot renumber any release-visible anonymous asm
-// scope (the pc_patch_run_loop splices all sit above it).
-// In: none   Out: none   Clobbers: d0-d2/a0
+// coincides with PageCache_Audit's address and the appendix keeps one record per
+// address. Anywhere a real emitting symbol follows it — including end-of-file, where
+// nothing does — the appendix grows and the release ROM changes. Being the LAST proc
+// also means the `if DEBUG == 1` scope below cannot renumber any release-visible
+// anonymous asm scope (the pc_patch_run_loop splices all sit above it).
+// In: none   Out: none   Clobbers: d0/a0
 // -----------------------------------------------
-pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
+pub proc PageCache_ReleaseHolds () clobbers(d0/a0) {
     if DEBUG == 1 {
-        move.w  Frame_Counter, d2               // one release time for the whole sweep
         lea     Page_Frames, a0
-        move.w  #PAGE_FRAMES-1, d0
+        moveq   #PAGE_FRAMES-1, d0
     .frame:
-        clr.w   PF_RC(a0)
-        move.b  PF_FLAGS(a0), d1
-        bclr    #PF_EVICTABLE_BIT, d1           // default: NOT a candidate
-        bclr    #PF_DEMAND_HELD_BIT, d1         // a warp resolves every demand: no hold survives it
-        cmpi.w  #$FFFF, PF_PAGE(a0)
-        beq     .store                          // unassigned (free / in-flight decode)
-        btst    #PF_PINNED_BIT, d1
-        bne     .store                          // pinned frames are never victims
-        bset    #PF_EVICTABLE_BIT, d1           // assigned + rc0 + unpinned = candidate
-        move.w  d2, PF_STAMP(a0)                // released NOW (F-1 age scan origin)
-    .store:
-        move.b  d1, PF_FLAGS(a0)
+        bclr    #PF_DEMAND_HELD_BIT, PF_FLAGS(a0)   // a warp resolves every demand: no hold survives it
         lea     sizeof(PageFrame)(a0), a0
         dbf     d0, .frame
+        clr.b   Page_Demand_Held                    // and nothing is left for the gate to release
         rts
     }
 }
@@ -1506,7 +1706,7 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 //
 //   PAGE_AUDIT_FULL — everything, in this one call. Tile_Cache_Init's DEBUG tail (after
 //     the first full cache fill, and the reason the DEBUG warp self-audits its own
-//     PageCache_ResetRefcounts work — tools/warp_mailbox_gate.py asserts that).
+//     refill — tools/warp_mailbox_gate.py asserts that).
 //   PAGE_AUDIT_TICK — the level state's once-per-logic-tick call (games/sonic4/test/
 //     ojz_scroll_test.emp, right after Tile_Cache_Fill returns). Fix F5 moved it out of
 //     the fill because the fill is the streaming arc's measurement subject; do NOT
@@ -1516,25 +1716,39 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 //   PAGE_AUDIT_IDLE — VSync_Wait's idle slot, after PageIn_Process (engine/system/
 //     vblank.emp). Audits nametable slices while the frame has time left, and stops.
 //
-// WHAT IS CHECKED, in every mode that checks. General regime: every frame's
-// pf_refcount equals the number of live nametable words naming it. Latched regimes
-// (PageCache_Direct_Map != 0, streaming fix F1 and the bounded variant): (a) every
-// pf_refcount is zero, (b) no nametable word names an UNASSIGNED frame, (c) Page_Table
-// is the identity below PAGE_FRAMES_CLAMP and absent above it. Every regime:
-// PF_EVICTABLE => assigned + rc0 + unpinned; PF_DEMAND_HELD => assigned + unpinned +
-// the hold gate armed; page<->frame is a bijection; no assigned frame is unreachable by
-// every reclaim path (orphan).
+// WHAT IS CHECKED, in every mode that checks.
+//   Per nametable word, sliced (below):
+//     GENERAL regime — the invariant eviction relies on (module header): the word names
+//       an ASSIGNED frame, and its row's liveness mask or its column's carries that frame.
+//       Two messages: "names an UNASSIGNED frame" (a dangling physical index, whatever
+//       the masks say) and "its row and column liveness masks both omit" (an assigned
+//       frame the masks under-state: a barrier missed a write, and PageCache_PickVictim
+//       could evict displayed art).
+//     LATCHED regimes (PageCache_Direct_Map != 0, streaming fix F1, the bounded variant,
+//       the plain copy) — (b) the word names an ASSIGNED frame.
+//   Per frame, whole, at one instant:
+//     LATCHED — (a) every liveness mask still holds its reset value (rows {frame 0},
+//       columns empty): only a general run, the idle sweep or a forced sweep writes them,
+//       and none may run under a latch, so a moved mask means the loop variants mixed;
+//       (c) Page_Table is the identity below PAGE_FRAMES_CLAMP and absent above it.
+//     EVERY regime — PF_DEMAND_HELD => assigned + unpinned + the hold gate armed;
+//       page<->frame is a bijection.
+//   Gone with the refcounts (GPL-A3, 2026-09-27): the refcount comparison (replaced by
+//   the per-word mask check above), the candidate-flag checks (no flag is kept), and the
+//   orphan check. An orphan was an assigned frame no reclaim path could reach; under the
+//   masks every assigned, unpinned, unheld frame is a candidate the moment no mask names
+//   it, so the only unreachable one left is a held frame whose hold nothing will end —
+//   the "gate disarmed" check.
 //
 // THE AMORTISED SCHEDULE (audit-amortise, 2026-09-26; the measurements and the designs
 // it beat are in docs/research/2026-09-26-audit-amortise.md). The audit's cost is the
 // 4800-word nametable walk: 203k-236k cycles, two DEBUG lag frames on every interval
 // tick when it ran whole on one tick.
-//   * LATCHED REGIMES (every shipped act). The walk's ONLY consumer is (b), and (b) is
-//     a per-word predicate over ONE instant's state: "this word's frame is assigned
-//     now". So the walk is cut into PAGE_AUDIT_SLICES slices of PAGE_AUDIT_SLICE_WORDS
-//     words. The idle slot audits slices while the scanline says the slice still fits
-//     before VBlank (PAGE_AUDIT_IDLE_LAST_LINE), so it costs the running game nothing:
-//     it only spends time the frame would have spun away in `.wait`.
+//   * EVERY REGIME. The walk's consumer is a per-word predicate over ONE instant's state.
+//     So the walk is cut into PAGE_AUDIT_SLICES slices of PAGE_AUDIT_SLICE_WORDS words.
+//     The idle slot audits slices while the scanline says the slice still fits before
+//     VBlank (PAGE_AUDIT_IDLE_LAST_LINE), so it costs the running game nothing: it only
+//     spends time the frame would have spun away in `.wait`.
 //   * PACING. Slice s may be audited from interval tick s+1 on (the idle slot never
 //     runs ahead of the tick count) and must be audited by tick
 //     s+1+PAGE_AUDIT_SLACK_TICKS: a slice the idle slot has not reached by then is
@@ -1542,22 +1756,19 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 //     Page_Audit_Late counts the slices the ticks had to do (idle had no room). Without
 //     the pacing an idle-rich interval would sweep at its start and an idle-starved
 //     one at its end, and a word's two checks could sit almost two intervals apart.
-//   * WHY A SLICE CANNOT LIE. Each slice checks its words against a mask of assigned
-//     frames built IN THE SAME CALL, from the same instant, by .dangling_walk. Nothing
-//     crosses from one slice to the next except Page_Audit_Slice, which chooses WHICH
-//     words are read and never holds a partial result. So a raise names a violation
-//     present in the state at the moment it raised, and a state that changed between
-//     slices cannot add up to a false failure or a false pass: no two instants are
-//     ever combined. (a), (c), flags, bijectivity and orphan are whole-state checks and
-//     run whole, on the interval tick, as before.
-//   * GENERAL REGIME. Its check is a SUM over the whole nametable at one instant. A sum
-//     spread over time while Tile_Cache_Fill rewrites words is wrong in both
-//     directions (a word counted and then rewritten A->B, while a word not yet counted
-//     goes B->A, leaves every refcount unchanged and the partial sum off by one). Only
-//     a write barrier in the copy sites or a restart-on-write sweep fixes that, and the
-//     fill writes on nearly every tick in motion, so a restarting sweep never
-//     finishes. So the general regime keeps the atomic walk on the interval tick,
-//     unchanged, and the idle slot skips it. Do not slice it without a write barrier.
+//   * WHY A SLICE CANNOT LIE. Each slice checks its words against state read IN THE SAME
+//     CALL, from the same instant: the assigned-frame mask (both regimes) and, in the
+//     general regime, the slice's row mask and its 40 column masks (a slice lies in one
+//     cache row: two slices a row, ensure'd). Nothing crosses from one slice to the next
+//     except Page_Audit_Slice, which chooses WHICH words are read and never holds a
+//     partial result. So a raise names a violation present in the state at the moment it
+//     raised, and a state that changed between slices cannot add up to a false failure
+//     or a false pass: no two instants are ever combined. (a), (c), holds and
+//     bijectivity are whole-state checks and run whole, on the interval tick.
+//   * THE GENERAL REGIME SLICES TOO (AA-1, closed by GPL-A3). Its old check was a SUM
+//     (every refcount against a whole-nametable recount), which could not be spread over
+//     time while the fill rewrote words. The mask invariant is a per-word predicate, so
+//     it slices exactly like (b), and the atomic 200k-cycle walk is gone.
 //   * THE PACING ALSO ARMS IT. Page_Audit_Ticks is 0 from PageCache_Init until the
 //     level state's first tick, so no slice is allowed during Level_LoadArt's
 //     VSync_Wait spins, when the nametable may still hold the previous act's words
@@ -1569,9 +1780,12 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 // two consecutive checks of it are at most PAGECACHE_AUDIT_INTERVAL +
 // PAGE_AUDIT_SLACK_TICKS ticks apart: a violation that stays put is caught within
 // that many ticks (136 against the whole walk's 128), and usually within a few ticks
-// of its slice's phase (tools/pagecache_audit_poison.py measures it). Refcount/flag/
-// map corruptions are monotone (nothing re-derives them), so a periodic audit reports
-// them late, never misses them.
+// of its slice's phase (tools/pagecache_audit_poison.py measures it). A mask
+// under-statement need NOT stay put: the idle sweep re-derives masks exactly and heals
+// it (the invariant is restored, which is what a sweep is for). So the audit is a sampled
+// check of the barrier, as the old whole walk was of the refcounts; a missing barrier
+// under motion violates the invariant continuously and is caught (red-first record in
+// docs/research/2026-09-27-general-patch-loop/ and the GPL-A3 build notes).
 //
 // REGISTERS. d0-d2/a0-a3 and nothing else, in every mode: the IDLE caller is VSync_Wait,
 // whose contract is exactly that set (Level_LoadArt keeps a4/d5-d7 live across it).
@@ -1596,8 +1810,6 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         move.w  Page_Audit_Ticks, d0
         cmpi.w  #PAGECACHE_AUDIT_INTERVAL, d0
         bhs     .interval
-        tst.b   PageCache_Direct_Map
-        beq     .tick_done                      // general regime: its sum stays atomic (header)
         subi.w  #PAGE_AUDIT_SLACK_TICKS+1, d0   // d0 = slices that must be done by now
         ble     .tick_done
         move.w  Page_Audit_Slice, d1
@@ -1613,86 +1825,50 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
 
     .interval:
         clr.w   Page_Audit_Ticks
-        tst.b   PageCache_Direct_Map
-        beq     .interval_general
         move.w  Page_Audit_Slice, d0            // the slices not yet audited this interval
         move.w  #PAGE_AUDIT_SLICES, d2
         sub.w   d0, d2                          // d2 = slices left
         ble     .sweep_done
         add.w   d2, Page_Audit_Late
-        jbsr    .slices_now                     // (b) for the rest, at this one instant
+        jbsr    .slices_now                     // the rest, at this one instant
     .sweep_done:
         clr.w   Page_Audit_Slice                // the next interval's sweep starts at slice 0
         jbsr    .snapshot
-        jbra    .latched_frames
-    .interval_general:
-        clr.w   Page_Audit_Slice
-        // fall into FULL: the general regime's atomic walk, unchanged
+        jbra    .frames
 
-        // ---- PAGE_AUDIT_FULL (and the general regime's interval tick) ----
+        // ---- PAGE_AUDIT_FULL: every slice and every frame-level check, at one instant ----
     .full:
         jbsr    .snapshot
+        moveq   #0, d0
+        move.w  #PAGE_AUDIT_SLICES, d2
+        jbsr    .slices_now
+
+        // ---- the frame-level checks, whole, at this one instant ----
+    .frames:
         tst.b   PageCache_Direct_Map
-        bne     .full_latched
+        beq     .common                         // general regime: the every-regime checks
 
-        lea     Page_Audit_Scratch, a0          // zero the per-frame scratch counters
-        move.w  #PAGE_FRAMES-1, d0
-    .zero:
-        clr.w   (a0)+
-        dbf     d0, .zero
-
-        lea     Tile_Cache_Nametable, a0        // accumulate refcount per frame (skip tile 0)
-        lea     Page_Audit_Scratch, a1
-        move.w  #(TILE_CACHE_NT_SIZE/2)-1, d0
-    .walk:
-        move.w  (a0)+, d1
-        andi.w  #NT_TILE_MASK, d1
-        beq     .walk_next
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1      // frame id
-        add.w   d1, d1                           // word stride
-        addq.w  #1, (a1, d1.w)
-    .walk_next:
-        dbf     d0, .walk
-
-        lea     Page_Audit_Scratch, a0          // compare recomputed vs stored, per frame
-        lea     Page_Frames, a1
-        move.w  #PAGE_FRAMES-1, d0
-    .cmp:
-        move.w  (a0)+, d1                       // recomputed
-        cmp.w   PF_RC(a1), d1
-        beq     .cmp_next
-        raise_error "PageCache_Audit: pf_refcount != recomputed nametable count"
-    .cmp_next:
-        lea     sizeof(PageFrame)(a1), a1
-        dbf     d0, .cmp
-        jbra    .common
-
-        // DIRECT-MAP regimes (streaming fix F1 + the bounded variant). The collapsed
-        // copy-site runs maintain NO refcounts — under the latch nothing can evict, so
-        // a refcount is not a live quantity and the comparison above would be a check
-        // on a number nobody writes. It is replaced, NOT dropped, by the invariants
-        // that are live here (this arm must never become the vacuous one):
-        //   (a) every stored refcount is ZERO. A nonzero one means a GENERAL-loop run
-        //       executed while the latch was set — the two variants mixed.
-        //   (b) every frame the nametable REFERENCES is assigned (pf_page != $FFFF):
-        //       the no-dangling-physical-index property the refcounts existed to
-        //       protect, re-derived straight from the nametable (.dangling_walk).
+        // LATCHED regimes (streaming fix F1, the bounded variant, the plain copy): the
+        // collapsed runs keep no liveness — under the latch nothing can evict. The
+        // general per-word check would be a check on masks nobody writes, so it is
+        // replaced, NOT dropped, by the invariants live here (this arm must never become
+        // the vacuous one):
+        //   (a) every liveness mask holds its reset value (PageCache_LiveReset). A moved
+        //       one means a GENERAL-loop run (or a sweep) executed under the latch.
+        //   (b) every frame the nametable names is assigned — the sliced walk above.
         //   (c) Page_Table is STILL the identity over the pool — the premise the whole
         //       collapsed loop rests on, which Level_LoadArt's latch proved only once.
-    .full_latched:
-        lea     Tile_Cache_Nametable, a0        // (b) over the whole nametable, this instant
-        move.w  #(TILE_CACHE_NT_SIZE/2)/4-1, d2 // unrolled 4-way: groups - 1
-        jbsr    .dangling_walk
-    .latched_frames:
-        lea     Page_Frames, a1                 // (a)
-        move.w  #PAGE_FRAMES-1, d0
-    .dm_rc:
-        tst.w   PF_RC(a1)
-        beq     .dm_rc_ok
-        raise_error "PageCache_Audit: nonzero pf_refcount under the direct-map latch (patch loop variants mixed)"
-    .dm_rc_ok:
-        lea     sizeof(PageFrame)(a1), a1
-        dbf     d0, .dm_rc
+        lea     Page_Live_Masks, a1             // (a) rows: {frame 0}
+        moveq   #TILE_CACHE_ROWS-1, d0
+    .lm_row:
+        cmpi.w  #1, (a1)+
+        bne     .lm_moved
+        dbf     d0, .lm_row
+        moveq   #TILE_CACHE_COLS-1, d0          // (a) columns: empty
+    .lm_col:
+        tst.w   (a1)+
+        bne     .lm_moved
+        dbf     d0, .lm_col
 
         lea     Page_Table, a1                  // (c)
         move.w  PageIn_Pool_Pages, d0
@@ -1718,39 +1894,17 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
     .dm_ident_ok:
         addq.w  #1, d1
         dbf     d0, .dm_ident
+        jbra    .common
+    .lm_moved:
+        raise_error "PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop variants mixed)"
 
         // ---- every regime: the frame-level invariants, whole, at this one instant ----
     .common:
-        // Candidate-flag invariant (F-1 stamp eviction — replaces the LRU-list
-        // walk + cycle bound, which died with the list): PF_EVICTABLE implies
-        // assigned + refcount 0 + unpinned. The reverse direction is NOT an
-        // invariant (a demand-published frame is legitimately assigned/rc0/
-        // unpinned yet unflagged until its first Ref/Unref cycle).
-        lea     Page_Frames, a1
-        move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
-    .evf:
-        move.b  PF_FLAGS(a1, d1.w), d0
-        btst    #PF_EVICTABLE_BIT, d0
-        beq     .evf_next
-        tst.w   PF_RC(a1, d1.w)
-        beq     .evf_rc_ok
-        raise_error "PageCache_Audit: PF_EVICTABLE frame has refcount>0"
-    .evf_rc_ok:
-        btst    #PF_PINNED_BIT, d0
-        beq     .evf_pin_ok
-        raise_error "PageCache_Audit: pinned frame flagged PF_EVICTABLE"
-    .evf_pin_ok:
-        cmpi.w  #$FFFF, PF_PAGE(a1, d1.w)
-        bne     .evf_next
-        raise_error "PageCache_Audit: unassigned frame flagged PF_EVICTABLE"
-    .evf_next:
-        subq.w  #sizeof(PageFrame), d1
-        bpl     .evf
-
         // Demand-hold invariant (stressart-halts GPL-2, 2026-09-26): PF_DEMAND_HELD
         // implies assigned + unpinned, and a held frame needs the gate armed — with
-        // Page_Demand_Held 0, PageCache_DemandHoldTick is never called and the hold
-        // (which exempts the frame from the orphan check below) would never end.
+        // Page_Demand_Held 0, PageCache_DemandHoldTick is never called, and a held frame
+        // no mask names would never be released: never a candidate, i.e. leaked (the
+        // one orphan class the masks leave; header).
         lea     Page_Frames, a1
         move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
     .held:
@@ -1774,7 +1928,7 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         // --- MAPPING BIJECTIVITY (Task-6 review): the residency map must be a
         //     bijection between resident pages and assigned frames. A consistent-
         //     but-WRONG mapping (page art landing at frame X while Page_Table says
-        //     frame Y) passes the refcount/flag checks but renders wrong art; this
+        //     frame Y) passes every per-word check but renders wrong art; this
         //     cross-check red-screens it at init. ---
         // (1) every assigned frame round-trips: Page_Table[frame.pf_page] == frame.
         //     A frame index is < PAGE_FRAMES <= 32, so the byte compare is the whole
@@ -1813,41 +1967,6 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         addq.w  #1, d0
         cmpi.w  #PAGE_TABLE_MAX, d0
         blt     .bij_page
-
-        // --- ORPHAN FRAME (T7 review NIT-2): a frame that is ASSIGNED (pf_page !=
-        //     $FFFF) yet is unreachable by every reclaim mechanism — refcount 0,
-        //     not PF_EVICTABLE, not pinned, and not the live page-in handoff
-        //     frame — has LEAKED: neither the free list nor the candidate scan
-        //     can ever hand it back to AllocFrame, so its VRAM is lost until the
-        //     next act reset (a class the refcount/flag/bijectivity checks above
-        //     all pass). The in-flight DECODE frame is UNASSIGNED (pf_page
-        //     $FFFF, soak-fix chain 72), so the pf_page skip already covers it;
-        //     the one legitimate assigned/rc0/unflagged transient — a demand
-        //     page published but not yet Ref'd by its resuming fill — carries
-        //     PF_DEMAND_HELD, and that hold is itself bounded: while any frame is
-        //     held, Page_Demand_Held must be armed, or nothing will ever release it
-        //     (checked here). This replaced a PageIn_Cur_Frame exemption, which
-        //     covered only the LATEST page-in (stressart-halts GPL-2, 2026-09-26:
-        //     the frame it raised on was a real leak, a demand page nothing would
-        //     ever reference; the hold release now reclaims it). ---
-        lea     Page_Frames, a1
-        moveq   #0, d0                          // frame index
-    .orphan:
-        move.w  d0, d2
-        lsl.w   #3, d2
-        lea     (a1, d2.w), a3                  // &frame[d0]
-        cmpi.w  #$FFFF, PF_PAGE(a3)
-        beq     .orphan_next                    // unassigned (free / in-flight decode) -> ok
-        tst.w   PF_RC(a3)
-        bne     .orphan_next                    // referenced -> reachable via a cache word
-        move.b  PF_FLAGS(a3), d2                // (d2's offset is spent: a3 holds the frame)
-        andi.b  #PF_EVICTABLE | PF_PINNED | PF_DEMAND_HELD, d2
-        bne     .orphan_next                    // candidate, pinned, or demand-held (bounded, below)
-        raise_error "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)"
-    .orphan_next:
-        addq.w  #1, d0
-        cmpi.w  #PAGE_FRAMES, d0
-        blt     .orphan
         rts
 
         // ---- PAGE_AUDIT_IDLE: slices while this frame still has room ----
@@ -1859,8 +1978,6 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         // tick's time). A slice that starts at or before PAGE_AUDIT_IDLE_LAST_LINE
         // ends before VBlank at the priced cost (constant's note).
     .idle:
-        tst.b   PageCache_Direct_Map
-        beq     .idle_done                      // general regime: its sum stays atomic (header)
     .idle_slice:
         move.w  Page_Audit_Slice, d0
         cmp.w   Page_Audit_Ticks, d0
@@ -1880,14 +1997,30 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
     .idle_done:
         rts
 
-        // Audit slices [d0, d0+d2) at this instant (d2 >= 1). Clobbers d0-d2/a0-a1.
+        // Audit slices [d0, d0+d2) at this instant (d2 >= 1). Clobbers d0-d2/a0-a3.
+        // LATCHED: the slices are contiguous words, so one walk of all of them.
+        // GENERAL: one slice at a time — each reads its own row and column masks; the
+        // cursor and count ride the stack so a slice's walk has every scratch register.
     .slices_now:
+        tst.b   PageCache_Direct_Map
+        beq     .general_slices
         mul_const.w d2, #PAGE_AUDIT_SLICE_WORDS/4, d1   // -> 4-word groups
         subq.w  #1, d2
         mul_const.w d0, #PAGE_AUDIT_SLICE_BYTES, d1
         lea     Tile_Cache_Nametable, a0
         adda.w  d0, a0
         jbra    .dangling_walk                  // tail
+    .general_slices:
+        move.w  d0, -(sp)                       // 2(sp) = the slice
+        move.w  d2, -(sp)                       // 0(sp) = slices left
+    .gs_one:
+        move.w  2(sp), d0
+        jbsr    .general_slice
+        addq.w  #1, 2(sp)
+        subq.w  #1, (sp)
+        bne     .gs_one
+        addq.l  #4, sp
+        rts
 
         // Ground-truth snapshot of the residency map (Task-6 mapping-bug debug): a
         // red-screen freezes this readable copy of the free head + Page_Table + per-
@@ -1910,12 +2043,108 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         moveq   #PAGE_FRAMES-1, d0
     .snap_frame:
         move.b  PF_PAGE+1(a1), (a0)+           // pf_page low byte (page id / $FF when unassigned)
-        move.b  PF_FLAGS(a1), (a0)+            // PINNED/EVICTABLE flags (free-list MEMBERSHIP is derivable via pf_page.lo==$FF; link order is not captured)
+        move.b  PF_FLAGS(a1), (a0)+            // PINNED/DEMAND_HELD flags (free-list MEMBERSHIP is derivable via pf_page.lo==$FF; link order is not captured)
         lea     sizeof(PageFrame)(a1), a1
         dbf     d0, .snap_frame
         rts
 
-        // (b) over 4*(d2+1) nametable words from a0, against THIS instant's frame
+        // GENERAL regime, ONE slice s (d0.w): row s/2, columns (s&1)*40 .. +39. Every
+        // word must name an ASSIGNED frame that its row's mask or its column's mask
+        // carries. Everything is read here, at this instant (header, WHY A SLICE CANNOT
+        // LIE). Registers:
+        //   d0.w = row mask AND assigned (high word 0)   a2.w = assigned
+        //   a0 = the word cursor   a1 = column masks - row base, so -2(a1,a0.l) is the
+        //   column mask of the word just read   a3 = passes left   d1/d2 = scratch
+        // The FAST test is one btst against d0: a word whose frame the row carries (the
+        // common case) costs ~42 cycles. Anything else takes .gw_col (column mask, then
+        // the classification). `btst dN, d0` reads the bit number mod 32 and d0's high
+        // word is 0, so a frame id >= 16 (the shifted attribute bits sit above bit 4)
+        // always falls to the slow path, which masks the id to 0-31 and fails it as
+        // unassigned: frames PAGE_FRAMES..31 are CHECKED here (the latched walk leaves
+        // them unchecked; AA-5). PRICED like the latched slice (PAGE_AUDIT_IDLE_MARGIN_
+        // LINES): the assigned mask ~770 cycles, setup ~250, 10 passes of 4 x 42 + 22 =
+        // 1,900: ~2,900 cycles, 5.9 scanlines, inside the 12-line margin at ~2x.
+        // Clobbers d0-d2/a0-a3.
+    .general_slice:
+        move.w  d0, d1
+        mul_const.w d1, #PAGE_AUDIT_SLICE_BYTES, d2     // d1 = the slice's byte offset
+        lea     Tile_Cache_Nametable, a0
+        adda.w  d1, a0                          // a0 = the slice's first word
+        lsr.w   #1, d0                          // d0 = its cache row
+        move.w  d0, d1
+        mul_const.w d1, #TILE_CACHE_STRIDE*2, d2        // d1 = the row's byte offset
+        lea     Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a1
+        suba.w  d1, a1
+        suba.l  #Tile_Cache_Nametable, a1       // a1 = column masks - row base
+        add.w   d0, d0
+        lea     Page_Live_Masks, a2
+        move.w  (a2, d0.w), d1                  // d1.w = the row's mask
+        moveq   #0, d2                          // d2 = assigned frames, built now
+        lea     Page_Frames, a2
+        moveq   #0, d0                          // frame index
+    .gm:
+        cmpi.w  #$FFFF, PF_PAGE(a2)
+        beq     .gm_next
+        bset    d0, d2
+    .gm_next:
+        lea     sizeof(PageFrame)(a2), a2
+        addq.w  #1, d0
+        cmpi.w  #PAGE_FRAMES, d0
+        blo     .gm
+        movea.w d2, a2                          // a2.w = assigned
+        moveq   #0, d0
+        move.w  d1, d0
+        and.w   d2, d0                          // d0 = row mask AND assigned, high word 0
+        movea.w #(PAGE_AUDIT_SLICE_WORDS / 4) - 1, a3
+    .gw:
+        move.w  (a0)+, d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1      // bits 0-4 = frame id
+        btst    d1, d0
+        bne     .gw_ok0
+        jbsr    .gw_col
+    .gw_ok0:
+        move.w  (a0)+, d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        btst    d1, d0
+        bne     .gw_ok1
+        jbsr    .gw_col
+    .gw_ok1:
+        move.w  (a0)+, d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        btst    d1, d0
+        bne     .gw_ok2
+        jbsr    .gw_col
+    .gw_ok2:
+        move.w  (a0)+, d1
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d1
+        btst    d1, d0
+        bne     .gw_ok3
+        jbsr    .gw_col
+    .gw_ok3:
+        move.w  a3, d2
+        subq.w  #1, d2
+        movea.w d2, a3
+        bpl     .gw
+        rts
+        // The word just read (d1 = its shifted word) is not carried by row AND assigned.
+        // Classify: unassigned first (a dangling index is the worse fault, whatever the
+        // masks say), then the column mask.
+    .gw_col:
+        andi.w  #31, d1                         // the frame id alone
+        moveq   #0, d2
+        move.w  a2, d2                          // assigned (high word 0)
+        btst    d1, d2
+        beq     .gw_unassigned
+        move.w  -2(a1, a0.l), d2                // this word's column mask
+        btst    d1, d2
+        beq     .gw_unmasked
+        rts
+    .gw_unassigned:
+        raise_error "PageCache_Audit: general regime: a cache word names an UNASSIGNED frame (dangling physical index)"
+    .gw_unmasked:
+        raise_error "PageCache_Audit: a cache word names a frame its row and column liveness masks both omit"
+
+        // LATCHED (b) over 4*(d2+1) nametable words from a0, against THIS instant's frame
         // state: d0 = a 32-bit mask with bit f clear iff frame f (< PAGE_FRAMES) is
         // unassigned, built here, in the same call as the words are read. Frame ids
         // >= PAGE_FRAMES keep their bit set: the whole-walk audit never checked them
@@ -1927,6 +2156,7 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         // passes, exactly as the counting walk's skip did, so the 4-way unrolled FAST
         // loop needs no tile-0 test. If frame 0 is ever UNASSIGNED a blank word would
         // false-fail, so that case takes the SLOW loop, which skips tile 0 explicitly.
+        // (An empty pool is latched, Level_LoadArt; that is where frame 0 is unassigned.)
         // Clobbers d0-d2/a0-a1.
     .dangling_walk:
         moveq   #-1, d0

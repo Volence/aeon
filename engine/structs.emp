@@ -300,20 +300,26 @@ pub struct PageInReq {
 // Page frame (§5) — one 64-tile VRAM art slot in the residency cache
 // (engine.page_cache). Page_Frames[i] describes frame i; frame*64 is its base
 // tile index in the FG art window. pf_next threads the FREE list (the only
-// list left); eviction order is the pf_stamp age (F-1 stamp eviction)
-// AND the free list (a frame is in at most one list); PAGE_NOT_RESIDENT($FF)
-// terminates a link. 8 bytes — sizeof is compiler truth (no manual _len).
+// list left); eviction order is the pf_stamp age (F-1 stamp eviction), and
+// eviction candidacy is computed at the choice from the liveness masks
+// (PageCache_PickVictim, GPL-A3) — no per-frame count or candidate flag is kept.
+// A frame is in at most one list; PAGE_NOT_RESIDENT($FF) terminates a link.
+// 8 bytes — sizeof is compiler truth (no manual _len).
 // -----------------------------------------------
 pub struct PageFrame {
     pf_page:             u16,           // $00 — resident page id, or $FFFF when free/unassigned
-    pf_refcount:         u16,           // $02 — cache nametable words referencing this frame
-    pf_stamp:            u16,           // $04 — Frame_Counter when the frame became evictable (F-1
-                                        //       stamp eviction: victim = max unsigned age among
-                                        //       PF_EVICTABLE frames; wrap at 65536 frames merely
-                                        //       mis-ages a candidate, never breaks safety)
+    pf_pad:              u16,           // $02 — PADDING, keeps sizeof == 8 (the `lsl #3` frame
+                                        //       stride page_cache ensures). Was pf_refcount until
+                                        //       the liveness masks replaced it (GPL-A3, 2026-09-27);
+                                        //       nothing reads or writes it.
+    pf_stamp:            u16,           // $04 — Frame_Counter when the frame was last known wanted:
+                                        //       its publish, or the last eviction choice that saw it
+                                        //       live (F-1 stamp eviction: victim = max unsigned age
+                                        //       among the frames no mask names; wrap at 65536 frames
+                                        //       merely mis-ages a candidate, never breaks safety)
     pf_next:             u8,            // $06 — FREE-list forward link only (frame idx / $FF);
                                         //       eviction order is the stamp, not a list
-    pf_flags:            u8,            // $07 — PF_PINNED / PF_EVICTABLE bits
+    pf_flags:            u8,            // $07 — PF_PINNED / PF_DEMAND_HELD bits
 }
 
 // -----------------------------------------------

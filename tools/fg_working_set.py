@@ -26,8 +26,8 @@ WHAT IT COMPUTES
      * `visible`     the screen itself (worst-case sub-tile alignment)
      * `plane_fill`  what `Section_Update*` writes into the VDP plane
      * `tile_cache`  the 80x60 staging cache — THE ENGINE'S OWN RESIDENCY
-                     WINDOW: `pf_refcount` counts nametable words in the TILE
-                     CACHE (engine/level/page_cache.emp header), so this, not
+                     WINDOW: eviction liveness is stated over the nametable words
+                     of the TILE CACHE (engine/level/page_cache.emp header), so this, not
                      the screen, is what a frame must survive.
 2. LOOKAHEAD SWEEP — the same peak with the window extended by L columns in
    the direction of travel, L swept over a range. Reported as a CURVE; the
@@ -223,7 +223,7 @@ class Model:
         # what the plane fill actually writes (the engine's own reach constants)
         self.win_plane_fill = (c["SECTION_H_REACH_COLS_MAX"] + 1,
                                c["SECTION_V_REACH_ROWS_MAX"] + 1)
-        # the residency window the refcount invariant is stated over
+        # the residency window the eviction-liveness invariant is stated over
         self.win_tile_cache = (c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"])
 
         # camera step cap, px/frame -> tiles/frame
@@ -840,7 +840,7 @@ def build_report(model=None, verbose=False):
             "tiles_returned_to_objects": model.c["POOL_TILE_CEILING"] - tiles,
             # a frame count below the peak cannot draw the worst screen AT ALL
             # — it is not "more churn", it is a page that must be evicted while
-            # a live nametable word still references it, which the refcount
+            # a live nametable word still references it, which the liveness
             # invariant forbids.
             "covers_tile_cache_peak_unpinned": frames >= tc_peak,
             "covers_tile_cache_peak_with_pinning": frames >= tc_peak_pin,

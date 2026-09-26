@@ -166,8 +166,8 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
     .bg:
         // -- Streaming fix F1: latch the DIRECT-MAP patch regime --
         // The copy-site patch runs (PageCache_PatchRun_Seq/_Col) translate every
-        // nametable word global->physical through Page_Table and maintain a
-        // refcount pair, so that a page can later be EVICTED safely. Both are
+        // nametable word global->physical through Page_Table and keep the frame
+        // liveness masks (GPL-A3), so that a page can later be EVICTED safely. Both are
         // dead weight on an act that can never evict, and on such an act the
         // translation is provably the identity — so the runs take a collapsed
         // variant instead. Two conditions, checked HERE because this is the last
@@ -199,9 +199,9 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         // every other page is absent. Until anything else is allocated a frame, that is
         // as good as (2) for every resident word, and residency itself is one compare:
         // global < PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT. No eviction can happen
-        // without PageCache_AllocFrame, whose first call ENDS the regime (it rebuilds
-        // the refcounts from the nametable first — PageCache_EndBoundedRegime), so
-        // "no refcounts maintained" is safe for exactly as long as the latch is set.
+        // without PageCache_AllocFrame, whose first call ENDS the regime (it derives
+        // the liveness masks from the nametable first — PageCache_EndBoundedRegime), so
+        // "no liveness kept" is safe for exactly as long as the latch is set.
         // The same scan verifies it: Page_Table[p] == p below the clamp and
         // PAGE_NOT_RESIDENT above it; for a fully resident act the pool never exceeds
         // the clamp, so the scan is the identity check (2) unchanged.
