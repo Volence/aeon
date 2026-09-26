@@ -188,3 +188,63 @@ identity, every word's index is a real pool slot, every blank word is `$0000`, a
 - Lag: the survey harness, same legs, before/after, canonical DEBUG + release, and the clip.
 - DEBUG audit clean across the legs (a raise would halt the leg).
 - The new verify rule red-first, mutation on disk, wired into `verify_level_bin.py`'s main.
+
+## Results (measured 2026-09-26, rebased on origin/master `4cd6d7bc`)
+
+Built with `TMPDIR` on disk (`/tmp` was over its quota tonight and failed pytest writes with
+EDQUOT; the first baseline DEBUG build's failure was that, not code). Lag counts are
+deterministic headless counts; loadavg 6 to 15 during the runs changes wall-clock only.
+
+### ROMs (CRC32 / bytes)
+
+| shape | before (`4cd6d7bc`) | after (parcel tip) |
+|---|---|---|
+| `s4.bin` | `f4a0adac` / 828,952 | `e97424e6` / 828,874 |
+| `s4.debug.bin` | `d91dc2c6` / 855,969 | `c32e27dc` / 855,893 |
+
+`EndOfRom` is `$BF476` in both. The act data itself shrank 10,874 bytes
+(`OJZ_Sec_LocalMaps` moved `$2448C` -> `$21A12`): 9 local-map tables (3,030 B embedded) became
+one identity table (1,224 B), and the section block blobs went 52,934 -> 42,582 B (blank words
+now `$0000`, globals instead of locals). The saving is absorbed before a later fixed-address
+placement; which one was not traced. The file-size change is the deb2 appendix.
+
+### The picture: nametable identity (`nt_witness.py`, DEBUG, canonical OJZ act 1)
+
+Three fly legs (right, down, diagonal), 15 stop points each (flown ticks
+20..200 step 20, then 240..400 step 40), 45 points total. At each point the input is released
+and 30 frames run, then VRAM Plane A, Plane B and RAM `Tile_Cache_Nametable` are dumped. Points
+are matched by flown ticks AND camera position (all 45 matched).
+
+- before `$FF` (RESIDENT) vs after `$80` (PLAIN): **45 of 45 points identical** in Plane B, in
+  `Tile_Cache_Nametable` (the copy's own output, 9,600 bytes) and in Plane A's visible
+  window (41 x 29 cells). 29 points hold content; 16 are all-blank windows (they witness nothing
+  and are counted as such).
+- Plane A's OFF-SCREEN cells differ at 2 points (10 and 62 cells, diagonal t=120 and t=280).
+  That is lag-timing residue (which strips got drawn on the way), not the copy: a **timing-only
+  control** (the baseline ROM with `Canopy_Probe` stubbed, identical copy code) reproduces the
+  same class (44 off-screen cells at t=280) against the baseline, with visible window and tile
+  cache identical.
+- **Negative control**: the survey's stand-in plain copy (untranslated local words) on the same
+  baseline is DIFFERENT at 33 of 45 points (e.g. t=20: 541 visible cells, 1,876 tile-cache
+  words), so the witness can see the failure the stand-in had.
+- Release has no free flight, so the witness ran on DEBUG only. The copy code is shared by both
+  shapes; release differs only in the DEBUG-only blocks.
+- The DEBUG `PageCache_Audit` (now sliced, from master) ran through every leg without a raise:
+  every leg reached the same end camera on both ROMs.
+
+### Lag, survey legs (`lag / video frames in motion`), before -> after
+
+| leg | before `d91dc2c6` / `f4a0adac` | after `c32e27dc` / `e97424e6` |
+|---|---|---|
+| DEBUG fly right | 0/358 | 0/358 |
+| DEBUG fly down | 0/363 | 0/363 |
+| DEBUG fly diagonal | **43/406** | **14/377** |
+| DEBUG physics run | 17/460 (stuck x 1080) | 7/335 (stuck x 1080) |
+| DEBUG spindash | 40/1,203 | 5/1,174 |
+| release physics run | 49/1,751 | 3/1,295 |
+| release spindash | 20/1,182 | 1/1,169 |
+
+Only the fly legs compare like for like (the camera path is fixed by the input). The physics
+and spindash legs schedule input per video frame, so a lag change changes the player's path;
+they all reached the same end camera, but their before/after is indicative, not a measurement
+of the same path.

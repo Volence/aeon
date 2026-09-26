@@ -1,0 +1,7 @@
+dbg_diag           | d91dc2c6 43/406 end [5824, 5920]         | c32e27dc 14/377 end [5824, 5920]        
+dbg_down           | d91dc2c6 0/363 end [96, 5920]            | c32e27dc 0/363 end [96, 5920]           
+dbg_fly            | d91dc2c6 0/358 end [5824, 144]           | c32e27dc 0/358 end [5824, 144]          
+dbg_run            | d91dc2c6 17/460 end [1080, 381]          | c32e27dc 7/335 end [1080, 381]          
+dbg_spin           | d91dc2c6 40/1203 end [5824, 5821]        | c32e27dc 5/1174 end [5824, 5821]        
+rel_run            | f4a0adac 49/1751 end [5824, 5816]        | e97424e6 3/1295 end [5824, 5816]        
+rel_spin           | f4a0adac 20/1182 end [5824, 5821]        | e97424e6 1/1169 end [5824, 5821]        
