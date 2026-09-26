@@ -250,6 +250,21 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
+# Region music (S2CLIP-REGION-MUSIC step 5, 2026-09-25). The default arm is the canonical
+# silence witness (every shipped row names song 0: zero music requests across the flown
+# route); the fixture arm patches the route's second region to song 1 in a COPY of the ROM
+# and requires exactly one request plus Z80 key-ons after it (three emulator runs: the
+# auto-pick dry run, the watched run, the key-on run).
+[wired."region_music_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
+[wired."region_music_witness.py#fixture"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--song-row", "auto", "--song", "1"]
+expect = 0
+timeout = 1200
+
 [wired."sprite_owner_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 1
