@@ -1,12 +1,6 @@
 {
-  "focus": "Sonic 2 envelopes landed; the songs and the switch at the tunnel exits are being built now.",
-  "inFlight": [
-    {
-      "what": "Zone music final stretch: both Sonic 2 songs into the game, the level's regions name them, switch at the tunnel exits, proven headless",
-      "where": "branch parcel/s2-music-songs",
-      "agent": true
-    }
-  ],
+  "focus": "The Sonic 2 level now plays its zone music and switches at the tunnel exit; it's ready for your ears.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -17,16 +11,21 @@
       "id": "PERF-PICK",
       "what": "Which performance fixes to build: I recommend the debug hitch plus the faster tile copy.",
       "since": "2026-09-25"
+    },
+    {
+      "id": "S2CLIP-MUSIC-LISTEN",
+      "what": "Listen to the Sonic 2 level's music switch (s4.s2clip.debug.bin, crc 027639e8).",
+      "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Songs and switch landed; then a listening build of the Sonic 2 level for you.",
+  "nextBoundary": "Nothing in flight; the lane is at a clean stop until your listen or your performance pick.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Emerald Hill to Chemical Plant music: engine switch landed; envelopes being finished; then the songs and the tunnel split",
-      "state": "doing",
+      "title": "Sonic 2 level music: landed. Emerald Hill switches to Chemical Plant at the tunnel exit; waiting for your listen",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "decision card S2CLIP-MUSIC-LISTEN",
       "project": "REGIONS"
     },
     {
@@ -130,7 +129,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-26T03:21:04Z"
+  "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
+  "atBoundary": true,
+  "updatedAt": "2026-09-26T04:32:31Z"
 }
