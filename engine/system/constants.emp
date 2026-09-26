@@ -449,15 +449,22 @@ pub const PAGE_FRAME_TILE_SHIFT = 6
 pub const PAGE_FRAME_TILE_MASK  = ART_POOL_PAGE_TILES - 1                // 63
 ensure((1 << PAGE_FRAME_TILE_SHIFT) == ART_POOL_PAGE_TILES,
        "PAGE_FRAME_TILE_SHIFT must equal log2(ART_POOL_PAGE_TILES)")
-// DEBUG residency audit cadence: recompute per-frame refcounts from the whole
-// Tile_Cache_Nametable every PAGECACHE_AUDIT_INTERVAL LOGIC TICKS during play.
-// Chosen large enough that the ~4800-word walk's one-tick cost is a rare,
-// identifiable spike (it perturbs ONLY the DEBUG shape's Lag_Frame_Count —
-// measure lag on the non-audit ticks). The gate lives in the level state's tick,
-// right after Tile_Cache_Fill returns (fix F5 — it used to be gated INSIDE the
-// fill, which charged the ~110,000-cycle pass to the routine the streaming arc
-// measures). The audit also runs unconditionally at level init.
+// DEBUG residency audit cadence: every invariant PageCache_Audit checks is checked
+// once per PAGECACHE_AUDIT_INTERVAL LOGIC TICKS during play (and in full at level
+// init). The level state calls PageCache_Audit(PAGE_AUDIT_TICK) once per tick, right
+// after Tile_Cache_Fill returns (fix F5 — it used to be gated INSIDE the fill). Since
+// audit-amortise (2026-09-26) the latched regimes audit the nametable in slices from
+// VSync_Wait's idle slot, with the interval tick finishing whatever idle time did not
+// reach, instead of one ~4800-word walk (203k-236k cycles, two DEBUG lag frames) on the
+// interval tick; the general regime keeps the atomic walk. page_cache.emp's
+// PageCache_Audit header and docs/research/2026-09-26-audit-amortise.md carry the why.
 pub const PAGECACHE_AUDIT_INTERVAL = 128
+// PageCache_Audit's d0 mode: FULL = everything in one call (Tile_Cache_Init's tail);
+// TICK = the level state's once-per-tick call (the engine owns counter and schedule);
+// IDLE = VSync_Wait's idle slot (nametable slices while the frame has room).
+pub const PAGE_AUDIT_FULL = 0
+pub const PAGE_AUDIT_TICK = 1
+pub const PAGE_AUDIT_IDLE = 2
 
 // Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
 // one request per idle slice, resolving page_id -> source/dest via the act's

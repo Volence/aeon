@@ -1884,6 +1884,21 @@ pub vars upper_ram {
         Plane_Buffer_Peak:      u16,    // max Plane_Buffer_Ptr at VInt_DrawLevel entry
     }
 
+    // --- The residency audit's amortised sweep (engine/level/page_cache.emp, DEBUG only) ---
+    // audit-amortise, 2026-09-26: in the latched regimes VSync_Wait's idle slot audits the
+    // nametable in slices (PageCache_Audit, PAGE_AUDIT_IDLE) and the interval tick finishes
+    // whatever it did not reach. The cursor chooses WHICH words the next slice reads and
+    // holds no partial result (the no-false-verdict argument in PageCache_Audit's header
+    // rests on that). Placed at the RAM TAIL and @shape_divergent for the reason every
+    // block above states: zero existing engine-RAM addresses move, only Engine_RAM_End and
+    // the game RAM chained after it, and only in the DEBUG shape. Not beside
+    // Page_Audit_Ticks (~line 934), which would slide every DEBUG cell below it — the
+    // 2026-08-11 pool resize showed what that does to the replay fixtures.
+    if DEBUG == 1 @shape_divergent {
+        Page_Audit_Slice:       u16,    // next slice to audit this interval; PAGE_AUDIT_SLICES = sweep done
+        Page_Audit_Late:        u16,    // slices the interval tick had to audit itself (idle had no room); cumulative
+    }
+
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,

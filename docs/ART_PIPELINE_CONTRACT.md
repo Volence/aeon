@@ -454,7 +454,7 @@ inside `BG_TILE_CAPACITY = 376` with the 56-tile `band_reserve` unspent, which i
 BgAnim band can be inserted today.
 
 Nametable indices in the layout are **VRAM-absolute**, rebased at generation time by
-`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp:647`) — the editor's blob-local
+`BG_TILE_BASE_SLOT = 1024` (`engine/system/constants.emp`, `BG_TILE_BASE_SLOT`) — the editor's blob-local
 indices are converted by `tools/inject_editor_bg.py`.
 
 `BG_Init` blits the blob clamped to `BG_TILE_CAPACITY * 32 = 12 032` bytes; the clamp is

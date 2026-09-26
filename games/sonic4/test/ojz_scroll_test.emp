@@ -52,7 +52,7 @@ use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
 // NUM_SYSTEM — the readout's two glyph cells are the TOP TWO System slots, and
 // they are claimed by address (the System pool has no allocator).
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, NUM_SYSTEM}
-use engine.constants.{PAGECACHE_AUDIT_INTERVAL, MAX_ACT_SECTIONS}
+use engine.constants.{PAGE_AUDIT_TICK, MAX_ACT_SECTIONS}
 // VRAM_WATERLINE_STRIPS — the fixed VRAM run engine/level/bg_anim.emp's
 // Waterline_Art_Update DMAs the row-gathered waterline strips into (EFFECTS-W1 item 9d).
 // It is a BYTE address, engine-owned, and games/sonic4/vram.toml declares no VramTile
@@ -1135,14 +1135,22 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    Hz, ~4.3 s while the streaming path lags at 2 frames/tick). That is
         //    exactly the window the in-fill gate had.
         //
+        //    AMORTISED SINCE 2026-09-26 (audit-amortise). The call is now made EVERY
+        //    tick in PAGE_AUDIT_TICK mode and the engine owns the counter it used to
+        //    be gated on here. In the latched regimes (every shipped act) the
+        //    nametable walk is cut into slices that VSync_Wait's idle slot audits
+        //    while the frame has room; this tick call only audits a slice the idle
+        //    slot left overdue, and the interval tick runs the frame-level checks.
+        //    That replaces one ~236k-cycle walk (two DEBUG lag frames) every 128
+        //    ticks. Same invariants; the nametable half's latency bound is 128 + 8
+        //    ticks. PageCache_Audit's header carries the argument that a slice cannot
+        //    combine two instants' state. The general regime keeps the whole walk on
+        //    the interval tick.
+        //
         //    Emits nothing in the plain shape. --
         if DEBUG == 1 {
-                addq.w  #1, Page_Audit_Ticks
-                cmpi.w  #PAGECACHE_AUDIT_INTERVAL, Page_Audit_Ticks
-                blo     .no_page_audit
-                clr.w   Page_Audit_Ticks
+                moveq   #PAGE_AUDIT_TICK, d0
                 jbsr    PageCache_Audit
-        .no_page_audit:
         }
 
         // -- continuous scroll: no per-frame teleport check. Camera/player/

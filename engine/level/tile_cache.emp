@@ -13,7 +13,7 @@ use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_CO
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM}
-use engine.constants.{STALL_WATCHDOG_FRAMES}
+use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 
@@ -796,7 +796,8 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         jbsr    TileCache_WarmupBelowRow       // cold-start warmup: pre-stage the below-row
     if DEBUG == 1 {
         // P2b Task 6: the first full fill populated every refcount — audit the
-        // residency invariant before the display comes on.
+        // residency invariant before the display comes on, whole, in this one call.
+        moveq   #PAGE_AUDIT_FULL, d0
         jbsr    PageCache_Audit
     }
         rts
