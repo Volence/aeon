@@ -1756,3 +1756,105 @@ def test_s2_generator_writes_both_songs_with_the_declared_tables(tmp_path):
                              "song_s2_cpz.bin", "song_s2_ehz.bin"]
     assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
     assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
+
+
+# ---- header volume seeds the running volume (S2CLIP volume parcel, 2026-09-26) ------
+# Both drivers copy the smpsHeaderFM/PSG volume byte into zTrack.Volume at song init and
+# every smpsAlterVol / smpsPSGAlterVol ADDS to it (S2 cfChangeFMVolume / cfChangePSGVolume:
+# `add a,(ix+zTrack.Volume)`). The converter used to start the running volume at 0 (loudest),
+# so a channel's first AlterVol discarded the header: rendered against real Sonic 2, EHZ's
+# FM2..FM5 played 11 to 19 dB too loud and PSG1/2 8 dB (docs/research/2026-09-26-s2-music-volume.md).
+
+def _first_vol_before_note(events):
+    last = None
+    for e in events:
+        if isinstance(e, Vol):
+            last = e.vol
+        elif isinstance(e, (Note, NoteDur)):
+            return last
+    return last
+
+
+def test_s2_alter_vol_composes_with_the_header_volume():
+    # FM4 header $20, then AlterVol $F8 (-8): zTrack.Volume = $18 at the first note.
+    # PSG1 header $04, then PSGAlterVol $02: $06.
+    src = _s2_song({"Tst_FM4": ["\tsmpsSetvoice $00", "\tsmpsAlterVol $F8", "\tdc.b nC4, $0C"],
+                    "Tst_PSG1": ["\tsmpsPSGAlterVol $02", "\tdc.b nC4, $0C"]})
+    song = convert_song(src, None, {0: 0}, dac_map={}, ftone_map={})
+    fm4 = next(c for c in song.channels if c.route == CHROUTE_FM4)
+    psg1 = next(c for c in song.channels if c.route == CHROUTE_PSG1)
+    assert _first_vol_before_note(fm4.events) == _si._fm_atten_to_v0(0x20 - 8)
+    assert _first_vol_before_note(psg1.events) == _si._psg_atten_to_v0(0x04 + 2)
+
+
+def _source_first_note_volume(src, label, kind, header_vol):
+    """Independent of the converter's state machine: walk the channel's own lines from its
+    label, summing (PSG)AlterVol deltas until the first note, entering an smpsCall's
+    target inline. None if other control flow (loop/jump/stop/return/setvol) comes first,
+    so the channel is not checked."""
+    lines = [ln.split(";")[0].strip() for ln in src]
+    notes = (set(NOTE_BYTES) | set(_si._S2_NOTE_EXTRAS)) - {"nRst"}
+    op = "smpsAlterVol" if kind == "FM" else "smpsPSGAlterVol"
+
+    def walk(lbl, vol, depth):
+        # -> ("note", vol) | ("ret", vol) | ("stop", None)
+        if depth > 4:
+            return "stop", None
+        for ln in lines[lines.index(lbl + ":") + 1:]:
+            if not ln or ln.endswith(":"):
+                continue
+            mnem = ln.split()[0]
+            if mnem == op:
+                vol += _signed(resolve_const(ln.split()[1]))
+            elif mnem == "smpsCall":
+                how, vol = walk(ln.split()[1], vol, depth + 1)
+                if how != "ret":
+                    return how, vol
+            elif mnem == "smpsReturn" and depth:
+                return "ret", vol
+            elif mnem in ("smpsReturn", "smpsLoop", "smpsJump", "smpsStop", "smpsSetVol"):
+                return "stop", None
+            elif mnem == "dc.b" and any(t.strip() in notes for t in ln[4:].split(",")):
+                return "note", vol
+        return "stop", None
+
+    how, vol = walk(label, header_vol, 0)
+    return vol if how == "note" else None
+
+
+def test_s2_real_songs_first_note_volume_is_header_plus_deltas():
+    checked = altered = 0
+    for path in (_S2_EHZ, _S2_CPZ):
+        c, a = _check_first_note_volumes(path)
+        checked += c
+        altered += a
+    # The population must be real and must contain the guarded case, a channel whose first
+    # note follows an AlterVol (in the source: EHZ FM4, FM5, PSG1, PSG2; CPZ has none, its
+    # AlterVols all come after a first note, which the committed-bins test covers).
+    assert checked >= 8 and altered >= 4, (checked, altered)
+
+
+def _check_first_note_volumes(path):
+    src = open(path).readlines()
+    cfg = parse_header(src, ftone_map=_si.S2_FTONE_MAP)
+    song = convert_song(src, None, {v: v for v in range(16)})
+    blocks = _si.split_blocks(src)
+    noise = frozenset(c.label for c in cfg.channels if c.kind == "PSG" and
+                      _si._channel_reaches_noise_form(c.label, blocks, _si.SOURCE_S2))
+    routes = dict(_si._assign_routes(cfg.channels, noise))
+    checked = altered = 0
+    for ch in cfg.channels:
+        if ch.kind not in ("FM", "PSG"):
+            continue
+        want = _source_first_note_volume(src, ch.label, ch.kind, ch.volume)
+        if want is None:
+            continue
+        conv = next(c for c in song.channels if c.route == routes[ch])
+        got = _first_vol_before_note(conv.events)
+        exp = (_si._fm_atten_to_v0(want) if ch.kind == "FM"
+               else _si._psg_atten_to_v0(want))
+        assert got == exp, "%s: first-note Vol %s, want %s (header $%02X -> $%02X)" % (
+            ch.label, got, exp, ch.volume, want)
+        checked += 1
+        altered += want != ch.volume
+    return checked, altered
