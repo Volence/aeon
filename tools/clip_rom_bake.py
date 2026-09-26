@@ -68,7 +68,7 @@ WHAT IT RUNS
 
   1. `clip_act_bake.bake` — the row 3 + row 5 composer. Writes the act's editor-shaped
      tree: `section_N.tiles.bin` (donor tile indices), `section_N.collattr.bin` /
-     `.collattrb.bin`, and runs R1-R12 / C1-C3 including the 255-entry attr cap.
+     `.collattrb.bin`, and runs R1-R12 / C2-C4 including the 255-entry attr cap.
   2. a staged `project.json` beside that tree, naming the donor zone's `tileset.bin`
      and the act grid. `dataPath` is `.` — the tree IS the act directory.
   3. `ojz_strip_gen.generate()`, redirected at that project through `configure()`,
@@ -518,11 +518,12 @@ def _region_rows_text(plan):
 # no lines emits no table and the chooser hands back `hand` (0).
 
 _LAYER_LINES_NEUTRAL = (
-    "// THE LAYER LINES (S2CLIP-PLANE-SWITCH). None in the canonical act: the descriptor binds\n"
-    "// Act.act_layer_lines through this chooser and gets its `hand`, 0 (OJZ's loop uses painted\n"
-    "// crossover marks, not lines), and the rows the descriptor checks are empty.\n"
+    "// THE LAYER LINES (S2CLIP-PLANE-SWITCH, LINES-EVERYWHERE). None of the clip's in the\n"
+    "// canonical act: the descriptor binds Act.act_layer_lines through this chooser and gets its\n"
+    "// `hand`, the act's own authored table (OJZ_Act1_LayerLines), and the clip rows the\n"
+    "// descriptor checks are empty.\n"
     "pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []\n\n"
-    "pub comptime fn ojz_clip_act_layer_lines(hand: int) -> int {\n"
+    "pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {\n"
     "    return hand\n"
     "}\n")
 
@@ -530,10 +531,16 @@ _LAYER_LINES_NEUTRAL = (
 def _layer_lines_module_text(plan):
     ll = plan.get("layer_lines") or {}
     if not ll.get("rows"):
-        return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): none in this clip act's donor "
-                f"rectangles, so the\n// act binds no table and Player_Main's null test is "
-                f"all it pays.\n" + _LAYER_LINES_NEUTRAL.split("\n", 3)[3])
-    import s2_layer_lines as SLL
+        # NOT the neutral chooser: that hands back `hand`, the canonical act's own table, whose
+        # lines are OJZ's geometry and mean nothing in a clip act.
+        return ("// THE LAYER LINES (S2CLIP-PLANE-SWITCH): none in this clip act's donor "
+                "rectangles, so the\n// act binds no table (not the canonical act's, which is "
+                "OJZ's geometry) and Player_Main's\n// null test is all it pays.\n"
+                "pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []\n\n"
+                "pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> int {\n"
+                "    return 0\n"
+                "}\n")
+    import layer_lines as LLS
     n = len(ll["rows"]) + 2
     return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): {len(ll['lines'])} Sonic 2 Obj03 line(s) "
             f"from the donors'\n// own object layouts, {len(ll['rows'])} row(s) with the horizontal "
@@ -541,20 +548,20 @@ def _layer_lines_module_text(plan):
             f"them; the SAME text is the data block's\n// `OJZ_Clip_LayerLines`, and LL1 holds the "
             f"two identical.\n"
             f"pub const OJZ_CLIP_LAYER_LINE_ROWS: [LayerLine; {n}] = [\n    "
-            f"{SLL.rows_text(ll)}\n]\n\n"
-            "pub comptime fn ojz_clip_act_layer_lines(hand: int) -> Label {\n"
+            f"{LLS.rows_text(ll)}\n]\n\n"
+            "pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {\n"
             "    return OJZ_Clip_LayerLines\n"
             "}\n")
 
 
 def _layer_lines_data_text(ll):
-    import s2_layer_lines as SLL
+    import layer_lines as LLS
     n = len(ll["rows"]) + 2
     return (f"// THE LAYER LINES (S2CLIP-PLANE-SWITCH): Act.act_layer_lines names this table; "
             f"Player_LayerLines\n// (games/sonic4/player/player_common.emp) runs it. "
             f"(align: 2): every field is read as a word.\n"
             f"pub data OJZ_Clip_LayerLines (align: 2): [LayerLine; {n}] = [\n    "
-            f"{SLL.rows_text(ll)}\n]\n")
+            f"{LLS.rows_text(ll)}\n]\n")
 
 
 def layer_line_plan(act, log=None):

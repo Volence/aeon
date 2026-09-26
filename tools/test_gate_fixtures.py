@@ -1,6 +1,7 @@
-"""The fixture checks in sprite_tilt_gate.py, loop_crossover_gate.py and
-instashield_gate.py (both of its subjects) must be blind to RELOCATION and not one bit
-blinder than that.
+"""The fixture checks in sprite_tilt_gate.py and instashield_gate.py (both of its subjects)
+must be blind to RELOCATION and not one bit blinder than that. (loop_crossover_gate.py was the
+third until LINES-EVERYWHERE retired it with the painted crossover marks, 2026-09-26; its
+rows here went with it.)
 
 WHY THIS FILE EXISTS. Both gates are build-fatal and both used to compare committed
 cuts to the fresh ROM by absolute address equality plus raw byte equality. Neither
@@ -9,9 +10,7 @@ survives a level/act content change:
   * the address check fails the moment anything upstream grows or shrinks;
   * the byte check fails one level down, because the cut code EMBEDS absolute addresses
     -- Player_ApplyTilt ends in `jsr RefreshSpritePieceCount` with an absolute-short
-    operand, Player_LoopCrossover calls Collision_GetType the same way, and
-    Collision_GetType is fourteen `move.w Cache_*.w` operands and a `lea
-    SolidityTable.l` deep.
+    operand.
 
 So correct content work went red on gates whose subject it had not touched, and the
 sprite-tilt gate reported the reason as "the tilt was edited without refreshing the
@@ -40,11 +39,9 @@ TOOLS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 
 import sprite_tilt_gate as stg           # noqa: E402
-import loop_crossover_gate as lcg        # noqa: E402
 import instashield_gate as isg           # noqa: E402
 
 TILT_FIXTURE = TOOLS / "fixtures" / "sprite_tilt_cut.json"
-LOOP_FIXTURE = TOOLS / "fixtures" / "loop_crossover_cut.json"
 INSTA_FIXTURE = TOOLS / "fixtures" / "instashield_cut.json"
 TAILS_FIXTURE = TOOLS / "fixtures" / "tailsflight_cut.json"
 
@@ -59,10 +56,6 @@ def _tilt_shapes():
     return json.loads(TILT_FIXTURE.read_text())["shapes"]
 
 
-def _loop_shapes():
-    return json.loads(LOOP_FIXTURE.read_text())["shapes"]
-
-
 def _norm_tilt(fx, override_bytes=None):
     b = bytes.fromhex(override_bytes or fx["routine"]["bytes"])
     start = fx["routine"]["addr"]
@@ -71,16 +64,6 @@ def _norm_tilt(fx, override_bytes=None):
     img = bytearray(start + len(b))
     img[start:] = b
     return stg.normalize_stream(bytes(img), start, start + len(b), names)
-
-
-def _norm_loop(cut, idx, override_bytes=None):
-    b = bytes.fromhex(override_bytes or cut["bytes"][idx])
-    start = cut["spans"][idx][0]
-    names = {a: n for n, a in cut["syms"].items()}
-    img = bytearray(start + len(b))
-    img[start:] = b
-    return stg.normalize_stream(bytes(img), start, start + len(b), names,
-                                "loop_crossover_gate")
 
 
 def _patch_byte(hexstr, byte_off, new):
@@ -107,11 +90,6 @@ def test_the_two_cuts_really_are_a_relocation():
         "the two cuts' BYTES are equal — the embedded-absolute-operand hazard this " \
         "suite exists for is not present in the sample"
 
-    ls = _loop_shapes()
-    la, lb = ls["s4.lst"], ls["s4.debug.lst"]
-    assert la["spans"] != lb["spans"]
-    assert la["bytes"] != lb["bytes"]
-
 
 def test_tilt_routine_normalises_equal_across_shapes():
     """Player_ApplyTilt, in two real ROMs 194 bytes apart with a callee 2410 bytes
@@ -126,39 +104,37 @@ def test_tilt_routine_normalises_equal_across_shapes():
         "unresolved absolute operands remain relocation-sensitive: %s" % (unres_a + unres_b)
 
 
-def test_loop_routines_normalise_equal_across_shapes():
-    ls = _loop_shapes()
-    for idx, name in enumerate((lcg.READ_SITE, lcg.LOOKUP)):
-        rows_a, unres_a = _norm_loop(ls["s4.lst"], idx)
-        rows_b, unres_b = _norm_loop(ls["s4.debug.lst"], idx)
-        assert rows_a == rows_b, stg.stream_diff(rows_a, rows_b, name)
-        assert unres_a == [] and unres_b == [], \
-            "%s: unresolved absolute operands %s" % (name, unres_a + unres_b)
-
-
 def test_a_sign_extended_absolute_short_resolves():
     """The resolver's only interesting case, pinned on its own rather than left to ride
     along inside a bigger assertion.
 
     `move.w $adbc.w,d2` addresses $FFFFADBC — the 68000 sign-extends an absolute-short
     operand and capstone renders it unextended. Symbol tables store the extended form
-    (4294946236). Miss the extension and every RAM reference in Collision_GetType goes
+    (4294946236). Miss the extension and every RAM reference in a routine goes
     unresolved and stays relocation-sensitive, which is the whole defect back again.
 
     This test exists because a mutation aimed at the resolver was once absorbed by a
     redundant second lookup branch and reported green; the branch is gone and this
-    names what the surviving one has to do.
+    names what the surviving one has to do. It used Collision_GetType out of the loop
+    crossover gate's committed cut until LINES-EVERYWHERE (2026-09-26) retired that
+    gate; it is now a two-instruction image built here, so it depends on no cut.
     """
-    cut = _loop_shapes()["s4.lst"]
-    assert cut["syms"]["Cache_Left_Col"] > 0x7FFFFFFF, \
-        "Cache_Left_Col is no longer a sign-extended address; this test's premise is gone"
-    rows, unres = _norm_loop(cut, 1)
+    start = 0x100
+    # move.w $ADBC.w, d2  (3438 ADBC)  ;  move.w $AEF0.w, d3  (3638 AEF0)  ;  rts
+    code = bytes.fromhex("3438ADBC3638AEF04E75")
+    img = bytearray(start + len(code))
+    img[start:] = code
+    names = {0xFFFFADBC: "Cache_Left_Col", 0xFFFFAEF0: "Cache_Top_Row"}
+    rows, unres = stg.normalize_stream(bytes(img), start, start + len(code), names)
     assert unres == [], unres
     flat = " ".join(r[2] for r in rows)
-    for name in ("Cache_Left_Col", "Cache_Head_Col", "Cache_Top_Row",
-                 "Cache_Bottom_Row", "Cache_Origin_Col", "Cache_Origin_Row"):
+    for name in names.values():
         assert "<%s>" % name in flat, \
             "%s was not resolved — its .w operand stayed a literal" % name
+    # the control: without the sign extension the same operand is a different address
+    rows, unres = stg.normalize_stream(bytes(img), start, start + len(code),
+                                       {0xADBC: "Cache_Left_Col"})
+    assert "<Cache_Left_Col>" not in " ".join(r[2] for r in rows)
 
 
 def test_the_normalisation_is_what_absorbs_the_difference():
@@ -228,43 +204,6 @@ def test_tilt_normalisation_catches_a_length_change():
     assert "edited, not moved" in d[0]
 
 
-def test_loop_normalisation_still_catches_a_logic_change():
-    """Collision_GetType, cut offset +0x16: `0c400050  cmpi.w #$50,d0` — the
-    TILE_CACHE_COLS wrap test. +0x19 is its immediate."""
-    cut = _loop_shapes()["s4.lst"]
-    good, _ = _norm_loop(cut, 1)
-    bad, _ = _norm_loop(cut, 1, _patch_byte(cut["bytes"][1], 0x19, 0x60))
-    assert good != bad
-    assert stg.stream_diff(good, bad, lcg.LOOKUP)
-
-
-def test_loop_normalisation_catches_a_changed_call_TARGET():
-    """The one thing that MUST still be caught even though it is an address: calling a
-    DIFFERENT symbol. Normalising `jsr <Collision_GetType>` must not degrade into
-    `jsr <anything>` -- point the call at SolidityTable's address and it has to go red."""
-    cut = copy.deepcopy(_loop_shapes()["s4.lst"])
-    good, _ = _norm_loop(cut, 0)
-    b = bytearray.fromhex(cut["bytes"][0])
-    # The absolute-short `jsr` (opcode $4eb8), FOUND rather than pinned at an offset:
-    # this used to be hard-coded at +0x22 and went red for the wrong reason the first
-    # time the read site grew a sweep loop in front of the call (2026-09-04). Retarget
-    # it at a symbol that is in the cut's map but is NOT Collision_GetType.
-    at = [i for i in range(0, len(b) - 3, 2) if b[i:i + 2] == b"\x4e\xb8"]
-    assert len(at) == 1, \
-        "expected exactly one absolute-short jsr in %s, found %d at %s — this test " \
-        "retargets THE call to Collision_GetType and cannot choose between several" \
-        % (lcg.READ_SITE, len(at), [hex(i) for i in at])
-    b[at[0] + 2:at[0] + 4] = (0x0000).to_bytes(2, "big")
-    cut2 = dict(cut)
-    cut2["syms"] = dict(cut["syms"])
-    cut2["syms"]["ZeroPage"] = 0
-    bad, _ = _norm_loop(cut2, 0, bytes(b).hex())
-    assert good != bad, "the call target was normalised away entirely — the gate can " \
-                        "no longer tell WHICH symbol is called"
-    d = stg.stream_diff(good, bad, lcg.READ_SITE)
-    assert d and "Collision_GetType" in d[0]
-
-
 # --------------------------------------------------------------------------
 # 3. The failure REASON is checkable on its own (shared-protocol bar 10)
 # --------------------------------------------------------------------------
@@ -293,12 +232,6 @@ def test_no_reason_string_claims_an_edit_for_a_move():
     assert "the routine was edited, not moved" in src, \
         "the joiner is not joining — every absence assertion here would be vacuous"
     assert "the tilt was edited without refreshing the cut" not in src
-
-    loop_src = _joined(TOOLS / "loop_crossover_gate.py")
-    # The loop gate may still SAY a routine changed -- but only from a length or
-    # stream difference, never from a raw byte compare of a relocatable span.
-    assert "its BYTES differ in %d of %d" not in loop_src
-    assert "the routines MOVED" not in loop_src
 
 
 def test_moving_everything_is_not_a_failure():
@@ -405,74 +338,6 @@ def _relocate(blob, base, old_syms, new_syms):
                 rewrites += 1
     assert rewrites, "nothing was relocated — this test would then be vacuous"
     return bytes(out), rewrites
-
-
-def test_loop_check_cut_accepts_a_relocation_and_rejects_an_edit():
-    """loop_crossover_gate.check_cut, both directions, through its real entry point.
-
-    The delta is deliberately small: an absolute-SHORT operand sign-extends, so pushing
-    Collision_GetType ($572E) past $8000 would make `jsr $xxxx.w` address RAM and the
-    assembler would have widened it instead. Building that ROM would be building one
-    sigil cannot emit, and the test would be measuring an impossible artifact."""
-    cut = _loop_shapes()["s4.lst"]
-    delta = 0x1000
-    assert cut["syms"][lcg.LOOKUP] + delta < 0x8000, \
-        "the delta pushes an absolute-short target out of range; that ROM cannot exist"
-    syms = {n: (a + delta) & 0xFFFFFFFF for n, a in cut["syms"].items()}
-    equs = dict(cut["equs"])
-    total_rewrites = 0
-
-    def build(edit=None):
-        nonlocal total_rewrites
-        blobs, total_rewrites = [], 0
-        for i in range(2):
-            b, n = _relocate(bytes.fromhex(cut["bytes"][i]), cut["spans"][i][0],
-                             cut["syms"], syms)
-            total_rewrites += n
-            blobs.append(bytearray(b))
-        if edit is not None:
-            i, off, val = edit
-            blobs[i][off] = val
-        spans = [(cut["spans"][i][0] + delta, cut["spans"][i][1] + delta)
-                 for i in range(2)]
-        top = max(spans[1][1], syms["CrossoverTable"] + 256)
-        rom = bytearray(top)
-        for (a, bb), blob in zip(spans, blobs):
-            rom[a:bb] = blob
-        rom[syms["CrossoverTable"]:syms["CrossoverTable"] + 256] = \
-            bytes.fromhex(cut["table"])
-        return bytes(rom), spans
-
-    rom, spans = build()
-    # Show the relocation was real and substantial before claiming it was absorbed.
-    assert total_rewrites >= 8, total_rewrites
-    assert rom[spans[0][0]:spans[0][1]].hex() != cut["bytes"][0], \
-        "the relocated bytes are identical to the cut — no hazard was reproduced"
-    lcg.check_cut(rom, spans, syms, equs, str(LOOP_FIXTURE), "s4.lst")   # must not raise
-
-    rom, spans = build(edit=(1, 0x19, 0x60))    # cmpi.w #$50 -> #$60
-    with pytest.raises(SystemExit) as e:
-        lcg.check_cut(rom, spans, syms, equs, str(LOOP_FIXTURE), "s4.lst")
-    assert "differs" in str(e.value), str(e.value)
-    assert "the ROUTINE changed" not in str(e.value)
-
-
-def test_loop_check_cut_catches_equate_drift():
-    """New with this parcel: the pytest lane models against the cut's equates, so an
-    equate that changed under it must be named rather than silently mis-graded."""
-    cut = _loop_shapes()["s4.lst"]
-    syms = dict(cut["syms"])
-    equs = dict(cut["equs"])
-    equs["TILE_CACHE_COLS"] = 96
-    spans = [tuple(s) for s in cut["spans"]]
-    top = max(spans[1][1], syms["CrossoverTable"] + 256)
-    rom = bytearray(top)
-    for (a, b), hx in zip(spans, cut["bytes"]):
-        rom[a:b] = bytes.fromhex(hx)
-    rom[syms["CrossoverTable"]:syms["CrossoverTable"] + 256] = bytes.fromhex(cut["table"])
-    with pytest.raises(SystemExit) as e:
-        lcg.check_cut(bytes(rom), spans, syms, equs, str(LOOP_FIXTURE), "s4.lst")
-    assert "TILE_CACHE_COLS" in str(e.value) and "equate" in str(e.value)
 
 
 # ==========================================================================

@@ -204,7 +204,7 @@ def paintable(donors, tmp_path):
 
 def _one_clip_doc(src):
     donor, zone = CASES[0]
-    return {"schema": 1, "units": "world_px", "id": "xover_cut",
+    return {"schema": 1, "units": "world_px", "id": "retired_mark",
             "act": {"grid_w": 1, "grid_h": 1},
             "clips": [{"id": "ehz_cut", "donor": donor, "zone": zone,
                        "src_rect": dict(zip(("x", "y", "w", "h"), src)),
@@ -212,19 +212,20 @@ def _one_clip_doc(src):
 
 
 def test_a_bake_refusal_names_its_rule_and_the_clip(capsys, monkeypatch, tmp_path, paintable):
-    """C1, a ClipBakeError subclass raised by the BAKE (the manifest is valid): the clip's
-    source rectangle takes one end of a painted loop and leaves the other behind."""
+    """C4, a ClipBakeError subclass raised by the BAKE (the manifest is valid): the clip's
+    source rectangle carries a retired crossover mark (reserved bits 15:14). (This row used
+    C1, "the clip severs a crossover", until LINES-EVERYWHERE retired the marks.)"""
     root, tree = paintable
-    cells = ((40, 100), (100, 100))
-    _paint(tree, {"collattr": {c: CP.XOVER_TO_B << CP.XOVER_SHIFT for c in cells},
-                  "collattrb": {c: CP.XOVER_TO_A << CP.XOVER_SHIFT for c in cells}})
-    doc = _one_clip_doc((0, 0, 2048, 512))          # takes tile row 40, leaves row 100
+    cells = ((40, 100),)
+    _paint(tree, {"collattr": {c: 2 << CP.PLANE_RESERVED_SHIFT for c in cells},
+                  "collattrb": {c: 1 << CP.PLANE_RESERVED_SHIFT for c in cells}})
+    doc = _one_clip_doc((0, 0, 2048, 512))          # takes tile row 40
     path = _write(tmp_path, doc)
     assert CM.validate_json(path, root)[1] == 0      # the MANIFEST is fine: the bake refuses
     rc_h, out_h, rc_j, j = _both(capsys, monkeypatch, tmp_path, root, path)
     assert rc_h == rc_j == 1
     r = _one_refusal(j)
-    assert r["rule"] == "C1" and r["message"].startswith("C1 ")
+    assert r["rule"] == "C4" and r["message"].startswith("C4 ")
     assert r["subjects"] == _subjects(doc, [("clip", 0)])
     assert out_h.endswith("\n" + REFUSED + r["message"] + "\n")
 

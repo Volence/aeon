@@ -22,7 +22,7 @@
       "why": "THE ACT STILL HAS NO BOTTOM, in all three parts. 1944 of the 1992 painted columns have air below their LAST landing surface: Emerald Hill's 1324 (its 1372 painted columns less the 48 of its two pits \u2014 s2_ehz_boot's 1232 plus the 92 columns of the recovered crop), the tunnel's 48 (384 px / 8; its floor ends at y=1024 and the act runs to 6144; the 832-px tunnel had 104), and Chemical Plant's 572, every one of its 4576 px (its clip ends at y=2304). It was 1684 with Chemical Plant 2048 px wide (256 columns), 1744 at 2528 px (316) and 2000 with the 832-px tunnel. The other 48 are Emerald Hill's two pits, counted in floorless_columns instead. Sonic 2 survives this with a level bottom boundary that kills and restarts; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: add a floor, a death plane or a bottom boundary and it drops, and this gate says so."
     },
     "floorless_columns": {
-      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663 \u2014 faithful donor content, exactly as s2_ehz_boot declares them (see its floorless_columns note). Neither the recovered crop x 10240..10975, nor the tunnel (832 or 384 px), nor Chemical Plant's first 4576 px adds one (re-measured when it was widened from 2048, and again at 2528 and 4576): every column there has a landing surface on plane A. Plane B stays informational (unreachable: no crossover mark).",
+      "why": "EMERALD HILL ACT 1'S OWN TWO BOTTOMLESS PITS, x 4672..4863 and x 9472..9663 \u2014 faithful donor content, exactly as s2_ehz_boot declares them (see its floorless_columns note). Neither the recovered crop x 10240..10975, nor the tunnel (832 or 384 px), nor Chemical Plant's first 4576 px adds one (re-measured when it was widened from 2048, and again at 2528 and 4576): every column there has a landing surface on plane A. PLANE B IS DECLARED TOO, since 2026-09-26 (LINES-EVERYWHERE): the act carries Sonic 2's own plane-switcher lines (S2CLIP-PLANE-SWITCH, 332cc1ba), several of which put the player on plane B, so plane B is REACHABLE. clip_reachability.py did not see that until LINES-EVERYWHERE, because it read plane-B reachability off the retired CrossoverTable, which stayed all zero. Its 64 floorless columns are the same two pits plus x 1344..1407 and x 8192..8255, where the donor's own path B has no floor. They are faithful donor data, NOT safe: the line at x 1704 (y 648..775) puts a player crossing it LEFTWARD on plane B, and no line between it and x 1344 puts him back, so x 1344..1407 is reachable by walking left (derived from the line table, not driven). Booked in docs/DEFERRED_WORK.md LINES-EVERYWHERE for the owner.",
       "planes": {
         "A": {
           "columns": 48,
@@ -30,6 +30,27 @@
             [
               4672,
               4864
+            ],
+            [
+              9472,
+              9664
+            ]
+          ]
+        },
+        "B": {
+          "columns": 64,
+          "x_runs": [
+            [
+              1344,
+              1408
+            ],
+            [
+              4672,
+              4864
+            ],
+            [
+              8192,
+              8256
             ],
             [
               9472,

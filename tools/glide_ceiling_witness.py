@@ -247,7 +247,7 @@ class TerrainModel:
         word = int.from_bytes(plane[i:i + 2], "big")
         if word not in self.cache:
             idx = cp.bake_plane_cell(word, self.hm, self.an, self.attrs)
-            heights, _angle, sol, _xo = self.attrs.entries[idx]
+            heights, _angle, sol = self.attrs.entries[idx]
             self.cache[word] = (heights, sol)
         heights, sol = self.cache[word]
         if not (sol & mask):

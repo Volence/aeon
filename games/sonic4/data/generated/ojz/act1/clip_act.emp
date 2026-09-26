@@ -22,11 +22,12 @@ pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {
     return hand
 }
 
-// THE LAYER LINES (S2CLIP-PLANE-SWITCH). None in the canonical act: the descriptor binds
-// Act.act_layer_lines through this chooser and gets its `hand`, 0 (OJZ's loop uses painted
-// crossover marks, not lines), and the rows the descriptor checks are empty.
+// THE LAYER LINES (S2CLIP-PLANE-SWITCH, LINES-EVERYWHERE). None of the clip's in the
+// canonical act: the descriptor binds Act.act_layer_lines through this chooser and gets its
+// `hand`, the act's own authored table (OJZ_Act1_LayerLines), and the clip rows the
+// descriptor checks are empty.
 pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []
 
-pub comptime fn ojz_clip_act_layer_lines(hand: int) -> int {
+pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {
     return hand
 }

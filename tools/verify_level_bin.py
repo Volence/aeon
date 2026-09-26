@@ -1211,27 +1211,26 @@ def verify_editor_bake_fidelity():
 def _expected_collision_entry(word, base_hm, base_an):
     """What one editor collision cell word must bake to, derived from the word itself
     and the committed base bank. Returns:
-      None                               -- AIR: the baked attr byte must be 0
-      (heights, angle, solidity, xover)  -- the ROM tables' entry at the baked byte
-      str                                -- the word cannot be baked at all (why)
+      None                        -- AIR: the baked attr byte must be 0
+      (heights, angle, solidity)  -- the ROM tables' entry at the baked byte
+      str                         -- the word cannot be baked at all (why)
 
     RE-DERIVED FROM THE ENCODING, NOT IMPORTED FROM THE BAKER. The per-plane cell word
     is Aurora's (bits 9:0 base-bank shape, bit 10 xflip, bit 11 yflip, 13:12 this
-    plane's solidity, 15:14 the loop crossover mark), resolved xflip-then-yflip
+    plane's solidity, 15:14 reserved and zero since the loop crossover mark was retired
+    on 2026-09-26), resolved xflip-then-yflip
     against the base bank as collision_pipeline.bake_plane_cell documents. Importing
     that function would make this gate agree with the baker by construction, which is
     the T1-2 shape (a proof that reproduces the generator instead of checking it).
     A second statement of five bit fields is the price of a check that can disagree.
     """
-    xover = (word >> 14) & 3
-    if xover == 3:
-        return f"XOVER == 3, which docs/LOOP_CROSSOVER_ENCODING.md reserves as illegal"
+    if (word >> 14) & 3:
+        return ("bits 15:14 are set: the painted loop crossover mark, retired 2026-09-26 "
+                "(LINES-EVERYWHERE); the bake refuses such a word")
     shape = word & 0x03FF
     solidity = (word >> 12) & 3
     if solidity == 0 or shape == 0:
-        # No geometry. Unmarked is plain air; a marked cell still interns a non-zero
-        # attr whose entry is all-zero heights, angle 0, solidity 0, and the mark.
-        return None if xover == 0 else (bytes(PROFILE_LEN), 0, 0, xover)
+        return None
     if (shape + 1) * PROFILE_LEN > len(base_hm) or shape >= len(base_an):
         return (f"shape {shape} lies outside the {len(base_hm) // PROFILE_LEN}-shape "
                 f"base bank")
@@ -1243,7 +1242,7 @@ def _expected_collision_entry(word, base_hm, base_an):
     if word & 0x0800:                       # yflip: hang from the top, reflect the angle
         heights = bytes(h if h in (0, 16) else (256 - h) & 0xFF for h in heights)
         angle = (-angle - 0x80) & 0xFF
-    return (bytes(heights), angle, solidity, xover)
+    return (bytes(heights), angle, solidity)
 
 
 def verify_editor_collision_fidelity():
@@ -1293,7 +1292,7 @@ def verify_editor_collision_fidelity():
     if declared is None:
         return
 
-    names = ("heightmaps.bin", "angles.bin", "solidity.bin", "crossover.bin")
+    names = ("heightmaps.bin", "angles.bin", "solidity.bin")
     # --bank names the BASE SHAPE BANK the editor cell words index. Default: the
     # S&K vocabulary under collision/base/, which the shipped act is authored
     # against. A Sonic 2 clip act is authored against collision/base_s2/ (staged
@@ -1312,19 +1311,19 @@ def verify_editor_collision_fidelity():
         return
     base_hm = read(need[0])
     base_an = read(need[1])
-    hm, an, sol, xo = (read(os.path.join(COLLISION_DIR, n)) for n in names)
+    hm, an, sol = (read(os.path.join(COLLISION_DIR, n)) for n in names)
     entries = len(hm) // PROFILE_LEN
-    if not (len(hm) % PROFILE_LEN == 0 and entries and len(an) == len(sol) == len(xo) == entries):
+    if not (len(hm) % PROFILE_LEN == 0 and entries and len(an) == len(sol) == entries):
         check(False, f"editor collision: ROM table sizes disagree (heightmaps {len(hm)} B, "
-                     f"angles {len(an)}, solidity {len(sol)}, crossover {len(xo)}) -- "
+                     f"angles {len(an)}, solidity {len(sol)}) -- "
                      f"they are one table indexed by the same attr byte")
         return
-    check(not any(hm[:PROFILE_LEN]) and sol[0] == 0 and xo[0] == 0,
+    check(not any(hm[:PROFILE_LEN]) and sol[0] == 0,
           "editor collision: ROM attr index 0 is not air -- every air cell bakes to "
           "byte 0, so a non-air entry 0 makes the whole act solid where it is empty")
 
     def rom_entry(idx):
-        return (hm[idx * PROFILE_LEN:(idx + 1) * PROFILE_LEN], an[idx], sol[idx], xo[idx])
+        return (hm[idx * PROFILE_LEN:(idx + 1) * PROFILE_LEN], an[idx], sol[idx])
 
     cells_checked = 0
     authored_nonair = 0
@@ -1389,7 +1388,7 @@ def verify_editor_collision_fidelity():
                 else:
                     ok = 0 < idx < entries and rom_entry(idx) == exp
                     why = (f"heights {list(exp[0])} angle ${exp[1]:02X} solidity "
-                           f"{exp[2]} xover {exp[3]}")
+                           f"{exp[2]}")
                 if not ok:
                     bad += count
                     if first is None:

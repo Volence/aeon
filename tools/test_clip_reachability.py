@@ -10,7 +10,8 @@ that silently stops running on a fresh checkout.
 donor tree and has its own rows in tools/test_clip_manifest.py. What is NOT stubbed is
 anything the gate derives: the strip layout comes from ojz_strip_gen's source, SOLID_TOP
 and the collision cell geometry from engine/system/constants.emp, and plane B's
-reachability from the crossover table on disk.
+reachability from the act's layer-line rows (LINES-EVERYWHERE; it was the crossover
+table on disk until the painted marks were retired).
 
 THE ROW THAT MATTERS MOST is test_an_undeclared_void_fails: that is the state
 s2_ehz_boot shipped in on 2026-09-17, where ten green lanes and a green `ground` check
@@ -76,7 +77,6 @@ def _write_tree(tmp_path, grid_w, grid_h, painted_to_x, *, floor_attr=1,
     for i in range(16):
         heights[floor_attr * 16 + i] = 16
     (coll / "heightmaps.bin").write_bytes(bytes(heights))
-    (coll / "crossover.bin").write_bytes(bytes(256))
 
     floor_row = 40                      # 16-px collision row -> world y 640
     tile_row = 80                       # 8-px tile row       -> world y 640
@@ -108,6 +108,10 @@ def _install(monkeypatch, gen, grid, act_id="fixture_act", clips=None, declared=
     act = _Act(act_id, clips or [_Clip("c0", [0, 0, 2048, 1024])], raw)
     monkeypatch.setattr(clip_manifest, "load", lambda *a, **k: act)
     monkeypatch.setattr(act_grid, "descriptor_grid", lambda *a, **k: grid)
+    # A fixture act has no donor to plan lines from: by default it carries none, so plane B
+    # is unreachable (the plane-B rows below install their own).
+    monkeypatch.setattr(CR, "act_layer_line_rows",
+                        lambda act: ([], {"LL_KEEP_PATH": 0, "LL_FWD_B": 3, "LL_BACK_B": 4}))
     clip_rom_bake.write_stamp(act, str(gen), "fixture/clips.json")
     return act
 
@@ -188,17 +192,23 @@ def test_a_hole_inside_the_painted_world_is_not_read_as_an_edge(tmp_path, monkey
 
 
 # ---------------------------------------------------------------------------
-# Plane B: informational until the crossover table makes it reachable
+# Plane B: informational until a layer line can select it
 # ---------------------------------------------------------------------------
 
-def test_plane_b_holes_are_informational_until_a_crossover_is_marked(
+_C = {"LL_KEEP_PATH": 0, "LL_FWD_B": 3, "LL_BACK_B": 4}
+_ROW_A = {"key": 900, "a": 0, "b": 64, "flags": 0}                  # right -> A, left -> A
+_ROW_B = {"key": 1000, "a": 0, "b": 64, "flags": 1 << 4}            # left -> B
+_ROW_KEEP = {"key": 1100, "a": 0, "b": 64, "flags": 1 | (1 << 4)}   # priority only
+
+
+def test_plane_b_holes_are_informational_until_a_line_can_select_b(
         tmp_path, monkeypatch, capsys):
-    """The latent defect this parcel found, and the condition that would expose it.
+    """The latent defect parcel 7 found, and the condition that exposes it.
 
     Every act before the first Sonic 2 clip had plane B as a byte-for-byte copy of
     plane A (ojz_block_gen.test_extract_block asserts it), so a plane-B hole could not
     exist. It can now — and it is harmless exactly while nothing writes the player's
-    layer byte.
+    layer byte to B.
     """
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096,
                             plane_b_holes=(1600, 1608))
@@ -206,37 +216,33 @@ def test_plane_b_holes_are_informational_until_a_crossover_is_marked(
              declared={"x_from": 4096, "why": "fully painted",
                        "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800,
                                           "why": "fixture"}})
-    assert _run(gen, coll) == 0, "plane B is unreachable, so its holes cannot be fallen into"
+    monkeypatch.setattr(CR, "act_layer_line_rows", lambda act: ([_ROW_A, _ROW_KEEP], _C))
+    assert _run(gen, coll) == 0, "no line selects plane B, so its holes cannot be fallen into"
 
-    table = bytearray((coll / "crossover.bin").read_bytes())
-    table[9] = 1                                   # one marked attr byte is enough
-    (coll / "crossover.bin").write_bytes(bytes(table))
-    assert _run(gen, coll) == 1
+    monkeypatch.setattr(CR, "act_layer_line_rows", lambda act: ([_ROW_A, _ROW_B], _C))
+    assert _run(gen, coll) == 1                   # one row that can select B is enough
     err = capsys.readouterr().err
     assert "plane B has NO landing surface in 2 column" in err
     assert "(1600, 1616)" in err
 
 
-def test_reachable_planes_reads_the_table_rather_than_assuming(tmp_path):
-    coll = tmp_path / "coll"
-    coll.mkdir()
-    (coll / "crossover.bin").write_bytes(bytes(256))
-    planes, why = CR.reachable_planes(str(coll))
+def test_reachable_planes_reads_the_rows_rather_than_assuming():
+    planes, why = CR.reachable_planes([], _C)
     assert planes == (0,) and "unreachable" in why
+    planes, why = CR.reachable_planes([_ROW_A, _ROW_KEEP], _C)
+    assert planes == (0,), "a priority-only row with a stray path bit selects nothing"
+    planes, why = CR.reachable_planes([_ROW_A, _ROW_B], _C)
+    assert planes == (0, 1) and "first: key 1000" in why
 
-    (coll / "crossover.bin").write_bytes(bytes(200) + b"\x03" + bytes(55))
-    planes, why = CR.reachable_planes(str(coll))
-    assert planes == (0, 1) and "first: 200" in why
 
+def test_a_layer_line_plan_the_bake_refuses_is_unmeasurable(monkeypatch):
+    import s2_layer_lines as SLL
 
-@pytest.mark.parametrize("payload", [None, b""])
-def test_an_unreadable_crossover_table_is_unmeasurable(tmp_path, payload):
-    coll = tmp_path / "coll"
-    coll.mkdir()
-    if payload is not None:
-        (coll / "crossover.bin").write_bytes(payload)
+    def refuse(act):
+        raise SLL.LayerLineError("L1 a fixture refusal")
+    monkeypatch.setattr(SLL, "plan", refuse)
     with pytest.raises(CR.Unmeasurable):
-        CR.reachable_planes(str(coll))
+        CR.act_layer_line_rows(object())
 
 
 # ---------------------------------------------------------------------------

@@ -573,8 +573,8 @@ def find_pinhole_violations(coll_rows, heights, solidity, solid_top, min_gap_px)
 #   3. REACHABLE  the body's cell lies in an air region connected to the section
 #                 edge. A cell is a wall for this flood only when it is a FULL
 #                 (every column |h| >= 16) SOLID_LRB cell on BOTH planes: a player
-#                 can change planes inside a region (Sonic 2's plane-switch lines,
-#                 aeon's crossover marks), and this gate does not read where those
+#                 can change planes inside a region (the act's layer-switch lines,
+#                 Act.act_layer_lines), and this gate does not read where those
 #                 are, so every cell is assumed to be a possible switch. Partial and
 #                 sloped cells count as open, and touching the section edge counts
 #                 as open because the neighbour section is not read.

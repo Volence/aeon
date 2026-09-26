@@ -55,7 +55,6 @@ GATES = {
     "bganim_room": ([], True),
     "sprite_tilt_gate": ([], True),
     "instashield_gate": ([], True),
-    "loop_crossover_gate": ([], True),
     # S2CLIP-PLANE-SWITCH (2026-09-26): the layer lines' read site, executed. It has no
     # --gate switch (every failure is exit 1). On a demo pair it reaches the primitive, reads
     # FRESH, then finds no Player_LayerLines in the listing (COULD NOT RUN, 2).

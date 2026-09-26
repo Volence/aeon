@@ -2,8 +2,8 @@
 """gate_cut_shape — WHERE a fixture-pinned gate's cut comes from, per build shape
 (STRESS-SHAPES-GATE-CUTS, 2026-09-17, controller ruling option (b)).
 
-THE CUT-PINNED GATES. sprite_tilt_gate, instashield_gate (two subjects) and
-loop_crossover_gate each execute their subject routine's bytes out of THIS build's ROM,
+THE CUT-PINNED GATES. sprite_tilt_gate and instashield_gate (two subjects) (and, until
+LINES-EVERYWHERE retired it on 2026-09-26, loop_crossover_gate) each execute their subject routine's bytes out of THIS build's ROM,
 at the extent THIS build's listing gives. Their committed cuts (tools/fixtures/*_cut.json)
 are not an input to that execution. A cut exists for ONE reason: build.sh's pre-build
 pytest lane runs before sigil and cannot open a fresh ROM, so it grades a committed cut,

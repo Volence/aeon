@@ -8,7 +8,7 @@ rings, no regions, no background, no `.emp`, no ROM.
 
 ~~ART AND LAYOUT ONLY~~ — **ROW 5, 2026-09-17: collision too.** Both plane files are
 emitted beside the art, the act's attr-set size is counted and capped, and the §8 per-clip
-readout is complete. See "COLLISION" below and the C1-C3 block further down.
+readout is complete. See "COLLISION" below and the C2-C4 block further down (C1 is retired).
 
 WHAT THIS CLOSES. `tools/fg_page_order.py`'s header said:
 
@@ -96,8 +96,7 @@ OJZ act uses; the same index is a different shape in the two).
   twice, the same way the window budget is: once over the composed grids and once decoded
   back OFF DISK (`recount_collision`), so a disagreement is the emission rather than the
   arithmetic. The §8 readout the author needs is per clip and printed per clip: entries
-  the clip needs ALONE, entries it ADDS to the clips before it, solid cells, and crossover
-  marks taken.
+  the clip needs ALONE, entries it ADDS to the clips before it, and solid cells.
 
   MEASURED AGAINST THE DESIGN'S OWN PREDICTOR, which reaches `bake_cell` from the donor
   side without going through clips.json, a converted tree or a plane file at all — six
@@ -143,9 +142,9 @@ lines it prints ONE JSON document on stdout, in `clip_manifest.py validate --jso
       "ok": false,              // true iff exit code 0
       "refusals": [             // [] when ok. At most ONE entry: the bake stops at the first
         {                       //   refusal. A list so that never changes the shape.
-          "rule": "C1",         // the message's leading tag: R1-R12 / K1-K3 (the manifest,
-                                //   as validate --json gives them), C1-C3 (this file's
-                                //   collision refusals); "FG_PAGE_BUDGET" for the page
+          "rule": "C2",         // the message's leading tag: R1-R12 / K1-K3 (the manifest,
+                                //   as validate --json gives them), C2-C4 (this file's
+                                //   collision refusals; C1 is retired); "FG_PAGE_BUDGET" for the page
                                 //   budget; null for an untagged refusal (--expect-worst
                                 //   not met, an emitted tree that does not re-count as it
                                 //   was placed, a tileset shorter than a clip's indices)
@@ -153,8 +152,8 @@ lines it prints ONE JSON document on stdout, in `clip_manifest.py validate --jso
             { "kind": "clip",   //   dicts. [] = about the act as a whole: C2 (the act's
               "index": 0,       //   attr-set cap), C3 (a profile in the act's merged set),
               "id": "ehz_cut" } //   the page budget (a camera window, not a clip), and
-          ],                    //   every untagged one. C1 names its clip.
-          "message": "C1 clip 'ehz_cut': its source rectangle takes ..." } ],
+          ],                    //   every untagged one. C4 names its clip.
+          "message": "C2 this act needs 278 collision attr-set entries ..." } ],
                                 // the human sentence: what the human mode prints after
                                 //   "clip act REFUSED — ", or for the page budget, the
                                 //   stderr sentence after its leading "REFUSED — "
@@ -698,94 +697,45 @@ def recount(out_dir):
 # The clip's collision planes come from the SAME rectangles as its art
 # (`clip_manifest.collision_grids`, which shares `cell_grids`' loop), and are
 # emitted in the same per-plane cell-word format an authored act uses. The three
-# refusals below are tagged C1-C3 rather than continuing `clip_manifest`'s R/W
+# refusals below are tagged C2-C4 (C1 retired) rather than continuing `clip_manifest`'s R/W
 # namespace, because they are BAKE-time facts: each needs the collision bytes and
 # the base bank, neither of which the manifest loader reads.
 #
-#   C1  the clip severs a crossover. A rectangle that takes SOME of a zone's
-#       crossover marks and leaves others may have cut a loop in half — the encoding
-#       records which plane a mark points at (docs/LOOP_CROSSOVER_ENCODING.md §3.3)
-#       but NOT which loop it belongs to, so nothing can tell a severed loop from
-#       two unrelated ones. CONSERVATIVE by necessity and it says so; opt out with
-#       "severed_xover_reason" on the clip.
-#       ⚠ WHAT THE DESIGN GOT WRONG HERE, corrected in §2.3 in place: it said a
-#       marquee that cuts a loop "will fail the bake" via
-#       `apply_editor_collision_overlay`'s R2. R2 refuses a SELF-MARK (plane A
-#       carrying TO_A). Cutting a loop in half produces a perfectly well-formed
-#       mark whose partner is simply absent, which R2 cannot see and neither can
-#       anything else that existed before this function.
+#   C1  RETIRED 2026-09-26 (LINES-EVERYWHERE): "the clip severs a crossover". The
+#       painted crossover marks it counted are gone, and a clip act's layer switches are
+#       Sonic 2's own lines (tools/s2_layer_lines.py). The tag is not reused; C4 below is
+#       what a leftover mark meets now.
 #   C2  the act's attr set is over `AttrSet.CAP`. This is §3.5's cap arriving as a
 #       refusal instead of a paragraph, and it is the number the design says decides
 #       whether a set of marquees is bakeable at all.
 #   C3  the act interns a height profile `rotate_profile` will not rotate. LEFT
 #       RAISING ON PURPOSE — see the note at `check_rotatable`.
+#   C4  a clip's source rectangle carries a RETIRED crossover mark (reserved bits 15:14
+#       of a per-plane cell word, LINES-EVERYWHERE 2026-09-26). bake_plane_cell refuses
+#       such a word anyway; this names the CLIP and the cell count before it, instead of
+#       a ValueError four layers down (an aurora session can still paint one).
 
 class ClipCollisionError(ClipBakeError):
     """A clip act whose COLLISION this bake will not emit."""
 
 
-def crossover_marks(plane_words):
-    """Cell indices carrying a crossover, per the encoding's own field position."""
-    x = (plane_words >> collision_pipeline.XOVER_SHIFT) & collision_pipeline.XOVER_MASK
-    return x != 0
-
-
-def check_severed_crossovers(act, donor_root, log=None):
-    """C1. Returns the per-clip mark census whether or not it refuses.
-
-    A clip is refused when its SOURCE RECTANGLE contains at least one crossover
-    mark and its source ZONE contains at least one outside that rectangle.
-
-    WHY THAT RULE AND NOT A SHARPER ONE. A crossover is a per-plane pair at ONE
-    cell (`tools/collision_xover_census.py`'s pairing is "same cell index, marked on
-    both planes" — 8 paired indices in the shipped act), and a rectangle cut can
-    never split THAT: both planes are clipped by the same rectangle. What a cut
-    really breaks is the loop's OTHER crossing — act 1's marks sit in two bands of
-    one column, the §3.3 bottom-centre and top-centre — and nothing in the encoding
-    says those two bands belong to one loop. So the only sound rule is the
-    conservative one, and its false positive (a clip that leaves an UNRELATED loop
-    behind) is exactly what the opt-out is for.
-
-    STRUCTURALLY VACUOUS ON TODAY'S DATA, and that is stated rather than discovered:
-    a converted Sonic 2 tree carries XOVER_NONE in every cell, because the donor
-    chunk word has no crossover field at all (its bits 15:14 are path-B solidity).
-    This guards the path that opens the moment an author paints a mark onto a donor
-    tree in aurora. `tools/test_s2_clip_collision.py` proves it fires by painting
-    one.
-    """
-    rows = []
+def check_retired_marks(act, plane_a, plane_b):
+    """C4. A clip whose pasted cells carry the reserved bits 15:14 is refused by name."""
+    shift, mask = collision_pipeline.PLANE_RESERVED_SHIFT, collision_pipeline.PLANE_RESERVED_MASK
     for cl in act.clips:
-        zm = clip_manifest._zone_manifest(cl, donor_root)
-        d = cl.tree_dir(donor_root)
-        st = act.section_tiles
-        inside = outside = 0
-        for suffix in ("collattr", "collattrb"):
-            g = clip_manifest.section_plane_grid(d, zm, st, suffix)
-            marked = crossover_marks(g)
-            sx, sy, sw, sh = (v // clip_manifest.TILE_PX for v in cl.src)
-            sub = marked[sy:sy + sh, sx:sx + sw]
-            inside += int(sub.sum())
-            outside += int(marked.sum()) - int(sub.sum())
-        rows.append({"clip": cl.id, "zone": "/".join(cl.tree_key),
-                     "marks_inside_src": inside, "marks_outside_src": outside,
-                     "severed_xover_reason": cl.severed_xover_reason})
-        if inside and outside and not cl.severed_xover_reason:
+        dx, dy = (v // clip_manifest.TILE_PX for v in cl.dst[:2])
+        sw, sh = (v // clip_manifest.TILE_PX for v in cl.src[2:])
+        n = int(sum(np.count_nonzero((plane[dy:dy + sh, dx:dx + sw] >> shift) & mask)
+                    for plane in (plane_a, plane_b)))
+        if n:
             raise ClipCollisionError(
-                f"C1 clip {cl.id!r}: its source rectangle takes {inside} crossover "
-                f"mark(s) from {'/'.join(cl.tree_key)} and leaves {outside} behind. A "
-                f"crossover sends the player to the other collision plane and something "
-                f"else has to send them back (docs/LOOP_CROSSOVER_ENCODING.md §3.3); a "
-                f"marquee that keeps one end of a loop and drops the other produces a "
-                f"one-way trip onto a plane whose geometry is not there. The encoding "
-                f"does NOT record which marks belong to one loop, so this refusal cannot "
-                f"tell a severed loop from two unrelated ones and errs toward refusing. "
-                f"If you know the ones left behind are a different loop, say so in "
-                f"\"severed_xover_reason\" on this clip and it will be carried into "
-                f"clipact.json.", [clip_manifest.subject("clip", cl.index, cl.id)])
-        if inside and outside and log:
-            log(f"  C1 OPT-OUT clip {cl.id!r}: {inside} mark(s) taken, {outside} left "
-                f"behind — {cl.severed_xover_reason}")
-    return rows
+                f"C4 clip {cl.id!r}: its source rectangle in {'/'.join(cl.tree_key)} carries "
+                f"{n} cell word(s) with bits 15:14 set, the painted loop crossover mark "
+                f"RETIRED on 2026-09-26 (LINES-EVERYWHERE). A mark no longer does anything, "
+                f"and the bake refuses it rather than drop it silently. Clear the marks in "
+                f"aurora (the crossover 'None' brush); a clip act's layer switches are Sonic "
+                f"2's own lines (tools/s2_layer_lines.py).",
+                [clip_manifest.subject("clip", cl.index, cl.id)])
 
 
 def check_rotatable(attrset):
@@ -813,7 +763,7 @@ def check_rotatable(attrset):
     real clip instead of a hypothetical one.
     """
     bad = []
-    for idx, (heights, _angle, _sol, _xover) in enumerate(attrset.entries):
+    for idx, (heights, _angle, _sol) in enumerate(attrset.entries):
         try:
             collision_pipeline.rotate_profile(heights)
         except ValueError as exc:
@@ -835,7 +785,7 @@ def check_rotatable(attrset):
 
 
 def collision(act, st, donor_root=None, log=None):
-    """Compose both collision planes, count the attr set, and run C1-C3.
+    """Compose both collision planes, count the attr set, and run C2-C4.
 
     Returns everything `emit` and the readout need. The count is taken with the cap
     LIFTED (`AttrSet(cap=None)`) so an act that does not fit can be told how far
@@ -843,14 +793,14 @@ def collision(act, st, donor_root=None, log=None):
     overflowed" — and C2 then compares against `AttrSet.CAP`.
     """
     donor_root = clip_manifest._root(donor_root)
-    marks = check_severed_crossovers(act, donor_root, log=log)
     bank_dir = clip_manifest.collision_banks(act, donor_root)
     profiles, angles = ojz_strip_gen.load_base_bank(bank_dir)
     plane_a, plane_b = clip_manifest.collision_grids(act, donor_root)
+    check_retired_marks(act, plane_a, plane_b)
 
     attrset = collision_pipeline.AttrSet(cap=None)
     per_clip = []
-    for cl, mrow in zip(act.clips, marks):
+    for cl in act.clips:
         before = len(attrset.entries)
         dx, dy = (v // clip_manifest.TILE_PX for v in cl.dst[:2])
         sw, sh = (v // clip_manifest.TILE_PX for v in cl.src[2:])
@@ -861,7 +811,7 @@ def collision(act, st, donor_root=None, log=None):
                 collision_pipeline.bake_plane_cell(int(w), profiles, angles, attrset)
                 collision_pipeline.bake_plane_cell(int(w), profiles, angles, alone)
         per_clip.append(dict(
-            mrow,
+            clip=cl.id, zone="/".join(cl.tree_key),
             attr_entries_alone=len(alone.entries) - 1,
             attr_entries_added=len(attrset.entries) - before,
             solid_cells=int(sum(
@@ -897,8 +847,7 @@ def collision(act, st, donor_root=None, log=None):
             f"{os.path.relpath(bank_dir, REPO)}")
         for r in per_clip:
             log(f"    {r['clip']}: {r['attr_entries_alone']} entries alone, "
-                f"{r['attr_entries_added']} added here, {r['solid_cells']} solid cells, "
-                f"{r['marks_inside_src']} crossover mark(s)")
+                f"{r['attr_entries_added']} added here, {r['solid_cells']} solid cells")
     return {"plane_a": plane_a, "plane_b": plane_b, "attrset": attrset,
             "entries": n, "cap": cap, "bank_dir": bank_dir, "per_clip": per_clip}
 

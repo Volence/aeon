@@ -261,11 +261,11 @@ class _UncappedAttrSet:
     def __init__(self):
         import collision_pipeline as cp
         self._cp = cp
-        self.entries = [(bytes(cp.PROFILE_LEN), 0x00, cp.SOL_NONE, cp.XOVER_NONE)]
+        self.entries = [(bytes(cp.PROFILE_LEN), 0x00, cp.SOL_NONE)]
         self.lookup = {self.entries[0]: 0}
 
-    def intern(self, heights, angle, solidity, xover):
-        k = (heights, angle, solidity, xover)
+    def intern(self, heights, angle, solidity):
+        k = (heights, angle, solidity)
         i = self.lookup.get(k)
         if i is None:
             i = len(self.entries)

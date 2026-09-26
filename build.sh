@@ -279,8 +279,9 @@ TOOLS="${TOOLS:-tools}"
 #
 #   The three populations DO NOT NEST. tools/collision_consistency.py can exit 2 and
 #   never uses the token (it prints "COULD NOT MEASURE"), so any grep-driven census
-#   misses it. tools/effects_seam_gate.py and tools/loop_crossover_gate.py use the word
-#   and exit 1 ON PURPOSE — being unable to discriminate is, for them, build-stopping.
+#   misses it. tools/effects_seam_gate.py (and, until LINES-EVERYWHERE retired it on
+#   2026-09-26, tools/loop_crossover_gate.py) use the word and exit 1 ON PURPOSE — being
+#   unable to discriminate is, for them, build-stopping.
 #
 # AND TWO GATES BREAK THE CONVENTION OUTRIGHT:
 #
@@ -621,8 +622,7 @@ if [[ "$FAST" == "1" ]]; then
     echo "            verify_level_bin · art_rom_report · s4budget · bganim_room (the"
     echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
-    echo "            Tails-flight precondition is executed) · loop_crossover_gate (the"
-    echo "            crossover read site is NOT executed) · layer_line_gate (the layer"
+    echo "            Tails-flight precondition is executed) · layer_line_gate (the layer"
     echo "            lines' read site is NOT executed) · ctags · effects_seam_gate's"
     echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
@@ -1219,6 +1219,18 @@ fi
 if ! gate strict "effects_gen.py" python3 "${TOOLS}/effects_gen.py" check; then
     echo "Editor-effects drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
+fi
+
+# The layer-line drift gate (LINES-EVERYWHERE, 2026-09-26), the same shape for the same
+# reason: games/sonic4/data/generated/ojz/act1/layer_lines.emp is a COMMITTED module the
+# descriptor compiles its Act.act_layer_lines table out of, baked from the authored
+# games/sonic4/data/editor/ojz/act1/layer_lines.json by tools/layer_lines.py. A hand edit to
+# the module, or an edited source without a re-bake, is refused here in milliseconds.
+if [[ "${GAME}" == "sonic4" ]]; then
+    if ! gate strict "layer_lines.py" python3 "${TOOLS}/layer_lines.py" check; then
+        echo "Layer-line drift — re-bake with tools/regenerate-level.sh, then rebuild."
+        exit 1
+    fi
 fi
 
 # Collision height/angle consistency (2026-08-28). Two shipped defects were
@@ -1925,39 +1937,15 @@ if [[ "$FAST" == "0" ]]; then
             exit 1
         fi
 
-        # The loop crossover's READ side, checked the same way and for the reason that
-        # forced the shape: the claim is that a byte of CrossoverTable DECIDES a
-        # player's collision plane, and every cell of every shipped act holds
-        # XOVER_NONE (docs/LOOP_CROSSOVER_ENCODING.md §2.1 — all 18 plane files). So a
-        # correct read site and a DELETED one emit the identical ROM, the identical
-        # CRC and the identical recorded play: no gate over content can tell them
-        # apart, which is the subject of that document's §8.1. This gate therefore
-        # takes Player_LoopCrossover AND Collision_GetType from THIS listing, their
-        # bytes and the shipped table from THIS ROM, decodes with capstone, executes
-        # both (the lookup is NOT stubbed — stubbing it would assume the half worth
-        # showing), and varies exactly ONE byte of the ROM's CrossoverTable to separate
-        # "the value is readable" from "the value is consumed". It refuses a run in
-        # which no execution was moved by that byte.
-        #
-        # The edge trigger gets its own family because it has a wrong version that
-        # passes a naive test: the §3.3 two-way pair (plane A says TO_B where plane B
-        # says TO_A at one cell) is what a layer-re-armed trigger ping-pongs on, and
-        # standing still does not discriminate. Same post-sigil placement and same
-        # --fixture discipline as the two gates above. sonic4-only: `demo` has no player.
-        if ! gate strict "loop_crossover_gate.py" python3 "${TOOLS}/loop_crossover_gate.py" --lst "${ROM_NAME}.lst" \
-                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
-                --fixture "${TOOLS}/fixtures/loop_crossover_cut.json" --gate; then
-            echo "Loop-crossover gate failed — see above (tools/loop_crossover_gate.py)."
-            exit 1
-        fi
-
-        # The layer lines' read site (Player_LayerLines, S2CLIP-PLANE-SWITCH), checked the
-        # same way and for the same reason: every canonical act binds NO layer-line table,
-        # so Player_Main's null test skips the routine on every frame and a broken routine
-        # builds the identical canonical ROM. This gate executes the routine from THIS
-        # build against synthetic tables beside an independent model of Sonic 2's Obj03
-        # (one side flag per line, every row scanned) and refuses a run that never fired a
-        # form. In a clip ROM it also walks every shipped row. No emulator, ~4 s.
+        # The layer lines' read site (Player_LayerLines, S2CLIP-PLANE-SWITCH; since
+        # LINES-EVERYWHERE, 2026-09-26, the engine's only layer-switch mechanism). OJZ's
+        # table has four rows at one loop, so the canonical content exercises few of the
+        # forms a table can hold: this gate executes the routine from THIS build against
+        # synthetic tables beside an independent model of Sonic 2's Obj03 (one side flag
+        # per line, every row scanned) and refuses a run that never fired a form. It also
+        # walks every row of the table the ROM ships (OJZ's own, or a clip act's). No
+        # emulator, ~4 s. (tools/loop_crossover_gate.py, the retired painted marks' gate,
+        # stood here until then.)
         if ! gate strict "layer_line_gate.py" python3 "${TOOLS}/layer_line_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
             echo "Layer-line gate failed — see above (tools/layer_line_gate.py)."
@@ -1990,7 +1978,6 @@ if [[ "$FAST" == "1" ]]; then
     else
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
-    echo "   · loop_crossover_gate (the crossover read site is NOT executed)."
     echo "   · layer_line_gate (the layer lines' read site is NOT executed)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."

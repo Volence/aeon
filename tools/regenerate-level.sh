@@ -77,8 +77,9 @@ fi
 # AFTER import_sk_collision.py had rewritten the tables. Two mechanisms now:
 #   1. Every editor-input refusal is decided by ojz_strip_gen.validate_editor_inputs,
 #      which the preflight runs, before the first write.
-#   2. The refusals that depend on the BAKE rather than on one input file (R1/R2
-#      crossover marks, attr-set overflow, the 11-bit local palette, the page-table
+#   2. The refusals that depend on the BAKE rather than on one input file (a retired
+#      crossover mark's reserved bits on a word the bake reads, attr-set overflow, the
+#      11-bit local palette, the page-table
 #      cap, BG capacity, and the drift gate at the end) cannot move up here without
 #      running the bake twice. For those, the snapshot below: every tool-owned output
 #      directory is copied before the first write and put back if this script exits
@@ -176,6 +177,14 @@ python3 "${TOOLS}/elect_pool_pages.py" \
 # it on "no editor content" would delete a module the descriptor imports.
 echo "Generating editor effect scenes + bindings..."
 python3 "${TOOLS}/effects_gen.py" emit
+
+# The act's authored layer-switch lines -> the generated const module the descriptor
+# imports (LINES-EVERYWHERE, 2026-09-26). UNCONDITIONAL, like the effects emit above: the
+# module is imported whether or not the act has lines. tools/layer_lines.py documents the
+# source format and its refusals; build.sh re-checks the module on every build.
+echo "Generating the act's layer-line table..."
+python3 "${TOOLS}/layer_lines.py" emit \
+    || { echo "regenerate-level.sh: the layer-line bake refused (see above)" >&2; exit 1; }
 
 echo "Generating OJZ block data..."
 python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}

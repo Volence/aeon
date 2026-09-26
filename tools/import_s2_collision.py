@@ -4,10 +4,10 @@
 Sibling of `tools/import_sk_collision.py`, for the S2-COMPRESSED-ACT showcase act
 (`docs/research/2026-09-17-s2-compressed-act-design.md` §10 row 4). It reads the
 donor's per-column VERTICAL height array plus its angle table, REGENERATES the
-rotated (wall-probe) twin, and writes the five ROM-shaped tables to
+rotated (wall-probe) twin, and writes the four ROM-shaped tables to
 
     games/sonic4/data/collision/base_s2/{heightmaps,heightmaps_rot,angles,
-                                         solidity,crossover}.bin
+                                         solidity}.bin
 
 WHY A SECOND BANK AND NOT THE S&K ONE. Of the 151 distinct collision shapes the six
 showcase zones actually reference, **68 are unreachable from the S&K bank's shapes
@@ -184,11 +184,8 @@ def _write_tables(out_dir, hm, hr, an, sol):
     open(os.path.join(out_dir, "heightmaps_rot.bin"), "wb").write(hr)
     open(os.path.join(out_dir, "angles.bin"), "wb").write(an)
     open(os.path.join(out_dir, "solidity.bin"), "wb").write(bytes(sol))
-    # crossover.bin — the 5th table, addressed by the same attr byte as solidity.bin.
-    # A shape VOCABULARY has no cell words behind it, so every slot is XOVER_NONE.
-    # Written anyway so the set of five is never short a file (same reasoning as
-    # import_sk_collision.py).
-    open(os.path.join(out_dir, "crossover.bin"), "wb").write(bytes(SHAPES))
+    # (A fifth table, crossover.bin, was written here until the painted loop crossover
+    # marks were retired on 2026-09-26, LINES-EVERYWHERE.)
 
 
 def build(out=None, donor=None, quiet=False) -> dict:
@@ -225,7 +222,7 @@ def build(out=None, donor=None, quiet=False) -> dict:
         print(f"  heightmaps_rot.bin {len(hr)} B  (REGENERATED — never copied; see the "
               f"module docstring)")
         print(f"  angles.bin         {len(an)} B  · solidity.bin {SHAPES} B "
-              f"(all 'all' but air) · crossover.bin {SHAPES} B (all NONE)")
+              f"(all 'all' but air)")
         if ruled:
             print(f"  RULING APPLIED to {len(ruled)} shape(s) with a centred solid run:")
             for i, rows in sorted(ruled.items()):
@@ -321,7 +318,7 @@ def aeon_probe_cell(word: int, index: bytes, vert: bytes, angles: bytes,
     attr_a, _ = CP.bake_cell(word, index, index, vert, angles, attrset)
     if attr_a == 0:
         return (AIR_FWD, 0, None, None)
-    heights, angle, sol, _xo = attrset.entries[attr_a]
+    heights, angle, sol = attrset.entries[attr_a]
     if not sol & class_mask:                 # and.b d6,d0 ; beq .cl_air
         return (AIR_FWD, 0, None, None)
 

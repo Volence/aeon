@@ -231,4 +231,6 @@ def test_the_neutral_module_binds_no_table():
     import clip_rom_bake as CRB
     text = CRB.clip_module_text(None)
     assert "pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []" in text
-    assert "pub comptime fn ojz_clip_act_layer_lines(hand: int) -> int {\n    return hand\n}" in text
+    # LINES-EVERYWHERE: the neutral chooser hands back `hand`, which is now the canonical
+    # act's own authored table (a Label), not 0.
+    assert "pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {\n    return hand\n}" in text

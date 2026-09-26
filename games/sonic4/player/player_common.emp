@@ -27,9 +27,8 @@ use engine.constants.{NUM_PLAYERS,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PHYS_GSP_CAP,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT,
-        // loop crossover — the read site (Player_LoopCrossover) and its R6 guard block
-        LAYER_PATH_A, LAYER_PATH_B, COLL_CELL_W, COLL_CELL_H, TILE_CACHE_COLL_PLANES,
-        // layer lines — the other level-data layer writer (Player_LayerLines)
+        // layer lines — the level-data layer writer (Player_LayerLines) and its guards
+        LAYER_PATH_A, LAYER_PATH_B, TILE_CACHE_COLL_PLANES,
         LL_KEEP_PATH, LL_GROUNDED, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_FWD_HI, LL_BACK_HI,
         LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER, LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
 use engine.types.{VramTile}
@@ -71,9 +70,7 @@ use games.sonic4.constants.{
     ANIM_FLY, ANIM_FLY_TIRED,
     ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE, ANIM_CLIMB, ANIM_LEDGE,
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT,
-    PLAYER_PRIORITY_BAND,
-    // loop crossover value encoding (docs/LOOP_CROSSOVER_ENCODING.md §3.2)
-    XOVER_NONE, XOVER_TO_A, XOVER_TO_B, XOVER_LAYER_BIAS
+    PLAYER_PRIORITY_BAND
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -454,15 +451,8 @@ ensure(ANIM_RUN == ANIM_WALK + 1, "ANIM_RUN is no longer ANIM_WALK+1 — Player_
 const PBLK_QUADRANT  = 16
 const PBLK_JUMPBUF   = 17
 const PBLK_DUSTTIMER = 18
-const PBLK_XOVERCELL = 20
-const PBLK_XOVERCURSOR = 24
-const PBLK_LLPREV    = 28
-const PBLK_LLCURSOR  = 32
-// The two halves of each packed cell id, addressed separately by the sweep's per-axis
-// legs. Derived, not typed, so a re-packing that swaps the halves cannot leave one of
-// four displacements pointing at the wrong word.
-const PBLK_XOVERCELL_Y   = PBLK_XOVERCELL + 2
-const PBLK_XOVERCURSOR_Y = PBLK_XOVERCURSOR + 2
+const PBLK_LLPREV    = 20
+const PBLK_LLCURSOR  = 24
 
 // -----------------------------------------------
 // player_block — point a register at the CALLING SLOT's PlayerBlock
@@ -525,22 +515,13 @@ ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
        "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
 ensure(PBLK_DUSTTIMER == offsetof(PlayerBlock, dust_timer),
        "PBLK_DUSTTIMER out of sync with PlayerBlock.dust_timer (config/ram.emp)")
-ensure(PBLK_XOVERCELL == offsetof(PlayerBlock, xover_cell),
-       "PBLK_XOVERCELL out of sync with PlayerBlock.xover_cell (config/ram.emp)")
-// The crossover cell id is read and written with move.l/cmp.l, so BOTH slots' copies
-// must be even — the field's own offset and the array stride. sizeof(PlayerBlock)
-// being even is already the `pad` byte's job; this is the half that pad cannot state,
-// because a field can sit at an odd offset inside an even-sized struct.
-ensure(PBLK_XOVERCURSOR == offsetof(PlayerBlock, xover_cursor),
-       "PBLK_XOVERCURSOR out of sync with PlayerBlock.xover_cursor (config/ram.emp)")
-ensure((PBLK_XOVERCELL & 1) == 0,
-       "PlayerBlock.xover_cell is at an ODD offset — Player_LoopCrossover's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
-ensure((PBLK_XOVERCURSOR & 1) == 0,
-       "PlayerBlock.xover_cursor is at an ODD offset — the sweep's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
 ensure((sizeof(PlayerBlock) & 1) == 0,
-       "sizeof(PlayerBlock) is ODD — slot 1's xover_cell (and its whole physics row) would land on an odd address; restore the pad byte in config/ram.emp")
-// The layer lines' two longs (Player_LayerLines, Player_Init, Player_Main's early-out), bound
-// the same way and for the same reason: move.l/cmp.l/tst.l on both slots' copies.
+       "sizeof(PlayerBlock) is ODD — slot 1's ll_prev / ll_cursor (and its whole physics row) would land on an odd address; restore the pad byte in config/ram.emp")
+// The layer lines' two longs (Player_LayerLines, Player_Init, Player_Main's early-out) are
+// read and written with move.l/cmp.l/tst.l, so BOTH slots' copies must be even: the field's
+// own offset and the array stride. sizeof(PlayerBlock) being even is the `pad` byte's job
+// (the ensure above); this is the half that pad cannot state, because a field can sit at an
+// odd offset inside an even-sized struct.
 ensure(PBLK_LLPREV == offsetof(PlayerBlock, ll_prev),
        "PBLK_LLPREV out of sync with PlayerBlock.ll_prev (config/ram.emp)")
 ensure(PBLK_LLCURSOR == offsetof(PlayerBlock, ll_cursor),
@@ -550,87 +531,22 @@ ensure((PBLK_LLPREV & 1) == 0 && (PBLK_LLCURSOR & 1) == 0,
 
 
 // -----------------------------------------------
-// LOOP CROSSOVER — rule R6 of docs/LOOP_CROSSOVER_ENCODING.md §7, plus the two facts
-// the edge trigger's `andi.l` depends on. This is the guard block the anchor asked for,
-// and it lives HERE because §7 R6 says "at the read site" and EMP_PITFALLS §3 says a
-// guard in an unreachable module is dead — player_common is on every sonic4 shape's
-// link, so these evaluate.
-// -----------------------------------------------
-// The packed cell-id mask, derived from the collision cell footprint rather than typed:
-// $10000 - W is the two's-complement "clear the low log2(W) bits" mask for a word.
-const XOVER_CELL_MASK = (($10000 - COLL_CELL_W) << 16) | ($10000 - COLL_CELL_H)
-// A mask can only express the quantisation if the cell is a power of two on each axis.
-// It is (8 x 16), and the derivation in engine.constants folds it from the block
-// collision format — but a block format that stopped dividing evenly would produce a
-// non-power-of-two here and the mask would silently quantise to the wrong grid.
-ensure((COLL_CELL_W & (COLL_CELL_W - 1)) == 0,
-       "COLL_CELL_W is {COLL_CELL_W}, not a power of two — Player_LoopCrossover quantises the cell id with an AND mask, which cannot express a non-power-of-two cell width")
-ensure((COLL_CELL_H & (COLL_CELL_H - 1)) == 0,
-       "COLL_CELL_H is {COLL_CELL_H}, not a power of two — Player_LoopCrossover quantises the cell id with an AND mask, which cannot express a non-power-of-two cell height")
-ensure(XOVER_CELL_MASK == $FFF8FFF0,
-       "the collision cell footprint moved: the crossover edge trigger's mask derives to {XOVER_CELL_MASK} instead of $FFF8FFF0. That is not necessarily wrong, but Player_LoopCrossover's cost note and the loop_crossover_gate fixture both quote the 8x16 grid — re-check both before re-pinning this number")
-
-// -----------------------------------------------
-// THE SWEEP'S REACH — the horizontal twin of PHYS_FALL_CAP's own `ensure`.
+// THE LAYER LINES' STEP BOUND — what counts as a move the player made, and what counts as
+// a discontinuity (a teleport, a respawn, act start, a debug warp) that crosses no line.
 //
-// PHYS_FALL_CAP is $F00 = 15 px against a COLL_CELL_H of 16: deliberately ONE PIXEL
-// under one cell, guarded in engine/system/constants.emp by an `ensure` that says
-// straight out what a whole-cell fall step would do ("can begin flush on the thinnest
-// floor the world can express and end below it, tunnelling through"). The X axis has
-// no such cap and cannot be given one — the horizontal budget IS PHYS_GSP_CAP, 16
-// px/frame, against a COLL_CELL_W of 8, and `ObjectMove` (engine/objects/core.emp) is
-// a single unconditional add with no substepping anywhere. Lowering the ground-speed
-// cap to 8 px/frame would close the hole by making the game slower, which is not a
-// trade worth making for a collision-lookup detail.
-//
-// So the read site SWEEPS instead of sampling, and these are the bounds it sweeps
-// between. XOVER_STEP_MAX_* is the largest displacement one frame can put on each
-// axis; XOVER_SWEEP_REACH_* is that rounded up to a whole number of cells, which is
-// the most the two quantised endpoints can ever be apart. Every one of them is
-// DERIVED from the physics caps — nothing here is a number that can go stale silently
-// while the cap it describes moves.
-const XOVER_STEP_MAX_X    = PHYS_GSP_CAP >> 8           // 16 px: the ground-speed cap
-                                                        // is the only bound on a
-                                                        // horizontal step
-const XOVER_STEP_MAX_Y    = PHYS_GSP_CAP >> 8           // 16 px: a ground step on a
-                                                        // vertical wall decomposes the
-                                                        // WHOLE of the ground speed
-                                                        // onto Y, which is above the
-                                                        // air fall cap (the ensure
-                                                        // below is what states that)
-const XOVER_SWEEP_CELLS_X = (XOVER_STEP_MAX_X + COLL_CELL_W - 1) / COLL_CELL_W   // 2
-const XOVER_SWEEP_CELLS_Y = (XOVER_STEP_MAX_Y + COLL_CELL_H - 1) / COLL_CELL_H   // 1
-const XOVER_SWEEP_REACH_X = XOVER_SWEEP_CELLS_X * COLL_CELL_W                    // 16 px
-const XOVER_SWEEP_REACH_Y = XOVER_SWEEP_CELLS_Y * COLL_CELL_H                    // 16 px
-// The reach test is one UNSIGNED compare per axis, not two signed ones: bias the
-// signed delta by +REACH and the whole legal band becomes [0, 2*REACH], so a value
-// below -REACH wraps to a large unsigned and fails the same `bhi` that catches one
-// above +REACH. 8 cycles and 4 bytes an axis cheaper than the pair of signed tests,
-// and it cannot disagree with itself about where the band ends.
-const XOVER_SWEEP_SPAN_X  = XOVER_SWEEP_REACH_X * 2
-const XOVER_SWEEP_SPAN_Y  = XOVER_SWEEP_REACH_Y * 2
-
-// THE GUARD, in the direction that matters: the sweep must reach at least as far as a
-// frame can move. A step longer than the reach is treated as a discontinuity and only
-// its endpoint is read — correct for a teleport, and a silently reopened tunnelling
-// hole for anything that is actually a run.
-ensure(XOVER_SWEEP_REACH_X >= XOVER_STEP_MAX_X,
-       "the crossover sweep reaches {XOVER_SWEEP_REACH_X} px on X but one frame can move {XOVER_STEP_MAX_X} px — a step longer than the reach snaps to its endpoint, so a one-cell mark inside the gap is stepped over and never fires. This is the horizontal twin of PHYS_FALL_CAP's ensure in engine/system/constants.emp")
-ensure(XOVER_SWEEP_REACH_Y >= XOVER_STEP_MAX_Y,
-       "the crossover sweep reaches {XOVER_SWEEP_REACH_Y} px on Y but one frame can move {XOVER_STEP_MAX_Y} px — see the X ensure above; the same hole, on the other axis")
-ensure(XOVER_STEP_MAX_Y >= (PHYS_FALL_CAP >> 8),
-       "PHYS_FALL_CAP is now {PHYS_FALL_CAP >> 8} px/frame, ABOVE the ground-speed cap XOVER_STEP_MAX_Y derives from — a falling frame can out-step the crossover sweep. Re-derive XOVER_STEP_MAX_Y from whichever cap is now the larger")
-// ... and in the direction that pays for it. Every cell the walk visits costs one
-// Collision_GetType, and the walk advances BOTH axes on every iteration, so the probe
-// count is the LARGER of the two per-axis reaches in cells, not their sum. That is
-// also why a one-cell diagonal step still costs exactly one probe — the same as the
-// pre-sweep routine — and why the extra cost lands only on steps that genuinely cross
-// more than one cell. Player_LoopCrossover's cost note quotes these bounds; the
-// `ensure`s are what stop the note going stale without anyone re-measuring it.
-ensure(XOVER_SWEEP_CELLS_X <= 2,
-       "the crossover sweep can now walk {XOVER_SWEEP_CELLS_X} cells of X in one frame per player, not 2 — that is a per-frame cost change in the shared player preamble. Re-measure the cost block on Player_LoopCrossover from the listing and re-pin this bound")
-ensure(XOVER_SWEEP_CELLS_Y <= 2,
-       "the crossover sweep can now walk {XOVER_SWEEP_CELLS_Y} cells of Y in one frame per player, not 2 — see the X bound above; the same cost, on the other axis")
+// It is the largest displacement one frame of physics can put on each axis, DERIVED from
+// the physics caps so it cannot go stale while a cap moves. X: the ground-speed cap is the
+// only bound on a horizontal step (ObjectMove, engine/objects/core.emp, is one unconditional
+// add). Y: a ground step on a vertical wall decomposes the WHOLE ground speed onto Y, which is
+// above the air fall cap (the ensure below states that). A line is a CROSSING, not a cell, so
+// no step up to this bound can pass one unseen, whatever its length: the step-over a one-cell
+// painted mark suffered above ~8 px/frame (docs/LOOP_CROSSOVER_ENCODING.md §12, superseded)
+// has no analogue here, and tools/loop_step_over_witness.py grades that on the real ROM.
+// -----------------------------------------------
+const LL_STEP_MAX_X = PHYS_GSP_CAP >> 8                 // 16 px: the ground-speed cap
+const LL_STEP_MAX_Y = PHYS_GSP_CAP >> 8                 // 16 px: see above
+ensure(LL_STEP_MAX_Y >= (PHYS_FALL_CAP >> 8),
+       "PHYS_FALL_CAP is now {PHYS_FALL_CAP >> 8} px/frame, ABOVE the ground-speed cap LL_STEP_MAX_Y derives from — an ordinary falling frame would read as a discontinuity and cross no layer line. Re-derive LL_STEP_MAX_Y from whichever cap is now the larger")
 
 // -----------------------------------------------
 // LAYER LINES — the facts Player_LayerLines' instructions depend on, at the read site.
@@ -642,11 +558,13 @@ ensure(XOVER_SWEEP_CELLS_Y <= 2,
 // it while every ROM shape built green.
 ensure(LL_ROW <= 8,
        "LL_ROW is {LL_ROW}: Player_LayerLines steps rows with addq.w/subq.w, whose immediate is 1..8")
-// A step or a discontinuity: the same physics-derived bound the crossover sweep uses
-// (XOVER_STEP_MAX_*, whose own ensures tie it to PHYS_GSP_CAP and PHYS_FALL_CAP). A move
-// longer than this is not a run the player made, so no line is crossed by it.
-const LL_STEP_SPAN_X = XOVER_STEP_MAX_X * 2
-const LL_STEP_SPAN_Y = XOVER_STEP_MAX_Y * 2
+// A step or a discontinuity: LL_STEP_MAX_* above. A move longer than that is not a run the
+// player made, so no line is crossed by it. The test is one UNSIGNED compare per axis, not
+// two signed ones: bias the signed delta by +MAX and the whole legal band becomes
+// [0, 2*MAX], so a value below -MAX wraps to a large unsigned and fails the same `bhi` that
+// catches one above +MAX.
+const LL_STEP_SPAN_X = LL_STEP_MAX_X * 2
+const LL_STEP_SPAN_Y = LL_STEP_MAX_Y * 2
 // The window's floor is xmin - LL_SEG_W and every key is 0..$7FFE, so the floor is always
 // above the leading sentinel and xmax always below the trailing one: that is what lets both
 // walks and the scan stop on a sentinel without a bounds test.
@@ -659,47 +577,33 @@ ensure(LL_SEG_W > 0 && LL_SEG_W < $8000,
 ensure(((1 << LL_KEEP_PATH) | (1 << LL_GROUNDED) | (1 << LL_HORIZONTAL) | (1 << LL_FWD_B) | (1 << LL_BACK_B) | (1 << LL_FWD_HI) | (1 << LL_BACK_HI)) == $7F,
        "the seven LL_* flag bits are not seven distinct bits 0..6 of LayerLine.ll_flags")
 
-// R6 — THE ENGINE MUST NOT RE-DERIVE THE ENCODING'S MAPPING. The read site's whole
-// value->layer step is one `subq.b #XOVER_LAYER_BIAS`; these bind that immediate to
-// the two encodings it sits between, so changing either end fails the build here
-// instead of sending a player to the wrong plane.
-ensure(XOVER_NONE == 0,
-       "XOVER_NONE is no longer 0 — Player_LoopCrossover's `beq` straight after the CrossoverTable fetch IS the no-crossover test, and a non-zero XOVER_NONE would make every unmarked cell fire")
-ensure(XOVER_TO_A - XOVER_LAYER_BIAS == LAYER_PATH_A,
-       "XOVER_TO_A - XOVER_LAYER_BIAS is {XOVER_TO_A - XOVER_LAYER_BIAS}, not LAYER_PATH_A ({LAYER_PATH_A}) — the read site's subq would put a to-path-A crossover on the wrong collision plane")
-ensure(XOVER_TO_B - XOVER_LAYER_BIAS == LAYER_PATH_B,
-       "XOVER_TO_B - XOVER_LAYER_BIAS is {XOVER_TO_B - XOVER_LAYER_BIAS}, not LAYER_PATH_B ({LAYER_PATH_B}) — the read site's subq would put a to-path-B crossover on the wrong collision plane")
-ensure(XOVER_TO_B == XOVER_TO_A + 1,
-       "the two crossover values are no longer adjacent, so ONE subtraction can no longer map the whole set — Player_LoopCrossover needs a table or a branch, not a wider bias")
-// The layer byte is written unconditionally from the subtraction, so the encoding must
-// not be able to produce a layer the collision lookup cannot select. Two planes exist
-// (TILE_CACHE_COLL_PLANES), and Collision_GetType selects between them with `tst.b d3`.
+// The lines write only LAYER_PATH_A or LAYER_PATH_B into the layer byte, so the collision
+// lookup must have exactly those two planes to select (Collision_GetType selects with
+// `tst.b d3`).
 ensure(TILE_CACHE_COLL_PLANES == 2,
-       "there are no longer exactly two collision planes — Collision_GetType's tst.b/beq plane select and the crossover's two-value encoding both assume 2")
+       "there are no longer exactly two collision planes — Collision_GetType's tst.b/beq plane select and the layer lines' A/B writes both assume 2")
 
-// THE SPRITE PRIORITY BIT — the VDP high-priority bit of an art word, named because
-// Player_LoopCrossover now derives it from the layer (LOOPS-P Parcel 2, see the (5c)
-// block on that routine). `vram_art(tile, pal, pri)` (engine/objects/objdef.emp) is
-// the sole authority on where `pri` lands, so both constants are BOUND to it below
-// rather than asserted: the pair is a spelling of `vram_art`'s bit 15, not a second
-// opinion about it. Same shape as SPRING_PAL_BIT's ensure in objects/test_solid.emp.
+// THE SPRITE PRIORITY BIT — the VDP high-priority bit of an art word, named because the
+// layer lines set it from their own per-direction bits (Player_LayerLines' fire tails) and
+// Player_DebugExit re-derives it from the layer. `vram_art(tile, pal, pri)`
+// (engine/objects/objdef.emp) is the sole authority on where `pri` lands, so both constants
+// are BOUND to it below rather than asserted: the pair is a spelling of `vram_art`'s bit 15,
+// not a second opinion about it. Same shape as SPRING_PAL_BIT's ensure in
+// objects/test_solid.emp.
 //
-// Both are LOCAL, and the alternative was measured rather than assumed: a `pub const`
-// here does NOT reach the build's `.lst` EQU block (no `pub const` under
-// games/sonic4/player/ does — BUTTON_JUMP_MASK, INSTASHIELD_LAST_FRAME and
-// KNUX_ABILITY_RADIUS are all absent from it), so exporting the name would have bought
-// tools/loop_crossover_gate.py nothing and cost a `pub` symbol with no consumer. The
-// gate takes bit 15 as what it is — the VDP sprite attribute word's priority bit, a
-// hardware fact — and grades the half that is ours: that no OTHER bit of art_tile
-// moves. The ensure below is what binds our packer to that bit, build-fatally.
+// Both are LOCAL: a `pub const` here does NOT reach the build's `.lst` EQU block (no `pub
+// const` under games/sonic4/player/ does), so exporting the name would buy no tool anything.
+// tools/layer_line_gate.py takes bit 15 as what it is — the VDP sprite attribute word's
+// priority bit, a hardware fact — and grades the half that is ours: that no OTHER bit of
+// art_tile moves.
 const ART_TILE_PRIO       = $8000     // the bit itself
 const ART_TILE_PRIO_CLEAR = $7FFF     // ... and every other bit of the word
 ensure(vram_art(0, 0, 1) - vram_art(0, 0, 0) == ART_TILE_PRIO,
-       "vram_art no longer packs `pri` at ART_TILE_PRIO ($8000) — the crossover's priority derive is an andi/ori pair on that immediate, so it would now clear or set the wrong bit of art_tile")
+       "vram_art no longer packs `pri` at ART_TILE_PRIO ($8000) — the layer lines' priority write (and Player_DebugExit's derive) is an andi/ori pair on that immediate, so it would now clear or set the wrong bit of art_tile")
 ensure(ART_TILE_PRIO + ART_TILE_PRIO_CLEAR == $FFFF,
        "ART_TILE_PRIO_CLEAR is not the complement of ART_TILE_PRIO within a word — the unconditional clear would drop art bits, or leave the priority bit standing")
-// The derive is a `tst.b` on the layer byte followed by `beq` = keep low. That reads
-// the encoding, so pin it: path A must be the ZERO one, and path B the other.
+// Player_DebugExit's derive is a `tst.b` on the layer byte followed by `beq` = keep low.
+// That reads the encoding, so pin it: path A must be the ZERO one, and path B the other.
 ensure(LAYER_PATH_A == 0,
        "LAYER_PATH_A is {LAYER_PATH_A}, not 0 — the priority derive's `tst.b`/`beq` treats zero as path A, so a non-zero LAYER_PATH_A would draw a path-A player in FRONT of the level art everywhere")
 ensure(LAYER_PATH_B != 0,
@@ -973,521 +877,10 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
 }
 
 // -----------------------------------------------
-// Player_LoopCrossover — THE PAINTED LAYER TRANSITION.
-// docs/LOOP_CROSSOVER_ENCODING.md §5 row 13 and §6 changes (2) (3) (4) (5); rule R6's
-// `ensure` is the block above this one.
-//
-// A crossover is a mark painted into a collision cell that says "an object resolving
-// onto me belongs on the OTHER path". The mark rides in the identity of the interned
-// attr byte (which is why it cost no per-cell ROM), so reading it is the same one-byte
-// lookup the sensors already do, followed by one indexed table read.
-//
-// (2) ONE LOOKUP PER FRAME, OFF THE PROBE PATH. The sensors issue many speculative
-//     probes per frame — both sensors of a pair, the +/-16 extensions, ceiling checks —
-//     and any of them can land on a cell the player never resolves onto. A transition
-//     fired from one of those would teleport the player between planes for standing
-//     near a mark. So the read is here, against x_pos/y_pos: the position the frame
-//     actually resolved to, once, per player.
-//
-// (3) WHERE. The shared per-frame preamble, immediately after the quadrant derive and
-//     under the same rule that derive states — it consumes LAST frame's resolved
-//     position, and the layer it writes is in place for THIS frame's sensors. NOT in
-//     Ground_PostMove, whose SEAM GUARD comment forbids inserting state-specific work
-//     between the floor snap and Player_SlopeRepel.
-//
-// (4) THE EDGE TRIGGER, and why it cannot double-fire. The whole trigger is a compare
-//     against PlayerBlock.xover_cell, which holds the world cell the read last ran in.
-//     Two properties do the work, and they are different properties:
-//       * it is an EQUALITY on a cell id, not a test of the mark's value, so standing
-//         on a marked cell re-reads nothing: the id is unchanged and the routine leaves
-//         at the first `beq`. A value-derived trigger ("fire when the mark becomes
-//         non-zero") would pass that case too, which is why it looks right.
-//       * the id is derived from POSITION ONLY — never from the layer, the mark, or
-//         anything the fire itself writes. That is what makes the write to Sst.layer
-//         unable to re-arm the trigger. The case it protects is not exotic, it is the
-//         ORDINARY two-way loop of §3.3: the bottom-centre cell carries XOVER_TO_B on
-//         plane A and XOVER_TO_A on plane B, so a trigger that re-armed on the layer
-//         change would read the OTHER plane's word at the same cell on the very next
-//         frame and flip straight back, every frame, forever.
-//     The quantisation is COLL_CELL_W x COLL_CELL_H — exactly Collision_GetType's own
-//     partition, derived from the block collision format (engine/system/constants.emp),
-//     not a chosen granularity. Coarser would step over a marked cell; finer would
-//     re-fire inside one, which for a two-way pair is the ping-pong above.
-//
-// (4b) AND WHY THAT WAS NOT ENOUGH — the step-over, fixed 2026-09-04. Everything in (4)
-//     is about a trigger that fires TOO OFTEN. It says nothing about one that never
-//     fires at all, and this one did not, above about 8 px/frame. A mark is ONE cell,
-//     COLL_CELL_W is 8 px, PHYS_GSP_CAP is 16 px/frame, and `ObjectMove`
-//     (engine/objects/core.emp) is a single unconditional add: horizontal movement is
-//     not substepped anywhere. A read taken once against the position the frame
-//     RESOLVED to therefore steps clean over a mark it passed through, and the mark
-//     never fires.
-//
-//     Measured 2026-09-04 on the section-0 loop in s4.debug.bin, ground speed injected
-//     once at the ramp foot: at $600 (TOP_SPEED, 6 px/frame) three layer flips and a
-//     clean ride; at $900 (9 px/frame) the player rides the geometry, MISSES the top
-//     mark, comes down the left half still on plane B, and falls through the floor a
-//     screen later — the symptom displaced far enough from the cause that a bug report
-//     would name the floor; at $1000 (the cap) the mark never fires at all.
-//
-//     ⚠ THOSE THREE FIGURES ARE OF THE PRE-CROWN-CURVE GEOMETRY AND ARE NOT A CONTROL
-//     FOR THIS BUILD. The crown-curve re-bake (67042d2d / e59c5a99) landed after them
-//     and moved the arc: on e59c5a99 the same $600 run flips the layer ONCE, not three
-//     times (docs/witness/loop-plane-b-exit-2026-09-05.json). They are kept, dated, and
-//     labelled because they are what the SWEEP was built against — the step-over
-//     conclusion they support is about the READ SITE and still holds — but do not read
-//     them as a description of what the current ROM does.
-//
-//     The vertical twin of this hole was already closed the other way: PHYS_FALL_CAP is
-//     one pixel UNDER COLL_CELL_H so a falling step cannot span a cell. X cannot be
-//     capped the same way without making the game slower, so the read SWEEPS: it walks
-//     from the cell it last ran in to the cell it resolved to and probes each. Both
-//     properties in (4) survive intact, because the walk ADVANCES BEFORE IT PROBES —
-//     the cell it swept from is never re-read, so standing still is still the `beq`,
-//     and a two-way pair still cannot ping-pong. The reach it walks, and the `ensure`
-//     that ties it to the physics caps, are in the constant block above; the gate that
-//     grades it is `sweep_step_over` / `sweep_step_over_marks` in
-//     tools/loop_crossover_gate.py, which are RED on the pre-sweep routine.
-//
-// (5) THE WRITE. `subq.b #XOVER_LAYER_BIAS` IS the encoding — XOVER_TO_A(1) -> layer 0,
-//     XOVER_TO_B(2) -> layer 1 — and the R6 guards bind that one immediate to
-//     LAYER_PATH_A / LAYER_PATH_B so the engine does not re-derive the mapping.
-//
-// (5b) THE DIRECTION GATE — owner ruling 2026-09-05, and the whole subject of this
-//     revision. Everything above decides WHICH cell and WHICH plane's word. It said
-//     nothing about which WAY the player was going, and that was the defect:
-//     docs/witness/loop-plane-b-exit-2026-09-05.json measured every traversal of the
-//     section-0 loop toggling the layer exactly ONCE, in both directions, so the
-//     player always ended on plane B — which carries only the ground and the RIGHT
-//     half — and then fell through the plane-A collision that is most of the level.
-//     The cause is that the mark was PLANE-keyed and nothing more. R2 forbids a
-//     self-mark, so the bottom-centre cell's plane-A word can only be XOVER_TO_B, and
-//     a plane-A player read it whichever way he was travelling: a LEFTWARD entrant was
-//     sent onto the right arc, where the half he was about to occupy is not solid.
-//
-//     THE RULE. Plane B carries the RIGHT half of the arc, plane A the LEFT half, so
-//     a mark leading onto B is a rightward-travel mark and one leading onto A is a
-//     leftward-travel mark:
-//
-//         mark        leads onto     fires when x_vel is
-//         XOVER_TO_B  right arc (B)  > 0   (travelling right)
-//         XOVER_TO_A  left arc  (A)  < 0   (travelling left)
-//         either      —              never, when x_vel == 0
-//
-//     After the subq, d0 IS the plane the mark leads onto, so the test is one compare
-//     of d0 against LAYER_PATH_B / LAYER_PATH_A — the same two names the R6 guards
-//     bind the subq's immediate to, rather than a second spelling of 0 and 1.
-//
-//     WHY Sst.x_vel AND NOT PlayerV.ground_speed, which is the other candidate and
-//     the one that looks more physical. ground_speed is signed ALONG THE SURFACE;
-//     x_vel is signed in SCREEN SPACE, and the ground path rebuilds it every frame as
-//     cos(angle)*gsp>>8 (player_ground.emp, the inertia->velocity projection, with an
-//     exact angle-0 fast path). Those two agree only while the surface is near flat.
-//     THE CASE THAT BREAKS ground_speed IS THE TOP-CENTRE MARK ITSELF: at the top of
-//     a loop the player is inverted, angle ~ $80, cos ~ -1, so a player who entered
-//     rightward still carries a POSITIVE ground_speed while physically moving LEFT
-//     across the apex. A ground_speed-keyed gate would read "travelling right" there
-//     and refuse the XOVER_TO_A that hands him the left arc — it would break the exact
-//     cell it was meant to serve. x_vel reports left, and fires. The converse case
-//     costs nothing: both marked cells sit where |cos(angle)| is at its LARGEST (the
-//     bottom centre at angle ~ 0 and the apex at angle ~ $80), so x_vel is at its
-//     most decisive precisely where the marks are, and it is the loop's SIDES — where
-//     x_vel collapses toward zero — that carry no mark. x_vel is also the only signal
-//     that means anything airborne, which §6 change (1) requires ("you can enter a
-//     loop's far side airborne").
-//
-//     AND WHY LAST FRAME'S x_vel IS THE RIGHT ONE, not a stale one. This routine runs
-//     in the preamble, before the state dispatch, against the position LAST frame
-//     resolved to (see (3)). x_vel at that moment is the velocity that PRODUCED the
-//     step the sweep is walking. Pairing the walk with the velocity that made it is
-//     exactly right; reading a velocity computed after the dispatch would describe a
-//     step that has not happened yet.
-//
-//     WHERE THE TEST SITS, and it is deliberately NOT hoisted above the walk. x_vel
-//     is frame-constant here — this routine's whole write set is Sst.layer, the two
-//     PlayerBlock cell fields, and (since (5c), 2026-09-10) Sst.art_tile, so nothing
-//     in the walk can change it — which makes a
-//     per-cell re-read semantically identical to a hoist. Given that, the cheaper
-//     placement wins, and it is the one BELOW the `beq .unmarked`: an unmarked cell
-//     is every cell but eight in the shipped table, so the walk's hot path does not
-//     execute one byte of the gate and the "no mark" cost rows below are unchanged
-//     from the pre-gate routine. A true hoist would have paid ~22 cycles on EVERY
-//     frame that changed cell — the common case for a running player — to save ~12 on
-//     the rare frame that crosses two marked cells. It would also have needed a
-//     register to survive Collision_GetType, which clobbers d1-d3 and takes d3 as its
-//     plane argument, so the value would have had to live on the stack across the
-//     call: more cost, more code, and a stack discipline to get wrong.
-//
-//     WHAT THIS RULE DOES NOT FIX, stated here because the analysis is done and the
-//     next reader should not have to redo it. A CENTRE-placed mark is crossed TWICE
-//     by a completing circuit. Leftward from the right of the loop: bottom centre on
-//     A moving left (refused, correct — he rides the left arc, which is A), apex on A
-//     moving right (fires -> B, rides the right arc), bottom centre on B moving left
-//     (fires -> A) — two toggles, exits on A, correct. Rightward: bottom centre on A
-//     moving right (fires -> B), apex on B moving left (fires -> A, rides the left
-//     arc), and then bottom centre AGAIN on A moving right, which is the same cell,
-//     the same plane and the same direction as the entry crossing and therefore fires
-//     a THIRD time, leaving him on B as he exits. Entry and exit need opposite answers
-//     from inputs that are identical, so no rule keyed on position, plane and
-//     direction alone can separate them. The fix is a PAINT change and belongs to the
-//     collision lane, not here: Sonic 2's arrangement is a return-to-default swapper
-//     past the exit foot. Reported to the owner 2026-09-05; see
-//     docs/DEFERRED_WORK.md.
-//
-// (5c) THE SPRITE PRIORITY SWAP — LOOPS-P Parcel 2, built 2026-09-10, and it is what
-//     makes a loop read as a loop instead of as a circle painted on a wall.
-//
-//     THE MECHANISM, and it is a VDP one. The Mega Drive composites in six layers:
-//     high-priority sprites, high-priority plane A, high-priority plane B, then
-//     low-priority sprites, low-priority plane A, low-priority plane B. Our level art
-//     puts ground and terrain on HIGH priority and sky on low (tools/ojz_strip_gen.py
-//     `generate_collision_bytes`, and measured: 2401 of section 0's 5775 non-empty
-//     plane-A nametable words carry bit 15). The player's own art word is
-//     `vram_art(cd_vrambase, 0, 0)` — priority CLEAR (characters.emp Player_InitAssets:
-//     "the player draws at palette 0 / low priority"). So a low-priority player is
-//     drawn BEHIND terrain wherever he overlaps it, and a high-priority one in front.
-//     On flat ground he never overlaps, which is why nobody has noticed; inside a loop
-//     he overlaps for the whole circuit, and both halves would hide him.
-//
-//     WHAT DECIDES THE BIT: the layer, and nothing else. That is the anchor's ruling
-//     verbatim (docs/LOOP_CROSSOVER_ENCODING.md §9): "ship the 2-bit layer field,
-//     DERIVE PRIORITY FROM THE LAYER AT THE ENGINE READ SITE, and treat the first case
-//     that needs them decoupled as the trigger to revisit." S3K instead carries two
-//     further independent subtype bits on Obj_PathSwap (5 and 6, one per crossing
-//     direction, sonic3k.asm:39702) — that is the DECOUPLED design, and §9 declines it
-//     until a painted crossover actually needs "in front" to differ from "on plane B".
-//     `PATHSWAP_BIT_PRIO` therefore stays reserved and still raises; see
-//     games/sonic4/objects/path_swap.emp.
-//
-//     WHICH WAY ROUND, and it is FORCED rather than chosen — the parcel had no free
-//     parameter here and this comment exists so nobody re-opens it as a taste
-//     question. The player's layer starts at LAYER_PATH_A (Player_Init `clr.b
-//     layer(a0)`) and his art word starts with the priority bit CLEAR, in the same
-//     routine. Any derive mapping path A to "set" would therefore raise the priority
-//     bit for the ENTIRE GAME outside loops — a whole-game rendering change wearing a
-//     loop parcel's clothes. So path A keeps the bit clear and path B raises it, which
-//     is the only mapping that is a no-op everywhere a crossover has never fired.
-//
-//     WHAT THAT LOOKS LIKE, stated as the falsifiable claim it is: plane B carries the
-//     RIGHT arc and plane A the LEFT one (the same fact (5b)'s direction rule turns
-//     on), so the player is drawn IN FRONT of the loop art while on the right arc and
-//     BEHIND it while on the left. Whether that is the right way round for a GIVEN
-//     loop is a property of the paint — which of its tiles carry the VDP priority bit —
-//     and therefore a content question, not this routine's. Nothing here can see a
-//     frame; TAGGED for a look.
-//
-//     THE IDIOM IS S3K'S, and the unconditional clear is the load-bearing half: every
-//     firing path in Obj_PathSwap does `andi.w #drawing_mask,art_tile(a1)` and only
-//     then re-sets the bit. A conditional set with no clear would raise the bit on the
-//     way onto the right arc and never lower it. Both halves are word operations on
-//     immediates the `ensure` block above binds to `vram_art`.
-//
-//     IT COSTS THE STEADY STATE NOTHING, and that is by placement, not by luck: these
-//     three instructions sit BELOW `.fire`, which is below the `beq .unmarked` and the
-//     direction gate. An unmarked cell — every cell but eight in the shipped act — does
-//     not execute one byte of them, so every "no mark" row of the cost table below is
-//     unchanged. Only a firing crossing pays, and there are eight marked cells in the
-//     whole shipped tree.
-//
-//     THE INVARIANT IT CREATES: art_tile's bit 15 agrees with Sst.layer. Two other
-//     sites write one of the pair and are made consistent with it — Player_Init writes
-//     both (InitAssets clears the bit, `clr.b layer` clears the layer) and needs
-//     nothing; Player_DebugExit re-runs InitAssets, which clears the bit while the
-//     layer survives, and carries the same derive at its tail for that reason.
-//     `games/sonic4/objects/path_swap.emp` writes the layer and does NOT follow — it
-//     is placed in no level data today and is PARKED for deletion, and giving it a
-//     derive would be building the decoupled design §9 declined. Booked, not built.
-//
-//     GRADED BY tools/loop_crossover_gate.py family `priority`, which varies the same
-//     one byte of CrossoverTable the consumption family does and requires art_tile's
-//     bit 15 to follow the layer it produces — and requires art_tile to be written on
-//     NO frame that does not fire.
-//
-// Value 3 is not tested for. The bake refuses it (rule R1, tools/collision_pipeline.py
-// bake_plane_cell raises), so it cannot reach CrossoverTable; adding a silent runtime
-// clamp here would give the illegal value a quiet meaning, which is the exact thing
-// §3.2 reserved it to prevent.
-//
-// COST, per player per frame. RE-DERIVED 2026-09-05 for the direction gate, and it is
-// no longer a table anyone types: `tools/loop_crossover_cost.py` sums it from the
-// ENCODINGS this build emitted, by executing the routine in the gate's own micro-CPU
-// (capstone-decoded out of s4.debug.bin) and costing every instruction it actually ran
-// against the MC68000UM tables. Re-run it after any edit here rather than adjusting a
-// number by hand. Guessing is not an option: an earlier draft of this comment put
-// Collision_GetType at ~150 and was wrong by a factor of two.
-//
-// Basis, stated so the rows stay comparable with the pre-gate ones: each figure
-// includes the caller's `bsr.w` (18), and none of them model the bus contention a real
-// Mega Drive imposes on the 68000 — every row is a FLOOR for the CPU's own work.
-//
-//   (RE-RUN 2026-09-11 after lens row C1b-3, which took 12 cycles out of every
-//    Collision_GetType call that reaches the cache: -12 on each one-probe row, -24 on
-//    the two-probe rows, and nothing on the steady state or the off-cache exit, which
-//    never reach the changed lines. The 09-10 column is the priority-swap re-run; the
-//    last column is from before the swap, kept because that difference is the whole
-//    subject of the paragraph two below)
-//                                                                     now  09-10  (pre-swap)
-//   same cell (the whole steady state)                                106   106   (106)
-//   cell changed, position off the tile cache (GetType's air exit, 58) 584   584   (580)
-//   cell changed, one cell of X, no mark (plane A)                    786   798   (794)
-//   cell changed, one cell of X, no mark (plane B)                    792   804   (800)
-//   cell changed, one cell DIAGONALLY, no mark (plane A)              822   834   (830)
-//   cell changed, one cell, FIRES rightward (TO_B on plane A)         906   918   (862)
-//   cell changed, one cell, FIRES leftward (TO_A on plane B)          878   890   (852)
-//   cell changed, one cell, REFUSED by direction (TO_A going right)   840   852   (848)
-//   cell changed, one cell, REFUSED by direction (TO_B going left)    828   840   (836)
-//   cell changed, one cell, REFUSED by direction (x_vel == 0)         810   822   (818)
-//   a discontinuity — teleport/respawn/act start — snapped to one probe 742  754  (750)
-//   TWO cells of X in one frame (>8 px/frame: the step-over the sweep
-//     exists for), no mark                                           1328  1352  (1348)
-//   ... same, marked field firing on both                            1574  1598  (1490)
-//
-// HOW MUCH OF THAT IS TRUSTWORTHY, and the answer is checkable rather than asserted.
-// The summer reproduces three figures the previous note derived independently and by a
-// different route, EXACTLY: the steady state (106), Collision_GetType's whole body
-// (292), and its early air exit (58). The composite rows differ from the previous
-// note's by -16..+50 — those were scenario differences, not timing ones, and the old
-// scenarios were not recorded closely enough to reconcile, so that attribution is an
-// inference and is flagged as one. The three anchors are the measurement. (They are the
-// 2026-09-05 figures. Since C1b-3 the in-cache body is 280, i.e. 292 - 12. The 12 was
-// derived twice: by hand, per instruction, in
-// docs/superpowers/notes/2026-09-12-c1b3-and-landing-stamp.md, and by this tool's row
-// deltas. 106 and 58 are unchanged.)
-//
-// WHAT THE DIRECTION GATE COST. Nothing at all on the two rows that matter most: the
-// steady state is unchanged at 106, and a frame that changes cell WITHOUT meeting a
-// mark is unchanged, because the whole gate lives below the `beq .unmarked`. The cost
-// lands only where a mark is actually met — +54 cycles on a rightward fire, +46 on a
-// leftward one, and +34/+36 where the gate REFUSES a mark (which also skips the
-// 12-cycle layer write, so a refusal is cheaper than a fire). THREE marked slots exist in
-// the whole shipped table (re-derived 2026-09-10; it said two), so this is a cost on the
-// loop and on nothing else.
-//
-// WHAT THE SWEEP COST AND WHAT IT DID NOT. The steady state is 106 — the same figure,
-// instruction for instruction, as before the sweep: the `beq` on the cell id still
-// leaves before a byte of the walk is reached, so a standing or sub-cell-moving player
-// pays nothing at all. The diagonal case is why the walk advances both axes together
-// rather than turning a corner: an ordinary frame on a slope moves one cell on each
-// axis and still costs ONE probe (830 then, 822 today), where an L-shaped path would
-// have cost two.
-//
-// WHAT THE PRIORITY SWAP COST, and the interesting half is NOT the three instructions.
-// On the two firing rows it is +56 and +38 cycles — the andi/ori pair is 20 each
-// (MC68000UM Table 8-5, 12 for an immediate-to-memory word plus 8 for the (d16,An)
-// effective address) plus the `tst.b`/`beq`, with the leftward row paying less because
-// it takes the `beq` and never reaches the `ori`. Those land on eight painted cells in
-// the whole shipped tree.
-//
-// THE +4 ON EVERY OTHER PROBING ROW IS NOT THE SWAP'S INSTRUCTIONS — it is the
-// routine's SIZE, and it is worth knowing because nothing about the source says so.
-// The 18 bytes pushed the walk's back branch past the byte-displacement reach:
-// `bne .walk` was `6682` (bne.b, -126) and is now `6600ff72` (bne.w). Taken, both cost
-// 10; NOT taken — which happens exactly once per frame that entered the walk — a word
-// Bcc costs 12 against a byte Bcc's 8. Hence +4 on every row that probes at all and +0
-// on the steady state, which is the pattern in the table above and the reason it is not
-// evidence of a mistake. It is 4 cycles against ~800, it does not compound (the reach
-// is crossed once, not per byte), and it comes straight back if the routine ever loses
-// 18 bytes. The alternative was an out-of-line trampoline for the derive, which trades
-// those 4 cycles for ~20 on every fire plus a label and two branches in the file's most
-// carefully-ordered routine; that trade was declined deliberately, not overlooked.
-//
-// Two players at 60 Hz against a ~127,800-cycle NTSC frame: 0.17% standing still,
-// 1.23% on a frame where both changed cell, 2.08% in the two-cell case that only
-// happens above 8 px/frame (1.25% and 2.12% before C1b-3). A player running at speed
-// changes cell most frames, so 1.23% is the honest running figure. 222 bytes of code (was 204, and 182 before the
-// sweep), measured from the listing.
-//
-// The cheap gate that is NOT here, named so it is a decision and not an oversight:
-// a per-act "this act has crossovers" flag would collapse the whole per-frame cost to
-// about 12 cycles for any act that has none — but that flag does not exist, it is a
-// bake-side field, and adding one here would be a second encoding shipped ahead of its
-// first user. Booked in docs/DEFERRED_WORK.md instead. NOTE that the premise this
-// paragraph used to rest on has expired: the shipped CrossoverTable now holds THREE
-// marked slots and section 0 carries SIXTEEN painted marks — eight XOVER_TO_B cells on
-// plane A and eight XOVER_TO_A on plane B, two four-cell bars at column 143 (rows
-// 52-55 and 68-71), re-derived from the plane files 2026-09-10 and up from the "two
-// marked slots / two cells" this paragraph and the anchor's §11 both still said. So the
-// cost is no longer buying nothing, and the flag is a saving for OTHER acts rather than
-// for every act.
-//
-// In:  a0 = player SST, a4 = this slot's PlayerBlock
-// Out: none in a register. THE WRITE SET, because "none" was read as "nothing moves"
-//      once already: Sst.layer and Sst.art_tile's priority bit on a firing cell (5)/(5c),
-//      and PlayerBlock's xover cell + cursor longs on any frame that changed cell.
-// Clobbers: d0-d3, a1 (d1-d3/a0 via Collision_GetType — a0 is saved across it here,
-//           exactly as probe_core does). a4 and d4-d7 are untouched: Player_Main holds
-//           the block in a4 and the frame's press bits in d6 across this call.
-// -----------------------------------------------
-pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) preserves(a0, a4) {
-        // The cell id, in three instructions: x_pos's HIGH word is the pixel X (the low
-        // word is sub-pixel), so one move.l lands X where it belongs and one move.w
-        // drops pixel Y in beside it. The mask then quantises both halves at once.
-        move.l  x_pos(a0), d0                   // X px in the high word, sub-px in the low
-        move.w  y_pos(a0), d0                   // Y px into the low word
-        andi.l  #XOVER_CELL_MASK, d0            // -> the world cell, one long
-        cmp.l   PBLK_XOVERCELL(a4), d0
-        beq     .done                           // same cell — THE edge trigger, and the
-                                                // whole steady state: not one byte of
-                                                // the sweep below is reached from here
-        move.l  PBLK_XOVERCELL(a4), d1          // the cell the last sweep ENDED on
-        move.l  d0, PBLK_XOVERCELL(a4)          // ... and from here on, THE DESTINATION
-
-        // --- IS THE GAP WALKABLE? ----------------------------------------------
-        // Two signed word deltas against the reaches derived above. A step inside the
-        // reach is a RUN the player traversed and gets walked cell by cell; a step
-        // beyond it is a discontinuity and only its endpoint is read. Word arithmetic
-        // throughout, so a world coordinate that wraps $FFFF->$0000 still yields the
-        // right sign and magnitude and the walk still lands on the destination exactly.
-        move.w  d0, d3
-        sub.w   d1, d3                          // dY = destY - prevY
-        addi.w  #XOVER_SWEEP_REACH_Y, d3        // bias into [0, 2*REACH] — see the
-        cmpi.w  #XOVER_SWEEP_SPAN_Y, d3         // constant block: ONE unsigned compare
-        bhi     .snap                           // catches both ends of the band
-        swap    d0
-        swap    d1
-        move.w  d0, d3
-        sub.w   d1, d3                          // dX = destX - prevX
-        addi.w  #XOVER_SWEEP_REACH_X, d3
-        cmpi.w  #XOVER_SWEEP_SPAN_X, d3
-        bhi     .snap_hi
-        swap    d1
-        move.l  d1, PBLK_XOVERCURSOR(a4)        // the walk starts on the cell we swept
-        bra     .walk                           // FROM — and advances before it probes,
-                                                // so that cell is never re-read
-
-    .snap_hi:
-        swap    d0                              // the X leg arrives here with d0 swapped
-    .snap:
-        // A DISCONTINUITY, not a run: a teleport, a respawn, the first frame of an act,
-        // or a launcher faster than the reach the physics caps derive. There is no path
-        // between the two cells for the player to have crossed, so the cursor starts AT
-        // the destination and the walk below makes exactly the one lookup this routine
-        // made before it swept — the right answer for a move that did not traverse the
-        // space, which is why this is a snap and not a clamp.
-        move.l  d0, PBLK_XOVERCURSOR(a4)
-
-    .walk:
-        // ONE CELL PER ITERATION, ON BOTH AXES AT ONCE — a diagonal walk from the cell
-        // we swept from to the cell we resolved to, each axis advancing until it
-        // arrives. The probe count is therefore max(|dX|,|dY|) in cells, NOT their sum,
-        // and the case that matters most is the consequence: a one-cell diagonal step —
-        // an ordinary frame on a slope — still costs exactly ONE probe, the same as the
-        // routine cost before it swept. Only a step that genuinely crosses more than one
-        // cell pays for a second.
-        //
-        // The path visits every column index between the endpoints and every row index
-        // between them, so a mark painted as a BARRIER ACROSS THE PATH — which is what a
-        // loop crossover is — cannot end up on the far side of it. It is NOT a
-        // supercover: an isolated single cell that the true segment only clips the corner
-        // of can still be missed, and that is stated here rather than left to be
-        // discovered. `sweep_step_over` in tools/loop_crossover_gate.py grades exactly
-        // the property claimed and says the same thing about what it does not prove.
-        //
-        // The direction is RE-DERIVED per axis per iteration instead of being carried,
-        // because carrying it costs a second RAM long and the derivation is three
-        // instructions. The cursor is the only state, and it is the only thing that
-        // moves, so the loop cannot desynchronise from it.
-        move.w  PBLK_XOVERCELL(a4), d0          // destination X
-        move.w  PBLK_XOVERCURSOR(a4), d1        // cursor X
-        sub.w   d1, d0                          // ... still to go on X
-        beq     .x_settled
-        bmi     .x_back
-        addi.w  #COLL_CELL_W, d1
-        bra     .x_store
-    .x_back:
-        subi.w  #COLL_CELL_W, d1
-    .x_store:
-        move.w  d1, PBLK_XOVERCURSOR(a4)
-    .x_settled:
-        move.w  d1, d2                          // hold this cell's X px across the Y leg
-        move.w  PBLK_XOVERCELL_Y(a4), d0        // destination Y
-        move.w  PBLK_XOVERCURSOR_Y(a4), d1      // cursor Y
-        sub.w   d1, d0                          // ... still to go on Y
-        beq     .y_settled
-        bmi     .y_back
-        addi.w  #COLL_CELL_H, d1
-        bra     .y_store
-    .y_back:
-        subi.w  #COLL_CELL_H, d1
-    .y_store:
-        move.w  d1, PBLK_XOVERCURSOR_Y(a4)
-    .y_settled:
-        move.w  d2, d0                          // d0 = this cell's X px, d1 = its Y px.
-                                                // Both axes settled and unmoved is THE
-                                                // destination probe, which every walk
-                                                // ends on and a snapped one consists of.
-
-        // d0/d1 are the cursor's own halves, so "the cell the walk is standing on" and
-        // "the cell the lookup fetches" are the same value by construction rather than
-        // by two reads agreeing. The low bits being clear is provably free:
-        // Collision_GetType does `lsr.w #3` on X (so bits 2:0 never survive) and
-        // `lsr.w #3` then `lsr.w #1` on Y, and forcing Y's bit 3 low only selects the
-        // EVEN tile row of the pair the halving folds together — which lands on the
-        // same collision row, because Cache_Top_Row is even and the subtraction between
-        // them preserves that.
-        move.b  layer(a0), d3                   // read the mark from the plane we are ON
-                                                // (§3.3: a plane's mark is only ever
-                                                // read by an object already on it, which
-                                                // is what makes one painted pair serve
-                                                // both directions of travel). Re-read
-                                                // per cell on purpose: a fire earlier in
-                                                // the walk changes which plane the rest
-                                                // of the walk reads, exactly as it would
-                                                // have frame by frame at a lower speed.
-        move.l  a0, -(sp)                       // Collision_GetType clobbers a0
-        jbsr    Collision_GetType               // d0.b = attr index (0 = air / off-cache)
-        movea.l (sp)+, a0
-        moveq   #0, d1
-        move.b  d0, d1                          // zero-extend: GetType's solid path is a
-                                                // `move.b` into d0 and leaves the upper
-                                                // bits dirty (only its air path moveq's)
-        lea     CrossoverTable, a1
-        move.b  (a1, d1.w), d0
-        beq     .unmarked                       // XOVER_NONE — all but THREE slots of
-                                                // the shipped table, today (2026-09-10;
-                                                // it was two, and the paint moved)
-        subq.b  #XOVER_LAYER_BIAS, d0           // d0 = the plane this mark LEADS ONTO
-
-        // --- THE DIRECTION GATE (5b). A mark fires only when the player's
-        // screen-space horizontal travel matches the arc the mark leads onto: the
-        // right arc is solid on path B, the left arc on path A, so TO_B is a
-        // rightward-only mark and TO_A a leftward-only one. Sst.x_vel is the signal
-        // and the long comment above says why; zero means no arc is being entered
-        // and nothing fires. Bound to the LAYER_PATH_* names rather than to 0/1 so
-        // this reads the same encoding the R6 `ensure` pair binds the subq to.
-        move.w  x_vel(a0), d1                   // last frame's velocity — the one that
-                                                // produced the step this walk is
-                                                // WALKING; flags set by the move
-        beq     .unmarked                       // no horizontal travel, no arc entered
-        bmi     .dir_left
-        cmpi.b  #LAYER_PATH_B, d0               // travelling RIGHT: only a mark leading
-        bne     .unmarked                       // onto the RIGHT arc may fire
-        bra     .fire
-    .dir_left:
-        cmpi.b  #LAYER_PATH_A, d0               // travelling LEFT: only a mark leading
-        bne     .unmarked                       // onto the LEFT arc may fire
-    .fire:
-        move.b  d0, layer(a0)
-        // --- (5c) THE SPRITE PRIORITY SWAP. Clear-then-set, S3K's shape, on the
-        // VDP high-priority bit of the player's own art word: path A draws behind
-        // the high-priority terrain, path B in front. The clear is unconditional
-        // because the ONLY other way back down is another crossing. Path A is the
-        // `beq` case because it is also the default (Player_Init clears both the
-        // layer and this bit), so the derive is a no-op until a mark fires.
-        andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
-        tst.b   d0                              // the plane the mark led onto
-        beq     .unmarked                       // LAYER_PATH_A -> stay low
-        ori.w   #ART_TILE_PRIO, art_tile(a0)    // LAYER_PATH_B -> draw in front
-    .unmarked:
-        move.l  PBLK_XOVERCURSOR(a4), d0
-        cmp.l   PBLK_XOVERCELL(a4), d0
-        bne     .walk
-    .done:
-        rts
-}
-
-// -----------------------------------------------
-// Player_LayerLines — SONIC 2'S PLANE-SWITCHER LINES, AS ACT DATA (S2CLIP-PLANE-SWITCH).
+// Player_LayerLines — THE LAYER-SWITCH LINES, AS ACT DATA: Sonic 2's plane switchers
+// (S2CLIP-PLANE-SWITCH), and since LINES-EVERYWHERE (2026-09-26) the engine's ONLY
+// layer-switch mechanism. An act's table comes from its authored layer_lines.json or, in a
+// clip act, from Sonic 2's own Obj03 layout; tools/layer_lines.py is the one bake path.
 //
 // THE RULE IS OBJ03'S, EXACTLY (s2disasm s2.asm `Obj03:`, its MainX/MainY and their _Alt
 // halves). A line is vertical or horizontal, has an extent along itself, and remembers per
@@ -1531,16 +924,14 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
 // note in docs/ENGINE_ARCHITECTURE.md §4.7 "Collision layers" (produced by
 // tools/layer_line_gate.py from the ROM's own encodings).
 //
-// ORDER. Rows with equal keys run in the donor's layout order (tools/s2_layer_lines.py),
-// which is Obj03's own slot order; the last write of a frame stands, as in S2.
+// ORDER. Rows with equal keys run in source order (the donor's layout order, which is
+// Obj03's own slot order, or the authored file's order); the last write of a frame stands,
+// as in S2.
 //
-// HOW THIS AND THE PAINTED CROSSOVER COEXIST. Player_LoopCrossover (above) runs first and
-// Player_LayerLines second, every frame. They write the same layer byte and never in the
-// same act today: OJZ paints marks and has no layer-line table (the null pointer is the
-// early-out in Player_Main); a Sonic 2 clip act has lines and no marks (its converted trees
-// hold XOVER_NONE everywhere). An act that carried both would have the lines' write
-// standing on a frame where both fired. Priority differs by design: a crossover mark derives
-// it from the layer (its (5c) block), a line sets it from its own bits.
+// PRIORITY FOLLOWS THE LINE'S OWN BITS, not the layer. Sonic 2 needs them decoupled (Emerald
+// Hill never raises priority on plane B; CPZ's braid toggles it independently of the path).
+// OJZ's lines set "B high, A low" on every crossing, which is exactly the layer-derived
+// priority the painted marks they replaced used to write.
 //
 // In:  a0 = player SST, a4 = this slot's PlayerBlock, PBLK_LLCURSOR(a4) != 0 (Player_Main's
 //      early-out is the null test)
@@ -1561,16 +952,16 @@ pub proc Player_LayerLines (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d5/a1) prese
         move.w  d2, d3                          // d3.w = py
         swap    d2                              // d2.w = px
 
-        // --- A STEP OR A DISCONTINUITY? The crossover sweep's biased unsigned compare,
-        // with the same physics-derived bounds (XOVER_STEP_MAX_*): one test per axis.
+        // --- A STEP OR A DISCONTINUITY? One biased unsigned compare per axis against the
+        // physics-derived bound (LL_STEP_MAX_*, above).
         move.w  d1, d4
         sub.w   d3, d4                          // dy
-        addi.w  #XOVER_STEP_MAX_Y, d4
+        addi.w  #LL_STEP_MAX_Y, d4
         cmpi.w  #LL_STEP_SPAN_Y, d4
         bhi     .done
         move.w  d0, d4
         sub.w   d2, d4                          // dx
-        addi.w  #XOVER_STEP_MAX_X, d4
+        addi.w  #LL_STEP_MAX_X, d4
         cmpi.w  #LL_STEP_SPAN_X, d4
         bhi     .done
 
@@ -1742,20 +1133,14 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         andi.b  #3, d0
         move.b  d0, PBLK_QUADRANT(a4)
 
-        // The painted layer transition (docs/LOOP_CROSSOVER_ENCODING.md §5 row 13),
-        // here for the same reason the quadrant derive is here: it is shared per-frame
-        // state derived once from the position the last frame resolved to, and it must
-        // be in place before the state dispatch's sensors read Sst.layer. See
-        // Player_LoopCrossover above for the edge trigger and the cost.
-        // d6 (this frame's press bits, read once at the top) is not in its clobber set,
-        // so the jump-buffer latch below still sees them.
-        jbsr    Player_LoopCrossover
-
-        // Sonic 2's plane-switcher lines (Player_LayerLines, S2CLIP-PLANE-SWITCH): here for
-        // the crossover's reason, after it so that on the (never measured, never shipped)
-        // frame both fire the line's write stands. An act without a table leaves the cursor
-        // 0, and this null test is all it pays: tst.l (d16,An) 16 + a taken beq 10 = 26
-        // cycles per player per frame. d6 survives (not in the routine's clobber set).
+        // The layer-switch lines (Player_LayerLines, LINES-EVERYWHERE), here for the same
+        // reason the quadrant derive is here: shared per-frame state derived once from the
+        // position the last frame resolved to, in place before the state dispatch's sensors
+        // read Sst.layer. It is also Obj03's ordering: S2 runs it after the player. An act
+        // without a table leaves the cursor 0, and this null test is all it pays:
+        // tst.l (d16,An) 16 + a taken beq 10 = 26 cycles per player per frame. d6 (this
+        // frame's press bits, read once at the top) is not in the routine's clobber set, so
+        // the jump-buffer latch below still sees them.
         tst.l   PBLK_LLCURSOR(a4)
         beq     .no_layer_lines
         jbsr    Player_LayerLines
@@ -3181,11 +2566,14 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
         jbsr    Player_InitAssets
         // ... which rewrites the WHOLE art word from the record, so it has just
-        // cleared the crossover's priority bit while Sst.layer survived the debug
-        // flight untouched. Re-derive rather than assume: fly into a loop's right
-        // arc, toggle out, and the player would otherwise be drawn behind art he
-        // is standing in front of. Same mapping as Player_LoopCrossover's (5c) —
-        // path A low, path B high — and the same two immediates.
+        // cleared the priority bit while Sst.layer survived the debug flight
+        // untouched. Re-derive it from the layer: path A low, path B high. That is
+        // exactly what OJZ's layer lines set on every crossing (and what the painted
+        // marks they replaced derived), so an OJZ player who toggles out on the
+        // loop's right arc is still drawn in front of it. A line act whose lines
+        // decouple the two (Sonic 2's) differs here: S2 resets priority to low on
+        // leaving debug placement, and the next line crossing corrects this one.
+        // Debug only.
         andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
         tst.b   layer(a0)
         beq     .prio_low

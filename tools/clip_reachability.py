@@ -40,13 +40,22 @@ See scan() for the measurement and check() for the two-sided declaration rule:
 WHAT "REACHABLE" MEANS, AND WHY THE GATE IS SHAPED THIS WAY. The engine has two
 collision planes and the querying object's `layer` byte selects between them
 (engine/level/collision_lookup.emp: "0 = path A, 1 = path B"). `layer` is cleared at
-player init (player_common.emp `clr.b layer(a0)`) and the ONLY thing that writes it is
-Player_LoopCrossover, which fires off the interned CrossoverTable. So plane B is
-reachable exactly when that table marks at least one attr byte. The table is read here,
-never assumed — an act whose table is all zero is checked on plane A alone, and the SAME
-run turns the plane-B holes from INFORMATIONAL into failures the moment a crossover is
-marked. That is deliberate: it is the difference between a gate that would have caught
-this act and a gate that refuses faithful donor data for a hazard it cannot reach.
+player init (player_common.emp `clr.b layer(a0)`) and the ONLY thing that writes it from
+level data is Player_LayerLines, which runs the act's layer-line table. So plane B is
+reachable exactly when a row of that table can put the player on it (a path bit set on a
+row that is not priority-only). The rows are derived here from the SAME producer the ROM
+bake uses (tools/s2_layer_lines.plan over the manifest), never assumed — an act whose
+lines never select B is checked on plane A alone, and the SAME run turns the plane-B holes
+from INFORMATIONAL into failures the moment a line can select it. That is deliberate: it
+is the difference between a gate that would have caught this act and a gate that refuses
+faithful donor data for a hazard it cannot reach.
+
+⚠ THIS SOURCE CHANGED ON 2026-09-26 (LINES-EVERYWHERE), AND THE OLD ONE WAS ALREADY WRONG.
+Until then plane B's reachability was read off the interned CrossoverTable (the painted
+crossover marks, now retired). S2CLIP-PLANE-SWITCH (332cc1ba) gave the clip act Sonic 2's
+own lines, which DO put the player on plane B, while the table this gate read stayed all
+zero, so from that commit to this one the gate reported plane B "unreachable" in an act
+where it was reachable.
 
 WHY PLANE B MATTERS AT ALL, since it is unreachable today. Every act that has ever run
 on this engine had plane B as a byte-for-byte COPY of plane A — `tools/ojz_block_gen.py`
@@ -63,7 +72,7 @@ the path the player is not on. Before the widening the act was 512 columns and p
 a floor in all of them, which is the number the parcel-7 report quotes.
 
 LOUD WHEN IT CANNOT MEASURE. A missing strip file, a strip of the wrong shape, a
-constant that moved, an unreadable crossover table: exit 2, never a pass.
+constant that moved, a layer-line table the bake would refuse: exit 2, never a pass.
 
   python3 tools/clip_reachability.py check games/sonic4/data/clips/<id>/clips.json
 """
@@ -174,28 +183,37 @@ class StripGeometry:
         return struct.unpack_from(">H", d, self.stride * lx + ly * 2)[0] & 0x07FF
 
 
-def reachable_planes(coll_dir):
+def act_layer_line_rows(act):
+    """(rows, consts) — the layer-line rows the ROM bake binds for this act, from the same
+    producer (tools/s2_layer_lines.plan). A plan the bake would refuse is UNMEASURABLE:
+    plane B's reachability is decided by those rows and this gate will not guess it."""
+    import s2_layer_lines as SLL
+    try:
+        p = SLL.plan(act)
+    except SLL.LayerLineError as exc:
+        raise Unmeasurable(f"the act's layer-line plan is refused ({exc}); plane B's "
+                           f"reachability is decided by it") from exc
+    return p["rows"], p["consts"]
+
+
+def reachable_planes(rows, consts):
     """(planes, why) — which collision planes a player can query in this act.
 
-    Plane A always. Plane B exactly when the interned CrossoverTable marks something,
-    because Player_LoopCrossover is the only writer of the player's `layer` byte and it
-    fires off that table. READ, never assumed.
+    Plane A always. Plane B exactly when a row of the act's layer-line table can put the
+    player there: a path bit (LL_FWD_B or LL_BACK_B) on a row that is not priority-only
+    (LL_KEEP_PATH), because Player_LayerLines is the only level-data writer of the
+    player's `layer` byte. READ, never assumed.
     """
-    p = os.path.join(coll_dir, "crossover.bin")
-    if not os.path.isfile(p):
-        raise Unmeasurable(f"{p} is missing — plane B's reachability is decided by the "
-                           f"interned CrossoverTable and this gate will not guess it")
-    table = open(p, "rb").read()
-    if not table:
-        raise Unmeasurable(f"{p} is empty — it cannot say whether any attr byte is a "
-                           f"crossover")
-    marked = [i for i, b in enumerate(table) if b]
-    if marked:
-        return (0, 1), (f"CrossoverTable marks {len(marked)} attr byte(s) "
-                        f"(first: {marked[0]}), so Player_LoopCrossover can move the "
-                        f"player's layer onto plane B")
-    return (0,), ("CrossoverTable marks no attr byte, so nothing writes the player's "
-                  "layer and plane B is unreachable in this act")
+    keep = 1 << consts["LL_KEEP_PATH"]
+    to_b = (1 << consts["LL_FWD_B"]) | (1 << consts["LL_BACK_B"])
+    rows_b = [r for r in rows if not r["flags"] & keep and r["flags"] & to_b]
+    if rows_b:
+        return (0, 1), (f"{len(rows_b)} of the act's {len(rows)} layer-line row(s) can put "
+                        f"the player on plane B (first: key {rows_b[0]['key']}), so "
+                        f"Player_LayerLines can move his layer there")
+    return (0,), (f"none of the act's {len(rows)} layer-line row(s) selects plane B, so "
+                  f"nothing writes the player's layer to B and plane B is unreachable in "
+                  f"this act")
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +283,7 @@ def scan(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, log
         raise Unmeasurable(f"solidity.bin is {len(solidity)} B and heightmaps.bin is "
                            f"{len(heights)} B; a 256-entry attr set needs 256 and 4096")
 
-    planes, why = reachable_planes(coll_dir)
+    planes, why = reachable_planes(*act_layer_line_rows(act))
     if log:
         log(f"clip_reachability: reachable planes {[PLANE_NAMES[p] for p in planes]} — {why}")
 
@@ -370,8 +388,8 @@ def _declared_floorless(declared, log=None):
     WHAT THIS STILL CATCHES, stated because a declaration channel is a weakening unless
     the boundary is written down:
       * a reachable plane with floorless columns and NO declaration for that plane — the
-        original failure, unchanged, including the whole of plane B if a crossover ever
-        marks one (the latent defect of the parcel-7 report's §4);
+        original failure, unchanged, including the whole of plane B as soon as a layer
+        line can select it (the latent defect of the parcel-7 report's §4);
       * a declared plane whose floorless runs MOVED, GREW or SHRANK by a single 8-px
         column — the runs are compared exactly, not just their total, which is stricter
         than the `unbounded_fall` count beside it;
@@ -578,8 +596,8 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
                 log(f"  plane {name}: NO landing surface in {len(holes)} painted "
                     f"column(s) — x runs {_runs(holes, step)}. INFORMATIONAL, NOT A "
                     f"PASS: plane {name} is unreachable in this act ({r['why']}), so "
-                    f"nothing can fall into them TODAY. Mark one crossover attr byte and "
-                    f"this same run turns red.")
+                    f"nothing can fall into them TODAY. Give the act one layer line that "
+                    f"selects plane B and this same run turns red.")
             else:
                 log(f"  plane {name}: a landing surface in every painted column "
                     f"(unreachable in this act, reported anyway)")

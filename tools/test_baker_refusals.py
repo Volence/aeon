@@ -150,13 +150,15 @@ def _run_collision_gate(monkeypatch, root):
 def _authored_nonair(collattr_path):
     """Non-air cells the editor authored on plane A of one section, counted from the
     file itself: a cell is its top tile row's word, non-air when it has a shape AND a
-    solidity (or a crossover mark). The expectation is derived, never a pinned count."""
+    solidity. (A crossover mark on an air cell also counted until LINES-EVERYWHERE retired
+    the marks on 2026-09-26; the bake now refuses one.) The expectation is derived, never a
+    pinned count."""
     words = struct.unpack(f">{W * W}H", open(collattr_path, "rb").read())
     n = 0
     for cr in range(W // 2):
         for c in range(W):
             w = words[(2 * cr) * W + c]
-            if ((w & 0x3FF) and (w >> 12) & 3) or (w >> 14) & 3:
+            if (w & 0x3FF) and (w >> 12) & 3:
                 n += 1
     return n
 
@@ -518,6 +520,8 @@ fail_here("generate")
 open("games/sonic4/data/collision/angles.bin", "wb").write(b"RAW BASE BANK")
 ''',
         "effects_gen.py": _STUB_WRITER,
+        # the act's authored layer lines -> its generated module (LINES-EVERYWHERE)
+        "layer_lines.py": _STUB_WRITER + 'fail_here("layer_lines")\n',
         "ojz_block_gen.py": _STUB_WRITER,
         "verify_level_bin.py": _STUB_WRITER + 'fail_here("verify")\n',
         # the FG page-budget lane (STITCHED-ACT-PAGE-ORDER wiring) runs after verify
@@ -605,10 +609,11 @@ def test_f6_gate_fails_a_blob_that_encodes_another_section(tmp_path, monkeypatch
     assert any(f.startswith("block decode: sec0:") for f in fails), fails
 
 
-@pytest.mark.parametrize("fail_at", ["generate", "verify", "fg_budget"])
+@pytest.mark.parametrize("fail_at", ["generate", "layer_lines", "verify", "fg_budget"])
 def test_f5_a_refusal_after_the_first_write_leaves_the_tree_as_it_was(tmp_path, fail_at):
-    """`generate`: a refusal inside the bake (e.g. an R2 self-mark) after
-    import_sk_collision.py has rewritten the tables. `verify`: the drift gate failing
+    """`generate`: a refusal inside the bake (e.g. a retired crossover mark's reserved bits)
+    after import_sk_collision.py has rewritten the tables. `layer_lines`: the act's authored
+    layer-line bake refusing (LINES-EVERYWHERE). `verify`: the drift gate failing
     at the very end, after every output was rewritten. `fg_budget`: the FG page-budget lane
     (fg_page_order.py check) refusing after verify."""
     repo = _stub_repo(tmp_path)

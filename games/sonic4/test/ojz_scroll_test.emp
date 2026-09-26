@@ -721,7 +721,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    construction: this is the one-shot boot init (Game.entry), while
         //    BOTH readers live in the per-frame update state that only runs
         //    after it returns (Camera_Update from GameState_OJZScroll_Update;
-        //    PathSwap_Init/_Main from RunObjects, their swappers spawned by
+        //    the objects' Init/Main from RunObjects, spawned by
         //    EntityWindow_Scan). Nothing in this init spawns an object or runs
         //    the camera follow. Load-bearing, not tidiness: the cell boot-clears
         //    to 0, a NULL SST pointer into the vector table — not a benign

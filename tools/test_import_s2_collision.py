@@ -162,10 +162,13 @@ def test_solidity_is_all_except_air():
     assert solid > 200, f"only {solid} solid shapes — the bank did not load"
 
 
-def test_crossover_is_all_none():
-    """A shape VOCABULARY has no cell words behind it, so it can carry no crossover."""
-    xo = _read("crossover.bin")
-    assert len(xo) == I.SHAPES and set(xo) == {CP.XOVER_NONE}
+def test_no_crossover_table_is_written(tmp_path):
+    """The fifth table, crossover.bin, is retired with the painted crossover marks
+    (LINES-EVERYWHERE, 2026-09-26): the importer writes exactly the four collision tables."""
+    _require(S.S2_FINAL)
+    I.build(out=str(tmp_path), quiet=True)
+    assert sorted(os.listdir(str(tmp_path))) == ["angles.bin", "heightmaps.bin",
+                                                 "heightmaps_rot.bin", "solidity.bin"]
 
 
 # --- §10 row 4, check one: the round trip ----------------------------------
@@ -341,8 +344,7 @@ def test_the_importer_does_not_write_the_shipping_tables(tmp_path):
     because the shipping act's tables and the S&K bank both live there."""
     _require(S.S2_FINAL)
     coll = os.path.join(REPO, "games", "sonic4", "data", "collision")
-    names = ("heightmaps.bin", "heightmaps_rot.bin", "angles.bin", "solidity.bin",
-             "crossover.bin")
+    names = ("heightmaps.bin", "heightmaps_rot.bin", "angles.bin", "solidity.bin")
     before = {}
     for sub in ("", "base"):
         for n in names:
@@ -381,8 +383,7 @@ def test_the_importer_is_deterministic(tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
     I.build(out=str(a), quiet=True)
     I.build(out=str(b), quiet=True)
-    for n in ("heightmaps.bin", "heightmaps_rot.bin", "angles.bin", "solidity.bin",
-              "crossover.bin"):
+    for n in ("heightmaps.bin", "heightmaps_rot.bin", "angles.bin", "solidity.bin"):
         x = open(os.path.join(str(a), n), "rb").read()
         assert x == open(os.path.join(str(b), n), "rb").read(), f"{n} is not stable"
         assert x == _read(n), (
