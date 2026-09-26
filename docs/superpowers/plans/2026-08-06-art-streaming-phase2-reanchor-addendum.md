@@ -1,5 +1,8 @@
 # Re-anchor addendum — `2026-07-02-art-streaming-phase2.md` (2026-08-06)
 
+> **`SIGIL_BLOB_LEN_DRIFT` NO LONGER EXISTS (note added 2026-09-26, `parcel/psg-env-noteon`).** Sigil `4ce2509d` (their BLOB-LEN-PIN-OFF-EMIT-PATH) removed `emit_sound_blob`'s exact-length refusal: the emit now writes the resident Z80 blob at whatever length the tree produces, so a Z80 edit no longer needs the override or a sigil `BLOB_LEN_*` re-pin to build (sigil keeps `BLOB_LEN_*` only as assertions over its own pinned corpus). The resident-code ceiling is aeon's `ensure(Z80_SOUND_SIZE <= SND_STATE_BASE)` in `engine/system/boot_data.emp`, and `Z80_SOUND_SIZE` is derived from the link (`Z80_Sound_End - Z80_Sound_Start`). Every mention of the override below is the historical procedure; do not set it.
+
+
 > **SUPERSEDED 2026-08-08** by 2026-08-08-art-streaming-phase2-v2.md (rulings + re-anchor folded in). Kept for provenance.
 
 **Status: addendum only — the plan file is deliberately untouched** (rewrite
