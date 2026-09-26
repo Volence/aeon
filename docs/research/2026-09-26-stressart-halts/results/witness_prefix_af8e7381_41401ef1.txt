@@ -1,0 +1,6 @@
+stressart_legs_witness: s4.stressart.bin crc32 41401ef1, 1500 frames per leg after a 300-frame settle
+  HALT: fly right, leg frame 43: Logic_Tick unchanged for 60 frames, camera (752,144), pc $0DE56A (in the fault island at $0DD73C)
+    raise_error message: 'PageCache_AllocFrame: no free/evictable frame (thrash bug)'
+  HALT: fly diagonal, leg frame 126: Logic_Tick unchanged for 60 frames, camera (1712,1728), pc $0DE568 (in the fault island at $0DD73C)
+    raise_error message: 'PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)'
+FAIL: a leg halted
