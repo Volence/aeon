@@ -1,9 +1,9 @@
 {
-  "focus": "Emerald Hill lags less (landed). Now fixing checks that report a problem without stopping; music waits on sigil.",
+  "focus": "Five of our checks now stop on problems (landed). Next: converters that silently drop sound data; music waits on sigil.",
   "inFlight": [
     {
-      "what": "Sweep our checks for ones that print a problem but let the step go ahead anyway; fix each",
-      "where": "branch parcel/printed-not-gated",
+      "what": "Make the song and sound-effect converters refuse unknown input instead of silently dropping it",
+      "where": "branch parcel/converters-refuse-unknown",
       "agent": true
     }
   ],
@@ -19,7 +19,7 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "The check sweep landed; the music envelopes resume when sigil's address fix lands.",
+  "nextBoundary": "Converter fix landed; the music envelopes resume when sigil's address fix lands.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -74,7 +74,7 @@
     },
     {
       "id": "PRINTED-NOT-GATED",
-      "title": "Some of our checks report a problem and then let the thing proceed anyway; two did exactly that tonight, in one line each",
+      "title": "Checks that print a problem but carry on: five fixed and landed; next the music and sound-effect converters that silently drop data",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -132,5 +132,5 @@
   ],
   "awaiting": "Your pick from the performance list (card PERF-PICK) when you have a minute.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T00:27:37Z"
+  "updatedAt": "2026-09-26T01:26:30Z"
 }
