@@ -41080,13 +41080,74 @@ x 1344..1407, all on B, no floor below any of them, y 1109 at x 1347 / 1351). It
    two Emerald Hill pits on B. Other clip manifests (`s2_ehz_boot`, `s2_two_clip`,
    `s2_two_clip_pins`) were not re-baked here; their plane B is reachable too, and a build of
    one will fail clip_reachability until its plane-B holes are declared or fixed.
-3. **OJZ's rightward circuit still exits on plane B** (today's behaviour, reproduced exactly on
-   purpose): a rightward player at 6 or 9 px/frame goes round the loop again and again (layer
-   changes at ticks ~25/65/97/130), because the floor lines fire "to B" on the way out as well as
-   on the way in. This is the "RIGHTWARD CIRCUIT STILL EXITS ON THE WRONG PLANE" paint question
-   (booked 2026-09-05). Lines can fix it the way Sonic 2 does (a line past the exit foot that
-   puts a rightward player back on A, or the entry line moved), but that changes behaviour, so it
-   is the owner's call, now a one-line edit to `layer_lines.json` instead of a paint change.
+3. **DONE 2026-09-26 (LOOP-EXIT, branch `fix/ojz-loop-exit`, owner said yes).** ~~OJZ's
+   rightward circuit still exits on plane B~~: a rightward player at 6 or 9 px/frame went round
+   the loop again and again, because the floor lines fired "to B" on the way out as well as on
+   the way in.
+   - **Why, measured** (base DEBUG ROM crc `8e6de1fa`, oracle-aether md5 `3e7c2778`): the loop's
+     left arc is on plane A only and its right arc on plane B only. The floor lines at x
+     1144/1152 stood between the arcs, so the rider crossed them rightward twice per lap: going
+     in (to B, up the right arc) and coming out after the crown lines had put him on A (to B
+     again, and the right arc caught him). 6 px/frame: 2 laps, then fell through the floor at
+     the left arc's foot; 9 px/frame: 3 laps, then thrown out of the left arc. Leftward had the
+     mirror double lap (6 px/frame: 3 laps), and at 9 and 16 px/frame the leftward rider crossed
+     the crown with his centre at y 414 / 402, ABOVE the crown lines' extent (416..447), stayed on
+     A, and came down the right side on the wrong plane. At 16 px/frame some rightward phases came
+     off the crown airborne and were shoved back across x 1144, which put them on B again.
+   - **The fix, data only** (`layer_lines.json`, format unchanged, still 4 rows; Sonic 2's layout
+     mirrored, ARCH §4.7): floor lines deleted; entry line x 1024 y 512..575 (right: B high, left:
+     A low); exit line x 1280 y 384..575 (A low both ways); crown lines now y 384..447 and
+     grounded-only, like Sonic 2's apex line.
+   - **Proved** (`tools/loop_step_over_witness.py`, which now FAILS a second lap, a wrong-plane
+     descent and a bad exit; new `--stand-reverse` arm; keepalive rows re-measured and one added):
+     keepalive_lane on the old lines 4/4 FAILED, on the new lines 4/4 PASSED on both the DEBUG
+     (crc `f0a35f5a`) and plain (crc `f1c2ae37`) ROMs.
+   - **Speed x phase sweep** (DEBUG ROMs, both directions, 3..16 px/frame, eight start phases
+     each: 224 drives per layout, 300 frames; lap-check verdicts):
+
+     | layout | direction | one lap, out on A | FAIL | NOT MEASURED (collision fault named) |
+     |---|---|---|---|---|
+     | old (`8e6de1fa`) | right | 0 | 80 | 32 |
+     | old | left | 0 | 98 | 14 |
+     | new (`f0a35f5a`) | right | 81 | **0** | 31 |
+     | new | left | 103 | **0** | 9 |
+
+     Old-lines failures: 113 double laps, 60 wrong-plane descents, 5 one lap and no exit (and 21
+     of their NOT MEASURED drives fell through the floor, fault a below). On the new lines no
+     drive fails; every drive that rides over the crown comes down on the right plane and every
+     one that reaches the far side is on plane A at low priority.
+   - **NEW, booked here: collision/slope faults the witness now names instead of passing.** NOT
+     layer faults: in each the rider is on the plane of the surface he is on, and the same
+     classes occur on the old lines (which start phases hit them moved, because the entry
+     changed). They are what still stops "one lap and out, at any speed" on the new lines; the
+     witness reports each as NOT MEASURED with the fault named. Counts are the new lines'
+     sweep above:
+     a. **Fell through the floor at the left arc's foot (11 rightward drives, 3..10 px/frame).**
+        THE MOST VISIBLE ONE: after a clean lap on plane A, descending the left arc, the angle
+        locks at `$24` from about (1096, 538) and the rider keeps going down-right at that angle
+        through the 16 px floor (y 576..591) and falls out of the level. Same on the old lines
+        (their 6 px/frame phase-0 drive did it on its second descent).
+     b. **Came off an arc before riding over the crown (15 rightward, 3 of them stopped below
+        the half height; 3 leftward).** Mostly at
+        13..16 px/frame rightward: the climb reaches angle `$E0` near (1238, 497) and ground
+        speed drops to 0 in one frame (a wall hit), or he detaches at angle `$C0` and flies
+        across the interior. Phase 0 at 16 px/frame does it on both line sets.
+     c. **Out through the crown (6 leftward, 14..16 px/frame).** The rider climbs the left arc
+        and passes UP through the crown's column at x 1136..1151 (air rows at y 396..399 and
+        408..411 on both planes), ending on top of the loop at (1178, 349). Identical on both
+        line sets.
+     d. **Thrown out through the left arc (4 rightward, 10..15 px/frame).** After the crown,
+        descending the left arc on plane A (its own plane), the angle locks at `$5C` and the
+        rider runs down-left through the arc's solid and out of the loop, then walks back in.
+     e. **Left over the top (1 rightward, 10 px/frame).** Shoved right along the crown's
+        underside at y 402 and out over the right arc.
+   - **Known blind spot of the witness** (its header says so): a rider who falls off the crown
+     BEFORE the midpoint is NOT MEASURED even if a missing layer change made him fall. The old
+     lines' leftward 9 px/frame drive is such a case; the old lines still fail on other drives.
+   - **Look call, not measured:** the entry line moves the rightward rider onto B, which draws
+     him at HIGH priority, 120 px earlier than before (from x 1024 instead of x 1144), so he now
+     passes the left arc's foot drawn in front of high-priority tiles. Whether that reads right
+     is TAG-LOOK item 1 (above, LOOPS-P) and nobody has looked at a frame of it.
 4. **An act with no lines** must bind `act_layer_lines` 0; the descriptor refuses an authored
    file with every line deleted rather than bind an empty table. Build the 0 branch when a
    canonical act first needs it.

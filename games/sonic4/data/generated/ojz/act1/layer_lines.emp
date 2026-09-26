@@ -13,9 +13,9 @@ use engine.structs.{LayerLine}
 // 4 authored line(s) -> 4 row(s), between two sentinels.
 pub const OJZ_ACT1_LAYER_LINE_ROWS: [LayerLine; 6] = [
     LayerLine{ ll_key: $8000, ll_a: 0, ll_b: 0, ll_flags: 0, ll_pad: 0 },  // sentinel: every key is above it
-    LayerLine{ ll_key: 1144, ll_a: 416, ll_b: 448, ll_flags: $28, ll_pad: 0 },  // layer_lines.json loop0_crown_west -> act (1144, 416)
-    LayerLine{ ll_key: 1144, ll_a: 544, ll_b: 576, ll_flags: $28, ll_pad: 0 },  // layer_lines.json loop0_floor_west -> act (1144, 544)
-    LayerLine{ ll_key: 1152, ll_a: 416, ll_b: 448, ll_flags: $28, ll_pad: 0 },  // layer_lines.json loop0_crown_east -> act (1152, 416)
-    LayerLine{ ll_key: 1152, ll_a: 544, ll_b: 576, ll_flags: $28, ll_pad: 0 },  // layer_lines.json loop0_floor_east -> act (1152, 544)
+    LayerLine{ ll_key: 1024, ll_a: 512, ll_b: 576, ll_flags: $28, ll_pad: 0 },  // layer_lines.json loop0_entry_west -> act (1024, 512)
+    LayerLine{ ll_key: 1144, ll_a: 384, ll_b: 448, ll_flags: $2A, ll_pad: 0 },  // layer_lines.json loop0_crown_west -> act (1144, 384)
+    LayerLine{ ll_key: 1152, ll_a: 384, ll_b: 448, ll_flags: $2A, ll_pad: 0 },  // layer_lines.json loop0_crown_east -> act (1152, 384)
+    LayerLine{ ll_key: 1280, ll_a: 384, ll_b: 576, ll_flags: $00, ll_pad: 0 },  // layer_lines.json loop0_exit_east -> act (1280, 384)
     LayerLine{ ll_key: $7FFF, ll_a: 0, ll_b: 0, ll_flags: 0, ll_pad: 0 },  // sentinel: every key is below it
 ]
