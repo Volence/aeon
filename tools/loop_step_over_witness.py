@@ -78,6 +78,7 @@ Usage:
     loop_step_over_witness.py --rom A.bin --lst A.lst --compare B.bin B.lst   (A/B, per frame)
     loop_step_over_witness.py ... --dir right --gsp 0x900 -v
     loop_step_over_witness.py ... --phase-sweep
+    loop_step_over_witness.py ... --stand-reverse      (standing/turning at the floor lines)
 """
 
 import argparse
@@ -383,10 +384,12 @@ def _s16(v):
 
 
 async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="right",
-                assert_grounded=True):
-    """One drive. Returns {"rows": [...], "table": [...] or None, "start": (x, feet)}."""
+                assert_grounded=True, script=None, x_start=None):
+    """One drive. Returns {"rows": [...], "table": [...] or None, "start": (x, feet)}.
+    `script` (the --stand-reverse arm): instead of holding `direction` and injecting `gsp`,
+    play [(button or None, frames), ...] from rest, starting at act x `x_start`."""
     d = DRIVES[direction]
-    x0 = d["x"] + start_dx
+    x0 = (d["x"] if x_start is None else x_start) + start_dx
     radius = equs["PLAYER_Y_RADIUS"]
     feet = ground_feet(x0, 2 * radius + 1)
     client = BusClient(socket_path=sock, client_id="lsow", client_name="loop-step-over")
@@ -468,9 +471,13 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="r
                     raise SystemExit("loop_step_over_witness: no trailing sentinel within "
                                      "4096 rows of $%06X" % tptr)
 
-        # 5. hold the direction and inject the ground speed ONCE
-        await client.call("emulator/hold", {"buttons": [d["button"]], "down": True})
-        await b.write(A_GSP, (d["sign"] * gsp) & 0xFFFF, 2)
+        # 5. hold the direction and inject the ground speed ONCE (or, scripted, nothing yet)
+        if script is None:
+            await client.call("emulator/hold", {"buttons": [d["button"]], "down": True})
+            await b.write(A_GSP, (d["sign"] * gsp) & 0xFFFF, 2)
+            plan, held = [(d["button"], frames)], d["button"]
+        else:
+            plan, held = script, None
 
         # 6. one frame at a time: at 9 px/frame a player crosses an 8 px cell in under one
         #    frame, so any coarser interval cannot resolve a layer change even in principle.
@@ -489,15 +496,28 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="r
                     "tick": int.from_bytes(await b.read(A_TICK, 4), "big")}
 
         rows.append(await sample(-1))                    # the landed state, before frame 0
-        for f in range(frames):
-            await b.frames(1)
-            st = await b.status()
-            sym = st.get("symbolAtPc") or ""
-            if "ErrorHandler" in sym:
-                rows.append({"frame": f, "fault": sym, "pc": st.get("pc")})
+        f, faulted = 0, False
+        for button, n in plan:
+            if button != held:
+                if held:
+                    await client.call("emulator/hold", {"buttons": [held], "down": False})
+                if button:
+                    await client.call("emulator/hold", {"buttons": [button], "down": True})
+                held = button
+            for _ in range(n):
+                await b.frames(1)
+                st = await b.status()
+                sym = st.get("symbolAtPc") or ""
+                if "ErrorHandler" in sym:
+                    rows.append({"frame": f, "fault": sym, "pc": st.get("pc")})
+                    faulted = True
+                    break
+                rows.append(await sample(f))
+                f += 1
+            if faulted:
                 break
-            rows.append(await sample(f))
-        await client.call("emulator/hold", {"buttons": [d["button"]], "down": False})
+        if held:
+            await client.call("emulator/hold", {"buttons": [held], "down": False})
         return {"rows": rows, "table": table, "start": (x0, feet)}
     finally:
         await client.close()
@@ -641,6 +661,104 @@ def compare(a, b):
             "end_equal": bool(common) and ta[common[-1]][1:5] == tb[common[-1]][1:5]}
 
 
+#: THE STAND-REVERSE ARM (LOOP-EXIT, 2026-09-26). LOOP-EXIT put two lines on open floor, at
+#: the loop's west entry and its east exit, where a player can stand, walk, stop and turn.
+#: Such a player must change layer ONLY by crossing a line, exactly as its row says, and the
+#: exit line (A both ways) must never put him on B. Each plan starts from rest beside (or on)
+#: one of the two floor lines, found in the COMMITTED layer_lines.json (the floor-band lines
+#: either side of LOOP_MID_X) and required to be in the ROM's own table, and plays held
+#: buttons: (button or None, frames). Graded by predict() on every tick; `need` says the
+#: plan must actually cross its line both ways (a plan that crossed nothing proved nothing).
+LINES_JSON = EDITOR_ACT / "layer_lines.json"
+STAND_REVERSE = {
+    "entry: stand beside it, walk over, turn back, walk over again": (
+        "entry", -8, [(None, 20), ("right", 30), (None, 6), ("left", 40), (None, 20),
+                      ("right", 30), (None, 30)], True),
+    "entry: stand ON it": ("entry", 0, [(None, 60)], False),
+    "exit: stand beside it, walk over, turn back, walk over again": (
+        "exit", 8, [(None, 20), ("left", 30), (None, 6), ("right", 40), (None, 20),
+                    ("left", 30), (None, 30)], True),
+    "exit: stand ON it": ("exit", 0, [(None, 60)], False),
+}
+
+
+def floor_lines(path=LINES_JSON):
+    """{"entry": x, "exit": x}: the vertical lines of the committed file whose extent covers
+    the pixel row just above the loop's floor (LOOP_FLOOR_Y - 1), west and east of
+    LOOP_MID_X. The crown lines stop well above it."""
+    import layer_lines as LLN
+    band = LOOP_FLOOR_Y - 1
+    out = {}
+    for ln in LLN.authored_lines(str(path)):
+        if ln["horizontal"] or not (ln["lo"] <= band < ln["hi"]):
+            continue
+        out.setdefault("entry" if ln["x"] < LOOP_MID_X else "exit", []).append(ln["x"])
+    if sorted(out) != ["entry", "exit"] or any(len(v) != 1 for v in out.values()):
+        raise SystemExit("loop_step_over_witness: --stand-reverse wants exactly one floor-band "
+                         "line each side of x %d in %s; found %s"
+                         % (LOOP_MID_X, path.relative_to(REPO), out))
+    return {k: v[0] for k, v in out.items()}
+
+
+def stand_reverse(rom, lst, verbose):
+    """Run every STAND_REVERSE plan. Returns (exit code, [results])."""
+    syms, equs = parse_lst(lst, GRADE_SYMS, GRADE_EQUS)
+    keys = floor_lines()
+    fails, results, unmeasured = [], [], []
+    for name, (which, dx, script, need) in STAND_REVERSE.items():
+        key = keys[which]
+        print("=" * 78)
+        with aether_emulator(rom, symbols=lst) as sock:
+            res = asyncio.run(drive(sock, syms, equs, 0, 0, verbose, dx, "right", True,
+                                    script=script, x_start=key))
+        rows = res["rows"]
+        live = [r for r in rows if "layer" in r]
+        print("  %-62s start x %d (line x %d): x %d..%d, end (%d, %d) layer %d prio %d"
+              % (name, key + dx, key, min(r["x"] for r in live), max(r["x"] for r in live),
+                 live[-1]["x"], live[-1]["y"], live[-1]["layer"], live[-1]["prio"]))
+        changes = [(r["frame"], r["x"], r["layer"], r["prio"]) for a, r in zip(live, live[1:])
+                   if (a["layer"], a["prio"]) != (r["layer"], r["prio"])]
+        print("      layer/priority changes (frame, x, layer, prio): %s" % changes)
+        if verbose:
+            for r in live:
+                print("        f%-4d x=%-5d y=%-5d layer=%d prio=%d air=%d gsp=%d"
+                      % (r["frame"], r["x"], r["y"], r["layer"], r["prio"], r["air"], r["gsp"]))
+        why = []
+        if any("fault" in r for r in rows):
+            why.append("the ROM FAULTED")
+        table = res["table"] or []
+        if not any(t["key"] == key for t in table):
+            why.append("the ROM's table has no row at x %d: this ROM was not built from %s"
+                       % (key, LINES_JSON.relative_to(REPO)))
+        if not why:
+            bad, fires = predict(rows, table, equs)
+            mine = {d for _f, i, d in fires if table[i]["key"] == key}
+            print("      GRADE: %d crossing(s) of x %d (%s), %d tick(s) disagree"
+                  % (sum(1 for _f, i, _d in fires if table[i]["key"] == key), key,
+                     "/".join(sorted(mine)) or "none", len(bad)))
+            for fr, want, got, w in bad[:8]:
+                print("        DISAGREE f%s: want %s, ROM has %s  [%s]" % (fr, want, got, w))
+            if bad:
+                why.append("%d tick(s) disagree with the table" % len(bad))
+            if which == "exit" and any(r["layer"] == equs["LAYER_PATH_B"] for r in live):
+                why.append("on plane B beside the exit line, which is A both ways")
+            if need and mine != {"fwd", "back"}:
+                unmeasured.append("%s: crossed x %d %s" % (name, key, sorted(mine) or "never"))
+        if why:
+            fails.append("%s: %s" % (name, "; ".join(why)))
+        results.append({"plan": name, "line_x": key, "changes": changes, "why": why})
+    if fails:
+        print("RESULT: FAILED — %s" % " | ".join(fails))
+        return 1, results
+    if unmeasured:
+        print("RESULT: COULD NOT GRADE — a plan did not cross its line both ways, so it proved "
+              "nothing about turning on it: %s" % " | ".join(unmeasured))
+        return 2, results
+    print("RESULT: PASSED — %d stand/reverse plan(s) at the entry and exit lines, every tick "
+          "agreed with the ROM's table, never on plane B at the exit" % len(results))
+    return 0, results
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", required=True)
@@ -664,9 +782,17 @@ def main():
                     help="at the cap (or --gsp), sweep start-dx over one COLL_CELL_W stride "
                          "in each direction: the sub-cell phase decided a painted mark's "
                          "step-over, so it is the variable a line must be indifferent to")
+    ap.add_argument("--stand-reverse", action="store_true",
+                    help="instead of the loop drives: stand beside and on the loop's entry and "
+                         "exit floor lines, walk over them and turn back (STAND_REVERSE)")
     ap.add_argument("--json", default=None)
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    if args.stand_reverse:
+        rc, results = stand_reverse(args.rom, args.lst, args.verbose)
+        if args.json:
+            pathlib.Path(args.json).write_text(json.dumps(results, indent=1) + "\n")
+        return rc
 
     syms, equs = parse_lst(args.lst, GRADE_SYMS, GRADE_EQUS)
     speeds = ([int(args.gsp, 0)] if args.gsp else

@@ -326,3 +326,72 @@ def test_thrown_out_backwards_then_a_clean_retry_is_not_a_double_lap():
     assert lap["verdict"] == "unmeasured" and "THROWN OUT BACKWARDS" in lap["why"], lap
     lap2 = L.lap_check(_lap("right", laps=2, table=OLD_TABLE) + out, "right", EQUS)
     assert lap2["verdict"] == "fail" and "DOUBLE LAP" in lap2["why"]
+
+
+# ---------------------------------------------------------------------------------------
+# THE STAND-REVERSE ARM (LOOP-EXIT): standing and turning at the two floor lines.
+# ---------------------------------------------------------------------------------------
+
+def test_the_stand_reverse_lines_come_from_the_committed_file():
+    assert L.floor_lines() == {"entry": 1024, "exit": 1280}
+
+
+def _walk(xs, table):
+    """A walk along the floor through end-of-tick xs, layered honestly by `table`."""
+    rows = [{"frame": f - 1, "x": x, "y": FLOOR, "layer": 0, "prio": 0, "air": 0, "angle": 0,
+             "gsp": 0} for f, x in enumerate(xs)]
+    for _ in range(16):
+        bad, _fires = L.predict(rows, table, EQUS)
+        if not bad:
+            return rows
+        for r in rows:
+            if r["frame"] >= bad[0][0]:
+                r["layer"], r["prio"] = bad[0][1]
+    raise AssertionError("did not settle")
+
+
+def _stub_sr(monkeypatch, table, walk_for):
+    monkeypatch.setattr(L, "parse_lst", lambda lst, *a, **k: ({}, dict(EQUS)))
+
+    @contextlib.contextmanager
+    def fake_emulator(rom, symbols=None):
+        yield "fake.sock"
+
+    async def fake_drive(*a, script=None, x_start=None, **k):
+        return {"rows": walk_for(x_start, a[6]), "table": table, "start": (x_start, 576)}
+
+    monkeypatch.setattr(L, "aether_emulator", fake_emulator)
+    monkeypatch.setattr(L, "drive", fake_drive)
+
+
+def _there_and_back(key, dx, table):
+    """From key + dx: over the line and back again (standing still when dx is 0)."""
+    x0 = key + dx
+    if dx == 0:
+        return _walk([x0] * 20, table)
+    toward = 1 if dx < 0 else -1
+    xs = [x0 + toward * 2 * k for k in range(12)]
+    xs += [xs[-1] - toward * 2 * k for k in range(1, 12)]
+    return _walk(xs, table)
+
+
+def test_stand_reverse_passes_on_the_committed_layout(monkeypatch, capsys):
+    _stub_sr(monkeypatch, LAP_TABLE, lambda key, dx: _there_and_back(key, dx, LAP_TABLE))
+    rc, _ = L.stand_reverse("x.bin", "x.lst", False)
+    assert rc == 0, capsys.readouterr().out
+
+
+def test_stand_reverse_fails_on_plane_b_at_the_exit(monkeypatch, capsys):
+    """Red: an exit line that puts a rightward walker on B (the mutation also run on a real
+    ROM, 2026-09-26) fails even though every tick agrees with that table."""
+    table = [dict(r, flags=_TO_B) if r["key"] == 1280 else r for r in LAP_TABLE]
+    _stub_sr(monkeypatch, table, lambda key, dx: _there_and_back(key, dx, table))
+    rc, _ = L.stand_reverse("x.bin", "x.lst", False)
+    text = capsys.readouterr().out
+    assert rc == 1 and "on plane B beside the exit line" in text, text
+
+
+def test_stand_reverse_that_never_crossed_could_not_grade(monkeypatch, capsys):
+    _stub_sr(monkeypatch, LAP_TABLE, lambda key, dx: _walk([key + dx] * 20, LAP_TABLE))
+    rc, _ = L.stand_reverse("x.bin", "x.lst", False)
+    assert rc == 2, capsys.readouterr().out
