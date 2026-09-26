@@ -41361,3 +41361,29 @@ Residue, OPEN:
   walk. This was true before the amortise. The new (b1)/(b2) single-word arms are the ones
   that reach the walk (red-first: they go red with the walk stubbed). The (b) arm's label
   over-claims. Rename or re-aim it.
+
+## RESIDENT-PLAIN-COPY: resident acts copy physical words with no per-word translate (branch `parcel/resident-plain-copy`, booked 2026-09-26)
+
+**What landed** (ARCH §9.7 "The resident regime copies"; design and evidence
+`docs/research/2026-09-26-resident-plain-copy.md`): perf-survey candidate 3, the "copy" half of
+the owner's `PERF-PICK` = `audit-and-copy`. The level tool bakes an act whose pool fits
+`PAGE_FRAMES` in PHYSICAL form (attr|global, blank `$0000`, pool-slot identity maps,
+`Act.act_nt_physical`), and `Level_LoadArt` latches `PAGECACHE_DIRECT_PLAIN` when that act is
+also proven resident at runtime. Canonical DEBUG fly diagonal 43/406 -> 14/377; 45/45 matched
+stop points identical (visible Plane A, Plane B, tile cache).
+
+**Open riders:**
+- **RPC-1 (unmeasured lever):** the plain loops are the simple ones the survey priced
+  (Seq `move.w (a0)+,(a1)+`/`dbf` ~22 cyc/word, Col strided ~38). Long-pair Seq (~15) and a
+  Duff-style `move.w d16(a0),d16(a1)` Col (~20) are available; not built, gain not measured.
+- **RPC-2 (resident clip act not measured):** `clip_rom_bake.py` runs the same
+  `ojz_strip_gen.generate()`, so a clip whose pool fits (`s2_ehz_boot`) now bakes PHYSICAL too.
+  Its picture and lag were not measured by this parcel; the streaming two-zone clip
+  (`s2_ehz_cpz`, 17 pages) stays LOCAL.
+- **RPC-3 (release picture):** the nametable witness needs free flight, so it ran on DEBUG only;
+  the copy code is shared with release, which differs only in DEBUG blocks.
+- **AA-1 note (audit amortise's booked write barrier):** slicing the GENERAL-regime refcount
+  check needs a write barrier at the copy sites. After this parcel only `pc_patch_run_loop`
+  (the general arm) keeps refcounts; the plain, direct and bounded arms keep none and need no
+  barrier, and the new dispatch isolates the general arm behind one `tst/bmi/movem/bne`. That
+  narrows where a barrier goes; it does not make the barrier itself simpler.

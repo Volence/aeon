@@ -1,0 +1,12 @@
+Sat Sep 26 08:34:16 AM UTC 2026
+set=canon romdir=/home/volence/.cache/aeon_rpc/rpc_a3972/base2
+7.96 8.58 9.90 9/2644 3882388
+dbg_fly rc=0 loadavg=8.12 8.60 9.90
+dbg_down rc=0 loadavg=8.12 8.60 9.90
+dbg_diag rc=0 loadavg=8.03 8.58 9.89
+dbg_run rc=0 loadavg=8.03 8.58 9.89
+dbg_spin rc=0 loadavg=8.03 8.57 9.88
+rel_run rc=0 loadavg=7.95 8.53 9.85
+rel_spin rc=0 loadavg=7.79 8.49 9.83
+Sat Sep 26 08:34:45 AM UTC 2026
+finished=7

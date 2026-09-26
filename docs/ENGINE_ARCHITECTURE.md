@@ -1716,7 +1716,7 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame into the pool's character DPLC window (tile $3C0). If strictly one character at a time (no AI follower), this can shrink to 64 tiles.
 
-**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` tiles each, read from `engine/system/constants.emp`; 64 today), and each tile receives a permanent global pool index. **The order is chosen against the page budget, and the build refuses an act it cannot fit (STITCHED-ACT-PAGE-ORDER, 2026-09-17; §9.7 "Window page budget")**: when the first-occurrence order leaves any camera window needing more than `PAGE_FRAMES` pages, the generator instead dedupes per zone, pages per zone and runs a budget-aimed swap search (`tools/fg_page_order.py`). Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation.
+**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` tiles each, read from `engine/system/constants.emp`; 64 today), and each tile receives a permanent global pool index. **The order is chosen against the page budget, and the build refuses an act it cannot fit (STITCHED-ACT-PAGE-ORDER, 2026-09-17; §9.7 "Window page budget")**: when the first-occurrence order leaves any camera window needing more than `PAGE_FRAMES` pages, the generator instead dedupes per zone, pages per zone and runs a budget-aimed swap search (`tools/fg_page_order.py`). Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation. **Exception (resident plain copy, 2026-09-26):** an act whose pool fits `PAGE_FRAMES` is baked in PHYSICAL form: its words carry the global index itself (a blank stored as `$0000`) and every section's table is the pool-slot identity, so a fully resident act's copy runs are a plain word copy (§9.7, "The resident regime copies").
 
 Result: section transitions perform no per-section art swap — a global index names one deduped tile for the whole act, and the §9.7 residency cache keeps referenced pages resident (fully resident when the pool fits the frame budget; streamed on demand + prefetch past it). There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent global index, and the cache maps that index's page to a VRAM frame at runtime.
 
@@ -5570,7 +5570,8 @@ page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read of
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven.
-Staged nametable words stay section-LOCAL, and the local→global map is applied per word
+Staged nametable words stay section-LOCAL (except in a PHYSICAL-form act, below, whose
+maps are the identity), and the local→global map is applied per word
 inside the `PageCache_PatchRun_Seq`/`_Col` copy runs and the prefetch scan (F-3
 merge-translation): the full-width
 global exists only in a register, the 11-bit nametable field only ever carries the
@@ -5620,6 +5621,28 @@ refcounts (the "variants got mixed" detector), no cache word referencing an unas
 (the no-dangling-index property the refcounts protected), and that `Page_Table` is still the
 identity. The per-word dangling check is the half the idle slot audits in slices (see the
 correctness-invariants list above). See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
+
+**The resident regime copies: physical-form acts (resident plain copy, 2026-09-26).**
+F1 left one per-word cost on a fully resident act: the section map read that turns a staged
+LOCAL word into its global (== physical) one. It is gone for an act the level tool bakes in
+**physical form**, which it does whenever the pool fits `PAGE_FRAMES`
+(`ojz_strip_gen.py` Pass 5): every block word is `attr | global`, a blank word is stored as
+`$0000` (the word every patch loop writes for a blank; OJZ had 39,443 blank words carrying
+attribute bits the engine never stored), and every section's map is the **pool-slot
+identity**. The generated `OJZ_ACT_NT_PHYSICAL` lands in `Act.act_nt_physical` (the former
+`pad_21`). `Level_LoadArt` latches `PAGECACHE_DIRECT_PLAIN` ($80) where it would latch
+`RESIDENT` AND the act is physical; `PageCache_PatchRun_Seq/_Col` test the latch's sign before
+the register bank, so the plain arm skips the bank and copies (`move.w (a0)+,(a1)+` on rows,
+a strided copy on columns), while the general and bounded arms execute the same instructions
+as before. Why the build tool may choose the form although residency is a RUNTIME fact (a
+`STRESS_EVICT` shape streams the same committed tree): under identity maps every translating
+loop reproduces the physical words exactly, so a physical act that turns out not to be
+resident is merely not accelerated, never wrong. The plain loop has no per-word DEBUG bound;
+that moved to build time (`verify_level_bin.py` `verify_nt_form`: form matches the page-count
+rule, identity maps, no attribute bits on a blank, every index a real pool slot), and
+`PageCache_Audit` takes its latched arm for any non-zero latch. Measured and derived in
+`docs/research/2026-09-26-resident-plain-copy.md`. Streaming acts (the Sonic 2 clip) keep
+LOCAL form and the translating loops unchanged.
 
 **The streaming path, made as cheap as the resident one where it can be (S2CLIP-LAG, 2026-09-25).**
 The two-zone Sonic 2 clip act (14 pages against 12 frames) was the first flown act that does not

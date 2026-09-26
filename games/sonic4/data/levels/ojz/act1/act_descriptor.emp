@@ -116,6 +116,7 @@ use engine.constants.{SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN
 // could not, and the pool-tile ceiling proof below now fails at COMPTIME).
 use games.sonic4.ojz_act_assets_act1.{BG_LAYOUT_TALL_SPAN}   // regions part 2 step 5
 use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES}
+use games.sonic4.ojz_sec_local_maps_act1.{OJZ_ACT_NT_PHYSICAL}   // resident plain copy: the baked word form
 use games.sonic4.ojz_block_dicts_act1.{
     OJZ_SEC0_BLOCK_DICT_LEN,
     OJZ_SEC1_BLOCK_DICT_LEN,
@@ -230,7 +231,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     act_art_pool_table:  OJZ_Act_Pool_PageTable,         // manifest v2 table [PageManifest;N] (generated)
     act_art_pool_pages:  OJZ_ACT_POOL_PAGES,             // generated manifest const
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
-    pad_21:              default,
+    act_nt_physical:     OJZ_ACT_NT_PHYSICAL,            // generated: 1 = physical-form words (resident plain copy)
     act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
     act_art_budget:      ACT_ART_BUDGET,                  // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling; guarded above
     // painted-regions v1 — the table at the end of this file, unless a clip act is baked in

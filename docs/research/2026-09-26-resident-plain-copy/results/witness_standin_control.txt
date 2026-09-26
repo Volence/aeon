@@ -1,0 +1,54 @@
+A s4.debug.bin crc=d91dc2c6 direct_map=$FF   B s4.debug.bin crc=cdc6219d direct_map=$FF   dirs=right
+  t=  20 cam=(416, 144) lagA=44 lagB=42 | planeA visible diff 541 (content 111/1189) off-screen diff 946 | planeB diff 0 | tilecache diff 1876 (content 176/4800)  DIFFERENT
+  t=  40 cam=(736, 144) lagA=44 lagB=42 | planeA visible diff 442 (content 305/1189) off-screen diff 957 | planeB diff 0 | tilecache diff 1755 (content 976/4800)  DIFFERENT
+  t=  60 cam=(1056, 144) lagA=44 lagB=42 | planeA visible diff 431 (content 329/1189) off-screen diff 819 | planeB diff 0 | tilecache diff 1618 (content 1133/4800)  DIFFERENT
+  t=  80 cam=(1376, 144) lagA=44 lagB=42 | planeA visible diff 595 (content 0/1189) off-screen diff 812 | planeB diff 0 | tilecache diff 1785 (content 223/4800)  DIFFERENT
+  t= 100 cam=(1696, 144) lagA=44 lagB=42 | planeA visible diff 595 (content 0/1189) off-screen diff 877 | planeB diff 0 | tilecache diff 1968 (content 249/4800)  DIFFERENT
+  t= 120 cam=(2016, 144) lagA=44 lagB=42 | planeA visible diff 872 (content 553/1189) off-screen diff 896 | planeB diff 0 | tilecache diff 2288 (content 872/4800)  DIFFERENT
+  t= 140 cam=(2336, 144) lagA=44 lagB=42 | planeA visible diff 902 (content 612/1189) off-screen diff 1082 | planeB diff 0 | tilecache diff 2480 (content 1241/4800)  DIFFERENT
+  t= 160 cam=(2656, 144) lagA=44 lagB=42 | planeA visible diff 869 (content 613/1189) off-screen diff 1072 | planeB diff 0 | tilecache diff 2336 (content 1589/4800)  DIFFERENT
+  t= 180 cam=(2976, 144) lagA=44 lagB=42 | planeA visible diff 671 (content 615/1189) off-screen diff 1030 | planeB diff 0 | tilecache diff 2064 (content 2171/4800)  DIFFERENT
+  t= 200 cam=(3296, 144) lagA=44 lagB=42 | planeA visible diff 603 (content 540/1189) off-screen diff 929 | planeB diff 0 | tilecache diff 1888 (content 2016/4800)  DIFFERENT
+  t= 240 cam=(3936, 144) lagA=44 lagB=42 | planeA visible diff 757 (content 570/1189) off-screen diff 894 | planeB diff 0 | tilecache diff 2199 (content 1522/4800)  DIFFERENT
+  t= 280 cam=(4576, 144) lagA=44 lagB=42 | planeA visible diff 959 (content 714/1189) off-screen diff 1121 | planeB diff 0 | tilecache diff 2566 (content 1427/4800)  DIFFERENT
+  t= 320 cam=(5216, 144) lagA=44 lagB=42 | planeA visible diff 902 (content 613/1189) off-screen diff 1082 | planeB diff 0 | tilecache diff 2480 (content 1254/4800)  DIFFERENT
+  t= 360 cam=(5824, 144) lagA=44 lagB=42 | planeA visible diff 902 (content 613/1189) off-screen diff 1082 | planeB diff 0 | tilecache diff 1860 (content 928/4800)  DIFFERENT
+  t= 400 cam=(5824, 144) lagA=44 lagB=42 | planeA visible diff 902 (content 613/1189) off-screen diff 1082 | planeB diff 0 | tilecache diff 1860 (content 928/4800)  DIFFERENT
+verdict: DIFFERENT
+leg right compare rc=1
+A s4.debug.bin crc=d91dc2c6 direct_map=$FF   B s4.debug.bin crc=cdc6219d direct_map=$FF   dirs=down
+  t=  20 cam=(96, 432) lagA=44 lagB=42 | planeA visible diff 144 (content 510/1189) off-screen diff 892 | planeB diff 0 | tilecache diff 1034 (content 1324/4800)  DIFFERENT
+  t=  40 cam=(96, 752) lagA=44 lagB=42 | planeA visible diff 32 (content 16/1189) off-screen diff 487 | planeB diff 0 | tilecache diff 418 (content 604/4800)  DIFFERENT
+  t=  60 cam=(96, 1072) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t=  80 cam=(96, 1392) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 100 cam=(96, 1712) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 80 (content 0/4800)  DIFFERENT
+  t= 120 cam=(96, 2032) lagA=44 lagB=42 | planeA visible diff 554 (content 0/1189) off-screen diff 310 | planeB diff 0 | tilecache diff 2080 (content 795/4800)  DIFFERENT
+  t= 140 cam=(96, 2352) lagA=44 lagB=42 | planeA visible diff 488 (content 427/1189) off-screen diff 1566 | planeB diff 0 | tilecache diff 2584 (content 1987/4800)  DIFFERENT
+  t= 160 cam=(96, 2672) lagA=44 lagB=42 | planeA visible diff 82 (content 82/1189) off-screen diff 980 | planeB diff 0 | tilecache diff 904 (content 744/4800)  DIFFERENT
+  t= 180 cam=(96, 2992) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 200 cam=(96, 3312) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 240 cam=(96, 3952) lagA=44 lagB=42 | planeA visible diff 227 (content 4/1189) off-screen diff 126 | planeB diff 0 | tilecache diff 1070 (content 159/4800)  DIFFERENT
+  t= 280 cam=(96, 4592) lagA=44 lagB=42 | planeA visible diff 402 (content 376/1189) off-screen diff 1393 | planeB diff 0 | tilecache diff 812 (content 784/4800)  DIFFERENT
+  t= 320 cam=(96, 5232) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 360 cam=(96, 5872) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 400 cam=(96, 5920) lagA=44 lagB=42 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+verdict: DIFFERENT
+leg down compare rc=1
+A s4.debug.bin crc=d91dc2c6 direct_map=$FF   B s4.debug.bin crc=cdc6219d direct_map=$FF   dirs=right,down
+  t=  20 cam=(416, 432) lagA=52 lagB=46 | planeA visible diff 168 (content 629/1189) off-screen diff 929 | planeB diff 0 | tilecache diff 1198 (content 1312/4800)  DIFFERENT
+  t=  40 cam=(736, 752) lagA=61 lagB=50 | planeA visible diff 40 (content 0/1189) off-screen diff 537 | planeB diff 0 | tilecache diff 472 (content 496/4800)  DIFFERENT
+  t=  60 cam=(1056, 1072) lagA=62 lagB=50 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t=  80 cam=(1376, 1392) lagA=63 lagB=50 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 100 cam=(1696, 1712) lagA=66 lagB=51 | planeA visible diff 0 (content 0/1189) off-screen diff 4 | planeB diff 0 | tilecache diff 144 (content 128/4800)  DIFFERENT
+  t= 120 cam=(2016, 2032) lagA=75 lagB=54 | planeA visible diff 586 (content 70/1189) off-screen diff 610 | planeB diff 0 | tilecache diff 2296 (content 1214/4800)  DIFFERENT
+  t= 140 cam=(2336, 2352) lagA=82 lagB=58 | planeA visible diff 410 (content 410/1189) off-screen diff 1531 | planeB diff 0 | tilecache diff 1805 (content 1499/4800)  DIFFERENT
+  t= 160 cam=(2656, 2672) lagA=85 lagB=59 | planeA visible diff 0 (content 0/1189) off-screen diff 232 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 180 cam=(2976, 2992) lagA=86 lagB=59 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 200 cam=(3296, 3312) lagA=86 lagB=59 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 240 cam=(3936, 3952) lagA=94 lagB=61 | planeA visible diff 336 (content 220/1189) off-screen diff 310 | planeB diff 0 | tilecache diff 1360 (content 640/4800)  DIFFERENT
+  t= 280 cam=(4576, 4592) lagA=108 lagB=69 | planeA visible diff 576 (content 256/1189) off-screen diff 1540 | planeB diff 0 | tilecache diff 1056 (content 540/4800)  DIFFERENT
+  t= 320 cam=(5216, 5232) lagA=110 lagB=70 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 360 cam=(5824, 5872) lagA=110 lagB=70 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+  t= 400 cam=(5824, 5920) lagA=110 lagB=70 | planeA visible diff 0 (content 0/1189) off-screen diff 0 | planeB diff 0 | tilecache diff 0 (content 0/4800)  IDENTICAL
+verdict: DIFFERENT
+leg diag compare rc=1

@@ -2310,7 +2310,7 @@ pub data OJZ_Preset_Night: EffectsPreset = preset(pal: OJZ_Palette_Night, raster
 // fixture backwards:
 //   * EffectsPreset.ep_transition (engine/effects/preset.emp:67) — u16, PALETTE. 0 = SNAP,
 //     non-zero = cross-fade. This is the one E2 is about.
-//   * ParallaxConfig.pcfg_transition (engine/structs.emp:273) — u8, SCROLL OFFSETS.
+//   * ParallaxConfig.pcfg_transition (engine/structs.emp, struct ParallaxConfig) — u8, SCROLL OFFSETS.
 //     0 = smooth lerp, 1 = instant snap. Nothing to do with colour, and irrelevant here
 //     anyway: this preset and row 2's bind no parallax config at all, so both rows resolve
 //     to the same act default and no parallax transition is started at the edge.
