@@ -5,11 +5,6 @@
       "what": "Find and fix the lag while running through Emerald Hill",
       "where": "branch perf/ehz-run-lag",
       "agent": true
-    },
-    {
-      "what": "Measure the jump sound against real Sonic 2 and fix it if ours is off",
-      "where": "branch fix/jump-sfx-level",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -36,8 +31,8 @@
     },
     {
       "id": "JUMP-SFX-LEVEL",
-      "title": "Jump sound a little quiet: measuring against real Sonic 2",
-      "state": "doing",
+      "title": "Jump sound: was 10 dB too quiet; fixed to match Sonic 2",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -183,5 +178,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T19:14:57Z"
+  "updatedAt": "2026-09-26T19:43:20Z"
 }
