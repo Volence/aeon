@@ -106,7 +106,7 @@ module engine.sound_psg (cpu: z80, invariant: preserves(ix))
 // Snd_ChanClass classifies the active channel (preserves bc/de, on which
 // Psg_SetVolume relies); Mod_ReArm re-arms pitch mod; Mod_Advance steps it.
 use engine.sound_fm.{Snd_ChanClass, Fm_TransposeClampChrom}
-use engine.sound_sequencer.{Mod_ReArm, Mod_Advance}
+use engine.sound_sequencer.{Mod_ReArm, Mod_Advance, PsgEnvAttack}
 
 section sound_psg (cpu: z80) {
 
@@ -171,25 +171,6 @@ section sound_psg (cpu: z80) {
         rrca
         rrca
         and     SND_PSG_ATTEN_SILENT   // $0F — keeps exactly those four bits
-        ret
-    }
-
-    // ------------------------------------------------------------------
-    // Psg_EnvCursorReset — restart the PSG vol-env contour on a fresh attack.
-    // sc_psgenv_cur (+40) exists on BOTH music and SFX SeqChannels, so no
-    // channel-class gate is needed. Harmless on a no-env channel (the cursor is
-    // unused while sc_psgenv=0).
-    // In: ix = SeqChannel/SfxChannel.
-    // ------------------------------------------------------------------
-    // Contract: clobbers nothing — the two (ix+d) immediate stores touch no register
-    // and no flags. Preserves af, bc, de, hl (ix inherited). The explicit `clobbers()`
-    // makes the "touches nothing" claim machine-checked rather than closure-exempt.
-    pub proc Psg_EnvCursorReset () clobbers() preserves(af, bc, de, hl) {
-        ld      (ix+sc_psgenv_cur), 0  // restart the contour from frame 0
-        ld      (ix+sc_psgenv_out), 0  // drop the previous note's env tail so the
-                                       // attack's volume emit (Psg_NoteOn's SetVolume,
-                                       // right after this) starts clean, not one frame
-                                       // of the old note's stale attenuation delta
         ret
     }
 
@@ -276,11 +257,11 @@ section sound_psg (cpu: z80) {
     // to the table (D4) — see the Fm_TransposeClamp call below.
     // PsgDivisorTableZ[pitch] = 10-bit divisor (little-endian word). Emit:
     //   latch = $80 | (ch<<5) | (div & $0F)   then   data = (div >> 4) & $3F.
-    // Then set the channel volume from sc_volume so the note is audible.
-    // Sets SCF_KEYED.
+    // Then restart the vol-env and emit the channel volume with its byte 0 folded in
+    // (PsgEnvAttack), so the note is audible at its attack level. Sets SCF_KEYED.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl; preserves ix (inherited — verified across
-    // the calls + the `jp Psg_SetVolume` tail, each an ix-preserving callee).
+    // the calls + the `jp PsgEnvAttack` tail, each an ix-preserving callee).
     pub proc Psg_NoteOn () clobbers(af, bc, de, hl) {
         // --- D4: fold the channel's signed sc_transpose into the pitch index and
         // clamp it to the divisor table, exactly as the FM writer does (S3K applies
@@ -348,7 +329,6 @@ section sound_psg (cpu: z80) {
 
         // --- set the channel volume so the note sounds (re-reads sc_volume) ---
         set     SCF_KEYED_B, (ix+sc_flags)
-        call    Psg_EnvCursorReset     // restart the vol-env contour on this attack
         // --- per-note pitch-mod re-arm (spec §5) — music + SFX PSG ---------------
         // Mod_ReArm clears accum + reloads steps for this fresh attack; it reads
         // sc_mod_*/sc_base_freq/sc_last_freq (latched above). No-op when
@@ -375,8 +355,7 @@ section sound_psg (cpu: z80) {
         ld      (ix+sc_porta_accum), d
         ld      (ix+(sc_porta_accum+1)), e
     .porta_done:
-        ld      a, (ix+sc_volume)
-        jp      Psg_SetVolume          // (preserves ix; ret from there)
+        jp      PsgEnvAttack           // restart the vol-env, fold byte 0, emit the volume
     }
 
     // ------------------------------------------------------------------
@@ -698,7 +677,7 @@ section sound_psg (cpu: z80) {
     //     as it does for music, and the note can be a pitch. Psg_NoteOn does the whole
     //     job: its divisor emit lands on the noise clock ($C0) via Psg_EmitDivisor's
     //     noise-route latch, it latches sc_base_freq and arms Mod_ReArm (so the source
-    //     smpsModSet sweeps the noise pitch — the S3K "pshhew"), and its Psg_SetVolume
+    //     smpsModSet sweeps the noise pitch — the S3K "pshhew"), and its PsgEnvAttack
     //     tail takes the $F0 noise-volume branch. The pre-B5 arm read the note's low 3
     //     bits AS the mode/rate ($E0|(note&7)) because the transcoder dropped
     //     smpsPSGform; that encoding is gone, and nothing can produce it — every
@@ -707,14 +686,13 @@ section sound_psg (cpu: z80) {
     // In: ix = SeqChannel, a = note value. Sets SCF_KEYED.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl; preserves ix (inherited — Snd_ChanClass,
-    // the sub-calls, and the `jp Psg_SetVolume` tails all preserve ix).
+    // the sub-calls, and the `jp PsgEnvAttack` / `jp Psg_NoteOn` tails all preserve ix).
     pub proc Psg_Noise () clobbers(af, bc, de, hl) {
         ld      b, a                   // save note (pitch/mode) — Snd_ChanClass clobbers a
         call    Snd_ChanClass          // CARRY set => MUSIC channel (preserves bc)
         jr      nc, .sfx
         // --- MUSIC noise: tone-2 clock (rate-3) + noise volume ---
         set     SCF_KEYED_B, (ix+sc_flags)
-        call    Psg_EnvCursorReset     // retrigger the PSG vol-env (per-hit decay)
         ld      a, (ix+sc_noise_mode)
         and     3                      // rate bits (11 = clock from tone-2)
         cp      3
@@ -722,8 +700,8 @@ section sound_psg (cpu: z80) {
         ld      a, b                   // a = pitch
         call    Psg_EmitNoiseClock     // write the note's divisor to $C0 (clamped >=1)
     .music_vol:
-        ld      a, (ix+sc_volume)
-        jp      Psg_SetVolume          // noise volume ($F0) + envelope fold (preserves ix; ret)
+        jp      PsgEnvAttack           // retrigger the vol-env (per-hit decay), fold byte 0,
+                                       // emit the noise volume ($F0)
     .sfx:
         ld      a, b                   // a = pitch; Psg_NoteOn emits the divisor to the
         jp      Psg_NoteOn             // noise clock ($C0), latches base_freq + arms mod,

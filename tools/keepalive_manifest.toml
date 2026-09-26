@@ -260,6 +260,15 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
+# PSG vol-env attack timing (parcel/psg-env-noteon, 2026-09-26): envelope byte 0 must sound
+# on the note-on tick (S2 zPSGUpdateTrack / S3K zUpdatePSGTrack). Queues SFX $42/$B6/$62 and
+# reads the Z80's PSG writes off the bus watch. Red-first: exit 1 on the pre-fix engine
+# (L1 and L2 match the one-tick-late rule), exit 0 with PsgEnvAttack.
+[wired."psg_env_attack_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+
 # Region music (S2CLIP-REGION-MUSIC step 5, 2026-09-25). The default arm is the canonical
 # silence witness (every shipped row names song 0: zero music requests across the flown
 # route); the fixture arm patches the route's second region to song 1 in a COPY of the ROM

@@ -19,8 +19,9 @@
 // growth (Sequencer_StopAll, Seq_SilenceMusicVoices, Sfx_StopAll, SfxDispatch and
 // Sfx_UnpauseRestore all shift +$82 in the debug shape), so those operands differ
 // plain vs debug. (Re-derived 2026-09-12, gap lens sweep A2-15/A2-17: this read
-// "five `call` sites" and "+$7E"; z80_sound_blob.bin is 6176 B and the debug blob
-// 6306 B, and s4.lst / s4.debug.lst give Z80_SOUND_SIZE $1820 / $18A2.) Sequencer_Frame (immediately after the driver) is the one
+// "five `call` sites" and "+$7E". The blob sizes are not written here: they move with
+// every Z80 edit; measure engine/sound/generated/z80_sound_blob{,_debug}.bin or read
+// Z80_SOUND_SIZE out of s4.lst / s4.debug.lst.) Sequencer_Frame (immediately after the driver) is the one
 // shape-INVARIANT external target. seam-1 therefore links each shape at its own
 // per-shape addresses and gates BOTH shapes (the two blobs are NOT equal bytes).
 //
