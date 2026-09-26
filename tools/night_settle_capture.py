@@ -22,10 +22,10 @@ tool is the only thing that feeds it live reads. Every emitted filename is:
       cx    the CAMERA CENTRE x -- the point Region_Resolve tests
       r     the region row the ROM's own table puts that centre in
       pf    Pal_Fade_Frames as read on that tick
-      state `settled`, or the FIRST settle clause that refused (`fading`, `armed`, `layer`,
+      state `palette-settled`, or the FIRST settle clause that refused (`fading`, `armed`, `layer`,
             `buf`, `cram`, `lag`, `hold`), or `unknown` if a clause could not be evaluated
 
-`settled` reaches a filename only from `capture_settle.assess()` returning it over a live
+`palette-settled` reaches a filename only from `capture_settle.assess()` returning it over a live
 read. Run the 2026-09-13 numbers for frame 272 through it and you get
 `in-k+005-t00272-cx3488-r09-pf11-fading.png`; there is no argument to this tool that produces
 the other name. tools/test_capture_settle.py holds that offline, against that README's own
@@ -60,7 +60,15 @@ other hat. See docs/DEFERRED_WORK.md for the note.
 
 ⚠ WHAT THIS STILL CANNOT SETTLE. These are stills. Whether the fade READS as a transition is
 a motion percept and a contact sheet cannot produce it. And the ruling's channel means should
-be re-measured off the frames named `settled` here, never off the old set.
+be re-measured off the frames named `palette-settled` here, never off the old set.
+
+THE STAMP SAYS PALETTE BECAUSE THAT IS ALL IT PROVES (CAPTURE-SETTLE-NAME, 2026-09-26).
+Every clause is about CRAM lines 1-3 and the layers that write them; nothing reads scroll,
+planes, sprites or the camera, and this route is a HELD RIGHT, so the geometry is moving in
+every frame here by design. The stamp, the per-tick `palette_settled` field, the report's
+`palette_settled_frames` and the `--palette-settled-frames` flag all carry the narrower
+name; before that date they were the bare `settled`, and the two committed sets under
+docs/captures/2026-09-16-night-settled*/ still are (same certificate, older name).
 
 RUN IT FROM THE AEON ROOT. Every default path (`--rom`, `--lst`, `--outdir`) is relative to
 the working directory, so `cd /path/to/aeon && python3 tools/night_settle_capture.py` is the
@@ -68,11 +76,11 @@ form. Run `--check` FIRST: it starts no emulator, costs about a second, and cove
 ROM-side failure surface, so a foreground Oracle run is never spent on a ROM that would have
 been refused.
 
-Exit 0  the run settled and the frames are written
+Exit 0  the palette settled and the frames are written
      2  COULD NOT RUN (a premise refused, a symbol is missing, the route has moved) or the
         fade did not settle within the ceiling. The report and frames are still written when
         the ceiling is what stopped it -- an unsettled run is a finding, not an absence -- and
-        NOTHING in it is named `settled`. It asserts nothing else.
+        NOTHING in it is named `palette-settled`. It asserts nothing else.
 """
 from __future__ import annotations
 
@@ -100,16 +108,16 @@ LEAD = 10    # ticks of approach before the capture window opens
 EXTRA_SYMBOLS = ("Pal_Op", "Pal_Base_Dirty", "Pal_Cycle_Script")
 
 
-def ceiling_ticks(fade_frames: int, stable: int, settled_frames: int) -> int:
+def ceiling_ticks(fade_frames: int, stable: int, palette_settled_frames: int) -> int:
     """How many ticks past the arm the capture may run before the run is a FINDING.
 
     Derived, not picked. `Palette_DoFade` decrements once per compose and one compose is one
     logic tick, so the fade itself cannot exceed `PAL_FADE_FRAMES` ticks even on its backstop
-    path; `stable` more are needed for the window and `settled_frames` for the tail. It is
+    path; `stable` more are needed for the window and `palette_settled_frames` for the tail. It is
     DOUBLED because a lag frame costs video frames rather than logic ticks and the doubling
     is the only slack this number has -- anything past it is not a longer wait, it is a fade
     that did not end, and the tool says so instead of waiting."""
-    return 2 * (fade_frames + stable + settled_frames)
+    return 2 * (fade_frames + stable + palette_settled_frames)
 
 
 async def rd(b, sym, name, width):
@@ -150,7 +158,7 @@ def enrich(kept: list[dict], verdicts: dict, k0: int) -> tuple[list[dict], list[
 
     Pure, so tools/test_night_settle_capture.py drives the shipped naming path over a
     simulated run rather than over a re-implementation of it. `frame_name` is the only
-    producer of the name, and it refuses a `settled` word the verdict did not earn."""
+    producer of the name, and it refuses a `palette-settled` stamp the verdict did not earn."""
     keep, dropped = [], []
     for r in kept:
         r["k"] = r["i"] - k0
@@ -160,7 +168,7 @@ def enrich(kept: list[dict], verdicts: dict, k0: int) -> tuple[list[dict], list[
         r["raw_png"] = r["png"]
         r["png"] = cs.frame_name("in", r, v)
         r["settle_state"] = v.word
-        r["settled"] = v.settled
+        r["palette_settled"] = v.palette_settled
         r["settle_decided"] = v.decided
         r["settle_reasons"] = list(v.reasons)
         r["cram_stable_run"] = v.stable_run
@@ -181,8 +189,8 @@ def build_report(args_rom: str, args_lst: str, rom_md5: str, edge: int, fade: di
     # vacuously false. But offering one as "a settled frame" in a set about the night look
     # would be the 2026-09-13 mistake with the sign flipped: a correctly named frame used as
     # evidence for something it is not evidence for. The two lists are kept apart.
-    settled_frames = [r for r in keep if r["settled"] and r["row"] == fade["index"]]
-    control_frames = [r for r in keep if r["settled"] and r["row"] != fade["index"]]
+    palette_settled_frames = [r for r in keep if r["palette_settled"] and r["row"] == fade["index"]]
+    control_frames = [r for r in keep if r["palette_settled"] and r["row"] != fade["index"]]
     return {
         "tool": "tools/night_settle_capture.py",
         "rom": args_rom, "lst": args_lst, "rom_md5": rom_md5,
@@ -202,20 +210,20 @@ def build_report(args_rom: str, args_lst: str, rom_md5: str, edge: int, fade: di
         "crossing_tick": series[k0]["tick"],
         "crossing_centre_x": series[k0]["centre_x"],
         "model_cross_check": model,
-        "settled": stopped is None,
+        "palette_settled": stopped is None,
         "stopped_because": stopped,
-        "settled_frames": [r["png"] for r in settled_frames],
+        "palette_settled_frames": [r["png"] for r in palette_settled_frames],
         "control_frames": [r["png"] for r in control_frames],
         # THE CONTROL IS A RESULT, NOT A BY-PRODUCT (live run 2026-09-16). The first real
         # run produced ZERO controls because the `buf` clause falsely refused every
         # pre-fade frame, the summary said "0 day-palette controls" in passing, and nobody
         # read it. A control count of zero means the predicate was never shown to be
-        # capable of saying `settled` anywhere but on the subject, so this run is not
+        # capable of saying `palette-settled` anywhere but on the subject, so this run is not
         # evidence that it can. It is a named top-level field, a loud stderr block and a
         # README banner -- three places, because one was demonstrably passed over.
         "control_empty": not control_frames,
-        "settled_frames_with_target_compared":
-            [r["png"] for r in settled_frames if r.get("target_checked")],
+        "palette_settled_frames_with_target_compared":
+            [r["png"] for r in palette_settled_frames if r.get("target_checked")],
         "ticks": [public(r) for r in keep],
     }
 
@@ -331,7 +339,7 @@ async def run(args, sock) -> int:
     for _ in range(3):
         await rig.tick()
 
-    cap = ceiling_ticks(facts.fade_frames_const, facts.stable_ticks, args.settled_frames)
+    cap = ceiling_ticks(facts.fade_frames_const, facts.stable_ticks, args.palette_settled_frames)
     print(f"night_settle_capture: edge x={edge}, row {fade['index']}, fly {fly} px/tick, "
           f"N={facts.stable_ticks} stable samples required, ceiling {cap} ticks past the arm",
           file=sys.stderr)
@@ -341,7 +349,7 @@ async def run(args, sock) -> int:
     kept: list[dict] = []            # the samples that got a screenshot
     verdicts: dict = {}
     k0 = None                        # the crossing tick's index into `series`
-    settled_run = 0
+    palette_settled_run = 0
     stopped = None
     start_pal = None
 
@@ -367,8 +375,8 @@ async def run(args, sock) -> int:
                            "settled — the route is too short for this fade")
                 break
             v = verdicts[i]
-            settled_run = settled_run + 1 if v.settled else 0
-            if settled_run >= args.settled_frames:
+            palette_settled_run = palette_settled_run + 1 if v.palette_settled else 0
+            if palette_settled_run >= args.palette_settled_frames:
                 break
             if i - k0 >= cap:
                 stopped = (f"the fade had not settled {cap} ticks after the arm (the "
@@ -412,16 +420,16 @@ async def run(args, sock) -> int:
 
     report = build_report(args.rom, args.lst, hashlib.md5(rom).hexdigest(), edge, fade,
                           left["index"], fly, facts, cap, series, k0, keep, model, stopped)
-    settled_frames = report["settled_frames"]
+    palette_settled_frames = report["palette_settled_frames"]
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "README.md").write_text(readme(report))
 
     for r in keep:
         print(f"  k={r['k']:+4d} t={r['tick']:5d} cx={r['centre_x']:5d} row={r['row']} "
               f"pf={r['fade_frames']:2d} -> {r['settle_state']}", file=sys.stderr)
-    print(f"{len(keep)} frames in {out}; {len(settled_frames)} inside the night region "
-          f"named `{cs.SETTLED_WORD}`, of which "
-          f"{len(report['settled_frames_with_target_compared'])} also passed the 48-word "
+    print(f"{len(keep)} frames in {out}; {len(palette_settled_frames)} inside the night region "
+          f"named `{cs.PALETTE_SETTLED_WORD}`, of which "
+          f"{len(report['palette_settled_frames_with_target_compared'])} also passed the 48-word "
           "Palette_Buffer-vs-Pal_Target comparison", file=sys.stderr)
     if report["control_empty"]:
         print("", file=sys.stderr)
@@ -431,7 +439,7 @@ async def run(args, sock) -> int:
         print("  The approach frames before the crossing are the BASELINE the night colour",
               file=sys.stderr)
         print("  is judged against, AND the control that the predicate can say "
-              f"`{cs.SETTLED_WORD}` at all", file=sys.stderr)
+              f"`{cs.PALETTE_SETTLED_WORD}` at all", file=sys.stderr)
         print("  somewhere other than on its subject. Zero of them means this run is NOT",
               file=sys.stderr)
         print("  evidence that the predicate can certify anything: a predicate that only",
@@ -452,7 +460,7 @@ async def run(args, sock) -> int:
     if stopped is not None:
         print(f"night_settle_capture: DID NOT SETTLE — {stopped}", file=sys.stderr)
         print("The frames and report ARE written, and none of them is named "
-              f"`{cs.SETTLED_WORD}`. That is a finding about the fade, not a capture "
+              f"`{cs.PALETTE_SETTLED_WORD}`. That is a finding about the fade, not a capture "
               "failure; do not treat this exit as an absence of evidence.", file=sys.stderr)
         return 2
     if model is not None and not model["agrees"]:
@@ -467,7 +475,7 @@ async def run(args, sock) -> int:
 def readme(rep: dict) -> str:
     s = rep["settle"]
     lines = [
-        f"# The night region's FADE edge at x = {rep['edge_x']}, captured until it settled",
+        f"# The night region's FADE edge at x = {rep['edge_x']}, captured until its palette settled",
         "",
         f"`{rep['rom']}` md5 `{rep['rom_md5'][:8]}`, symbols `{rep['lst']}`. Cold boot, one "
         f"held RIGHT in DEBUG free flight ({rep['fly_px_per_tick']} px/tick). \"Centre\" is "
@@ -477,12 +485,12 @@ def readme(rep: dict) -> str:
         "",
         "**Every filename here was derived from the state read on that tick, by "
         "`tools/capture_settle.py`. A frame is called "
-        f"`{cs.SETTLED_WORD}` only where that predicate said so from a live read; otherwise "
+        f"`{cs.PALETTE_SETTLED_WORD}` only where that predicate said so from a live read; otherwise "
         "the name carries the first clause that refused.** This set exists because "
         "`docs/captures/2026-09-13-regions-p2-night/t5-f272-settled.png` was named by hand "
         "and is mid-fade.",
         "",
-        "## What `settled` was required to mean",
+        "## What `palette-settled` was required to mean",
         "",
         f"Seven clauses, all of them, from a live read, with CRAM lines 1-3 identical across "
         f"**{s['stable_ticks_required']}** consecutive samples:",
@@ -514,7 +522,7 @@ def readme(rep: dict) -> str:
         "actually ran on that tick. It can only run where `Pal_Target` is authoritative — a "
         "fade has been seen in flight and no snap install since — because "
         "`Palette_LoadPal`'s fade arm is its only writer and its snap arm never updates it. "
-        "A `settled` row with `target? no` is certified on the layer gates and CRAM "
+        "A `palette-settled` row with `target? no` is certified on the layer gates and CRAM "
         "stability alone: strictly weaker evidence, a real certification, and not the same "
         "one.",
         "",
@@ -528,26 +536,26 @@ def readme(rep: dict) -> str:
                      f"{'yes' if r.get('target_checked') else 'no'} | "
                      f"`{r['settle_state']}` | `{r['png']}` |")
     lines += [""]
-    if rep["settled"]:
-        lines += [f"**{len(rep['settled_frames'])} frame(s) INSIDE THE NIGHT REGION are "
-                  f"named `{cs.SETTLED_WORD}`** and they are the only ones any night colour "
+    if rep["palette_settled"]:
+        lines += [f"**{len(rep['palette_settled_frames'])} frame(s) INSIDE THE NIGHT REGION are "
+                  f"named `{cs.PALETTE_SETTLED_WORD}`** and they are the only ones any night colour "
                   "measurement may be taken from: " +
-                  ", ".join(f"`{n}`" for n in rep["settled_frames"]) + ". "
-                  f"{len(rep['settled_frames_with_target_compared'])} of them also passed "
+                  ", ".join(f"`{n}`" for n in rep["palette_settled_frames"]) + ". "
+                  f"{len(rep['palette_settled_frames_with_target_compared'])} of them also passed "
                   "the 48-word `Pal_Target` comparison.", ""]
         if rep["control_empty"]:
             lines += ["⚠ **CONTROL EMPTY — read this before using the frames above.** This "
                       "run certified **zero** frames outside the night region. The approach "
                       "frames are both the day-palette BASELINE the night colour is judged "
                       "against and the control that the predicate can say "
-                      f"`{cs.SETTLED_WORD}` somewhere other than on its own subject. With "
+                      f"`{cs.PALETTE_SETTLED_WORD}` somewhere other than on its own subject. With "
                       "none, this run is not evidence that the predicate can certify "
                       "anything: read the `settle_reasons` of the `k < 0` rows in "
                       "`report.json` and find out why they were refused before trusting the "
                       "night frames.", ""]
         else:
             lines += [f"The {len(rep['control_frames'])} approach frame(s) before the "
-                      f"crossing are also named `{cs.SETTLED_WORD}` — correctly, on the DAY "
+                      f"crossing are also named `{cs.PALETTE_SETTLED_WORD}` — correctly, on the DAY "
                       "palette. They are two things at once: the **baseline** any night "
                       "colour measurement should be compared against, and the **control** "
                       "that the predicate is not vacuously false. They are NOT night "
@@ -556,9 +564,9 @@ def readme(rep: dict) -> str:
     else:
         lines += ["⚠ **THE FADE DID NOT SETTLE INSIDE THIS RUN.** " +
                   str(rep["stopped_because"]) + f" **No frame inside the night region is "
-                  f"named `{cs.SETTLED_WORD}`, and none of them may be used as a "
+                  f"named `{cs.PALETTE_SETTLED_WORD}`, and none of them may be used as a "
                   "settled-night reference.** (Approach frames before the crossing may still "
-                  "be named settled — on the DAY palette; they are a control, not night "
+                  f"be named `{cs.PALETTE_SETTLED_WORD}` — on the DAY palette; they are a control, not night "
                   "evidence.) This is a finding about the fade, not a missing capture.", ""]
     m = rep.get("model_cross_check")
     if m:
@@ -621,14 +629,14 @@ def main() -> int:
                          "different palette, it binds Raster_Program_None). Run this first "
                          "on any new ROM/listing pair — it costs no emulator and it is the "
                          "half of the failure surface a headless session can reach.")
-    ap.add_argument("--settled-frames", type=int, default=3, metavar="N",
-                    help="stop after N consecutive ticks whose verdict is `settled` "
+    ap.add_argument("--palette-settled-frames", type=int, default=3, metavar="N",
+                    help="stop after N consecutive ticks whose verdict is `palette-settled` "
                          "(default: %(default)s). More than one because a single settled "
                          "sample is a claim about one tick; three is a small run the owner "
                          "can compare against each other.")
     args = ap.parse_args()
-    if args.settled_frames < 1:
-        print("night_settle_capture: --settled-frames must be at least 1", file=sys.stderr)
+    if args.palette_settled_frames < 1:
+        print("night_settle_capture: --palette-settled-frames must be at least 1", file=sys.stderr)
         return 2
     if args.check:
         try:
@@ -637,7 +645,7 @@ def main() -> int:
             print(f"night_settle_capture --check: WOULD NOT RUN — {e}", file=sys.stderr)
             return 2
         f, fade, left = pre["facts"], pre["fade"], pre["left"]
-        cap = ceiling_ticks(f.fade_frames_const, f.stable_ticks, args.settled_frames)
+        cap = ceiling_ticks(f.fade_frames_const, f.stable_ticks, args.palette_settled_frames)
         print(f"night_settle_capture --check: every premise holds for {args.rom} / {args.lst}")
         print(f"  night region      row {fade['index']}, x {fade['x0']}..{fade['x1']}, "
               f"y {fade['y0']}..{fade['y1']}, ep_transition {fade['transition']}")

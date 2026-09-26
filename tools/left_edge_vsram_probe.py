@@ -120,15 +120,29 @@ async def read_bus_bytes(c, addr, length):
 step_scene_back = G.step_scene_back
 
 
-async def settle_transition(c, syms, limit=300):
-    """Run until Parallax_Transition_Frames reads 0 (the lerp is over), then 30 more."""
-    for _ in range(limit):
-        tf = await G.read_bus(c, addr=syms["Parallax_Transition_Frames"], length=1)
-        if tf == 0:
-            await c.call("emulator/run_frames", {"frames": 30})
-            return
-        await c.call("emulator/run_frames", {"frames": 1})
-    raise SystemExit(f"UNMEASURABLE: Parallax_Transition_Frames never reached 0 in {limit} frames")
+#: Frames run AFTER the transition counter reads 0, before anything is sampled. This is not
+#: part of the settle (the counter is the settle); it is this probe's own rest, kept exactly
+#: as it was when the settle was collapsed onto the gate's, so the frame schedule -- and
+#: therefore every sampled value -- is unchanged.
+POST_SETTLE_REST = 30
+
+
+async def settle_transition(c, syms):
+    """Run until Parallax_Transition_Frames reads 0 (the lerp is over), then
+    POST_SETTLE_REST more.
+
+    The wait itself is `fg_left_edge_gate.settle_transition`, the SAME function the gate
+    runs (same `syms` dict, same `read_bus`), whose give-up bound is 2 x
+    PARALLAX_TRANS_DEFAULT derived from engine/system/constants.emp. Until 2026-09-26
+    (SETTLE-IMPL-COLLAPSE) this was a private copy with a magic `limit=300`: introduced with
+    the file (da713c00) with no derivation beside it, and the only copy in tools/ whose
+    refusal threshold would not move with the constant. The loop shape was already the
+    gate's (read, then step one frame), so on any run where the counter reaches 0 the frames
+    run are identical; only the point at which a never-settling counter is declared
+    UNMEASURABLE moved, from 300 frames to the derived 32.
+    """
+    await G.settle_transition(c, syms)
+    await c.call("emulator/run_frames", {"frames": POST_SETTLE_REST})
 
 
 async def drive_cursor(c, syms, index):

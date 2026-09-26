@@ -165,12 +165,12 @@ def test_the_misnamed_frame_is_named_fading_by_this_tool():
     live = row(k=5, tick=f272["frame"], centre_x=f272["centre_x"], row=9,
                fade_frames=f272["fade_frames"])
     v = cs.assess([live], facts())
-    assert not v.settled
+    assert not v.palette_settled
     assert v.word == "fading"
     assert "Pal_Fade_Frames = 11" in " ".join(v.reasons)
 
     name = cs.frame_name("in", live, v)
-    assert cs.SETTLED_WORD not in name, name
+    assert cs.PALETTE_SETTLED_WORD not in name, name
     assert name == "in-k+005-t00272-cx3488-r09-pf11-fading.png", name
 
 
@@ -187,8 +187,8 @@ def test_the_old_sets_table_cannot_support_a_settled_claim_for_any_row():
         verdicts[r["png"]] = cs.assess([live], f)
     assert verdicts, "the table parsed empty"
     for png, v in verdicts.items():
-        assert not v.settled, f"{png} was called settled from the hand table's columns"
-        assert v.word != cs.SETTLED_WORD, png
+        assert not v.palette_settled, f"{png} was called settled from the hand table's columns"
+        assert v.word != cs.PALETTE_SETTLED_WORD, png
     # f272 is REFUSED on the evidence present; the others are UNDECIDABLE for want of reads
     assert verdicts["t5-f272-settled.png"].decided is True
     assert verdicts["t5-f272-settled.png"].word == "fading"
@@ -208,7 +208,7 @@ def test_the_tracer_entry_reaching_night_is_not_the_palette_arriving():
     mid[16 + 2] = NIGHT[16 + 2]          # CRAM line 1 entry 2, the 2026-09-13 tracer
     r = row(buffer=mid, cram=mid, target=list(NIGHT))
     v = cs.assess(after_a_fade([r]), facts())
-    assert not v.settled
+    assert not v.palette_settled
     assert v.word == "buf", v.reasons
     assert v.target_checked
     assert "differ from it" in " ".join(v.reasons)
@@ -221,7 +221,7 @@ def test_the_same_row_without_an_observed_fade_is_not_refused_on_a_target_that_m
     never happened. The comparison must not run, and the frame must certify."""
     r = row(buffer=list(DAY), cram=list(DAY), target=[0] * 48)
     v = cs.assess([r] * 3, facts())
-    assert v.settled, v.reasons
+    assert v.palette_settled, v.reasons
     assert not v.target_checked
     assert "has not been written" in v.target_note
     # and the old FALSE CAUSE must appear nowhere in what it tells the reader
@@ -247,7 +247,7 @@ def test_a_snap_cancelled_fade_is_caught_by_the_PENDING_BASE_COPY_not_by_the_tar
     pending = after_a_fade([row(fade_frames=0, pal_base_dirty=1, buffer=list(DAY),
                                 cram=list(DAY), target=list(NIGHT))])
     v = cs.assess(pending, f)
-    assert v.word == "layer" and not v.settled
+    assert v.word == "layer" and not v.palette_settled
     assert "one-shot copy" in " ".join(v.reasons)
 
     landed = after_a_fade([row(fade_frames=0, pal_base_dirty=1, buffer=list(DAY),
@@ -255,7 +255,7 @@ def test_a_snap_cancelled_fade_is_caught_by_the_PENDING_BASE_COPY_not_by_the_tar
                           [row(tick=200 + i, fade_frames=0, buffer=list(DAY), cram=list(DAY),
                                target=list(NIGHT)) for i in range(f.stable_ticks)])
     v = cs.assess(landed, f)
-    assert v.settled, v.reasons
+    assert v.palette_settled, v.reasons
     assert not v.target_checked
     assert "stale" in v.target_note
 
@@ -286,7 +286,7 @@ def test_the_cycle_clause_reads_the_bit_and_not_the_script_pointer():
     series = settled_series(f.stable_ticks)
     for s in series:
         s["pal_cycle_script"] = 0x00FF1234       # a Pal_Cycle_None-shaped pointer
-    assert cs.assess(series, f).settled, (
+    assert cs.assess(series, f).palette_settled, (
         "a non-zero Pal_Cycle_Script with PAL_ACT_CYCLE clear must NOT block settling")
 
 
@@ -299,24 +299,24 @@ def test_a_variant_derive_alone_does_not_block_settling():
     series = settled_series(4)
     for s in series:
         s["pal_active"] = 0b10000
-    assert cs.assess(series, f).settled
+    assert cs.assess(series, f).palette_settled
 
 
 def test_cram_behind_the_buffer_is_not_settled():
     """The compose landed; the VBlank DMA has not. One tick of latency, and the picture is
     still the old palette."""
     v = cs.assess([row(buffer=list(NIGHT), target=list(NIGHT), cram=list(DAY))], facts())
-    assert v.word == "cram" and not v.settled
+    assert v.word == "cram" and not v.palette_settled
 
 
 def test_the_derived_number_of_stable_ticks_is_enforced():
     f = facts()
     for n in range(1, f.stable_ticks):
         v = cs.assess(settled_series(n), f)
-        assert not v.settled, f"{n} stable sample(s) must not settle; N = {f.stable_ticks}"
+        assert not v.palette_settled, f"{n} stable sample(s) must not settle; N = {f.stable_ticks}"
         assert v.word == "hold"
     v = cs.assess(settled_series(f.stable_ticks), f)
-    assert v.settled and v.word == cs.SETTLED_WORD
+    assert v.palette_settled and v.word == cs.PALETTE_SETTLED_WORD
     assert v.stable_run == f.stable_ticks
 
 
@@ -327,7 +327,7 @@ def test_a_cram_change_inside_the_window_restarts_the_run():
     moved[0] ^= 0x0002
     series[-2]["cram"] = moved
     v = cs.assess(series, f)
-    assert not v.settled and v.word == "hold" and v.stable_run == 1
+    assert not v.palette_settled and v.word == "hold" and v.stable_run == 1
 
 
 def test_a_lag_tick_inside_the_window_refuses():
@@ -335,7 +335,7 @@ def test_a_lag_tick_inside_the_window_refuses():
     series = settled_series(f.stable_ticks + 1)
     series[-1]["lag"] = 1
     v = cs.assess(series, f)
-    assert not v.settled and v.word == "lag"
+    assert not v.palette_settled and v.word == "lag"
     series = settled_series(f.stable_ticks + 1)
     series[-1]["dtick"] = 2
     assert cs.assess(series, f).word == "lag"
@@ -376,8 +376,8 @@ def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_sett
             s.update(kw)
         v = cs.assess(after_a_fade(series) if authoritative else series, f)
         name = cs.frame_name("in", series[-1], v)
-        assert (cs.SETTLED_WORD in name) == v.settled, (kw, v.word, name)
-        if v.settled:
+        assert (cs.PALETTE_SETTLED_WORD in name) == v.palette_settled, (kw, v.word, name)
+        if v.palette_settled:
             settled_kw.append(kw)
         n += 1
     assert n == 96, n
@@ -397,7 +397,7 @@ def test_no_combination_of_state_yields_a_settled_name_unless_the_predicate_sett
 
 
 def test_frame_name_refuses_a_forged_settled_verdict():
-    forged = cs.Verdict(cs.SETTLED_WORD, settled=False, decided=True)
+    forged = cs.Verdict(cs.PALETTE_SETTLED_WORD, palette_settled=False, decided=True)
     with pytest.raises(ValueError, match="refusing to name"):
         cs.frame_name("in", row(), forged)
 
@@ -409,6 +409,20 @@ def test_frame_name_refuses_a_row_missing_the_state_it_names():
         r[missing] = None
         with pytest.raises(ValueError, match=missing):
             cs.frame_name("in", r, v)
+
+
+def test_the_stamp_names_what_was_proven_the_palette():
+    """CAPTURE-SETTLE-NAME (2026-09-26). Every clause is about CRAM lines 1-3 and the
+    layers that write them; none reads scroll, planes, sprites or the camera. So the stamp a
+    certified frame travels under must say PALETTE, and the bare word -- which tells a reader
+    the whole FRAME settled -- must not come back under either spelling."""
+    assert cs.PALETTE_SETTLED_WORD == "palette-settled"
+    assert not hasattr(cs, "SETTLED_WORD"), "the bare-word constant is back"
+    v = cs.assess(settled_series(3), facts())
+    assert v.palette_settled and v.word == cs.PALETTE_SETTLED_WORD
+    assert not hasattr(v, "settled"), "Verdict grew the bare `settled` field back"
+    name = cs.frame_name("in", row(), v)
+    assert name.endswith("-palette-settled.png"), name
 
 
 def test_settled_is_not_a_substring_of_any_refusal_word():
@@ -429,14 +443,14 @@ def test_settled_is_not_a_substring_of_any_refusal_word():
     words.add(cs.assess(s, f).word)                                   # lag
     assert len(words) >= 6, words
     for w in words:
-        assert cs.SETTLED_WORD not in w, w
-        assert w not in cs.SETTLED_WORD, w
+        assert cs.PALETTE_SETTLED_WORD not in w, w
+        assert w not in cs.PALETTE_SETTLED_WORD, w
 
 
 def test_an_unmeasured_row_is_unknown_and_never_green():
     v = cs.assess([{"tick": 4, "k": 0, "centre_x": 0, "fade_frames": None}], facts())
     assert v.word == cs.UNKNOWN_WORD
-    assert not v.settled and not v.decided
+    assert not v.palette_settled and not v.decided
     assert "carries no fade_frames" in " ".join(v.reasons)
 
 
@@ -463,7 +477,7 @@ def test_a_refusal_never_names_a_mechanism_the_predicate_did_not_establish():
         [row(tick=300 + i, buffer=list(DAY), cram=list(DAY), target=list(NIGHT))
          for i in range(f.stable_ticks)]), f))
     assert cases[0].word == "buf" and cases[0].target_checked
-    assert cases[1].settled and cases[2].settled
+    assert cases[1].palette_settled and cases[2].palette_settled
     for v in cases:
         if "STOPPED rather than arrived" in " ".join(v.reasons):
             assert v.target_checked, (
@@ -492,12 +506,21 @@ def test_target_authority_needs_both_a_fade_and_no_snap_since():
 LIVE_RUN = os.path.join(AEON, "docs", "captures", "2026-09-16-night-settled", "report.json")
 
 
+#: The stamp this recorded run was written under. CAPTURE-SETTLE-NAME (2026-09-26) renamed
+#: it to cs.PALETTE_SETTLED_WORD without changing the predicate, so a recorded `settled` IS
+#: today's `palette-settled` -- same seven clauses, older name. Translated here, on the way
+#: in, so the replay below still compares like with like; never produced by the module.
+RECORDED_SETTLED_WORD = "settled"
+
+
 def live_rows():
     import json
     rep = json.load(open(LIVE_RUN))
     out = []
     for t_ in rep["ticks"]:
         r = dict(t_)
+        if r["settle_state"] == RECORDED_SETTLED_WORD:
+            r["settle_state"] = cs.PALETTE_SETTLED_WORD
         for key in ("buffer", "target", "cram"):
             r[key] = [int(w, 16) for w in t_[key]]
         out.append(r)
@@ -519,7 +542,8 @@ def test_the_recorded_run_replays_with_the_night_verdicts_UNCHANGED():
             assert got[r["k"]] == r["settle_state"], (
                 f"k={r['k']:+d}: the fix changed a NIGHT verdict from "
                 f"{r['settle_state']} to {got[r['k']]}")
-    assert [got[k] for k in range(0, 9)] == ["fading"] * 4 + ["hold"] * 2 + ["settled"] * 3
+    assert [got[k] for k in range(0, 9)] == (["fading"] * 4 + ["hold"] * 2
+                                             + [cs.PALETTE_SETTLED_WORD] * 3)
 
 
 def test_the_recorded_run_no_longer_refuses_its_day_controls_on_an_unwritten_target():
@@ -543,4 +567,4 @@ def test_the_recorded_run_no_longer_refuses_its_day_controls_on_an_unwritten_tar
     pre = [r for r in rows if r["k"] < 0]
     padded = [dict(pre[0], tick=pre[0]["tick"] - n) for n in range(f.stable_ticks, 0, -1)] + pre
     for i in range(f.stable_ticks, len(padded)):
-        assert cs.assess(padded[:i + 1], f).settled, i
+        assert cs.assess(padded[:i + 1], f).palette_settled, i

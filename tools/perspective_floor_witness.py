@@ -152,11 +152,10 @@ async def settle_transition(client, lst_path, limit=None):
     never completed" and "we gave up early" deserve different verdicts and neither is a
     quiet continue.
 
-    ⚠ DO NOT "TIDY" THIS INTO fg_left_edge_gate.settle_transition. THREE functions in
-    tools/ have this name and the duplication is deliberate in two of the three cases —
-    what must have ONE home is the engine RULE, and it does: PARALLAX_TRANS_DEFAULT is
-    read by `fg_left_edge_gate._trans_default()` and by nothing else, which all three
-    bounds either call or should.
+    ⚠ DO NOT "TIDY" THIS INTO fg_left_edge_gate.settle_transition. There are TWO
+    implementations of this wait in tools/ and the duplication is deliberate — what must
+    have ONE home is the engine RULE, and it does: PARALLAX_TRANS_DEFAULT is read by
+    `fg_left_edge_gate._trans_default()` and by nothing else, which both bounds call.
 
       * `fg_left_edge_gate.settle_transition(c, syms)` takes a PRE-RESOLVED `syms` dict
         built from `emulator/lookup_symbol` calls over a bare `BusClient`.
@@ -167,13 +166,15 @@ async def settle_transition(client, lst_path, limit=None):
         attested gate's version to accept either a resolved address or a resolver, i.e.
         adding a parameter to a function on the gate's hot path to serve a caller that
         does not exist yet. The plumbing is what differs; the rule is not duplicated.
-      * `left_edge_vsram_probe.settle_transition(c, syms, limit=300)` is the THIRD, and it
-        is the one genuinely worth collapsing: same signature as the gate's, but its bound
-        is a magic 300 rather than a derivation, so it is the only one of the three whose
-        loudness threshold would not move with the constant. It waits on the machine's own
-        counter, so it is CORRECT — the bound governs only how it reports an unmeasurable
-        — and it was left alone by CURSOR-RACE-SWEEP because that parcel fixed only what it
-        measured wrong. Named here rather than left for someone to rediscover.
+
+    There WAS a third: `left_edge_vsram_probe.settle_transition(c, syms, limit=300)`, the
+    gate's signature with a magic 300 instead of the derivation. SETTLE-IMPL-COLLAPSE
+    (2026-09-26) made it a thin wrapper that calls the gate's function and then rests its
+    own 30 frames, so its give-up bound now moves with the constant; its output on the
+    ROM of that day was byte-identical before and after (docs/DEFERRED_WORK.md). The
+    other frame-stepping waits in tools/ that look similar (clip_bg_scroll_witness's
+    compound settle, the ~14 Warp_Req_Flag ack loops) wait on different things and are
+    listed there, not collapsed.
 
     Returns the number of frames waited (0 when nothing was in flight).
     """
