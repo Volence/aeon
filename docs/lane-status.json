@@ -1,12 +1,6 @@
 {
-  "focus": "Overnight: music, hi-hat, slopes and two speed fixes landed; the loop fix is still building for you to try.",
-  "inFlight": [
-    {
-      "what": "Build Sonic 2's layer-switch lines so the loops work (for your try-out; lands only on your word)",
-      "where": "branch parcel/s2clip-plane-switch",
-      "agent": true
-    }
-  ],
+  "focus": "Overnight work done: music, slopes, speed fixes landed; a loop fix is ready for you to fly before it lands.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -15,7 +9,7 @@
     },
     {
       "id": "S2CLIP-PLANE-SWITCH",
-      "what": "How to do Sonic 2's layer switching; I recommend the baked line table, which you can try on the branch first.",
+      "what": "Fly the loop fix in ~/sonic_hacks/tryout/s2-loops/ (crc c4bf75a7), then pick how to do layer switching (I recommend this one).",
       "since": "2026-09-26"
     },
     {
@@ -29,7 +23,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Each agent returns; I review and land them one at a time; the two investigations come back as write-ups.",
+  "nextBoundary": "At a boundary: nothing running. Next is landing the loop branch once you pick, then the next row that doesn't need you.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -48,10 +42,10 @@
     },
     {
       "id": "S2CLIP-LOOPS-PLANES",
-      "title": "Loops: cause found (Sonic 2's layer-switch lines never came over); a fix is being built for you to try",
-      "state": "doing",
+      "title": "Loops: fix built on a branch (all four Emerald Hill loops and the braid work); waiting for you to fly it and pick",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "decision card S2CLIP-PLANE-SWITCH",
       "project": "REGIONS"
     },
     {
@@ -142,7 +136,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "When you're up: listen to s4.s2clip.debug.bin (crc 4a3bc66c) for the drums, and try a slope. The loop fix is still building.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-26T10:11:26Z"
+  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums; try a slope. Cards S2CLIP-PLANE-SWITCH, S2CLIP-DRUM-LEVEL, ROLL-FEEL.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-26T10:58:03Z"
 }
