@@ -386,6 +386,58 @@ def at(labels, name, path):
     return labels[name]
 
 
+def fill_operand_faults(rom, fill_addr, next_addr, labels, speed_addr):
+    """WHAT OJZ_Reels_Fill LOADS, not only that it has bytes (GATE-PREDICATE-VS-PROMISE,
+    2026-09-26). The promise is that the proc "(the code, not just its data) reaches the
+    ROM" to advance the tables this gate checks; the predicate was `proc_gap > 0`. Measured:
+    `lea OJZ_Reel_Speed(pc), a2` -> `lea OJZ_TestPal(pc), a2` (same length) built and the gate
+    exited 0 while every unbound section's reels ran at palette-word rates.
+
+    Decoded from the image, not from the source: the proc must hold exactly one
+    `lea d16(pc),a2` ($45FA) whose target is `OJZ_Reel_Speed` (the fallback), and exactly one
+    `lea <ea>,a0` whose target is an `EditorReelBindings_*` table (the association walk;
+    the proc's other `a0` loads, e.g. a RAM cursor, are not constrained).
+    Only operand TARGETS are read; the loop encodings sigil may change are not."""
+    import capstone
+    import struct as _st
+    md = capstone.Cs(capstone.CS_ARCH_M68K,
+                     capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    a2_targets, a0_targets = [], []
+    for insn in md.disasm(rom[fill_addr:next_addr], fill_addr):
+        a, b = insn.address, bytes(insn.bytes)
+        op = _st.unpack_from(">H", b, 0)[0]
+        if op == 0x45FA:                                  # lea d16(pc),a2
+            a2_targets.append(a + 2 + _st.unpack_from(">h", b, 2)[0])
+        elif (op & 0xF1C0) == 0x41C0 and ((op >> 9) & 7) == 2:
+            a2_targets.append(None)                       # lea <other ea>,a2
+        elif op == 0x41FA:                                # lea d16(pc),a0
+            a0_targets.append(a + 2 + _st.unpack_from(">h", b, 2)[0])
+        elif op == 0x41F9:                                # lea abs.l,a0
+            a0_targets.append(_st.unpack_from(">I", b, 2)[0])
+        elif op == 0x41F8:                                # lea abs.w,a0
+            a0_targets.append(_st.unpack_from(">h", b, 2)[0] & 0xFFFFFF)
+    by_addr = {}
+    for name, addr in labels.items():
+        by_addr.setdefault(addr, []).append(name)
+    fails = []
+    if len(a2_targets) != 1 or a2_targets[0] != speed_addr:
+        got = ", ".join("?" if t is None else
+                        f"${t:06X} ({'/'.join(by_addr.get(t, ['no label']))})"
+                        for t in a2_targets) or "none"
+        fails.append(f"`{FILL_SYM}` loads its fallback rate table into a2 from {got}; want "
+                     f"exactly one `lea {SPEED_SYM}(pc), a2` (${speed_addr:06X}). Any other "
+                     f"target runs every unbound section's reels at somebody else's bytes")
+    binds = [t for t in a0_targets
+             if any(n.startswith("EditorReelBindings_") for n in by_addr.get(t, []))]
+    if len(binds) != 1:   # other a0 loads exist (a RAM cursor later in the proc) and are fine
+        got = ", ".join(f"${t:06X} ({'/'.join(by_addr.get(t, ['no label']))})"
+                        for t in a0_targets) or "none"
+        fails.append(f"`{FILL_SYM}` walks its association table from {got}; want exactly one "
+                     f"`lea EditorReelBindings_*, a0`. Any other target means no authored "
+                     f"binding is ever consulted")
+    return fails
+
+
 def authored_checks(shape, labels, rom, lst_path, band_count):
     """The authored half, both shapes. Returns a list of FAILURE strings (empty = pass);
     anything this gate cannot measure raises Unmeasurable, never a silent skip."""
@@ -629,6 +681,7 @@ def main():
                 bad.append(f"`{SPEED_SYM}` band {i}: ROM {g:02X}, source wants {w:02X}")
 
         bad += authored_checks(shape, labels, rom, lst_path, band_count)
+        bad += fill_operand_faults(rom, fill_addr, next_addr, labels, speed_addr)
 
         if bad:
             print(f"reels_gate: FAIL — {len(bad)} failure(s):")
