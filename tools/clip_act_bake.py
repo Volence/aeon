@@ -733,7 +733,9 @@ def check_retired_marks(act, plane_a, plane_b):
                 f"{n} cell word(s) with bits 15:14 set, the painted loop crossover mark "
                 f"RETIRED on 2026-09-26 (LINES-EVERYWHERE). A mark no longer does anything, "
                 f"and the bake refuses it rather than drop it silently. Clear the marks in "
-                f"aurora (the crossover 'None' brush); a clip act's layer switches are Sonic "
+                f"the source tree with aurora's 'Clear retired marks' button (the collision "
+                f"palette's error note; it zeroes bits 15:14 on both planes of the active "
+                f"section and keeps shape, flips and solidity), then save; a clip act's layer switches are Sonic "
                 f"2's own lines (tools/s2_layer_lines.py).",
                 [clip_manifest.subject("clip", cl.index, cl.id)])
 

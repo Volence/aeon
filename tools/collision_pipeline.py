@@ -96,8 +96,11 @@ def retired_mark_message(where: str, count: int, cells: list) -> str:
             f"mark RETIRED on 2026-09-26 (LINES-EVERYWHERE). Editor cells (col, row): "
             f"{shown}{more}. A mark no longer does anything: a layer switch is now a LINE, "
             f"authored in games/sonic4/data/editor/<zone>/act<N>/layer_lines.json "
-            f"(tools/layer_lines.py documents the format). Clear the marks with aurora's "
-            f"crossover 'None' brush (or 'Clear section'), then save. If an aurora window "
+            f"(tools/layer_lines.py documents the format). Clear the marks in aurora: "
+            f"open each section named, press 'Clear retired marks' in the collision "
+            f"palette's error note (it zeroes bits 15:14 on both planes of the active "
+            f"section and keeps shape, flips and solidity; one undo step), then save. "
+            f"If an aurora window "
             f"was open before the marks were stripped, REOPEN it first: its in-memory "
             f"planes still hold them and a save writes them back.")
 
@@ -351,7 +354,8 @@ def bake_plane_cell(cell_word: int, profiles: bytes, angles: bytes,
             f"bake_plane_cell: cell word ${cell_word:04X} carries reserved bits 15:14 = "
             f"{plane_reserved_bits(cell_word)}, the painted loop crossover mark RETIRED on "
             f"2026-09-26 (LINES-EVERYWHERE). A layer switch is now a line in the act's "
-            f"layer_lines.json (tools/layer_lines.py); clear the mark in aurora. "
+            f"layer_lines.json (tools/layer_lines.py); clear the mark with aurora's "
+            f"'Clear retired marks' button (collision palette error note). "
             f"tools/ojz_strip_gen.py's preflight names every such cell before a re-bake.")
     shape = cell_word & BLOCK_ID_MASK
     solidity = (cell_word >> PLANE_SOL_SHIFT) & 3
