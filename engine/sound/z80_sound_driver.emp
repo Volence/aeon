@@ -1085,8 +1085,8 @@ section z80_sound_driver (cpu: z80) {
                "DacSampleTable ({DAC_SAMPLE_COUNT} x 12 B) must fit a byte offset for Snd_DacLookup's 8-bit index math")
         // NOT TAKEN — the page-aligned form (h = DacSampleTable>>8, another -4 B):
         // `ensure((DacSampleTable & $FF) == 0)` FAILS. The table is NOT at the head
-        // of the $8000 window; seam-2's sound_layout derivation places it at $85AD,
-        // after the other engine-head tables. Worth revisiting only if that head is
+        // of the $8000 window; seam-2's sound_layout derivation places it after the
+        // other engine-head tables (its address moves whenever one of them grows). Worth revisiting only if that head is
         // ever laid out with DacSampleTable page-aligned; keep the ensure with it.
     }
 

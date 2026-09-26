@@ -319,7 +319,8 @@ def emit_asm_z80() -> str:
 
 # --- PSG volume-envelope table (SFX Expressive Fidelity, spec §4) -------------
 # S3K-EXACT VolEnv bodies, copied verbatim from skdisasm/Sound/Z80 Sound Driver.asm.
-# Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body VolEnv_(N-1).
+# Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body VolEnv_(N-1) for the S3K
+# ids $01..$27. Ids $41..$4D are Sonic 2's envelopes (see _S2_PSG_ENV_SRC below).
 # Byte format: per-frame ATTENUATION deltas (added to the track atten; higher = quieter)
 # + control bytes: $80 = loop cursor to 0; $81 = sustain-hold (hold last delta, do NOT
 # silence); $83 = full rest (key the channel off). Only the sTones our corpus uses are
@@ -348,6 +349,61 @@ _PSG_VOL_ENVS = [
                         4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7,
                         8, 8, 8, 8, 9, 9, 9, 9, 0x0A, 0x0A, 0x0A, 0x0A,
                         _CTL_SUSTAIN]),                                    # VolEnv_1C
+]
+
+# --- Sonic 2 PSG envelopes (S2CLIP-REGION-MUSIC step 2) -----------------------
+# S2's zPSG_EnvN bodies, copied verbatim from s2disasm/s2.sounddriver.asm
+# (zPSG_EnvTbl, :3723-3806), INCLUDING S2's terminator $80. They are shipped under
+# NEW engine ids, never the S3K ids of the same number: S2's fTone_NN is not S3K's
+# sTone_NN (fTone_01 = 0,0,0,1,1,1,...,7 vs S3K VolEnv_00 = 2,rest), and resolving
+# by number converted silently to the wrong timbre (region-music design Q1 row f).
+# Engine id = _S2_ENV_ID_BASE + N, so $41..$4D: disjoint from S3K's sTone_01..
+# sTone_27 (skdisasm _smps2asm_inc.asm:72-78), which S3K songs resolve by number.
+# smps_import.S2_FTONE_MAP is the declared fTone -> id mapping that points at these.
+#
+# THE TERMINATOR. S2 has one control byte, $80, and it means HOLD: zPSGDoVolFX
+# jumps to zVolEnvHold, which steps the index back so the last level stays in force
+# (s2.sounddriver.asm:1276-1349). In the engine's format $80 is LOOP (cursor to 0)
+# and $81 is the sustain-hold that keeps the last delta, so S2's $80 is re-spelled
+# $81 (_s2_env_body). Copying it through as $80 would loop the decay instead of
+# holding it. One difference, not reproduced: in the UNFIXED S2 driver the hold
+# frame also skips the volume write, so a volume change made while an envelope is
+# held (a fade) does not reach the PSG until the next note (the disassembly's own
+# "DANGER! ... breaking fades" note); the engine re-applies volume on change, which
+# is S2's FixDriverBugs behaviour.
+#
+# Only the envelopes EHZ and CPZ use ship (fTone_01/02/03/08/0B), as with the S3K
+# set above ("only the sTones our corpus uses"). All 13 would not fit: the head's
+# region is $400 bytes and zPSG_Env12 alone is 128.
+_S2_ENV_ID_BASE = 0x40
+_S2_PSG_ENV_SRC = {
+    # N: zPSG_EnvN body, verbatim (s2.sounddriver.asm line of the label)
+    0x01: [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5,
+           5, 5, 6, 6, 6, 7, 0x80],                                      # :3736
+    0x02: [0, 2, 4, 6, 8, 0x10, 0x80],                                   # :3741
+    0x03: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 0x80],        # :3745
+    0x08: [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2,
+           3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6,
+           6, 6, 6, 6, 7, 7, 7, 0x80],                                   # :3770
+    0x0B: [4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1,
+           2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 0x80],                       # :3787
+}
+_S2_CTL_HOLD = 0x80
+
+
+def _s2_env_body(n: int, body) -> list:
+    """An S2 envelope body in the engine's format: the level bytes unchanged, S2's
+    one terminator (hold) re-spelled as the engine's sustain-hold. Refuses a body
+    that is not <levels> $80, since no other S2 control byte is defined."""
+    if not body or body[-1] != _S2_CTL_HOLD or any(b >= 0x80 for b in body[:-1]):
+        raise SystemExit("gen_sound_tables: S2 zPSG_Env%d is not <level bytes> $80: %r"
+                         % (n, body))
+    return list(body[:-1]) + [_CTL_SUSTAIN]
+
+
+_PSG_VOL_ENVS += [
+    (_S2_ENV_ID_BASE + n, "fTone_%02X" % n, _s2_env_body(n, body))
+    for n, body in sorted(_S2_PSG_ENV_SRC.items())
 ]
 
 
@@ -387,7 +443,8 @@ def _emit_psg_vol_env_z80() -> list:
     out.append("; S3K-EXACT VolEnv byte format: per-frame ATTENUATION deltas (added to the track")
     out.append("; atten; higher = quieter) + control bytes: 80h = loop cursor to 0; 81h = sustain-")
     out.append("; hold (hold last delta, do NOT silence); 83h = full rest (silence the channel).")
-    out.append("; Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body N-1.")
+    out.append("; Engine env id is 1-based (matches smpsPSGvoice's sTone_XX); id N -> body N-1;")
+    out.append("; ids 41h..4Dh are Sonic 2's zPSG_Env1..13 (S2 hold terminator -> 81h).")
     out.append("; (S3K's buggy 'relative-jump' path for other high-bit bytes is NOT replicated.)")
     out.append("PsgVolEnvCtl_Loop    = 80h")
     out.append("PsgVolEnvCtl_Sustain = 81h")
@@ -414,7 +471,9 @@ def _emit_psg_vol_env_z80() -> list:
              _CTL_SUSTAIN: "PsgVolEnvCtl_Sustain",
              _CTL_REST: "PsgVolEnvCtl_Rest"}.get(b, _z80_byte(b))
             for b in body)
-        out.append("%s:   db %s   ; %s (S3K VolEnv_%02X)" % (label, body_toks, stone, env_id - 1))
+        src = ("S2 zPSG_Env%d" % (env_id - _S2_ENV_ID_BASE) if stone.startswith("fTone_")
+               else "S3K VolEnv_%02X" % (env_id - 1))
+        out.append("%s:   db %s   ; %s (%s)" % (label, body_toks, stone, src))
     out.append("")
     return out
 
@@ -575,8 +634,10 @@ def emit_emp_z80() -> str:
     out.append("// CarrierMaskTableZ) + the PSG/FM vol-env id-lists, intra-module pointer")
     out.append("// tables, and bodies. BANKED at the engine-table head (soundBankHead, VMA")
     out.append("// $8000); the resident FM/PSG writers read the 8 head labels via the seam-1")
-    out.append("// banked carriers at their fixed VMAs, so the byte-exact $8000-based layout")
-    out.append("// is load-bearing. SHAPE-INVARIANT (855 bytes both shapes). The vol-env scan")
+    out.append("// banked carriers, which sigil DERIVES from these labels (and the later heads")
+    out.append("// from this table's emitted length), so the table may grow: no consumer restates")
+    out.append("// its length or a label address. SHAPE-INVARIANT (one length both shapes). The")
+    out.append("// vol-env scan")
     out.append("// counts are pub consts DERIVED from the id-list emitted spans via the")
     out.append("// comptime `span(...)` primitive, and the deleted AS twin's id/ptr count")
     out.append("// guard is revived as an item-position `ensure`.")

@@ -251,15 +251,20 @@ this seam; the `game_ram` region's `limit` (`SYSTEM_STACK`) is the overflow guar
 ### soundBankHead — engine tables at the bank head
 
 The engine's per-frame sequencer reads its lookup tables (pitch, SFX window, opcode dispatch,
-DAC sample descriptors) from fixed $8000-window VMAs. A sound-on game places them with a
+DAC sample descriptors) from $8000-window VMAs baked into its operands. A sound-on game places them with a
 `section soundbankhead (cpu: m68000, vma: $8000)` in `games/sonic4/data/sound/soundbankhead.emp`
 (`module games.sonic4.soundbankhead`), which the map anchors at the `sound_bank` LMA (`0xB8000`
 since the 2026-09-04 re-layout; `0xA0000` from 2026-08-26, `0x58000` before that). The section
-`embed`s the seam-1-generated `.bin` artifacts (`SoundTablesZ80_Head` @ $8000,
-`SndDefaultPitchTable` @ $8357, `SfxBlobWinTab` @ $845F, `SeqOpcodeTable` @ $856D,
-`DacSampleTable` @ $85AD) at the exact VMAs the resident Z80 driver's banked carriers expect,
-and guards each span's size with a comptime `ensure` — a size drift would slide a downstream
-head off its fixed carrier VMA and desync the Z80 blob, so it fails the build loudly. **Hard
+`embed`s the seam-2-generated `.bin` artifacts contiguously, in this order: `SoundTablesZ80_Head`
+@ $8000, then `SndDefaultPitchTable`, `SfxBlobWinTab`, `SeqOpcodeTable`, `DacSampleTable`, then a
+0..7-byte pad that ends the head on a multiple of 8, sized at comptime off the five embeds'
+measured lengths. **No head address or length is typed on either side of the seam** (2026-09-25):
+sigil (6b724981) derives all eleven banked carriers the resident driver reads from the same
+layout (the three later heads from the emitted head lengths, the eight labels inside
+`sound_tables_z80` from that module's own labels), so a head table may grow and the carriers move
+with it. The walls that remain check a head against its reader's contract (pitch table
+2*PITCHTAB_COUNT, SFX window SFX_TABLE_LEN*2, 32 opcodes) and the 8-byte head end. Read the built
+listing for the addresses. **Hard
 rule: no code is authored in a banked $8000-window section — data tables only.** Z80 opcode
 fetches from a banked window traverse the 68k bus, and 68k bus contention (VRAM DMA-from-ROM /
 BUSREQ) corrupts fetched opcodes, not just data.
