@@ -5581,10 +5581,14 @@ page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read of
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven,
-against 15 frames. ⚠ Since the VRAM re-cut (77cf6a71, 2026-09-03: 12 frames) its worst
-80×60 window needs 13 pages (pins [0,1,7,8,9] + 8), so its fly-right leg thrashes by
-construction (STRESSART-HALTS GPL-1, options booked in `docs/DEFERRED_WORK.md`), and
-`tools/stressart_legs_witness.py` flies both of its legs every night.
+against 15 frames. Its POOL is over budget on purpose; its WINDOWS are not allowed to be
+(stressart-budget, 2026-09-26): the stress bake takes the canonical frame-aware pin rule
+(`ojz_strip_gen` Pass 4c through `fg_page_order.place_fixed_pool`) and refuses a worst
+window over `PAGE_FRAMES`, like every canonical bake. At 12 frames it ships pins [0,1,7,8]
+and a worst window of 12, ZERO margin (the page-0-only worst is 12 too, so no pin choice
+buys one); before that pass, the 2026-09-03 re-cut (77cf6a71, 14 -> 12 frames) had left it
+at 13 with the plain rule's [0,1,7,8,9], and the fly-right leg thrashed (STRESSART-HALTS
+GPL-1). `tools/stressart_legs_witness.py` flies both of its legs every night.
 Staged nametable words stay section-LOCAL (except in a PHYSICAL-form act, below, whose
 maps are the identity), and the local→global map is applied per word
 inside the `PageCache_PatchRun_Seq`/`_Col` copy runs and the prefetch scan (F-3

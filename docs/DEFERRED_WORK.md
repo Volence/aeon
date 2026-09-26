@@ -41457,8 +41457,9 @@ since nothing that gates a merge runs the general regime, (3) optional trims.
 Found while measuring, PRE-EXISTING on origin/master (base `s4.stressart.bin` `41401ef1`, not
 caused by the prototypes; they halt at the same points with the same messages):
 - **GPL-1: STRESS_ART DEBUG fly right halts** at camera (752,144), frame 102:
-  "PageCache_AllocFrame: no free/evictable frame (thrash bug)". **DIAGNOSED, OPEN (owner
-  pick), see STRESSART-HALTS below: not a cache bug; the fixture is over its own budget.**
+  "PageCache_AllocFrame: no free/evictable frame (thrash bug)". **DIAGNOSED, then FIXED on
+  `fix/stressart-budget` (options B + C, see STRESSART-BUDGET below): not a cache bug; the
+  fixture was over its own budget.**
 - **GPL-2: STRESS_ART DEBUG fly diagonal halts** at (1712,1728), frame 185:
   "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)": a demand page
   published and never referenced. **FIXED on `fix/stressart-halts`, see STRESSART-HALTS
@@ -41522,7 +41523,8 @@ window needs 13 (... camera x=744 y=0 ...); 1605 window(s) over budget", at the 
 camera. The fixture was calibrated at 15 frames (ARCH §9.7's "41 pages vs 15 frames"); at
 12, 13 does not fit. The engine's refusal is the designed one.
 
-**GPL-1 options (OPEN, owner's call: each changes what the fixture stresses).** Measured
+**GPL-1 options (RULED 2026-09-26: B + C, engine test infrastructure; LANDED, see
+STRESSART-BUDGET below).** Measured
 on the fixed engine, `window_count.py` + `stressart_legs_witness.py`
 (`results/window_counts_by_N.txt`, `results/fix_N_sweep_legs.txt`):
 
@@ -41558,8 +41560,8 @@ the raise site and message; 2 if a leg did not fly or forced no eviction). Red-f
 `41401ef1`: exit 1, both legs, both messages. Wired into `tools/nightly_effects_gates.sh`
 after its STRESS_ART build (not landing_build: that build is a ~4 min in-place re-bake);
 `test_landing_lane_shapes.py` grades the wiring (red-first: the invocation removed on disk
--> "found 1 build(s), 0 invocation(s)"). **It is RED every night until a GPL-1 option lands**
-(fly right thrashes); that red is GPL-1, not a lane defect.
+-> "found 1 build(s), 0 invocation(s)"). It was RED every night until a GPL-1 option landed
+(fly right thrashed); STRESSART-BUDGET (below) is that option, and the lane is green on it.
 
 **The new audit checks** are graded by three arms added to `tools/pagecache_audit_poison.py`
 (wired keepalive row, s4.debug.bin): (o) an unreachable assigned frame halts through the
@@ -41577,11 +41579,79 @@ parcel (gpl_legs.sh), control re-run at the base: halt legs 3000 frames clean on
 lag cpzdown 33/1292 -> 32/1291, cpzdiag 70/1329 -> 74/1331.
 
 Open:
-- **SAH-1: GPL-1**, the owner's pick among the options above (and whether C comes with it).
-  The nightly's STRESS_ART flight leg stays red until then.
+- **SAH-1: GPL-1**: CLOSED by STRESSART-BUDGET below (B + C, the controller's ruling).
 - **SAH-2: the clip diagonal's +4 lag frames** under the fix (concentrated at cam x
-  14336-14847, +6, with -3 at 15360) are measured, not explained. The expected cause is a
-  released hold being evicted and re-demanded near the CPZ switch; not traced.
+  14336-14847, +6, with -3 at 15360): TRACED, see STRESSART-BUDGET below. Not a re-demand:
+  a phase shift started by the fill's 22-cycle hold gate on a tick with under ~176 cycles of
+  slack. Not fixed (nothing trivial to fix).
 - **SAH-3: STRESSART-ENTITY-AXIS** (above), undiagnosed.
 - **SAH-4: pc_trace.py's hard-coded PAGE_FRAMES = 12** (research tool, not a lane): it
   must be re-derived if the pool is re-cut again.
+
+## STRESSART-BUDGET: the stress bake takes the canonical pin rule and refuses a window over PAGE_FRAMES (SAH-1 B + C); SAH-2 traced (branch `fix/stressart-budget`, 2026-09-26)
+
+Base `3f310a1d`. Code commit `62140cd7`, test strengthening `9929d528`. Evidence:
+`docs/research/2026-09-26-stressart-halts/results/budget_*.txt` and `sah2_trace.txt`
+(scripts in `sah2/`).
+
+**B (landed).** `ojz_strip_gen.stress_pin_pass` (generate() Pass 4c) pins the inflated pool
+with THE canonical rule: the 75% rule's candidates kept frame-aware, run by
+`fg_page_order.place_fixed_pool`, which is the placed-pool half of `place_pool` (both now call
+`pin_and_count`; `test_fixed_pool_placement_is_place_pools_own_pin_rule` holds them equal on a
+fixture where the rule is trimmed). It counts the grid the ROM holds (placed canon grid plus
+the clone redirects), before Pass 5 writes anything. N stays 2600. Nothing is hard-coded: the
+pins are derived per bake. STRESS_ART at `62140cd7`: pins [0,1,7,8] (rule [0,1,7,8,9]), worst
+window 12 at camera x=744 (1892 windows at that count, 0 over), and the committed-tree check
+agrees exactly; `s4.stressart.bin` `040712b3` (the same bytes as the throwaway row B
+measurement). `tools/stressart_legs_witness.py` exit 0: fly right 1500 frames, 10 evictions;
+fly diagonal 1500 frames, 12 evictions (base `bcc96b48`: exit 1, fly right halted at leg frame
+43, camera (752,144)).
+
+**Margin: ZERO.** 12 of 12, and the page-0-only worst is also 12 at N=2600, so no pin choice
+can buy a frame; only a smaller N can (N=1400 measured 11). The fixture stays meaningful: both
+legs force evictions (the witness exits 2 on a leg with none). Side measurement
+(`budget_N3400_fits.txt`): N=3400 (54 pages) also fits at 12 with pins [0,1,7], 19 / 20
+evictions; the strided clones spread, so raising N does not by itself overflow a window.
+
+**C (landed).** A stress bake whose worst window exceeds PAGE_FRAMES exits non-zero from Pass
+4c: `REFUSED — FG page budget: OJZ act 1 STRESS bake (--stress-uniquify N, P pages, pins
+[...])`, naming the window (tile left/top), its camera x/y, its page count and the frame
+count, and the remedy (lower STRESS_ART_N, or the budget constants). `fg_page_order check`'s
+`--report-only` mode is deleted (build.sh and regenerate-level.sh passed it for STRESS_ART
+only); passing it now is an unknown argument. Red-first on the real build
+(`budget_refusal_frames11.txt`): POOL_TILE_CEILING 768 -> 704 on disk (12 -> 11 frames),
+`NO_LINT=1 STRESS_ART=1 ./build.sh` exit 1: the canonical Pass 4 fits (10 of 11), Pass 4c keeps
+pins [0,1] and refuses "worst window needs 12 (tile left 212 top 526, e.g. camera x=1856
+y=4336 px; 204 window(s) at that count)"; the generated tree was restored by both traps and
+the constant from the commit. The base accepted a worse bake (13 over 12) with build rc 0.
+Pytest red-first (`budget_pytest_mutations.txt`): the plain rule in place_fixed_pool turns 6
+rows red, skipping the refusal turns the 2 refusal rows red.
+
+**Canonical bakes already refused**, three times: `ojz_strip_gen` Pass 4 (`refuse_over_budget`
+before anything is written), `regenerate-level.sh`'s `fg_page_order.py check`, and build.sh's
+strict `fg_page_order.py` lane. Only the stress arm was exempt. Nothing canonical changed:
+s4.bin `80d58257`, s4.debug.bin `d57002c5`, demo.debug.bin `6fff5daa` before and after.
+
+**SAH-2 trace (measured, not fixed).** Same harness as the GPL parcel (gpl_legs.sh cpzdiag,
+plus a profiled run from the switch and cumulative one-frame profile windows around the first
+divergence) on the clip DEBUG ROMs before (`4a3bc66c`) and after (`3a807650`) the GPL-2 fix;
+reproduced 70/1329 -> 74/1331. The two legs are identical frame for frame up to row 910. In
+every fill pass the fix pays the hold gate (`tst.b Page_Demand_Held` / `beq`, 12 + 10 = 22
+cycles): Tile_Cache_Fill self is exactly +22 per pass in each frame 905-910 while
+PageCache_DemandHoldTick is never called there. With the idle decoder's knock-on (+-30 cycles
+per frame in PageIn_Process) the fix is +176 cycles of work by frame 909. The tick that the
+base completes at the end of frame 910 must have had less slack than that (the fix misses it
+and nothing else in the leg differs yet), so in the fix it misses the
+frame: a lag frame at row 910 and the camera 16 px behind from there on. In this leg's
+alternating-lag regime the shifted phase lands 4 more lag frames by the leg's end (+6 at cam x
+14336, -3 at 15360, +1 at 15872). Over the whole leg the fix does LESS work (VSync_Wait
++564k cycles; 15 PageCache_Request calls against 23, from the switch on; DemandHoldTick 4 calls, 1524 cycles in total), so
+the expected cause (a released hold evicted and re-demanded) is refuted. Not fixed: the gate is
+already the cheapest form of the check, and a count flipped by a 22-cycle, sub-frame-slack
+phase is a property of a leg running at the frame boundary, not a cost to remove.
+
+Open:
+- **SAH-5: zero margin.** The stress fixture's static worst window is 12 of 12 frames. A
+  future re-cut or art change that adds one page to one window now REFUSES the bake (C), where
+  it used to ship a thrash; the choice of N (or a smaller window) is the lever when it does.
+- SAH-3 and SAH-4 above are unchanged by this parcel.

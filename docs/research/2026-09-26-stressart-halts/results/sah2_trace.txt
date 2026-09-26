@@ -1,0 +1,160 @@
+# SAH-2: clip DEBUG (s2_ehz_cpz) cpzdiag leg, base 4a3bc66c (before GPL-2 fix) vs fix 3a807650
+# harness: docs/research/2026-09-27-general-patch-loop/gpl_legs.sh via sah2/sah2_run.sh
+Sat Sep 26 01:58:12 PM UTC 2026
+rom=/home/volence/.cache/aeon-sab/clip_base/s4.s2clip.debug.bin
+ 09:58:12 up 2 days, 22:59,  1 user,  load average: 4.81, 3.68, 3.48
+cpzdiag rc=0 loadavg=5.07 3.76 3.50 6/2612 2262244
+cpzdiagP rc=0 loadavg=5.22 3.81 3.52 5/2596 2288036
+Sat Sep 26 01:58:23 PM UTC 2026
+ 09:58:23 up 2 days, 22:59,  1 user,  load average: 5.22, 3.81, 3.52
+finished=2
+Sat Sep 26 01:58:23 PM UTC 2026
+rom=/home/volence/.cache/aeon-sab/clip_fix/s4.s2clip.debug.bin
+ 09:58:23 up 2 days, 22:59,  1 user,  load average: 5.22, 3.81, 3.52
+cpzdiag rc=0 loadavg=5.36 3.86 3.54 9/2597 2309556
+cpzdiagP rc=0 loadavg=5.41 3.90 3.55 7/2586 2324094
+Sat Sep 26 01:58:34 PM UTC 2026
+ 09:58:34 up 2 days, 22:59,  1 user,  load average: 5.41, 3.90, 3.55
+finished=2
+## gpl_summary
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base           cpzdiag    4a3bc66c    70/1329     0/894    70/435    66/188 [16064, 5920]      0                            
+base           cpzdiagP   4a3bc66c    70/1329     0/894    70/435    66/188 [16064, 5920]      0     19891      1957   10.16
+fix            cpzdiag    3a807650    74/1331     0/894    74/437    70/190 [16064, 5920]      0                            
+fix            cpzdiagP   3a807650    74/1331     0/894    74/437    70/190 [16064, 5920]      0     20063      1967   10.20
+## whole-leg diff (sah2/sah2_diff.py): lag by camera bucket, first divergence, profile deltas from the switch
+rows_before_switch base 894 fix 894
+lag after switch by camera x bucket (base, fix, delta):
+  x= 14336:  14  20 +6
+  x= 14848:  34  34 +0
+  x= 15360:  17  14 -3
+  x= 15872:   5   6 +1
+lag after switch by camera y bucket (base, fix, delta):
+  y=     0:  13  17 +4
+  y=   512:  34  34 +0
+  y=  1024:  18  17 -1
+  y=  1536:   1   2 +1
+  y=  2560:   2   2 +0
+  y=  4608:   2   2 +0
+first per-frame divergence at row 910 base (910, 0, 14576, 288) fix (910, 1, 14560, 272)
+base lag rows: [(897, 14448, 160), (899, 14464, 176), (901, 14480, 192), (902, 14480, 192), (903, 14480, 192), (908, 14544, 256), (915, 14640, 352), (917, 14656, 368), (919, 14672, 384), (924, 14736, 416), (927, 14768, 448), (930, 14800, 480), (932, 14816, 496), (934, 14832, 512), (936, 14848, 528), (938, 14864, 544), (940, 14880, 560), (942, 14896, 576), (944, 14912, 592), (946, 14928, 608), (948, 14944, 624), (950, 14960, 640), (952, 14976, 656), (954, 14992, 672), (956, 15008, 688), (958, 15024, 704), (960, 15040, 720), (962, 15056, 736), (964, 15072, 752), (966, 15088, 768), (968, 15104, 784), (969, 15104, 784), (970, 15104, 784), (972, 15120, 800), (974, 15136, 816), (976, 15152, 832), (978, 15168, 848), (980, 15184, 864), (982, 15200, 880), (984, 15216, 896), (986, 15232, 912), (988, 15248, 928), (990, 15264, 944), (992, 15280, 960), (994, 15296, 976), (996, 15312, 992), (998, 15328, 1008), (1000, 15344, 1024), (1002, 15360, 1040), (1004, 15376, 1056), (1006, 15392, 1072), (1008, 15408, 1088), (1010, 15424, 1104), (1012, 15440, 1120), (1014, 15456, 1136), (1016, 15472, 1152), (1018, 15488, 1168), (1020, 15504, 1184), (1022, 15520, 1200), (1024, 15536, 1216), (1028, 15584, 1264), (1034, 15664, 1344), (1036, 15680, 1360), (1039, 15712, 1392), (1048, 15840, 1520), (1057, 15968, 1648), (1132, 16064, 2832), (1133, 16064, 2832), (1262, 16064, 4880), (1263, 16064, 4880)]
+fix  lag rows: [(897, 14448, 160), (899, 14464, 176), (901, 14480, 192), (902, 14480, 192), (903, 14480, 192), (908, 14544, 256), (910, 14560, 272), (915, 14624, 336), (917, 14640, 352), (919, 14656, 368), (922, 14688, 400), (924, 14704, 416), (926, 14720, 432), (928, 14736, 448), (930, 14752, 464), (932, 14768, 480), (934, 14784, 496), (936, 14800, 512), (938, 14816, 528), (940, 14832, 544), (942, 14848, 560), (944, 14864, 576), (946, 14880, 592), (948, 14896, 608), (950, 14912, 624), (952, 14928, 640), (954, 14944, 656), (956, 14960, 672), (958, 14976, 688), (960, 14992, 704), (962, 15008, 720), (964, 15024, 736), (966, 15040, 752), (968, 15056, 768), (970, 15072, 784), (972, 15088, 800), (974, 15104, 816), (975, 15104, 816), (976, 15104, 816), (978, 15120, 832), (980, 15136, 848), (982, 15152, 864), (984, 15168, 880), (986, 15184, 896), (988, 15200, 912), (990, 15216, 928), (992, 15232, 944), (994, 15248, 960), (996, 15264, 976), (998, 15280, 992), (1000, 15296, 1008), (1002, 15312, 1024), (1004, 15328, 1040), (1006, 15344, 1056), (1008, 15360, 1072), (1010, 15376, 1088), (1012, 15392, 1104), (1014, 15408, 1120), (1016, 15424, 1136), (1018, 15440, 1152), (1020, 15456, 1168), (1022, 15472, 1184), (1025, 15504, 1216), (1029, 15552, 1264), (1035, 15632, 1344), (1038, 15664, 1376), (1040, 15680, 1392), (1049, 15808, 1520), (1058, 15936, 1648), (1067, 16064, 1776), (1136, 16064, 2864), (1137, 16064, 2864), (1266, 16064, 4912), (1267, 16064, 4912)]
+profiled ticks base 425 fix 423; sampleCycles 63234812 63490826
+routine                                  dSelf  self base   self fix  calls b  calls f     incl b     incl f
+VSync_Wait                              564528   20610680   21175208      424      422   25034792   25466102
+S4LZ_DecompressDict                    -132972    1622816    1489844      132      121    1622816    1489844
+$engine.page_cache$PageCache_Prefetc   -132150    2491410    2359260      915      902    2492906    2360382
+$engine.page_cache$asm25$pb_word        -67840      67840          0        0        0   58735614          0
+$engine.page_cache$asm26$pb_next         67520          0      67520        0        0          0   58984526
+PageCache_PatchRun_Seq                   33172    8451344    8484516     4320     4314    8453660    8486566
+Parallax_Update                         -14044    3226504    3212460      424      422    3586056    3570316
+TileCache_DecompressBlock               -13394     299608     286214      370      354    1922424    1776058
+Canopy_Probe                             -8112    1716664    1708552      424      422    1716664    1708552
+TileCache_FillRow                        -6804    4776478    4769674      734      730   15089568   15097990
+TileCache_FindStagedBlock                -4954    1413796    1408842     8002     7979    1413796    1408842
+Process_DMA_Critical                      4388    1195554    1199942      494      496    1195554    1199942
+Render_Sprites                           -3672     868798     865126      424      422     975518     970294
+TileCache_FillColumn                     -3140     406192     403052      213      209    4316972    4334640
+EntityWindow_DespawnRings                -2960      53752      50792      424      422      56340      53380
+Camera_Update                            -2930     285170     282240      424      422     285170     282240
+TileCache_CopyBlockColumn                -2612     793702     791090      964      959    3261710    3258028
+PageCache_Prefetch                        2358     686822     689180      416      418    3491532    3360850
+TouchResponse                            -2280     483360     481080      424      422     483360     481080
+PageIn_Process                           -2260     684960     682700      424      422    4388864    4255774
+VInt_Level                               -2188     422122     419934      424      422    3833340    3818414
+$engine.objects.core$RunObjects$run_     -2096     444352     442256     1272     1266     715272     712048
+Section_UpdateColumns                    -1986     548758     546772      424      422    4402174    4390486
+GameState_OJZScroll_Update               -1600     339818     338218      424      422   33603516   33422014
+DrawRings                                -1552      85840      84288      424      422      85840      84288
+Canopy_Fire                              -1544     203068     201524      524      520     207988     206444
+PageCache_DemandHoldTick                  1524          0       1524        0        4          0       1524
+VInt_Lag                                  1424      24920      26344       70       74     360144     381942
+Flush_VDP_Shadow                          1396     344812     346208      494      496     344812     346208
+$engine.controllers$Read_Controllers      1376     339872     341248      988      992     339872     341248
+  PageCache_DemandHoldTick: calls None -> 4; incl None -> 1524; self None -> 1524
+  Tile_Cache_Fill: calls 424 -> 422; incl 20952192 -> 20822408; self 979886 -> 980102
+  PageCache_Audit: calls 848 -> 844; incl 779958 -> 778860; self 769350 -> 768252
+  PageCache_AllocFrame: calls 5 -> 5; incl 207658 -> 207658; self 6052 -> 6052
+  PageIn_Process: calls 424 -> 422; incl 4388864 -> 4255774; self 684960 -> 682700
+  PageCache_Publish: calls None -> None; incl None -> None; self None -> None
+  PageCache_Request: calls 23 -> 15; incl 4300 -> 3294; self 4300 -> 3294
+## per-frame work around the first divergence (sah2/sah2_cdiff.py; cumulative profile windows [895,hi))
+base w903 rc=0
+base w904 rc=0
+base w905 rc=0
+base w906 rc=0
+base w907 rc=0
+base w908 rc=0
+base w909 rc=0
+base w910 rc=0
+fix w903 rc=0
+fix w904 rc=0
+fix w905 rc=0
+fix w906 rc=0
+fix w907 rc=0
+fix w908 rc=0
+fix w909 rc=0
+fix w910 rc=0
+finished=16
+base c895_905 rc=0
+base c895_906 rc=0
+base c895_907 rc=0
+base c895_908 rc=0
+base c895_909 rc=0
+base c895_910 rc=0
+base c895_911 rc=0
+base c895_912 rc=0
+fix c895_905 rc=0
+fix c895_906 rc=0
+fix c895_907 rc=0
+fix c895_908 rc=0
+fix c895_909 rc=0
+fix c895_910 rc=0
+fix c895_911 rc=0
+fix c895_912 rc=0
+finished=16
+== base
+  [895,905) frames 9 ticks 5 sample 1152045 work 929367 last row [904, 1, 1, 1, 14496, 208]
+  [895,906) frames 10 ticks 6 sample 1280051 work 639727 | +frame: sample 128006 work -289640 Tile_Cache_Fill=19598/1 PageIn_Process=37240/2 PageCache_Request=122/1 last row [905, 1, 1, 0, 14512, 208]
+  [895,907) frames 11 ticks 7 sample 1408059 work 767569 | +frame: sample 128008 work 127842 Tile_Cache_Fill=19908/1 PageIn_Process=62242/0 PageCache_Request=166/1 last row [906, 1, 1, 0, 14528, 240]
+  [895,908) frames 12 ticks 8 sample 1536074 work 751928 | +frame: sample 128015 work -15641 Tile_Cache_Fill=5898/1 PageIn_Process=64280/2 PageCache_Request=122/1 last row [907, 1, 1, 0, 14544, 240]
+  [895,909) frames 13 ticks 8 sample 1664068 work 879852 | +frame: sample 127994 work 127924 Tile_Cache_Fill=94108/0 S4LZ_DecompressDict=18160/2 last row [908, 1, 0, 1, 14544, 256]
+  [895,910) frames 14 ticks 9 sample 1792082 work 993200 | +frame: sample 128014 work 113348 Tile_Cache_Fill=95030/1 PageIn_Process=4338/1 last row [909, 1, 1, 0, 14560, 272]
+  [895,911) frames 15 ticks 10 sample 1920081 work 1121043 | +frame: sample 127999 work 127843 Tile_Cache_Fill=78970/1 PageIn_Process=6056/0 last row [910, 1, 1, 0, 14576, 288]
+  [895,912) frames 16 ticks 11 sample 2048090 work 1242538 | +frame: sample 128009 work 121495 Tile_Cache_Fill=78460/1 PageIn_Process=3084/1 last row [911, 1, 1, 0, 14592, 304]
+== fix
+  [895,905) frames 9 ticks 5 sample 1152053 work 929423 last row [904, 1, 1, 1, 14496, 208]
+  [895,906) frames 10 ticks 6 sample 1280053 work 639837 | +frame: sample 128000 work -289586 Tile_Cache_Fill=19620/1 PageIn_Process=37274/2 PageCache_Request=122/1 last row [905, 1, 1, 0, 14512, 208]
+  [895,907) frames 11 ticks 7 sample 1408057 work 767675 | +frame: sample 128004 work 127838 Tile_Cache_Fill=19930/1 PageIn_Process=62216/0 PageCache_Request=166/1 last row [906, 1, 1, 0, 14528, 240]
+  [895,908) frames 12 ticks 8 sample 1536070 work 752082 | +frame: sample 128013 work -15593 Tile_Cache_Fill=5920/1 PageIn_Process=64308/2 PageCache_Request=122/1 last row [907, 1, 1, 0, 14544, 240]
+  [895,909) frames 13 ticks 8 sample 1664076 work 880028 | +frame: sample 128006 work 127946 Tile_Cache_Fill=94130/0 S4LZ_DecompressDict=18160/2 last row [908, 1, 0, 1, 14544, 256]
+  [895,910) frames 14 ticks 9 sample 1792082 work 993376 | +frame: sample 128006 work 113348 Tile_Cache_Fill=95030/1 PageIn_Process=4338/1 last row [909, 1, 1, 0, 14560, 272]
+  [895,911) frames 15 ticks 9 sample 1920087 work 1121215 | +frame: sample 128005 work 127839 Tile_Cache_Fill=78992/1 PageIn_Process=6030/0 last row [910, 1, 0, 0, 14560, 272]
+  [895,912) frames 16 ticks 10 sample 2048094 work 1127740 | +frame: sample 128007 work 6525 PageIn_Process=115300/1 last row [911, 1, 1, 1, 14576, 288]
+self-cycle deltas over [895,912) (fix - base):
+  PageIn_Process                                 111648  (253280 -> 364928; calls 9 -> 9)
+  PageCache_PatchRun_Seq                         -28654  (160978 -> 132324; calls 81 -> 69)
+  PageCache_PatchRun_Col                         -17552  (162504 -> 144952; calls 111 -> 99)
+  TileCache_FillRow                              -13236  (87714 -> 74478; calls 16 -> 14)
+  TileCache_CopyBlockColumn                       -7944  (77482 -> 69538; calls 95 -> 85)
+  Parallax_Update                                 -7022  (70206 -> 63184; calls 10 -> 9)
+  TileCache_FindStagedBlock                       -4356  (42218 -> 37862; calls 241 -> 219)
+  TileCache_FillColumn                            -4116  (40128 -> 36012; calls 21 -> 19)
+  Canopy_Probe                                    -4026  (40270 -> 36244; calls 10 -> 9)
+  Render_Sprites                                  -2618  (26140 -> 23522; calls 10 -> 9)
+  $engine.plane_buffer$Draw_TileRow_FromCache$    -2572  (3858 -> 1286; calls 6 -> 2)
+  Tile_Cache_Fill                                 -2138  (22078 -> 19940; calls 10 -> 9)
+  $engine.plane_buffer$Draw_TileColumn$ccr_dra    -2000  (22328 -> 20328; calls 20 -> 18)
+  Draw_TileColumn                                 -1992  (19720 -> 17728; calls 20 -> 18)
+  $engine.page_cache$asm25$pb_next                -1600  (1600 -> 0; calls 0 -> 0)
+  Draw_TileRow_FromCache                          -1584  (2376 -> 792; calls 3 -> 1)
+  Section_UpdateColumns                           -1538  (13144 -> 11606; calls 10 -> 9)
+  $engine.page_cache$asm26$pb_next                 1534  (0 -> 1534; calls 0 -> 0)
+  EntityWindow_DespawnRings                       -1480  (14800 -> 13320; calls 10 -> 9)
+  TouchResponse                                   -1140  (11400 -> 10260; calls 10 -> 9)
+  $engine.plane_buffer$Draw_TileColumn$copy_co    -1076  (7848 -> 6772; calls 36 -> 32)
+  $engine.objects.core$RunObjects$run_always       -978  (10480 -> 9502; calls 30 -> 27)
+  DrawRings                                        -776  (7814 -> 7038; calls 10 -> 9)
+  Camera_Update                                    -662  (6556 -> 5894; calls 10 -> 9)
+  GameState_OJZScroll_Update                       -652  (8000 -> 7348; calls 10 -> 9)
+finished=1

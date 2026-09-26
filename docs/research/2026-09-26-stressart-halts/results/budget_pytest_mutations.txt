@@ -1,0 +1,15 @@
+# pytest red-first: each mutation applied on disk to the committed tree, then restored from it
+## M1: place_fixed_pool ships the plain 75% rule (the old stress behaviour)
+FAILED tools/test_fg_page_order.py::test_fixed_pool_placement_is_place_pools_own_pin_rule[source]
+FAILED tools/test_fg_page_order.py::test_fixed_pool_placement_is_place_pools_own_pin_rule[card_20x32]
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_keeps_only_frame_aware_pins[source]
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_keeps_only_frame_aware_pins[card_20x32]
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_refuses_a_window_over_budget[source]
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_refuses_a_window_over_budget[card_20x32]
+6 failed, 15 passed in 2.32s
+rc=1
+## M2: stress_pin_pass skips refuse_over_budget
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_refuses_a_window_over_budget[source]
+FAILED tools/test_fg_page_order.py::test_stress_pin_pass_refuses_a_window_over_budget[card_20x32]
+2 failed, 19 passed in 2.30s
+rc=1
