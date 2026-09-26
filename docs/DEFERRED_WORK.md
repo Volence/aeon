@@ -41327,6 +41327,10 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
    live in the general loop. Its remaining cost is the per-word page->frame translation and refcount pair (~3.9k per
    row run against 1.6k). Levers, not measured: an idle-time mark-sweep liveness pass instead of per-word refcounts,
    or a per-section translated map. Needs its own design parcel.
+   **BUILT (refcount half), GPL-A3, branch `perf/gpl-a3`, 2026-09-27** (GPL-A3-BUILD below): row/column liveness
+   masks replace the refcount pair. `PatchRun_Seq` 2,958 -> 1,889 cycles per call in CPZ's painted rows; clip DEBUG
+   CPZ band 31 -> 14, down 35 -> 14, diagonal 71 -> 43 lag frames. The translation half (~270 cycles per row run,
+   the design's lever B) stays deferred until a mega-act profile shows it on top.
 2. **The diagonal band is 26/82 against the resident control's 21/77.** Profiled work 1.14 frames/tick against the
    control's 1.06 (the control's window reached (752,768), this one (688,704): not the same camera path). Of the
    ~9.7k/tick gap, `TileCache_DecompressBlock` inclusive is +2.2k (18.1k vs 15.9k, this act's blocks) and the patch
@@ -41649,7 +41653,10 @@ the ticks had to do because the idle slot had no room) read 0 on all nine legs.
 
 Residue, OPEN:
 
-* **AA-1: the general regime's refcount sum is still one atomic walk** (~203k-236k cycles
+* **AA-1: CLOSED by GPL-A3 (2026-09-27, branch `perf/gpl-a3`):** the general regime's check is now a per-word
+  predicate (assigned, and carried by the word's row or column liveness mask), sliced in the idle slot like the
+  latched one; the atomic walk is gone. Original row, kept as the record:
+  **the general regime's refcount sum is still one atomic walk** (~203k-236k cycles
   every 128 ticks), so a streaming act past its bulk block (the clip after the CPZ switch)
   still gets the two-frame hitch. Slicing a SUM while `Tile_Cache_Fill` rewrites words gives
   false verdicts both ways unless every write is seen. The clean lever is a DEBUG write
@@ -41706,7 +41713,7 @@ stop points identical (visible Plane A, Plane B, tile cache).
   barrier, and the new dispatch isolates the general arm behind one `tst/bmi/movem/bne`. That
   narrows where a barrier goes; it does not make the barrier itself simpler.
 
-## GENERAL-PATCH-LOOP: per-word refcounts in the general regime, replaced by row/column liveness masks (DESIGN, not built; booked 2026-09-26T12:26:50Z)
+## GENERAL-PATCH-LOOP: per-word refcounts in the general regime, replaced by row/column liveness masks (DESIGN; stage 1 and the lane of stage 2 BUILT on `perf/gpl-a3`, see GPL-A3-BUILD below; booked 2026-09-26T12:26:50Z)
 
 S2CLIP-LAG item 1 and AUDIT-AMORTISE AA-1, designed and prototyped in
 `docs/research/2026-09-27-general-patch-loop.md` (branch `design/general-patch-loop`,
@@ -41778,6 +41785,8 @@ evictions, no halt. Cost: one `tst.b/beq` per fill pass; a ~450-cycle walk once 
 episode; never reached on a latched act.
 - **Conflict note for GPL-A3-BUILD:** the release tests `PF_RC == 0`. Under the A3 masks
   that test becomes "in no row/column mask"; the hold itself (bit, gate, tick) carries over.
+  **Done as written** (GPL-A3-BUILD below); an eviction choice that sees a held frame named
+  also drops the hold, and the orphan audit arm (o) is retired with the state it planted.
 
 **GPL-1 mechanism (runtime, `results/tip_af8e7381_right_frames28-44.txt`).** At the halt
 every one of the 12 frames is pinned (0,1,7,8,9; 7-9 referenced by NOTHING in this window) or
@@ -42126,3 +42135,31 @@ oracle-aether md5 `3e7c2778`.
   (`section_N.collattr.bin` all zero; only the old `coll.bin` holds data).
 - **ARCH corrected:** §4's "Player-state-dependent speed caps" paragraph described S3K's camera
   rule as ours; it now states the shipped rule.
+
+## GPL-A3-BUILD: the general patch loop keeps liveness masks, not refcounts (branch `perf/gpl-a3`, 2026-09-27)
+
+Stage 1 of GENERAL-PATCH-LOOP, and stage 2's regression lane. Record and every measurement:
+`docs/research/2026-09-27-gpl-a3-build.md`; ARCH §9.7 "Eviction safety: liveness masks". Base
+origin/master `1f9c3414`. Measured (lag / video frames in motion, oracle-aether 3e7c2778): clip DEBUG
+CPZ band 31 -> 14, CPZ down 35 -> 14, CPZ diagonal 71 -> 43; EHZ diagonal 37 = 37, fly right 0 = 0,
+EHZ run 6 = 6; clip release run/spin/EHZ run equal; canonical DEBUG diagonal 11 -> 10, every other
+canonical leg equal. STRESS_ART legs witness PASS; picture witness identical at every matched point
+(clip zigzag 52/52, STRESS_ART diagonal 14/14, STRESS_ART zigzag 7 matched / 15 unmatched). RAM:
+free above the game 3,792 -> 3,536 B DEBUG, 16,126 -> 15,870 B release. AA-1 closed.
+
+Open riders:
+- **GPL-A3-1 (lag ceiling):** `tools/general_regime_witness.py` gates correctness only (no halt, the
+  regime reached, an eviction seen). A clip-shape lag lane with a DERIVED ceiling, the design's
+  stage 2 in full, is not built: no derivation for a ceiling exists yet.
+- **GPL-A3-2 (demand stalls on STRESS_ART):** 3 demand stalls on the STRESS_ART zigzag against base
+  0, at 34-36 fewer video frames for the same 987 ticks. Not attributed (the lag gain gives the
+  decoder less time per tick); re-loads, the order metric, are 12 against 11.
+- **GPL-A3-3 (replay fixtures):** the DEBUG RAM layout moved (-30 B scratch, the masks at the tail).
+  Whether the replay net's RAM-hash checkpoints need a re-stamp was not measured (no automated
+  runner).
+- **GPL-A3-4 (sigil port list):** `tile_cache_port` hand-supplies cross-seam names; the new
+  `Page_Live_*` RAM names and `PageCache_LiveReset` are not in it (GPL-2's names were not either).
+  For the sigil lane; not tested here.
+- **GPL-A3-5 (sweep margin):** `LIVE_SWEEP_MARGIN_LINES` (12) is priced by hand (~2.4k cycles a
+  unit), like AA-3; no instrument prices a real unit.
+- **GPL-A3-6 (owner's look):** the clip in Chemical Plant on this build, by eye.

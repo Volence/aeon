@@ -1,0 +1,25 @@
+A s4.stressart.bin crc=d75c0857   B s4.stressart.bin crc=45a9ec4b   switch A [96, 144] B [96, 144]
+  t=  50 cam=(96, 912) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 124/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 124/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 126/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [320, 384]
+  t=450 UNMATCHED cam [64, 800] vs [64, 863]
+  t=500 UNMATCHED cam [64, 1600] vs [64, 1663]
+  t=550 UNMATCHED cam [64, 2400] vs [64, 2463]
+  t=600 UNMATCHED cam [64, 3200] vs [64, 3263]
+  t=650 UNMATCHED cam [64, 4000] vs [64, 4063]
+  t=700 UNMATCHED cam [64, 4800] vs [64, 4863]
+  t=750 UNMATCHED cam [640, 5008] vs [640, 5007]
+  t=800 UNMATCHED cam [640, 4272] vs [640, 4207]
+  t=850 UNMATCHED cam [640, 3472] vs [640, 3407]
+  t=900 UNMATCHED cam [640, 2672] vs [640, 2607]
+  t=950 UNMATCHED cam [528, 2000] vs [464, 1999]
+  t=1000 UNMATCHED cam [0, 2000] vs [0, 1999]
+  t=1050 UNMATCHED cam [0, 2000] vs [0, 1999]
+  t=1100 UNMATCHED cam [0, 2000] vs [0, 1999]
+points 7: visible window identical at 7, tile cache identical at 7
+verdict: UNMATCHED points

@@ -1,0 +1,31 @@
+# lag / video frames in motion (leg_probe's IN MOTION; ehzrun = ehz_run_probe, tick-keyed)
+# oracle-aether md5 3e7c2778 for every run; see measure.meta files for loadavg
+
+leg                       base (origin/master 1f9c3414) A3 first cut e20fcc51         A3 latched-cost fix (a3c2)    A3 tip (rotation stamps)      
+candbg_diag               11/374                        12/375                        10/373                        10/373                        
+candbg_down               0/363                         0/363                         0/363                         0/363                         
+candbg_fly                0/358                         0/358                         0/358                         0/358                         
+candbg_run                4/2166                        4/2166                        4/2166                        4/2166                        
+candbg_spin               6/1175                        6/1175                        6/1175                        6/1175                        
+canrel_run                2/2164                        2/2164                        2/2164                        2/2164                        
+canrel_spin               2/1170                        2/1170                        2/1170                        2/1170                        
+clipdbg_cpzband           31/1046                       14/1046                       14/1046                       14/1046                       
+clipdbg_cpzdiag           71/1332                       43/1306                       43/1306                       43/1306                       
+clipdbg_cpzdown           35/1294                       14/1273                       14/1273                       14/1273                       
+clipdbg_diag              37/1035                       37/1035                       37/1035                       37/1035                       
+clipdbg_fly               0/998                         1/999                         0/998                         0/998                         
+cliprel_run               3/2773                        7/2778                        3/2773                        3/2773                        
+cliprel_spin              8/2767                        8/2767                        8/2767                        8/2767                        
+ehzrun_s4.s2clip          1/1202                        1/1202                        1/1202                        1/1202                        
+ehzrun_s4.s2clip.debug    6/1207                        6/1207                        6/1207                        6/1207                        
+
+# latched-cost bisect (throwaway builds, each removes one latched-path addition of e20fcc51)
+nocolgate      candbg_diag 12/375     clipdbg_fly 0/998      clipdbg_diag 37/1035   
+norowgate      candbg_diag 12/375     clipdbg_fly 1/999      clipdbg_diag 37/1035   
+nomaskaudit    candbg_diag 10/373     clipdbg_fly 1/999      clipdbg_diag 37/1035   
+nosweepcall    candbg_diag 12/375     clipdbg_fly 1/999      clipdbg_diag 37/1035   
+
+# rotation-stamp experiment = the tip's code (seen*): clip CPZ legs
+clipdbg_cpzband            14/1046
+clipdbg_cpzdown            14/1273
+clipdbg_cpzdiag            43/1306

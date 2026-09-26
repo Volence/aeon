@@ -1646,7 +1646,7 @@ UFTC was originally planned for random-access sprite decompression, but measured
 - **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap. **The pool's ceiling is `POOL_TILE_CEILING` and the tiles above it belong to `games/<game>/vram.toml` — read both off the generated map (`docs/generated/vram-map-<game>.md`), not off this line**, which has now gone stale twice (960 → 896 at the dust carve, 896 → 768 at EFFECTS-W1 item 0's `spare_nametable`).
 - **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time — the addresses now COME FROM the registry rather than hand-picked literals. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
 
-Because every object/permanent tile address is decided at build time and act FG art rides the §9.7 residency cache, there is no fragmentation, no compaction, and no allocator beyond the cache's own frame/refcount machinery. The act pool is capped by ROM budget, not VRAM: `tools/art_rom_report.py` gates the per-act ROM footprint at build time, and the cache degenerates to fully resident for acts whose pool fits the frame budget.
+Because every object/permanent tile address is decided at build time and act FG art rides the §9.7 residency cache, there is no fragmentation, no compaction, and no allocator beyond the cache's own frame/liveness machinery. The act pool is capped by ROM budget, not VRAM: `tools/art_rom_report.py` gates the per-act ROM footprint at build time, and the cache degenerates to fully resident for acts whose pool fits the frame budget.
 
 **Future enhancement (DEFERRED_WORK):** A dynamic per-object VRAM allocator with refcount-based caching and lazy reclaim — for on-demand boss/effect art. This would add `AllocVRAM`/`FreeVRAM`-style lifecycle on top of the same residency cache. It is not part of the shipped engine; today's model is static assignment plus the streamed act-pool residency cache (§9.7). The "levels whose art exceeds the resident pool" case is already handled — that is exactly what the residency cache streams (level art is capped by ROM, not VRAM); this future item is only about per-object/effect art on top.
 
@@ -1848,9 +1848,10 @@ As the camera approaches blocks referencing non-resident pages
   → page prefetch collects the ahead-strip's referenced pages and requests them
   → idle-time decode (ZX0R / raw direct) + Important-queue landing into an
     ALLOCATED frame — pages are frame-relocatable, not fixed-address
-  → departed pages are evicted oldest-released-first when unpinned and refcount-free
+  → departed pages are evicted oldest-first when unpinned and named by no tile-cache word
+    (the liveness masks, GPL-A3)
 ```
-See §9.7 for the full design (frame allocator, refcounts, prefetch, eviction).
+See §9.7 for the full design (frame allocator, liveness masks, prefetch, eviction).
 
 **Emergency spawn (mid-gameplay — DEFERRED, needs the §2.2 allocator):**
 ```
@@ -3480,7 +3481,7 @@ The reason the warp is an engine feature rather than a client trick is that a ba
 2. place the leader through `Camera_Target` (both velocities zeroed, status/angle/ground-speed/move-lock/spindash cleared, `Player_SetState(PSTATE_AIR)` so it lands on arrival, **then** the position written with its subpixel fraction cleared — see *Placement semantics* below for why the position write comes last) — a **narrow** refresh, not `Player_Init`, which would tail-call `Player_DebugEnter` under the DEBUG shape's armed cheat;
 3. centre the camera on the leader and clamp it against `Camera_X_Max`/`Camera_Y_Max` (the ceilings `Camera_Init` precomputed for the act); clear `Camera_Hold_Frames` / `Camera_Art_Hold`;
 4. `Section_Init` — re-stamps `Current_Act_Ptr`, reseeds the four `Section_*_Written` trackers via `Section_FillInitial`, recentres the entity window via `EntityWindow_Init`;
-5. `PageCache_ResetRefcounts` then `Tile_Cache_Init` — the latter reseeds *every* streaming latch (window bounds, circular origins, resume sentinels, `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the H-prefetch direction and accumulator, the `$FFFF` ahead-target sentinels), invalidates block staging and refills;
+5. `PageCache_ReleaseHolds` then `Tile_Cache_Init` — the latter reseeds *every* streaming latch (window bounds, circular origins, resume sentinels, `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the H-prefetch direction and accumulator, the `$FFFF` ahead-target sentinels), invalidates block staging and refills;
 6. `Plane_Buffer_Reset`, `Section_Plane_Dirty`, `Section_UpdateColumns` — drop any stale pre-warp plane entry, then the synchronous full redraw;
 7. force a region crossing (the region sentinel `Region_Cur_X0/X1 = $FFFF/$0000` + `clr.l Region_Current`, `Parallax_Snap_Pending`, then `Parallax_CheckBoundary`) so the destination's palette / cycle / variants / raster install through the **one path a walked crossing takes** (`Effects_InstallPreset`), rather than a second copy of that logic; then `BgAnim_Init` + `Parallax_Update`;
 8. clear the flag.
@@ -3492,7 +3493,7 @@ The reason the warp is an engine feature rather than a client trick is that a ba
 - **The leader is ticked every frame; in a no-input DEBUG boot it simply does not move.** `RunObjects` calls `Player_Main` unconditionally, but the DEBUG shape arms `CHEAT_DEBUG_FLY` and `Player_Init` tail-calls `Player_DebugEnter`, so the level state boots into free flight — and `Player_Main`'s escape hatch (`tst.b PlayerV.debug_flag(a0); bne Player_DebugMove`) routes past the physics, the state dispatch and the rings into `Player_DebugMove`, which reads the D-pad and nothing else. With no input that is a ticked no-op, which from outside is indistinguishable from a leader that is never run. **There is no separate "simulation" mode flag to set.** To enter the simulated-player regime a harness sends one **B press** (`Player_Main`'s cheat-gated toggle → `Player_DebugExit` → standing box, `debug_flag` cleared, `PSTATE_AIR`); gravity and terrain engage on the next tick. Measured from a no-input boot at `x=256`: `y` holds 256 for 60 idle frames, then after one B press runs 256 → 260 → 332 → 573 and `player_state` goes `PSTATE_AIR` → `PSTATE_GROUND` with `ST_IN_AIR` clearing on touchdown. Poking `PlayerV.debug_flag` directly is *not* the equivalent — it skips `Player_DebugExit`'s box, art and animation-latch restore. Note that the pad cells are rewritten every VBlank, so the press must come from the emulator's controller surface (`emulator/press`), not from a memory write.
 - **What Aurora and headless harnesses should expect.** Warp, poll the flag to 0, read `Warp_Req_X`/`Warp_Req_Y` for the clamped origin, and expect the leader to sit there indefinitely — the ~19-frame ack is the whole warp, and nothing moves afterwards until input arrives. A harness that wants to watch the player fall, land and settle must engage the regime above first; one that wants a static placement (screenshots, plane comparisons, the `warp_mailbox` gate) deliberately should not.
 
-**`PageCache_ResetRefcounts`** (`engine/level/page_cache.emp`) is the piece the engine was missing. `TileCache_FillAll` has documented since P2b that a **warm-cache** refill must first reset refcounts, because its bulk nametable zero bypasses the patch runs' per-word unref; `PageCache_Init` could only provide that by also dropping *residency*, which is rebuildable only by `Level_LoadArt` with the display off. The new proc resets exactly the half `FillAll` invalidates — every `pf_refcount` to 0, every assigned unpinned frame stamped and flagged `PF_EVICTABLE`, free/pinned frames left unflagged — which is precisely the post-state `PageCache_Audit` checks. `Tile_Cache_Init`'s DEBUG tail runs that audit, so the warp verifies its own residency bookkeeping on every warp.
+**`PageCache_ReleaseHolds`** (`engine/level/page_cache.emp`; `PageCache_ResetRefcounts` until GPL-A3, 2026-09-27) is the piece the engine was missing. A **warm-cache** refill must not use `PageCache_Init`, which also drops *residency*, rebuildable only by `Level_LoadArt` with the display off. What the refill does invalidate is reset where it is exact: `TileCache_FillAll` resets the liveness masks itself right after its bulk nametable zero (`PageCache_LiveReset`), and this proc ends every demand hold (flag and gate together — a warp resolves every demand). Until the masks replaced the refcounts it also zeroed every `pf_refcount` and re-flagged every candidate. `Tile_Cache_Init`'s DEBUG tail runs `PageCache_Audit`, so the warp verifies its own residency bookkeeping on every warp.
 
 **Shape rules.** Both new procs' bodies are wholly inside `if DEBUG == 1`, so they emit zero bytes in release, and both are **parked immediately against an existing zero-byte label** so their release deb2 symbol entries dedupe away: `s4.bin` and `demo.bin` stay byte-identical (`cdabf8a3` / `f7806241`). The consumer lives in the game state rather than `engine/system/game_loop.emp` because `demo` links every `engine.*` module — an ungated frame-top consumer would compile into a game with no act, and gating it would need a new required `Game` contract const, which both games must bind and which breaks the sigil port harness. The other frame-top seam, `Game.debug_tick`, is already claimed by the off-canonical Config-A profile.
 
@@ -5581,36 +5582,67 @@ invariants rather than trusted:
   (measured on the STRESS_ART diagonal, flying into empty sky), which leaked the frame for
   good. Now `Page_Demand_Held` arms `PageCache_DemandHoldTick`, which `Tile_Cache_Fill`
   calls before it clears `Cache_Art_Stall`: once a fill pass that saw every held page
-  resident ends without a demand stall, every held frame still at refcount 0 becomes an
-  ordinary candidate (stamped now). A stalled pass keeps every hold, which is all the
-  protection was for. The orphan audit exempts held frames (it used to exempt only
-  `PageIn_Cur_Frame`) and checks held ⇒ assigned, unpinned, gate armed.
+  resident ends without a demand stall, every hold is released; a held frame no liveness
+  mask names becomes an ordinary candidate (stamped now), a named one just drops the mark
+  (liveness protects it). An eviction choice that sees a held frame named drops its hold
+  too (the refcount design's hold ended at the first reference, for the same reason). A
+  stalled pass keeps every hold, which is all the protection was for. The audit checks
+  held ⇒ assigned, unpinned, gate armed; with the refcounts gone that is the whole orphan
+  class (an assigned, unpinned, unheld frame is a candidate the moment no mask names it).
 - **Instantaneous bijectivity:** `AllocFrame`'s `.detach` stamps `pf_page := $FFFF`
   (UNASSIGNED) so a detached, not-yet-published frame belongs to no page; the audit's
   `pf_page == $FFFF` skip then makes `frame → pf_page → Page_Table` round-trip true at
   *every* instant, including the mid-decode in-flight window.
-- **Orphan / refcount audit:** a DEBUG routine (`PageCache_Audit`) walks
-  `Tile_Cache_Nametable`, recomputes per-frame refcounts from scratch (or, under the
-  direct-map latch, checks that no word names an unassigned frame), and `raise_error`s on
-  any mismatch or orphaned frame. It runs whole after init and warp, and periodically
-  during play: every invariant once per `PAGECACHE_AUDIT_INTERVAL` (128) ticks. **Amortised
-  since 2026-09-26** (`docs/research/2026-09-26-audit-amortise.md`). In the latched regimes
-  the nametable half is cut into 40-word slices. `VSync_Wait`'s idle slot audits them after
-  `PageIn_Process`, only while the V counter says a slice fits before VBlank, paced so
-  slice *s* is due at interval tick *s+1*. The level tick audits any slice left 8 ticks
-  overdue, and the interval tick runs the frame-level checks whole. Each slice checks its
-  words against a frame mask built in the same call, so no verdict ever combines two
-  instants. The general regime's refcount SUM stays one atomic walk on the interval tick,
-  because slicing it needs a write barrier in the copy sites. This removed the DEBUG
-  shape's two-lag-frame hitch every ~2.1 s (canonical fly right 6 -> 0, clip fly right
-  16 -> 0). The nametable half's detection bound is 136 ticks, the frame-level half's 128.
+- **Eviction safety: liveness masks (GPL-A3, 2026-09-27; design
+  `docs/research/2026-09-27-general-patch-loop.md`, build evidence
+  `docs/research/2026-09-27-gpl-a3-build.md`).** No cache word may name a frame whose page
+  left, so a frame is evicted only when no word of the 80×60 tile cache names it (Plane A/B
+  and `Plane_Buffer` hold copies and never needed counting). The general regime answers that
+  with `Page_Live_Masks`: a u16 frame bitmask per cache ROW and per cache COLUMN, and the
+  invariant *every cell (r, c) names a frame in row r's mask or column c's mask*. The general
+  patch runs are an insertion barrier (`bset` per word, one `or.w` into the run's row or
+  column mask per run; the overwritten word needs nothing, masks are supersets);
+  `TileCache_FillRow` publishes its row's mask, a column run takes its physical column in
+  `d1`. Blank words are `$0000` = frame 0, which every row mask carries. The idle slot
+  re-derives one row or column EXACTLY at a time after the audit's slices
+  (`PageCache_LiveSweep`, gated like the audit), so masks shrink as content leaves, and at
+  the end of each full rotation stamps every frame it saw named. `PageCache_PickVictim`
+  takes the oldest assigned, unpinned, unheld frame in no mask; none → one forced
+  `PageCache_LiveSweepAll` (rows exact, columns cleared at the same instant) → thrash. The
+  masks keep their reset value under every latch (`PageCache_LiveReset`, right after
+  `FillAll`'s bulk zero, and nothing writes them while latched). This replaced a per-word
+  refcount pair that was ~1.2k of the ~1.46k cycles per row run separating the general loop
+  from a direct one: `PatchRun_Seq` 2,958 → 1,889 cycles per call in Chemical Plant's painted
+  rows; clip DEBUG lag CPZ band 31 → 14, CPZ down 35 → 14, CPZ diagonal 71 → 43; canonical and
+  bounded-regime legs unchanged or better. RAM: 280 B of masks + 8 B (row pointer, sweep
+  cursor, rotation set; both shapes); the DEBUG shape's 30 B refcount scratch went with the
+  refcounts. Engine RAM +288 B release / +260 B DEBUG; free RAM above the game's
+  (initial SP − `Game_RAM_End`) 16,126 → 15,870 B release, 3,792 → 3,536 B DEBUG.
+- **The DEBUG audit** (`PageCache_Audit`) checks, per nametable word, that the word names an
+  ASSIGNED frame and — in the general regime — that its row or column mask carries it (two
+  messages: "UNASSIGNED frame" / "masks both omit"); under a latch, that every mask keeps its
+  reset value (checked per slice: slice *s* checks row *s/2* and column *s mod 80*), plus the
+  frame-level checks (identity under a latch, holds, bijectivity). It runs whole after init
+  and warp, and periodically during play. **Amortised since 2026-09-26**
+  (`docs/research/2026-09-26-audit-amortise.md`): the nametable half is cut into 40-word
+  slices that `VSync_Wait`'s idle slot audits after `PageIn_Process`, only while the V counter
+  says a slice fits before VBlank, paced so slice *s* is due at interval tick *s+1*. The level
+  tick audits any slice left 8 ticks overdue, and the interval tick runs the frame-level
+  checks whole. Each slice checks its words against state read in the same call (the
+  assigned-frame mask, and in the general regime its row mask and 40 column masks), so no
+  verdict ever combines two instants. **Since GPL-A3 the general regime slices too** (its old
+  check was a refcount SUM that could not be spread over time; AA-1 closed): its 200k-cycle
+  atomic walk is gone. The nametable half's detection bound is 136 ticks, the frame-level
+  half's 128. Graded by `tools/pagecache_audit_poison.py` (every arm red-first by mutation)
+  and, on the one built shape that runs the general regime, by
+  `tools/general_regime_witness.py` (nightly, the S2 clip).
 
 **Operating regime.** Streaming's regime is **windows ≪ pool** — an act whose multi-screen
 cache window references only a fraction of the pool at once, so the resident set churns as
 the camera moves. Below that threshold the cache **correctly degenerates to fully
 resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
 page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read off the committed manifest by `fg_page_order.py check`) are build-pinned (`pm_flags`
-`ART_PAGE_FLAG_PINNED`), and the rest are held resident by refcounts. This is not a limitation to fix —
+`ART_PAGE_FLAG_PINNED`), and the rest are held resident because the cache window names them. This is not a limitation to fix —
 `AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages) is the
@@ -5658,8 +5690,9 @@ does not model, so fitting is necessary for no hold, not sufficient (M-E, a runt
 confirmation, is still owed).
 
 **The degenerate regime pays a degenerate patch (streaming fix F1, 2026-08-19).** On a fully
-resident act the per-word `page → frame` indirection and the ref/unref pair inside the copy
-runs service an eviction that cannot occur, and the translation is provably the identity:
+resident act the per-word `page → frame` indirection and the eviction bookkeeping inside the
+copy runs (then a ref/unref pair; the liveness barrier since GPL-A3) service an eviction that
+cannot occur, and the translation is provably the identity:
 `PageCache_Init` threads the free list `0→1→…`, `Level_LoadArt` enqueues pages in order, and
 page-in completes one at a time in order, so `Page_Table[p] == p` over the pool and
 `frame<<6 | (global&63) == global`. `Level_LoadArt` **verifies** that once the pool has landed
@@ -5669,10 +5702,10 @@ a collapsed variant (read / mask / one map read / attr-merge / store) and leave 
 loop untouched as the fallback for a genuinely streaming act. Measured: the patch cost falls
 183 → 103 cyc/word on the column path and 136 → 89 on the row path; `Tile_Cache_Fill` falls
 22.5% on a saturated X axis and 16.7% on Y, at byte-identical nametable and collision output.
-`PageCache_Audit` is regime-aware rather than disabled: under the latch it checks all-zero
-refcounts (the "variants got mixed" detector), no cache word referencing an unassigned frame
-(the no-dangling-index property the refcounts protected), and that `Page_Table` is still the
-identity. The per-word dangling check is the half the idle slot audits in slices (see the
+`PageCache_Audit` is regime-aware rather than disabled: under the latch it checks that the
+liveness masks keep their reset value (the "variants got mixed" detector; all-zero refcounts
+until GPL-A3), no cache word referencing an unassigned frame (the no-dangling-index property
+eviction safety protects), and that `Page_Table` is still the identity. The per-word dangling check is the half the idle slot audits in slices (see the
 correctness-invariants list above). See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
 
 **The resident regime copies: physical-form acts (resident plain copy, 2026-09-26).**
@@ -5721,14 +5754,16 @@ each measured with that report's harness:
   block at identity with every other page absent. It then latches `PageCache_Direct_Map =
   PAGECACHE_DIRECT_BOUNDED` ($01; F1's fully resident latch is `PAGECACHE_DIRECT_RESIDENT`, $FF): the
   patch runs take F1's collapsed loop plus ONE residency compare, `global < PAGE_FRAMES_CLAMP << 6`,
-  and a word above it takes the general loop's miss arm. No refcounts are kept, which is safe for
+  and a word above it takes the general loop's miss arm. No liveness is kept, which is safe for
   exactly as long as the latch holds, because nothing can be evicted without
-  `PageCache_AllocFrame` and its first call ends the regime: `PageCache_EndBoundedRegime` rebuilds
-  every refcount and candidacy flag from `Tile_Cache_Nametable` (the audit's ground truth), and the
-  general loop takes over for the rest of the act. `PageCache_Audit`'s latched arm checks identity
+  `PageCache_AllocFrame` and its first call ends the regime: `PageCache_EndBoundedRegime` derives
+  the liveness masks from `Tile_Cache_Nametable` (the audit's ground truth; until GPL-A3 it
+  rebuilt every refcount and candidacy flag), and the general loop takes over for the rest of
+  the act. `PageCache_Audit`'s latched arm checks identity
   below the clamp and ABSENT above it (red-first: with the regime end removed, the first page past
   the block halts the DEBUG shape at the next audit). The general loop itself also got a
-  same-frame ref/unref shortcut (-5 to -9% per run).
+  same-frame ref/unref shortcut (-5 to -9% per run), since replaced with the refcounts
+  themselves (GPL-A3, below).
 
 Measured (lag / video frames in motion, clip DEBUG shape; the resident same-zone control
 `s2_ehz_boot` in brackets): fly down, Emerald Hill band 30/86 → 3/59 [2/58]; fly diagonal, band
@@ -5736,10 +5771,12 @@ Measured (lag / video frames in motion, clip DEBUG shape; the resident same-zone
 audit pairs alone); clip release physics 185/2,838 → 14/2,437. Down-leg work 0.707 frames/tick
 against canonical's 0.697. The regime ended at camera (14000,720) flying down into Chemical Plant:
 **2 lag frames, once per act load**. Canonical ROMs take the same F1 path and their legs are
-unchanged. **Still open:** once the regime has ended the act runs the general loop for good (a
-mega-act would live there); the loop's per-word translation + refcount pair is the remaining
-cost, and dropping per-word refcounts (a mark-sweep liveness pass in idle time, or a translated
-per-section map) is the next lever. See `docs/DEFERRED_WORK.md` S2CLIP-LAG.
+unchanged. Once the regime has ended the act runs the general loop for good (a mega-act would
+live there). Its per-word refcount pair was the remaining cost; **GPL-A3 (2026-09-27) replaced
+it with the liveness masks** (the correctness-invariants list above: CPZ band 31 → 14 lag
+frames, diagonal 71 → 43). What is left over a direct loop is the per-word page→frame
+translation (~270 cycles per row run, lever B in the design, deferred). See
+`docs/DEFERRED_WORK.md` S2CLIP-LAG and GENERAL-PATCH-LOOP.
 
 **Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
 empties the FIFO and drops any suspended decode (main-loop context only). Called at
