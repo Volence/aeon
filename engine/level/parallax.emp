@@ -3433,11 +3433,13 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //                 sample scratch, so the post-wrap line count lives on the stack. See the
 //                 banner above those two loops for why, and for which halves of d0 go where.
 //   `.lp_curve` — the RAMPING BG factor (P3 Task 10; fixed-point since 2026-09-25,
-//                 PARALLAX-CURVE-LOOP). Spends every data register: d1 acc, d2 whole
-//                 step, d3 the 0.16 fraction, d6 its accumulator, d5 the dbf line count
-//                 (free because d4 has already jumped to the band end, and d4 must keep
-//                 it), d0.w the constant FG word, plus a4 as the output cursor. a0 is no
-//                 longer borrowed — the Bresenham loop it replaced needed an end pointer
+//                 PARALLAX-CURVE-LOOP; 8x unrolled with the FG word packed since
+//                 2026-09-27, perf/ehz-run-lag). Spends every data register: d1 the
+//                 packed longword (constant FG word high, the BG acc low), d2 whole step,
+//                 d3 the 0.16 fraction, d6 its accumulator, d5 the group count (free
+//                 because d4 has already jumped to the band end, and d4 must keep it),
+//                 d0 the 0-7-line remainder count, plus a4 as the output cursor. a0 is
+//                 not borrowed — the Bresenham loop it replaced needed an end pointer
 //                 there. That allocation IS the measured reason a layer may not have a
 //                 curve AND a deform ref: a sampled channel needs a phase base, an
 //                 amplitude shift and a scratch, and there are no data registers left. Its
@@ -3616,24 +3618,75 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         sub.w   d4, d2                              // d2 = lines in THIS entry
         ble     .band_done                          // empty/malformed entry
         move.w  d5, d4                              // line index jumps to the band end
-        move.w  d2, d5
-        subq.w  #1, d5                              // d5 = dbf count: lines - 1, 0..223
+        move.w  d2, d5                              // d5 = lines in this entry, 1..224
                                                     //   (d5 is free — d4 holds the end)
+        // THE FG WORD RIDES IN d1's HIGH HALF (perf/ehz-run-lag, 2026-09-27), so one
+        // `move.l d1,(a4)+` writes the whole HScroll longword: FG (the high word, the
+        // one reg $02's entry reads first) then the ramp's BG value. `addx.w` touches only
+        // the low word, so the constant FG half survives every line. d0 is dead from here
+        // to .band_done (the next band re-packs it), which is what frees it for the
+        // remainder count below.
+        swap    d0                                  // d0.w = FG base scroll (constant word)
+        swap    d1
+        move.w  d0, d1
+        swap    d1                                  // d1 = FG << 16 | acc
+        // 21.25 CYCLES A LINE in whole groups (12 + 4 + 4, plus the dbf's 10 over 8 lines)
+        // and 30 in the 0-7-line remainder, against the 34 of the one-line loop it replaced (move.w + move.w + add + addx + dbf) and the
+        // 54-60 of the Bresenham loop before that (until 2026-09-25). No branch but the
+        // counter. The fraction's carry out of d6 IS the correction: `addx.w` adds it with
+        // the whole step in one instruction, and the hoist's divu argument is why it lands
+        // on exactly the lines the old correction did. The values, their order and the
+        // carry parked below are the one-line loop's exactly; only the loop shape moved.
+        //
+        // 8x UNROLLED + REMAINDER TAIL, the shape `.lp_flat` and the sampled loops below
+        // already use; the zero-remainder guard is the same one `.fl_tail` documents. A
+        // computed entry into the unrolled body (the s4lz literal copy's shape) was the
+        // first cut and the contract closure refused it: it reads the computed `jmp` as
+        // leaving this proc past its `preserves(a0/d7)` restore ([proc.clobber-undeclared]
+        // a0 + d7, `sigil build --report contracts`), `targets(...)` or not.
         move.w  band_curve_step(a1), d2             // whole pixels per line (may be negative)
         move.w  band_curve_frac(a1), d3             // the per-line fraction, 0.16 fixed point
-        swap    d0                                  // d0.w = FG base scroll (constant word)
-        // 34 CYCLES A LINE (8 + 8 + 4 + 4 + 10), and no branch but the counter. The
-        // Bresenham loop this replaced (until 2026-09-25) was 54 on a line with no carry and
-        // 60 on one with: an add, a compare, a conditional correction and a pointer compare.
-        // The fraction's carry out of d6 IS the correction — `addx.w` adds it with the whole
-        // step in one instruction — and the hoist's divu argument is why it lands on exactly
-        // the lines the old correction did.
+        move.w  d5, d0
+        andi.w  #7, d0                              // d0 = remainder lines 0..7
+        lsr.w   #3, d5                              // d5 = whole groups of 8
+        beq     .curve_tail                         // under 8 lines: tail only
+        subq.w  #1, d5
     .lp_curve:
-        move.w  d0, (a4)+                           // FG word — constant across the layer
-        move.w  d1, (a4)+                           // BG word — the ramp's value at this line
+        move.l  d1, (a4)+                           // line 0: FG word, then the BG ramp word
         add.w   d3, d6                              // frac acc += fraction; X = the carry
-        addx.w  d2, d1                              // acc += whole + carry
+        addx.w  d2, d1                              // acc += whole + carry (low word only)
+        move.l  d1, (a4)+                           // line 1
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 2
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 3
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 4
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 5
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 6
+        add.w   d3, d6
+        addx.w  d2, d1
+        move.l  d1, (a4)+                           // line 7
+        add.w   d3, d6
+        addx.w  d2, d1
         dbf     d5, .lp_curve
+    .curve_tail:
+        tst.w   d0                                  // zero remainder MUST skip the dbf
+        beq     .curve_park
+        subq.w  #1, d0
+    .lp_curve_rem:
+        move.l  d1, (a4)+
+        add.w   d3, d6
+        addx.w  d2, d1
+        dbf     d0, .lp_curve_rem
+    .curve_park:
         move.w  d1, Parallax_Curve_Carry            // (Parallax_Curve_Carry).w — park the
         move.w  d6, Parallax_Curve_Carry+2          //   carry: the next entry may be this
                                                     //   layer's anchored continuation
