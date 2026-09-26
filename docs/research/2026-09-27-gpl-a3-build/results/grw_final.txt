@@ -1,0 +1,11 @@
+Sat Sep 26 10:49:46 PM UTC 2026
+ 18:49:46 up 3 days,  7:51,  1 user,  load average: 6.43, 8.40, 9.32
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 tools/general_regime_witness.py --rom /home/volence/.cache/aeon-tmp/gpla3/final/s4.s2clip.debug.bin --lst /home/volence/.cache/aeon-tmp/gpla3/final/s4.s2clip.debug.lst
+general_regime_witness: s4.s2clip.debug.bin crc32 26a6ba68, 2000 frames per leg after a 300-frame settle, turn at x 14400
+  CPZ fly down: 2000 frames, no halt; turned at (894, 14400, 144); camera now (14400,5920); 1096 frame(s) in the general regime; 4 page eviction(s); pool 17 pages
+  CPZ fly diagonal: 2000 frames, no halt; turned at (894, 14400, 144); camera now (16064,5920); 1096 frame(s) in the general regime; 5 page eviction(s); pool 17 pages
+PASS: both legs flew the general regime without a halt
+Sat Sep 26 10:50:06 PM UTC 2026
+ 18:50:06 up 3 days,  7:51,  1 user,  load average: 8.07, 8.65, 9.39
+finished rc=0

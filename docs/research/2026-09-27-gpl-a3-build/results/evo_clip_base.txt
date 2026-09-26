@@ -1,0 +1,19 @@
+Sat Sep 26 10:40:20 PM UTC 2026
+ 18:40:20 up 3 days,  7:41,  1 user,  load average: 14.76, 10.19, 9.63
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 docs/research/2026-09-27-gpl-a3-build/evict_order_probe.py --rom /home/volence/.cache/aeon-tmp/gpla3/base/s4.s2clip.debug.bin --lst /home/volence/.cache/aeon-tmp/gpla3/base/s4.s2clip.debug.lst --then-at-x 14400 --phases down:y:>=:2400,left:x:<=:8000,up:y:<=:192,right:x:>=:15808,down:y:>=:4400,left:x:<=:6000,up:y:<=:592,right:x:>=:12000,left:x:<=:4000 --frames 6000 --out /home/volence/.cache/aeon-tmp/gpla3/evo_clip_base.json
+  switch at frame 893 cam (14400,144) -> ['down']
+  phase at frame 1069 cam (14400,2400) -> ['left']
+  phase at frame 1478 cam (8000,2432) -> ['up']
+  phase at frame 1649 cam (8000,192) -> ['right']
+  phase at frame 2147 cam (15808,160) -> ['down']
+  phase at frame 2422 cam (15808,4400) -> ['left']
+  phase at frame 3048 cam (6000,4416) -> ['up']
+  phase at frame 3308 cam (6000,592) -> ['right']
+  phase at frame 3706 cam (12000,576) -> ['left']
+  phases done at frame 4226 cam (4000,576)
+{"pool": 17, "frames": 4227, "ticks": 4080, "video": 4227, "lag": 147, "evictions": 27, "loads": 27, "reloads": 22, "demands": 4, "evict_gen": 28, "cam_end": [4000, 576], "rom": "s4.s2clip.debug.bin", "crc": "3e1f7a33", "phases": "down:y:>=:2400,left:x:<=:8000,up:y:<=:192,right:x:>=:15808,down:y:>=:4400,left:x:<=:6000,up:y:<=:592,right:x:>=:12000,left:x:<=:4000"}
+finished=1
+Sat Sep 26 10:40:43 PM UTC 2026
+ 18:40:43 up 3 days,  7:41,  1 user,  load average: 17.93, 11.39, 10.05
+finished rc=0

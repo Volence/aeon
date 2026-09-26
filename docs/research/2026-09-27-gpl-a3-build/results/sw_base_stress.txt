@@ -1,0 +1,11 @@
+Sat Sep 26 10:30:34 PM UTC 2026
+ 18:30:34 up 3 days,  7:31,  1 user,  load average: 8.46, 10.46, 10.04
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 tools/stressart_legs_witness.py --rom /home/volence/.cache/aeon-tmp/gpla3/base_stress/s4.stressart.bin --lst /home/volence/.cache/aeon-tmp/gpla3/base_stress/s4.stressart.lst
+stressart_legs_witness: s4.stressart.bin crc32 d75c0857, 1500 frames per leg after a 300-frame settle
+  fly right: 1500 frames, no halt; camera (96,144) -> (5824,144); 10 page eviction(s) observed; pool 41 pages
+  fly diagonal: 1500 frames, no halt; camera (96,144) -> (5824,5920); 12 page eviction(s) observed; pool 41 pages
+PASS: both legs flew without a halt
+Sat Sep 26 10:30:46 PM UTC 2026
+ 18:30:46 up 3 days,  7:32,  1 user,  load average: 8.32, 10.36, 10.01
+finished rc=0

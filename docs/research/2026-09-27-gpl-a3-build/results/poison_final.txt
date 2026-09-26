@@ -1,0 +1,23 @@
+Sat Sep 26 10:49:46 PM UTC 2026
+ 18:49:46 up 3 days,  7:51,  1 user,  load average: 6.43, 8.40, 9.32
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 tools/pagecache_audit_poison.py --rom /home/volence/.cache/aeon-tmp/gpla3/final/s4.debug.bin --lst /home/volence/.cache/aeon-tmp/gpla3/final/s4.debug.lst
+  booted: PageCache_Direct_Map=$80, first unassigned frame = 10, assigned frames = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15], first assigned unpinned frame = 2, nametable 4800 words in 120 slices, interval 128 ticks
+  CONTROL (no poke)                                still running (412 ticks run)   ok
+  (a) row liveness mask moved under the latch      HALTED (audit raised) after 26 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop variants mixed)'])
+  (a2) column liveness mask moved under the latch  HALTED (audit raised) after 95 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop variants mixed)'])
+  (b) unassigned frame referenced                  HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (c) Page_Table not the identity                  HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b1) one dangling word, first slice              HALTED (audit raised) after 16 ticks (bound 136)   ok
+  (b2) one dangling word, last slice               HALTED (audit raised) after 7 ticks (bound 136)   ok
+  (g0) general regime forced, valid masks: CONTROL still running (412 ticks run)   ok
+  (g1) general: word names an unassigned frame     HALTED (audit raised) after 1 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: general regime: a cache word names an UNASSIGNED frame (dangling physical index)'])
+  (g2) general: frame in neither mask              HALTED (audit raised) after 1 ticks (bound 136)   ok   message named (candidates: ['PageCache_Audit: a cache word names a frame its row and column liveness masks both omit'])
+  (g3) general: row omits, column carries: CONTROL still running (412 ticks run)   ok
+  (h) demand hold with the gate disarmed           HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (hr) armed demand hold, must be released         still running (412 ticks run)   ok
+     (hr) after the run: flags $00, gate 0, stamp $00B1 released   ok
+RESULT: every arm is LIVE within the latency bound (controls kept running)
+Sat Sep 26 10:50:27 PM UTC 2026
+ 18:50:27 up 3 days,  7:51,  1 user,  load average: 10.73, 9.26, 9.58
+finished rc=0

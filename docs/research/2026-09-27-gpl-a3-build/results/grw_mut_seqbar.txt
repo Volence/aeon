@@ -1,0 +1,13 @@
+Sat Sep 26 10:42:13 PM UTC 2026
+ 18:42:13 up 3 days,  7:43,  1 user,  load average: 11.10, 10.87, 9.99
+3e7c2778ffa3baaf94e09ff873caa761  /home/volence/sonic_hacks/oracle/target/release/oracle-aether
+cmd: python3 tools/general_regime_witness.py --rom /home/volence/.cache/aeon-tmp/gpla3/mut_seqbar/s4.s2clip.debug.bin --lst /home/volence/.cache/aeon-tmp/gpla3/mut_seqbar/s4.s2clip.debug.lst
+general_regime_witness: s4.s2clip.debug.bin crc32 f272fb44, 2000 frames per leg after a 300-frame settle, turn at x 14400
+  HALT: CPZ fly down, frame 956: Logic_Tick unchanged for 60 frames, camera (14400,944), pc $0DABAA (in the fault island), 112 frame(s) in the general regime, 4 eviction(s)
+    raise_error at $00AD7C ($diag48$engine.page_cache$raise+$6): 'PageCache_Audit: a cache word names a frame its row and column liveness masks both omit'
+  HALT: CPZ fly diagonal, frame 1019: Logic_Tick unchanged for 60 frames, camera (15728,1344), pc $0DABAA (in the fault island), 175 frame(s) in the general regime, 5 eviction(s)
+    raise_error at $00AD7C ($diag48$engine.page_cache$raise+$6): 'PageCache_Audit: a cache word names a frame its row and column liveness masks both omit'
+FAIL: a leg halted
+Sat Sep 26 10:42:26 PM UTC 2026
+ 18:42:26 up 3 days,  7:43,  1 user,  load average: 13.50, 11.40, 10.17
+finished rc=1
