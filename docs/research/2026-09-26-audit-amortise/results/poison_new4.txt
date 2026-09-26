@@ -1,0 +1,10 @@
+  booted: PageCache_Direct_Map=$FF, first unassigned frame = 10, nametable 4800 words, interval 128 ticks
+  CONTROL (no poke)                            still running (412 ticks run)   ok
+  (a) nonzero pf_refcount                      HALTED (audit raised) after 18 ticks (bound 128)   ok
+  (b) unassigned frame referenced              HALTED (audit raised) after 18 ticks (bound 128)   ok
+  (c) Page_Table not the identity              HALTED (audit raised) after 18 ticks (bound 128)   ok
+  (b1) one dangling word, first slice          HALTED (audit raised) after 19 ticks (bound 136)   ok
+  (b2) one dangling word, last slice           HALTED (audit raised) after 10 ticks (bound 136)   ok
+  (g) general regime forced: refcount sum      HALTED (audit raised) after 18 ticks (bound 128)   ok
+RESULT: every arm is LIVE within the latency bound (control kept running)
+rc=0
