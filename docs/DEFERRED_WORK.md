@@ -40971,6 +40971,35 @@ unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-
 
 ### S2CLIP-PLANE-SWITCH: the clip act never leaves plane A, so S2's loops and path changes do not work (booked 2026-09-26, branch `research/s2clip-loops-planes`)
 
+**Status (2026-09-26): option A is BUILT on branch `parcel/s2clip-plane-switch`, NOT landed.** It is the demo for the
+owner's ruling on the mechanism (open item 1). The design, the measured cost and the rejected alternatives are in
+`docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers". In short: `Act.act_layer_lines` names a sorted `LayerLine`
+table (`engine/structs.emp`) that `tools/s2_layer_lines.py` bakes from the donor's own Obj03 layout (44 lines, EHZ 19 /
+CPZ 25, 46 rows). `Player_LayerLines` (`games/sonic4/player/player_common.emp`) runs Obj03's rule from the shared player
+preamble, with one remembered position and one window cursor per player instead of a flag per line. Priority follows
+the line's bits. Canonical OJZ binds 0 and pays only a 26-cycle null test. Measured in the REAL clip ROM with no host
+model, on the branch's FAST DEBUG build (re-measured on the final build in the branch's report): all four EHZ loops are
+completed rightward and loop 1 leftward, the braid is ridden with 0 airborne frames, and CPZ 3206 is passed. Checked by
+`tools/layer_line_gate.py` (build.sh, every sonic4 shape: the ROM's routine executed against Obj03's rule) and
+`tools/s2clip_layer_line_witness.py` (nightly keepalive, loop 1 both ways on the DEBUG clip ROM, proven red with the
+table emptied).
+
+**Open items this branch adds or changes** (the numbered list below is the booking as written):
+- Item 2 re-measured in the real ROM: the long CPZ run from the braid still stops at act (14870, 1389), CPZ (3510, 1133),
+  with gsp 0 holding RIGHT, identical to the host model. It was still not compared against Sonic 2 itself.
+- Item 5 is DONE on the branch: `docs/LOOP_CROSSOVER_ENCODING.md` §13 says the direction rule is OJZ-handed and how the
+  two writers coexist.
+- `games/sonic4/objects/path_swap.emp` is functionally REDUNDANT under option A. Every behaviour it has is a subset of a
+  layer-line row. What it still has that lines lack is an editor authoring route (an object in the object layer), since
+  today lines come only from a Sonic 2 donor. It is left parked, not deleted, pending the ruling. If A is taken, delete
+  it together with its `ObjDef_PathSwap` placement boundary in sigil's frozen tables (a sigil change, their lane), or
+  give lines an editor layer first if hand-authored switchers are wanted.
+- `Player_DebugExit` re-derives priority from the layer (right for crossover marks). Sonic 2 resets priority to low on
+  leaving debug mode, so in a lines act a debug exit on plane B draws the player high until the next line crossing.
+  This is debug only and was left as is.
+- No act carries both marks and lines, so a frame on which both fire (the line's write would stand) has never been
+  built or measured.
+
 Research: `docs/research/2026-09-26-s2clip-loops-planes.md` (probe, figures and per-run JSON beside it). Investigation only,
 no bytes moved.
 
