@@ -121,6 +121,8 @@ def want(mode, t, a):
     """The held set for tick t since the leg started (a pure function of t)."""
     if mode == "hold":
         return {"right"}
+    if mode == "fly":
+        return set(a.dirs.split(","))
     if mode == "run":
         return {"right", "c"} if (t % a.jump) < 10 else {"right"}
     if mode == "spin":
@@ -135,6 +137,11 @@ def want(mode, t, a):
     raise SystemExit(mode)
 
 
+# --dump: the parallax pass's whole output. Hscroll_Buffer is the per-line HScroll table the
+# VBlank DMAs to VRAM (224 lines x FG/BG words); Parallax_Vscroll_Column_Buf is the per-column
+# VSRAM image Vscroll_Write copies; Vscroll_Factor is the whole-plane VSRAM pair it writes when
+# the scene has no column table (engine/ram.emp, engine/level/parallax.emp Vscroll_Write).
+DUMP = [("Hscroll_Buffer", 896), ("Parallax_Vscroll_Column_Buf", 80), ("Vscroll_Factor", 4)]
 SST_STATUS, ST_IN_AIR = 0x1E, 3   # engine/objects/sst.emp, engine/system/constants.emp
 
 
@@ -171,7 +178,7 @@ async def main_async(a):
         s0 = await snap(c, s)
         await c.call("emulator/run_frames", {"frames": 8})
         s1 = await snap(c, s)
-        if "Lag_Frame_Count" in s:
+        if "Lag_Frame_Count" in s and a.mode != "fly":
             # DEBUG shape: it boots in free flight. B leaves it (the brief: press B first).
             await c.call("emulator/press", {"buttons": ["b"]})
             await c.call("emulator/run_frames", {"frames": 8})
@@ -199,6 +206,15 @@ async def main_async(a):
         await c.call("emulator/run_frames", {"frames": 8})
         s3 = await snap(c, s)
         notes.append(f"settle: player ({s2['px']},{s2['py']}) -> ({s3['px']},{s3['py']}) over 8 frames")
+        cs = await syms(c, ["Section_Right_Col_Written", "Section_Left_Col_Written",
+                            "Section_Bottom_Row_Written", "Section_Top_Row_Written"]) if a.coverage else {}
+        if a.coverage and len(cs) != 4:
+            raise SystemExit(f"--coverage: the streamer's edge words did not all resolve: {sorted(cs)}")
+        cov = []
+        ds = await syms(c, [nm for nm, _ in DUMP]) if a.dump else {}
+        if a.dump and len(ds) != len(DUMP):
+            raise SystemExit(f"--dump: not every buffer resolved: {sorted(ds)}")
+        dumps = {}
         held = set()
         auto = Auto(a, a.mode == "autospin") if a.mode in ("auto", "autospin", "spinrun") else None
         prev = await snap(c, s)
@@ -229,6 +245,29 @@ async def main_async(a):
             dlt = cur["lt"] - prev["lt"]
             dlag = (cur["lag"] - prev["lag"]) if cur["lag"] is not None else None
             rows.append([i, dfc, dlt, dlag, cur["cx"], cur["cy"], cur["px"], cur["py"]])
+            if a.dump and dlt == 1 and dfc == 1 and (dlag in (None, 0)):
+                # a frame that ended one on-time tick: the parallax pass for that tick has
+                # finished (it runs inside the tick, before VSync_Wait), so the buffers are
+                # whole. Keyed by the tick index since the leg started, which is the same
+                # camera on both ROMs when the tick-indexed paths agree.
+                blob = b""
+                for nm, n in DUMP:
+                    r = await c.call("emulator/read_memory", {"addr": hex(ds[nm]), "len": n})
+                    hx = r["bytes"]
+                    hx = hx[2:] if hx.lower().startswith("0x") else hx
+                    blob += bytes.fromhex(hx[:2 * n])
+                dumps[cur["lt"] - t0] = [cur["cx"], cur["cy"], blob.hex()]
+            if a.coverage:
+                e = {k: await rd(c, cs[k], 2) for k in cs}
+                sgn = lambda v: v - 0x10000 if v & 0x8000 else v
+                # deficits: visible cells the streamer has NOT drawn (> 0 is a hole on screen).
+                # Visible cols camX>>3 .. (camX+SECTION_H_REACH_PX)>>3, rows camY>>3 .. (camY+
+                # SECTION_V_REACH_PX)>>3 (engine/system/constants.emp, section.emp's own reach).
+                cov.append([i,
+                            ((cur["cx"] + 327) >> 3) - sgn(e["Section_Right_Col_Written"]),
+                            sgn(e["Section_Left_Col_Written"]) - (cur["cx"] >> 3),
+                            ((cur["cy"] + 231) >> 3) - sgn(e["Section_Bottom_Row_Written"]),
+                            sgn(e["Section_Top_Row_Written"]) - (cur["cy"] >> 3)])
             if dlt:
                 path[cur["lt"] - t0] = [cur["px"], cur["py"], cur["cx"], cur["cy"]]
             stall = stall + 1 if (cur["px"], cur["py"]) == (prev["px"], prev["py"]) else 0
@@ -267,6 +306,8 @@ async def main_async(a):
     head["notes"] = notes
     head["loadavg_end"] = open("/proc/loadavg").read().split()[:3]
     head["windows"] = windows
+    head["coverage"] = cov
+    head["dumps"] = dumps
     return head, rows, segs, path
 
 
@@ -285,7 +326,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", required=True)
     ap.add_argument("--lst", required=True)
-    ap.add_argument("--mode", choices=("hold", "run", "spin", "auto", "autospin", "spinrun"), default="run")
+    ap.add_argument("--mode", choices=("hold", "run", "spin", "auto", "autospin", "spinrun", "fly"), default="run")
     ap.add_argument("--frames", type=int, default=4000)
     ap.add_argument("--boot", type=int, default=300)
     ap.add_argument("--stop-x", type=int, default=10900, help="player x that ends the leg (EHZ's "
@@ -300,6 +341,11 @@ def main():
                     help="player x values that fire one spindash each (grounded), in auto modes")
     ap.add_argument("--warp", default="", help="X,Y (feet): DEBUG shape only, place the player "
                     "through the warp mailbox before the leg")
+    ap.add_argument("--dirs", default="right", help="fly mode: held directions (DEBUG free flight)")
+    ap.add_argument("--coverage", action="store_true", help="per frame, read the plane streamer's "
+                    "four written edges and report how many VISIBLE tile columns/rows were not drawn")
+    ap.add_argument("--dump", action="store_true", help="on every frame that ends one on-time "
+                    "tick, record the parallax output buffers keyed by tick (see DUMP)")
     ap.add_argument("--jump-hold", type=int, default=16)
     ap.add_argument("--stuck", type=int, default=12)
     ap.add_argument("--seg", type=int, default=1024)
@@ -336,6 +382,12 @@ def main():
         print(line)
         if "profile" in g and a.print_top:
             print("\n".join(top_table(g["profile"], a.print_top)))
+    if head.get("coverage"):
+        cv = head["coverage"]
+        mx = [max(r[k] for r in cv) for k in (1, 2, 3, 4)]
+        bad = sum(1 for r in cv if max(r[1:]) > 0)
+        print(f"COVERAGE over {len(cv)} frames: max undrawn visible right/left/bottom/top = {mx}; "
+              f"frames with any undrawn visible cell: {bad}")
     print("finished=1")
 
 
