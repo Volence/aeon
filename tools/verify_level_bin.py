@@ -967,10 +967,9 @@ def verify_editor_bake_fidelity():
     wrong" from "the level data says that".
     """
     fails_before = len(_fail)
-    # Claim 2's one exception (resident plain copy, 2026-09-26): a PHYSICAL-form tree
-    # stores a blank cell as $0000, dropping the editor's attribute bits on it, because
-    # that is the word every patch loop writes for a blank. verify_nt_form holds the rest.
-    physical_form = _nt_form_flag() == 1
+    # Claim 2's one exception (resident plain copy, 2026-09-26): a word stored as $0000
+    # (the physical-form bake stores every blank so) drops the editor's attribute bits on
+    # a blank cell, because $0000 is the word every patch loop writes for a blank.
     strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
     pad = _strip_gen_int("STRIP_COLLISION_PAD")
     if strip_rows is None or pad is None:
@@ -1110,13 +1109,13 @@ def verify_editor_bake_fidelity():
                     continue
                 seen.add(pair)
                 sw, rw = col_src[r], col_rem[r]
-                if physical_form and (rw & NAMETABLE_TILE_MASK) == 0:
-                    # Physical form stores a blank as $0000 — the word every patch loop
-                    # writes for it — so the editor's attribute bits on a blank cell are
-                    # dropped BY DESIGN, not changed. Anything else on a blank is not.
-                    if rw != 0:
-                        attr_bad += 1
-                        continue
+                if rw == 0:
+                    # A word stored as $0000 is the blank EXACTLY as every patch loop
+                    # writes it (each clears the whole word), so the editor's attribute
+                    # bits on a blank cell are dropped, not changed. The physical-form
+                    # bake (resident plain copy) stores blanks this way; the pixel check
+                    # below still holds the cell to the editor's art.
+                    pass
                 elif (sw & NAMETABLE_ATTR_MASK) != (rw & NAMETABLE_ATTR_MASK):
                     attr_bad += 1
                     continue

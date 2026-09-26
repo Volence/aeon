@@ -71,7 +71,7 @@ The boot register table writes VDP registers `$00`–`$17`. The values that cons
 | `$11`/`$12` | `$00` | **window plane disabled** |
 
 Screen: `SCREEN_WIDTH = 320`, `SCREEN_HEIGHT = 224`
-(`engine/system/constants.emp:535-536`).
+(`engine/system/constants.emp`, `SCREEN_WIDTH` / `SCREEN_HEIGHT`).
 
 **Shadow-register invariant that matters to anyone authoring an effect.**
 `Flush_VDP_Shadow` (`engine/system/vdp_init.emp`) re-blits *every* shadowed register
@@ -1114,7 +1114,7 @@ dictionary entry. The deepest shipped use is a 768-byte block slot plus a 2 304-
 
 **Art pool paging.** `ART_POOL_PAGE_TILES = 64`, so a page is
 `ART_POOL_PAGE_BYTES = 2048` bytes. The manifest is a stride-`sizeof(PageManifest)` array
-(`engine/structs.emp:115`):
+(`engine/structs.emp`, `struct PageManifest`):
 
 ```
 $00 pm_source  *u8   page blob pointer (ZX0 wrapper, or raw payload)

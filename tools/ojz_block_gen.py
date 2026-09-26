@@ -852,13 +852,20 @@ def test_generate_roundtrip():
         f"{raw_count} raw-direct entries vs dict of "
         f"{dict_len // BLOCK_RAW_SIZE} blocks")
 
-    # Spot-check the (0,0) block content against the source grids
-    decoded = decode_block(blob, dict_len, 0)
-    assert decoded is not None, "Block (0,0) should not be empty"
-    assert struct.unpack_from(">H", decoded, 0)[0] == nt[0][0]
-    assert struct.unpack_from(">H", decoded, (5 * BLOCK_SIZE + 3) * 2)[0] == nt[5][3]
-    assert decoded[BLOCK_NT_SIZE] == coll_a[0][0]
-    assert decoded[BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE] == coll_b[0][0]
+    # Spot-check the first NON-EMPTY block's content against the source grids. This read
+    # block (0,0) until 2026-09-26: that block held only blank words carrying attribute
+    # bits, and the physical-form bake (resident plain copy) stores a blank as $0000, so
+    # it became an empty block. The first non-empty one is derived, never pinned.
+    first = next((i for i in range(BLOCKS_PER_SECTION)
+                  if decode_block(blob, dict_len, i) is not None), None)
+    assert first is not None, "section 0 has no non-empty block at all"
+    by, bx = divmod(first, BLOCKS_PER_AXIS)
+    decoded = decode_block(blob, dict_len, first)
+    r0, c0 = by * BLOCK_SIZE, bx * BLOCK_SIZE          # nt/coll are indexed [row][col] here
+    assert struct.unpack_from(">H", decoded, 0)[0] == nt[r0][c0]
+    assert struct.unpack_from(">H", decoded, (5 * BLOCK_SIZE + 3) * 2)[0] == nt[r0 + 5][c0 + 3]
+    assert decoded[BLOCK_NT_SIZE] == coll_a[r0 // 2][c0]
+    assert decoded[BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE] == coll_b[r0 // 2][c0]
     plane_a = decoded[BLOCK_NT_SIZE:BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE]
     plane_b = decoded[BLOCK_NT_SIZE + BLOCK_COLL_PLANE_SIZE:
                       BLOCK_NT_SIZE + 2 * BLOCK_COLL_PLANE_SIZE]
