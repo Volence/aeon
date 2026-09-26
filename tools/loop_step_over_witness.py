@@ -58,11 +58,20 @@ THE DRIVE ORDER IS LOAD-BEARING (each of these cost an evening):
     drops him through ground the collision cache does not cover yet;
   * let the camera FOLLOW afterwards.
 
-EXIT: 0 every drive ran to its end and, where the ROM has a line table, every frame agreed
-with the prediction and at least one row was crossed; 1 the ROM FAULTED (before or during a
-drive), the player never landed, or a frame disagreed; 2 COULD NOT GRADE (the ROM's act binds
-no layer-line table, or no drive crossed a row), printed with the traces so a before/after
-comparison still reads them.
+THE LAP CHECK (LOOP-EXIT, 2026-09-26; see LOOP_MID_X below). The grade above asks whether
+each crossing did what the table says; it cannot ask whether the table is RIGHT, and the table
+was wrong: a rightward rider at 6 or 9 px/frame went round the loop two or more times, every
+crossing agreeing with its row. So every drive is also held to "one lap, then leave on the far
+side grounded, on plane A, at low priority, still moving the way you were driven", counted
+from the drive's own positions and the committed collision, never from the table.
+
+EXIT: 0 every drive ran to its end, where the ROM has a line table every frame agreed with the
+prediction and at least one row was crossed, no drive failed the lap check and at least one
+passed it; 1 the ROM FAULTED (before or during a drive), the player never landed, a frame
+disagreed, or a drive failed the lap check (two or more laps, a bad exit, a lap with no exit,
+or passing the loop without riding it); 2 COULD NOT GRADE (the ROM's act binds no layer-line
+table, no drive crossed a row, or no drive completed the loop), printed with the traces so a
+before/after comparison still reads them.
 
 Usage:
     loop_step_over_witness.py --rom s4.debug.bin --lst s4.debug.lst
@@ -121,6 +130,37 @@ SHAPE_BANK = REPO / "games" / "sonic4" / "data" / "collision" / "base" / "height
 SETTLE_FRAMES = 40                    # camera set -> streaming covers the player
 PIN_FRAMES = 8                        # placed and held: y_vel 0, ground speed 0
 LAND_FRAMES = 8                       # released -> feet on the ground, before injection
+
+#: THE LAP CHECK (LOOP-EXIT, 2026-09-26). A drive that rides the loop must ride it ONCE and
+#: leave on the far side on plane A at low priority, still moving the way it was driven. Until
+#: LOOP-EXIT a rightward player at 6 or 9 px/frame went round two or more times, because the
+#: loop's floor lines put him back on plane B on the way out. The line grade could not see
+#: that: every crossing did exactly what the table said. So the laps are counted from the
+#: drive's own positions, never from the table:
+#:   * a LAP is a tick-to-tick crossing of LOOP_MID_X, the midpoint of the loop's two sides
+#:     (the two drive starts, which this witness has always used as those sides), AGAINST the
+#:     drive's direction, with both samples above the loop's half height and below the
+#:     crown's outer top. Upside down on the crown a rightward rider moves left, so that
+#:     crossing is the crown and nothing else is;
+#:   * the loop's HALF HEIGHT and the crown's OUTER TOP are derived from the committed editor
+#:     collision over LOOP_MID_X, on EITHER plane since the crown is split between them
+#:     (loop_geometry());
+#:   * the EXIT is the first tick at or past the other side's start X. There the player must
+#:     be grounded, within FLOOR_SLACK of the height he landed at, on LAYER_PATH_A, at low
+#:     priority, with his ground speed in the drive's direction.
+#: Two or more laps FAIL; one lap and a bad exit, or one lap and no exit within the frames,
+#: FAIL; reaching the far side with no lap FAILS (he went under or through the loop). A drive
+#: that neither lapped nor got past is DID NOT COMPLETE: printed, not graded. Measured
+#: 2026-09-26 at PHYS_GSP_CAP, identically before and after LOOP-EXIT: from some start phases
+#: the rightward climb stops dead on the right arc, and the leftward rider goes OUT THROUGH THE
+#: CROWN and lands on top of the loop; at 13 and 15 px/frame some rightward phases are THROWN
+#: OUT BACKWARDS through the left arc after the crown (grounded on plane A, the left arc's
+#: own plane, at angle $5C) and walk back in for a clean second attempt. All three are
+#: collision/slope faults, not layer ones, and are booked (docs/DEFERRED_WORK.md
+#: LINES-EVERYWHERE). Two laps BEFORE any of them is still a DOUBLE LAP. A run in which no
+#: drive was lap-graded is COULD NOT GRADE (exit 2).
+LOOP_SIDES = (DRIVES["right"]["x"], DRIVES["left"]["x"])
+LOOP_MID_X = sum(LOOP_SIDES) // 2
 
 
 def parse_lst(path, extra_syms=(), extra_equs=()):
@@ -186,6 +226,124 @@ def ground_feet(x, clearance, act_dir=EDITOR_ACT, bank=SHAPE_BANK):
                          "floor (y %d) under x=%d; its standing surfaces are %s. The paint "
                          "moved: re-derive LOOP_FLOOR_Y." % (FLOOR_SLACK, LOOP_FLOOR_Y, x, floors))
     return near
+
+
+def _plane_words(name, act_dir=EDITOR_ACT):
+    raw = (pathlib.Path(act_dir) / name).read_bytes()
+    return [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+
+
+def loop_geometry(x=LOOP_MID_X, act_dir=EDITOR_ACT, bank=SHAPE_BANK):
+    """(half_y, outer_top_y) over column x, from the committed editor collision on EITHER plane
+    (any solidity; the crown is split between the planes). Going up from LOOP_FLOOR_Y: skip a
+    ramp the column starts on, cross the loop's interior to its ceiling, then cross the crown's
+    solid to the air above it. half_y is the midpoint of the floor and the ceiling; outer_top_y
+    is the last air pixel above the crown (a centre at or above it is OUTSIDE the loop). Same
+    word layout and sampling as ground_feet()."""
+    import collision_pipeline as cp
+    hm = pathlib.Path(bank).read_bytes()
+    n = cp.PROFILE_LEN
+    planes = [_plane_words("section_0.collattr.bin", act_dir),
+              _plane_words("section_0.collattrb.bin", act_dir)]
+
+    def solid(words, y):
+        w = words[(y // 16 * 2) * 256 + x // 8]
+        shape = w & cp.BLOCK_ID_MASK
+        if not shape or not (w >> cp.PLANE_SOL_SHIFT) & 3:
+            return False
+        h = hm[shape * n:(shape + 1) * n]
+        if w & cp.CHUNK_XFLIP_BIT:
+            h = cp.flip_profile_x(h)
+        if w & cp.CHUNK_YFLIP_BIT:
+            h = cp.flip_profile_y(h)
+        return cp.covers(h[x % 16], y % 16)
+
+    col = [any(solid(w, y) for w in planes) for y in range(LOOP_FLOOR_Y)]
+    y = LOOP_FLOOR_Y - 1
+    while y > 0 and col[y]:              # the floor's own ramp, if the column starts on one
+        y -= 1
+    while y > 0 and not col[y]:          # the loop's interior
+        y -= 1
+    ceiling = y
+    while y > 0 and col[y]:              # the crown's solid
+        y -= 1
+    if ceiling > 0 and y > 0:
+        return (ceiling + LOOP_FLOOR_Y) // 2, y
+    raise SystemExit("loop_step_over_witness: no closed crown over x=%d above the loop's floor "
+                     "(y %d) on either plane: the loop moved; re-derive LOOP_MID_X"
+                     % (x, LOOP_FLOOR_Y))
+
+
+def lap_check(live, direction, equs, geometry=None):
+    """THE LAP CHECK (see LOOP_MID_X's comment). `live` is one sample per game tick, the
+    landed state first. Returns {"verdict": "ok" | "fail" | "unmeasured", "laps",
+    "lap_frames", "exit", "why", ...}."""
+    half, top = loop_geometry() if geometry is None else geometry
+    sign = DRIVES[direction]["sign"]
+    far = LOOP_SIDES[1] if sign > 0 else LOOP_SIDES[0]
+    y0 = live[0]["y"]
+    near = LOOP_SIDES[0] if sign > 0 else LOOP_SIDES[1]
+    laps, lap_frames, exit_row, over, thrown = 0, [], None, None, None
+    for p, c in zip(live, live[1:]):
+        if sign > 0:
+            against = c["x"] < LOOP_MID_X <= p["x"]
+        else:
+            against = p["x"] < LOOP_MID_X <= c["x"]
+        if against and top < p["y"] < half and top < c["y"] < half:
+            laps += 1
+            lap_frames.append(c["frame"])
+        if over is None and c["y"] <= top and LOOP_SIDES[0] < c["x"] < LOOP_SIDES[1]:
+            over = c
+        if (c["x"] >= far) if sign > 0 else (c["x"] <= far):
+            exit_row = c
+            break
+        if laps and ((c["x"] < near) if sign > 0 else (c["x"] > near)):
+            thrown = c                  # back out past the side he came in by: a later
+            break                       # re-entry is a new attempt, not this drive's lap
+    out = {"laps": laps, "lap_frames": lap_frames, "half_y": half, "outer_top_y": top,
+           "far": far, "thrown": None if thrown is None else [thrown["frame"], thrown["x"],
+                                                              thrown["y"]],
+           "exit": None if exit_row is None else
+           {k: exit_row[k] for k in ("frame", "x", "y", "layer", "prio", "air", "gsp")}}
+    if laps >= 2:
+        return dict(out, verdict="fail", why="DOUBLE LAP: %d laps (over the crown at frames %s)"
+                    % (laps, lap_frames))
+    if thrown is not None:
+        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: THROWN OUT "
+                    "BACKWARDS after the crown (frame %d, back past x %d at (%d, %d)). A "
+                    "collision fault on the arc he was descending, not a layer one: he was "
+                    "on that arc's own plane" % (thrown["frame"], near, thrown["x"], thrown["y"]))
+    if exit_row is None:
+        if laps == 1:
+            return dict(out, verdict="fail", why="one lap (frame %s) and never reached x %d, "
+                        "the loop's far side" % (lap_frames[0], far))
+        if over is not None:
+            return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: WENT OUT "
+                        "THROUGH THE CROWN (frame %d at (%d, %d), above its outer top y %d) and "
+                        "never reached x %d. A collision fault, not a layer one: no line can "
+                        "hold a rider inside a crown he passes through"
+                        % (over["frame"], over["x"], over["y"], top, far))
+        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: no lap, and "
+                    "never reached x %d" % far)
+    if laps == 0:
+        return dict(out, verdict="fail", why="reached x %d at frame %d WITHOUT riding the loop"
+                    % (far, exit_row["frame"]))
+    bad = []
+    if exit_row["layer"] != equs["LAYER_PATH_A"]:
+        bad.append("layer %d, not plane A" % exit_row["layer"])
+    if exit_row["prio"]:
+        bad.append("high priority")
+    if exit_row["air"]:
+        bad.append("airborne")
+    if abs(exit_row["y"] - y0) > FLOOR_SLACK:
+        bad.append("y %d, %+d px from the landed height %d" % (exit_row["y"], exit_row["y"] - y0, y0))
+    if exit_row["gsp"] * sign <= 0:
+        bad.append("ground speed %d, not moving %s" % (exit_row["gsp"], direction))
+    if bad:
+        return dict(out, verdict="fail", why="one lap, but at the exit (frame %d, x %d): %s"
+                    % (exit_row["frame"], exit_row["x"], "; ".join(bad)))
+    return dict(out, verdict="ok", why="one lap (frame %d), left at frame %d on plane A, low "
+                "priority, moving %s" % (lap_frames[0], exit_row["frame"], direction))
 
 
 class Bus:
@@ -392,7 +550,7 @@ def predict(rows, table, equs):
     return bad, fires
 
 
-def summarise(res, gsp, equs, label, verbose, grade=True):
+def summarise(res, gsp, equs, label, verbose, grade=True, direction="right"):
     rows = res["rows"]
     live = [r for r in rows if "layer" in r]
     faulted = [r for r in rows if "fault" in r]
@@ -426,6 +584,16 @@ def summarise(res, gsp, equs, label, verbose, grade=True):
                   % (fr, want, got, why))
     elif grade and res["table"] is None:
         print("                 NOT GRADED: this ROM's act binds no layer-line table")
+    if grade and not faulted and live:
+        ticks = []                                   # one sample per game tick, as predict()
+        for r in live:
+            if not (ticks and r.get("tick") is not None and r.get("tick") == ticks[-1].get("tick")):
+                ticks.append(r)
+        lap = lap_check(ticks, direction, equs)
+        out["lap"] = lap
+        print("                 LAP CHECK (%s): %s  [%s]"
+              % (direction, {"ok": "OK", "fail": "FAILED",
+                             "unmeasured": "NOT MEASURED"}[lap["verdict"]], lap["why"]))
     return out
 
 
@@ -435,7 +603,7 @@ def run_one(rom, lst, gsp, frames, verbose, label, start_dx=0, direction="right"
     with aether_emulator(rom, symbols=lst) as sock:
         res = asyncio.run(drive(sock, syms, equs, gsp, frames, verbose, start_dx, direction,
                                 assert_grounded))
-    return summarise(res, gsp, equs, label, verbose, grade), equs
+    return summarise(res, gsp, equs, label, verbose, grade, direction), equs
 
 
 def compare(a, b):
@@ -485,7 +653,9 @@ def main():
     ap.add_argument("--compare", nargs=2, metavar=("ROM", "LST"),
                     help="a second build to run the identical drives against, reported per "
                          "frame beside the first (the before/after comparison)")
-    ap.add_argument("--frames", type=int, default=150)
+    ap.add_argument("--frames", type=int, default=240,
+                    help="frames per drive: enough for a 6 px/frame rider to enter, "
+                         "lap once and reach the far side (the lap check needs it)")
     ap.add_argument("--start-dx", type=int, default=0,
                     help="shift the start X by this many pixels")
     ap.add_argument("--no-assert-grounded", action="store_true",
@@ -547,7 +717,13 @@ def verdict(runs):
     2026-09-25): the same tool treats a fault before the drive as fatal (check_alive)."""
     faulted = [lab for lab, r in runs if r.get("faulted")]
     bad = [lab for lab, r in runs if r.get("bad")]
-    if faulted or bad:
+    lapbad = [(lab, r["lap"]["why"]) for lab, r in runs
+              if r.get("lap", {}).get("verdict") == "fail"]
+    unmeasured = [lab for lab, r in runs if r.get("lap", {}).get("verdict") == "unmeasured"]
+    if unmeasured:
+        print("LAP CHECK NOT MEASURED in %d drive(s) (did not complete the loop): %s"
+              % (len(unmeasured), ", ".join(unmeasured)))
+    if faulted or bad or lapbad:
         if faulted:
             print("RESULT: the ROM FAULTED during %d drive(s): %s. The traces above are from a "
                   "machine that stopped; this run is not a completed witness."
@@ -555,6 +731,9 @@ def verdict(runs):
         if bad:
             print("RESULT: FAILED — the ROM's layer or priority disagreed with its own line table "
                   "in %d drive(s): %s" % (len(bad), ", ".join(bad)))
+        if lapbad:
+            print("RESULT: FAILED — the LAP CHECK failed in %d drive(s): %s"
+                  % (len(lapbad), "; ".join("%s: %s" % lw for lw in lapbad)))
         return 1
     graded = [r for _lab, r in runs if r.get("graded")]
     if not graded or not sum(r["fires"] for r in graded):
@@ -562,8 +741,14 @@ def verdict(runs):
               % ("no drive's ROM binds a layer-line table" if not graded else
                  "no drive crossed a row of the table"))
         return 2
+    lapped = [r for _lab, r in runs if r.get("lap", {}).get("verdict") == "ok"]
+    if not lapped:
+        print("RESULT: COULD NOT GRADE — no drive completed the loop, so the lap check (one lap, "
+              "leave on plane A) measured nothing. The traces above are reported, not graded.")
+        return 2
     print("RESULT: PASSED — %d drive(s) graded, %d crossing(s) fired, every frame agreed with "
-          "the ROM's own table" % (len(graded), sum(r["fires"] for r in graded)))
+          "the ROM's own table; %d drive(s) rode the loop once and left on plane A"
+          % (len(graded), sum(r["fires"] for r in graded), len(lapped)))
     return 0
 
 

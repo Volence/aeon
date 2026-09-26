@@ -109,16 +109,23 @@ def test_the_committed_ojz_module_is_what_its_source_bakes_to():
     assert [n for _g, n in LL.emit(check=True)] == [4]
 
 
-def test_the_ojz_lines_carry_the_retired_marks_meaning():
-    """OJZ's four lines replace sixteen painted marks: XOVER_TO_B on plane A (fired moving
-    right) and XOVER_TO_A on plane B (fired moving left), priority derived from the plane
-    (B high, A low). Each line therefore says: right -> B high, left -> A low, and is not
-    grounded-only (a mark fired airborne too)."""
+def test_the_ojz_loop_lines_are_laid_out_like_sonic_2s():
+    """OJZ's loop (LOOP-EXIT, 2026-09-26). The CROWN keeps the retired marks' two lines
+    (x 1144/1152: right -> B high, left -> A low), now y 384..447 and grounded-only. The FLOOR
+    has no line between the arcs any more: the old floor lines at x 1144/1152 fired "right: B" on the way OUT of a
+    rightward lap as well as on the way in, so the player rode the right arc again. The entry
+    is a line WEST of the loop (right -> B high, left -> A low) and the exit a line EAST of it
+    (A low both ways), which is Sonic 2's apex-line-plus-exit-line layout, mirrored because
+    our right arc is the plane-B one. Priority follows the plane (B high, A low) on every row."""
     c = LL.engine_constants()
     w, h = LL.act_size()
     p = LL.plan_authored(OJZ_SRC, w, h)
-    assert len(p["rows"]) == 4
-    assert {r["flags"] for r in p["rows"]} == {_bits(c, "LL_FWD_B", "LL_FWD_HI")}
-    # the marked column was x 1144..1151: entered rightward across 1144, leftward across 1152
-    assert sorted({r["key"] for r in p["rows"]}) == [1144, 1152]
-    assert sorted({(r["a"], r["b"]) for r in p["rows"]}) == [(416, 448), (544, 576)]
+    to_b = _bits(c, "LL_FWD_B", "LL_FWD_HI")
+    crown = to_b | _bits(c, "LL_GROUNDED")          # grounded-only, like S2's apex line
+    got = sorted((r["key"], r["a"], r["b"], r["flags"]) for r in p["rows"])
+    assert got == [(1024, 512, 576, to_b),         # entry, west of the left arc
+                   (1144, 384, 448, crown),        # crown, tall enough for a fast rider
+                   (1152, 384, 448, crown),        # crown
+                   (1280, 384, 576, 0)]            # exit, east of the right arc: A low
+    # nothing switches on the floor band between the arcs (the old double-lap cause)
+    assert not [r for r in p["rows"] if 1024 < r["key"] < 1280 and r["b"] > 448]

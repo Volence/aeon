@@ -8,7 +8,9 @@ KEEPALIVE-IS-BLIND-TO-LOSSY (docs/research/2026-09-25-keepalive-lossy.md): a dri
 reached ErrorHandler is never a clean exit. LINES-EVERYWHERE (2026-09-26): the witness now
 GRADES every frame against the ROM's own layer-line table, so a frame whose layer or priority
 disagrees with Obj03's rule over the drive's own positions is exit 1, a ROM with no table is
-exit 2 (COULD NOT GRADE), and a graded run that crossed nothing is exit 2 as well.
+exit 2 (COULD NOT GRADE), and a graded run that crossed nothing is exit 2 as well. LOOP-EXIT
+(2026-09-26): every drive is also held to one lap, then leaving on plane A (the LAP CHECK
+rows at the end); the double lap the old floor lines produced is exit 1.
 """
 
 import contextlib
@@ -47,7 +49,8 @@ def _stub(monkeypatch, res, extra_argv):
         yield "fake.sock"
 
     async def fake_drive(*a, **k):
-        return {"rows": list(res["rows"]), "table": res["table"], "start": (1000, 576)}
+        r = res(a[7]) if callable(res) else res          # a[7] is drive()'s `direction`
+        return {"rows": list(r["rows"]), "table": r["table"], "start": (1000, 576)}
 
     monkeypatch.setattr(L, "aether_emulator", fake_emulator)
     monkeypatch.setattr(L, "drive", fake_drive)
@@ -71,11 +74,13 @@ def test_a_drive_that_faulted_exits_1(monkeypatch, capsys, argv):
 
 @pytest.mark.parametrize("argv", ARGVS)
 def test_an_honest_drive_over_a_table_passes(monkeypatch, capsys, argv):
-    """The control for the two rows below: the same drive, agreeing with the table."""
-    xs, lp = _honest(6)
-    _stub(monkeypatch, {"rows": _rows(xs, lp), "table": TABLE}, argv)
+    """The control for the rows below: one lap each way over LOOP-EXIT's line layout, every
+    tick agreeing with the table, leaving on plane A."""
+    _stub(monkeypatch, lambda d: {"rows": _lap(d), "table": LAP_TABLE}, argv)
     rc = L.main()
-    assert rc == 0, capsys.readouterr().out
+    text = capsys.readouterr().out
+    assert rc == 0, text
+    assert text.count("LAP CHECK (right): OK") and text.count("LAP CHECK (left): OK")
 
 
 @pytest.mark.parametrize("argv", ARGVS)
@@ -89,7 +94,7 @@ def test_a_rom_without_a_table_could_not_grade(monkeypatch, capsys, argv):
 
 
 def test_a_graded_drive_that_crossed_nothing_could_not_grade(monkeypatch, capsys):
-    xs = [900 + 2 * k for k in range(20)]                   # never reaches x 1144
+    xs = [1100 + 2 * k for k in range(20)]    # never reaches x 1144, nor either far side
     _stub(monkeypatch, {"rows": _rows(xs, [(0, 0)] * 20), "table": TABLE}, [])
     assert L.main() == 2
 
@@ -153,3 +158,171 @@ def test_a_lag_frame_does_not_shift_the_prediction():
     rows = rows[:cross + 1] + [lagged] + rows[cross + 1:]
     bad, fires = L.predict(rows, TABLE, EQUS)
     assert fires and not bad, bad
+
+
+# ---------------------------------------------------------------------------------------
+# THE LAP CHECK (LOOP-EXIT, 2026-09-26): one lap, then leave on plane A.
+# ---------------------------------------------------------------------------------------
+
+_TO_B = (1 << 3) | (1 << 5)                   # LL_FWD_B | LL_FWD_HI, EQUS's bit numbers
+#: LOOP-EXIT's layout: entry west (right -> B high, left -> A low), the two crown lines
+#: (same, grounded-only, y 384..447), exit east (A low both ways). The table the witness reads
+#: out of the ROM.
+LAP_TABLE = [{"key": 1024, "a": 512, "b": 576, "flags": _TO_B},
+             {"key": 1144, "a": 384, "b": 448, "flags": _TO_B | (1 << 1)},
+             {"key": 1152, "a": 384, "b": 448, "flags": _TO_B | (1 << 1)},
+             {"key": 1280, "a": 384, "b": 576, "flags": 0}]
+#: The table that was shipped until LOOP-EXIT: crown and floor lines at x 1144/1152.
+OLD_TABLE = [{"key": k, "a": a, "b": a + 32, "flags": _TO_B}
+             for k in (1144, 1152) for a in (416, 544)]
+FLOOR, TOP, LEFT_ARC, RIGHT_ARC = 557, 430, 1082, 1222
+
+
+def _path(direction, laps=1, step=6):
+    """End-of-tick positions of a rider going round the loop `laps` times: along the floor,
+    up the far arc, across the crown against the drive, down the near arc, and on."""
+    def seg(a, b, fixed, axis):
+        d = step if b > a else -step
+        return [((v, fixed) if axis == "x" else (fixed, v)) for v in range(a, b, d)]
+    if direction == "right":
+        pts = seg(1000, RIGHT_ARC, FLOOR, "x")
+        for _ in range(laps):
+            pts += (seg(FLOOR, TOP, RIGHT_ARC, "y") + seg(RIGHT_ARC, LEFT_ARC, TOP, "x")
+                    + seg(TOP, FLOOR, LEFT_ARC, "y"))
+            pts += seg(LEFT_ARC, RIGHT_ARC if _ < laps - 1 else 1420, FLOOR, "x")
+    else:
+        pts = seg(1350, LEFT_ARC, FLOOR, "x")
+        for _ in range(laps):
+            pts += (seg(FLOOR, TOP, LEFT_ARC, "y") + seg(LEFT_ARC, RIGHT_ARC, TOP, "x")
+                    + seg(TOP, FLOOR, RIGHT_ARC, "y"))
+            pts += seg(RIGHT_ARC, LEFT_ARC if _ < laps - 1 else 930, FLOOR, "x")
+    return pts
+
+
+def _lap(direction, laps=1, table=None, gsp=0x600):
+    """A trace along _path() whose (layer, prio) is what Obj03's rule over `table` makes it,
+    one tick late, exactly as predict() expects: an honest ROM."""
+    table = LAP_TABLE if table is None else table
+    sign = 1 if direction == "right" else -1
+    rows = [{"frame": f - 1, "x": x, "y": y, "layer": 0, "prio": 0, "air": 0, "angle": 0,
+             "gsp": sign * gsp} for f, (x, y) in enumerate(_path(direction, laps))]
+    for _ in range(64):
+        bad, _fires = L.predict(rows, table, EQUS)
+        if not bad:
+            return rows
+        frame, want = bad[0][0], bad[0][1]
+        for r in rows:
+            if r["frame"] >= frame:
+                r["layer"], r["prio"] = want
+    raise AssertionError("the synthetic trace did not settle")
+
+
+def test_the_loop_geometry_is_derived():
+    """The crown test's numbers come from the drives and the committed collision: the
+    midpoint of the two drive starts, half way between the floor and the loop's ceiling, and
+    the air above the crown (a riding centre stays between the last two)."""
+    assert L.LOOP_MID_X == (L.DRIVES["right"]["x"] + L.DRIVES["left"]["x"]) // 2
+    half, top = L.loop_geometry()
+    assert top < TOP < half < FLOOR, (top, half)
+
+
+def test_going_out_through_the_crown_is_not_a_lap():
+    """Measured at PHYS_GSP_CAP leftward from some phases, before and after LOOP-EXIT alike:
+    the rider climbs the left arc and passes UP through the crown, crossing LOOP_MID_X above
+    it, and ends standing on top of the loop. That crossing is not a lap, and the drive is
+    NOT MEASURED with the crown named, not failed: it is a collision fault, not a layer one."""
+    half, top = L.loop_geometry()
+    rows = [r for r in _lap("left") if r["y"] == FLOOR and r["x"] >= LEFT_ARC]
+    f = rows[-1]["frame"]
+    rows += [dict(rows[-1], frame=f + k, x=LEFT_ARC + 4 * k, y=FLOOR - 12 * k) for k in range(1, 40)
+             if FLOOR - 12 * k > top - 60]
+    rows += [dict(rows[-1], frame=rows[-1]["frame"] + k, x=rows[-1]["x"] + 6 * k)
+             for k in range(1, 10)]                              # across the mid, over the top
+    lap = L.lap_check(rows, "left", EQUS)
+    assert lap["laps"] == 0 and lap["verdict"] == "unmeasured", lap
+    assert "THROUGH THE CROWN" in lap["why"]
+
+
+@pytest.mark.parametrize("direction", ["right", "left"])
+def test_one_lap_leaving_on_a_is_ok(direction):
+    lap = L.lap_check(_lap(direction), direction, EQUS)
+    assert lap["verdict"] == "ok" and lap["laps"] == 1, lap
+    assert lap["exit"]["layer"] == 0 and lap["exit"]["prio"] == 0
+
+
+@pytest.mark.parametrize("direction", ["right", "left"])
+def test_the_old_floor_lines_are_a_double_lap(monkeypatch, capsys, direction):
+    """THE DEFECT, red. Over the pre-LOOP-EXIT table the floor lines put a rider leaving a
+    lap back on the plane of the arc ahead, so he goes round again. The line grade alone
+    PASSES this trace (every tick agrees with the table); the lap check is what fails it."""
+    rows = _lap(direction, laps=2, table=OLD_TABLE)
+    bad, fires = L.predict(rows, OLD_TABLE, EQUS)
+    assert fires and not bad                         # the grade is blind to it
+    _stub(monkeypatch, {"rows": rows, "table": OLD_TABLE}, ["--dir", direction])
+    rc = L.main()
+    text = capsys.readouterr().out
+    assert rc == 1, text
+    assert "DOUBLE LAP: 2 laps" in text
+
+
+def test_leaving_on_plane_b_fails():
+    """One lap, but a table whose exit line puts the rider on B: the exit state is graded."""
+    table = [dict(r, flags=_TO_B) for r in LAP_TABLE]          # exit line now "right: B"
+    lap = L.lap_check(_lap("right", table=table), "right", EQUS)
+    assert lap["verdict"] == "fail" and "not plane A" in lap["why"] and "high priority" in lap["why"]
+
+
+def test_leaving_airborne_or_fallen_or_reversed_fails():
+    rows = _lap("right")
+    ex = next(r for r in rows if r["x"] >= L.LOOP_SIDES[1])
+    for mutate, needle in ((dict(air=1), "airborne"), (dict(y=ex["y"] + 200), "landed height"),
+                           (dict(gsp=-5), "not moving right")):
+        rs = [dict(r, **mutate) if r is ex else r for r in rows]
+        lap = L.lap_check(rs, "right", EQUS)
+        assert lap["verdict"] == "fail" and needle in lap["why"], (mutate, lap)
+
+
+def test_a_lap_with_no_exit_fails_and_no_lap_is_not_measured():
+    rows = _lap("right")
+    ex = next(i for i, r in enumerate(rows) if r["x"] >= L.LOOP_SIDES[1])
+    lap = L.lap_check(rows[:ex], "right", EQUS)
+    assert lap["verdict"] == "fail" and "never reached" in lap["why"]
+    stop = next(i for i, r in enumerate(rows) if r["y"] < 480)       # climbed, fell back
+    lap = L.lap_check(rows[:stop], "right", EQUS)
+    assert lap["verdict"] == "unmeasured"
+
+
+def test_passing_the_loop_without_riding_it_fails():
+    rows = [r for r in _lap("right") if r["y"] == FLOOR and r["x"] <= RIGHT_ARC]
+    rows += [dict(rows[-1], frame=rows[-1]["frame"] + k, x=RIGHT_ARC + 6 * k)
+             for k in range(1, 40)]
+    lap = L.lap_check(rows, "right", EQUS)
+    assert lap["verdict"] == "fail" and "WITHOUT riding" in lap["why"]
+
+
+def test_a_run_where_no_drive_completed_could_not_grade(monkeypatch, capsys):
+    rows = _lap("right")
+    stop = next(i for i, r in enumerate(rows) if r["y"] < 480)
+    _stub(monkeypatch, {"rows": rows[:stop], "table": LAP_TABLE}, ["--dir", "right"])
+    rc = L.main()
+    text = capsys.readouterr().out
+    assert rc == 2, text
+    assert "no drive completed the loop" in text and "NOT MEASURED" in text
+
+
+def test_thrown_out_backwards_then_a_clean_retry_is_not_a_double_lap():
+    """Measured at 13 and 15 px/frame rightward from some phases after LOOP-EXIT: over the
+    crown, then out THROUGH the left arc (grounded on plane A, its own plane), back past the
+    near side, and a clean second attempt. The second crown crossing belongs to a new
+    attempt, so the drive is NOT MEASURED with the fault named, never a DOUBLE LAP; two laps
+    before any such exit still are (the old floor lines' defect, above)."""
+    one = _lap("right")
+    crown = next(i for i, r in enumerate(one) if r["y"] == TOP and r["x"] < L.LOOP_MID_X)
+    out = [dict(one[crown], frame=one[crown]["frame"] + k, x=LEFT_ARC - 8 * k, y=FLOOR)
+           for k in range(1, 20)]                            # out through the left arc
+    retry = [dict(r, frame=out[-1]["frame"] + 1 + i) for i, r in enumerate(_lap("right"))]
+    rows = one[:crown + 1] + out + retry
+    lap = L.lap_check(rows, "right", EQUS)
+    assert lap["verdict"] == "unmeasured" and "THROWN OUT BACKWARDS" in lap["why"], lap
+    lap2 = L.lap_check(_lap("right", laps=2, table=OLD_TABLE) + out, "right", EQUS)
+    assert lap2["verdict"] == "fail" and "DOUBLE LAP" in lap2["why"]

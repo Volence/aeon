@@ -1,43 +1,43 @@
 {
   "format": "aeon-layer-lines",
   "version": 1,
-  "notes": "OJZ act 1's layer-switch lines (LINES-EVERYWHERE, 2026-09-26). Format: tools/layer_lines.py. These four replace the sixteen painted crossover marks that section 0's loop carried until then (column 143, editor rows 52-55 and 68-71: XOVER_TO_B on plane A, XOVER_TO_A on plane B). A marked column was entered RIGHTWARD across its left edge (x 1144) and LEFTWARD across its right edge (x 1152), so each edge of each four-cell bar becomes a line, and every line carries both marks' meaning: crossing right puts the player on plane B (the right arc) at high priority, crossing left puts him on plane A (the left arc) at low priority. The marks derived priority from the plane (B high, A low); these lines set exactly that. Not grounded-only: a mark fired airborne too.",
+  "notes": "OJZ act 1's layer-switch lines. Format: tools/layer_lines.py. Section 0's loop has its LEFT arc on plane A only and its RIGHT arc on plane B only; the floor under it and the crown between the arcs are on both. A player therefore rides it rightward on B up the right arc and on A down the left arc, and leftward on A up the left arc and on B down the right arc. Priority follows the plane (B high, A low), as the painted crossover marks it replaced derived it. LOOP-EXIT (2026-09-26): the loop's two floor lines at x 1144/1152 (inside the loop) were replaced by an entry line WEST of the loop and an exit line EAST of it, the way Sonic 2 lays out a loop's switchers (an apex line plus a line past the foot). The floor lines fired 'right: B' on the way OUT of a rightward lap as well as on the way in, so a rightward player back on the floor on plane A was put on B again and rode the right arc a second time (measured at 6 and 9 px/frame). Now nothing between the arcs switches on the floor: the entry line puts a rightward player on B before the loop, the crown lines put him on A at the top, and he leaves on A. The same layout lets a leftward player leave on B and be put back on A by the entry line (leftward had the same double lap at 6 px/frame). The crown lines were also made taller and grounded-only (see loop0_crown_west). Driven and graded by tools/loop_step_over_witness.py (its LAP CHECK).",
   "lines": [
     {
       "id": "loop0_crown_west",
       "orientation": "vertical",
-      "x": 1144, "y": 416, "length": 32,
+      "x": 1144, "y": 384, "length": 64,
       "forward": {"path": "B", "priority": "high"},
       "backward": {"path": "A", "priority": "low"},
-      "grounded_only": false,
-      "notes": "the crown bar's left edge (editor rows 52-55, y 416-447)"
+      "grounded_only": true,
+      "notes": "the crown's left edge (the retired marks' column x 1144..1151). Upside down at the top, a RIGHTWARD lap crosses it moving left (to A, down the left arc) and a LEFTWARD lap crosses it moving right (to B, down the right arc). LOOP-EXIT: it spans y 384..447 (the marks' rows 52-55 were y 416..447) because a leftward rider at 9 and 16 px/frame crosses the crown with his centre at y 414 and 402, above the old extent, and stayed on A and fell off the crown. It is grounded-only, like Sonic 2's apex line, because at 16 px/frame some rightward riders come off the crown airborne and are shoved back across x 1144, and that crossing put them back on B and onto the right arc again"
     },
     {
       "id": "loop0_crown_east",
       "orientation": "vertical",
-      "x": 1152, "y": 416, "length": 32,
+      "x": 1152, "y": 384, "length": 64,
       "forward": {"path": "B", "priority": "high"},
       "backward": {"path": "A", "priority": "low"},
-      "grounded_only": false,
-      "notes": "the crown bar's right edge"
+      "grounded_only": true,
+      "notes": "the crown's right edge, same meaning as loop0_crown_west"
     },
     {
-      "id": "loop0_floor_west",
+      "id": "loop0_entry_west",
       "orientation": "vertical",
-      "x": 1144, "y": 544, "length": 32,
+      "x": 1024, "y": 512, "length": 64,
       "forward": {"path": "B", "priority": "high"},
       "backward": {"path": "A", "priority": "low"},
       "grounded_only": false,
-      "notes": "the floor bar's left edge (editor rows 68-71, y 544-575)"
+      "notes": "west of the loop, where both planes carry the same floor. Crossing RIGHT puts the player on B, which has no left arc, so he runs flat to the right arc (B) and up it. Crossing LEFT (a leftward lap leaving on B, or a failed climb rolling back) puts him on A. Spans y 512..575: both planes are solid at x 1016..1023 from y 380 to 508 (the wall and canopy west of the loop), so no player crossing x 1024 has his centre above y 512 and no jump can pass over the line. Not grounded-only: a low jump into the loop still enters it"
     },
     {
-      "id": "loop0_floor_east",
+      "id": "loop0_exit_east",
       "orientation": "vertical",
-      "x": 1152, "y": 544, "length": 32,
-      "forward": {"path": "B", "priority": "high"},
+      "x": 1280, "y": 384, "length": 192,
+      "forward": {"path": "A", "priority": "low"},
       "backward": {"path": "A", "priority": "low"},
       "grounded_only": false,
-      "notes": "the floor bar's right edge"
+      "notes": "east of the loop (the right arc's last solid pixel is x 1263), where both planes carry the same floor: A and low priority in both directions. A rightward lap already leaves on A (the crown lines put him there); this line also returns a player who reached the east side on B another way (a jump off the right arc) and makes sure a leftward player enters on A, the plane with the left arc. Spans y 384..575, the loop's full height"
     }
   ]
 }
