@@ -19,7 +19,7 @@
 module games.sonic4.player_common in player_common
 
 use engine.objects.sst.{Sst, set_priority_band, size_wh_off}
-use engine.structs.{Act, CharacterDef, LayerLine, cd_stand_h_off, cd_roll_h_off}
+use engine.structs.{Act, CharacterDef, cd_stand_h_off, cd_roll_h_off}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
@@ -31,7 +31,7 @@ use engine.constants.{NUM_PLAYERS,
         LAYER_PATH_A, LAYER_PATH_B, COLL_CELL_W, COLL_CELL_H, TILE_CACHE_COLL_PLANES,
         // layer lines — the other level-data layer writer (Player_LayerLines)
         LL_KEEP_PATH, LL_GROUNDED, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_FWD_HI, LL_BACK_HI,
-        LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER}
+        LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER, LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
 use engine.types.{VramTile}
 
 // PlayerBlock — the per-slot player working block this module's a4 convention
@@ -635,15 +635,13 @@ ensure(XOVER_SWEEP_CELLS_Y <= 2,
 // -----------------------------------------------
 // LAYER LINES — the facts Player_LayerLines' instructions depend on, at the read site.
 // -----------------------------------------------
-// The row stride and the three field displacements, derived from the struct, so the
-// routine's `addq.w`/`subq.w` step and its `(d16,a1)` reads cannot disagree with the
-// table tools/s2_layer_lines.py emits by field name.
-const LL_ROW       = sizeof(LayerLine)
-const LL_A_OFF     = offsetof(LayerLine, ll_a)
-const LL_B_OFF     = offsetof(LayerLine, ll_b)
-const LL_FLAGS_OFF = offsetof(LayerLine, ll_flags)
+// The row stride and the three field displacements (LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF)
+// come from engine/system/constants.emp, and engine/structs.emp binds them to `LayerLine`
+// with ensures. This file deliberately names no LayerLine: the standalone player lowering in
+// sigil's port rigs carries only the structs it lists, and a new struct name here would break
+// it while every ROM shape built green.
 ensure(LL_ROW <= 8,
-       "sizeof(LayerLine) is {LL_ROW}: Player_LayerLines steps rows with addq.w/subq.w, whose immediate is 1..8")
+       "LL_ROW is {LL_ROW}: Player_LayerLines steps rows with addq.w/subq.w, whose immediate is 1..8")
 // A step or a discontinuity: the same physics-derived bound the crossover sweep uses
 // (XOVER_STEP_MAX_*, whose own ensures tie it to PHYS_GSP_CAP and PHYS_FALL_CAP). A move
 // longer than this is not a run the player made, so no line is crossed by it.

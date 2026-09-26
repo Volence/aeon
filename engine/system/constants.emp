@@ -83,6 +83,16 @@ pub const LL_SEG_W      = 64
 // key between them; the cursor walk and the scan stop on them without a bounds test.
 pub const LL_KEY_BEFORE = $8000
 pub const LL_KEY_AFTER  = $7FFF
+// A row's geometry, as the consumer's instructions spell it: the stride its addq.w/subq.w
+// step by and the displacements its reads use. Plain numbers HERE rather than sizeof/offsetof
+// at the read site on purpose: the read site (games/sonic4/player/player_common.emp) then
+// names no engine struct, so the standalone player lowering (sigil's port rigs, which carry
+// only the structs they list) needs nothing new. engine/structs.emp binds all four to
+// `LayerLine` itself with `ensure`s, so a re-laid row fails the build there.
+pub const LL_ROW        = 8           // sizeof(LayerLine)
+pub const LL_A_OFF      = 2           // offsetof(LayerLine, ll_a)
+pub const LL_B_OFF      = 4           // offsetof(LayerLine, ll_b)
+pub const LL_FLAGS_OFF  = 6           // offsetof(LayerLine, ll_flags)
 
 // Render flags — SST render_flags bit assignments (mirrors
 // this file).

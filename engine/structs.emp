@@ -35,8 +35,11 @@
 // belongs here with the layout; a one-consumer computed offset stays file-local.
 module engine.structs
 
+// The LayerLine row geometry its ensures bind (S2CLIP-PLANE-SWITCH; see LayerLine below).
+use engine.constants.{LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
+
 // -----------------------------------------------
-// Act Descriptor (§4) — 46 bytes ($2E), ROM table (sizeof is the truth; no _len const)
+// Act Descriptor (§4) — 50 bytes ($32), ROM table (sizeof is the truth; no _len const)
 // -----------------------------------------------
 pub struct Act {
     sec_grid_ptr:        *u8,           // $00 — section definition array
@@ -250,10 +253,15 @@ pub struct LayerLine (size: 8) {
     ll_flags:            u8,            // $06 — LL_* bits
     ll_pad:              u8 = 0,        // $07 — keeps the stride even (a word read per row)
 }
-ensure(sizeof(LayerLine) == 8,
-       "engine/structs.emp: sizeof(LayerLine) is {sizeof(LayerLine)}, not 8. Player_LayerLines steps the table with `addq.w`/`subq.w`, whose immediate is 1..8, so a wider row needs a different step there; tools/s2_layer_lines.py emits the rows by field name and follows on its own")
+// The four numbers Player_LayerLines' instructions are spelled with (engine/system/constants.emp
+// LL_ROW / LL_A_OFF / LL_B_OFF / LL_FLAGS_OFF), bound to the struct HERE so the read site can
+// name no struct (see the constants' comment for why).
+ensure(sizeof(LayerLine) == LL_ROW,
+       "engine/structs.emp: sizeof(LayerLine) is {sizeof(LayerLine)} but LL_ROW is {LL_ROW}. Player_LayerLines steps the table with `addq.w`/`subq.w #LL_ROW`, whose immediate is 1..8, so a wider row needs a different step there too; tools/s2_layer_lines.py emits rows by field name and follows on its own")
 ensure(offsetof(LayerLine, ll_key) == 0,
        "engine/structs.emp: LayerLine.ll_key is no longer the first field — Player_LayerLines reads it as `(a1)`, with no displacement")
+ensure(offsetof(LayerLine, ll_a) == LL_A_OFF && offsetof(LayerLine, ll_b) == LL_B_OFF && offsetof(LayerLine, ll_flags) == LL_FLAGS_OFF,
+       "engine/structs.emp: LayerLine's fields moved, so engine/system/constants.emp's LL_A_OFF / LL_B_OFF / LL_FLAGS_OFF (the displacements Player_LayerLines reads them at) no longer name them")
 
 // -----------------------------------------------
 // Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.
