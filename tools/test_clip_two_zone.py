@@ -374,14 +374,34 @@ def test_the_seam_ramp_is_the_banks_gentlest_found_not_typed():
 # region_plan and Z2 on the real manifest
 # ---------------------------------------------------------------------------
 
+def _zone_strips(rows):
+    """The rows merged into one strip per run of the same zone key: the PRESET regions,
+    whatever the MUSIC block split them into."""
+    out = []
+    for r in rows:
+        if out and out[-1][2] == r["key"] and out[-1][1] + 1 == r["x0"]:
+            out[-1] = (out[-1][0], r["x1"], r["key"])
+        else:
+            out.append((r["x0"], r["x1"], r["key"]))
+    return out
+
+
 def test_the_real_act_plans_two_regions_crossing_mid_corridor(donors):
     _need(S.S2_FINAL)
     act = CM.load(MANIFEST, donor_root=donors)
     plan = CRB.region_plan(act, donors)
     ehz, cpz = sorted(act.clips, key=lambda c: c.dst[0])
-    mid = ((ehz.dst[0] + ehz.dst[2] + cpz.dst[0]) // 2) & ~15      # region_plan's rule
-    assert [(r["x0"], r["x1"], r["key"]) for r in plan["rows"]] == [
-        (0, mid - 1, 0), (mid, act.grid_w * act.section_px - 1, 1)]
+    a_right, b_left = ehz.dst[0] + ehz.dst[2], cpz.dst[0]        # the corridor's two mouths
+    mid = (a_right + b_left) // 2 & ~15                           # region_plan's rule
+    end = act.grid_w * act.section_px - 1
+    # the PRESET regions: one strip per zone, the crossing at the corridor's middle
+    assert _zone_strips(plan["rows"]) == [(0, mid - 1, 0), (mid, end, 1)]
+    # the MUSIC split (S2CLIP-REGION-MUSIC step 6, cut-at-exit): each strip cut at the
+    # corridor MOUTH, the corridor side naming no song — every bound DERIVED from the clips
+    assert [(r["x0"], r["x1"], r["key"], r["song"]) for r in plan["rows"]] == [
+        (0, a_right - 1, 0, ehz.music), (a_right, mid - 1, 0, None),
+        (mid, b_left - 1, 1, None), (b_left, end, 1, cpz.music)]
+    assert (ehz.music, cpz.music) == ("SONG_S2_EHZ", "SONG_S2_CPZ")
     mod, data = CRB.clip_module_text(plan), CRB.clip_data_block(plan)
     z2 = CRB.check_palette_crossings(act, mod, data, log=None)
     assert z2 and z2[0]["x"] == mid
@@ -674,3 +694,126 @@ def test_the_debug_test_backgrounds_are_not_in_a_clip_build(donors, tmp_path):
         assert "OJZ_CLIP_ACT == 0" in terms and "DEBUG == 1" in terms, (
             f"{lab} is gated on `{g.group(1)}`, which does not exclude a clip act — the "
             f"clip DEBUG ROM would carry test data its region table cannot reach")
+
+
+# ---------------------------------------------------------------------------
+# MUSIC (S2CLIP-REGION-MUSIC step 6; owner ruling S2CLIP-MUSIC-FEEL = cut-at-exit)
+# ---------------------------------------------------------------------------
+
+def _music_texts(plan):
+    return CRB.clip_module_text(plan), CRB.clip_data_block(plan)
+
+
+def test_music_changes_at_the_corridor_mouths_and_the_corridor_is_a_dead_band(donors, tmp_path):
+    """Read back out of the EMITTED tables: going right the song changes exactly once, to
+    Chemical Plant's, where the camera centre reaches Chemical Plant's first px; going left,
+    once, to Emerald Hill's, at Emerald Hill's last px; no corridor row names a song; the
+    start row names the start zone's song (the act-load request)."""
+    _need(S.S2_FINAL)
+    act, plan, _gen, spawn = _planned(donors, tmp_path)
+    mod, data = _music_texts(plan)
+    ehz, cpz = sorted(act.clips, key=lambda c: c.dst[0])
+    out = CRB.check_music_crossings(act, mod, data, spawn=spawn)
+    assert out == [{"from": ehz.id, "to": cpz.id, "right_x": cpz.dst[0],
+                    "left_x": ehz.dst[0] + ehz.dst[2] - 1,
+                    "dead_band_px": cpz.dst[0] - ehz.dst[0] - ehz.dst[2],
+                    "songs": ["SONG_S2_EHZ", "SONG_S2_CPZ"]}]
+    # the ids are emitted, read from the game's authority (never typed here)
+    ids = CRB.song_ids()
+    for text in (mod, data):
+        for name in ("SONG_S2_EHZ", "SONG_S2_CPZ"):
+            assert f"rg_song: {ids[name]}, " in text and f"plays {name} = {ids[name]}" in text
+    # Z2 still sees ONE preset install per crossing: the split rows bind the same preset
+    z2 = CRB.check_palette_crossings(act, mod, data, log=None)
+    assert len(z2) == 1 and z2[0]["x"] == _zone_strips(plan["rows"])[1][0]
+
+
+def test_music_check_refuses_the_unsplit_rows(donors, tmp_path):
+    """CAN IT FAIL: the rows the design warned about (each zone's song on its WHOLE strip,
+    no dead band) change the song at the corridor's middle, and the check says so."""
+    _need(S.S2_FINAL)
+    act, plan, _gen, _spawn = _planned(donors, tmp_path)
+    merged = []
+    for r in plan["rows"]:
+        if merged and merged[-1]["key"] == r["key"]:
+            merged[-1] = dict(merged[-1], x1=r["x1"])
+        else:
+            merged.append(dict(r))
+    ids = CRB.song_ids()
+    for r in merged:
+        r["song"] = {0: "SONG_S2_EHZ", 1: "SONG_S2_CPZ"}[r["key"]]
+        r["song_id"] = ids[r["song"]]
+    bad = dict(plan, rows=merged)
+    with pytest.raises(CRB.ClipRomError, match="MUSIC"):
+        CRB.check_music_crossings(act, *_music_texts(bad))
+
+
+def test_music_check_refuses_a_song_inside_the_corridor_and_a_wrong_song(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act, plan, _gen, _spawn = _planned(donors, tmp_path)
+    inner = [dict(r) for r in plan["rows"]]
+    ids = CRB.song_ids()
+    inner[1]["song_id"] = ids["SONG_S2_EHZ"]         # EHZ's inner half names a song
+    with pytest.raises(CRB.ClipRomError, match="dead band must name 0"):
+        CRB.check_music_crossings(act, *_music_texts(dict(plan, rows=inner)))
+    wrong = [dict(r) for r in plan["rows"]]
+    wrong[-1]["song_id"] = ids["SONG_S2_EHZ"]        # Chemical Plant plays Emerald Hill's
+    with pytest.raises(CRB.ClipRomError, match="not its own music"):
+        CRB.check_music_crossings(act, *_music_texts(dict(plan, rows=wrong)))
+
+
+def test_an_act_without_music_is_not_split(donors, tmp_path):
+    """No clip names music: one row per zone (the pre-step-6 plan exactly), every row 0."""
+    _need(S.S2_FINAL)
+    doc = _doc()
+    for c in doc["clips"]:
+        c.pop("music", None)
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    assert [r["song"] for r in plan["rows"]] == [None, None]
+    assert CRB.check_music_crossings(act, *_music_texts(plan)) == []
+    assert "rg_song: 0," in CRB.clip_data_block(plan)
+    assert "sound_ids" not in CRB.clip_module_text(plan)
+
+
+def test_manifest_music_must_be_a_song_name_and_one_per_zone(donors, tmp_path):
+    _need(S.S2_FINAL)
+    doc = _doc()
+    doc["clips"][0]["music"] = 2
+    with pytest.raises(CM.ClipManifestError, match="R3 .*music"):
+        CM.load(_write(tmp_path, doc), donor_root=donors)
+    doc = _doc()
+    extra = json.loads(json.dumps(doc["clips"][0]))
+    extra.update(id="ehz_more", music="SONG_S2_CPZ")
+    extra["src_rect"] = dict(extra["src_rect"], w=16)
+    extra["dst_rect"] = dict(x=0, y=1024, w=16, h=extra["dst_rect"]["h"])
+    doc["clips"].append(extra)
+    with pytest.raises(CM.ClipManifestError, match="different music"):
+        CM.load(_write(tmp_path, doc), donor_root=donors)
+
+
+def test_bake_refuses_a_song_name_the_game_does_not_define(donors, tmp_path):
+    _need(S.S2_FINAL)
+    doc = _doc()
+    doc["clips"][1]["music"] = "SONG_NO_SUCH_SONG"
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    with pytest.raises(CRB.ClipRomError, match="SONG_NO_SUCH_SONG"):
+        CRB.region_plan(act, donors)
+
+
+def test_music_check_refuses_an_id_the_game_does_not_define(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act, plan, _gen, _spawn = _planned(donors, tmp_path)
+    rows = [dict(r) for r in plan["rows"]]
+    rows[0]["song_id"] = max(CRB.song_ids().values()) + 1
+    with pytest.raises(CRB.ClipRomError, match="does not define"):
+        CRB.check_music_crossings(act, *_music_texts(dict(plan, rows=rows)))
+
+
+def test_song_ids_are_read_from_the_game_authority():
+    ids = CRB.song_ids()
+    text = open(os.path.join(REPO, CRB.SOUND_IDS_REL)).read()
+    for name in ("SONG_S2_EHZ", "SONG_S2_CPZ"):
+        m = re.search(rf"pub const {name}\s*:\s*SongId\s*=\s*(\d+)", text)
+        assert m and ids[name] == int(m.group(1))
+    assert "SONG_COUNT" not in ids

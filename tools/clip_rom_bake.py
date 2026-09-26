@@ -496,10 +496,10 @@ def _region_rows_text(plan):
         f"rg_effects: {r['preset_label']}, rg_parallax: 0, "
         f"rg_bg_layout: {r.get('bg_layout') or 0}, rg_bg_span: 0, "
         f"rg_bg_tiles: {r.get('bg_tiles') or 0}, "
-        # rg_song 0 = "no song named, leave the music alone" (S2CLIP-REGION-MUSIC step 5,
-        # the engine half). Step 6 makes this the clip's per-zone "music"; until then every
-        # clip row names none. rg_pad_1b is the record's even-stride pad.
-        f"rg_song: 0, rg_pad_1b: 0 }},  // {r['why']}"
+        # rg_song: the id of the clip's per-zone `music` on a zone's OUTER row, 0 ("no song
+        # named, leave the music alone") on the corridor's inner rows and on every row of a
+        # zone that names no music (the MUSIC block). rg_pad_1b is the even-stride pad.
+        f"rg_song: {r.get('song_id') or 0}, rg_pad_1b: 0 }},  // {r['why']}"
         for r in plan["rows"])
 
 
@@ -823,6 +823,10 @@ def region_plan(act, donor_root, act_h_px=None):
                 f"S2ACT-SEAM-CORRIDORS: corridors, never butted zones.")
         mid = ((gap0 + gap1) // 2) & ~15
         cuts.append((mid, a.zone_key, b.zone_key, corr[0].id, gap0, gap1))
+    music = zone_music(act)
+    ids = song_ids() if music else {}
+    for z in zones:
+        z["music"] = music.get(z["key"])
     rows, x0 = [], 0
     order = [clips[0].zone_key] + [c[2] for c in cuts]
     for i, key in enumerate(order):
@@ -830,8 +834,38 @@ def region_plan(act, donor_root, act_h_px=None):
         why = (f"{zones[key]['donor']} {zones[key]['zone']}"
                + (f", to the middle of corridor {cuts[i][3]}" if i < len(cuts) else
                   ", to the act's right edge"))
-        rows.append({"x0": x0, "x1": x1, "y0": 0, "y1": act_h - 1, "key": key,
-                     "preset_label": zones[key]["preset_label"], "why": why})
+        base = {"y0": 0, "y1": act_h - 1, "key": key,
+                "preset_label": zones[key]["preset_label"]}
+        song = music.get(key)
+        if not song:
+            rows.append(dict(base, x0=x0, x1=x1, song=None, why=why))
+            x0 = x1 + 1
+            continue
+        # MUSIC (S2CLIP-REGION-MUSIC step 6, owner ruling S2CLIP-MUSIC-FEEL = cut-at-exit):
+        # split the zone's strip at each corridor MOUTH it touches. The mouths are the
+        # corridor's own gap edges, the clip rectangles' x extents region_plan derived the
+        # crossing from (gap0 = the left zone's last px + 1, gap1 = the right zone's first
+        # px), never typed. The corridor-side part names song 0 (leave the music alone),
+        # the outer part the zone's own song, so the song changes where the camera centre
+        # LEAVES the corridor into a zone, and the corridor is a dead band as wide as the
+        # corridor itself: standing on one line cannot flip the song back and forth.
+        lo = cuts[i - 1][5] if i > 0 else x0          # the left corridor's right mouth
+        hi = cuts[i][4] - 1 if i < len(cuts) else x1  # the right corridor's left mouth - 1
+        if not (x0 <= lo <= hi <= x1):
+            raise ClipRomError(
+                f"MUSIC zone {zones[key]['zone']}: its song row would run x {lo}..{hi}, "
+                f"outside its region strip x {x0}..{x1} — a corridor mouth is on the wrong "
+                f"side of the crossing, so the dead band cannot be cut")
+        if lo > x0:
+            rows.append(dict(base, x0=x0, x1=lo - 1, song=None,
+                             why=f"{why}: corridor {cuts[i - 1][3]}'s inner half, no song "
+                                 f"(the music dead band)"))
+        rows.append(dict(base, x0=lo, x1=hi, song=song, song_id=ids[song],
+                         why=f"{why}: plays {song} = {ids[song]} (the corridor mouths bound it)"))
+        if hi < x1:
+            rows.append(dict(base, x0=hi + 1, x1=x1, song=None,
+                             why=f"{why}: corridor {cuts[i][3]}'s inner half, no song "
+                                 f"(the music dead band)"))
         x0 = x1 + 1
     return {"act": act.id, "zones": zones, "rows": rows,
             "overrides": crossing_overrides(act),
@@ -967,13 +1001,16 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
         ys = range(corr[0].dst[1], corr[0].dst[1] + corr[0].dst[3], 16) if corr else [0]
         reported = False
         for y in ys:
+            # a change is a change of PRESET: two rows binding one preset (the MUSIC block's
+            # dead-band split) re-run Effects_InstallPreset on the same record, which installs
+            # nothing new (measured by the crossing witnesses, not assumed here)
             changes = []
             prev = row_at(a_right - 1, y)
             for x in range(a_right - 1, b_left + 1):
                 r = row_at(x, y)
-                if r is not prev:
+                if r[4] != prev[4]:
                     changes.append((x, prev[4], r[4]))
-                    prev = r
+                prev = r
             pal_changes = [ch for ch in changes if presets[ch[1]][0] != presets[ch[2]][0]]
             if len(changes) != 1 or len(pal_changes) != 1:
                 raise ClipRomError(
@@ -1031,6 +1068,160 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
                 f"{need_l} / {need_r} needed (palette {'SNAP' if want_trans == 0 else 'fade'} "
                 f"{pal_frames} frames, background switch {bgf.get(a.zone_key, 0)} / "
                 f"{bgf.get(b.zone_key, 0)} frames)")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# MUSIC — each zone's own song, changed where the camera LEAVES the corridor
+# (S2CLIP-REGION-MUSIC step 6; owner ruling S2CLIP-MUSIC-FEEL = cut-at-exit)
+# ---------------------------------------------------------------------------
+#
+# THE ENGINE HALF landed at step 5: `Region.rg_song` names a region's song (0 = leave the
+# music alone); Parallax_CheckBoundary's slow path records a non-zero one in Music_Want, and
+# Music_Service posts it when it differs from Music_Current. So a song changes when the
+# camera centre enters a row NAMING a different song, and a 0 row never changes anything.
+#
+# THE DATA HALF is here. A clip's optional `music` (a SONG_* NAME, clip_manifest R3) is its
+# zone's song. region_plan splits each zone's strip at the corridor mouths it touches: the
+# corridor-side part names 0, the outer part the zone's song. The crossing (preset, palette,
+# background) stays at the corridor's middle; the SONG changes at the far mouth, as the camera
+# comes out into the new zone, and going back the old zone's song starts as it comes out on
+# that side. The whole corridor is a dead band for music, so a player wiggling on any one line
+# re-enters a row naming the song already current, or a 0 row: no request (the step-5
+# compare). The rows carry the song's ID, read from the game's authority
+# (games/sonic4/config/sound_ids.emp) by song_ids() on every bake, with the NAME in the row's
+# comment; act_descriptor.emp's rule 9 bounds it. (Emitting the NAME was tried first: the
+# descriptor's comptime row check then read it as a Label — "`<` not defined for label and
+# int" at its rule 9 — measured 2026-09-25.)
+
+SOUND_IDS_REL = "games/sonic4/config/sound_ids.emp"
+
+
+def zone_music(act):
+    """{zone key: SONG_* name} for every zone whose clips name `music` (clip_manifest R3
+    already holds one song per zone), each name resolved against the game's authority."""
+    out = {}
+    for c in act.clips:
+        if getattr(c, "music", None):
+            out[c.zone_key] = c.music
+    if out:
+        ids = song_ids()
+        unknown = sorted({n for n in out.values() if n not in ids})
+        if unknown:
+            raise ClipRomError(f"MUSIC {unknown} is not a song id in {SOUND_IDS_REL} (it has "
+                               f"{sorted(ids)})")
+    return out
+
+
+def song_ids():
+    """{SONG_* name: id} READ from the game's authority, never typed (SONG_COUNT excluded:
+    a bound, not an id)."""
+    from effects_budget_check import emp_constants, eval_int_expr
+    c = emp_constants(os.path.join(REPO, SOUND_IDS_REL))
+    return {k: eval_int_expr(v, c) for k, v in c.items()
+            if k.startswith("SONG_") and k != "SONG_COUNT"}
+
+
+_SONG_ROW_RE = re.compile(
+    r"Region\{\s*rg_x0:\s*(\d+),\s*rg_x1:\s*(\d+),\s*rg_y0:\s*(\d+),\s*rg_y1:\s*(\d+),"
+    r"[^}]*?rg_song:\s*(\d+),")
+
+
+def _song_rows(text, name, what):
+    """[(x0, x1, y0, y1, song NAME or None)] parsed back out of an emitted table; an id the
+    game's authority does not define is refused by number."""
+    m = re.search(name + r":\s*\[Region;\s*(\d+)\]\s*=\s*\[(.*?)\n\]", text, re.S)
+    if not m:
+        raise ClipRomError(f"MUSIC {what} carries no {name} table — UNMEASURABLE")
+    found = _SONG_ROW_RE.findall(m.group(2))
+    by_id = {v: k for k, v in song_ids().items()} if any(e != "0" for *_x, e in found) else {}
+    bad = sorted({int(e) for *_x, e in found if e != "0" and int(e) not in by_id})
+    if bad:
+        raise ClipRomError(f"MUSIC {what}'s {name} names song id(s) {bad}, which "
+                           f"{SOUND_IDS_REL} does not define")
+    rows = [(int(a), int(b), int(c), int(d), (None if e == "0" else by_id[int(e)]))
+            for a, b, c, d, e in found]
+    if len(rows) != int(m.group(1)):
+        raise ClipRomError(f"MUSIC {what} declares {m.group(1)} rows for {name} and "
+                           f"{len(rows)} carry an rg_song that parses — UNMEASURABLE")
+    return rows
+
+
+def check_music_crossings(act, mod_text, data_text, spawn=None, log=None):
+    """MUSIC — read back out of what was EMITTED (both tables, which must agree):
+
+      * every row covering part of a clip names that clip's `music` (or 0 if it names none),
+        unless the row lies wholly inside a corridor;
+      * every row inside a corridor between two zones names 0 (the dead band);
+      * walking the camera centre right across each corridor, the FIRST row naming a song
+        after the left zone's is at the right mouth (b_left) and names the right zone's song;
+        walking left, the first is at a_right - 1 and names the left zone's. Exactly one
+        song change each way, at the mouth;
+      * the row holding `spawn` (the act's start) names the start zone's song, so the
+        act-load rescan requests it.
+    Returns [{from, to, right_x, left_x, dead_band_px, songs}] per corridor. An act whose
+    clips name no music is held to "every row names 0" and returns []."""
+    rows = _song_rows(mod_text, "OJZ_CLIP_REGION_ROWS", "the clip module")
+    emitted = _song_rows(data_text, "OJZ_Clip_Regions", "the clip data block")
+    if rows != emitted:
+        raise ClipRomError(f"MUSIC the descriptor's rows and the Act's differ in rg_song: "
+                           f"{rows} vs {emitted}")
+    want = {c.zone_key: getattr(c, "music", None) for c in act.clips}
+    if not any(want.values()):
+        named = [r for r in rows if r[4]]
+        if named:
+            raise ClipRomError(f"MUSIC no clip names music, yet rows name songs: {named}")
+        return []
+
+    def song_at(x, y=None):
+        hit = [r for r in rows if r[0] <= x <= r[1] and (y is None or r[2] <= y <= r[3])]
+        if len(hit) != 1:
+            raise ClipRomError(f"MUSIC x={x} is in {len(hit)} region rows; they must tile the act")
+        return hit[0][4]
+
+    clips = sorted(act.clips, key=lambda c: c.dst[0])
+    gaps = []
+    for a, b in zip(clips, clips[1:]):
+        if a.zone_key != b.zone_key:
+            gaps.append((a, b, a.dst[0] + a.dst[2], b.dst[0]))
+    in_gap = lambda r: any(g0 <= r[0] and r[1] < g1 for _a, _b, g0, g1 in gaps)  # noqa: E731
+    for c in clips:
+        for r in rows:
+            if r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1] and not in_gap(r) \
+                    and r[4] != want[c.zone_key]:
+                raise ClipRomError(f"MUSIC clip {c.id!r} reaches row x {r[0]}..{r[1]}, which "
+                                   f"names {r[4] or 0}, not its own music "
+                                   f"{want[c.zone_key] or 0}")
+    out = []
+    for a, b, g0, g1 in gaps:
+        for r in rows:
+            if r[1] >= g0 and r[0] < g1 and in_gap(r) and r[4]:
+                raise ClipRomError(f"MUSIC row x {r[0]}..{r[1]} lies inside corridor x "
+                                   f"{g0}..{g1 - 1} and names {r[4]}: the dead band must name 0")
+        right = [(x, song_at(x)) for x in range(g0 - 1, g1 + 1)]
+        right_changes = [(x, s) for x, s in right[1:] if s and s != right[0][1]]
+        left = [(x, song_at(x)) for x in range(g1, g0 - 2, -1)]
+        left_changes = [(x, s) for x, s in left[1:] if s and s != left[0][1]]
+        want_r = [(g1, want[b.zone_key])] if want[b.zone_key] else []
+        want_l = [(g0 - 1, want[a.zone_key])] if want[a.zone_key] else []
+        if right_changes != want_r or left_changes != want_l:
+            raise ClipRomError(
+                f"MUSIC corridor {a.id!r} -> {b.id!r} (x {g0}..{g1 - 1}): walking right the "
+                f"song changes at {right_changes}, the rule is {want_r} (the right mouth); "
+                f"walking left at {left_changes}, the rule is {want_l} (the left mouth)")
+        out.append({"from": a.id, "to": b.id, "right_x": g1, "left_x": g0 - 1,
+                    "dead_band_px": g1 - g0,
+                    "songs": [want[a.zone_key], want[b.zone_key]]})
+        if log:
+            log(f"clip_rom_bake: MUSIC {a.id} -> {b.id}: {want[b.zone_key]} starts where the "
+                f"camera centre reaches x={g1} going right, {want[a.zone_key]} at x={g0 - 1} "
+                f"going left; the corridor x {g0}..{g1 - 1} ({g1 - g0} px) names no song")
+    if spawn is not None:
+        holder = [c for c in act.clips if c.dst[0] <= spawn[0] < c.dst[0] + c.dst[2]]
+        if len(holder) == 1 and song_at(spawn[0], spawn[1]) != want[holder[0].zone_key]:
+            raise ClipRomError(f"MUSIC the start ({spawn[0]}, {spawn[1]}) is in a row naming "
+                               f"{song_at(spawn[0], spawn[1])}, not the start zone's "
+                               f"{want[holder[0].zone_key]}: the act-load request would miss it")
     return out
 
 
@@ -1424,6 +1615,7 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         log("clip_rom_bake: " + "!" * 72)
     bgf = background_switch_frames(plan)
     z2 = check_palette_crossings(act, mod, data, log=log, bg_frames=bgf)
+    plan["music"] = check_music_crossings(act, mod, data, spawn=engine_spawn(desc), log=log)
     plan["bg1"] = check_backgrounds(plan, mod, data, gen_dir)
     if log:
         log(f"clip_rom_bake: BG1 {plan['bg1']['default']} is the act default background and "
@@ -1653,8 +1845,10 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         "verdict_at_placement": summary["verdict_at_placement"],
         "generated_dir": GEN_REL,
         "palette": "per-zone, from each donor zone's palette.bin, in generated clip_act.emp",
-        "regions": [{k: r[k] for k in ("x0", "x1", "y0", "y1", "preset_label", "why")}
+        "regions": [dict({k: r[k] for k in ("x0", "x1", "y0", "y1", "preset_label", "why")},
+                         song=r.get("song"))
                     for r in region_plan_["rows"]],
+        "music": region_plan_.get("music"),
         "palette_crossings": z2,
         "backgrounds": {
             "act_default": region_plan_["bg1"]["default"],

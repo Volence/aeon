@@ -409,6 +409,16 @@ def main():
     geo = (a_right, b_left, co.dst[0], co.dst[0] + co.dst[2])
     pals = zone_palettes(act)
     rom = open(a.rom, "rb").read()
+    # THE CROSSING IS A CHANGE OF PRESET, not of region row: since S2CLIP-REGION-MUSIC step 6
+    # each zone's strip is split at the corridor mouth for its song (tools/clip_rom_bake.py
+    # MUSIC), so the first row change going right is the EHZ-side mouth, which installs the
+    # SAME preset. Each row's preset is read from the ROM's own table.
+    import region_table as RT
+    if "OJZ_Act1_Descriptor" not in syms:
+        raise SystemExit("crossing_witness: the listing carries no OJZ_Act1_Descriptor — "
+                         "COULD NOT RUN (the crossing is read off the region table's presets)")
+    preset_of = {r["addr"]: r["effects"]
+                 for r in RT.read_regions(rom, syms["OJZ_Act1_Descriptor"])}
     if "VRAM_PLANE_B_BYTES" not in equs or "Parallax_Current_Vscroll_BG" not in syms:
         raise SystemExit("crossing_witness: the listing carries no VRAM_PLANE_B_BYTES / "
                          "Parallax_Current_Vscroll_BG — COULD NOT RUN")
@@ -448,7 +458,9 @@ def main():
                                                    rows))
             infl = [r for r in out_rows if live[r["i"]]["_inflight"]]
             span = (infl[0], infl[-1]) if infl else None
-            cross = next((r for r in out_rows[1:] if live[r["i"]]["region"] != live[0]["region"]), None)
+            cross = next((r for r in out_rows[1:]
+                          if preset_of.get(live[r["i"]]["region"])
+                          != preset_of.get(live[0]["region"])), None)
             print(f"  {direction:>5} gsp ${gsp:04X}: {len(out_rows)} ticks; crossing at tick-row "
                   f"{cross['i'] if cross else None} cam {cross['cam'] if cross else None} "
                   f"(centre {cross['cam'] + 160 if cross else None}); in flight "
