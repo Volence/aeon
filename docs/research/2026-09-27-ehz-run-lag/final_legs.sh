@@ -12,7 +12,7 @@ n=0
 leg() {  # rom name args...
   local rom=$1 nm=$2; shift 2
   local la; la=$(cut -d' ' -f1 /proc/loadavg)
-  timeout 900 python3 "$HERE/run_probe.py" --rom "$RD/$rom.bin" --lst "$RD/$rom.lst" --coverage --dump \
+  timeout 900 python3 "$HERE/ehz_run_probe.py" --rom "$RD/$rom.bin" --lst "$RD/$rom.lst" --coverage --dump \
       --out "$OUT/$nm.json" "$@" > "$OUT/$nm.txt" 2>&1
   echo "$nm rc=$? load=$la->$(cut -d' ' -f1 /proc/loadavg)" >> "$OUT/legs.meta"
   n=$((n+1))

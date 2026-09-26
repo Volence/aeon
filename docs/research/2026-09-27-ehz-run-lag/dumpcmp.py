@@ -2,9 +2,9 @@
 """dumpcmp — is the parallax output byte-identical between two ROMs at matched ticks?
 
 usage: dumpcmp.py A.json B.json
-Both are run_probe.py --dump legs of the SAME drive. Each holds, per logic tick that ended on
+Both are ehz_run_probe.py --dump legs of the SAME drive. Each holds, per logic tick that ended on
 time, the camera and the bytes of Hscroll_Buffer + Parallax_Vscroll_Column_Buf + Vscroll_Factor
-(run_probe.DUMP). Compared at every tick both recorded:
+(ehz_run_probe.DUMP). Compared at every tick both recorded:
   * the camera must agree, else the two legs did not see the same scene at that tick: such a
     tick is COUNTED and printed, never compared (a one-step read-timing offset between two
     ROMs with different lag shows up here, the 2026-09-25 diag bisect's pathcmp saw the same);

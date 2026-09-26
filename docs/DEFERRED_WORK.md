@@ -41300,7 +41300,7 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
    (prototype diff in the doc, not landed, moves canonical bytes) takes 44 → 35. Dropping the static ripple
    (content) takes 44 → 37.
    **2026-09-27 (`perf/ehz-run-lag`):** the curve loop is now packed and 8x unrolled (21.25 cyc/line), and a soft
-   decompress budget landed beside it. On base `366b777c` this band went 33/89 -> 29/85 (`run_probe` fly diagonal). See
+   decompress budget landed beside it. On base `366b777c` this band went 33/89 -> 29/85 (`ehz_run_probe` fly diagonal). See
    PERF-EHZ-RUN-LAG.
 3. **No lane exercises the streaming path on a built shape.** Every canonical act is fully resident, so the nightly
    and `landing_build.sh` run none of this code past its early-outs; the clip shapes are not built there. A lag-leg

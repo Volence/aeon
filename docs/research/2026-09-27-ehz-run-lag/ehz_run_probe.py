@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run_probe — the owner's EHZ complaint as a leg: RUN (not fly) right from spawn to the tunnel.
+"""ehz_run_probe — the owner's EHZ complaint as a leg: RUN (not fly) right from spawn to the tunnel.
 
 2026-09-27, perf/ehz-run-lag. Research instrument, not a gate. Reuses the S2CLIP-LAG study's
 transport and counters (docs/research/2026-09-25-s4-lag/lag_flythrough_probe.py: rd, syms,
@@ -10,7 +10,7 @@ a ROM with different lag took a different path and cross-ROM comparison was void
 keys every input change to LOGIC TICKS since the leg started (read after each video frame), so
 the input the game sees on tick t is a function of t alone. Holding one input for many ticks is
 then independent of where the lag frames fall. The probe records (tick, player x/y, camera x/y)
-per tick so two ROMs' paths can be compared tick by tick (`--path-out`); a path that differs
+per tick (the JSON's `path`) so two ROMs' paths can be compared tick by tick; a path that differs
 is reported, never assumed away.
 
 Modes (all hold RIGHT):

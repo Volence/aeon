@@ -3,10 +3,10 @@
 
   lagwin.py pick LEG.json [--win-len 3] [--controls 40]
       Reads a DEBUG leg's rows (dLag_Frame_Count per video frame is exact per row), and prints
-      the --windows list for run_probe.py: each lag frame L gets a window starting at L-1 (the
+      the --windows list for ehz_run_probe.py: each lag frame L gets a window starting at L-1 (the
       overrunning tick starts before the lag VBlank and may finish after it); overlapping windows
       merge into the earlier one. It adds --controls windows at evenly spaced frames with no lag
-      within +-4 frames, marked by being listed after a ';' (run_probe takes the union; report
+      within +-4 frames, marked by being listed after a ';' (ehz_run_probe takes the union; report
       re-derives which is which from each window's own Lag_Frame_Count delta, not from this list).
   lagwin.py report WIN.json [--top 25]
       Splits the windows by their measured Lag_Frame_Count delta (>0 = lag window, 0 = control)

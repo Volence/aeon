@@ -48,7 +48,7 @@ is `results/final_table.txt`.
 
 ## Legs and the probe
 
-`run_probe.py` is new. The perf survey's physics legs scheduled inputs **per video frame**, so a ROM
+`ehz_run_probe.py` is new. The perf survey's physics legs scheduled inputs **per video frame**, so a ROM
 with different lag took a different path, and a cross-ROM comparison measured two different runs.
 This probe keys every input to **logic ticks since the leg started**. It records the player path by
 tick, so two ROMs' paths can be compared tick by tick.
@@ -300,7 +300,7 @@ Byte patches of the EHZ record on the **after** DEBUG build (`patch_ehz.py`, 202
 | both | 6 | 27 / 83 |
 
 - The fly legs use the survey's `leg_probe.py`, whose band starts one tick earlier than
-  `run_probe`'s, so 31 here is 29 in the table at the top.
+  `ehz_run_probe`'s, so 31 here is 29 in the table at the top.
 - **On the run the owner described, neither option buys anything.** They buy 2 to 4 frames only at
   sustained max-diagonal flight. Not recommended; listed so the choice is his.
 - Fewer curve lines (S2's hold groups as flat steps) was not measured. It is bounded by the "curve
@@ -342,6 +342,6 @@ PERF-EHZ-RUN-LAG.
   40 quiet controls. It re-runs the same deterministic leg and arms the profiler only in those
   windows. `pertick.py` divides by the ticks actually inside each window. The oracle per-frame ring
   carries totals only, so this is how a single tick gets a routine breakdown.
-- **Tools.** `run_probe.py`, `lagwin.py`, `pertick.py`, `pathview.py`, `spancmp.py`, `dumpcmp.py`,
+- **Tools.** `ehz_run_probe.py`, `lagwin.py`, `pertick.py`, `pathview.py`, `spancmp.py`, `dumpcmp.py`,
   `legtable.py`, `final_legs.sh`, `final_table.py` and `curve_rom_exact.py` are in the directory
   above. The slim leg JSONs (the dump bytes reduced to SHA-1s) are in `results/legs_slim.tar.gz`.

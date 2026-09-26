@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pathview — print a run_probe leg's player path every N frames, and where its lag frames fall.
+"""pathview — print a ehz_run_probe leg's player path every N frames, and where its lag frames fall.
 
 usage: pathview.py LEG.json [every=100]
 Lag per 256-px bucket of PLAYER x = sum(dFrame_Counter) - sum(dLogic_Tick) over the rows in it.

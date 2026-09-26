@@ -15,7 +15,7 @@ n=0
 leg() {  # shape name args...
   local sh=$1 nm=$2; shift 2
   local la; la=$(cut -d' ' -f1 /proc/loadavg)
-  timeout 900 python3 "$HERE/run_probe.py" --rom "$RD/$sh.bin" --lst "$RD/$sh.lst" \
+  timeout 900 python3 "$HERE/ehz_run_probe.py" --rom "$RD/$sh.bin" --lst "$RD/$sh.lst" \
       --out "$OUT/${sh}_$nm.json" "$@" > "$OUT/${sh}_$nm.txt" 2>&1
   local rc=$?
   echo "$sh $nm rc=$rc load=$la->$(cut -d' ' -f1 /proc/loadavg)" >> "$OUT/legs.meta"

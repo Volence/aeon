@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pertick — the cost of ONE overrunning tick, from a run_probe --windows leg.
+"""pertick — the cost of ONE overrunning tick, from a ehz_run_probe --windows leg.
 
 usage: pertick.py WIN.json [names...]
 lagwin.py divides by the ticks the snapshot span counted; a 3-frame window around a lag frame
