@@ -1,9 +1,19 @@
 {
-  "focus": "Drone and loops landed; moving our own act's loop onto lines now.",
+  "focus": "Music is right by your ear; now chasing the lag running through Emerald Hill and a quiet jump sound.",
   "inFlight": [
     {
       "what": "Move our own act's loop to lines and retire the painted marks",
       "where": "branch parcel/lines-everywhere",
+      "agent": true
+    },
+    {
+      "what": "Find and fix the lag while running through Emerald Hill",
+      "where": "branch perf/ehz-run-lag",
+      "agent": true
+    },
+    {
+      "what": "Measure the jump sound against real Sonic 2 and fix it if ours is off",
+      "where": "branch fix/jump-sfx-level",
       "agent": true
     }
   ],
@@ -19,8 +29,23 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The lines-everywhere parcel comes back; it lands after aurora is told.",
+  "nextBoundary": "The lag, jump-sound and lines parcels come back; I land them one at a time.",
   "queue": [
+    {
+      "id": "EHZ-RUN-LAG",
+      "title": "Lag you feel running through Emerald Hill: measuring and fixing",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "JUMP-SFX-LEVEL",
+      "title": "Jump sound a little quiet: measuring against real Sonic 2",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
     {
       "id": "SAH-3a",
       "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
@@ -30,7 +55,7 @@
     },
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 music: volumes, hi-hat and the Chemical Plant drone fixed; worth a final listen",
+      "title": "Sonic 2 music: sounds right by your ear (volumes, hi-hat, drone all fixed)",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -146,7 +171,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "Listen: aeon/s4.s2clip.debug.bin (crc f2926873), Chemical Plant after the tunnel, for the drone. Still yours: the Chemical Plant lag card.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T18:31:00Z"
+  "updatedAt": "2026-09-26T18:36:28Z"
 }
