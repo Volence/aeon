@@ -18,16 +18,54 @@ sys.path.insert(0, TOOLS)
 import clip_manifest as CM          # noqa: E402
 import s2_donor                     # noqa: E402
 import s2_layer_lines as SLL        # noqa: E402
+import s2_zone_convert as C         # noqa: E402
+from suite_paths import SuitePathError  # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 CLIPS = os.path.join(REPO, "games", "sonic4", "data", "clips")
 
 
+#: The converted zone trees the shipped manifests clip (every clips.json under CLIPS names
+#: s2disasm EHZ and/or CPZ). A manifest that starts naming another zone fails loudly with
+#: clip_manifest's R4 ("no converted tree at ..."), it cannot pass by skipping.
+CASES = [(s2_donor.S2_FINAL, "EHZ"), (s2_donor.S2_FINAL, "CPZ")]
+
+
 def _donor_or_skip():
     try:
         root = s2_donor.donor_root(s2_donor.S2_FINAL)
-    except SystemExit as exc:
-        pytest.skip("the s2disasm donor checkout is not present: %s" % exc)
+    except (SystemExit, SuitePathError) as exc:
+        pytest.skip("the s2disasm donor checkout could not be resolved, so NOTHING in this "
+                    "row is checked: %s" % exc)
+    return root
+
+
+@pytest.fixture(autouse=True, scope="module")
+def no_working_tree_donors():
+    """No row may read the repo's own (gitignored) converted donor trees.
+
+    The same guard test_clip_manifest carries, for the same incident class: this file shipped
+    (332cc1ba) with seven `CM.load(p)` calls and no `donor_root=`, green in the worktree that
+    had run s2_zone_convert and 10 FAILED rows in every fresh landing worktree. Pointing the
+    default at a path that cannot exist makes that mistake fail on EVERY machine.
+    """
+    real = CM.DEFAULT_DONOR_ROOT
+    CM.DEFAULT_DONOR_ROOT = os.path.join(
+        REPO, "tools", "__no_donor_root_for_tests__", "this-path-must-not-exist")
+    assert not os.path.exists(CM.DEFAULT_DONOR_ROOT)
+    yield
+    CM.DEFAULT_DONOR_ROOT = real
+
+
+@pytest.fixture(scope="module")
+def donors(tmp_path_factory):
+    """A converted donor root in pytest's own tmp tree, MADE here from the read-only s2disasm
+    checkout (the converter is deterministic), so the rows run on a fresh checkout instead
+    of requiring the caller to have run s2_zone_convert first."""
+    _donor_or_skip()
+    root = str(tmp_path_factory.mktemp("s2layerlinedonors"))
+    for donor, zone in CASES:
+        C.convert_zone(zone, donor, os.path.join(root, donor, zone), quiet=True)
     return root
 
 
@@ -75,9 +113,9 @@ def test_flags_repack_obj03_subtypes():
     assert SLL.flags_of(0x0D, 0, c) == b["LL_HORIZONTAL"] | b["LL_FWD_B"]
 
 
-def test_s2_ehz_cpz_plan_matches_an_independent_reading_of_the_layouts():
+def test_s2_ehz_cpz_plan_matches_an_independent_reading_of_the_layouts(donors):
     root = _donor_or_skip()
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     p = SLL.plan(act)
     per_zone = {}
     for ln in p["lines"]:
@@ -108,11 +146,11 @@ def test_s2_ehz_cpz_plan_matches_an_independent_reading_of_the_layouts():
     assert all(ln["x"] == ln["src"][0] + 11360 and ln["y"] == ln["src"][1] + 256 for ln in cpz)
 
 
-def test_loop_one_is_an_apex_line_then_an_exit_line():
+def test_loop_one_is_an_apex_line_then_an_exit_line(donors):
     """What the witness derives its drive expectations from: past x 3950 the first grounded-only
     row is the apex line at 4224 and the next row the exit line at 4368."""
     _donor_or_skip()
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     p = SLL.plan(act)
     import s2clip_layer_line_witness as W
     apex, exit_ = W.loop_lines(p, 3950, "right")
@@ -122,18 +160,18 @@ def test_loop_one_is_an_apex_line_then_an_exit_line():
 
 
 @pytest.mark.parametrize("clip", ["s2_ehz_cpz", "s2_ehz_boot", "s2_two_clip", "s2_two_clip_pins"])
-def test_every_shipped_clip_manifest_bakes(clip):
+def test_every_shipped_clip_manifest_bakes(clip, donors):
     _donor_or_skip()
-    act = CM.load(os.path.join(CLIPS, clip, "clips.json"))
+    act = CM.load(os.path.join(CLIPS, clip, "clips.json"), donor_root=donors)
     p = SLL.plan(act)
     assert p["rows"], "%s has no plane switchers in its rectangles" % clip
 
 
-def test_l2_refuses_a_line_whose_extent_leaves_the_clip():
+def test_l2_refuses_a_line_whose_extent_leaves_the_clip(donors):
     """A real line, a real layout: crop EHZ so the apex line's y extent (400..527) crosses the
     rectangle's bottom edge at 500."""
     _donor_or_skip()
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     cl = act.clips[0]
     cl.src = (4096, 0, 512, 500)
     cl.dst = (4096, 0, 512, 500)
@@ -142,8 +180,8 @@ def test_l2_refuses_a_line_whose_extent_leaves_the_clip():
         SLL.plan(act)
 
 
-def test_l1_refuses_a_prototype_donor():
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+def test_l1_refuses_a_prototype_donor(donors):
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     act.clips[0].donor = s2_donor.S2_PROTOTYPE
     with pytest.raises(SLL.LayerLineError, match=r"^L1 "):
         SLL.plan(act)
@@ -164,9 +202,9 @@ def test_l5_refuses_a_layout_that_is_not_whole_records(tmp_path):
         SLL.read_layout(str(p))
 
 
-def test_rows_text_carries_both_sentinels_and_every_row():
+def test_rows_text_carries_both_sentinels_and_every_row(donors):
     _donor_or_skip()
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     p = SLL.plan(act)
     text = SLL.rows_text(p)
     assert text.count("LayerLine{") == len(p["rows"]) + 2
@@ -174,11 +212,11 @@ def test_rows_text_carries_both_sentinels_and_every_row():
     assert "ll_key: $7FFF," in text.splitlines()[-1]
 
 
-def test_the_bake_reads_its_own_emission_back():
+def test_the_bake_reads_its_own_emission_back(donors):
     """clip_rom_bake's LL1 over the text its own emitters write, and a one-row mutation of it."""
     _donor_or_skip()
     import clip_rom_bake as CRB
-    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"))
+    act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
     plan = {"layer_lines": SLL.plan(act), "zones": [], "rows": []}
     mod = CRB._layer_lines_module_text(plan)
     data = CRB._layer_lines_data_text(plan["layer_lines"])
