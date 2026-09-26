@@ -308,7 +308,7 @@ def scanned_files():
             yield rel, p.read_text(errors="replace")
 
 
-def derived_pairs(alias):
+def derived_pairs(alias, split=None):
     """[(anim label, map label, source)] — every (Ani_*, Map_*) binding in the tree.
 
     Three shapes, because the tree uses three:
@@ -323,11 +323,12 @@ def derived_pairs(alias):
     wrong two is reported as the pair it actually forms and checked as such.
     """
     pairs = []
+    split = [] if split is None else split   # split bindings, appended for the caller
 
     charrec = re.compile(r'pub\s+data\s+(CharDef_\w+)\s*:\s*CharacterDef\s*=\s*'
                          r'CharacterDef\{(.*?)\n\}', re.S)
     symbol = re.compile(r'^\s*(?:pub\s+)?(?:proc|comptime\s+fn|fn)\s+([A-Za-z_]\w*)')
-    write = re.compile(r'move\.l\s+#([A-Za-z_]\w*),\s*(?:Sst\.)?(mappings|anim_table)\(a[0-7]\)')
+    write = re.compile(r'move\.l\s+#([A-Za-z_]\w*),\s*(?:Sst\.)?(mappings|anim_table)\((a[0-7])\)')
     objdef = re.compile(r'pub\s+data\s+(\w+)\s*:\s*ObjDef\s*=\s*objdef\((.*?)\)\s*$', re.S | re.M)
 
     for rel, text in scanned_files():
@@ -338,22 +339,43 @@ def derived_pairs(alias):
             if mp and an:
                 pairs.append((an.group(1), mp.group(1), f"{rel} {m.group(1)}"))
 
-        cur, seen = "<file>", {}
+        # KEYED BY BASE REGISTER (GATE-PREDICATE-VS-PROMISE, 2026-09-26). The pair is the
+        # two fields of ONE SST, and which SST is the base register. Keyed by field alone,
+        # `mappings(a0)` + `anim_table(a1)` formed a pair no object holds; measured:
+        # ring_sparkle.emp:170 `Sst.mappings(a1)` -> `(a0)` built and --gate exited 0 with
+        # (Ani_RingSparkle, Map_RingSparkle) still "derived". A routine that ends with an
+        # anim table written into one register and mappings only into ANOTHER is now named
+        # as a split binding (see `split_bindings`), because that is exactly the shape no
+        # pair can be derived from.
+        def _close(cur_name, seen_by_reg, n_at):
+            anim_regs = {r for r, f in seen_by_reg.items() if "anim_table" in f}
+            map_regs = {r for r, f in seen_by_reg.items() if "mappings" in f}
+            if anim_regs and map_regs and not (anim_regs & map_regs):
+                for r in sorted(anim_regs):
+                    split.append(f"{rel}:{n_at} ({cur_name}): anim table "
+                                 f"{seen_by_reg[r]['anim_table']} written through {r}, "
+                                 f"mappings only through {', '.join(sorted(map_regs))}")
+
+        cur, seen, last_n = "<file>", {}, 0
         for n, raw in enumerate(text.splitlines(), 1):
             s = symbol.match(raw)
             if s:
+                _close(cur, seen, last_n)
                 cur, seen = s.group(1), {}
             w = write.search(_strip_comment(raw))
             if w:
-                seen[w.group(2)] = w.group(1)
-            if "mappings" in seen and "anim_table" in seen:
-                pairs.append((alias.get(seen["anim_table"], seen["anim_table"]),
-                              alias.get(seen["mappings"], seen["mappings"]),
-                              f"{rel}:{n} ({cur})"))
-                # Cleared on every completed pair: a routine binding two sets in
-                # turn must be judged pair by pair, not against whatever it named
-                # first. Same rule as check_anim_dplc_pairings().
-                seen = {}
+                seen.setdefault(w.group(3), {})[w.group(2)] = w.group(1)
+                last_n = n
+                reg = seen[w.group(3)]
+                if "mappings" in reg and "anim_table" in reg:
+                    pairs.append((alias.get(reg["anim_table"], reg["anim_table"]),
+                                  alias.get(reg["mappings"], reg["mappings"]),
+                                  f"{rel}:{n} ({cur})"))
+                    # Cleared on every completed pair: a routine binding two sets in
+                    # turn must be judged pair by pair, not against whatever it named
+                    # first. Same rule as check_anim_dplc_pairings().
+                    seen = {}
+        _close(cur, seen, last_n)
 
         for m in objdef.finditer(text):
             body = _strip_comment_block(m.group(2))
@@ -469,12 +491,15 @@ def build_rows(lst_path, rom_path):
 
     population = sorted(n for n in labels if n.startswith("Ani_"))
     pairs = {}
-    for anim, mapl, src in derived_pairs(alias):
+    split = []
+    for anim, mapl, src in derived_pairs(alias, split):
         if not anim.startswith("Ani_"):
             continue
         pairs.setdefault((anim, mapl), []).append(src)
 
     faults = list(writer_census_faults())
+    faults.extend(f"SPLIT anim/mappings binding — {s}: no SST holds this pair, so its "
+                  f"frame bytes are bounded against nothing" for s in split)
 
     if not population:
         faults.append(f"{lst_path} carries NO Ani_* label at all for game `sonic4` — this gate "
