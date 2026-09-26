@@ -69,12 +69,19 @@ NOT COVERED (as M-B, 09, 10): object/sprite art, the BG plane, animated tiles, t
 frame demand (in-flight decodes, stalled columns), eviction order in motion. A static count
 at the budget is NECESSARY for no camera hold, not sufficient.
 
+THE STRESS FIXTURE IS HELD TO THE SAME BUDGET (stressart-budget, 2026-09-26). STRESS_ART
+inflates the pool (ojz_strip_gen --stress-uniquify) so every leg forces evictions, and it
+used to run this count report-only, "outside the budget by design". That is how the
+2026-09-03 VRAM re-cut (14 -> 12 frames) left its worst window at 13 with nothing refusing:
+the DEBUG fly-right leg then ran out of frames (GPL-1, docs/DEFERRED_WORK.md). A fixture over
+its budget does not stress the cache, it deadlocks it. So the stress bake now takes the same
+frame-aware pin pass (`place_fixed_pool`, the placed-pool half of `place_pool`) and the same
+refusal, and there is no report-only mode left: every shape that counts, refuses.
+
 Usage:
-    python3 tools/fg_page_order.py check [--report-only]
+    python3 tools/fg_page_order.py check
       exit 0 every window of every act fits; 1 a window is over budget;
       2 UNMEASURABLE (a constant, an input or an act the decoder does not know).
-      --report-only prints the verdict and exits 0 on over-budget (the STRESS_ART fixture,
-      which inflates the pool to overwhelm the cache on purpose); unmeasurable still exits 2.
 """
 
 import json
@@ -633,16 +640,18 @@ def verdict_line(v, subject):
             f"{v['over']} window(s) over budget")
 
 
-def refuse_over_budget(v, subject):
+PLACEMENT_REMEDY = ("The page-order search could not fit this placement: move art so fewer "
+                    "distinct tiles meet in that window, or change the budget constants.")
+
+
+def refuse_over_budget(v, subject, remedy=PLACEMENT_REMEDY):
     if not v["ok"]:
         raise SystemExit(
             f"REFUSED — FG page budget: {verdict_line(v, subject)}.\n"
             f"  A camera holding that window would need more art pages resident than the cache "
             f"has frames (PAGE_FRAMES = POOL_TILE_CEILING / ART_POOL_PAGE_TILES, "
             f"engine/system/constants.emp), and the release engine holds the camera until a "
-            f"frame frees, which it never does. The page-order search could not fit this "
-            f"placement: move art so fewer distinct tiles meet in that window, or change the "
-            f"budget constants.")
+            f"frame frees, which it never does. {remedy}")
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +674,7 @@ def _evaluate(canon, unique, pages, c, lefts, tops, rule_pins_fn, per_section):
     glob = slot_of[canon]
     if np.any(glob < 0):
         raise BudgetError("a referenced canonical has no page slot")
-    pg = np.where(glob == 0, -1, glob >> c["PAGE_FRAME_TILE_SHIFT"]).astype(np.int16)
+    pg = page_grid_of(glob, c)
     # the pin rule sees CONTIGUOUS pool positions (its page-slot walk is a running sum)
     pos, o = {}, 0
     for lst in pages:
@@ -674,10 +683,44 @@ def _evaluate(canon, unique, pages, c, lefts, tops, rule_pins_fn, per_section):
             o += 1
     sets = [{pos[t] for t in sec} for sec in per_section]
     rule = sorted(rule_pins_fn(pages, sets))
-    _needed, needed_pin0 = window_needed(pg, len(pages), {0}, c, lefts, tops)
-    pins, needed = frame_aware_pins(pg, rule, F, needed_pin0, c, lefts, tops)
+    pins, needed, needed_pin0 = pin_and_count(pg, len(pages), rule, c, lefts, tops)
     return {"pages": pages, "slot_of": slot_of, "page_grid": pg, "rule_pins": rule,
             "pins": pins, "needed": needed, "needed_pin0": needed_pin0}
+
+
+def page_grid_of(glob, c):
+    """Per-cell page id of a (H, W) grid of GLOBAL pool slots; slot 0 (the blank tile)
+    references no page (-1), exactly as PageCache skips it."""
+    return np.where(glob == 0, -1, glob >> c["PAGE_FRAME_TILE_SHIFT"]).astype(np.int16)
+
+
+def pin_and_count(pg, n_pages, rule, c, lefts, tops):
+    """THE pin rule every bake applies: the rule's candidates, kept frame-aware against
+    PAGE_FRAMES (frame_aware_pins), and the per-window count under the pins kept.
+    Returns (pins, needed, needed_pin0)."""
+    _needed, needed_pin0 = window_needed(pg, n_pages, {0}, c, lefts, tops)
+    pins, needed = frame_aware_pins(pg, sorted(rule), c["PAGE_FRAMES"], needed_pin0, c, lefts, tops)
+    return pins, needed, needed_pin0
+
+
+def place_fixed_pool(glob, n_pages, rule, c):
+    """The pin pass and the count for a pool whose slots are ALREADY FIXED, i.e. no order
+    search: `glob` (H, W) is each cell's global pool slot, `rule` the pin rule's candidate
+    pages (ojz_strip_gen.mark_pinned_pages over this pool). The stress fixture's arm
+    (ojz_strip_gen Pass 4b), whose clones are appended after `place_pool` has placed the real
+    pool: it runs the SAME pin_and_count and budget_verdict `place_pool` does, so the pins it
+    ships are the ones the canonical rule would keep, and its caller refuses on `verdict`."""
+    glob = np.asarray(glob)
+    if glob.size and int(glob.max()) >= n_pages * c["ART_POOL_PAGE_TILES"]:
+        raise BudgetError(f"a cell references slot {int(glob.max())} past the {n_pages}-page pool")
+    H, W = glob.shape
+    lefts, tops, _, _ = camera_windows(c, W, H)
+    pg = page_grid_of(glob, c)
+    rule = sorted(rule)
+    pins, needed, needed_pin0 = pin_and_count(pg, n_pages, rule, c, lefts, tops)
+    return {"page_grid": pg, "rule_pins": rule, "pins": pins, "needed": needed,
+            "needed_pin0": needed_pin0, "verdict": budget_verdict(needed, lefts, tops, c),
+            "lefts": lefts, "tops": tops}
 
 
 def place_pool(canon, zone_id, unique, section_tiles, grid_w, grid_h, c, rule_pins_fn, log=None):
@@ -782,7 +825,7 @@ def committed_placement(c):
     return pg, pins, n_pages
 
 
-def check(report_only=False, out=print):
+def check(out=print):
     c = load_budget_constants()
     status = 0
     for label, _gen in _known_acts():
@@ -794,8 +837,6 @@ def check(report_only=False, out=print):
         line = verdict_line(v, f"{label} (committed tree; {n_pages} pages, pins {pins})")
         if v["ok"]:
             out(f"FG page budget OK — {line}")
-        elif report_only:
-            out(f"FG page budget OVER (report-only, not failing) — {line}")
         else:
             out(f"FG page budget REFUSED — {line}")
             status = 1
@@ -803,20 +844,16 @@ def check(report_only=False, out=print):
 
 
 USAGE = """Usage:
-    python3 tools/fg_page_order.py check [--report-only]"""
+    python3 tools/fg_page_order.py check"""
 
 
 def _mode_check(rest):
-    report_only = False
     for a in rest:
-        if a == "--report-only":
-            report_only = True
-        else:
-            print(f"ERROR: unknown argument {a!r}")
-            print(USAGE)
-            sys.exit(1)
+        print(f"ERROR: unknown argument {a!r}")
+        print(USAGE)
+        sys.exit(1)
     try:
-        return check(report_only=report_only)
+        return check()
     except BudgetError as exc:
         print(f"FG page budget UNMEASURABLE — {exc}")
         return 2

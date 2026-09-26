@@ -155,8 +155,10 @@ fi
 
 # STRESS_ART=1 (Art-streaming P2c Task 11 stress fixture): the sonic4 DEBUG shape
 # built against a UNIQUIFIED act art pool (ojz_strip_gen --stress-uniquify N,
-# default 2600 tiles / >40 pages) that overwhelms the 15-frame residency cache with
-# continuous evict/reload traffic. Like STRESS_EVICT it is an off-canonical DEV
+# default 2600 tiles / >40 pages) that overwhelms the PAGE_FRAMES-frame residency cache
+# with continuous evict/reload traffic. Its POOL is over budget on purpose; each camera
+# WINDOW is not allowed to be (ojz_strip_gen Pass 4c pins it frame-aware and refuses a
+# window over PAGE_FRAMES, and the fg_page_order lane below counts it again). Like STRESS_EVICT it is an off-canonical DEV
 # shape: UNFROZEN, no golden, a DISTINCT artifact (s4.stressart.bin/.lst), and it
 # fixes the whole shape (sonic4 DEBUG), ignoring DEBUG/GAME overrides.
 #
@@ -1197,11 +1199,11 @@ fi
 # every canonical sonic4 build so a constant change (FG-CACHE-10-HOW) meets the tree.
 # EXIT 2 HERE MEANS: UNMEASURABLE -- a constant, the committed tree, or an act the decoder
 # does not know could not be read. It is `strict`: "could not count" never passes.
-# STRESS_ART: report-only, as art_rom_report -- that fixture overwhelms the cache on purpose.
+# STRESS_ART is held to it too (stressart-budget, 2026-09-26): its POOL overwhelms the cache
+# on purpose, but a WINDOW over PAGE_FRAMES deadlocks the fly legs instead of evicting (GPL-1,
+# which the old report-only flag here let through for three weeks after the 14 -> 12 re-cut).
 if [[ "${GAME}" == "sonic4" ]]; then
-    FG_BUDGET_FLAGS=""
-    if [[ "${STRESS_ART:-0}" == "1" ]]; then FG_BUDGET_FLAGS="--report-only"; fi
-    if ! gate strict "fg_page_order.py" python3 "${TOOLS}/fg_page_order.py" check ${FG_BUDGET_FLAGS}; then
+    if ! gate strict "fg_page_order.py" python3 "${TOOLS}/fg_page_order.py" check; then
         echo "FG page budget refused — a camera window needs more art pages than PAGE_FRAMES (see above)."
         exit 1
     fi
