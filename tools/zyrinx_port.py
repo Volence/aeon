@@ -487,9 +487,14 @@ def flatten_channel(channel: dict, sequences: dict, route: int,
         seq_idx = str(pat["seq_idx"])
         seq = sequences.get(seq_idx)
         if seq is None:
-            print(f"  [warn] ch{channel.get('channel_idx')}: missing "
-                  f"sequence {seq_idx} — skipped", file=sys.stderr)
-            continue
+            # REFUSED (PRINTED-NOT-GATED residue, 2026-09-26): this used to print
+            # "[warn] missing sequence -- skipped" and go on to write the song with
+            # the pattern silently absent. Instrumented first: the one input this
+            # tool has (05_Moving_Trucks.json) references no missing sequence.
+            raise ValueError(
+                f"zyrinx_port: ch{channel.get('channel_idx')}: pattern references "
+                f"sequence {seq_idx}, which the song JSON does not define; "
+                f"refusing to write the song without it")
         body, clamps = _flatten_sequence_body(
             seq, pat["pitch_transpose"], voice_remap)
         total_clamps += clamps
@@ -497,9 +502,12 @@ def flatten_channel(channel: dict, sequences: dict, route: int,
             continue                # empty body — nothing to repeat
         repeat = pat["repeat"]
         if not (1 <= repeat <= 255):
-            print(f"  [warn] ch{channel.get('channel_idx')}: repeat {repeat} "
-                  f"out of range 1..255 — clamped", file=sys.stderr)
-            repeat = max(1, min(255, repeat))
+            # REFUSED (same residue): clamping changed the song's length and the
+            # song was still written. Moving Trucks has no count outside 1..255.
+            raise ValueError(
+                f"zyrinx_port: ch{channel.get('channel_idx')}: sequence {seq_idx} "
+                f"repeat {repeat} is outside the packer's 1..255; refusing to "
+                f"clamp it")
         events.append(RepeatStart())
         events.extend(body)
         events.append(RepeatEnd(repeat))

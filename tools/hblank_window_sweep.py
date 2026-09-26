@@ -109,7 +109,8 @@ Usage:
     python3 tools/hblank_window_sweep.py --only anchors
     python3 tools/hblank_window_sweep.py --only sweep --words 4 --lo 0 --hi 200 --rows 12
     python3 tools/hblank_window_sweep.py --json out.json
-Exit: 0 sweep completed · 1 a control or assertion failed (BLOCKED) · 3 setup problem
+Exit: 0 sweep completed · 1 a control or assertion failed (BLOCKED), or the re-derived
+      RASTER_HBLANK_END_CYC lands outside a guard margin (STOP AND REPORT) · 3 setup problem
 """
 import argparse
 import asyncio
@@ -1712,6 +1713,23 @@ def boundary_analysis(report: dict) -> None:
             "burst_span_cyc": 10 * span_n, "n_lo_derived": lo, "n_hi_measured": hi}
 
 
+def anchor_breach(report: dict) -> int:
+    """PRINTED-NOT-GATED residue (2026-09-26): "!! STOP AND REPORT" used to be printed and
+    the run still exited 0, so the one finding this driver says it may not quietly absorb
+    reached its caller as a green run. Returns 1 (and says so) when the re-derived anchor is
+    outside the tighter guard margin, else 0. A run with no re-derivation returns 0: the
+    sections that produce it only run on a sub-line sweep, and their absence is not this
+    check's to grade."""
+    r = report.get("hblank_end_rederived")
+    if r and r.get("outside_margin"):
+        print(f"\nSTOP AND REPORT: the re-derived RASTER_HBLANK_END_CYC "
+              f"{r['measured']:.2f} is {abs(r['delta']):.2f} cyc from the shipped "
+              f"{r['shipped']}, outside the tighter guard margin "
+              f"({min(r['margin_early_cyc'], r['margin_late_cyc'])}); exit 1")
+        return 1
+    return 0
+
+
 def replay(args) -> int:
     """Re-run the ANALYSIS over a saved sweep, with no emulator anywhere.
 
@@ -1745,7 +1763,7 @@ def replay(args) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=1) + "\n")
         print(f"\nraw: {args.json}")
-    return 0
+    return anchor_breach(report)
 
 
 async def amain(args) -> int:
@@ -1800,7 +1818,7 @@ async def amain(args) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=1) + "\n")
         print(f"raw: {args.json}")
-    return 0
+    return anchor_breach(report)
 
 
 def main() -> int:

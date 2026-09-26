@@ -227,6 +227,24 @@ class TestFlatten(unittest.TestCase):
         body = evs[rs:]
         self.assertFalse(any(isinstance(e, Patch) for e in body))
 
+    # PRINTED-NOT-GATED residue (2026-09-26): both used to print a [warn] and
+    # write the song anyway (pattern dropped / count clamped). Now refused.
+    def test_missing_sequence_is_refused(self):
+        ch = {"channel_idx": 3, "patterns": [
+            {"seq_idx": 77, "repeat": 1, "pitch_transpose": 0, "tempo_delta": 0},
+        ]}
+        with self.assertRaisesRegex(ValueError, r"ch3.*sequence 77"):
+            flatten_channel(ch, self._seqs(), CHROUTE_FM1)
+
+    def test_out_of_range_repeat_is_refused(self):
+        for bad in (0, 256):
+            ch = {"channel_idx": 2, "patterns": [
+                {"seq_idx": 4, "repeat": bad, "pitch_transpose": 0,
+                 "tempo_delta": 0},
+            ]}
+            with self.assertRaisesRegex(ValueError, r"ch2.*repeat %d" % bad):
+                flatten_channel(ch, self._seqs(), CHROUTE_FM1)
+
     def test_channel_loop_wrapping(self):
         ch = {"channel_idx": 0, "patterns": [
             {"seq_idx": 4, "repeat": 1, "pitch_transpose": 0, "tempo_delta": 0},

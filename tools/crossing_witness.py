@@ -12,7 +12,8 @@ connector can be judged by what actually reaches the screen.
 
 THIS IS A WITNESS, NOT A GATE (the same status as tools/tunnel_run_witness.py): no runner
 owns a clip ROM (it is a throwaway shape), so it is run by hand against an
-`S2CLIP=<id> DEBUG=1 ./build.sh` ROM. Exit 1 when a drive could not run or the ROM faulted;
+`S2CLIP=<id> DEBUG=1 ./build.sh` ROM. Exit 1 when a drive could not run, never crossed the
+zone boundary (COULD NOT RUN), or the ROM faulted;
 exit 3 when it ran and saw a glitch frame; 0 when it ran and saw none.
 
 WHAT ONE TICK'S ROW SAYS (all read from RAM/CRAM, never inferred):
@@ -428,6 +429,7 @@ def main():
     print(f"crossing_witness: {a.rom} — zones {names}, {names[0]} ends x {a_right}, "
           f"{names[1]} starts x {b_left}, corridor {b_left - a_right} px")
     total_bad, faults, n = 0, 0, 0
+    uncrossed = []
     results = []
     for direction in a.directions.split(","):
         for gsp in speeds:
@@ -467,6 +469,12 @@ def main():
                   + (f"{len(infl)} tick(s), rows {span[0]['i']}..{span[1]['i']}, cam "
                      f"{span[0]['cam']}..{span[1]['cam']}" if span else "never")
                   + f"; GLITCH ticks {len(glitches)}")
+            if cross is None:
+                # PRINTED-NOT-GATED residue (2026-09-26): a drive that never changed preset
+                # printed "crossing at tick-row None" and was silently left out of the
+                # timeline, so a run in which NO drive crossed exited 0 on "0 glitch
+                # ticks" about a crossing it never saw. It is now COULD NOT RUN.
+                uncrossed.append(f"{direction} gsp ${gsp:04X}")
             if cross:
                 # THE TIMELINE the connector's length has to cover, in frames after the
                 # crossing frame, at this speed: the arriving zone's palette scanned out, its
@@ -507,7 +515,11 @@ def main():
     print(f"crossing_witness: {n} run(s), {faults} faulted, {total_bad} glitch tick(s) in total; "
           f"worst slack {min(slacks) if slacks else None} frame(s) over {len(slacks)} timed run(s)")
     print("finished=1")
-    if faults:
+    if uncrossed:
+        print(f"crossing_witness: COULD NOT RUN - {len(uncrossed)} of {n} drive(s) never "
+              f"crossed the zone boundary ({', '.join(uncrossed)}); their glitch count is "
+              f"not a measurement of the crossing")
+    if faults or uncrossed:
         return 1
     return 3 if total_bad else 0
 

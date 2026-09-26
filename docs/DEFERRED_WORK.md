@@ -39010,7 +39010,7 @@ reduced frames would keep a DIFFERENT tool alive than the one anybody runs.
    run. Gitignored today, so it pollutes nothing tracked, but a keepalive lane running
    nightly makes it a standing write.
 
-## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, NARROWED 2026-09-25; booked 2026-09-19)
+## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, NARROWED 2026-09-25 and 2026-09-26; booked 2026-09-19)
 
 **Two measured instances in one evening, from two different seats, and neither was caught by the
 check that fired.**
@@ -39083,7 +39083,7 @@ parcel and two sweeps in one directory is how a parcel loses its baseline. Take 
 - `dplc_coherence_witness` (nightly, `expect = 0`): findings are "reported and NOT graded" pending the ruling in docs/research/2026-09-25-keepalive-lossy.md.
 - `night_settle_capture`: "CONTROL EMPTY ... NOT evidence" exits 0, per its exit contract.
 
-*(a), real, but OPEN: hand-run or never-run tools with no scripted caller. Each fix is about one line; they were not taken here because each red-first needs its own emulator session or donor input:*
+*(a), real, but OPEN when booked. **CLOSED 2026-09-26 by the residue block at the end of this row; kept as the booking.** Hand-run or never-run tools with no scripted caller. Each fix is about one line; they were not taken here because each red-first needs its own emulator session or donor input:*
 - *(`smps_import` unknown jump/call label and the three `sfx_transcode` drop paths plus its unreachable coord-flag raise: FIXED 2026-09-25, parcel `parcel/converters-refuse-unknown`; see "Converters" below.)*
 - `zyrinx_port.py:489`: a missing sequence is skipped and the song .asm is still written.
 - `perspective_floor_gen.py:587`: when the static tile budget is exceeded, it warns and still writes.
@@ -39097,6 +39097,38 @@ parcel and two sweeps in one directory is how a parcel loses its baseline. Take 
 - Red first: 9 new rows failed on the origin/master converters and pass on the tip. Nothing was listened to (no byte moved).
 
 *Evidence at `32feff35`:* `tools/landing_build.sh` exit 0, `finished=0` (land-gate stamp written). Pre-build pytest lane: 3467 passed / 1 failed before (origin/master bytes on the changed paths; the one failure was `test_check_does_not_perturb_generated_sound_artifacts`, and it did not recur) and 3480 passed / 0 failed after. CRC32 is identical on origin/master and the tip: s4.bin `3afb86aa`/822081, s4.debug.bin `831cf561`/848746, demo.debug.bin `0d9b88fd`/105401.
+
+*Residue (`parcel/printed-not-gated-residue`, 2026-09-26). The (a) rows and the `smps_import` inline-byte row are CLOSED; what is left is listed at the end of this block.* Every fix below was red first: the same input or mutation was run against origin/master's copy of the file and then the tip's, and each file was restored from the commit. No ROM byte moved.
+
+*Generators (instrumented first, on today's tree):*
+- `smps_import` inline raw coordination-flag byte (was warn "skip inline flag byte" and drop; its parameter bytes were then walked as notes). Now `ValueError` naming the byte, flag, block, channel and source line. Every shipped `smps_import` song (HCZ2, S2 EHZ, S2 CPZ) reaches it 0 times, and all six `.bin`s regenerate byte-identical. Red: 3 new rows failed on origin.
+- `zyrinx_port.flatten_channel` missing sequence (was `[warn] ... skipped`) and repeat outside 1..255 (was clamped): now refused by name. The only input, `05_Moving_Trucks.json`, has 0 of each. **Note:** this path is NOT the shipped generator: `song_movingtrucks.bin` comes from `zyrinx_player --emit-native-song`, which imports only `translate_voice` / `emit_patch_bank_asm` from here. Red: 2 new rows.
+- `perspective_floor_gen` over `BG_STATIC_TILE_BUDGET` (was the "contract silently wrong" banner, then the write, exit 0): now exits non-zero and writes nothing; `--report` still measures. It is checked before the zero-appended branch, so a blob that was already over cannot pass as "zero net tiles". Shipped defaults: 320 -> 320 against 320, 0 appended; `--lod-px 16` reaches it (320 -> 373). Red: 1 row.
+
+*Probes and witnesses (the failure path now exits non-zero; "nothing measured" is COULD NOT RUN):*
+- `transition_window_probe` (nightly): with the subject at exit 0, a failed shim peek or zero live reads now prints `COULD NOT RUN` and exits 2 (keepalive_lane classifies it CNR); a failing subject keeps its own status. Nightly invocation on today's `s4.debug.bin` (`1ff17f52`): exit 0, `reads=12 live=12 IN-WINDOW=0`. The three exit-0 no-bus pass-through test rows moved to a CNR row. Red: 6 rows failed on origin.
+- `sec5_band_witness`: a `--lines` plan with no in-band line (or no out-of-band line) is refused before the emulator starts; `measure()` has the same backstop. Unit rows only: on today's tree the tool refuses earlier (the preset has 3 bands, pre-existing, see the keepalive note).
+- `parallax_cost_probe`: a fixture with no `Parallax_Update` row is a derived-check failure (exit 5). Mutation (first row dropped): origin 0, tip 5. Today: 0.
+- `poke_storm_sound_cost_witness`: `--poison` now fails (1) if L1 finds a storm bracket; any run whose own checks failed is COULD NOT RUN (2, was 1). Mutation (poison graded on the real slot): origin 0, tip 1. Today: 0 plain, 0 `--poison` ("POISON HELD").
+- `engine_baseline_probe`: window mismatch, not-diagonal / tick disagreement, a routine absent from the top 300, program unstable or different across boots, fires != records, and HBlank row absent are collected and exit 5. The model gap (`INVESTIGATE`) stays a printed finding: it is what the probe reports, not a sign the run is invalid. Mutation (HBlank row dropped): origin 0, tip 5. Today: 0, "derived checks: all green".
+- `crossing_witness`: a drive that never crossed the boundary is COULD NOT RUN (exit 1, the tool's documented could-not-run code). Mutation (`--frames 20`): origin exited **3** ("ran and saw a glitch": it counted all 21 un-crossed ticks as glitches, which is not a measurement of a crossing); tip exits 1 with the COULD NOT RUN line. Today, full default run on `s4.s2clip.debug.bin` `027639e8`: exit 3, 6 of 6 drives crossed, 7 glitch ticks, worst slack -4. That is the witness's existing finding, not this parcel's.
+- `perspective_floor_witness` (wired): `Camera_X` missing is COULD NOT RUN (NOT MEASURED), exit 2, printed line-leading so the keepalive lane reads it as CNR. Mutation (listing without `Camera_X`): origin 0, tip 2. Today: 0.
+- `ramp_boundary_probe`: section 6 "NOT CONSTANT" exits 1; section 4 "NO CRAM ENTRY HAS BROAD COVERAGE" exits 2. Mutations: fire count forced non-constant, origin 0 and tip 1; coverage threshold raised, origin 0 and tip 2. Today: 0 (section 4 uses CRAM $48, 149 rows; section 6 constant, K = 224).
+- `hblank_window_sweep`: "STOP AND REPORT" (the re-derived anchor outside a guard margin) now exits 1, both live and `--replay`. Unit rows; red: the replay row returned 0 on origin.
+- `vgm_onsets`: a capture with no key-on is COULD NOT RUN, exit 2. Before this, `main()`'s status never reached `sys.exit` at all. Unit rows.
+- `ls8_pin_redproof`: added a per-mutation verdict. A mutation that builds green or fires no guard, or a `<?>` in a log, exits 1; a control that is not green exits 2. Red: a partial run `C0 + M4`, origin 0 and tip 1.
+
+**FINDINGS (measured here, not fixed; each needs its owner):**
+- **`ls8_pin_redproof` is red on today's tree, and it was red before this parcel too** (the full-run check existed already). Full run: exit 1, "FULL RUN LEFT A GUARD UNPROVEN", 28 of 32 guards red. NOT-RED: G7, P8, P14, P15. The control is green. `M4_section_size_shift` now dies upstream in `region_flatten` (regions.json leaves holes at the doubled section size) before any sigil guard can run. `M17_ym_mirror_extern` dies in `emit_sound_blob` (`extern.unknown YM_ADDR_TO_DATA_MIN_T`) before the pytest lane its guard lives in. The harness has drifted from the tree. It needs re-pointing, not a relaxed check.
+- `perspective_floor_gen` cannot run at all today. Its `BG_TILE_CAPACITY` mirror says 400 and `tools/vram_map.py` says 376, so `main()` stops at the mirror assert. That is loud, so it is not this class, but the tool is dead until someone re-checks its assumptions at 376. The new test pins the mirror to `vram_map`.
+
+**Still OPEN in this row, deliberately not taken:**
+- The (c) judgement rows above: unchanged.
+- `zyrinx_player.py` "fits one 32KB bank: NO" exit 0: **not a gap.** `mt_bank.emp`'s link-time `ensure`s refuse a straddling bank at build.
+- `raster_frame_epoch_probe.py:407` (unsure, not in this parcel's brief).
+- Siblings found while reading, same class, not booked, not taken: `smps_import._flatten_tokens` warn-skips a non-channel mnemonic (0 hits on the three shipped songs), and `zyrinx_port.build_songdesc` silently degrades to `Patch(0)` placeholders when `voices.json` is missing (a dead path for shipping, as above).
+
+*Evidence (residue parcel):* `pytest tools -m "not needs_build"` with `__pycache__` cleared: 3522 passed / 0 failed with every changed path at origin/master's bytes, and 3540 passed / 0 failed on the tip. Control built first: the three landing shapes with the tree at origin/master's bytes gave s4.bin `0cd3ce63`/828920, s4.debug.bin `1ff17f52`/855585 and demo.debug.bin `5e110699`/105426. On the tip (`e31b53e4`), `tools/landing_build.sh` gave exit 0 with `finished=0` and the land-gate stamp written. Its pre-build lane: 3540 passed. The tip ROMs are identical: s4.bin `0cd3ce63`/828920, s4.debug.bin `1ff17f52`/855585, demo.debug.bin `5e110699`/105426. Two earlier landing attempts failed on `Disk quota exceeded` in /tmp, which is a usrquota tmpfs the whole suite shares. Those were environment failures, not code failures. Pointing TMPDIR into the checkout does NOT work around it: about 20 tests assume their temp dirs sit outside a git checkout, and they failed.
 
 ## KEEPALIVE ARMED 2026-09-19, AT 05:00 AND NOT THE SUGGESTED 04:30 (closes KEEPALIVE-ARM-IT)
 

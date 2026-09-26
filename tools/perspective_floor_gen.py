@@ -581,16 +581,28 @@ def main():
             print("  --report: nothing written")
             return
         sys.exit(f"ERROR: {msg}")
+    if after > STATIC_BUDGET:
+        # REFUSED (PRINTED-NOT-GATED residue, 2026-09-26): this used to print the
+        # banner below and then WRITE the override anyway, exit 0 -- the very
+        # "contract silently wrong" it describes. It is checked before the
+        # zero-appended branch too, so a blob that was already over cannot pass
+        # as "zero net tiles". Instrumented first: the shipped defaults give
+        # 320 -> 320 against a budget of 320 (0 appended), so nothing shipped
+        # reaches it; --lod-px 16 does (320 -> 373).
+        msg = (f"OVER THE DECLARED STATIC BUDGET: {after} tiles against "
+               f"{STATIC_BUDGET}. Nothing in the bake enforces this — "
+               f"inject_editor_bg.py gates on BG_TILE_CAPACITY ({CAP}) only — so "
+               f"the blob would ship with games/sonic4/vram.toml's contract "
+               f"silently wrong. Lower bg_region's band_reserve to "
+               f"{CAP - after} and re-run tools/gen_vram_map.py first.")
+        if args.report:
+            print(f"  ** {msg} **")
+            print("  --report: nothing written")
+            return
+        sys.exit(f"ERROR: {msg} Nothing written.")
     if not appended:
         print("  ** zero net tiles: the floor fits entirely in the slots the "
               "band and the previous bake freed. band_reserve is untouched. **")
-    elif after > STATIC_BUDGET:
-        print(f"  ** OVER THE DECLARED STATIC BUDGET: {after} tiles against "
-              f"{STATIC_BUDGET}. Nothing in the bake enforces this — "
-              f"inject_editor_bg.py gates on BG_TILE_CAPACITY ({CAP}) only — so "
-              f"the blob would ship with games/sonic4/vram.toml's contract "
-              f"silently wrong. Lower bg_region's band_reserve to "
-              f"{CAP - after} and re-run tools/gen_vram_map.py. **")
     else:
         print(f"  ** {appended} appended tile(s), inside the declared static "
               f"budget of {STATIC_BUDGET} with {STATIC_BUDGET - after} to "

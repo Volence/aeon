@@ -1878,6 +1878,11 @@ def main() -> int:
         rows = [row(r["prof"], sym["Parallax_Update"]) for r in runs]
         if any(x is None for x in rows):
             print(f"{k:4} -- NO Parallax_Update ROW (fixture did not install?)")
+            # PRINTED-NOT-GATED residue (2026-09-26): this fixture used to drop out of the
+            # fit silently -- the model was fitted over the survivors and the run exited 0
+            # as if every fixture had been measured. It is now a derived-check failure.
+            failures.append(f"{k}: no Parallax_Update profiler row -- the fixture was not "
+                            f"measured, so the fit below is over {len(FX) - 1} or fewer")
             continue
         bad = [r for r in runs if not (r["ptr_ok"] and r["bytes_ok"] and r["replay_idle"]
                                        and r["world_y_ok"] and r["preempt_free"])]
