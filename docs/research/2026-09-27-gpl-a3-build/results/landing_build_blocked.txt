@@ -1,0 +1,36 @@
+1196:E         Right contains one more item: 'test pins_rs_is_current ... FAILED'
+1226:E         test result: FAILED. 1 passed; 1 failed; 0 ignored
+1247:        DOCTESTS carry spaces by construction (`test src/lib.rs - m::f (line 12) ... FAILED`),
+1256:        THE END ANCHOR IS WHAT EXCLUDES THE SUMMARY -- it continues past FAILED with its
+1287:E         test result: FAILED. 1 passed; 1 failed; 0 ignored
+1404:FAILED tools/test_freeze_preflight.py::test_a_staleness_failure_is_classified_stale_and_ships_the_line_it_matched
+1405:FAILED tools/test_freeze_preflight.py::test_a_non_staleness_failure_stops_and_prints_the_failure_text_not_a_category
+1406:FAILED tools/test_freeze_preflight.py::test_the_two_arms_do_not_print_each_others_evidence
+1407:FAILED tools/test_freeze_preflight.py::test_a_green_step_1_says_pins_are_current
+1408:FAILED tools/test_freeze_preflight.py::test_aeon_dir_is_threaded_into_both_cargo_runs
+1409:FAILED tools/test_freeze_preflight.py::test_step_1_does_not_print_cargos_summary_line_as_a_failing_test_name
+1410:FAILED tools/test_freeze_preflight.py::test_step_2_counts_one_failure_when_one_test_failed
+1411:FAILED tools/test_freeze_preflight.py::test_step_2_does_not_DROP_a_failing_test_whose_name_contains_spaces
+1412:FAILED tools/test_freeze_preflight.py::test_step_2_a_cargo_that_failed_without_naming_a_test_is_could_not_run
+1413:FAILED tools/test_freeze_preflight.py::test_step_2_a_clean_cargo_is_still_clear
+1416:EXIT_demo.debug=FAILED (build command returned non-zero) secs=132
+1417:--- md5 (quote these WITH the assembler revision beside them; a CRC alone is
+1421:md5sum: demo.debug.bin: No such file or directory
+1423:sigil 0.1.0 (4ce2509d)
+1424:md5(SIGIL_BUILD)=b64c812d314237848678ec28b48e9eae
+1427:land-gate: NO STAMP: finished=1. A stamp records a completed GREEN run only.
+1428:finished=1
+--- control: tools/test_freeze_preflight.py on the untouched base worktree (1f9c3414), same session ---
+=========================== short test summary info ============================
+FAILED tools/test_freeze_preflight.py::test_a_staleness_failure_is_classified_stale_and_ships_the_line_it_matched
+FAILED tools/test_freeze_preflight.py::test_a_non_staleness_failure_stops_and_prints_the_failure_text_not_a_category
+FAILED tools/test_freeze_preflight.py::test_the_two_arms_do_not_print_each_others_evidence
+FAILED tools/test_freeze_preflight.py::test_a_green_step_1_says_pins_are_current
+FAILED tools/test_freeze_preflight.py::test_aeon_dir_is_threaded_into_both_cargo_runs
+FAILED tools/test_freeze_preflight.py::test_step_1_does_not_print_cargos_summary_line_as_a_failing_test_name
+FAILED tools/test_freeze_preflight.py::test_step_2_counts_one_failure_when_one_test_failed
+FAILED tools/test_freeze_preflight.py::test_step_2_does_not_DROP_a_failing_test_whose_name_contains_spaces
+FAILED tools/test_freeze_preflight.py::test_step_2_a_cargo_that_failed_without_naming_a_test_is_could_not_run
+FAILED tools/test_freeze_preflight.py::test_step_2_a_clean_cargo_is_still_clear
+10 failed, 5 passed in 0.33s
+rc=1
