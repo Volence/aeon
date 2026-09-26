@@ -38403,7 +38403,7 @@ whole parcel (it is the only one with a wrong verdict attached), and whether 2/3
 or want to keep the outgoing scene deliberately during a lerp — that is an authoring question, not
 a correctness one.
 
-## CAPTURE-SETTLE-IS-PALETTE-ONLY: a frame named `settled` asserts more than the predicate proves (OPEN, booked 2026-09-19)
+## CAPTURE-SETTLE-IS-PALETTE-ONLY: a frame named `settled` asserts more than the predicate proves (CLOSED 2026-09-26 by CAPTURE-SETTLE-NAME, fix (a), branch `parcel/settle-name-collapse`; booked 2026-09-19)
 
 **Raised by the empyrean hub** relaying oracle's never-settles-baseline finding (empyrean `c847ec8d`,
 *cited as: the never-settles baseline rule*): oracle found a pinned baseline whose plane text is
@@ -38447,6 +38447,52 @@ identical across the same N samples — and keep the bare name. **(a) is the rec
 costs a rename and a docstring line, it cannot be wrong, and (b) can be added later under the
 narrowed name without invalidating anything captured in the meantime. Do NOT re-certify existing
 captures as a precondition: they were correctly certified for colour and are cited for colour.
+
+### CLOSED 2026-09-26 — CAPTURE-SETTLE-NAME: fix (a), the stamp is `palette-settled`
+
+**What changed, and only this.** `tools/capture_settle.py`: `SETTLED_WORD = "settled"` became
+`PALETTE_SETTLED_WORD = "palette-settled"`, and `Verdict.settled` became `Verdict.palette_settled`.
+`tools/night_settle_capture.py`: per-tick `palette_settled`; report keys `palette_settled`,
+`palette_settled_frames`, `palette_settled_frames_with_target_compared`; the flag
+`--settled-frames` became `--palette-settled-frames`; its README and stderr text follow. The
+predicate is untouched. The header of each tool now says why the stamp says PALETTE.
+
+**No alias was kept, because no reader outside aeon/tools exists.** Checked: aurora `origin/master`
+(after a fetch), and the local `HEAD` of empyrean and oracle, for the constant, the field, the report keys,
+the flag and `capture_settle`/`night_settle_capture`. Aurora's only hits are two comments in its
+vendored `test/fixtures/effects/ojz_effects.emp` that cite the capture DIRECTORY
+`docs/captures/2026-09-16-night-settled-v2`, which did not move. Empyrean's hits are prose in
+`OVERSEER-PROTOCOL-REFERENCE.md` / `OVERSEER-LOG.md` describing this very defect (they quote the old
+`SETTLED_WORD`; they are history, not readers). `night_settle_capture.py` is `not_wired` in the
+keepalive manifest, so no lane passes the old flag.
+
+**The committed sets keep their names.** `docs/captures/2026-09-16-night-settled/` and `-v2/` still
+hold `-settled.png` files, because other documents cite them by name. Each README now opens with a
+note: read `settled` there as `palette-settled`, same certificate, and the geometry is moving in
+every frame of that route (it holds RIGHT at 16 px/tick). `test_capture_settle`'s replay of the
+recorded run translates the recorded `settled` to the new stamp on the way in
+(`RECORDED_SETTLED_WORD`), so it still compares like with like.
+
+**Evidence (headless, `s4.debug.bin` 855,585 B, crc32 `1ff17f52`, origin/master `5e0aff1a`).**
+Control first: two runs of the OLD tool were identical (stderr minus the out-dir, `report.json`,
+13 of 13 PNG bytes). Old against new: `--check` output identical; stderr differs only in the state
+word on the 7 certified frames and the summary line; `report.json` is identical once ONLY the rename
+is reversed; 13 of 13 PNGs are byte-identical and their names map one to one; rc 0 both. Per-tick
+verdicts unchanged: 4 day controls certified, then `fading` x4, `hold` x2, certified k = +6..+8.
+Tests: new `test_the_stamp_names_what_was_proven_the_palette`. Putting the two pre-rename tools back
+on disk turned 28 of 55 tests red; reverting only the constant's VALUE to `"settled"` turned exactly
+the new test red (the others use the constant, so only a pinned literal can see that). Restored from
+the commit: 55 passed.
+
+**Also checked, and NOT renamed.** Other tools print "settled" beside a certificate they name in the
+same line: `fg_left_edge_capture`, `perspective_floor_witness`, `floor_capture` and
+`floor_hscroll_dump` all print `settled after N frame(s) (Parallax_Transition_Frames == 0)`, which
+states exactly what was proven. `e2_snap_capture` never stamps the word (a snap has nothing to
+settle); its docstring now names `palette-settled` as the only stamp it may ever borrow.
+
+**Still open: fix (b).** A motion clause (plane/VSRAM words or a frame hash held across the same N
+samples) is not built. If it is, it gets a wider stamp; nothing stamped `palette-settled` needs
+re-certifying.
 
 ---
 
@@ -40970,3 +41016,70 @@ Not converted by step 1, because EHZ and CPZ do not use them: `smpsFade` in an S
     - Prose in `seam2_pitchtable.rs` ("VMA $8357").
     - These are strict-gate/golden items for sigil's refreeze.
 - **Nothing was listened to.** The imported envelopes, the drum substitution and the header-envelope fix are all unheard. They are tagged for the owner's ears at step 7.
+
+## SETTLE-IMPL-COLLAPSE: left_edge_vsram_probe's private settle with a magic 300 (CLOSED 2026-09-26, branch `parcel/settle-name-collapse`; booked 2026-09-18 in the body of `4fde85b5`)
+
+**The row.** The crossfade sweep (CURSOR-RACE-SWEEP, `docs/QUEUE-ARCHIVE.md`) found three
+`settle_transition` functions in tools/: the gate's (`fg_left_edge_gate`, bound 2 x
+`PARALLAX_TRANS_DEFAULT` read out of `engine/system/constants.emp`), the floor family's twin in
+`perspective_floor_witness` (kept on purpose: `.lst`-path plumbing, documented in its docstring),
+and `left_edge_vsram_probe`'s, with `limit=300`. The 300 came in with the file (`da713c00`,
+2026-08-30) with no derivation beside it; `PARALLAX_TRANS_DEFAULT` was already 16 then.
+
+**The change.** The probe's `settle_transition(c, syms)` now calls
+`fg_left_edge_gate.settle_transition(c, syms)` and then runs its own `POST_SETTLE_REST = 30`
+frames, as before. The two loops already had the same shape (read the counter; if not 0, step one
+frame) and the same `read_bus`, so on any run that settles, the frames run are identical. Only the
+give-up point moved, from 300 frames to the derived 32, and the refusal now names
+`PARALLAX_TRANS_DEFAULT`. The `perspective_floor_witness` docstring said "THREE functions"; it now
+says two plus the collapsed third.
+
+**Evidence (headless, `s4.debug.bin` 855,585 B, crc32 `1ff17f52`).** Control: two runs of the OLD
+probe were identical (log minus uptime and wall time, `probe.json` with the out-dir normalised, 24
+of 24 PNGs). Old against new: log identical, `probe.json` identical, 24 of 24 PNGs identical, rc 0
+both. The log prints the emulator frame number on every sampled row, so an identical log is also
+an identical frame schedule. The 12 settle calls in one run waited 7, 7, 7, 7, 7, 7, 7, 11, 7, 7,
+7, 12 frames: max 12, under `PARALLAX_TRANS_DEFAULT` = 16, under the budget of 32. The derived bound
+therefore bounds every wait this probe makes today, with room, and it now moves with the constant.
+Test `tools/test_left_edge_vsram_settle.py` (fake bus, no emulator): red on the old code (the
+refusal named 300 frames, not the derivation), green after; a mutation that drops the delegated
+settle turns 4 of 5 red, restored from the commit.
+
+**Other frame-stepping waits in tools/, found by what the code does, not by name.** An AST scan
+for `for`/`while` loops that call `run_frames`/`step_frame` and exit on a condition found **37
+loops in 27 files**. Classified:
+
+* **The same thing (the parallax transition counter to 0): 3.** The gate's (canonical), the
+  floor twin (kept, reason in its docstring), and this probe's (collapsed). No other loop waits on
+  `Parallax_Transition_Frames`.
+* **A stronger, different settle: 1.** `clip_bg_scroll_witness._probe` waits for the counter at 0
+  AND `Parallax_Current_Vscroll_BG` unchanged AND `Hscroll_Buffer[0] == -camX`, for
+  `STABLE_FRAMES = 30` in a row, bounded by `SETTLE_MAX = 900`. Swapping in the gate's function
+  would weaken it. Not collapsed.
+* **Warp-mailbox ack waits (`Warp_Req_Flag` to 0): 14 copies.** `bg_nt_gate`, `bg_window_gate`,
+  `blank_priority_probe`, `boot_override_gate`, `canopy_gap_exercise`, `curve_desc_probe`,
+  `depth_onset_probe`, `dma_straddle_exercise`, `fg_left_edge_probe`, `left_edge_vsram_probe.warp`,
+  `plane_buffer_peak_probe`, `sec5_band_witness`, `sec7_waterline_probe`, `warp_mailbox_gate`. The
+  same wait as each other, a different subject from this row, and they differ in what follows (a
+  30- or 90-frame rest, a clamp refusal, a frames-driven counter). The bound is a literal 120 in
+  most and a named constant in a few; it only decides when to call the consumer dead. **Not
+  collapsed; a candidate for its own row** (`warp_mailbox_gate` is the natural home).
+* **Subject-specific waits, not a shared settle: 19.** `bganim_vprobe_witness` (plateau),
+  `cache_hold_probe` x3 (boot drain; route legs until the camera stops), `dma_straddle_exercise` x3
+  (leave-fly; the control ladder), `fade_busy_stale_witness`, `fm6_foreign_sample_witness`,
+  `song_load_mid_drum_witness` (sound state), `lens_residue_object_witness` (breakpoint resume),
+  `spring_sfx_witness` (`run_to` loop), `tile_cache_fill_gate` and `left_edge_vsram_probe.sample_run`
+  (sampling loops with an early stop), `left_edge_vsram_probe`'s outer scene loop,
+  `parallax_cost_probe` x3 (profiler retry windows), `preset_lab_witness`.
+
+**Fixed-count settles (no loop) are a larger population and were listed, not touched.** About 40
+named constants across ~30 tools (`SETTLE`, `SETTLE_FRAMES`, `POST_WARP`, ...). Two findings in it:
+(1) the boot-to-gameplay wait of **180 frames is called "the tree-wide constant" in comments and is
+a separate literal in 11 files** (`blank_priority_probe`, `canopy_gap_exercise`,
+`curve_desc_probe`, `dma_straddle_exercise`, `dma_straddle_reading`, `hblank_window_sweep`,
+`reels_witness`, `sec7_waterline_probe`, `tick_variance_probe`, `vsplit_landing_gate`,
+`warp_mailbox_gate`), with `depth_onset_probe` importing one of them; (2) `parallax_cost_probe`'s
+sweep runs a literal 32 frames after each camera write and then FAILS the position if the counter
+is not 0. That 32 is 2 x 16 by arithmetic nobody wrote down, but it is checked on every position,
+so it fails loudly rather than silently. Changing any fixed count moves what the tool samples, so
+none was collapsed here. Booked for whoever picks up a "one boot settle" row.

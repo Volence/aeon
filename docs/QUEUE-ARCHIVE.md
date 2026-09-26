@@ -462,6 +462,8 @@ the third was not mentioned at all:
   machine's counter, so it is CORRECT and its NOT-RACY row is unaffected — the bound governs
   only how it reports an unmeasurable. Left alone because this parcel fixed only what it
   measured wrong. **Named here and in the docstring rather than left to be rediscovered.**
+  ⇒ **COLLAPSED 2026-09-26 (SETTLE-IMPL-COLLAPSE):** now a wrapper over the gate's function plus
+  its own 30-frame rest; output byte-identical on that day's ROM. See docs/DEFERRED_WORK.md.
 
 *Claims that rest on a tool changed here — checked, not merely listed.*
 * ⚠ **`docs/research/reference_captures/2026-08-29-d41/` — all 12 PNGs are INVALIDATED as
