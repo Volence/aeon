@@ -5,6 +5,11 @@
       "what": "Drive the floor gap on the Sonic 2 level's second layer and compare with Sonic 2",
       "where": "branch research/clip-planeb-hole",
       "agent": true
+    },
+    {
+      "what": "Find the lag you still feel on our own act, and check the fall-speed cap against Sonic 3",
+      "where": "branch perf/ojz-feel",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -21,6 +26,13 @@
   ],
   "nextBoundary": "The floor-gap check comes back; I review and land any fix.",
   "queue": [
+    {
+      "id": "OJZ-FEEL",
+      "title": "Lag you still feel on our act, and a fall speed that feels capped: measuring against Sonic 3",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "EHZ-RUN-LAG",
       "title": "Emerald Hill running lag: fixed (39 to 6 lag frames debug, 31 to 1 normal)",
@@ -178,5 +190,5 @@
   ],
   "awaiting": "Try the jump and a run through Emerald Hill in aeon/s4.s2clip.debug.bin (crc 3e1f7a33). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T20:49:26Z"
+  "updatedAt": "2026-09-26T21:42:47Z"
 }
