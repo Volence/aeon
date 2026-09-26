@@ -22,13 +22,13 @@
       "agent": true
     },
     {
-      "what": "Look into loops and layer switching in the Sonic 2 level",
-      "where": "branch research/s2clip-loops-planes",
+      "what": "Look into Sonic sticking on slopes and not rolling (your Chemical Plant quarter-pipe spot)",
+      "where": "branch research/sonic-slope-collision",
       "agent": true
     },
     {
-      "what": "Look into Sonic sticking on slopes and not rolling (your Chemical Plant quarter-pipe spot)",
-      "where": "branch research/sonic-slope-collision",
+      "what": "Build Sonic 2's layer-switch lines so the loops work (for your try-out; lands only on your word)",
+      "where": "branch parcel/s2clip-plane-switch",
       "agent": true
     }
   ],
@@ -37,6 +37,11 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
+    },
+    {
+      "id": "S2CLIP-PLANE-SWITCH",
+      "what": "How to do Sonic 2's layer switching; I recommend the baked line table, which you can try on the branch first.",
+      "since": "2026-09-26"
     }
   ],
   "nextBoundary": "Each agent returns; I review and land them one at a time; the two investigations come back as write-ups.",
@@ -58,7 +63,7 @@
     },
     {
       "id": "S2CLIP-LOOPS-PLANES",
-      "title": "Loops and layer switching in the Sonic 2 level: investigating",
+      "title": "Loops: cause found (Sonic 2's layer-switch lines never came over); a fix is being built for you to try",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -154,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T06:53:55Z"
+  "updatedAt": "2026-09-26T07:18:24Z"
 }
