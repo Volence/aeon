@@ -166,6 +166,8 @@ no hosted CI" (the owner's `gate`); the hosted option stays unbuilt by his choic
 
 ## LOOP SPRITE PRIORITY SWAP — SHIPPED 2026-09-10 (`parcel/loops-p-sprite-priority`)
 
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. The priority bit is now set by the layer lines' own per-direction bits (OJZ's four lines set exactly the layer-derived priority the marks wrote); `Player_DebugExit` keeps the derive. See LINES-EVERYWHERE (search this file).
+
 **LOOPS-P Parcel 2, the one that was never built.** Parcel 1 (the tilt, 2026-08-28) and
 Parcel 3 (Route P, the painted crossover, 2026-09-02) both shipped and are gated. Parcel 2
 did not, **in either mechanism that could have carried it**, and nothing on any board said
@@ -3684,6 +3686,8 @@ switch belongs per-scene, per-section, or per-act — and that is exactly the qu
 booking cannot answer today.
 
 ### AN AUTHORED LOOP CROSSOVER REACHES THE FILE AND NEVER THE ROM — and every gate correctly reports nothing happened — booked 2026-08-29 · **BAKE HALF CLOSED 2026-09-02** · **ENGINE HALF CLOSED 2026-09-02**
+
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. The two items this row left OPEN move there: the RIGHTWARD circuit that exits on plane B (reproduced exactly by the lines, now a one-line edit to `layer_lines.json`, open item 3) and the per-act 'has crossovers' gate (moot: an act with no line table pays Player_Main's 26-cycle null test). See LINES-EVERYWHERE (search this file).
 
 > **THE ENGINE HALF IS BUILT** — `parcel/loop-crossover-read`, aeon `602170f7` (the read
 > site), `b8d00948` (the gate, its committed cut and its build.sh lane). Anchor §5 row 13 and §6 changes (2)–(5):
@@ -23832,6 +23836,8 @@ before acting, and re-derive any number before it enters a gate.
 
 ### (1) A TWO-WAY CROSSOVER PAIR HAS NO AUTHORING PATH FROM THE EDITOR, AND NOTHING SAYS SO
 
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. Aurora's crossover brush is to be removed (LINES-EVERYWHERE open item 5); the authoring path for a layer switch is a line in `layer_lines.json`. See LINES-EVERYWHERE (search this file).
+
 **⚠ ATTRIBUTION CORRECTED 2026-09-04, AND THE CORRECTION IS THE POINT: THE AXIS WAS NEVER MISSING
 FROM AURORA'S ARTIFACT. IT WAS DROPPED IN RELAY — TWICE.** An earlier version of this entry read
 "sharpened by aurora", which says their finding was vague and got fixed. **It was not.** Verified
@@ -23939,6 +23945,8 @@ act on it until it arrived from aurora with anchors. Re-derive both grid sizes f
 writing anything that depends on them, including any claim about `XOVER_CELL_MASK`.
 
 ### (2) THE ANCHOR SPEC'S WORKED EXAMPLE WALKS INTO A REAL LOOP'S LEFT LEG
+
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. The anchor spec is marked SUPERSEDED. See LINES-EVERYWHERE (search this file).
 
 Aurora's row 147 carries the detail. If a shipped spec's worked example is wrong, it is ours, and a
 worked example is the part of a spec a reader is most likely to copy verbatim — which is what makes
@@ -25764,6 +25772,8 @@ register) reports `sonic4 OK`, exit 0 today.
 
 ## THE BAKE NEVER READS A CROSSOVER MARK ON A CELL'S BOTTOM SUB-TILE ROW (aurora's finding, 2026-09-06)
 
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. The preflight now censuses EVERY word of both planes, odd editor rows included, and refuses any reserved bits, so a mark on the bottom sub-tile row is refused by name instead of dropped. See LINES-EVERYWHERE (search this file).
+
 **Not ours to have found, and it is a fact about our tool.** `tools/ojz_strip_gen.py`'s
 `apply_editor_collision_overlay` samples one sub-tile per 16 px collision cell:
 
@@ -26505,6 +26515,8 @@ tiles would look like.
 
 ## Air-cell crossover marks — HALF MEASURED (2026-09-04)
 
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. Moot: a mark on an air cell is refused like any other. See LINES-EVERYWHERE (search this file).
+
 `docs/LOOP_CROSSOVER_ENCODING.md` §11 carries a `[TAG-RUNTIME]` on two coupled claims.
 One is now measured; the other is **still derived from reading `probe_core`, never
 executed**, and the tag should stay open for it.
@@ -26693,6 +26705,8 @@ recommendation was mine and it contradicts §3.3**, which puts them at bottom-ce
 top-centre. What shipped follows §3.3. **The file should be corrected, not the paint.**
 
 ## ⚠ THE "LOOP WITNESS IS RED ON MASTER" ROW IS A STALE SPAWN, NOT AN ENGINE DEFECT — 2026-09-06
+
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. `tools/loop_step_over_witness.py` now DERIVES its start height from the committed plane-A editor collision (the standing surface nearest the loop's floor), and its keepalive row is expect 0 (it was declared red at the stale-START_Y setup refusal). See LINES-EVERYWHERE (search this file).
 
 **The red REPRODUCES on unmodified master `f14b21a8`, exactly as reported: zero layer flips at
 every one of the three derived speeds, and a 267 px fall — including at `$600`, the negative
@@ -29488,6 +29502,8 @@ copy happens to carry, since a constant we added since their last vendoring is a
 their file entirely and a per-line check of that file structurally cannot see it.
 
 ## `loop_crossover_gate.py`'s HEADER ASSERTS A PREMISE THAT CONTENT HAS SINCE FALSIFIED (2026-09-06T11:08:47Z)
+
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE (branch `parcel/lines-everywhere`).** The painted crossover marks are retired: `Player_LoopCrossover`, `CrossoverTable` and `tools/loop_crossover_gate.py` are deleted, OJZ's loop runs on four authored layer lines, and bits 15:14 of a per-plane cell word are reserved and refused. The gate is deleted. See LINES-EVERYWHERE (search this file).
 
 **The claim, at `tools/loop_crossover_gate.py:13-14`, read firsthand:** *"every cell of every
 shipped act holds XOVER_NONE (anchor §2.1: all 18 plane files, all 65,536 cells each)"*. It is
@@ -40969,6 +40985,116 @@ act grid_w, `unpainted_remainder` x_from + why, `unbounded_fall.columns` + why, 
 unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived). `tools/clip_manifest.py`,
 `tools/clip_rom_bake.py`, `tools/clip_act_bake.py` and the `s2_ehz_cpz_short` / `_limit` clips are untouched.
 
+### LINES-EVERYWHERE: OJZ's loop moves to layer lines and the painted crossover marks are retired (step 2 of S2CLIP-PLANE-SWITCH's ruling; branch `parcel/lines-everywhere`, 2026-09-26, NOT LANDED: the controller lands it after telling aurora)
+
+**What the parcel did.** Layer-switch lines are now the engine's only layer-switch mechanism
+(owner ruling, `docs/decisions.jsonl` S2CLIP-PLANE-SWITCH). Design and numbers:
+`docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers".
+- **OJZ act 1's lines are authored data.** `games/sonic4/data/editor/ojz/act1/layer_lines.json`
+  (format `aeon-layer-lines` v1, closed; `tools/layer_lines.py` documents it and its refusals
+  A1-A4) -> `tools/regenerate-level.sh` -> `games/sonic4/data/generated/ojz/act1/layer_lines.emp`
+  -> the descriptor's `OJZ_Act1_LayerLines`. One bake path (`tools/layer_lines.py`: rows,
+  sort, L4, `.emp` text) serves both sources; `tools/s2_layer_lines.py` is now the donor source
+  only. build.sh re-checks the generated module on every sonic4 build.
+- **The four lines** are the edges of the marked column (x 1144 and x 1152, crown y 416..447 and
+  floor y 544..575), each "right: B, high priority; left: A, low priority", not grounded-only.
+- **Proved the same on the real ROM** (`tools/loop_step_over_witness.py`, re-aimed): the loop
+  driven both ways at 6, 9 and 16 px/frame, plus eight start phases each way at 16, on the DEBUG
+  and plain ROMs, before (base `332cc1ba`) and after. Per game tick (`Logic_Tick`), the layer
+  and the priority bit are identical on every tick of every drive (6 drives and 16 phase drives
+  per shape), and every final state is equal. Per emulator frame there are isolated position
+  differences of up to one frame's step that reconverge within at most 2 ticks: samples taken
+  mid-tick, because the two ROMs cost differently per frame. Every tick also agrees with the
+  ROM's own table under Obj03's rule (DEBUG: 38 crossings over the 6 drives, 64 over the 16-drive
+  sweep, 0 disagreements), so no line is stepped over at any speed or phase. Red on a ROM copy
+  whose forward fire writes plane A: 2 ticks disagree, FAILED.
+- **Retired and deleted:** `Player_LoopCrossover` and its call, `CrossoverTable`, the three
+  `crossover.bin` tables, the `XOVER_*` constants, `PlayerBlock.xover_cell` / `xover_cursor`, the
+  attr-set key's mark member, the overlay's R2 and NOTICE, clip_act_bake's C1 and
+  clip_manifest's `severed_xover_reason`, `tools/loop_crossover_gate.py` (+ fixture, tests,
+  build.sh lane), `tools/loop_crossover_cost.py`, `tools/collision_xover_census.py`.
+  `docs/LOOP_CROSSOVER_ENCODING.md` is marked SUPERSEDED, history kept.
+- **Bits 15:14 of a per-plane cell word are RESERVED, and a non-zero value is REFUSED:** the
+  preflight censuses every word of both planes (odd rows too, which the bake never reads) and
+  names the cells; `bake_plane_cell` raises; the clip bake refuses by clip (new C4). The 16
+  marks in `section_0.collattr{,b}.bin` were cleared (bits 15:14 only).
+- **clip_reachability was reading the wrong source, and had been since 332cc1ba.** It decided
+  plane B's reachability from `CrossoverTable`, which stayed all zero after the clip act got
+  Sonic 2's lines, so it reported plane B unreachable in an act where 30 of 46 line rows can put
+  the player there. It reads the act's line rows now, and `s2_ehz_cpz/clips.json` declares its
+  64 plane-B floorless columns.
+
+**OPEN, booked by this parcel.**
+1. **`path_swap.emp` is NOT deleted: blocked on sigil (rule: no sigil changes here).** sigil's
+   native build hard-codes the module: `crates/sigil-harness/src/native.rs:474`
+   (`m!("games.sonic4.path_swap", "path_swap")`), `src/pins.rs:204` (`ObjDef_PathSwap` ..
+   `section:path_swap`), `src/section_align.rs:176`. Deleting the file fails the aeon build with
+   "no module `games.sonic4.path_swap` found under the scan root" (measured). Delete it together
+   with those rows, `map.toml`'s `ObjDef_PathSwap` order row and the `path_swap` entry of
+   `games/sonic4/data/editor/objects.json` (aurora reads that file and never writes it).
+2. **A reachable plane-B hole in the clip act (owner).** The Sonic 2 line at act x 1704
+   (y 648..775) puts a player crossing it LEFTWARD on plane B, and no line between it and x 1344
+   puts him back, so x 1344..1407, where the donor's path B has no floor, is reachable by walking
+   left (derived from the table, not driven). It is declared in `s2_ehz_cpz/clips.json` so the
+   gate can pass; the declaration says it is not safe. Also declared: x 8192..8255 on B, and the
+   two Emerald Hill pits on B. Other clip manifests (`s2_ehz_boot`, `s2_two_clip`,
+   `s2_two_clip_pins`) were not re-baked here; their plane B is reachable too, and a build of
+   one will fail clip_reachability until its plane-B holes are declared or fixed.
+3. **OJZ's rightward circuit still exits on plane B** (today's behaviour, reproduced exactly on
+   purpose): a rightward player at 6 or 9 px/frame goes round the loop again and again (layer
+   changes at ticks ~25/65/97/130), because the floor lines fire "to B" on the way out as well as
+   on the way in. This is the "RIGHTWARD CIRCUIT STILL EXITS ON THE WRONG PLANE" paint question
+   (booked 2026-09-05). Lines can fix it the way Sonic 2 does (a line past the exit foot that
+   puts a rightward player back on A, or the entry line moved), but that changes behaviour, so it
+   is the owner's call, now a one-line edit to `layer_lines.json` instead of a paint change.
+4. **An act with no lines** must bind `act_layer_lines` 0; the descriptor refuses an authored
+   file with every line deleted rather than bind an empty table. Build the 0 branch when a
+   canonical act first needs it.
+5. **Aurora (cross-lane; the controller tells them).** What aurora must change, read on aurora
+   `origin/master` `bbb69f93`:
+   - **Stop writing bits 15:14.** Remove (or disable) the crossover brush ("Hand -> A/B",
+     `crossoverSpanMode`, `CROSSOVER_FILL`) in `src/core/collision/layer-transition.ts`,
+     `collision-paint.ts`, `both-planes-paint.ts`, `collision-cell.ts`,
+     `src/core/editing/collision-word.ts`, `CollisionPalette.tsx`, `MapViewport.tsx`,
+     `editorStore.ts`, the lens (`crossover-lens.ts`, `crossover-preview.ts`,
+     `OverlayRenderer.ts`), and the MCP `paint_collision` `crossover`/`crossoverSpan` parameters
+     (`src/shared/agent-protocol.ts`, `src/renderer/agent/agent-handler.ts`,
+     `src/main/editor-methods.ts`). The audit (`crossover-audit.ts`) should treat any non-zero
+     bits 15:14 as an ERROR, matching aeon's refusal. Keeping the unowned-bit PRESERVATION rule is
+     correct and harmless (a preserved 0 stays 0).
+   - **Reopen, do not save, a session opened before this lands.** The aeon save re-serialises the
+     whole in-memory plane (`src/core/project/aeon/save.ts` lines 239-245) with no on-disk guard,
+     so an aurora window open before the marks were cleared writes all 16 back on Ctrl+S. aeon's
+     preflight then refuses the re-bake, naming the cells; the fix is aurora's "None" brush on
+     them (or reopen before saving).
+   - **Live-read tests that will fail when this lands:**
+     `test/collision/crossover-reserved-bake-claim.test.ts` reads `origin/master:
+     tools/collision_pipeline.py` for `if … == XOVER_RESERVED: raise` inside `bake_plane_cell`;
+     that constant is gone (the refusal is now `plane_reserved_bits(...)`, any non-zero value),
+     and `CROSSOVER_RESERVED_BAKE_CLAUSE` should say so. `test/formats/clip-tool-outputs.test.ts`
+     pins blobs of `tools/collision_pipeline.py`, `tools/clip_act_bake.py` and
+     `tools/clip_manifest.py`, all edited here; re-measure the fixtures, drop the C1 case from
+     `bake-json.cases.json` (the bake-refusal row now uses C4) and stop
+     `test/fixtures/clips/aeon-outputs/gen_bake_json.py` using `CP.XOVER_*`.
+   - **Output fields gone:** clipact.json's per-clip `marks_inside_src`, `marks_outside_src`,
+     `severed_xover_reason` (read by `DonorPasteSection.tsx`), and zone.json's
+     `collision.crossover_marks` (written into aurora's `scripts/gen-donor-fixture.mjs`). A
+     manifest that still carries `severed_xover_reason` is not refused; the key is ignored.
+   - **The line tool (new):** author `games/sonic4/data/editor/<zone>/act<N>/layer_lines.json`
+     (format `aeon-layer-lines` v1, `tools/layer_lines.py` header; closed, an unknown key is
+     refused). Aurora never reads or rewrites an unknown file in the act directory, so the file is
+     safe beside aurora today. Precedent (`regions.json`) says an empyrean contract schema first.
+     Naming: aurora's prose already uses "layer lines" for the effects scanline drag.
+   - Harnesses `crossover-paint`, `loop-paint`, `loop-witness`, `two-way-mark`,
+     `loops-hover-half` are obsolete.
+6. **sigil (cross-lane; names only, no sigil change made).** Removed: `Player_LoopCrossover`,
+   `CrossoverTable` (sigil `test_p1_player_port.rs:725`, `repin.toml:1067`, `pins.rs:377` name
+   it), EQUs `XOVER_NONE`, `XOVER_TO_A`, `XOVER_TO_B`, `XOVER_LAYER_BIAS`; `PlayerBlock` lost
+   `xover_cell` and `xover_cursor` (`ll_prev` 28 -> 20, `ll_cursor` 32 -> 24, the struct 8 B
+   shorter). Added: `OJZ_Act1_LayerLines` (data, the act descriptor's section), module
+   `games.sonic4.ojz_layer_lines_act1` (`OJZ_ACT1_LAYER_LINE_ROWS`, const only);
+   `ojz_clip_act_layer_lines` now takes and returns a `Label`. Bytes move in every sonic4 shape.
+
 ### S2CLIP-PLANE-SWITCH: the clip act never leaves plane A, so S2's loops and path changes do not work (booked 2026-09-26, branch `research/s2clip-loops-planes`)
 
 **RULED (owner, 2026-09-26T16:27:40Z, `docs/decisions.jsonl` S2CLIP-PLANE-SWITCH, chose `line-table`: "Lines honestly
@@ -40977,6 +41103,10 @@ this parcel: land the baked line table for the Sonic 2 clip (branch `parcel/s2cl
 onto master `5f901245`). Next parcels, NOT in this one: move OJZ's loop from painted crossover marks to lines, retire
 the painted marks (`Player_LoopCrossover`, `CrossoverTable`, `loop_crossover_gate.py`) and `path_swap.emp`, and ask
 aurora for a line tool in the editor. Until then both writers ship, as described below.
+**Step 2 DONE on branch `parcel/lines-everywhere` (2026-09-26, not landed): see LINES-EVERYWHERE
+above.** OJZ's loop runs on four authored lines, the painted marks are retired, and the probe's
+DEBUG placement is fixed (all eleven drives run). `path_swap.emp` stays, blocked on sigil (open
+item 1 there).
 
 **Re-verified on the rebased tip (2026-09-26):** `tools/landing_build.sh` exit 0 `finished=0` (pre-build pytest 3586
 passed; marked lane 34 ran, 1 EXEMPTED). Both clip shapes build (rc 0) with `layer_line_gate` OK (46 shipped rows, 345

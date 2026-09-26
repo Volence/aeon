@@ -1,6 +1,31 @@
 # Loop crossover encoding — the cross-repo anchor
 
-**Status:** design anchor, **BUILT as of 2026-09-02** (`parcel/loop-crossover` aeon
+> **SUPERSEDED 2026-09-26 by LINES-EVERYWHERE. The painted crossover marks this document
+> specifies are RETIRED, and nothing in the engine, the bake or the ROM implements them any
+> more.** The owner ruled on 2026-09-26 (`docs/decisions.jsonl` S2CLIP-PLANE-SWITCH, "Lines
+> honestly probably sounds easier to handle right?") that layer-switch LINES are the engine's
+> only layer-switch mechanism. Read these instead:
+>
+> - the design and the rule: `docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers";
+> - the authored source and the one bake path: `tools/layer_lines.py` (format
+>   `aeon-layer-lines` v1, e.g. `games/sonic4/data/editor/ojz/act1/layer_lines.json`);
+> - the parcel, what was deleted and what aurora must change: `docs/DEFERRED_WORK.md`
+>   LINES-EVERYWHERE.
+>
+> What survives of this document as a contract: **bits 15:14 of the per-plane cell word are
+> RESERVED and must be zero.** A non-zero value is REFUSED, not dropped (the preflight names
+> every such cell, odd editor rows included; `bake_plane_cell` raises; the clip bake refuses by
+> clip, C4), because a mark that silently does nothing is exactly the failure §0 was written
+> about. OJZ act 1's sixteen marks (§11: column 143, rows 52-55 and 68-71) became four lines at
+> the column's two edges, with the marks' meaning and the priority they derived; a drive of the
+> loop in both directions at 6, 9 and 16 px/frame shows the same layer and priority on every
+> game tick before and after. The step-over of §12 has no analogue: a line is a crossing, not a
+> cell, and `tools/loop_step_over_witness.py` now grades that on the real ROM.
+>
+> Everything below is kept unedited as the record of the design, its measurements and its
+> mistakes. Do not implement from it.
+
+**Status:** ~~design anchor, BUILT as of 2026-09-02~~ **SUPERSEDED 2026-09-26 (see the banner above); was: design anchor, BUILT as of 2026-09-02** (`parcel/loop-crossover` aeon
 `8a4313b5` for the bake, `parcel/loop-crossover-read` aeon `602170f7` for the engine). This
 document exists so Aurora's paint tool and Aeon's engine parcel can be built against the
 same contract without either waiting for the other.
