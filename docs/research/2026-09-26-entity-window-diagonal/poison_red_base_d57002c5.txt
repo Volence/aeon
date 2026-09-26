@@ -1,0 +1,6 @@
+entity_window_diagonal_witness: s4.debug.base.bin crc32 d57002c5, 1 arm(s)
+  act grid 3x3, 9 real sections, 60 rings, 11 objects; ring buffer 128, dynamic 40, collected slots 9; kick 48 px, follow 86 ticks
+  poison: a 2-section camera jump must halt on the step assert: Camera_X 96 -> 4672 by a bare poke (anchor x 0 -> 2)
+    FAIL: the loop ran on; camera (4656, 144), anchor (2, 0)
+    -> poison: a 2-section camera jump must halt on the step assert: FAIL
+FAIL: an arm's window broke a check, or the game halted

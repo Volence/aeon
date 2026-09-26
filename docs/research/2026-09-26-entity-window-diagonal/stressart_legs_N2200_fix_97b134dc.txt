@@ -1,0 +1,4 @@
+stressart_legs_witness: s4.stressart.N2200.fix.bin crc32 97b134dc, 1500 frames per leg after a 300-frame settle
+  fly right: 1500 frames, no halt; camera (96,144) -> (5824,144); 6 page eviction(s) observed; pool 35 pages
+  fly diagonal: 1500 frames, no halt; camera (96,144) -> (5824,5920); 9 page eviction(s) observed; pool 35 pages
+PASS: both legs flew without a halt

@@ -41545,7 +41545,8 @@ rule's pins masked to [0,1,7,8] after the fact, s4.stressart.bin `040712b3`,
 Every "12" is zero margin: the static count is necessary, not sufficient (transient
 stalled columns are not in it).
 
-**STRESSART-ENTITY-AXIS (NEW, found by the N sweep, not diagnosed).** On the fixed engine
+**STRESSART-ENTITY-AXIS (found by the N sweep; DIAGNOSED AND FIXED as SAH-3 below, branch
+`fix/entity-window-diagonal`: only the assert was wrong).** On the fixed engine
 at STRESS_ART_N 2200 and 1400 the diagonal halts at camera (4608,4480):
 `$diag44$engine.objects.entity_window$raise` "Assertion failed: assert.w d1,eq", the DEBUG
 single-axis slide invariant in `engine/objects/entity_window.emp` ("at most one anchor byte
@@ -41584,9 +41585,107 @@ Open:
   14336-14847, +6, with -3 at 15360): TRACED, see STRESSART-BUDGET below. Not a re-demand:
   a phase shift started by the fill's 22-cycle hold gate on a tick with under ~176 cycles of
   slack. Not fixed (nothing trivial to fix).
-- **SAH-3: STRESSART-ENTITY-AXIS** (above), undiagnosed.
+- **SAH-3: STRESSART-ENTITY-AXIS** CLOSED on `fix/entity-window-diagonal` (2026-09-26),
+  see "SAH-3" below.
 - **SAH-4: pc_trace.py's hard-coded PAGE_FRAMES = 12** (research tool, not a lane): it
   must be re-derived if the pool is re-cut again.
+
+### SAH-3: a two-axis entity-window slide is legal and handled; only the assert was wrong (branch `fix/entity-window-diagonal`, 2026-09-26)
+
+Base `3f310a1d`. Evidence: `docs/research/2026-09-26-entity-window-diagonal/`.
+
+**Reproduced.** STRESS_ART N=2200 (`s4.stressart.bin` 3b4ac315) and N=1400 (605e11fb): the
+fly-diagonal leg halts at camera (4608,4480) on `$diag44$engine.objects.entity_window$raise`,
+"assert.w d1,eq" (`repro_stressart_N*.txt`). The camera there is exactly on both anchor
+lines: 4608 - ENTITY_DESPAWN_BUFFER and 4480 - ENTITY_DESPAWN_BUFFER_Y are both
+2 * SECTION_SIZE. In lock-step debug flight (16 px a tick on both axes) camX - camY stays
+constant, so the two crossings land on one tick only when that offset is within a step of
+512 - 384 = 128 (at the halt it was exactly 128); per-axis camera holds for art shift the
+offset, which is why the halt came and went with the art.
+
+**The assert's premise was false; the window's was not.** "At most one anchor byte changes
+per slide (16px/f camera clamp)": the clamp bounds each axis's STEP (16 px < SECTION_SIZE),
+not how many axes cross a line on one tick. The window never assumed one axis:
+`EntityWindow_BuildEntries` re-derives all four entries from the camera, `MigrateMasks`
+matches by section id, the populate loop offers every id absent from the snapshot,
+`Collected_UpdateCenter` evicts by distance from the camera centre (the 2x2 always sits in
+its 3x3, so the up-to-three claims a diagonal makes always find a slot), and the despawners
+key on the tracked ids.
+
+**Decided at runtime, not by that reading.** `tools/entity_window_diagonal_witness.py`
+(new) forces the crossing deterministically on `s4.debug.bin`: warp the camera one pixel
+short of both lines, kick the leader 48 px (past both deadzones) so the next tick's camera
+takes exactly one capped 16 px step on each axis, then fly on in that direction. Every tick it
+checks the window against expectations derived from the camera and the ROM section lists,
+not read back from the window: W (anchor, the four entry ids/origins, validity mask, every
+tracked section owns a collected slot), M (loaded bit <=> live entity, rings and objects),
+U (no object of an untracked section; no untracked ring outside the X window; nothing outside
+the Y despawn band; no duplicate), L (every uncollected ring/object of a tracked section at
+or left of the load edge and inside the band every offer since the current coarse row began
+has covered, [c-129, c+480], is live). Arms: all four diagonal directions, the STRESS_ART
+halt's own crossing (4607,4479)->(4623,4495) (three quadrants off-grid after it), two
+single-axis controls, and a poison arm. On the fix (s4.debug.bin 89f380e0, the landing_build
+artifact, final witness: `final_green_landing_89f380e0.txt`, exit 0): all 8 arms PASS, every
+checked arm 0 violations over 91-92 ticks; entered sections watched filling on four of five
+diagonals (4, 7, 4, 15 entities; the stress-halt arm enters only off-grid quadrants), dropped
+sections seen emptied on four of five (3, 1, 1, 3 planted rings; left+up drops a section with
+nothing plantable in the pre-kick band) (planted rings,
+see the witness's `plant_rings`: this act puts no live entity in a dropped section at a
+crossing tick, so without the plant U would have passed vacuously).
+- Red-first, three ways. (1) The base DEBUG ROM d57002c5 (`red_base_d57002c5.txt`; re-run with
+  the final witness, `final_red_base_d57002c5.txt`, exit 1): all five diagonal arms HALT on
+  the old assert, both controls PASS. The shipped act hits it too, not only the stress art.
+  (2) The poison arm (a bare 2-section camera poke must halt on the new step assert) runs on
+  at the base and halts on `$diag45$...entity_window$raise` at the fix
+  (`poison_*`). (3) A window mutation (`mutation_x_first.diff`: a two-axis slide takes X only,
+  Y lands one tick later; never committed, restored from HEAD) turns all five diagonal arms
+  FAIL on W at exactly the kick tick while both controls stay PASS
+  (`mutation_x_first_red_f664933b.txt`). Mutation (3) also exposed a proxy in the witness
+  itself: its kick precondition first read the WINDOW's anchor, so the mutant came out
+  UNMEASURABLE; it now judges the crossing from the camera.
+- STRESS_ART on the fix: both legs clean at N=2200 (97b134dc) and N=1400 (95c80461), 1500
+  frames each, diagonal to (5824,5920) (`stressart_legs_*_fix_*.txt`). The witness on the
+  N=2200 stress ROM: every diagonal and the stress-halt arm PASS; `control down only` is
+  UNMEASURABLE there (the art soft-clamp held the camera on the kick tick), said so loudly.
+
+**The fix.** The assert now states what the clamp does guarantee: each anchor byte moves by
+AT MOST ONE section per slide (`sub.b / addq.b #1 / assert.b ls #2`, per axis). Past that the
+camera was teleported without `EntityWindow_Init`, which the tile cache cannot absorb either.
+DEBUG bytes only; comments in entity_window.emp and ARCH (entity-window "Slides") corrected,
+including the dead `EntityWindow_SyncSlide` reference (deleted in eddbbf7c).
+CRCs base -> fix: s4.bin 80d58257 -> 80d58257 (byte-identical, measured by a FAST build of
+the base entity_window.emp); s4.debug.bin d57002c5 -> 89f380e0; demo.debug.bin 6fff5daa ->
+b57fdf91 (+28 B). `tools/landing_build.sh` exit 0 (`finished=0`, 34 marked tests passed, 1
+EXEMPTED demo.bin), at f2586479.
+
+**S3K / S.C.E.** Neither has a 2-D section window. Their object manager
+(`skdisasm/sonic3k.asm` ~37596/37682, S.C.E. `Engine/Core/Load Objects.asm`) processes the X
+coarse change (128 px) and then the Y coarse change in the same call, each against the
+current camera, so a tick that crosses both runs both passes; nothing assumes one axis. Rings
+are X-only there (Load_Rings). Aeon's rebuild-from-camera is the same property by a
+different route.
+
+**Reachable in real play? Yes (ANALYSIS, not measured with physics).** The crossing needs
+only that one tick's camera step carries Camera_X across 2048k + 512 and Camera_Y across
+2048j + 384. With per-tick steps sx, sy (each min(16, the leader's speed on that axis) once
+the camera is tracking past its deadzone), the pre-tick positions that do it form an sx x sy
+box at each line intersection: 6 x 15 running at PHYS_TOP_SPEED while falling at
+PHYS_FALL_CAP, 1 x 1 at the slowest diagonal. No speed threshold exists and nothing in the
+camera or physics prevents it; whether a given act's routes pass those points diagonally is
+level design. Release builds carry no assert, and the window has always handled the crossing
+(above), so release play was never affected; a DEBUG playtest could have halted.
+
+Open:
+- **SAH-3a: a DEBUG warp duplicates window objects** (measured, `warp_dup_single_hop_d57002c5.txt`):
+  `Debug_Warp_Consume` re-runs `EntityWindow_Init`, which clears every loaded bit but deletes
+  no live object, so an object whose section the destination window still tracks spawns a
+  second time (boot -> camera (2559,128): section 0's objects #0-#5 live twice until section 0
+  leaves the window). Rings are not affected (`RingBuffer_Clear`). DEBUG-only (the warp mailbox,
+  Aurora's play-from-cursor). The witness parks on an object-free window before each warp so
+  its checks measure the slide, not this. Fix belongs to the warp ladder (despawn the window's
+  tagged objects, or keep their loaded bits by identity across the re-init); not done here.
+- **SAH-3b: the witness is not in landing_build**, only the keepalive lane (nightly), like
+  every emulator-booting instrument; a regression of the assert shows at the next nightly.
 
 ## STRESSART-BUDGET: the stress bake takes the canonical pin rule and refuses a window over PAGE_FRAMES (SAH-1 B + C); SAH-2 traced (branch `fix/stressart-budget`, 2026-09-26)
 

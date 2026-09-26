@@ -1,0 +1,5 @@
+stressart_legs_witness: s4.stressart.bin crc32 605e11fb, 1500 frames per leg after a 300-frame settle
+  fly right: 1500 frames, no halt; camera (96,144) -> (5824,144); 2 page eviction(s) observed; pool 22 pages
+  HALT: fly diagonal, leg frame 383: Logic_Tick unchanged for 60 frames, camera (4608,4480), pc $0D8156 (in the fault island at $0D7328)
+    raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+FAIL: a leg halted

@@ -3,7 +3,7 @@
 //
 // Build-shape inputs (-D NAME=0|1, the mt_bank/game_loop convention): DEBUG
 // gates the list-index range asserts, the park no-dup invariant, and the
-// single-axis slide invariant. A bare `assert` self-gates on DEBUG
+// per-axis slide-step invariant. A bare `assert` self-gates on DEBUG
 // (core.emp precedent); multi-line debug blocks wrap in `if DEBUG == 1 {}`
 // because their non-assert setup needs gating too.
 
@@ -662,8 +662,8 @@ proc EntityWindow_DeriveWindow () clobbers(d0) out(d2: u8, d3: u8, d4: i16, d5: 
         bpl     .x0_ok                  // world-origin underflow: camera within
         moveq   #0, d4                  // ENTITY_DESPAWN_BUFFER of the LEFT edge → the
     .x0_ok:                             // anchor would be -1 ($FF as a byte), mis-parsed as
-        move.w  Camera_Y, d5           // section 255 (NOT voided) and tripping the single-
-        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5 // axis slide assert. Clamp to section 0, mirroring
+        move.w  Camera_Y, d5           // section 255 (NOT voided) and tripping the slide-
+        subi.w  #ENTITY_DESPAWN_BUFFER_Y, d5 // step assert. Clamp to section 0, mirroring
         asr.w   d0, d5                  // the tile cache's Cache_Left_Col/Top_Row clamp
         bpl     .y0_ok                  // (engine/level/tile_cache.emp).
         moveq   #0, d5
@@ -856,9 +856,10 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
     .no_rescan:
 
         // window slide: fires when the camera envelope crosses a section
-        // boundary (≤ once per ~2048px of travel; one axis per frame at the
-        // 16px/f camera clamp). DeriveWindow clobbers d5 — the validity mask
-        // is reloaded below on both paths.
+        // boundary (≤ once per ~2048px of travel per axis; at the 16px/f
+        // camera clamp each anchor byte moves at most one section per slide,
+        // and both may move on the same tick). DeriveWindow clobbers d5 — the
+        // validity mask is reloaded below on both paths.
         jbsr    EntityWindow_DeriveWindow       // d2/d3 = anchor candidate
         cmp.b   Entity_Window_Anchor, d2
         bne     .slide
@@ -1674,8 +1675,9 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 // Generic identity match: for each NEW entry, find its section id in the
 // old snapshot; on match copy the old 32-byte mask into the entry's live
 // slot. Sections new to the window keep the compare-clear's zeroed mask.
-// Handles any slide direction — including the (DEBUG-asserted-impossible)
-// diagonal. Old SEC_VOID snapshot ids can't false-match: new valid ids are real.
+// Handles any slide direction, including a diagonal (both anchor bytes moving on
+// one slide: reachable, see EntityWindow_Slide's step assert and SAH-3). Old
+// SEC_VOID snapshot ids can't false-match: new valid ids are real.
 // Cold path (slides only) — clarity over cycles.
 //
 // In:  a4 = snapshot: 4 bytes old section ids + 4×32 bytes old masks
@@ -1779,16 +1781,33 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         jbsr    EntityWindow_BuildEntries
 
         if DEBUG == 1 {
-            // single-axis invariant: at most one anchor byte changes per slide
-            // (16px/f camera clamp)
-            move.w  (sp)+, d0               // old anchor
+            // Per-axis step invariant: each anchor byte moves by AT MOST ONE section per
+            // slide. That is what the camera clamp (CAM_MAX_X_STEP / CAM_MAX_Y_STEP, 16 px
+            // a tick, far below SECTION_SIZE) actually guarantees; a jump past it means the
+            // camera was teleported without re-running EntityWindow_Init (the warp ladder),
+            // which the tile cache cannot absorb either.
+            //
+            // BOTH bytes may move on one slide. Until SAH-3 (2026-09-26) this assert said
+            // "at most one anchor byte changes per slide (16px/f camera clamp)"; the clamp
+            // bounds each axis's STEP, not how many axes cross a section line on one tick,
+            // and a diagonal whose x/y phase lands both crossings on the same tick halted
+            // here (STRESS_ART fly-diagonal at camera (4608,4480), and every forced diagonal
+            // on the shipped act). Nothing below depends on one axis: BuildEntries re-derives
+            // all four entries from the camera, MigrateMasks moves masks by section identity,
+            // and the populate loop offers every id absent from the snapshot. That was proven
+            // at runtime, every tick through forced two-axis crossings in all four diagonal
+            // directions, by tools/entity_window_diagonal_witness.py (docs/DEFERRED_WORK.md
+            // SAH-3), not assumed from this reading.
+            move.w  (sp)+, d0               // old anchor: high byte sec_x0, low byte sec_y0
             move.w  Entity_Window_Anchor, d1
-            eor.w   d0, d1                  // nonzero byte = that axis moved
-            tst.b   d1
-            beq     .axis_ok                // sec_y0 unchanged → at most X slid
-            andi.w  #$FF00, d1              // sec_y0 slid → sec_x0 must not have
-            assert.w d1, eq
-        .axis_ok:
+            sub.b   d0, d1                  // d1.b = sec_y0 step (mod 256)
+            addq.b  #1, d1                  // -1 / 0 / +1 -> 0 / 1 / 2
+            assert.b d1, ls, #2
+            lsr.w   #8, d0                  // d0.b = old sec_x0
+            move.b  Entity_Window_Anchor, d1    // new sec_x0
+            sub.b   d0, d1                  // d1.b = sec_x0 step (mod 256)
+            addq.b  #1, d1
+            assert.b d1, ls, #2
         }
 
         // migrate surviving sections' loaded masks to their new entries

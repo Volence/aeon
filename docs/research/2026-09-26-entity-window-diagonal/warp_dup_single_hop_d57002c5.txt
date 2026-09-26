@@ -1,0 +1,23 @@
+entity_window_diagonal_witness: s4.debug.bin crc32 d57002c5, 2 arm(s)
+  act grid 3x3, 9 real sections, 60 rings, 11 objects; ring buffer 128, dynamic 40, collected slots 9; kick 48 px, follow 86 ticks
+  control right only: lines kx=1 ky=0; camera (2559,128) -> (2575,128); anchor (0, 0) -> (1, 0); drops sections [0, 3], enters [2, 5]
+    91 ticks checked; 24 violation(s); camera ends (3951, 128); dropped-section entities live before the kick: 14; entered-section entities checked live: 6
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL settle 0 cam (2559, 128): U object (sec 0, #5) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL settle 1 cam (2559, 128): U object (sec 0, #5) live twice
+    ... 12 more (--verbose prints all)
+    -> control right only: FAIL
+  control down only: lines kx=0 ky=1; camera (2560,2431) -> (2560,2447); anchor (1, 0) -> (1, 1); drops sections [1, 2], enters [7, 8]
+    91 ticks checked; 0 violation(s); camera ends (2560, 3823); dropped-section entities live before the kick: 0; entered-section entities checked live: 0
+    UNMEASURABLE: control down only: vacuous: nothing from a dropped section was live before the kick and nothing from an entered section was checked live
+    -> control down only: UNMEASURABLE
+FAIL: an arm's window broke a check, or the game halted

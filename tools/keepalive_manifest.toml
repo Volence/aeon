@@ -182,6 +182,16 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
+[wired."entity_window_diagonal_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 900
+note = """SAH-3 (2026-09-26). Forces two-axis entity-window slides (all four diagonals, the
+STRESS_ART halt's own crossing, two single-axis controls) and checks the window every tick
+against the camera and the ROM section lists, plus a poison arm that a 2-section camera jump
+must halt on EntityWindow_Slide's per-axis step assert. Red-first on d57002c5 (the base): the
+five diagonal arms HALT on the old single-axis assert and the poison arm runs on."""
+
 [wired."pcc_identity_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
