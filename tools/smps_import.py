@@ -966,7 +966,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                 "channel %r exceeded %d events (runaway unroll?)"
                 % (start_label, MAX_CHANNEL_EVENTS))
 
-    def walk(label, depth, stop_at):
+    def walk(label, depth, stop_at, ref=None):
         """Walk blocks starting at `label`, following fall-through, until a
         terminator (smpsJump/smpsStop), running off the last block, or reaching
         the `stop_at` loop position (label, token_index) that bounds an unroll
@@ -975,14 +975,30 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
         depth      : smpsCall nesting (guarded by MAX_CALL_DEPTH).
         stop_at    : (label, idx) of the smpsLoop flag whose body this is, or
                      None at top level. The replay must NOT re-trigger that exact
-                     loop flag (that would recurse forever); it stops there."""
+                     loop flag (that would recurse forever); it stops there.
+        ref        : (block, mnemonic) of the flag that sent the walk to `label`,
+                     or None for the channel's own start label. Names the source
+                     of an unknown-label refusal."""
         cur = label
         while True:
             if cur not in order_index:
-                # Unknown target (e.g. a forward jump out of the known map) —
-                # cannot continue safely.
-                warn("walk: unknown label %r" % cur)
-                return "fell_off"
+                # Unknown target (e.g. a forward jump out of the known map).
+                # REFUSED (PRINTED-NOT-GATED, 2026-09-25): this used to warn and
+                # return "fell_off", which no caller read, so the channel was
+                # silently truncated here and the song still packed.
+                if ref is None:
+                    raise ValueError(
+                        "smps_import: channel start label %r is not a block in "
+                        "the source; refusing to convert an empty channel" % cur)
+                from_block, mnem = ref
+                where = [ln.strip() for ln in blocks.get(from_block, ())
+                         if mnem in ln and cur in ln]
+                raise ValueError(
+                    "smps_import: %s in block %r targets unknown label %r "
+                    "(line: %s); refusing to truncate channel %r there"
+                    % (mnem, from_block, cur,
+                       where[0] if where else "<not found in block>",
+                       start_label))
             # Record where this label's events start (first entry only).
             if cur not in label_out_pos:
                 label_out_pos[cur] = len(out)
@@ -1001,7 +1017,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                             raise RecursionError(
                                 "smpsCall depth > %d at %r (cycle?)"
                                 % (MAX_CALL_DEPTH, args[0]))
-                        walk(args[0], depth + 1, None)  # inline; returns at smpsReturn
+                        walk(args[0], depth + 1, None, (cur, mnem))  # inline; returns at smpsReturn
                         i += 1
                         continue
 
@@ -1025,7 +1041,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                         # times, each bounded by THIS loop's position so it does
                         # not re-loop.
                         for _ in range(max(0, count - 1)):
-                            walk(target, depth, (cur, i))
+                            walk(target, depth, (cur, i), (cur, mnem))
                         i += 1
                         continue
 
@@ -1039,6 +1055,7 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                             out.append(Jump())
                             return "terminated"
                         # Forward jump (rare): continue inline at the target.
+                        ref = (cur, mnem)
                         cur = target
                         break  # restart outer while with new block
                     # Non-structural flag -> normal MEV dispatch.

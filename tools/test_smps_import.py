@@ -444,6 +444,31 @@ def test_call_depth_guard():
         raised = True
     assert raised
 
+# PRINTED-NOT-GATED (2026-09-25): a jump/call/loop to a label the block map does not
+# hold used to warn and return "fell_off", which no caller read, so the channel was
+# silently truncated at that point and the song still packed. It is now REFUSED,
+# naming the label, the flag that referenced it, the block it sits in and its line.
+# Instrumented against every converted song at 633b5936 (HCZ2, and S2 EHZ/CPZ with
+# probe tables): none reached this branch, so the refusal changes no shipped byte.
+@pytest.mark.parametrize("flag_line,mnem", [
+    ("\tsmpsCall Nowhere_Sub", "smpsCall"),
+    ("\tsmpsJump Nowhere_Sub", "smpsJump"),
+    ("\tsmpsLoop $00, $02, Nowhere_Sub", "smpsLoop"),
+])
+def test_unknown_label_is_refused_not_truncated(flag_line, mnem):
+    blocks = {"Main": ["\tdc.b nC4, $0C", flag_line, "\tdc.b nD4, $0C", "\tsmpsStop"]}
+    with pytest.raises(ValueError) as ei:
+        convert_channel("FM", [], blocks, _cfg(), ConvState(), start_label="Main")
+    msg = str(ei.value)
+    assert "Nowhere_Sub" in msg and mnem in msg and "'Main'" in msg
+    assert flag_line.strip() in msg          # the source line, verbatim
+
+
+def test_unknown_start_label_is_refused():
+    with pytest.raises(ValueError, match="Missing_Hdr"):
+        convert_channel("FM", [], {"Main": ["\tsmpsStop"]}, _cfg(), ConvState(),
+                        start_label="Missing_Hdr")
+
 # ── Task 2.3 end-to-end: real HCZ2 FM + DAC convert without raising ──────────
 
 def _hcz2_blocks_and_cfg():
