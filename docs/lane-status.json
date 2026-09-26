@@ -2,11 +2,6 @@
   "focus": "Music is right by your ear; now chasing the lag running through Emerald Hill and a quiet jump sound.",
   "inFlight": [
     {
-      "what": "Move our own act's loop to lines and retire the painted marks",
-      "where": "branch parcel/lines-everywhere",
-      "agent": true
-    },
-    {
       "what": "Find and fix the lag while running through Emerald Hill",
       "where": "branch perf/ehz-run-lag",
       "agent": true
@@ -49,7 +44,7 @@
     {
       "id": "SAH-3a",
       "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
-      "state": "next",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -165,13 +160,21 @@
     },
     {
       "id": "LINES-EVERYWHERE",
-      "title": "Move our own act's loop from painted marks to lines and retire the marks (editor line tool from aurora)",
-      "state": "doing",
+      "title": "Lines everywhere: landed; the editor's line tool is aurora's; deleting the old path-swap object waits on sigil",
+      "state": "open",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "CLIP-PLANEB-HOLE",
+      "title": "A floor gap on the Sonic 2 level's second layer looks reachable walking left near x 1400; drive it and compare with Sonic 2",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T18:36:28Z"
+  "updatedAt": "2026-09-26T19:14:18Z"
 }
