@@ -1,0 +1,56 @@
+s4.stressart.bin crc=41401ef1 dirs=right
+pool_pages=41
+HALTED: 103 frames stepped; last live frame index 42
+[18] fc=315 lt=175 cam=(384,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt9)/P 1:p1/rc0(nt173)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0(nt1)/P 10:p10/rc0(nt5)/E 11:p11/rc0/E
+[19] fc=316 lt=176 cam=(400,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt9)/P 1:p1/rc0(nt167)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0(nt1)/P 10:p10/rc0(nt5)/E 11:p11/rc0/E
+[20] fc=317 lt=177 cam=(416,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt8)/P 1:p1/rc0(nt163)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt5)/E 11:p11/rc0/E
+[21] fc=318 lt=178 cam=(432,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt63)/P 1:p1/rc0(nt158)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0/E
+[22] fc=319 lt=179 cam=(448,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt121)/P 1:p1/rc0(nt152)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt2)/E
+[23] fc=320 lt=180 cam=(464,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt177)/P 1:p1/rc0(nt146)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt6)/E
+[24] fc=321 lt=181 cam=(480,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt227)/P 1:p1/rc0(nt142)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt8)/E
+[25] fc=322 lt=182 cam=(496,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt284)/P 1:p1/rc0(nt138)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt11)/E
+[26] fc=323 lt=183 cam=(512,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt340)/P 1:p1/rc0(nt132)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt15)/E
+[27] fc=324 lt=184 cam=(528,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt398)/P 1:p1/rc0(nt126)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt17)/E
+[28] fc=325 lt=185 cam=(544,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt455)/P 1:p1/rc0(nt121)/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt19)/E
+[29] fc=326 lt=186 cam=(560,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt488)/P 1:p1/rc0(nt116)/P 2:p2/rc0(nt12)/E 3:p3/rc0/E 4:p4/rc0/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt21)/E
+[30] fc=327 lt=187 cam=(576,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt525)/P 1:p1/rc0(nt112)/P 2:p2/rc0(nt16)/E 3:p3/rc0(nt4)/E 4:p4/rc0(nt11)/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt23)/E
+[31] fc=328 lt=188 cam=(592,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[(12, 0)]
+    0:p0/rc0(nt541)/P 1:p1/rc0(nt106)/P 2:p2/rc0(nt18)/E 3:p3/rc0(nt7)/E 4:p4/rc0(nt36)/E 5:p5/rc0/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt25)/E
+[32] fc=329 lt=189 cam=(608,144) cls=PPEEEEEPPPEE free=FF cur=p11/f11/fl2 stall=0 dm=1 busy=[0, 0, 0, 0] q=[(12, 0)]
+    0:p0/rc0(nt542)/P 1:p1/rc0(nt102)/P 2:p2/rc0(nt22)/E 3:p3/rc0(nt15)/E 4:p4/rc0(nt47)/E 5:p5/rc0(nt2)/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt9)/E 11:p11/rc0(nt26)/E
+[33] fc=330 lt=189 cam=(624,144) cls=PPEEEEEPPPEE free=FF cur=p12/f11/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0(nt544)/P 1:p1/rc0(nt99)/P 2:p2/rc0(nt22)/E 3:p3/rc0(nt29)/E 4:p4/rc0(nt47)/E 5:p5/rc0(nt11)/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc0(nt8)/E 11:p11/rc0(nt27)/E
+[34] fc=331 lt=189 cam=(624,144) cls=PPEEEEEPPPEE free=FF cur=p12/f11/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc192(nt544)/P 1:p1/rc97(nt99)/P 2:p2/rc0(nt22)/E 3:p3/rc3(nt29)/E 4:p4/rc0(nt47)/E 5:p5/rc0(nt11)/E 6:p6/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc6(nt8)/E 11:p11/rc7(nt27)/E
+[35] fc=332 lt=190 cam=(640,144) cls=PPRRRR.PPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[255, 0, 0, 255] q=[]
+    0:p0/rc544/P 1:p1/rc99/P 2:p2/rc22/ 3:p3/rc29/ 4:p4/rc47/ 5:p5/rc11/ 6:p--/rc0/ 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc27/
+[36] fc=333 lt=191 cam=(640,144) cls=PPRRRR.PPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[255, 0, 0, 255] q=[]
+    0:p0/rc544/P 1:p1/rc95/P 2:p2/rc24/ 3:p3/rc45/ 4:p4/rc47/ 5:p5/rc15/ 6:p--/rc0/ 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc27/
+[37] fc=334 lt=192 cam=(656,144) cls=PPRRRR.PPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[255, 0, 0, 255] q=[]
+    0:p0/rc546/P 1:p1/rc89/P 2:p2/rc30/ 3:p3/rc53/ 4:p4/rc47/ 5:p5/rc21/ 6:p--/rc0/ 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc27/
+[38] fc=335 lt=193 cam=(672,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc549/P 1:p1/rc84/P 2:p2/rc34/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc25/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc29/
+[39] fc=336 lt=194 cam=(688,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc578/P 1:p1/rc79/P 2:p2/rc34/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc31/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc31/
+[40] fc=337 lt=195 cam=(704,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc608/P 1:p1/rc73/P 2:p2/rc34/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc37/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc33/
+[41] fc=338 lt=196 cam=(720,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc639/P 1:p1/rc69/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc40/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc35/
+[42] fc=339 lt=197 cam=(736,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc672/P 1:p1/rc65/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc48/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc37/
+[43] fc=339 lt=197 cam=(752,144) cls=PPRRRRRPPPRR free=FF cur=p6/f6/fl1 stall=1 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc687/P 1:p1/rc63/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc48/ 5:p5/rc49/ 6:p12/rc1/ 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc37/
+finished=1

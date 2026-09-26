@@ -1,0 +1,5 @@
+stressart_legs_witness: s4.stressart.bin crc32 bcc96b48, 1500 frames per leg after a 300-frame settle
+  HALT: fly right, leg frame 43: Logic_Tick unchanged for 60 frames, camera (752,144), pc $0DE56A (in the fault island at $0DD73C)
+    raise_error message: 'PageCache_AllocFrame: no free/evictable frame (thrash bug)'
+  fly diagonal: 1500 frames, no halt; camera (96,144) -> (5824,5920); 11 page eviction(s) observed; pool 41 pages
+FAIL: a leg halted

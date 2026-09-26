@@ -1,0 +1,10 @@
+s4.stressart.bin crc=bcc96b48 dirs=right,down
+pool_pages=41
+ran: 1200 frames stepped; last live frame index 1199
+[1197] fc=1494 lt=1225 cam=(5824,5920) cls=PPEEEEEPPPEE free=FF cur=p4/f4/fl1 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0/P 1:p1/rc0/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p38/rc0/E 6:p37/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p39/rc0/E 11:p36/rc0/E
+[1198] fc=1495 lt=1226 cam=(5824,5920) cls=PPEEEEEPPPEE free=FF cur=p4/f4/fl1 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0/P 1:p1/rc0/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p38/rc0/E 6:p37/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p39/rc0/E 11:p36/rc0/E
+[1199] fc=1496 lt=1227 cam=(5824,5920) cls=PPEEEEEPPPEE free=FF cur=p4/f4/fl1 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc0/P 1:p1/rc0/P 2:p2/rc0/E 3:p3/rc0/E 4:p4/rc0/E 5:p38/rc0/E 6:p37/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p39/rc0/E 11:p36/rc0/E
+finished=1

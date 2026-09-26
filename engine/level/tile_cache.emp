@@ -1089,6 +1089,15 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .stall_wd_done:
     }
 
+        // Demand holds (stressart-halts GPL-2 fix, 2026-09-26): a demand-published page
+        // is protected from eviction until a fill pass that saw it resident ends without
+        // a stall. PageCache_DemandHoldTick decides that from Cache_Art_Stall, which
+        // still holds the PREVIOUS pass's result here, so it must run before the clear
+        // below. Skipped outright while nothing is held (every latched act, always).
+        tst.b   Page_Demand_Held
+        beq     .no_demand_holds
+        jbsr    PageCache_DemandHoldTick        // clobbers d0-d2/a0 (the fill's own scratch)
+    .no_demand_holds:
         // P2b Task 6: a fresh demand-stall flag each fill pass (a copy-site
         // non-resident page sets it; the fills consume it as a partial return).
         clr.w   Cache_Art_Stall

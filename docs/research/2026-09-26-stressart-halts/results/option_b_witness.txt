@@ -1,0 +1,15 @@
+Sat Sep 26 01:13:50 PM UTC 2026
+ 09:13:50 up 2 days, 22:15,  1 user,  load average: 2.61, 3.24, 3.80
+at 242a1284
+experiment edit applied
+build rc=0
+tree after revert: 0 dirty
+Checking the FG page budget on the re-baked tree...
+stressart_legs_witness: s4.stressart.bin crc32 040712b3, 1500 frames per leg after a 300-frame settle
+  fly right: 1500 frames, no halt; camera (96,144) -> (5824,144); 10 page eviction(s) observed; pool 41 pages
+  fly diagonal: 1500 frames, no halt; camera (96,144) -> (5824,5920); 12 page eviction(s) observed; pool 41 pages
+PASS: both legs flew without a halt
+witness rc=0
+Sat Sep 26 01:14:12 PM UTC 2026
+ 09:14:12 up 2 days, 22:15,  1 user,  load average: 3.26, 3.33, 3.81
+finished=1

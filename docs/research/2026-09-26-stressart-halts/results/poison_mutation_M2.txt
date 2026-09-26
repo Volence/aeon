@@ -1,0 +1,32 @@
+== mutation M2 on engine/level/page_cache.emp
+diff --git a/engine/level/page_cache.emp b/engine/level/page_cache.emp
+index 7690f7c7..29a37866 100644
+--- a/engine/level/page_cache.emp
++++ b/engine/level/page_cache.emp
+@@ -1842,7 +1842,7 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
+         bne     .orphan_next                    // referenced -> reachable via a cache word
+         move.b  PF_FLAGS(a3), d2                // (d2's offset is spent: a3 holds the frame)
+         andi.b  #PF_EVICTABLE | PF_PINNED | PF_DEMAND_HELD, d2
+-        bne     .orphan_next                    // candidate, pinned, or demand-held (bounded, below)
++        bra     .orphan_next                    // MUTATION M2: orphan check skipped
+         raise_error "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)"
+     .orphan_next:
+         addq.w  #1, d0
+build rc=0
+s4.debug.bin crc 2ed5b9b9
+  booted: PageCache_Direct_Map=$80, first unassigned frame = 10, first assigned unpinned frame = 2, nametable 4800 words, interval 128 ticks
+  CONTROL (no poke)                            still running (412 ticks run)   ok
+  (a) nonzero pf_refcount                      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b) unassigned frame referenced              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (c) Page_Table not the identity              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b1) one dangling word, first slice          HALTED (audit raised) after 16 ticks (bound 136)   ok
+  (b2) one dangling word, last slice           HALTED (audit raised) after 7 ticks (bound 136)   ok
+  (g) general regime forced: refcount sum      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (o) orphan: assigned, unreachable            still running (412 ticks run)   FAIL
+  (h) demand hold with the gate disarmed       HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (hr) armed demand hold, must be released     still running (412 ticks run)   ok
+     (hr) after the run: flags $02, gate 0     released   ok
+RESULT: AT LEAST ONE ARM IS VACUOUS OR LATE
+poison rc=1
+restored from HEAD; dirty paths now: 0
+finished=1

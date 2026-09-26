@@ -61,6 +61,11 @@ INTERVAL = const("PAGECACHE_AUDIT_INTERVAL")
 WORD_BOUND = INTERVAL + const("PAGE_AUDIT_SLACK_TICKS", PAGE_CACHE)
 NT_WORDS = const("TILE_CACHE_COLS") * const("TILE_CACHE_ROWS")
 PF_SIZE = 8          # sizeof(PageFrame); page_cache.emp ensures it is 8 (`lsl #3` stride)
+PF_FLAGS_OFF = 7     # offsetof(PageFrame, pf_flags): engine/structs.emp, the last byte of 8
+PF_PINNED = 1 << const("PF_PINNED_BIT")
+PF_EVICTABLE = 1 << const("PF_EVICTABLE_BIT")
+PF_DEMAND_HELD = 1 << const("PF_DEMAND_HELD_BIT")
+PAGE_HELD_NEW = const("PAGE_HELD_NEW", PAGE_CACHE)
 TILE_SHIFT = 6       # PAGE_FRAME_TILE_SHIFT; constants.emp ensures 1 << 6 == ART_POOL_PAGE_TILES
 
 
@@ -124,10 +129,21 @@ async def sweep(sock, lst, sym):
         if await rdw(b, sym["Page_Frames"] + PF_SIZE * f, 2) == 0xFFFF:
             free = f
             break
+    # The demand-hold arms (STRESSART-HALTS, 2026-09-26) need an ASSIGNED, UNPINNED frame to
+    # poke flags into. Read it off the booted state too.
+    unpinned = None
+    for f in range(16):
+        page = await rdw(b, sym["Page_Frames"] + PF_SIZE * f, 2)
+        flags = await rdw(b, sym["Page_Frames"] + PF_SIZE * f + PF_FLAGS_OFF, 1)
+        if page != 0xFFFF and not flags & PF_PINNED:
+            unpinned = f
+            break
     print(f"  booted: PageCache_Direct_Map=${direct:02X}, first unassigned frame = {free}, "
+          f"first assigned unpinned frame = {unpinned}, "
           f"nametable {NT_WORDS} words, interval {INTERVAL} ticks")
-    if direct == 0 or free is None:
-        print("COULD NOT RUN: the arms need a latched regime and an unassigned frame")
+    if direct == 0 or free is None or unpinned is None:
+        print("COULD NOT RUN: the arms need a latched regime, an unassigned frame and an "
+              "assigned unpinned frame")
         await b.close()
         return 2
 
@@ -153,6 +169,18 @@ async def sweep(sock, lst, sym):
                 raise SystemExit(2)
         return poke
 
+    flags_at = sym["Page_Frames"] + PF_SIZE * unpinned + PF_FLAGS_OFF
+
+    async def p_orphan(bb, s):      # an assigned frame no reclaim path can reach
+        await wr(bb, flags_at, 0, 1)                      # not pinned, not a candidate, not held
+
+    async def p_held_disarmed(bb, s):   # a demand hold nothing will ever end
+        await wr(bb, flags_at, PF_DEMAND_HELD, 1)         # held, while Page_Demand_Held stays 0
+
+    async def p_held_armed(bb, s):  # a demand hold the fill must END (control + behaviour)
+        await wr(bb, flags_at, PF_DEMAND_HELD, 1)
+        await wr(bb, s["Page_Demand_Held"], PAGE_HELD_NEW, 1)   # as PageCache_Publish leaves it
+
     async def p_general(bb, s):     # the general regime's interval-tick whole walk
         await wr(bb, s["PageCache_Direct_Map"], 0, 1)
         # the latched copy loops wrote no refcounts, so every referenced frame now
@@ -165,6 +193,19 @@ async def sweep(sock, lst, sym):
     ok &= (await case(b, sym, "(b1) one dangling word, first slice", p_word(0), bound=WORD_BOUND))[0]
     ok &= (await case(b, sym, "(b2) one dangling word, last slice", p_word(NT_WORDS - 1), bound=WORD_BOUND))[0]
     ok &= (await case(b, sym, "(g) general regime forced: refcount sum", p_general))[0]
+    # Demand-hold arms (STRESSART-HALTS GPL-2 fix). (o) and (h) must halt. (hr) must NOT:
+    # an armed hold is legitimate, and PageCache_DemandHoldTick must RELEASE it (the idle
+    # fill never stalls), so after the run the frame is a candidate and no longer held.
+    ok &= (await case(b, sym, "(o) orphan: assigned, unreachable", p_orphan))[0]
+    ok &= (await case(b, sym, "(h) demand hold with the gate disarmed", p_held_disarmed))[0]
+    rel_ok, _ = await case(b, sym, "(hr) armed demand hold, must be released", p_held_armed,
+                           expect_halt=False)
+    fl = await rdw(b, flags_at, 1)
+    gate = await rdw(b, sym["Page_Demand_Held"], 1)
+    released = rel_ok and fl & PF_EVICTABLE and not fl & PF_DEMAND_HELD and gate == 0
+    print(f"  {'   (hr) after the run: flags $%02X, gate %d' % (fl, gate):44s} "
+          f"{'released' if released else 'NOT released'}   {'ok' if released else 'FAIL'}")
+    ok &= bool(released)
     await b.close()
     return 0 if ok else 1
 

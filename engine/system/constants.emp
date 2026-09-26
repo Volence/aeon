@@ -443,8 +443,12 @@ pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-
 pub const PF_EVICTABLE_BIT   = 1            // frame is an eviction candidate (assigned, refcount 0,
                                             // unpinned, stamped) — F-1 stamp eviction; set on
                                             // Unref 1->0 + speculative publish, cleared on Ref 0->1
+pub const PF_DEMAND_HELD_BIT = 2            // a DEMAND page published and protected from eviction until
+                                            // the first fill pass that ends without a demand stall
+                                            // (stressart-halts GPL-2 fix, 2026-09-26; PageCache_DemandHoldTick)
 pub const PF_PINNED          = 1 << PF_PINNED_BIT
 pub const PF_EVICTABLE       = 1 << PF_EVICTABLE_BIT
+pub const PF_DEMAND_HELD     = 1 << PF_DEMAND_HELD_BIT
 // The tile-index field of a nametable word (bits 0-10); bits 11-15 are pal/pri/flip.
 pub const NT_TILE_MASK       = $07FF
 pub const NT_ATTR_MASK       = $F800

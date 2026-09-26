@@ -41457,7 +41457,131 @@ since nothing that gates a merge runs the general regime, (3) optional trims.
 Found while measuring, PRE-EXISTING on origin/master (base `s4.stressart.bin` `41401ef1`, not
 caused by the prototypes; they halt at the same points with the same messages):
 - **GPL-1: STRESS_ART DEBUG fly right halts** at camera (752,144), frame 102:
-  "PageCache_AllocFrame: no free/evictable frame (thrash bug)".
+  "PageCache_AllocFrame: no free/evictable frame (thrash bug)". **DIAGNOSED, OPEN (owner
+  pick), see STRESSART-HALTS below: not a cache bug; the fixture is over its own budget.**
 - **GPL-2: STRESS_ART DEBUG fly diagonal halts** at (1712,1728), frame 185:
   "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)": a demand page
-  published and never referenced. Not diagnosed further.
+  published and never referenced. **FIXED on `fix/stressart-halts`, see STRESSART-HALTS
+  below: a real leak, the demand hold now ends.**
+
+## STRESSART-HALTS: GPL-1 and GPL-2 diagnosed; GPL-2 fixed, GPL-1 is the fixture over budget (branch `fix/stressart-halts`, 2026-09-26)
+
+Base `af8e7381` (s4.stressart.bin `41401ef1`, both halts reproduced). Instruments and every
+trace: `docs/research/2026-09-26-stressart-halts/` (`pc_trace.py` reads Page_Table, every
+frame record and a Tile_Cache_Nametable recount after each video frame; `window_count.py`
+runs `fg_page_order`'s static window count under other pins).
+
+**When.** Neither halt came from tonight's parcels. Both reproduce with the same class at
+`f136c486` (before audit-amortise ef365c11 and resident-plain-copy 0fec1b75). GPL-1: same
+halt, same class, at `b9a6bf6d`, the first commit STRESS_ART builds at (it had not built
+since 2026-08-19), so no buildable good commit exists; its cause (below) dates it to the
+VRAM re-cut `77cf6a71` (2026-09-03, 14 -> 12 frames) by the static count, NOT by a runtime
+control. GPL-2's leak is in the design since `b51cb215` / `f2f049cf` (2026-08-09: the
+unbounded demand protection and the orphan check). On this leg it first SHOWS at
+`c4fa4f9e`, the first-parent commit that brought the S2CLIP-LAG fix 8939377f; control at
+its first parent `347fc2c5`: the same leg halts earlier, at (800,736), all frames pinned
+or referenced (a GPL-1-class thrash), and never reaches the leak. (An automatic bisect over
+the 292 first-parent commits was abandoned: mid-parcel first-parent commits fail build.sh's
+tool tests; the two points above were built with NO_LINT=1.)
+
+**GPL-2 mechanism (runtime, `results/tip_af8e7381_diag_frames50-70.txt`).** Frame 56: a
+fill misses page 12, demand-requests it and stalls. The camera is flying into empty sky: the
+non-blank cache words fall 489 -> 20 over 12 frames, and by frame 58 the stall has cleared
+(the resume point went stale; `.row_pending_stale`) while page 12 is still decoding. Page 12
+publishes into frame 5 at frame 60, DEMAND, so unflagged: nothing references it (recount 0
+for 65 frames), and its only exemption from the orphan check was being PageIn_Cur_Frame.
+At frame 125 the next page-in moves PageIn_Cur_Frame to frame 2 and the interval audit
+raises. The audit is RIGHT: the frame was unreachable by every reclaim path and would never
+come back. It is also not the amortised slicing: at both halts the act is in the general
+regime (Direct_Map 0), where the idle slot slices nothing, and the check that fired is the
+whole-state orphan check on the interval tick. So this halt does not test the amortise's
+"a slice cannot lie" claim either way.
+
+**GPL-2 fix (242a1284).** `PageCache_Publish` marks a demand frame `PF_DEMAND_HELD` (pf_flags
+bit 2) and arms `Page_Demand_Held` (the pad byte after Page_Free_Head: no RAM moves).
+`PageCache_DemandHoldTick`, called by `Tile_Cache_Fill` before it clears `Cache_Art_Stall`,
+ages NEW -> SEEN on the first pass after a publish, then on the first SEEN pass whose
+predecessor ended without a demand stall releases every held frame still at refcount 0 as
+an ordinary candidate (stamped now). A stalled pass keeps every hold, so the deadlock the
+protection exists for cannot come back; a release costs at worst a re-demand. The orphan
+audit exempts held frames instead of PageIn_Cur_Frame and checks held => assigned, unpinned,
+gate armed. Runtime (`results/fix_diag_frames54-68.txt`): page 12 lands held (flags 4) and is
+released 3 frames later (flags 2); the diagonal flies 1500 frames to (5824,5920), 11
+evictions, no halt. Cost: one `tst.b/beq` per fill pass; a ~450-cycle walk once per demand
+episode; never reached on a latched act.
+- **Conflict note for GPL-A3-BUILD:** the release tests `PF_RC == 0`. Under the A3 masks
+  that test becomes "in no row/column mask"; the hold itself (bit, gate, tick) carries over.
+
+**GPL-1 mechanism (runtime, `results/tip_af8e7381_right_frames28-44.txt`).** At the halt
+every one of the 12 frames is pinned (0,1,7,8,9; 7-9 referenced by NOTHING in this window) or
+genuinely referenced (stored refcount == nametable recount for every frame), and a demand
+for page 6 arrives: 8 dynamic pages wanted, 7 dynamic frames. No leak, no stale refcount:
+frames that should be evictable are not being held; there are simply too few. The build
+already says so: `fg_page_order.py check --report-only` on the stress tree prints "worst
+window needs 13 (... camera x=744 y=0 ...); 1605 window(s) over budget", at the halt's own
+camera. The fixture was calibrated at 15 frames (ARCH §9.7's "41 pages vs 15 frames"); at
+12, 13 does not fit. The engine's refusal is the designed one.
+
+**GPL-1 options (OPEN, owner's call: each changes what the fixture stresses).** Measured
+on the fixed engine, `window_count.py` + `stressart_legs_witness.py`
+(`results/window_counts_by_N.txt`, `results/fix_N_sweep_legs.txt`):
+
+| option | worst window | fly right | fly diagonal |
+|---|---|---|---|
+| today: N=2600, rule pins [0,1,7,8,9] | 13 | THRASH (GPL-1) | clean, 1500 frames |
+| A1: STRESS_ART_N 2200 | 12 | clean | halt, entity_window (below) |
+| A2: STRESS_ART_N 1800 | 12 | clean | clean |
+| A3: STRESS_ART_N 1400 | 11 | clean | halt, entity_window (below) |
+| B: N=2600, frame-aware pins [0,1,7,8] (the canonical bake's rule) | 12 | clean, 10 evictions | clean, 12 evictions |
+| C: any of the above + drop the stress arm's `--report-only`, so a stress bake over PAGE_FRAMES refuses | - | - | - |
+
+B keeps the 41-page pool (the most churn) and applies the rule `fg_page_order.place_pool`
+already applies to every canonical bake; it needs a frame-aware pin pass over the inflated
+page grid in ojz_strip_gen's stress arm. Row B was measured with a THROWAWAY edit (the 75%
+rule's pins masked to [0,1,7,8] after the fact, s4.stressart.bin `040712b3`,
+`results/option_b_witness.txt`), not with that pass. C is what would have caught the 2026-09-03 drift.
+Every "12" is zero margin: the static count is necessary, not sufficient (transient
+stalled columns are not in it).
+
+**STRESSART-ENTITY-AXIS (NEW, found by the N sweep, not diagnosed).** On the fixed engine
+at STRESS_ART_N 2200 and 1400 the diagonal halts at camera (4608,4480):
+`$diag44$engine.objects.entity_window$raise` "Assertion failed: assert.w d1,eq", the DEBUG
+single-axis slide invariant in `engine/objects/entity_window.emp` ("at most one anchor byte
+changes per slide (16px/f camera clamp)"). A diagonal crossing BOTH section boundaries on
+one tick breaks that premise; whether it happens depends on the x/y phase, which camera art
+holds (per axis) shift, so it comes and goes with the art. Unknown: whether only the assert
+is wrong or EntityWindow_BuildEntries also mishandles a two-axis slide. The canonical
+diagonal has not been seen to hit it.
+
+**Regression lane.** `tools/stressart_legs_witness.py` (both legs, exit 1 on a halt, naming
+the raise site and message; 2 if a leg did not fly or forced no eviction). Red-first on
+`41401ef1`: exit 1, both legs, both messages. Wired into `tools/nightly_effects_gates.sh`
+after its STRESS_ART build (not landing_build: that build is a ~4 min in-place re-bake);
+`test_landing_lane_shapes.py` grades the wiring (red-first: the invocation removed on disk
+-> "found 1 build(s), 0 invocation(s)"). **It is RED every night until a GPL-1 option lands**
+(fly right thrashes); that red is GPL-1, not a lane defect.
+
+**The new audit checks** are graded by three arms added to `tools/pagecache_audit_poison.py`
+(wired keepalive row, s4.debug.bin): (o) an unreachable assigned frame halts through the
+orphan check, (h) a hold with the gate disarmed halts through the new gate check, (hr) an
+armed hold does NOT halt and is released (flags $02, gate 0). Red-first by mutation, each
+restored from HEAD: skipping the gate raise turns only (h) red, skipping the orphan raise
+only (o), removing the fill's `PageCache_DemandHoldTick` call only (hr)
+(`results/poison_mutation_M{1,2,3}.txt`).
+
+**Other shapes.** Canonical s4.bin / s4.debug.bin / demo.debug.bin change bytes (the fill's
+new `tst.b/beq` and the new proc) but take no new path: every canonical act is latched and
+publishes no demand page. The general regime's one real consumer, the S2 clip DEBUG shape
+(`s2_ehz_cpz`, s4.s2clip.debug.bin 4a3bc66c base -> 3a807650 fix), same harness as the GPL
+parcel (gpl_legs.sh), control re-run at the base: halt legs 3000 frames clean on both;
+lag cpzdown 33/1292 -> 32/1291, cpzdiag 70/1329 -> 74/1331.
+
+Open:
+- **SAH-1: GPL-1**, the owner's pick among the options above (and whether C comes with it).
+  The nightly's STRESS_ART flight leg stays red until then.
+- **SAH-2: the clip diagonal's +4 lag frames** under the fix (concentrated at cam x
+  14336-14847, +6, with -3 at 15360) are measured, not explained. The expected cause is a
+  released hold being evicted and re-demanded near the CPZ switch; not traced.
+- **SAH-3: STRESSART-ENTITY-AXIS** (above), undiagnosed.
+- **SAH-4: pc_trace.py's hard-coded PAGE_FRAMES = 12** (research tool, not a lane): it
+  must be re-derived if the pool is re-cut again.

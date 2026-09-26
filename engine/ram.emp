@@ -1112,7 +1112,9 @@ pub vars upper_ram {
     //     tables sit in lower_ram. (The LRU head/tail cells died with the
     //     linked list — F-1 stamp eviction orders candidates by pf_stamp.) ---
     Page_Free_Head:         u8,         // head of the never-assigned free-frame list / $FF
-    pad(1),                             // keep the region word-aligned
+    Page_Demand_Held:       u8,         // demand-hold gate (GPL-2 fix): 0 no frame held, 1 a hold published
+                                        // since the last fill pass began, 2 every hold seen by a pass
+                                        // (PageCache_Publish / PageCache_DemandHoldTick). Was pad(1).
     Cache_Fill_Budget:      u16,        // per-frame block decompress allowance (shared: columns + rows)
     Cache_Fill_RowResume_Row: u16,      // partial FillRow resume world row ($FFFF = none)
     Cache_Fill_RowResume_Col: u16,      // partial FillRow resume col cursor

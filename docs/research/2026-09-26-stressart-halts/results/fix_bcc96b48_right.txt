@@ -1,0 +1,12 @@
+s4.stressart.bin crc=bcc96b48 dirs=right
+pool_pages=41
+HALTED: 103 frames stepped; last live frame index 42
+[40] fc=337 lt=195 cam=(704,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc608/P 1:p1/rc73/P 2:p2/rc34/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc37/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc33/
+[41] fc=338 lt=196 cam=(720,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc639/P 1:p1/rc69/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc40/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc35/
+[42] fc=339 lt=197 cam=(736,144) cls=PPRRRREPPPRR free=FF cur=p12/f6/fl0 stall=0 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc672/P 1:p1/rc65/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc47/ 5:p5/rc48/ 6:p12/rc0/E 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc37/
+[43] fc=339 lt=197 cam=(752,144) cls=PPRRRRRPPPRR free=FF cur=p6/f6/fl1 stall=1 dm=0 busy=[0, 0, 0, 0] q=[]
+    0:p0/rc687/P 1:p1/rc63/P 2:p2/rc36/ 3:p3/rc63/ 4:p4/rc48/ 5:p5/rc49/ 6:p12/rc1/ 7:p7/rc0/P 8:p8/rc0/P 9:p9/rc0/P 10:p10/rc8/ 11:p11/rc37/
+finished=1

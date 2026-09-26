@@ -55,6 +55,7 @@ module engine.page_cache in page_cache
 use engine.structs.{PageManifest, PageFrame}
 use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
 use engine.constants.{PF_PINNED_BIT, PF_EVICTABLE_BIT, PF_PINNED, PF_EVICTABLE, ART_PAGE_FLAG_PINNED_BIT}
+use engine.constants.{PF_DEMAND_HELD_BIT, PF_DEMAND_HELD}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
 use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, TILE_CACHE_STRIDE}
@@ -163,6 +164,11 @@ ensure((NT_TILE_MASK >> PAGE_FRAME_TILE_SHIFT) <= 31, "a nametable frame id must
 ensure(PAGE_AUDIT_FULL == 0 && PAGE_AUDIT_TICK == 1 && PAGE_AUDIT_IDLE > 1,
        "PageCache_Audit dispatches on d0 == 0 (FULL), then d0 - 1 == 0 (TICK), else IDLE")
 
+// Page_Demand_Held's values (PageCache_Publish sets NEW, PageCache_DemandHoldTick ages it
+// to SEEN and clears it; 0 = no frame carries PF_DEMAND_HELD).
+const PAGE_HELD_NEW  = 1
+const PAGE_HELD_SEEN = 2
+
 // Field displacements for the base(a3)+offset(dn) addressing (never baked literals).
 const PF_PAGE  = offsetof(PageFrame, pf_page)
 const PF_RC    = offsetof(PageFrame, pf_refcount)
@@ -237,6 +243,7 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         // CLAMP==PAGE_FRAMES, the unclamped case).
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT + (PAGE_FRAMES_CLAMP-1-PAGE_FRAMES)*sizeof(PageFrame)(a0)
         move.b  #0, Page_Free_Head              // free list head = frame 0
+        clr.b   Page_Demand_Held                // no demand hold survives an act reset (flags were cleared above)
 
     if DEBUG == 1 {
         // Page_Audit_Ticks = 0 is also what keeps the idle-slot sweep off until the level
@@ -353,8 +360,10 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         // PF_EVICTABLE (see PageCache_Publish), so it is NEVER a candidate here.
         // That is what stops a second demand miss in the same frame from evicting
         // the just-published page out from under the resuming fill (which would
-        // re-request the page it just evicted, forever). Every candidate is
-        // refcount-0/unpinned — safe to evict.
+        // re-request the page it just evicted, forever). The hold is BOUNDED
+        // (PF_DEMAND_HELD, released by PageCache_DemandHoldTick once a fill pass
+        // ends without a stall), so a page the fill never wanted does not leak.
+        // Every candidate is refcount-0/unpinned — safe to evict.
         // F-1 stamp eviction: victim = the OLDEST evictable frame — the max
         // unsigned (Frame_Counter - pf_stamp) among PF_EVICTABLE frames. An
         // O(PAGE_FRAMES) scan, paid only at eviction; it replaces the linked
@@ -541,13 +550,22 @@ pub proc PageCache_EndBoundedRegime () clobbers() preserves(d0-d2/a0-a1) {
 // DEMAND-PROTECTION (Task 7, by construction): a SPECULATIVE (prefetch/bulk) page is
 // flagged PF_EVICTABLE (+stamped) immediately — a cold prefetched page must be
 // reclaimable if it is never referenced. A DEMAND page (PageIn_Cur_Flags PGRQ_DEMAND)
-// is instead left UNFLAGGED — refcount 0, no candidate flag — until the stalled
-// fill's first PageCache_Ref lands. AllocFrame's candidate scan therefore cannot
-// evict it before the resuming fill references it (the deadlock the plan flags).
-// The first Ref (0->1) leaves it referenced; a later full Unref (1->0) stamps +
-// flags it normally, so its lifecycle rejoins the speculative one the moment
-// nothing references it. (See the matching invariant note at AllocFrame's
-// .from_lru arm.)
+// is instead HELD: not a candidate, refcount 0, PF_DEMAND_HELD set. AllocFrame's
+// candidate scan therefore cannot evict it before the resuming fill references it
+// (the deadlock the plan flags). The first Ref (0->1) leaves it referenced; a later
+// full Unref (1->0) stamps + flags it normally.
+//
+// THE HOLD ENDS (stressart-halts GPL-2, 2026-09-26). Task 7 assumed the resuming fill
+// always references the page. It need not: the words that missed can be overwritten
+// before the page lands (measured on STRESS_ART's diagonal: the camera flew into empty
+// sky, the stall cleared while the page was still decoding, and the page sat assigned,
+// unreferenced and unflagged for 65 frames — unreachable by every reclaim path, i.e.
+// leaked, until the orphan audit raised). So the hold is bounded: PF_DEMAND_HELD marks
+// the frame, Page_Demand_Held arms PageCache_DemandHoldTick, and the first fill pass
+// that SAW the page resident and ended WITHOUT a demand stall releases every held frame
+// still unreferenced as an ordinary candidate. While the fill keeps stalling, the hold
+// stands, which is the whole of what the protection was for. (See the matching
+// invariant note at AllocFrame's .from_lru arm.)
 // In: d0.w = page id, d1.b = frame idx   Out: none   Clobbers: d0-d2/a0/a3
 // -----------------------------------------------
 pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
@@ -595,13 +613,18 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never an eviction candidate
         rts
     .not_pinned:
-        // DEMAND-PROTECTION: a demand page stays UNFLAGGED (not PF_EVICTABLE)
-        // until the stalled fill's first Ref — so AllocFrame's candidate scan
-        // cannot evict it before it is referenced. Flags/refcount are already
-        // the detached state (0/0 from AllocFrame .detach).
+        // DEMAND-PROTECTION: a demand page is HELD (not PF_EVICTABLE) until the
+        // stalled fill's first Ref or PageCache_DemandHoldTick's release, whichever
+        // comes first — so AllocFrame's candidate scan cannot evict it before the
+        // fill has had its pass at it. Flags/refcount are already the detached state
+        // (0/0 from AllocFrame .detach).
         clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
         btst    #PGRQ_DEMAND_BIT, PageIn_Cur_Flags
-        bne     .done                          // demand -> leave unflagged (protected)
+        beq     .speculative
+        bset    #PF_DEMAND_HELD_BIT, PF_FLAGS(a3, d2.w)   // demand -> held (protected, bounded)
+        move.b  #PAGE_HELD_NEW, Page_Demand_Held          // the next fill pass is the first to see it
+        rts
+    .speculative:
         // SPECULATIVE (prefetch/bulk): immediately an eviction candidate — a cold
         // prefetched page must be reclaimable if it is never referenced. Flag +
         // stamp NOW (F-1): the stamp makes it the NEWEST candidate, so it is
@@ -610,7 +633,60 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         move.w  Frame_Counter, d0               // (via d0: abs-sym + indexed in one op is a sigil gap)
         move.w  d0, PF_STAMP(a3, d2.w)
         bset    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d2.w)
-    .done:
+        rts
+}
+
+// -----------------------------------------------
+// PageCache_DemandHoldTick — end the demand holds the fill no longer needs
+// (stressart-halts GPL-2 fix, 2026-09-26; PageCache_Publish's header has the why).
+// Called by Tile_Cache_Fill once per fill pass, AFTER its same-frame gate and BEFORE
+// it clears Cache_Art_Stall, so Cache_Art_Stall still holds the PREVIOUS pass's result;
+// the caller skips the call while Page_Demand_Held is 0.
+//
+//   NEW  -> SEEN: a hold was published since the previous pass began. The pass about to
+//               run is the first to see the page resident; nothing is decided yet.
+//   SEEN, previous pass stalled -> keep every hold: the fill is still waiting on a page,
+//               and the held ones may be what its resume needs next.
+//   SEEN, previous pass did not stall -> release. That pass saw every held page
+//               resident and wanted nothing it could not have, so a held frame still at
+//               refcount 0 is one nothing wants: it becomes an ordinary candidate
+//               (PF_EVICTABLE + stamped now, the newest, so evicted after every older
+//               release). A held frame the fill DID reference just drops the mark; its
+//               own 1->0 unref flags it.
+//
+// Why a release cannot bring back the deadlock the hold exists for: that deadlock needs
+// a fill that is stalled, and a stalled pass keeps every hold. The worst a release can
+// cost is a re-demand, never a dangling word: eviction still takes only refcount-0,
+// unpinned frames.
+//
+// Cost: two compares on NEW/keep; one 12-frame walk (~450 cycles) on a release, which
+// happens at most once per demand episode. Never reached on a latched (resident or
+// bounded) act, which publishes no demand page.
+// In: none   Out: none   Clobbers: d0-d2/a0
+// -----------------------------------------------
+pub proc PageCache_DemandHoldTick () clobbers(d0-d2/a0) {
+        cmpi.b  #PAGE_HELD_NEW, Page_Demand_Held
+        bne     .seen
+        move.b  #PAGE_HELD_SEEN, Page_Demand_Held       // the pass about to run sees them first
+        rts
+    .seen:
+        tst.w   Cache_Art_Stall                 // the previous pass (it saw every hold) stalled?
+        bne     .keep                           // yes: keep every hold
+        clr.b   Page_Demand_Held
+        move.w  Frame_Counter, d2               // one release time for the whole walk
+        lea     Page_Frames, a0
+        moveq   #PAGE_FRAMES-1, d0
+    .frame:
+        bclr    #PF_DEMAND_HELD_BIT, PF_FLAGS(a0)
+        beq     .next                           // not held
+        tst.w   PF_RC(a0)
+        bne     .next                           // referenced: its own 1->0 unref will flag it
+        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a0) // never referenced: an ordinary candidate now
+        move.w  d2, PF_STAMP(a0)
+    .next:
+        lea     sizeof(PageFrame)(a0), a0
+        dbf     d0, .frame
+    .keep:
         rts
 }
 
@@ -1409,6 +1485,7 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
         clr.w   PF_RC(a0)
         move.b  PF_FLAGS(a0), d1
         bclr    #PF_EVICTABLE_BIT, d1           // default: NOT a candidate
+        bclr    #PF_DEMAND_HELD_BIT, d1         // a warp resolves every demand: no hold survives it
         cmpi.w  #$FFFF, PF_PAGE(a0)
         beq     .store                          // unassigned (free / in-flight decode)
         btst    #PF_PINNED_BIT, d1
@@ -1444,8 +1521,9 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 // (PageCache_Direct_Map != 0, streaming fix F1 and the bounded variant): (a) every
 // pf_refcount is zero, (b) no nametable word names an UNASSIGNED frame, (c) Page_Table
 // is the identity below PAGE_FRAMES_CLAMP and absent above it. Every regime:
-// PF_EVICTABLE => assigned + rc0 + unpinned; page<->frame is a bijection; no assigned
-// frame is unreachable by every reclaim path (orphan).
+// PF_EVICTABLE => assigned + rc0 + unpinned; PF_DEMAND_HELD => assigned + unpinned +
+// the hold gate armed; page<->frame is a bijection; no assigned frame is unreachable by
+// every reclaim path (orphan).
 //
 // THE AMORTISED SCHEDULE (audit-amortise, 2026-09-26; the measurements and the designs
 // it beat are in docs/research/2026-09-26-audit-amortise.md). The audit's cost is the
@@ -1669,6 +1747,30 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         subq.w  #sizeof(PageFrame), d1
         bpl     .evf
 
+        // Demand-hold invariant (stressart-halts GPL-2, 2026-09-26): PF_DEMAND_HELD
+        // implies assigned + unpinned, and a held frame needs the gate armed — with
+        // Page_Demand_Held 0, PageCache_DemandHoldTick is never called and the hold
+        // (which exempts the frame from the orphan check below) would never end.
+        lea     Page_Frames, a1
+        move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
+    .held:
+        btst    #PF_DEMAND_HELD_BIT, PF_FLAGS(a1, d1.w)
+        beq     .held_next
+        tst.b   Page_Demand_Held
+        bne     .held_armed
+        raise_error "PageCache_Audit: demand-held frame but the hold gate is disarmed (the hold would never end)"
+    .held_armed:
+        btst    #PF_PINNED_BIT, PF_FLAGS(a1, d1.w)
+        beq     .held_unpinned
+        raise_error "PageCache_Audit: pinned frame carries PF_DEMAND_HELD"
+    .held_unpinned:
+        cmpi.w  #$FFFF, PF_PAGE(a1, d1.w)
+        bne     .held_next
+        raise_error "PageCache_Audit: unassigned frame carries PF_DEMAND_HELD"
+    .held_next:
+        subq.w  #sizeof(PageFrame), d1
+        bpl     .held
+
         // --- MAPPING BIJECTIVITY (Task-6 review): the residency map must be a
         //     bijection between resident pages and assigned frames. A consistent-
         //     but-WRONG mapping (page art landing at frame X while Page_Table says
@@ -1721,11 +1823,14 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         //     all pass). The in-flight DECODE frame is UNASSIGNED (pf_page
         //     $FFFF, soak-fix chain 72), so the pf_page skip already covers it;
         //     the one legitimate assigned/rc0/unflagged transient — a demand
-        //     page published but not yet Ref'd by its resuming fill — is
-        //     PageIn_Cur_Frame, excluded explicitly. ---
+        //     page published but not yet Ref'd by its resuming fill — carries
+        //     PF_DEMAND_HELD, and that hold is itself bounded: while any frame is
+        //     held, Page_Demand_Held must be armed, or nothing will ever release it
+        //     (checked here). This replaced a PageIn_Cur_Frame exemption, which
+        //     covered only the LATEST page-in (stressart-halts GPL-2, 2026-09-26:
+        //     the frame it raised on was a real leak, a demand page nothing would
+        //     ever reference; the hold release now reclaims it). ---
         lea     Page_Frames, a1
-        moveq   #0, d1
-        move.b  PageIn_Cur_Frame, d1            // the live page-in handoff frame (exclude)
         moveq   #0, d0                          // frame index
     .orphan:
         move.w  d0, d2
@@ -1736,10 +1841,8 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         tst.w   PF_RC(a3)
         bne     .orphan_next                    // referenced -> reachable via a cache word
         move.b  PF_FLAGS(a3), d2                // (d2's offset is spent: a3 holds the frame)
-        andi.b  #PF_EVICTABLE | PF_PINNED, d2
-        bne     .orphan_next                    // eviction candidate or pinned -> reclaimable / held
-        cmp.b   d1, d0
-        beq     .orphan_next                    // the demand-published-awaiting-Ref frame -> ok
+        andi.b  #PF_EVICTABLE | PF_PINNED | PF_DEMAND_HELD, d2
+        bne     .orphan_next                    // candidate, pinned, or demand-held (bounded, below)
         raise_error "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)"
     .orphan_next:
         addq.w  #1, d0

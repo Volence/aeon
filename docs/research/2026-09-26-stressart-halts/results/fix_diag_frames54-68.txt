@@ -1,0 +1,31 @@
+fix (PF_DEMAND_HELD + PageCache_DemandHoldTick), s4.stressart.bin bcc96b48, DEBUG fly right+down, frames 54-67 after the 300-frame boot (flags: 1 pinned, 2 evictable, 4 demand-held)
+per row: index, camera, nonblank cache words (recount), Cache_Art_Stall, PageIn cur page/frame/flags,
+then per frame f:page/rc<stored>/re<recounted from Tile_Cache_Nametable>/fl<flags: 1 pinned, 2 evictable>
+[54] cam=(720,736) nonblank=664 stall=0 cur=p11/f11/fl2 busy=[0, 0, 0, 0]
+    0:p0/rc0/re398/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re182/fl2 3:p3/rc0/re55/fl2 4:p4/rc0/re0/fl2 5:p5/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc0/re18/fl2 11:p11/rc0/re11/fl2
+[55] cam=(736,752) nonblank=496 stall=0 cur=p11/f11/fl2 busy=[0, 0, 0, 0]
+    0:p0/rc0/re348/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re79/fl2 3:p3/rc0/re40/fl2 4:p4/rc0/re3/fl2 5:p5/rc0/re0/fl2 6:p6/rc0/re1/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc0/re16/fl2 11:p11/rc0/re9/fl2
+[56] cam=(752,768) nonblank=489 stall=1 cur=p12/f11/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc36/re340/fl1 1:p1/rc0/re0/fl1 2:p2/rc79/re79/fl2 3:p3/rc40/re40/fl2 4:p4/rc3/re3/fl2 5:p5/rc0/re0/fl2 6:p6/rc2/re2/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc3/re16/fl2 11:p11/rc3/re9/fl2
+[57] cam=(752,768) nonblank=489 stall=1 cur=p12/f11/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc340/re340/fl1 1:p1/rc0/re0/fl1 2:p2/rc79/re79/fl2 3:p3/rc40/re40/fl2 4:p4/rc3/re3/fl2 5:p5/rc0/re0/fl2 6:p6/rc2/re2/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc16/re16/fl2 11:p11/rc9/re9/fl2
+[58] cam=(768,784) nonblank=489 stall=0 cur=p12/f5/fl1 busy=[255, 0, 0, 255]
+    0:p0/rc340/re340/fl1 1:p1/rc0/re0/fl1 2:p2/rc79/re79/fl0 3:p3/rc40/re40/fl0 4:p4/rc3/re3/fl0 5:p--/rc0/re0/fl0 6:p6/rc2/re2/fl0 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc16/re16/fl0 11:p11/rc9/re9/fl0
+[59] cam=(768,784) nonblank=258 stall=0 cur=p12/f5/fl1 busy=[255, 0, 0, 255]
+    0:p0/rc243/re243/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p--/rc0/re0/fl0 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc10/re10/fl0 11:p11/rc5/re5/fl0
+[60] cam=(768,784) nonblank=248 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc234/re234/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl4 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc10/re10/fl0 11:p11/rc4/re4/fl0
+[61] cam=(784,800) nonblank=110 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc107/re107/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl4 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc3/re3/fl0 11:p11/rc0/re0/fl2
+[62] cam=(784,800) nonblank=110 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc107/re107/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl4 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc3/re3/fl0 11:p11/rc0/re0/fl2
+[63] cam=(800,816) nonblank=44 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc42/re42/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc2/re2/fl0 11:p11/rc0/re0/fl2
+[64] cam=(800,816) nonblank=44 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc42/re42/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc2/re2/fl0 11:p11/rc0/re0/fl2
+[65] cam=(816,832) nonblank=36 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc34/re34/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc2/re2/fl0 11:p11/rc0/re0/fl2
+[66] cam=(816,832) nonblank=36 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc34/re34/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc2/re2/fl0 11:p11/rc0/re0/fl2
+[67] cam=(832,848) nonblank=28 stall=0 cur=p12/f5/fl1 busy=[0, 0, 0, 0]
+    0:p0/rc27/re27/fl1 1:p1/rc0/re0/fl1 2:p2/rc0/re0/fl2 3:p3/rc0/re0/fl2 4:p4/rc0/re0/fl2 5:p12/rc0/re0/fl2 6:p6/rc0/re0/fl2 7:p7/rc0/re0/fl1 8:p8/rc0/re0/fl1 9:p9/rc0/re0/fl1 10:p10/rc1/re1/fl0 11:p11/rc0/re0/fl2

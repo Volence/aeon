@@ -44,8 +44,9 @@
 # AND IT BUILDS THE TWO STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17), LAST,
 # after every lane above has graded the canonical artifacts: see the block above the
 # worst-wins combination for why last, and why a failure there is FAILED, not COULD NOT RUN.
-# The STRESS_EVICT artifact is then graded by tools/evict_witness.py (2026-09-25), the one
-# lane in that block that boots an emulator; its exit is mapped like the lanes above.
+# The STRESS_EVICT artifact is then graded by tools/evict_witness.py (2026-09-25), and the
+# STRESS_ART artifact by tools/stressart_legs_witness.py (2026-09-26), the two lanes in that
+# block that boot an emulator; their exits are mapped like the lanes above.
 #
 # --selftest-fail exercises the notification path without running anything.
 set -uo pipefail
@@ -382,6 +383,34 @@ else
     note "STRESS_ART BUILD FAILED (exit $rc_sa) at $AT — see $STATE/stress_art.log"
     rc_sa=1
 fi
+# The STRESS_ART artifact is GRADED, not just built (STRESSART-HALTS, 2026-09-26). From
+# 2026-09-17 this leg built s4.stressart.{bin,lst} every night and nothing booted it, and
+# both of the fixture's DEBUG flight legs halted on master the whole time (GPL-1, GPL-2 in
+# docs/DEFERRED_WORK.md). tools/stressart_legs_witness.py flies both legs in private
+# headless emulators and exits 0 no halt, 1 a leg halted, anything else COULD NOT RUN (2),
+# mapped exactly like the eviction witness above and for the same reasons: it runs only
+# when this build exited 0 (a failed build leaves nothing to grade, and its FAILED already
+# carries the verdict), and rc_sw folds into the same worst-wins combination. It writes
+# nothing into the tree, so the tree check below is unaffected. Spelled out literally so
+# tools/test_landing_lane_shapes.py can grade the wiring.
+if [ "$rc_sa" = 0 ]; then
+    t_sw=$(date +%s)
+    echo "$(date -Is) stressart_legs_witness starting at $AT; uptime:$(uptime)" > "$STATE/stress_art_legs.log"
+    python3 tools/stressart_legs_witness.py --rom s4.stressart.bin --lst s4.stressart.lst \
+        >> "$STATE/stress_art_legs.log" 2>&1
+    rc_sw=$?
+    echo "$(date -Is) stressart_legs_witness exit $rc_sw after $(( $(date +%s) - t_sw )) s; uptime:$(uptime)" >> "$STATE/stress_art_legs.log"
+    case $rc_sw in
+        0) echo "$(date -Is) OK at $AT (STRESS_ART flight legs)" >> "$LOG" ;;
+        1) note "STRESS_ART FLIGHT LEG HALTED at $AT — see $STATE/stress_art_legs.log" ;;
+        *) note "COULD NOT RUN: STRESS_ART flight legs (exit $rc_sw) at $AT — see $STATE/stress_art_legs.log"
+           rc_sw=2 ;;
+    esac
+else
+    echo "$(date -Is) stressart_legs_witness NOT RUN at $AT: the STRESS_ART build exited non-zero, so there is no artifact to grade (that leg's FAILED already carries the verdict)" \
+        > "$STATE/stress_art_legs.log"
+    rc_sw=1
+fi
 tree_after=$(git -C "$NIGHTLY" status --porcelain 2>&1)
 rc_git=$?
 { echo "before the stress legs:"; echo "$tree_before"; echo "after the stress legs (git status exit $rc_git):"; echo "$tree_after"; } \
@@ -403,7 +432,7 @@ fi
 
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_tree"; do
+for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_sw" "$rc_tree"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi

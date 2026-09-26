@@ -1,0 +1,32 @@
+== mutation M3 on engine/level/tile_cache.emp
+diff --git a/engine/level/tile_cache.emp b/engine/level/tile_cache.emp
+index ef9fe64a..76d67c31 100644
+--- a/engine/level/tile_cache.emp
++++ b/engine/level/tile_cache.emp
+@@ -1096,7 +1096,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         // below. Skipped outright while nothing is held (every latched act, always).
+         tst.b   Page_Demand_Held
+         beq     .no_demand_holds
+-        jbsr    PageCache_DemandHoldTick        // clobbers d0-d2/a0 (the fill's own scratch)
++        nop                                     // MUTATION M3: hold never ticked
+     .no_demand_holds:
+         // P2b Task 6: a fresh demand-stall flag each fill pass (a copy-site
+         // non-resident page sets it; the fills consume it as a partial return).
+build rc=0
+s4.debug.bin crc befaf16c
+  booted: PageCache_Direct_Map=$80, first unassigned frame = 10, first assigned unpinned frame = 2, nametable 4800 words, interval 128 ticks
+  CONTROL (no poke)                            still running (412 ticks run)   ok
+  (a) nonzero pf_refcount                      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b) unassigned frame referenced              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (c) Page_Table not the identity              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b1) one dangling word, first slice          HALTED (audit raised) after 16 ticks (bound 136)   ok
+  (b2) one dangling word, last slice           HALTED (audit raised) after 7 ticks (bound 136)   ok
+  (g) general regime forced: refcount sum      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (o) orphan: assigned, unreachable            HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (h) demand hold with the gate disarmed       HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (hr) armed demand hold, must be released     still running (412 ticks run)   ok
+     (hr) after the run: flags $04, gate 1     NOT released   FAIL
+RESULT: AT LEAST ONE ARM IS VACUOUS OR LATE
+poison rc=1
+restored from HEAD; dirty paths now: 0
+finished=1
