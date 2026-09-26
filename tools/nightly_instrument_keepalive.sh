@@ -133,6 +133,21 @@ if ! DEBUG=1 ./build.sh > "$STATE/build.log" 2>&1; then
     exit 2
 fi
 
+# ---- the CLIP ROM the rows that name {repo}/s4.s2clip.debug.* measure ----------------
+# (S2CLIP-PLANE-SWITCH, 2026-09-26.) A clip act's instruments have no subject in the
+# canonical ROM, so they read the DEBUG clip shape built here. The converted Sonic 2 trees
+# are gitignored, so this checkout converts them first. The previous night's clip ROM is
+# DELETED before the build: a failed build must leave those rows reading NO ROM (each is
+# COULD NOT RUN, loudly) rather than grading yesterday's. A failure here stops nothing
+# else -- the canonical rows above do not read this ROM -- but it is noted.
+rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
+if ! { python3 tools/s2_zone_convert.py convert s2disasm@EHZ \
+        && python3 tools/s2_zone_convert.py convert s2disasm@CPZ \
+        && DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh; } > "$STATE/build_s2clip.log" 2>&1; then
+    note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_ehz_cpz build failed at $AT -- the clip rows will be COULD NOT RUN; see $STATE/build_s2clip.log"
+    rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
+fi
+
 rm -rf "$TOOLLOGS"
 python3 tools/keepalive_lane.py \
         --rom "$NIGHTLY/s4.debug.bin" --lst "$NIGHTLY/s4.debug.lst" \
