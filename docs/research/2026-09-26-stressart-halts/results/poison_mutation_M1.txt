@@ -1,0 +1,32 @@
+== mutation M1 on engine/level/page_cache.emp
+diff --git a/engine/level/page_cache.emp b/engine/level/page_cache.emp
+index 7690f7c7..0e30ca5b 100644
+--- a/engine/level/page_cache.emp
++++ b/engine/level/page_cache.emp
+@@ -1757,7 +1757,7 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
+         btst    #PF_DEMAND_HELD_BIT, PF_FLAGS(a1, d1.w)
+         beq     .held_next
+         tst.b   Page_Demand_Held
+-        bne     .held_armed
++        bra     .held_armed                     // MUTATION M1: gate check skipped
+         raise_error "PageCache_Audit: demand-held frame but the hold gate is disarmed (the hold would never end)"
+     .held_armed:
+         btst    #PF_PINNED_BIT, PF_FLAGS(a1, d1.w)
+build rc=0
+s4.debug.bin crc 7f493523
+  booted: PageCache_Direct_Map=$80, first unassigned frame = 10, first assigned unpinned frame = 2, nametable 4800 words, interval 128 ticks
+  CONTROL (no poke)                            still running (412 ticks run)   ok
+  (a) nonzero pf_refcount                      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b) unassigned frame referenced              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (c) Page_Table not the identity              HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (b1) one dangling word, first slice          HALTED (audit raised) after 16 ticks (bound 136)   ok
+  (b2) one dangling word, last slice           HALTED (audit raised) after 7 ticks (bound 136)   ok
+  (g) general regime forced: refcount sum      HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (o) orphan: assigned, unreachable            HALTED (audit raised) after 15 ticks (bound 128)   ok
+  (h) demand hold with the gate disarmed       still running (412 ticks run)   FAIL
+  (hr) armed demand hold, must be released     still running (412 ticks run)   ok
+     (hr) after the run: flags $02, gate 0     released   ok
+RESULT: AT LEAST ONE ARM IS VACUOUS OR LATE
+poison rc=1
+restored from HEAD; dirty paths now: 0
+finished=1
