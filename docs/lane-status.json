@@ -1,12 +1,6 @@
 {
-  "focus": "Chemical Plant lag fix landed; the loop fix is finishing; your pick on the fall feel is open.",
-  "inFlight": [
-    {
-      "what": "Stop Sonic going round our loop twice at walking pace",
-      "where": "branch fix/ojz-loop-exit",
-      "agent": true
-    }
-  ],
+  "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -19,8 +13,15 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The floor-gap check comes back; I review and land any fix.",
+  "nextBoundary": "Nothing running. Next: the loop's remaining collision faults, once the temp folder has room.",
   "queue": [
+    {
+      "id": "OJZ-LOOP-COLLISION",
+      "title": "Our loop still loses Sonic at some speeds (worst: falling through the floor at the foot of the left side)",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "OJZ-FEEL",
       "title": "Our act: lag is in the long diagonal falls; falling is capped by your earlier ruling. Your pick on the fall feel",
@@ -30,8 +31,8 @@
     },
     {
       "id": "OJZ-LOOP-DOUBLE-LAP",
-      "title": "Our loop: stop Sonic going round twice at walking pace (you said yes)",
-      "state": "doing",
+      "title": "Our loop: the double lap is fixed",
+      "state": "open",
       "size": "S",
       "blockedBy": null
     },
@@ -190,7 +191,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Two things: may I clear old folders in /tmp/claude-1000 (it's blocking every lane)? And the fall feel: I recommend C (camera leads ahead in a long fall).",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T23:29:47Z"
+  "updatedAt": "2026-09-26T23:49:24Z"
 }
