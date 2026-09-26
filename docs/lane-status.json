@@ -1,12 +1,6 @@
 {
   "focus": "Sonic 2 level music is ready for your ears; meanwhile auditing our checks, which doesn't need you.",
-  "inFlight": [
-    {
-      "what": "Audit our checks for ones that watch something near the thing they promise to protect, and fix the clear cases",
-      "where": "branch parcel/gate-predicate-audit",
-      "agent": true
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -72,8 +66,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 26 landing checks audited, 11 fixed; 13 written up as GPP rows",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -123,5 +117,5 @@
   ],
   "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T05:16:22Z"
+  "updatedAt": "2026-09-26T05:54:25Z"
 }
