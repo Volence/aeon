@@ -1,0 +1,43 @@
+Sat Sep 26 12:54:14 PM UTC 2026
+ 08:54:14 up 2 days, 21:55,  1 user,  load average: 3.96, 4.05, 3.81
+== N=2600
+regen rc=0
+STRESS-UNIQUIFY: inflated act pool to 2600 tiles (1988 parent-matched clone references re-pointed)
+Checking the FG page budget on the re-baked tree...
+FG page budget OVER (report-only, not failing) — ojz/act1 (committed tree; 41 pages, pins [0, 1, 7, 8, 9]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 13 (tile left 73 top 0, e.g. camera x=744 y=0 px; 1605 window(s) at that count); 1605 window(s) over budget
+  manifest pins: worst window 13; windows over F: {12: 1605, 13: 0, 14: 0, 15: 0}
+  page 0 only: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  frame-aware pins [0, 1, 7, 8]: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+finished=1
+restored: 0 dirty paths
+== N=2200
+regen rc=0
+STRESS-UNIQUIFY: inflated act pool to 2200 tiles (1588 parent-matched clone references re-pointed)
+Checking the FG page budget on the re-baked tree...
+FG page budget OK — ojz/act1 (committed tree; 35 pages, pins [0, 1, 7, 8, 9]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 12 (tile left 73 top 0, e.g. camera x=744 y=0 px; 2219 window(s) at that count); 0 window(s) over budget
+  manifest pins: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  page 0 only: worst window 11; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  frame-aware pins [0, 1, 7, 8, 9]: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+finished=1
+restored: 0 dirty paths
+== N=1800
+regen rc=0
+STRESS-UNIQUIFY: inflated act pool to 1800 tiles (1188 parent-matched clone references re-pointed)
+Checking the FG page budget on the re-baked tree...
+FG page budget OK — ojz/act1 (committed tree; 29 pages, pins [0, 1, 7, 8, 9]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 12 (tile left 73 top 0, e.g. camera x=744 y=0 px; 3055 window(s) at that count); 0 window(s) over budget
+  manifest pins: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  page 0 only: worst window 11; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  frame-aware pins [0, 1, 7, 8, 9]: worst window 12; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+finished=1
+restored: 0 dirty paths
+== N=1400
+regen rc=0
+STRESS-UNIQUIFY: inflated act pool to 1400 tiles (788 parent-matched clone references re-pointed)
+Checking the FG page budget on the re-baked tree...
+FG page budget OK — ojz/act1 (committed tree; 22 pages, pins [0, 1, 7, 8, 9]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 11 (tile left 73 top 0, e.g. camera x=744 y=0 px; 4520 window(s) at that count); 0 window(s) over budget
+  manifest pins: worst window 11; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  page 0 only: worst window 11; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+  frame-aware pins [0, 1, 7, 8, 9]: worst window 11; windows over F: {12: 0, 13: 0, 14: 0, 15: 0}
+finished=1
+restored: 0 dirty paths
+finished=1
