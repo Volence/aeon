@@ -232,8 +232,20 @@ if [[ -n "${S2CLIP:-}" ]]; then
     # DERIVED by tools/clip_anchors.py, which also fails the build when the listing's Source
     # Digest has no READ row for it (the switch was dropped). Contract: sigil
     # docs/superpowers/notes/2026-09-25-clip-overlay-contract.md.
-    S2CLIP_ANCHORS="games/sonic4/data/clips/${S2CLIP}/anchors.toml"
-    if [[ -f "$S2CLIP_ANCHORS" ]]; then
+    #
+    # WHETHER the clip has one is its MANIFEST's claim (`"anchor_overlay": true` in
+    # clips.json), not the file's presence (CLIP-ANCHORS-MISSING-FILE, 2026-09-25): with
+    # the file moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` used to exit 0 on the
+    # canonical anchors. `--overlay-arg` prints the path when declared and present,
+    # nothing when undeclared and absent, and exits 1 when the two disagree. Here, before
+    # any work, so it refuses in EVERY shape, FAST included.
+    S2CLIP_ANCHORS=$(python3 "${TOOLS:-tools}/clip_anchors.py" --clip "${S2CLIP}" --overlay-arg) || {
+        echo "ERROR: S2CLIP=${S2CLIP}: the clip's anchor-overlay declaration and its"
+        echo "  anchors.toml disagree (see above). Refusing rather than building on the"
+        echo "  canonical anchors."
+        exit 1
+    }
+    if [[ -n "$S2CLIP_ANCHORS" ]]; then
         ANCHOR_OVERLAY_ARGS=(--anchor-overlay "$S2CLIP_ANCHORS")
         echo "S2CLIP: clip anchor overlay ${S2CLIP_ANCHORS}"
     fi

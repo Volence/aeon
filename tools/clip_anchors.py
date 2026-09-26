@@ -52,6 +52,12 @@ is `dac_banks`, `SoundTablesZ80_Head`'s PHASE LMA is `sound_bank`), and the list
 Source Digest carries a READ row for the overlay exactly when the clip has one. Either
 failing means build.sh did not hand the file to sigil, or sigil did not apply it.
 
+WHICH CLIPS HAVE ONE is DECLARED, not inferred (CLIP-ANCHORS-MISSING-FILE): the clip's
+`clips.json` carries `"anchor_overlay": true`, and `--overlay-arg` (run by build.sh's
+S2CLIP block before any work, FAST included) and the in-build check both refuse (exit 1)
+when the declaration and the file disagree. Before this, a declared clip whose file went
+missing built on the canonical anchors with exit 0 and only a printed notice.
+
 WHAT IT DOES NOT SEE: whether the other shape is still fresh. One build measures one
 shape; the other shape's `# measured:` line is checked when that shape builds. Nor the
 emit half: that the bank ids baked at emit time match the placed banks is sigil's
@@ -79,6 +85,9 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIPS_REL = os.path.join("games", "sonic4", "data", "clips")
 MAP_REL = os.path.join("games", "sonic4", "map.toml")
 OVERLAY_NAME = "anchors.toml"
+MANIFEST_NAME = "clips.json"
+#: The clip manifest key that declares the clip carries OVERLAY_NAME (see declares_overlay).
+DECLARE_KEY = "anchor_overlay"
 RECORD_SUFFIX = ".clip_anchors.json"
 
 FRESH, BROKEN, STALE = 0, 1, 2
@@ -117,6 +126,56 @@ def overlay_rel(clip):
     """The path build.sh passes, relative to the aeon root (sigil resolves it against
     the working directory, and build.sh runs from the root)."""
     return os.path.join(CLIPS_REL, clip, OVERLAY_NAME)
+
+
+def declares_overlay(clip, aeon=AEON):
+    """Whether the clip's manifest DECLARES an anchors.toml (`"anchor_overlay": true`).
+
+    WHY A DECLARATION (CLIP-ANCHORS-MISSING-FILE, 2026-09-25). The file's own existence
+    used to be the only signal, so a clip whose anchors.toml went missing built on
+    map.toml's canonical anchors with exit 0 (measured: `FAST=1 S2CLIP=s2_ehz_cpz
+    ./build.sh` exit 0, banks at 0xA8000/0xB8000). A signal that is the thing it checks
+    cannot notice that thing's absence. The manifest is the clip's committed statement of
+    what it is, so it carries the claim and the file is held to it. Absent key = false;
+    anything but a JSON boolean is refused, never coerced."""
+    path = os.path.join(aeon, CLIPS_REL, clip, MANIFEST_NAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as e:
+        raise Unmeasurable(f"{path}: cannot read the clip manifest to learn whether it "
+                           f"declares an anchor overlay ({e})")
+    if not isinstance(doc, dict):
+        raise Unmeasurable(f"{path}: the clip manifest is not a JSON object")
+    v = doc.get(DECLARE_KEY, False)
+    if not isinstance(v, bool):
+        raise Unmeasurable(f"{path}: `{DECLARE_KEY}` is {v!r}; it must be true or false")
+    return v
+
+
+def resolve_overlay(clip, aeon=AEON):
+    """The overlay path (relative to the aeon root) this clip's builds hand to sigil, or
+    None. REFUSES (Unmeasurable) when the declaration and the file disagree, either way:
+    declared and missing is the silent fallback this exists to stop; present and
+    undeclared is a positions file nobody claimed, which would otherwise be applied on
+    the file's say-so alone."""
+    declared = declares_overlay(clip, aeon)
+    exists = os.path.isfile(overlay_path(clip, aeon))
+    rel = overlay_rel(clip)
+    if declared and not exists:
+        raise Unmeasurable(
+            f"{os.path.join(CLIPS_REL, clip, MANIFEST_NAME)} declares "
+            f"`\"{DECLARE_KEY}\": true` but {rel} does not exist. This clip would build on "
+            f"map.toml's canonical anchors instead of its own. Restore the file from git, "
+            f"or re-derive it (build both clip shapes, then python3 tools/clip_anchors.py "
+            f"--derive --clip {clip}); drop the declaration only if the clip should really "
+            f"use the canonical anchors.")
+    if exists and not declared:
+        raise Unmeasurable(
+            f"{rel} exists but {os.path.join(CLIPS_REL, clip, MANIFEST_NAME)} does not "
+            f"declare it (`\"{DECLARE_KEY}\": true`). Add the declaration to use it, or "
+            f"delete the file; an undeclared positions file is not applied on its say-so.")
+    return rel if declared else None
 
 
 def clip_shapes(aeon=AEON):
@@ -310,7 +369,9 @@ def check(clip, lst, rom, built_after, aeon=AEON, out=sys.stdout):
         raise Unmeasurable(f"{lst} is not a clip shape's listing ({clip_shapes(aeon)})")
     map_rows = map_anchor_rows(aeon)
     ov_abs, ov_rel = overlay_path(clip, aeon), overlay_rel(clip)
-    has_overlay = os.path.exists(ov_abs)
+    # The manifest's declaration decides, not the file's presence: a declared file that
+    # is missing, or a present file nobody declared, refuses here (exit 1).
+    has_overlay = resolve_overlay(clip, aeon) is not None
     overlay_anchors = parse_overlay(ov_abs)[0] if has_overlay else None
 
     # Was the overlay APPLIED? The digest row says sigil read it; the islands say it
@@ -354,9 +415,10 @@ def check(clip, lst, rom, built_after, aeon=AEON, out=sys.stdout):
           file=out)
     print(f"  measurement recorded: {os.path.basename(record_path(rom))}", file=out)
     if not has_overlay:
-        print(f"  no {ov_rel}: this clip builds on the canonical anchors. To give it its "
-              f"own, build both clip shapes and run python3 tools/clip_anchors.py --derive "
-              f"--clip {clip}", file=out)
+        print(f"  {os.path.join(CLIPS_REL, clip, MANIFEST_NAME)} declares no anchor overlay: "
+              f"this clip builds on the canonical anchors. To give it its own, build both "
+              f"clip shapes, run python3 tools/clip_anchors.py --derive --clip {clip}, and "
+              f"add `\"{DECLARE_KEY}\": true` to the manifest", file=out)
         return FRESH
     code, problems = verdict(ov_abs, shape, rule, map_rows)
     if code == FRESH:
@@ -412,6 +474,10 @@ def derive(clip, aeon=AEON, out=sys.stdout, write=True):
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         print(f"clip_anchors derive: wrote {os.path.relpath(path, aeon)}", file=out)
+        if not declares_overlay(clip, aeon):
+            print(f"clip_anchors derive: {os.path.join(CLIPS_REL, clip, MANIFEST_NAME)} does "
+                  f"not declare it yet; add `\"{DECLARE_KEY}\": true` there, or every "
+                  f"S2CLIP={clip} build refuses the undeclared file", file=out)
     return FRESH
 
 
@@ -427,13 +493,25 @@ def main(argv=None):
     ap.add_argument("--lst", help="check: this build's listing")
     ap.add_argument("--rom", help="check: this build's ROM")
     ap.add_argument("--built-after", help="check: the epoch this build started sigil")
+    ap.add_argument("--overlay-arg", action="store_true",
+                    help="print the overlay path build.sh hands sigil (nothing when the "
+                         "clip declares none); exit 1 when the manifest's declaration and "
+                         "the file disagree. build.sh's S2CLIP block runs this BEFORE any "
+                         "work, in every shape, FAST included")
     args = ap.parse_args(argv)
     checking = (args.lst, args.rom, args.built_after)
+    if args.overlay_arg and (args.derive or any(v is not None for v in checking)):
+        ap.error("--overlay-arg takes only --clip")
     if args.derive and any(v is not None for v in checking):
         ap.error("--derive reads the measurement records; it takes no --lst/--rom/--built-after")
-    if not args.derive and any(v is None for v in checking):
+    if not args.derive and not args.overlay_arg and any(v is None for v in checking):
         ap.error("the check needs --lst, --rom and --built-after (or pass --derive)")
     try:
+        if args.overlay_arg:
+            rel = resolve_overlay(args.clip)
+            if rel is not None:
+                print(rel)
+            return FRESH
         if args.derive:
             return derive(args.clip)
         return check(args.clip, args.lst, args.rom, args.built_after)
