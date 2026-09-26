@@ -177,6 +177,14 @@ python3 "${TOOLS}/elect_pool_pages.py" \
 echo "Generating editor effect scenes + bindings..."
 python3 "${TOOLS}/effects_gen.py" emit
 
+# The act's authored layer-switch lines -> the generated const module the descriptor
+# imports (LINES-EVERYWHERE, 2026-09-26). UNCONDITIONAL, like the effects emit above: the
+# module is imported whether or not the act has lines. tools/layer_lines.py documents the
+# source format and its refusals; build.sh re-checks the module on every build.
+echo "Generating the act's layer-line table..."
+python3 "${TOOLS}/layer_lines.py" emit \
+    || { echo "regenerate-level.sh: the layer-line bake refused (see above)" >&2; exit 1; }
+
 echo "Generating OJZ block data..."
 python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 

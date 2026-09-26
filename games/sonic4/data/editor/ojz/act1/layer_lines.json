@@ -1,0 +1,43 @@
+{
+  "format": "aeon-layer-lines",
+  "version": 1,
+  "notes": "OJZ act 1's layer-switch lines (LINES-EVERYWHERE, 2026-09-26). Format: tools/layer_lines.py. These four replace the sixteen painted crossover marks that section 0's loop carried until then (column 143, editor rows 52-55 and 68-71: XOVER_TO_B on plane A, XOVER_TO_A on plane B). A marked column was entered RIGHTWARD across its left edge (x 1144) and LEFTWARD across its right edge (x 1152), so each edge of each four-cell bar becomes a line, and every line carries both marks' meaning: crossing right puts the player on plane B (the right arc) at high priority, crossing left puts him on plane A (the left arc) at low priority. The marks derived priority from the plane (B high, A low); these lines set exactly that. Not grounded-only: a mark fired airborne too.",
+  "lines": [
+    {
+      "id": "loop0_crown_west",
+      "orientation": "vertical",
+      "x": 1144, "y": 416, "length": 32,
+      "forward": {"path": "B", "priority": "high"},
+      "backward": {"path": "A", "priority": "low"},
+      "grounded_only": false,
+      "notes": "the crown bar's left edge (editor rows 52-55, y 416-447)"
+    },
+    {
+      "id": "loop0_crown_east",
+      "orientation": "vertical",
+      "x": 1152, "y": 416, "length": 32,
+      "forward": {"path": "B", "priority": "high"},
+      "backward": {"path": "A", "priority": "low"},
+      "grounded_only": false,
+      "notes": "the crown bar's right edge"
+    },
+    {
+      "id": "loop0_floor_west",
+      "orientation": "vertical",
+      "x": 1144, "y": 544, "length": 32,
+      "forward": {"path": "B", "priority": "high"},
+      "backward": {"path": "A", "priority": "low"},
+      "grounded_only": false,
+      "notes": "the floor bar's left edge (editor rows 68-71, y 544-575)"
+    },
+    {
+      "id": "loop0_floor_east",
+      "orientation": "vertical",
+      "x": 1152, "y": 544, "length": 32,
+      "forward": {"path": "B", "priority": "high"},
+      "backward": {"path": "A", "priority": "low"},
+      "grounded_only": false,
+      "notes": "the floor bar's right edge"
+    }
+  ]
+}

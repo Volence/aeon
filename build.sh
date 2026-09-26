@@ -1221,6 +1221,18 @@ if ! gate strict "effects_gen.py" python3 "${TOOLS}/effects_gen.py" check; then
     exit 1
 fi
 
+# The layer-line drift gate (LINES-EVERYWHERE, 2026-09-26), the same shape for the same
+# reason: games/sonic4/data/generated/ojz/act1/layer_lines.emp is a COMMITTED module the
+# descriptor compiles its Act.act_layer_lines table out of, baked from the authored
+# games/sonic4/data/editor/ojz/act1/layer_lines.json by tools/layer_lines.py. A hand edit to
+# the module, or an edited source without a re-bake, is refused here in milliseconds.
+if [[ "${GAME}" == "sonic4" ]]; then
+    if ! gate strict "layer_lines.py" python3 "${TOOLS}/layer_lines.py" check; then
+        echo "Layer-line drift — re-bake with tools/regenerate-level.sh, then rebuild."
+        exit 1
+    fi
+fi
+
 # Collision height/angle consistency (2026-08-28). Two shipped defects were
 # invisible to every other check here: a flat floor slab whose angle byte claimed
 # 45 degrees (the glide momentum trap), and floor cells with a 1 px hole in their
