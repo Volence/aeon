@@ -1,0 +1,37 @@
+entity_window_diagonal_witness: s4.debug.base.bin crc32 d57002c5, 8 arm(s)
+  act grid 3x3, 9 real sections, 60 rings, 11 objects; ring buffer 128, dynamic 40, collected slots 9; kick 48 px, follow 86 ticks
+  diagonal right+down: lines kx=2 ky=1; camera (4607,2431) -> (4623,2447); anchor (1, 0) -> (2, 1); drops sections [1, 2, 4], enters [8]
+    planted 3 ring(s) in dropped sections: (sec 1, #0) at (4095,2047), (sec 2, #0) at (4110,2047), (sec 4, #0) at (4095,2543)
+    HALT: diagonal right+down, kick: Section_UpdateColumns not reached in 60 frames, camera (4623, 2447), pc $0C2B9E (in the fault island)
+      raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+    -> diagonal right+down: FAIL
+  diagonal left+down: lines kx=2 ky=1; camera (4608,2431) -> (4592,2447); anchor (2, 0) -> (1, 1); drops sections [2], enters [4, 7, 8]
+    planted 1 ring(s) in dropped sections: (sec 2, #0) at (5425,2047)
+    HALT: diagonal left+down, kick: Section_UpdateColumns not reached in 60 frames, camera (4592, 2447), pc $0C2B9C (in the fault island)
+      raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+    -> diagonal left+down: FAIL
+  diagonal right+up: lines kx=2 ky=1; camera (4607,2432) -> (4623,2416); anchor (1, 1) -> (2, 0); drops sections [4, 7, 8], enters [2]
+    planted 1 ring(s) in dropped sections: (sec 4, #0) at (4095,2544)
+    HALT: diagonal right+up, kick: Section_UpdateColumns not reached in 60 frames, camera (4623, 2416), pc $0C2B9E (in the fault island)
+      raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+    -> diagonal right+up: FAIL
+  diagonal left+up: lines kx=2 ky=1; camera (4608,2432) -> (4592,2416); anchor (2, 1) -> (1, 0); drops sections [8], enters [1, 2, 4]
+    HALT: diagonal left+up, kick: Section_UpdateColumns not reached in 60 frames, camera (4592, 2416), pc $0C2B9C (in the fault island)
+      raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+    -> diagonal left+up: FAIL
+  diagonal right+down at the stress halt: lines kx=2 ky=2; camera (4607,4479) -> (4623,4495); anchor (1, 1) -> (2, 2); drops sections [4, 5, 7], enters []
+    planted 3 ring(s) in dropped sections: (sec 4, #0) at (4095,4095), (sec 5, #0) at (4110,4095), (sec 7, #0) at (4095,4591)
+    HALT: diagonal right+down at the stress halt, kick: Section_UpdateColumns not reached in 60 frames, camera (4623, 4495), pc $0C2B9E (in the fault island)
+      raise_error at $0051DA ($diag44$engine.objects.entity_window$raise+$8): 'Assertion failed:àì> assert.w èd1,ìeqàêGot: \x81'
+    -> diagonal right+down at the stress halt: FAIL
+  control right only: lines kx=1 ky=0; camera (2559,128) -> (2575,128); anchor (0, 0) -> (1, 0); drops sections [0, 3], enters [2, 5]
+    91 ticks checked; 0 violation(s); camera ends (3951, 128); dropped-section entities live before the kick: 14; entered-section entities checked live: 6
+    -> control right only: PASS
+  control down only: lines kx=0 ky=1; camera (3584,2431) -> (3584,2447); anchor (1, 0) -> (1, 1); drops sections [1, 2], enters [7, 8]
+    planted 2 ring(s) in dropped sections: (sec 1, #0) at (3071,2047), (sec 2, #0) at (4417,2047)
+    92 ticks checked; 0 violation(s); camera ends (3584, 3823); dropped-section entities live before the kick: 2; entered-section entities checked live: 9
+    -> control down only: PASS
+  poison: a 2-section camera jump must halt on the step assert: Camera_X 96 -> 4672 by a bare poke (anchor x 0 -> 2)
+    FAIL: the loop ran on; camera (4656, 144), anchor (2, 0)
+    -> poison: a 2-section camera jump must halt on the step assert: FAIL
+FAIL: an arm's window broke a check, or the game halted

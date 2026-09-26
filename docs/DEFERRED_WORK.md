@@ -41622,13 +41622,17 @@ the Y despawn band; no duplicate), L (every uncollected ring/object of a tracked
 or left of the load edge and inside the band every offer since the current coarse row began
 has covered, [c-129, c+480], is live). Arms: all four diagonal directions, the STRESS_ART
 halt's own crossing (4607,4479)->(4623,4495) (three quadrants off-grid after it), two
-single-axis controls, and a poison arm. On the fix (89f380e0, `green_fix_89f380e0.txt`):
-every arm 0 violations over 91-92 ticks; entered sections watched filling on four of five
-diagonals (4-16 entities each), dropped sections seen emptied on four of five (planted rings,
+single-axis controls, and a poison arm. On the fix (s4.debug.bin 89f380e0, the landing_build
+artifact, final witness: `final_green_landing_89f380e0.txt`, exit 0): all 8 arms PASS, every
+checked arm 0 violations over 91-92 ticks; entered sections watched filling on four of five
+diagonals (4, 7, 4, 15 entities; the stress-halt arm enters only off-grid quadrants), dropped
+sections seen emptied on four of five (3, 1, 1, 3 planted rings; left+up drops a section with
+nothing plantable in the pre-kick band) (planted rings,
 see the witness's `plant_rings`: this act puts no live entity in a dropped section at a
 crossing tick, so without the plant U would have passed vacuously).
-- Red-first, three ways. (1) The base DEBUG ROM d57002c5 (`red_base_d57002c5.txt`): all five
-  diagonal arms HALT on the old assert. The shipped act hits it too, not only the stress art.
+- Red-first, three ways. (1) The base DEBUG ROM d57002c5 (`red_base_d57002c5.txt`; re-run with
+  the final witness, `final_red_base_d57002c5.txt`, exit 1): all five diagonal arms HALT on
+  the old assert, both controls PASS. The shipped act hits it too, not only the stress art.
   (2) The poison arm (a bare 2-section camera poke must halt on the new step assert) runs on
   at the base and halts on `$diag45$...entity_window$raise` at the fix
   (`poison_*`). (3) A window mutation (`mutation_x_first.diff`: a two-axis slide takes X only,
@@ -41647,6 +41651,10 @@ AT MOST ONE section per slide (`sub.b / addq.b #1 / assert.b ls #2`, per axis). 
 camera was teleported without `EntityWindow_Init`, which the tile cache cannot absorb either.
 DEBUG bytes only; comments in entity_window.emp and ARCH (entity-window "Slides") corrected,
 including the dead `EntityWindow_SyncSlide` reference (deleted in eddbbf7c).
+CRCs base -> fix: s4.bin 80d58257 -> 80d58257 (byte-identical, measured by a FAST build of
+the base entity_window.emp); s4.debug.bin d57002c5 -> 89f380e0; demo.debug.bin 6fff5daa ->
+b57fdf91 (+28 B). `tools/landing_build.sh` exit 0 (`finished=0`, 34 marked tests passed, 1
+EXEMPTED demo.bin), at f2586479.
 
 **S3K / S.C.E.** Neither has a 2-D section window. Their object manager
 (`skdisasm/sonic3k.asm` ~37596/37682, S.C.E. `Engine/Core/Load Objects.asm`) processes the X
