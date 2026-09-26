@@ -1,6 +1,12 @@
 {
   "focus": "Sonic 2 level music is ready for your ears; meanwhile auditing our checks, which doesn't need you.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Fix the remaining tools that report a problem and carry on (hand-run probes and three generators)",
+      "where": "branch parcel/printed-not-gated-residue",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -38,7 +44,7 @@
     {
       "id": "S2CLIP-LAG",
       "title": "Emerald Hill curve fix landed (44 to 35 lag frames); Chemical Plant's slow tile patching is the booked leftover",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -74,7 +80,7 @@
     {
       "id": "PRINTED-NOT-GATED",
       "title": "Checks that print a problem but carry on: five fixed and landed; next the music and sound-effect converters that silently drop data",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -117,5 +123,5 @@
   ],
   "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T05:54:25Z"
+  "updatedAt": "2026-09-26T05:54:53Z"
 }
