@@ -40971,8 +40971,27 @@ unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-
 
 ### S2CLIP-PLANE-SWITCH: the clip act never leaves plane A, so S2's loops and path changes do not work (booked 2026-09-26, branch `research/s2clip-loops-planes`)
 
-**Status (2026-09-26): option A is BUILT on branch `parcel/s2clip-plane-switch`, NOT landed.** It is the demo for the
-owner's ruling on the mechanism (open item 1). The design, the measured cost and the rejected alternatives are in
+**RULED (owner, 2026-09-26T16:27:40Z, `docs/decisions.jsonl` S2CLIP-PLANE-SWITCH, chose `line-table`: "Lines honestly
+probably sounds easier to handle right?").** Layer-switch lines become the engine's ONE layer-switch mechanism. Step 1,
+this parcel: land the baked line table for the Sonic 2 clip (branch `parcel/s2clip-plane-switch-2`, option A rebased
+onto master `5f901245`). Next parcels, NOT in this one: move OJZ's loop from painted crossover marks to lines, retire
+the painted marks (`Player_LoopCrossover`, `CrossoverTable`, `loop_crossover_gate.py`) and `path_swap.emp`, and ask
+aurora for a line tool in the editor. Until then both writers ship, as described below.
+
+**Re-verified on the rebased tip (2026-09-26):** `tools/landing_build.sh` exit 0 `finished=0` (pre-build pytest 3586
+passed; marked lane 34 ran, 1 EXEMPTED). Both clip shapes build (rc 0) with `layer_line_gate` OK (46 shipped rows, 345
+fires); `s2clip_layer_line_witness.py` PASSED both drives on the DEBUG clip ROM. Research drives (`run_all.sh`'s
+eleven, `--switchers none`): all eleven clean on the PLAIN clip ROM (all four EHZ loops rightward, loop 1 leftward,
+the braid with 0 airborne frames, CPZ 3206 passed, the long run still stops at act (14870, 1389)). **On the DEBUG
+clip ROM the seven drives placed at x >= 6600 halt at placement, and master's own DEBUG clip ROM (`5f901245`, crc
+`be774dc5`) halts identically.** Cause, read: master `7c7ccf96` (SAH-3) made `EntityWindow_Slide`'s DEBUG assert
+refuse an anchor step of more than one section, and `loop_plane_probe.py` places the player with a bare
+`Camera_X` write, which is exactly that assert's poison case. The two drives within one section of spawn (x 3950,
+4500) run on DEBUG. This is a probe teleport artifact, not a level or layer-line fault. The probe needs a warp that
+re-runs `EntityWindow_Init` (or stepped camera moves) before it can drive the DEBUG ROM that far out again.
+
+**Status before the ruling (2026-09-26): option A was BUILT on branch `parcel/s2clip-plane-switch`.** It was the demo
+for the owner's ruling on the mechanism (open item 1). The design, the measured cost and the rejected alternatives are in
 `docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers". In short: `Act.act_layer_lines` names a sorted `LayerLine`
 table (`engine/structs.emp`) that `tools/s2_layer_lines.py` bakes from the donor's own Obj03 layout (44 lines, EHZ 19 /
 CPZ 25, 46 rows). `Player_LayerLines` (`games/sonic4/player/player_common.emp`) runs Obj03's rule from the shared player
@@ -40991,7 +41010,7 @@ table emptied).
   two writers coexist.
 - `games/sonic4/objects/path_swap.emp` is functionally REDUNDANT under option A. Every behaviour it has is a subset of a
   layer-line row. What it still has that lines lack is an editor authoring route (an object in the object layer), since
-  today lines come only from a Sonic 2 donor. It is left parked, not deleted, pending the ruling. If A is taken, delete
+  today lines come only from a Sonic 2 donor. It is left parked, not deleted, pending the ruling (A was taken: it goes with the marks in the retirement parcel). If A is taken, delete
   it together with its `ObjDef_PathSwap` placement boundary in sigil's frozen tables (a sigil change, their lane), or
   give lines an editor layer first if hand-authored switchers are wanted.
 - `Player_DebugExit` re-derives priority from the layer (right for crossover marks). Sonic 2 resets priority to low on
@@ -41018,7 +41037,7 @@ the opposite. They also have no line extent, horizontal form, grounded-only or p
 priority from the layer where S2 sets it per crossing.
 
 **OPEN**
-1. Owner decision on the mechanism: (A) a per-act line table with S2's Obj03 rule, run from the player preamble
+1. **ANSWERED 2026-09-26: (A), lines everywhere (see RULED above).** Owner decision on the mechanism: (A) a per-act line table with S2's Obj03 rule, run from the player preamble
    (recommended; canonical bytes move, no object slots, data-driven); (B) a faithful PathSwap object plus clip
    objects (touches sigil's frozen `ObjDef_PathSwap` boundary, and needs the clip-objects scope ruling); (C) bake the
    lines into crossover marks (needs a direction-encoding change and still cannot express 3 of S2's line forms; not
