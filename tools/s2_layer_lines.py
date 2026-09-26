@@ -12,6 +12,12 @@ to act coordinates and turns them into rows of the engine's `LayerLine` table
 (engine/structs.emp), which `Player_LayerLines` (games/sonic4/player/player_common.emp) runs
 every frame with Obj03's rule.
 
+ONE BAKE PATH (LINES-EVERYWHERE, 2026-09-26). This file is the DONOR SOURCE only: it reads Obj03
+records into line records. Cutting them into rows, sorting, the L4 refusal and spelling the rows
+as `.emp` are tools/layer_lines.py's, shared with the other source (an act's authored
+layer_lines.json). `rows`, `rows_text`, `engine_constants` and `LayerLineError` are re-exported
+from there under their old names.
+
 THE ROW FORMAT. One 8-byte `LayerLine` per row, sorted by `ll_key`, between two sentinel rows
 (LL_KEY_BEFORE first, LL_KEY_AFTER last):
 
@@ -62,32 +68,8 @@ import re
 import struct
 
 import s2_donor
-
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONSTANTS_EMP = os.path.join(REPO, "engine", "system", "constants.emp")
-
-#: The engine's names for the row format. Read, never restated: the table is data the engine
-#: consumes, so the consumer's constants are the authority.
-LL_NAMES = ("LL_KEEP_PATH", "LL_GROUNDED", "LL_HORIZONTAL", "LL_FWD_B", "LL_BACK_B",
-            "LL_FWD_HI", "LL_BACK_HI", "LL_SEG_W", "LL_KEY_BEFORE", "LL_KEY_AFTER")
-
-
-class LayerLineError(Exception):
-    """A clip act's layer lines cannot be baked; the message leads with its rule tag."""
-
-
-def engine_constants(path=CONSTANTS_EMP):
-    """{name: int} for every LL_* the row format uses, parsed from engine/system/constants.emp."""
-    with open(path) as fh:
-        text = fh.read()
-    out = {}
-    for name in LL_NAMES:
-        m = re.search(rf"^pub const {name}\s*=\s*(\$[0-9A-Fa-f]+|\d+)\b", text, re.M)
-        if not m:
-            raise LayerLineError(f"L5 engine/system/constants.emp no longer defines {name}")
-        v = m.group(1)
-        out[name] = int(v[1:], 16) if v.startswith("$") else int(v)
-    return out
+from layer_lines import (LayerLineError, engine_constants, rows,  # noqa: F401 (re-exported)
+                         rows_text)
 
 
 # ---------------------------------------------------------------------------
@@ -229,40 +211,6 @@ def lines(act, consts=None, asm_for=None):
     return out
 
 
-def rows(line_list, act_w, act_h, consts=None):
-    """The ROM rows, sorted by (key, layout order), WITHOUT the sentinels. Each row is a dict:
-    key / a / b / flags as the `LayerLine` fields, plus `why` and `order`."""
-    c = consts or engine_constants()
-    seg = c["LL_SEG_W"]
-    out = []
-    for ln in line_list:
-        x_lo, x_hi = (ln["lo"], ln["hi"]) if ln["horizontal"] else (ln["x"], ln["x"] + 1)
-        y_lo, y_hi = (ln["y"], ln["y"] + 1) if ln["horizontal"] else (ln["lo"], ln["hi"])
-        if x_lo < 0 or y_lo < 0 or x_hi > act_w or y_hi > act_h:
-            raise LayerLineError(
-                f"L4 {ln['where']} lands at act x {x_lo}..{x_hi - 1}, y {y_lo}..{y_hi - 1}, "
-                f"outside the {act_w} x {act_h} act")
-        why = (f"{ln['where']}{' x-flipped' if ln['xflip'] else ''} -> act "
-               f"({ln['x']}, {ln['y']})")
-        base = {"flags": ln["flags"], "order": ln["order"]}
-        if not ln["horizontal"]:
-            out.append(dict(base, key=ln["x"], a=ln["lo"], b=ln["hi"], why=why))
-            continue
-        x = ln["lo"]
-        while x < ln["hi"]:
-            x1 = min(x + seg, ln["hi"])
-            out.append(dict(base, key=x, a=ln["y"], b=x1, why=f"{why}, x {x}..{x1 - 1}"))
-            x = x1
-    out.sort(key=lambda r: (r["key"], r["order"]))
-    before, after = c["LL_KEY_BEFORE"] - 0x10000, c["LL_KEY_AFTER"]
-    for r in out:
-        if not (before < r["key"] < after and 0 <= r["a"] < after and 0 <= r["b"] < after):
-            raise LayerLineError(
-                f"L4 row {r['why']} (key {r['key']}, {r['a']}, {r['b']}) cannot be ordered "
-                f"between the sentinels ({before}, {after}) by signed word compares")
-    return out
-
-
 def plan(act, consts=None, asm_for=None):
     """{"lines": [...], "rows": [...], "consts": {...}} for a clip act (rows sorted, no
     sentinels)."""
@@ -270,19 +218,6 @@ def plan(act, consts=None, asm_for=None):
     ls = lines(act, c, asm_for)
     sec = act.section_px
     return {"lines": ls, "rows": rows(ls, act.grid_w * sec, act.grid_h * sec, c), "consts": c}
-
-
-def rows_text(p):
-    """The table's `LayerLine` literals, sentinels included (for the generated .emp)."""
-    c = p["consts"]
-    body = [f"LayerLine{{ ll_key: ${c['LL_KEY_BEFORE']:04X}, ll_a: 0, ll_b: 0, ll_flags: 0, "
-            f"ll_pad: 0 }},  // sentinel: every key is above it"]
-    for r in p["rows"]:
-        body.append(f"LayerLine{{ ll_key: {r['key']}, ll_a: {r['a']}, ll_b: {r['b']}, "
-                    f"ll_flags: ${r['flags']:02X}, ll_pad: 0 }},  // {r['why']}")
-    body.append(f"LayerLine{{ ll_key: ${c['LL_KEY_AFTER']:04X}, ll_a: 0, ll_b: 0, ll_flags: 0, "
-                f"ll_pad: 0 }},  // sentinel: every key is below it")
-    return "\n    ".join(body)
 
 
 if __name__ == "__main__":
