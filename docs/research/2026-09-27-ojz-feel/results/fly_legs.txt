@@ -1,0 +1,20 @@
+== /home/volence/ojzfeel/fly/base_debug/fly.meta
+fly_diag rc=0 IN MOTION: 375 video frames, 363 ticks, lag 12 (3.2%), cam e COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, 2, -16]; frames with any undrawn visible cell: 619
+fly_right rc=0 IN MOTION: 358 video frames, 358 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, -15, -16]; frames with any undrawn visible cell: 636
+fly_down rc=0 IN MOTION: 363 video frames, 363 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [-23, 0, 2, -16]; frames with any undrawn visible cell: 312
+finished=base_debug
+== /home/volence/ojzfeel/fly/cap2_debug/fly.meta
+fly_diag rc=0 IN MOTION: 382 video frames, 363 ticks, lag 19 (4.97%), cam  COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, 2, -16]; frames with any undrawn visible cell: 609
+fly_right rc=0 IN MOTION: 358 video frames, 358 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, -15, -16]; frames with any undrawn visible cell: 636
+fly_down rc=0 IN MOTION: 363 video frames, 363 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [-23, 0, 2, -16]; frames with any undrawn visible cell: 312
+finished=cap2_debug
+== /home/volence/ojzfeel/fly/cap3_debug/fly.meta
+fly_diag rc=0 IN MOTION: 377 video frames, 363 ticks, lag 14 (3.71%), cam  COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, 2, -16]; frames with any undrawn visible cell: 616
+fly_right rc=0 IN MOTION: 358 video frames, 358 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, -15, -16]; frames with any undrawn visible cell: 636
+fly_down rc=0 IN MOTION: 363 video frames, 363 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [-23, 0, 2, -16]; frames with any undrawn visible cell: 312
+finished=cap3_debug
+== /home/volence/ojzfeel/fly/g2c2_debug/fly.meta
+fly_diag rc=0 IN MOTION: 374 video frames, 363 ticks, lag 11 (2.94%), cam  COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, 2, -16]; frames with any undrawn visible cell: 617
+fly_right rc=0 IN MOTION: 358 video frames, 358 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [2, -2, -15, -16]; frames with any undrawn visible cell: 636
+fly_down rc=0 IN MOTION: 363 video frames, 363 ticks, lag 0 (0.0%), cam en COVERAGE over 700 frames: max undrawn visible right/left/bottom/top = [-23, 0, 2, -16]; frames with any undrawn visible cell: 312
+finished=g2c2_debug

@@ -1,0 +1,157 @@
+diff --git a/engine/level/tile_cache.emp b/engine/level/tile_cache.emp
+index f623a2db..160d72e5 100644
+--- a/engine/level/tile_cache.emp
++++ b/engine/level/tile_cache.emp
+@@ -12,7 +12,8 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
+ use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
+ use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
+ use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
+-use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS}
++use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS, HFILL_COLS_PER_FRAME}
++use engine.constants.{BLOCK_DECOMP_MID, BLOCK_FILL_MID_ROWS, BLOCK_FILL_MID_COLS}
+ use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL}
+ use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
+ use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
+@@ -1151,6 +1152,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         // one pending row (Cache_Fill_RowResume_Row) and one pending column
+         // (Cache_Fill_Resume_Col) cut the filled extent on whichever side they lie.
+         moveq   #BLOCK_DECOMP_BUDGET, d2            // assume hard
++        moveq   #BLOCK_DECOMP_SOFT, d6              // the allowance if every side leads fully
+         move.l  Camera_Y, d0
+         swap    d0                                  // d0 = camera Y px
+         move.w  d0, d1
+@@ -1174,11 +1176,19 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         addq.w  #1, d4                              // a pending row above: filled from below it
+     .lead_rows_ready:
+         sub.w   d1, d3                              // d3 = bottom lead (rows)
+-        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d3
++        cmpi.w  #BLOCK_FILL_MID_ROWS, d3
+         blt     .budget_ready
++        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d3
++        bge     .lead_b_full
++        moveq   #BLOCK_DECOMP_MID, d6
++    .lead_b_full:
+         sub.w   d4, d0                              // d0 = top lead (rows)
+-        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d0
++        cmpi.w  #BLOCK_FILL_MID_ROWS, d0
+         blt     .budget_ready
++        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d0
++        bge     .lead_t_full
++        moveq   #BLOCK_DECOMP_MID, d6
++    .lead_t_full:
+         move.l  Camera_X, d0
+         swap    d0                                  // d0 = camera X px
+         move.w  d0, d1
+@@ -1202,15 +1212,24 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         addq.w  #1, d4                              // a pending column left: filled right of it
+     .lead_cols_ready:
+         sub.w   d1, d3                              // d3 = right lead (columns)
+-        cmpi.w  #BLOCK_FILL_LEAD_COLS, d3
++        cmpi.w  #BLOCK_FILL_MID_COLS, d3
+         blt     .budget_ready
++        cmpi.w  #BLOCK_FILL_LEAD_COLS, d3
++        bge     .lead_r_full
++        moveq   #BLOCK_DECOMP_MID, d6
++    .lead_r_full:
+         sub.w   d4, d0                              // d0 = left lead (columns)
+-        cmpi.w  #BLOCK_FILL_LEAD_COLS, d0
++        cmpi.w  #BLOCK_FILL_MID_COLS, d0
+         blt     .budget_ready
+-        moveq   #BLOCK_DECOMP_SOFT, d2              // every side leads: defer
++        cmpi.w  #BLOCK_FILL_LEAD_COLS, d0
++        bge     .lead_l_full
++        moveq   #BLOCK_DECOMP_MID, d6
++    .lead_l_full:
++        move.w  d6, d2                              // every side leads: defer
+     .budget_ready:
+         move.w  d2, Cache_Fill_Budget
+         move.w  #VFILL_ROWS_PER_FRAME, Cache_Fill_Rows_Left
++        move.w  #HFILL_COLS_PER_FRAME, Cache_Fill_Cols_Left
+ 
+         // --- finish any pending partial ROW first (before the column
+         //     preamble's bypass can reach the v-loops): there is exactly
+@@ -1265,6 +1284,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         jbsr    TileCache_FillColumn
+         tst.w   d0
+         bne     .v_section                     // budget out again — vertical still runs
++        subq.w  #1, Cache_Fill_Cols_Left       // the finished partial is this tick's first column
+         jbra    .no_pending
+     .pending_stale:
+         move.w  #$FFFF, Cache_Fill_Resume_Col
+@@ -1303,6 +1323,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+     .h_right_fill:
+         cmp.w   d7, d5
+         bge     .h_right_done
++        tst.w   Cache_Fill_Cols_Left           // columns cap exhausted?
++        beq     .h_cols_capped
+         addq.w  #1, d5
+ 
+         // evict 1 column from left if cache is at capacity
+@@ -1327,8 +1349,11 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         jbsr    TileCache_FillColumn
+         movem.l (sp)+, d5/d7
+         tst.w   d0
+-        beq     .h_right_fill
+-        // budget out — skip remaining column work, vertical still runs
++        bne     .h_cols_capped                 // budget out — same exit as the cap
++        subq.w  #1, Cache_Fill_Cols_Left
++        jbra    .h_right_fill
++    .h_cols_capped:
++        // budget out or columns cap — skip remaining column work, vertical still runs
+         addq.l  #2, sp                         // pop desired_left
+         jbra    .v_section
+     .h_right_done:
+@@ -1339,6 +1364,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+     .h_left_fill:
+         cmp.w   d4, d5
+         ble     .h_left_done
++        tst.w   Cache_Fill_Cols_Left           // columns cap exhausted?
++        beq     .h_left_done
+         subq.w  #1, d5
+ 
+         // evict 1 column from right if cache is at capacity
+@@ -1362,7 +1389,9 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         jbsr    TileCache_FillColumn
+         movem.l (sp)+, d4-d5
+         tst.w   d0
+-        beq     .h_left_fill
++        bne     .h_left_done                   // budget out — vertical still runs
++        subq.w  #1, Cache_Fill_Cols_Left
++        jbra    .h_left_fill
+     .h_left_done:
+ 
+     .v_section:
+diff --git a/engine/ram.emp b/engine/ram.emp
+index 62c245e2..ce87852e 100644
+--- a/engine/ram.emp
++++ b/engine/ram.emp
+@@ -1119,6 +1119,7 @@ pub vars upper_ram {
+     Cache_Fill_RowResume_Row: u16,      // partial FillRow resume world row ($FFFF = none)
+     Cache_Fill_RowResume_Col: u16,      // partial FillRow resume col cursor
+     Cache_Fill_Rows_Left:   u16,        // rows-this-frame cap countdown (reset to VFILL_ROWS_PER_FRAME)
++    Cache_Fill_Cols_Left:   u16,        // columns-this-tick cap countdown (reset to HFILL_COLS_PER_FRAME)
+     Cache_Prev_Cam_Row:     u16,        // last frame's camera world tile row (vertical prefetch direction)
+     // Horizontal prefetch state (unified direction-aware prefetch, §4.7).
+     Cache_Prev_Cam_X:       u16,        // last frame's camera px (low word) — H prefetch delta/hysteresis
+diff --git a/engine/system/constants.emp b/engine/system/constants.emp
+index d37c00bb..bb20e070 100644
+--- a/engine/system/constants.emp
++++ b/engine/system/constants.emp
+@@ -1085,6 +1085,9 @@ pub const BLOCK_DECOMP_BUDGET   = 6     // max block decompresses per frame (col
+ pub const BLOCK_DECOMP_SOFT     = 1
+ pub const BLOCK_FILL_LEAD_ROWS  = TILE_CACHE_MARGIN_V / 2                 // 8
+ pub const BLOCK_FILL_LEAD_COLS  = TILE_CACHE_MARGIN_H / 2                 // 10
++pub const BLOCK_DECOMP_MID      = 2
++pub const BLOCK_FILL_MID_ROWS   = 4
++pub const BLOCK_FILL_MID_COLS   = 5
+ ensure(BLOCK_DECOMP_SOFT >= 1 && BLOCK_DECOMP_SOFT <= BLOCK_DECOMP_BUDGET,
+        "BLOCK_DECOMP_SOFT ({BLOCK_DECOMP_SOFT}) must be 1..BLOCK_DECOMP_BUDGET ({BLOCK_DECOMP_BUDGET}): 0 would stall a partial row or column forever while the lead holds, and above the hard budget the 'soft' tick would be the expensive one")
+ ensure(BLOCK_FILL_LEAD_ROWS > CAM_MAX_Y_STEP / 8 && BLOCK_FILL_LEAD_ROWS < TILE_CACHE_MARGIN_V,
+@@ -1100,6 +1103,7 @@ ensure(BLOCK_FILL_LEAD_COLS > 16 / 8 && BLOCK_FILL_LEAD_COLS < TILE_CACHE_MARGIN
+ // decision — BLOCK_DECOMP_BUDGET is shared with the column fill — not a
+ // comment fix, so the value is left alone here.)
+ pub const VFILL_ROWS_PER_FRAME  = 2
++pub const HFILL_COLS_PER_FRAME  = 3
+ pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
+ pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
+ pub const BLOCKS_PER_SECTION_SHIFT = 4  // lsr #4 = / BLOCKS_PER_SECTION_AXIS

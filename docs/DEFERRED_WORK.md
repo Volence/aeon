@@ -42081,3 +42081,48 @@ These equal the FAST builds every measurement used. The base `366b777c` FAST bui
 5. **Content options, priced, not done (the owner's look).** On the after build, flattening the ripple band or the curve each buys 0 frames on the run and 2 on the fly-diagonal EHZ band (31 -> 29); both together buy 4.
 6. **`Canopy_Probe`: 4,026 cycles every tick.** It is worth 5 lag frames on the DEBUG run before this parcel and 1 after. It stays armed (owner's call).
 7. **The choice of soft value and lead is measured, not modelled.** Soft 2 and 3, and lead 12/15, all measured worse; the response is not monotone.
+
+## OJZ-FEEL: the lag he still feels playing OJZ act 1, and the fall cap (branch `perf/ojz-feel`, booked 2026-09-26T22:34:06Z)
+
+Research only, **no engine change** (`docs/research/2026-09-27-ojz-feel.md`, tools and results in
+`docs/research/2026-09-27-ojz-feel/`). Base `aa636c0d`, DEBUG `8e6de1fa` (the owner's ROM),
+oracle-aether md5 `3e7c2778`.
+
+**Findings.**
+- OJZ act 1 has collision only in section 0; leaving it is a ~5,300 px diagonal fall to the act
+  floor. 54 of 63 lag frames over 16 player legs happen while the camera moves on both axes
+  (1.9% of those frames); 0 still, 0.12% horizontal, 0.23% vertical. Worst: spindash off
+  section 0, 25/575. No oscillation thrash in OJZ (reversing legs: 0).
+- Lag ticks: 37 of 60 are hard-budget decode bursts (5.6 decodes), 16 are column catch-up
+  (6.6 columns in one tick behind a starved pending column), 7 are the ordinary diagonal tick
+  tipping over a 102.6k average.
+- DEBUG shape: 18 lag vs release 6 on the spawn legs; `Canopy_Probe` + `PageCache_Audit`
+  stubbed takes DEBUG to 13. `Canopy_Probe` is worth ~7 of 63 over all legs (owner's call).
+- `ff7cbad5` (soft budget): 67 -> 63 on these legs; it hurt the spindash dive 18 -> 25.
+- Fall: ours caps y_vel at $F00 by ruling (`FALL-CAP-15`); S3K and S2 have no cap; S.C.E. $1000.
+  Our camera: +-32 around line 112 at 16 px/frame in every state; S3K +-32 around 96 at 24 px
+  airborne. Falling Sonic sits at line 144 (S3K 128). OJZ's 5,400 px fall takes 6.6 s at a flat
+  15 px/frame (S3K's rule: 3.7 s, and S3K's own camera loses him off screen after ~2,000 px).
+
+**Open riders.**
+- **OJZF-1 (decode bursts, 62% of lag):** speculation is suppressed at a diagonal by the
+  16-slot residency guard. More staging slots (768 B each) or a smarter eviction is the lever.
+  Design-scale; not built.
+- **OJZF-2 (column starvation, 27%):** a new block column waits 4-5 soft ticks while all
+  horizontal work stalls behind it, then catches up 6-9 columns at once. Measured and NOT
+  landed: column cap 2 (16 legs 63 -> 51, but fly diagonal 12 -> 19, no headroom) and 3
+  (neutral), graded budget (neutral), graded + cap 2 (49, rests on cap 2). Untried: split the
+  soft allowance per axis, or serve a pending column before a pending row.
+- **OJZF-3 (baseline):** RPC-1's plain copy loops (~3k/tick at a diagonal) and FillRow's per-row
+  overhead (6.3k self per row). Not built.
+- **OJZF-4 (instrument):** per-tick work is not readable per frame (`perFrame` is whole-frame
+  cycles); a per-tick work figure would let a fill policy be judged by distribution instead of
+  by chaotic lag counts.
+- **OJZF-5 (fall feel, owner's call):** options priced in the doc: A cap $1000 (reopens the
+  tunnelling hole), B focal point 96, C fall look-ahead in the camera (~20 lines, within the
+  16 px cap), D the uncapped `d-18-uncapped-option`, E floors in sections 1-8 (which also
+  removes most of the lag above).
+- **OJZF-6 (content):** sections 1-8 have art but no collision in the form the bake reads
+  (`section_N.collattr.bin` all zero; only the old `coll.bin` holds data).
+- **ARCH corrected:** §4's "Player-state-dependent speed caps" paragraph described S3K's camera
+  rule as ours; it now states the shipped rule.
