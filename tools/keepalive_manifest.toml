@@ -235,6 +235,16 @@ expect = 0
 timeout = 600
 note = "--label is required unless --compare is given; the first run caught the omission"
 
+[wired."slope_landing_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+note = """SONIC-SLOPE-COLLISION, 2026-09-26. Drops the player onto the committed act's
+exposed steep top blocks (derived from the level, one on OJZ) and onto a derived flat
+control. MEASURED: exit 0 in 5 s wall (load average 21) on the fixed s4.debug.bin; exit 1
+on the committed baseline 91d4119c (air landings still reading the floor through the
+grounded wrapper): L1 landed angle $00 gsp 0 and never moved, C1 passed."""
+
 [wired."spring_launch_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
