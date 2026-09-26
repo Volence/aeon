@@ -1,0 +1,18 @@
+== fly: s4.debug.bin crc=863a8b07 size=855787 mode=fly dirs=right load 14.79->14.79
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== down: s4.debug.bin crc=863a8b07 size=855787 mode=fly dirs=down load 14.79->14.97
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: s4.debug.bin crc=863a8b07 size=855787 mode=fly dirs=right,down load 14.97->14.97
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 43/406 (10.59%), 1.118 frames/tick, cam end [5824, 5920]; LFC_delta=43 whole-leg lag=43
+   cam_y<1024: 14/70
+   (no profile)
+legs with results: 3 of 3
+finished=1
+finished=3

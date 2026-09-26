@@ -1,0 +1,6 @@
+s4.debug.bin crc=03bbe4eb size=855935 mode=fly dirs=right notes=['camera stalled at (5824,144) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 601}"]
+IN MOTION: 358 video frames, 358 ticks, lag 0 (0.0%), 1.0 frames/tick, cam end [5824, 144]
+WHOLE: stepped=418 lag=0 LFC_delta=0 loadavg ['22.76', '17.21', '14.66'] -> ['21.66', '17.07', '14.63']
+by cam_y/512: 0:418/0
+by cam_x/512: 0:26/0 512:32/0 1024:31/0 1536:32/0 2048:32/0 2560:32/0 3072:32/0 3584:32/0 4096:32/0 4608:32/0 5120:32/0 5632:73/0
+finished=1

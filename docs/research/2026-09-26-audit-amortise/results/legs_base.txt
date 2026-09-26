@@ -1,0 +1,70 @@
+finished=4
+finished=5
+== fly: s4.debug.bin crc=1ff17f52 size=855585 mode=fly dirs=right load 9.65->9.92
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 6/364 (1.65%), 1.017 frames/tick, cam end [5824, 144]; LFC_delta=8 whole-leg lag=8
+   cam_y<1024: 8/424
+   (no profile)
+== down: s4.debug.bin crc=1ff17f52 size=855585 mode=fly dirs=down load 9.92->10.24
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 6/369 (1.63%), 1.017 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 2/58
+   (no profile)
+== diag: s4.debug.bin crc=1ff17f52 size=855585 mode=fly dirs=right,down load 10.24->10.24
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 48/411 (11.68%), 1.132 frames/tick, cam end [5824, 5920]; LFC_delta=49 whole-leg lag=49
+   cam_y<1024: 17/73
+   (no profile)
+== run: s4.debug.bin crc=1ff17f52 size=855585 mode=run dirs=right load 10.24->10.27
+   notes: ['DEBUG free flight left with B (y 256->256)', 'camera stalled at (5824,5821) for 60 frames; stopped']
+   IN MOTION 64/1177 (5.44%), 1.058 frames/tick, cam end [5824, 5821]; LFC_delta=65 whole-leg lag=65
+   cam_y<1024: 25/559
+   (no profile)
+legs with results: 4 of 4
+== fly: s4.s2clip.debug.bin crc=027639e8 size=954863 mode=fly dirs=right load 10.27->10.25
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped']
+   IN MOTION 16/1014 (1.58%), 1.016 frames/tick, cam end [16064, 144]; LFC_delta=16 whole-leg lag=16
+   cam_y<1024: 16/1074
+   (no profile)
+== down: s4.s2clip.debug.bin crc=027639e8 size=954863 mode=fly dirs=down load 10.25->10.25
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 7/370 (1.89%), 1.019 frames/tick, cam end [96, 5920]; LFC_delta=7 whole-leg lag=7
+   cam_y<1024: 3/59
+   (no profile)
+== diag: s4.s2clip.debug.bin crc=027639e8 size=954863 mode=fly dirs=right,down load 10.25->10.15
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 51/1049 (4.86%), 1.051 frames/tick, cam end [16064, 5920]; LFC_delta=51 whole-leg lag=51
+   cam_y<1024: 35/91
+   (no profile)
+== cpzdown: s4.s2clip.debug.bin crc=027639e8 size=954863 mode=fly dirs=right load 10.15->9.82
+   notes: ['switched to down at frame 907 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped']
+   IN MOTION 48/1307 (3.67%), 1.038 frames/tick, cam end [14400, 5920]; LFC_delta=48 whole-leg lag=48
+   cam_y<1024: 30/982
+   before switch 14/908; after switch 34/459
+   (no profile)
+== cpzdiag: s4.s2clip.debug.bin crc=027639e8 size=954863 mode=fly dirs=right load 9.82->9.61
+   notes: ['switched to right,down at frame 907 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 84/1343 (6.25%), 1.067 frames/tick, cam end [16064, 5920]; LFC_delta=84 whole-leg lag=84
+   cam_y<1024: 61/1013
+   before switch 14/908; after switch 70/495
+   (no profile)
+legs with results: 5 of 5
+Sat Sep 26 07:15:06 AM UTC 2026
+rom=/tmp/claude-1000/-home-volence-sonic-hacks-aeon/2a961859-905d-4085-8069-9ecb8ed32964/scratchpad/audamort/base/s4.debug.bin
+9.65 10.54 9.45 14/2577 2949426
+fly rc=0 loadavg=9.92 10.58 9.47 25/2569 2958792
+down rc=0 loadavg=10.24 10.63 9.49 9/2543 2968867
+diag rc=0 loadavg=10.24 10.63 9.49 10/2552 2977000
+run rc=0 loadavg=10.27 10.63 9.50 9/2580 2985133
+Sat Sep 26 07:15:22 AM UTC 2026
+finished=4
+Sat Sep 26 07:15:22 AM UTC 2026
+rom=/tmp/claude-1000/-home-volence-sonic-hacks-aeon/2a961859-905d-4085-8069-9ecb8ed32964/scratchpad/audamort/base/s4.s2clip.debug.bin
+10.27 10.63 9.50 12/2580 2985138
+fly rc=0 loadavg=10.25 10.62 9.51 11/2563 2992406
+down rc=0 loadavg=10.25 10.62 9.51 10/2579 2997030
+diag rc=0 loadavg=10.15 10.59 9.50 8/2553 3012079
+cpzdown rc=0 loadavg=9.82 10.51 9.48 8/2536 3028675
+cpzdiag rc=0 loadavg=9.61 10.45 9.47 8/2534 3051184
+Sat Sep 26 07:15:47 AM UTC 2026
+finished=5

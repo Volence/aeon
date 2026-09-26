@@ -1306,8 +1306,12 @@ pub vars upper_ram {
     // build only ever elaborates one shape. So it is stated with its referent and its
     // date, and re-derived the same way — subtract Engine_RAM_End in the two `.lst`s:
     //
-    //   RE-MEASURED 2026-09-15.  s4.lst  Engine_RAM_End = $FFFFBB98
-    //                       s4.debug.lst Engine_RAM_End = $FFFFEC54   ->  $30BC = 12,476 B
+    //   RE-MEASURED 2026-09-26.  s4.lst  Engine_RAM_End = $FFFFBBC4
+    //                       s4.debug.lst Engine_RAM_End = $FFFFEC84   ->  $30C0 = 12,480 B
+    //   (was $FFFFBBC4 / $FFFFEC80 -> $30BC = 12,476 B at 91d4119c the same day; the four
+    //    bytes are the residency audit's sweep cursor + late counter, audit-amortise.)
+    //   (and $FFFFBB98 / $FFFFEC54 -> 12,476 B on 2026-09-15: both ends moved since, the
+    //    delta did not.)
     //   (was $FFFFBB8C / $FFFFEC46 -> $30BA = 12,474 B on 2026-09-07; the two bytes are the
     //    plane-buffer peak latch at the tail of this file, added by REGIONS-P2 E1.)
     //
@@ -1319,7 +1323,7 @@ pub vars upper_ram {
     //   (2026-09-13, see the block's own note), so demo's copy is 352 B smaller than
     //   sonic4's. The old parenthetical predates that parcel and had been wrong since.
     //
-    // The eight `if DEBUG == 1 @shape_divergent` groups, sized by adjacent-symbol
+    // The nine `if DEBUG == 1 @shape_divergent` groups, sized by adjacent-symbol
     // difference in s4.debug.lst, sum to exactly that:
     //     142  profiler block      (DMA_Bytes_ThisFrame .. Player_1)
     //  10,244  replay recorder     (Replay_Record_Idx .. Sprite_Owner)
@@ -1328,9 +1332,10 @@ pub vars upper_ram {
     //       8  DMA straddle counters
     //       4  BgAnim_Table_Ptr
     //     544  live-effects parallax scratch (Parallax_Scratch_Config ..)  [sonic4; demo 192]
-    //       2  Plane_Buffer_Peak   (.. Engine_RAM_End)
+    //       2  Plane_Buffer_Peak   (.. Page_Audit_Slice)
+    //       4  audit sweep         (Page_Audit_Slice .. Engine_RAM_End)
     //  ------
-    //  12,476  = the measured delta. A closed sum is the control on the enumeration.
+    //  12,480  = the measured delta. A closed sum is the control on the enumeration.
     //
     // THIS PARAGRAPH USED TO SAY 10,280, counting the profiler block as 36 and omitting
     // Sprite_Owner, the canopy instrument, the straddle counters, BgAnim_Table_Ptr and
@@ -1341,6 +1346,10 @@ pub vars upper_ram {
     //
     // Headroom, same clock and same method: DEBUG Game_RAM_End $FFFFF030 against
     // SYSTEM_STACK $FFFFFF00 leaves 3,792 B; release $FFFFBF02 leaves 16,382 B.
+    // (Re-read 2026-09-26: DEBUG Game_RAM_End is still $FFFFF030 after the audit sweep's
+    // +4 moved Engine_RAM_End (the game block absorbed it). Release Game_RAM_End reads
+    // $FFFFC002 both at base 91d4119c and after this parcel, so the $FFFFBF02 above is
+    // the 2026-09-15 reading, not today's: release headroom is 16,126 B now.)
     if DEBUG == 1 {
         Dynamic_Live_Walking:   u8,     // DEBUG-only: a dynamic live-list walk is in progress
     } else {
@@ -1882,6 +1891,21 @@ pub vars upper_ram {
     // same deviation from its own booking.
     if DEBUG == 1 @shape_divergent {
         Plane_Buffer_Peak:      u16,    // max Plane_Buffer_Ptr at VInt_DrawLevel entry
+    }
+
+    // --- The residency audit's amortised sweep (engine/level/page_cache.emp, DEBUG only) ---
+    // audit-amortise, 2026-09-26: in the latched regimes VSync_Wait's idle slot audits the
+    // nametable in slices (PageCache_Audit, PAGE_AUDIT_IDLE) and the interval tick finishes
+    // whatever it did not reach. The cursor chooses WHICH words the next slice reads and
+    // holds no partial result (the no-false-verdict argument in PageCache_Audit's header
+    // rests on that). Placed at the RAM TAIL and @shape_divergent for the reason every
+    // block above states: zero existing engine-RAM addresses move, only Engine_RAM_End and
+    // the game RAM chained after it, and only in the DEBUG shape. Not beside
+    // Page_Audit_Ticks (~line 934), which would slide every DEBUG cell below it — the
+    // 2026-08-11 pool resize showed what that does to the replay fixtures.
+    if DEBUG == 1 @shape_divergent {
+        Page_Audit_Slice:       u16,    // next slice to audit this interval; PAGE_AUDIT_SLICES = sweep done
+        Page_Audit_Late:        u16,    // slices the interval tick had to audit itself (idle had no room); cumulative
     }
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End

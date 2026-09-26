@@ -1,7 +1,7 @@
 // VBlank handler with function pointer dispatch and lag detection (§1.2)
 module engine.vblank in vblank
 
-use engine.constants.{VDP_CTRL}
+use engine.constants.{VDP_CTRL, PAGE_AUDIT_IDLE}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.structs.{DMAEntry}
@@ -524,6 +524,15 @@ pub proc VSync_Wait () clobbers(d0-d2/a0-a3) preserves(sr.mask) {
         // and returns here, or (fresh/resume) runs the decoder until a VBlank
         // banks it and PageIn_BankRegs's rts returns here.
         jbsr    PageIn_Process
+        // DEBUG: the residency audit's amortised nametable sweep (audit-amortise,
+        // 2026-09-26). AFTER PageIn_Process, so art decode keeps first claim on the idle
+        // slot; PageCache_Audit gates itself on the scanline and on VBlank_Flag and
+        // audits slices only while this frame still has room, so it never delays the
+        // next tick. Its clobbers are exactly this proc's d0-d2/a0-a3. Release: nothing.
+        if DEBUG == 1 {
+            moveq   #PAGE_AUDIT_IDLE, d0
+            jbsr    PageCache_Audit
+        }
         moveq   #0, d0                          // re-establish d0=0: PageIn_Process clobbers it,
                                                 // and the .wait flag-clear below reuses it
     .wait:

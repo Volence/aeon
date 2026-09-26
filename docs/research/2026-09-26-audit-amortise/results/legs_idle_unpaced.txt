@@ -1,0 +1,51 @@
+finished=4
+finished=5
+== fly: s4.debug.bin crc=9cd46edf size=855915 mode=fly dirs=right load 28.63->27.38
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped']
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== down: s4.debug.bin crc=9cd46edf size=855915 mode=fly dirs=down load 27.38->27.99
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: s4.debug.bin crc=9cd46edf size=855915 mode=fly dirs=right,down load 27.99->27.99
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped']
+   IN MOTION 43/406 (10.59%), 1.118 frames/tick, cam end [5824, 5920]; LFC_delta=43 whole-leg lag=43
+   cam_y<1024: 14/70
+   (no profile)
+== run: s4.debug.bin crc=9cd46edf size=855915 mode=run dirs=right load 27.99->24.36
+   notes: ['DEBUG free flight left with B (y 256->256)']
+   IN MOTION 109/2999 (3.63%), 1.038 frames/tick, cam end [1074, 379]; LFC_delta=109 whole-leg lag=109
+   cam_y<1024: 109/3000
+   (no profile)
+legs with results: 4 of 4
+== fly: s4.s2clip.debug.bin crc=8a37154c size=955193 mode=fly dirs=right load 24.36->23.21
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped']
+   IN MOTION 0/998 (0.0%), 1.0 frames/tick, cam end [16064, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/1058
+   (no profile)
+== down: s4.s2clip.debug.bin crc=8a37154c size=955193 mode=fly dirs=down load 23.21->24.39
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped']
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== diag: s4.s2clip.debug.bin crc=8a37154c size=955193 mode=fly dirs=right,down load 24.39->23.16
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 38/1036 (3.67%), 1.038 frames/tick, cam end [16064, 5920]; LFC_delta=38 whole-leg lag=38
+   cam_y<1024: 34/90
+   (no profile)
+== cpzdown: s4.s2clip.debug.bin crc=8a37154c size=955193 mode=fly dirs=right load 23.16->21.87
+   notes: ['switched to down at frame 893 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped']
+   IN MOTION 33/1292 (2.55%), 1.026 frames/tick, cam end [14400, 5920]; LFC_delta=33 whole-leg lag=33
+   cam_y<1024: 16/968
+   before switch 0/894; after switch 33/458
+   (no profile)
+== cpzdiag: s4.s2clip.debug.bin crc=8a37154c size=955193 mode=fly dirs=right load 21.87->21.00
+   notes: ['switched to right,down at frame 893 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped']
+   IN MOTION 70/1329 (5.27%), 1.056 frames/tick, cam end [16064, 5920]; LFC_delta=70 whole-leg lag=70
+   cam_y<1024: 47/999
+   before switch 0/894; after switch 70/495
+   (no profile)
+legs with results: 5 of 5

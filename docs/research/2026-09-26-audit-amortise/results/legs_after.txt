@@ -1,0 +1,62 @@
+== canon_fly: s4.debug.bin crc=d2a24d49 size=855935 mode=fly dirs=right load 10.40->10.40
+   notes: ['camera stalled at (5824,144) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 0/358 (0.0%), 1.0 frames/tick, cam end [5824, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/418
+   (no profile)
+== canon_down: s4.debug.bin crc=d2a24d49 size=855935 mode=fly dirs=down load 10.40->11.17
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== canon_diag: s4.debug.bin crc=d2a24d49 size=855935 mode=fly dirs=right,down load 11.17->11.17
+   notes: ['camera stalled at (5824,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 43/406 (10.59%), 1.118 frames/tick, cam end [5824, 5920]; LFC_delta=43 whole-leg lag=43
+   cam_y<1024: 14/70
+   (no profile)
+== canon_run: s4.debug.bin crc=d2a24d49 size=855935 mode=run dirs=right load 11.17->10.83
+   notes: ['DEBUG free flight left with B (y 256->256)', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 109/2999 (3.63%), 1.038 frames/tick, cam end [1074, 379]; LFC_delta=109 whole-leg lag=109
+   cam_y<1024: 109/3000
+   (no profile)
+== clip_fly: s4.s2clip.debug.bin crc=cd8afc64 size=955213 mode=fly dirs=right load 10.83->10.61
+   notes: ['camera stalled at (16064,144) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 0/998 (0.0%), 1.0 frames/tick, cam end [16064, 144]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/1058
+   (no profile)
+== clip_down: s4.s2clip.debug.bin crc=cd8afc64 size=955213 mode=fly dirs=down load 10.61->12.16
+   notes: ['camera stalled at (96,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 0/363 (0.0%), 1.0 frames/tick, cam end [96, 5920]; LFC_delta=0 whole-leg lag=0
+   cam_y<1024: 0/56
+   (no profile)
+== clip_diag: s4.s2clip.debug.bin crc=cd8afc64 size=955213 mode=fly dirs=right,down load 12.16->17.12
+   notes: ['camera stalled at (16064,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 38/1036 (3.67%), 1.038 frames/tick, cam end [16064, 5920]; LFC_delta=38 whole-leg lag=38
+   cam_y<1024: 34/90
+   (no profile)
+== clip_cpzdown: s4.s2clip.debug.bin crc=cd8afc64 size=955213 mode=fly dirs=right load 17.12->16.55
+   notes: ['switched to down at frame 893 cam (14400,144)', 'camera stalled at (14400,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 33/1292 (2.55%), 1.026 frames/tick, cam end [14400, 5920]; LFC_delta=33 whole-leg lag=33
+   cam_y<1024: 16/968
+   before switch 0/894; after switch 33/458
+   (no profile)
+== clip_cpzdiag: s4.s2clip.debug.bin crc=cd8afc64 size=955213 mode=fly dirs=right load 16.55->16.11
+   notes: ['switched to right,down at frame 893 cam (14400,144)', 'camera stalled at (16064,5920) for 60 frames; stopped', "read_at_end {'Page_Audit_Late': 0}"]
+   IN MOTION 70/1329 (5.27%), 1.056 frames/tick, cam end [16064, 5920]; LFC_delta=70 whole-leg lag=70
+   cam_y<1024: 47/999
+   before switch 0/894; after switch 70/495
+   (no profile)
+legs with results: 9 of 9
+Sat Sep 26 07:34:38 AM UTC 2026
+ 03:34:38 up 2 days, 16:35,  1 user,  load average: 10.40, 13.00, 13.06
+canon_fly rc=0 loadavg=10.40 13.00 13.06 9/2662 3393498
+canon_down rc=0 loadavg=11.17 13.12 13.10 11/2650 3413263
+canon_diag rc=0 loadavg=11.17 13.12 13.10 8/2641 3427605
+canon_run rc=0 loadavg=10.83 12.95 13.04 9/2634 3494366
+clip_fly rc=0 loadavg=10.61 12.87 13.01 13/2724 3520533
+clip_down rc=0 loadavg=12.16 13.15 13.11 27/2827 3531667
+clip_diag rc=0 loadavg=17.12 14.18 13.44 10/2703 3548188
+clip_cpzdown rc=0 loadavg=16.55 14.11 13.42 7/2683 3582235
+clip_cpzdiag rc=0 loadavg=16.11 14.06 13.41 11/2683 3615352
+Sat Sep 26 07:35:29 AM UTC 2026
+ 03:35:29 up 2 days, 16:36,  1 user,  load average: 16.11, 14.06, 13.41
+finished=9

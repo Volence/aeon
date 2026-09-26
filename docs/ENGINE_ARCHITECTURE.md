@@ -5544,9 +5544,21 @@ invariants rather than trusted:
   (UNASSIGNED) so a detached, not-yet-published frame belongs to no page; the audit's
   `pf_page == $FFFF` skip then makes `frame → pf_page → Page_Table` round-trip true at
   *every* instant, including the mid-decode in-flight window.
-- **Orphan / refcount audit:** a DEBUG routine walks the whole `Tile_Cache_Nametable`,
-  recomputes per-frame refcounts from scratch, and `raise_error`s on any mismatch or
-  orphaned frame; run after init and periodically during play.
+- **Orphan / refcount audit:** a DEBUG routine (`PageCache_Audit`) walks
+  `Tile_Cache_Nametable`, recomputes per-frame refcounts from scratch (or, under the
+  direct-map latch, checks that no word names an unassigned frame), and `raise_error`s on
+  any mismatch or orphaned frame. It runs whole after init and warp, and periodically
+  during play: every invariant once per `PAGECACHE_AUDIT_INTERVAL` (128) ticks. **Amortised
+  since 2026-09-26** (`docs/research/2026-09-26-audit-amortise.md`). In the latched regimes
+  the nametable half is cut into 40-word slices. `VSync_Wait`'s idle slot audits them after
+  `PageIn_Process`, only while the V counter says a slice fits before VBlank, paced so
+  slice *s* is due at interval tick *s+1*. The level tick audits any slice left 8 ticks
+  overdue, and the interval tick runs the frame-level checks whole. Each slice checks its
+  words against a frame mask built in the same call, so no verdict ever combines two
+  instants. The general regime's refcount SUM stays one atomic walk on the interval tick,
+  because slicing it needs a write barrier in the copy sites. This removed the DEBUG
+  shape's two-lag-frame hitch every ~2.1 s (canonical fly right 6 -> 0, clip fly right
+  16 -> 0). The nametable half's detection bound is 136 ticks, the frame-level half's 128.
 
 **Operating regime.** Streaming's regime is **windows ≪ pool** — an act whose multi-screen
 cache window references only a fraction of the pool at once, so the resident set churns as
@@ -5606,7 +5618,8 @@ loop untouched as the fallback for a genuinely streaming act. Measured: the patc
 `PageCache_Audit` is regime-aware rather than disabled: under the latch it checks all-zero
 refcounts (the "variants got mixed" detector), no cache word referencing an unassigned frame
 (the no-dangling-index property the refcounts protected), and that `Page_Table` is still the
-identity. See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
+identity. The per-word dangling check is the half the idle slot audits in slices (see the
+correctness-invariants list above). See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
 
 **The streaming path, made as cheap as the resident one where it can be (S2CLIP-LAG, 2026-09-25).**
 The two-zone Sonic 2 clip act (14 pages against 12 frames) was the first flown act that does not

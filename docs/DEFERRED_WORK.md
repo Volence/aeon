@@ -41315,3 +41315,49 @@ sweep runs a literal 32 frames after each camera write and then FAILS the positi
 is not 0. That 32 is 2 x 16 by arithmetic nobody wrote down, but it is checked on every position,
 so it fails loudly rather than silently. Changing any fixed count moves what the tool samples, so
 none was collapsed here. Booked for whoever picks up a "one boot settle" row.
+
+## AUDIT-AMORTISE: the DEBUG residency audit's two-frame hitch (CLOSED 2026-09-26, branch `parcel/audit-amortise`; residue OPEN)
+
+Perf-survey candidate 1, picked under `PERF-PICK`. `PageCache_Audit` no longer walks the
+whole nametable on one tick in the latched regimes. Paced 40-word slices run in
+`VSync_Wait`'s idle slot, the level tick audits any slice left 8 ticks overdue, and the
+interval tick runs the frame-level checks whole. Report, measurements and the
+no-false-verdict argument: `docs/research/2026-09-26-audit-amortise.md`.
+
+Measured (headless DEBUG): canonical fly right 6/364 -> 0/358, down 6/369 -> 0/363,
+diagonal 48/411 -> 43/406. Clip fly right 16/1014 -> 0/998, down 7/370 -> 0/363, diagonal
+51/1049 -> 38/1036. Release `s4.bin` is unchanged (`0cd3ce63`). `Page_Audit_Late` (slices
+the ticks had to do because the idle slot had no room) read 0 on all nine legs.
+
+Residue, OPEN:
+
+* **AA-1: the general regime's refcount sum is still one atomic walk** (~203k-236k cycles
+  every 128 ticks), so a streaming act past its bulk block (the clip after the CPZ switch)
+  still gets the two-frame hitch. Slicing a SUM while `Tile_Cache_Fill` rewrites words gives
+  false verdicts both ways unless every write is seen. The clean lever is a DEBUG write
+  barrier in the copy sites: a per-slice dirty mark, or a generation bump the sweep
+  compares. That is `PageCache_PatchRun_*` / `TileCache_FillRow` /
+  `TileCache_CopyBlockColumn` territory, which perf candidate 3 owns now. Revisit after
+  candidate 3 lands. A restart-on-any-write sweep will NOT do: the fill writes nearly every
+  tick in motion, so the sweep never finishes.
+* **AA-2: the nametable half's detection bound is 136 ticks, not 128.** The pacing slack
+  (`PAGE_AUDIT_SLACK_TICKS` = 8) lets the idle slot ride out 8 idle-starved ticks without
+  in-tick work. Slack 0 gives 129 but costs in-tick slices on every lagging tick (the
+  tick-slot design measured +8 lag on the canonical diagonal). The owner's call if 136 is
+  not acceptable. The frame-level half is still 128.
+* **AA-3: `PAGE_AUDIT_IDLE_MARGIN_LINES` (12) is priced by hand** (~2,650 cycles per slice
+  from 68000 timings, 2x margin). No instrument prices a real slice. A V-counter
+  self-price like `Canopy_Probe`'s would make it a measurement.
+* **AA-4: the interval tick's frame-level checks (~15k cycles est.) stay in-tick** and were
+  not isolated. On the measured legs they cost no lag frame (the canonical diagonal matches
+  the slices-removed experiment at 43), but that was not measured directly.
+* **AA-5 (pre-existing, found reading the code, NOT verified to occur):** both the old walk
+  and the new one leave frame ids >= PAGE_FRAMES unchecked (tile index >= 768). The general
+  regime's counting walk also increments `Page_Audit_Scratch` at that frame id, so a word
+  naming tile >= 960 (frame >= 15) writes into `Page_Audit_Snapshot`'s bytes. Whether any
+  FG cache word names a tile >= 768 was not measured.
+* **AA-6: `tools/pagecache_audit_poison.py` arm (b)** ("unassigned frame referenced")
+  halts through the bijectivity check on the interval tick, not through the dangling
+  walk. This was true before the amortise. The new (b1)/(b2) single-word arms are the ones
+  that reach the walk (red-first: they go red with the walk stubbed). The (b) arm's label
+  over-claims. Rename or re-aim it.
