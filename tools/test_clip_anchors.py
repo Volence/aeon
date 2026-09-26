@@ -166,12 +166,23 @@ class Live(unittest.TestCase):
 
     def test_every_committed_clip_overlay_is_its_own_derivation(self):
         """A hand edit to a committed anchors.toml is caught here, before any clip build:
-        each recorded shape's own rule value must give a FRESH verdict."""
+        each recorded shape's own rule value must give a FRESH verdict.
+
+        KEYED TO THE DECLARATION, NOT THE FILE (CLIP-ANCHORS-MISSING-FILE). This used to
+        iterate over the files that exist and assert at least one did, so a declared
+        clip whose file went missing was simply skipped once any other clip had one.
+        Now every clip's manifest claim must match its tree, per clip."""
         map_rows = clip_anchors.map_anchor_rows(AEON)
         found = 0
         for clip in sorted(os.listdir(LIVE_CLIPS)):
+            if not os.path.isfile(os.path.join(LIVE_CLIPS, clip, clip_anchors.MANIFEST_NAME)):
+                continue
             path = clip_anchors.overlay_path(clip, AEON)
-            if not os.path.exists(path):
+            declared = clip_anchors.declares_overlay(clip, AEON)
+            self.assertEqual(declared, os.path.isfile(path),
+                             f"{clip}: manifest declares anchor_overlay={declared} but "
+                             f"{path} {'is missing' if declared else 'exists'}")
+            if not declared:
                 continue
             found += 1
             _anchors, measured, _rows = clip_anchors.parse_overlay(path)
@@ -181,7 +192,69 @@ class Live(unittest.TestCase):
                 code, problems = clip_anchors.verdict(path, shape, rule, map_rows)
                 self.assertEqual((code, problems), (clip_anchors.FRESH, []), path)
         # Not a pin on a count: a measurement that saw no file would pass vacuously.
-        self.assertGreater(found, 0, "no committed clip anchors.toml to check")
+        self.assertGreater(found, 0, "no clip declares an anchors.toml to check")
+
+
+class Declaration(unittest.TestCase):
+    """CLIP-ANCHORS-MISSING-FILE: the manifest declares the overlay; the file is held to it.
+    Hermetic: a temp aeon root with one clip dir per case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+
+    def _clip(self, name, declare, with_file):
+        d = os.path.join(self.root, clip_anchors.CLIPS_REL, name)
+        os.makedirs(d)
+        doc = {"schema": 1, "id": name}
+        if declare is not None:
+            doc[clip_anchors.DECLARE_KEY] = declare
+        with open(os.path.join(d, clip_anchors.MANIFEST_NAME), "w") as f:
+            import json
+            json.dump(doc, f)
+        if with_file:
+            with open(os.path.join(d, clip_anchors.OVERLAY_NAME), "w") as f:
+                f.write("[[anchor]]\n")
+        return name
+
+    def test_declared_and_present_resolves_to_the_path(self):
+        c = self._clip("a", True, True)
+        self.assertEqual(clip_anchors.resolve_overlay(c, self.root), clip_anchors.overlay_rel(c))
+
+    def test_undeclared_and_absent_is_none(self):
+        for decl in (None, False):
+            c = self._clip(f"n{decl}", decl, False)
+            self.assertIsNone(clip_anchors.resolve_overlay(c, self.root))
+
+    def test_declared_and_missing_refuses(self):
+        """THE BOOKED CASE: the file moved aside must not fall back to canonical anchors."""
+        c = self._clip("m", True, False)
+        with self.assertRaisesRegex(clip_anchors.Unmeasurable, "does not exist"):
+            clip_anchors.resolve_overlay(c, self.root)
+
+    def test_present_but_undeclared_refuses(self):
+        c = self._clip("u", False, True)
+        with self.assertRaisesRegex(clip_anchors.Unmeasurable, "does not declare"):
+            clip_anchors.resolve_overlay(c, self.root)
+
+    def test_a_non_boolean_declaration_is_refused_not_coerced(self):
+        c = self._clip("s", "yes", True)
+        with self.assertRaisesRegex(clip_anchors.Unmeasurable, "must be true or false"):
+            clip_anchors.resolve_overlay(c, self.root)
+
+    def test_overlay_arg_cli_exit_codes(self):
+        """build.sh reads the EXIT STATUS and stdout of `--overlay-arg`; pin both. Run
+        against the live s2_ehz_cpz (declared + present): exit 0, prints the path."""
+        import subprocess
+        tool = os.path.join(AEON, "tools", "clip_anchors.py")
+        p = subprocess.run([sys.executable, tool, "--clip", "s2_ehz_cpz", "--overlay-arg"],
+                           cwd=AEON, capture_output=True, text=True, timeout=60)
+        self.assertEqual((p.returncode, p.stdout.strip()),
+                         (0, clip_anchors.overlay_rel("s2_ehz_cpz")), p.stderr)
+        p = subprocess.run([sys.executable, tool, "--clip", "no_such_clip", "--overlay-arg"],
+                           cwd=AEON, capture_output=True, text=True, timeout=60)
+        self.assertEqual((p.returncode, p.stdout), (clip_anchors.BROKEN, ""), p.stderr)
 
 
 if __name__ == "__main__":

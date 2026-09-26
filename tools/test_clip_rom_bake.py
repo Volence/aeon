@@ -605,3 +605,36 @@ def test_the_donor_corroboration_says_so_LOUDLY_when_it_cannot_measure(tmp_path,
     r = CRB.donor_corroboration(_GroundAct([_C()]), str(tmp_path), str(tmp_path),
                                 3, 3, 2048, log=None)
     assert r["measured"] is False and "outside this clip's source rectangle" in r["why"]
+
+
+# ---------------------------------------------------------------------------
+# restore_tree / bake: a restore that git REFUSED is a failure, not "RESTORED"
+# (PRINTED-NOT-GATED, 2026-09-25). `true` / `false` stand in for git, so these rows
+# never touch the real tree: `false checkout -- ...` exits 1 and does nothing.
+# ---------------------------------------------------------------------------
+
+def test_restore_tree_reads_gits_exit_status():
+    logged = []
+    assert CRB.restore_tree(git="true", log=logged.append) is True
+    assert "RESTORED" in logged[-1]
+    logged.clear()
+    assert CRB.restore_tree(git="false", log=logged.append) is False
+    assert logged and "ERROR" in logged[-1] and "RESTORED" not in " ".join(logged)
+
+
+def test_bake_raises_when_the_restore_fails_after_a_good_bake(monkeypatch):
+    monkeypatch.setattr(CRB, "_bake", lambda *a, **k: 0)
+    monkeypatch.setattr(CRB, "restore_tree", lambda **k: False)
+    with pytest.raises(CRB.ClipRomError, match="could NOT be restored"):
+        CRB.bake("unused.json", log=None)
+    # --keep never restores, so a failing restore cannot be reached there.
+    assert CRB.bake("unused.json", keep=True, log=None) == 0
+
+
+def test_a_failed_bake_keeps_its_own_exception_when_the_restore_also_fails(monkeypatch):
+    def boom(*a, **k):
+        raise CRB.ClipRomError("the bake's own refusal")
+    monkeypatch.setattr(CRB, "_bake", boom)
+    monkeypatch.setattr(CRB, "restore_tree", lambda **k: False)
+    with pytest.raises(CRB.ClipRomError, match="the bake's own refusal"):
+        CRB.bake("unused.json", log=None)

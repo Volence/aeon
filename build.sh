@@ -232,8 +232,20 @@ if [[ -n "${S2CLIP:-}" ]]; then
     # DERIVED by tools/clip_anchors.py, which also fails the build when the listing's Source
     # Digest has no READ row for it (the switch was dropped). Contract: sigil
     # docs/superpowers/notes/2026-09-25-clip-overlay-contract.md.
-    S2CLIP_ANCHORS="games/sonic4/data/clips/${S2CLIP}/anchors.toml"
-    if [[ -f "$S2CLIP_ANCHORS" ]]; then
+    #
+    # WHETHER the clip has one is its MANIFEST's claim (`"anchor_overlay": true` in
+    # clips.json), not the file's presence (CLIP-ANCHORS-MISSING-FILE, 2026-09-25): with
+    # the file moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` used to exit 0 on the
+    # canonical anchors. `--overlay-arg` prints the path when declared and present,
+    # nothing when undeclared and absent, and exits 1 when the two disagree. Here, before
+    # any work, so it refuses in EVERY shape, FAST included.
+    S2CLIP_ANCHORS=$(python3 "${TOOLS:-tools}/clip_anchors.py" --clip "${S2CLIP}" --overlay-arg) || {
+        echo "ERROR: S2CLIP=${S2CLIP}: the clip's anchor-overlay declaration and its"
+        echo "  anchors.toml disagree (see above). Refusing rather than building on the"
+        echo "  canonical anchors."
+        exit 1
+    }
+    if [[ -n "$S2CLIP_ANCHORS" ]]; then
         ANCHOR_OVERLAY_ARGS=(--anchor-overlay "$S2CLIP_ANCHORS")
         echo "S2CLIP: clip anchor overlay ${S2CLIP_ANCHORS}"
     fi
@@ -1069,10 +1081,21 @@ if [[ -n "${S2CLIP:-}" ]]; then
         echo "  the clip re-bake restores from git and would discard uncommitted changes."
         exit 1
     fi
+    # A FAILED RESTORE FAILS THE BUILD (PRINTED-NOT-GATED, 2026-09-25). This used to end
+    # `2>/dev/null || true`, and an EXIT trap that does not call `exit` keeps the build's
+    # own status: measured with this worktree's index.lock held, `FAST=1 S2CLIP=... ./build.sh`
+    # exited 0 and left 75 paths of the CLIP bake in the committed level tree, silently,
+    # for the next canonical build (or `git commit -a`) to pick up. `exit 1` inside an
+    # EXIT trap replaces the status, so the caller's `&&` now stops.
     _restore_s2clip_tree() {
         echo "S2CLIP: restoring the committed level tree from git..."
-        git checkout -q -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE" 2>/dev/null || true
-        git clean -fdq -- "$S2CLIP_GEN_TREE" 2>/dev/null || true
+        if ! git checkout -q -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE" \
+                || ! git clean -fdq -- "$S2CLIP_GEN_TREE"; then
+            echo "ERROR: S2CLIP: could NOT restore the committed level tree (git said why above)."
+            echo "  $S2CLIP_GEN_TREE and $S2CLIP_COLL_TREE still hold the CLIP bake. Restore by hand:"
+            echo "    git checkout -- $S2CLIP_GEN_TREE $S2CLIP_COLL_TREE && git clean -fd -- $S2CLIP_GEN_TREE"
+            exit 1
+        fi
     }
     trap _restore_s2clip_tree EXIT
     echo "S2CLIP: throwaway re-bake of clip act '${S2CLIP}' into the OJZ act slot..."
@@ -1106,10 +1129,16 @@ if [[ "${STRESS_ART:-0}" == "1" ]]; then
         echo "  the stress re-bake restores from git and would discard uncommitted changes."
         exit 1
     fi
+    # Same rule as _restore_s2clip_tree above: a failed restore fails the build.
     _restore_stress_tree() {
         echo "STRESS_ART: restoring the committed level tree from git..."
-        git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" 2>/dev/null || true
-        git clean -fdq -- "$STRESS_GEN_TREE" 2>/dev/null || true
+        if ! git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" \
+                || ! git clean -fdq -- "$STRESS_GEN_TREE"; then
+            echo "ERROR: STRESS_ART: could NOT restore the committed level tree (git said why above)."
+            echo "  $STRESS_GEN_TREE and $STRESS_COLL_TREE still hold the STRESS bake. Restore by hand:"
+            echo "    git checkout -- $STRESS_GEN_TREE $STRESS_COLL_TREE && git clean -fd -- $STRESS_GEN_TREE"
+            exit 1
+        fi
     }
     trap _restore_stress_tree EXIT
     echo "STRESS_ART: throwaway re-bake with uniquified act pool (N=${STRESS_ART_N:-2600})..."

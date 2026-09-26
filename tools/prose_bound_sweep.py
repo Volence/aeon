@@ -77,13 +77,18 @@ def logical_strings(tree):
     return out
 
 
-def sweep(paths):
+def sweep(paths, unswept=None):
+    """Hits over `paths`. A file that cannot be read or parsed is appended to `unswept`
+    (when given) as (path, reason): the CLI exits 2 on any, because a skipped file and a
+    clean file used to print the same `sites: 0` (PRINTED-NOT-GATED, 2026-09-25)."""
     hits = []
     for p in paths:
         try:
             tree = ast.parse(pathlib.Path(p).read_text())
         except Exception as e:
             print("  !! %s: %s" % (p, e), file=sys.stderr)
+            if unswept is not None:
+                unswept.append((str(p), str(e)))
             continue
         seen = set()
         for lineno, lit, full in logical_strings(tree):
@@ -161,7 +166,16 @@ if __name__ == "__main__":
     for a in sys.argv[1:]:
         q = pathlib.Path(a)
         files.extend(sorted(q.rglob("*.py")) if q.is_dir() else [q])
-    hits = sweep(files)
+    unswept = []
+    hits = sweep(files, unswept)
     print("sites: %d" % len(hits))
     for f, i, n, s in hits:
         print("%s:%d  [%s]  %s" % (f, i, n, s))
+    if unswept:
+        # The count above covers only the files that parsed; say so, and exit 2 so a
+        # caller cannot read `sites: N` as the whole sweep.
+        print("UNSWEPT: %d file(s) could not be parsed as Python and were NOT swept:"
+              % len(unswept))
+        for f, why in unswept:
+            print("  %s: %s" % (f, why))
+        sys.exit(2)

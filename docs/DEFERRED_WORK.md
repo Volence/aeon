@@ -38963,7 +38963,7 @@ reduced frames would keep a DIFFERENT tool alive than the one anybody runs.
    run. Gitignored today, so it pollutes nothing tracked, but a keepalive lane running
    nightly makes it a standing write.
 
-## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, booked 2026-09-19)
+## PRINTED-NOT-GATED: a check that prints a verdict beside an action does not stop it (OPEN, NARROWED 2026-09-25; booked 2026-09-19)
 
 **Two measured instances in one evening, from two different seats, and neither was caught by the
 check that fired.**
@@ -39011,6 +39011,41 @@ a disjoint population.**
 
 **Deliberately not swept on 2026-09-19:** an agent was live across `tools/` on the keepalive
 parcel and two sweeps in one directory is how a parcel loses its baseline. Take it when that lands.
+
+**SWEPT 2026-09-25 (parcel `parcel/printed-not-gated`). NARROWED, not closed: the rows below are what is left.**
+
+*Population, derived from what the code does.* An AST walk over every non-test module under `tools/` (218 files) listed every `if`/`elif`/`else` body that prints, writes, warns or logs, and every `except` body, whose block contains no `raise`, no non-zero `exit`, no failure-valued `return` and no failure accumulator. That gave 721 candidate branches. 149 were filtered mechanically (the branch condition is a logging/verbose/output flag, the branch is the pass path, or it truncates a list that is already failing). The other 572 were read by hand: 201 in the 70-module import closure of every tool `build.sh` and `tools/*.sh` invoke, and 371 in the rest, split across four read-only readers. The shell half (the third instance's population, which is disjoint) was enumerated separately. It covers every command in `build.sh`, `tools/*.sh` and `landing_build.sh` whose exit status is discarded (`|| true`, a pipeline with no `PIPESTATUS`, or a bare line under `set -uo` with no `-e`). The scan and its triage are method, not a gate: nothing re-runs them.
+
+*Fixed (each red first, then green, and wired to a runner):*
+- `build.sh` S2CLIP / STRESS_ART EXIT-trap restore: this ended `2>/dev/null || true`. With this worktree's `index.lock` held, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exited **0** and left 75 paths of the clip bake in the committed level tree. It now exits 1 and prints the by-hand restore command. Runner: the build itself. The STRESS_ART trap has the same shape; its red was not run, and the nightly stress-tree check is its existing backstop.
+- `clip_rom_bake.restore_tree` ran git with `check=False` and never read the return code, and `bake()` discarded its bool. A bare `bake` could exit 0 with the tree left dirty. It now reads the status, and `bake` raises. Runner: `tools/test_clip_rom_bake.py`.
+- `tools/freeze_preflight.sh` step 2: the `cargo | tee | grep | tail` status was never read, so a sigil-cli compile error printed **CLEAR** and exited 0. It now exits 2 (COULD NOT RUN) and prints the error text. Runner: `tools/test_freeze_preflight.py`.
+- `tools/prose_bound_sweep.py`: a file it could not parse was skipped and the run still printed `sites: 0`, exit 0. It now names the file as UNSWEPT and exits 2. Runner: `tools/test_tool_selftests.py`.
+- `tools/parallax_scratch_probe.py` step 4, when the second field was ignored, printed a NOTE and then PASS. It is now a FAIL, exit 1. Runner: the nightly keepalive (`expect = 0`); last night step 4 moved all 6 frames, so the keepalive stays green.
+- CLIP-ANCHORS-MISSING-FILE: see that row (CLOSED).
+
+*(c), deliberately NOT changed: each would change a gate's meaning, so the owner or the controller decides:*
+- `verify_level_bin.verify_no_orphans`: WARN by a written ruling in its docstring ("a build that refuses ... over dead weight would get switched off").
+- `collision_consistency`: stale baseline entries ("DELETE them so the ratchet tightens") print and exit 0. A stale exemption can silently re-cover a reintroduced violation.
+- `build.sh:1032`: when pytest is not importable, the whole tool-suite lane is skipped with a print. `landing_build.sh` and the nightly both refuse that case; `build.sh` alone does not.
+- `ojz_entity_gen.generate`: when ring band pressure is over `MAX_LIST_ENTRIES`, it WARNs ("conservative estimate").
+- `ojz_strip_gen.generate`: when a section's layout is empty, it WARNs and skips that section.
+- `emdash/count_dashes.py --gate` ignores escaped dashes. That is by design ("a different remediation"), and the tool's own source has to contain escapes, so gating on them would always fail.
+- `dplc_straddle.growth_reserve`: `except Exception: return None` silently drops the margin warning.
+- `gen_collision_data.py`: when its sources are missing it writes STUB tables and exits 0. It is a manual tool, not invoked by any lane. Its twin `ojz_strip_gen._try_load_collision_sources` has **no caller** (dead code).
+- `dplc_coherence_witness` (nightly, `expect = 0`): findings are "reported and NOT graded" pending the ruling in docs/research/2026-09-25-keepalive-lossy.md.
+- `night_settle_capture`: "CONTROL EMPTY ... NOT evidence" exits 0, per its exit contract.
+
+*(a), real, but OPEN: hand-run or never-run tools with no scripted caller. Each fix is about one line; they were not taken here because each red-first needs its own emulator session or donor input:*
+- `smps_import.py:981`: an unknown jump/call label warns, then returns `"fell_off"`, and no caller reads it, so the channel is silently truncated. **Left alone because the S2-music parcels are live on this file.**
+- `sfx_transcode.py:914,984,1900`: an unknown `dc.b` token, or a byte in $80..$DF, is warned and dropped from shipped SFX bytecode. A missing core SFX source is skipped and the stale output kept. Also, the note branch `S3K_NOTE_BASE <= val <= 0xFF` makes the `>= 0xE0` coord-flag raise unreachable.
+- `zyrinx_port.py:489`: a missing sequence is skipped and the song .asm is still written.
+- `perspective_floor_gen.py:587`: when the static tile budget is exceeded, it warns and still writes.
+- `transition_window_probe.py:132`: nightly. The shim's own read error goes only to SHIM_OUT, so "IN-WINDOW=0" can pass.
+- Hand-run probes: `sec5_band_witness.py:393`, which passes vacuously with zero in-band samples; `parallax_cost_probe.py:1879`; `poke_storm_sound_cost_witness.py:355`; `engine_baseline_probe.py:960/972/996/1035/1039`; `crossing_witness.py:484`; `perspective_floor_witness.py:267`; `ramp_boundary_probe.py:572/723`; `hblank_window_sweep.py:1336`; `vgm_onsets.py:143`; `ls8_pin_redproof.py:301`.
+- Unsure: `raster_frame_epoch_probe.py:407` (a wedged fixture counted as intact?); `zyrinx_player.py:2017` ("fits one 32KB bank: NO", exit 0); `smps_import.py:1056`; `zyrinx_port.py:499`.
+
+*Evidence at `32feff35`:* `tools/landing_build.sh` exit 0, `finished=0` (land-gate stamp written). Pre-build pytest lane: 3467 passed / 1 failed before (origin/master bytes on the changed paths; the one failure was `test_check_does_not_perturb_generated_sound_artifacts`, and it did not recur) and 3480 passed / 0 failed after. CRC32 is identical on origin/master and the tip: s4.bin `3afb86aa`/822081, s4.debug.bin `831cf561`/848746, demo.debug.bin `0d9b88fd`/105401.
 
 ## KEEPALIVE ARMED 2026-09-19, AT 05:00 AND NOT THE SUGGESTED 04:30 (closes KEEPALIVE-ARM-IT)
 
@@ -40829,10 +40864,12 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
    and into Chemical Plant. The DEBUG audit ran clean across the regime change and the art pages were checked by the
    audit's bijectivity/refcount arms, but nobody has looked at the picture.
 
-## CLIP-ANCHORS-MISSING-FILE: a clip whose anchors.toml goes missing falls back silently (booked 2026-09-25T17:45:38Z)
+## CLIP-ANCHORS-MISSING-FILE: a clip whose anchors.toml goes missing falls back silently (CLOSED 2026-09-25, parcel/printed-not-gated; booked 2026-09-25T17:45:38Z)
 
 Found by the landing agent's anti-trap check on the clip anchor overlay (landed 8886d1cc). With `s2_ehz_cpz/anchors.toml` moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exits 0 and places the banks on the canonical 0xA8000/0xB8000 (crc 3e4404b5); `clip_anchors` only prints a notice. A full build refuses, but only through `test_clip_anchors.py::Live::test_every_committed_clip_overlay_is_its_own_derivation`, which asserts that AT LEAST ONE clip carries a file, so it goes blind the moment a second clip has one. `bganim_room`'s `anchor < want` branch only reports (read, not run). The ROM stays correct (canonical anchors are legal while the clip fits under them, and sigil refuses loudly once it does not), so this costs room, not correctness. Fix when convenient: make the clip manifest declare that it has an overlay, and have `clip_anchors` refuse a missing declared file in every shape, FAST included.
 
+
+**CLOSED 2026-09-25 (parcel/printed-not-gated).** The fix is the one booked above. `s2_ehz_cpz/clips.json` now declares `"anchor_overlay": true`. `tools/clip_anchors.py` gained `declares_overlay`/`resolve_overlay` and `--overlay-arg`, which refuse with exit 1 when the declaration and the file disagree in either direction: declared but missing, or present but undeclared. A non-boolean declaration is also refused. build.sh's S2CLIP block runs `--overlay-arg` before any work, so the refusal fires in every shape, FAST included. The in-build check uses the same resolver. The Live test now keys on each clip's declaration instead of "at least one file exists", so a second clip with a file no longer blinds it. New hermetic rows are in `tools/test_clip_anchors.py::Declaration`. Red first: with the file moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exited 1 before any work (the booking measured exit 0), and two test rows went red. After restoring the file from the commit, the same build exited 0 on the clip's own anchors 0xC0000/0xD0000 (FRESH). Not changed: `bganim_room`'s `anchor < want` branch. It reports, and never fails, **by ruling**: GRACE is "INSIDE the align_up and OUTSIDE the gate's threshold" (S2CLIP-BANK-ROOM-GATE, 446a27d9), and the reserve arm beside it does fail.
 ## S2CLIP-REGION-MUSIC: Emerald Hill's music in the Sonic 2 clip, switching to Chemical Plant's at the region crossing (OPEN: steps 1 and 3 done, step 2 blocked on sigil; booked 2026-09-25T21:57:35Z)
 
 The owner's ask: the clip build (`S2CLIP=s2_ehz_cpz`) plays Sonic 2's Emerald Hill music and switches to Chemical Plant's at the crossing. The design and the evidence are `docs/research/2026-09-25-region-music-design.md` (landed `5418ddd1`). Its staged plan, with the state of each step:

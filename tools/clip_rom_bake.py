@@ -201,14 +201,24 @@ def require_stamp(act_id, gen_dir, reader):
 
 
 def restore_tree(git="git", log=print):
-    """Put the paths this bake overwrites back to their committed bytes."""
+    """Put the paths this bake overwrites back to their committed bytes. Returns True
+    only when BOTH git commands exited 0.
+
+    THE EXIT STATUS IS READ (PRINTED-NOT-GATED, 2026-09-25). This ran git with
+    `check=False` and never looked at the return code, so a git that refused (a held
+    index.lock, say) was followed by "tree RESTORED" and True; and `bake` discarded the
+    return value anyway. Now a non-zero git is a False here, and `bake` raises on it."""
     for cmd in (["checkout", "--"], ["clean", "-fdq", "--"]):
         args = [git] + cmd + ([GEN_REL] if cmd[0] == "clean" else list(RESTORE_PATHS))
         try:
-            subprocess.run(args, cwd=REPO, capture_output=True, check=False)
+            p = subprocess.run(args, cwd=REPO, capture_output=True, text=True, check=False)
+            why = None if p.returncode == 0 else (
+                f"`{' '.join(args)}` exited {p.returncode}: {(p.stderr or '').strip()[:300]}")
         except OSError as exc:                      # noqa: BLE001 — reported, not swallowed
+            why = str(exc)
+        if why is not None:
             if log:
-                log(f"clip_rom_bake: WARNING — could not restore the tree ({exc}). "
+                log(f"clip_rom_bake: ERROR — could not restore the tree ({why}). "
                     f"Run by hand: git checkout -- {' '.join(RESTORE_PATHS)} && "
                     f"git clean -fdq -- {GEN_REL}")
             return False
@@ -1515,12 +1525,21 @@ def bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     leaves it, stamped, for build.sh and for `ground` / `clip_reachability`.
     """
     try:
-        return _bake(manifest_path, donor_root=donor_root, gen_dir=gen_dir,
-                     coll_dir=coll_dir,
-                     skip_clean_check=skip_clean_check, keep=keep, log=log)
-    finally:
+        result = _bake(manifest_path, donor_root=donor_root, gen_dir=gen_dir,
+                       coll_dir=coll_dir,
+                       skip_clean_check=skip_clean_check, keep=keep, log=log)
+    except BaseException:
+        # The bake already failed: restore, but let ITS exception be the one that
+        # propagates (restore_tree logs its own failure).
         if not keep:
             restore_tree(log=log)
+        raise
+    if not keep and not restore_tree(log=log):
+        raise ClipRomError(
+            "the bake succeeded but the committed level tree could NOT be restored (see "
+            "the ERROR above); the clip bake is still in "
+            + ", ".join(RESTORE_PATHS) + ". Restore it by hand before building or committing.")
+    return result
 
 
 def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,

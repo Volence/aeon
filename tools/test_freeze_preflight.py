@@ -364,3 +364,32 @@ def test_the_grep_literal_is_the_one_sigil_emits(literal):
     """
     assert literal in SCRIPT.read_text()
     assert literal in STALE_LOG
+
+
+# A COMPILE ERROR IN STEP 2 NAMES NO FAILING TEST (PRINTED-NOT-GATED, 2026-09-25). Step 2's
+# `cargo | tee | grep | tail` pipeline status was never read, and its verdict counts
+# ` ... FAILED` lines, so a crate that does not compile (or a cargo that crashes) produced
+# zero names and the script printed CLEAR and exited 0: the one outcome a pre-freeze gate
+# must never give for a run that tested nothing.
+PORTS_COMPILE_ERROR = textwrap.dedent(
+    """\
+       Compiling sigil-cli v0.1.0
+    error[E0425]: cannot find value `x` in this scope
+     --> crates/sigil-cli/tests/port.rs:3:5
+    error: could not compile `sigil-cli` (test "port") due to 1 previous error
+    """
+)
+
+
+def test_step_2_a_cargo_that_failed_without_naming_a_test_is_could_not_run(tmp_path):
+    proc, _ = _run(tmp_path, step1_log="test result: ok. 2 passed\n", step1_rc=0,
+                   step2_log=PORTS_COMPILE_ERROR, step2_rc=101)
+    assert proc.returncode == 2, (proc.returncode, proc.stdout)
+    assert "CLEAR" not in proc.stdout, proc.stdout
+    assert "COULD NOT RUN" in proc.stdout, proc.stdout
+
+
+def test_step_2_a_clean_cargo_is_still_clear(tmp_path):
+    proc, _ = _run(tmp_path, step1_log="test result: ok. 2 passed\n", step1_rc=0)
+    assert proc.returncode == 0, (proc.returncode, proc.stdout)
+    assert "freeze_preflight: CLEAR" in proc.stdout, proc.stdout
