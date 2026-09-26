@@ -661,6 +661,29 @@ def test_scene_curve_band_matches_the_art_band():
            art_fan_plane_top, (s["row1"] + 1) * 8 - 1))
 
 
+def test_over_static_budget_is_refused_and_writes_nothing(tmp_path, monkeypatch):
+    """PRINTED-NOT-GATED residue (2026-09-26): a bake over BG_STATIC_TILE_BUDGET
+    printed "OVER THE DECLARED STATIC BUDGET" and then wrote the override, exit 0.
+    It must exit non-zero and write nothing. --lod-px 16 appends 53 tiles on the
+    committed override (320 -> 373 against 320), measured the same day. The tool's
+    capacity mirror is pinned to tools/vram_map.py here so this row tests the
+    budget refusal, not the (separately loud) mirror assert."""
+    import vram_map
+    monkeypatch.setattr(pfg, "BG_TILE_CAPACITY", vram_map.BG_TILE_CAPACITY)
+    out = tmp_path / "override.json"
+    monkeypatch.setattr(sys, "argv", ["perspective_floor_gen", "--override",
+                                      OVERRIDE, "--out", str(out),
+                                      "--lod-px", "16"])
+    try:
+        pfg.main()
+    except SystemExit as e:
+        assert e.code not in (0, None), e.code
+        assert "STATIC BUDGET" in str(e.code)
+    else:
+        raise AssertionError("an over-budget bake returned normally")
+    assert not out.exists(), "an over-budget bake wrote the override"
+
+
 if __name__ == "__main__":
     test_drawn_beam_period_is_proportional_to_the_depth_row()
     test_composited_beams_converge_on_the_screen_centre_column()
