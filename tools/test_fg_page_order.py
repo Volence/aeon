@@ -265,10 +265,10 @@ def test_check_unmeasurable_exits_2_not_0(monkeypatch, capsys):
 def _shared_band_act(c, per_block=20, shared_pages=4):
     """A two-section act whose sections both carry the same `shared_pages` pages of tiles in
     their top rows (so the 75% rule pins them), laid out in the SHIPPED contiguous order the
-    stress arm requires (slot == pool position). Returns (canon, slot_of_canon, pages,
-    per_section_slot_sets, n_canon, grid_w)."""
+    stress arm requires (slot == pool position). Returns (canon, slot_of_canon, pool order,
+    per_section_slot_sets, n_canon, grid_w, (zone, unique, grid_h) for place_pool)."""
     page = c["ART_POOL_PAGE_TILES"]
-    canon, _zone, unique, gw, gh = _blocks(block=64, per_block=per_block)
+    canon, zone, unique, gw, gh = _blocks(block=64, per_block=per_block)
     nid = len(unique)
     shared = np.arange(nid, nid + shared_pages * page)
     unique = list(unique) + [_tile(i) for i in shared.tolist()]
@@ -281,7 +281,7 @@ def _shared_band_act(c, per_block=20, shared_pages=4):
     order = tile_dedupe.pin_blank_tile_first(tile_dedupe.order_pool_spatially(per_section), unique)
     slot_of = {t: i for i, t in enumerate(order)}
     sets = [{slot_of[t] for t in sec} for sec in per_section]
-    return canon, slot_of, order, sets, len(unique), gw
+    return canon, slot_of, order, sets, len(unique), gw, (zone, unique, gh)
 
 
 def _stressed(c, clones=None):
@@ -289,7 +289,7 @@ def _stressed(c, clones=None):
     appended pool slots, each re-pointing one cell (strided over section 0), folded into
     that section's slot set. Returns the stress_pin_pass arguments and the ROM's glob grid."""
     page = c["ART_POOL_PAGE_TILES"]
-    canon, slot_of, order, sets, n_canon, gw = _shared_band_act(c)
+    canon, slot_of, order, sets, n_canon, gw, _extra = _shared_band_act(c)
     clones = 2 * page if clones is None else clones
     base = len(order)
     redirect = {}
@@ -319,11 +319,19 @@ def _budget(c, frames):
 @pytest.mark.parametrize("pset", PARAM_SETS)
 def test_fixed_pool_placement_is_place_pools_own_pin_rule(pset):
     """place_fixed_pool (the stress arm's pass) over a placed act's own slot grid returns
-    exactly place_pool's pins, count and verdict: one pin rule, one code path."""
+    exactly place_pool's pins, count and verdict: one pin rule, one code path. The budget is
+    the act's page-0-only worst (derived), where the frame-aware rule must trim the plain
+    rule's pins, so an arm that shipped the plain rule could not pass."""
     c = _params(pset)
-    pl = _place(c, _blocks(block=64, per_block=40))
+    canon, _slot, _order, _sets, _n, gw, (zone, unique, gh) = \
+        _shared_band_act(c, per_block=16, shared_pages=3)
+    w0 = int(fpo.place_pool(canon, zone, unique, SECTION_TILES, gw, gh, c, _rule)["needed_pin0"].max())
+    b = _budget(c, w0)
+    pl = fpo.place_pool(canon, zone, unique, SECTION_TILES, gw, gh, b, _rule)
+    assert pl["rung"] == "shipped" and set(pl["pins"]) < set(pl["rule_pins"]), \
+        "fixture: the frame-aware rule no longer trims the plain rule here"
     glob = pl["slot_of"][pl["canon"]]
-    fx = fpo.place_fixed_pool(glob, len(pl["pages"]), pl["rule_pins"], c)
+    fx = fpo.place_fixed_pool(glob, len(pl["pages"]), pl["rule_pins"], b)
     assert fx["pins"] == pl["pins"]
     assert np.array_equal(fx["needed"], pl["needed"])
     assert fx["verdict"] == pl["verdict"]
