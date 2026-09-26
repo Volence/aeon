@@ -213,6 +213,12 @@ ensure(TILE_CACHE_COLS % 8 == 0 && TILE_CACHE_ROWS % 4 == 0 && TILE_CACHE_COLS %
 // consecutive columns (PageCache_Audit's general slice check reads them by that).
 ensure(PAGE_AUDIT_SLICE_WORDS * 2 == TILE_CACHE_COLS && TILE_CACHE_STRIDE == TILE_CACHE_COLS,
        "a cache row must be exactly two audit slices")
+// The latched audit's sliced mask check (PageCache_Audit, .slices_now): slice s checks column
+// s mod TILE_CACHE_COLS with ONE conditional subtraction, reaches every column only if there
+// are at least as many slices as columns, and addresses the column masks with an 8-bit
+// displacement off the array base.
+ensure(PAGE_AUDIT_SLICES >= TILE_CACHE_COLS && PAGE_AUDIT_SLICES < 2 * TILE_CACHE_COLS && PAGE_LIVE_COL_OFFSET <= 127,
+       "the latched audit's per-slice column check assumes TILE_CACHE_COLS <= PAGE_AUDIT_SLICES < 2*TILE_CACHE_COLS (one subtraction reaches every column) and PAGE_LIVE_COL_OFFSET <= 127 (a d8 displacement): PAGE_AUDIT_SLICES = {PAGE_AUDIT_SLICES}, TILE_CACHE_COLS = {TILE_CACHE_COLS}, PAGE_LIVE_COL_OFFSET = {PAGE_LIVE_COL_OFFSET}")
 // The idle sweep's gate, the audit's twin (PAGE_AUDIT_IDLE_MARGIN_LINES). PRICED BY HAND
 // from the 68000 timings, 2026-09-27: a ROW unit is 10 passes of 4 x (move.l 12 + ror.l
 // 20 + bset 8 + swap 4 + bset 8) + dbf 10 = 218, i.e. ~2,180, plus ~150 of setup; a COLUMN
