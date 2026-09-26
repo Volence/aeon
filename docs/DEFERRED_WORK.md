@@ -42006,6 +42006,23 @@ ARCH §9.7 (decompress budget) and the factor-curve paragraph are updated, and s
 - **Built-code exactness.** The built curve loop is exact: 0 of 50,400 exhaustive cases and 0 of 20,000 split cases on both shapes. The mutant is RED here too.
 - **Ensures.** The three new ensures were red-first.
 
+**Landing evidence** (full, non-FAST builds at `106d1ba9`, the code tip; the commit that adds this paragraph changes docs only and landing was re-run on it, see the branch's last commit message):
+- `./build.sh` rc 0.
+- `tools/landing_build.sh` **exit 0, `finished=0`**: pre-build pytest 3596 passed, 3 skipped, 35 deselected; needs_build 34 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`); land-gate stamp written.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 22 scheduled gates produced a complete row set, 41 PASS rows, 0 FAIL. This includes `tile_cache_fill`.
+- `tools/tile_cache_fill_gate.py` on `s4.s2clip.debug.bin`, `--drive right` and `--drive fly`: both GREEN. **Both are vacuous for this change:** "a partial fill was outstanding at 0 of the sample points", so the gate never sampled the deferred regime. The per-frame visible-coverage legs above are the evidence for it.
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `562a7dbe` | 829,266 |
+| `s4.debug.bin` | `917d73ff` | 856,446 |
+| `demo.debug.bin` | `8f135bcb` | 106,273 |
+| `s4.s2clip.bin` | `9a39a48b` | 928,871 |
+| `s4.s2clip.debug.bin` | `08cad480` | 955,864 |
+
+These equal the FAST builds every measurement used. The base `366b777c` FAST builds were `699ce90a` / `9cc47356` / `2b825ead` / `77e017db` for `s4.bin` / `s4.debug.bin` / `s4.s2clip.bin` / `s4.s2clip.debug.bin`.
+
 **Open:**
 1. **Scripted runs cannot pass Emerald Hill x ~6000.** The clip carries no objects, so there is a pit under the missing bridge at x 6040, and from a warp to (6300, 690) the player oscillates at x 6530..6870 before a spring route. So the run legs cover spawn to x 5850 (53% of EHZ). The owner meets the same dead ends. Whether EHZ objects (bridges, springs) join the clip is a content call.
 2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed.
