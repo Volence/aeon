@@ -347,7 +347,7 @@ class Character:
 # Which collision box each animation state runs with, and whether the state is
 # a feet-on-the-floor pose (only those make `delta` meaningful as an alignment
 # reading). Derived by reading the enter-hook table in
-# games/sonic4/player/player_common.emp:1122-1195 — PHook_GroundEnter /
+# games/sonic4/player/player_common.emp (PState_EnterHooks) — PHook_GroundEnter /
 # PHook_AirEnter / PHook_SpindashEnter install the STANDING box, PHook_RollEnter
 # / PHook_AirBallEnter the ROLL box, PHook_GlideEnter / PHook_SlideEnter /
 # PHook_ClimbEnter the ABILITY box.

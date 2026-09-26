@@ -47,12 +47,22 @@ def test_a_wrong_declared_size_is_refused():
         rt.region_layout(text=poisoned)
 
 
+#: Fields appended to Act AFTER the region pair, in order. Each append leaves every older offset
+#: where it was, which is the property the region test below holds: the region pair is
+#: followed by exactly these and nothing else. act_layer_lines: S2CLIP-PLANE-SWITCH, 2026-09-26.
+ACT_FIELDS_AFTER_REGIONS = ("act_layer_lines",)
+
+
 def test_the_act_region_fields_are_appended_last():
     off, size = rt.struct_layout("Act")
     names = list(off)
-    assert names[-2:] == list(rt.ACT_REGION_FIELDS), (
-        f"Act's last two fields are {names[-2:]}; the region fields were appended so that no "
-        "older Act offset moved")
+    n = len(ACT_FIELDS_AFTER_REGIONS)
+    assert names[-(2 + n):] == list(rt.ACT_REGION_FIELDS) + list(ACT_FIELDS_AFTER_REGIONS), (
+        f"Act's last {2 + n} fields are {names[-(2 + n):]}; the region fields were appended so "
+        "that no older Act offset moved, and only ACT_FIELDS_AFTER_REGIONS may follow them")
+    assert off["act_regions"] == 0x28 and off["act_region_count"] == 0x2C, (
+        "the region fields moved: every reader of Act.act_regions / act_region_count is keyed "
+        "to $28 / $2C")
     ao = rt.act_region_offsets()
     assert ao["act_region_count"] == ao["act_regions"] + 4
 
