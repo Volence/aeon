@@ -2,8 +2,13 @@
   "focus": "Overnight work done: music, slopes, speed fixes landed; a loop fix is ready for you to fly before it lands.",
   "inFlight": [
     {
-      "what": "Find and fix why the art-streaming stress test build halts (two crashes found tonight)",
-      "where": "branch fix/stressart-halts",
+      "what": "Make the stress-test build fit its art budget, and refuse if it ever doesn't",
+      "where": "branch fix/stressart-budget",
+      "agent": true
+    },
+    {
+      "what": "Check object/ring loading when the camera crosses two section edges at once",
+      "where": "branch fix/entity-window-diagonal",
       "agent": true
     }
   ],
@@ -34,11 +39,11 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The stress-build crash diagnosis comes back; I review and land any fix.",
+  "nextBoundary": "The two stress-build follow-ups come back; I review and land them.",
   "queue": [
     {
       "id": "STRESSART-HALTS",
-      "title": "The art-streaming stress build crashes in two places on master: finding out why",
+      "title": "Stress build: the art leak is fixed; making the stress build fit its budget and checking a camera corner case",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -155,7 +160,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums; try a slope. Cards S2CLIP-PLANE-SWITCH, S2CLIP-DRUM-LEVEL, ROLL-FEEL.",
+  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums in aeon/s4.s2clip.debug.bin (crc 3a807650); try a slope.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T12:28:44Z"
+  "updatedAt": "2026-09-26T14:15:17Z"
 }
