@@ -195,11 +195,15 @@ KNOWN_ATTRIBUTE_LESS: frozenset[tuple[str, str]] = frozenset({
 # writers derived at d5ee8633, the base of the implicit-writer widening (LS-2a item (b)):
 # 108 procs write `f`, where the explicit-form parser saw 3 (the `pop af` sites). A write
 # model that stopped reading the implicit forms would fall back toward 3.
+# MIN_CALL_EDGES lowered 227 -> 226 on parcel/psg-env-noteon (2026-09-26), measured by this
+# scanner: the PSG attack's two `call Psg_EnvCursorReset` sites were deleted with the proc and
+# PsgEnvAttack added one `call PsgVolEnv_Resolve`, net -1. The procs floor is untouched (177
+# procs measured there).
 MIN_Z80_FILES = 11
 MIN_Z80_PROCS = 172
 MIN_LEAF_PROCS = 97
 MIN_CALL_PROCS = 75
-MIN_CALL_EDGES = 227
+MIN_CALL_EDGES = 226
 MIN_FALLS_INTO_EDGES = 11
 MIN_FLAG_WRITERS = 108
 # The tail transfers (LS-2a item (c)), derived at d5ee8633: 66 charged tail edges (63 into

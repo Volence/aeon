@@ -96,7 +96,7 @@ Because FM2..FM5 were 11 to 19 dB too loud before fix 1, the drums were buried i
 far more than 2.4 dB. The owner probably heard that burying, and fix 1 removes it. What remains is
 the S3K kit sitting a little forward, the snare most of all.
 
-### 3. The PSG volume envelope attacks one frame late (NOT FIXED: needs a sigil re-pin)
+### 3. The PSG volume envelope attacks one frame late (FIXED in section 4, `parcel/psg-env-noteon`)
 
 The noise hat is +1.18 dB hot in BOTH songs, and that number did not move with fix 1. It comes
 from an engine timing difference, not from the data:
@@ -117,7 +117,9 @@ measurement were then repeated, and the table was restored from the commit. Resu
 
 - NOISE went from +1.18 to **-0.03 dB** (EHZ) and to **-0.12 dB** (CPZ).
 - EHZ PSG1/2 moved by 0.01 dB. Their envelopes (`fTone_01/03/08/0B`) are slow, so one frame is
-  a smaller share of each note.
+  a smaller share of each note. *(Corrected in section 4: only `fTone_02` was shifted here, so
+  PSG1/2 were not tested by this mutation. The real fix moved them from +0.17/+0.12 to 0.00.
+  Their residue was the same one-tick lag.)*
 
 This row's own history shows the same class: DEFERRED_WORK **D5** ("PSG envelope attack uses a
 stale `sc_psgenv_out` / lands one frame late vs S3K") was closed as "ALREADY DONE" on the
@@ -182,3 +184,165 @@ EHZ FM4 +0.10, DAC +2.33, NOISE +1.17; CPZ DAC +2.36, NOISE +1.16).
 - RMS over 60 s includes rests, so it is a balance measure, not a per-note level. FM agreement at
   0.03..0.10 dB is the strongest evidence that the volumes now match note for note.
 - **Nothing was listened to by a person.** The owner's ear is the remaining check.
+
+## 4. The PSG envelope attack, fixed (`parcel/psg-env-noteon`, 2026-09-26)
+
+Base `origin/master` `23092325` (after `ef365c11`), later rebased onto `0fec1b75`. The rebase adds no sound files, and the plain clip ROM re-measured the same to 0.01 dB. CRCs and landing evidence for both bases are in DEFERRED_WORK's "PSG envelope attack parcel". This closes section 3's third finding.
+
+### What the references do (read from source, not from the note above)
+
+- **Sonic 2** (`s2disasm/s2.sounddriver.asm`). `zPSGUpdateTrack` (:1123) on the tick a note's
+  duration expires calls `zPSGDoNext` (:1127), `zPSGDoNoteOn` (:1128), then `zPSGDoVolFX` (:1129).
+  `zPSGDoNext` ends in `zFinishTrackUpdate` (:947), which zeroes `VolFlutter` (:957) unless the
+  "do not attack" bit is set (:953, the `smpsNoAttack` tie). `zPSGDoVolFX` (:1276) reads
+  `body[VolFlutter]` and increments it. So the attack tick plays byte 0, the next tick byte 1.
+  - A tie keeps `VolFlutter` and advances it once that tick, like any other tick.
+  - A rest (`zPSGSetFreq` .restpsg, :1177) sets the rest bit, so `zPSGUpdateVol` (:1307) writes
+    nothing. The contour is reset by the next real note.
+  - S2's only control byte, `$80`, is HOLD (`zVolEnvHold`, :1339). In the shipped (unfixed)
+    driver it writes no volume on that tick. At byte 0 it would leave the channel at whatever
+    was last written. No S2 body starts with it.
+- **Sonic 3 & Knuckles** (`skdisasm/Sound/Z80 Sound Driver.asm`). `zUpdatePSGTrack` (:4058) calls
+  `zGetNextNote` (:4065) and then jumps to `.skip_fill` (:4069, :4078), which reaches `zDoVolEnv`
+  (:4105) on the attack tick. `zFinishTrackUpdate` zeroes `VolEnv` (:1066) unless "do not attack"
+  is set (:1061). A rest returns before `zDoVolEnv` (:4066).
+  - `$83` at the cursor silences (`zDoVolEnvFullRest`, :4189).
+  - `$81` sets the rest flag and writes no volume (`zDoVolEnvRest`, :4204).
+  - `$80` resets the index to 0 and re-reads (`zDoVolEnvReset`, :4198). At byte 0 it would spin.
+  - No shipped S3K body starts with a control byte either.
+
+Both references agree: the envelope's byte 0 sounds on the attack tick, byte 1 on the next, a
+tie continues the contour, and a rest applies nothing. The engine (before this parcel) played the
+attack at delta 0 and byte 0 on the next tick. So every contour was one tick late and one long.
+
+### What changed
+
+`PsgEnvAttack` (`engine/sound/sound_sequencer.emp`) is now the volume tail of every PSG attack:
+`Psg_NoteOn` and `Psg_Noise`'s music arm `jp` to it instead of emitting the volume themselves.
+It restarts the contour (cursor 0, output 0), then, if the channel has an envelope, reads byte 0:
+
+- a level byte is stored as `sc_psgenv_out` with the cursor at 1, and folded into the attack's
+  ONE volume write, so there is no second write on the attack tick;
+- `$83` silences the attack (`Psg_NoteOff`), as S3K's full rest does;
+- `$80`/`$81` keep the base volume with the cursor at 0 (this was the engine's behaviour before,
+  too; S2/S3K write no volume there; no shipped body starts with a control byte).
+
+`Psg_EnvCursorReset` is deleted (its two callers now reach `PsgEnvAttack`). Ties
+(`NOTE_DUR` bit 7) never reach the hook, so they keep the contour, as both references do. Rests
+are unchanged (`Psg_NoteOff`, then ModUpdate's keyed gate). `Sfx_Restore`'s re-key of a music PSG
+channel goes through `Psg_NoteOn` too, so a restored note also starts on byte 0.
+
+The note above proposed a different spot (`Seq_HookNoteOn`, run `PsgEnvUpdate` after the note-on).
+That writes the volume twice on the attack tick whenever byte 0 is non-zero (base, then base +
+byte 0, a few hundred Z80 cycles apart). Six shipped bodies start non-zero (`sTone_01/03/0A/0E/11`,
+`fTone_0B`). The references write once. So the fold went into the attack's own emit instead. It
+needed no sigil names: `sound_psg.emp` imports `PsgEnvAttack` from the sequencer, as it already
+imports `Mod_ReArm`.
+
+**Blob size.** The resident Z80 blob went 6176 -> 6194 B plain, 6306 -> 6324 B debug.
+`Z80_SOUND_SIZE` $1820 -> $1832 and $18A2 -> $18B4 in the listings. Debug headroom to the
+`SND_STATE_BASE` ($18F0) ceiling is now 60 B, plain 190 B. The size lives in one place and it was already derived:
+`Z80_SOUND_SIZE = extern("Z80_Sound_End") - extern("Z80_Sound_Start")`
+(`engine/system/boot_data.emp`), consumed by `boot.emp`'s copy loop and guarded there by
+`ensure(Z80_SOUND_SIZE <= SND_STATE_BASE)` and the even-size `ensure`. Nothing in aeon's tools or
+`build.sh` pins it. Two source comments that stated the old sizes now point at the listing instead.
+Sigil `4ce2509d` removed the emit's length refusal, so no sigil change was needed.
+`EndOfRom` did not move (`$BF476` plain): the 18 B are absorbed inside the placement.
+
+### Numbers: ours minus real Sonic 2, dB (60 s, per-channel solo, `tools/s2_music_balance.py`)
+
+Plain clip ROM `6361e89f` (base) -> `9ff647f6` (this parcel):
+
+| channel | EHZ before | EHZ after | CPZ before | CPZ after |
+|---|---|---|---|---|
+| MIX | +0.93 | +0.89 | +0.70 | +0.65 |
+| FM1 | +0.04 | +0.04 | +0.05 | +0.05 |
+| FM2 | +0.04 | +0.04 | -0.01 | -0.01 |
+| FM3 | +0.06 | +0.07 | +0.03 | +0.03 |
+| FM4 | +0.08 | +0.08 | +0.04 | +0.05 |
+| FM5 | +0.04 | +0.04 | +0.02 | +0.02 |
+| DAC | +2.36 | +2.35 | +2.47 | +2.40 |
+| PSG1 | +0.17 | **-0.01** | (+0.55) | (+0.55) |
+| PSG2 | +0.12 | **-0.00** | (+2.37) | (+2.37) |
+| NOISE | +1.18 | **-0.10** | +1.17 | **-0.15** |
+| mix log-spectrum corr. | 0.9925 | 0.9936 | 0.9942 | 0.9956 |
+
+Debug clip ROM `03f08aa6` -> `d22ceae3`: NOISE +1.17 -> -0.12 (EHZ) and +1.16 -> -0.18 (CPZ).
+PSG1/PSG2 (EHZ) +0.16/+0.11 -> -0.01/-0.01. FM moved by at most 0.03.
+
+- The noise hat lands within 0.15 dB of real Sonic 2 in both songs. The scratch shift of the
+  `fTone_02` body predicted -0.03/-0.12, so the real fix and the mechanism test agree.
+- EHZ's PSG1/PSG2 also closed, from +0.17/+0.12 to 0.00. The first measurement read that residue
+  as "slow envelopes, one frame is a small share", and it was the same one-tick lag.
+- The DAC moved by 0.01 (EHZ) and 0.07 (CPZ). No drum data or DAC code changed. The resident
+  code grew, so the sequencer tick takes a few more cycles, and that is the likely cause.
+  It is not measured further here.
+- CPZ's PSG1/PSG2 are `smpsStop` in the source (floor leakage in both ROMs), as before.
+
+### HCZ2 against real Sonic 3 & Knuckles (`tools/hcz2_s3k_balance.py`, new)
+
+Real S3&K is `skdisasm/skbuilt.bin` (md5 `4ea493ea…`), symbols from `sonic3k.lst`. It is brought to
+HCZ2 by a level reload at `Current_zone_and_act` $0101 and captured from the frame `Current_music`
+reads `mus_HCZ2` ($04). Ours is the canonical debug ROM with `Music_Want = SONG_HCZ2`. Same GPGX
+MAME-YM instrument; the MUTED controls were silent. Base `s4.debug.bin` `d91dc2c6` -> this parcel
+`cdf5168a`, ours minus S3K, dB:
+
+| | MIX | FM1 | FM2 | FM3 | FM4 | FM5 | DAC | PSG1 | PSG2 | PSG3 | NOISE |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before | +0.10 | -2.45 | +1.71 | +1.01 | -2.58 | -1.47 | +0.66 | -1.23 | +4.17 | silent in ours (S3K -36.61) | +2.05 |
+| after | +0.07 | -2.44 | +1.71 | +1.01 | -2.58 | -1.47 | +0.65 | -1.31 | +3.42 | silent in ours | -0.58 |
+
+- The noise closed from +2.05 to -0.58 and PSG2 from +4.17 to +3.42. FM did not move.
+- HCZ2 has much larger per-channel residues than the S2 songs, and this parcel does not touch
+  them: FM1/FM4 about -2.5 dB, FM2 +1.7, PSG2 +3.4, and a PSG3 that S3K sounds at -36.6 dBFS
+  while ours is silent. They are a separate import question (booked in DEFERRED_WORK). The S3K
+  capture starts at a level reload, not at a clean song request, so the start alignment is within
+  a frame of `Current_music` changing but was not otherwise checked. Read HCZ2's absolute
+  residues with that in mind; the before/after difference on our side is like for like.
+
+### What else moves (every PSG envelope, one tick earlier)
+
+- **Songs.**
+  - S2 EHZ: PSG1/2 use `fTone_01/03/08/0B`, the noise uses `fTone_02`.
+  - S2 CPZ: the noise (header `fTone_02`).
+  - HCZ2 (debug shape only): headers `sTone_0C`; body `sTone_01/02/08/0A`.
+  - Moving Trucks and DrumTest use no PSG envelope.
+  - Canonical shapes play no music, so for music only the clip and debug-song paths change.
+- **SFX (canonical shapes, every build).**
+  - `$42` insta-shield (`sTone_17` -> `$0A`, body 1,0,0,0,0,1,...): the attack is now one step
+    quieter, then back to base.
+  - `$B6` dash (`sTone_1D`, 0,0,0,0,1,...): the contour runs one tick earlier.
+  - `$62` jump and `$36` skid (`sTone_0D` = 0,HOLD): the PSG write stream is identical, measured
+    for the jump (the witness's control leg).
+  - No other shipped SFX sets a PSG envelope.
+
+### The check (`tools/psg_env_attack_witness.py`, keepalive lane)
+
+The witness boots `s4.debug.bin` headless (oracle-aether), queues SFX through `Sfx_Ring_Buf`, and
+reads the Z80's PSG writes off the bus watch at `$A07F11`. It then compares them per tick with a
+model. The model is derived from the transcoded SFX (`sfx_transcode`) and the generator's bodies
+(`gen_sound_tables._PSG_VOL_ENVS`), under two attack rules: REFERENCE (byte 0 on the attack) and
+LATE (the old engine). The base attenuation is solved, not typed. Tick numbers come from the
+Timer-A period derived from `SND_FRAME_MILLIHZ`. Each gap is rounded separately, since a tick can
+be serviced late in a 68k DMA window. The first run measured deviations up to 0.28 tick, and the
+tolerance is 0.4.
+
+- **GREEN on this parcel**, exit 0: L1 `$42` and L2 `$B6` match REFERENCE only (base 5), and the
+  control C1 `$62` matches both.
+- **RED-FIRST**, exit 1. The mutation was on disk, one line in `PsgEnvAttack`
+  (`jr z, .emit` -> `jr .emit`, which is exactly the old attack). L1 and L2 matched LATE only,
+  with "byte 0 lands a tick late". The file was restored from the commit.
+- The unmodified base ROM (`d91dc2c6`) is RED the same way.
+
+### FM envelopes (read only)
+
+`FmEnvUpdate` has the same shape: the FM attack (`Fm_NoteOnFreq`) zeroes the cursor and output and
+does not emit, and `ModUpdate` applies byte 0 on the next tick. **That matches S3K.**
+`zUpdateFMorPSGTrack` (:766) keys a new FM note (:782) without calling `zDoFMVolEnv`, which runs
+only on `.note_going` (:787). So S3K's FM envelope also applies byte 0 one tick after the attack.
+No shipped song or SFX uses an FM envelope (only `song_packer`'s tests author `FmEnv`), and S2
+has none. Not changed; there is nothing to fix against the reference.
+
+### Not done
+
+- Listening. The owner's ear is still the check for the S2 songs, for HCZ2, and for `$42`/`$B6`.

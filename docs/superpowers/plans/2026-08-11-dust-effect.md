@@ -1,5 +1,8 @@
 # Dust Effect Implementation Plan
 
+> **`SIGIL_BLOB_LEN_DRIFT` NO LONGER EXISTS (note added 2026-09-26, `parcel/psg-env-noteon`).** Sigil `4ce2509d` (their BLOB-LEN-PIN-OFF-EMIT-PATH) removed `emit_sound_blob`'s exact-length refusal: the emit now writes the resident Z80 blob at whatever length the tree produces, so a Z80 edit no longer needs the override or a sigil `BLOB_LEN_*` re-pin to build (sigil keeps `BLOB_LEN_*` only as assertions over its own pinned corpus). The resident-code ceiling is aeon's `ensure(Z80_SOUND_SIZE <= SND_STATE_BASE)` in `engine/system/boot_data.emp`, and `Z80_SOUND_SIZE` is derived from the link (`Z80_Sound_End - Z80_Sound_Start`). Every mention of the override below is the historical procedure; do not set it.
+
+
 > **2026-08-11 STATUS:** Task 1 DONE (importer, cd45d752/8f2f1934/89d27f63).
 > **Task 2 is SUPERSEDED** — the VRAM carve re-landed through the VRAM registry
 > (games/sonic4/vram.toml, commit c51a4ff9): `VRAM_DUST_PUFF` (896) and

@@ -25,9 +25,9 @@
 // Seq_BadOpcode's SND_SEQ_BADOP marker), for +$82 = 130 bytes. That internal
 // growth is what pushes sfx/fm/psg to higher bases in the debug shape.
 // (Re-derived 2026-09-12, gap lens sweep A2-15: this said 16 blocks / +$7E = 126.
-// z80_sound_blob.bin is 6176 B, z80_sound_blob_debug.bin 6306 B, and s4.lst /
-// s4.debug.lst give Z80_SOUND_SIZE $1820 / $18A2; no other resident module has
-// an internal DEBUG block.)
+// No other resident module has an internal DEBUG block. The blob sizes are not
+// written here: they move with every Z80 edit; Z80_SOUND_SIZE in s4.lst /
+// s4.debug.lst is the measurement.)
 // Bases themselves are DERIVED by seam-1 from a running cursor over the
 // preceding modules' emitted spans — no section here declares a `vma:`, and no
 // base address is written down in either repo.
@@ -736,6 +736,45 @@ section sound_sequencer (cpu: z80) {
     }
 
     // ----------------------------------------------------------------------
+    // PsgEnvAttack — the volume emit of every PSG/noise attack (the tail of Psg_NoteOn
+    // and of Psg_Noise's music arm). Restarts the vol-env contour and folds its byte 0
+    // into the attack's ONE volume write, so byte 0 sounds on the note-on frame and
+    // byte 1 on the next. That is what both reference drivers do: S2's
+    // zPSGUpdateTrack runs zPSGDoNoteOn then zPSGDoVolFX in the same frame, after
+    // zFinishTrackUpdate zeroed VolFlutter; S3K's zUpdatePSGTrack falls from the new
+    // note into .skip_fill -> zDoVolEnv, after zFinishTrackUpdate zeroed VolEnv.
+    // ModUpdate runs BEFORE Sequencer_Channel here, so without this prime the attack
+    // sounded delta 0 and byte 0 landed a frame late: every contour one frame long.
+    // A tie (NOTE_DUR bit 7, smpsNoAttack) never reaches here and keeps its cursor,
+    // as both references skip the reset on "do not attack".
+    // Byte 0: a level -> sc_psgenv_out = it, cursor 1. $83 (full rest) -> the attack
+    // is silenced (S3K zDoVolEnvFullRest). $80/$81 (loop/hold) -> base volume, cursor
+    // left at 0 for PsgEnvUpdate, as before this prime (S3K's $81 and S2's $80 write
+    // no volume at all there; no shipped body starts with a control byte).
+    // In: ix = SeqChannel/SfxChannel (PSG/noise route), SCF_KEYED already set.
+    // Clobbers af,bc,de,hl (PsgVolEnv_Resolve + Psg_SetVolume). Preserves ix.
+    // ----------------------------------------------------------------------
+    pub proc PsgEnvAttack () clobbers(af, bc, de, hl) preserves(ix) {
+        xor     a
+        ld      (ix+sc_psgenv_cur), a   // restart the contour from byte 0
+        ld      (ix+sc_psgenv_out), a   // drop the previous note's env tail
+        or      (ix+sc_psgenv)          // a = 1-based env id; Z = no envelope
+        jr      z, .emit
+        call    PsgVolEnv_Resolve       // hl = body base; carry set = unknown id
+        jr      c, .emit
+        ld      a, (hl)                 // a = body[0]
+        cp      PsgVolEnvCtl_Rest
+        jp      z, Psg_NoteOff          // $83 first -> silent attack (tail-call, preserves ix)
+        cp      PsgVolEnvCtl_Loop
+        jr      nc, .emit               // $80/$81 first -> base volume, cursor stays 0
+        ld      (ix+sc_psgenv_out), a   // byte 0 is this frame's attenuation delta
+        inc     (ix+sc_psgenv_cur)      // next frame's PsgEnvUpdate reads byte 1
+    .emit:
+        ld      a, (ix+sc_volume)
+        jp      Psg_SetVolume           // folds sc_psgenv_out in; preserves ix
+    }
+
+    // ----------------------------------------------------------------------
     // PsgEnvUpdate — advance one PSG (or noise) channel's volume-envelope contour by
     // one frame and re-emit the channel volume so the new attenuation delta takes
     // effect. Gated by ModUpdate (PSG route, sc_psgenv != 0). Body byte semantics
@@ -780,7 +819,7 @@ section sound_sequencer (cpu: z80) {
     .rest:
         // $83 full-rest: silence THIS note's tail. Do NOT clear sc_psgenv — the
         // envelope ID must PERSIST so the NEXT note-on (which resets sc_psgenv_cur to 0
-        // via Psg_EnvCursorReset) REPLAYS the contour. Psg_NoteOff clears SCF_KEYED, so
+        // via PsgEnvAttack) REPLAYS the contour. Psg_NoteOff clears SCF_KEYED, so
         // ModUpdate's KEYED gate stops re-entering this envelope until the next note-on.
         jp      Psg_NoteOff             // silence this PSG channel (tail-call, preserves ix)
     }

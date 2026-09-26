@@ -1,5 +1,8 @@
 # Art Streaming Phase 2 Implementation Plan — v2
 
+> **`SIGIL_BLOB_LEN_DRIFT` NO LONGER EXISTS (note added 2026-09-26, `parcel/psg-env-noteon`).** Sigil `4ce2509d` (their BLOB-LEN-PIN-OFF-EMIT-PATH) removed `emit_sound_blob`'s exact-length refusal: the emit now writes the resident Z80 blob at whatever length the tree produces, so a Z80 edit no longer needs the override or a sigil `BLOB_LEN_*` re-pin to build (sigil keeps `BLOB_LEN_*` only as assertions over its own pinned corpus). The resident-code ceiling is aeon's `ensure(Z80_SOUND_SIZE <= SND_STATE_BASE)` in `engine/system/boot_data.emp`, and `Z80_SOUND_SIZE` is derived from the link (`Z80_Sound_End - Z80_Sound_Start`). Every mention of the override below is the historical procedure; do not set it.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **v2 provenance (2026-08-08).** This file folds three sources into one cold-executable plan: the banked 12-task structure (`2026-07-02-art-streaming-phase2.md`, now SUPERSEDED), the re-anchor addendum (`2026-08-06-art-streaming-phase2-reanchor-addendum.md`, now SUPERSEDED), and the mechanism survey (`2026-08-06-bookmark-implementation-sketch.md`). It also lands the four §9.7 rulings D1–D4 recorded 2026-08-08 (`2026-08-06-97-decision-memo.md`, RULED block). A cold session needs ONLY this file plus the spec `docs/superpowers/specs/2026-07-02-art-streaming-phase2-design.md`. Anchors were re-verified against master `824b69f` (see per-task "current anchor" call-outs); where a line is fluid, the instruction is "re-read at execution."

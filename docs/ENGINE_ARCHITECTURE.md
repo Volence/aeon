@@ -3941,7 +3941,7 @@ soundscapes (the latter is deferred to Phase 5).
     patch field (`FmPatch` 26→32 B, `fp_ssg_eg`, the `$90` group in `Fm_PatchLoad`); and the **dual-stream
     macro layer** — `sc_mod_ptr` slot[1] drives a `MacroTick` register-automation stream via `MEV_MACRO`
     ($F9, tag grammar `TAG_MAC_*` = $E0–$E3, 2-byte BE loop, `Snd_SongBase` rebase) over the free `sc_env`
-    contour slot. PSG volume envelopes (`Seq_Op_PsgEnv` / `MEV_PSGENV`) are music-legal. The packer authors
+    contour slot. PSG volume envelopes (`Seq_Op_PsgEnv` / `MEV_PSGENV`) are music-legal. **Envelope timing (2026-09-26):** a PSG vol-env's byte 0 sounds on the note-on tick and byte 1 on the next, as in S2's `zPSGUpdateTrack` and S3K's `zUpdatePSGTrack`. `PsgEnvAttack` folds byte 0 into the attack's single volume write, because `ModUpdate` runs before `Sequencer_Channel` within a tick; a tie keeps the contour. An FM vol-env applies byte 0 on the tick AFTER the attack, which is also S3K's FM behaviour (`zDoFMVolEnv` runs only on `.note_going`). Witness: `tools/psg_env_attack_witness.py`. The packer authors
     all of it (FmEnv/RegWrite/Macro events, macro-body emitter, header `mod_ptr` back-patch, D8 music-illegal
     opcode gate, `TAG_MAC_*` cross-file sync guard). The whole layer is **inert** when `sc_env`=0 /
     `sc_mod_ptr`=NULL (every shipped song), so HCZ2 / Moving Trucks / SFX render byte-identically.
