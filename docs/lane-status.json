@@ -1,6 +1,12 @@
 {
   "focus": "Jump sound and Emerald Hill running lag fixed; your ROM is rebuilding.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Drive the floor gap on the Sonic 2 level's second layer and compare with Sonic 2",
+      "where": "branch research/clip-planeb-hole",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -13,7 +19,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Nothing running. Next owner-free row: the floor gap on the Sonic 2 level's second layer.",
+  "nextBoundary": "The floor-gap check comes back; I review and land any fix.",
   "queue": [
     {
       "id": "EHZ-RUN-LAG",
@@ -157,7 +163,7 @@
     {
       "id": "CLIP-PLANEB-HOLE",
       "title": "A floor gap on the Sonic 2 level's second layer looks reachable walking left near x 1400; drive it and compare with Sonic 2",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -170,7 +176,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": "Try the jump in aeon/s4.s2clip.debug.bin (crc 65c04544). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
+  "awaiting": "Try the jump and a run through Emerald Hill in aeon/s4.s2clip.debug.bin (crc 3e1f7a33). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T20:29:20Z"
+  "updatedAt": "2026-09-26T20:49:26Z"
 }
