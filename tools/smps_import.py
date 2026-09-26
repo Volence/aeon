@@ -728,6 +728,34 @@ _DEFAULT_FM_VOL = 0   # S3K attenuation domain: 0 = loudest
 _DEFAULT_PSG_VOL = 0
 
 
+def _seed_header_volume(st, ch):
+    """Seed the channel's running SMPS volume from its song-HEADER volume byte.
+
+    Both source drivers copy the smpsHeaderFM/PSG volume byte straight into
+    zTrack.Volume at song init (S2: s2.sounddriver.asm zBGMLoad `ldi ; track
+    default volume`; S3K: Z80 Sound Driver.asm:1876-1878), and every later
+    smpsAlterVol / smpsPSGAlterVol ADDS to that value (S2 cfChangeFMVolume /
+    cfChangePSGVolume `add a,(ix+zTrack.Volume)`). So the running volume a delta
+    composes with starts at the header byte, not at 0.
+
+    Before this seed (fixed 2026-09-26, S2CLIP-REGION-MUSIC volume parcel) the
+    running volume started at _DEFAULT_FM_VOL / _DEFAULT_PSG_VOL = 0 (loudest),
+    so a channel's first AlterVol threw the header attenuation away: Sonic 2 EHZ
+    FM4 (header $20, first op AlterVol $F8) played at attenuation 0 instead of
+    $18, i.e. 18 dB too loud, for the whole song. The header value itself was
+    only emitted when no volume op preceded the first note (_make_packable).
+
+    FM : the header byte is the carrier-TL attenuation (0 = loud), 7 bits.
+    PSG: the header byte is the 4-bit SN76489 attenuation (0 = loud).
+    DAC: the driver has no DAC volume; nothing to seed."""
+    if ch.volume is None:
+        return
+    if ch.kind == "FM":
+        st.fm_vol_raw = ch.volume & 0x7F
+    elif ch.kind == "PSG":
+        st.psg_vol_raw = ch.volume & 0x0F
+
+
 def _alter_vol(kind, want, delta, st, out):
     """Fold a volume delta (smpsAlterVol / smpsPSGAlterVol). `want` is the
     channel-kind the flag legitimately applies to ("FM"/"PSG"); on a mismatched
@@ -1618,6 +1646,7 @@ def convert_song(src_lines, dac_remap, patch_remap, pitchtable=None, *,
     channels = []
     for ch, route in _assign_routes(cfg.channels, noise_labels):
         st = ConvState(transpose=ch.transpose, noise=ch._is_noise)
+        _seed_header_volume(st, ch)
         ev = convert_channel(ch.kind, blocks.get(ch.label, []), blocks, cfg, st,
                              start_label=ch.label, noise=ch._is_noise)
         _apply_remaps(ev, dac_remap, patch_remap, cfg.source_driver)
