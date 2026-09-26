@@ -238,7 +238,16 @@ def test_check_passes_the_committed_tree_and_refuses_one_frame_under_its_worst(m
     assert fpo.check() == 1
     out = capsys.readouterr().out
     assert "FG page budget REFUSED" in out and f"worst window needs {worst}" in out
-    assert fpo.check(report_only=True) == 0
+
+
+def test_check_has_no_report_only_mode(capsys):
+    """stressart-budget (2026-09-26): the STRESS_ART fixture's report-only pass is how a
+    13-page window over 12 frames shipped with nothing refusing (GPL-1). The flag is gone;
+    passing it is an unknown argument (usage, exit 1), not a quiet pass."""
+    with pytest.raises(SystemExit) as exc:
+        fpo.main(["check", "--report-only"])
+    assert exc.value.code == 1
+    assert "unknown argument '--report-only'" in capsys.readouterr().out
 
 
 def test_check_unmeasurable_exits_2_not_0(monkeypatch, capsys):
@@ -247,4 +256,133 @@ def test_check_unmeasurable_exits_2_not_0(monkeypatch, capsys):
     monkeypatch.setattr(fpo, "committed_placement", boom)
     assert fpo.main(["check"]) == 2
     assert "UNMEASURABLE" in capsys.readouterr().out
-    assert fpo.main(["check", "--report-only"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# The stress fixture's pin pass and refusal (ojz_strip_gen Pass 4c, stressart-budget)
+# ---------------------------------------------------------------------------
+
+def _shared_band_act(c, per_block=20, shared_pages=4):
+    """A two-section act whose sections both carry the same `shared_pages` pages of tiles in
+    their top rows (so the 75% rule pins them), laid out in the SHIPPED contiguous order the
+    stress arm requires (slot == pool position). Returns (canon, slot_of_canon, pool order,
+    per_section_slot_sets, n_canon, grid_w, (zone, unique, grid_h) for place_pool)."""
+    page = c["ART_POOL_PAGE_TILES"]
+    canon, zone, unique, gw, gh = _blocks(block=64, per_block=per_block)
+    nid = len(unique)
+    shared = np.arange(nid, nid + shared_pages * page)
+    unique = list(unique) + [_tile(i) for i in shared.tolist()]
+    band = 8
+    for sx in range(gw):
+        for k in range(shared_pages):
+            canon[k * band:(k + 1) * band, sx * SECTION_TILES:sx * SECTION_TILES + page] = \
+                shared[k * page:(k + 1) * page][None, :]
+    per_section = fpo.per_section_lists(canon, SECTION_TILES, gw, gh)
+    order = tile_dedupe.pin_blank_tile_first(tile_dedupe.order_pool_spatially(per_section), unique)
+    slot_of = {t: i for i, t in enumerate(order)}
+    sets = [{slot_of[t] for t in sec} for sec in per_section]
+    return canon, slot_of, order, sets, len(unique), gw, (zone, unique, gh)
+
+
+def _stressed(c, clones=None):
+    """_shared_band_act plus stress clones exactly as stress_uniquify_pool shapes them:
+    appended pool slots, each re-pointing one cell (strided over section 0), folded into
+    that section's slot set. Returns the stress_pin_pass arguments and the ROM's glob grid."""
+    page = c["ART_POOL_PAGE_TILES"]
+    canon, slot_of, order, sets, n_canon, gw, _extra = _shared_band_act(c)
+    clones = 2 * page if clones is None else clones
+    base = len(order)
+    redirect = {}
+    for j in range(clones):
+        col, row = (j * 37) % SECTION_TILES, (j * 53) % SECTION_TILES
+        redirect[(0, col, row)] = base + j
+    pool = list(order) + [f"clone{j}" for j in range(clones)]
+    pages = tile_dedupe.split_pool_into_pages(pool, page)
+    sets[0] |= set(redirect.values())
+    glob = np.vectorize(slot_of.get)(canon).astype(np.int64)
+    for (s_idx, col, row), slot in redirect.items():
+        sy, sx = divmod(s_idx, gw)
+        glob[sy * SECTION_TILES + row, sx * SECTION_TILES + col] = slot
+    args = dict(canon_grid=canon, canon_to_pool=slot_of, n_canon=n_canon, redirect=redirect,
+                pages=pages, per_section_global_sets=sets, grid_w=gw, section_tiles=SECTION_TILES)
+    return args, glob, pages
+
+
+def _budget(c, frames):
+    b = dict(c)
+    b["PAGE_FRAMES"] = frames
+    b["POOL_TILE_CEILING"] = frames * c["ART_POOL_PAGE_TILES"]
+    fpo.validate_budget_constants(b)
+    return b
+
+
+@pytest.mark.parametrize("pset", PARAM_SETS)
+def test_fixed_pool_placement_is_place_pools_own_pin_rule(pset):
+    """place_fixed_pool (the stress arm's pass) over a placed act's own slot grid returns
+    exactly place_pool's pins, count and verdict: one pin rule, one code path. The budget is
+    the act's page-0-only worst (derived), where the frame-aware rule must trim the plain
+    rule's pins, so an arm that shipped the plain rule could not pass."""
+    c = _params(pset)
+    canon, _slot, _order, _sets, _n, gw, (zone, unique, gh) = \
+        _shared_band_act(c, per_block=16, shared_pages=3)
+    w0 = int(fpo.place_pool(canon, zone, unique, SECTION_TILES, gw, gh, c, _rule)["needed_pin0"].max())
+    b = _budget(c, w0)
+    pl = fpo.place_pool(canon, zone, unique, SECTION_TILES, gw, gh, b, _rule)
+    assert pl["rung"] == "shipped" and set(pl["pins"]) < set(pl["rule_pins"]), \
+        "fixture: the frame-aware rule no longer trims the plain rule here"
+    glob = pl["slot_of"][pl["canon"]]
+    fx = fpo.place_fixed_pool(glob, len(pl["pages"]), pl["rule_pins"], b)
+    assert fx["pins"] == pl["pins"]
+    assert np.array_equal(fx["needed"], pl["needed"])
+    assert fx["verdict"] == pl["verdict"]
+
+
+@pytest.mark.parametrize("pset", PARAM_SETS)
+def test_stress_pin_pass_keeps_only_frame_aware_pins(pset):
+    """GPL-1's shape: the plain 75% rule's pins push the stress act's worst window over
+    PAGE_FRAMES, while the window alone (page 0 pinned) fits. The stress arm must ship the
+    frame-aware subset, which fits. The budget is DERIVED from the fixture (its page-0-only
+    worst), never typed."""
+    c = _params(pset)
+    args, glob, pages = _stressed(c)
+    H, W = glob.shape
+    lefts, tops, _, _ = fpo.camera_windows(c, W, H)
+    pg = fpo.page_grid_of(glob, c)
+    rule = [i for i, f in enumerate(ojz_strip_gen.mark_pinned_pages(pages, args["per_section_global_sets"])) if f]
+    _n, pin0 = fpo.window_needed(pg, len(pages), {0}, c, lefts, tops)
+    b = _budget(c, int(pin0.max()))
+    plain, _ = fpo.window_needed(pg, len(pages), rule, c, lefts, tops)
+    assert int(plain.max()) > b["PAGE_FRAMES"], "fixture: the plain rule no longer overflows"
+    place = ojz_strip_gen.stress_pin_pass(budget=b, stress_n=len(pages) * 64, **args)
+    expect, needed = fpo.frame_aware_pins(pg, rule, b["PAGE_FRAMES"], pin0, b, lefts, tops)
+    assert place["pins"] == expect and set(expect) < set(rule)
+    assert place["verdict"]["ok"] and int(needed.max()) == place["verdict"]["worst"] <= b["PAGE_FRAMES"]
+    manifest_pins = [i for i in range(len(pages)) if i in set(place["pins"])]
+    assert manifest_pins == sorted(place["pins"])
+
+
+@pytest.mark.parametrize("pset", PARAM_SETS)
+def test_stress_pin_pass_refuses_a_window_over_budget(pset):
+    """One frame under the stress act's frame-aware worst, the pass REFUSES, naming the
+    window, its camera, its page count and the frame count (the report-only pass it replaces
+    printed this and exited 0)."""
+    c = _params(pset)
+    args, glob, _pages = _stressed(c)
+    at = _budget(c, _pin0_worst(c, args, glob))
+    worst = ojz_strip_gen.stress_pin_pass(budget=at, stress_n=2600, **args)["verdict"]["worst"]
+    assert worst == at["PAGE_FRAMES"]
+    under = _budget(c, worst - 1)
+    with pytest.raises(SystemExit) as exc:
+        ojz_strip_gen.stress_pin_pass(budget=under, stress_n=2600, **args)
+    msg = str(exc.value)
+    assert msg.startswith("REFUSED — FG page budget: OJZ act 1 STRESS bake (--stress-uniquify 2600")
+    assert f"worst window needs {worst}" in msg
+    assert f"budget {worst - 1} frames x {c['ART_POOL_PAGE_TILES']}-tile pages" in msg
+    assert "camera x=" in msg and "tile left" in msg
+    assert "lower STRESS_ART_N" in msg
+
+
+def _pin0_worst(c, args, glob):
+    """The stress act's page-0-only worst window: the smallest budget its frame-aware pins
+    can fit (a pin is kept only if it pushes no window over the budget)."""
+    return int(fpo.place_fixed_pool(glob, len(args["pages"]), [0], c)["needed_pin0"].max())

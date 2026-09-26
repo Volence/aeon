@@ -1,0 +1,32 @@
+# stressart-budget (SAH-1 B+C): STRESS_ART=1 ./build.sh at the commit below, then tools/stressart_legs_witness.py
+Sat Sep 26 02:12:18 PM UTC 2026
+ 10:12:18 up 2 days, 23:13,  1 user,  load average: 5.83, 5.31, 4.73
+62140cd73555b69ed313339c8fb60139887e7fdb
+  Pass 4 page order: rung shipped (shipped order's worst window with page 0 pinned: 9 of 12 frames); pins [0, 1, 7, 8, 9] (rule [0, 1, 7, 8, 9]); 0.05 s
+  Pass 4 placement: 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 10 (tile left 73 top 0, e.g. camera x=744 y=0 px; 3366 window(s) at that count); 0 window(s) over budget
+STRESS-UNIQUIFY: inflated act pool to 2600 tiles (1988 parent-matched clone references re-pointed)
+  Pass 4c stress pins: [0, 1, 7, 8] (rule [0, 1, 7, 8, 9]) over 41 pages
+  Pass 4c stress placement: 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 12 (tile left 73 top 0, e.g. camera x=744 y=0 px; 1892 window(s) at that count); 0 window(s) over budget
+Checking the FG page budget on the re-baked tree...
+FG page budget OK — ojz/act1 (committed tree; 41 pages, pins [0, 1, 7, 8]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 12 (tile left 73 top 0, e.g. camera x=744 y=0 px; 1892 window(s) at that count); 0 window(s) over budget
+FG page budget OK — ojz/act1 (committed tree; 41 pages, pins [0, 1, 7, 8]): 257367 camera windows (80x60 tiles), budget 12 frames x 64-tile pages; worst window needs 12 (tile left 73 top 0, e.g. camera x=744 y=0 px; 1892 window(s) at that count); 0 window(s) over budget
+built: stress_art native ROM, crc=040712b3 len=970032
+row_remap_gate: provenance FRESH — s4.stressart.lst + s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated))
+anim_frame_bound: provenance FRESH — s4.stressart.lst + s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated))
+editor_palette_golden: provenance FRESH — /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.lst + /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated); shape not checked: s4.stressart.bin is not a canonical artifact name and the caller named no shape)
+band_drift_golden: provenance FRESH — /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.lst + /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated); shape not checked: s4.stressart.bin is not a canonical artifact name and the caller named no shape)
+plane_base_swap_gate: provenance FRESH — /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.lst + /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated))
+reels_gate: provenance FRESH — /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.lst + /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated))
+plane_role_swap_gate: provenance FRESH — /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.lst + /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a3567df1063baa773/s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated))
+sprite_tilt_gate: provenance FRESH — s4.stressart.lst + s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated); shape not checked: s4.stressart.bin is not a canonical artifact name and the caller named no shape)
+instashield_gate: provenance FRESH — s4.stressart.lst + s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated); shape not checked: s4.stressart.bin is not a canonical artifact name and the caller named no shape)
+loop_crossover_gate: provenance FRESH — s4.stressart.lst + s4.stressart.bin (DIGEST-ROM crc=040712b3 size=970032; 367 READ row(s) and the 208-module scan reproduce; assembler 4ce2509d tree=clean-sources (running binary: tree=clean-sources; tree is reported, not gated); shape not checked: s4.stressart.bin is not a canonical artifact name and the caller named no shape)
+build rc=0
+tree after: 0 dirty
+s4.stressart.bin crc 040712b3
+stressart_legs_witness: s4.stressart.bin crc32 040712b3, 1500 frames per leg after a 300-frame settle
+  fly right: 1500 frames, no halt; camera (96,144) -> (5824,144); 10 page eviction(s) observed; pool 41 pages
+  fly diagonal: 1500 frames, no halt; camera (96,144) -> (5824,5920); 12 page eviction(s) observed; pool 41 pages
+PASS: both legs flew without a halt
+witness rc=0
+finished=1

@@ -1,0 +1,18 @@
+# red-first for C: POOL_TILE_CEILING 768 -> 704 (PAGE_FRAMES 12 -> 11) edited on disk in
+# engine/system/constants.emp, then NO_LINT=1 STRESS_ART=1 ./build.sh; the file was restored
+# from the committed tree afterwards (0 dirty paths).
+Sat Sep 26 02:22:54 PM UTC 2026
+ 10:22:54 up 2 days, 23:24,  1 user,  load average: 4.03, 3.94, 4.30
+62140cd73555b69ed313339c8fb60139887e7fdb
+  Pass 4 page order: rung shipped (shipped order's worst window with page 0 pinned: 9 of 11 frames); pins [0, 1, 7, 8, 9] (rule [0, 1, 7, 8, 9]); 0.05 s
+  Pass 4 placement: 257367 camera windows (80x60 tiles), budget 11 frames x 64-tile pages; worst window needs 10 (tile left 73 top 0, e.g. camera x=744 y=0 px; 3366 window(s) at that count); 0 window(s) over budget
+STRESS-UNIQUIFY: inflated act pool to 2600 tiles (1988 parent-matched clone references re-pointed)
+  Pass 4c stress pins: [0, 1] (rule [0, 1, 7, 8, 9]) over 41 pages
+  Pass 4c stress placement: 257367 camera windows (80x60 tiles), budget 11 frames x 64-tile pages; worst window needs 12 (tile left 212 top 526, e.g. camera x=1856 y=4336 px; 204 window(s) at that count); 204 window(s) over budget
+REFUSED — FG page budget: OJZ act 1 STRESS bake (--stress-uniquify 2600, 41 pages, pins [0, 1]): 257367 camera windows (80x60 tiles), budget 11 frames x 64-tile pages; worst window needs 12 (tile left 212 top 526, e.g. camera x=1856 y=4336 px; 204 window(s) at that count); 204 window(s) over budget.
+  A camera holding that window would need more art pages resident than the cache has frames (PAGE_FRAMES = POOL_TILE_CEILING / ART_POOL_PAGE_TILES, engine/system/constants.emp), and the release engine holds the camera until a frame frees, which it never does. The stress fixture must still fit PAGE_FRAMES = 11 after its frame-aware pins, or its legs deadlock instead of evicting: lower STRESS_ART_N (build.sh) / --stress-uniquify, or change the budget constants.
+regenerate-level.sh: FAILED (exit 1); restoring games/sonic4/data/collision games/sonic4/data/generated to their state before this run
+STRESS_ART: restoring the committed level tree from git...
+build rc=1
+tree after: 1 dirty
+finished=1

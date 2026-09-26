@@ -1106,6 +1106,51 @@ def mark_pinned_pages(pages, per_section_global_sets) -> list[bool]:
     return pinned
 
 
+def stress_pin_pass(canon_grid, canon_to_pool, n_canon, redirect, pages,
+                    per_section_global_sets, grid_w, section_tiles, budget, stress_n, log=None):
+    """generate() Pass 4c: the stress fixture's pins and its window-budget refusal
+    (stressart-budget, 2026-09-26).
+
+    The inflated pool gets THE pin rule every canonical bake gets: the 75% rule's candidates
+    (mark_pinned_pages over this pool), each kept only if it pushes no window over
+    PAGE_FRAMES, computed by fg_page_order.place_fixed_pool (the same pin_and_count and
+    budget_verdict place_pool runs) over the grid the ROM will hold: every cell's global slot
+    from the placed canon grid, with the clone redirects applied. A worst window over
+    PAGE_FRAMES REFUSES (SystemExit naming the window, its camera, its page count and the
+    frame count). Returns place_fixed_pool's dict ("pins", "verdict", ...).
+
+    `redirect` is stress_uniquify_pool's {(section_index, col, row): clone_slot}; a section
+    sits at (section_index // grid_w, section_index % grid_w) in the act grid, and its (col,
+    row) word at cell (row, col) inside it, the layout Pass 3 builds canon_grid in.
+    """
+    import numpy as np
+    import fg_page_order
+    st = section_tiles
+    slot_lut = np.full(n_canon, -1, dtype=np.int64)
+    for cid, slot in canon_to_pool.items():
+        slot_lut[cid] = slot
+    glob = slot_lut[canon_grid]
+    if np.any(glob < 0):
+        raise SystemExit("ojz_strip_gen: a stress-bake cell's canonical tile has no pool slot")
+    for (s_idx, col_i, row_i), slot in redirect.items():
+        sy, sx = divmod(s_idx, grid_w)
+        glob[sy * st + row_i, sx * st + col_i] = slot
+    rule = [i for i, f in enumerate(mark_pinned_pages(pages, per_section_global_sets)) if f]
+    place = fg_page_order.place_fixed_pool(glob, len(pages), rule, budget)
+    if log:
+        log(f"  Pass 4c stress pins: {place['pins']} (rule {place['rule_pins']}) over "
+            f"{len(pages)} pages")
+        log("  " + fg_page_order.verdict_line(place["verdict"], "Pass 4c stress placement"))
+    fg_page_order.refuse_over_budget(
+        place["verdict"],
+        f"OJZ act 1 STRESS bake (--stress-uniquify {stress_n}, {len(pages)} pages, "
+        f"pins {place['pins']})",
+        remedy=(f"The stress fixture must still fit PAGE_FRAMES = {budget['PAGE_FRAMES']} after "
+                f"its frame-aware pins, or its legs deadlock instead of evicting: lower "
+                f"STRESS_ART_N (build.sh) / --stress-uniquify, or change the budget constants."))
+    return place
+
+
 def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
                          per_section_strips, sec_ids_in_order, src_to_canon):
     """Art-streaming P2c Task 11 stress fixture (post-dedup pool inflation).
@@ -1142,7 +1187,9 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
                     declared scratch and still hold every clone to the editor's pixels.
 
     The fixture exists to overwhelm the residency cache: `target_tiles` well above
-    PAGE_FRAMES*ART_POOL_PAGE_TILES forces continuous eviction/reload.
+    PAGE_FRAMES*ART_POOL_PAGE_TILES forces continuous eviction/reload. The WINDOWS still
+    have to fit PAGE_FRAMES (generate() Pass 4c refuses a stress bake whose worst window
+    does not): a window over budget deadlocks the cache instead of cycling it.
     """
     base_pool_len = len(pool_order)
     if target_tiles <= base_pool_len:
@@ -2517,8 +2564,9 @@ def generate(stress_uniquify=0):
     # split/pin/manifest passes below see the inflated pool transparently. The
     # returned redirect re-points a spread of block references at the clones; it
     # is applied in Pass 5 and folded into per_section_global_sets. It needs the
-    # contiguous shipped-rung layout (clone slot == pool index), and it sits OUTSIDE the
-    # window budget on purpose: the fixture exists to overwhelm the cache.
+    # contiguous shipped-rung layout (clone slot == pool index). Its POOL is far over
+    # PAGE_FRAMES on purpose (the fixture exists to force eviction), but every camera
+    # WINDOW must still fit: Pass 4c below pins and counts it and refuses one that does not.
     stress_redirect = None
     if stress_uniquify:
         if placement["rung"] != "shipped":
@@ -2559,6 +2607,21 @@ def generate(stress_uniquify=0):
     if stress_redirect is not None:
         for (s_idx, _col, _row), slot in stress_redirect.items():
             per_section_global_sets[s_idx].add(slot)
+
+    # ---- Pass 4c: the stress pool's pins + window-budget refusal (stressart-budget) ----
+    # The inflated pool gets the pin pass every canonical bake gets (Pass 4's frame-aware
+    # rule: the 75% rule's candidates, each kept only if it pushes no window over
+    # PAGE_FRAMES), run by the same fg_page_order code over the grid the ROM will hold (the
+    # placed canon grid with the clone redirects applied), and the same refusal. It used to
+    # re-apply the plain 75% rule and pass the count report-only; after the 2026-09-03 re-cut
+    # (14 -> 12 frames) that shipped pins [0,1,7,8,9] and a worst window of 13, and the DEBUG
+    # fly-right leg ran out of frames (GPL-1). The fixture stresses the cache by EVICTING, which
+    # needs windows that fit; a window over budget is a deadlock, not stress.
+    stress_pins = None
+    if stress_redirect is not None:
+        stress_pins = stress_pin_pass(
+            canon_grid, canon_to_pool, len(unique), stress_redirect, pages,
+            per_section_global_sets, grid_w, st, budget, stress_uniquify, log=print)["pins"]
 
     # ---- Pass 5: rewrite each section's strips to LOCAL indices + emit local→global tables ----
     # The block nametable words the engine bakes carry per-section LOCAL indices
@@ -2737,13 +2800,11 @@ def generate(stress_uniquify=0):
     # ojz_act_pool.emp (replacing the old longword OJZ_Act_Pool_PageTable). The
     # generator owns tiles+pinned (data knowledge); the packer owns source+form
     # (compression knowledge).
-    # Pins: Pass 4's frame-aware set (the 75% rule's candidates that push no window over
-    # PAGE_FRAMES). The stress fixture re-applies the plain rule over its inflated pool, as
-    # it always has: it is outside the window budget by design.
-    if stress_redirect is not None:
-        pinned_flags = mark_pinned_pages(pages, per_section_global_sets)
-    else:
-        pinned_flags = [i in set(placement["pins"]) for i in range(len(pages))]
+    # Pins: the frame-aware set (the 75% rule's candidates that push no window over
+    # PAGE_FRAMES): Pass 4's for the real pool, Pass 4c's for the stress fixture's
+    # inflated one.
+    shipped_pins = set(stress_pins if stress_pins is not None else placement["pins"])
+    pinned_flags = [i in shipped_pins for i in range(len(pages))]
     sidecar = {
         "version": 2,
         "page_tiles": ART_POOL_PAGE_TILES,
