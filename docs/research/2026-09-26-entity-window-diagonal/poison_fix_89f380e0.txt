@@ -1,0 +1,9 @@
+entity_window_diagonal_witness: s4.debug.bin crc32 89f380e0, 1 arm(s)
+  act grid 3x3, 9 real sections, 60 rings, 11 objects; ring buffer 128, dynamic 40, collected slots 9; kick 48 px, follow 86 ticks
+  poison: a 2-section camera jump must halt on the step assert: Camera_X 96 -> 4672 by a bare poke (anchor x 0 -> 2)
+    HALT: poison: a 2-section camera jump must halt on the step assert, poke: Section_UpdateColumns not reached in 60 frames, camera (4656, 144), pc $0C2B9E (in the fault island)
+      raise_error at $00A9FA ($diag40$engine.page_cache$raise+$6): 'PageCache_Audit: pinned frame flagged PF_EVICTABLE'
+      raise_error at $00523C ($diag45$engine.objects.entity_window$raise+$C): 'Assertion failed:àì> assert.b èd1,ìlsè,#2àêGot: \x80'
+    the step assert fired
+    -> poison: a 2-section camera jump must halt on the step assert: PASS
+PASS: every arm's window checked clean, non-vacuously

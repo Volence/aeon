@@ -51,7 +51,11 @@ least one entity of a section the crossing DROPPED was live before the kick (so 
 after" had a subject) or at least one entity of a section it ENTERED was checked live by L
 during the follow (so W/M/L watched a new section fill). Both counts are printed per arm.
 The shipped act is 3x3 and sparse, so plan_arm picks each arm's line pair by those counts
-rather than by a fixed position; void (off-grid) quadrants are allowed and checked (W).
+rather than by a fixed position; void (off-grid) quadrants are allowed and checked (W). And
+because the envelope leaves a dropped section nearly empty at the crossing tick (measured: no
+diagonal on this act finds one live entity there), `plant_rings` writes one ring into each
+dropped section that has a ring list, the way RingBuffer_Add leaves one, where only the
+section rule can remove it after the kick; see its docstring.
 
 A HALT (the loop stops: Section_UpdateColumns not reached within HALT_FRAMES frames) is a
 FAIL, and the raise_error message is recovered and printed.
@@ -155,10 +159,10 @@ if "RING_BUFFER_ENTRY_SIZE = RING_ENTRY_LIST_INDEX_OFFSET + 1" not in CONSTS.rea
 
 BOOT_FRAMES = 300         # the stress witness's settle: DEBUG boot is in free flight by then
 SETTLE_TICKS = 4
-# X: the right load edge must reach the corner column. Going right the kick lands the camera
-# 15 px past the line, the corner column starts SECTION - DESPAWN_X further right, and the load
+# X: the right load edge must reach the entered column. Going right the kick lands the camera
+# 15 px past the line, the entered column starts SECTION - DESPAWN_X further right, and the load
 # edge leads the camera by SCREEN_W + LOAD_X. Y: the band's far edge (SCREEN_H + LOAD_Y below)
-# must reach the corner row, SECTION - DESPAWN_Y below the line. The larger, over FLY px/tick,
+# must reach the entered row, SECTION - DESPAWN_Y below the line. The larger, over FLY px/tick,
 # plus a coarse row of margin.
 FOLLOW_TICKS = (max(SECTION - DESPAWN_X - SCREEN_W - LOAD_X,
                     SECTION - DESPAWN_Y - SCREEN_H - LOAD_Y) + ROW) // FLY + SETTLE_TICKS
@@ -386,7 +390,8 @@ def check(act, snap, cap_ring, cap_live):
 ARMS = (("diagonal right+down", 1, 1, None), ("diagonal left+down", -1, 1, None),
         ("diagonal right+up", 1, -1, None), ("diagonal left+up", -1, -1, None),
         ("diagonal right+down at the stress halt", 1, 1, (2, 2)),
-        ("control right only", 1, 0, None), ("control down only", 0, 1, None))
+        ("control right only", 1, 0, None), ("control down only", 0, 1, None),
+        ("poison: a 2-section camera jump must halt on the step assert", 2, 0, "poison"))
 BUTTONS = {1: "right", -1: "left"}, {1: "down", -1: "up"}
 
 
@@ -408,6 +413,54 @@ def follow_path(q, dx, dy, xmax, ymax):
     qx, qy = q
     return [(min(max(qx + dx * FLY * t, 0), xmax), min(max(qy + dy * FLY * t, 0), ymax))
             for t in range(FOLLOW_TICKS + 1)]
+
+
+async def plant_rings(m, act, snap, dropped, pre, post):
+    """Give U's "gone after the kick" a subject where the act gives it none.
+
+    WHY. At the tick an anchor line is crossed, the envelope geometry leaves the dropped
+    sections nearly empty of live entities: the row that leaves sits DESPAWN_Y - LOAD_Y above
+    the load band, and the column that leaves keeps only what section tracking kept alive.
+    The shipped act's entities sit where no diagonal crossing finds one live in a dropped
+    section (measured: 0 on every diagonal arm), so without a plant U would pass vacuously on
+    exactly the question SAH-3 asks.
+
+    WHAT. One ring per dropped section that has a ring list: a list index not already live,
+    placed INSIDE that section's rectangle, inside the pre-kick Y despawn band (so it
+    legitimately survives while its section is tracked) and OUTSIDE the post-kick X window
+    (so after the kick only the section rule can keep it, and it must not). It is written the
+    way RingBuffer_Add leaves one: an entry at Ring_Buffer[Ring_Count], Ring_Count + 1, and the
+    loaded bit in the pre-kick entry that tracks the section. Returns [(sid, idx, x, y)]."""
+    (px, py), (qx, qy) = pre, post
+    _, win = act.window(px, py)
+    entry = {sid: e for e, (sid, _, _) in enumerate(win) if sid is not None}
+    live = {(sec, idx) for _, _, sec, idx in snap["rings"]}
+    n = snap["n_ring"]
+    out = []
+    for sid in sorted(dropped):
+        if not act.rings[sid] or sid not in entry:
+            continue
+        idx = next((i for i in range(len(act.rings[sid])) if (sid, i) not in live), None)
+        if idx is None:
+            continue
+        sx, sy = (sid % act.w) << SHIFT, (sid // act.w) << SHIFT
+        ylo, yhi = max(sy, py - DESPAWN_Y), min(sy + SECTION - 1, py + SCREEN_H + DESPAWN_Y)
+        xs = [x for x in (qx - DESPAWN_X - 1, qx + SCREEN_W + DESPAWN_X + 1, sx, sx + SECTION - 1)
+              if sx <= x < sx + SECTION and not qx - DESPAWN_X <= x <= qx + SCREEN_W + DESPAWN_X]
+        if ylo > yhi or not xs:
+            continue
+        x = min(xs, key=lambda v: abs(v - px))
+        y = (ylo + yhi) // 2
+        rec = x.to_bytes(2, "big") + y.to_bytes(2, "big") + bytes((sid, idx))
+        for k, byte in enumerate(rec):
+            await m.wr(m.s["Ring_Buffer"] + (n + len(out)) * RING_ENTRY + k, byte, 1)
+        mask = m.s["Entity_Loaded_Masks"] + entry[sid] * LOADED_SLOT + (idx >> 3)
+        cur = await m.u("Entity_Loaded_Masks", 1, mask - m.s["Entity_Loaded_Masks"])
+        await m.wr(mask, cur | (1 << (idx & 7)), 1)
+        out.append((sid, idx, x, y))
+    if out:
+        await m.wr(m.s["Ring_Count"], n + len(out), 1)
+    return out
 
 
 def neutral_camera(act, xmax, ymax):
@@ -450,7 +503,8 @@ def plan_arm(act, dx, dy, xmax, ymax, lines=None):
             post_ids = {sid for sid, _, _ in post if sid is not None}
             dropped, entered = pre_ids - post_ids, post_ids - pre_ids
             org = {sid: (ox, oy) for sid, ox, oy in pre + post if sid is not None}
-            d_n = sum(len(live_able(act, sid, org[sid], (px, py))) for sid in dropped)
+            d_n = sum(len(live_able(act, sid, org[sid], (px, py))) + bool(act.rings[sid])
+                      for sid in dropped)   # + a plantable ring list (plant_rings)
             seen = set()
             for cam in follow_path((qx, qy), dx, dy, xmax, ymax):
                 _, win = act.window(*cam)
@@ -525,6 +579,17 @@ async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose)
     if snap["cam"] != (px, py):
         raise Unmeasurable(f"{name}: camera settled at {snap['cam']}, not ({px},{py}) (a warp "
                            f"clamp or a camera hold moved it)")
+    planted = await plant_rings(m, act, snap, dropped, (px, py), (qx, qy))
+    if planted:
+        print(f"    planted {len(planted)} ring(s) in dropped sections: "
+              + ", ".join(f"(sec {sid}, #{idx}) at ({x},{y})" for sid, idx, x, y in planted))
+        if not await m.tick():
+            return await halted(m, name, "plant", labels, rom_image)
+        snap, live_keys, _ = await one("planted")
+        missing = [p for p in planted if ("r", p[0], p[1]) not in live_keys]
+        if missing:
+            raise Unmeasurable(f"{name}: planted ring(s) {missing} did not survive a tick in "
+                               f"a still-tracked section (the plant is wrong, not the window)")
     pre_live = {k for k in live_keys if k[1] in dropped}
     anchor_pre = snap["anchor"]
     # the kick: move the leader past the deadzone on each crossing axis
@@ -569,7 +634,7 @@ async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose)
     return 0
 
 
-async def halted(m, name, where, labels, rom_image):
+async def halted(m, name, where, labels, rom_image, sites=None):
     st = await m.b.call("emulator/status", {})
     pc = int(str(st.get("pc", "0")), 16) & 0xFFFFFF
     print(f"    HALT: {name}, {where}: Section_UpdateColumns not reached in {HALT_FRAMES} "
@@ -577,7 +642,35 @@ async def halted(m, name, where, labels, rom_image):
           f"({'in' if pc >= m.s['ErrorHandlerBlob'] else 'NOT in'} the fault island)")
     for site, msg in await raise_message(m.b, rom_image):
         print(f"      raise_error at ${site:06X} ({nearest_label(labels, site)}): {msg!r}")
+        if sites is not None:
+            sites.append(nearest_label(labels, site))
     return 1
+
+
+async def run_poison(m, name, labels, rom_image):
+    """The slide-step assert must still FIRE: a camera moved two sections in one tick without
+    EntityWindow_Init (a bare poke, the teleport the warp ladder exists to replace) has to
+    halt on EntityWindow_Slide's step assert, not run on and not halt somewhere else."""
+    x = await m.u("Camera_X", 2)
+    xmax = await m.u("Camera_X_Max", 2)
+    a0 = (await m.rd(m.s["Entity_Window_Anchor"], 1))[0]
+    # two anchor columns on, with room for Camera_Update's one capped step back toward the
+    # leader on the same tick
+    to = ((a0 + 2) << SHIFT) + DESPAWN_X + 4 * CAM_X_STEP
+    if to > xmax:
+        raise Unmeasurable(f"{name}: target camera x {to} is past the clamp {xmax}")
+    await m.wr(m.s["Camera_X"], to, 2)
+    print(f"  {name}: Camera_X {x} -> {to} by a bare poke (anchor x {a0} -> {a0 + 2})")
+    if await m.tick():
+        print(f"    FAIL: the loop ran on; camera {await m.cam()}, anchor "
+              f"{tuple(await m.rd(m.s['Entity_Window_Anchor'], 2))}")
+        return 1
+    sites = []
+    await halted(m, name, "poke", labels, rom_image, sites)
+    ok = any("entity_window" in site for site in sites)
+    print("    the step assert fired" if ok else
+          "    FAIL: halted, but not on an entity_window raise")
+    return 0 if ok else 1
 
 
 SYMS = ("Camera_X", "Camera_Y", "Camera_X_Max", "Camera_Y_Max", "Camera_Target",
@@ -623,8 +716,11 @@ async def sweep(sock, rom_image, labels, arms, verbose):
             await b.call("emulator/release_all", {})
             await b.call("emulator/restore", {"id": cp})
             try:
-                rc = await run_arm(m, act, name, dx, dy, lines, (cap_ring, cap_live), labels,
-                                   rom_image, verbose)
+                if lines == "poison":
+                    rc = await run_poison(m, name, labels, rom_image)
+                else:
+                    rc = await run_arm(m, act, name, dx, dy, lines, (cap_ring, cap_live),
+                                       labels, rom_image, verbose)
             except Unmeasurable as e:
                 print(f"    UNMEASURABLE: {e}")
                 rc = 2
