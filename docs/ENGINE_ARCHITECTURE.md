@@ -5540,6 +5540,17 @@ invariants rather than trusted:
   page double-load gap (a bulk/in-flight page re-requested and published twice, orphaning
   the first frame). `PageCache_Publish` DEBUG-asserts the page's table entry is
   `NOT_RESIDENT` before stamping — the duplicate-publish catcher, kept permanently.
+- **Bounded demand hold (2026-09-26, STRESSART-HALTS GPL-2):** a DEMAND page is published
+  HELD (`PF_DEMAND_HELD`, not a candidate) so a second miss cannot evict it before the
+  stalled fill references it. The hold used to end only at that first reference, and the
+  reference need not come: the words that missed can be overwritten before the page lands
+  (measured on the STRESS_ART diagonal, flying into empty sky), which leaked the frame for
+  good. Now `Page_Demand_Held` arms `PageCache_DemandHoldTick`, which `Tile_Cache_Fill`
+  calls before it clears `Cache_Art_Stall`: once a fill pass that saw every held page
+  resident ends without a demand stall, every held frame still at refcount 0 becomes an
+  ordinary candidate (stamped now). A stalled pass keeps every hold, which is all the
+  protection was for. The orphan audit exempts held frames (it used to exempt only
+  `PageIn_Cur_Frame`) and checks held ⇒ assigned, unpinned, gate armed.
 - **Instantaneous bijectivity:** `AllocFrame`'s `.detach` stamps `pf_page := $FFFF`
   (UNASSIGNED) so a detached, not-yet-published frame belongs to no page; the audit's
   `pf_page == $FFFF` skip then makes `frame → pf_page → Page_Table` round-trip true at
@@ -5568,8 +5579,12 @@ page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read of
 `ART_PAGE_FLAG_PINNED`), and the rest are held resident by refcounts. This is not a limitation to fix —
 `AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
-fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
-regime where streaming actually earns its keep and where the acceptance matrix was proven.
+fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages) is the
+regime where streaming actually earns its keep and where the acceptance matrix was proven,
+against 15 frames. ⚠ Since the VRAM re-cut (77cf6a71, 2026-09-03: 12 frames) its worst
+80×60 window needs 13 pages (pins [0,1,7,8,9] + 8), so its fly-right leg thrashes by
+construction (STRESSART-HALTS GPL-1, options booked in `docs/DEFERRED_WORK.md`), and
+`tools/stressart_legs_witness.py` flies both of its legs every night.
 Staged nametable words stay section-LOCAL (except in a PHYSICAL-form act, below, whose
 maps are the identity), and the local→global map is applied per word
 inside the `PageCache_PatchRun_Seq`/`_Col` copy runs and the prefetch scan (F-3
