@@ -1,5 +1,5 @@
 {
-  "focus": "Sonic 2 level music is ready for your ears; meanwhile auditing our checks, which doesn't need you.",
+  "focus": "Rebooted; the check-tidying agent is still working. Sonic 2 music is waiting for your ears.",
   "inFlight": [
     {
       "what": "Fix the remaining tools that report a problem and carry on (hand-run probes and three generators)",
@@ -24,7 +24,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The check audit lands; then the next row that doesn't need you, or a stop naming your two cards.",
+  "nextBoundary": "The check-tidying agent returns and I review and land it; then the next row that doesn't need you.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -123,5 +123,5 @@
   ],
   "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T05:54:53Z"
+  "updatedAt": "2026-09-26T06:46:04Z"
 }
