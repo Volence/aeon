@@ -56,6 +56,7 @@ ART_POOL_PAGE_TILES, ART_POOL_PAGE_BYTES = load_page_geometry()
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
 BLOCK_RAW_SIZE = 768       # one raw 16x16 block (dict region is a multiple)
 PROJECT_JSON = os.path.join(ROOT, "project.json")
+_DEFAULT_PROJECT_JSON = PROJECT_JSON
 # The base collision shape bank the editor cell words index; None = the S&K
 # vocabulary under collision/base/. Set by --bank. See verify_editor_collision_fidelity.
 BASE_BANK_DIR = None
@@ -510,6 +511,56 @@ def verify_block_decode():
               f"{bad[0] if bad else '-'}) -- the ROM would stream different level data "
               f"than every other check certified")
     check(blocks_checked > 0, "block decode: zero blocks decoded -- measured nothing")
+
+
+DESCRIPTOR = os.path.join(ROOT, "games", "sonic4", "data", "levels", "ojz", "act1",
+                          "act_descriptor.emp")
+
+
+def verify_descriptor_wiring():
+    """Row N of the act descriptor streams section N's blob (GATE-PREDICATE-VS-PROMISE,
+    2026-09-26).
+
+    `verify_block_decode` certifies that `secN_blocks.bin` decodes to `secN_strips`, which is
+    "the link from the strips to the bytes the engine actually decompresses" only if the
+    section-N row HANDS the engine `OJZ_SecN_Blocks`. That binding is hand-written in the
+    descriptor and nothing read it. Measured: row 1 rewired to `OJZ_Sec5_Blocks` (with its
+    dict and dict_len) and every lane here stayed green, while the ROM would stream section
+    5's blocks through section 1's local map.
+
+    Read from comment-stripped source: the Nth `ojz_sec(...)` row names `OJZ_SecN_Blocks` as
+    `blocks:`, `extern("OJZ_SecN_Blocks")` in `dict:`, and `OJZ_SECN_BLOCK_DICT_LEN` as
+    `dict_len:`, and there is one row per section of the act grid."""
+    try:
+        src = open(DESCRIPTOR, encoding="utf-8").read()
+    except OSError as exc:
+        check(False, f"descriptor wiring: cannot read {os.path.relpath(DESCRIPTOR, ROOT)} -- {exc}")
+        return
+    code = re.sub(r"//[^\n]*", "", src)
+    # Call sites only: `comptime fn ojz_sec(blocks: Label, ...)` is the declaration.
+    starts = [m.start() for m in re.finditer(r"(?<!fn )(?<![\w])ojz_sec\(\s*blocks:", code)]
+    rel = os.path.relpath(DESCRIPTOR, ROOT)
+    # The row COUNT is compared only for the shipped project: a clip bake (--project)
+    # regenerates the act grid while these hand-written rows stay as they are, and what
+    # the engine does with that difference is the clip lanes' question, not this one's.
+    # The per-row identity below holds in both.
+    n_sec = _section_count() if PROJECT_JSON == _DEFAULT_PROJECT_JSON else None
+    if n_sec is not None:
+        check(len(starts) == n_sec,
+              f"descriptor wiring: {rel} carries {len(starts)} `ojz_sec(blocks: ...)` rows, "
+              f"the act grid declares {n_sec} sections")
+    for k, s in enumerate(starts):
+        row = code[s:starts[k + 1] if k + 1 < len(starts) else len(code)]
+        blocks = re.match(r"ojz_sec\(\s*blocks:\s*(\w+)", row).group(1)
+        dict_m = re.search(r'\bdict:\s*extern\("(\w+)"\)', row)
+        len_m = re.search(r"\bdict_len:\s*(\w+)", row)
+        want = (f"OJZ_Sec{k}_Blocks", f"OJZ_Sec{k}_Blocks", f"OJZ_SEC{k}_BLOCK_DICT_LEN")
+        got = (blocks, dict_m.group(1) if dict_m else None, len_m.group(1) if len_m else None)
+        check(got == want,
+              f"descriptor wiring: {rel} row {k} names blocks={got[0]} dict={got[1]} "
+              f"dict_len={got[2]}; section {k} must stream {want[0]} (dict {want[1]}, "
+              f"dict_len {want[2]}). Anything else streams another section's blocks through "
+              f"this section's local map, and every decode lane above still passes")
 
 
 def verify_bininclude_targets():
@@ -1294,6 +1345,7 @@ def main(argv=None):
     verify_local_maps()
     verify_block_blobs()
     verify_block_decode()
+    verify_descriptor_wiring()
     verify_bininclude_targets()
     verify_collision_is_interned()
     verify_editor_bake_fidelity()
@@ -1301,7 +1353,8 @@ def main(argv=None):
     verify_section_set()
     verify_no_orphans()
     checks_run = ("act-pool+content+sidecar / local-maps+table / block-blobs / "
-                  "block-decode / bininclude-targets / collision-interned / editor-bake / "
+                  "block-decode / descriptor-wiring / bininclude-targets / "
+                  "collision-interned / editor-bake / "
                   "editor-collision / section-set / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
