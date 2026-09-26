@@ -10,6 +10,16 @@
       "what": "Find the lag you still feel on our own act, and check the fall-speed cap against Sonic 3",
       "where": "branch perf/ojz-feel",
       "agent": true
+    },
+    {
+      "what": "Build the Chemical Plant tile-patching fix (about half the lag there)",
+      "where": "branch perf/gpl-a3",
+      "agent": true
+    },
+    {
+      "what": "Stop Sonic going round our loop twice at walking pace",
+      "where": "branch fix/ojz-loop-exit",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -17,11 +27,6 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "GPL-A3-BUILD",
-      "what": "Whether to build the fix that halves Chemical Plant's scrolling lag (I recommend yes).",
-      "since": "2026-09-26"
     }
   ],
   "nextBoundary": "The floor-gap check comes back; I review and land any fix.",
@@ -31,6 +36,13 @@
       "title": "Lag you still feel on our act, and a fall speed that feels capped: measuring against Sonic 3",
       "state": "doing",
       "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "OJZ-LOOP-DOUBLE-LAP",
+      "title": "Our loop: stop Sonic going round twice at walking pace (you said yes)",
+      "state": "doing",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -88,10 +100,10 @@
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Chemical Plant's slow tile patching: fix designed and measured (about half the lag); build it is your call",
-      "state": "blocked",
+      "title": "Chemical Plant's slow tile patching: you said build it; building the fix that roughly halves it",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "decision card GPL-A3-BUILD",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -188,7 +200,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": "Try the jump and a run through Emerald Hill in aeon/s4.s2clip.debug.bin (crc 3e1f7a33). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T21:42:47Z"
+  "updatedAt": "2026-09-26T21:44:41Z"
 }
