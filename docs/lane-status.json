@@ -18,11 +18,6 @@
       "since": "2026-09-26"
     },
     {
-      "id": "ROLL-FEEL",
-      "what": "Whether the Sonic 2 level should roll by Sonic 2's rules (I recommend trying the fixed build first).",
-      "since": "2026-09-26"
-    },
-    {
       "id": "GPL-A3-BUILD",
       "what": "Whether to build the fix that halves Chemical Plant's scrolling lag (I recommend yes).",
       "since": "2026-09-26"
@@ -62,10 +57,10 @@
     },
     {
       "id": "SLOPE-COLLISION",
-      "title": "Slope sticking fixed and landed; whether to use Sonic 2's roll rules is your call",
-      "state": "blocked",
+      "title": "Slopes fixed; you kept Sonic 3's roll rules. Done.",
+      "state": "open",
       "size": "M",
-      "blockedBy": "decision card ROLL-FEEL",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -150,5 +145,5 @@
   ],
   "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin; listen to aeon/s4.s2clip.debug.bin (crc be774dc5) for drums; try a slope. Also: this lane is clearable (~200k context).",
   "atBoundary": true,
-  "updatedAt": "2026-09-26T15:12:03Z"
+  "updatedAt": "2026-09-26T16:24:30Z"
 }
