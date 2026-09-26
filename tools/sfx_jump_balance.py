@@ -20,21 +20,26 @@ SFX request):
   is held for HOLD frames at each of --at frames after the song request. Sonic is standing at the
   act start in both, and the presses are far enough apart that he has landed.
 
-RENDERS, per ROM: MIX with jumps, MIX without jumps (the music the jump sits against), PSG1 solo
-with jumps (the jump alone: both drivers give PSG1 to the SFX and silence the music's PSG1 under
-it), PSG1 solo without jumps (what the music's PSG1 contributes in the window: the proof the PSG1
-solo window is the jump, not the song), and MUTED.
+--sfx OURS_ID:OURS_CHAN:S2_ID:S2_CHAN REQUESTS an SFX instead (real S2: Sound_Queue.SFX0;
+ours: an enqueue into Sfx_Ring_Buf, what Sound_PlaySFX does), to compare the jump against SFX
+the owner hears as normal. S2's driver alternates $B5 (ring) between FM5 and FM4, so ask for
+$CE (ring left, FM4) directly. Our FM SFX may take a different FM channel than S2's: when the
+solo channel is not the one the SFX took, read the mix lift column only.
 
-WHAT IS PRINTED, per press and averaged: over the WINDOW frames from the press, the jump's RMS and
-peak (PSG1 solo), the music mix's RMS (no-jump render, same window), jump - music in dB, and the
-mix-with-jump minus mix-without-jump in dB (how much the jump adds to what is heard); then ours -
-real for each. Exit 0 = measured; 2 = could not measure (a ROM missing, no level, a muted control
-not silent, or a press that produced no jump: the PSG1 window with the press is not at least
-10 dB above the same window without it).
+RENDERS, per ROM: MIX with the trigger, BED (the mix without it: the music the SFX sits
+against), the SFX channel solo with and without the trigger, and MUTED.
+
+WHAT IS PRINTED, per trigger and averaged: over WINDOW frames from the trigger, the SFX's RMS and
+peak (channel solo), the music's RMS (BED, same window), SFX - music in dB, and mix-with minus
+mix-without in dB (what the SFX adds to what is heard); then ours - real for each. Exit 0 =
+measured; 2 = could not measure (a ROM missing, no level, a MUTED render not silent, or a trigger
+that changed nothing on its channel: the solo window with the trigger minus the same window
+without it must carry within 3 dB of the window's energy; the renders are deterministic).
 
 Usage:
     python3 tools/sfx_jump_balance.py --s2-rom PATH/s2built.bin --rom s4.s2clip.bin \\
         --lst s4.s2clip.lst [--at 300,600,900,1200] [--window 30] [--wav-dir DIR]
+        [--sfx 33:FM4:CE:FM4]
 """
 from __future__ import annotations
 
