@@ -1,0 +1,9 @@
+c1 run: IN MOTION: 1207 video frames, 1201 ticks, lag 6 (0.5%), cam end [5689, 800]; WHO | diag: 
+c1nc run: IN MOTION: 1207 video frames, 1201 ticks, lag 6 (0.5%), cam end [5689, 800]; WHO | diag: 
+c1nr run: IN MOTION: 1207 video frames, 1201 ticks, lag 6 (0.5%), cam end [5689, 800]; WHO | diag: 
+c1nb run: IN MOTION: 1207 video frames, 1201 ticks, lag 6 (0.5%), cam end [5689, 800]; WHO | diag: 
+c1_diag.json           crc=08cad480 band 87 rows vf=87 ticks=56 lag=31 first=[112, 144] last=[992, 1008] path_sha=92134ecd8f | whole 37/1035 ticks=998 end=[16064, 5920] load=6.40->6.53
+c1nb_diag.json         crc=4dde1388 band 83 rows vf=83 ticks=56 lag=27 first=[112, 144] last=[992, 1008] path_sha=92134ecd8f | whole 33/1031 ticks=998 end=[16064, 5920] load=6.17->6.00
+c1nc_diag.json         crc=4abf8cd2 band 85 rows vf=85 ticks=56 lag=29 first=[112, 144] last=[992, 1008] path_sha=92134ecd8f | whole 35/1033 ticks=998 end=[16064, 5920] load=6.33->6.14
+c1nr_diag.json         crc=0fab4bda band 85 rows vf=85 ticks=56 lag=29 first=[112, 144] last=[992, 1008] path_sha=92134ecd8f | whole 35/1033 ticks=998 end=[16064, 5920] load=6.29->6.18
+finished=1

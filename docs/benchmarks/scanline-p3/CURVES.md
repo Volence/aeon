@@ -91,6 +91,14 @@ can now check.
 > and the measurements: §3.8 below, `engine/level/parallax.emp` at `.curve_rem_ok` and
 > `.lp_curve`, and `docs/research/2026-09-25-ehz-diag-regression.md`. The cost columns of §6
 > and §10 were measured on the OLD loop and now over-charge a curve line (see §3.8).
+>
+> **AND SINCE 2026-09-27 (perf/ehz-run-lag) THE ONE-LINE LOOP ABOVE IS HISTORY TOO.** The FG word
+> rides in d1's high half (`swap d0 / swap d1 / move.w d0,d1 / swap d1` once per band), so a line
+> is `move.l d1,(a4)+ / add.w d3,d6 / addx.w d2,d1`, 8x unrolled with a remainder tail: 21.25
+> cycles a line in whole groups, 30 in the 0-7-line tail. d0 holds the remainder count, d5 the
+> group count; a0 is still not borrowed. A computed entry into the unrolled body was refused by the
+> contract closure (it reads the computed `jmp` as leaving the proc past `preserves(a0/d7)`).
+> Same values, same order, same parked carry: `docs/research/2026-09-27-ehz-run-lag.md`.
 
 `CAP_FACTOR_CURVE = $0040`, promoted by Task 5, lowered here. All three blocks carry §3.3
 brackets.

@@ -1,0 +1,20 @@
+cdebug.bin crc=917d73ff size=856446 hoist $837E..$83A0 fill $87A0..$8802
+  exhaustive: cases=50400 mismatches=0
+  split: cases=20000 mismatches=0
+debug.bin crc=08cad480 size=955864 hoist $837E..$83A0 fill $87A0..$8802
+  exhaustive: cases=50400 mismatches=0
+  split: cases=20000 mismatches=0
+rc=0
+finished=1
+rc=0
+debug.bin crc=d1e39ee9 size=956170 hoist $837E..$83A0 fill $87A0..$8800
+  exhaustive: cases=50400 mismatches=50173
+  split: cases=2000 mismatches=1867
+    span 1 spread -1: first bad line 8 got 65529 want 65528
+    span 2 spread -2: first bad line 8 got 65529 want 65528
+    span 2 spread 1: first bad line 8 got 3 want 4
+    span 2 spread -1: first bad line 9 got 65532 want 65531
+    span 3 spread -3: first bad line 8 got 65529 want 65528
+rc=1
+finished=1
+rc=0

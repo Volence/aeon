@@ -1,0 +1,9 @@
+B canopy rc=0 IN MOTION: 1235 video frames, 1201 ticks, lag 34 (2.75%), cam end [5689, 800]; WHOLE lag=34 LFC_delt
+B parallax rc=0 IN MOTION: 1230 video frames, 1201 ticks, lag 29 (2.36%), cam end [5689, 800]; WHOLE lag=29 LFC_delt
+B audit rc=0 IN MOTION: 1240 video frames, 1201 ticks, lag 39 (3.15%), cam end [5689, 800]; WHOLE lag=39 LFC_delt
+B dbg rc=0 IN MOTION: 1234 video frames, 1201 ticks, lag 33 (2.67%), cam end [5689, 800]; WHOLE lag=33 LFC_delt
+A canopy rc=0 IN MOTION: 1206 video frames, 1201 ticks, lag 5 (0.41%), cam end [5689, 800]; WHOLE lag=5 LFC_delta=
+A parallax rc=0 IN MOTION: 1202 video frames, 1201 ticks, lag 1 (0.08%), cam end [5689, 800]; WHOLE lag=1 LFC_delta=
+A audit rc=0 IN MOTION: 1207 video frames, 1201 ticks, lag 6 (0.5%), cam end [5689, 800]; WHOLE lag=6 LFC_delta=6
+A dbg rc=0 IN MOTION: 1206 video frames, 1201 ticks, lag 5 (0.41%), cam end [5689, 800]; WHOLE lag=5 LFC_delta=
+finished=1

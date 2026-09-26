@@ -1,0 +1,8 @@
+soft0 rc=1 :: BLOCK_DECOMP_SOFT (0) must be 1..BLOCK_DECOMP_BUDGET (6)
+soft7 rc=1 :: BLOCK_DECOMP_SOFT (7) must be 1..BLOCK_DECOMP_BUDGET (6)
+rows2 rc=1 :: BLOCK_FILL_LEAD_ROWS (2) must exceed one tick of the camera's vertical step in rows (CAM_MAX_Y_STEP 16 px = 2 rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V (16), or a cache at its full margin would never defer", primary
+rows16 rc=1 :: BLOCK_FILL_LEAD_ROWS (16) must exceed one tick of the camera's vertical step in rows (CAM_MAX_Y_STEP 16 px = 2 rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V (16), or a cache at its full margin would never defer", primary
+cols2 rc=1 :: BLOCK_FILL_LEAD_COLS (2) must exceed one tick of the camera's horizontal step in columns (camera.emp's CAM_MAX_X_STEP, 16 px = 2 columns) and stay below TILE_CACHE_MARGIN_H (20)", primary
+cols20 rc=1 :: BLOCK_FILL_LEAD_COLS (20) must exceed one tick of the camera's horizontal step in columns (camera.emp's CAM_MAX_X_STEP, 16 px = 2 columns) and stay below TILE_CACHE_MARGIN_H (20)", primary
+restored rc=0 tree: 
+finished=1
