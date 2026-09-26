@@ -40,6 +40,12 @@ pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         invoke  Game.debug_tick
         movea.l Game_State, a0
         jsr     (a0) as GameState       // computed dispatch (bare jsr by the jbra/jbsr rule)
+        if SOUND_DRIVER_ENABLED == 1 {
+        jbsr    Music_Service           // post the region's song, if it changed (at most one
+                                        // request a frame, never spins). AFTER the state, so a
+                                        // crossing is serviced on its own frame. A game with no
+                                        // regions never sets Music_Want: one compare, no post.
+        }
         // The palette engine's per-frame composition (effects P2). Main-loop, NOT
         // VBlank: it is arithmetic (base -> cycling -> cross-fade -> operators ->
         // variants), and it must land AFTER the game state's boundary crossings

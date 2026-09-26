@@ -59,16 +59,16 @@ use games.sonic4.ojz_effects.{OJZ_Preset_Depth, OJZ_Preset_Night, OJZ_Preset_Pla
 use games.sonic4.ojz_effects_editor_act1.{EditorSceneBinding_OJZ_Act1_Sec0, EditorSceneBinding_OJZ_Act1_Sec4, EditorSceneBinding_OJZ_Act1_Sec7, EditorSceneBinding_OJZ_Act1_Sec8, OJZ_Preset_Depth_KEY, OJZ_Preset_Night_KEY, OJZ_Preset_Plain_KEY, OJZ_Preset_Sec0_KEY, OJZ_Preset_Sec1_KEY, OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec3_KEY, OJZ_Preset_Sec5_KEY, OJZ_Preset_Sec6_KEY, OJZ_Preset_Sec7_KEY}
 
 pub const OJZ_ACT1_GENERATED_REGION_ROWS: [Region; 10] = [
-    Region{ rg_x0:    0, rg_x1: 2047, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec0,  rg_parallax: EditorSceneBinding_OJZ_Act1_Sec0, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 0 — sec0
-    Region{ rg_x0: 2048, rg_x1: 3399, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec1,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 1 — sec1
-    Region{ rg_x0: 4800, rg_x1: 6143, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec2,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 2 — sec2
-    Region{ rg_x0:    0, rg_x1: 2047, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Sec3,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 3 — sec3
-    Region{ rg_x0: 2048, rg_x1: 4095, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Depth, rg_parallax: EditorSceneBinding_OJZ_Act1_Sec4, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 4 — sec4
-    Region{ rg_x0: 4096, rg_x1: 6143, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Sec5,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 5 — sec5
-    Region{ rg_x0:    0, rg_x1: 2047, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Sec6,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 6 — sec6
-    Region{ rg_x0: 2048, rg_x1: 4095, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Sec7,  rg_parallax: EditorSceneBinding_OJZ_Act1_Sec7, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 7 — sec7
-    Region{ rg_x0: 4096, rg_x1: 6143, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Plain, rg_parallax: EditorSceneBinding_OJZ_Act1_Sec8, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 8 — sec8
-    Region{ rg_x0: 3400, rg_x1: 4799, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Night, rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0 },  // row 9 — ojz_preset_night
+    Region{ rg_x0:    0, rg_x1: 2047, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec0,  rg_parallax: EditorSceneBinding_OJZ_Act1_Sec0, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 0 — sec0
+    Region{ rg_x0: 2048, rg_x1: 3399, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec1,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 1 — sec1
+    Region{ rg_x0: 4800, rg_x1: 6143, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Sec2,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 2 — sec2
+    Region{ rg_x0:    0, rg_x1: 2047, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Sec3,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 3 — sec3
+    Region{ rg_x0: 2048, rg_x1: 4095, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Depth, rg_parallax: EditorSceneBinding_OJZ_Act1_Sec4, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 4 — sec4
+    Region{ rg_x0: 4096, rg_x1: 6143, rg_y0: 2048, rg_y1: 4095, rg_effects: OJZ_Preset_Sec5,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 5 — sec5
+    Region{ rg_x0:    0, rg_x1: 2047, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Sec6,  rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 6 — sec6
+    Region{ rg_x0: 2048, rg_x1: 4095, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Sec7,  rg_parallax: EditorSceneBinding_OJZ_Act1_Sec7, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 7 — sec7
+    Region{ rg_x0: 4096, rg_x1: 6143, rg_y0: 4096, rg_y1: 6143, rg_effects: OJZ_Preset_Plain, rg_parallax: EditorSceneBinding_OJZ_Act1_Sec8, rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 8 — sec8
+    Region{ rg_x0: 3400, rg_x1: 4799, rg_y0:    0, rg_y1: 2047, rg_effects: OJZ_Preset_Night, rg_parallax: 0,                                rg_bg_layout: 0, rg_bg_span: 0, rg_bg_tiles: 0, rg_song: 0, rg_pad_1b: 0 },  // row 9 — ojz_preset_night
 ]
 
 // ROW INDEX BY DOCUMENT id — the named-row mechanism the DEBUG-delta
