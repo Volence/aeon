@@ -12,7 +12,7 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
-use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM}
+use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS}
 use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
@@ -1135,7 +1135,81 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         //     arbiter-apportioned allowance. Until such a consumer exists, each tier
         //     keeps its own budget (block fill here, DMA bytes in dma_queue, art
         //     bytes in page_in). See ENGINE_ARCHITECTURE.md §9.7 (Task 12).
-        move.w  #BLOCK_DECOMP_BUDGET, Cache_Fill_Budget
+        //
+        // SOFT OR HARD (perf/ehz-run-lag, 2026-09-27). The fill defers block decodes
+        // while it can afford to: when the FILLED cache still leads the visible screen by
+        // at least BLOCK_FILL_LEAD_ROWS rows and BLOCK_FILL_LEAD_COLS columns on every
+        // side, this tick gets BLOCK_DECOMP_SOFT decodes; otherwise it gets the full
+        // BLOCK_DECOMP_BUDGET. The decodes are the same blocks in the same order, only
+        // later, and the margin (TILE_CACHE_MARGIN_V/_H) is the slack they are deferred
+        // into; a fill that falls behind by half of it is back on the hard budget, which
+        // is exactly the behaviour before this parcel. See ARCH §9.7 and the parcel's
+        // research doc for the run-leg measurement that motivated it.
+        //
+        // "Filled", not "declared": each fill loop commits its edge word BEFORE filling
+        // (see .h_no_evict), so a pending partial sits INSIDE the declared window. The
+        // one pending row (Cache_Fill_RowResume_Row) and one pending column
+        // (Cache_Fill_Resume_Col) cut the filled extent on whichever side they lie.
+        moveq   #BLOCK_DECOMP_BUDGET, d2            // assume hard
+        move.l  Camera_Y, d0
+        swap    d0                                  // d0 = camera Y px
+        move.w  d0, d1
+        addi.w  #SECTION_V_REACH_PX, d1
+        lsr.w   #3, d1                              // d1 = visible bottom row
+        lsr.w   #3, d0                              // d0 = visible top row
+        move.w  Cache_Bottom_Row, d3                // bottom edge, filled
+        move.w  Cache_Top_Row, d4                   // top edge, filled
+        move.w  Cache_Fill_RowResume_Row, d5
+        cmpi.w  #$FFFF, d5
+        beq     .lead_rows_ready
+        cmp.w   d1, d5
+        ble     .lead_row_not_below
+        move.w  d5, d3
+        subq.w  #1, d3                              // a pending row below: filled up to it
+        jbra    .lead_rows_ready
+    .lead_row_not_below:
+        cmp.w   d0, d5
+        bge     .budget_ready                       // pending row on screen: hard
+        move.w  d5, d4
+        addq.w  #1, d4                              // a pending row above: filled from below it
+    .lead_rows_ready:
+        sub.w   d1, d3                              // d3 = bottom lead (rows)
+        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d3
+        blt     .budget_ready
+        sub.w   d4, d0                              // d0 = top lead (rows)
+        cmpi.w  #BLOCK_FILL_LEAD_ROWS, d0
+        blt     .budget_ready
+        move.l  Camera_X, d0
+        swap    d0                                  // d0 = camera X px
+        move.w  d0, d1
+        addi.w  #SECTION_H_REACH_PX, d1
+        lsr.w   #3, d1                              // d1 = visible right column
+        lsr.w   #3, d0                              // d0 = visible left column
+        move.w  Cache_Head_Col, d3                  // right edge, filled
+        move.w  Cache_Left_Col, d4                  // left edge, filled
+        move.w  Cache_Fill_Resume_Col, d5
+        cmpi.w  #$FFFF, d5
+        beq     .lead_cols_ready
+        cmp.w   d1, d5
+        ble     .lead_col_not_right
+        move.w  d5, d3
+        subq.w  #1, d3                              // a pending column right: filled up to it
+        jbra    .lead_cols_ready
+    .lead_col_not_right:
+        cmp.w   d0, d5
+        bge     .budget_ready                       // pending column on screen: hard
+        move.w  d5, d4
+        addq.w  #1, d4                              // a pending column left: filled right of it
+    .lead_cols_ready:
+        sub.w   d1, d3                              // d3 = right lead (columns)
+        cmpi.w  #BLOCK_FILL_LEAD_COLS, d3
+        blt     .budget_ready
+        sub.w   d4, d0                              // d0 = left lead (columns)
+        cmpi.w  #BLOCK_FILL_LEAD_COLS, d0
+        blt     .budget_ready
+        moveq   #BLOCK_DECOMP_SOFT, d2              // every side leads: defer
+    .budget_ready:
+        move.w  d2, Cache_Fill_Budget
         move.w  #VFILL_ROWS_PER_FRAME, Cache_Fill_Rows_Left
 
         // --- finish any pending partial ROW first (before the column

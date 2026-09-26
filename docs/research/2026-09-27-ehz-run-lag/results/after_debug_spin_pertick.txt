@@ -1,0 +1,30 @@
+lag: 7 windows, 7 ticks inside the profiled frames (Parallax_Update calls), work (sample - VSync_Wait) 147194 cyc/tick; decodes per window {1: 7}
+   Tile_Cache_Fill                 82161 cyc/tick   1.00 calls/tick
+   TileCache_DecompressBlock       12820 cyc/tick   1.00 calls/tick
+   S4LZ_DecompressDict             11947 cyc/tick   0.86 calls/tick
+   TileCache_FillRow               29061 cyc/tick   1.57 calls/tick
+   TileCache_FillColumn            50730 cyc/tick   3.43 calls/tick
+   PageCache_PatchRun_Seq          12244 cyc/tick   7.00 calls/tick
+   PageCache_PatchRun_Col          23897 cyc/tick  17.71 calls/tick
+   Parallax_Update                 14557 cyc/tick   1.00 calls/tick
+   RunObjects                      13943 cyc/tick   1.00 calls/tick
+   Render_Sprites                   5234 cyc/tick   1.00 calls/tick
+   Section_UpdateColumns            7680 cyc/tick   1.00 calls/tick
+   Canopy_Probe                     4026 cyc/tick   1.00 calls/tick
+   PageCache_Audit                  1787 cyc/tick   2.00 calls/tick
+   VBlank_Handler                  15510 cyc/tick   2.00 calls/tick
+ctl: 40 windows, 80 ticks inside the profiled frames (Parallax_Update calls), work (sample - VSync_Wait) 73987 cyc/tick; decodes per window {0: 21, 1: 3, 2: 16}
+   Tile_Cache_Fill                 16686 cyc/tick   1.00 calls/tick
+   TileCache_DecompressBlock        5177 cyc/tick   0.44 calls/tick
+   S4LZ_DecompressDict              4794 cyc/tick   0.35 calls/tick
+   TileCache_FillRow                2320 cyc/tick   0.16 calls/tick
+   TileCache_FillColumn             9687 cyc/tick   0.66 calls/tick
+   PageCache_PatchRun_Seq            699 cyc/tick   0.45 calls/tick
+   PageCache_PatchRun_Col           4257 cyc/tick   3.16 calls/tick
+   Parallax_Update                 14561 cyc/tick   1.00 calls/tick
+   RunObjects                      13384 cyc/tick   1.00 calls/tick
+   Render_Sprites                   5676 cyc/tick   1.00 calls/tick
+   Section_UpdateColumns            6569 cyc/tick   1.00 calls/tick
+   Canopy_Probe                     4026 cyc/tick   1.00 calls/tick
+   PageCache_Audit                  2985 cyc/tick   1.99 calls/tick
+   VBlank_Handler                   8967 cyc/tick   1.00 calls/tick

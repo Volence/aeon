@@ -41299,6 +41299,9 @@ Canonical DEBUG/release legs byte-for-byte the same lag as before (right 6/364, 
    record: unbinding it (4 bytes) gives 26/82 on today's ROM. Measured options: an exact fixed-point curve loop
    (prototype diff in the doc, not landed, moves canonical bytes) takes 44 → 35. Dropping the static ripple
    (content) takes 44 → 37.
+   **2026-09-27 (`perf/ehz-run-lag`):** the curve loop is now packed and 8x unrolled (21.25 cyc/line), and a soft
+   decompress budget landed beside it. On base `366b777c` this band went 33/89 -> 29/85 (`ehz_run_probe` fly diagonal). See
+   PERF-EHZ-RUN-LAG.
 3. **No lane exercises the streaming path on a built shape.** Every canonical act is fully resident, so the nightly
    and `landing_build.sh` run none of this code past its early-outs; the clip shapes are not built there. A lag-leg
    lane over a clip shape would be the regression net; not built (clip shapes are unfrozen dev shapes today).
@@ -41983,3 +41986,58 @@ Open:
 At 2026-09-26T12:53:36Z the shared `/home/volence/sonic_hacks/aeon/.git/config` gained `core.bare = true` (file mtime), which broke every git command in the main checkout ("this operation must be run in a work tree") until the controller reset it with `git config core.bare false` at about 14:20Z. Worktrees share that file, so any process that writes it breaks every checkout.
 The only candidate found is a `git bisect run bash .../bisect_diag.sh` in a linked worktree, running `STRESS_ART=1 ./build.sh` (and so the whole `pytest tools` suite) as a child of `git bisect`, killed by PID at about 12:53Z. That agent's own scripts contain no `bare`, and the two tests that make bare repos (`test_land_gate.py`, `test_nightly_target.py`) both strip `GIT_*` from their environment. **The cause is NOT proven.** To prove it: run `git bisect run` over a canonical `./build.sh` in a throwaway clone and diff its `.git/config` before and after. Until then, don't run `git bisect run` over build.sh in a worktree of the shared repo; bisect by hand in detached worktrees instead.
 Re-check: `git -C /home/volence/sonic_hacks/aeon config --get core.bare` (must print false).
+
+## PERF-EHZ-RUN-LAG: lag while RUNNING through Emerald Hill (branch `perf/ehz-run-lag`, booked 2026-09-26T19:25:19Z)
+
+The owner, 2026-09-27: *"I still feel slight lag running through ehz even as a character."* Findings and every number: `docs/research/2026-09-27-ehz-run-lag.md`.
+
+**What it was.** Each lag frame on a run was ONE tick doing 3 to 6 demand block decodes (~11.5k cycles each) at a block-row or block-column crossing, while the cache still led the screen by its full margin. Parallax (15.5k per tick) is the baseline the burst lands on, not the burst. The DEBUG-only instruments are not the cause: release lagged 31 where DEBUG lagged 39, and stubbing `Canopy_Probe` + the audit took DEBUG 39 -> 33.
+
+**What landed on the branch.**
+1. A soft decompress budget in `Tile_Cache_Fill`: `BLOCK_DECOMP_SOFT` = 1 while the filled cache leads the screen by at least `BLOCK_FILL_LEAD_ROWS` = 8 rows and `BLOCK_FILL_LEAD_COLS` = 10 columns on every side, the full `BLOCK_DECOMP_BUDGET` = 6 otherwise.
+2. `.lp_curve` packs the FG word and is 8x unrolled: 21.25 cycles a line, was 34.
+
+ARCH §9.7 (decompress budget) and the factor-curve paragraph are updated, and so is `docs/benchmarks/scanline-p3/CURVES.md` §3.
+
+**Measured, lag / video frames over the same tick span** (base `366b777c`; after = this branch):
+
+| leg | before | after |
+|---|---|---|
+| clip run, release (spawn to x 5850) | 31/1232 | **1/1202** |
+| clip run, DEBUG | 39/1240 | **6/1207** |
+| clip spindash run, release / DEBUG | 34/1277, 45/1288 | 2/1245, 7/1250 |
+| clip fly diagonal, EHZ band (DEBUG) | 33/89 | 29/85 |
+| clip fly diagonal whole / right / down (DEBUG) | 37, 0, 0 | 35, 0, 0 |
+| canonical run, release / DEBUG | 11/1800, 26/1800 | 2/1791, 2/1776 |
+| canonical fly diagonal / right / down (DEBUG) | 14, 0, 0 | 12, 0, 0 |
+
+- **Visible coverage.** Undrawn visible cells, read every frame, are equal or lower on every leg.
+- **Parallax output.** `Hscroll_Buffer`, the VSRAM column buffer and `Vscroll_Factor` are byte-identical at every compared tick of every leg. The unroll mutant is RED on that check.
+- **Built-code exactness.** The built curve loop is exact: 0 of 50,400 exhaustive cases and 0 of 20,000 split cases on both shapes. The mutant is RED here too.
+- **Ensures.** The three new ensures were red-first.
+
+**Landing evidence** (full, non-FAST builds at `106d1ba9`, the code tip; the commit that adds this paragraph changes docs only and landing was re-run on it, see the branch's last commit message):
+- `./build.sh` rc 0.
+- `tools/landing_build.sh` **exit 0, `finished=0`**: pre-build pytest 3596 passed, 3 skipped, 35 deselected; needs_build 34 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`); land-gate stamp written.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 22 scheduled gates produced a complete row set, 41 PASS rows, 0 FAIL. This includes `tile_cache_fill`.
+- `tools/tile_cache_fill_gate.py` on `s4.s2clip.debug.bin`, `--drive right` and `--drive fly`: both GREEN. **Both are vacuous for this change:** "a partial fill was outstanding at 0 of the sample points", so the gate never sampled the deferred regime. The per-frame visible-coverage legs above are the evidence for it.
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `562a7dbe` | 829,266 |
+| `s4.debug.bin` | `917d73ff` | 856,446 |
+| `demo.debug.bin` | `8f135bcb` | 106,273 |
+| `s4.s2clip.bin` | `9a39a48b` | 928,871 |
+| `s4.s2clip.debug.bin` | `08cad480` | 955,864 |
+
+These equal the FAST builds every measurement used. The base `366b777c` FAST builds were `699ce90a` / `9cc47356` / `2b825ead` / `77e017db` for `s4.bin` / `s4.debug.bin` / `s4.s2clip.bin` / `s4.s2clip.debug.bin`.
+
+**Open:**
+1. **Scripted runs cannot pass Emerald Hill x ~6000.** The clip carries no objects, so there is a pit under the missing bridge at x 6040, and from a warp to (6300, 690) the player oscillates at x 6530..6870 before a spring route. So the run legs cover spawn to x 5850 (53% of EHZ). The owner meets the same dead ends. Whether EHZ objects (bridges, springs) join the clip is a content call.
+2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed.
+3. **The remaining run lag (1 release, 6 to 7 DEBUG) is column and row COPY at spindash speed.** `TileCache_FillColumn` measured 50.7k per overrunning tick, of which `PageCache_PatchRun_Col` was 23.9k, with one decode per tick. That is the streaming act's translating copy (bounded-direct), which RESIDENT-PLAIN-COPY does not cover. GENERAL-PATCH-LOOP / RPC-1 are the levers, not measured here.
+4. **Parallax is still 14.6k per tick in EHZ, mostly per-band work** for the 7-band record: Step 4 3.7k, update + factor decodes 3.3k. Stubbing it entirely (an upper bound) takes the DEBUG run 6 -> 1. The perf survey's candidate 5 (cheaper per-band overhead) is not built.
+5. **Content options, priced, not done (the owner's look).** On the after build, flattening the ripple band or the curve each buys 0 frames on the run and 2 on the fly-diagonal EHZ band (31 -> 29); both together buy 4.
+6. **`Canopy_Probe`: 4,026 cycles every tick.** It is worth 5 lag frames on the DEBUG run before this parcel and 1 after. It stays armed (owner's call).
+7. **The choice of soft value and lead is measured, not modelled.** Soft 2 and 3, and lead 12/15, all measured worse; the response is not monotone.
