@@ -28,7 +28,10 @@ use engine.constants.{NUM_PLAYERS,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT,
         // loop crossover — the read site (Player_LoopCrossover) and its R6 guard block
-        LAYER_PATH_A, LAYER_PATH_B, COLL_CELL_W, COLL_CELL_H, TILE_CACHE_COLL_PLANES}
+        LAYER_PATH_A, LAYER_PATH_B, COLL_CELL_W, COLL_CELL_H, TILE_CACHE_COLL_PLANES,
+        // layer lines — the other level-data layer writer (Player_LayerLines)
+        LL_KEEP_PATH, LL_GROUNDED, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_FWD_HI, LL_BACK_HI,
+        LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER, LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
 use engine.types.{VramTile}
 
 // PlayerBlock — the per-slot player working block this module's a4 convention
@@ -453,6 +456,8 @@ const PBLK_JUMPBUF   = 17
 const PBLK_DUSTTIMER = 18
 const PBLK_XOVERCELL = 20
 const PBLK_XOVERCURSOR = 24
+const PBLK_LLPREV    = 28
+const PBLK_LLCURSOR  = 32
 // The two halves of each packed cell id, addressed separately by the sweep's per-axis
 // legs. Derived, not typed, so a re-packing that swaps the halves cannot leave one of
 // four displacements pointing at the wrong word.
@@ -534,6 +539,15 @@ ensure((PBLK_XOVERCURSOR & 1) == 0,
        "PlayerBlock.xover_cursor is at an ODD offset — the sweep's move.l/cmp.l pair would ADDRESS ERROR on slot 0; re-order the byte fields above it")
 ensure((sizeof(PlayerBlock) & 1) == 0,
        "sizeof(PlayerBlock) is ODD — slot 1's xover_cell (and its whole physics row) would land on an odd address; restore the pad byte in config/ram.emp")
+// The layer lines' two longs (Player_LayerLines, Player_Init, Player_Main's early-out), bound
+// the same way and for the same reason: move.l/cmp.l/tst.l on both slots' copies.
+ensure(PBLK_LLPREV == offsetof(PlayerBlock, ll_prev),
+       "PBLK_LLPREV out of sync with PlayerBlock.ll_prev (config/ram.emp)")
+ensure(PBLK_LLCURSOR == offsetof(PlayerBlock, ll_cursor),
+       "PBLK_LLCURSOR out of sync with PlayerBlock.ll_cursor (config/ram.emp)")
+ensure((PBLK_LLPREV & 1) == 0 && (PBLK_LLCURSOR & 1) == 0,
+       "PlayerBlock.ll_prev / ll_cursor sit at an ODD offset — Player_LayerLines' move.l pairs would ADDRESS ERROR; re-order the byte fields above them")
+
 
 // -----------------------------------------------
 // LOOP CROSSOVER — rule R6 of docs/LOOP_CROSSOVER_ENCODING.md §7, plus the two facts
@@ -617,6 +631,33 @@ ensure(XOVER_SWEEP_CELLS_X <= 2,
        "the crossover sweep can now walk {XOVER_SWEEP_CELLS_X} cells of X in one frame per player, not 2 — that is a per-frame cost change in the shared player preamble. Re-measure the cost block on Player_LoopCrossover from the listing and re-pin this bound")
 ensure(XOVER_SWEEP_CELLS_Y <= 2,
        "the crossover sweep can now walk {XOVER_SWEEP_CELLS_Y} cells of Y in one frame per player, not 2 — see the X bound above; the same cost, on the other axis")
+
+// -----------------------------------------------
+// LAYER LINES — the facts Player_LayerLines' instructions depend on, at the read site.
+// -----------------------------------------------
+// The row stride and the three field displacements (LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF)
+// come from engine/system/constants.emp, and engine/structs.emp binds them to `LayerLine`
+// with ensures. This file deliberately names no LayerLine: the standalone player lowering in
+// sigil's port rigs carries only the structs it lists, and a new struct name here would break
+// it while every ROM shape built green.
+ensure(LL_ROW <= 8,
+       "LL_ROW is {LL_ROW}: Player_LayerLines steps rows with addq.w/subq.w, whose immediate is 1..8")
+// A step or a discontinuity: the same physics-derived bound the crossover sweep uses
+// (XOVER_STEP_MAX_*, whose own ensures tie it to PHYS_GSP_CAP and PHYS_FALL_CAP). A move
+// longer than this is not a run the player made, so no line is crossed by it.
+const LL_STEP_SPAN_X = XOVER_STEP_MAX_X * 2
+const LL_STEP_SPAN_Y = XOVER_STEP_MAX_Y * 2
+// The window's floor is xmin - LL_SEG_W and every key is 0..$7FFE, so the floor is always
+// above the leading sentinel and xmax always below the trailing one: that is what lets both
+// walks and the scan stop on a sentinel without a bounds test.
+ensure(LL_KEY_BEFORE == $8000 && LL_KEY_AFTER == $7FFF,
+       "the layer-line sentinels are no longer the extreme signed words — Player_LayerLines' cursor walk and scan stop on them by signed compare")
+ensure(LL_SEG_W > 0 && LL_SEG_W < $8000,
+       "LL_SEG_W ({LL_SEG_W}) must be positive and below $8000, so xmin - LL_SEG_W stays above the leading sentinel for every xmin >= 0")
+// Every flag is a distinct bit of the ll_flags byte: the two fire tails test them with
+// `btst #n, d4`, and two names on one bit would make one line do two things.
+ensure(((1 << LL_KEEP_PATH) | (1 << LL_GROUNDED) | (1 << LL_HORIZONTAL) | (1 << LL_FWD_B) | (1 << LL_BACK_B) | (1 << LL_FWD_HI) | (1 << LL_BACK_HI)) == $7F,
+       "the seven LL_* flag bits are not seven distinct bits 0..6 of LayerLine.ll_flags")
 
 // R6 — THE ENGINE MUST NOT RE-DERIVE THE ENCODING'S MAPPING. The read site's whole
 // value->layer step is one `subq.b #XOVER_LAYER_BIAS`; these bind that immediate to
@@ -842,6 +883,15 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
         jbsr    Player_SetState
         player_block(a0, a2)                    // this slot's block — Refresh writes its row
+        // The layer lines' two cells (Player_LayerLines): the act's table, or 0, is the
+        // cursor's start (its leading sentinel is below every window floor), and the spawn
+        // position is the side of every line, so nothing fires on the first frame. HERE,
+        // after Player_SetState, because its enter hook moves y_pos.
+        movea.l Current_Act_Ptr, a1
+        move.l  Act.act_layer_lines(a1), PBLK_LLCURSOR(a2)
+        move.l  x_pos(a0), d0
+        move.w  y_pos(a0), d0
+        move.l  d0, PBLK_LLPREV(a2)
         jbsr    Player_RefreshPhysics
         move.w  #Player_Main - ObjCodeBase, code_addr(a0)
         // Boot-entry into debug-fly rides the SAME runtime cheat bit as the B
@@ -1437,6 +1487,195 @@ pub proc Player_LoopCrossover (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d3/a1) pr
 }
 
 // -----------------------------------------------
+// Player_LayerLines — SONIC 2'S PLANE-SWITCHER LINES, AS ACT DATA (S2CLIP-PLANE-SWITCH).
+//
+// THE RULE IS OBJ03'S, EXACTLY (s2disasm s2.asm `Obj03:`, its MainX/MainY and their _Alt
+// halves). A line is vertical or horizontal, has an extent along itself, and remembers per
+// player which side he is on. When he crosses it (a vertical line: his X goes from below
+// the line's X to at-or-above it, or back; a horizontal one: the same on Y) and his OTHER
+// coordinate is inside the extent [lo, hi), the line fires:
+//   * a grounded-only line (LL_GROUNDED, Obj03 subtype bit 7) does nothing while
+//     ST_IN_AIR is set;
+//   * unless it is priority-only (LL_KEEP_PATH, the layout's x-flip), the layer becomes
+//     path B if the crossing direction's bit is set (LL_FWD_B right/down, LL_BACK_B
+//     left/up) and path A if it is clear;
+//   * the priority bit of art_tile is CLEARED, and set again only if that direction's
+//     priority bit is set (LL_FWD_HI / LL_BACK_HI). S2 does the clear on every firing
+//     crossing, priority-only lines included (`andi.w #drawing_mask`), and so does this.
+// The side flips whether or not the line fires, exactly as Obj03's flag does: crossing
+// outside the extent, or airborne over a grounded-only line, uses the crossing up.
+//
+// THE SIDE MEMORY IS ONE POSITION PER PLAYER, NOT ONE FLAG PER LINE. Obj03 keeps a byte
+// per player per line, set at load from where the player is and updated every frame it
+// runs, so while a line runs every frame its flag always equals "was he at or past the
+// line at the last check". PlayerBlock.ll_prev IS that last check's position, so one long
+// per player stands in for every line's flag at once: no RAM per line, and a mega-act with
+// a thousand lines costs the same RAM as this one. Where the two differ is Obj03's load
+// window: a line that scrolls in re-reads the player's side, so S2 never fires a line on a
+// crossing it did not see. The step bound below is this routine's version of that: a move
+// longer than one frame's physics can make (a teleport, a respawn, the first frame of an
+// act, a debug warp) is a DISCONTINUITY, nothing is crossed, and the new position simply
+// becomes the side of every line. Debug free flight skips this whole preamble (Player_Main's
+// escape hatch), as Obj03 skips itself while Debug_placement_mode is set, so a flight that
+// ends far away is also a discontinuity.
+//
+// THE WINDOW. The table (Act.act_layer_lines, engine/structs.emp `LayerLine`) is sorted by
+// ll_key. A vertical line's key is its X; a horizontal line is baked as segments no wider
+// than LL_SEG_W, keyed by their left X. A vertical line can only fire if its X lies in
+// (xmin, xmax] of this frame's step; a horizontal segment only if its left X is in
+// (cx - LL_SEG_W, cx]. So every row that can fire has its key in (xmin - LL_SEG_W, xmax],
+// a window of at most LL_SEG_W + one step. PlayerBlock.ll_cursor holds the LAST row whose
+// key is at or below the window's floor; it walks one row at a time as the player moves
+// (the sentinels at both ends stop it without a bounds test), and the scan runs from the
+// row after it to the first key above xmax. Measured on the clip's 46 rows: see the cost
+// note in docs/ENGINE_ARCHITECTURE.md §4.7 "Collision layers" (produced by
+// tools/layer_line_gate.py from the ROM's own encodings).
+//
+// ORDER. Rows with equal keys run in the donor's layout order (tools/s2_layer_lines.py),
+// which is Obj03's own slot order; the last write of a frame stands, as in S2.
+//
+// HOW THIS AND THE PAINTED CROSSOVER COEXIST. Player_LoopCrossover (above) runs first and
+// Player_LayerLines second, every frame. They write the same layer byte and never in the
+// same act today: OJZ paints marks and has no layer-line table (the null pointer is the
+// early-out in Player_Main); a Sonic 2 clip act has lines and no marks (its converted trees
+// hold XOVER_NONE everywhere). An act that carried both would have the lines' write
+// standing on a frame where both fired. Priority differs by design: a crossover mark derives
+// it from the layer (its (5c) block), a line sets it from its own bits.
+//
+// In:  a0 = player SST, a4 = this slot's PlayerBlock, PBLK_LLCURSOR(a4) != 0 (Player_Main's
+//      early-out is the null test)
+// Out: none in a register. THE WRITE SET: PlayerBlock ll_prev (every frame the player
+//      moved), ll_cursor (every frame the step was continuous), and Sst.layer and the
+//      priority bit of Sst.art_tile on a firing crossing.
+// Clobbers: d0-d5, a1. a0, a4, d6 (the frame's press bits) and d7 are untouched.
+// -----------------------------------------------
+pub proc Player_LayerLines (a0: *Sst, a4: *PlayerBlock) clobbers(d0-d5/a1) preserves(a0, a4) {
+        move.l  x_pos(a0), d0                   // X px in the high word, sub-px low
+        move.w  y_pos(a0), d0                   // d0 = X:Y now
+        move.l  PBLK_LLPREV(a4), d2             // d2 = X:Y at the last check
+        cmp.l   d2, d0
+        beq     .done                           // not moved: no line can be crossed
+        move.l  d0, PBLK_LLPREV(a4)             // the new side of EVERY line, at once
+        move.w  d0, d1                          // d1.w = cy
+        swap    d0                              // d0.w = cx
+        move.w  d2, d3                          // d3.w = py
+        swap    d2                              // d2.w = px
+
+        // --- A STEP OR A DISCONTINUITY? The crossover sweep's biased unsigned compare,
+        // with the same physics-derived bounds (XOVER_STEP_MAX_*): one test per axis.
+        move.w  d1, d4
+        sub.w   d3, d4                          // dy
+        addi.w  #XOVER_STEP_MAX_Y, d4
+        cmpi.w  #LL_STEP_SPAN_Y, d4
+        bhi     .done
+        move.w  d0, d4
+        sub.w   d2, d4                          // dx
+        addi.w  #XOVER_STEP_MAX_X, d4
+        cmpi.w  #LL_STEP_SPAN_X, d4
+        bhi     .done
+
+        // --- THE WINDOW: d4 = its floor (xmin - LL_SEG_W), d5 = xmax ---
+        move.w  d2, d4                          // px
+        move.w  d0, d5                          // cx
+        cmp.w   d0, d2
+        ble     .ordered                        // px <= cx
+        exg.l   d4, d5
+    .ordered:
+        subi.w  #LL_SEG_W, d4
+        movea.l PBLK_LLCURSOR(a4), a1
+    .back:                                      // the cursor's key must be <= the floor
+        cmp.w   (a1), d4
+        bge     .fwd                            // the leading sentinel always stops this
+        subq.w  #LL_ROW, a1
+        bra     .back
+    .fwd:                                       // ... and the next row's key above it
+        cmp.w   LL_ROW(a1), d4
+        blt     .placed                         // the trailing sentinel always stops this
+        addq.w  #LL_ROW, a1
+        bra     .fwd
+    .placed:
+        move.l  a1, PBLK_LLCURSOR(a4)
+
+    .scan:
+        addq.w  #LL_ROW, a1
+        cmp.w   (a1), d5
+        blt     .done                           // key > xmax: past the window
+        move.b  LL_FLAGS_OFF(a1), d4
+        btst    #LL_HORIZONTAL, d4
+        bne     .horizontal
+        // A VERTICAL line at X = key, extent Y [ll_a, ll_b)
+        cmp.w   (a1), d2
+        blt     .v_right                        // px < X (and X <= xmax = cx): rightward
+        cmp.w   (a1), d0
+        bge     .scan                           // px >= X and cx >= X: not crossed
+        cmp.w   LL_A_OFF(a1), d1                // leftward: is cy inside the extent?
+        blt     .scan
+        cmp.w   LL_B_OFF(a1), d1
+        bge     .scan
+        bra     .back_cross
+    .v_right:
+        cmp.w   LL_A_OFF(a1), d1
+        blt     .scan
+        cmp.w   LL_B_OFF(a1), d1
+        bge     .scan
+        bra     .fwd_cross
+    .horizontal:
+        // A HORIZONTAL segment at Y = ll_a, extent X [key, ll_b)
+        cmp.w   (a1), d0
+        blt     .scan
+        cmp.w   LL_B_OFF(a1), d0
+        bge     .scan
+        cmp.w   LL_A_OFF(a1), d3
+        blt     .h_down                         // py < Y
+        cmp.w   LL_A_OFF(a1), d1
+        bge     .scan                           // py >= Y and cy >= Y: not crossed
+        bra     .back_cross                     // upward
+    .h_down:
+        cmp.w   LL_A_OFF(a1), d1
+        blt     .scan                           // still above it
+
+    // --- THE FIRE, one copy per direction (the direction is which bits it reads) ---
+    .fwd_cross:
+        btst    #LL_GROUNDED, d4
+        beq     .f_ground_ok
+        btst    #ST_IN_AIR, status(a0)
+        bne     .scan
+    .f_ground_ok:
+        btst    #LL_KEEP_PATH, d4
+        bne     .f_prio
+        move.b  #LAYER_PATH_A, layer(a0)
+        btst    #LL_FWD_B, d4
+        beq     .f_prio
+        move.b  #LAYER_PATH_B, layer(a0)
+    .f_prio:
+        andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
+        btst    #LL_FWD_HI, d4
+        beq     .scan
+        ori.w   #ART_TILE_PRIO, art_tile(a0)
+        bra     .scan
+    .back_cross:
+        btst    #LL_GROUNDED, d4
+        beq     .b_ground_ok
+        btst    #ST_IN_AIR, status(a0)
+        bne     .scan
+    .b_ground_ok:
+        btst    #LL_KEEP_PATH, d4
+        bne     .b_prio
+        move.b  #LAYER_PATH_A, layer(a0)
+        btst    #LL_BACK_B, d4
+        beq     .b_prio
+        move.b  #LAYER_PATH_B, layer(a0)
+    .b_prio:
+        andi.w  #ART_TILE_PRIO_CLEAR, art_tile(a0)
+        btst    #LL_BACK_HI, d4
+        beq     .scan
+        ori.w   #ART_TILE_PRIO, art_tile(a0)
+        bra     .scan
+    .done:
+        rts
+}
+
+// -----------------------------------------------
 // Player_Main — per-frame player update (RunObjects entry)
 // In:  a0 = player SST
 // Out: none
@@ -1511,6 +1750,16 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         // d6 (this frame's press bits, read once at the top) is not in its clobber set,
         // so the jump-buffer latch below still sees them.
         jbsr    Player_LoopCrossover
+
+        // Sonic 2's plane-switcher lines (Player_LayerLines, S2CLIP-PLANE-SWITCH): here for
+        // the crossover's reason, after it so that on the (never measured, never shipped)
+        // frame both fire the line's write stands. An act without a table leaves the cursor
+        // 0, and this null test is all it pays: tst.l (d16,An) 16 + a taken beq 10 = 26
+        // cycles per player per frame. d6 survives (not in the routine's clobber set).
+        tst.l   PBLK_LLCURSOR(a4)
+        beq     .no_layer_lines
+        jbsr    Player_LayerLines
+.no_layer_lines:
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.

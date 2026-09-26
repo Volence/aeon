@@ -35,8 +35,11 @@
 // belongs here with the layout; a one-consumer computed offset stays file-local.
 module engine.structs
 
+// The LayerLine row geometry its ensures bind (S2CLIP-PLANE-SWITCH; see LayerLine below).
+use engine.constants.{LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
+
 // -----------------------------------------------
-// Act Descriptor (§4) — 46 bytes ($2E), ROM table (sizeof is the truth; no _len const)
+// Act Descriptor (§4) — 50 bytes ($32), ROM table (sizeof is the truth; no _len const)
 // -----------------------------------------------
 pub struct Act {
     sec_grid_ptr:        *u8,           // $00 — section definition array
@@ -72,6 +75,14 @@ pub struct Act {
     act_region_count:    u16,           // $2C — REQUIRED, no default. Region_Resolve's dbf counts
                                         //       it down from count-1, so 0 would scan 65,536 rows:
                                         //       the act constructor ensures it is >= 1.
+    // Layer lines (S2CLIP-PLANE-SWITCH, 2026-09-26). APPENDED, like the two above.
+    act_layer_lines:     *u8,           // $2E — [LayerLine] sorted by ll_key between its two
+                                        //       sentinel rows, or 0: the act has none. NO default,
+                                        //       so every act says which. READ once per player at
+                                        //       Player_Init (games/sonic4/player/player_common.emp),
+                                        //       which seeds PlayerBlock.ll_cursor with it; the
+                                        //       per-frame check's whole cost on a 0 is the cursor's
+                                        //       null test in Player_Main.
 }
 
 // -----------------------------------------------
@@ -214,6 +225,43 @@ pub struct Region (size: 28) {
 // closed row in docs/DEFERRED_WORK.md).
 ensure(sizeof(Region) == 28,
        "engine/structs.emp: sizeof(Region) is {sizeof(Region)}, and the record is 28 bytes (22 until the region bg switch appended rg_bg_tiles, 2026-09-16; 26 until region music appended rg_song + rg_pad_1b, 2026-09-25). Since sigil d7e6aa15 the `(size: ...)` declaration above is checked against its fields whenever this module is in the `use` closure, but that cannot catch a record change made with the declaration moved to match. This `ensure` pins the size itself. If you meant to change the record, change the declaration and this line together, and re-read Parallax_CheckBoundary's two span-major `move.l` cache fills — they read x0:x1 and y0:y1 as pairs and assume the first four fields' order")
+
+// -----------------------------------------------
+// LayerLine (S2CLIP-PLANE-SWITCH, 2026-09-26) — 8 bytes, ROM table: [LayerLine] at
+// Act.act_layer_lines. One row of an act's plane-switcher lines, Sonic 2's Obj03 carried as
+// data instead of as an object per line (tools/s2_layer_lines.py bakes a clip act's from the
+// donor's own object layout; games/sonic4/player/player_common.emp's Player_LayerLines runs
+// them). Its bits are LL_* in engine/system/constants.emp.
+//
+//   vertical line (LL_HORIZONTAL clear):  ll_key = the line's X; ll_a..ll_b = its Y extent,
+//                                         [ll_a, ll_b) — Obj03's [y - half, y + half)
+//   horizontal line (LL_HORIZONTAL set):  ll_key = a SEGMENT's left X, ll_b its right X
+//                                         (exclusive), ll_a the line's Y. A horizontal line
+//                                         is baked as segments no wider than LL_SEG_W.
+//
+// The table is sorted by ll_key and opens and closes with a sentinel row (LL_KEY_BEFORE,
+// LL_KEY_AFTER), which is what lets the runtime's cursor walk and window scan stop without a
+// bounds test. The runtime compares every field as a SIGNED word, so every coordinate is in
+// 0..$7FFE. Its trailing `// $HH` comments are checked against the field types by
+// tools/region_table.py's struct_layout, which tools/layer_line_gate.py reads it through.
+// -----------------------------------------------
+pub struct LayerLine (size: 8) {
+    ll_key:              u16,           // $00 — sort key: the line's X, or a segment's left X
+    ll_a:                u16,           // $02 — vertical: extent top Y; horizontal: the line's Y
+    ll_b:                u16,           // $04 — vertical: extent bottom Y (excl); horizontal:
+                                        //       the segment's right X (excl)
+    ll_flags:            u8,            // $06 — LL_* bits
+    ll_pad:              u8 = 0,        // $07 — keeps the stride even (a word read per row)
+}
+// The four numbers Player_LayerLines' instructions are spelled with (engine/system/constants.emp
+// LL_ROW / LL_A_OFF / LL_B_OFF / LL_FLAGS_OFF), bound to the struct HERE so the read site can
+// name no struct (see the constants' comment for why).
+ensure(sizeof(LayerLine) == LL_ROW,
+       "engine/structs.emp: sizeof(LayerLine) is {sizeof(LayerLine)} but LL_ROW is {LL_ROW}. Player_LayerLines steps the table with `addq.w`/`subq.w #LL_ROW`, whose immediate is 1..8, so a wider row needs a different step there too; tools/s2_layer_lines.py emits rows by field name and follows on its own")
+ensure(offsetof(LayerLine, ll_key) == 0,
+       "engine/structs.emp: LayerLine.ll_key is no longer the first field — Player_LayerLines reads it as `(a1)`, with no displacement")
+ensure(offsetof(LayerLine, ll_a) == LL_A_OFF && offsetof(LayerLine, ll_b) == LL_B_OFF && offsetof(LayerLine, ll_flags) == LL_FLAGS_OFF,
+       "engine/structs.emp: LayerLine's fields moved, so engine/system/constants.emp's LL_A_OFF / LL_B_OFF / LL_FLAGS_OFF (the displacements Player_LayerLines reads them at) no longer name them")
 
 // -----------------------------------------------
 // Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.

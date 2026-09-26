@@ -622,7 +622,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
     echo "            Tails-flight precondition is executed) · loop_crossover_gate (the"
-    echo "            crossover read site is NOT executed) · ctags · effects_seam_gate's"
+    echo "            crossover read site is NOT executed) · layer_line_gate (the layer"
+    echo "            lines' read site is NOT executed) · ctags · effects_seam_gate's"
     echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE · effects_seam_gate"
@@ -1949,6 +1950,19 @@ if [[ "$FAST" == "0" ]]; then
             echo "Loop-crossover gate failed — see above (tools/loop_crossover_gate.py)."
             exit 1
         fi
+
+        # The layer lines' read site (Player_LayerLines, S2CLIP-PLANE-SWITCH), checked the
+        # same way and for the same reason: every canonical act binds NO layer-line table,
+        # so Player_Main's null test skips the routine on every frame and a broken routine
+        # builds the identical canonical ROM. This gate executes the routine from THIS
+        # build against synthetic tables beside an independent model of Sonic 2's Obj03
+        # (one side flag per line, every row scanned) and refuses a run that never fired a
+        # form. In a clip ROM it also walks every shipped row. No emulator, ~4 s.
+        if ! gate strict "layer_line_gate.py" python3 "${TOOLS}/layer_line_gate.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
+            echo "Layer-line gate failed — see above (tools/layer_line_gate.py)."
+            exit 1
+        fi
     fi
 fi
 
@@ -1977,6 +1991,7 @@ if [[ "$FAST" == "1" ]]; then
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
     echo "   · loop_crossover_gate (the crossover read site is NOT executed)."
+    echo "   · layer_line_gate (the layer lines' read site is NOT executed)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"

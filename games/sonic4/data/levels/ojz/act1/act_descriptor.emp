@@ -100,6 +100,13 @@ use games.sonic4.ojz_effects_editor_act1.{OJZ_Preset_Sec2_KEY, OJZ_Preset_Sec5_K
 // always-live binding-function seam `ojz_act1_act_default(hand:)` uses, for the same reason:
 // one path, no conditional import, no name that appears or vanishes with the shape.
 use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_ACT, OJZ_CLIP_REGION_ROWS, ojz_clip_act_regions}
+// THE CLIP ACT'S LAYER LINES (S2CLIP-PLANE-SWITCH): Sonic 2's plane-switcher lines, baked by
+// tools/s2_layer_lines.py into the same generated module. `act_layer_lines` binds through the
+// chooser; the neutral module hands back `hand` (0: OJZ has no table) and carries no rows, so
+// the check at the end of this file is trivially true in every canonical shape.
+use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_LAYER_LINE_ROWS, ojz_clip_act_layer_lines}
+use engine.constants.{LL_KEEP_PATH, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_SEG_W,
+                      LL_KEY_BEFORE, LL_KEY_AFTER}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -238,6 +245,10 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     // (the chooser then names that act's own table; see the clip_act import above)
     act_regions:         ojz_clip_act_regions(hand: OJZ_Act1_Regions),
     act_region_count:    OJZ_ACT_REGION_COUNT,           // the SAME rows the guards below read
+    // S2CLIP-PLANE-SWITCH: OJZ carries no plane-switcher lines (its loop uses painted crossover
+    // marks), so the chooser's `hand` is 0 and Player_LayerLines never runs here. A clip bake
+    // names its own table (the layer-line check at the end of this file).
+    act_layer_lines:     ojz_clip_act_layer_lines(hand: 0),
 }
 
 // -----------------------------------------------
@@ -1095,3 +1106,46 @@ ensure(OJZ_CLIP_REGION_OVERLAP == -1,
        "the clip act's region rows overlap (pair code {OJZ_CLIP_REGION_OVERLAP} = row i * 1000 + row j)")
 ensure(OJZ_CLIP_ACT == 0 || OJZ_CLIP_REGION_AREA == ACT_W * ACT_H,
        "the clip act's region rows do not tile the act: their areas sum to {OJZ_CLIP_REGION_AREA} px², the act is {ACT_W} x {ACT_H}")
+
+// ---- THE CLIP ACT'S LAYER LINES (S2CLIP-PLANE-SWITCH) ----
+// The rows Player_LayerLines depends on, checked where the Act binds them. The bake
+// (tools/s2_layer_lines.py) already refuses what it can see in the donor; these are the
+// runtime's own preconditions, stated at the consumer so a table from any other producer is
+// held to them too. The first failing row and rule as `row * 16 + rule`, or -1:
+//   0  row 0 is not the LL_KEY_BEFORE sentinel      1  the last row is not LL_KEY_AFTER
+//   2  an interior key outside 0..$7FFE             3  keys out of order (the cursor walk and
+//                                                      the scan both assume a sorted table)
+//   4  a vertical row with an empty or inverted extent (ll_a >= ll_b), or one past $7FFE
+//   5  a horizontal segment that is empty, inverted or wider than LL_SEG_W (the window's
+//      floor is xmin - LL_SEG_W, so a wider one could fire outside it)
+//   6  a flag bit outside the seven LL_* bits       7  a priority-only row that also names a
+//                                                      path (the path bits would be ignored)
+comptime fn layer_line_table_check(r: array) -> int {
+    if r.len == 0 { return -1 }
+    if r[0].ll_key != LL_KEY_BEFORE { return 0 }
+    if r[r.len - 1].ll_key != LL_KEY_AFTER { return (r.len - 1) * 16 + 1 }
+    comptime var prev: int = 0
+    for i in 1..(r.len - 1) {
+        if r[i].ll_key >= LL_KEY_AFTER { return i * 16 + 2 }
+        if r[i].ll_key < prev { return i * 16 + 3 }
+        prev = r[i].ll_key
+        if (r[i].ll_flags & (1 << LL_HORIZONTAL)) == 0 {
+            if r[i].ll_a >= r[i].ll_b || r[i].ll_b >= LL_KEY_AFTER { return i * 16 + 4 }
+        }
+        if (r[i].ll_flags & (1 << LL_HORIZONTAL)) != 0 {
+            if r[i].ll_b <= r[i].ll_key || r[i].ll_b - r[i].ll_key > LL_SEG_W || r[i].ll_a >= LL_KEY_AFTER { return i * 16 + 5 }
+        }
+        if r[i].ll_flags > $7F { return i * 16 + 6 }
+        if (r[i].ll_flags & (1 << LL_KEEP_PATH)) != 0 && (r[i].ll_flags & ((1 << LL_FWD_B) | (1 << LL_BACK_B))) != 0 { return i * 16 + 7 }
+    }
+    return -1
+}
+const OJZ_CLIP_LAYER_LINE_FAULT = layer_line_table_check(OJZ_CLIP_LAYER_LINE_ROWS)
+const OJZ_CLIP_LAYER_LINE_FAULT_ROW = OJZ_CLIP_LAYER_LINE_FAULT / 16
+const OJZ_CLIP_LAYER_LINE_FAULT_RULE = OJZ_CLIP_LAYER_LINE_FAULT % 16
+ensure(OJZ_CLIP_LAYER_LINE_FAULT == -1,
+       "the clip act's layer-line table breaks a rule Player_LayerLines depends on: row {OJZ_CLIP_LAYER_LINE_FAULT_ROW}, rule {OJZ_CLIP_LAYER_LINE_FAULT_RULE} (0 no leading sentinel, 1 no trailing sentinel, 2 a key outside 0..$7FFE, 3 keys out of order, 4 a vertical extent empty or inverted, 5 a horizontal segment empty, inverted or wider than LL_SEG_W, 6 a flag bit outside the LL_* set, 7 a priority-only row naming a path). tools/s2_layer_lines.py emits this table")
+ensure(OJZ_CLIP_ACT == 1 || OJZ_CLIP_LAYER_LINE_ROWS.len == 0,
+       "the NEUTRAL clip_act module carries {OJZ_CLIP_LAYER_LINE_ROWS.len} layer-line row(s); with OJZ_CLIP_ACT == 0 they would be checked and never bound. Re-emit it: python3 tools/clip_rom_bake.py emit-neutral")
+ensure(OJZ_CLIP_LAYER_LINE_ROWS.len != 1 && OJZ_CLIP_LAYER_LINE_ROWS.len != 2,
+       "the clip act's layer-line table has only its sentinel row(s): an act with no lines binds no table (act_layer_lines 0), so Player_Main's null test is all it pays")

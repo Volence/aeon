@@ -56,6 +56,10 @@ GATES = {
     "sprite_tilt_gate": ([], True),
     "instashield_gate": ([], True),
     "loop_crossover_gate": ([], True),
+    # S2CLIP-PLANE-SWITCH (2026-09-26): the layer lines' read site, executed. It has no
+    # --gate switch (every failure is exit 1). On a demo pair it reaches the primitive, reads
+    # FRESH, then finds no Player_LayerLines in the listing (COULD NOT RUN, 2).
+    "layer_line_gate": ([], False),
     # S2CLIP only (d-35-revised, 2026-09-25): the clip anchor staleness check. On a demo
     # pair it reaches the primitive, reads FRESH, then refuses the non-clip listing (1).
     "clip_anchors": (["--clip", "s2_ehz_cpz"], False),

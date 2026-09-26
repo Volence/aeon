@@ -840,3 +840,42 @@ player mid-arc". The shipped paint is not that: it is a single midline column (c
 on BOTH planes at BOTH the crown and the floor. That is a content question for whoever owns
 the paint, not a bug in the encoding — recorded here because the engine now honours whatever
 is painted and the difference will start to matter.
+
+---
+
+## 13. The direction rule is OJZ-handed, and Sonic 2's lines are a separate writer (2026-09-26)
+
+**The direction gate fits one loop handedness only: OJZ's.** `Player_LoopCrossover` fires a
+`XOVER_TO_B` mark only while `x_vel > 0` and a `XOVER_TO_A` mark only while `x_vel < 0`
+(§12, the `.dir_left` / `cmpi.b #LAYER_PATH_B` pair). That encodes "the RIGHT arc is on
+plane B", which is how OJZ's section-0 loop is painted. **Sonic 2 puts the right arc on plane
+A** (every Emerald Hill loop: right arc A only, left arc B only, measured in
+`docs/research/2026-09-26-s2clip-loops-planes.md`). Its apex line needs "to B while moving
+left" and its exit line needs "to A while moving right", which are exactly the two cases the
+gate refuses. **Anyone painting marks onto S2-derived (or any left-arc-on-B) content inherits
+the wrong handedness:** the marks would read, and refuse to fire. Mirror the paint, or use
+layer lines.
+
+**Sonic 2's loops use the other writer, layer lines** (`Player_LayerLines`,
+`Act.act_layer_lines`, `engine/structs.emp` `LayerLine`; the design and its measured cost are
+in `docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers"). A layer line is Obj03 carried as
+data: a line with an extent, a remembered side per player, per-direction path and priority
+bits, grounded-only, priority-only and horizontal forms. Marks cannot express any of those
+(§9 dissolved them into paint shape and read-site properties, which works for a painted loop
+and does not for Sonic 2's object layout).
+
+**How the two coexist.** Both run every frame from `Player_Main`: the crossover first, then
+the lines, and both write `Sst.layer`. No act uses both. OJZ paints marks and binds
+`act_layer_lines` 0, which costs it only `Player_Main`'s 26-cycle null test. A Sonic 2 clip
+act has lines and holds `XOVER_NONE` in every cell, so its crossover read never fires. On a
+frame where both fired, the line's write would stand. That has never been built or measured,
+because no act carries both. **Nothing in this document changed:** the encoding, R1-R6, the
+edge trigger, the sweep and the priority derive are exactly as §5-§12 describe, and
+`tools/loop_crossover_gate.py` still grades them.
+
+**§9's deferred decoupling now has its first case.** §9 shipped "derive priority from the
+layer, and treat the first case that needs them decoupled as the trigger to revisit". Sonic 2
+is that case (Emerald Hill never raises priority on plane B; CPZ's braid toggles it
+independently of the path). It is met by layer lines, which set priority from their own bits.
+Marks keep the derive. So the decoupled design exists now, on the other writer, and the mark
+encoding did not have to widen.
