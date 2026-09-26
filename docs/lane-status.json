@@ -1,6 +1,12 @@
 {
-  "focus": "Sonic 2 level music is ready for your ears; meanwhile tidying two test tools that don't need you.",
-  "inFlight": [],
+  "focus": "Sonic 2 level music is ready for your ears; meanwhile auditing our checks, which doesn't need you.",
+  "inFlight": [
+    {
+      "what": "Audit our checks for ones that watch something near the thing they promise to protect, and fix the clear cases",
+      "where": "branch parcel/gate-predicate-audit",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The tool clean-up lands; then the next row that doesn't need you, or a stop naming your two cards.",
+  "nextBoundary": "The check audit lands; then the next row that doesn't need you, or a stop naming your two cards.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -67,14 +73,14 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "A guard can fire correctly on the wrong question: another lane found two of three channels dead under a green suite because its check watched something NEAR the thing it promised to protect",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
     {
       "id": "PRINTED-NOT-GATED",
       "title": "Checks that print a problem but carry on: five fixed and landed; next the music and sound-effect converters that silently drop data",
-      "state": "doing",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -117,5 +123,5 @@
   ],
   "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T05:15:43Z"
+  "updatedAt": "2026-09-26T05:16:22Z"
 }
