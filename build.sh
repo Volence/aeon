@@ -1081,10 +1081,21 @@ if [[ -n "${S2CLIP:-}" ]]; then
         echo "  the clip re-bake restores from git and would discard uncommitted changes."
         exit 1
     fi
+    # A FAILED RESTORE FAILS THE BUILD (PRINTED-NOT-GATED, 2026-09-25). This used to end
+    # `2>/dev/null || true`, and an EXIT trap that does not call `exit` keeps the build's
+    # own status: measured with this worktree's index.lock held, `FAST=1 S2CLIP=... ./build.sh`
+    # exited 0 and left 75 paths of the CLIP bake in the committed level tree, silently,
+    # for the next canonical build (or `git commit -a`) to pick up. `exit 1` inside an
+    # EXIT trap replaces the status, so the caller's `&&` now stops.
     _restore_s2clip_tree() {
         echo "S2CLIP: restoring the committed level tree from git..."
-        git checkout -q -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE" 2>/dev/null || true
-        git clean -fdq -- "$S2CLIP_GEN_TREE" 2>/dev/null || true
+        if ! git checkout -q -- "$S2CLIP_GEN_TREE" "$S2CLIP_COLL_TREE" \
+                || ! git clean -fdq -- "$S2CLIP_GEN_TREE"; then
+            echo "ERROR: S2CLIP: could NOT restore the committed level tree (git said why above)."
+            echo "  $S2CLIP_GEN_TREE and $S2CLIP_COLL_TREE still hold the CLIP bake. Restore by hand:"
+            echo "    git checkout -- $S2CLIP_GEN_TREE $S2CLIP_COLL_TREE && git clean -fd -- $S2CLIP_GEN_TREE"
+            exit 1
+        fi
     }
     trap _restore_s2clip_tree EXIT
     echo "S2CLIP: throwaway re-bake of clip act '${S2CLIP}' into the OJZ act slot..."
@@ -1118,10 +1129,16 @@ if [[ "${STRESS_ART:-0}" == "1" ]]; then
         echo "  the stress re-bake restores from git and would discard uncommitted changes."
         exit 1
     fi
+    # Same rule as _restore_s2clip_tree above: a failed restore fails the build.
     _restore_stress_tree() {
         echo "STRESS_ART: restoring the committed level tree from git..."
-        git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" 2>/dev/null || true
-        git clean -fdq -- "$STRESS_GEN_TREE" 2>/dev/null || true
+        if ! git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" \
+                || ! git clean -fdq -- "$STRESS_GEN_TREE"; then
+            echo "ERROR: STRESS_ART: could NOT restore the committed level tree (git said why above)."
+            echo "  $STRESS_GEN_TREE and $STRESS_COLL_TREE still hold the STRESS bake. Restore by hand:"
+            echo "    git checkout -- $STRESS_GEN_TREE $STRESS_COLL_TREE && git clean -fd -- $STRESS_GEN_TREE"
+            exit 1
+        fi
     }
     trap _restore_stress_tree EXIT
     echo "STRESS_ART: throwaway re-bake with uniquified act pool (N=${STRESS_ART_N:-2600})..."
