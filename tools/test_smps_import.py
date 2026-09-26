@@ -464,6 +464,27 @@ def test_unknown_label_is_refused_not_truncated(flag_line, mnem):
     assert flag_line.strip() in msg          # the source line, verbatim
 
 
+# PRINTED-NOT-GATED residue (2026-09-26): a raw coordination-flag byte written
+# inline as dc.b (anything >= $E0 but smpsNoAttack) used to be warned and dropped,
+# and its parameter bytes then walked as notes. It is now REFUSED by name. HCZ2,
+# S2 EHZ and S2 CPZ were instrumented first and reach this branch zero times.
+@pytest.mark.parametrize("raw", ["$E0", "$F2", "$FB"])
+def test_inline_raw_flag_byte_is_refused(raw):
+    line = "\tdc.b nC4, $0C, %s, $01, nD4, $0C" % raw
+    with pytest.raises(ValueError) as ei:
+        convert_channel("FM", [], {"Main": [line, "\tsmpsStop"]}, _cfg(),
+                        ConvState(), start_label="Main")
+    msg = str(ei.value)
+    assert ("$%s" % raw[1:]) in msg and "'Main'" in msg and line.strip() in msg
+
+
+def test_inline_noattack_byte_still_ties():
+    ev = convert_channel("FM", ["\tdc.b nC4, $0C, $E7, nC4, $0C"], {}, _cfg(),
+                         ConvState())
+    notes = [e for e in ev if isinstance(e, (Note, NoteDur))]
+    assert len(notes) == 1 and isinstance(notes[0], NoteDur)
+
+
 def test_unknown_start_label_is_refused():
     with pytest.raises(ValueError, match="Missing_Hdr"):
         convert_channel("FM", [], {"Main": ["\tsmpsStop"]}, _cfg(), ConvState(),

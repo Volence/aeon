@@ -1068,10 +1068,23 @@ def convert_channel(kind, lines, blocks, cfg, st, start_label=None, noise=False)
                 b = tok[1]
                 if b >= FIRST_COORD_FLAG:            # inline coordination flag
                     name = _flag_name_for_byte(b)
-                    if name == "smpsNoAttack":
-                        st.tie = True
-                    else:
-                        warn("skip inline flag byte $%02X" % b)
+                    if name != "smpsNoAttack":
+                        # REFUSED (PRINTED-NOT-GATED residue, 2026-09-26): this
+                        # used to warn "skip inline flag byte" and drop the byte,
+                        # so a raw coordination flag written as dc.b (and the
+                        # parameter bytes that follow it, which were then read as
+                        # notes/durations) converted silently wrong and packed.
+                        # Instrumented first: HCZ2, S2 EHZ and S2 CPZ reach this
+                        # branch zero times, so the refusal moves no shipped byte.
+                        raise ValueError(
+                            "smps_import: inline coordination-flag byte $%02X (%s) "
+                            "in block %r of channel %r (line: %s) is not "
+                            "smpsNoAttack; write it as its macro, the converter "
+                            "does not decode raw flag bytes"
+                            % (b, name or "unknown flag", cur, start_label,
+                               _line_holding_byte(blocks.get(cur, ()), b,
+                                                  _source_of(cfg))))
+                    st.tie = True
                     i += 1
                     continue
 
@@ -1281,6 +1294,21 @@ def _hold_for_dur(emit, out, st, ticks, is_dac):
 # note range $81..$DF, rest = $80, durations $00..$7F).
 FIRST_COORD_FLAG = 0xE0
 SMPS_REST = 0x80
+
+
+def _line_holding_byte(lines, b, source):
+    """The first dc.b/dc.w source line in `lines` with an argument that resolves
+    to `b`, stripped; names the source of an inline-flag refusal."""
+    for ln in lines:
+        mnem, args, _label = tokenize_line(ln)
+        if mnem in ("dc.b", "dc.w"):
+            for a in args:
+                try:
+                    if resolve_const(a, source) == b:
+                        return ln.strip()
+                except Exception:
+                    continue
+    return "<not found in block>"
 
 
 def _flag_name_for_byte(b):
