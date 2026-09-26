@@ -1750,7 +1750,7 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
   - **`Sec.sec_bg_layout` is DELETED** (regions part 2 step 3, 2026-09-16; `Sec` 26 → 22 bytes). The background is scoped to the painted rectangle, like the preset and the parallax config before it, not to a grid cell. It had one reader when it went and all nine of act 1's rows passed the default, so no shipped picture moved.
   - **`BG_Init` is NOT region-aware, and the reason is an ordering fact rather than a choice.** It runs from `Level_LoadArt`, which on the one shipped ladder (`games/sonic4/test/ojz_scroll_test.emp`) stands ABOVE `Camera_Init` — the only writer of `Camera_X`/`Camera_Y` before the plane fill — so a region query there would read a camera that does not exist yet. It blits `Act.act_bg_layout` and seeds the tracker with what it blitted; `Section_RedrawPlanes`, later in the same init (after `Camera_Init` and after the DEBUG boot-position override) and still before display-on, does the region-aware blit and re-seeds. The first VISIBLE frame is the region's on every path. Booked as **BG-BOOT-REGION-BLIT** in `docs/DEFERRED_WORK.md`.
 - **The BG plane tracker** (8 bytes, `engine/ram.emp`, outside `Parallax_State`): `BG_Plane_Layout` (the blob Plane B currently HOLDS — a pointer, and deliberately NOT folded into `Replay_Hash`; see §4.6 of the part-2 spec and `engine/system/replay.emp`'s header warning), `BG_Plane_Top` (the map row at the top of the streamed window), `BG_Wipe_Cursor` (rows left in a sweep, 0 = none) and `BG_Wipe_Row` (the next PLANE row the sweep will draw). **The second byte was `BG_Wipe_Dir` until step 6 landed**, and the rename is that step's design call, not a tidy-up — see "The crossing wipe" below. Both synchronous Plane B writers seed all four, so the invariant "the tracker names the blob the plane holds" is true at every instant rather than from the second writer onwards. It sits outside `Parallax_State` because `Parallax_Init`'s zero loop runs AFTER the plane blit on the init ladder and would erase the seed.
-- `rg_bg_tiles` (**Region** struct, longword at $16; `Region` 22 → 26 bytes, region bg switch, 2026-09-16) — the BG tile blob this region's background indexes (BG_Init's shape: BE u16 byte length + raw tiles), 0 = `Act.act_bg_tiles`. Identity is the pointer. Plan: `docs/superpowers/plans/2026-09-16-region-bg-switch.md`.
+- `rg_bg_tiles` (**Region** struct, longword at $16; `Region` 22 → 26 bytes, region bg switch, 2026-09-16; 28 since region music appended `rg_song` + a pad, 2026-09-25) — the BG tile blob this region's background indexes (BG_Init's shape: BE u16 byte length + raw tiles), 0 = `Act.act_bg_tiles`. Identity is the pointer. Plan: `docs/superpowers/plans/2026-09-16-region-bg-switch.md`.
   - **The synchronous path loads tiles, then layout.** `Section_RedrawPlanes` (boot, DEBUG warp) resolves the region under the camera centre, uploads its effective tile blob with `BG_UploadTiles` when it differs from `BG_Tiles_Current`, and only then blits the layout, all inside one IRQ-masked storm. `BG_Init` still loads the act default first (BG-BOOT-REGION-BLIT's route 1), so a boot into a region with its own tiles costs a second blocking copy with the display off. `BG_UploadTiles` (factored out of `BG_Init`, same guards) sits after `BG_Init` in `engine/level/bg.emp` because the section's head label keys its declared alignment in sigil's packing walk. Test content: the DEBUG-only showcase row (x 1024..2047, y 2048..4095, carved from `sec3`), art from Aurora's library via `tools/gen_region_bg_showcase.py`; GATE BG-SWITCH (`tools/bg_switch_gate.py`).
   - **The synchronous path cancels an asynchronous overwrite.** After its tile copy, `Section_RedrawPlanes` removes every queued Deferrable entry whose destination is in the BG arena (`DMA_Deferrable_DropDest`, masked compaction; object DPLC and waterline entries keep their place because both producers commit their "sent" state on acceptance and would not re-send), clears the overwrite target and invalidates `BgAnim_LastStep`. Without it a chunk held in the queue lands after the copy over tiles every tracker calls settled (GATE BG-SWITCH leg WARP_MID).
   - **The tile overwrite (the asynchronous switch).** At the top of `BG_Stream_Update`, the region's effective tile blob is compared by pointer with `BG_Tiles_Current`. On a difference the overwrite ARMS (or RETARGETS if the target changed mid-flight: restart at offset 0): `BG_Tiles_Target` = the blob, `BG_Tiles_Current` = 0 (partial). Each frame it enqueues the next `BG_OVERWRITE_CHUNK_BYTES` of the ROM blob on the **Deferrable** DMA queue (drains after Important, so FG page landings keep priority; the same FIFO as the BgAnim bands that write the same slots), but only when **no queued Deferrable entry still has a destination in the BG arena** (`DMA_Deferrable_DestPending`, a masked walk decoding each entry's command). That same test is completion: all bytes enqueued AND no arena write queued means every chunk has landed (DMA completes inside VBlank). While the arena is not settled the proc returns before the wipe and the streamer, so no Plane B row can be painted from a layout whose tiles are still arriving. **Why "no arena write queued" and not "queue empty":** the Deferrable queue also carries object DPLC art (`Perform_DPLC_Deferrable`: the insta-shield, the spindash dust) and waterline art, so a queue-empty test can stay false indefinitely while the player animates (proven by GATE BG-SWITCH leg TRAFFIC). **Why completion is observed a frame later:** VBlank drains the plane buffer BEFORE `Process_DMA_Deferrable`, so a wipe armed on the final chunk's enqueue frame would put new layout rows on the VDP before the last tiles in the same VBlank. **The chunk is 1824 B (57 tiles), derived for LIVENESS (controller ruling 2026-09-16):** the largest whole-tile multiple that fits on any frame where the chunk is the only Deferrable entry, after the FG plane drain, the Critical peak (+ a full-CRAM ship) and the duo cast's Important DPLC peak (`tools/test_bg_overwrite_chunk_budget.py`; 1832 B). Insta-shield, dust and waterline Deferrable entries are NOT charged: behind a chunk at the head of the FIFO they may slip a frame, which is their contract (leg TRAFFIC measures the slip). A 216-tile blob is 4 chunks ≈ 4 frames; a 320-tile blob 6. (An earlier derivation charged every Deferrable peak and gave 256 B, 27 frames; rejected.)
@@ -2440,14 +2440,39 @@ A surviving field's 0 means "defer / none", never "keep current".
 A **region** is an inclusive world-pixel rectangle that names an identity record — the `EffectsPreset` (§7.12) — and, optionally, a parallax config that outranks the preset's own. The act descriptor gains `act_regions` (`*u8` → `[Region; act_region_count]`, +$28) and `act_region_count` (u16, +$2C, required, ≥ 1); `Act` is 46 bytes. Storage stays per section (§4.2); only identity moved.
 
 ```
-Region — 22 bytes (engine/structs.emp), span-major so each axis is one move.l:
+Region — 28 bytes (engine/structs.emp; sizeof() is the truth), span-major so each axis is one move.l:
     dc.w    rg_x0, rg_x1         ; +$00/$02: inclusive X span, world px
     dc.w    rg_y0, rg_y1         ; +$04/$06: inclusive Y span
     dc.l    rg_effects           ; +$08: EffectsPreset* — REQUIRED (no default; ojz_region() also ensures != 0)
     dc.l    rg_parallax          ; +$0C: parallax_config* — rung 1 of Effects_ResolveParallax; 0 = defer
     dc.l    rg_bg_layout         ; +$10: nametable blob*; 0 = Act.act_bg_layout (part 2 step 1)
     dc.w    rg_bg_span           ; +$14: BG map height in px, the scroll CEILING; 0 = PLANE_B_SPAN
+    dc.l    rg_bg_tiles          ; +$16: BG tile blob*; 0 = Act.act_bg_tiles (region bg switch, 2026-09-16)
+    dc.b    rg_song              ; +$1A: SongId; 0 = no song named, leave the music alone (region music, 2026-09-25)
+    dc.b    rg_pad_1b            ; +$1B: reserved pad — keeps the stride even for the move.l cache fills
 ```
+
+**Region music (S2CLIP-REGION-MUSIC step 5, 2026-09-25).** `rg_song` is the region's song. The
+crossing's slow path records a non-zero one in `Music_Want` (engine RAM) and posts nothing;
+`Music_Service` (`engine/sound/sound_api.emp`, called once a frame from `GameLoop` right after the
+state dispatch) posts `Sound_PlayMusic` when `Music_Want != Music_Current` AND a one-byte probe finds
+the Z80's `SND_REQ_MUSIC` slot already clear, then sets `Music_Current`. So: at most one music
+request a frame, the crossing frame never spins on `Sound_PlayMusic`'s `.await_slot`, and
+**identity is the song id** — two rows naming one song never restart it, and re-entering a region
+whose song is the one last posted posts nothing. A 0 row leaves whatever is playing. `Parallax_Init`
+clears both bytes (an act load restarts the start region's song, which the sentinel-forced first
+crossing records); the DEBUG warp does not. It is a **hard cut** from pattern 0, per the owner's
+ruling (`docs/decisions.jsonl` S2CLIP-MUSIC-FEEL = cut-at-exit; the clip gets "change at the tunnel
+exit" by splitting its region rows at the tunnel edge, a data change). Going back restarts a song
+from the top; resuming is a later, large driver job. The design's second byte `rg_music` (cut vs
+fade-in) was not added: no reader under that ruling. `Music_Current` is "what the service last
+posted", not driver truth: another music caller (only the off-canonical sound hotkeys today) does
+not update it. **Every canonical row names song 0, so `s4.bin` / `s4.debug.bin` post zero music
+requests** — measured by `tools/region_music_witness.py` (a bus watch on `MUSIC_SLOT` over a flown
+or pinned route; its fixture mode patches one row's song in a ROM copy and requires exactly one
+request). S3K and S.C.E. have no such compare (their `Play_Music` always reloads; their in-act
+changes fire once, from events); a region crossing repeats, so the compare is this engine's.
+Design and research: `docs/research/2026-09-25-region-music-design.md`.
 
 **Both of the last two fields now have readers (part 2 steps 3 and 4, 2026-09-16; they were
 appended inert in step 1, so no older offset moved and the crossing's two `move.l` cache fills
@@ -4046,7 +4071,7 @@ DAC volume (revisit via `ds_vol` at ratification time).
 ### 6.4 Section-Aware Sound Banking (NOVEL) — DEFERRED (Phase 5)
 
 Batman uses static per-level sound banks. We make them per-section and dynamic:
-- Per-section music changes and sample-set swaps. (The `sec_music` / `sec_sound_bank` fields that were reserved for this were deleted on 2026-09-04 — §4.2 — having never acquired a consumer. The binding, when built, belongs on the `EffectsPreset` alongside every other per-section channel, not as two more always-present descriptor words.)
+- Per-section music changes and sample-set swaps. (The `sec_music` / `sec_sound_bank` fields that were reserved for this were deleted on 2026-09-04 — §4.2 — having never acquired a consumer.) **Per-REGION music is BUILT (2026-09-25): `Region.rg_song` + `Music_Service`, §4.2b.** It went on `Region`, not `EffectsPreset` as this line used to say: the preset is the visual identity record, and backgrounds, the precedent for per-region non-effect data, went onto `Region` too. Sample-set swaps are still unbuilt.
 - Different sections use different DAC samples (outdoor → nature, cave → echo/drip, boss → heavy percussion)
 - **Music anticipation:** as the camera nears a section boundary, the next section's sample bank is pre-loaded into the Z80 DAC buffer so the swap is gap-free when the camera crosses.
 - **Music transition types:** Per-section `sec_music_fade_type` controls how music changes:
@@ -4118,6 +4143,8 @@ The transition types (FADE_CUT, CROSSFADE, STINGER) require an explicit state ma
 - `Music_Next_ID`: track queued after fade completes
 
 The boundary-crossing check reads the entered section's `sec_transition_type` and initiates the state machine (or arms it as the camera approaches the boundary). Runs in the main loop alongside palette cross-fading, so music and visual transitions stay matched across the crossing.
+
+**NOT BUILT, and what exists instead (2026-09-25).** The region music switch (§4.2b) is `FADE_CUT` only: `Music_Service` is two bytes of state (`Music_Want`, `Music_Current`) and a hard cut, because the owner ruled a hard cut (S2CLIP-MUSIC-FEEL = cut-at-exit). A true crossfade is not possible on this driver (one song slot, one sequencer), and its fade does not touch the DAC drums (`engine/sound/sound_sequencer.emp`'s fade excludes the DAC). If a fade is ruled later, it is sequenced inside `Music_Service` (post the fade, wait for `Sound_IsFading` to clear, then play), and its flag can take `Region.rg_pad_1b`.
 
 ### 6.10 Cascade Effects
 

@@ -297,8 +297,10 @@ def main():
             print(f"  frame {f:5d} {leg:6s} -> row {by_addr.get(reg, {}).get('index', '?')}")
     requests = [(f, v) for f, via, v in events if via != "z80" and v != 0]
     other = [(f, via, v) for f, via, v in events if via != "z80" and v == 0]
-    print(f"music slot: {len(requests)} 68k request(s) {[v for _, v in requests]} at frames "
-          f"{[f for f, _ in requests]}; {len(other)} 68k zero write(s)")
+    shown = requests[:12]
+    print(f"music slot: {len(requests)} 68k request(s) {[v for _, v in shown]} at frames "
+          f"{[f for f, _ in shown]}{' (first 12 shown)' if len(requests) > 12 else ''}; "
+          f"{len(other)} 68k zero write(s)")
     if fixture_row is not None:
         print(f"YM key-ons (Z80, the second run): {sum(keyons.values())}"
               + (f", first at frame {min(keyons)}" if keyons else "")
@@ -312,7 +314,9 @@ def main():
     want = model_posts(visits, song_of)
     print(f"model (derived from the ROM's table along the measured route): posts {want}")
     if [v for _, v in requests] != want:
-        fails.append(f"the ROM posted {[v for _, v in requests]}, the table says {want}")
+        got = [v for _, v in requests]
+        fails.append(f"the ROM posted {len(got)} request(s) {got[:12]}"
+                     f"{' ...' if len(got) > 12 else ''}, the table says {want}")
     if other:
         fails.append(f"68k wrote 0 to the music slot {len(other)} time(s): nothing should")
     if fixture_row is not None:

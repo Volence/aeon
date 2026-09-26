@@ -412,6 +412,23 @@ sources. The one directly relevant precedent it did not read is how S3K and S.C.
 *inside* an act (Angel Island's mid-act fire transition, act-1-to-act-2 handoffs), which is
 exactly the feel question. That research belongs at the start of steps 5 and 6.
 
+## Research done at step 5 (2026-09-25, the gap named above)
+
+How S3K and S.C.E. change music inside an act, and whether they avoid re-requesting the playing
+song. **Neither dedups.** `Play_Music` writes the Z80 mailbox unconditionally (skdisasm
+`sonic3k.asm:1470`; S.C.E. `Sound/Functions.asm:46`), and the driver always stops and reloads
+(`zPlayMusic` -> `zPlayMusic_DoFade` -> `zBGMLoad`; Flamedriver the same). Their in-act changes
+fire once, from events: a seamless act-1-to-2 change comes from the in-level title card calling
+`Restore_LevelMusic` (sonic3k.asm:62239, looked up by `Apparent_zone_and_act`), bosses post
+`cmd_FadeOut` then their song, and AIZ1's fire transition changes no music at all (its only
+camera-X trigger, `Events_fg_5` at sonic3k.asm:38923, starts the fire). S.C.E. has no working
+seamless act-2 music change. **Adopted:** a 68k-side current-song byte (`Current_music`'s role;
+the engine's is `Music_Current`). **Rejected:** unconditional posting, because a region edge is
+crossed repeatedly (every pass would restart the song), and per-zone camera-X event code, which
+the region row replaces with data. As built in step 5, the compare lives in `Music_Service`, not
+in the crossing, and `rg_music` was dropped (hard cut ruled); see `docs/DEFERRED_WORK.md`
+`## S2CLIP-REGION-MUSIC`, "Step 5".
+
 ## Probe hygiene
 
 The probe's `mt_bank.emp` / `sound_ids.emp` / `game_debug.emp` edits were reverted with
