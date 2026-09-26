@@ -1,29 +1,9 @@
 {
-  "focus": "Overnight: fixing the Sonic 2 music volumes, two speed fixes, and looking into loops and the slope sticking.",
+  "focus": "Overnight: music levels, slope sticking and the debug stutter are fixed; loops and the faster tile copy still building.",
   "inFlight": [
-    {
-      "what": "Fix the remaining tools that report a problem and carry on",
-      "where": "branch parcel/printed-not-gated-residue",
-      "agent": true
-    },
-    {
-      "what": "Sonic 2 music: per-channel and drum volumes vs real Sonic 2",
-      "where": "branch parcel/s2-music-volume",
-      "agent": true
-    },
-    {
-      "what": "Debug build: spread the art self-check across frames (removes the 2-second hitch)",
-      "where": "branch parcel/audit-amortise",
-      "agent": true
-    },
     {
       "what": "Copy level tiles without translating each word, for acts that fit in video memory",
       "where": "branch parcel/resident-plain-copy",
-      "agent": true
-    },
-    {
-      "what": "Look into Sonic sticking on slopes and not rolling (your Chemical Plant quarter-pipe spot)",
-      "where": "branch research/sonic-slope-collision",
       "agent": true
     },
     {
@@ -42,21 +22,31 @@
       "id": "S2CLIP-PLANE-SWITCH",
       "what": "How to do Sonic 2's layer switching; I recommend the baked line table, which you can try on the branch first.",
       "since": "2026-09-26"
+    },
+    {
+      "id": "S2CLIP-DRUM-LEVEL",
+      "what": "Give the fixed Sonic 2 music a listen; then say if the Sonic 3 drums are fine.",
+      "since": "2026-09-26"
+    },
+    {
+      "id": "ROLL-FEEL",
+      "what": "Whether the Sonic 2 level should roll by Sonic 2's rules (I recommend trying the fixed build first).",
+      "since": "2026-09-26"
     }
   ],
   "nextBoundary": "Each agent returns; I review and land them one at a time; the two investigations come back as write-ups.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 level music: you listened; channel and drum volumes are off (worse in Emerald Hill), fixing overnight",
-      "state": "doing",
+      "title": "Sonic 2 music: channel volumes fixed to match Sonic 2; drums wait on your listen; hi-hat timing fix waits on sigil",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "decision card S2CLIP-DRUM-LEVEL",
       "project": "REGIONS"
     },
     {
       "id": "PERF-SURVEY",
-      "title": "Speed fixes you okayed: the debug hitch and the faster tile copy, both building overnight",
+      "title": "Speed fixes: debug stutter fixed and landed; the faster tile copy is still building",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -71,10 +61,10 @@
     },
     {
       "id": "SLOPE-COLLISION",
-      "title": "Sonic stands on things and won't roll on slopes: investigating from your quarter-pipe spot",
-      "state": "doing",
+      "title": "Slope sticking fixed and landed; whether to use Sonic 2's roll rules is your call",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "decision card ROLL-FEEL",
       "project": "REGIONS"
     },
     {
@@ -115,8 +105,8 @@
     },
     {
       "id": "PRINTED-NOT-GATED",
-      "title": "Checks that print a problem but carry on: five fixed and landed; next the music and sound-effect converters that silently drop data",
-      "state": "doing",
+      "title": "Checks that print a problem but carry on: all fixed and landed; two small new cases booked",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -159,5 +149,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T07:18:24Z"
+  "updatedAt": "2026-09-26T08:05:38Z"
 }
