@@ -1,0 +1,22 @@
+diff --git a/engine/objects/entity_window.emp b/engine/objects/entity_window.emp
+index ab8dd43e..94f1ecca 100644
+--- a/engine/objects/entity_window.emp
++++ b/engine/objects/entity_window.emp
+@@ -691,6 +691,17 @@ proc EntityWindow_DeriveWindow () clobbers(d0) out(d2: u8, d3: u8, d4: i16, d5:
+ // -----------------------------------------------
+ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
+         jbsr    EntityWindow_DeriveWindow       // d2/d3 = anchor, d4/d5 = sec_x0/sec_y0
++        // MUTATION (SAH-3 red-first, never committed): a two-axis slide takes X only
++        tst.b   Entity_Window_Active
++        beq     .mut_skip
++        cmp.b   Entity_Window_Anchor, d2
++        beq     .mut_skip
++        cmp.b   Entity_Window_Anchor+1, d3
++        beq     .mut_skip
++        move.b  Entity_Window_Anchor+1, d3
++        moveq   #0, d5
++        move.b  d3, d5
++    .mut_skip:
+         move.b  d2, Entity_Window_Anchor
+         move.b  d3, Entity_Window_Anchor+1
+         // origin bases: sec_x0/sec_y0 × SECTION_SIZE = world px of column-0/row-0

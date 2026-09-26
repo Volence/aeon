@@ -21,7 +21,9 @@ HOW THE CROSSING IS FORCED. Boot the DEBUG shape (debug free flight), then for e
      (X: Camera_Deadzone_Base 16, Y: CAM_Y_DEADZONE 32), so the next Camera_Update steps the
      capped CAM_MAX_*_STEP = 16 px on each axis and the tick's EntityWindow_Scan sees both
      anchor bytes change. The crossing is MEASURED, not assumed: an arm whose kick tick did
-     not move exactly the anchor bytes it names is UNMEASURABLE;
+     not carry the CAMERA across exactly the lines it names is UNMEASURABLE (judged from the
+     camera through W's own derivation, never from the window's anchor, so a window that
+     mishandles the crossing reads FAIL, not "no crossing");
   4. FOLLOW_TICKS ticks of debug flight in the arm's direction (16 px per tick), checked
      every tick, long enough to carry the load band across a whole entered row/column.
 A 16 px step on both axes is a legal camera motion, so the forced tick is one real play can
@@ -591,7 +593,7 @@ async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose)
             raise Unmeasurable(f"{name}: planted ring(s) {missing} did not survive a tick in "
                                f"a still-tracked section (the plant is wrong, not the window)")
     pre_live = {k for k in live_keys if k[1] in dropped}
-    anchor_pre = snap["anchor"]
+    cam_pre = snap["cam"]
     # the kick: move the leader past the deadzone on each crossing axis
     lead = await m.u("Camera_Target", 2)
     x_hi = int.from_bytes(await m.rd(0xFF0000 | (lead + 2), 2), "big")
@@ -601,11 +603,15 @@ async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose)
     if not await m.tick():
         return await halted(m, name, "kick", labels, rom_image)
     snap, _, seen = await one("kick")
-    moved = (snap["anchor"][0] != anchor_pre[0], snap["anchor"][1] != anchor_pre[1])
+    # The precondition is judged from the CAMERA, through the same derivation W checks the
+    # window against, never from the window's own anchor: a window that mishandled the
+    # crossing must come out FAIL (W), not "the crossing did not happen" (UNMEASURABLE).
+    a_pre, a_post = act.window(*cam_pre)[0], act.window(*snap["cam"])[0]
+    moved = (a_pre[0] != a_post[0], a_pre[1] != a_post[1])
     if moved != (bool(dx), bool(dy)) or snap["cam"] != (qx, qy):
-        raise Unmeasurable(f"{name}: the kick tick moved the camera to {snap['cam']} (planned "
-                           f"({qx},{qy})) and the anchor {anchor_pre} -> {snap['anchor']}: "
-                           f"not the crossing this arm names")
+        raise Unmeasurable(f"{name}: the kick tick moved the camera {cam_pre} -> {snap['cam']} "
+                           f"(planned ({qx},{qy})), derived anchor {a_pre} -> {a_post}: not "
+                           f"the crossing this arm names")
     gone = {k for k in pre_live}
     entered_seen |= {k for k in seen if k[1] in entered}
     # the follow: fly on in the arm's direction
