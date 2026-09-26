@@ -18,8 +18,7 @@ import artifact_provenance  # noqa: E402
 import gate_cut_shape as gcs  # noqa: E402
 
 FIXTURES = TOOLS / "fixtures"
-CUT_FILES = ("sprite_tilt_cut.json", "instashield_cut.json", "tailsflight_cut.json",
-             "loop_crossover_cut.json")
+CUT_FILES = ("sprite_tilt_cut.json", "instashield_cut.json", "tailsflight_cut.json")
 
 
 def test_canonical_listings_come_from_the_provenance_table():

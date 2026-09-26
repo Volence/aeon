@@ -194,7 +194,8 @@ def routine_extent(syms, name):
 
 
 # --------------------------------------------------------------------------
-# Relocation-invariant normalisation  (shared with loop_crossover_gate.py)
+# Relocation-invariant normalisation  (shared with instashield_gate.py; loop_crossover_gate.py
+# shared it too until LINES-EVERYWHERE retired it, 2026-09-26)
 #
 # WHY. The committed cuts under tools/fixtures/ are cuts of REAL ROMs, and the fixture
 # checks used to be absolute-address equality: `cut.addr == listing.addr`, plus raw byte

@@ -77,8 +77,9 @@ fi
 # AFTER import_sk_collision.py had rewritten the tables. Two mechanisms now:
 #   1. Every editor-input refusal is decided by ojz_strip_gen.validate_editor_inputs,
 #      which the preflight runs, before the first write.
-#   2. The refusals that depend on the BAKE rather than on one input file (R1/R2
-#      crossover marks, attr-set overflow, the 11-bit local palette, the page-table
+#   2. The refusals that depend on the BAKE rather than on one input file (a retired
+#      crossover mark's reserved bits on a word the bake reads, attr-set overflow, the
+#      11-bit local palette, the page-table
 #      cap, BG capacity, and the drift gate at the end) cannot move up here without
 #      running the bake twice. For those, the snapshot below: every tool-owned output
 #      directory is copied before the first write and put back if this script exits

@@ -33,7 +33,6 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import instashield_gate                                            # noqa: E402
-import loop_crossover_gate                                         # noqa: E402
 import layer_line_gate                                             # noqa: E402
 import scene_spans                                                 # noqa: E402
 import sprite_tilt_gate                                            # noqa: E402
@@ -60,9 +59,6 @@ def consumers():
     def sprite_tilt(syms):
         return sprite_tilt_gate.routine_extent(syms, "Player_ApplyTilt")
 
-    def loop_crossover(syms):
-        return loop_crossover_gate.routine_extent(syms, "P")
-
     def waterline(syms):
         return waterline_art_gate.proc_span(syms, "P")
 
@@ -73,7 +69,6 @@ def consumers():
         ("instashield_gate.routine_extent", instashield, "P", "$m$P$loop"),
         ("sprite_tilt_gate.routine_extent", sprite_tilt, "Player_ApplyTilt",
          "$games.sonic4.player_common$Player_ApplyTilt$loop"),
-        ("loop_crossover_gate.routine_extent", loop_crossover, "P", "$m$P$loop"),
         ("waterline_art_gate.proc_span", waterline, "P", "$m$P$loop"),
         ("layer_line_gate.extent", layer_line, "P", "$m$P$loop"),
     ]
@@ -173,7 +168,7 @@ class TestNoSIXTHConsumerSlipsIn(unittest.TestCase):
     IDIOM = ("a > start", "v > start", "rom[i + 1][0] - a")
 
     CLAIMED = {
-        "instashield_gate.py", "sprite_tilt_gate.py", "loop_crossover_gate.py",
+        "instashield_gate.py", "sprite_tilt_gate.py",
         "waterline_art_gate.py", "scene_spans.py", "layer_line_gate.py",
     }
 

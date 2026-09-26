@@ -587,10 +587,9 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
                       "section_N.collattrb.bin (plane B)"],
             "format": "aurora per-plane cell word, big-endian u16: 9:0 base-bank "
                       "shape, 10 X-flip, 11 Y-flip, 13:12 this plane's solidity, "
-                      "15:14 XOVER (always 0 here — the donor has no crossover "
-                      "field; its bits 15:14 are path-B solidity, which is plane "
-                      "B's own word). See collision_pipeline.chunk_entry_to_plane_"
-                      "words.",
+                      "15:14 reserved, always 0 (the donor's bits 15:14 are path-B "
+                      "solidity, which is plane B's own word). See "
+                      "collision_pipeline.chunk_entry_to_plane_words.",
             "cell_px": [8, 16],
             "cell_px_note": "the file is one word per 8-px NAMETABLE cell so it "
                             "overlays the tiles grid exactly; a 16-px collision "
@@ -611,7 +610,7 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
                           "(Off_ColP / Off_ColS). A zone with no second path names "
                           "no secondary and both planes share the primary.",
             "attr_entries": len(zone_attrs.entries) - 1,
-            "attr_entries_note": "distinct (heights, angle, solidity, xover) this "
+            "attr_entries_note": "distinct (heights, angle, solidity) this "
                                  "WHOLE zone needs, against the act-wide cap of "
                                  f"{collision_pipeline.AttrSet.CAP} "
                                  "(collision_pipeline.AttrSet.CAP). A donor zone "
@@ -622,11 +621,6 @@ def convert_zone(zone: str, donor: str, out_dir: str, quiet: bool = False) -> di
                                        for p in coll_full
                                        for w in np.unique(p).tolist()
                                        if (int(w) >> collision_pipeline.PLANE_SOL_SHIFT) & 3}),
-            "crossover_marks": int(sum(
-                np.count_nonzero((np.asarray(p, dtype=np.uint16)
-                                  >> collision_pipeline.XOVER_SHIFT)
-                                 & collision_pipeline.XOVER_MASK)
-                for p in coll_full)),
         },
         "counts": {
             "crop_cells": int(words.size),

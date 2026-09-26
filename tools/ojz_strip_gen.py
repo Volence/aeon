@@ -636,11 +636,13 @@ def validate_editor_inputs(data_path: str | None = None,
       * the act grid (tools/act_grid.py: project.json, agreeing with the act descriptor)
       * every grid section's section_N.tiles.bin present and 256x256 words     [F2]
       * each section_N.collattr.bin / .collattrb.bin, WHEN PRESENT, 256x256    [F1, F5]
+      * no word of either plane file carries the reserved bits 15:14, the painted
+        loop crossover mark retired by LINES-EVERYWHERE (2026-09-26)           [LE]
       * the tileset a whole number of 32-byte tiles, non-empty
       * no nametable word names a tile past the tileset's end                   [F3]
-    Refusals that depend on the BAKE rather than one file (R1/R2 crossover marks,
-    attr-set overflow, the 11-bit local palette, the page-table cap, BG capacity) are
-    not here; regenerate-level.sh's restore-on-failure trap covers those.
+    Refusals that depend on the BAKE rather than one file (attr-set overflow, the
+    11-bit local palette, the page-table cap, BG capacity) are not here;
+    regenerate-level.sh's restore-on-failure trap covers those.
     """
     if num_sections is None:
         num_sections = act_grid.section_count(PROJECT_JSON)
@@ -683,11 +685,7 @@ def validate_editor_inputs(data_path: str | None = None,
                     oob_words += len(bad)
                     oob_max = max(oob_max, max(bad))
                     oob_secs[i] = len(bad)
-        for suffix in ("collattr", "collattrb"):
-            cp_ = os.path.join(data_path, f"section_{i}.{suffix}.bin")
-            if os.path.isfile(cp_) and os.path.getsize(cp_) != EDITOR_CELL_FILE_BYTES:
-                problems.append(f"{cp_} is {os.path.getsize(cp_)} bytes, expected "
-                                f"{EDITOR_CELL_FILE_BYTES}")
+        problems.extend(_collattr_problems(data_path, i))
     if oob_words:
         problems.append(
             f"{oob_words} nametable word(s) name a tile past the end of the "
@@ -698,6 +696,32 @@ def validate_editor_inputs(data_path: str | None = None,
             + "\n  - ".join(problems)
             + "\nEach of these used to bake silently (an all-air section, a mirrored "
               "plane B, a short local-map table, blank tiles). Fix the files named.")
+
+
+def _collattr_problems(data_path: str, i: int) -> list[str]:
+    """validate_editor_inputs' per-plane-file refusals for section i: a present file of
+    the wrong size [F1, F5], and a word carrying the reserved bits 15:14 [LE] — the
+    painted loop crossover mark, retired 2026-09-26. Every word is censused, odd editor
+    rows included: the bake reads only the even (top-tile) rows, so a check at the
+    bake alone would let a mark on an odd row through unseen."""
+    problems = []
+    cp = collision_pipeline
+    for suffix, plane in (("collattr", "A"), ("collattrb", "B")):
+        cp_ = os.path.join(data_path, f"section_{i}.{suffix}.bin")
+        if not os.path.isfile(cp_):
+            continue
+        if os.path.getsize(cp_) != EDITOR_CELL_FILE_BYTES:
+            problems.append(f"{cp_} is {os.path.getsize(cp_)} bytes, expected "
+                            f"{EDITOR_CELL_FILE_BYTES}")
+            continue
+        words = struct.unpack(f">{EDITOR_CELL_FILE_BYTES // 2}H", open(cp_, "rb").read())
+        marked = [n for n, w in enumerate(words) if cp.plane_reserved_bits(w)]
+        if marked:
+            cells = [(n % STRIP_TILE_HEIGHT, n // STRIP_TILE_HEIGHT) for n in marked]
+            problems.append(cp.retired_mark_message(
+                f"{os.path.relpath(cp_, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))} (section {i}, plane {plane})",
+                len(marked), cells))
+    return problems
 
 
 def load_section_zone_keys(path: str):
@@ -758,11 +782,7 @@ def _validate_keyed_inputs(data_path: str, num_sections: int, sheets: list[str])
                 if over:
                     problems.append(f"section {i}: {over} word(s) keyed to sheet {k} name "
                                     f"a tile past its {n}-tile end ({sheets[k]})")
-        for suffix in ("collattr", "collattrb"):
-            cp_ = os.path.join(data_path, f"section_{i}.{suffix}.bin")
-            if os.path.isfile(cp_) and os.path.getsize(cp_) != EDITOR_CELL_FILE_BYTES:
-                problems.append(f"{cp_} is {os.path.getsize(cp_)} bytes, expected "
-                                f"{EDITOR_CELL_FILE_BYTES}")
+        problems.extend(_collattr_problems(data_path, i))
     if problems:
         raise SystemExit(
             "ojz_strip_gen: KEYED editor inputs refused BEFORE anything is written:\n  - "
@@ -2139,20 +2159,12 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     16px collision row samples the top tile row (even rows). Returns the new
     grids, or the originals unchanged when no editor file exists for the section.
 
-    RULE R2 — SELF-MARKS ARE REFUSED HERE, and this is the only place that can do
-    it (docs/LOOP_CROSSOVER_ENCODING.md §7). A plane-A word carrying XOVER_TO_A,
-    or a plane-B word carrying XOVER_TO_B, is provably a no-op: to read a plane's
-    mark you must already be on that plane (§3.3). `bake_plane_cell` cannot
-    diagnose it, because a word does not know which file it came from; this
-    function does. It RAISES — the mark is authoring intent that silently does
-    nothing, which is the whole failure class this parcel exists to close.
-
-    ⚠ THE PLANE-B MIRROR IS SUBJECT TO R2, deliberately. When `section_N.collattrb.bin`
-    is ABSENT, plane B is baked from plane A's words (`wb = wa` below; a wrong-sized
-    one is refused, not mirrored, since the 2026-09-12 gap lens sweep F5), so a
-    plane-A TO_B mark really does become a plane-B self-mark in the
-    baked artifact and really is refused. That is the correct report: a crossover
-    is a per-plane pair (§3.3) and cannot be authored on a mirrored plane."""
+    A word whose reserved bits 15:14 are set (the painted loop crossover mark, retired
+    by LINES-EVERYWHERE on 2026-09-26) is refused: validate_editor_inputs censuses every
+    word before a re-bake writes anything, and bake_plane_cell raises on the words baked
+    here. When `section_N.collattrb.bin` is ABSENT, plane B is baked from plane A's
+    words (`wb = wa` below; a wrong-sized one is refused, not mirrored, since the
+    2026-09-12 gap lens sweep F5)."""
     coll_a, coll_b = grids
     base = EDITOR_ACT_DIR
     path_a = os.path.join(base, f"section_{sec_id}.collattr.bin")
@@ -2179,8 +2191,9 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
     if b is not None and len(b) != expect:
         # A REFUSAL, not a mirror (2026-09-12 gap lens sweep F5). A malformed plane-B
         # file used to be replaced by plane A's words (`b = None`), silently: section 0
-        # was refused only because its crossover marks tripped R2 on the mirrored plane,
-        # and on a section without marks nothing said anything. An ABSENT file still
+        # was refused only because its (since retired) crossover marks tripped a
+        # self-mark rule on the mirrored plane, and on a section without marks nothing
+        # said anything. An ABSENT file still
         # mirrors (that is a section authored on one plane); a PRESENT one is authored
         # plane-B collision, and baking plane A in its place discards it.
         raise ValueError(
@@ -2193,29 +2206,8 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
         return (buf[2 * o] << 8) | buf[2 * o + 1]
 
     cp = collision_pipeline
-    self_mark = {"A": cp.XOVER_TO_A, "B": cp.XOVER_TO_B}
-
-    def check_r2(plane_name, cell_word, col, cr):
-        """R2. Returns the word's XOVER so the caller can count marks."""
-        x = (cell_word >> cp.XOVER_SHIFT) & cp.XOVER_MASK
-        if x == self_mark[plane_name]:
-            mirrored = (plane_name == "B" and b is None)
-            raise ValueError(
-                f"sec {sec_id} plane {plane_name} col {col} row {cr}: cell word "
-                f"${cell_word:04X} carries a SELF-MARK (XOVER_TO_{plane_name} on "
-                f"plane {plane_name}). docs/LOOP_CROSSOVER_ENCODING.md §3.3: a "
-                f"plane's mark is only ever read by an object already on that "
-                f"plane, so this can never fire — it is an authoring mistake, not "
-                f"a no-op worth shipping. Mark the OTHER plane, or use a per-plane "
-                f"pair."
-                + (f" (plane B has no file of its own here, so it is MIRRORED from "
-                   f"plane A — a crossover needs a real section_{sec_id}."
-                   f"collattrb.bin.)" if mirrored else ""))
-        return x
-
     out_a, out_b = [], []
     nonair = 0
-    marks = {"A": 0, "B": 0}
     for col in range(len(coll_a)):
         if col < W:
             ea = bytearray(COLLISION_ROWS_PER_STRIP)   # authoritative: start from air
@@ -2224,10 +2216,6 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
                 o = (cr * 2) * W + col           # top tile row of the 16px cell
                 wa = word(a, o)
                 wb = word(b, o) if b is not None else wa
-                if check_r2("A", wa, col, cr):
-                    marks["A"] += 1
-                if check_r2("B", wb, col, cr):
-                    marks["B"] += 1
                 ea[cr] = cp.bake_plane_cell(wa, base_profiles, base_angles, attrset)
                 eb[cr] = cp.bake_plane_cell(wb, base_profiles, base_angles, attrset)
                 if ea[cr]:
@@ -2238,23 +2226,6 @@ def apply_editor_collision_overlay(grids, sec_id, base_profiles, base_angles, at
             out_a.append(coll_a[col])
             out_b.append(coll_b[col])
     print(f"  sec {sec_id}: editor collision baked ({nonair} non-air cells)")
-    # AN AUTHORED CROSSOVER IS ANNOUNCED, NOT SILENT. Before this parcel the bake
-    # dropped bits 15:14 entirely, so an author could paint crossovers across a
-    # whole act and every artifact downstream — CRC gates included — correctly
-    # reported that nothing had happened. The count is the signal that the field
-    # travelled; the second line is the half that still does not.
-    if marks["A"] or marks["B"]:
-        print(f"  NOTICE: sec {sec_id} carries {marks['A']} plane-A and "
-              f"{marks['B']} plane-B loop crossover mark(s). They are BAKED into "
-              f"the attr-set and reach crossover.bin.")
-        print(f"    The engine READS that table since 2026-09-02 "
-              f"(LOOP_CROSSOVER_ENCODING.md §5 row 13 / §6 changes 2-5): "
-              f"Player_LoopCrossover, once per player per frame, writes Sst.layer "
-              f"on entering a marked cell. These marks will move a player.")
-        print(f"    What is still untested is the ENCODING AGAINST REAL GEOMETRY "
-              f"(anchor §0): no loop exists in OJZ act 1, so the read side is proven "
-              f"by executing the ROM's own bytes (tools/loop_crossover_gate.py) and "
-              f"not by anyone having driven through one.")
     return out_a, out_b
 
 

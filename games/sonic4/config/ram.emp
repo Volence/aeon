@@ -68,54 +68,6 @@ pub struct PlayerBlock {
                             // accel on an odd address and `move.w` would ADDRESS
                             // ERROR. 8 words + quadrant + jump_buffer was exactly
                             // 18; dust_timer makes 19, so this pads back to 20.
-    xover_cell:     u32,    // THE LOOP CROSSOVER EDGE TRIGGER's whole state: the world
-                            // collision cell this slot was in when the crossover read
-                            // last ran, packed (x & ~(COLL_CELL_W-1)) << 16 |
-                            // (y & ~(COLL_CELL_H-1)). Player_LoopCrossover
-                            // (player_common.emp) fires only when it CHANGES, which is
-                            // what stops a marked cell re-firing every frame you stand
-                            // on it — and, because the value is derived from POSITION
-                            // ONLY, what stops the write to Sst.layer from re-arming
-                            // the trigger it just fired (a plane-A cell saying TO_B and
-                            // the plane-B cell under it saying TO_A is the ORDINARY
-                            // two-way loop pair, docs/LOOP_CROSSOVER_ENCODING.md §3.3,
-                            // and a value-derived trigger would ping-pong on it every
-                            // frame). Boot-cleared with all Work-RAM; cell (0,0) is
-                            // therefore the initial value and a player spawning
-                            // anywhere else fires on their first frame, reading
-                            // XOVER_NONE like every other unmarked cell.
-                            // Even offset (20), so the `move.l`/`cmp.l` pair below is
-                            // aligned in BOTH slots at the `sizeof(PlayerBlock)` stride.
-                            // NAMED, NOT NUMBERED, on purpose: this line said "the
-                            // 24-byte stride" while the struct had already grown to 28
-                            // (xover_cursor was appended after it), and the number was
-                            // load-bearing for an alignment claim. The evenness of the
-                            // stride is pinned by player_common.emp's
-                            // `sizeof(PlayerBlock) % 2` guard, so the claim survives a
-                            // resize; a literal here would not.
-    xover_cursor:   u32,    // THE SWEEP's walking cursor, same packing as xover_cell.
-                            // A frame can move 16 px (PHYS_GSP_CAP) against an 8 px
-                            // collision cell and nothing substeps horizontal movement,
-                            // so the crossover read WALKS from the cell it last ran in
-                            // to the cell it resolved to, probing each — otherwise a
-                            // mark one cell wide is stepped clean over above ~8 px/frame
-                            // and never fires. This is that walk's only state.
-                            //
-                            // TRANSIENT, not persistent: it is initialised and consumed
-                            // inside one Player_LoopCrossover call and means nothing
-                            // between frames. It lives HERE, per slot, rather than on
-                            // the stack because sigil's contract closure only recognises
-                            // a `move.l a0,-(sp)` / `movea.l (sp)+,a0` save across a
-                            // call while the stack is otherwise balanced at that point
-                            // — a sweep frame underneath it makes the analysis report
-                            // Player_LoopCrossover as clobbering a0, which is a
-                            // `preserves(a0)` violation at Player_Main's call site
-                            // (measured 2026-09-04; both a stack frame and a
-                            // register-to-register save reproduce it on their own).
-                            // Per SLOT rather than one global for the same reason
-                            // xover_cell is: the two are read and written together and
-                            // a follower running two preambles must not share either.
-                            // Even offset (24) — read and written with move.l/cmp.l.
     ll_prev:        u32,    // THE LAYER LINES' SIDE MEMORY (S2CLIP-PLANE-SWITCH): this slot's
                             // position (X px << 16 | Y px) when Player_LayerLines last ran.
                             // Sonic 2's Obj03 keeps one "which side" byte per player PER
@@ -123,14 +75,14 @@ pub struct PlayerBlock {
                             // "was he at or past the line last time", so this one long
                             // stands in for every line's byte at once and the RAM does not
                             // grow with the table. Seeded by Player_Init with the spawn
-                            // position. Even offset (28), move.l/cmp.l.
+                            // position. Even offset (20), move.l/cmp.l.
     ll_cursor:      u32,    // THE LAYER LINES' WINDOW CURSOR: a pointer to the last row of
                             // the act's LayerLine table whose key is at or below this slot's
                             // window floor (Player_LayerLines' header). 0 = the act has no
                             // table, and that null test in Player_Main is the whole per-frame
                             // cost of an act without one. Seeded by Player_Init from
                             // Act.act_layer_lines (the leading sentinel row, whose key is
-                            // below every floor). Even offset (32).
+                            // below every floor). Even offset (24).
 }
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable

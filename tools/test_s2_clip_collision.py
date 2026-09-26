@@ -9,18 +9,21 @@ row carries `needs_build`, and nothing here touches the shipped act, the S&K ban
 WHY THIS EXISTS. `docs/research/2026-09-17-s2-compressed-act-design.md` §10 row 5: "run
 `bake_cell` over the clip's chunk words, emit both plane files", checked by "the attr-set
 entry count for a given clip matches `s2_clip_budget.py`'s prediction for that rectangle,
-and the bake refuses a clip that cuts a crossover pair". Both halves are pinned below.
+and the bake refuses a clip that cuts a crossover pair". Both halves are pinned below;
+the second is now C4 (the painted crossover marks were retired on 2026-09-26,
+LINES-EVERYWHERE: a clip act's layer switches are Sonic 2's own lines, and a leftover mark
+in a clip's source rectangle is refused by name).
 
 THE ANTI-VACUITY PROBLEM HERE, and it is worse than row 3's, because the interesting data
 does not exist:
 
-  * A CONVERTED SONIC 2 TREE HAS NO CROSSOVER MARKS AT ALL. It cannot: the donor's
-    chunk-entry word has no crossover field, its bits 15:14 are path-B solidity, so
-    `chunk_entry_to_plane_words` emits XOVER_NONE for every cell. A C1 row run against
-    the real fixtures would pass while refusing nothing. Every C1 row therefore PAINTS
-    marks into a converted tree first — which is exactly what an author does in aurora —
-    and `test_a_converted_tree_has_no_marks_to_begin_with` is the control that proves the
-    painting is what makes the difference.
+  * A CONVERTED SONIC 2 TREE HAS NO RESERVED BITS SET AT ALL. It cannot: the donor's
+    chunk-entry word's bits 15:14 are path-B solidity, which `chunk_entry_to_plane_words`
+    moves into plane B's own word, so every per-plane word's bits 15:14 are zero. A C4 row
+    run against the real fixtures would pass while refusing nothing. Every C4 row therefore
+    PAINTS a (retired) mark into a converted tree first — which is exactly what a stale
+    aurora session can still do — and `test_a_converted_tree_has_no_marks_to_begin_with`
+    is the control that proves the painting is what makes the difference.
   * SO DOES $18. No showcase zone references the one shape `rotate_profile` refuses, so
     C3 is painted in too, and `test_the_showcase_zones_do_not_need_18` records that the
     quiet state is quiet for a reason and will fail if that stops being true.
@@ -31,7 +34,7 @@ does not exist:
     licenses comparing them, and it is proven over every distinct chunk word of the six
     showcase zones rather than a sample.
   * A REFUSAL ROW CAN PASS BY RAISING FOR THE WRONG REASON. Every refusal row asserts the
-    rule's own tag (C1, C2, C3, R12) is in the message.
+    rule's own tag (C2, C3, C4, R12) is in the message.
 
 Every row that needs a donor SKIPS SAYING SO when the donor cannot be resolved, rather
 than passing on an empty set.
@@ -421,7 +424,7 @@ def test_the_emitted_plane_cells_are_the_donors_own_geometry(baked, donors, name
 
 
 # ---------------------------------------------------------------------------
-# THE ROW-5 CHECK, SECOND HALF: the crossover refusal (C1)
+# THE ROW-5 CHECK, SECOND HALF: the crossover refusal (C1, retired; C4 since 2026-09-26)
 # ---------------------------------------------------------------------------
 
 def _paint(tree_dir, manifest, section_tiles, suffix, cells):
@@ -464,7 +467,7 @@ def _one_clip_doc(src, dst=(0, 0), **extra):
             "src_rect": dict(zip(("x", "y", "w", "h"), src)),
             "dst_rect": {"x": dst[0], "y": dst[1], "w": src[2], "h": src[3]}}
     clip.update(extra)
-    return {"schema": 1, "units": "world_px", "id": "xover_cut",
+    return {"schema": 1, "units": "world_px", "id": "retired_mark",
             "act": {"grid_w": 1, "grid_h": 1}, "clips": [clip]}
 
 
@@ -475,12 +478,11 @@ def _bake_doc(tmp_path, doc, root, name="clips.json"):
 
 
 def test_a_converted_tree_has_no_marks_to_begin_with(donors):
-    """THE CONTROL for every C1 row: the subject does not exist until a row paints it.
+    """THE CONTROL for every C4 row: the subject does not exist until a row paints it.
 
-    If this ever fails, the C1 rows below stopped being about painting and this file's
-    anti-vacuity argument stopped holding. The reason it holds is structural: the donor
-    chunk word's bits 15:14 are path-B SOLIDITY, so there is no crossover field to
-    convert and `chunk_entry_to_plane_words` writes XOVER_NONE unconditionally.
+    If this ever fails, the C4 rows below stopped being about painting. The reason it holds
+    is structural: the donor chunk word's bits 15:14 are path-B SOLIDITY, moved into plane
+    B's own word, so no per-plane word carries them.
     """
     donor, zone = CASES[0]
     _need(donor)
@@ -490,70 +492,36 @@ def test_a_converted_tree_has_no_marks_to_begin_with(donors):
     total = 0
     for suffix in ("collattr", "collattrb"):
         g = CM.section_plane_grid(d, m, st, suffix)
-        total += int(BAKE.crossover_marks(g).sum())
+        total += int(np.count_nonzero((g >> CP.PLANE_RESERVED_SHIFT) & CP.PLANE_RESERVED_MASK))
         assert g.size > 100_000                  # it did read a real grid
     assert total == 0
-    assert m["collision"]["crossover_marks"] == 0
 
 
-def test_a_clip_that_severs_a_crossover_is_refused(paintable, tmp_path):
-    """C1: marks inside the rectangle, marks left outside it -> REFUSED.
-
-    The §2.3 case, painted: the loop's two crossings are two bands of one column (that is
-    what the shipped act's eight paired indices are), and the marquee takes the lower band
-    and leaves the upper one. The mark that survives sends the player to plane B; nothing
-    sends them back.
-    """
+def test_a_clip_that_takes_a_retired_mark_is_refused_by_name(paintable, tmp_path):
+    """C4: a painted (retired) crossover mark INSIDE the clip's rectangle -> REFUSED, naming
+    the clip, before bake_plane_cell would raise on it four layers down."""
     root, dst, m, st = paintable
-    # bottom-centre band inside the clip, top-centre band outside it. Both inside EHZ's
-    # camera-box crop (tile rows 0..128), or R9 would refuse the rect before C1 is reached.
-    inside = {(40, 100): 0x8000, (41, 100): 0x8000}
-    outside = {(100, 100): 0x8000}
-    _paint(dst, m, st, "collattr", {**inside, **outside})
-    _paint(dst, m, st, "collattrb", {k: 0x4000 for k in {**inside, **outside}})
-    doc = _one_clip_doc((0, 0, 2048, 512))         # covers tile row 40, not row 100
+    _paint(dst, m, st, "collattr", {(40, 100): 0x8000, (41, 100): 0x8000})
+    _paint(dst, m, st, "collattrb", {(40, 100): 0x4000})
+    doc = _one_clip_doc((0, 0, 2048, 512))         # covers tile rows 40 and 41
     with pytest.raises(BAKE.ClipCollisionError) as e:
         _bake_doc(tmp_path, doc, root)
-    assert "C1" in str(e.value), str(e.value)
-    assert "ehz_cut" in str(e.value)
+    assert str(e.value).startswith("C4 "), str(e.value)
+    assert "ehz_cut" in str(e.value) and "3 cell word(s)" in str(e.value)
 
 
-def test_a_clip_that_keeps_every_mark_is_accepted(paintable, tmp_path):
-    """The DISCRIMINATING control for C1. Same painted marks, same bake, one rectangle
-    that takes ALL of them — and it must pass.
-
-    Without this row C1 could be "refuse any clip of a tree that has marks anywhere", or
-    for that matter "refuse everything", and the row above would not notice.
-    """
+def test_a_retired_mark_outside_the_rectangle_is_not_this_clips(paintable, tmp_path):
+    """The DISCRIMINATING control for C4: the same painted mark, OUTSIDE the rectangle, is
+    not pasted into the act and must not refuse the clip. Without it C4 could be "refuse
+    any clip of a tree that has marks anywhere"."""
     root, dst, m, st = paintable
-    cells = {(40, 100): 0x8000, (41, 100): 0x8000, (100, 100): 0x8000}
-    _paint(dst, m, st, "collattr", cells)
-    _paint(dst, m, st, "collattrb", {k: 0x4000 for k in cells})
-    doc = _one_clip_doc((0, 0, 2048, 1024))        # covers tile rows 40 AND 100
+    _paint(dst, m, st, "collattr", {(100, 100): 0x8000})
+    _paint(dst, m, st, "collattrb", {(100, 100): 0x4000})
+    doc = _one_clip_doc((0, 0, 2048, 512))         # covers tile row 40, not row 100
     _act, _s, man, _v1, _v2 = _bake_doc(tmp_path, doc, root)
     row = man["collision"]["per_clip"][0]
-    assert row["marks_inside_src"] == 6           # 3 cells x 2 planes
-    assert row["marks_outside_src"] == 0
-
-
-def test_the_c1_opt_out_is_honoured_and_recorded(paintable, tmp_path):
-    """An in-file `severed_xover_reason` lets the clip through, and the reason is carried
-    into `clipact.json` where the next reader of the bake sees it.
-
-    C1 is conservative on purpose — the encoding says which PLANE a mark points at, never
-    which LOOP it belongs to — so refusing a clip that leaves an unrelated loop behind is
-    a real false positive and needs an escape hatch in R11's style.
-    """
-    root, dst, m, st = paintable
-    _paint(dst, m, st, "collattr", {(40, 100): 0x8000, (100, 100): 0x8000})
-    _paint(dst, m, st, "collattrb", {(40, 100): 0x4000, (100, 100): 0x4000})
-    doc = _one_clip_doc((0, 0, 2048, 512),
-                        severed_xover_reason="the upper band is a different loop")
-    _act, _s, man, _v1, _v2 = _bake_doc(tmp_path, doc, root)
-    row = man["collision"]["per_clip"][0]
-    assert row["marks_inside_src"] == 2 and row["marks_outside_src"] == 2
-    assert row["severed_xover_reason"] == "the upper band is a different loop"
-    assert man["clips"][0]["severed_xover_reason"] == row["severed_xover_reason"]
+    assert row["clip"] == "ehz_cut"
+    assert "marks_inside_src" not in row and "severed_xover_reason" not in row
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +597,7 @@ def test_the_unruled_rotate_profile_is_still_the_one_emit_tables_calls(bank):
     with pytest.raises(ValueError):
         CP.rotate_profile(heights)
     s = CP.AttrSet()
-    s.intern(heights, 0, CP.SOL_ALL, CP.XOVER_NONE)
+    s.intern(heights, 0, CP.SOL_ALL)
     with pytest.raises(ValueError):
         CP.emit_tables(s)
 

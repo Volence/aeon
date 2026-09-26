@@ -322,7 +322,7 @@ _MUSIC_RE = re.compile(r"^SONG_[A-Z0-9_]+$")
 #: A refusal's or warning's rule tag is the LEADING token of its message ("R7 clip ...") —
 #: the header's VALIDATION RULES contract ("each is named in the message it raises or warns
 #: with"). `--json` reads it back from there, so the tag has one spelling, in one place.
-#: C is `tools/clip_act_bake.py`'s family (C1-C3, the collision refusals). `bake --json`
+#: C is `tools/clip_act_bake.py`'s family (C2-C4, the collision refusals; C1 is retired). `bake --json`
 #: reads its tags through this same reader, so the two tools agree on what a tag is.
 _TAG_RE = re.compile(r"^([RKWC]\d+) ")
 
@@ -377,7 +377,7 @@ class Clip:
     """One pasted rectangle. `zone_key` is assigned by the manifest, not the file."""
 
     __slots__ = ("id", "donor", "zone", "src", "dst", "region_id",
-                 "unaligned_dst_reason", "severed_xover_reason", "music", "zone_key", "index")
+                 "unaligned_dst_reason", "music", "zone_key", "index")
 
     def __init__(self, raw, index):
         self.index = index
@@ -388,7 +388,6 @@ class Clip:
         self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
         self.region_id = raw.get("region_id") or None
         self.unaligned_dst_reason = raw.get("unaligned_dst_reason") or None
-        self.severed_xover_reason = raw.get("severed_xover_reason") or None
         #: the song this clip's zone plays (a SONG_* name from games/sonic4/config/
         #: sound_ids.emp), or None: its region rows name no song (S2CLIP-REGION-MUSIC step 6)
         self.music = raw.get("music") or None
@@ -409,7 +408,6 @@ class Clip:
             "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
             "region_id": self.region_id,
             "unaligned_dst_reason": self.unaligned_dst_reason,
-            "severed_xover_reason": self.severed_xover_reason,
             "music": self.music,
         }
 

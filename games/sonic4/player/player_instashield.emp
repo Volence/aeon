@@ -468,9 +468,10 @@ const INSTA_SHIELD_RENDER_FLAGS = EFFECT_INSTA_SHIELD_BAND << RF_PRIORITY_SHIFT
 // the player's high-priority bit; our player's art_tile is vram_art(cd_vrambase,0,0)
 // with that bit CLEAR, so the copy would be a no-op and is not reproduced." Every
 // clause of that was true when written and its PREMISE expired on 2026-09-10: LOOPS-P
-// Parcel 2 (Player_LoopCrossover's (5c) block) derives the player's priority bit from
-// his collision layer, so on a loop's right arc the bit is SET and the copy is no
-// longer a no-op. Without it the flash would draw in front of the loop art on the
+// Parcel 2 made the player's priority bit move with his collision layer (then from the
+// painted crossover marks; since LINES-EVERYWHERE, 2026-09-26, from the layer lines'
+// own priority bits, Player_LayerLines), so on a loop's right arc the bit is SET and the
+// copy is no longer a no-op. Without it the flash would draw in front of the loop art on the
 // frames the character behind it is drawn behind — a shield detaching from its owner
 // for the length of an arc. S3K's answer is the copy, so we copy.
 const INSTA_SHIELD_ART_ATTR = vram_art(VRAM_INSTA_SHIELD, 0, 0)
@@ -521,7 +522,7 @@ pub proc InstaShield_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
         move.l  #Map_InstaShield, Sst.mappings(a1)
         move.w  Sst.art_tile(a0), d0            // the player's art word ...
         andi.w  #INSTA_SHIELD_PRIO, d0          // ... just its VDP priority bit, which
-                                                //     the loop crossover now moves
+                                                //     the layer lines now move
         ori.w   #INSTA_SHIELD_ART_ATTR, d0      //     (see the const's note above)
         move.w  d0, Sst.art_tile(a1)
         move.l  #Ani_InstaShield, Sst.anim_table(a1)

@@ -68,7 +68,7 @@ WHAT IT RUNS
 
   1. `clip_act_bake.bake` — the row 3 + row 5 composer. Writes the act's editor-shaped
      tree: `section_N.tiles.bin` (donor tile indices), `section_N.collattr.bin` /
-     `.collattrb.bin`, and runs R1-R12 / C1-C3 including the 255-entry attr cap.
+     `.collattrb.bin`, and runs R1-R12 / C2-C4 including the 255-entry attr cap.
   2. a staged `project.json` beside that tree, naming the donor zone's `tileset.bin`
      and the act grid. `dataPath` is `.` — the tree IS the act directory.
   3. `ojz_strip_gen.generate()`, redirected at that project through `configure()`,

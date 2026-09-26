@@ -183,7 +183,7 @@ def _rebake(tmp_path, page_tiles, page_bytes):
     salv.write_text("#!/bin/sh\ncp \"$1\" \"$2\"\n")
     salv.chmod(0o755)
     (stubs / "ojz_strip_gen.py").write_text(_GEN_STUB)
-    for name in ("import_sk_collision.py", "effects_gen.py", "ojz_block_gen.py",
+    for name in ("import_sk_collision.py", "effects_gen.py", "layer_lines.py", "ojz_block_gen.py",
                  "verify_level_bin.py", "fg_page_order.py", "level_staleness.py"):
         (stubs / name).write_text("")
     # NOT a stub: the page-size guard this file exists to drive MOVED out of

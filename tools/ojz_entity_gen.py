@@ -428,7 +428,7 @@ def generate(out_path: str | None = None, sections: int | None = None) -> None:
     lines.append("")
     lines.append("// Object-type table shapes: a count byte + pad byte, then `count` ObjDef")
     lines.append("// pointers (`dc.l`). The ObjDef_* archetypes are cross-module link labels")
-    lines.append("// (test_objects / path_swap). Structs pack tight — a count byte + pad byte")
+    lines.append("// (games/sonic4/objects/). Structs pack tight — a count byte + pad byte")
     lines.append("// precede the pointers, so the first pointer sits at offset 2 (even).")
     max_types = max((len(t) for t in per_section_types), default=0)
     for k in range(1, max_types + 1):

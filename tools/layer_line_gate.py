@@ -2,18 +2,19 @@
 """layer_line_gate.py — execute the built ROM's Player_LayerLines against Sonic 2's Obj03 rule.
 
 WHY THIS SHAPE. Player_LayerLines (games/sonic4/player/player_common.emp, S2CLIP-PLANE-SWITCH)
-is in every sonic4 ROM, and in every CANONICAL one it never runs: OJZ binds no layer-line
-table, so Player_Main's null test skips it on every frame. A correct routine and a broken one
-therefore build the identical canonical ROM and play identically there, and no gate over
-canonical content can tell them apart (the same vacuity tools/loop_crossover_gate.py was built
-around). The clip act runs it, but only in an off-canonical shape and only along the paths a
-drive happens to take (tools/s2clip_layer_line_witness.py). So the subject here is the
-ROUTINE, taken from THIS build as bytes, executed against synthetic tables that exercise every
-form a table can hold, frame by frame, beside an independent model of Sonic 2's Obj03:
+is in every sonic4 ROM and, since LINES-EVERYWHERE (2026-09-26), the engine's only layer-switch
+mechanism: OJZ act 1 binds its own four-row authored table (its section-0 loop), and a clip
+act binds Sonic 2's lines. Neither table exercises every form a table can hold (OJZ's has only
+vertical, never-grounded rows), and a drive only reaches the paths it happens to take
+(tools/loop_step_over_witness.py, tools/s2clip_layer_line_witness.py). So the subject here is
+the ROUTINE, taken from THIS build as bytes, executed against synthetic tables that exercise
+every form a table can hold, frame by frame, beside an independent model of Sonic 2's Obj03,
+and then walked around every row of EVERY table the ROM ships (OJZ_Act1_LayerLines, and in a
+clip ROM OJZ_Clip_LayerLines too), naming the one the Act binds:
 
     .lst          ->  Player_LayerLines' extent, and the SST_*, LL_*, ST_IN_AIR, LAYER_PATH_*,
-                      PHYS_GSP_CAP equates the build was assembled with
-    .bin          ->  the routine's bytes (and, in a clip ROM, the shipped table itself)
+                      PHYS_GSP_CAP, Act_act_layer_lines equates the build was assembled with
+    .bin          ->  the routine's bytes, the shipped tables, and the Act's table pointer
     capstone      ->  an independent decoder
     this file     ->  a strict executor for exactly the forms the routine decodes to (anything
                       else raises, so a new addressing mode stops the gate, never passes it)
@@ -42,7 +43,8 @@ result this file exists to refuse.
 
 THE COST NOTE is produced here too (--cost), from the same executions: MC68000UM cycle counts
 for every instruction actually run, summed per frame. It is the 68000's own timing, not bus
-contention, so every figure is a floor, the same basis as tools/loop_crossover_cost.py.
+contention, so every figure is a floor (the basis the retired tools/loop_crossover_cost.py
+used for the painted marks' read site).
 
 EXIT: 0 agree + non-vacuous, 1 a disagreement (or a vacuous run), 2 COULD NOT RUN (stale or
 missing artifacts, a symbol or equate absent, a form the executor does not model).
@@ -64,17 +66,55 @@ REPO = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
 
 import artifact_provenance                               # noqa: E402
-import loop_crossover_gate as lxg                        # noqa: E402
 import region_table                                      # noqa: E402
-from sprite_tilt_gate import UnsupportedInstruction      # noqa: E402
+from scene_spans import vma_phased_symbol_names          # noqa: E402
+# The micro-CPU primitives are shared with the sprite-tilt and insta-shield gates rather than
+# re-implemented: same memory model, same flag arithmetic, same operand grammar, same "raise
+# on anything not modelled" contract.
+from sprite_tilt_gate import (                           # noqa: E402
+    Micro, UnsupportedInstruction, _split_ops, parse_operand)
+
+# The listing's symbol and EQU lines. (These, the stack operand forms, BRANCHES and the RAM
+# window of `Cpu` below lived in tools/loop_crossover_gate.py, the retired painted
+# crossover marks' gate, until LINES-EVERYWHERE deleted it on 2026-09-26; this gate was
+# their last consumer.)
+_SYM = re.compile(r"^ ([A-Za-z_$][\w$.]*) : ([0-9A-Fa-f]+) [A-Z] \|")
+_EQU = re.compile(r"^EQU ([A-Za-z_][\w]*) = \$([0-9A-Fa-f]+)\s*$")
+
+BRANCHES = {"bra", "bhi", "bls", "bcc", "bhs", "bcs", "blo", "bne", "beq",
+            "bvc", "bvs", "bpl", "bmi", "bge", "blt", "bgt", "ble"}
+
+_RE_PREDEC = re.compile(r"^-\(a([0-7])\)$")
+_RE_POSTINC = re.compile(r"^\(a([0-7])\)\+$")
+
+
+def operand(tok):
+    """parse_operand plus the two stack forms the shared grammar does not carry."""
+    m = _RE_PREDEC.match(tok)
+    if m:
+        return ("predec", int(m.group(1)))
+    m = _RE_POSTINC.match(tok)
+    if m:
+        return ("postinc", int(m.group(1)))
+    return parse_operand(tok)
+
+
+def _sized(cpu, size):
+    cpu._pending = {"b": 2, "w": 2, "l": 4}[size]   # -(a7)/(a7)+ are word-aligned
 
 SUBJECT = "Player_LayerLines"
 CALLER = "Player_Main"
-TABLE_SYM = "OJZ_Clip_LayerLines"
+#: A shipped layer-line table's symbol: OJZ act 1's own authored table (OJZ_Act1_LayerLines,
+#: in every sonic4 ROM since LINES-EVERYWHERE) and, in a clip ROM, the clip act's
+#: (OJZ_Clip_LayerLines). Every table the listing carries is walked, not only the bound one.
+TABLE_RE = re.compile(r"^OJZ_\w+_LayerLines$")
+#: Where the Act names its table: the descriptor, and Act.act_layer_lines inside it.
+DESCRIPTOR = "OJZ_Act1_Descriptor"
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_layer", "SST_status", "SST_art_tile",
              "LL_KEEP_PATH", "LL_GROUNDED", "LL_HORIZONTAL", "LL_FWD_B", "LL_BACK_B",
              "LL_FWD_HI", "LL_BACK_HI", "LL_SEG_W", "LL_KEY_BEFORE", "LL_KEY_AFTER",
-             "ST_IN_AIR", "LAYER_PATH_A", "LAYER_PATH_B", "PHYS_GSP_CAP")
+             "ST_IN_AIR", "LAYER_PATH_A", "LAYER_PATH_B", "PHYS_GSP_CAP",
+             "Act_act_layer_lines")
 
 SST = 0xFFB000
 BLOCK = 0xFFB100
@@ -99,11 +139,11 @@ class CouldNotRun(Exception):
 def parse_lst(path):
     syms, equs = {}, {}
     for line in pathlib.Path(path).read_text(errors="replace").splitlines():
-        m = lxg._SYM.match(line)
+        m = _SYM.match(line)
         if m:
             syms.setdefault(m.group(1), int(m.group(2), 16))
             continue
-        m = lxg._EQU.match(line)
+        m = _EQU.match(line)
         if m:
             equs.setdefault(m.group(1), int(m.group(2), 16))
     missing = [n for n in (SUBJECT, CALLER) if n not in syms] + \
@@ -151,9 +191,9 @@ def layouts():
 def extent(syms, name):
     """[start, end): end is the next GLOBAL symbol above start. Every `$`-prefixed name is a
     hygienic local (a proc's `.label` or an asm template's), and phased symbols carry a bank
-    VMA, not a ROM address (lxg.vma_phased_symbol_names)."""
+    VMA, not a ROM address (scene_spans.vma_phased_symbol_names)."""
     start = syms[name]
-    phased = lxg.vma_phased_symbol_names()
+    phased = vma_phased_symbol_names()
     above = [a for n, a in syms.items() if a > start and not n.startswith("$")
              and n not in phased]
     if not above:
@@ -170,7 +210,7 @@ def decode(rom, span):
                      capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
     prog, covered = {}, 0
     for insn in md.disasm(rom[span[0]:span[1]], span[0]):
-        ops = [lxg.operand(t) for t in lxg._split_ops(insn.op_str)] if insn.op_str else []
+        ops = [operand(t) for t in _split_ops(insn.op_str)] if insn.op_str else []
         prog[insn.address] = (insn.mnemonic, ops, insn.address + insn.size, insn.op_str,
                               insn.size)
         covered += insn.size
@@ -211,7 +251,7 @@ def cycles(mnem, ops, raws, size, taken):
         return 6
     if base == "bra":
         return 10
-    if base in lxg.BRANCHES:
+    if base in BRANCHES:
         return 10 if taken else (8 if size == 2 else 12)
     if base in ("move", "movea"):
         return 4 + ea[modes[0]] + move_dst(modes[1])
@@ -238,8 +278,36 @@ def cycles(mnem, ops, raws, size, taken):
     raise UnsupportedInstruction("no timing for %s %s" % (mnem, ", ".join(raws)))
 
 
-class Cpu(lxg.Cpu):
-    pass
+class Cpu(Micro):
+    """Micro with a real work-RAM window and the two stack addressing modes.
+
+    Micro's own memory model is "the ROM, plus a 256-byte synthetic SST, plus writes". The
+    routine reads its table out of work RAM (a synthetic one) or ROM (the shipped one), so
+    the window is widened to all of $FF0000-$FFFFFF, reading zero where nothing was
+    written. Reads anywhere else still raise.
+    """
+
+    RAM_LO = 0xFF0000
+
+    def rb(self, addr):
+        addr &= 0xFFFFFF
+        if addr in self.ram:
+            return self.ram[addr]
+        if addr >= self.RAM_LO:
+            return 0
+        if addr < len(self.rom):
+            return self.rom[addr]
+        raise UnsupportedInstruction("read from unmapped address $%06X" % addr)
+
+    def ea_addr(self, op):
+        if op[0] == "predec":
+            self.a[op[1]] = (self.a[op[1]] - self._pending) & 0xFFFFFFFF
+            return self.a[op[1]] & 0xFFFFFF
+        if op[0] == "postinc":
+            was = self.a[op[1]] & 0xFFFFFF
+            self.a[op[1]] = (self.a[op[1]] + self._pending) & 0xFFFFFFFF
+            return was
+        return Micro.ea_addr(self, op)
 
 
 def execute(cpu, prog, entry, span, trace, limit=4000):
@@ -254,14 +322,14 @@ def execute(cpu, prog, entry, span, trace, limit=4000):
         if pc not in prog:
             raise UnsupportedInstruction("execution left %s at $%06X" % (SUBJECT, pc))
         mnem, ops, nxt, raw, isize = prog[pc]
-        raws = lxg._split_ops(raw) if raw else []
+        raws = _split_ops(raw) if raw else []
         base = mnem.split(".")[0]
         size = mnem.split(".")[1] if "." in mnem else "w"
-        lxg._sized(cpu, size)
+        _sized(cpu, size)
         if base == "rts":
             trace["cycles"] += cycles(mnem, ops, raws, isize, False)
             return
-        if base in lxg.BRANCHES:
+        if base in BRANCHES:
             cc = "ra" if base == "bra" else base[1:]
             hit = cpu.cond(cc)
             trace["cycles"] += cycles(mnem, ops, raws, isize, hit)
@@ -555,10 +623,25 @@ def caller_early_out(rom, syms, blk):
     raise CouldNotRun("Player_Main has no `tst.l %s`: the per-frame null test is gone" % want)
 
 
-def shipped_rows(rom, syms, e, row, row_size):
-    if TABLE_SYM not in syms:
-        return None
-    base = syms[TABLE_SYM]
+def shipped_tables(rom, syms, e, row, row_size):
+    """[(name, address, rows)] for every layer-line table the listing carries, and the name
+    of the one the Act binds (None when it binds 0). A bound pointer that names no known
+    table is COULD NOT RUN: the gate would be walking something other than what ships."""
+    tables = [(n, a, shipped_rows(rom, a, e, row, row_size, n))
+              for n, a in sorted(syms.items()) if TABLE_RE.match(n)]
+    if DESCRIPTOR not in syms:
+        raise CouldNotRun("the listing carries no %s, so which table the Act binds is unknown"
+                          % DESCRIPTOR)
+    at = syms[DESCRIPTOR] + e["Act_act_layer_lines"]
+    ptr = int.from_bytes(rom[at:at + 4], "big")
+    bound = next((n for n, a, _r in tables if a == ptr), None)
+    if ptr and bound is None:
+        raise CouldNotRun("the Act binds a layer-line table at $%06X, which is none of %s"
+                          % (ptr, [n for n, _a, _r in tables]))
+    return tables, bound
+
+
+def shipped_rows(rom, base, e, row, row_size, name):
     out = []
     i = 1
     while True:
@@ -571,7 +654,7 @@ def shipped_rows(rom, syms, e, row, row_size):
                     rom[a + row["ll_flags"]]))
         i += 1
         if i > 10000:
-            raise CouldNotRun("%s has no trailing sentinel" % TABLE_SYM)
+            raise CouldNotRun("%s has no trailing sentinel" % name)
 
 
 def pct(v):
@@ -605,19 +688,30 @@ def main(argv=None):
                                 "prio_set", "prio_clear", "discontinuity")}
         fails, costs = [], []
         run_walks(runner, e, 1, a.seeds * 10, 400, fails, kinds, costs)
-        shipped = shipped_rows(rom, syms, e, row, row_size)
-        ship_note = "no shipped table (a canonical ROM: OJZ binds none)"
-        if shipped is not None:
+        tables, bound = shipped_tables(rom, syms, e, row, row_size)
+        ship_notes = []
+        shipped = None
+        for tname, taddr, trows in tables:
             skinds = {n: 0 for n in kinds}
             # walks around every shipped row, over the ROM's own table (the cursor points into ROM)
-            for i, r in enumerate(shipped):
+            for i, r in enumerate(trows):
                 cx = r[0] if not r[3] & (1 << e["LL_HORIZONTAL"]) else r[0] + 8
                 cy = (r[1] + r[2]) // 2 if not r[3] & (1 << e["LL_HORIZONTAL"]) else r[1]
-                run_walks(runner, e, 100 + i, 1, 120, fails, skinds, [], rows_override=shipped,
-                          table_addr=syms[TABLE_SYM], box=(cx - 40, cx + 40, cy - 40, cy + 40))
-            ship_note = ("shipped %s: %d rows, walked around every one (%d fires)"
-                         % (TABLE_SYM, len(shipped),
-                            sum(v for n, v in skinds.items() if n[0] in "VH")))
+                run_walks(runner, e, 100 + i, 1, 120, fails, skinds, [], rows_override=trows,
+                          table_addr=taddr, box=(cx - 40, cx + 40, cy - 40, cy + 40))
+            fired = sum(v for n, v in skinds.items() if n[0] in "VH")
+            ship_notes.append("shipped %s%s: %d rows, walked around every one (%d fires)"
+                              % (tname, " (the one the Act binds)" if tname == bound else "",
+                                 len(trows), fired))
+            if trows and not fired:
+                fails.append("VACUOUS: the walks around %s's %d rows crossed none of them"
+                             % (tname, len(trows)))
+            if tname == bound:
+                shipped = (taddr, trows)
+        if not tables:
+            ship_notes.append("no shipped layer-line table in this listing")
+        if bound is None:
+            ship_notes.append("the Act binds no table (act_layer_lines 0)")
     except (CouldNotRun, UnsupportedInstruction, region_table.LayoutError) as exc:
         print("layer_line_gate: COULD NOT RUN — %s" % exc)
         return 2
@@ -626,7 +720,8 @@ def main(argv=None):
           % (a.lst, SUBJECT, span[0], span[1] - 1, span[1] - span[0]))
     print("  %d frames over %d synthetic tables; fires: %s" % (
         len(costs), a.seeds * 10, ", ".join("%s %d" % kv for kv in kinds.items())))
-    print("  " + ship_note)
+    for note in ship_notes:
+        print("  " + note)
     vacuous = [n for n, v in kinds.items() if v == 0]
     if a.cost:
         by = {}
@@ -654,7 +749,7 @@ def main(argv=None):
             if shipped is None:
                 print("    --trajectory needs a ROM with a shipped table")
             else:
-                cpu = runner.fresh(syms[TABLE_SYM], None, pts[0][0], pts[0][1], 0, 0, 0)
+                cpu = runner.fresh(shipped[0], None, pts[0][0], pts[0][1], 0, 0, 0)
                 per = []
                 for x, y, air in pts[1:]:
                     runner.place(cpu, x, y, cpu.read(SST + e["SST_layer"], "b"),

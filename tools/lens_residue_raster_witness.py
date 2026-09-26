@@ -528,7 +528,7 @@ class Committed:
         self._memo = {}
 
     def cell(self, layer: int, x: int, y: int):
-        """(heights, angle, solidity, xover, baked_index, word) of the cell holding world (x, y)
+        """(heights, angle, solidity, baked_index, word) of the cell holding world (x, y)
         in section 0 on `layer`, or None outside section 0."""
         if not (0 <= x < self.sec and 0 <= y < self.sec) or layer not in self.plane:
             return None
@@ -540,8 +540,8 @@ class Committed:
             word = (buf[2 * o] << 8) | buf[2 * o + 1]
             aset = self.cp.AttrSet()
             idx = self.cp.bake_plane_cell(word, self.hm, self.an, aset)
-            heights, angle, sol, xover = aset.entries[idx]
-            self._memo[key] = (bytes(heights), angle, sol, xover, idx, word)
+            heights, angle, sol = aset.entries[idx]
+            self._memo[key] = (bytes(heights), angle, sol, idx, word)
         return self._memo[key]
 
     def surface(self, layer: int, x: int, y0: int):
@@ -551,7 +551,7 @@ class Committed:
             c = self.cell(layer, x, cr * self.ch)
             if c is None:
                 return None
-            heights, _angle, sol, _xo, idx, _w = c
+            heights, _angle, sol, idx, _w = c
             if idx and (sol & self.solid_top):
                 h = heights[x & 15]
                 if h:
@@ -565,8 +565,7 @@ class Committed:
     def rom_attr(self, attr: int):
         k = self.k
         hm = k.rom[k.s("HeightMaps") + attr * 16: k.s("HeightMaps") + attr * 16 + 16]
-        return (hm, k.rom[k.s("AngleTable") + attr], k.rom[k.s("SolidityTable") + attr],
-                k.rom[k.s("CrossoverTable") + attr])
+        return (hm, k.rom[k.s("AngleTable") + attr], k.rom[k.s("SolidityTable") + attr])
 
 
 async def settle(m: Machine, pv: PlayerView, k: Build):
@@ -642,18 +641,18 @@ def grade_lookups(calls: list, com: Committed, tag: str, out: list, fails: list)
             if cell is None:
                 st["nocmp"] += 1
                 continue
-            heights, angle, sol, xover, idx, word = cell
+            heights, angle, sol, idx, word = cell
             # physical row p holds logical row top + ((p - O) mod ROWS); the blind form reads p = row - top
             blind_row = c["top"] + (((row - c["top"]) - c["orow"]) % rows)
             blind = com.cell(c["layer"], c["x"], blind_row * 8)
-            if blind is not None and blind[:4] != cell[:4]:
+            if blind is not None and blind[:3] != cell[:3]:
                 st["discrim"] += 1
             if idx == 0:
                 st["air"] += 1
                 ok = c["ret"] == 0
             else:
                 st["solid"] += 1
-                ok = c["ret"] != 0 and com.rom_attr(c["ret"]) == (heights, angle, sol, xover)
+                ok = c["ret"] != 0 and com.rom_attr(c["ret"]) == (heights, angle, sol)
         if ok:
             st["match"] += 1
         else:
