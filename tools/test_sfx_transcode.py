@@ -663,6 +663,83 @@ Sound_XX_Voices:
                          (0x03, 0x01, 0x09, 0xFF))
 
 
+def _dcb_src(dcb_line: str) -> str:
+    """A one-channel PSG SFX whose data is one note, then `dcb_line`, then a stop."""
+    return f"""\
+Sound_XX_Header:
+\tsmpsHeaderStartSong 3
+\tsmpsHeaderVoice     Sound_XX_Voices
+\tsmpsHeaderTempoSFX  $01
+\tsmpsHeaderChanSFX   $01
+\tsmpsHeaderSFXChannel cPSG1, Sound_XX_PSG1, $00, $00
+Sound_XX_PSG1:
+\tdc.b\tnC4, $10
+\t{dcb_line}
+\tsmpsStop
+Sound_XX_Voices:
+"""
+
+
+class TestDcbContentRefused(unittest.TestCase):
+    """PRINTED-NOT-GATED (2026-09-25). A dc.b token the transcoder cannot read, and a
+    byte it has no meaning for, used to print `[warn] ... skipped` and be DROPPED
+    from the shipped bytecode, exit 0. And the note branch (`S3K_NOTE_BASE <= val <=
+    $FF`) swallowed every $E0..$FF byte as a note, so the coord-flag refusal after it
+    could never run. Each is now a TranscodeError naming the SFX, the channel, the
+    token and the source line. Instrumented against all 16 core SFX at 633b5936
+    before the change: none reaches any of these branches (every regenerated .bin
+    byte-identical to the committed one), so no shipped byte moves."""
+
+    def _refused(self, dcb_line, *needles):
+        with self.assertRaises(TranscodeError) as ctx:
+            transcode_sfx_source(_dcb_src(dcb_line), 0xFF)
+        msg = str(ctx.exception)
+        for n in (dcb_line.strip(),) + needles:
+            self.assertIn(n, msg)
+        return msg
+
+    def test_unrecognised_token_refused(self):
+        self._refused("dc.b\tnC4, Bogus_Tok, $10", "'Bogus_Tok'")
+
+    def test_raw_coord_flag_byte_refused_not_played_as_a_note(self):
+        # $E5 was pitched as a note before the branch reorder.
+        self._refused("dc.b\t$E5, $10", "$E5", "coord flag")
+
+    def test_note_name_assembling_into_the_coord_range_refused(self):
+        # nC8 assembles to $81+96 = $E1: in SMPS that byte IS a coord flag.
+        self._refused("dc.b\tnC8, $10", "$E1", "'nC8'", "coord flag")
+
+    def test_top_note_still_a_note(self):
+        # nB6 = $DF, the last note byte, must still convert (boundary control).
+        desc = transcode_sfx_source(_dcb_src("dc.b\tnB6, $10"), 0xFF)
+        self.assertTrue(desc['channels'])
+
+    def test_byte_with_no_meaning_refused(self):
+        # $00 (and anything outside $01..$FF) was the "$80..$DF ... skipped" warn.
+        self._refused("dc.b\t$00", "$00")
+        self._refused("dc.b\t$100", "$100")
+
+
+class TestMissingCoreSfxSourceRefused(unittest.TestCase):
+    """A missing core SFX source used to print `[warn] ... source not found`, skip that
+    SFX and keep its STALE committed output, exit 0. generate_all now refuses before it
+    writes anything, naming the path."""
+
+    def test_missing_source_refuses_and_writes_nothing(self):
+        import tempfile
+        from unittest import mock
+        victim = _CORE_SFX_IDS[-1]      # last: every other SFX would have been written first
+        names = dict(sfx_transcode._CORE_SFX_FILENAMES)
+        names[victim] = 'no_such_sfx_source.asm'
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(sfx_transcode, '_CORE_SFX_FILENAMES', names):
+            with self.assertRaises(TranscodeError) as ctx:
+                sfx_transcode.generate_all(out_dir=out, emit_bin=True)
+            self.assertIn('no_such_sfx_source.asm', str(ctx.exception))
+            self.assertIn(f'${victim:02X}', str(ctx.exception))
+            self.assertEqual(os.listdir(out), [])
+
+
 class TestBlobLayoutMatchesSfxHeader(unittest.TestCase):
     """Verify the packed blob exactly matches the SfxHeader field layout from
     sound_constants.asm Task 5:

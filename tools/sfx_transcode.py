@@ -887,9 +887,20 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
             events.append(NoteDur(pitch, dur))
             noattack_pending = False
 
-        def _process_dcb(content: str):
-            """Process a dc.b line's content, handling notes, durations, smpsNoAttack."""
+        def _process_dcb(content: str, src_line: str, line_no: int):
+            """Process a dc.b line's content, handling notes, durations, smpsNoAttack.
+
+            Anything it cannot give a meaning to is REFUSED (PRINTED-NOT-GATED,
+            2026-09-25), naming the token and `src_line` (1-based `line_no` in the
+            parsed source, aux data sections appended): until then an unreadable
+            token or a meaningless byte was printed as `[warn] ... skipped` and
+            dropped from the shipped bytecode."""
             nonlocal noattack_pending, cur_dur, last_pitch
+
+            def _refuse(tok, why):
+                raise TranscodeError(
+                    f"sfx ${sfx_id:02X} ch ${chanid:02X}: dc.b token {tok!r} {why} "
+                    f"(line {line_no}: '{src_line}')")
 
             tokens = [t.strip() for t in content.split(',') if t.strip()]
             t_idx = 0
@@ -912,10 +923,8 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                 try:
                     val = _note_from_token(tok) if tok.startswith('n') else _parse_int(tok)
                 except (TranscodeError, ValueError):
-                    # Could be a label reference or unknown token
-                    print(f"  [warn] sfx ${sfx_id:02X}: unrecognised token {tok!r} in dc.b",
-                          file=sys.stderr)
-                    continue
+                    # A label reference, an expression, or an unknown spelling.
+                    _refuse(tok, "is not a note, rest, duration or smpsNoAttack")
 
                 if val == S3K_NOTE_REST:
                     # Rest — may carry its own explicit duration byte (nRst, $03),
@@ -938,8 +947,15 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     events.append(SetDur(min(rest_dur, 0x7F)))
                     events.append(Rest())
                     noattack_pending = False
-                elif S3K_NOTE_BASE <= val <= 0xFF:
-                    # Note byte
+                elif val >= 0xE0:
+                    # Coord flag byte ($E0-$FF): in SMPS a dc.b byte in this range
+                    # IS a coord flag, whether written raw or as a note name that
+                    # assembles here (nC8 = $E1). Tested BEFORE the note range:
+                    # until 2026-09-25 the note branch ran to $FF and this refusal
+                    # could never be reached, so the byte was pitched as a note.
+                    _handle_raw_coord(val, tok, src_line, line_no)
+                elif S3K_NOTE_BASE <= val < 0xE0:
+                    # Note byte ($81..$DF)
                     pitch = _smps_note_to_pitch(val, is_psg, transpose,
                                                 fm_octave=_fm_octave_for(sfx_id))
                     # (spindash rev is now runtime: the SpinRev opcode + the global
@@ -976,19 +992,19 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     cur_dur = val
                     if last_pitch is not None:
                         _emit_notedur(last_pitch, val)
-                elif val >= 0xE0:
-                    # Coord flag byte ($E0-$FF) — must be handled; raise if unknown
-                    _handle_raw_coord(val)
                 else:
-                    # Unknown byte in range $80..$DF (not a note, not a duration)
-                    print(f"  [warn] sfx ${sfx_id:02X}: byte ${val:02X} in dc.b range $80..$DF, "
-                          f"not a note/rest — skipped", file=sys.stderr)
+                    # Only $00, a negative value or one above $FF reaches here (every
+                    # $01..$FF byte has an arm above). Until 2026-09-25 this printed
+                    # "range $80..$DF ... skipped" and dropped it.
+                    _refuse(tok, f"= ${val:02X} is not a byte SMPS gives a meaning to "
+                                 f"in channel data ($01..$FF)")
 
-        def _handle_raw_coord(val: int):
+        def _handle_raw_coord(val: int, tok: str, src_line: str, line_no: int):
             """Handle a raw coord flag byte encountered in dc.b content."""
             raise TranscodeError(
-                f"sfx ${sfx_id:02X} ch ${chanid:02X}: raw coord flag byte ${val:02X} "
-                f"in dc.b not in v1 coverage list. Must be handled explicitly.")
+                f"sfx ${sfx_id:02X} ch ${chanid:02X}: dc.b token {tok!r} = ${val:02X} is "
+                f"a raw coord flag byte, not in v1 coverage list. Must be handled "
+                f"explicitly (write the smps macro). (line {line_no}: '{src_line}')")
 
         # Emit a loop-marker when we pass a label that appears in the data region
         # (so _insert_repeat_start can find it).
@@ -1095,7 +1111,7 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                     # Strip trailing comment
                     if ';' in rest:
                         rest = rest[:rest.index(';')].strip()
-                    _process_dcb(rest)
+                    _process_dcb(rest, line.strip(), i)
                     continue
 
                 m = re.match(r'(smps[A-Za-z]+)\s*(.*)', stripped)
@@ -1893,14 +1909,21 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
         0xBB: [0xBA],   # Sound_BA_BB_Voices lives in SFX BA — BB's header names it
     }
 
+    # Every source must exist BEFORE anything is written. Until 2026-09-25
+    # (PRINTED-NOT-GATED) a missing one printed `[warn] ... source not found`, was
+    # skipped, and its STALE committed output stayed in the tree, exit 0.
+    missing = [(sid, os.path.join(_dir_for(sid), _CORE_SFX_FILENAMES[sid]))
+               for sid in _CORE_SFX_IDS
+               if not os.path.exists(os.path.join(_dir_for(sid), _CORE_SFX_FILENAMES[sid]))]
+    if missing:
+        raise TranscodeError(
+            "core SFX source(s) not found; nothing was written: "
+            + "; ".join(f"${sid:02X} at {path}" for sid, path in missing))
+
     id_to_label = {}
     for sfx_id in _CORE_SFX_IDS:
         fname = _CORE_SFX_FILENAMES[sfx_id]
         src_path = os.path.join(_dir_for(sfx_id), fname)
-        if not os.path.exists(src_path):
-            print(f"  [warn] SFX ${sfx_id:02X}: source not found at {src_path}",
-                  file=sys.stderr)
-            continue
 
         print(f"  transcoding SFX ${sfx_id:02X} ({fname})...", file=sys.stderr)
 
@@ -1917,7 +1940,10 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
         else:
             combined_src = raw_src
 
-        sfx_desc = _parse_sfx_source(combined_src, sfx_id, _sfx_label(sfx_id))
+        try:
+            sfx_desc = _parse_sfx_source(combined_src, sfx_id, _sfx_label(sfx_id))
+        except TranscodeError as e:
+            raise TranscodeError(f"{src_path}: {e}") from e   # name the file too
         priority = _SFX_PRIORITY.get(sfx_id, SFXPRI_RING)
         label = _sfx_label(sfx_id)
 
