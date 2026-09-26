@@ -17,7 +17,19 @@ minutes apart.
 THE FIX IS NOT A CHECKER. A checker is a thing somebody must remember to run, on the right
 files, before believing a name. The fix is that the name is DERIVED from the state at the
 moment of capture, so it cannot disagree with it. This module is that derivation, and the
-only place the string "settled" is allowed to enter a filename.
+only place the stamp `palette-settled` is allowed to enter a filename.
+
+WHAT THE STAMP CERTIFIES, AND WHY IT IS NOT THE BARE WORD (CAPTURE-SETTLE-NAME,
+2026-09-26). Every clause below is about the PALETTE: CRAM lines 1-3 and the layers that
+write them. Nothing here reads scroll, VSRAM, plane nametables, sprites or the camera, so a
+frame can pass all seven while the picture is still MOVING (geometry scrolling, parallax
+mid-lerp). Until 2026-09-26 the stamp was the bare word `settled`, which told every later
+reader of a filename that the FRAME had settled: a true certificate travelling under a
+bigger name. The stamp is now `palette-settled` (PALETTE_SETTLED_WORD), the verdict field
+`Verdict.palette_settled`, so the name says exactly what was proven. Frames written before
+the rename (docs/captures/2026-09-16-night-settled*/) keep their `-settled.png` names and
+mean the same thing; their READMEs say so. A motion clause could be added later under a
+wider name without invalidating anything stamped `palette-settled` in the meantime.
 
 WHAT `Pal_Fade_Frames == 0` DOES AND DOES NOT GUARANTEE
 ------------------------------------------------------
@@ -72,8 +84,9 @@ that fails NAMES THE FRAME, so a filename says not only that it is unsettled but
   lag     the last N samples each advanced Logic_Tick by exactly 1 and took no lag frame
   hold    CRAM lines 1-3 identical across the last N samples
 
-All seven -> `settled`. A clause whose inputs are absent from the row is UNDECIDABLE and the
-frame is named `unknown`: never `settled`, and never quietly treated as a pass.
+All seven -> `palette-settled`. A clause whose inputs are absent from the row is UNDECIDABLE
+and the frame is named `unknown`: never `palette-settled`, and never quietly treated as a
+pass.
 
 WHEN `Pal_Target` MEANS ANYTHING, and the defect that taught it (live run 2026-09-16)
 --------------------------------------------------------------------------------------
@@ -180,12 +193,13 @@ from pathlib import Path
 
 AEON = Path(__file__).resolve().parent.parent
 
-#: The ONE place this word may be produced. Nothing else in this module or its callers may
-#: spell it into a filename; tools/test_capture_settle.py pins that.
-SETTLED_WORD = "settled"
+#: The ONE place this stamp may be produced. Nothing else in this module or its callers may
+#: spell it into a filename; tools/test_capture_settle.py pins that. It says PALETTE because
+#: that is all the seven clauses prove (see the header, "WHAT THE STAMP CERTIFIES").
+PALETTE_SETTLED_WORD = "palette-settled"
 
 #: The word used when a clause could not be evaluated. Deliberately not a substring of, and
-#: not containing, SETTLED_WORD — "unsettled" would have been, and a glob for `*settled*`
+#: not containing, PALETTE_SETTLED_WORD — "unsettled" would have been, and a glob for `*settled*`
 #: would then have swept up the frames that are anything but.
 UNKNOWN_WORD = "unknown"
 
@@ -260,7 +274,7 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
             "GameLoop no longer runs VSync_Wait -> Logic_Tick++ -> the state dispatch -> "
             f"Palette_Compose in that order (found {kinds}). COMPOSE_TO_CRAM_TICKS = "
             f"{COMPOSE_TO_CRAM_TICKS} is derived from exactly that ordering; re-derive it "
-            "before this module names another frame `%s`." % SETTLED_WORD)
+            "before this module names another frame `%s`." % PALETTE_SETTLED_WORD)
     cites.append(("Palette_Compose runs in the main loop AFTER the state dispatch, so a "
                   "compose is followed by the VBlank the next tick's VSync_Wait returns from",
                   "engine/system/game_loop.emp, proc GameLoop"))
@@ -354,7 +368,7 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
             f"{PAL_COMMITTER_CENSUS}. A writer of Palette_Buffer was added or removed. Read "
             "the census table in engine/system/buffers.emp against the guard table in this "
             "module's header: if the new writer of lines 1-3 is not gated by Pal_Base_Dirty, "
-            "PAL_ACT_CYCLE, Pal_Fade_Frames or Pal_Op, the `settled` word is no longer sound "
+            "PAL_ACT_CYCLE, Pal_Fade_Frames or Pal_Op, the `palette-settled` stamp is no longer sound "
             "and needs a new clause, not a bumped number.")
     cites.append((f"every writer of Palette_Buffer is enumerated by the frame-top palette "
                   f"committer census ({census} entries), and every lines-1-3 writer in it is "
@@ -379,7 +393,7 @@ def derive_engine_facts(aeon: Path = AEON) -> EngineFacts:
 @dataclass(frozen=True)
 class Verdict:
     word: str                    # the state word that goes in the filename
-    settled: bool                # every clause held, from a live read
+    palette_settled: bool        # every clause held, from a live read (PALETTE only)
     decided: bool                # every clause could be evaluated at all
     reasons: tuple = field(default_factory=tuple)
     stable_run: int = 0          # consecutive samples, ending here, with identical CRAM
@@ -519,7 +533,7 @@ def assess(series, facts: EngineFacts) -> Verdict:
     if len(window) < facts.stable_ticks:
         return Verdict("hold", False, True,
                        (f"only {len(window)} sample(s) taken; {facts.stable_ticks} consecutive "
-                        "are required before a frame may be called settled",),
+                        "are required before a frame may be called palette-settled",),
                        _stable_run(series, mask), **tc)
     for s in window[1:]:
         if s.get("dtick") is None or s.get("lag") is None:
@@ -552,7 +566,7 @@ def assess(series, facts: EngineFacts) -> Verdict:
     else:
         held += (". The Pal_Target comparison was NOT APPLICABLE and did not run: " + why_not +
                  ". This frame is certified on the layer gates and on CRAM stability alone")
-    return Verdict(SETTLED_WORD, True, True, (held,), run, **tc)
+    return Verdict(PALETTE_SETTLED_WORD, True, True, (held,), run, **tc)
 
 
 def _stable_run(series, mask) -> int:
@@ -583,13 +597,14 @@ def frame_name(leg: str, row: dict, verdict: Verdict, ext: str = "png") -> str:
       cx    the camera CENTRE x -- the point Region_Resolve tests, not Camera_X
       r     the region row the ROM's own table puts that centre in (`XX` = no row)
       pf    Pal_Fade_Frames as read on this tick
-      state SETTLED_WORD, or the name of the FIRST clause that refused, or `unknown`
+      state PALETTE_SETTLED_WORD, or the name of the FIRST clause that refused, or `unknown`
 
-    The only way to get `settled` into a name is for `assess()` to have returned it from a
+    The only way to get `palette-settled` into a name is for `assess()` to have returned it from a
     live read. This function will not take the word from a caller."""
-    if verdict.word == SETTLED_WORD and not verdict.settled:
-        raise ValueError("refusing to name a frame `%s` from a verdict that is not settled — "
-                         "this is the bug this module exists to make impossible" % SETTLED_WORD)
+    if verdict.word == PALETTE_SETTLED_WORD and not verdict.palette_settled:
+        raise ValueError("refusing to name a frame `%s` from a verdict that is not "
+                         "palette-settled — this is the bug this module exists to make "
+                         "impossible" % PALETTE_SETTLED_WORD)
     for need in ("k", "tick", "centre_x", "fade_frames"):
         if row.get(need) is None:
             raise ValueError(f"refusing to name a frame with no `{need}`: a name that omits "

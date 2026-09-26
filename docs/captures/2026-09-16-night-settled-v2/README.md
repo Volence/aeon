@@ -1,5 +1,7 @@
 # The night region's FADE edge at x = 3400, captured until it settled
 
+> **Read `settled` in this set as `palette-settled`** (CAPTURE-SETTLE-NAME, 2026-09-26). These frames were named before the stamp was narrowed. The certificate is unchanged and is about COLOUR only: CRAM lines 1-3 and the layers that write them. Nothing in it reads scroll, planes, sprites or the camera, and this route holds RIGHT the whole way, so the geometry is moving in every frame here. A `-settled.png` below is a frame whose palette settled, not a still picture. The files keep their names because other documents cite them; `tools/capture_settle.py` now writes `-palette-settled.png`.
+
 `s4.debug.bin` md5 `63980e7e`, symbols `s4.debug.lst`. Cold boot, one held RIGHT in DEBUG free flight (16 px/tick). "Centre" is `Camera_X` + `CAM_SCREEN_HALF_W`, the point `Region_Resolve` tests. The night region is row 9, x 3400..4799.
 
 **Every filename here was derived from the state read on that tick, by `tools/capture_settle.py`. A frame is called `settled` only where that predicate said so from a live read; otherwise the name carries the first clause that refused.** This set exists because `docs/captures/2026-09-13-regions-p2-night/t5-f272-settled.png` was named by hand and is mid-fade.

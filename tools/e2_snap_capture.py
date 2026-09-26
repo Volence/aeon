@@ -43,7 +43,7 @@ recorded beside it. The report's own `frame` column is the authority on that off
 NAMING, AND THE ONE THING THIS TOOL MUST NEVER START DOING. `in-k+03.png` is derived from
 a live read (k is the tick distance from the crossing the ROM's own table decided), and this
 tool never claims a frame is SETTLED — a snap has nothing to settle. If that ever changes,
-the word may only come from `tools/capture_settle.py`, which is the repository's one settle
+the stamp (`palette-settled`) may only come from `tools/capture_settle.py`, the one settle
 predicate and name derivation. It exists because
 `docs/captures/2026-09-13-regions-p2-night/t5-f272-settled.png` was named by hand from a CRAM
 tracer entry and is mid-fade, with the refutation sitting in its own set's table one column

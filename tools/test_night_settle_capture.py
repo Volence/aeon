@@ -142,14 +142,14 @@ def test_the_simulated_fade_settles_exactly_where_the_step_rule_and_n_put_it():
     buffer_settles_at = arm + (2 * d - 1) - 1
     expect_first_settled = buffer_settles_at + f.stable_ticks
 
-    first = next(i for i in range(len(rows)) if verdicts[i].settled and i >= arm)
+    first = next(i for i in range(len(rows)) if verdicts[i].palette_settled and i >= arm)
     assert first == expect_first_settled, (
         f"d={d}, buffer settles at tick index {buffer_settles_at}, N={f.stable_ticks}")
     assert rows[first]["fade_frames"] == 0
     # and the frames between the counter reaching 0 and the settle are NOT settled: this is
     # the whole gap the 2026-09-13 set fell into
     for i in range(buffer_settles_at, first):
-        assert not verdicts[i].settled, i
+        assert not verdicts[i].palette_settled, i
         assert verdicts[i].word in ("cram", "hold"), (i, verdicts[i].word)
 
 
@@ -159,14 +159,14 @@ def test_only_settled_ticks_get_the_word_and_every_name_carries_its_state():
     assert keep, "nothing was kept"
     for r in keep:
         name = r["png"]
-        assert (cs.SETTLED_WORD in name) == r["settled"], name
+        assert (cs.PALETTE_SETTLED_WORD in name) == r["palette_settled"], name
         # every name carries the tick, the camera centre and the fade counter
         assert f"t{r['tick']:05d}" in name, name
         assert f"cx{r['centre_x']:04d}" in name, name
         assert f"pf{r['fade_frames']:02d}" in name, name
         assert f"k{r['k']:+04d}" in name, name
-    assert any(r["settled"] for r in keep), "the simulated run never settled: a vacuous pass"
-    assert any(not r["settled"] for r in keep), "every frame settled: a vacuous pass"
+    assert any(r["palette_settled"] for r in keep), "the simulated run never settled: a vacuous pass"
+    assert any(not r["palette_settled"] for r in keep), "every frame settled: a vacuous pass"
 
 
 def test_the_pre_crossing_control_is_settled_on_the_DAY_palette():
@@ -176,7 +176,7 @@ def test_the_pre_crossing_control_is_settled_on_the_DAY_palette():
     rows, arm = simulate()
     keep, _, _, _ = drive(rows, arm)
     pre = [r for r in keep if r["k"] < 0]
-    assert pre and all(r["settled"] for r in pre)
+    assert pre and all(r["palette_settled"] for r in pre)
     assert all("-r01-" in r["png"] for r in pre)
     assert all("-r09-" in r["png"] for r in keep if r["k"] >= 0)
 
@@ -208,15 +208,15 @@ def test_the_2026_09_13_frame_cannot_be_named_settled_by_this_tool():
 
     keep, _, verdicts, f = drive(rows, arm)
     v = verdicts[victim]
-    assert not v.settled and v.word == "fading", v
+    assert not v.palette_settled and v.word == "fading", v
     name = next(r["png"] for r in keep if r["i"] == victim)
-    assert cs.SETTLED_WORD not in name, name
+    assert cs.PALETTE_SETTLED_WORD not in name, name
     assert "-pf11-fading.png" in name, name
 
     rep = report_of(keep, rows, arm, f)
     row = next(t for t in rep["ticks"] if t["i"] == victim)
     assert row["settle_state"] == "fading"
-    assert name not in rep["settled_frames"]
+    assert name not in rep["palette_settled_frames"]
     md = nsc.readme(rep)
     assert f"`{name}`" in md
     assert "| `fading` |" in md
@@ -232,12 +232,12 @@ def test_the_report_round_trips_as_json_and_carries_the_derivation():
     assert rep["settle"]["pal_fade_frames_const"] == f.fade_frames_const
     assert len(rep["settle"]["derivation"]) >= 5
     assert all({"claim", "from"} == set(d) for d in rep["settle"]["derivation"])
-    assert rep["settled"] is True and rep["stopped_because"] is None
-    assert rep["settled_frames"], "no settled frames offered for measurement"
+    assert rep["palette_settled"] is True and rep["stopped_because"] is None
+    assert rep["palette_settled_frames"], "no settled frames offered for measurement"
     # the offer is scoped to the SUBJECT: every frame offered is inside the night region
-    assert all("-r%02d-" % FADE_ROW["index"] in n for n in rep["settled_frames"])
+    assert all("-r%02d-" % FADE_ROW["index"] in n for n in rep["palette_settled_frames"])
     assert rep["control_frames"] and not (
-        set(rep["control_frames"]) & set(rep["settled_frames"]))
+        set(rep["control_frames"]) & set(rep["palette_settled_frames"]))
     assert all("-r%02d-" % FADE_ROW["index"] not in n for n in rep["control_frames"])
     for t in rep["ticks"]:
         for arr in ("buffer", "target", "cram"):
@@ -252,10 +252,10 @@ def test_an_unsettled_run_offers_no_frame_and_says_so_loudly():
     rows, arm = simulate(n_post=6)          # cut short before the stability window closes
     keep, _, _, f = drive(rows, arm)
     night = [r for r in keep if r["row"] == FADE_ROW["index"]]
-    assert night and not any(r["settled"] for r in night)
+    assert night and not any(r["palette_settled"] for r in night)
     rep = report_of(keep, rows, arm, f, stopped="the fade had not settled at the ceiling")
-    assert rep["settled"] is False
-    assert rep["settled_frames"] == [], (
+    assert rep["palette_settled"] is False
+    assert rep["palette_settled_frames"] == [], (
         "a run that did not settle offered a settled frame for measurement")
     # THE SCOPING, which is the thing this arm exists to pin: the approach frames ARE settled
     # (on the day palette) and must NOT be offered as night evidence.
@@ -310,7 +310,7 @@ def test_the_help_text_names_every_option_and_both_exit_codes():
     src = Path(HERE, "night_settle_capture.py").read_text()
     doc = nsc.__doc__
     assert "Exit 0" in doc and "2  COULD NOT RUN" in doc
-    for opt in ("--rom", "--lst", "--outdir", "--settled-frames", "--check", "--force"):
+    for opt in ("--rom", "--lst", "--outdir", "--palette-settled-frames", "--check", "--force"):
         assert f'"{opt}"' in src, opt
     # every add_argument carries a help= (the owner drives this without reading the source)
     assert src.count("ap.add_argument(") == src.count("help=")
@@ -365,11 +365,11 @@ def test_settled_night_frames_record_whether_the_target_comparison_actually_ran(
     rows, arm = simulate()
     keep, _, _, f = drive(rows, arm)
     rep = report_of(keep, rows, arm, f)
-    compared = set(rep["settled_frames_with_target_compared"])
-    assert compared and compared <= set(rep["settled_frames"])
+    compared = set(rep["palette_settled_frames_with_target_compared"])
+    assert compared and compared <= set(rep["palette_settled_frames"])
     for t_ in rep["ticks"]:
         assert "target_checked" in t_
-        if t_["settle_state"] == cs.SETTLED_WORD and t_["row"] != FADE_ROW["index"]:
+        if t_["settle_state"] == cs.PALETTE_SETTLED_WORD and t_["row"] != FADE_ROW["index"]:
             assert t_["target_checked"] is False, (
                 "a pre-fade control cannot have compared against an unwritten Pal_Target")
     md = nsc.readme(rep)
