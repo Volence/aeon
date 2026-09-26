@@ -352,6 +352,56 @@ def rom_static_critical_lengths(lst_path, rom_path):
     return {"palette_line": b[0], "palette_lines": 4, "sat": b[4], "hscroll": b[5]}
 
 
+#: `move.w #<imm>, (<abs>).w` -- MOVE.W, source immediate (mode 7 reg 4), destination
+#: absolute short (mode 7 reg 0): 0011 000 111 111 100 = $31FC, then imm16, then abs16.
+_MOVE_W_IMM_ABSW = b"\x31\xfc"
+_BUDGET_SEED_PROC = "EntryPoint"
+_BUDGET_CELL = "DMA_Budget_Default"
+
+
+def rom_budget_seeds(lst_path, rom_path):
+    """The immediates boot actually SEEDS the per-frame DMA budget with, read out of the ROM.
+
+    GATE-PREDICATE-VS-PROMISE (2026-09-26). The budget this tool pins is a CONSTANT read
+    twice (source and EQU), but what the engine charges against is RAM `DMA_Budget_Default`,
+    written once in boot and copied into `DMA_Budget_Remaining` every VInt. Nothing read that
+    write. Measured: `move.w #DMA_BUDGET_NTSC, (DMA_Budget_Default).w` ->
+    `#DMA_BUDGET_NTSC-512` built (ROM `$1800` -> `$1600`) and --gate exited 0: constant,
+    EQU and pin all unchanged while the real NTSC margin went 480 B into deficit.
+
+    Returns the sorted immediates of every `move.w #imm, (DMA_Budget_Default).w` in
+    `EntryPoint`'s extent. Same two-byte-step scan and same stated limit as
+    `rom_static_critical_lengths`: the triple (opcode, imm, this cell's short address) must
+    match, and the caller cross-checks count and values against the two constants."""
+    rows = {}
+    for line in Path(lst_path).read_text().splitlines():
+        m = re.match(r"^\(0\)\s+\d+/([0-9A-Fa-f]+)\s+:\s+([A-Za-z_$][\w.$]*):", line)
+        if m:
+            rows.setdefault(m.group(2), int(m.group(1), 16))
+    for need in (_BUDGET_SEED_PROC, _BUDGET_CELL):
+        if need not in rows:
+            raise Unmeasurable(f"`{need}` is not in {lst_path} -- the DMA budget seed "
+                               "cannot be located in the image")
+    cell = rows[_BUDGET_CELL] & 0xFFFF
+    base = rows[_BUDGET_SEED_PROC]
+    # The seed sits past EntryPoint's own local labels (`.pal`, `.region_done`), so the
+    # extent is bounded by the next NON-local row, not by the next row of any kind.
+    above = [v for k, v in rows.items() if v > base and v < 0xFF0000 and "$" not in k]
+    end = min(above) if above else None
+    data = Path(rom_path).read_bytes()
+    if end is None or end > len(data):
+        raise Unmeasurable(f"{_BUDGET_SEED_PROC}'s extent cannot be bounded in {rom_path}")
+    blk = data[base:end]
+    seeds, i = [], 0
+    while i + 6 <= len(blk):
+        if blk[i:i + 2] == _MOVE_W_IMM_ABSW and struct.unpack_from(">H", blk, i + 4)[0] == cell:
+            seeds.append(struct.unpack_from(">H", blk, i + 2)[0])
+            i += 6
+        else:
+            i += 2
+    return sorted(seeds)
+
+
 def _cross_check(what, declared, assembled, how):
     """Route 1 vs route 2. Disagreement names BOTH SIDES and is never resolved.
 
@@ -453,6 +503,13 @@ def measure(lst_path, rom_path, equs=None, rom_crit=None):
         _cross_check(name, _const(name), equs[name],
                      f"`EQU {name}` in {lst_path}, i.e. sigil's own evaluation of "
                      "engine/system/constants.emp")
+    # The budget constants are only a budget if boot SEEDS the RAM cell with them: see
+    # rom_budget_seeds. The NTSC and PAL arms each write one immediate.
+    _cross_check("the DMA budget seeds boot writes to DMA_Budget_Default",
+                 sorted((_const("DMA_BUDGET_NTSC"), _const("DMA_BUDGET_PAL"))),
+                 rom_budget_seeds(lst_path, rom_path),
+                 f"the `move.w #imm, (DMA_Budget_Default).w` immediates in EntryPoint "
+                 f"of {rom_path}")
 
     budget_ntsc = _const("DMA_BUDGET_NTSC")
     budget_pal = _const("DMA_BUDGET_PAL")

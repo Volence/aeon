@@ -68,6 +68,11 @@ import artifact_provenance  # noqa: E402
 REPO = effects_gen.REPO
 PALETTE = os.path.join(REPO, "engine", "effects", "palette.emp")
 PALETTE_DSL = os.path.join(REPO, "engine", "effects", "palette_dsl.emp")
+# The order Palette_DoCycle's six `move.b (a0)+` / `addq.l #1, a0` reads consume one
+# channel in (engine/effects/palette.emp, proc Palette_DoCycle, `.chan:`): d0 line,
+# d1 first, d2 count, d3 period, d4 direction, then the pad. See main() for why this is
+# stated here rather than read off the struct.
+CYCLE_WIRE_ORDER = ("pc_line", "pc_first", "pc_count", "pc_period", "pc_dir", "pc_pad")
 HAND_LIB = os.path.join(REPO, "games", "sonic4", "data", "effects", "ojz_effects.emp")
 
 # THE DECLARED HALF, and the only typed thing in this file: which hand `pub data` each
@@ -238,6 +243,23 @@ def main() -> int:
         dsl_src = _read(PALETTE_DSL)
         variant_fields = struct_fields(pal_src, "pal_variant")
         channel_fields = struct_fields(pal_src, "pal_cycle_channel")
+        # THE CONSUMER'S ORDER, NOT ONLY THE DECLARATION'S (GATE-PREDICATE-VS-PROMISE,
+        # 2026-09-26). This gate decodes channels in the order `pal_cycle_channel` DECLARES,
+        # and the constructor lowers through the same declaration, so the bytes and the
+        # decode moved together. `Palette_DoCycle` does not read through the struct: it walks
+        # each channel POSITIONALLY with six `(a0)+` reads. Measured: swapping `pc_line` and
+        # `pc_first` in the struct built, the ROM bytes went `02 08` -> `08 02`, and this gate
+        # exited 0 while the engine rotated "line 8". The wire order is stated here once, as
+        # a second statement the declaration cannot move; if Palette_DoCycle's read order is
+        # ever changed on purpose, change CYCLE_WIRE_ORDER with it.
+        if [n for n, _ in channel_fields] != list(CYCLE_WIRE_ORDER):
+            print(f"editor_palette_golden: FAIL — `pal_cycle_channel` declares "
+                  f"{[n for n, _ in channel_fields]}, but Palette_DoCycle "
+                  f"(engine/effects/palette.emp) reads each channel positionally as "
+                  f"{list(CYCLE_WIRE_ORDER)}. Every emitted cycle channel would be read with "
+                  f"its fields crossed; the byte decode below cannot see this because it "
+                  f"follows the same declaration the constructor lowers through.")
+            return 1
         variant_defaults = signature_defaults(dsl_src, "variant")
         channel_defaults = signature_defaults(dsl_src, "cycle_channel")
         labels = lst_labels(lst_path)

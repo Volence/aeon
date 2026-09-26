@@ -878,16 +878,21 @@ def main() -> int:
         fail(f"{DESCRIPTOR}'s seam import does not name {', '.join(sorted(missing))}. "
              f"The generator emits it for every act, so there is nothing to condition on "
              f"and nothing that legitimately disappears.")
-    if f"{names.fn_act_default}(hand:" not in desc:
+    # THE CALL CHECKS READ COMMENT-STRIPPED SOURCE (GATE-PREDICATE-VS-PROMISE, 2026-09-26).
+    # They read the raw text until then, and act_descriptor.emp carries a COMMENT quoting
+    # `ojz_act1_act_default(hand:)`, so the substring was always present: replacing the call
+    # with the bare `ParallaxConfig_OJZ_Default` it wraps built, and this check stayed green
+    # (measured, exit 0). The promise is about a CALL, and a comment is not one.
+    code = re.sub(r"//[^\n]*", "", desc)
+    if f"{names.fn_act_default}(hand:" not in code:
         fail(f"{DESCRIPTOR} imports {names.fn_act_default} but never calls it with "
              f"a `hand:` fallback — the act default would stop flowing through the "
              f"editor seam.")
     sections = effects_gen.act_section_count(REPO)
-    code = re.sub(r"//[^\n]*", "", desc)
     if region_mode:
         calls = region_seam_faults(names, imported, code, fail)
     else:
-        if f"{names.fn_sec_scene}(sec:" not in desc:
+        if f"{names.fn_sec_scene}(sec:" not in code:
             fail(f"{DESCRIPTOR} imports {names.fn_sec_scene} but never calls it — no "
                  f"section can carry an editor-authored scene.")
         # EVERY sidecar index reaches the binding, exactly once. Since painted-regions v1 the
@@ -959,7 +964,7 @@ def main() -> int:
                  f"function is the palette {channel} channel's whole binding route, and "
                  f"an unimported chooser cannot be called — so every document's "
                  f"`{channel}s` would be ROM nothing installs.")
-        if f"{fn}(preset:" not in lib:
+        if f"{fn}(preset:" not in re.sub(r"//[^\n]*", "", lib):   # a call, not a comment
             fail(f"{EFFECTS_LIB} imports {fn} but never calls it. The chooser is emitted "
                  f"for every act whether or not a document carries the key, so nothing "
                  f"legitimately stops calling it — and an uncalled `pub comptime fn` is "

@@ -1001,6 +1001,45 @@ def derived_cut_placement(rom, syms, path, lst_path):
     return bad
 
 
+def caller_faults(rom, syms):
+    """IS THE ROUTINE THIS GATE EXECUTES EVER RUN? (GATE-PREDICATE-VS-PROMISE, 2026-09-26)
+
+    The promise is "the sprite's mapping frame changes with the terrain angle"; the sweep
+    proves Player_ApplyTilt's BYTES compute the right frame, and nothing checked that the
+    game calls them. Measured: player_common.emp:1653 `jbsr Player_ApplyTilt` -> `nop`
+    built, the fixture stayed fresh, and --gate exited 0 while the player never tilted.
+
+    Off the image, in Player_Display's extent: exactly one call to Player_ApplyTilt, a call
+    to AnimateSprite BEFORE it (it owns mapping_frame and the flip pair), and the very next
+    instruction a jump to Player_LoadArt (which streams the art mapping_frame names)."""
+    for need in ("Player_Display", "Player_ApplyTilt", "AnimateSprite", "Player_LoadArt"):
+        if need not in syms:
+            return ["%s is not in the listing, so the tilt call site cannot be checked" % need]
+    start, end = routine_extent(syms, "Player_Display")
+    _, listing = decode(rom, start, end)
+    xfer = []
+    for i, (_a, _h, mnem, op) in enumerate(listing):
+        base = mnem.split(".")[0]
+        m = re.fullmatch(r"\$([0-9a-fA-F]+)(?:\.[wl])?", op.strip()) if op else None
+        if base in ("jsr", "bsr", "jmp", "bra") and m:
+            xfer.append((i, base, int(m.group(1), 16) & 0xFFFFFF))
+    tilt = [x for x in xfer if x[1] in ("jsr", "bsr") and x[2] == syms["Player_ApplyTilt"]]
+    if len(tilt) != 1:
+        return ["Player_Display calls Player_ApplyTilt %d time(s), expected 1 — the routine "
+                "this gate executes is %s" % (len(tilt), "never run" if not tilt else "run twice")]
+    i = tilt[0][0]
+    fails = []
+    if not any(x[0] < i and x[1] in ("jsr", "bsr") and x[2] == syms["AnimateSprite"]
+               for x in xfer):
+        fails.append("Player_Display does not call AnimateSprite before Player_ApplyTilt — the "
+                     "tilt would read a mapping_frame the animation has not chosen yet")
+    nxt = [x for x in xfer if x[0] == i + 1]
+    if not (nxt and nxt[0][1] in ("jmp", "bra") and nxt[0][2] == syms["Player_LoadArt"]):
+        fails.append("the instruction after Player_Display's Player_ApplyTilt call is not a "
+                     "jump to Player_LoadArt — the tilted frame is not the one whose art streams")
+    return fails
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--lst", required=True)
@@ -1067,6 +1106,7 @@ def main():
             stale = check_fixture(rom, syms, args.fixture, args.lst)
 
     checks, fails, frames, listing = sweep(rom, syms, args.verbose)
+    fails += caller_faults(rom, syms)
 
     start, end = routine_extent(syms, "Player_ApplyTilt")
     print("sprite_tilt_gate [%s]:" % lst.name)

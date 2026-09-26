@@ -1205,6 +1205,51 @@ SUBJECTS = [
 ]
 
 
+#: The routine that queues each subject's DPLC, and the entry point each queue name means.
+#: GATE-PREDICATE-VS-PROMISE (2026-09-26): SUBJECTS' `queue` column was a typed claim,
+#: printed and never checked, and every verdict here is a statement about the IMPORTANT
+#: queue's reserve. Measured: characters.emp:106 `jbsr Perform_DPLC` ->
+#: `Perform_DPLC_Deferrable` built and --gate exited 0, certifying a reserve the players no
+#: longer draw on. `check_subject_queues` reads the call target out of the image.
+SUBJECT_CALLERS = {"sonic": "Player_LoadArt", "tails": "Player_LoadArt",
+                   "knuckles": "Player_LoadArt", "tails_tail": "TailsAppendage_Main"}
+QUEUE_ENTRY = {"Important": "Perform_DPLC", "Deferrable": "Perform_DPLC_Deferrable"}
+
+
+def check_subject_queues(subs, rom, labels):
+    """[(subject, fault)] -- empty when every subject's caller calls exactly its queue's
+    Perform_DPLC* entry and no other variant. Decoded with capstone over the caller's
+    extent (to the next non-local label); a call is a jsr/bsr whose operand is an address."""
+    import capstone
+    md = capstone.Cs(capstone.CS_ARCH_M68K,
+                     capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    entries = {q: labels.get(e) for q, e in QUEUE_ENTRY.items()}
+    faults = []
+    for s in subs:
+        caller = SUBJECT_CALLERS.get(s["name"])
+        if caller is None or caller not in labels:
+            faults.append((s["name"], f"no known caller in the listing "
+                                      f"({caller!r}); its queue cannot be read"))
+            continue
+        a = labels[caller]
+        end = min(v for k, v in labels.items() if v > a and "$" not in k)
+        targets = []
+        for insn in md.disasm(rom[a:end], a):
+            if insn.mnemonic.split(".")[0] in ("jsr", "bsr", "jmp", "bra"):
+                m = re.fullmatch(r"\$([0-9a-fA-F]+)(?:\.[wl])?", insn.op_str.strip())
+                if m:
+                    targets.append(int(m.group(1), 16) & 0xFFFFFF)
+        want = entries.get(s["queue"])
+        hits = {q: targets.count(addr) for q, addr in entries.items() if addr is not None}
+        if hits.get(s["queue"], 0) != 1 or sum(v for q, v in hits.items() if q != s["queue"]):
+            faults.append((s["name"], f"{caller} calls "
+                           f"{', '.join(f'{QUEUE_ENTRY[q]} x{n}' for q, n in hits.items()) or 'no Perform_DPLC*'}; "
+                           f"this tool's verdicts are about the {s['queue']} queue, so it wants "
+                           f"exactly one call to {QUEUE_ENTRY.get(s['queue'])}"
+                           + ("" if want is not None else " (not in the listing)")))
+    return faults
+
+
 #: `pub data <Label> = <const>` in an `.emp`, with the right-hand side captured.
 #: `check_subject_extents` needs the RHS: `+ art_len` is only the label's ROM
 #: extent while the label binds the embed WHOLE, and a concatenation, a pad or a
@@ -1878,6 +1923,10 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
                   f"slots and .split_reject drops the whole transfer when only one is free, so "
                   f"one of these sets would lose its art. Contributors: "
                   f"{', '.join(f'{k} {v}' for k, v in ranked if v)}.", file=out)
+            failed = True
+        # VERDICT D — the queue every verdict above is ABOUT (see check_subject_queues).
+        for name, why in check_subject_queues(subs, rom, labels):
+            print(f"\ndplc_straddle: FAIL — {name}: {why}.", file=out)
             failed = True
         if failed:
             return 1

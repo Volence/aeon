@@ -130,6 +130,62 @@ def _reg_num(op):
     return None
 
 
+def arm_faults(rom, start, end, normal_addr):
+    """What SELECTS each arm, which `found_pairs` cannot see (GATE-PREDICATE-VS-PROMISE,
+    2026-09-26). The pairs are read in ADDRESS order, so until this existed a routine whose
+    `beq .normal` became `bne .normal` wrote the same four pairs in the same order and this
+    gate stayed green (measured, exit 0) while every normal frame took the SWAPPED arm.
+    The promise is "the right byte on BOTH arms", and an arm is the code a condition runs.
+    So this requires, off the decoded bytes:
+      * the arm test is `tst.b d0` followed IMMEDIATELY by `beq` to `.normal` -- d0 == 0
+        is the normal arm (docstring), so the branch that skips the swapped arm is taken
+        on ZERO;
+      * pairs 0-1 (the swapped arm) sit after that branch and before `.normal`, and
+        pairs 2-3 (the normal arm) at or after `.normal`.
+    Returns a list of fault strings; empty is OK."""
+    _, listing = decode(rom, start, end)
+    test_at = [i for i, (_a, _h, m, o) in enumerate(listing)
+               if m == "tst.b" and o.strip() == "d0"]
+    if len(test_at) != 1:
+        return [f"want exactly one `tst.b d0` (the arm test) in the extent, found {len(test_at)}"]
+    i = test_at[0]
+    if i + 1 >= len(listing):
+        return ["`tst.b d0` is the extent's last instruction; no arm branch follows it"]
+    faults = []
+    br_addr, _h, br_m, br_o = listing[i + 1]
+    target = None
+    if br_o.strip().startswith("$"):
+        try:
+            target = int(br_o.strip()[1:], 16)
+        except ValueError:
+            target = None
+    if br_m.split(".")[0] != "beq" or target != normal_addr:
+        faults.append(f"the instruction after `tst.b d0` is `{br_m} {br_o}` at ${br_addr:06X}; "
+                      f"want `beq` to `.normal` (${normal_addr:06X}) -- d0 == 0 must select "
+                      f"the NORMAL arm")
+    at = []
+    pending = None
+    for addr, _hexb, mnemonic, op_str in listing:
+        ops = [o.strip() for o in op_str.split(",")] if op_str else []
+        if mnemonic == "move.w" and len(ops) == 2 and _reg_num(ops[1]) == 0 \
+                and _imm(ops[0]) is not None:
+            pending = addr
+        elif mnemonic == "move.b" and len(ops) == 2 and _reg_num(ops[1]) == 1 \
+                and _imm(ops[0]) is not None and pending is not None:
+            at.append(pending)
+            pending = None
+    if len(at) == 4:
+        for k, a in enumerate(at):
+            if k < 2 and not br_addr < a < normal_addr:
+                faults.append(f"pair {k} loads at ${a:06X}, outside the SWAPPED arm "
+                              f"(after the branch at ${br_addr:06X}, before `.normal` "
+                              f"${normal_addr:06X})")
+            if k >= 2 and a < normal_addr:
+                faults.append(f"pair {k} loads at ${a:06X}, before `.normal` "
+                              f"${normal_addr:06X}: not in the NORMAL arm")
+    return faults
+
+
 def found_pairs(rom, start, end):
     """Walk the disassembly for `move.w #<n>, d0` / `move.b #<n>, d1` instructions, in
     address order, and return the (n, m) pairs a `move.w #n,d0` followed (anywhere
@@ -245,6 +301,14 @@ def main():
                           f"(d0=${w[0]:X}, d1=${w[1]:02X})")
             print(f"    Reminder: index 0-1 are the SWAPPED arm (before "
                   f"{NORMAL_LABEL}, ${normal_addr:06X}), index 2-3 are the NORMAL arm.")
+            return 1
+
+        faults = arm_faults(rom, start, end, normal_addr)
+        if faults:
+            print("plane_role_swap_gate: FAIL — the four pairs are right, but what SELECTS "
+                  "each arm is not:")
+            for fault in faults:
+                print(f"    {fault}")
             return 1
 
         print(f"plane_role_swap_gate: OK — Parallax_Set_Roles_Swapped writes reg $02/"

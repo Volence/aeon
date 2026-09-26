@@ -182,6 +182,32 @@ def test_found_pairs_ignores_the_flag_store_and_branches():
     assert G.found_pairs(rom, 0, len(rom)) == []
 
 
+# arm_faults (GATE-PREDICATE-VS-PROMISE, 2026-09-26): the same real bytes. `.normal` is
+# offset $20 (the third `move.w #$2, d0`), and `beq.b $18` at offset 6 lands there.
+_NORMAL_AT = 0x20
+
+
+def test_arm_faults_accepts_the_real_build_bytes():
+    rom = bytes.fromhex(_ROUTINE_HEX)
+    assert G.arm_faults(rom, 0, len(rom), _NORMAL_AT) == []
+
+
+def test_an_INVERTED_arm_branch_is_a_fault_though_the_pairs_are_unchanged():
+    """The measured survivor: `beq .normal` -> `bne .normal` leaves found_pairs' answer
+    identical and sends every d0 == 0 call down the swapped arm."""
+    rom = bytes.fromhex(_ROUTINE_HEX.replace("6718", "6618", 1))
+    assert G.found_pairs(rom, 0, len(rom)) == [(2, 0x38), (4, 0x06), (2, 0x30), (4, 0x07)]
+    faults = G.arm_faults(rom, 0, len(rom), _NORMAL_AT)
+    assert len(faults) == 1 and "want `beq`" in faults[0]
+
+
+def test_a_pair_on_the_wrong_side_of_normal_is_a_fault():
+    """Same bytes, `.normal` claimed one pair earlier: pair 1 now sits in the NORMAL arm."""
+    rom = bytes.fromhex(_ROUTINE_HEX)
+    faults = G.arm_faults(rom, 0, len(rom), 0x14)
+    assert any("pair 1" in f for f in faults)
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
