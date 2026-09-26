@@ -40990,6 +40990,26 @@ refuse an anchor step of more than one section, and `loop_plane_probe.py` places
 4500) run on DEBUG. This is a probe teleport artifact, not a level or layer-line fault. The probe needs a warp that
 re-runs `EntityWindow_Init` (or stepped camera moves) before it can drive the DEBUG ROM that far out again.
 
+**FIXED (2026-09-26, `fix/layer-line-tests-fresh-tree`): the landed `tools/test_s2_layer_lines.py` read the
+gitignored converted donor trees, so every fresh landing worktree went red.** Seven `CM.load(p)` calls passed no
+`donor_root=`, so they resolved `games/sonic4/data/donors/s2disasm/{EHZ,CPZ}`, which exists only where someone ran
+`s2_zone_convert`. The "3586 passed" above came from such a worktree. `_donor_or_skip()` checked only the s2disasm
+CHECKOUT, not the converted tree. Measured in a fresh worktree of `332cc1ba` (no `games/sonic4/data/donors` dir):
+`landing_build.sh` exit 1, `finished=1`, pre-build lane `10 failed, 3576 passed, 3 skipped`. All 10 failures are in
+this file, with R4 "no converted tree at ...s2disasm/EHZ". No other test file failed. The fix uses the pattern seven
+sibling clip test files already carry (`test_clip_manifest`, `test_clip_bake_json`, ...): an autouse module guard
+points `CM.DEFAULT_DONOR_ROOT` at a path that cannot exist, and a module `donors` fixture converts s2disasm EHZ+CPZ
+into pytest's tmp (0.11 s setup). Every `CM.load` passes `donor_root=donors`. Checked with a mutation: with the
+converted trees present, the old file passed 16/16, which is why the gap was invisible. With the trees present and
+one `donor_root=` removed, the fixed file fails 4 of 16. Rejected: skipping when the trees are absent (that skip
+fires in exactly the landing worktree, so the lane would pass on an absence), and having build.sh/landing_build
+convert them (it writes the gitignored tree as a side effect and still lets a row read an author's stale copy).
+After the fix, in a fresh worktree of `6bfb0535` (no donors dir before or after): `landing_build.sh` exit 0,
+`finished=0`. Pre-build lane: `3586 passed, 3 skipped`. The 3 skips are unrelated: the empyrean contract is not
+beside a `.claude/worktrees` checkout, there is no `EditorDeform_` table, and there are no excluded editor dirs.
+Marked lane: 34 ran, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`). `test_s2_layer_lines.py`: 16 passed, 0 skipped.
+Only donor-less runs skip (s2disasm unresolvable), and the skip message says NOTHING in the row is checked.
+
 **Status before the ruling (2026-09-26): option A was BUILT on branch `parcel/s2clip-plane-switch`.** It was the demo
 for the owner's ruling on the mechanism (open item 1). The design, the measured cost and the rejected alternatives are in
 `docs/ENGINE_ARCHITECTURE.md` §4.7 "Collision layers". In short: `Act.act_layer_lines` names a sorted `LayerLine`
