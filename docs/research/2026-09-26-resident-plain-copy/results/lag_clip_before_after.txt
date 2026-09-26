@@ -1,0 +1,7 @@
+clip_run           | 6361e89f 22/2790 end [16064, 5821]       | d0f8dbce 22/2790 end [16064, 5821]      
+clipdbg_cpzdiag    | 03f08aa6 70/1329 end [16064, 5920]       | c58f10a3 70/1329 end [16064, 5920]      
+clipdbg_cpzdown    | 03f08aa6 33/1292 end [14400, 5920]       | c58f10a3 33/1292 end [14400, 5920]      
+clipdbg_diag       | 03f08aa6 38/1036 end [16064, 5920]       | c58f10a3 38/1036 end [16064, 5920]      
+clipdbg_down       | 03f08aa6 0/363 end [96, 5920]            | c58f10a3 0/363 end [96, 5920]           
+clipdbg_fly        | 03f08aa6 0/998 end [16064, 144]          | c58f10a3 0/998 end [16064, 144]         
+clipdbg_run        | 03f08aa6 26/2794 end [16064, 5824]       | c58f10a3 26/2794 end [16064, 5824]      

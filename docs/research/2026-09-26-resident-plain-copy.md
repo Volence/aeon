@@ -201,6 +201,9 @@ deterministic headless counts; loadavg 6 to 15 during the runs changes wall-cloc
 |---|---|---|
 | `s4.bin` | `f4a0adac` / 828,952 | `e97424e6` / 828,874 |
 | `s4.debug.bin` | `d91dc2c6` / 855,969 | `c32e27dc` / 855,893 |
+| `demo.debug.bin` | `8b816d74` / 105,790 | `9fe7f601` / 105,838 |
+| `s4.s2clip.debug.bin` | `03f08aa6` / 955,247 | `c58f10a3` / 955,295 |
+| `s4.s2clip.bin` | `6361e89f` / 928,422 | `d0f8dbce` / 928,470 |
 
 `EndOfRom` is `$BF476` in both. The act data itself shrank 10,874 bytes
 (`OJZ_Sec_LocalMaps` moved `$2448C` -> `$21A12`): 9 local-map tables (3,030 B embedded) became
@@ -248,3 +251,24 @@ Only the fly legs compare like for like (the camera path is fixed by the input).
 and spindash legs schedule input per video frame, so a lag change changes the player's path;
 they all reached the same end camera, but their before/after is indicative, not a measurement
 of the same path.
+
+### The streaming clip is unchanged (`s2_ehz_cpz`, stays LOCAL, latch `$01` at boot)
+
+| leg | before `03f08aa6` / `6361e89f` | after `c58f10a3` / `d0f8dbce` |
+|---|---|---|
+| clip DEBUG fly right | 0/998 | 0/998 |
+| clip DEBUG fly down | 0/363 | 0/363 |
+| clip DEBUG fly diagonal | 38/1,036 | 38/1,036 |
+| clip DEBUG fly right then down through CPZ | 33/1,292 | 33/1,292 |
+| clip DEBUG fly right then diagonal through CPZ | 70/1,329 | 70/1,329 |
+| clip DEBUG physics run | 26/2,794 | 26/2,794 |
+| clip release physics run | 22/2,790 | 22/2,790 |
+
+Identical on every leg, physics legs included (same path, same counts), which is what the
+dispatch order predicts: the general and bounded arms execute the same instructions as before.
+
+### Landing
+
+`tools/landing_build.sh` on tip `be404b52`: exit 0, `finished=0`; pre-build pytest 3,550
+passed, 3 skipped; marked lane 34 ran and passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`,
+a shape the script does not build).
