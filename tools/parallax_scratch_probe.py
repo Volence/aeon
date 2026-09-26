@@ -366,7 +366,14 @@ async def body(c, rom_bytes, a):
           f"${mask_old:04X} -> $0000, same approach:")
     print(f"      frames differing from the control: {mchanged}")
     if not mchanged:
-        print("      NOTE: disabling every band changed nothing. Reported, not excused")
+        # A FAIL, not a NOTE (PRINTED-NOT-GATED, 2026-09-25). This used to print "Reported,
+        # not excused" and then PASS with exit 0, and the nightly keepalive runs this probe
+        # with expect = 0: step 4 exists so the result is not one field's, and a second
+        # field the engine ignores is exactly the case it is there to catch. Step 3's
+        # matching arm already returns 1.
+        print("      FAIL — disabling every band changed nothing: the engine did not read "
+              "pcfg_layer_mask, so the scratch reaching the engine rests on ONE field")
+        return 1
 
     print("\n  PASS — the scratch is installed by the arm, the install honours all four "
           "selector cells, and an edit to the RAM copy reaches the engine's per-frame output.")
