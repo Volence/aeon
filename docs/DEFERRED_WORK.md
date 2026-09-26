@@ -8535,6 +8535,7 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   pitch-domain constant is on `sound_psg.emp`'s list. The SFX PSG-tone RESTORE path now folds the MUSIC
   channel's transpose on re-key, matching what the FM restore already did. **Oracle gate owed** (controller):
   spindash-rev PSG pitch-tracking.
+- **CORRECTION 2026-09-26: the "one frame late" half of D5 is STILL LIVE.** It was measured on rendered audio against real Sonic 2, and the zeroed `sc_psgenv_out` below fixes only the stale half. See `## S2CLIP-REGION-MUSIC`, "Volume parcel", and `docs/research/2026-09-26-s2-music-volume.md`. The fix is blocked on a sigil `BLOB_LEN` re-pin.
 - ~~**D5** PSG envelope attack uses a stale `sc_psgenv_out` / lands one frame late vs S3K (`sound_psg.asm`
   106/184; zero `sc_psgenv_out` at cursor-reset).~~ **✅ ALREADY DONE — re-verified 2026-08-10 (package 4).**
   `Psg_EnvCursorReset` (`engine/sound/sound_psg.emp`) zeroes BOTH `sc_psgenv_cur` and `sc_psgenv_out`, with
@@ -41011,7 +41012,7 @@ Found by the landing agent's anti-trap check on the clip anchor overlay (landed 
 
 
 **CLOSED 2026-09-25 (parcel/printed-not-gated).** The fix is the one booked above. `s2_ehz_cpz/clips.json` now declares `"anchor_overlay": true`. `tools/clip_anchors.py` gained `declares_overlay`/`resolve_overlay` and `--overlay-arg`, which refuse with exit 1 when the declaration and the file disagree in either direction: declared but missing, or present but undeclared. A non-boolean declaration is also refused. build.sh's S2CLIP block runs `--overlay-arg` before any work, so the refusal fires in every shape, FAST included. The in-build check uses the same resolver. The Live test now keys on each clip's declaration instead of "at least one file exists", so a second clip with a file no longer blinds it. New hermetic rows are in `tools/test_clip_anchors.py::Declaration`. Red first: with the file moved aside, `FAST=1 S2CLIP=s2_ehz_cpz ./build.sh` exited 1 before any work (the booking measured exit 0), and two test rows went red. After restoring the file from the commit, the same build exited 0 on the clip's own anchors 0xC0000/0xD0000 (FRESH). Not changed: `bganim_room`'s `anchor < want` branch. It reports, and never fails, **by ruling**: GRACE is "INSIDE the align_up and OUTSIDE the gate's threshold" (S2CLIP-BANK-ROOM-GATE, 446a27d9), and the reserve arm beside it does fail.
-## S2CLIP-REGION-MUSIC: Emerald Hill's music in the Sonic 2 clip, switching to Chemical Plant's at the region crossing (OPEN: steps 1 to 6 and the headless half of step 7 done; the owner's listening test is open; booked 2026-09-25T21:57:35Z)
+## S2CLIP-REGION-MUSIC: Emerald Hill's music in the Sonic 2 clip, switching to Chemical Plant's at the region crossing (OPEN: steps 1 to 6 and the headless half of step 7 done; the owner listened 2026-09-26 and reported the channel balance and drums off, the balance fix is on `parcel/s2-music-volume`, two residuals are open below; booked 2026-09-25T21:57:35Z)
 
 The owner's ask: the clip build (`S2CLIP=s2_ehz_cpz`) plays Sonic 2's Emerald Hill music and switches to Chemical Plant's at the crossing. The design and the evidence are `docs/research/2026-09-25-region-music-design.md` (landed `5418ddd1`). Its staged plan, with the state of each step:
 
@@ -41024,8 +41025,44 @@ The owner's ask: the clip build (`S2CLIP=s2_ehz_cpz`) plays Sonic 2's Emerald Hi
 | 4 | **Songs join the bank** as ids 4/5 in plain and debug (+~6.6 KB in every sound-on ROM; leaves ~2.7 KB free in the DEBUG phase bank). Needs step 0. | **yes** | **DONE** 2026-09-25 (`parcel/s2-music-songs`) as ids **2/3**, not 4/5 (DrumTest and HCZ2 moved to 4/5, see "Steps 4, 6, 7" below). Measured free in the phase bank: **2,532 B debug, 9,276 B plain**. sigil (pin `ab0a5fe1`) accepted it with no change. |
 | 5 | **Engine switch**: `Region.rg_song` (26 to 28 B with a pad), `Music_Want`/`Music_Current`, the slow-path record in `Parallax_CheckBoundary`, and a non-blocking `Music_Service`. OJZ rows name song 0; witness: canonical still issues zero music requests. | **yes** | **DONE** 2026-09-25 (`parcel/region-music-switch`). See "Step 5" below. |
 | 6 | **Clip data**: a `"music"` field per clip in `clips.json`, the tunnel-edge region-row split, and `clip_rom_bake.py` emitting it. | no (S2CLIP tree only) | **DONE** 2026-09-25 (`parcel/s2-music-songs`), rows `0..10975` EHZ, `10976..11167` 0, `11168..11359` 0, `11360..` CPZ. **RULED** by the owner 2026-09-25 (`docs/decisions.jsonl` S2CLIP-MUSIC-FEEL, chose `cut-at-exit`, design option D): hard cut as you come out of the tunnel, each zone's row split at the tunnel edge so the inner halves carry "no change" (a 384-px dead band, so standing on a line cannot thrash the song). Going back restarts Emerald Hill from the top. |
-| 7 | **Witness + listening**: a scripted headless run across the crossing and back in `s4.s2clip.bin` (key-on census per window), then the owner's listening test, A/B against real Sonic 2. | no | Headless half **DONE** 2026-09-25 (`tools/clip_music_witness.py`, GREEN plain and debug, RED on a no-split mutant). **The owner's listening test is OPEN**: nothing has been listened to. |
+| 7 | **Witness + listening**: a scripted headless run across the crossing and back in `s4.s2clip.bin` (key-on census per window), then the owner's listening test, A/B against real Sonic 2. | no | Headless half **DONE** 2026-09-25 (`tools/clip_music_witness.py`, GREEN plain and debug, RED on a no-split mutant). **The owner listened 2026-09-26**: channel balance and drums off, more in EHZ. The balance is fixed on `parcel/s2-music-volume` (see "Volume parcel" below); the drum samples and the PSG envelope attack remain open, and the fixed songs are unheard. |
 | later | Resume-on-return (per-song sequencer save/restore), songs in their own banks (the phase bank is the soundtrack's ceiling), a drum fade. | yes | not started |
+
+**Volume parcel (2026-09-26, `parcel/s2-music-volume`; findings `docs/research/2026-09-26-s2-music-volume.md`).** The owner listened: *"mostly correct but volume levels for different channels and drums aren't, moreso in ehz than cpz."* Measured on RENDERED AUDIO against real Sonic 2 by `tools/s2_music_balance.py` (new, see below).
+
+- **Fixed: the converter dropped each channel's header volume.** `smps_import` started the running SMPS volume at 0 (loudest) instead of the `smpsHeaderFM/PSG` byte both drivers copy into `zTrack.Volume`. So the first `smpsAlterVol` / `smpsPSGAlterVol` threw the header away for the rest of the song. EHZ's headers are larger (`$16..$25`) than CPZ's (`$08..$10`), which is the owner's "more in EHZ". The fix is `_seed_header_volume` in `convert_song`. `song_s2_ehz.bin` / `song_s2_cpz.bin` were regenerated: 46 and 26 `MEV_VOL` operand bytes, sizes unchanged. HCZ2 converts byte-identical because it has no AlterVol.
+- **Before and after, ours minus real S2, dB** (60 s, per-channel solo, plain clip ROM `ca8b4ee1` then `f02ba121`):
+
+  | | FM1 | FM2 | FM3 | FM4 | FM5 | DAC | PSG1 | PSG2 | NOISE | MIX |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | EHZ before | +0.04 | +11.95 | +10.96 | +15.22 | +18.90 | +2.36 | +8.17 | +8.13 | +1.18 | +9.47 |
+  | EHZ after | +0.04 | +0.04 | +0.06 | +0.10 | +0.04 | +2.36 | +0.17 | +0.12 | +1.18 | +0.94 |
+  | CPZ before | +0.98 | -0.01 | +1.68 | +1.37 | +0.83 | +2.47 | n/a | n/a | +1.18 | +1.21 |
+  | CPZ after | +0.05 | -0.01 | +0.03 | +0.05 | +0.02 | +2.47 | n/a | n/a | +1.18 | +0.70 |
+
+  CPZ's PSG1/PSG2 are `smpsStop` in the source: silent in both ROMs. The debug clip ROM (`aff832f9`) gives the same numbers within 0.04 dB.
+- **The instrument.** `tools/s2_music_balance.py` runs Genesis Plus GX (the libretro core) headless through ctypes, one process per render. It plays real S2 (an s2disasm REV01 build, passed with `--s2-rom`) and our clip ROM the same way: in gameplay, idle, with the song requested at a known frame. It renders the mix plus one solo per channel. GPGX's per-channel volumes work ONLY under its MAME YM2612 core (measured: the Nuked cores ignore them), so the tool renders a MUTED control on every run and refuses to report unless that control is silent. It is a measurement tool with no threshold; no runner executes it.
+- **OPEN (owner call): the drums.** The DAC is still +2.4 dB, from the samples, not from volume handling. Per hit (80 ms windows):
+  - the S3K kick is +1.0/+1.7 dB RMS (EHZ/CPZ), but its peak is about 0.9 dB lower than S2's, so it is a denser sample, not a louder one;
+  - the S3K snare is about +4.2 dB RMS and +1.9 dB peak, with a different timbre.
+
+  No single gain fixes both. The engine has no DAC volume path (`ds_vol` is reserved and ignored). The faithful fix is Sonic 2's own samples (about 13 KB, which does not fit the current drum bank), which is the S2CLIP-MUSIC-DRUMS ruling's own alternative. STOPPED here as the owner's call. Before the fix, FM2..FM5 buried the drums by 11 to 19 dB in EHZ; what is left is the S3K kit sitting slightly forward, the snare most.
+- **OPEN (blocked on sigil): the PSG vol-env attacks one frame late.** The noise hat is +1.18 dB in both songs. Mechanism:
+  - S2 (`zPSGUpdateTrack`: `zPSGDoNoteOn` then `zPSGDoVolFX`) and S3K (`zUpdatePSGTrack` `.skip_fill` -> `zDoVolEnv`) both apply envelope byte 0 on the note-on frame.
+  - The engine runs `ModUpdate` before `Sequencer_Channel`, and `Psg_EnvCursorReset` zeroes the contour at the attack. So byte 0 lands one frame late, and every PSG contour plays one frame long.
+  - Proven by a scratch mutation that was not landed: the `fTone_02` body was shifted by one byte, which moved NOISE to -0.03 (EHZ) / -0.12 (CPZ), and the table was restored from the commit.
+
+  The fix: in `Seq_HookNoteOn`, run `PsgEnvUpdate` once after `Psg_NoteOn` / `Psg_Noise` when the channel has an envelope and keyed. It grows the resident blob +17 B (plain 6176 -> 6193), and `emit_sound_blob` refuses it at sigil's `BLOB_LEN_PLAIN` tripwire (`sigil-harness/src/seam1.rs`, with the `Z80_SOUND_SIZE` mirrors in `boot_port.rs`, `repin_pins.rs` and `tranche23_spelling_probes.rs`). Putting the prime in `Psg_EnvCursorReset` instead is refused at seam-1 lowering, because `sc_psgenv` and `PsgVolEnvCtl_Loop` are not on `sound_psg`'s name list. So it needs a sigil re-pin, which this parcel may not do. It would also move HCZ2 and every SFX with a PSG envelope one frame toward S3K, which wants the owner's ear. This corrects D5 (Sound package 4), which was closed on the stale-`sc_psgenv_out` half only.
+- **Same shape, UNMEASURED:** FM vol-envs. `FmEnvUpdate` also runs in `ModUpdate`, and the FM attack resets `sc_env_cur`/`sc_env_out`. No S2 song uses one, so nothing here measured it.
+- **Bytes** (FAST builds; the "before" bins are master `91d4119c`'s, reproducing the CRCs booked above):
+  - `s4.bin` `0cd3ce63` -> `4af3ca8b`, 828,920 B unchanged;
+  - `s4.debug.bin` `1ff17f52` -> `c05b09b1`, 855,585 B;
+  - `demo.debug.bin` `5e110699` unchanged;
+  - `s4.s2clip.bin` `ca8b4ee1` -> `f02ba121`, 928,388 B;
+  - `s4.s2clip.debug.bin` `027639e8` -> `aff832f9`, 954,863 B.
+
+  In the clip ROM 74 bytes differ: 72 inside the two song blobs plus the 2 header-checksum bytes.
+- **Not done: listening.** Nothing was heard by a person; the owner's A/B is the check.
 
 **Steps 4, 6 and 7-headless, what landed (2026-09-25, `parcel/s2-music-songs`).** The clip build (`S2CLIP=s2_ehz_cpz`) now requests Emerald Hill's song at act load, Chemical Plant's as the camera comes out of the tunnel, and Emerald Hill's again coming out on the Emerald Hill side. **Nothing was listened to**; how the songs and the cut sound is the owner's listening test, still open.
 
