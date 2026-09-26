@@ -163,6 +163,23 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
+# ---- the CLIP ROM: tools/nightly_instrument_keepalive.sh builds DEBUG S2CLIP=s2_ehz_cpz ----
+
+[wired."s2clip_layer_line_witness.py"]
+args = ["--rom", "{repo}/s4.s2clip.debug.bin", "--lst", "{repo}/s4.s2clip.debug.lst"]
+expect = 0
+timeout = 300
+note = """S2CLIP-PLANE-SWITCH (2026-09-26). Reads the CLIP ROM, not {rom}: the nightly builds it
+beside the canonical one (and deletes the previous night's first, so a failed clip build is
+COULD NOT RUN here, never a grade of yesterday's ROM). Drives Emerald Hill's loop 1 both ways
+in the real ROM and requires the plane-switcher lines to take the player A -> B -> A through
+it and out the far side; the lines it expects are derived from the donor. MEASURED on the
+branch's FAST DEBUG clip ROM through `keepalive_lane.py --only`: PASSED, exit 0, 7.2 s.
+Proven RED through the same lane with the ROM's table emptied (clip_rom_bake's layer_line_plan
+mutated to emit no rows, the donor derivation left intact): FAILED, exit 1, 'the layer never
+left plane A (0 on every frame)' on both drives and 'max x 4298 never passed the exit line at
+x 4368' on the rightward one. On a canonical ROM it exits 2 by design (no clip act)."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 
