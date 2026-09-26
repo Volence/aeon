@@ -41439,3 +41439,25 @@ stop points identical (visible Plane A, Plane B, tile cache).
   (the general arm) keeps refcounts; the plain, direct and bounded arms keep none and need no
   barrier, and the new dispatch isolates the general arm behind one `tst/bmi/movem/bne`. That
   narrows where a barrier goes; it does not make the barrier itself simpler.
+
+## GENERAL-PATCH-LOOP: per-word refcounts in the general regime, replaced by row/column liveness masks (DESIGN, not built; booked 2026-09-26T12:26:50Z)
+
+S2CLIP-LAG item 1 and AUDIT-AMORTISE AA-1, designed and prototyped in
+`docs/research/2026-09-27-general-patch-loop.md` (branch `design/general-patch-loop`,
+prototypes `proto/gpl-*`). Measured on the clip DEBUG shape: the refcount pair is ~1.19k of
+the ~1.46k cycles per `PatchRun_Seq` call that separate the general loop from a direct one.
+The recommended design (A3, `proto/gpl-rowlive3`) replaces it with a Dijkstra-style insertion
+barrier into per-row and per-column frame masks, an idle-slot exact re-sweep, and eviction by
+"not in any mask". Results: CPZ painted band 29/151 -> 17/138, CPZ fly down after the turn
+33 -> 17, CPZ diagonal 70 -> 42, canonical and bounded-regime legs unchanged. The general
+regime's DEBUG audit becomes a sliceable per-word predicate (AA-1 closed by design, 0 lag
+frames measured). Staged plan in the report: (1) the engine parcel, (2) a clip-shape lane,
+since nothing that gates a merge runs the general regime, (3) optional trims.
+
+Found while measuring, PRE-EXISTING on origin/master (base `s4.stressart.bin` `41401ef1`, not
+caused by the prototypes; they halt at the same points with the same messages):
+- **GPL-1: STRESS_ART DEBUG fly right halts** at camera (752,144), frame 102:
+  "PageCache_AllocFrame: no free/evictable frame (thrash bug)".
+- **GPL-2: STRESS_ART DEBUG fly diagonal halts** at (1712,1728), frame 185:
+  "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)": a demand page
+  published and never referenced. Not diagnosed further.

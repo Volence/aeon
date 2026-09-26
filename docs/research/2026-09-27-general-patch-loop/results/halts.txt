@@ -1,0 +1,61 @@
+Sat Sep 26 12:21:45 PM UTC 2026
+ 08:21:45 up 2 days, 21:22,  1 user,  load average: 2.56, 3.07, 3.32
+== base_cd : right to 14400, then down
+s4.s2clip.debug.bin crc=4a3bc66c
+frame 2999: cam (14400,5920) Logic_Tick running
+finished=1
+== base_cd : right to 14400, then right,down
+s4.s2clip.debug.bin crc=4a3bc66c
+frame 2999: cam (16064,5920) Logic_Tick running
+finished=1
+== rowlive3 : right to 14400, then down
+s4.s2clip.debug.bin crc=a65ea387
+frame 2999: cam (14400,5920) Logic_Tick running
+finished=1
+== rowlive3 : right to 14400, then right,down
+s4.s2clip.debug.bin crc=a65ea387
+frame 2999: cam (16064,5920) Logic_Tick running
+finished=1
+== m1r : right to 14400, then down
+  RAM $FF2E92 -> ROM $006060: 'Assertion failed:àì> assert.w èd3,ìeqàêGot: \x81'
+  RAM $FFFEE2 -> ROM $00ACDC: 'PageCache_Audit: a cache word names a frame its row and column liveness masks omit (or an unassigned'
+finished=1
+== m1r : right to 14400, then right,down
+  RAM $FF2742 -> ROM $006060: 'Assertion failed:àì> assert.w èd3,ìeqàêGot: \x81'
+  RAM $FFFEE2 -> ROM $00ACDC: 'PageCache_Audit: a cache word names a frame its row and column liveness masks omit (or an unassigned'
+finished=1
+== m1c : right to 14400, then down
+s4.s2clip.debug.bin crc=11d9840e
+frame 2999: cam (14400,5920) Logic_Tick running
+finished=1
+== m1c : right to 14400, then right,down
+frame 1038: cam (15280,976) Logic_Tick STOPPED (halt)
+  RAM $FFFEE2 -> ROM $00ACDC: 'PageCache_Audit: a cache word names a frame its row and column liveness masks omit (or an unassigned'
+finished=1
+== mut_nobarrier : right to 14400, then down
+  RAM $FF2E92 -> ROM $006060: 'Assertion failed:àì> assert.w èd3,ìeqàêGot: \x81'
+  RAM $FFFEE6 -> ROM $00AD02: 'PageCache_Audit: nametable references an UNASSIGNED frame (dangling physical index)'
+finished=1
+== mut_nobarrier : right to 14400, then right,down
+  RAM $FF2742 -> ROM $006060: 'Assertion failed:àì> assert.w èd3,ìeqàêGot: \x81'
+  RAM $FFFEE6 -> ROM $00AD02: 'PageCache_Audit: nametable references an UNASSIGNED frame (dangling physical index)'
+finished=1
+== base_sa (STRESS_ART) fly right
+frame 102: cam (752,144) Logic_Tick STOPPED (halt)
+  RAM $FFFEEA -> ROM $009BA0: 'PageCache_AllocFrame: no free/evictable frame (thrash bug)'
+finished=1
+== base_sa (STRESS_ART) fly right,down
+frame 185: cam (1712,1728) Logic_Tick STOPPED (halt)
+  RAM $FFFEEE -> ROM $00AB26: 'PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)'
+finished=1
+== rowlive2_sa (STRESS_ART) fly right
+frame 102: cam (752,144) Logic_Tick STOPPED (halt)
+  RAM $FFFEEA -> ROM $009BDA: 'PageCache_AllocFrame: no free/evictable frame (thrash bug)'
+finished=1
+== rowlive2_sa (STRESS_ART) fly right,down
+  RAM $FF3DE6 -> ROM $003232: 'Assertion failed:àì> assert.w èd0,ìneè,#0àêGot: \x81'
+  RAM $FFFEEE -> ROM $00AACE: 'PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)'
+finished=1
+Sat Sep 26 12:23:00 PM UTC 2026
+ 08:23:00 up 2 days, 21:24,  1 user,  load average: 3.38, 3.19, 3.34
+finished=1

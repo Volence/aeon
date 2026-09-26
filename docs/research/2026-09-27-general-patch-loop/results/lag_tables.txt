@@ -1,0 +1,140 @@
+# clip DEBUG, audit live (base 4a3bc66c, rowlive 30adfd8a, rowlive2 7c29c6b0, rowlive3 a65ea387, sweeponly 6fca468d, rowlive_nosweep = rowlive with PageCache_LiveSweep stubbed)
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_cd        fly        4a3bc66c      0/998         -         -         -  [16064, 144]                                   
+base_cd        diag       4a3bc66c    38/1036         -         -     34/90 [16064, 5920]                                   
+base_cd        cpzdown    4a3bc66c    33/1292     0/894    33/398    29/151 [14400, 5920]      0                            
+base_cd        cpzdiag    4a3bc66c    70/1329     0/894    70/435    66/188 [16064, 5920]      0                            
+base_cd        cpzband    4a3bc66c    29/1046     0/894    29/152    29/151 [14400, 2048]      0     33124      2936   11.28
+rowlive_cd     fly        30adfd8a      0/998         -         -         -  [16064, 144]                                   
+rowlive_cd     diag       30adfd8a    38/1036         -         -     34/90 [16064, 5920]                                   
+rowlive_cd     cpzdown    30adfd8a    18/1276     0/894    18/382    18/139 [14400, 5920]      0                            
+rowlive_cd     cpzdiag    30adfd8a    49/1306     0/894    49/412    49/169 [16064, 5920]      0                            
+rowlive_cd     cpzband    30adfd8a    18/1046     0/894    18/152    18/139 [14400, 2240]      0     22935      2001   11.46
+rowlive2_cd    fly        7c29c6b0      0/998         -         -         -  [16064, 144]      1                            
+rowlive2_cd    diag       7c29c6b0    39/1037         -         -     35/91 [16064, 5920]      1                            
+rowlive2_cd    cpzdown    7c29c6b0    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive2_cd    cpzdiag    7c29c6b0    41/1299     0/894    41/405    41/162 [16064, 5920]      0                            
+rowlive2_cd    cpzband    7c29c6b0    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22202      1936   11.47
+rowlive3_cd    fly        a65ea387      0/998         -         -         -  [16064, 144]      1                            
+rowlive3_cd    diag       a65ea387    38/1036         -         -     34/90 [16064, 5920]      1                            
+rowlive3_cd    cpzdown    a65ea387    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive3_cd    cpzdiag    a65ea387    42/1300     0/894    42/406    42/163 [16064, 5920]      0                            
+rowlive3_cd    cpzband    a65ea387    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22285      1944   11.47
+sweeponly_cd   fly        6fca468d      0/998         -         -         -  [16064, 144]      1                            
+sweeponly_cd   diag       6fca468d    38/1036         -         -     34/90 [16064, 5920]      1                            
+sweeponly_cd   cpzdown    6fca468d    22/1279     0/894    22/385    22/142 [14400, 5920]      0                            
+sweeponly_cd   cpzdiag    6fca468d    43/1301     0/894    43/407    43/164 [16064, 5920]      0                            
+sweeponly_cd   cpzband    6fca468d    22/1046     0/894    22/152    22/142 [14400, 2192]      0     21780      1889   11.53
+rowlive_nosweep_cd fly        84fec77f      0/998         -         -         -  [16064, 144]      1                            
+rowlive_nosweep_cd diag       84fec77f    38/1036         -         -     34/90 [16064, 5920]      1                            
+rowlive_nosweep_cd cpzdown    84fec77f    18/1276     0/894    18/382    18/139 [14400, 5920]      0                            
+rowlive_nosweep_cd cpzdiag    84fec77f    52/1310     0/894    52/416    52/173 [16064, 5920]      0                            
+rowlive_nosweep_cd cpzband    84fec77f    18/1046     0/894    18/152    18/139 [14400, 2240]      0     22935      2001   11.46
+
+# clip DEBUG, PageCache_Audit stubbed (upper bounds and audit-cost controls; rowlive_na is from rowlive c8dc1bb5, before the idle-slot order swap)
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_na_cd     fly        1f501e8d      0/998         -         -         -  [16064, 144]                                   
+base_na_cd     diag       1f501e8d    34/1032         -         -     32/88 [16064, 5920]                                   
+base_na_cd     cpzdown    1f501e8d    26/1285     0/894    26/391    26/148 [14400, 5920]      0                            
+base_na_cd     cpzdiag    1f501e8d    64/1323     0/894    64/429    64/186 [16064, 5920]      0                            
+base_na_cd     cpzband    1f501e8d    26/1046     0/894    26/152    26/148 [14400, 2096]      0     32991      2920   11.30
+norc_na_cd     fly        3a7ce043      0/998         -         -         -  [16064, 144]                                   
+norc_na_cd     diag       3a7ce043    34/1032         -         -     32/88 [16064, 5920]                                   
+norc_na_cd     cpzdown    3a7ce043    11/1269     0/894    11/375    11/132 [14400, 5920]      0                            
+norc_na_cd     cpzdiag    3a7ce043    33/1292     0/894    33/398    33/155 [16064, 5920]      0                            
+norc_na_cd     cpzband    3a7ce043    11/1046     0/894    11/152    11/132 [14400, 2352]      0     19823      1731   11.45
+udirect_na_cd  fly        c33749fa      0/998         -         -         -  [16064, 144]                                   
+udirect_na_cd  diag       c33749fa    34/1032         -         -     32/88 [16064, 5920]                                   
+udirect_na_cd  cpzdown    c33749fa    13/1270     0/894    13/376    13/133 [14400, 5920]      0                            
+udirect_na_cd  cpzdiag    c33749fa    24/1281     0/894    24/387    24/144 [16064, 5920]      0                            
+udirect_na_cd  cpzband    c33749fa    13/1046     0/894    13/152    13/133 [14400, 2336]      0     17341      1460   11.88
+rowlive_na_cd  fly        650faaf6      0/998         -         -         -  [16064, 144]                                   
+rowlive_na_cd  diag       650faaf6    35/1033         -         -     33/89 [16064, 5920]                                   
+rowlive_na_cd  cpzdown    650faaf6    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive_na_cd  cpzdiag    650faaf6    49/1306     0/894    49/412    49/169 [16064, 5920]      0                            
+rowlive_na_cd  cpzband    650faaf6    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22890      1996   11.47
+rowlive2_na_cd fly        DID NOT RUN (rowlive2_na_cd_fly.json missing)
+rowlive2_na_cd diag       93d40ceb    36/1034         -         -     34/90 [16064, 5920]      1                            
+rowlive2_na_cd cpzdown    93d40ceb    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive2_na_cd cpzdiag    93d40ceb    41/1299     0/894    41/405    41/162 [16064, 5920]      0                            
+rowlive2_na_cd cpzband    93d40ceb    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22202      1936   11.47
+rowlive3_na_cd fly        DID NOT RUN (rowlive3_na_cd_fly.json missing)
+rowlive3_na_cd diag       412301af    35/1033         -         -     33/89 [16064, 5920]      1                            
+rowlive3_na_cd cpzdown    412301af    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive3_na_cd cpzdiag    412301af    42/1300     0/894    42/406    42/163 [16064, 5920]      0                            
+rowlive3_na_cd cpzband    412301af    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22285      1944   11.47
+rowlive_na_nosweep_cd fly        DID NOT RUN (rowlive_na_nosweep_cd_fly.json missing)
+rowlive_na_nosweep_cd diag       DID NOT RUN (rowlive_na_nosweep_cd_diag.json missing)
+rowlive_na_nosweep_cd cpzdown    d15c9003    17/1275     0/894    17/381    17/138 [14400, 5920]      0                            
+rowlive_na_nosweep_cd cpzdiag    d15c9003    49/1306     0/894    49/412    49/169 [16064, 5920]      0                            
+rowlive_na_nosweep_cd cpzband    d15c9003    17/1046     0/894    17/152    17/138 [14400, 2256]      0     22890      1996   11.47
+
+# clip DEBUG, the general loop's DEBUG checks removed from both (release-equivalent loop proxy)
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_nochk_cd  diag       c008f5d8    38/1036         -         -     34/90 [16064, 5920]      1                            
+base_nochk_cd  cpzdown    c008f5d8    28/1287     0/894    28/393    24/146 [14400, 5920]      0                            
+base_nochk_cd  cpzdiag    c008f5d8    66/1326     0/894    66/432    62/185 [16064, 5920]      0                            
+base_nochk_cd  cpzband    c008f5d8    24/1046     0/894    24/152    24/146 [14400, 2128]      0     29857      2640   11.31
+rowlive3_nochk_cd diag       d5d52fc1    38/1036         -         -     34/90 [16064, 5920]      1                            
+rowlive3_nochk_cd cpzdown    d5d52fc1    15/1272     0/894    15/378    15/135 [14400, 5920]      0                            
+rowlive3_nochk_cd cpzdiag    d5d52fc1    32/1290     0/894    32/396    32/153 [16064, 5920]      0                            
+rowlive3_nochk_cd cpzband    d5d52fc1    15/1046     0/894    15/152    15/135 [14400, 2304]      0     20923      1816   11.52
+
+# profiled CPZ diagonal, profile armed at the turn
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_cd        cpzdiagP   4a3bc66c    70/1329     0/894    70/435    66/188 [16064, 5920]      0     19891      1957   10.16
+base_na_cd     cpzdiagP   1f501e8d    64/1323     0/894    64/429    64/186 [16064, 5920]      0     19891      1957   10.16
+norc_na_cd     cpzdiagP   3a7ce043    33/1292     0/894    33/398    33/155 [16064, 5920]      0     14279      1405   10.16
+udirect_na_cd  cpzdiagP   c33749fa    24/1281     0/894    24/387    24/144 [16064, 5920]      0     13819      1357   10.18
+rowlive_cd     cpzdiagP   30adfd8a    49/1306     0/894    49/412    49/169 [16064, 5920]      0     15825      1552   10.20
+rowlive2_cd    cpzdiagP   7c29c6b0    41/1299     0/894    41/405    41/162 [16064, 5920]      0     15139      1487   10.18
+sweeponly_cd   cpzdiagP   6fca468d    43/1301     0/894    43/407    43/164 [16064, 5920]      0     14675      1442   10.18
+base_nochk_cd  cpzdiagP   c008f5d8    66/1326     0/894    66/432    62/185 [16064, 5920]      0     18776      1851   10.14
+rowlive3_nochk_cd cpzdiagP   d5d52fc1    32/1290     0/894    32/396    32/153 [16064, 5920]      0     14908      1464   10.18
+
+# canonical DEBUG (d), canonical release (r), clip release (cr)
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_d         fly        88e5b2e0      0/358         -         -         -   [5824, 144]    128                            
+base_d         down       88e5b2e0      0/363         -         -         -    [96, 5920]    128                            
+base_d         diag       88e5b2e0     14/377         -         -      6/62  [5824, 5920]    128                            
+base_d         run        88e5b2e0      7/335         -         -         -   [1080, 381]    128                            
+base_d         spin       88e5b2e0     5/1174         -         -         -  [5824, 5821]    128                            
+rowlive2_d     fly        8c6368b8      0/358         -         -         -   [5824, 144]    128                            
+rowlive2_d     down       8c6368b8      0/363         -         -         -    [96, 5920]    128                            
+rowlive2_d     diag       8c6368b8     14/377         -         -      6/62  [5824, 5920]    128                            
+rowlive2_d     run        8c6368b8      7/335         -         -         -   [1080, 381]    128                            
+rowlive2_d     spin       8c6368b8     5/1174         -         -         -  [5824, 5821]    128                            
+rowlive3_d     fly        8ea32a7b      0/358         -         -         -   [5824, 144]    128                            
+rowlive3_d     down       8ea32a7b      0/363         -         -         -    [96, 5920]    128                            
+rowlive3_d     diag       8ea32a7b     14/377         -         -      6/62  [5824, 5920]    128                            
+rowlive3_d     run        8ea32a7b      7/335         -         -         -   [1080, 381]    128                            
+rowlive3_d     spin       8ea32a7b     5/1174         -         -         -  [5824, 5821]    128                            
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_r         run        2f6354dc     3/1295         -         -         -  [5824, 5816]    128                            
+base_r         spin       2f6354dc     1/1169         -         -         -  [5824, 5821]    128                            
+rowlive2_r     run        66dd7be6     3/1295         -         -         -  [5824, 5816]    128                            
+rowlive2_r     spin       66dd7be6     1/1169         -         -         -  [5824, 5821]    128                            
+rowlive3_r     run        78823c26     3/1295         -         -         -  [5824, 5816]    128                            
+rowlive3_r     spin       78823c26     1/1169         -         -         -  [5824, 5821]    128                            
+base_cr        run        8e044357    22/2790         -         -         - [16064, 5821]      1                            
+base_cr        spin       8e044357     15/337         -         -         -   [1367, 701]      1                            
+rowlive2_cr    run        c7fb8363    22/2790         -         -         - [16064, 5821]      1                            
+rowlive2_cr    spin       c7fb8363     16/351         -         -         -   [1367, 701]      1                            
+rowlive3_cr    run        4eedd8f8    22/2790         -         -         - [16064, 5821]      1                            
+rowlive3_cr    spin       4eedd8f8     15/337         -         -         -   [1367, 701]      1                            
+
+# STRESS_ART (sa) and STRESS_EVICT (se) DEBUG
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+base_sa        fly        41401ef1       2/43         -         -         -    [752, 144]                                   
+base_sa        down       41401ef1      8/371         -         -         -    [96, 5920]      0                            
+base_sa        diag       41401ef1     25/126         -         -     25/81  [1712, 1728]                                   
+rowlive_sa     fly        204365bc       3/44         -         -         -    [752, 144]                                   
+rowlive_sa     down       204365bc      2/365         -         -         -    [96, 5920]      0                            
+rowlive_sa     diag       204365bc     25/126         -         -     23/79  [1712, 1728]                                   
+rowlive2_sa    fly        4ded68d3       3/44         -         -         -    [752, 144]      0                            
+rowlive2_sa    down       4ded68d3      2/365         -         -         -    [96, 5920]      0                            
+rowlive2_sa    diag       4ded68d3     21/122         -         -     21/77  [1712, 1728]      0                            
+tag            leg        crc          motion    before     after      band       cam_end DM_end  Seq/tick  Seq/call calls/t
+rowlive_se     fly        61c31bb5      2/360         -         -         -   [5824, 144]      0                            
+rowlive_se     down       61c31bb5      2/365         -         -         -    [96, 5920]      0                            
+rowlive_se     diag       61c31bb5     72/436         -         -     16/72  [5824, 5920]      0                            

@@ -1,0 +1,484 @@
+################ zig_base2 vs zig_rowlive1
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=30adfd8a   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/67 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/76 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/85 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/90 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/104 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 24 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 0 halt None
+
+################ zig_base2 vs zig_rowlive2
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=7c29c6b0   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/66 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/83 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 24 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 0 halt None
+
+################ zig_base2 vs zig_rowlive3
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=a65ea387   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/66 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/75 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/84 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/89 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/103 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 24 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 0 halt None
+
+################ zig_base2 vs zig_norc_na2
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=3a7ce043   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/63 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/70 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/78 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/81 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/94 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 23 Page_Live_Forced None Page_Live_Pad(M2 live evictions) None halt None
+
+################ zig_base2 vs zig_mut_blind
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=21c92929   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/64 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/82 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/86 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/101 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 24 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) None halt None
+
+################ zig_base2 vs zig_mut_live_na
+A s4.s2clip.debug.bin crc=4a3bc66c   B s4.s2clip.debug.bin crc=bc8a03df   switch A [14400, 144] B [14400, 144]
+  t=  50 cam=(14400, 912) DM 0/0 lag 71/64 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 100 cam=(14400, 1712) DM 0/0 lag 84/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 150 cam=(14304, 2400) DM 0/0 lag 87/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(13504, 2400) DM 0/0 lag 88/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(12704, 2400) DM 0/0 lag 88/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(11904, 2400) DM 0/0 lag 90/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(11104, 2400) DM 0/0 lag 91/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 400 cam=(10304, 2400) DM 0/0 lag 91/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 450 cam=(9504, 2400) DM 0/0 lag 93/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 500 cam=(8704, 2400) DM 0/0 lag 93/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 550 cam=(8000, 2368) DM 0/0 lag 95/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 600 cam=(8000, 1568) DM 0/0 lag 96/73 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 650 cam=(8000, 768) DM 0/0 lag 110/83 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 700 cam=(8208, 192) DM 0/0 lag 121/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 750 cam=(9008, 192) DM 0/0 lag 121/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 800 cam=(9808, 192) DM 0/0 lag 123/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 850 cam=(10608, 192) DM 0/0 lag 125/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 900 cam=(11408, 192) DM 0/0 lag 125/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t= 950 cam=(12208, 192) DM 0/0 lag 127/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1000 cam=(13008, 192) DM 0/0 lag 128/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1050 cam=(13808, 192) DM 0/0 lag 128/87 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1100 cam=(14608, 192) DM 0/0 lag 131/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1150 cam=(15408, 192) DM 0/0 lag 131/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1200 cam=(15808, 528) DM 0/0 lag 133/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1250 cam=(15808, 1328) DM 0/0 lag 135/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1300 cam=(15808, 2128) DM 0/0 lag 135/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1350 cam=(15808, 2928) DM 0/0 lag 137/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1400 cam=(15808, 3728) DM 0/0 lag 138/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1450 cam=(15696, 4400) DM 0/0 lag 138/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1500 cam=(14896, 4400) DM 0/0 lag 140/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1550 cam=(14096, 4400) DM 0/0 lag 140/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1600 cam=(13296, 4400) DM 0/0 lag 142/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1650 cam=(12496, 4400) DM 0/0 lag 143/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1700 cam=(11696, 4400) DM 0/0 lag 143/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1750 cam=(10896, 4400) DM 0/0 lag 145/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1800 cam=(10096, 4400) DM 0/0 lag 146/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1850 cam=(9296, 4400) DM 0/0 lag 146/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1900 cam=(8496, 4400) DM 0/0 lag 148/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=1950 cam=(7696, 4400) DM 0/0 lag 148/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2000 cam=(6896, 4400) DM 0/0 lag 150/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2050 cam=(6096, 4400) DM 0/0 lag 151/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2100 cam=(6000, 3760) DM 0/0 lag 151/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2150 cam=(6000, 2960) DM 0/0 lag 153/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2200 cam=(6000, 2160) DM 0/0 lag 154/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2250 cam=(6000, 1360) DM 0/0 lag 154/88 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=2300 cam=(6016, 592) DM 0/0 lag 171/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2350 cam=(6816, 592) DM 0/0 lag 172/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2400 cam=(7616, 592) DM 0/0 lag 175/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2450 cam=(8416, 592) DM 0/0 lag 177/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2500 cam=(9216, 592) DM 0/0 lag 177/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2550 cam=(10016, 592) DM 0/0 lag 179/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=2600 cam=(10816, 592) DM 0/0 lag 179/102 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 52: visible window identical at 52, tile cache identical at 52
+verdict: IDENTICAL resolved picture at every matched point
+compare rc=0
+B run: Page_Evict_Gen 30 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 0 halt None
+
+################ zig_base_sa vs zig_rowlive_sa
+A s4.stressart.bin crc=41401ef1   B s4.stressart.bin crc=204365bc   switch A [96, 144] B [96, 144]
+  t=  50 cam=(96, 912) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 125/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 128/121 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 131/122 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [368, 336]
+  t=450 UNMATCHED cam [80, 816] vs [80, 784]
+  t=500 UNMATCHED cam [80, 1616] vs [80, 1584]
+  t=550 UNMATCHED cam [80, 2416] vs [80, 2384]
+  t=600 UNMATCHED cam [80, 3216] vs [80, 3184]
+  t=650 UNMATCHED cam [80, 4016] vs [80, 3984]
+  t=700 UNMATCHED cam [80, 4816] vs [80, 4784]
+  t= 750 cam=(640, 5008) DM 0/0 lag 159/136 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=800 UNMATCHED cam [640, 4240] vs [640, 4272]
+  t=850 UNMATCHED cam [640, 3440] vs [640, 3472]
+  t=900 UNMATCHED cam [640, 2640] vs [640, 2672]
+  t=950 UNMATCHED cam [496, 2000] vs [528, 2000]
+  t=1000 cam=(96, 2000) DM 0/0 lag 173/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1050 cam=(0, 2000) DM 0/0 lag 174/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1100 cam=(0, 2000) DM 0/0 lag 174/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 11: visible window identical at 11, tile cache identical at 11
+verdict: UNMATCHED points
+compare rc=2
+B run: Page_Evict_Gen 21 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) None halt None
+
+################ zig_base_sa vs zig_rowlive_sa_nosweep
+A s4.stressart.bin crc=41401ef1   B s4.stressart.bin crc=a7661d75   switch A [96, 144] B [96, 144]
+  t=  50 cam=(96, 912) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 125/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 128/121 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 131/122 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [384, 320]
+  t=450 UNMATCHED cam [80, 816] vs [80, 752]
+  t=500 UNMATCHED cam [80, 1616] vs [80, 1552]
+  t=550 UNMATCHED cam [80, 2416] vs [80, 2352]
+  t=600 UNMATCHED cam [80, 3216] vs [80, 3152]
+  t=650 UNMATCHED cam [80, 4016] vs [80, 3952]
+  t=700 UNMATCHED cam [80, 4816] vs [80, 4752]
+  t=750 UNMATCHED cam [640, 5008] vs [608, 5008]
+  t=800 UNMATCHED cam [640, 4240] vs [640, 4304]
+  t=850 UNMATCHED cam [640, 3440] vs [640, 3504]
+  t=900 UNMATCHED cam [640, 2640] vs [640, 2704]
+  t=950 UNMATCHED cam [496, 2000] vs [560, 2000]
+  t=1000 cam=(96, 2000) DM 0/0 lag 173/146 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1050 cam=(0, 2000) DM 0/0 lag 174/146 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1100 cam=(0, 2000) DM 0/0 lag 174/146 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 10: visible window identical at 10, tile cache identical at 10
+verdict: UNMATCHED points
+compare rc=2
+B run: Page_Evict_Gen 20 Page_Live_Forced 3 Page_Live_Pad(M2 live evictions) None halt None
+
+################ zig_base_sa vs zig_rowlive2_sa
+A s4.stressart.bin crc=41401ef1   B s4.stressart.bin crc=4ded68d3   switch A [96, 144] B [96, 144]
+  t=  50 cam=(96, 912) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/118 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 125/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 128/121 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 131/122 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [384, 320]
+  t=450 UNMATCHED cam [80, 816] vs [80, 752]
+  t=500 UNMATCHED cam [80, 1616] vs [80, 1552]
+  t=550 UNMATCHED cam [80, 2416] vs [80, 2352]
+  t=600 UNMATCHED cam [80, 3216] vs [80, 3152]
+  t=650 UNMATCHED cam [80, 4016] vs [80, 3952]
+  t=700 UNMATCHED cam [80, 4816] vs [80, 4752]
+  t=750 UNMATCHED cam [640, 5008] vs [608, 5008]
+  t=800 UNMATCHED cam [640, 4240] vs [640, 4304]
+  t=850 UNMATCHED cam [640, 3440] vs [640, 3504]
+  t=900 UNMATCHED cam [640, 2640] vs [640, 2704]
+  t=950 UNMATCHED cam [496, 2000] vs [560, 2000]
+  t=1000 cam=(96, 2000) DM 0/0 lag 173/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1050 cam=(0, 2000) DM 0/0 lag 174/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+  t=1100 cam=(0, 2000) DM 0/0 lag 174/143 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words differ  IDENTICAL
+points 10: visible window identical at 10, tile cache identical at 10
+verdict: UNMATCHED points
+compare rc=2
+B run: Page_Evict_Gen 21 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 0 halt None
+
+################ zig_base_sa vs zig_mut_sa_blind
+A s4.stressart.bin crc=41401ef1   B s4.stressart.bin crc=817c5a38   switch A [96, 144] B [96, 144]
+POINT COUNTS DIFFER: 22 vs 13; comparing the common prefix
+  t=  50 cam=(96, 912) DM 1/1 lag 116/114 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/114 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 125/117 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 128/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 131/120 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [608, 80]
+  t=450 UNMATCHED cam [80, 816] vs [80, 256]
+  t=500 UNMATCHED cam [80, 1616] vs [80, 1056]
+  t=550 UNMATCHED cam [80, 2416] vs [80, 1856]
+  t=600 UNMATCHED cam [80, 3216] vs [80, 2656]
+  t=650 UNMATCHED cam [80, 4016] vs [80, 3456]
+  B HALTED at cam [80, 4032]: ['PageCache_AllocFrame: no free/evictable frame (thrash bug)']
+points 7: visible window identical at 7, tile cache identical at 7
+verdict: UNMATCHED points
+compare rc=2
+B run: Page_Evict_Gen 27 Page_Live_Forced 1 Page_Live_Pad(M2 live evictions) None halt {'cam': [80, 4032], 'lt': 1227, 'messages': ['PageCache_AllocFrame: no free/evictable frame (thrash bug)']}
+
+################ zig_base_sa vs zig_mut_live_sa_na
+A s4.stressart.bin crc=41401ef1   B s4.stressart.bin crc=a98072fd   switch A [96, 144] B [96, 144]
+POINT COUNTS DIFFER: 22 vs 11; comparing the common prefix
+  t=  50 cam=(96, 912) DM 1/1 lag 116/114 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 100 cam=(96, 1712) DM 1/1 lag 116/114 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 150 cam=(96, 2512) DM 0/0 lag 122/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 200 cam=(400, 3008) DM 0/0 lag 122/116 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 250 cam=(608, 2480) DM 0/0 lag 125/117 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 300 cam=(608, 1680) DM 0/0 lag 128/119 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t= 350 cam=(608, 880) DM 0/0 lag 131/120 | visible planeA resolved diff 0/1189 | tile cache resolved diff 0/4800 | raw cache words same  IDENTICAL
+  t=400 UNMATCHED cam [352, 352] vs [608, 624]
+  t=450 UNMATCHED cam [80, 816] vs [608, 624]
+  t=500 UNMATCHED cam [80, 1616] vs [608, 624]
+  t=550 UNMATCHED cam [80, 2416] vs [608, 624]
+  B HALTED at cam [608, 624]: ['Assertion failed:àì> assert.w èd0,ìneè,#0àêGot: \x81', 'demand stall unresolved > watchdog frames - working set exceeds dynamic frames?']
+points 7: visible window identical at 7, tile cache identical at 7
+verdict: UNMATCHED points
+compare rc=2
+B run: Page_Evict_Gen 125 Page_Live_Forced 0 Page_Live_Pad(M2 live evictions) 119 halt {'cam': [608, 624], 'lt': 1025, 'messages': ['Assertion failed:àì> assert.w èd0,ìneè,#0àêGot: \x81', 'demand stall unresolved > watchdog frames - working set exceeds dynamic frames?']}
+
+finished=11
