@@ -9,19 +9,20 @@ check he landed). Then holds a direction, optionally injects a ground speed once
 records x / y / layer / angle / ground speed / player state / art_tile priority per frame.
 
 --switchers:
-  none   the ROM as built. Nothing in the clip writes Sst.layer (the S2 donor tree has
-         no crossover marks, and the clip carries no objects), so this is the act as the
-         owner plays it.
+  none   the ROM as built, the act as the owner plays it. When this probe was written
+         nothing in the clip wrote Sst.layer; since S2CLIP-PLANE-SWITCH the clip ROM
+         carries Sonic 2's lines and Player_LayerLines writes it.
   s2     HOST-EMULATED Sonic 2 Obj03 (s2.asm:45132-45369) from the donor's own object
          layout (level/objects/<ZONE>_1.bin), shifted by the clip's dst-src offset. After
          each frame the probe applies Obj03's rule to the player's resolved position and
          writes Sst.layer (0 = S2 primary path, 1 = secondary) when a line fires. This is
          the same ordering as S2 (Obj03 runs after the player in the object loop, so its
          write takes effect for the next frame's collision). Priority (subtype bits 5/6)
-         is NOT emulated: the engine derives priority from the layer only in
-         Player_LoopCrossover, and this probe does not touch art_tile. It is a model of
-         the missing object, used to test whether placing the switchers alone would make
-         the act behave like Sonic 2; it is not the engine.
+         is NOT emulated: this probe does not touch art_tile. It is a model of the
+         missing object, used to test whether placing the switchers alone would make the
+         act behave like Sonic 2; it is not the engine. (Since S2CLIP-PLANE-SWITCH the
+         clip ROM carries the lines itself, so `none` is no longer "nothing writes
+         Sst.layer": Player_LayerLines does, and `s2` double-applies the rule.)
 
 Usage:
     python3 docs/research/2026-09-26-s2clip-loops-planes/loop_plane_probe.py \\
@@ -116,8 +117,31 @@ async def run(sock, syms, equs, act, a):
         await b.frames(4)
     if (await b.read(A_DBG, 1))[0]:
         raise SystemExit("loop_plane_probe: still in debug free-flight after the B press")
-    await b.write(syms["Camera_X"], (a.x - 160) << 16, 4)
-    await b.write(syms["Camera_Y"], (feet - radius - 112) << 16, 4)
+    # PLACEMENT. On a DEBUG ROM, through the engine's own warp (the Debug_Warp_Consume
+    # mailbox, games/sonic4/test/ojz_scroll_test.emp, docs/ENGINE_ARCHITECTURE.md §4.12):
+    # it re-runs the boot ladder at the destination, EntityWindow_Init included. A bare
+    # Camera_X write more than one section from spawn trips EntityWindow_Slide's DEBUG
+    # step assert since master 7c7ccf96 (SAH-3), which halted every drive placed at
+    # x >= 6600 (docs/DEFERRED_WORK.md S2CLIP-PLANE-SWITCH, fixed 2026-09-26 by
+    # LINES-EVERYWHERE). The PLAIN shape has neither the mailbox nor the assert, so there
+    # the camera write stays.
+    if "Warp_Req_Flag" in syms:
+        await b.write(syms["Warp_Req_X"], a.x, 2)
+        await b.write(syms["Warp_Req_Y"], feet - radius - 2, 2)
+        await b.write(syms["Warp_Req_Flag"], 1, 1)
+        # The consumer re-runs the whole boot ladder (tile cache, planes, pages) inside one
+        # tick, which spans many frames: measured 19 frames to the ack on the clip ROM at
+        # x 6600 (2026-09-26). 240 is a ceiling, not an expectation.
+        for _ in range(240):
+            await b.frames(1)
+            if (await b.read(syms["Warp_Req_Flag"], 1))[0] == 0:
+                break
+        else:
+            raise SystemExit("loop_plane_probe: the warp mailbox never acked")
+        await b.check_alive("warp")
+    else:
+        await b.write(syms["Camera_X"], (a.x - 160) << 16, 4)
+        await b.write(syms["Camera_Y"], (feet - radius - 112) << 16, 4)
     for _ in range(T.PIN_FRAMES):
         await b.write(A_X, a.x << 16, 4)
         await b.write(A_Y, (feet - radius - 2) << 16, 4)
