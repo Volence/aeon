@@ -1,5 +1,5 @@
 {
-  "focus": "Last stretch of the Sonic 2 zone music is being built; the envelopes are ready and land once sigil's tool swap is in.",
+  "focus": "Sonic 2 envelopes landed; the songs and the switch at the tunnel exits are being built now.",
   "inFlight": [
     {
       "what": "Zone music final stretch: both Sonic 2 songs into the game, the level's regions name them, switch at the tunnel exits, proven headless",
@@ -19,7 +19,7 @@
       "since": "2026-09-25"
     }
   ],
-  "nextBoundary": "Sigil swap, the envelopes land, then the songs and switch; then a listening build for you.",
+  "nextBoundary": "Songs and switch landed; then a listening build of the Sonic 2 level for you.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
@@ -132,5 +132,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T03:20:15Z"
+  "updatedAt": "2026-09-26T03:21:04Z"
 }
