@@ -66,9 +66,12 @@ clip act is also the first content on which a wrong `layer` byte is fatal rather
 no-op, and the plane-B holes this prints are the map of where it would be fatal.
 Measured on s2_ehz_boot AFTER the parcel-8 widening (768 columns, x 0..6143): plane A has
 a floor in every column but the 24 of EHZ's own bottomless pit at x 4672..4863, which is
-DECLARED; plane B has none in 32 — those same 24 plus x 1344..1407, which is EHZ's
-jump-the-pit (Sonic 2 puts a row of five rings over it at y 568, x 1392..1488) seen from
-the path the player is not on. Before the widening the act was 512 columns and plane A had
+DECLARED; plane B has none in 32 — those same 24 plus x 1344..1407, which is the left end
+of EHZ's BRIDGE pit (Sonic 2 spans it with an Obj11 bridge at (1448, 648), x 1352..1543,
+and puts a row of five rings over it at y 568, x 1392..1488; a clip carries no objects,
+so the bridge is missing and the pit is open on both planes). It was first read here as
+"the path the player is not on"; since S2CLIP-PLANE-SWITCH the player CAN be on plane B
+there, measured (docs/research/2026-09-27-clip-planeb-hole.md). Before the widening the act was 512 columns and plane A had
 a floor in all of them, which is the number the parcel-7 report quotes.
 
 LOUD WHEN IT CANNOT MEASURE. A missing strip file, a strip of the wrong shape, a

@@ -1,0 +1,22 @@
+dbg3.sweep_dash_d10                      stayed right of 3990 (end x 4206 y 563 layer B)
+dbg3.sweep_dash_d12                      stayed right of 3990 (end x 4207 y 564 layer B)
+dbg3.sweep_dash_d14                      stayed right of 3990 (end x 4153 y 505 layer B)
+dbg3.sweep_dash_d16                      stayed right of 3990 (end x 4617 y 882 layer B)
+dbg3.sweep_dash_d18                      stayed right of 3990 (end x 4149 y 481 layer B)
+dbg3.sweep_dash_d2                       stayed right of 3990 (end x 3990 y 503 layer A)
+dbg3.sweep_dash_d20                      stayed right of 3990 (end x 4828 y 1100 layer B)
+dbg3.sweep_dash_d22                      stayed right of 3990 (end x 4178 y 544 layer B)
+dbg3.sweep_dash_d24                      stayed right of 3990 (end x 4172 y 538 layer B)
+dbg3.sweep_dash_d26                      stayed right of 3990 (end x 4187 y 552 layer B)
+dbg3.sweep_dash_d28                      stayed right of 3990 (end x 4208 y 564 layer B)
+dbg3.sweep_dash_d30                      EXITED LEFT at f366 x 3984 y 500 on layer A
+dbg3.sweep_dash_d32                      EXITED LEFT at f359 x 3985 y 501 on layer A
+dbg3.sweep_dash_d34                      EXITED LEFT at f358 x 3984 y 500 on layer A
+dbg3.sweep_dash_d36                      EXITED LEFT at f360 x 3988 y 502 on layer A
+dbg3.sweep_dash_d38                      EXITED LEFT at f361 x 3988 y 502 on layer A
+dbg3.sweep_dash_d4                       EXITED LEFT at f429 x 3987 y 414 on layer B
+dbg3.sweep_dash_d40                      EXITED LEFT at f383 x 3986 y 501 on layer A
+dbg3.sweep_dash_d6                       stayed right of 3990 (end x 4195 y 559 layer B)
+dbg3.sweep_dash_d8                       stayed right of 3990 (end x 4195 y 558 layer B)
+dbg3.sweep_dash_dnone                    EXITED LEFT at f365 x 3985 y 507 on layer A
+TOTAL 21 drives: exited left on A 7, exited left on B 1, never exited 13
