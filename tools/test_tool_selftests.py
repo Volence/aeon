@@ -192,6 +192,23 @@ def test_prose_bound_sweep_self_test():
     assert "INSTRUMENT WORKS" in p.stdout, p.stdout
 
 
+def test_prose_bound_sweep_refuses_a_file_it_could_not_parse(tmp_path):
+    """PRINTED-NOT-GATED (2026-09-25): a file the AST walk cannot parse (a .md handed to
+    it, test_bg_emit.py records the case) used to be skipped with a stderr line and the
+    run ended `sites: 0`, exit 0, indistinguishable from a clean file. Now it is named as
+    UNSWEPT and the run exits 2. A parseable file with no hits stays exit 0."""
+    bad = tmp_path / "doc.md"
+    bad.write_text("# not python\n\n| a | b |\n")
+    good = tmp_path / "clean.py"
+    good.write_text("x = 1\n")
+    p = _run("tools/prose_bound_sweep.py", str(bad), str(good))
+    assert p.returncode == 2, (p.returncode, p.stdout, p.stderr)
+    assert "UNSWEPT" in p.stdout, p.stdout
+    p = _run("tools/prose_bound_sweep.py", str(good))
+    _assert_green(p, "tools/prose_bound_sweep.py <clean file>")
+    assert "sites: 0" in p.stdout and "UNSWEPT" not in p.stdout, p.stdout
+
+
 # ---------------------------------------------------------------------------
 # Donor-dependent rows (tier 2, tools/test_instashield_art.py's pattern).
 # ---------------------------------------------------------------------------
