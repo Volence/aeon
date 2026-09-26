@@ -1062,7 +1062,8 @@ comptime fn pc_patch_run_plain_col(src_step: Int, dest_step: Int) -> Code {
 // = 160 bytes; the caller handles the cache row-59->0 wrap between runs).
 // In: a0 = source LOCAL word ptr, a1 = destination nametable-cell ptr,
 //     d0.w = run length (>= 1); Cache_Cur_LocalMap published by
-//     FindStagedBlock/DecompressBlock
+//     FindStagedBlock/DecompressBlock; _Col only: d1.w = the run's PHYSICAL cache
+//     column (0..TILE_CACHE_COLS-1), read by the general arm for its liveness mask
 // Out: a0/a1 advanced one stride PAST the run (the callers continue run 2 from
 //     them). Everything else preserved — the run form drops into the
 //     register-saturated H6 fill loops with no caller-side banking.
@@ -1071,13 +1072,16 @@ comptime fn pc_patch_run_plain_col(src_step: Int, dest_step: Int) -> Code {
 // a saturated tick issues (~200 cyc/tick) against the ~95 cyc/word the direct loop
 // saves over 280 words/tick. The fallback arm is the general loop.
 //
-// THE GENERAL ARM'S MASK POINTER (GPL-A3). The run ORs its frame set into the u16 at
-// Page_Live_RowPtr (Seq) or Page_Live_ColPtr (Col). The one caller of each publishes it
-// for the row / column it is about to fill, and only while the latch reads 0
-// (TileCache_FillRow, TileCache_CopyBlockColumn). A published pointer cannot go stale
-// under a run: the latch changes only in PageCache_EndBoundedRegime, from the idle slot,
-// never between a caller's publish and its runs, and it never returns to non-zero
-// mid-act.
+// THE GENERAL ARM'S MASK (GPL-A3). The run ORs its frame set into one u16 mask.
+//   Seq: the one at Page_Live_RowPtr, which its one caller (TileCache_FillRow) publishes
+//     for the row it is about to fill, only while the latch reads 0. A published pointer
+//     cannot go stale under a run: the latch changes only in PageCache_EndBoundedRegime,
+//     from the idle slot, never between the publish and the runs, and it never returns
+//     to non-zero mid-act.
+//   Col: column d1's, derived here. The one caller (TileCache_CopyBlockColumn) holds the
+//     run's PHYSICAL cache column in d1 at both calls, so the latched regimes pay nothing
+//     for it (a per-call publish in the caller cost the bounded clip fly-right 1 lag frame,
+//     measured: docs/research/2026-09-27-gpl-a3-build.md).
 //
 // DISPATCH ORDER (resident plain copy, 2026-09-26). The sign test runs BEFORE the
 // register bank so the plain arm can skip the bank entirely. The general and bounded
@@ -1120,7 +1124,7 @@ pub proc PageCache_PatchRun_Seq (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         rts
 }
 
-pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
+pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16, d1: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
         tst.b   PageCache_Direct_Map
         bmi     .resident                       // RESIDENT ($FF) or PLAIN ($80)
         movem.l d1-d5/a2-a4, -(sp)              // CCR untouched: Z is still the tst's
@@ -1128,7 +1132,10 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
         lea     Page_Table, a3
-        movea.l Page_Live_ColPtr, a4            // this run's column mask (TileCache_CopyBlockColumn published it)
+        lea     Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a4
+        move.w  d1, d4                          // d1 = the run's physical cache column (caller)
+        add.w   d4, d4
+        adda.w  d4, a4                          // this run's column mask
         moveq   #0, d4                          // the run's frame set
         pc_patch_run_loop(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         or.w    d4, (a4)                        // a column run lies in one cache column (the caller splits the wrap)
@@ -1854,22 +1861,11 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
         // replaced, NOT dropped, by the invariants live here (this arm must never become
         // the vacuous one):
         //   (a) every liveness mask holds its reset value (PageCache_LiveReset). A moved
-        //       one means a GENERAL-loop run (or a sweep) executed under the latch.
+        //       one means a GENERAL-loop run (or a sweep) executed under the latch. Checked
+        //       per SLICE, with (b): see .slices_now.
         //   (b) every frame the nametable names is assigned — the sliced walk above.
         //   (c) Page_Table is STILL the identity over the pool — the premise the whole
         //       collapsed loop rests on, which Level_LoadArt's latch proved only once.
-        lea     Page_Live_Masks, a1             // (a) rows: {frame 0}
-        moveq   #TILE_CACHE_ROWS-1, d0
-    .lm_row:
-        cmpi.w  #1, (a1)+
-        bne     .lm_moved
-        dbf     d0, .lm_row
-        moveq   #TILE_CACHE_COLS-1, d0          // (a) columns: empty
-    .lm_col:
-        tst.w   (a1)+
-        bne     .lm_moved
-        dbf     d0, .lm_col
-
         lea     Page_Table, a1                  // (c)
         move.w  PageIn_Pool_Pages, d0
         subq.w  #1, d0
@@ -1894,9 +1890,6 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
     .dm_ident_ok:
         addq.w  #1, d1
         dbf     d0, .dm_ident
-        jbra    .common
-    .lm_moved:
-        raise_error "PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop variants mixed)"
 
         // ---- every regime: the frame-level invariants, whole, at this one instant ----
     .common:
@@ -2004,12 +1997,39 @@ pub proc PageCache_Audit (d0: u16) clobbers(d0-d2/a0-a3) {
     .slices_now:
         tst.b   PageCache_Direct_Map
         beq     .general_slices
+        // (a), sliced: slice s checks its row's mask (row s/2: every row twice an
+        // interval) and column (s mod TILE_CACHE_COLS)'s (every column at least once),
+        // against the reset value. Under a latch nothing writes a mask (header), so a moved
+        // one stays moved and the paced sweep catches it within the (b) bound. It was a
+        // whole 140-mask walk on the interval tick, in-tick: that cost the canonical DEBUG
+        // diagonal 1 lag frame (measured, docs/research/2026-09-27-gpl-a3-build.md).
+        movem.w d0/d2, -(sp)                    // (b) below takes the same range
+        lea     Page_Live_Masks, a0
+    .lm_slice:
+        move.w  d0, d1
+        andi.w  #$FFFE, d1                      // row * 2 = (s / 2) * 2
+        cmpi.w  #1, (a0, d1.w)
+        bne     .lm_moved
+        move.w  d0, d1
+        cmpi.w  #TILE_CACHE_COLS, d1
+        blo     .lm_col
+        subi.w  #TILE_CACHE_COLS, d1
+    .lm_col:
+        add.w   d1, d1
+        tst.w   PAGE_LIVE_COL_OFFSET(a0, d1.w)
+        bne     .lm_moved
+        addq.w  #1, d0
+        subq.w  #1, d2
+        bne     .lm_slice
+        movem.w (sp)+, d0/d2
         mul_const.w d2, #PAGE_AUDIT_SLICE_WORDS/4, d1   // -> 4-word groups
         subq.w  #1, d2
         mul_const.w d0, #PAGE_AUDIT_SLICE_BYTES, d1
         lea     Tile_Cache_Nametable, a0
         adda.w  d0, a0
         jbra    .dangling_walk                  // tail
+    .lm_moved:
+        raise_error "PageCache_Audit: a liveness mask left its reset value under the direct-map latch (patch loop variants mixed)"
     .general_slices:
         move.w  d0, -(sp)                       // 2(sp) = the slice
         move.w  d2, -(sp)                       // 0(sp) = slices left

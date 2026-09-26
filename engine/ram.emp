@@ -1569,13 +1569,12 @@ pub vars upper_ram {
     // COLUMN (byte offset PAGE_LIVE_COL_OFFSET on). Invariant, general regime: every cache
     // cell (r, c) names a frame in row r's mask or column c's mask. Written only by the
     // general patch runs (the insertion barrier), the idle sweep (exact re-derivation),
-    // PageCache_LiveSweepAll and PageCache_LiveReset. The two pointers are the masks of the
-    // row / column the copy site is about to fill (TileCache_FillRow /
-    // TileCache_CopyBlockColumn publish them, general regime only). Placed at the RAM
-    // TAIL like the block above: ripples zero engine-RAM addresses.
+    // PageCache_LiveSweepAll and PageCache_LiveReset. The pointer is the mask of the row
+    // TileCache_FillRow is about to fill (published there, general regime only; a column
+    // run is handed its column in d1 instead). Placed at the RAM TAIL like the block
+    // above: ripples zero engine-RAM addresses.
     Page_Live_Masks:        [u16; PAGE_LIVE_UNITS],
     Page_Live_RowPtr:       u32,        // &Page_Live_Masks[row] of the row TileCache_FillRow is filling
-    Page_Live_ColPtr:       u32,        // &Page_Live_Masks[col unit] of the column TileCache_CopyBlockColumn is filling
     Page_Live_Unit:         u16,        // the idle sweep's next unit (0..PAGE_LIVE_UNITS-1)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---

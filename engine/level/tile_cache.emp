@@ -13,7 +13,7 @@ use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_CO
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS}
-use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL, PAGE_LIVE_COL_OFFSET}
+use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 
@@ -606,18 +606,11 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d2
     .row_nowrap:
-        // GPL-A3: the general patch run ORs the frames it writes into THIS column's
-        // liveness mask (engine.page_cache, the insertion barrier). Publish it once per
-        // column, general regime only: a latched run keeps no liveness, and the latch
-        // cannot change between here and the runs below (PageCache_PatchRun_Seq's note).
-        tst.b   PageCache_Direct_Map
-        bne     .col_no_live
-        move.w  d1, d5
-        add.w   d5, d5                         // physical col * 2
-        lea     Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a0
-        adda.w  d5, a0
-        move.l  a0, Page_Live_ColPtr
-    .col_no_live:
+        // GPL-A3: d1 is now the PHYSICAL column, and it stays so across both
+        // PageCache_PatchRun_Col calls below (the run preserves d1): the general arm
+        // reads it to find this column's liveness mask (engine.page_cache, the insertion
+        // barrier). Passing it costs the latched regimes nothing; a per-call publish here
+        // measurably did (docs/research/2026-09-27-gpl-a3-build.md).
         // source: slot base + (src_row * 16 + col) * 2
         movea.l a1, a0
         move.w  d4, d5
@@ -630,7 +623,7 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         // F-3: the staged words are LOCAL; PageCache_PatchRun_Col maps each
         // local->global (Cache_Cur_LocalMap, published when this block was
         // located/staged) then global->physical (frame), with the liveness barrier
-        // in the general regime, as it lands.
+        // into column d1's mask in the general regime, as it lands.
         // The patch run writes through a1, so a1 becomes the nametable dest cursor
         // here. a1 (the staged base) is a PRESERVED param — FillAll reuses it across
         // 16 columns — so SAVE it on the stack (the closure-recognised preserve

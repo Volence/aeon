@@ -369,9 +369,9 @@ pub const TILE_CACHE_STRIDE  = TILE_CACHE_COLS                    // row stride 
 pub const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  // 9600 bytes
 // General-regime frame liveness (GPL-A3, 2026-09-27; engine.page_cache has the design).
 // Page_Live_Masks (engine/ram.emp) holds one u16 frame mask per cache row, then one per
-// cache column: row r at byte 2*r, column c at PAGE_LIVE_COL_OFFSET + 2*c. The copy
-// sites address it by these names (TileCache_FillRow / TileCache_CopyBlockColumn publish
-// the mask of the row / column they are about to fill).
+// cache column: row r at byte 2*r, column c at PAGE_LIVE_COL_OFFSET + 2*c.
+// TileCache_FillRow publishes the row mask it is about to fill; a column run derives its
+// own from the physical column its caller passes (PageCache_PatchRun_Col).
 pub const PAGE_LIVE_UNITS      = TILE_CACHE_ROWS + TILE_CACHE_COLS
 pub const PAGE_LIVE_COL_OFFSET = TILE_CACHE_ROWS * 2
 

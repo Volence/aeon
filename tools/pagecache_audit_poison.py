@@ -6,10 +6,11 @@ A check that cannot fail is not a check, so each invariant is violated in turn a
 engine must STOP (raise_error -> error handler; Frame_Counter and Logic_Tick freeze).
 Each control pokes nothing wrong and must keep running.
 
-LATCHED ARMS (the booted canonical act is latched). (a) every liveness mask keeps its
-reset value under the latch (GPL-A3, 2026-09-27; it was "every refcount is zero" before
-the masks replaced the refcounts), (b) no cache word names an unassigned frame, (c)
-Page_Table is the identity.
+LATCHED ARMS (the booted canonical act is latched). (a)/(a2) every row / column liveness
+mask keeps its reset value under the latch (GPL-A3, 2026-09-27; it was "every refcount
+is zero" before the masks replaced the refcounts; checked per audit slice, so its bound
+is the per-word one), (b) no cache word names an unassigned frame, (c) Page_Table is the
+identity.
 
 AMORTISED SINCE 2026-09-26. The nametable half of the audit is audited in paced slices
 by VSync_Wait's idle slot. So (b1)/(b2) plant ONE dangling word at the first and at the
@@ -222,8 +223,11 @@ async def sweep(sock, lst, sym, rom):
     masks = sym["Page_Live_Masks"]
     col_masks = masks + 2 * ROWS         # PAGE_LIVE_COL_OFFSET: the rows, then the columns
 
-    async def p_mask(bb, s):        # (a) a liveness mask moved under the latch
+    async def p_mask(bb, s):        # (a) a ROW liveness mask moved under the latch
         await wr(bb, masks + 2 * 5, 0x0003, 2)            # row 5 now also names frame 1
+
+    async def p_colmask(bb, s):     # (a2) a COLUMN liveness mask moved under the latch
+        await wr(bb, col_masks + 2 * (COLS - 1), 0x0002, 2)   # the last column now names frame 1
 
     async def p_ident(bb, s):       # (c) Page_Table must still be the identity
         await wr(bb, s["Page_Table"] + 3, 5, 1)           # page 3 -> frame 5
@@ -296,8 +300,10 @@ async def sweep(sock, lst, sym, rom):
         return poke
 
     ok &= (await case(b, sym, rom, "CONTROL (no poke)", None, expect_halt=False))[0]
-    ok &= (await case(b, sym, rom, "(a) liveness mask moved under the latch", p_mask,
-                      expect_msg=MSG_LATCH_MASK))[0]
+    ok &= (await case(b, sym, rom, "(a) row liveness mask moved under the latch", p_mask,
+                      bound=WORD_BOUND, expect_msg=MSG_LATCH_MASK))[0]
+    ok &= (await case(b, sym, rom, "(a2) column liveness mask moved under the latch", p_colmask,
+                      bound=WORD_BOUND, expect_msg=MSG_LATCH_MASK))[0]
     ok &= (await case(b, sym, rom, "(b) unassigned frame referenced", p_dangle))[0]
     ok &= (await case(b, sym, rom, "(c) Page_Table not the identity", p_ident))[0]
     ok &= (await case(b, sym, rom, "(b1) one dangling word, first slice", p_word(0), bound=WORD_BOUND))[0]
