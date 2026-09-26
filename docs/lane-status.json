@@ -1,11 +1,6 @@
 {
-  "focus": "Jump sound and Emerald Hill running lag fixed; your ROM is rebuilding.",
+  "focus": "Chemical Plant lag fix landed; the loop fix is finishing; your pick on the fall feel is open.",
   "inFlight": [
-    {
-      "what": "Build the Chemical Plant tile-patching fix (about half the lag there)",
-      "where": "branch perf/gpl-a3",
-      "agent": true
-    },
     {
       "what": "Stop Sonic going round our loop twice at walking pace",
       "where": "branch fix/ojz-loop-exit",
@@ -95,8 +90,8 @@
     },
     {
       "id": "S2CLIP-LAG",
-      "title": "Chemical Plant's slow tile patching: you said build it; building the fix that roughly halves it",
-      "state": "doing",
+      "title": "Chemical Plant lag: fixed (flying down 35 to 14 lag frames)",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -197,5 +192,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T22:35:39Z"
+  "updatedAt": "2026-09-26T23:29:47Z"
 }
