@@ -165,6 +165,11 @@ echo
 echo "freeze_preflight: step 2/2 — the port targets (the standalone-module case build.sh never exercises)"
 OUT=/tmp/fp_ports.$$
 cargo test --release -p sigil-cli --no-fail-fast 2>&1 | tee "$OUT" | grep -E "^test result:|FAILED|panicked at" | tail -25
+# CARGO'S OWN EXIT STATUS, read on the next line and nowhere else (PRINTED-NOT-GATED,
+# 2026-09-25). The verdict below counts ` ... FAILED` names, and a crate that does not
+# COMPILE (or a cargo that dies) names none, so this step printed CLEAR and exited 0 on a
+# run that tested nothing. A non-zero cargo with zero named failures is COULD NOT RUN.
+CARGO_RC=${PIPESTATUS[0]}
 # COUNT AND NAME FROM THE SAME LINES. The old form ran `grep -c` in a command substitution
 # alongside a `; true`, and reported 4 failures on a run where 3 tests failed — a count nobody
 # could reconcile with the names, because the names were never printed. Derive both from one
@@ -177,6 +182,15 @@ FAILING=$(grep -E "^test .* \.\.\. FAILED$" "$OUT" 2>/dev/null | sed -E 's/^test
 FAILED=$(printf '%s' "$FAILING" | grep -c . || true)
 echo
 echo "freeze_preflight: $FAILED port test failure(s)"
+if [ "$FAILED" -eq 0 ] && [ "$CARGO_RC" != 0 ]; then
+    echo "freeze_preflight: COULD NOT RUN — step 2's cargo exited $CARGO_RC but named no failing"
+    echo "  test, so no port test ran to a verdict (a compile error, or cargo itself failed)."
+    echo "  Its output, from the first error:"
+    FAILTEXT=$(awk '/^error|panicked at/{p=1} p' "$OUT" | head -30)
+    [ -z "$FAILTEXT" ] && FAILTEXT=$(tail -20 "$OUT")
+    printf '%s\n' "$FAILTEXT" | sed 's/^/    | /'
+    rm -f "$OUT"; exit 2
+fi
 if [ "$FAILED" -gt 0 ]; then
     echo "  failing test(s):"
     printf '%s\n' "$FAILING" | sed 's/^/    /'
