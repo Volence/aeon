@@ -3928,6 +3928,11 @@ soundscapes (the latter is deferred to Phase 5).
     TL-overflow saturation audited at every volume→carrier-TL add (engine already clamped; transcoder
     bake pinned by test). `Sfx_Restore` gates on `SND_SEQ_ACTIVE` — an SFX ending over STOPPED music
     silences its voice instead of re-keying the dead song's stale-KEYED note (was: unkillable PSG drone).
+    A PSG volume op (`MEV_VOL`, `Seq_HookSetVol`) writes the chip only while the channel is keyed; on a
+    resting or never-keyed channel it only stores `sc_volume`, which the next attack applies. The SN76489
+    has no key-off, so an attenuation write sounds whatever divisor the latch still holds: the S2 clip's
+    CPZ PSG1/PSG2 (`Vol, End`) droned Emerald Hill's last notes after the switch (2026-09-27). S2/S3K only
+    store on a volume command too. Witness: `tools/psg_song_switch_witness.py`.
   - **`SfxHeader` = 8 bytes** — `sfh_gain` / `sfh_duck` / `sfh_cap` reserved (inert in Stage A;
     transcoder writes 0/0/1) + bit 7 of `sfh_priority` reserved for the non-latching priority flag,
     so Stage B (per-SFX gain, per-SFX duck depth, authored instance caps, continuous-SFX class) is
