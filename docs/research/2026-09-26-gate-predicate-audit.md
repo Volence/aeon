@@ -133,4 +133,18 @@ were not audited case by case.
 
 ## Verification (final tip)
 
-Filled in after the final run: see the section below.
+The tools tree measured is tip `7243b416`. After it, only this file changed.
+
+- `./tools/landing_build.sh`: **`finished=0`** (three shapes; needs_build lane "34 ran, 0 deferred,
+  0 failed, 1 exempted").
+- `pytest tools -m "not needs_build"` (build.sh's pre-build lane inside landing_build, `__pycache__`
+  cleared first; the baseline worktree had none): **before 3519 passed, 3 skipped · after 3522
+  passed, 3 skipped.** The +3 are the new `test_plane_role_swap_gate.py` cases.
+- `effects_gates.py`: not run. No effects gate and no `engine/effects/*`, `bg_anim.emp` or
+  `buffers.emp` source changed; every engine edit here was a mutation restored from `origin/master`.
+
+| image | origin/master `0563434a` | tip | |
+|---|---|---|---|
+| `s4.bin` | `0cd3ce63` / 828,920 B | `0cd3ce63` / 828,920 B | identical |
+| `s4.debug.bin` | `1ff17f52` / 855,585 B | `1ff17f52` / 855,585 B | identical |
+| `demo.debug.bin` | `5e110699` / 105,426 B | `5e110699` / 105,426 B | identical |
