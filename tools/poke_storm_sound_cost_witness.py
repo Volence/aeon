@@ -346,21 +346,34 @@ def main():
     out = []
     try:
         with aether_emulator(a.rom, symbols=a.lst) as sock:
-            fails, ran, want, _ = asyncio.run(main_async(sock, a.rom, a.lst, a.poison, out))
+            fails, ran, want, (ms_sub, *_rest) = asyncio.run(
+                main_async(sock, a.rom, a.lst, a.poison, out))
     except (Unmeasurable, CartMismatch) as e:
         print("\n".join(out))
         print(f"\nUNMEASURABLE: {e}")
         return 2
     print("\n".join(out))
+    # PRINTED-NOT-GATED residue (2026-09-26). The poison arm used to print its own rule
+    # ("L1 must have reported no storm bracket") and return 0 WHATEVER L1 reported, and
+    # whatever L0 said about the watch -- a control that could not fail. It is now graded:
+    # a storm bracket under the poison aim is a FAIL (exit 1), and a run whose own checks
+    # failed (e.g. the watch never attached) is COULD NOT RUN (exit 2), in both arms: every
+    # entry in `fails` is a reason the run did not measure, never a measured negative.
     if a.poison:
         print("\nPOISON: L1 must have reported no storm bracket above. If it reported one, "
               "the attribution is not reading the PC it claims to read.")
-        return 0
+        if ms_sub:
+            print(f"\nRESULT: FAILED -- the poison aim found {len(ms_sub)} storm "
+                  f"bracket(s); the attribution is not reading the PC it claims to read")
+            return 1
     if fails:
-        print("\nRESULT: COULD NOT MEASURE CLEANLY")
+        print("\nCOULD NOT RUN: the run did not measure cleanly")
         for f in fails:
             print(f"  * {f}")
-        return 1
+        return 2
+    if a.poison:
+        print("\nRESULT: POISON HELD -- the watch was live and L1 found no storm bracket.")
+        return 0
     print(f"\nRESULT: MEASURED — {ran} of {want} legs (4 drives + 2 controls).")
     return 0
 

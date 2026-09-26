@@ -266,7 +266,11 @@ async def run(rom, lst):
         # part. Reading four bytes and taking the whole longword would report the
         # position multiplied by 65536.
         if cam_sym is None:
-            print("  camera: Camera_X is not in the .lst — NOT REPORTED")
+            # PRINTED-NOT-GATED residue (2026-09-26): this printed "NOT REPORTED" and the
+            # run went on to exit 0 with the camera-range check never made. It is one of
+            # the three checks this witness exists for, so its absence is NOT MEASURED.
+            raise WitnessError("Camera_X is not in %s; the clean-camera-range check "
+                               "cannot be made" % lst)
         else:
             cam = int(await read_bytes(client, cam_sym, 2), 16)
             clean = pfg.clean_camera_range(SHIPPED_END_FACTOR)
@@ -350,7 +354,7 @@ def main():
     try:
         ok = asyncio.run(run(args.rom, args.lst))
     except WitnessError as e:
-        print("  NOT MEASURED: %s" % e)
+        print("  COULD NOT RUN (NOT MEASURED): %s" % e)
         return 2
     print("  %s" % ("OK" if ok else "FAILED"))
     return 0 if ok else 1

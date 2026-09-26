@@ -943,6 +943,11 @@ def main() -> int:
     print("interrupts.hint is HBlank + VBlank in this ROM and is NEVER read here.\n")
 
     table: dict[str, dict] = {}
+    # PRINTED-NOT-GATED residue (2026-09-26): every "!!" below used to print and fall
+    # through to `return 0`, so a run whose windows disagreed, whose camera never went
+    # diagonal, or whose rows were missing exited as green as a clean one. Each is now
+    # collected here and the run exits 5 ("derived checks: FAILED"), the --sat arm's code.
+    problems: list[str] = []
     for s in states:
         runs = results[s]
         c = runs[0]["cam"]
@@ -961,6 +966,7 @@ def main() -> int:
                 any(x["frames"] != ticks[0]["frames"] for x in ticks):
             print(f"   !! WINDOW MISMATCH: profiler frame_count {fcnt} vs Frame_Counter delta"
                   f" {[x['frames'] for x in ticks]} — cyc/logic-tick is NOT exact")
+            problems.append(f"{s}: profiler window and Frame_Counter window differ")
         print(f"   tick rate (Frame_Counter / Logic_Tick, the ENGINE's own counters):"
               f" {ticks[0]['frames']} video frames / {ticks[0]['ticks']} logic ticks"
               f" = {fpt:.3f} frames per tick;"
@@ -979,6 +985,10 @@ def main() -> int:
             print(f"   derived check: dx == dy {'OK' if diag else '!! NOT DIAGONAL'};"
                   f" camera-derived ticks ({c['cam_derived_ticks']:.2f}) vs Logic_Tick"
                   f" ({ticks[0]['ticks']}) {'AGREE' if agree else '!! DISAGREE'}")
+            if not diag:
+                problems.append(f"{s}: the camera did not move diagonally (dx != dy)")
+            if not agree:
+                problems.append(f"{s}: camera-derived ticks disagree with Logic_Tick")
         hdr = (f"   {'ROUTINE':24} {'calls':>6} {'cyc/video-frame':>16} {'spread':>7}"
                f" {'%frame':>7} {'cyc/logic-tick':>15}")
         print(hdr)
@@ -996,6 +1006,7 @@ def main() -> int:
             if not rows or any(x is None for x in rows):
                 print(f"   {name:24} {'--':>6} {'ABSENT FROM TOP-300':>16}")
                 table[s]["routines"][name] = None
+                problems.append(f"{s}: {name} absent from the profiler's top-300 rows")
                 continue
             cyc = [int(x["cycles"]) for x in rows]
             cal = [int(x["calls"]) for x in rows]
@@ -1026,6 +1037,10 @@ def main() -> int:
               f"  (Raster_Program {p0['start']['program']:06X})"
               f"  {'stable across the sample' if stable else '!! CHANGED MID-SAMPLE'}"
               f"  {'same across boots' if same else '!! DIFFERS ACROSS BOOTS'}")
+        if not stable:
+            problems.append(f"{s}: the live raster program changed mid-sample")
+        if not same:
+            problems.append(f"{s}: the live raster program differs across boots")
         print(f"      records: {len(per_rec)}  per-record model {per_rec}")
         if hb:
             m = hb["cycles"][0]
@@ -1035,8 +1050,11 @@ def main() -> int:
             if hb["calls"][0] != len(per_rec):
                 print(f"      !! fires {hb['calls'][0]} but {len(per_rec)} live records —"
                       f" dropped fires or an unwalked record")
+                problems.append(f"{s}: HInt fires {hb['calls'][0]} != {len(per_rec)} live "
+                                f"records")
         else:
             print("      !! HBlank trampoline row ABSENT — no HInt total measured")
+            problems.append(f"{s}: HBlank trampoline row absent; no HInt total measured")
 
         # ---- Task 5: the DMA awareness scan. NOT a measured stall — see the module note.
         dm = runs[0]["dma"]
@@ -1068,6 +1086,15 @@ def main() -> int:
     if args.out:
         Path(args.out).write_text(json.dumps(table, indent=2) + "\n")
         print(f"raw: {args.out}")
+    # The model gap ("<-- INVESTIGATE before recording") is deliberately NOT here: it is a
+    # finding about the cost model, which this probe exists to report, not a sign that the
+    # measurement itself is invalid.
+    if problems:
+        print("derived checks: FAILED — the rows above are NOT evidence:")
+        for p in problems:
+            print(f"   !! {p}")
+        return 5
+    print("derived checks: all green")
     return 0
 
 

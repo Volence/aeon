@@ -572,7 +572,26 @@ def section6(a, sym):
         print("    NOT CONSTANT — the first fire is not at a fixed offset from `top`, which "
               "contradicts the identical arm words. Investigate before reading anything "
               "above.")
+        CONTRADICTIONS.append("§6 N + top is not constant over the tops (%s)"
+                              % sorted(set(ks)))
     print()
+
+
+# PRINTED-NOT-GATED residue (2026-09-26). Two sections printed a verdict that invalidated
+# what they measured and the run still exited 0: §6's "NOT CONSTANT ... Investigate before
+# reading anything above" (a contradiction: exit 1) and §4's "NO CRAM ENTRY HAS BROAD
+# COVERAGE ... §4 measured NOTHING" (a section that did not run: exit 2). They are recorded
+# here and read by exit_status(); a contradiction outranks a section that could not run.
+CONTRADICTIONS: list[str] = []
+UNMEASURED: list[str] = []
+
+
+def exit_status() -> int:
+    for c in CONTRADICTIONS:
+        print("CONTRADICTION: %s" % c)
+    for u in UNMEASURED:
+        print("COULD NOT RUN: %s" % u)
+    return 1 if CONTRADICTIONS else (2 if UNMEASURED else 0)
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +624,7 @@ def main():
     if a.fire_count:
         section6(a, sym)
         print("elapsed %.1f s" % (time.time() - t0))
-        return 0
+        return exit_status()
     PROBE_PX = -37          # odd on purpose: a multiple of the 8-px tile height could alias
 
     def flat_pair(top, lines, target, addr, mute=False, lo=0, hi=None):
@@ -724,6 +743,8 @@ def main():
         print("    *** NO CRAM ENTRY HAS BROAD COVERAGE in this scene. §4 measured NOTHING "
               "about the CRAM boundary; do not read a null here as 'CRAM behaves the "
               "same'.")
+        UNMEASURED.append("§4 no CRAM entry has broad coverage in this scene, so the CRAM "
+                          "boundary was not measured")
     else:
         pick = max(usable, key=lambda x: len(cov[x]))
         print("    using CRAM byte $%02X (%d covered rows)" % (pick, len(cov[pick])))
@@ -786,7 +807,7 @@ def main():
           % (len(disc), len(h1), len(h2)))
     print()
     print("elapsed %.1f s" % (time.time() - t0))
-    return 0
+    return exit_status()
 
 
 if __name__ == "__main__":

@@ -107,6 +107,27 @@ def refuse(why: str) -> "Refused":
     return Refused(why)
 
 
+def plan_refusal(lines: list[int], band: dict | None) -> str | None:
+    """Why this --lines plan cannot test the band, or None if it can.
+
+    PRINTED-NOT-GATED residue (2026-09-26): the vacuity check below only fires when there
+    ARE in-band samples. A plan with no line inside [top, bot) sampled nothing but the base,
+    matched every expectation, and exited 0 -- a pass about a band it never looked at. A
+    plan with no line outside cannot measure the base colour. Both are refused before the
+    emulator starts. `band` is the bound expectation (top/bot), or None on a control run,
+    where only the out-of-band half applies."""
+    if not lines:
+        return "--lines is empty; nothing would be sampled"
+    if band is not None and not any(band["top"] <= ln < band["bot"] for ln in lines):
+        return (f"no --lines sample ({lines}) falls inside the authored band "
+                f"{band['top']}..{band['bot'] - 1}; every line would read the base and "
+                f"nothing about the band would be tested")
+    if band is not None and all(band["top"] <= ln < band["bot"] for ln in lines):
+        return (f"every --lines sample ({lines}) is inside the band "
+                f"{band['top']}..{band['bot'] - 1}; the base colour cannot be measured")
+    return None
+
+
 # ----------------------------------------------------------------------------- derivations
 
 def parse_const(text: str, name: str, where: str) -> int:
@@ -386,6 +407,10 @@ async def measure(sock: str, a, blob: bytes, exp: dict | None, ctrl: dict | None
         raise refuse(f"the out-of-band samples disagree ({[f'${v:04X}' for v in outside]}) — the base "
                      f"is not uniform, so no expectation can be derived from it")
     base = outside[0]
+    if exp is not None and not inside:
+        # Backstop for plan_refusal(), which main() applies before the emulator starts.
+        raise refuse("no in-band sample was taken, so nothing about the band was measured "
+                     "(every line read the base). UNMEASURABLE, not a pass.")
     if exp is not None:
         if base == exp["colour"]:
             raise refuse(f"the measured base ${base:04X} EQUALS the authored colour — the instrument "
@@ -506,6 +531,10 @@ def main() -> int:
               f"{exp['cram_entry']}, colour ${exp['colour']:04X}; engine must install {label_name}")
         out["expectation"] = exp
         out["binding_label"] = label_name
+
+    why = plan_refusal(lines, exp)
+    if why:
+        raise refuse(why)
 
     inst = AetherInstance(rom, symbols=lst)
     sock = inst.start()

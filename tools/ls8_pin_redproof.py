@@ -298,6 +298,7 @@ for name in names:
         print(f"    RED  {k}   (message seen {fired[k]}x)", flush=True)
         first = next(l for l in text.split("\n") if GUARDS[k] in l)
         print(f"         first line: {first.strip()[:420]}", flush=True)
+    results[name]["interp_failed"] = "<?>" in text
     if "<?>" in text:
         print("    !! '<?>' present in log -- an interpolation failed to resolve", flush=True)
 
@@ -322,3 +323,31 @@ for k in sorted(GUARDS):
     print(("  RED      " if k in allfired else ("  not-hit  " if partial else "  NOT-RED  ")) + k)
 if not partial and len(allfired) != len(GUARDS):
     sys.exit("FULL RUN LEFT A GUARD UNPROVEN -- that is a defect in the guard or in this harness, not a pass")
+
+# PER-MUTATION VERDICT (PRINTED-NOT-GATED residue, 2026-09-26). The summary above used to be
+# the whole verdict: a PARTIAL run exited 0 whatever it saw, and so did a full run in which
+# some mutation built GREEN (its guard never fired) or the log carried an unresolved `<?>`,
+# as long as every guard fired somewhere. Each of those is now graded per mutation:
+#   * the control (a mutation with no edits) must build green with zero guards, else the
+#     baseline is broken and nothing above is a red proof -> COULD NOT RUN, exit 2;
+#   * every other mutation must build RED with at least one guard fired, and a `<?>` in any
+#     log is an interpolation that did not resolve -> FAILED, exit 1.
+bad, broken = [], []
+for n, r in results.items():
+    if not MUTATIONS[n]:
+        if r["exit"] != 0 or r["fired"]:
+            broken.append(f"{n}: the control built exit={r['exit']} with "
+                          f"{len(r['fired'])} guard(s) fired")
+    elif r["exit"] == 0 or not r["fired"]:
+        bad.append(f"{n}: exit={r['exit']}, {len(r['fired'])} guard(s) fired -- the mutation "
+                   f"was NOT caught")
+    if r.get("interp_failed"):
+        bad.append(f"{n}: '<?>' in the log -- a guard message's interpolation did not resolve")
+for b in bad:
+    print(f"FAILED: {b}")
+for b in broken:
+    print(f"COULD NOT RUN: {b}")
+if bad:
+    sys.exit(1)
+if broken:
+    sys.exit(2)

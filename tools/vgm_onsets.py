@@ -141,8 +141,12 @@ def main():
     print(f"version=0x{r['version']:X} ym_clock={r['ym_clock']} total_samples={r['total_samples']} (~{r['total_samples']/SR:.1f}s) hdr={r['total_samples_hdr']}")
     print(f"total key-on events: {len(ons)}   total key events: {len(ev)}")
     if not ons:
-        print("NO KEY-ON ACTIVITY — capture may be silent/menu only")
-        return
+        # PRINTED-NOT-GATED residue (2026-09-26): this returned normally (exit 0), so a
+        # silent or menu-only capture handed the caller an empty timeline as if it had been
+        # parsed and compared. Nothing was measured: COULD NOT RUN, exit 2.
+        print("COULD NOT RUN: NO KEY-ON ACTIVITY in %s — the capture may be silent/menu "
+              "only; there is no onset timeline to compare" % path)
+        return 2
     t0 = ons[0][0]
     print(f"first key-on at sample {t0} ({t0/SR:.3f}s) -> aligning song start to here\n")
     by_ch = {c: [] for c in range(1, 7)}
@@ -170,6 +174,7 @@ def main():
                 midi, freq = fnum_to_note(fnum, block, r['ym_clock'])
                 f.write(f"{t-t0},{ch},{fnum},{block},{mask},{'' if midi is None else round(midi,3)},{round(freq,2)}\n")
         print(f"wrote {csv}")
+    return 0
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
