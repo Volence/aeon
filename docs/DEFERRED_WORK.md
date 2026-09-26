@@ -40898,6 +40898,40 @@ act grid_w, `unpainted_remainder` x_from + why, `unbounded_fall.columns` + why, 
 unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived). `tools/clip_manifest.py`,
 `tools/clip_rom_bake.py`, `tools/clip_act_bake.py` and the `s2_ehz_cpz_short` / `_limit` clips are untouched.
 
+### S2CLIP-PLANE-SWITCH: the clip act never leaves plane A, so S2's loops and path changes do not work (booked 2026-09-26, branch `research/s2clip-loops-planes`)
+
+Research: `docs/research/2026-09-26-s2clip-loops-planes.md` (probe, figures and per-run JSON beside it). Investigation only,
+no bytes moved.
+
+**Measured** (DEBUG `S2CLIP=s2_ehz_cpz` at 91d4119c, headless, 11 drives, 5,300 frames): `Sst.layer` is 0 on every frame.
+None of the four EHZ loops (centres about x 4224, 6784, 7168, 8832) can be completed: the player goes up the right arc,
+runs along the ceiling and is thrown back out to the left. The CPZ braid (CPZ x 1024..2048) drops him to the level
+below. A rightward run from the braid stops at the plane-A-only wall at CPZ 3206. With a host model of S2 Obj03 placed
+from S2's own layout, and nothing else changed, all four loops complete (loop 1 in both directions), the braid is
+ridden and CPZ 3206 is passed.
+
+**Cause (read):** both S2 paths are imported (plane A = `Off_ColP`, B = `Off_ColS`), but the layer's only level-data
+writer is `Player_LoopCrossover`. S2 trees carry no crossover marks, and the clip carries no objects, so S2's 44
+in-clip Obj03 lines (EHZ 19, CPZ 25) never reach the ROM. The crossover marks could not stand in for them anyway:
+their direction gate is OJZ-handed (TO_B only while moving right, TO_A only while moving left), and S2's loops need
+the opposite. They also have no line extent, horizontal form, grounded-only or priority-only form, and they derive
+priority from the layer where S2 sets it per crossing.
+
+**OPEN**
+1. Owner decision on the mechanism: (A) a per-act line table with S2's Obj03 rule, run from the player preamble
+   (recommended; canonical bytes move, no object slots, data-driven); (B) a faithful PathSwap object plus clip
+   objects (touches sigil's frozen `ObjDef_PathSwap` boundary, and needs the clip-objects scope ruling); (C) bake the
+   lines into crossover marks (needs a direction-encoding change and still cannot express 3 of S2's line forms; not
+   recommended). Priority must follow S2's bits, not the layer, in any option.
+2. After switchers exist: re-measure the CPZ stop at CPZ (3510, 1133), where the host model stops holding RIGHT
+   without rolling; S2 was not compared there.
+3. CPZ upper route stops at CPZ 2806 (y 493) with or without the model. Not plane-related; not investigated (slope
+   lane or a jump S2 also needs).
+4. The owner's CPZ stuck spot: best description match is the A-only quarter-pipe at CPZ x 3216..3330, y 960..1150.
+   S2 is on plane A there too, so if it is that spot, the layer does not explain the stick (slope lane). This needs
+   the owner's coordinate to confirm.
+5. `docs/LOOP_CROSSOVER_ENCODING.md` should say its direction rule is OJZ-handed once the mechanism is decided.
+
 ## Z80-TAP-ADDR-MOVE: move the sound witnesses' YM watch to $A04000-3 when oracle lands its tap change (booked 2026-09-25T14:58:13Z). **LANDED at `06adbfbe` (2026-09-25)**
 
 **Closed by measurement against oracle origin/main `87805bf3`** (oracle-aether md5 `f294816197fd3dc5a5fd48ce7cf9cae5`, mtime 2026-09-25 13:20:30 -0400), sigil 1d19e60b. Drum witness L0 `seen=852598 matched=662 z80=662 foreign=0 dropped=0 holes=0` over 30 idle frames (662 = the old `$4000` watch's count, so nothing was lost in the move); `--poison` POISON OK (z80=0). fm6 L1 `z80=662 foreign=0`, its poison OK. poke_storm exit 0 (its keepalive expectation; no pre-tap figures exist to compare). landing_build exit 0 finished=0, 3381 passed. Open: none. The shared-latch caveat (68000 must not interleave YM writes) stays in YmTap's docstring, and `foreign` would show it. The text below is the booking as staged.
