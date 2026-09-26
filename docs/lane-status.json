@@ -2,11 +2,6 @@
   "focus": "Overnight work done: music, slopes, speed fixes landed; a loop fix is ready for you to fly before it lands.",
   "inFlight": [
     {
-      "what": "Make the stress-test build fit its art budget, and refuse if it ever doesn't",
-      "where": "branch fix/stressart-budget",
-      "agent": true
-    },
-    {
       "what": "Check object/ring loading when the camera crosses two section edges at once",
       "where": "branch fix/entity-window-diagonal",
       "agent": true
@@ -39,11 +34,11 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The two stress-build follow-ups come back; I review and land them.",
+  "nextBoundary": "The camera corner-case check comes back; I review and land it.",
   "queue": [
     {
       "id": "STRESSART-HALTS",
-      "title": "Stress build: the art leak is fixed; making the stress build fit its budget and checking a camera corner case",
+      "title": "Stress build: leak fixed, budget fixed; checking a camera corner case",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -162,5 +157,5 @@
   ],
   "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin for the loops; listen for the drums in aeon/s4.s2clip.debug.bin (crc 3a807650); try a slope.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T14:15:17Z"
+  "updatedAt": "2026-09-26T14:38:27Z"
 }
