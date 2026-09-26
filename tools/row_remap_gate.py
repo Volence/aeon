@@ -563,6 +563,44 @@ def visibility_arm_self_test(rom: bytes, syms: dict, tail_off: int, stride: int,
     return bad
 
 
+def loop_cap_faults(rom: bytes, syms: dict, report: list) -> list:
+    """THE LOOP HALF OF INVARIANT 3 (GATE-PREDICATE-VS-PROMISE, 2026-09-26).
+
+    The table invariants are quoted as "what lets the pass cap the remapped run at span/2 and
+    know every fetch lands inside the band's OWN longwords" -- a contract between the table and
+    the LOOP, and until this existed only the table half was read. Measured: parallax.emp's
+    `lsr.w #1, d2` (the span/2 cap) replaced by `nop` built, and this gate exited 0 while the
+    uncapped run fetched up to ~2*span lines, i.e. into the next band's scroll words.
+
+    Read off the image, inside the `.cap_row_remap_pass_begin/_end` bracket the pass already
+    publishes: exactly one `lsr.w #1, d2`, immediately after a `sub.w <..>, d2` (the span is
+    end - top, then halved). A missing bracket is a FAIL, not a skip: this function is only
+    reached on an image that carries ladders, so a pass with no bracket is a pass nobody can
+    locate."""
+    import capstone
+    begin = [a for k, a in syms.items() if k.endswith("$cap_row_remap_pass_begin")]
+    end = [a for k, a in syms.items() if k.endswith("$cap_row_remap_pass_end")]
+    if len(begin) != 1 or len(end) != 1 or end[0] <= begin[0]:
+        return [f"the remap pass bracket `.cap_row_remap_pass_begin/_end` is not in the listing "
+                f"exactly once (begin {len(begin)}, end {len(end)}), so the loop's span/2 cap "
+                f"cannot be located -- invariant 3 is a table/loop contract and only the table "
+                f"half would be checked"]
+    md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    ins = [(i.address, i.mnemonic, i.op_str) for i in md.disasm(rom[begin[0]:end[0]], begin[0])]
+    caps = [j for j, (_a, m, o) in enumerate(ins) if m == "lsr.w" and o.replace(" ", "") == "#$1,d2"]
+    ok = (len(caps) == 1 and caps[0] > 0 and ins[caps[0] - 1][1] == "sub.w"
+          and ins[caps[0] - 1][2].replace(" ", "").endswith(",d2"))
+    report.append(f"  loop cap: `lsr.w #1, d2` after the span `sub.w` in "
+                  f"[${begin[0]:06X},${end[0]:06X}): {'present' if ok else 'ABSENT'}")
+    if ok:
+        return []
+    return [f"the remap pass in [${begin[0]:06X},${end[0]:06X}) does not cap the run at span/2: "
+            f"want exactly one `lsr.w #1, d2` immediately after the `sub.w ..., d2` that forms "
+            f"the span, found {len(caps)} `lsr.w #1, d2`. Without it the fetch index reaches "
+            f"~2*span and reads the NEXT band's scroll words -- the failure invariant 3 exists "
+            f"to rule out, which the table bytes alone cannot see"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -787,6 +825,8 @@ def main() -> int:
             print(line)
         print(f"row_remap_gate: UNMEASURABLE — {e}")
         return EXIT_UNMEASURABLE
+
+    problems += loop_cap_faults(rom, syms, report)
 
     report.append("    NOT GATED, and it cannot be: whether the bound section lets the camera "
                   "cross the anchor line VERTICALLY decides whether a human ever sees this. In "
