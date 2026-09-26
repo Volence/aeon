@@ -39905,7 +39905,7 @@ that spell a tool through a parametrized variable are under-credited; `docs/` sc
 an emulator (`f3rt_run.py`, `f3rt_watch.py`) are outside the `tools/` population by scope;
 `cart_verify_spawn_proof` is dead and unmeasured since 2026-09-12.
 
-## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (OPEN, booked 2026-09-19, M)
+## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (NARROWED 2026-09-26, `parcel/gate-predicate-audit`: landing path audited, 11 gates fixed, 13 rows OPEN below; booked 2026-09-19, M)
 
 **Oracle's finding, relayed 2026-09-19 and recorded as THEIRS.** Their `drift` guard was in truth
 answering *"something moved near this"* while its message and every reader believed it answered
@@ -39937,6 +39937,97 @@ two-sweep a directory for that reason. **When taken, derive the population from 
 PROMISES — never from a grep for the word "drift"**, which finds the one instance whose name
 happens to match and misses every gate that does the same thing under another name. Names are not
 behaviour; that is this repo's own standing lesson and it is the exact trap here.
+
+### TAKEN 2026-09-26 (GATE-PREDICATE-VS-PROMISE): the landing path, measured
+
+The full table (promise, predicate, mutation and result for each gate) is in
+`docs/research/2026-09-26-gate-predicate-audit.md`. **The population was read off the runners,
+not grepped:** 24 build.sh canonical gate scripts plus `needs_build_lane` and `land_gate` make
+**26 on the landing path, all audited.** Nightly-only rows (18 `effects_gates`, 38 keepalive,
+2 nightly extras) and the 2 S2CLIP-only gates were **NOT audited**.
+
+**The answer to "whether other gates here share it is UNMEASURED": 19 of 26 measurably do.**
+5 entail their promise, and 2 are doubtful but unmeasured. There were 20 subject-breaking mutation
+runs across those 19 gates. Each was put on disk, confirmed in the ROM by an instruction-level diff
+(or confirmed byte-neutral by construction), and restored from `origin/master`. **All 20 stayed
+green** before this parcel. One `DEBUG=1` build.sh carrying 12 of them exited **0**.
+
+**FIXED (11), each shown red on its mutation and green on today's tree.** The 9 post-sigil fixes
+were re-graded on a real rebuild with the mutations on disk (crc `556b28ae`). build.sh itself now
+refuses that tree at `row_remap_gate`.
+`effects_seam_gate` (the call checks read comment-stripped code) · `plane_role_swap_gate` (arm
+selection: `tst.b d0`/`beq .normal`, and the pairs placed on the right side of `.normal`) ·
+`row_remap_gate` (the loop's span/2 cap) · `waterline_art_gate` (the row stride and the half-row
+fetch) · `reels_gate` (what `OJZ_Reels_Fill` loads) · `anim_frame_bound` (pairs keyed by base
+register) · `editor_palette_golden` (the consumer's channel order, as a pin) ·
+`dma_defer_headroom` (the boot budget seed, read from the ROM) · `dplc_straddle` (the queue each
+subject's caller really calls) · `sprite_tilt_gate` (`Player_Display` calls the routine that is
+executed) · `verify_level_bin` (descriptor row N streams section N's blob, which also closes
+`fg_page_order`'s wiring half).
+
+**RECLASSIFIED, NOT A GAP: `parallax_hscroll_identity.shipped_precedent()`.** B3 mutated the
+TOOL's own offset arithmetic, not the subject. The offset is already read off the declaration
+(`@ $1C`, which the assembler places) and refuses when the declaration is absent, so on an
+unmodified tool the predicate entails the promise. "A check is only as good as its own code" holds
+for every gate; it is not the proxy/subject shape.
+
+**STILL OPEN, one row per gate. "Measured" means a subject-breaking mutation stayed green.**
+
+1. **GPP-LEVEL-STALENESS** (`level_staleness.py`, measured). Section 0's previous bake was put back
+   into `generated/` with the editor and stamp untouched: exit 0 (mtime ok, stamp ok). The stamp
+   binds the editor tree only; nothing binds it to the generated tree. **The subject IS held on the
+   same path:** `verify_level_bin`'s editor-bake fidelity refused the same tree (360 words). Fix
+   sketch: the stamp also records `generated/**` hashes. That changes a file that
+   `regenerate-level.sh` and Aurora write, so it was not done here.
+2. **GPP-SEAM-WITNESSES** (`effects_seam_gate --lst` step 3, unmeasured on its own). The witness
+   equs are literals the generator writes, so the value compare repeats `effects_gen check`.
+   Presence proves the module was lowered, not that the descriptor reaches it, because
+   `ojz_effects.emp` also `use`s it. The one measured mutation is now caught by step 2.
+   A real witness needs an equ that exists only through the descriptor's call.
+3. **GPP-EXPECT-FAIL-RESTATES** (`emp_expect_fail.py`, measured). Three poisons carry their OWN copy
+   of the guard they are labelled as proving. `ring_sparkle.emp:113`'s shipped `ensure` weakened to
+   `>= 0` gave exit 0. Same shape: `poison_instashield_frames`, `poison_dplc_tile_start`. Fix
+   direction: a `pub comptime fn <x>_ok` that both the shipped `ensure` and the poison call. It is
+   a design choice.
+4. **GPP-FG-WINDOW-MODEL** (`fg_page_order.py`, doubtful, unmeasured). The camera-window arithmetic
+   is a Python transcription of `Tile_Cache_Fill`, and only its constants are read from source.
+5. **GPP-COLLISION-ROM-TABLES** (`collision_consistency.py`, measured). It runs pre-sigil over the
+   three `.bin` files. `AngleTable = _solidity` in `collision_data.emp` gave exit 0 (both blobs are
+   256 B). The odd-angle exemption also rests on `player_sensors.emp`'s `btst #0` being there.
+   Needs a post-sigil arm comparing ROM `AngleTable`/`SolidityTable`/`HeightMaps` with the graded
+   files.
+6. **GPP-ART-ROM-UNNAMED-EMBEDS** (`art_rom_report.py`, measured). It sums only the embeds a
+   `PageManifest` row names. An orphan `embed(sonic.bin)` in `ojz_act_pool.emp` gave an identical
+   report and exit 0. Fix direction: sum every embed, or measure the section spans from the listing.
+   That changes the reported number, so it is the owner's call.
+7. **GPP-S4BUDGET-STACK-DEPTH** (`s4budget.py`, measured). `Debug_Fill_Probe: [u8; 3776]` left
+   **16 B** before `SYSTEM_STACK`: build rc 0, s4budget exit 0 ("Free: 0.0KB before stack"). The
+   stack is modelled as zero bytes deep, and sigil's region limit uses the same proxy. Needs a
+   declared or measured `STACK_RESERVE` that both honour.
+8. **GPP-BGANIM-LIVE-FORMULA** (`bganim_room.py`, doubtful, unmeasured). `live` is a formula over
+   the override JSON, not the section's listing span, and it is shape-blind (~138 B over on
+   release). The reserve arm fires first today, so no mutation reaches it.
+9. **GPP-INSTASHIELD-WALKOFF** (`instashield_gate.py`, measured). `Ground_DetachState`
+   `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` gave exit 0. The gate proves the routine refuses every
+   state except JUMP/ROLLJUMP. That a walk-off is not JUMP came from a one-time hand enumeration of
+   writers. Fix: also execute the walk-off writers with a `Player_SetState` stub.
+10. **GPP-CROSSOVER-SENSORS** (`loop_crossover_gate.py`, measured). `Player_SensorSurface`'s
+    `move.b layer(a0), d3` -> `nop` gave exit 0: the byte decides `Sst.layer`, and nothing checks
+    that the sensors read it. Sensor entries live in several files, so this is not a one-site fix.
+11. **GPP-LAND-GATE-IGNORED-INPUTS** (`land_gate.py`, doubtful, unmeasured, since it needs a
+    commit-and-push drill). "Clean" is `git status`, which cannot see gitignored inputs such as
+    `*.bin`, and `sigil_md5` is recorded but not keyed. Fix sketch: refuse the stamp when a Source
+    Digest input is not in `git ls-files` (outside declared regenerated dirs).
+12. **GPP-PALETTE-ORDER-IS-A-PIN** (`editor_palette_golden.py`, residual of the fix). The channel
+    order is now checked against a stated `CYCLE_WIRE_ORDER`, not decoded from `Palette_DoCycle`.
+    The engine-side alternative is an `offsetof` `ensure` beside `Palette_DoCycle`. That is a zero-byte
+    engine edit and out of scope for a tools-only parcel.
+13. **GPP-DPLC-PAIRING-IDIOM** (`dplc_straddle.check_anim_dplc_pairings`, unmeasured). It likely
+    shares the field-keyed pairing `anim_frame_bound` had. Also noted: the `Pal_Variant_Stage`/`Ptr`
+    split is guarded only by `palette.emp:93`'s span-SUM `ensure`. Mutation `palstage` (two lines,
+    sum kept) left `effects_budget_check` at exit 0; it was NOT built, so whether sigil refuses it is
+    unmeasured. That is a RAM-layout guard, not a promise of `effects_budget_check`, so it is counted
+    as neither gate's gap.
 
 ## THREE INSTRUMENTS, THREE WAYS OF BEING WRONG — 2026-09-19
 
