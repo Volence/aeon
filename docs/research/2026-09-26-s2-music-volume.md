@@ -187,7 +187,7 @@ EHZ FM4 +0.10, DAC +2.33, NOISE +1.17; CPZ DAC +2.36, NOISE +1.16).
 
 ## 4. The PSG envelope attack, fixed (`parcel/psg-env-noteon`, 2026-09-26)
 
-Base `origin/master` `23092325` (after `ef365c11`). This closes section 3's third finding.
+Base `origin/master` `23092325` (after `ef365c11`), later rebased onto `0fec1b75`. The rebase adds no sound files, and the plain clip ROM re-measured the same to 0.01 dB. CRCs and landing evidence for both bases are in DEFERRED_WORK's "PSG envelope attack parcel". This closes section 3's third finding.
 
 ### What the references do (read from source, not from the note above)
 

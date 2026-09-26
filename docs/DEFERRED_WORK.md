@@ -41168,7 +41168,7 @@ The owner's ask: the clip build (`S2CLIP=s2_ehz_cpz`) plays Sonic 2's Emerald Hi
   In the clip ROM 74 bytes differ: 72 inside the two song blobs plus the 2 header-checksum bytes.
 - **Not done: listening.** Nothing was heard by a person; the owner's A/B is the check.
 
-**PSG envelope attack parcel (2026-09-26, `parcel/psg-env-noteon`, base `23092325`; findings `docs/research/2026-09-26-s2-music-volume.md` section 4).** Closes the Volume parcel's "PSG vol-env attacks one frame late" bullet and the D5 correction. NOT merged at the time of writing.
+**PSG envelope attack parcel (2026-09-26, `parcel/psg-env-noteon`, base `23092325`, rebased onto `0fec1b75`; findings `docs/research/2026-09-26-s2-music-volume.md` section 4).** Closes the Volume parcel's "PSG vol-env attacks one frame late" bullet and the D5 correction. NOT merged at the time of writing.
 
 - **Reference, re-read from source.** S2 `zPSGUpdateTrack` (`s2.sounddriver.asm:1123`) runs `zPSGDoNext` / `zPSGDoNoteOn` / `zPSGDoVolFX` (:1127-1129) on the attack tick, after `zFinishTrackUpdate` zeroed `VolFlutter` (:957). S3K `zUpdatePSGTrack` (`Z80 Sound Driver.asm:4058`) goes from `zGetNextNote` to `.skip_fill` and `zDoVolEnv` (:4065, :4078, :4105), after `zFinishTrackUpdate` zeroed `VolEnv` (:1066). Both skip the reset on "do not attack" (S2 :953, S3K :1061), so a tie continues the contour. Both write nothing on a rest. A control byte at byte 0 writes no volume in either (S2 HOLD :1339, S3K `$81` :4204), and no shipped body starts with one.
 - **Fix.** `PsgEnvAttack` (`engine/sound/sound_sequencer.emp`) is the volume tail of `Psg_NoteOn` and of `Psg_Noise`'s music arm. It restarts the contour and folds byte 0 into the attack's single volume write (cursor 1). `$83` first silences; `$80`/`$81` first keep the base volume. `Psg_EnvCursorReset` is deleted.
@@ -41200,20 +41200,23 @@ The owner's ask: the clip build (`S2CLIP=s2_ehz_cpz`) plays Sonic 2's Emerald Hi
   - The unmodified base ROM is RED the same way.
   - `tools/test_z80_clobbers_census.py`'s `MIN_CALL_EDGES` floor went 227 -> 226: two `call Psg_EnvCursorReset` sites removed, one `call PsgVolEnv_Resolve` added.
 - **FM vol-envs (read only):** the same one-tick-after-attack structure, and that IS S3K's FM behaviour (`zDoFMVolEnv` runs only on `.note_going`, `Z80 Sound Driver.asm:787`; the new-note path keys at :782 without it). No shipped content uses an FM envelope. Not changed; nothing to fix against the reference.
-- **Landing evidence** (tip `f86d347d`, shared sigil `4ce2509d` md5 `1edd31eb`, emit md5 `3c3bd0ba`): `tools/landing_build.sh` **exit 0, `finished=0`**.
-  - pre-build pytest: 3542 passed / 3 skipped / 35 deselected.
+- **Landing evidence, after rebasing onto `0fec1b75`** (tip `88928610`, shared sigil `4ce2509d` md5 `1edd31eb`, emit md5 `3c3bd0ba`): `tools/landing_build.sh` **exit 0, `finished=0`**.
+  - pre-build pytest: 3550 passed / 3 skipped / 35 deselected.
   - needs_build lane: 34 ran and passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
   - `S2CLIP=s2_ehz_cpz ./build.sh` and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` both rc 0.
   - `tools/clip_music_witness.py`: GREEN on both, requests `[2, 3, 2]`.
-- **CRC32 / size, base `23092325` -> this parcel:**
+  - `keepalive_lane.py --only psg_env_attack_witness.py`: PASSED.
+  - The balance table above re-measured on the rebased plain clip ROM gives the same numbers to 0.01 dB.
+  - Before the rebase (base `23092325`, tip `f86d347d`) the same landing run was also exit 0 / `finished=0` (3542 passed).
+- **CRC32 / size.** The engine diff was reverse-applied on the rebased tree, all five shapes built, and the files restored from the commit. That base is `0fec1b75`; the columns are base -> this parcel:
 
-  | ROM | before | after |
-  |---|---|---|
-  | `s4.bin` | `f4a0adac` / 828,952 | `be7e3805` / 828,952 |
-  | `s4.debug.bin` | `d91dc2c6` / 855,969 | `cdf5168a` / 855,969 |
-  | `demo.debug.bin` | `8b816d74` / 105,790 | unchanged |
-  | `s4.s2clip.bin` | `6361e89f` / 928,422 | `9ff647f6` / 928,422 |
-  | `s4.s2clip.debug.bin` | `03f08aa6` / 955,247 | `d22ceae3` / 955,247 |
+  | ROM | base `0fec1b75` | this parcel | (pre-rebase: `23092325` -> `f86d347d`) |
+  |---|---|---|---|
+  | `s4.bin` | `e97424e6` / 828,874 | `2f6354dc` / 828,874 | `f4a0adac` -> `be7e3805` |
+  | `s4.debug.bin` | `c32e27dc` / 855,893 | `88e5b2e0` / 855,893 | `d91dc2c6` -> `cdf5168a` |
+  | `demo.debug.bin` | `9fe7f601` / 105,838 | unchanged | `8b816d74`, unchanged |
+  | `s4.s2clip.bin` | `d0f8dbce` / 928,470 | `8e044357` / 928,470 | `6361e89f` -> `9ff647f6` |
+  | `s4.s2clip.debug.bin` | `c58f10a3` / 955,295 | `4a3bc66c` / 955,295 | `03f08aa6` -> `d22ceae3` |
 
 - **Not done: listening.** The owner's ear is the check for the hat, EHZ's PSG lines, HCZ2, `$42` and `$B6`.
 
