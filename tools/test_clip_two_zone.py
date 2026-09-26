@@ -744,7 +744,9 @@ def test_music_check_refuses_the_unsplit_rows(donors, tmp_path):
         r["song"] = {0: "SONG_S2_EHZ", 1: "SONG_S2_CPZ"}[r["key"]]
         r["song_id"] = ids[r["song"]]
     bad = dict(plan, rows=merged)
-    with pytest.raises(CRB.ClipRomError, match="MUSIC"):
+    mid = merged[1]["x0"]                            # the preset crossing, mid-corridor
+    with pytest.raises(CRB.ClipRomError,
+                       match=rf"walking right the song changes at \[\({mid}, 'SONG_S2_CPZ'\)\]"):
         CRB.check_music_crossings(act, *_music_texts(bad))
 
 

@@ -1198,10 +1198,18 @@ def check_music_crossings(act, mod_text, data_text, spawn=None, log=None):
             if r[1] >= g0 and r[0] < g1 and in_gap(r) and r[4]:
                 raise ClipRomError(f"MUSIC row x {r[0]}..{r[1]} lies inside corridor x "
                                    f"{g0}..{g1 - 1} and names {r[4]}: the dead band must name 0")
-        right = [(x, song_at(x)) for x in range(g0 - 1, g1 + 1)]
-        right_changes = [(x, s) for x, s in right[1:] if s and s != right[0][1]]
-        left = [(x, song_at(x)) for x in range(g1, g0 - 2, -1)]
-        left_changes = [(x, s) for x, s in left[1:] if s and s != left[0][1]]
+        # the engine's rule replayed: a row naming a song different from the current one
+        # changes it; a 0 row changes nothing (Music_Want only takes non-zero songs)
+        def changes(xs):
+            cur, out_ = song_at(xs[0]), []
+            for x in xs[1:]:
+                s_ = song_at(x)
+                if s_ and s_ != cur:
+                    out_.append((x, s_))
+                    cur = s_
+            return out_
+        right_changes = changes(range(g0 - 1, g1 + 1))
+        left_changes = changes(range(g1, g0 - 2, -1))
         want_r = [(g1, want[b.zone_key])] if want[b.zone_key] else []
         want_l = [(g0 - 1, want[a.zone_key])] if want[a.zone_key] else []
         if right_changes != want_r or left_changes != want_l:

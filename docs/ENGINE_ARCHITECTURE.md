@@ -2479,6 +2479,20 @@ request). S3K and S.C.E. have no such compare (their `Play_Music` always reloads
 changes fire once, from events); a region crossing repeats, so the compare is this engine's.
 Design and research: `docs/research/2026-09-25-region-music-design.md`.
 
+**The clip's rows (S2CLIP-REGION-MUSIC steps 4 and 6, 2026-09-25).** The songs are
+`SONG_S2_EHZ` (2) and `SONG_S2_CPZ` (3) in `games/sonic4/config/sound_ids.emp`, carried in every
+sound-on shape (the plain `SongTable` is a prefix of the debug one; DrumTest and HCZ2 moved to 4
+and 5). A clip's `music` field in its `clips.json` names its zone's song, and
+`tools/clip_rom_bake.py`'s MUSIC block writes the rows: each zone's strip is split at the
+corridor MOUTHS (derived from the clip rectangles), the corridor side naming 0 and the outer part
+the zone's song id. For `s2_ehz_cpz` that is `0..10975` EHZ, `10976..11167` 0, `11168..11359` 0,
+`11360..` CPZ: the preset (palette, background, parallax) still switches at the corridor's middle,
+11168, and the song changes where the camera centre leaves the corridor, so the whole 384-px
+corridor is a dead band for music. Two rows binding one preset re-run `Effects_InstallPreset` on
+the same record at the mouth. The bake's `check_music_crossings` holds the emitted rows to that
+rule, and `tools/clip_music_witness.py` measures it on the clip ROM: one request at act load, one
+at each tunnel exit, none inside the tunnel or while wiggling on a line.
+
 **Both of the last two fields now have readers (part 2 steps 3 and 4, 2026-09-16; they were
 appended inert in step 1, so no older offset moved and the crossing's two `move.l` cache fills
 were never touched).** `rg_bg_layout` is read by `Section_RedrawPlanes`, which resolves the

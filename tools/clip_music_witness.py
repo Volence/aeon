@@ -49,8 +49,8 @@ table, so a ROM whose rows are wrong fails them) and which are MECHANISM (from t
   P2 on the frame each request is observed, the camera centre (Camera_X + CAM_SCREEN_HALF_W) is
      OUTSIDE the corridor, on the side of the zone whose song it is (right: centre >= the right
      mouth; left: centre < the left mouth). A request made inside the tunnel fails here;
-  P3 the wiggle legs really crossed the song line: the region changed at least 2 * WIGGLES - 1
-     times on each (a premise; unmet = COULD NOT RUN, never a pass);
+  P3 the wiggle legs really crossed the song line: the camera centre crossed the mouth's x at
+     least 2 * WIGGLES - 1 times on each (a premise; unmet = COULD NOT RUN, never a pass);
   M1 the requests equal model_posts over the measured region sequence (the ROM's own table);
   K1 Z80 key-ons: none before the first request, and at least one within KEYON_WINDOW frames
      from each request.
@@ -308,10 +308,15 @@ def main():
         if a_right <= c < b_left:
             fails.append(f"P2 a request (song {v}, frame {f}) with the camera centre INSIDE "
                          f"the corridor (x {c})")
-    # P3
-    for leg in ("wig_r", "wig_l"):
-        n = sum(1 for f, _r, lg in w["visits"] if lg == leg)
-        print(f"P3 {leg}: {n} region change(s) while wiggling")
+    # P3 — the premise, measured on the CAMERA (policy geometry), not on the ROM's rows: a ROM
+    # whose rows put no edge at the mouth must still be wiggled across the mouth, so its
+    # verdict comes from P1/P2 instead of hiding behind a premise
+    for leg, line in (("wig_r", b_left), ("wig_l", a_right)):
+        cs = [s[3] for s in w["samples"] if s[1] == leg]
+        n = sum(1 for c0, c1 in zip(cs, cs[1:]) if (c0 < line) != (c1 < line))
+        rc = sum(1 for f, _r, lg in w["visits"] if lg == leg)
+        print(f"P3 {leg}: the camera centre crossed x {line} {n} time(s) while wiggling "
+              f"({rc} region change(s))")
         if n < 2 * WIGGLES - 1:
             print(f"COULD NOT RUN: the {leg} wiggle crossed the song line only {n} time(s); "
                   f"it tested nothing")
