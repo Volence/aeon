@@ -1,14 +1,14 @@
 {
-  "focus": "Tracking down the droning tone you heard in Chemical Plant's music.",
+  "focus": "Loops landed; the Chemical Plant drone fix is found and waiting on a test repair before it lands.",
   "inFlight": [
     {
-      "what": "Find and fix the steady droning tone in Chemical Plant's music",
-      "where": "branch fix/cpz-psg-drone",
+      "what": "Repair a test that breaks landings on a fresh checkout",
+      "where": "branch fix/layer-line-tests-fresh-tree",
       "agent": true
     },
     {
-      "what": "Land Sonic 2's layer-switch lines (rebase onto today's code and re-check)",
-      "where": "branch parcel/s2clip-plane-switch",
+      "what": "Move our own act's loop to lines and retire the painted marks",
+      "where": "branch parcel/lines-everywhere",
       "agent": true
     }
   ],
@@ -24,7 +24,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The drone fix comes back; I review, land it and rebuild your ROM.",
+  "nextBoundary": "The test repair lands, then the drone fix lands and your ROM is rebuilt.",
   "queue": [
     {
       "id": "SAH-3a",
@@ -35,7 +35,7 @@
     },
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 music: mostly right by your ear; fixing a droning tone in Chemical Plant",
+      "title": "Sonic 2 music: drone found (unused channels woke on a volume change); fix lands after a test repair",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -50,8 +50,8 @@
     },
     {
       "id": "S2CLIP-LOOPS-PLANES",
-      "title": "Loops: you chose lines everywhere. Landing the Sonic 2 lines now; then our own loop moves to lines too",
-      "state": "doing",
+      "title": "Loops: Sonic 2's lines landed; all four Emerald Hill loops work",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -146,12 +146,12 @@
     {
       "id": "LINES-EVERYWHERE",
       "title": "Move our own act's loop from painted marks to lines and retire the marks (editor line tool from aurora)",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T16:27:40Z"
+  "updatedAt": "2026-09-26T17:38:01Z"
 }
