@@ -10,6 +10,11 @@
       "what": "Build Sonic 2's layer-switch lines so the loops work (for your try-out; lands only on your word)",
       "where": "branch parcel/s2clip-plane-switch",
       "agent": true
+    },
+    {
+      "what": "Sonic 2 hi-hat: make sound envelopes start on the note, not a frame late",
+      "where": "branch parcel/psg-env-noteon",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -38,7 +43,7 @@
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 music: channel volumes fixed to match Sonic 2; drums wait on your listen; hi-hat timing fix waits on sigil",
+      "title": "Sonic 2 music: channel volumes fixed; hi-hat timing fix building; drums wait on your listen",
       "state": "blocked",
       "size": "M",
       "blockedBy": "decision card S2CLIP-DRUM-LEVEL",
@@ -149,5 +154,5 @@
   ],
   "awaiting": "When you're up: listen to s4.s2clip.debug.bin (crc 03f08aa6) for the drums, and try a slope. Two agents still working overnight.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T08:27:23Z"
+  "updatedAt": "2026-09-26T08:45:37Z"
 }
