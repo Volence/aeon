@@ -41105,8 +41105,10 @@ x 1344..1407, all on B, no floor below any of them, y 1109 at x 1347 / 1351). It
    - **Reopen, do not save, a session opened before this lands.** The aeon save re-serialises the
      whole in-memory plane (`src/core/project/aeon/save.ts` lines 239-245) with no on-disk guard,
      so an aurora window open before the marks were cleared writes all 16 back on Ctrl+S. aeon's
-     preflight then refuses the re-bake, naming the cells; the fix is aurora's "None" brush on
-     them (or reopen before saving).
+     preflight then refuses the re-bake, naming the cells; the fix is aurora's "Clear retired marks"
+     button in the collision palette's error note, per section (or reopen before saving).
+     (Updated 2026-09-26: aurora removed the crossover brush; that button replaces its "None"
+     setting, and aurora now also refuses to save a non-zero 15:14, naming the cells.)
    - **Live-read tests that will fail when this lands:**
      `test/collision/crossover-reserved-bake-claim.test.ts` reads `origin/master:
      tools/collision_pipeline.py` for `if … == XOVER_RESERVED: raise` inside `bake_plane_cell`;
