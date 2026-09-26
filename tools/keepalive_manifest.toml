@@ -127,11 +127,13 @@ disagreement or a fault, 2 = COULD NOT GRADE (no table bound, or nothing crossed
 2026-09-26 on the branch's DEBUG ROM: exit 0, 6 drives graded, 38 crossings fired, 0 disagree.
 LOOP-EXIT (2026-09-26, branch fix/ojz-loop-exit): every drive is also held to the LAP CHECK
 (one lap, then leave the far side grounded on plane A at low priority, still moving the driven
-way), so the double lap the old floor lines produced is exit 1. RED on the old lines (DEBUG ROM
-crc 8e6de1fa, oracle-aether md5 3e7c2778): exit 1, DOUBLE LAP right 6 px/frame (2 laps), right
-9 (3), left 6 (3). GREEN on the new lines (DEBUG crc f0a35f5a): exit 0, 6 drives graded, 24
-crossings, 0 disagree, 5 drives one lap and out on A; right 16 px/frame NOT MEASURED (stops
-dead on the right arc at angle $E0 before any lap, the same on both line sets: a slope fault)."""
+way, and down the far arc on that arc's plane), so the double lap the old floor lines produced
+is exit 1. RED on the old lines (DEBUG ROM crc 8e6de1fa, oracle-aether md5 3e7c2778): exit 1,
+DOUBLE LAP right 6 px/frame (2 laps), right 9 (3), left 6 (3); left 16 DESCENDED ON THE WRONG
+PLANE. GREEN on the new lines (DEBUG crc f0a35f5a, plain crc f1c2ae37): exit 0, 6 drives
+graded, 24 crossings, 0 disagree, 5 drives one lap and out on A; right 16 px/frame NOT
+MEASURED (stops dead on the right arc at angle $E0 before any lap, the same on both line
+sets: a slope fault)."""
 
 [wired."loop_step_over_witness.py#no-assert-grounded"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
@@ -153,7 +155,8 @@ against the ROM's line table. A painted one-cell mark was stepped over from some
 speed (docs/LOOP_CROSSOVER_ENCODING.md §12, superseded); a line is a crossing and must fire from
 every phase. Measured 2026-09-26 on the branch's DEBUG ROM: exit 0, 16 drives, 64 crossings,
 0 disagree. LOOP-EXIT (2026-09-26) adds the LAP CHECK here too: RED on the old lines (crc
-8e6de1fa) exit 1, 9 drives failed it; GREEN on the new lines (crc f0a35f5a) exit 0, 16 drives,
+8e6de1fa) exit 1, 11 drives failed it (8 descended on the wrong plane, 2 double laps, 1 lap
+with no exit); GREEN on the new lines (crc f0a35f5a) exit 0, 16 drives,
 54 crossings, 0 disagree, 10 one lap and out on A, 6 NOT MEASURED with the fault named (right
 dx 0/1/7 stop dead on the right arc; left dx 2/3/4 go out THROUGH the crown and land on top
 of the loop, identically on the old lines: collision faults, booked in DEFERRED_WORK

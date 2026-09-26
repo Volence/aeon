@@ -140,26 +140,36 @@ LAND_FRAMES = 8                       # released -> feet on the ground, before i
 #: drive's own positions, never from the table:
 #:   * a LAP is a tick-to-tick crossing of LOOP_MID_X, the midpoint of the loop's two sides
 #:     (the two drive starts, which this witness has always used as those sides), AGAINST the
-#:     drive's direction, with both samples above the loop's half height and below the
-#:     crown's outer top. Upside down on the crown a rightward rider moves left, so that
-#:     crossing is the crown and nothing else is;
-#:   * the loop's HALF HEIGHT and the crown's OUTER TOP are derived from the committed editor
-#:     collision over LOOP_MID_X, on EITHER plane since the crown is split between them
-#:     (loop_geometry());
+#:     drive's direction, GROUNDED, with both samples above the loop's half height and below
+#:     the crown's outer top. Upside down on the crown a rightward rider moves left, so that
+#:     crossing is the crown and nothing else is. An airborne pass across the interior (a
+#:     rider who came off an arc) is not a lap;
+#:   * the loop's HALF HEIGHT, the crown's OUTER TOP, each arc's PLANE and each arc's inner
+#:     FACE are derived from the committed editor collision (loop_geometry());
+#:   * after each lap, the first tick back below the half height must be on the plane of the
+#:     arc he is coming down. This is the crown lines' own question; it caught the old crown
+#:     lines' short extent and their airborne firing;
 #:   * the EXIT is the first tick at or past the other side's start X. There the player must
-#:     be grounded, within FLOOR_SLACK of the height he landed at, on LAYER_PATH_A, at low
-#:     priority, with his ground speed in the drive's direction.
-#: Two or more laps FAIL; one lap and a bad exit, or one lap and no exit within the frames,
-#: FAIL; reaching the far side with no lap FAILS (he went under or through the loop). A drive
-#: that neither lapped nor got past is DID NOT COMPLETE: printed, not graded. Measured
-#: 2026-09-26 at PHYS_GSP_CAP, identically before and after LOOP-EXIT: from some start phases
-#: the rightward climb stops dead on the right arc, and the leftward rider goes OUT THROUGH THE
-#: CROWN and lands on top of the loop; at 13 and 15 px/frame some rightward phases are THROWN
-#: OUT BACKWARDS through the left arc after the crown (grounded on plane A, the left arc's
-#: own plane, at angle $5C) and walk back in for a clean second attempt. All three are
-#: collision/slope faults, not layer ones, and are booked (docs/DEFERRED_WORK.md
-#: LINES-EVERYWHERE). Two laps BEFORE any of them is still a DOUBLE LAP. A run in which no
-#: drive was lap-graded is COULD NOT GRADE (exit 2).
+#:     be on LAYER_PATH_A at low priority (always graded), grounded, within FLOOR_SLACK of the
+#:     height he landed at, with his ground speed in the drive's direction.
+#: FAIL: two or more laps; coming down on the wrong plane; a wrong layer or priority at the
+#: exit; one lap and then no exit within the frames; an exit off the floor or moving the wrong
+#: way that is not one of the named faults below; reaching the far side without ever
+#: climbing above the half height (he went under or through the loop).
+#: DID NOT COMPLETE (NOT MEASURED, printed with the fault named): no lap and no exit; climbed
+#: and came off before riding over the crown; WENT OUT THROUGH THE CROWN; THROWN OUT THROUGH
+#: the arc he was descending (his centre beyond its inner face) after a lap; and, after one lap
+#: with the exit on plane A at low priority, LEFT OVER THE TOP or FELL THROUGH THE FLOOR. Each
+#: is a collision/slope fault with the rider on the plane of the surface he is on, not a layer
+#: fault; all were measured 2026-09-26 (DEFERRED_WORK LINES-EVERYWHERE item 3, a..e), and the
+#: same classes occur on the old lines. Two laps BEFORE any of them is still a DOUBLE LAP. A
+#: run in which no drive was lap-graded is COULD NOT GRADE (exit 2).
+#: KNOWN BLIND SPOT, measured: a rider who falls off the crown BEFORE LOOP_MID_X is "came off
+#: before riding over the crown" (NOT MEASURED) even when a missing layer change made him fall.
+#: The old lines' leftward 9 px/frame drive is such a case (grounded on A at (1151, 414), above
+#: the old crown lines' extent, then off the end of plane A's half of the crown). The old lines
+#: still fail this witness on four other default drives; a table that failed ONLY this way
+#: would pass here, and the line grade above would not see it either.
 LOOP_SIDES = (DRIVES["right"]["x"], DRIVES["left"]["x"])
 LOOP_MID_X = sum(LOOP_SIDES) // 2
 
@@ -235,20 +245,21 @@ def _plane_words(name, act_dir=EDITOR_ACT):
 
 
 def loop_geometry(x=LOOP_MID_X, act_dir=EDITOR_ACT, bank=SHAPE_BANK):
-    """(half_y, outer_top_y) over column x, from the committed editor collision on EITHER plane
-    (any solidity; the crown is split between the planes). Going up from LOOP_FLOOR_Y: skip a
-    ramp the column starts on, cross the loop's interior to its ceiling, then cross the crown's
-    solid to the air above it. half_y is the midpoint of the floor and the ceiling; outer_top_y
-    is the last air pixel above the crown (a centre at or above it is OUTSIDE the loop). Same
-    word layout and sampling as ground_feet()."""
+    """{"half", "top", "arc"} over column x, from the committed editor collision on EITHER
+    plane (any solidity; the crown is split between the planes). Going up from LOOP_FLOOR_Y:
+    skip a ramp the column starts on, cross the loop's interior to its ceiling, then cross the
+    crown's solid to the air above it. `half` is the midpoint of the floor and the ceiling;
+    `top` is the last air pixel above the crown (a centre at or above it is OUTSIDE the loop);
+    `arc` is {"left": plane, "right": plane}, 0 = A, 1 = B. Same word layout and sampling as
+    ground_feet()."""
     import collision_pipeline as cp
     hm = pathlib.Path(bank).read_bytes()
     n = cp.PROFILE_LEN
     planes = [_plane_words("section_0.collattr.bin", act_dir),
               _plane_words("section_0.collattrb.bin", act_dir)]
 
-    def solid(words, y):
-        w = words[(y // 16 * 2) * 256 + x // 8]
+    def solid(words, y, cx=x):
+        w = words[(y // 16 * 2) * 256 + cx // 8]
         shape = w & cp.BLOCK_ID_MASK
         if not shape or not (w >> cp.PLANE_SOL_SHIFT) & 3:
             return False
@@ -257,7 +268,7 @@ def loop_geometry(x=LOOP_MID_X, act_dir=EDITOR_ACT, bank=SHAPE_BANK):
             h = cp.flip_profile_x(h)
         if w & cp.CHUNK_YFLIP_BIT:
             h = cp.flip_profile_y(h)
-        return cp.covers(h[x % 16], y % 16)
+        return cp.covers(h[cx % 16], y % 16)
 
     col = [any(solid(w, y) for w in planes) for y in range(LOOP_FLOOR_Y)]
     y = LOOP_FLOOR_Y - 1
@@ -268,39 +279,76 @@ def loop_geometry(x=LOOP_MID_X, act_dir=EDITOR_ACT, bank=SHAPE_BANK):
     ceiling = y
     while y > 0 and col[y]:              # the crown's solid
         y -= 1
-    if ceiling > 0 and y > 0:
-        return (ceiling + LOOP_FLOOR_Y) // 2, y
-    raise SystemExit("loop_step_over_witness: no closed crown over x=%d above the loop's floor "
-                     "(y %d) on either plane: the loop moved; re-derive LOOP_MID_X"
-                     % (x, LOOP_FLOOR_Y))
+    if not (ceiling > 0 and y > 0):
+        raise SystemExit("loop_step_over_witness: no closed crown over x=%d above the loop's "
+                         "floor (y %d) on either plane: the loop moved; re-derive LOOP_MID_X"
+                         % (x, LOOP_FLOOR_Y))
+    half = (ceiling + LOOP_FLOOR_Y) // 2
+    # Each arc's plane: along the half-height row, the plane whose first solid pixel from
+    # LOOP_MID_X outward is strictly nearer is the plane that arc is on.
+    # Its inner FACE is that first solid pixel: a rider on the arc keeps his centre inside the
+    # loop of it, so a centre beyond it has gone through the arc's solid.
+    arc, face = {}, {}
+    for side, step, lim in (("left", -1, LOOP_SIDES[0]), ("right", 1, LOOP_SIDES[1])):
+        first = []
+        for w in planes:
+            cx = x
+            while cx != lim and not solid(w, half, cx):
+                cx += step
+            first.append(cx)
+        dist = [abs(cx - x) for cx in first]
+        if dist[0] == dist[1]:
+            raise SystemExit("loop_step_over_witness: the loop's %s arc is on both planes (or "
+                             "neither) at y %d, first solid %s px out: which plane a rider "
+                             "descends it on is undefined" % (side, half, dist))
+        arc[side] = 0 if dist[0] < dist[1] else 1
+        face[side] = first[arc[side]]
+    return {"half": half, "top": y, "arc": arc, "face": face}
 
 
 def lap_check(live, direction, equs, geometry=None):
     """THE LAP CHECK (see LOOP_MID_X's comment). `live` is one sample per game tick, the
     landed state first. Returns {"verdict": "ok" | "fail" | "unmeasured", "laps",
     "lap_frames", "exit", "why", ...}."""
-    half, top = loop_geometry() if geometry is None else geometry
+    g = loop_geometry() if geometry is None else geometry
+    half, top = g["half"], g["top"]
     sign = DRIVES[direction]["sign"]
     far = LOOP_SIDES[1] if sign > 0 else LOOP_SIDES[0]
     y0 = live[0]["y"]
-    near = LOOP_SIDES[0] if sign > 0 else LOOP_SIDES[1]
-    laps, lap_frames, exit_row, over, thrown = 0, [], None, None, None
-    for p, c in zip(live, live[1:]):
+    # Over the crown the rider descends the arc on the side he came in by: rightward, the
+    # left arc. He must be on that arc's plane by the time he is back below the half height.
+    down_side = "left" if sign > 0 else "right"
+    down_plane = (equs["LAYER_PATH_A"], equs["LAYER_PATH_B"])[g["arc"][down_side]]
+    face = g["face"][down_side]
+    laps, lap_frames, exit_row, over, thrown, wrong = 0, [], None, None, None, None
+    climbed = False
+    for k, (p, c) in enumerate(zip(live, live[1:])):
+        climbed = climbed or c["y"] < half
         if sign > 0:
             against = c["x"] < LOOP_MID_X <= p["x"]
         else:
             against = p["x"] < LOOP_MID_X <= c["x"]
-        if against and top < p["y"] < half and top < c["y"] < half:
+        # A lap is RIDDEN over the crown: an airborne pass across the loop's interior (a rider
+        # who came off an arc) is not one, and the crown lines are grounded-only for the same
+        # reason Sonic 2's apex line is.
+        if (against and top < p["y"] < half and top < c["y"] < half
+                and not p["air"] and not c["air"]):
             laps += 1
             lap_frames.append(c["frame"])
+            down = next((r for r in live[k + 2:] if r["y"] >= half), None)
+            if wrong is None and down is not None and down["layer"] != down_plane:
+                wrong = down
         if over is None and c["y"] <= top and LOOP_SIDES[0] < c["x"] < LOOP_SIDES[1]:
             over = c
         if (c["x"] >= far) if sign > 0 else (c["x"] <= far):
             exit_row = c
             break
-        if laps and ((c["x"] < near) if sign > 0 else (c["x"] > near)):
-            thrown = c                  # back out past the side he came in by: a later
-            break                       # re-entry is a new attempt, not this drive's lap
+        # Back through the arc he was descending: his centre beyond its inner face (which lies
+        # between the near side and LOOP_MID_X, so this covers leaving by the near side too).
+        # A later re-entry is a new attempt, not this drive's lap.
+        if laps and ((c["x"] < face) if sign > 0 else (c["x"] > face)):
+            thrown = c
+            break
     out = {"laps": laps, "lap_frames": lap_frames, "half_y": half, "outer_top_y": top,
            "far": far, "thrown": None if thrown is None else [thrown["frame"], thrown["x"],
                                                               thrown["y"]],
@@ -309,11 +357,18 @@ def lap_check(live, direction, equs, geometry=None):
     if laps >= 2:
         return dict(out, verdict="fail", why="DOUBLE LAP: %d laps (over the crown at frames %s)"
                     % (laps, lap_frames))
+    if wrong is not None:
+        return dict(out, verdict="fail", why="DESCENDED ON THE WRONG PLANE: over the crown at "
+                    "frame %d, then back below the half height (y %d) at frame %d, (%d, %d), "
+                    "on layer %d; the arc he comes down is on layer %d"
+                    % (lap_frames[0], half, wrong["frame"], wrong["x"], wrong["y"],
+                       wrong["layer"], down_plane))
     if thrown is not None:
         return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: THROWN OUT "
-                    "BACKWARDS after the crown (frame %d, back past x %d at (%d, %d)). A "
-                    "collision fault on the arc he was descending, not a layer one: he was "
-                    "on that arc's own plane" % (thrown["frame"], near, thrown["x"], thrown["y"]))
+                    "THROUGH THE %s ARC after the crown (frame %d, centre at (%d, %d), beyond "
+                    "its inner face x %d). A collision fault on the arc he was descending, not a "
+                    "layer one: he came down it on its own plane (checked)"
+                    % (down_side.upper(), thrown["frame"], thrown["x"], thrown["y"], face))
     if exit_row is None:
         if laps == 1:
             return dict(out, verdict="fail", why="one lap (frame %s) and never reached x %d, "
@@ -324,16 +379,44 @@ def lap_check(live, direction, equs, geometry=None):
                         "never reached x %d. A collision fault, not a layer one: no line can "
                         "hold a rider inside a crown he passes through"
                         % (over["frame"], over["x"], over["y"], top, far))
-        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: no lap, and "
-                    "never reached x %d" % far)
+        if climbed:
+            return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: climbed "
+                        "above its half height (y %d), came off before riding over the crown, "
+                        "and never reached x %d. A collision/slope fault, not a layer one: every "
+                        "line he crossed is graded above" % (half, far))
+        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: never climbed "
+                    "above its half height (y %d), and never reached x %d" % (half, far))
+    if laps == 0 and climbed:
+        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: climbed above "
+                    "its half height (y %d), came off before riding over the crown, then "
+                    "reached x %d at frame %d. A collision/slope fault, not a layer one: every "
+                    "line he crossed on the way is graded above"
+                    % (half, far, exit_row["frame"]))
     if laps == 0:
-        return dict(out, verdict="fail", why="reached x %d at frame %d WITHOUT riding the loop"
-                    % (far, exit_row["frame"]))
+        return dict(out, verdict="fail", why="reached x %d at frame %d WITHOUT riding the loop "
+                    "(never above its half height, y %d)" % (far, exit_row["frame"], half))
+    # One lap and at the far side. The LAYER and PRIORITY there are the lines' business and
+    # always graded. Where he is is the collision's: over the top, or below the floor, is a
+    # named collision fault; anything else off the floor, or moving the wrong way, fails.
     bad = []
     if exit_row["layer"] != equs["LAYER_PATH_A"]:
         bad.append("layer %d, not plane A" % exit_row["layer"])
     if exit_row["prio"]:
         bad.append("high priority")
+    if bad:
+        return dict(out, verdict="fail", why="one lap, but at the exit (frame %d, x %d): %s"
+                    % (exit_row["frame"], exit_row["x"], "; ".join(bad)))
+    if exit_row["y"] < half:
+        return dict(out, verdict="unmeasured", why="one lap on the right planes, then LEFT "
+                    "OVER THE TOP: reached x %d at frame %d airborne at y %d, above the loop's "
+                    "half height. A collision fault at the crown, not a layer one (on plane A, "
+                    "low priority)" % (far, exit_row["frame"], exit_row["y"]))
+    if exit_row["air"] and exit_row["y"] > y0 + FLOOR_SLACK:
+        return dict(out, verdict="unmeasured", why="one lap on the right planes, then FELL "
+                    "THROUGH THE FLOOR: reached x %d at frame %d airborne at y %d, %d px below "
+                    "the landed height. A collision/slope fault at the %s arc's foot, not a "
+                    "layer one (on plane A, low priority)"
+                    % (far, exit_row["frame"], exit_row["y"], exit_row["y"] - y0, down_side))
     if exit_row["air"]:
         bad.append("airborne")
     if abs(exit_row["y"] - y0) > FLOOR_SLACK:

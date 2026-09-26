@@ -220,10 +220,53 @@ def _lap(direction, laps=1, table=None, gsp=0x600):
 def test_the_loop_geometry_is_derived():
     """The crown test's numbers come from the drives and the committed collision: the
     midpoint of the two drive starts, half way between the floor and the loop's ceiling, and
-    the air above the crown (a riding centre stays between the last two)."""
+    the air above the crown (a riding centre stays between the last two), and which plane each
+    arc is on (the left arc is plane A's, the right arc plane B's)."""
     assert L.LOOP_MID_X == (L.DRIVES["right"]["x"] + L.DRIVES["left"]["x"]) // 2
-    half, top = L.loop_geometry()
-    assert top < TOP < half < FLOOR, (top, half)
+    g = L.loop_geometry()
+    assert g["top"] < TOP < g["half"] < FLOOR, g
+    assert g["arc"] == {"left": 0, "right": 1}, g
+    # the synthetic riders below stay inside both arcs' inner faces, as real riders do
+    assert L.LOOP_SIDES[0] < g["face"]["left"] < LEFT_ARC < RIGHT_ARC < g["face"]["right"], g
+
+
+def test_an_airborne_pass_over_the_interior_is_not_a_lap():
+    """Measured at 11 px/frame from some phases: the rider comes off the far arc and flies
+    across the loop's interior, below the crown. Not a lap (the crown lines are grounded-only
+    for the same reason): the drive is NOT MEASURED, never a lap or a wrong-plane descent."""
+    rows = _lap("right")
+    for r in rows:
+        if r["y"] == TOP:
+            r["air"] = 1
+    lap = L.lap_check(rows, "right", EQUS)
+    assert lap["laps"] == 0 and lap["verdict"] == "unmeasured", lap
+
+
+def test_falling_through_the_floor_or_leaving_over_the_top_is_named_not_passed():
+    """One lap on the right planes, then the collision loses him: measured 2026-09-26 at
+    3..10 px/frame rightward from some phases (angle $24 held past the left arc's foot,
+    through the floor) and at 10 px/frame (thrown right along the crown's underside). NOT
+    MEASURED with the fault named; a wrong LAYER at the same exit still fails."""
+    rows = _lap("right")
+    ex = next(r for r in rows if r["x"] >= L.LOOP_SIDES[1])
+    for mutate, needle in ((dict(air=1, y=ex["y"] + 380), "FELL THROUGH THE FLOOR"),
+                           (dict(air=1, y=414), "LEFT OVER THE TOP")):
+        rs = [dict(r, **mutate) if r is ex else r for r in rows]
+        lap = L.lap_check(rs, "right", EQUS)
+        assert lap["verdict"] == "unmeasured" and needle in lap["why"], (mutate, lap)
+        rs = [dict(r, layer=1, **mutate) if r is ex else r for r in rows]
+        assert L.lap_check(rs, "right", EQUS)["verdict"] == "fail"
+
+
+@pytest.mark.parametrize("direction", ["right", "left"])
+def test_coming_down_on_the_wrong_plane_fails(direction):
+    """Red for the crown-extent defect measured on the old lines: a leftward rider at 9 and
+    16 px/frame crossed the crown ABOVE its lines, stayed on A, and came down the right arc's
+    side on the wrong plane. Here: the crown lines are removed, so the rider crosses the top
+    on the plane he climbed with."""
+    table = [r for r in LAP_TABLE if r["key"] not in (1144, 1152)]
+    lap = L.lap_check(_lap(direction, table=table), direction, EQUS)
+    assert lap["verdict"] == "fail" and "WRONG PLANE" in lap["why"], lap
 
 
 def test_going_out_through_the_crown_is_not_a_lap():
@@ -231,7 +274,7 @@ def test_going_out_through_the_crown_is_not_a_lap():
     the rider climbs the left arc and passes UP through the crown, crossing LOOP_MID_X above
     it, and ends standing on top of the loop. That crossing is not a lap, and the drive is
     NOT MEASURED with the crown named, not failed: it is a collision fault, not a layer one."""
-    half, top = L.loop_geometry()
+    top = L.loop_geometry()["top"]
     rows = [r for r in _lap("left") if r["y"] == FLOOR and r["x"] >= LEFT_ARC]
     f = rows[-1]["frame"]
     rows += [dict(rows[-1], frame=f + k, x=LEFT_ARC + 4 * k, y=FLOOR - 12 * k) for k in range(1, 40)
@@ -317,13 +360,13 @@ def test_thrown_out_backwards_then_a_clean_retry_is_not_a_double_lap():
     attempt, so the drive is NOT MEASURED with the fault named, never a DOUBLE LAP; two laps
     before any such exit still are (the old floor lines' defect, above)."""
     one = _lap("right")
-    crown = next(i for i, r in enumerate(one) if r["y"] == TOP and r["x"] < L.LOOP_MID_X)
+    crown = next(i for i, r in enumerate(one) if r["y"] == TOP and r["x"] < 1130)  # on A now
     out = [dict(one[crown], frame=one[crown]["frame"] + k, x=LEFT_ARC - 8 * k, y=FLOOR)
            for k in range(1, 20)]                            # out through the left arc
     retry = [dict(r, frame=out[-1]["frame"] + 1 + i) for i, r in enumerate(_lap("right"))]
     rows = one[:crown + 1] + out + retry
     lap = L.lap_check(rows, "right", EQUS)
-    assert lap["verdict"] == "unmeasured" and "THROWN OUT BACKWARDS" in lap["why"], lap
+    assert lap["verdict"] == "unmeasured" and "THROWN OUT THROUGH THE LEFT ARC" in lap["why"], lap
     lap2 = L.lap_check(_lap("right", laps=2, table=OLD_TABLE) + out, "right", EQUS)
     assert lap2["verdict"] == "fail" and "DOUBLE LAP" in lap2["why"]
 
