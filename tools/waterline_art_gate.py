@@ -140,8 +140,28 @@ def decode_immediates(code: bytes) -> dict:
     # length), so it is collected as a list and disambiguated by the caller.
     d3_imms = []
     moveq_d4 = []
+    # THE PER-ROW SOURCE STRIDE AND THE HALF-ROW FETCH (GATE-PREDICATE-VS-PROMISE,
+    # 2026-09-26). Arm 3 is documented as catching "a gather with a stale stride reads
+    # plausible pixels from the wrong rows", and the one stride that picks a ROW -- the
+    # `lsl.w #n, d1` scaling the ladder entry -- was not among the immediates read.
+    # Measured: `lsl.w #3` -> `#2` built and every arm stayed green. `lsl.w #n,d1` is
+    # $E149 | (n & 7) << 9 (n = 8 encodes as 0); the second-half fetch
+    # `move.l d8(a0,d1.w),(a4)+` is $28F0 with brief extension $10dd.
+    row_shifts = []
+    half_disps = []
     while i + 1 < len(code):
         op = struct.unpack_from(">H", code, i)[0]
+        if (op & 0xF1FF) == 0xE149:                     # lsl.w #n,d1
+            n = (op >> 9) & 7
+            row_shifts.append(n or 8)
+            i += 2
+            continue
+        if op == 0x28F0 and i + 3 < len(code):          # move.l d8(a0,Xn),(a4)+
+            ext = struct.unpack_from(">H", code, i + 2)[0]
+            if ext & 0xFF00 == 0x1000:                  # index d1.w, scale 1
+                half_disps.append(ext & 0xFF)
+            i += 4
+            continue
         if op == 0x363C and i + 3 < len(code):
             d3_imms.append(struct.unpack_from(">H", code, i + 2)[0])
             i += 4
@@ -172,6 +192,16 @@ def decode_immediates(code: bytes) -> dict:
         raise Unmeasurable(
             f"Waterline_Art_Update carries {len(moveq_d4)} `moveq #imm,d4`, expected 1 (the "
             f"strip count)")
+    if len(row_shifts) != 1:
+        raise Unmeasurable(
+            f"Waterline_Art_Update carries {len(row_shifts)} `lsl.w #n,d1`, expected 1 (the "
+            f"ladder entry scaled to a source row)")
+    if len(half_disps) != 1:
+        raise Unmeasurable(
+            f"Waterline_Art_Update carries {len(half_disps)} `move.l d8(a0,d1.w),(a4)+`, "
+            f"expected 1 (the second half of each source row)")
+    out["row_stride"] = 1 << row_shifts[0]
+    out["half_disp"] = half_disps[0]
     out["line_count"], out["dma_length"] = d3_imms[0], d3_imms[1]
     out["strip_count"] = moveq_d4[0]
     return out
@@ -333,6 +363,11 @@ def run(a) -> int:
          "one of the two strips is never gathered, or the loop runs past the buffer"),
         ("DMA length", imm["dma_length"], geo["dst"],
          "the transfer is not the size of the gathered image"),
+        ("source row stride", imm["row_stride"], model.ROW_BYTES,
+         "each ladder entry selects a different source row than the model's, so the gather "
+         "splices plausible pixels from the WRONG rows"),
+        ("second-half fetch offset", imm["half_disp"], model.ROW_BYTES // 2,
+         "tile column 1 is fed from a different part of the row than column 0's neighbour"),
     ]
     for label, got, expect, why in checks:
         if got != expect:
@@ -340,9 +375,10 @@ def run(a) -> int:
                 f"Waterline_Art_Update's {label} immediate is {got}, derived {expect} "
                 f"(H = {H}) — {why}")
     if all(g == e for _l, g, e, _w in checks):
-        print(f"  arm 3  Waterline_Art_Update ${start:X}-${end:X} ({end - start} B): all 5 "
+        print(f"  arm 3  Waterline_Art_Update ${start:X}-${end:X} ({end - start} B): all {len(checks)} "
               f"geometry immediates match the derivation "
-              f"(col {imm['col_stride']}, strip {imm['strip_src_stride']}, "
+              f"(row {imm['row_stride']}, half {imm['half_disp']}, "
+              f"col {imm['col_stride']}, strip {imm['strip_src_stride']}, "
               f"lines {imm['line_count'] + 1}, strips {imm['strip_count'] + 1}, "
               f"dma {imm['dma_length']})")
 
