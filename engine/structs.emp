@@ -312,9 +312,10 @@ pub struct PageFrame {
                                         //       stride page_cache ensures). Was pf_refcount until
                                         //       the liveness masks replaced it (GPL-A3, 2026-09-27);
                                         //       nothing reads or writes it.
-    pf_stamp:            u16,           // $04 — Frame_Counter when the frame was last known wanted:
-                                        //       its publish, or the last eviction choice that saw it
-                                        //       live (F-1 stamp eviction: victim = max unsigned age
+    pf_stamp:            u16,           // $04 — Frame_Counter when the frame was last known named:
+                                        //       its publish, the end of an idle-sweep rotation that saw
+                                        //       it, or an eviction choice that saw it live (F-1 stamp
+                                        //       eviction: victim = max unsigned age
                                         //       among the frames no mask names; wrap at 65536 frames
                                         //       merely mis-ages a candidate, never breaks safety)
     pf_next:             u8,            // $06 — FREE-list forward link only (frame idx / $FF);

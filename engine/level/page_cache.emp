@@ -467,10 +467,14 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 // ORDER (F-1, unchanged in shape): the oldest candidate by unsigned (Frame_Counter -
 // pf_stamp) goes first; age TIES replace the best, so the lowest frame index wins,
 // deterministically. What the stamp MEANS moved: it was "released" (the refcount's 1->0);
-// it is now "last known wanted" — set at publish, and refreshed here for every frame this
-// choice sees LIVE. So a frame that stopped being named long ago is older than one a
-// recent choice saw in use. Coarser than a release time (it is refreshed only at choices),
-// never less safe: every candidate is still proven unnamed.
+// it is now "last known named" — set at publish, at the end of every idle-sweep rotation
+// for each frame some unit named during it (PageCache_LiveSweep), and here for every frame
+// this choice sees LIVE. So a frame that stopped being named long ago is older than one
+// recently seen in use. Coarser than a release time by at most one sweep rotation, never
+// less safe: every candidate is still proven unnamed. Measured under churn
+// (docs/research/2026-09-27-gpl-a3-build.md): with the rotation stamps, page re-loads on
+// the clip zigzag equal the refcount design's (22 = 22), STRESS_ART's 12 against 11;
+// with choice-time stamps alone they were 24 and 14.
 //
 // DEMAND HOLD (stressart-halts GPL-2): a frame seen live here has its PF_DEMAND_HELD
 // cleared. The hold exists so a second eviction cannot take a demand page before the
@@ -1259,6 +1263,7 @@ pub proc PageCache_LiveSweep () clobbers(d0-d2/a0-a1) {
         pc_live_row_walk()                      // d2.w = the row's exact mask
         lea     Page_Live_Masks, a0
         move.w  d2, (a0, a1.w)                  // exact at this instant
+        or.w    d2, Page_Live_Seen              // named now: stamped at the rotation's end
         jbra    .advance
     .column:
         // ---- a column: Tile_Cache_Nametable + col * 2, stride one cache row ----
@@ -1286,11 +1291,28 @@ pub proc PageCache_LiveSweep () clobbers(d0-d2/a0-a1) {
         dbf     d0, .cw
         lea     Page_Live_Masks + PAGE_LIVE_COL_OFFSET, a0
         move.w  d2, (a0, a1.w)                  // exact at this instant
+        or.w    d2, Page_Live_Seen              // named now: stamped at the rotation's end
     .advance:
         move.w  Page_Live_Unit, d1
         addq.w  #1, d1
         cmpi.w  #PAGE_LIVE_UNITS, d1
         blo     .keep
+        // A rotation is complete: every frame some unit named during it is stamped now,
+        // so eviction's "oldest first" reads "longest since last seen named" at the
+        // sweep's granularity, not only at eviction choices (PageCache_PickVictim). Order
+        // only: a stamp never makes a named frame a candidate.
+        move.w  Page_Live_Seen, d2
+        clr.w   Page_Live_Seen
+        move.w  Frame_Counter, d1
+        lea     Page_Frames + PAGE_FRAMES*sizeof(PageFrame), a0
+        moveq   #PAGE_FRAMES-1, d0              // frame id, descending with a0
+    .seen:
+        lea     -sizeof(PageFrame)(a0), a0
+        btst    d0, d2
+        beq     .seen_next
+        move.w  d1, PF_STAMP(a0)
+    .seen_next:
+        dbf     d0, .seen
         moveq   #0, d1
     .keep:
         move.w  d1, Page_Live_Unit
@@ -1342,6 +1364,7 @@ pub proc PageCache_LiveReset () clobbers(d0/a0) {
         clr.l   (a0)+
         dbf     d0, .col
         clr.w   Page_Live_Unit                  // the idle sweep restarts at row 0
+        clr.w   Page_Live_Seen                  // and its rotation with it
         rts
 }
 

@@ -1576,6 +1576,8 @@ pub vars upper_ram {
     Page_Live_Masks:        [u16; PAGE_LIVE_UNITS],
     Page_Live_RowPtr:       u32,        // &Page_Live_Masks[row] of the row TileCache_FillRow is filling
     Page_Live_Unit:         u16,        // the idle sweep's next unit (0..PAGE_LIVE_UNITS-1)
+    Page_Live_Seen:         u16,        // frames the idle sweep has seen named during its current
+                                        // rotation (their stamps move at the rotation's end)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
