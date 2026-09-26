@@ -40977,8 +40977,8 @@ owner's ruling on the mechanism (open item 1). The design, the measured cost and
 table (`engine/structs.emp`) that `tools/s2_layer_lines.py` bakes from the donor's own Obj03 layout (44 lines, EHZ 19 /
 CPZ 25, 46 rows). `Player_LayerLines` (`games/sonic4/player/player_common.emp`) runs Obj03's rule from the shared player
 preamble, with one remembered position and one window cursor per player instead of a flag per line. Priority follows
-the line's bits. Canonical OJZ binds 0 and pays only a 26-cycle null test. Measured in the REAL clip ROM with no host
-model, on the branch's FAST DEBUG build (re-measured on the final build in the branch's report): all four EHZ loops are
+the line's bits. Canonical OJZ binds 0 and pays only a 26-cycle null test. Measured in the REAL clip ROM, on the
+branch-tip DEBUG clip build (the research's 11 drives, re-run through its own probe with no host model): all four EHZ loops are
 completed rightward and loop 1 leftward, the braid is ridden with 0 airborne frames, and CPZ 3206 is passed. Checked by
 `tools/layer_line_gate.py` (build.sh, every sonic4 shape: the ROM's routine executed against Obj03's rule) and
 `tools/s2clip_layer_line_witness.py` (nightly keepalive, loop 1 both ways on the DEBUG clip ROM, proven red with the
