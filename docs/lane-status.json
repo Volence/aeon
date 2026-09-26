@@ -1,12 +1,6 @@
 {
-  "focus": "Music is right by your ear; now chasing the lag running through Emerald Hill and a quiet jump sound.",
-  "inFlight": [
-    {
-      "what": "Find and fix the lag while running through Emerald Hill",
-      "where": "branch perf/ehz-run-lag",
-      "agent": true
-    }
-  ],
+  "focus": "Jump sound and Emerald Hill running lag fixed; your ROM is rebuilding.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -19,12 +13,12 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The lag, jump-sound and lines parcels come back; I land them one at a time.",
+  "nextBoundary": "Nothing running. Next owner-free row: the floor gap on the Sonic 2 level's second layer.",
   "queue": [
     {
       "id": "EHZ-RUN-LAG",
-      "title": "Lag you feel running through Emerald Hill: measuring and fixing",
-      "state": "doing",
+      "title": "Emerald Hill running lag: fixed (39 to 6 lag frames debug, 31 to 1 normal)",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -178,5 +172,5 @@
   ],
   "awaiting": "Try the jump in aeon/s4.s2clip.debug.bin (crc 65c04544). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T20:03:37Z"
+  "updatedAt": "2026-09-26T20:29:20Z"
 }
