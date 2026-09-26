@@ -1998,8 +1998,27 @@ section sound_sequencer (cpu: z80) {
                                         // live routes want it; the DAC ret drops it)
         bit     SCF_IS_FM_B, (ix+sc_flags)
         jp      nz, Fm_SetVolume        // FM route (tail-call, preserves ix)
-        bit     SCF_IS_PSG_B, (ix+sc_flags)
-        ret     z
+        // PSG: store only, unless a note is sounding. The PSG has no key-off: an
+        // attenuation write IS the key-on, at whatever divisor the tone latch still
+        // holds, and nothing here re-latches it. So a volume op on a resting or
+        // never-keyed channel would sound the LAST divisor anyone latched there,
+        // indefinitely (S2CLIP CPZ drone, 2026-09-27: CPZ's PSG1/PSG2 are `Vol, End`,
+        // and after the switch from EHZ they droned EHZ's last notes at atten 7).
+        // Both references only STORE on a volume op and write the chip from the
+        // track update, which returns on "at rest": S2 cfChangePSGVolume ->
+        // zPSGUpdateVol's rest test; S3K cfSetVolume / cfChangePSGVolume ->
+        // zStoreTrackVolume. The next attack applies sc_volume (PsgEnvAttack), so
+        // a skipped write loses nothing. Same class as Sfx_DuckRamp's and
+        // Sfx_Restore's gates (Sequencer_StopAll's contract).
+        // One masked compare tests "PSG route AND keyed" (a DAC or unkeyed channel
+        // returns); it reloads the volume the hoist above loaded. Two `bit`/`ret z`
+        // pairs are a byte shorter but grow the resident blob by an ODD count, which
+        // the placement refuses (the blob must stay even-sized, boot_data.emp).
+        ld      a, (ix+sc_flags)
+        and     1<<SCF_IS_PSG_B | 1<<SCF_KEYED_B
+        xor     1<<SCF_IS_PSG_B | 1<<SCF_KEYED_B // 0 only when both are set
+        ret     nz
+        ld      a, (ix+sc_volume)
         jp      Psg_SetVolume
     }
 

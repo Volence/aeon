@@ -225,9 +225,9 @@ def _song_id(name):
 
 
 def render(job):
-    """job = (kind, rom, lst, song, seconds, solo, wav_path). Returns (samples:list, rate)
-    or raises. Runs in its own process (the core's state is global)."""
-    kind, rom, lst, song, seconds, solo, wav_path = job
+    """job = (kind, rom, lst, song, seconds, solo, wav_path, boot, settle). Returns
+    (samples:list, rate) or raises. Runs in its own process (the core's state is global)."""
+    kind, rom, lst, song, seconds, solo, wav_path, boot, settle = job
     core = Core(_options(solo))
     core.load(rom)
     if core.unknown_keys:
@@ -242,17 +242,17 @@ def render(job):
                 raise RuntimeError("real S2 never reached a level (Game_Mode $%02X)"
                                    % core.rd(S2_GAME_MODE))
         core.buttons = 0
-        core.run(SETTLE)
+        core.run(settle)
         core.audio = bytearray()
         core.wr(S2_MUSIC0, S2_SONG[song])
     else:
         want = _lst_symbol(lst, "Music_Want")
         cur = _lst_symbol(lst, "Music_Current")
-        core.run(BOOT_FRAMES)
+        core.run(boot)
         ehz = _song_id(OUR_SONG_NAME["ehz"])
         if core.rd(cur) != ehz:
             raise RuntimeError("clip ROM: Music_Current is %d after %d frames, expected the "
-                               "act-load EHZ request (%d)" % (core.rd(cur), BOOT_FRAMES, ehz))
+                               "act-load EHZ request (%d)" % (core.rd(cur), boot, ehz))
         core.audio = bytearray()
         if song == "ehz":
             core.wr(cur, 0)                     # the service reposts Music_Want (EHZ)
@@ -299,6 +299,15 @@ def main(argv=None):
     ap.add_argument("--song", choices=("ehz", "cpz", "both"), default="both")
     ap.add_argument("--wav-dir")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    # How long EHZ plays before the request. The defaults request the song while EHZ has not
+    # yet sounded a PSG note (its first PSG1/PSG2 note is ~230 frames after the act-load
+    # request), so every PSG tone latch still holds 0: that is a request FROM IDLE. A request
+    # after EHZ's PSG has played (e.g. --boot-frames 900 --settle 900) is the region switch
+    # the owner hears, which the idle request cannot see (S2CLIP CPZ drone, 2026-09-27).
+    ap.add_argument("--boot-frames", type=int, default=BOOT_FRAMES,
+                    help="ours: frames from reset to the request (default %(default)s)")
+    ap.add_argument("--settle", type=int, default=SETTLE,
+                    help="real S2: frames in the level before the request (default %(default)s)")
     a = ap.parse_args(argv)
     for p in (CORE, a.s2_rom, a.rom, a.lst):
         if not os.path.isfile(p):
@@ -314,7 +323,8 @@ def main(argv=None):
                 if a.wav_dir:
                     os.makedirs(a.wav_dir, exist_ok=True)
                     wav = os.path.join(a.wav_dir, "%s_%s_%s.wav" % (song, kind, solo or "MIX"))
-                jobs.append((kind, rom, lst, song, a.seconds, solo, wav))
+                jobs.append((kind, rom, lst, song, a.seconds, solo, wav, a.boot_frames,
+                             a.settle))
                 keys.append((song, kind, solo))
     ctx = mp.get_context("spawn")
     try:
