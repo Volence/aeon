@@ -40985,6 +40985,42 @@ act grid_w, `unpainted_remainder` x_from + why, `unbounded_fall.columns` + why, 
 unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-derived). `tools/clip_manifest.py`,
 `tools/clip_rom_bake.py`, `tools/clip_act_bake.py` and the `s2_ehz_cpz_short` / `_limit` clips are untouched.
 
+### CLIP-PLANEB-HOLE: the clip act's plane-B hole at x 1344..1407 is reachable; the cause is Sonic 2's missing bridge (content, owner; branch `research/clip-planeb-hole`, 2026-09-26)
+
+**Measured, both clip shapes** (`docs/research/2026-09-27-clip-planeb-hole.md`, drives in
+`docs/research/2026-09-27-clip-planeb-hole/`). A player CAN be on plane B at Emerald Hill
+x 1344..1407 and fall forever: top running speed ($600) left into loop 1, a jump in the loop,
+a spindash and a jump 4 frames after its release leave the loop LEFTWARD on B; he runs the
+walkway on B, drops into the bridge pit and falls through (DEBUG and plain: 54 frames at
+x 1344..1407, all on B, no floor below any of them, y 1109 at x 1347 / 1351). It is rare
+(1 of 110 single-jump drives, 1 of 20 spindash-jump timings) but needs no cheat.
+- **The LINES-EVERYWHERE booking's route was wrong.** The x 1704 line (y 648..775) fires only
+  inside the lower corridor under the walkway (x 1664..1912, floor y 736), which is walled at
+  its left end on both paths; measured, a player who enters it becomes B at x 1704 and stops at
+  x 1690. The real route is loop 1: x 4368 puts every leftward player on B, and the only line
+  that restores A (x 4224, subtype $91) is grounded-only, so an airborne exit keeps B.
+- **Sonic 2 does the same, and its bridge carries him.** Under GPGX (REV01), the same run puts
+  Sonic 2's player on path B at x 4359 with no further change to x 3203; starpost-placed on
+  path B at x 1800 and walking left, he crosses x 1344..1407 grounded on the Obj11 bridge.
+  The hole is the bridge's footprint (Obj11 at (1448, 648), subtype $0C, 12 logs,
+  x 1352..1543; stakes Obj1C at (1336, 636) and (1544, 636)).
+- **Not ours:** the line converter reads Obj03 exactly (subtype, `word_1FD68` lengths, grounded
+  bit) and the converted planes equal the donor's cell for cell at every column printed. So
+  nothing was fixed; the clips.json declaration and clip_reachability.py's docstring were
+  corrected to say this.
+
+**OPEN (owner, content):**
+1. **The bridge.** Emerald Hill's first bridge is missing from the clip, and the pit under it
+   is worse on plane A than on B: a plane-A player who walks in is trapped (floor y 864, walls
+   to y 640; five jumps did not get out, both shapes), and one who jumps in can be ejected
+   through the pit's right wall by the airborne wall push-out from plane A's LRB-only slab at
+   y 784..799 (x 1514 -> 1545 -> 1561 in two frames, then a bottomless fall at x ~1584; both
+   shapes). A bridge object, or a collision stand-in on both planes, is the owner's call.
+2. **x 8192..8255 on B** is the same shape under a second bridge (Obj11 at (8168, 584),
+   subtype $0C, x 8072..8263). Not driven.
+3. **The gate cannot see a soft-lock.** clip_reachability counts columns with no landing
+   surface; the plane-A pit has one (y 864), so the trap in item 1 passes it. Booked, not built.
+
 ### LINES-EVERYWHERE: OJZ's loop moves to layer lines and the painted crossover marks are retired (step 2 of S2CLIP-PLANE-SWITCH's ruling; branch `parcel/lines-everywhere`, 2026-09-26, NOT LANDED: the controller lands it after telling aurora)
 
 **What the parcel did.** Layer-switch lines are now the engine's only layer-switch mechanism
@@ -41032,10 +41068,14 @@ unaligned_dst_reason) and `games/sonic4/data/clips/s2_ehz_cpz/anchors.toml` (re-
    "no module `games.sonic4.path_swap` found under the scan root" (measured). Delete it together
    with those rows, `map.toml`'s `ObjDef_PathSwap` order row and the `path_swap` entry of
    `games/sonic4/data/editor/objects.json` (aurora reads that file and never writes it).
-2. **A reachable plane-B hole in the clip act (owner).** The Sonic 2 line at act x 1704
+2. **A reachable plane-B hole in the clip act (owner).** ⚠ CORRECTED 2026-09-26 by
+   CLIP-PLANEB-HOLE (search this file): reachable, MEASURED on both clip shapes, but NOT by
+   the x 1704 line (it fires only in a sealed corridor under the walkway); the route is loop 1
+   left airborne on B, and the cause is Sonic 2's missing Obj11 bridge. The original text, which
+   was derived and wrong about the route: "The Sonic 2 line at act x 1704
    (y 648..775) puts a player crossing it LEFTWARD on plane B, and no line between it and x 1344
    puts him back, so x 1344..1407, where the donor's path B has no floor, is reachable by walking
-   left (derived from the table, not driven). It is declared in `s2_ehz_cpz/clips.json` so the
+   left (derived from the table, not driven)." It is declared in `s2_ehz_cpz/clips.json` so the
    gate can pass; the declaration says it is not safe. Also declared: x 8192..8255 on B, and the
    two Emerald Hill pits on B. Other clip manifests (`s2_ehz_boot`, `s2_two_clip`,
    `s2_two_clip_pins`) were not re-baked here; their plane B is reachable too, and a build of
