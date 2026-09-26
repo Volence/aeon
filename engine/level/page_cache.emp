@@ -28,8 +28,10 @@
 // whose resident set is still exactly its bulk-loaded block [0, PAGE_FRAMES_CLAMP) at
 // identity takes the same collapsed loop plus one residency compare
 // (pc_patch_run_bounded), until its first frame allocation ends it and rebuilds the
-// refcounts (PageCache_EndBoundedRegime). Every other proc in this module is
-// regime-independent.
+// refcounts (PageCache_EndBoundedRegime). A FOURTH (resident plain copy, 2026-09-26):
+// the F1 regime on an act whose words were baked PHYSICAL — the run is a plain word
+// copy with no map read (pc_patch_run_plain; see there for why it is exact). Every
+// other proc in this module is regime-independent.
 //
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
@@ -60,13 +62,15 @@ use engine.constants.{BLOCKS_PER_SECTION_AXIS, BLOCKS_PER_SECTION_SHIFT, SECTION
 use engine.constants.{BLOCK_STAGE_SLOTS, PAGE_FRAMES_MAX}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL, PAGE_AUDIT_FULL, PAGE_AUDIT_TICK, PAGE_AUDIT_IDLE}
 use engine.constants.{SCREEN_HEIGHT, VDP_HV_COUNTER}
-use engine.constants.{PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED}
+use engine.constants.{PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED, PAGECACHE_DIRECT_PLAIN}
 
 // The patch runs select their loop with `tst.b PageCache_Direct_Map / bmi / bne`, so
-// the RESIDENT value must be a negative byte and BOUNDED a positive non-zero one. The
-// bounded loop's residency bound is an immediate word.
-ensure(PAGECACHE_DIRECT_RESIDENT >= $80 && PAGECACHE_DIRECT_RESIDENT <= $FF && PAGECACHE_DIRECT_BOUNDED >= 1 && PAGECACHE_DIRECT_BOUNDED < $80,
-       "PageCache_Direct_Map's two latched values must split on the sign bit (RESIDENT negative, BOUNDED positive non-zero)")
+// the RESIDENT and PLAIN values must be negative bytes (one `cmpi.b` inside the `bmi`
+// arm tells them apart) and BOUNDED a positive non-zero one. PageCache_Audit takes its
+// latched arm on any non-zero value, which is right for all three. The bounded loop's
+// residency bound is an immediate word.
+ensure(PAGECACHE_DIRECT_RESIDENT >= $80 && PAGECACHE_DIRECT_RESIDENT <= $FF && PAGECACHE_DIRECT_PLAIN >= $80 && PAGECACHE_DIRECT_PLAIN <= $FF && PAGECACHE_DIRECT_PLAIN != PAGECACHE_DIRECT_RESIDENT && PAGECACHE_DIRECT_BOUNDED >= 1 && PAGECACHE_DIRECT_BOUNDED < $80,
+       "PageCache_Direct_Map's latched values must split on the sign bit (RESIDENT and PLAIN negative and distinct, BOUNDED positive non-zero)")
 ensure(PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT <= NT_TILE_MASK + 1,
        "the bounded patch loop's residency bound PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT must be a physical tile index bound")
 
@@ -921,6 +925,55 @@ comptime fn pc_patch_run_bounded(src_step: Int, dest_step: Int) -> Code {
 }
 
 // -----------------------------------------------
+// THE PLAIN VARIANT (resident plain copy, 2026-09-26). Selected per run while
+// PageCache_Direct_Map == PAGECACHE_DIRECT_PLAIN.
+//
+// WHY IT IS VALID. Level_LoadArt latches PLAIN only where it would latch RESIDENT
+// (fully resident, Page_Table the identity: physical == global) AND the act carries
+// Act.act_nt_physical — its level tool baked every block word as `attr | global`
+// with a blank word stored as $0000, and gave every section the pool-slot identity
+// map (map[i] == i for every index a word can carry; verify_level_bin.py refuses a
+// physical-form tree where either is false). On such a word the direct loop computes:
+//
+//     index 0          -> $0000                 == the stored word (blank is $0000)
+//     index i != 0     -> (w & ATTR) | map[i]   == (w & ATTR) | i == w
+//
+// so the direct loop is the identity on physical-form data, and the run is a copy.
+// Value-identity with the direct loop is therefore by construction, the same way the
+// direct loop's is with the general one — one level further down the same chain.
+//
+// WHAT IT GIVES UP. The direct loop's DEBUG per-word pool bound: a per-word DEBUG check
+// here would hand back most of the DEBUG shape's gain. It is a BUILD-time check instead
+// (verify_level_bin.py: every physical word's index is a real pool slot), and the
+// periodic PageCache_Audit still refuses a cache word that names an unassigned frame.
+//
+// No register bank: the loop touches only d0 (declared clobbered) and a0/a1 (the
+// advanced cursors the callers continue from), so the proc returns straight from it.
+// Two spellings, one per stride shape: the sequential run is contiguous on both sides,
+// so it post-increments (12+10 cyc/word against the direct loop's ~97); the column run
+// strides a block row on the source and a cache row on the destination.
+// -----------------------------------------------
+comptime fn pc_patch_run_plain_seq() -> Code {
+    return asm {
+        subq.w  #1, d0                          // count >= 1 (callers guarantee)
+    .pp_word:
+        move.w  (a0)+, (a1)+                    // the stored word IS the physical word
+        dbf     d0, .pp_word
+    }
+}
+
+comptime fn pc_patch_run_plain_col(src_step: Int, dest_step: Int) -> Code {
+    return asm {
+        subq.w  #1, d0                          // count >= 1 (callers guarantee)
+    .pp_word:
+        move.w  (a0), (a1)                      // the stored word IS the physical word
+        lea     {src_step}(a0), a0
+        lea     {dest_step}(a1), a1
+        dbf     d0, .pp_word
+    }
+}
+
+// -----------------------------------------------
 // PageCache_PatchRun_Seq — patch a SEQUENTIAL run (FillRow: src and dest both
 // advance one word). PageCache_PatchRun_Col — patch a block-COLUMN run
 // (CopyBlockColumn: src advances one block row = 32 bytes, dest one cache row
@@ -935,48 +988,75 @@ comptime fn pc_patch_run_bounded(src_step: Int, dest_step: Int) -> Code {
 // The variant select is per RUN, not per word: one tst.b + bcc over the ~8-10 runs
 // a saturated tick issues (~200 cyc/tick) against the ~95 cyc/word the direct loop
 // saves over 280 words/tick. The fallback arm is the pre-F1 code byte-for-byte.
+//
+// DISPATCH ORDER (resident plain copy, 2026-09-26). The sign test runs BEFORE the
+// register bank so the plain arm can skip the bank entirely. The general and bounded
+// arms execute the same instructions they did before it moved — tst, bmi (not taken),
+// movem, then `bne .bounded` on the SAME tst's Z, because movem.l to memory leaves the
+// CCR untouched — so the streaming path pays nothing for the plain arm. The two
+// negative latches (RESIDENT, PLAIN) are told apart by one compare inside the `bmi` arm.
 pub proc PageCache_PatchRun_Seq (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
-        movem.l d1-d5/a2-a4, -(sp)
+        tst.b   PageCache_Direct_Map
+        bmi     .resident                       // RESIDENT ($FF) or PLAIN ($80)
+        movem.l d1-d5/a2-a4, -(sp)              // CCR untouched: Z is still the tst's
+        bne     .bounded                        // PAGECACHE_DIRECT_BOUNDED ($01)
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
-        tst.b   PageCache_Direct_Map
-        bmi     .direct                         // PAGECACHE_DIRECT_RESIDENT ($FF)
-        bne     .bounded                        // PAGECACHE_DIRECT_BOUNDED ($01)
         lea     Page_Table, a3
         lea     Page_Frames, a4
         pc_patch_run_loop(2, 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
-    .direct:
-        pc_direct_bound_hoist()
-        pc_patch_run_direct(2, 2)
+    .bounded:
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2
+        pc_patch_run_bounded(2, 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
-    .bounded:
-        pc_patch_run_bounded(2, 2)
+    .resident:
+        cmpi.b  #PAGECACHE_DIRECT_PLAIN, PageCache_Direct_Map
+        bne     .direct
+        pc_patch_run_plain_seq()                // no bank: d0/a0/a1 only
+        rts
+    .direct:
+        movem.l d1-d5/a2-a4, -(sp)
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2
+        pc_direct_bound_hoist()
+        pc_patch_run_direct(2, 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
 }
 
 pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
-        movem.l d1-d5/a2-a4, -(sp)
+        tst.b   PageCache_Direct_Map
+        bmi     .resident                       // RESIDENT ($FF) or PLAIN ($80)
+        movem.l d1-d5/a2-a4, -(sp)              // CCR untouched: Z is still the tst's
+        bne     .bounded                        // PAGECACHE_DIRECT_BOUNDED ($01)
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
-        tst.b   PageCache_Direct_Map
-        bmi     .direct                         // PAGECACHE_DIRECT_RESIDENT ($FF)
-        bne     .bounded                        // PAGECACHE_DIRECT_BOUNDED ($01)
         lea     Page_Table, a3
         lea     Page_Frames, a4
         pc_patch_run_loop(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
-    .direct:
-        pc_direct_bound_hoist()
-        pc_patch_run_direct(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
+    .bounded:
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2
+        pc_patch_run_bounded(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
-    .bounded:
-        pc_patch_run_bounded(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
+    .resident:
+        cmpi.b  #PAGECACHE_DIRECT_PLAIN, PageCache_Direct_Map
+        bne     .direct
+        pc_patch_run_plain_col(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)   // no bank: d0/a0/a1 only
+        rts
+    .direct:
+        movem.l d1-d5/a2-a4, -(sp)
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2
+        pc_direct_bound_hoist()
+        pc_patch_run_direct(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
 }

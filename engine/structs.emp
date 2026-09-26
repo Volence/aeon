@@ -52,7 +52,13 @@ pub struct Act {
     act_art_pool_table:  *u8,           // $1A — manifest v2 table: [PageManifest; act_art_pool_pages] (generated)
     act_art_pool_pages:  u16,           // $1E — pool page count (generated)
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
-    pad_21:              u8 = 0,        // $21 — reserved byte pad (was anonymous in the deleted engine/structs.asm, c745d75e)
+    act_nt_physical:     u8 = 0,        // $21 — nonzero = the act's block words were baked PHYSICAL (generated;
+                                        //       resident plain copy, 2026-09-26): attr|global with blank = $0000,
+                                        //       and every section map is the pool-slot identity. Level_LoadArt
+                                        //       latches PAGECACHE_DIRECT_PLAIN only when this AND runtime residency
+                                        //       hold. 0 (the default) = section-LOCAL words, which every patch loop
+                                        //       translates; physical-form data is ALSO valid under every loop, so
+                                        //       the safe value is always 0. Was the reserved byte pad_21.
     act_sec_local_maps:  *u8,           // $22 — [*u8; grid_w*grid_h] per-section local->global tables (P2b, generated)
     act_art_budget:      u16,           // $26 — per-act steady-state art-streaming byte budget (B&R
                                         //       pattern, P2c Task 9): PageIn_Process's once-per-physical-

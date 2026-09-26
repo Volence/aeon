@@ -431,7 +431,12 @@ pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link t
 // identity, so physical == global for every resident page and residency is one compare
 // against PAGE_FRAMES_CLAMP << PAGE_FRAME_TILE_SHIFT. Ended (-> 0, refcounts rebuilt
 // from the nametable) by the act's first frame allocation after the bulk load.
+// DIRECT_PLAIN ($80, negative like RESIDENT) = the resident plain copy of 2026-09-26: the
+// RESIDENT conditions hold AND the act's words were baked PHYSICAL (Act.act_nt_physical),
+// so a run is a plain word copy with no map read at all. Both negative values share the
+// `bmi`; the patch runs tell them apart with one compare per RUN, never per word.
 pub const PAGECACHE_DIRECT_RESIDENT = $FF
+pub const PAGECACHE_DIRECT_PLAIN    = $80
 pub const PAGECACHE_DIRECT_BOUNDED  = $01
 // pf_flags bits (engine.structs PageFrame):
 pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)

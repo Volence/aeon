@@ -1,8 +1,33 @@
 {
-  "_note": "Donor revisions read by the level re-bake that produced games/sonic4/data/generated/ and games/sonic4/data/collision/. Written by tools/donor_provenance.py. mode=rebake means these donors were read by the bake committed alongside this file; mode=backfill means every revision here (donors AND generator) was recorded by inspection AFTER the bake, and is NOT proof that this tree reproduces from them. A donor with dirty=true is not identified by its SHA at all.",
+  "_note": "Donor revisions present when this record was written. The ones with contributes_to_rebake=true are the inputs to the level re-bake that produced games/sonic4/data/generated/ and games/sonic4/data/collision/; the ones with contributes_to_rebake=false are registered donors that no committed byte comes from yet and are recorded only so their revisions are answerable. Written by tools/donor_provenance.py. mode=rebake means the contributing donors were read by the bake committed alongside this file; mode=backfill means every revision here (donors AND generator) was recorded by inspection AFTER the bake, and is NOT proof that this tree reproduces from them. A donor with dirty=true is not identified by its SHA at all.",
   "donors": {
+    "s2-simonwai-disasm": {
+      "branch": "main",
+      "contributes_to_rebake": false,
+      "dirty": false,
+      "env_var": "AEON_S2PROTO_DIR",
+      "head": "0113ca4775115689edc87d4115ed9cb51f220e02",
+      "modified_tracked": 0,
+      "path": "/home/volence/sonic_hacks/s2-simonwai-disasm",
+      "role": "Sonic 2 Simon Wai prototype level layouts, Nemesis art, chunk+block maps, collision indices, palettes \u2014 the only source of Hidden Palace Zone",
+      "status": "git",
+      "untracked": 0
+    },
+    "s2disasm": {
+      "branch": "master",
+      "contributes_to_rebake": false,
+      "dirty": false,
+      "env_var": "AEON_S2DISASM_DIR",
+      "head": "e45ebf332f39987424ca3102e50c717628f71269",
+      "modified_tracked": 0,
+      "path": "/home/volence/sonic_hacks/s2disasm",
+      "role": "Sonic 2 final-game level layouts, Kosinski art, chunk+block maps, collision indices, palettes",
+      "status": "git",
+      "untracked": 0
+    },
     "skdisasm": {
       "branch": "master",
+      "contributes_to_rebake": true,
       "dirty": false,
       "env_var": "AEON_SKDISASM_DIR",
       "head": "2fcd861c208f342b6d14df694c6422c74f20a4be",
@@ -14,6 +39,7 @@
     },
     "sonic_hack": {
       "branch": "master",
+      "contributes_to_rebake": true,
       "dirty": true,
       "env_var": "AEON_SONIC_HACK_DIR",
       "head": "858af72c50083fa9e721ac1ecd69095022d3659e",
@@ -26,11 +52,11 @@
   },
   "generator": {
     "dirty": true,
-    "head": "e2af59ea6de7aa066550fb7fa8eb470dae94c580",
-    "modified_tracked": 3,
+    "head": "fab297abe831d10510a1f1825d8ad293b6be1959",
+    "modified_tracked": 29,
     "repo": "aeon",
     "status": "git",
-    "untracked": 0
+    "untracked": 2
   },
   "mode": "rebake",
   "schema": 1

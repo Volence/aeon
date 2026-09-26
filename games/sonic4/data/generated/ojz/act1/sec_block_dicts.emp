@@ -6,10 +6,10 @@ module games.sonic4.ojz_block_dicts_act1
 
 pub const OJZ_SEC0_BLOCK_DICT_LEN = 768
 pub const OJZ_SEC1_BLOCK_DICT_LEN = 768
-pub const OJZ_SEC2_BLOCK_DICT_LEN = 768
+pub const OJZ_SEC2_BLOCK_DICT_LEN = 2304
 pub const OJZ_SEC3_BLOCK_DICT_LEN = 768
-pub const OJZ_SEC4_BLOCK_DICT_LEN = 768
+pub const OJZ_SEC4_BLOCK_DICT_LEN = 2304
 pub const OJZ_SEC5_BLOCK_DICT_LEN = 768
-pub const OJZ_SEC6_BLOCK_DICT_LEN = 768
+pub const OJZ_SEC6_BLOCK_DICT_LEN = 2304
 pub const OJZ_SEC7_BLOCK_DICT_LEN = 768
-pub const OJZ_SEC8_BLOCK_DICT_LEN = 768
+pub const OJZ_SEC8_BLOCK_DICT_LEN = 2304

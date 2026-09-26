@@ -1054,6 +1054,29 @@ def build_section_local_map(section_globals) -> list[int]:
     return ordered
 
 
+def build_pool_slot_identity_map(pool_slots) -> list[int]:
+    """The local->global map a PHYSICAL-form act gives every section (resident plain
+    copy, 2026-09-26): map[i] = i for each real pool slot i, 0 for a slot no tile
+    occupies (the gap a short per-zone page leaves), length = last real slot + 1.
+
+    Physical-form words carry the global slot in their 11-bit index, so this is the map
+    under which every translating patch loop reproduces the stored word exactly — the
+    reason a physical-form act stays correct on a shape where it is NOT resident at
+    runtime. Gap slots map to 0 rather than to themselves so the per-page pool bound
+    verify_level_bin.py holds every map value to stays true; no word names a gap slot.
+
+    Raises ValueError when the last slot does not fit the 11-bit index field (a physical
+    word must carry the global itself). map[0] == 0 holds by construction.
+    """
+    slots = set(pool_slots) | {0}
+    last = max(slots)
+    if last > SECTION_LOCAL_INDEX_MAX:
+        raise ValueError(
+            f"physical-form act: pool slot {last} does not fit the 11-bit nametable "
+            f"index field (max {SECTION_LOCAL_INDEX_MAX})")
+    return [i if i in slots else 0 for i in range(last + 1)]
+
+
 def mark_pinned_pages(pages, per_section_global_sets) -> list[bool]:
     """Return a list[bool] parallel to `pages`.
 
@@ -1181,7 +1204,8 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
 GEN_REL_DIR = "games/sonic4/data/generated/ojz/act1"
 
 
-def emit_section_local_maps(section_local_maps, out_dir, expected_sections) -> None:
+def emit_section_local_maps(section_local_maps, out_dir, expected_sections,
+                            nt_physical=False) -> None:
     """Emit each section's local→global table as a u16-BE binary + a generated
     `.emp` section (Parcel-K3 style): per-section `embed()`s + OJZ_Sec_LocalMaps,
     a [*u8; N] pointer table indexed by FLAT section id (sec_y*grid_w + sec_x —
@@ -1209,6 +1233,11 @@ def emit_section_local_maps(section_local_maps, out_dir, expected_sections) -> N
     The per-section `.bin` files are still all written, deduped or not, so the on-disk
     artifacts stay a faithful per-section record (again matching ojz_block_gen.py); only
     the `embed()` collapses.
+
+    `nt_physical` (resident plain copy, 2026-09-26) is emitted as `OJZ_ACT_NT_PHYSICAL`,
+    which act_descriptor.emp writes into Act.act_nt_physical: 1 = the block words were
+    baked in physical form and every map here is the pool-slot identity. The default is
+    0, the value every patch loop is correct under.
     """
     by_id: dict[int, str] = {}
     payloads: dict[int, bytes] = {}
@@ -1261,11 +1290,17 @@ def emit_section_local_maps(section_local_maps, out_dir, expected_sections) -> N
         f.write("// (content dedup). Natively placed at the sec_local_maps section;\n")
         f.write("// consumed by act_descriptor.emp.\n")
         f.write("module games.sonic4.ojz_sec_local_maps_act1 in sec_local_maps\n\n")
+        f.write("// The block nametable word FORM (resident plain copy, 2026-09-26): 1 = PHYSICAL\n")
+        f.write("// (attr|global, blank = $0000, every map above the pool-slot identity), 0 = LOCAL.\n")
+        f.write("// Written into Act.act_nt_physical; the engine copies words verbatim only when\n")
+        f.write("// this is 1 AND the act is proven resident at runtime.\n")
+        f.write(f"pub const OJZ_ACT_NT_PHYSICAL = {1 if nt_physical else 0}\n\n")
         f.write("\n".join(map_lines) + "\n")
         ptrs = ", ".join(f'extern("OJZ_Sec{by_id[i]}_LocalMap")' for i in range(n))
         f.write(f"\npub data OJZ_Sec_LocalMaps: [*u8; {n}] = [{ptrs}]\n")
     print(f"sec_local_maps: {n} sections, "
-          f"{len(map_owner)} distinct; map dedup saved {dedup_saved} ROM bytes.")
+          f"{len(map_owner)} distinct; map dedup saved {dedup_saved} ROM bytes; "
+          f"word form {'PHYSICAL' if nt_physical else 'LOCAL'}.")
 
 
 # ---------------------------------------------------------------------------
@@ -2534,12 +2569,32 @@ def generate(stress_uniquify=0):
     # only in a register). The residency cache (engine page_cache) writes the
     # PHYSICAL index (allocated frame) into the tile cache, so a global index
     # is a cache key, not a fixed VRAM slot.
+    #
+    # THE WORD FORM (resident plain copy, 2026-09-26; docs/research/2026-09-26-resident-plain-copy.md).
+    # An act whose pool fits PAGE_FRAMES is baked in PHYSICAL form instead: each word
+    # carries its GLOBAL slot (which is the physical tile the engine writes once the
+    # resident latch has proven Page_Table the identity), a blank word is stored as
+    # $0000 (the engine never stores a blank's attribute bits), and every section gets
+    # the POOL-SLOT IDENTITY map. The identity map is what makes this choice safe to take
+    # at build time: residency is decided at RUNTIME (a STRESS_EVICT shape streams this
+    # same tree), and with identity maps every translating patch loop reproduces the
+    # physical words exactly, so a physical-form act that turns out not to be resident is
+    # merely not accelerated. The engine copies verbatim only when BOTH hold.
+    nt_physical = len(pages) <= budget["PAGE_FRAMES"]
+    identity_map = None
+    if nt_physical:
+        identity_map = build_pool_slot_identity_map(
+            {g for sets in per_section_global_sets for g in sets})
     total_strips = 0
     first_strips = None
     section_local_maps: list[tuple[str, list[int]]] = []   # (sec_id, local_to_global)
     for s_idx, sec_id in enumerate(sec_ids_in_order):
-        local_to_global = build_section_local_map(per_section_global_sets[s_idx])
-        global_to_local = {g: i for i, g in enumerate(local_to_global)}
+        if nt_physical:
+            local_to_global = identity_map
+            global_to_local = None                  # the word carries the global itself
+        else:
+            local_to_global = build_section_local_map(per_section_global_sets[s_idx])
+            global_to_local = {g: i for i, g in enumerate(local_to_global)}
         section_local_maps.append((sec_id, local_to_global))
         sy, sx = divmod(s_idx, grid_w)
         # this section's canonical ids as [col][row], from the placed grid (after any
@@ -2567,6 +2622,12 @@ def generate(stress_uniquify=0):
                         # THIS word's own parent tile). KEEP the resolved canon-flip so the
                         # clone renders in the source orientation — same tile, faint scratch.
                         vram_slot = r
+                if nt_physical:
+                    # physical form: the global slot IS the index; blank is $0000
+                    remapped_col.append(
+                        0 if vram_slot == 0 else
+                        tile_dedupe.remap_nametable_word(word, vram_slot, flip_bits))
+                    continue
                 local_idx = global_to_local[vram_slot]       # section-local index
                 remapped_col.append(
                     tile_dedupe.remap_nametable_word(word, local_idx, flip_bits)
@@ -2599,7 +2660,8 @@ def generate(stress_uniquify=0):
     # ---- Pass 5b: emit per-section local→global tables (.bin + generated .emp) ----
     emit_section_local_maps(
         section_local_maps, out_dir,
-        editor_num_sections if use_editor else len(sec_ids_in_order))
+        editor_num_sections if use_editor else len(sec_ids_in_order),
+        nt_physical=nt_physical)
 
     # ---- Pass 6: emit the single act art pool as independently-decodable pages ----
     for page_idx, page in enumerate(pages):

@@ -13,7 +13,7 @@ module engine.load_art in load_art
 
 use engine.structs.{Act}
 use engine.constants.{DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
-use engine.constants.{PAGE_NOT_RESIDENT, PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED}
+use engine.constants.{PAGE_NOT_RESIDENT, PAGECACHE_DIRECT_RESIDENT, PAGECACHE_DIRECT_BOUNDED, PAGECACHE_DIRECT_PLAIN}
 
 ensure(PAGE_FRAMES_CLAMP <= 127, "Level_LoadArt caps the bulk load with `moveq #PAGE_FRAMES_CLAMP` (PAGE_FRAMES_CLAMP = {PAGE_FRAMES_CLAMP})")
 
@@ -229,6 +229,19 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         tst.b   PageIn_Fully_Resident
         beq     .no_direct                          // streaming act: the bounded variant
         move.b  #PAGECACHE_DIRECT_RESIDENT, PageCache_Direct_Map
+        // -- Resident plain copy (2026-09-26): the act's words were baked PHYSICAL --
+        // Physical form (Act.act_nt_physical, decided by the level tool) stores every
+        // block word as attr|global with blank = $0000 and gives every section the
+        // pool-slot identity map. Under the RESIDENT proof just made, physical ==
+        // global, so the translating direct loop would reproduce each stored word
+        // exactly: the runs may copy it verbatim. BOTH conditions are required and
+        // each is decided where it can be: residency here at runtime (a STRESS_EVICT
+        // shape streams the very same committed act), the form at build time. An
+        // act that is physical but NOT resident simply stays on the loop the scan
+        // above chose — its identity maps make that loop exact on physical words.
+        tst.b   Act.act_nt_physical(a4)
+        beq     .no_direct                          // section-LOCAL words: the direct loop translates
+        move.b  #PAGECACHE_DIRECT_PLAIN, PageCache_Direct_Map
     .no_direct:
 
         // -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --

@@ -1491,7 +1491,9 @@ pub vars upper_ram {
                                         // page->frame indirection and no refcount pair. Cleared by
                                         // PageCache_Init, so it is FALSE for the whole of any act load until the
                                         // pool is proven identity-mapped. (Consumes the former word-align pad
-                                        // byte — RAM layout unchanged.)
+                                        // byte — RAM layout unchanged.) $80 (PAGECACHE_DIRECT_PLAIN) = the same
+                                        // proof PLUS an act baked in physical form (Act.act_nt_physical): the
+                                        // runs are a plain word copy (resident plain copy, 2026-09-26).
 
     // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
     // RELEASE (the streaming path is present in every shape). The D3 gate gates

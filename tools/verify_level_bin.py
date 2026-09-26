@@ -372,6 +372,111 @@ def verify_local_maps():
               f">= map entry count {count} (blocks/map drift — partial commit?)")
 
 
+def _nt_form_flag():
+    """OJZ_ACT_NT_PHYSICAL as the generated sec_local_maps.emp declares it, or None."""
+    path = os.path.join(GEN, "sec_local_maps.emp")
+    if not os.path.isfile(path):
+        return None
+    m = re.search(r"^pub const OJZ_ACT_NT_PHYSICAL\s*=\s*(\d+)\s*$", open(path).read(), re.M)
+    return int(m.group(1)) if m else None
+
+
+def verify_nt_form():
+    """The block nametable word FORM (resident plain copy, 2026-09-26).
+
+    The engine copies a PHYSICAL-form act's words verbatim (PAGECACHE_DIRECT_PLAIN) with
+    no map read and no per-word check, so everything that makes that copy exact is held
+    HERE, on the committed tree, where it is cheap. Three facts, each derived from source
+    rather than restated:
+
+      1. The form is the one the bake rule gives: PHYSICAL iff the pool's page count
+         (ojz_act_pool.emp's pm_tiles rows) fits PAGE_FRAMES (engine/system/constants.emp).
+         A flag the tree carries against that rule is a hand edit or a partial commit.
+      2. Under PHYSICAL, every section map is the POOL-SLOT IDENTITY (map[i] = i for a real
+         slot, 0 for a short page's gap, length = last slot + 1). That is what keeps every
+         TRANSLATING loop exact on physical words, i.e. what makes the form safe on a shape
+         that turns out not to be resident at runtime (STRESS_EVICT).
+      3. Under PHYSICAL, every strips_a word (the blocks carry exactly these words;
+         verify_block_decode ties the two) either is $0000 or names a real pool slot. A
+         blank word with attribute bits would be copied with them, where every translating
+         loop stores $0000 — measured 39,443 such words in OJZ's local-form tree.
+    """
+    flag = _nt_form_flag()
+    if flag is None:
+        check(False, "word form: sec_local_maps.emp declares no `pub const OJZ_ACT_NT_PHYSICAL = 0|1` "
+                     "-- the emitter's shape moved or the tree predates the resident plain copy")
+        return
+    check(flag in (0, 1), f"word form: OJZ_ACT_NT_PHYSICAL = {flag}, not 0 or 1")
+    pool = os.path.join(GEN, "ojz_act_pool.emp")
+    if not os.path.isfile(pool):
+        check(False, "word form: ojz_act_pool.emp missing -- cannot derive the expected form")
+        return
+    page_tiles_list = [int(t) for t in re.findall(r"pm_tiles:\s*(\d+)", open(pool).read())]
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    src.load_file(CONSTANTS_EMP)
+    page_frames = src.get("PAGE_FRAMES")
+    expected = 1 if 0 < len(page_tiles_list) <= page_frames else 0
+    check(flag == expected,
+          f"word form: OJZ_ACT_NT_PHYSICAL = {flag}, but the pool has {len(page_tiles_list)} "
+          f"pages against PAGE_FRAMES = {page_frames}, so the bake rule gives {expected}. "
+          f"Re-bake (tools/regenerate-level.sh); never hand-edit the flag: a PHYSICAL flag on "
+          f"LOCAL words puts section-local indices on screen as tile numbers")
+    if flag != 1:
+        return
+    slots = {p * ART_POOL_PAGE_TILES + i
+             for p, n in enumerate(page_tiles_list) for i in range(n)}
+    last = max(slots)
+    want = [i if i in slots else 0 for i in range(last + 1)]
+    n_sec = _section_count()
+    if n_sec is None:
+        return
+    for n in range(n_sec):
+        mpath = os.path.join(GEN, f"sec{n}_local_map.bin")
+        if not os.path.isfile(mpath):
+            check(False, f"word form: sec{n}_local_map.bin missing")
+            continue
+        m = read(mpath)
+        got = list(struct.unpack(f">{len(m) // 2}H", m))
+        bad = [i for i in range(max(len(got), len(want)))
+               if i >= len(got) or i >= len(want) or got[i] != want[i]]
+        check(not bad,
+              f"word form: PHYSICAL, but sec{n}_local_map.bin is not the pool-slot identity "
+              f"({len(got)} entries against {len(want)}; first differing index "
+              f"{bad[0] if bad else '-'}). Every translating loop then disagrees with the "
+              f"plain copy on those words")
+        spath = os.path.join(GEN, f"sec{n}_strips_a.bin")
+        if not os.path.isfile(spath):
+            check(False, f"word form: sec{n}_strips_a.bin missing")
+            continue
+        strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
+        pad = _strip_gen_int("STRIP_COLLISION_PAD")
+        if strip_rows is None or pad is None:
+            return
+        stride = strip_rows * 2 + 2 * (strip_rows // 2) + pad
+        blob = read(spath)
+        blank_attr = off_pool = 0
+        first = None
+        for c in range(len(blob) // stride):
+            col = struct.unpack(f">{strip_rows}H", blob[c * stride: c * stride + strip_rows * 2])
+            for r, w in enumerate(col):
+                idx = w & NAMETABLE_TILE_MASK
+                if idx == 0 and w != 0:
+                    blank_attr += 1
+                elif idx != 0 and idx not in slots:
+                    off_pool += 1
+                else:
+                    continue
+                if first is None:
+                    first = (c, r, w)
+        check(blank_attr == 0 and off_pool == 0,
+              f"word form: PHYSICAL, but sec{n}_strips_a.bin has {blank_attr} blank word(s) "
+              f"carrying attribute bits and {off_pool} word(s) naming no pool slot (first: "
+              f"col {first[0]} row {first[1]} ${first[2]:04X}). The plain copy stores these "
+              f"verbatim; every translating loop would not"
+              if first else "word form: strips mismatch")
+
+
 def verify_block_blobs():
     """Every OJZ_Sec{N}_Blocks resolves (BINCLUDE'd blob present, or equ-aliased
     to a present one); sec_block_dicts declares a dict length for every section,
@@ -862,6 +967,10 @@ def verify_editor_bake_fidelity():
     wrong" from "the level data says that".
     """
     fails_before = len(_fail)
+    # Claim 2's one exception (resident plain copy, 2026-09-26): a PHYSICAL-form tree
+    # stores a blank cell as $0000, dropping the editor's attribute bits on it, because
+    # that is the word every patch loop writes for a blank. verify_nt_form holds the rest.
+    physical_form = _nt_form_flag() == 1
     strip_rows = _strip_gen_int("STRIP_TILE_HEIGHT")
     pad = _strip_gen_int("STRIP_COLLISION_PAD")
     if strip_rows is None or pad is None:
@@ -1001,7 +1110,14 @@ def verify_editor_bake_fidelity():
                     continue
                 seen.add(pair)
                 sw, rw = col_src[r], col_rem[r]
-                if (sw & NAMETABLE_ATTR_MASK) != (rw & NAMETABLE_ATTR_MASK):
+                if physical_form and (rw & NAMETABLE_TILE_MASK) == 0:
+                    # Physical form stores a blank as $0000 — the word every patch loop
+                    # writes for it — so the editor's attribute bits on a blank cell are
+                    # dropped BY DESIGN, not changed. Anything else on a blank is not.
+                    if rw != 0:
+                        attr_bad += 1
+                        continue
+                elif (sw & NAMETABLE_ATTR_MASK) != (rw & NAMETABLE_ATTR_MASK):
                     attr_bad += 1
                     continue
                 li = rw & NAMETABLE_TILE_MASK
@@ -1343,6 +1459,7 @@ def main(argv=None):
               f"undoing their one declared byte)")
     verify_act_pool()
     verify_local_maps()
+    verify_nt_form()
     verify_block_blobs()
     verify_block_decode()
     verify_descriptor_wiring()
@@ -1352,7 +1469,7 @@ def main(argv=None):
     verify_editor_collision_fidelity()
     verify_section_set()
     verify_no_orphans()
-    checks_run = ("act-pool+content+sidecar / local-maps+table / block-blobs / "
+    checks_run = ("act-pool+content+sidecar / local-maps+table / word-form / block-blobs / "
                   "block-decode / descriptor-wiring / bininclude-targets / "
                   "collision-interned / editor-bake / "
                   "editor-collision / section-set / orphans")
