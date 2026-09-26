@@ -1,0 +1,6 @@
+leg                       plain           debug  debug_stubboth   ticks  path-diff vs first
+sec0_left            0 / 900         0 / 900         0 / 900        900  [0, 0]
+spawn_jumprun        0 / 2025        5 / 2030        4 / 2029      2025  [36, 36]
+spawn_right          5 / 2505        8 / 2508        6 / 2506      2500  [41, 41]
+spawn_spin           1 / 1651        5 / 1655        3 / 1653      1650  [32, 32]
+TOTAL                         6              18              13
