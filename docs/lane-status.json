@@ -1,9 +1,34 @@
 {
-  "focus": "Rebooted; the check-tidying agent is still working. Sonic 2 music is waiting for your ears.",
+  "focus": "Overnight: fixing the Sonic 2 music volumes, two speed fixes, and looking into loops and the slope sticking.",
   "inFlight": [
     {
-      "what": "Fix the remaining tools that report a problem and carry on (hand-run probes and three generators)",
+      "what": "Fix the remaining tools that report a problem and carry on",
       "where": "branch parcel/printed-not-gated-residue",
+      "agent": true
+    },
+    {
+      "what": "Sonic 2 music: per-channel and drum volumes vs real Sonic 2",
+      "where": "branch parcel/s2-music-volume",
+      "agent": true
+    },
+    {
+      "what": "Debug build: spread the art self-check across frames (removes the 2-second hitch)",
+      "where": "branch parcel/audit-amortise",
+      "agent": true
+    },
+    {
+      "what": "Copy level tiles without translating each word, for acts that fit in video memory",
+      "where": "branch parcel/resident-plain-copy",
+      "agent": true
+    },
+    {
+      "what": "Look into loops and layer switching in the Sonic 2 level",
+      "where": "branch research/s2clip-loops-planes",
+      "agent": true
+    },
+    {
+      "what": "Look into Sonic sticking on slopes and not rolling (your Chemical Plant quarter-pipe spot)",
+      "where": "branch research/sonic-slope-collision",
       "agent": true
     }
   ],
@@ -12,34 +37,40 @@
       "id": "SP6-MODULATION-DIVERGENCE",
       "what": "The spring sound A/B is built and waiting in the spring-timing-ab folder; it needs only your ear.",
       "since": "2026-09-09"
-    },
-    {
-      "id": "PERF-PICK",
-      "what": "Which performance fixes to build: I recommend the debug hitch plus the faster tile copy.",
-      "since": "2026-09-25"
-    },
-    {
-      "id": "S2CLIP-MUSIC-LISTEN",
-      "what": "Listen to the Sonic 2 level's music switch (s4.s2clip.debug.bin, crc 027639e8).",
-      "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "The check-tidying agent returns and I review and land it; then the next row that doesn't need you.",
+  "nextBoundary": "Each agent returns; I review and land them one at a time; the two investigations come back as write-ups.",
   "queue": [
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 level music: landed. Emerald Hill switches to Chemical Plant at the tunnel exit; waiting for your listen",
-      "state": "blocked",
+      "title": "Sonic 2 level music: you listened; channel and drum volumes are off (worse in Emerald Hill), fixing overnight",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "decision card S2CLIP-MUSIC-LISTEN",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
       "id": "PERF-SURVEY",
-      "title": "Survey done: ranked list waiting for your pick",
-      "state": "blocked",
+      "title": "Speed fixes you okayed: the debug hitch and the faster tile copy, both building overnight",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "decision card PERF-PICK"
+      "blockedBy": null
+    },
+    {
+      "id": "S2CLIP-LOOPS-PLANES",
+      "title": "Loops and layer switching in the Sonic 2 level: investigating",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "SLOPE-COLLISION",
+      "title": "Sonic stands on things and won't roll on slopes: investigating from your quarter-pipe spot",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
     },
     {
       "id": "S2CLIP-LAG",
@@ -121,7 +152,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Your listen: run s4.s2clip.debug.bin (crc 027639e8) through the tunnel and back. Also your performance pick (card PERF-PICK).",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T06:46:04Z"
+  "updatedAt": "2026-09-26T06:53:55Z"
 }
