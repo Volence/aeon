@@ -115,47 +115,37 @@ timeout = 600
 
 [wired."loop_step_over_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
-expect = 1
-baseline_args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
 timeout = 300
-note = """DECLARED RED, classification: SETUP, instrument-side. Measured 2026-09-18 on crc32
-62238a15 and re-measured 2026-09-19 (exit 1 in 0.79 s): 'THE PLAYER NEVER LANDED, so this run
-cannot say anything about the loop. placed at (1097, 553); after 8 landing frames he is at
-y=585 with y_vel=1568 (want 0). This is a SETUP failure, not a loop result.' The tool names
-its own fix -- pass --start-y derived from the ground top under editor column 137 -- and
-choosing that value is a reading this parcel had no basis to make. Baselined at 1 so a CHANGE
-is loud; going green is reported FAILED, not quietly accepted.
-⚠ THIS ROW REACHES 0.79 s OF THE TOOL AND STOPS AT THE REFUSAL. It keeps the boot and the
-placement alive and NOTHING past them -- not the drive, not the layer-flip sampler, not the
-per-speed report. That is what the `#no-assert-grounded` row below is for, and why the two
-rows carry different baselines."""
+note = """RE-AIMED AND GREEN since LINES-EVERYWHERE (2026-09-26). It was DECLARED RED (expect 1) from
+2026-09-18 on a SETUP failure: the typed START_Y = 553 put the player inside ground the paint had
+moved, and every run stopped at 'THE PLAYER NEVER LANDED' after 0.79 s. The start height is now
+derived from the committed plane-A editor collision, and the drive is a GRADE: OJZ act 1's
+section-0 loop both ways at PHYS_TOP_SPEED / the one-cell boundary / PHYS_GSP_CAP, every game
+tick held to Obj03's rule over the ROM's own layer-line table (layer AND priority). Exit 1 = a
+disagreement or a fault, 2 = COULD NOT GRADE (no table bound, or nothing crossed). Measured
+2026-09-26 on the branch's DEBUG ROM: exit 0, 6 drives graded, 38 crossings fired, 0 disagree."""
 
 [wired."loop_step_over_witness.py#no-assert-grounded"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
 expect = 0
 timeout = 300
-note = """⚠ A KEEPALIVE ROW, NOT A WITNESS, AND ITS GREEN IS NOT A VERDICT ABOUT THE LOOP.
-Read that as a prohibition: this arm reports zero layer flips and a long fall WHATEVER the
-crossover code does -- the tool's own --help says so, and that signature is exactly what the
-default row's grounded assertion exists to refuse. Nobody may ever cite this row's PASSED as
-evidence about the step-over.
+note = """Kept as the second arm of the same drive with the landing assertion off. Since the start
+height is derived (LINES-EVERYWHERE, 2026-09-26) the player lands anyway, so this arm grades the
+same drives as the default row; it stays because the flag is part of the tool's interface and a
+flag no lane exercises is one nobody notices breaking. It used to be the only arm that reached the
+drive at all, while the default row stopped at its setup refusal."""
 
-WHAT IT IS FOR. The default row above exits at the setup refusal in 0.79 s, so the lane
-executes the boot and the placement and nothing else. This arm is the only declared
-invocation that RUNS the drive at all three derived speeds (PHYS_TOP_SPEED, the
-one-cell-per-frame boundary, PHYS_GSP_CAP), samples the layer bit across 90 frames, and
-reaches the per-speed report and main()'s return. That reporting path is precisely where
-parallax_hscroll_probe's NameError hid for three weeks, and no lane could see it because
-nothing completed a run. MEASURED 2026-09-19 on s4.debug.bin crc32 62238a15 / 848,075 B:
-exit 0, 3.07 s at load average 3.14, printing flips=0 and x 1097..1361 / y 585..846 at each
-of the three speeds. +3.1 s on a lane with a measured 5.0 min floor.
-
-AND IT IS THE PARCEL'S OWN PROOF THAT A BASELINE IS PER-INVOCATION. This tool now carries
-TWO rows with DIFFERENT measured baselines -- 1 on the default argv, 0 on this one -- which
-a tool-keyed `expect` could not express at all. Under the old schema the only way to add
-this flag was to edit the default row's `args`, and the lane would then have reported
-FAILED, 'exit 0, declared baseline was 1': a false alarm reading as 'the known red went
-green'."""
+[wired."loop_step_over_witness.py#phase-sweep"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--phase-sweep"]
+expect = 0
+timeout = 600
+note = """THE STEP-OVER CLASS at speed (LINES-EVERYWHERE, 2026-09-26): PHYS_GSP_CAP (two collision
+cells a frame) from eight sub-cell start phases, both directions, each graded tick for tick
+against the ROM's line table. A painted one-cell mark was stepped over from some phases at this
+speed (docs/LOOP_CROSSOVER_ENCODING.md §12, superseded); a line is a crossing and must fire from
+every phase. Measured 2026-09-26 on the branch's DEBUG ROM: exit 0, 16 drives, 64 crossings,
+0 disagree."""
 
 
 [wired."zx0r_net_boot_witness.py"]

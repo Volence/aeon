@@ -37,7 +37,9 @@ THE PREDICTION, and the lag in it. Player_LayerLines runs in Player_Main's pream
 compares the position the previous frame resolved to against the one it saw the frame before,
 and the layer it writes is read by this frame's sensors. So the crossing between samples
 s[k-1] and s[k] (end-of-frame positions) is acted on at the start of frame k+1, and shows in
-sample s[k+1]. The in-air test uses the status at that moment, i.e. s[k]'s. A step longer
+sample s[k+1]. "Frame" here is a GAME TICK: the samples are one emulator frame apart, a lag
+frame repeats the previous tick, and the grade keeps one sample per Logic_Tick
+(engine/ram.emp) so a lag frame cannot shift the prediction by one. The in-air test uses the status at that moment, i.e. s[k]'s. A step longer
 than the physics cap (PHYS_GSP_CAP >> 8 px on either axis) crosses nothing, as in the routine.
 Rows fire in table order and the last write stands.
 
@@ -90,7 +92,7 @@ from aether import BusClient                               # noqa: E402
 NEED_SYMS = ("Player_1", "Camera_X", "Camera_Y")
 NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_layer", "SST_angle",
              "PHYS_TOP_SPEED", "PHYS_GSP_CAP", "COLL_CELL_W")
-GRADE_SYMS = ("Current_Act_Ptr",)
+GRADE_SYMS = ("Current_Act_Ptr", "Logic_Tick")
 GRADE_EQUS = ("SST_art_tile", "SST_status", "SST_y_vel", "ST_IN_AIR", "Act_act_layer_lines",
               "LL_ROW", "LL_A_OFF", "LL_B_OFF", "LL_FLAGS_OFF", "LL_KEY_AFTER",
               "LL_KEEP_PATH", "LL_GROUNDED", "LL_HORIZONTAL", "LL_FWD_B", "LL_BACK_B",
@@ -315,6 +317,7 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="r
         # 6. one frame at a time: at 9 px/frame a player crosses an 8 px cell in under one
         #    frame, so any coarser interval cannot resolve a layer change even in principle.
         rows = []
+        A_TICK = syms["Logic_Tick"]
 
         async def sample(f):
             x = int.from_bytes(await b.read(A_X, 4), "big") >> 16
@@ -324,7 +327,8 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="r
                     "prio": 1 if art & ART_PRIO else 0,
                     "air": 1 if (await b.read(A_STATUS, 1))[0] & air_bit else 0,
                     "angle": (await b.read(A_ANGLE, 1))[0],
-                    "gsp": _s16(int.from_bytes(await b.read(A_GSP, 2), "big"))}
+                    "gsp": _s16(int.from_bytes(await b.read(A_GSP, 2), "big")),
+                    "tick": int.from_bytes(await b.read(A_TICK, 4), "big")}
 
         rows.append(await sample(-1))                    # the landed state, before frame 0
         for f in range(frames):
@@ -346,7 +350,13 @@ def predict(rows, table, equs):
     drive's own positions (the header's PREDICTION paragraph). Returns
     (mismatches, fires): mismatches as (frame, want (layer, prio), got (layer, prio), why);
     fires as (frame, row index, direction)."""
-    live = [r for r in rows if "layer" in r]
+    live = []
+    for r in rows:
+        # One sample per GAME TICK: a lag frame repeats the previous tick's state, and the
+        # routine's one-tick lag is a lag in ticks, not in emulator frames.
+        if "layer" in r and not (live and r.get("tick") is not None
+                                 and r.get("tick") == live[-1].get("tick")):
+            live.append(r)
     step = equs["PHYS_GSP_CAP"] >> 8
     bit = {n: 1 << equs[n] for n in ("LL_KEEP_PATH", "LL_GROUNDED", "LL_HORIZONTAL",
                                      "LL_FWD_B", "LL_BACK_B", "LL_FWD_HI", "LL_BACK_HI")}
@@ -404,7 +414,8 @@ def summarise(res, gsp, equs, label, verbose, grade=True):
                               r["angle"], r["gsp"]))
     out = {"faulted": bool(faulted), "changes": changes, "graded": False, "bad": [],
            "fires": 0,
-           "trace": [[r["frame"], r["x"], r["y"], r["layer"], r["prio"], r["air"]] for r in live]}
+           "trace": [[r["frame"], r["x"], r["y"], r["layer"], r["prio"], r["air"],
+                      r.get("tick")] for r in live]}
     if grade and res["table"] is not None and not faulted:
         bad, fires = predict(rows, res["table"], equs)
         out.update(graded=True, bad=bad, fires=len(fires))
@@ -428,11 +439,38 @@ def run_one(rom, lst, gsp, frames, verbose, label, start_dx=0, direction="right"
 
 
 def compare(a, b):
-    """The first frame where two traces' positions differ, and where their (layer, prio)
-    differ, or None for each."""
-    pos = next((ra[0] for ra, rb in zip(a["trace"], b["trace"]) if ra[1:3] != rb[1:3]), None)
-    lp = next((ra[0] for ra, rb in zip(a["trace"], b["trace"]) if ra[3:5] != rb[3:5]), None)
-    return pos, lp, len(a["trace"]) == len(b["trace"])
+    """Two traces of the same drive on two ROMs, compared per GAME TICK.
+
+    Sampling is one EMULATOR frame apart, but a frame the game loop did not finish (a lag
+    frame) repeats the previous tick's state, and two ROMs whose per-frame cost differs lag
+    on different frames. So a per-frame comparison reports one-frame position "differences"
+    that are only the two machines being a tick apart. The samples are therefore keyed by
+    Logic_Tick (engine/ram.emp: the game loop's tick counter, lag-immune) and compared tick
+    for tick. Returns {"frames": first per-frame (x, y) difference, "ticks": ticks both
+    traces sampled, "pos": first tick whose (x, y) differ, "lp": first tick whose
+    (layer, prio) differ, "lp_frames": first per-frame (layer, prio) difference}."""
+    frames = next((ra[0] for ra, rb in zip(a["trace"], b["trace"]) if ra[1:3] != rb[1:3]),
+                  None)
+    lp_frames = next((ra[0] for ra, rb in zip(a["trace"], b["trace"]) if ra[3:5] != rb[3:5]),
+                     None)
+    ta = {r[6]: r for r in a["trace"]}
+    tb = {r[6]: r for r in b["trace"]}
+    common = sorted(set(ta) & set(tb))
+    pos = next((t for t in common if ta[t][1:3] != tb[t][1:3]), None)
+    lp = next((t for t in common if ta[t][3:5] != tb[t][3:5]), None)
+    # A position difference confined to a sample or two that the following ticks no longer
+    # show is a sample taken while one machine was still inside the tick (the two ROMs'
+    # per-frame costs differ, so the emulator frame boundary lands at a different point of
+    # the tick); two runs that had DIVERGED would not come back together. So the report is
+    # the longest run of consecutive differing ticks and whether the traces end equal.
+    differ = {t for t in common if ta[t][1:3] != tb[t][1:3]}
+    run = best = 0
+    for t in common:
+        run = run + 1 if t in differ else 0
+        best = max(best, run)
+    return {"frames": frames, "lp_frames": lp_frames, "ticks": len(common), "pos": pos,
+            "lp": lp, "pos_samples": len(differ), "pos_longest_run": best,
+            "end_equal": bool(common) and ta[common[-1]][1:5] == tb[common[-1]][1:5]}
 
 
 def main():
@@ -484,12 +522,16 @@ def main():
             c, _ = run_one(args.compare[0], args.compare[1], gsp, args.frames, args.verbose,
                            "%s %s" % (pathlib.Path(args.compare[0]).name, lab), dx, dr,
                            not args.no_assert_grounded)
-            pos, lp, same_len = compare(r, c)
-            print("  COMPARE: first frame the positions differ: %s; first frame layer/prio "
-                  "differ: %s; same length: %s" % (pos, lp, same_len))
+            cmp = compare(r, c)
+            print("  COMPARE per game tick (%d ticks both sampled): layer/priority first differ "
+                  "at tick %s; positions differ on %d sample(s) (first tick %s, longest run "
+                  "%d tick(s)); final state %s.  Per emulator frame: positions first differ "
+                  "at %s, layer/priority at %s"
+                  % (cmp["ticks"], cmp["lp"], cmp["pos_samples"], cmp["pos"],
+                     cmp["pos_longest_run"], "EQUAL" if cmp["end_equal"] else "DIFFERENT",
+                     cmp["frames"], cmp["lp_frames"]))
             entry["control"] = c
-            entry["compare"] = {"first_pos_diff": pos, "first_layer_prio_diff": lp,
-                                "same_length": same_len}
+            entry["compare"] = cmp
         runs.append(entry)
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps(runs, indent=1) + "\n")

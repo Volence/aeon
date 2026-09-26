@@ -137,3 +137,19 @@ def test_the_start_height_is_derived_from_the_editor_collision():
     typed: the old START_Y went stale twice as the paint moved."""
     for x in (L.DRIVES["right"]["x"], L.DRIVES["left"]["x"]):
         assert abs(L.ground_feet(x, 39) - L.LOOP_FLOOR_Y) <= L.FLOOR_SLACK
+
+
+def test_a_lag_frame_does_not_shift_the_prediction():
+    """A lag frame repeats the previous GAME TICK's sample. The routine's lag is one tick,
+    so the layer change shows one TICK after the crossing, which here is two emulator
+    frames. The grade keeps one sample per Logic_Tick; without that it expects the change
+    on the repeated (lagged) sample and reports a disagreement that is not there."""
+    xs, lp = _honest(6)
+    rows = _rows(xs, lp)
+    for k, r in enumerate(rows):
+        r["tick"] = 1000 + k
+    cross = next(k for k in range(1, len(xs)) if xs[k - 1] < 1144 <= xs[k])
+    lagged = dict(rows[cross], frame=rows[cross]["frame"] + 0.5)   # same tick, same state
+    rows = rows[:cross + 1] + [lagged] + rows[cross + 1:]
+    bad, fires = L.predict(rows, TABLE, EQUS)
+    assert fires and not bad, bad
