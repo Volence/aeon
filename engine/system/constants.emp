@@ -1088,9 +1088,9 @@ pub const BLOCK_FILL_LEAD_COLS  = TILE_CACHE_MARGIN_H / 2                 // 10
 ensure(BLOCK_DECOMP_SOFT >= 1 && BLOCK_DECOMP_SOFT <= BLOCK_DECOMP_BUDGET,
        "BLOCK_DECOMP_SOFT ({BLOCK_DECOMP_SOFT}) must be 1..BLOCK_DECOMP_BUDGET ({BLOCK_DECOMP_BUDGET}): 0 would stall a partial row or column forever while the lead holds, and above the hard budget the 'soft' tick would be the expensive one")
 ensure(BLOCK_FILL_LEAD_ROWS > CAM_MAX_Y_STEP / 8 && BLOCK_FILL_LEAD_ROWS < TILE_CACHE_MARGIN_V,
-       "BLOCK_FILL_LEAD_ROWS ({BLOCK_FILL_LEAD_ROWS}) must exceed one tick of the camera's vertical step in rows (CAM_MAX_Y_STEP 16 px = 2 rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V ({TILE_CACHE_MARGIN_V}), or a cache at its full margin would never defer")
+       "BLOCK_FILL_LEAD_ROWS ({BLOCK_FILL_LEAD_ROWS}) must exceed one tick of the camera's vertical step in rows (CAM_MAX_Y_STEP 16 px = 2 rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V ({TILE_CACHE_MARGIN_V}): the fill keeps the lead AT the margin, so a threshold there puts the first tick that owes a row on the hard budget, which is the burst this exists to spread")
 ensure(BLOCK_FILL_LEAD_COLS > 16 / 8 && BLOCK_FILL_LEAD_COLS < TILE_CACHE_MARGIN_H,
-       "BLOCK_FILL_LEAD_COLS ({BLOCK_FILL_LEAD_COLS}) must exceed one tick of the camera's horizontal step in columns (camera.emp's CAM_MAX_X_STEP, 16 px = 2 columns) and stay below TILE_CACHE_MARGIN_H ({TILE_CACHE_MARGIN_H})")
+       "BLOCK_FILL_LEAD_COLS ({BLOCK_FILL_LEAD_COLS}) must exceed one tick of the camera's horizontal step in columns (camera.emp's CAM_MAX_X_STEP, 16 px = 2 columns) and stay below TILE_CACHE_MARGIN_H ({TILE_CACHE_MARGIN_H}), for the same reason as the rows")
 // Rows filled per frame cap. Must be >= CAM_MAX_Y_STEP/8 — build-asserted at the
 // CAM_MAX_Y_STEP definition below. 2 exactly MATCHES the 16 px/frame camera cap
 // (2*8 == 16): the fill keeps up with the worst case but has ZERO catch-up
