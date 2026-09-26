@@ -130,7 +130,10 @@ async def patched(self, method, params=None):
             else:
                 REC["preboot_reads"] += 1
         except Exception as e:                        # never fail the subject's run
-            REC["err"] = repr(e)
+            # ...but never let it pass either: a shim read that failed is a read
+            # this instrument did not measure (see the verdict block at the end).
+            REC["shim_err"] = repr(e)
+            REC["shim_errs"] = REC.get("shim_errs", 0) + 1
         finally:
             _busy["n"] = 0
     return await _orig(self, method, params)
@@ -164,12 +167,36 @@ except SystemExit as e:
 except BaseException as e:
     REC["err"] = "%s: %s" % (type(e).__name__, e)
     rc = 99
+# THE SHIM'S OWN VERDICT (PRINTED-NOT-GATED residue, 2026-09-26). The exit status used
+# to be the subject's and nothing else, and the shim's own read failure went only to
+# SHIM_OUT: a run in which every peek raised printed "IN-WINDOW=0", the reading a CLEAN
+# tool gives, and exited 0. So when the subject itself succeeded, two cases are now
+# COULD NOT RUN (exit 2), never a pass:
+#   * any shim peek raised -- those reads were not measured, so "0 in a window" is not
+#     a measurement of them;
+#   * zero LIVE reads -- the subject never read the machine while the level ran, so the
+#     probe tested nothing (a subject that never touches the bus lands here too).
+# A subject that FAILED keeps its own status (the pass-through contract above); the
+# shim's refusal is still printed beside it.
+shim_refusal = None
+if REC.get("shim_errs"):
+    shim_refusal = ("%d of the shim's own peeks failed (last: %s); IN-WINDOW does not "
+                    "cover those reads" % (REC["shim_errs"], REC["shim_err"]))
+elif REC["live_reads"] == 0:
+    shim_refusal = ("the subject made %d read(s), %d while the level was running; "
+                    "nothing was measured" % (REC["total_reads"], REC["live_reads"]))
+REC["subject_rc"] = rc
+if shim_refusal and rc == 0:
+    rc = 2
 REC["rc"] = rc
 REC["tool"] = tool
+REC["shim_refusal"] = shim_refusal
 out = os.environ.get("SHIM_OUT")
 if out:
     pathlib.Path(out).write_text(json.dumps(REC, indent=1))
 print("transition_window_probe: %s  reads=%d live=%d preboot=%d  IN-WINDOW=%d  maxFrames=%d"
       % (tool, REC["total_reads"], REC["live_reads"], REC["preboot_reads"],
          REC["open_reads"], REC["max_frames"]), file=sys.stderr)
+if shim_refusal:
+    print("transition_window_probe: COULD NOT RUN - %s" % shim_refusal, file=sys.stderr)
 sys.exit(rc)
