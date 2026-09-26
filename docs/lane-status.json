@@ -2,11 +2,6 @@
   "focus": "Jump sound and Emerald Hill running lag fixed; your ROM is rebuilding.",
   "inFlight": [
     {
-      "what": "Find the lag you still feel on our own act, and check the fall-speed cap against Sonic 3",
-      "where": "branch perf/ojz-feel",
-      "agent": true
-    },
-    {
       "what": "Build the Chemical Plant tile-patching fix (about half the lag there)",
       "where": "branch perf/gpl-a3",
       "agent": true
@@ -33,10 +28,10 @@
   "queue": [
     {
       "id": "OJZ-FEEL",
-      "title": "Lag you still feel on our act, and a fall speed that feels capped: measuring against Sonic 3",
-      "state": "doing",
+      "title": "Our act: lag is in the long diagonal falls; falling is capped by your earlier ruling. Your pick on the fall feel",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "owner: fall feel option"
     },
     {
       "id": "OJZ-LOOP-DOUBLE-LAP",
@@ -202,5 +197,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-26T22:06:26Z"
+  "updatedAt": "2026-09-26T22:35:39Z"
 }
