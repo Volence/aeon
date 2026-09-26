@@ -41560,3 +41560,28 @@ after its STRESS_ART build (not landing_build: that build is a ~4 min in-place r
 `test_landing_lane_shapes.py` grades the wiring (red-first: the invocation removed on disk
 -> "found 1 build(s), 0 invocation(s)"). **It is RED every night until a GPL-1 option lands**
 (fly right thrashes); that red is GPL-1, not a lane defect.
+
+**The new audit checks** are graded by three arms added to `tools/pagecache_audit_poison.py`
+(wired keepalive row, s4.debug.bin): (o) an unreachable assigned frame halts through the
+orphan check, (h) a hold with the gate disarmed halts through the new gate check, (hr) an
+armed hold does NOT halt and is released (flags $02, gate 0). Red-first by mutation, each
+restored from HEAD: skipping the gate raise turns only (h) red, skipping the orphan raise
+only (o), removing the fill's `PageCache_DemandHoldTick` call only (hr)
+(`results/poison_mutation_M{1,2,3}.txt`).
+
+**Other shapes.** Canonical s4.bin / s4.debug.bin / demo.debug.bin change bytes (the fill's
+new `tst.b/beq` and the new proc) but take no new path: every canonical act is latched and
+publishes no demand page. The general regime's one real consumer, the S2 clip DEBUG shape
+(`s2_ehz_cpz`, s4.s2clip.debug.bin 4a3bc66c base -> 3a807650 fix), same harness as the GPL
+parcel (gpl_legs.sh), control re-run at the base: halt legs 3000 frames clean on both;
+lag cpzdown 33/1292 -> 32/1291, cpzdiag 70/1329 -> 74/1331.
+
+Open:
+- **SAH-1: GPL-1**, the owner's pick among the options above (and whether C comes with it).
+  The nightly's STRESS_ART flight leg stays red until then.
+- **SAH-2: the clip diagonal's +4 lag frames** under the fix (concentrated at cam x
+  14336-14847, +6, with -3 at 15360) are measured, not explained. The expected cause is a
+  released hold being evicted and re-demanded near the CPZ switch; not traced.
+- **SAH-3: STRESSART-ENTITY-AXIS** (above), undiagnosed.
+- **SAH-4: pc_trace.py's hard-coded PAGE_FRAMES = 12** (research tool, not a lane): it
+  must be re-derived if the pool is re-cut again.
