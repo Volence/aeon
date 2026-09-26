@@ -176,7 +176,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Try the jump in aeon/s4.s2clip.debug.bin (crc 65c04544). Your call: fix our loop's slow-speed double lap? Still open: the Chemical Plant lag card.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T19:43:20Z"
+  "updatedAt": "2026-09-26T20:03:37Z"
 }
