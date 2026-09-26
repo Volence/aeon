@@ -209,3 +209,28 @@ The results are in `results/`:
 - `build_<L>.summary`;
 - `leg_json.tar.gz` (25 leg JSONs);
 - the `hscroll_*.txt` comparisons, `curve_exact.txt` and `pathcmp.txt`.
+
+## Landed: option 1 (parcel/parallax-curve-loop, 2026-09-25)
+
+Option 1 is now production code in `engine/level/parallax.emp` (`.curve_rem_ok`, `.lp_curve`),
+with the `divu.w` four-point argument at the instruction. It differs from the prototype in
+three ways: `bc_rem` is renamed `bc_frac` (u16), `bc_span` became an unread spare (the span
+store is gone; the tail stays 10 bytes so the record stays a multiple of 4), and nothing
+borrows `a0` any more. All ROMs below were built on sigil f52609fe. Evidence is in `results/landed/`.
+
+- **Built-bytes exactness** (`curve_rom_exact.py`). It interprets the hoist tail and the fill
+  block straight out of each ROM image and checks every BG word against
+  `base + floor(k·spread/span)`. Cases: span 1..224 × every remainder × step 0 and −1, at 224
+  lines each (50,400 sequences), plus 20,000 random split/continuation cases. Results: today's
+  master (canonical `a0e248e7`, clip `c7d567ab`) 0/0; landed (canonical `831cf561`, clip
+  `cf8d5d4a`) 0/0; floor mutant (`mutate_floor_final.py`: canonical `3aec5f08`, clip
+  `a8aa93eb`) **48,320/50,400 and 6,797/20,000, RED**. The model check `curve_exact.py`
+  re-run gives ceil 0/5,644,800 and floor 206,528.
+- **HScroll buffer, physics run** (`hscroll_probe.py --run`, today vs landed). Clip: 0 of 394
+  common positions differ at 1,100 frames and 0 of 1,476 at 2,200 frames; the floor mutant
+  differs at 141 of 394 and 547 of 1,476. Canonical OJZ: 0 of 1,014 and 0 of 1,069 differ;
+  the floor mutant differs at 133 of 1,014. On the canonical fly leg, 0 of 359 differ and the
+  floor mutant differs at 26 of 359, so canonical's fly leg does reach curve scenes.
+- **Lag, fly diagonal.** Clip EHZ band: **44/100 → 35/91**, and `Parallax_Update` drops from
+  16,913 to 15,251 cycles per tick. Canonical DEBUG whole leg: 49/412 → 48/411, and
+  `Parallax_Update` drops by 871 cycles per tick over the leg.

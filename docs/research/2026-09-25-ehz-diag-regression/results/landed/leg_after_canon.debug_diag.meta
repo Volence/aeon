@@ -1,0 +1,8 @@
+Fri Sep 25 11:40:25 PM UTC 2026
+rom=after_canon.debug mode=diag args=
+crc=831cf561 size=848746
+uptime_before:  19:40:25 up 2 days,  8:41,  1 user,  load average: 4.83, 4.53, 4.62
+leg rc=0
+uptime_after:  19:40:28 up 2 days,  8:41,  1 user,  load average: 5.41, 4.66, 4.66
+Fri Sep 25 11:40:28 PM UTC 2026
+finished=1

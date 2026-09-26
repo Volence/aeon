@@ -352,7 +352,7 @@ def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
     L = s16(screen_l[ch])
     if L <= 0:
         # `.anchor_top`: off the top of the screen -> split at line 0, DO NOT clamp to the
-        # band (parallax.emp:825-838).
+        # band (parallax.emp, Parallax_Step4_Fill `.anchor_top`).
         return 0, "L <= 0 -> whole-screen split at line 0"
     found, lo, hi = _patch_band(patch_tab_bytes, ch)
     if found:
@@ -471,7 +471,7 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
 def derive_hscroll(cfg, shadow, tab_fg, tab_bg, phase_fg, phase_bg, cam_y_hi, vscroll_bg):
     """The expected (FG, BG) word pair for every written entry. THE EXPECTATION.
 
-    Per-line (Parallax_Fill_PerLine, parallax.emp:1258-1478):
+    Per-line (parallax.emp, Parallax_Fill_PerLine):
         FG word = scroll_a[band]  when the band is flat on FG
                 = scroll_a[band] + (sext8(tab_fg[(phase_fg + band_phase + camY + line) & $FF])
                                     >> shift_a)   when it samples

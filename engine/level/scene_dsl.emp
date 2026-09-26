@@ -967,16 +967,18 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     //
     //     THE REAL POSITION IS THE CURVE LOOP'S OWN ALLOCATION, measured against
     //     `.lp_curve` as built (parallax.emp): it spends SEVEN data registers — the
-    //     accumulator, the whole step, the Bresenham remainder and error, the span
-    //     modulus, the constant FG word and the line index — plus a4 (output cursor) and
-    //     a0 (output end), with d7 carrying the band countdown. That is every data
-    //     register. Sampling either channel additionally needs a phase base, an amplitude
+    //     accumulator, the whole step, the 0.16 fraction and its accumulator, the line
+    //     counter, the constant FG word and the band's end line (the cross-loop contract
+    //     every fill loop keeps in d4) — plus a4 (output cursor), with d7 carrying the band
+    //     countdown. That is every data register. (Re-checked 2026-09-25 when the loop went
+    //     from Bresenham to fixed point: the count is unchanged, a0 is no longer borrowed,
+    //     and an address register is no use for an amplitude shift or a sample scratch.) Sampling either channel additionally needs a phase base, an amplitude
     //     shift and a sample scratch: three more against zero free. The combination is a
     //     §9 future needing a measured re-allocation, exactly as the design says — for a
     //     reason a reader can check.
     let is_curve = 1 - scene_curve_is_none(curve)
     ensure(is_curve == 0 || (eff_dsa == 15 && eff_dsb == 15),
-           "layer(): this layer authors BOTH a curve and a live deform amplitude (dsa {eff_dsa} / dsb {eff_dsb}; 15 is the no-deform sentinel). Design §2 forbids curve AND deform on one layer: the fill's curve loop already spends all seven usable data registers (accumulator, whole step, Bresenham remainder and error, span modulus, constant FG word, line index) plus two address registers, and a sampled channel needs three more. Give the deform to a different layer, or drop the curve")
+           "layer(): this layer authors BOTH a curve and a live deform amplitude (dsa {eff_dsa} / dsb {eff_dsb}; 15 is the no-deform sentinel). Design §2 forbids curve AND deform on one layer: the fill's curve loop already spends all seven usable data registers (accumulator, whole step, 0.16 fraction and its accumulator, line counter, constant FG word, band end line) plus the output cursor, and a sampled channel needs three more. Give the deform to a different layer, or drop the curve")
     // (2) A curve layer may not carry a per-layer deform TABLE either. Implied by (1) —
     //     layer() already refuses an own() whose two shifts are both 15 — but spelled
     //     separately so the diagnostic names the attachment the author actually wrote
@@ -992,10 +994,10 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
            "layer(): curve: To({curve_to}) is not a packed FACTOR_* — the encoding is 9 bits (bits 0-3 shift1, 4-7 shift2, bit 8 op) and a wider value silently truncates into a different factor. Use the FACTOR_* names from engine/level/parallax_dsl.emp")
     // (4) A CURVE THAT RAMPS NOWHERE IS NOT A CURVE, IT IS A MISTAKE — the same shape as
     //     own()'s both-shifts-15 guard, and for the same reason: it costs a band_curve tail
-    //     in every band of the game, a per-frame divide, and a per-line Bresenham loop, to
+    //     in every band of the game, two per-frame divides, and a per-line ramp loop, to
     //     emit the identical words `.lp_flat` would have broadcast.
     ensure(is_curve == 0 || curve_to != fb,
-           "layer(): curve: To({curve_to}) is the same factor as this layer's fb, so the ramp's two ends are equal and the emitted HScroll is byte-identical to the flat path. A curve costs a band_curve tail in EVERY band of the game plus a per-frame divide and a per-line accumulate; drop the curve, or ramp to a different factor")
+           "layer(): curve: To({curve_to}) is the same factor as this layer's fb, so the ramp's two ends are equal and the emitted HScroll is byte-identical to the flat path. A curve costs a band_curve tail in EVERY band of the game plus two per-frame divides and a per-line accumulate; drop the curve, or ramp to a different factor")
     // (5) A DORMANT LAYER'S BAND INHERITS THE PREVIOUS BAND'S SCROLL WORDS (the walker's
     //     `.band_disabled` arm), so its base is not its own factor and a ramp from it means
     //     nothing — while the runtime would still take the curve loop, because the tail's
@@ -3570,8 +3572,9 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
                                                  bx_deform_speed_a: band_speed_a(s, l),
                                                  bx_deform_speed_b: band_speed_b(s, l) } ] } else { [] },
         // THE CURVE TAIL (P3 Task 10). Four AUTHORED bytes and three ZERO words: bc_step /
-        // bc_rem / bc_span are DERIVED EVERY FRAME by the curve hoist into the SHADOW copy
-        // of this record, and their ROM image is never read. Emitting them as zeros rather
+        // bc_frac are DERIVED EVERY FRAME by the curve hoist into the SHADOW copy of this
+        // record, and their ROM image is never read; bc_spare is read by nothing (it was
+        // bc_span until the fixed-point curve loop, 2026-09-25, and keeps the tail 10 bytes). Emitting them as zeros rather
         // than omitting them is what lets Step 4b's whole-entry copies carry a curve's
         // parameters to its anchored split for free — see parallax.emp's band_curve banner.
         //
@@ -3583,8 +3586,8 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
                                                        bc_flags: curve_flags,
                                                        bc_pad:   0,
                                                        bc_step:  0,
-                                                       bc_rem:   0,
-                                                       bc_span:  0 } ] } else { [] },
+                                                       bc_frac:  0,
+                                                       bc_spare: 0 } ] } else { [] },
         // THE DRIFT TAIL (band drift). ONE authored long, and the 8.8 -> 16.16 alignment is
         // done HERE rather than at runtime: an `lsl.l #8` costs 24 cycles per band per frame
         // on the 68000 (8 + 2n) and this costs nothing. See drift_1616 above for the

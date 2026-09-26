@@ -1,0 +1,23 @@
+A a0e248e7 ticks 422 sample/tick 142869 work/tick 108792
+B 831cf561 ticks 422 sample/tick 142566 work/tick 107905  d work -887
+routine                                        A incl   B incl   d incl   A self   B self   d self A calls B calls
+Parallax_Update                                 11640    10770     -871    10491     9620     -871    1.00    1.00
+VSync_Wait                                      34077    34660     +584    33746    34330     +584    1.00    1.00
+Process_DMA_Critical                             2817     2811       -5     2817     2811       -5    1.12    1.11
+HBlank_Vector_Slot                               1044     1040       -4     1044     1040       -4    2.37    2.36
+Flush_VDP_Shadow                                  779      777       -2      779      777       -2    1.12    1.11
+$engine.controllers$Read_Controllers$read_pa      768      766       -2      768      766       -2    2.23    2.23
+Tile_Cache_Fill                                 55115    55117       +1     2160     2162       +1    1.00    1.00
+Read_Controllers                                 1170     1167       -2      402      401       -1    1.12    1.11
+VBlank_Handler                                  12473    12460      -13      422      421       -1    1.12    1.11
+VInt_Lag                                          733      719      -14       42       41       -1    0.12    0.12
+Enqueue_Dirty_Buffers                            1120     1119       -1     1061     1061       -1    1.12    1.11
+Raster_VBlank                                     531      530       -1      215      215       -1    1.12    1.11
+<int hint>                                       1148     1144       -5      104      104       -0    0.00    0.00
+Vscroll_Write                                     205      205       -0      147      147       -0    1.12    1.11
+VInt_Level                                      11318    11320       +2     1041     1041       +0    1.00    1.00
+Parallax_Active_Config                            116      116       -0      116      116       -0    2.23    2.23
+<int vint>                                      12522    12509      -13       49       49       -0    0.00    0.00
+Raster_BuildSchedule                              315      315       -0      315      315       -0    1.11    1.11
+PageIn_Process                                    330      330       +0      292      292       +0    1.00    1.00
+Palette_Compose                                   298      298       +0      191      191       +0    1.00    1.00

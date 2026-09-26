@@ -1,0 +1,16 @@
+floor_clip.debug.bin crc=a8aa93eb size=948024 hoist $8242..$8264 fill $8662..$867C
+  exhaustive: cases=50400 mismatches=48320
+  split: cases=20000 mismatches=6797
+    span 3 spread 1: first bad line 3 got 0 want 1
+    span 3 spread -2: first bad line 3 got 65533 want 65534
+    span 3 spread 2: first bad line 3 got 1 want 2
+    span 3 spread -1: first bad line 3 got 65534 want 65535
+    span 5 spread 1: first bad line 5 got 0 want 1
+    split span 142 spread -2218 base 45311 cut 59
+    split span 174 spread -4092 base 60241 cut 74
+    split span 162 spread 6080 base 15845 cut 85
+    split span 171 spread -10092 base 48119 cut 140
+    split span 180 spread 16345 base 11333 cut 112
+rc=1
+finished=1
+exit=1

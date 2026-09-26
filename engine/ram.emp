@@ -504,7 +504,7 @@ pub vars upper_ram {
     // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
     // this (or the config's own arrays when vshift = 0).
     // The curve fill's cross-band carry (P3 Task 10): [0] the last curve entry's final
-    // accumulator, [1] its final Bresenham error. An anchored split resumes from these so
+    // accumulator, [1] its final 0.16 fraction accumulator. An anchored split resumes from these so
     // the ramp runs THROUGH the boundary instead of restarting at it. Zero words — and zero
     // bytes — in a game that declares no curves.
     // The band-drift accumulators: ONE 16.16 long PER BAND, laid out [pixels:i16][fraction:u16]

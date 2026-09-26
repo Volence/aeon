@@ -1,0 +1,7 @@
+uptime_before:  19:40:53 up 2 days,  8:42,  1 user,  load average: 6.57, 4.99, 4.77
+A before_clip.debug.bin crc=c7d567ab samples=896
+B after_clip.debug.bin crc=cf8d5d4a samples=830
+common camera positions 394 (EHZ band y<1024: 97); differing 0
+finished=1
+rc=0
+uptime_after:  19:41:02 up 2 days,  8:42,  1 user,  load average: 6.57, 5.04, 4.79

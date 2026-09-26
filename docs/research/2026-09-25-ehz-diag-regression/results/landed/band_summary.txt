@@ -1,0 +1,4 @@
+after_canon.debug_diag.json crc=831cf561 band 73 rows vf=73 ticks=56 lag=17 first=[112, 144] last=[992, 1008] path_sha=790565a4fc | whole 48/411 ticks=363 end=[5824, 5920] load=4.83->5.41
+before_canon.debug_diag.json crc=a0e248e7 band 73 rows vf=73 ticks=56 lag=17 first=[112, 144] last=[992, 1008] path_sha=790565a4fc | whole 49/412 ticks=363 end=[5824, 5920] load=3.18->3.16
+after_clip.debug_diag.json crc=cf8d5d4a band 91 rows vf=91 ticks=56 lag=35 first=[112, 144] last=[992, 1008] path_sha=bf56364d5d | whole 51/1049 ticks=998 end=[16064, 5920] load=4.47->4.83
+before_clip.debug_diag.json crc=c7d567ab band 100 rows vf=100 ticks=56 lag=44 first=[112, 144] last=[992, 1008] path_sha=309819d160 | whole 60/1058 ticks=998 end=[16064, 5920] load=5.71->7.02

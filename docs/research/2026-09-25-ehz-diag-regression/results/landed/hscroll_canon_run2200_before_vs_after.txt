@@ -1,0 +1,7 @@
+uptime_before:  19:42:36 up 2 days,  8:43,  1 user,  load average: 6.02, 5.22, 4.88
+A before_canon.debug.bin crc=a0e248e7 samples=1069
+B after_canon.debug.bin crc=831cf561 samples=1069
+common camera positions 1069 (EHZ band y<1024: 513); differing 0
+finished=1
+rc=0
+uptime_after:  19:42:51 up 2 days,  8:44,  1 user,  load average: 5.90, 5.24, 4.89

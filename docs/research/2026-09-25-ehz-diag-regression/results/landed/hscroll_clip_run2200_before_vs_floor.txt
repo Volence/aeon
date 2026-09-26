@@ -1,0 +1,17 @@
+uptime_before:  19:42:20 up 2 days,  8:43,  1 user,  load average: 5.81, 5.15, 4.85
+A before_clip.debug.bin crc=c7d567ab samples=1978
+B floor_clip.debug.bin crc=a8aa93eb samples=1912
+common camera positions 1476 (EHZ band y<1024: 97); differing 547
+  cam (6, 513): 3 lines differ, first [164, 184, 204]
+  cam (42, 513): 1 lines differ, first [184]
+  cam (45, 514): 3 lines differ, first [164, 184, 204]
+  cam (60, 513): 1 lines differ, first [184]
+  cam (76, 512): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (77, 513): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (91, 499): 7 lines differ, first [154, 164, 174, 184, 194, 204, 214]
+  cam (102, 157): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (102, 513): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+  cam (103, 162): 15 lines differ, first [149, 154, 159, 164, 169, 174, 179, 184]
+finished=1
+rc=0
+uptime_after:  19:42:36 up 2 days,  8:43,  1 user,  load average: 6.02, 5.22, 4.88

@@ -80,6 +80,18 @@ can now check.
 
 ## 3. The runtime, in three gated blocks
 
+> **THE LINE LOOP BELOW IS HISTORY SINCE 2026-09-25 (PARALLAX-CURVE-LOOP).** The Bresenham
+> loop of §3.3 was replaced by an exact fixed-point loop with the same output. The hoist still
+> does the `divs.w` of §3.2 (whole step + floor-normalised remainder) and then a SECOND divide,
+> `divu.w`, turning the remainder into a 0.16 fraction `ceil(rem * 65536 / span)`; the line
+> loop is `move.w d0,(a4)+ / move.w d1,(a4)+ / add.w d3,d6 / addx.w d2,d1 / dbf d5` — 34 cycles
+> a line instead of 54-60. `bc_rem` became `bc_frac` (u16) and `bc_span` became `bc_spare`
+> (read and written by nothing; the tail stays 10 bytes). `Parallax_Curve_Carry+2` now parks
+> the fraction ACCUMULATOR, not a Bresenham error. Exactness, the divide's four-point argument
+> and the measurements: §3.8 below, `engine/level/parallax.emp` at `.curve_rem_ok` and
+> `.lp_curve`, and `docs/research/2026-09-25-ehz-diag-regression.md`. The cost columns of §6
+> and §10 were measured on the OLD loop and now over-charge a curve line (see §3.8).
+
 `CAP_FACTOR_CURVE = $0040`, promoted by Task 5, lowered here. All three blocks carry §3.3
 brackets.
 
@@ -201,6 +213,58 @@ is read as a write to the saved-register slots**, and the build reported
 replacing them with register moves cleared both firings while every other line of the block
 stayed. `addq.l #4, sp` versus a `move.l (sp)+` pop made no difference, which is what ruled
 out the frame-depth explanation and left the slot-aliasing one.
+
+### 3.8 The fixed-point line loop (2026-09-25, PARALLAX-CURVE-LOOP)
+
+**Why.** Sonic 2 clip Emerald Hill's own scroll record (S2CLIP-ORIGINAL-BGS B-2) carries an
+80-line curve band, and the fly-diagonal leg's EHZ band went from 26/82 to 44/100 lag/video
+frames; `Parallax_Update` went 8.8k -> 16.9k cycles a tick, the curve alone 3.85k of it
+(`docs/research/2026-09-25-ehz-diag-regression.md`).
+
+**What changed.** The hoist keeps §3.2's `divs.w` and floor fixup, then:
+
+```
+        swap    d2              ; d2 = rem : garbage
+        clr.w   d2              ; rem << 16
+        add.w   d4, d2
+        subq.w  #1, d2          ; + (span - 1): round UP
+        divu.w  d4, d2          ; ceil(rem * 65536 / span) < 65536
+        move.w  d2, band_curve_frac(a1)
+```
+
+and the line loop is
+
+```
+.lp_curve:
+        move.w  d0, (a4)+       ; FG word
+        move.w  d1, (a4)+       ; BG word
+        add.w   d3, d6          ; fraction accumulator; X = carry
+        addx.w  d2, d1          ; acc += whole + carry
+        dbf     d5, .lp_curve   ; d5 = lines - 1
+```
+
+**Why it is exact.** frac − rem·65536/span < 1, so after k ≤ 224 lines the fixed-point sum is
+less than 224 above the exact k·rem·65536/span; whenever that exact value is not a multiple of
+65536 it sits at least 65536/span ≥ 292 below the next one, so every carry lands on the line
+the Bresenham `err >= span` correction did. A floor fraction does NOT hold (it undershoots on
+the lines where k·rem/span is whole). An anchored split resumes the parked accumulator pair
+exactly as before, and a layer never emits more than 224 lines from its own start.
+
+**Proof, on the built bytes.** `docs/research/2026-09-25-ehz-diag-regression/curve_rom_exact.py`
+interprets the hoist tail and the fill block OUT OF THE ROM IMAGE and compares every emitted BG
+word with `base + floor(k·spread/span)`: every span 1..224 × every remainder × both signs of
+step, 224 lines each, plus random split/continuation cases — run on today's master ROM (the
+reference) and on the new one, and red on a floor mutant of the new one. Results and the
+emulator HScroll comparisons are in that research folder's `results/`.
+
+**Cost.** Line: 34 cycles (54 no-carry / 60 carry before). Entry setup: ~32 cycles cheaper (no
+end pointer, one fewer record read). Hoist: +≤156 cycles per curve band per frame (the divu and
+four word ops), −12 for the dropped span store. Break-even ≈ 6 on-screen lines per curve
+layer. The `factor_curve_line_cycles` 40.75 / `factor_curve_band_cycles` 630 columns
+(`tools/effects_budget_model.toml`, `SB_WALK_*_CURVE_X100` in `scene_dsl.emp`) were NOT
+re-measured: `tools/curve_probe.py --arm cost` refuses any record shape but the 20-byte
+instrument build. They now over-charge a curve line by roughly 20 cycles and under-charge the
+band by ≤ ~150 — conservative for any layer of more than ~8 lines.
 
 ### 3.7 The instrument-build recipe — reproducible, and NOT canonical
 

@@ -66,8 +66,8 @@ BC_TO_S2 = 1
 BC_FLAGS = 2
 BC_PAD   = 3
 BC_STEP  = 4    # i16, DERIVED per frame by the walker — authored as 0
-BC_REM   = 6    # i16, likewise
-BC_SPAN  = 8    # u16, likewise
+BC_FRAC  = 6    # u16, likewise (was BC_REM, the Bresenham remainder, until 2026-09-25)
+BC_SPARE = 8    # u16, reserved: written and read by nothing (was BC_SPAN)
 BC_SIZE  = 10
 
 CURVE_FLAG_OP     = 1 << 0
