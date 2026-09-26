@@ -41585,3 +41585,9 @@ Open:
 - **SAH-3: STRESSART-ENTITY-AXIS** (above), undiagnosed.
 - **SAH-4: pc_trace.py's hard-coded PAGE_FRAMES = 12** (research tool, not a lane): it
   must be re-derived if the pool is re-cut again.
+
+## SHARED-CONFIG-BARE: something set core.bare = true in the shared .git/config (OPEN, booked 2026-09-26T13:56:17Z)
+
+At 2026-09-26T12:53:36Z the shared `/home/volence/sonic_hacks/aeon/.git/config` gained `core.bare = true` (file mtime), which broke every git command in the main checkout ("this operation must be run in a work tree") until the controller reset it with `git config core.bare false` at about 14:20Z. Worktrees share that file, so any process that writes it breaks every checkout.
+The only candidate found is a `git bisect run bash .../bisect_diag.sh` in a linked worktree, running `STRESS_ART=1 ./build.sh` (and so the whole `pytest tools` suite) as a child of `git bisect`, killed by PID at about 12:53Z. That agent's own scripts contain no `bare`, and the two tests that make bare repos (`test_land_gate.py`, `test_nightly_target.py`) both strip `GIT_*` from their environment. **The cause is NOT proven.** To prove it: run `git bisect run` over a canonical `./build.sh` in a throwaway clone and diff its `.git/config` before and after. Until then, don't run `git bisect run` over build.sh in a worktree of the shared repo; bisect by hand in detached worktrees instead.
+Re-check: `git -C /home/volence/sonic_hacks/aeon config --get core.bare` (must print false).
