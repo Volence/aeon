@@ -284,3 +284,66 @@ def test_psgform_sfx_ship_the_tracked_noise_shape():
             assert MEV_MODSET in blob, (
                 f"{rows[sfx_id]} carries no MEV_MODSET though its source has a "
                 f"smpsModSet — the noise reroute dropped the sweep (pre-B5 behaviour)")
+
+
+def test_psg_sfx_channels_ship_their_header_attenuation():
+    """END-TO-END (jump-SFX level, 2026-09-27): every PSG/noise channel of every shipped
+    blob must open with a Vol whose engine attenuation IS the channel's header volume.
+
+    The donor drivers (S3K and S2 alike) copy the smpsHeaderSFXChannel volume byte into the
+    track's PSG attenuation (0 = loudest, $F = silent), add the volume envelope, and write
+    the sum. The engine turns a Vol into attenuation with Psg_VolToAtten
+    (`((vol ^ $7F) >> 3) & $F`, mirrored by sfx_transcode._psg_atten_of). The transcoder
+    used to map header volume 0 to Vol(80) = attenuation 5 ("PSG default") and any other
+    header volume through `127 - 7*vol`: the jump ($62), skid ($36), insta-shield ($42) and
+    the dash's PSG3 ($B6) played 5 steps (~10 dB) quieter than their donor; the ground
+    slide ($7E, header 3) one step louder. Measured on rendered audio: the jump's PSG1 was
+    -34.79 dBFS against real Sonic 2's -24.13 and S3K's -24.25 (tools/sfx_jump_balance.py).
+
+    The subject set is DISCOVERED from the donor sources (every smpsHeaderSFXChannel on a
+    PSG channel), paired in order with the blob's PSG-kind records; nothing is copied."""
+    import sys
+    sys.path.insert(0, HERE)
+    import sfx_transcode as T
+    from song_packer import MEV_VOL
+
+    skd = os.environ.get("AEON_SKDISASM_DIR") or T.SKDISASM_SFX_DIR
+    sfx_src_dir = skd if os.path.basename(skd).upper() == "SFX" else \
+        os.path.join(skd, "Sound", "SFX")
+    if not os.path.isdir(sfx_src_dir):
+        raise AssertionError(
+            f"cannot read the S3K SFX sources at {sfx_src_dir} — this gate DISCOVERS "
+            f"its subject set by scanning them, so it cannot be evaluated. Set "
+            f"AEON_SKDISASM_DIR.")
+    psg_kinds = (T.SFXEL_PSG, T.SFXEL_NOISE)
+    _, _, rows = parse_bank_rows()
+    checked = 0
+    for sfx_id in sorted(rows):
+        fname = T._CORE_SFX_FILENAMES.get(sfx_id)
+        if fname is None:
+            continue
+        path = os.path.join(T.sfx_source_dir(sfx_id, sfx_src_dir), fname)
+        if not os.path.exists(path):
+            raise AssertionError(f"missing donor source {path} for ${sfx_id:02X}")
+        want = [min(0x0F, _emp_int(v) & 0xFF) for ch, v in re.findall(
+            r"smpsHeaderSFXChannel\s+(c(?:PSG[123]|Noise))\s*,[^,]+,[^,]+,\s*(\$?\w+)",
+            _read(path))]
+        blob = open(os.path.join(SFX_DIR, rows[sfx_id]), "rb").read()
+        got = []
+        for i in range(blob[2]):                          # sfh_chcount
+            rec = blob[8 + 6 * i: 8 + 6 * i + 6]
+            if rec[1] not in psg_kinds:
+                continue
+            cmd = (rec[2] << 8) | rec[3]
+            assert blob[cmd] == MEV_VOL, (
+                f"{rows[sfx_id]} PSG channel {i} does not open with a Vol "
+                f"(${blob[cmd]:02X}): its level is whatever the channel last held")
+            got.append(T._psg_atten_of(blob[cmd + 1]))
+        assert len(got) == len(want), (
+            f"${sfx_id:02X}: {len(want)} PSG channels in the source, {len(got)} PSG "
+            f"records in {rows[sfx_id]}")
+        assert got == want, (
+            f"{rows[sfx_id]} PSG channels play at attenuation {got}; the donor header "
+            f"says {want}. Re-run `python3 tools/sfx_transcode.py generate --emit-bin`")
+        checked += len(got)
+    assert checked, "no shipped SFX has a PSG channel: this gate would be vacuous"

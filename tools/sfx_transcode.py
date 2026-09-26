@@ -454,9 +454,9 @@ def _vol_for_atten(atten: int) -> int:
 # track attenuation; higher = quieter), so it is applied by round-tripping through
 # this conversion rather than through a hand-picked scale factor.
 #
-# NOT retro-applied to the header init-vol map above (`127 - vol_raw * 7`): that
-# approximation is baked into all eleven previously-shipped SFX blobs, and correcting
-# it would re-voice sounds this parcel has no mandate to touch. Flagged, not fixed.
+# The header init-vol uses the same inverse (2026-09-27, jump-SFX level parcel): the
+# old `127 - vol_raw * 7` / `Vol(80)` approximation, flagged here when AlterVol landed,
+# played every volume-0 PSG SFX five attenuation steps under its donor.
 _PSG_ATTEN_STEP = 8          # derived: the `rrca` x3 in Psg_VolToAtten
 _PSG_ATTEN_MAX  = 0x0F       # derived: the `and $0F` in Psg_VolToAtten
 
@@ -802,12 +802,17 @@ def _parse_sfx_source(src: str, sfx_id: int, sfx_label: str) -> dict:
                            if vol_raw else list(voices))
         else:
             chan_voices = []
-            if vol_raw != 0:
-                # S3K PSG vol is SN76489 attenuation (0=loud, $F=silent); approx map.
-                psg_vol = max(0, min(127, 127 - vol_raw * 7))
-                events.append(Vol(psg_vol))
-            else:
-                events.append(Vol(80))   # PSG default
+            # The header volume IS the PSG attenuation (0 = loudest, $F = silent) in
+            # both donor drivers: S3K and S2 copy it into zTrack.Volume and write
+            # Volume + envelope to the chip. Emit the loudest Vol that the engine's
+            # Psg_VolToAtten renders as exactly that attenuation. This used to be
+            # `Vol(80)` ("PSG default", attenuation 5) for header volume 0 and
+            # `127 - 7*vol` otherwise: the jump, skid, insta-shield and dash PSG
+            # played ~10 dB under their donors, the ground slide one step over
+            # (measured 2026-09-27: jump PSG1 -34.79 dBFS vs real S2 -24.13 and S3K
+            # -24.25; tools/sfx_jump_balance.py). Gate:
+            # test_sfx_bank_wiring.test_psg_sfx_channels_ship_their_header_attenuation.
+            events.append(Vol(_psg_vol_for_atten(vol_raw & 0xFF)))
 
         # noattack flag: set if smpsNoAttack precedes the next note
         noattack_pending = False

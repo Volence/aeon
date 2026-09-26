@@ -41514,6 +41514,16 @@ Not converted by step 1, because EHZ and CPZ do not use them: `smpsFade` in an S
     - These are strict-gate/golden items for sigil's refreeze.
 - **Nothing was listened to.** The imported envelopes, the drum substitution and the header-envelope fix are all unheard. They are tagged for the owner's ears at step 7.
 
+### Jump SFX level parcel (`fix/jump-sfx-level`, 2026-09-27): every volume-0 PSG SFX played ~10 dB under its donor (FIXED on the branch, not merged at the time of writing)
+
+- **Report.** The owner, after the music fixes: the jump "a little quiet", the other SFX "normal levels".
+- **Measured** (`tools/sfx_jump_balance.py`, new; GPGX headless, EHZ from the top, jump pressed 4x, 30-frame windows, plain clip): the jump's PSG1 was **-34.79 dBFS vs real Sonic 2's -24.13** (-10.65 dB; peak -10.84); S3K, the donor, renders its own jump at -24.25. Against the music: ours-S2 -11.15 dB. The FM ring sat at +0.22 dB and the spring's mix lift at -0.40 dB (the "normal" SFX). The EHZ music is +0.50 dB over S2's: not the cause.
+- **Cause.** `tools/sfx_transcode.py` mapped a PSG channel's header volume `$00` to `Vol(80)` = attenuation 5 ("PSG default"), other values through `127 - 7*vol`; both donor drivers use the header volume AS the attenuation. Affected: `$62` jump, `$36` skid, `$42` insta-shield, `$B6` dash's PSG3 (5 -> 0), `$7E` ground slide (2 -> 3). Not an FM steal, not the one-voice rule, not the envelope.
+- **Fix.** `Vol(_psg_vol_for_atten(vol))`; five blobs, seven bytes, no size or engine change. After: jump ours-S2 **-0.70 dB** RMS (+0.05 peak; -0.26 by request), in the mix -1.19 (half of it the music's +0.50); skid -10.31 -> -0.35.
+- **Gate.** `tools/test_sfx_bank_wiring.py::test_psg_sfx_channels_ship_their_header_attenuation` (pytest lane, shipped bytes, subject set discovered from the donor sources). Red on the base blobs.
+- **Evidence (rebased on `origin/master` `366b777c`).** `tools/landing_build.sh` exit 0 (`finished=0`, 34 marked tests ran, 1 EXEMPTED `[demo.bin]`); `clip_music_witness` GREEN on both clip shapes; `psg_env_attack_witness` PASS, and its solved base for `$42`/`$B6` is now **0** (it was 5: the Z80's own PSG writes agree with the fix). Jump after the rebase: ours-S2 -0.70 dB RMS, +0.02 peak. Bytes: `s4.bin` `6d94ba02` 829076 B, `s4.debug.bin` `e90664c6` 856248 B, `s4.s2clip.bin` `021366a6` 928681 B, `s4.s2clip.debug.bin` `65c04544` 955668 B (the fix's own byte delta was measured on `0cf75f6e`: 7 data bytes + 2 checksum bytes per clip shape).
+- **Open.** Listening (the owner's). Insta-shield, dash and ground slide have no S2 counterpart; they change in every shape and are unheard. Details: `docs/research/2026-09-26-s2-music-volume.md` section 6.
+
 ## SETTLE-IMPL-COLLAPSE: left_edge_vsram_probe's private settle with a magic 300 (CLOSED 2026-09-26, branch `parcel/settle-name-collapse`; booked 2026-09-18 in the body of `4fde85b5`)
 
 **The row.** The crossfade sweep (CURSOR-RACE-SWEEP, `docs/QUEUE-ARCHIVE.md`) found three

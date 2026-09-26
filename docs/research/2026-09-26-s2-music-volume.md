@@ -451,3 +451,81 @@ On the witness route the fixed clip ROMs hold PSG1/PSG2 silent for the whole CPZ
 - Listening. Whether CPZ now sounds right is the owner's call.
 - `MEV_END` does not key a channel off; S2's `cfStopTrack` and S3K's do. A music channel that ends
   while a note sounds would hang. No shipped channel was checked for that; booked.
+
+## 6. The jump sound was ~10 dB quiet (`fix/jump-sfx-level`, 2026-09-27)
+
+Base `origin/master` `0cf75f6e`. The owner, after the music fixes: *"I think jump sound is a
+little quiet though, most everything sounds correct"*, then *"the other sound effects are like
+normal levels for me so far."*
+
+### The donor
+
+`SFXID_JUMP = $62` is **Sonic 3 & Knuckles'** jump (`skdisasm/Sound/SFX/62 - Jump.asm`, via
+`tools/sfx_transcode.py`; only the spring comes from S2). It is one PSG1 channel: header volume
+`$00`, envelope `sTone_0D` (0, hold), `nF2` for 5 then `nBb2` for `$15` under a modulation. Sonic
+2's jump (`s2disasm/sound/sfx/A0 - Jump.asm`) is the same notes and modulation on PSG1, header
+volume `$00`, no envelope. In both drivers the header volume IS the PSG attenuation, 0 = loudest.
+
+### The measurement (`tools/sfx_jump_balance.py`, new)
+
+GPGX headless, the `s2_music_balance` frontend (MAME YM2612, MUTED control silent). EHZ requested
+from the top in both ROMs; the jump pressed with the jump buttons at 300/600/900/1200 frames
+after the request; 30-frame windows. `sfx` = the SFX channel solo, `music` = the mix with no
+trigger over the same window, `lift` = the mix with the trigger minus the mix without. dB, means
+of the four windows, plain `s4.s2clip.bin`.
+
+| SFX | ours-S2 sfx RMS | ours-S2 sfx peak | ours-S2 (sfx-music) | ours-S2 lift |
+|---|---|---|---|---|
+| jump, button, before | **-10.65** | -10.84 | -11.15 | -2.32 |
+| jump, request `$62`/`$A0`, before | -10.22 | -10.82 | -10.71 | -2.21 |
+| skid `$36`/`$A4` (PSG2), before | -10.31 | -9.99 | -10.81 | -2.01 |
+| ring `$33`/`$CE` (FM4), the control | +0.22 | 0.00 | -0.28 | -0.16 |
+| spring `$B1` (S2's bytes)/`$CC` | (not on the solo channel) | | | -0.40 |
+| jump, button, **after** | **-0.70** | +0.05 | -1.19 | -0.56 |
+| jump, request, after | -0.26 | +0.08 | -0.75 | -0.43 |
+| skid, after | -0.35 | +0.02 | -0.85 | -0.73 |
+| ring, after | +0.22 | 0.00 | -0.28 | -0.16 |
+
+Absolute: the jump's PSG1 was -34.79 dBFS against real S2's -24.13; after, -24.83. The S3K donor
+itself (`skdisasm/sonic3k.bin`, AIZ1, pressed jump in play, a scratch probe on the same frontend)
+renders its jump at -24.25 dBFS on PSG1, with -35 to -49 there when nothing is pressed: S3K's
+and S2's jumps are equally loud, and ours was ~10.5 dB under both. The EHZ music in the windows
+is +0.50 dB over S2's, so the music-got-louder hypothesis accounts for about half a dB, not ten.
+The ring and spring, FM, sat within half a dB of S2 before and after: that is the owner's "other
+SFX are normal".
+
+### The cause
+
+`sfx_transcode.py` turned a PSG channel's header volume into a `Vol` event with `Vol(80)` ("PSG
+default") for header `$00`, and `127 - 7*vol` otherwise. The engine renders `Vol` through
+`Psg_VolToAtten` (`((vol ^ $7F) >> 3) & $F`): `Vol(80)` is attenuation **5**, ~10 dB, where the
+donors write 0. This was flagged in the transcoder when `smpsPSGAlterVol` landed ("Flagged, not
+fixed") and was visible in last night's PSG-envelope witness, which solved "base 5" for `$42`
+and `$B6`. The jump is a PSG sound; the ones the owner called normal are FM. Not an FM-channel
+steal, not the one-voice rule, not the envelope (`sTone_0D` byte 0 is 0).
+
+### The fix
+
+The header volume now emits `Vol(_psg_vol_for_atten(vol))`, the loudest `Vol` the engine renders
+as exactly that attenuation (the inverse the AlterVol path already used). Five blobs change, seven
+bytes, sizes unchanged: `$36` skid (both channels), `$42` insta-shield, `$62` jump, `$B6` dash's
+PSG3: attenuation 5 -> 0; `$7E` ground slide (header 3): 2 -> 3, and its later AlterVol +4 moves
+with it (6 -> 7). No engine or Z80 change. In the clip ROMs exactly those 7 bytes and the header
+checksum differ (`cmp`, 9 bytes each shape).
+
+### The check
+
+`tools/test_sfx_bank_wiring.py::test_psg_sfx_channels_ship_their_header_attenuation` (pytest
+lane, reads the SHIPPED `sfx_NN.bin`). The subject set is discovered from the donor sources
+(every `smpsHeaderSFXChannel` on a PSG channel, 6 channels in 5 SFX); each blob's PSG records
+must open with a `Vol` whose `_psg_atten_of` equals the header volume. RED on the base blobs
+(`sfx_36.bin PSG channels play at attenuation [5, 5]; the donor header says [0, 0]`), green after
+regenerating.
+
+### Not done
+
+- Listening: the owner's call. The in-mix jump now sits within about 1 dB of S2's (half of it is
+  our music being 0.5 dB louder).
+- The insta-shield, dash and ground slide have no Sonic 2 counterpart to measure against; they
+  are covered by the byte gate only, and they will sound louder (the ground slide one step
+  quieter) in every shape.
