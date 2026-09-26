@@ -46,6 +46,44 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## SONIC-SLOPE-COLLISION: landings snapped every steep surface to flat (FIXED 2026-09-26, `research/sonic-slope-collision`); three items OPEN
+
+Owner, on the Sonic 2 clip: *"I can stand on random things or don't just start rolling when I
+try to"*, and of a Chemical Plant quarter pipe *"I was coming down here in ball and just got
+stuck and can stand instead of rolling down more"*. Full record:
+`docs/research/2026-09-26-sonic-slope-collision.md`.
+
+**FIXED (measured).** `Air_FloorLandBanded` / `Air_FloorLandFlat` read the floor through
+`Player_SensorFloor`, whose angle policy is the GROUNDED one (S2 `Sonic_Angle`, S3K
+`Player_Angle`: \|surface - SST_angle\| >= $20 -> cardinal). The air angle is ~0 at touchdown,
+so every landing on a $20-or-steeper surface was converted as FLAT (angle $00, gsp = x_vel),
+and the grounded follow then held the angle at 0 for good: the player stood on a 45-degree
+slope, and DOWN was a duck. Both classics land through `Sonic_CheckFloor` (odd flag -> 0
+only). New `Player_SensorLand` for the two air landings. Reproduced on the clip (CPZ act
+x 13814 and x 14610) AND on canonical OJZ (x 1080, the act's only steep exposed block), so it
+was the engine, not the import; the clip act's collision is Sonic 2's pixel for pixel (20,407
+solid blocks, 0 differences, `s2_collision_equivalence.py`). Check:
+`tools/slope_landing_witness.py`, keepalive lane, red on the baseline `91d4119c`, green on the
+fix.
+
+**OPEN:**
+
+1. **Knuckles' `Slide_Terrain` still reads the floor with the grounded policy.** S3K's slide
+   reads it through `sub_11FD6` -> `Sonic_CheckFloor` (sonic3k.asm:30998), the landing policy.
+   Not changed with the fix because it is not a Sonic symptom and nobody has measured what it
+   does to a slide over a slope change of $20 or more. To close: drive a slide across such a
+   change on both policies, then switch the call to `Player_SensorLand` or record why not.
+2. **Roll-start feel on Sonic 2 content: owner ruling.** On flat ground the engine is S3K to
+   the letter (measured: DOWN at gsp $100 does not roll, because friction runs
+   first and leaves $F4; at $180 it rolls; any held left/right vetoes). Sonic 2 rolls from $80 and uncurls only at 0 (S3K: below $80).
+   Options A keep / B S2's $80 engine-wide (shared by three gates incl. the spindash gate) /
+   C DOWN beats a held left/right past the threshold (diverges from both classics) / D a
+   per-act physics profile. Costs in the research doc.
+3. **Debug-fly exit keeps `angle` and `layer`** (`Player_DebugExit`, READ, not measured).
+   Harmless today (the landing no longer reads the angle; the clip never leaves layer A).
+   Once plane switchers exist, flying from a plane-B stretch to a plane-A one lands on plane
+   B's collision. To close: decide whether exit re-derives the layer (and clears the angle).
+
 ## ~~S2CLIP-BANK-ROOM-GATE~~ — FIXED 2026-09-25 (`parcel/s2clip-room-gate`): `bganim_room`'s bank-rule arm fired at RESERVE + GRACE, not RESERVE
 
 `DEBUG=1 S2CLIP=s2_ehz_boot ./build.sh` exited 1 on `tools/bganim_room.py --gate`: "leaving 58962 B <

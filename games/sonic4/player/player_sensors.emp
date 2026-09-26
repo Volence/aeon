@@ -289,6 +289,44 @@ pub proc Player_SensorPair () clobbers(d0-d5/a1) {
 }
 
 // -----------------------------------------------
+// Player_SensorLand — the floor pair with the CheckFloor angle policy: the
+// odd flag substitutes the cardinal, and NOTHING ELSE does. No divergence
+// snap against SST_angle.
+//
+// WHY A SECOND FLOOR ENTRY (SONIC-SLOPE-COLLISION, 2026-09-26). The classics
+// read the floor through two different routines with two different angle
+// policies, and this file used to give every floor caller the grounded one:
+//   * the GROUNDED follow (S2 Sonic_Angle s2.asm:42649, S3K Player_Angle
+//     sonic3k.asm:18854) rejects a surface angle more than $20 away from the
+//     player's current angle and substitutes the cardinal — the loop
+//     fall-through guard. Player_SensorFloor keeps that.
+//   * LANDING (S2 Sonic_CheckFloor s2.asm:43564, called at :37570/:37644/:37722;
+//     S3K Sonic_CheckFloor sonic3k.asm:19843 via sub_11FD6, called by
+//     SonicKnux_DoLevelCollision :24039, and by Knuckles' slide :30998) takes the
+//     nearer sensor's angle RAW, odd flag → 0 only.
+// In the air SST_angle decays to 0, so the grounded policy turned every landing
+// on a surface of $20 or steeper into a landing on FLAT ground: angle 0, the
+// flat band, gsp = x_vel. MEASURED on the S2 clip (Chemical Plant quarter pipe,
+// act x 13814): a ball falling at y_vel 1736 onto a $20-$28 slope landed with
+// angle $00 and gsp 0 and STOOD there — and every grounded frame after that
+// kept the angle at 0, because the grounded follow's own divergence snap
+// rejects the real $20 surface against the stale 0. That is the owner's "I can
+// stand on random things".
+// Callers: Air_FloorLandBanded and Air_FloorLandFlat (every airborne state that
+// runs Air_Collide). Knuckles' Slide_Terrain is the same class in S3K (sub_11FD6)
+// and still calls Player_SensorFloor: NOT changed here, unmeasured, booked in
+// docs/DEFERRED_WORK.md (SONIC-SLOPE-COLLISION).
+// In/Out/Clobbers: as Player_SensorFloor; d1.b = raw nearer-sensor angle, or the
+// cardinal on the odd flag. Air_Collide forces the quadrant to 0 before its
+// sensor block, so the cardinal is 0 — S3K's `move.b #0,d2`.
+// -----------------------------------------------
+pub proc Player_SensorLand (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        moveq   #-128, d7              // d7.b = $80: CheckFloor policy (the &3
+                                       // quadrant math ignores bit 7)
+        jbra    Player_SensorFloorAs
+}
+
+// -----------------------------------------------
 // Player_SensorFloor — A/B floor pair, rotated by the slot quadrant
 // In:  a0 = player SST, a4 = the slot's player block (holds the quadrant)
 // Out: d0.w = dist (closer sensor; A = the −cross-offset sensor wins ties)
@@ -302,7 +340,13 @@ pub proc Player_SensorPair () clobbers(d0-d5/a1) {
 //       values); the wrappers just halve whatever
 //       is there.
 // -----------------------------------------------
-pub proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2) {
+pub proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SensorFloorAs {
+        moveq   #0, d7                 // AnglePos policy: divergence snap ON
+        // fall through
+}
+
+// shared floor body — d7.b = 0 (grounded policy) or $80 (landing policy)
+pub proc Player_SensorFloorAs (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // On a solid object the object IS the floor — Touch_Solid snapped us
         // onto its top and holds our position. Report flat & touching (dist 0,
         // angle 0, solid) so EVERY grounded floor query behaves as on flat
@@ -320,7 +364,8 @@ pub proc Player_SensorFloor (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .terrain:
         moveq   #SOLID_TOP, d6         // floor class: top-only + all pass,
                                        // lrb-only (jump-up-through) rejected
-        moveq   #0, d7                 // probe along the quadrant's "down"
+                                       // d7 (policy, from the entry) probes
+                                       // along the quadrant's "down"
         jbra    Player_SensorSurface
 }
 
@@ -408,9 +453,11 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         ror.b   #2, d3                 // 0/1/2/3 → $00/$40/$80/$C0
         btst    #0, d1
         bne     .substitute            // odd flag → no usable angle
-        cmpi.b  #2, d7
-        beq     .keep                  // ceiling pair: odd-flag rule only
-        move.b  d1, d4                 // floor pair: divergence snap too
+        tst.b   d7
+        bne     .keep                  // ceiling pair (d7 = 2) and the landing
+                                       // floor pair (d7 = $80, Player_SensorLand):
+                                       // odd-flag rule only
+        move.b  d1, d4                 // grounded floor pair: divergence snap too
         sub.b   angle(a0), d4          // byte difference wraps naturally
         bpl     .diff_pos
         neg.b   d4
