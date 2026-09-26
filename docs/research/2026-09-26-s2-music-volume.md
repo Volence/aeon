@@ -346,3 +346,108 @@ has none. Not changed; there is nothing to fix against the reference.
 ### Not done
 
 - Listening. The owner's ear is still the check for the S2 songs, for HCZ2, and for `$42`/`$B6`.
+
+## 5. The Chemical Plant PSG drone (`fix/cpz-psg-drone`, 2026-09-27)
+
+Base `origin/master` `e6eaeb1f`. The owner, after listening to `s4.s2clip.debug.bin`: *"mostly
+sounds right except CPZ has like a louder droning psg channel? I just hear a straight noise in it
+that sounds like a sine wave"*.
+
+### What it was (measured on the owner's path)
+
+`tools/clip_music_witness.py`'s route (EHZ at act load, run right out of the tunnel into CPZ,
+run back left) with a PSG port tap on the Z80's `$7F11` writes, plain clip ROM `85ec6e7a`:
+
+- **PSG1 at 1398.3 Hz (divisor 80) and PSG2 at 588.7 Hz (divisor 190), both attenuation 7**,
+  constant from frame 966 (two frames after the CPZ request at 964) until EHZ reloads at 1585:
+  619 frames, no envelope, no other write to either channel. The debug clip ROM (`be774dc5`) is
+  the same at 621 frames. The two divisors are the last notes EHZ played on PSG1/PSG2.
+- Rendered (GPGX, `tools/s2_music_balance.py --song cpz --boot-frames 900 --settle 900`, i.e.
+  CPZ requested after EHZ has played its PSG notes, 60 s): the PSG1 solo is -38.28 dBFS and PSG2
+  -38.04, steady to 0.21 dB across sixty 1 s windows, spectral peaks 1398.3 Hz and 588.7 Hz. Real
+  Sonic 2's CPZ, requested the same way after its EHZ: PSG1 -78.54, PSG2 -80.42 (floor). So the
+  drone was +40.26 / +42.38 dB over the reference, on two channels S2 leaves silent.
+- Two steady square waves at attenuation 7 (about F6 and D5) are the "sine-like" tone. It was
+  "louder" because the volume parcel (`67a7a374`) had just moved EHZ's own PSG1/PSG2 to
+  attenuation 10/11: before it, EHZ's PSG played at 6/7, the drone's own level, which masked it.
+
+### Why
+
+The leading hypothesis (the switch does not silence EHZ's PSG) is **refuted**: on the request
+tick `Snd_LoadSong` -> `Sequencer_StopAll` -> `Psg_SilenceAll` wrote `$9F $BF $DF $FF`. The drone
+starts on CPZ's first tick with `$97 $B7` (PSG1/PSG2 attenuation 7) and no tone write before them.
+
+- CPZ's PSG1/PSG2 are `smpsStop` in the source (`8E - CPZ.asm`), with header volume `$07`.
+  `smps_import._make_packable` prepends the header volume, so each converts to `Vol(68), End`.
+- `Seq_Op_Vol` -> `Seq_HookSetVol` wrote that volume to the chip (`Psg_SetVolume`) on a channel
+  that had never keyed a note. The SN76489 has no key-off: an attenuation write sounds whatever
+  divisor the tone latch holds, and the latches still held EHZ's last notes.
+- Controls, on the same ROM: CPZ requested at frame 150 (before EHZ's first PSG note, ~230 frames
+  after its load) writes the same `$97 $B7`, but the latches hold 0 (ultrasonic, inaudible). That
+  is exactly how `s2_music_balance` requests it (default 150 frames), which is why it reported
+  CPZ's PSG1/PSG2 as silent. CPZ requested at frame 900 with no region crossing drones the same
+  way. So the drone needs a prior song's latch, not the crossing.
+- The same writes happen inside EHZ, briefly: at each EHZ load and before its first PSG notes a
+  `Vol` op precedes the note's divisor write in the same tick, so the old latch sounds for a few
+  hundred Z80 cycles. Not audible as a drone; the fix removes them too.
+
+**Which ROM first has it:** every ROM measured has it, at the same frames: `67a7a374^1`
+(`5831cbfc`, clip plain `ca8b4ee1`), `67a7a374` (`f02ba121`), `e6a00773^1` (`2b42e4ed`,
+`d0f8dbce`), `e6a00773` (`8e044357`), and the tip `e6eaeb1f` (`85ec6e7a`). Neither of last
+night's sound parcels introduced it; the prepended `Vol` and the unconditional hook predate them.
+Builds older than `5831cbfc` were not measured.
+
+### The references
+
+- Sonic 2 (`s2disasm/s2.sounddriver.asm`): `cfChangePSGVolume` (:3241) only adds to
+  `zTrack.Volume`. The chip is written by `zPSGUpdateVol` (:1307), which returns while the track
+  is at rest (bits 1/2 of `PlaybackControl`); tracks start at rest (`82h`, :1846). `cfStopTrack`
+  (:3512) on a PSG track calls `zPSGNoteOff` (:1357), writing attenuation `$F`.
+- Sonic 3 & Knuckles (`skdisasm/Sound/Z80 Sound Driver.asm`): `cfSetVolume` (:3113) and
+  `cfChangePSGVolume` (:3273) end in `zStoreTrackVolume`: store only.
+
+### The fix
+
+`Seq_HookSetVol`'s PSG arm writes the chip only when the channel is keyed (`SCF_IS_PSG` and
+`SCF_KEYED` both set); otherwise it only stores `sc_volume`, which the next attack applies through
+`PsgEnvAttack`. FM is unchanged (a TL write on a keyed-off voice makes no sound). It is a masked
+compare, not two `bit` tests: the two-test form is 5 B and the placement refuses an odd-sized
+blob (`sound.bank-id-vs-placement`: "the placed resident blob spans 6200 bytes but the emitted blob
+is 6199"). Resident blob +6 B: `Z80_SOUND_SIZE` `$1832` -> `$1838` plain, `$18B4` -> `$18BA`
+debug; debug headroom to `SND_STATE_BASE` (`$18F0`) is now 54 B.
+
+### After (rendered, ours minus real S2, CPZ requested after EHZ, 60 s)
+
+| channel | base `85ec6e7a` | fixed `0c927d4e` |
+|---|---|---|
+| PSG1 | -38.28 dBFS (+40.26) | -77.25 dBFS (+1.30, floor) |
+| PSG2 | -38.04 dBFS (+42.38) | -79.08 dBFS (+1.34, floor) |
+| MIX | +0.78 | +0.66 |
+| FM1..FM5, DAC, NOISE | +0.05, -0.01, +0.03, +0.05, +0.02, +2.41, -0.15 | the same to 0.01 |
+| mix log-spectrum corr. | 0.9891 | 0.9957 |
+
+On the witness route the fixed clip ROMs hold PSG1/PSG2 silent for the whole CPZ leg.
+
+### The check
+
+- `tools/psg_song_switch_witness.py` (keepalive lane, canonical `s4.debug.bin`, which ships both
+  S2 songs): EHZ -> CPZ -> EHZ -> CPZ mid-SFX via `Music_Want`. The rule, from the PSG write
+  stream alone: after a load (located by the silence burst the load writes first), a non-silent
+  attenuation needs a divisor write (tone) or noise-control write (noise) to that channel since
+  the load. A switch that writes no silence also fails. Premises: EHZ has latched and sounded
+  PSG1/PSG2 before each switch away from it (divisors 85/214 measured), the SFX wrote PSG bytes
+  before its switch, no lost hit. Red-first: the pre-fix sequencer on disk (`89f380e0`) exit 1,
+  16 stale writes over 4 loads, CPZ legs at 1316.0 / 522.7 Hz, atten 7, 598 / 597 frames; fixed
+  (`58a8147c`) exit 0.
+- `tools/test_psg_song_switch_rule.py` (pytest lane): the rule on the recorded pre- and post-fix
+  bytes of the clip switch; a mutation disabling the rule turns 4 of 7 red.
+- `tools/clip_music_witness.py` gains the same rule as Q1 on the real crossing (RED 13 stale on
+  both base clip ROMs, GREEN on both fixed). Its DEBUG placement now goes through the warp
+  mailbox: on `origin/master` the DEBUG clip witness could not run, because its ~10,000 px camera
+  poke halts on `EntityWindow_Slide`'s per-axis step assert (`7c7ccf96`).
+
+### Not done
+
+- Listening. Whether CPZ now sounds right is the owner's call.
+- `MEV_END` does not key a channel off; S2's `cfStopTrack` and S3K's do. A music channel that ends
+  while a note sounds would hang. No shipped channel was checked for that; booked.

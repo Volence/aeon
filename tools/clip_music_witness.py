@@ -54,6 +54,15 @@ table, so a ROM whose rows are wrong fails them) and which are MECHANISM (from t
   M1 the requests equal model_posts over the measured region sequence (the ROM's own table);
   K1 Z80 key-ons: none before the first request, and at least one within KEYON_WINDOW frames
      from each request.
+  Q1 (added 2026-09-27, the owner's CPZ drone) after each song load, no PSG channel sounds a
+     latch the previous song left: a non-silent attenuation needs a divisor (tone) or
+     noise-control (noise) write since the load. The rule, the load locator and the per-leg
+     drone report are psg_song_switch_witness's (judge); the PSG port tap rides the watch run.
+     Also a FAIL: a request whose load wrote no PSG silence.
+
+PLACEMENT: the DEBUG shape places through the warp mailbox (Debug_Warp_Consume); since
+7c7ccf96 a bare ~10,000 px camera poke halts it on EntityWindow_Slide's step assert. The
+plain shape has no warp consumer and keeps the camera + pinned-player poke.
 Exit 0 all held · 1 an assertion failed · 2 could not measure. Prints counts. NOTHING HERE SAYS
 HOW ANYTHING SOUNDS: which song the key-ons belong to, and how the cut feels, are the owner's
 listening test.
@@ -83,6 +92,8 @@ import region_music_witness as RMW  # noqa: E402
 import region_table as RT  # noqa: E402
 import tunnel_run_witness as T  # noqa: E402
 from song_load_mid_drum_witness import YmTap  # noqa: E402
+from psg_env_attack_witness import PsgTap  # noqa: E402
+import psg_song_switch_witness as SW  # noqa: E402
 
 BOOT_FRAMES = 240
 PIN_FRAMES = T.PIN_FRAMES       # tunnel_run_witness's measured streaming settle
@@ -101,7 +112,7 @@ class CouldNotRun(Exception):
     pass
 
 
-async def drive(sock, syms, equs, act, valid, ym=False):
+async def drive(sock, syms, equs, act, valid, ym=False, psg=False):
     b = BusClient(socket_path=sock, client_id="cmw", client_name="clip_music_witness")
     await b.connect()
     bus = L.Bus(b)
@@ -126,6 +137,12 @@ async def drive(sock, syms, equs, act, valid, ym=False):
     tap = YmTap(b) if ym else None
     if tap:
         await tap.arm()
+    ptap = PsgTap(b) if psg else None
+    if ptap:
+        await ptap.arm()
+    psg_frames = []               # (frame, byte), in write order
+    slot_seqs = []                # the music-slot watch's hit seqs (the two watches share
+                                  # one seq counter, so the union must be gap-free)
     cursor, dropped = None, 0
     events, keyons, samples = [], {}, []
     visits = []
@@ -141,6 +158,7 @@ async def drive(sock, syms, equs, act, valid, ym=False):
             hits = r.get("hits", [])
             for h in hits:
                 cursor = h["seq"]
+                slot_seqs.append(h["seq"])
                 events.append((frame, h.get("via"),
                                int(str(h["value"]).replace("0x", ""), 16) & 0xFF))
             dropped = r.get("dropped", dropped)
@@ -165,6 +183,10 @@ async def drive(sock, syms, equs, act, valid, ym=False):
                 if ch:
                     keyons[frame] = ch
                 del tap.events[:]
+            if ptap:
+                await ptap.poll()
+                psg_frames.extend((frame, v) for _m, v in ptap.hits)
+                del ptap.hits[:]
             reg = int.from_bytes(await bus.read(syms["Region_Current"], 4), "big")
             cam = int.from_bytes(await bus.read(syms["Camera_X"], 4), "big") >> 16
             px = int.from_bytes(await bus.read(A_X, 4), "big") >> 16
@@ -205,10 +227,26 @@ async def drive(sock, syms, equs, act, valid, ym=False):
     if (await bus.read(A_DBG, 1))[0]:
         await b.call("emulator/press", {"buttons": ["b"]})
         await step(4, "boot")
-    # place (tunnel_run_witness's order: camera and pinned player together)
     sx = a_right - RUN_MARGIN
-    await bus.write(syms["Camera_X"], (sx - half_w) << 16, 4)
-    await bus.write(syms["Camera_Y"], (feet_at(sx) - 112) << 16, 4)
+    if "Warp_Req_Flag" in syms:
+        # DEBUG shape: the supported warp (Debug_Warp_Consume re-runs the boot ladder,
+        # Section_Init -> EntityWindow_Init included). A bare camera poke of ~10,000 px
+        # halts the DEBUG shape since 7c7ccf96 on EntityWindow_Slide's per-axis step
+        # assert (a teleport that bypassed EntityWindow_Init), by design.
+        await bus.write(syms["Warp_Req_X"], sx, 2)
+        await bus.write(syms["Warp_Req_Y"], feet_at(sx), 2)
+        await bus.write(syms["Warp_Req_Flag"], 1, 1)
+        for _ in range(120):
+            await step(1, "place")
+            if (await bus.read(syms["Warp_Req_Flag"], 1))[0] == 0:
+                break
+        else:
+            raise CouldNotRun("the warp mailbox was never acknowledged")
+    else:
+        # plain shape (no warp consumer): tunnel_run_witness's order, camera and pinned
+        # player together
+        await bus.write(syms["Camera_X"], (sx - half_w) << 16, 4)
+        await bus.write(syms["Camera_Y"], (feet_at(sx) - 112) << 16, 4)
     await step(PIN_FRAMES, "place", pin=(sx, feet_at(sx)))
     await step(L.LAND_FRAMES * 4, "place")
     await alive("placement")
@@ -226,7 +264,10 @@ async def drive(sock, syms, equs, act, valid, ym=False):
     if dropped:
         raise CouldNotRun(f"the music-slot watch dropped {dropped} hit(s)")
     return {"events": events, "keyons": keyons, "samples": samples, "visits": visits,
-            "tap_dropped": tap.dropped if tap else 0, "a_right": a_right, "b_left": b_left}
+            "tap_dropped": tap.dropped if tap else 0, "a_right": a_right, "b_left": b_left,
+            "psg": psg_frames,
+            "watch_holes": (lambda q: sum(1 for x, y in zip(q, q[1:]) if y != x + 1))(
+                sorted(slot_seqs + (ptap.seqs if ptap else []))) if ptap else 0}
 
 
 def main():
@@ -258,7 +299,10 @@ def main():
               f"{clips[1].zone} plays {clips[1].music} ({want_song[1]})")
         valid = {r["addr"] for r in rows}
         with aether_emulator(a.rom, symbols=a.lst) as sock:
-            w = asyncio.run(drive(sock, syms, equs, act, valid))
+            w = asyncio.run(drive(sock, syms, equs, act, valid, psg=True))
+        if w["watch_holes"]:
+            raise CouldNotRun(f"the music-slot + PSG watches lost hits ({w['watch_holes']} "
+                              f"gap(s) in their shared seq run)")
         with aether_emulator(a.rom, symbols=a.lst) as sock:
             y = asyncio.run(drive(sock, syms, equs, act, valid, ym=True))
     except CouldNotRun as e:
@@ -348,6 +392,17 @@ def main():
               f"frames {sum(win.values())} {dict(sorted(win.items()))}")
         if not win:
             fails.append(f"K1 no key-on within {KEYON_WINDOW} frames of the request at {f}")
+    # Q1 — no PSG channel sounds the previous song's latch after a load (S2CLIP CPZ drone,
+    # 2026-09-27). The rule and the report are psg_song_switch_witness's (judge), applied to
+    # the watch run's PSG writes; that witness is the wired copy (keepalive, canonical DEBUG).
+    psg = w["psg"]
+    loads = SW.locate_loads(psg, [f for f, _v in requests])
+    framed = SW.framed_states(psg, w["samples"][-1][0])
+    q_lines, q_fails = SW.judge(psg, requests, loads, framed,
+                                [leg_of.get(f) for f, _v in requests], w["samples"][-1][0])
+    for m in q_lines:
+        print(f"Q1 {m}")
+    fails += [f"Q1 {m}" for m in q_fails]
     for m in fails:
         print(f"FAIL: {m}")
     print("VERDICT:", "RED" if fails else "GREEN")

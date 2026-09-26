@@ -296,6 +296,17 @@ args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
 timeout = 300
 
+# Song switch leaves no PSG channel sounding the previous song's latch (S2CLIP CPZ drone,
+# 2026-09-27). Switches EHZ -> CPZ -> EHZ -> CPZ (the last mid-SFX) through Music_Want on the
+# canonical DEBUG ROM (both S2 songs are in it) and reads the Z80's PSG writes: after each
+# load, a non-silent attenuation needs a divisor (tone) / noise-control (noise) write first.
+# Red-first: exit 1 on the pre-fix engine (16 stale writes over 4 loads, the CPZ legs holding
+# PSG1/PSG2 at atten 7 for ~598 frames), exit 0 with the keyed gate in Seq_HookSetVol.
+[wired."psg_song_switch_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+
 # Region music (S2CLIP-REGION-MUSIC step 5, 2026-09-25). The default arm is the canonical
 # silence witness (every shipped row names song 0: zero music requests across the flown
 # route); the fixture arm patches the route's second region to song 1 in a COPY of the ROM
@@ -437,7 +448,7 @@ it is not a verdict about pagecache_audit_poison."""
 # -- need the S2CLIP clip ROM, which the keepalive lane does not build ------------------
 "clip_bg_scroll_witness.py" = "needs s4.s2clip.debug.bin / .lst from `S2CLIP=s2_ehz_cpz DEBUG=1 ./build.sh`; the keepalive lane hands tools the canonical {rom}, which carries no OJZ_Clip_Parallax_* records (the witness exits 2 COULD NOT RUN on it by design). Manual lane, S2CLIP-ORIGINAL-BGS B-2: 24 probes exact on the clip DEBUG ROM, 2026-09-25."
 "tunnel_run_witness.py" = "needs a CLIP ROM, not the canonical one: it runs a player through a clip act's corridor (S2CLIP-TUNNEL, 2026-09-25) and reads the corridor out of a clips.json through the converted donor trees, which are gitignored. The canonical s4.debug.bin carries no corridor, and an S2CLIP build is a throwaway shape (minutes of re-bake plus donors), not one emulator boot."
-"clip_music_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player out of the tunnel both ways and asserts one music request at act load and one at each tunnel exit (S2CLIP-REGION-MUSIC step 7). The canonical s4.debug.bin names no song on any row and has no corridor, so a run there has no subject. Manual lane: GREEN on both clip shapes and RED on a no-split mutant, 2026-09-25 (docs/DEFERRED_WORK.md)."
+"clip_music_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player out of the tunnel both ways and asserts one music request at act load and one at each tunnel exit (S2CLIP-REGION-MUSIC step 7). The canonical s4.debug.bin names no song on any row and has no corridor, so a run there has no subject. Manual lane: GREEN on both clip shapes and RED on a no-split mutant, 2026-09-25 (docs/DEFERRED_WORK.md). Its Q1 (no PSG channel sounds the previous song's latch after a load, 2026-09-27) has a wired twin on the canonical DEBUG ROM: psg_song_switch_witness.py."
 "crossing_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player through a two-clip act's corridor and times the palette and background switch at the zone crossing (docs/research/2026-09-25-shorter-connector.md). The canonical s4.debug.bin has one zone and no crossing, so a run there has no subject."
 
 # -- need a live emulator someone is listening to --------------------------------------
