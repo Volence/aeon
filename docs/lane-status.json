@@ -1,6 +1,12 @@
 {
-  "focus": "Overnight work done and landed; a loop fix is ready for you to fly. Stopped cleanly for a context clear.",
-  "inFlight": [],
+  "focus": "Tracking down the droning tone you heard in Chemical Plant's music.",
+  "inFlight": [
+    {
+      "what": "Find and fix the steady droning tone in Chemical Plant's music",
+      "where": "branch fix/cpz-psg-drone",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -23,7 +29,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "At a boundary. Resume from docs/superpowers/2026-09-26-aeon-overnight-handoff.md.",
+  "nextBoundary": "The drone fix comes back; I review, land it and rebuild your ROM.",
   "queue": [
     {
       "id": "SAH-3a",
@@ -34,10 +40,10 @@
     },
     {
       "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 music: channel volumes and hi-hat fixed to match Sonic 2; drums wait on your listen",
-      "state": "blocked",
+      "title": "Sonic 2 music: mostly right by your ear; fixing a droning tone in Chemical Plant",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "decision card S2CLIP-DRUM-LEVEL",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -143,7 +149,7 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     }
   ],
-  "awaiting": "Morning: fly ~/sonic_hacks/tryout/s2-loops/s4.s2clip.debug.bin; listen to aeon/s4.s2clip.debug.bin (crc be774dc5) for drums; try a slope. Also: this lane is clearable (~200k context).",
-  "atBoundary": true,
-  "updatedAt": "2026-09-26T16:24:30Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-26T16:25:05Z"
 }
