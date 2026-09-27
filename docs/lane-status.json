@@ -1,27 +1,6 @@
 {
-  "focus": "Overnight: building the woven act of all six Sonic 2 zones; then object video memory, then optimizations.",
-  "inFlight": [
-    {
-      "what": "Background-slide fix so tunnels can shrink to 384",
-      "where": "branch parcel/ratchet-exemption",
-      "agent": true
-    },
-    {
-      "what": "Hidden Palace, Wing Fortress, Oil Ocean made ready as clips",
-      "where": "branch parcel/woven-hpz-wfz-prep",
-      "agent": true
-    },
-    {
-      "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
-      "where": "branch parcel/woven-bake-2d",
-      "agent": true
-    },
-    {
-      "what": "Object video memory: free the tiles nothing uses (about 53)",
-      "where": "branch parcel/vram-tier1",
-      "agent": true
-    }
-  ],
+  "focus": "The 09:14 restart stopped the four agents building the woven Sonic 2 act; picking up their half-done work.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -39,12 +18,12 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the three agents land: then assemble the full woven act.",
+  "nextBoundary": "Once the four interrupted parcels are re-dispatched from their branches.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slides for a few frames after a tunnel; fixing it lets tunnels shrink to the planned length",
-      "state": "doing",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -168,8 +147,8 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: 2-D bake, zone prep and slide fix under way",
-      "state": "doing",
+      "title": "Woven act of all six Sonic 2 zones: 2-D bake, zone prep and slide fix, interrupted by the 09:14 restart",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -184,7 +163,7 @@
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Object video memory: 256 tiles from halving the plane, not 384; free savings build tonight, the halving is your call",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
@@ -220,5 +199,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T09:03:51Z"
+  "updatedAt": "2026-09-27T09:17:09Z"
 }
