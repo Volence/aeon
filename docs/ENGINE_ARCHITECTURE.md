@@ -1853,13 +1853,15 @@ As the camera approaches blocks referencing non-resident pages
 ```
 See §9.7 for the full design (frame allocator, liveness masks, prefetch, eviction).
 
-**KNOWN GAP (measured 2026-09-27, woven clip act `s2_mtz_cpz`, not fixed): the build-time
-window budget and the runtime prefetch disagree by one frame.** The bake admits a window that
-needs exactly `PAGE_FRAMES` pages (worst 12 of 12, 0 over). At such a window every frame is
-named by a tile-cache word, so a PREFETCH of an ahead-strip page finds no free or evictable
-frame, and `PageCache_AllocFrame` takes its thrash arm: DEBUG `raise_error` ("thrash bug"),
-release re-queues the prefetch. The budget or the prefetch policy has to move; see
-DEFERRED_WORK PREFETCH-THRASH-AT-FULL-WINDOW.
+**A window that needs every frame (fixed 2026-09-27, woven clip act `s2_mtz_cpz`).** The
+build-time window budget admits a window that needs exactly `PAGE_FRAMES` pages (worst 12 of
+12, 0 over). At such a window every frame is named by a tile-cache word, so a PREFETCH of an
+ahead-strip page finds no free or evictable frame. That is a speculative request with nowhere
+to go, not an error: `PageCache_AllocFrame` answers no frame (no forced sweep, no raise) and
+`PageIn_Process` drops it; the scan asks again once the window moves. A DEMAND or BULK request
+that finds no frame is still the thrash bug (DEBUG `raise_error`). Before the fix the prefetch
+took the thrash arm (DEBUG halt; release re-queued and paid a forced full sweep per retry, and
+never evicted a live frame). See DEFERRED_WORK PREFETCH-THRASH-AT-FULL-WINDOW.
 
 **Emergency spawn (mid-gameplay — DEFERRED, needs the §2.2 allocator):**
 ```
@@ -5617,8 +5619,14 @@ invariants rather than trusted:
   re-derives one row or column EXACTLY at a time after the audit's slices
   (`PageCache_LiveSweep`, gated like the audit), so masks shrink as content leaves, and at
   the end of each full rotation stamps every frame it saw named. `PageCache_PickVictim`
-  takes the oldest assigned, unpinned, unheld frame in no mask; none → one forced
-  `PageCache_LiveSweepAll` (rows exact, columns cleared at the same instant) → thrash. The
+  takes the oldest assigned, unpinned, unheld frame in no mask; none → for a DEMAND or BULK
+  request one forced `PageCache_LiveSweepAll` (rows exact, columns cleared at the same
+  instant) → thrash; for a SPECULATIVE request (a prefetch, `PageIn_Cur_Flags` 0) no forced
+  sweep and no thrash: `AllocFrame` answers no frame and `PageIn_Process` drops the request
+  (releases its claim; the prefetch scan asks again later). A window may legitimately name
+  every frame (the bake admits a window needing exactly `PAGE_FRAMES` pages), so a prefetch
+  of one more page finding none is policy, not a bug (PREFETCH-THRASH-AT-FULL-WINDOW,
+  2026-09-27; `tools/prefetch_full_window_witness.py`, nightly on the woven clip). The
   masks keep their reset value under every latch (`PageCache_LiveReset`, right after
   `FillAll`'s bulk zero, and nothing writes them while latched). This replaced a per-word
   refcount pair that was ~1.2k of the ~1.46k cycles per row run separating the general loop
@@ -5653,8 +5661,8 @@ the camera moves. Below that threshold the cache **correctly degenerates to full
 resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
 page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read off the committed manifest by `fg_page_order.py check`) are build-pinned (`pm_flags`
 `ART_PAGE_FLAG_PINNED`), and the rest are held resident because the cache window names them. This is not a limitation to fix —
-`AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
-corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
+`AllocFrame` correctly refuses to evict displayed art (a demand that finds no frame is a loud thrash
+assert, a prefetch is dropped; zero silent corruption either way), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven,
 against 15 frames. Its POOL is over budget on purpose; its WINDOWS are not allowed to be

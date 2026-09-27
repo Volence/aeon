@@ -934,6 +934,9 @@ pub vars upper_ram {
         Page_Audit_Ticks:       u16,    // LOGIC TICKS since the last interval audit (PageCache_Audit, PAGE_AUDIT_TICK)
         Page_Live_Forced:       u16,    // eviction choices that found no dead frame and forced a full
                                         // liveness sweep (PageCache_PickVictim). A counter to read, not a gate.
+        Dbg_PageIn_PfxNoFrame:  u16,    // speculative page-ins DROPPED because no frame was free or
+                                        // evictable (PageIn_Process .alloc_fail; PREFETCH-THRASH-AT-
+                                        // FULL-WINDOW). Read by tools/prefetch_full_window_witness.py.
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
         // compact readable copy of the residency map (Task-6 mapping-bug debug):
         //   [0]=Page_Free_Head [1]=[2]=$FF reserved (dead LRU heads) [3]=pad

@@ -380,8 +380,15 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
 // PageCache_AllocFrame — hand out a frame to load a page into.
 //   free list first; else the victim PageCache_PickVictim chooses (the oldest
 //   assigned, unpinned, not demand-held frame that no cache word names);
-//   else THRASH — DEBUG raise_error (a bug, not a policy); release returns
-//   PAGE_NOT_RESIDENT for the caller to re-queue.
+//   else NO FRAME, and what that means depends on the request (PageIn_Cur_Flags, the
+//   one PageIn_Process just dequeued; PageIn_Process is the only caller):
+//   * a SPECULATIVE request (PGRQ_PREFETCH, flags 0) returns PAGE_NOT_RESIDENT and the
+//     caller drops it. A window can legitimately name every frame (the bake admits a
+//     window needing exactly PAGE_FRAMES pages), and a prefetch of a 13th page then has
+//     nowhere to go; that is a policy outcome, not a bug (PREFETCH-THRASH-AT-FULL-WINDOW,
+//     2026-09-27). It also never forces the full liveness sweep (PageCache_PickVictim).
+//   * a DEMAND or BULK request is THRASH: DEBUG raise_error (a bug, not a policy), and
+//     release returns PAGE_NOT_RESIDENT for the caller to re-queue.
 // The returned frame is DETACHED (out of every list), flags 0, stamp 0, and
 // pf_page = $FFFF (UNASSIGNED) — it belongs to no page until PageCache_Publish stamps
 // its new id, so the bijectivity audit's $FFFF-skip covers the whole in-flight decode
@@ -417,7 +424,7 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
     .evict:
         jbsr    PageCache_PickVictim            // d0.w = victim byte offset, or $FFFF
         cmpi.w  #$FFFF, d0
-        beq     .thrash
+        beq     .no_frame
         lea     Page_Frames, a3
         move.w  d0, d1                           // d1 = victim byte offset
         lsr.w   #3, d0                           // d0 = victim frame id (sizeof ensure'd 8)
@@ -453,10 +460,16 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         clr.b   PF_FLAGS(a3, d1.w)              // detached: not pinned, not held
         rts
 
+    .no_frame:
+        // Speculative (flags 0): no frame is an answer, not a fault. Nothing was evicted
+        // and nothing was detached, so the caller drops the request with no rollback.
+        tst.b   PageIn_Cur_Flags
+        beq     .none
     .thrash:
     if DEBUG == 1 {
         raise_error "PageCache_AllocFrame: no free/evictable frame (thrash bug)"
     }
+    .none:
         move.b  #PAGE_NOT_RESIDENT, d0          // $FF sentinel (moveq can't hold 255)
         rts
 }
@@ -488,9 +501,15 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 // design ended the hold at the first ref for the same reason). A held frame that is NOT
 // live is never a candidate; PageCache_DemandHoldTick bounds that hold.
 //
-// NO CANDIDATE: masks are supersets, so a frame can look live that is not. One forced
-// full sweep (PageCache_LiveSweepAll: every row exact, every column cleared, at one
-// instant) and the test again. Still none is the thrash condition (AllocFrame).
+// NO CANDIDATE: masks are supersets, so a frame can look live that is not. For a DEMAND
+// or BULK request (PageIn_Cur_Flags non-zero): one forced full sweep
+// (PageCache_LiveSweepAll: every row exact, every column cleared, at one instant) and the
+// test again; still none is the thrash condition (AllocFrame). A SPECULATIVE request
+// (flags 0) gets NO forced sweep: the sweep is ~135k cycles, more than a frame, and a
+// prefetch that finds no candidate on the current masks is dropped and asked again by a
+// later scan, by which time the idle sweep (PageCache_LiveSweep) has re-derived the masks
+// anyway (PREFETCH-THRASH-AT-FULL-WINDOW, 2026-09-27: at a window naming every frame the
+// old path paid the sweep on every retry; see DEFERRED_WORK for the plain-ROM count).
 // Page_Live_Forced (DEBUG) counts the forced sweeps.
 //
 // On the PageIn_Process path (license d0-d2/a0-a3, and AllocFrame's own contract is
@@ -499,7 +518,10 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 // -----------------------------------------------
 pub proc PageCache_PickVictim () clobbers(d1-d2/a3) preserves(d3-d4/a0-a2) out(d0: u16) {
         movem.l d3-d4/a0-a2, -(sp)
-        moveq   #1, d4                          // forced full sweeps left
+        moveq   #0, d4                          // forced full sweeps left: none for a prefetch
+        tst.b   PageIn_Cur_Flags
+        beq     .again                          // speculative (flags 0): never pays for the sweep
+        moveq   #1, d4                          // demand / bulk: one forced full sweep
     .again:
         jbsr    PageCache_LiveUnion             // d0.w = every frame some cell may name
         move.w  d0, d3                          // d3 = live set
