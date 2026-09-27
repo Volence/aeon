@@ -138,22 +138,24 @@ RULES: tuple = (
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),
     ("docs/research/s2-compressed-act/", CHECKED,
-     ("tools/test_clip_manifest.py", "tools/test_fg_page_order.py",
-      "tools/test_s2_clip_collision.py"),
+     ("tools/test_clip_manifest.py", "tools/test_s2_clip_collision.py"),
      "the S2-COMPRESSED-ACT design's measurement tool is IMPORTED as the independent "
      "second implementation the clip bake is cross-checked against "
      "(test_the_bake_agrees_with_the_designs_own_measurement builds the same act from the "
      "donor side through its build_act, and test_the_pin_wiring_moves_this_fixture calls "
      "its pin_rule_fn). It lives under docs/ but it is code the gate executes, so a push "
      "that edits it must run the test that runs it. A PREFIX, not the one file: importing "
-     "it puts the directory on sys.path, so the audit records a listing of the directory "
-     "and a read of the bytecode cache beside it, and a rule naming only the .py leaves "
-     "both uncovered. tools/test_fg_page_order.py READS THE SAME DIRECTORY and was "
-     "missing here, so the audit refused every code push on master on 2026-09-17 until "
-     "it was added: the rule listed one of its two real readers, which is the audit "
-     "working. tools/test_s2_clip_collision.py joined them the same day (row 5): it "
-     "imports the tool's `collision_entries` as the independent predictor the emitted "
-     "attr-set counts are checked against"),
+     "it puts the directory on sys.path for the import, so the audit records a listing of "
+     "the directory and a read of the bytecode cache beside it, and a rule naming only the "
+     ".py leaves both uncovered. tools/test_s2_clip_collision.py joined on 2026-09-17 "
+     "(row 5): it imports the tool's `collision_entries` as the independent predictor the "
+     "emitted attr-set counts are checked against. tools/test_fg_page_order.py was ALSO "
+     "added on 2026-09-17 (a182f7fe) and REMOVED on 2026-09-27: it never reads the "
+     "directory. test_clip_manifest left the directory on sys.path, so on a cold run "
+     "(__pycache__ not yet there) the next import by any later test re-listed it, and the "
+     "audit charged that listing to test_fg_page_order, and later to test_clip_woven_2d. "
+     "Both readers now remove the entry after the import, and the audit fails a test "
+     "that leaves a docs/ directory on sys.path"),
 )
 # <<< RULES
 

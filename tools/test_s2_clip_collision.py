@@ -138,8 +138,18 @@ def bank():
 
 
 def _budget():
-    sys.path.insert(0, os.path.dirname(BUDGET_TOOL))
-    import s2_clip_budget as SB              # noqa: E402
+    """Import the design's measurement tool WITHOUT leaving its directory on sys.path.
+
+    Left there, every later import in the session (any test's) scans that docs directory,
+    tools/land_gate_audit.py charges the listing to whichever test imported next, and a
+    file added there could shadow any module; the audit fails a test that leaks it.
+    """
+    d = os.path.dirname(BUDGET_TOOL)
+    sys.path.insert(0, d)
+    try:
+        import s2_clip_budget as SB          # noqa: E402
+    finally:
+        sys.path.remove(d)
     return SB
 
 

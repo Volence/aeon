@@ -75,6 +75,22 @@ FIXTURE_DIR = os.path.join(REPO, "games", "sonic4", "data", "clips")
 BUDGET_TOOL = os.path.join(REPO, "docs", "research", "s2-compressed-act", "s2_clip_budget.py")
 
 
+def _budget():
+    """Import the design's measurement tool WITHOUT leaving its directory on sys.path.
+
+    Left there, every later import in the session (any test's) scans that docs directory,
+    tools/land_gate_audit.py charges the listing to whichever test imported next, and a
+    file added there could shadow any module; the audit fails a test that leaks it.
+    """
+    d = os.path.dirname(BUDGET_TOOL)
+    sys.path.insert(0, d)
+    try:
+        import s2_clip_budget as SB          # noqa: E402
+    finally:
+        sys.path.remove(d)
+    return SB
+
+
 def _need(donor):
     try:
         return S.donor_root(donor)
@@ -195,8 +211,7 @@ def test_the_bake_agrees_with_the_designs_own_measurement(baked, donors, name):
     tautology. The pin rule is wired the way `generate()` wires it on both sides; see
     `test_the_pin_wiring_moves_this_fixture` for why that matters.
     """
-    sys.path.insert(0, os.path.dirname(BUDGET_TOOL))
-    import s2_clip_budget as SB              # noqa: E402
+    SB = _budget()
     import fg_page_order as fpo              # noqa: E402
     import megaact_window_pageset as mb      # noqa: E402
 
@@ -316,8 +331,7 @@ def test_the_pin_wiring_moves_this_fixture(baked):
     stops failing to differ, the agreement row above has stopped discriminating and needs
     a new fixture — say so here rather than let it quietly become decorative.
     """
-    sys.path.insert(0, os.path.dirname(BUDGET_TOOL))
-    import s2_clip_budget as SB              # noqa: E402
+    SB = _budget()
     import fg_page_order as fpo              # noqa: E402
 
     act, st, _m, v1, _v2 = baked["s2_two_clip_pins"]
