@@ -401,8 +401,12 @@ def zone_separation(act, zone_id, constants=None):
         ti, li = np.argwhere(n_present > 1)[0]
         first = {"left_tile": int(lefts[li]), "top_tile": int(tops[ti]),
                  "camera_x_px_approx": int(lefts[li]) * clip_manifest.TILE_PX}
-    # The narrowest horizontal gap between the column spans of two different zones, per
-    # tile row, in cells — reported against the window width so a near miss shows.
+    # The narrowest horizontal gap between the columns of two different zones, in cells —
+    # reported against the window width so a near miss shows. Measured between the NEAREST
+    # COLUMNS of the two zones, not between their outer spans: a zone may occupy several
+    # column runs with another zone between them (the woven act s2_mtz_cpz, Metropolis on
+    # both sides of Chemical Plant), and the span formula read that as an overlap of -496
+    # cells. Columns holding BOTH zones (stacked) are no gap: the result is minus their count.
     gap = None
     col_has = [np.any(zone_id == k, axis=0) for k in donors]
     for a in donors:
@@ -411,7 +415,15 @@ def zone_separation(act, zone_id, constants=None):
                 continue
             ca, cb = np.flatnonzero(col_has[a]), np.flatnonzero(col_has[b])
             if len(ca) and len(cb):
-                g = max(int(cb.min()) - int(ca.max()) - 1, int(ca.min()) - int(cb.max()) - 1)
+                shared = int(np.count_nonzero(col_has[a] & col_has[b]))
+                if shared:
+                    g = -shared
+                else:
+                    j = np.clip(np.searchsorted(cb, ca), 1, len(cb) - 1) if len(cb) > 1 \
+                        else np.zeros(len(ca), dtype=np.int64)
+                    near = np.minimum(np.abs(cb[j] - ca), np.abs(cb[j - 1] - ca)) \
+                        if len(cb) > 1 else np.abs(cb[0] - ca)
+                    g = int(near.min()) - 1
                 gap = g if gap is None else min(gap, g)
     return {"windows": int(len(lefts) * len(tops)), "mixed": mixed, "first_mixed": first,
             "donor_zones": len(donors), "window_cells": [cols, rows],

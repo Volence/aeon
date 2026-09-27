@@ -237,6 +237,35 @@ def test_z1_counts_windows_that_hold_two_zones_and_the_gap_that_clears_it():
     assert one["mixed"] == 0 and one["donor_zones"] == 1
 
 
+def test_z1_gap_is_between_column_RUNS_when_a_zone_surrounds_another():
+    """A zone split in two with another zone between them (the woven act s2_mtz_cpz:
+    Metropolis west | tunnel | Chemical Plant | tunnel | Metropolis east). The gap is the
+    distance between the nearest columns of two different zones, so it is each tunnel's
+    width, NOT the overlap of Metropolis's outer span with Chemical Plant's (which read
+    -496 cells on that act and refused it though no screen can show both). Both tunnel
+    widths are exercised: the narrower one is the answer, whichever side it is on."""
+    import numpy as np
+    import clip_act_bake as CAB
+    import fg_page_order as FPO
+    cols = FPO.load_budget_constants()["TILE_CACHE_COLS"]
+    for left, right in ((48, 60), (60, 48)):
+        g = np.full((256, 1024), -1, dtype=np.int16)
+        g[:128, 0:192] = 0
+        g[:128, 192:192 + left] = 2                         # corridor, not a zone
+        b0 = 192 + left
+        g[:128, b0:b0 + 256] = 1
+        g[:128, b0 + 256:b0 + 256 + right] = 2
+        g[:128, b0 + 256 + right:b0 + 256 + right + 192] = 0
+        z = CAB.zone_separation(_ZAct(2), g)
+        assert z["min_column_gap_cells"] == min(left, right), (left, right, z)
+        assert z["mixed"] > 0 and min(left, right) < cols    # the cache window still sees both
+    # a column holding both zones (stacked) is no gap at all
+    g = np.full((256, 512), -1, dtype=np.int16)
+    g[:64, 0:200] = 0
+    g[64:128, 100:300] = 1
+    assert CAB.zone_separation(_ZAct(2), g)["min_column_gap_cells"] < 0
+
+
 def test_z1_refuses_at_the_rom_bake_and_admits_a_separated_act():
     """R20 (one clip only) is DELETED: row 7 put the per-cell key on the ROM path. What
     the ROM bake refuses now is a two-zone act a camera can see both halves of."""
