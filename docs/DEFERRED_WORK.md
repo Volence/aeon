@@ -63,6 +63,19 @@ wraps, and every ramp band edge moved too. Emerald Hill's clouds and hills were 
   frames in Wing Fortress the slots read [300, 150, 75] x 4 px); FLIGHT leg (free flight from Wing
   Fortress through `wfz_to_ehz` -> `ehz_to_hpz` and down Hidden Palace, NO teleport after Wing Fortress)
   RED, 160 of 160 frames.
+- **The owner's picture, reproduced exactly** (`2a0f1df3`; 600 frames at Wing Fortress (1600, 0), then
+  camera (588, 4260), Hidden Palace layout 1, V-scroll 378): the Hscroll words for BG rows 378..511 are
+  -72 and for rows 512..601 are +154, where Sonic 2 scrolls ALL of them at camX/4 = -147 (one 1/4 band
+  in its table). Rows 378..511 are layout 1's band 5 (+75, slot 5's cloud phase), rows 512..601 its
+  band 0 (+301, slot 0's): a 226-px hard seam at screen line 134 = 60% down, waterfalls cut at it. Plane
+  B screenshots, before and after, in `docs/research/2026-09-27-woven-hpz-bg/`. The seam sits at map row
+  512 wherever the scroll puts it (line 512 - V-scroll), so it is on screen for V-scroll 289..511.
+- **Why "looks good actually" later (owner, on `65eac6c3`, same BG code):** the tear exists only after
+  Wing Fortress has run in that session. The same ROM, the same camera, reached WITHOUT visiting Wing
+  Fortress reads every line exact (measured, same camera: 0 of 224 lines off camX/4 without the Wing
+  Fortress visit, 224 of 224 with it; the fix: 0 of 224 both ways). Neither faithful Sonic 2 parallax (Sonic 2
+  scrolls these rows as one band) nor the stale-rows state (the plane rows matched the blob on every
+  frame of every drive; the window was right).
 - **Why nothing saw it:** the steady witness's model (`clip_bg_scroll.engine_bg_words`) reads the live
   accumulators and adds them to every band exactly as the engine does, under a docstring that said "only
   a band with a drift rate ever has a non-zero accumulator"; true of one-zone acts, false here. The new
@@ -96,12 +109,18 @@ holds where it applies. Per-frame cost unchanged; a picture change pays a 16-lon
   directly above `ehz_to_hpz`, with a window that is correct for that scroll; the tear was horizontal
   scroll, which none of those words shows.
 - **STILL OPEN, narrowed and measured: BG-RATE-PRIME-EXEMPTION on a band chain.** After a DEBUG warp
-  into Hidden Palace's layouts 1-3 the V-scroll ratchets 15 / 31 / 43 frames to its target, and on
-  14 / 30 / 37 of those frames the live layout's bands sit on rows Sonic 2 scrolls differently (the
+  into Hidden Palace's layouts 1-3 the V-scroll ratchets 15 / 31 / 44 frames to its target, and on
+  14 / 30 / 38 of those frames the live layout's bands sit on rows Sonic 2 scrolls differently (the
   scroll is outside the layout's stretch). DEBUG-warp only; the ENTRY leg reports it by name and does not
   grade it. See that entry.
 
-**Nets.** (filled below at landing.)
+**Nets (woven DEBUG on the merged tree `8593221f`+, crc `11cfc8e5`; solo clips FAST-built on the same tree).**
+`crossing_witness.py` on all 11 connectors: **0 glitch ticks** (6 runs on each tunnel, 2 on each shaft);
+`woven_route_witness.py --route ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz` rc 0;
+`clip_bg_scroll_witness.py --warp-entry`: **164/164** probes, ENTRY + FLIGHT 7 rows 0 FAIL (rc 0).
+`s2_hpz_solo` (crc `cb5b9825`) **72/72**, entry 4/4, flight nothing to inherit; `s2_wfz_solo` (crc
+`5f8261ce`) **16/16**, entry 1/1. The witness is wired on the nightly woven ROM
+(`tools/keepalive_manifest.toml`, `[wired."clip_bg_scroll_witness.py"]`).
 
 ## WOVEN-BOOT-FG-GARBAGE: the woven act's first screen, and every warp into unloaded art, drew blank foreground cells (FIXED 2026-09-27, `fix/woven-boot-fg`)
 
@@ -36191,8 +36210,8 @@ but a successor extending the gate should add it, and the derived expectation is
 a tall map split into several band layouts (s2_woven's and s2_hpz_solo's Hidden Palace, 4 layouts), the
 ratchet carries the scroll through rows outside the live layout's stretch, so for most of the slide the
 bands sit on rows Sonic 2 scrolls at another rate: a torn picture, not only a slide. After a warp into
-layouts 1 / 2 / 3: 15 / 31 / 43 frames of slide, 14 / 30 / 37 of them torn (woven DEBUG; the solo clip
-reads 16 / 31 / 43 and 15 / 30 / 37). DEBUG-warp only (a crossing snaps, above); `clip_bg_scroll_witness
+layouts 1 / 2 / 3: 15 / 31 / 44 frames of slide, 14 / 30 / 38 of them torn (woven DEBUG `11cfc8e5`; the
+solo clip reads 16 / 31 / 43 and 15 / 30 / 37). DEBUG-warp only (a crossing snaps, above); `clip_bg_scroll_witness
 --warp-entry` reports it by this name and does not grade it. The fix this entry already names (prime
 after Step 5, or re-prime) would close it; it also removes the only path `bg_vscroll_rate_witness`'s
 leg W uses to force the clamp, so that leg needs another driver first (a raw Camera_Y poke inside one
