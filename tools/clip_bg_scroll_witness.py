@@ -56,15 +56,29 @@ DRIFT_BANDS = 16
 STABLE_FRAMES = 30
 
 
-def probes(act):
+def probes(act, specs=None):
     """Camera positions per zone: its own x span (camera left edge, clamped so the CENTRE is
-    inside the zone's clip) at a few heights inside its paste. Derived from the manifest."""
+    inside the zone's clip) at a few heights inside its paste. Derived from the manifest.
+
+    Plus, when `specs` is given and the zone's BG scrolls vertically, the camera Y where its
+    plane V-scroll is mid-way between its clamps (engine_vscroll's own [0, max]): without it a
+    windowed zone can be probed only where the clamp holds the plane (Wing Fortress's 1:1 sky
+    moves over camera Y 640..928 of its solo act and the three manifest heights are 0, 523 and
+    1312, all clamped)."""
     out = []
     half_w, half_h = 160, 112
     for c in act.clips:
         x0, y0, w, h = c.dst
         xs = sorted({x0 + 64, x0 + w // 3 + 37, x0 + (2 * w) // 3 + 5, x0 + w - 2 * half_w - 3})
-        ys = sorted({y0, y0 + h // 3 + 11, y0 + h - 2 * half_h})
+        ys = {y0, y0 + h // 3 + 11, y0 + h - 2 * half_h}
+        sp = (specs or {}).get(c.zone_key)
+        if sp is not None and sp["v_factor"] != CBS.LOCKED:
+            top = CBS.engine_vscroll(sp, 0x7FFF)
+            mid = [y for y in range(y0, y0 + h - 2 * half_h + 1)
+                   if CBS.engine_vscroll(sp, y) >= top // 2]
+            if mid and 0 < CBS.engine_vscroll(sp, mid[0]) < top:
+                ys.add(mid[0])
+        ys = sorted(ys)
         for x in xs:
             for y in ys:
                 out.append((c.zone_key, c.zone, c.dst[1] - c.src[1], max(0, x), max(0, y)))
@@ -136,7 +150,7 @@ def main():
     with open(CBS.s2_asm_path(zones[min(zones)].donor), errors="replace") as fh:
         text = fh.read()
     cfg_of = {sym[CBS.PARALLAX_LABEL.format(key=k)] & 0xFFFFFF: k for k in zones}
-    plan = probes(act)
+    plan = probes(act, specs)
     results = []
 
     async def run(sock):

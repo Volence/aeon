@@ -566,8 +566,8 @@ numbers.
 | 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
 | 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |
 | 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **first** |
-| 10 | Layer lines accept HPZ (L1) and WFZ (L5) | `s2_layer_lines.py` | S | required |
-| 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | required |
+| 10 | Layer lines accept HPZ (L1) and WFZ (L5) | `s2_layer_lines.py` | S | **DONE** (`parcel/woven-hpz-wfz-prep`): WFZ's object layout resolved per `gameRevision`, the prototype's Objects_Layout read for HPZ (a prototype Obj03 inside a clip is refused, L6). MEASURED: 0 Obj03 in WFZ_1, OOZ_1 and prototype HPZ_1, so all three clip with 0 lines; `plan()` gives 0 rows for the solo clips `s2_{ooz,wfz,hpz}_solo` |
+| 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | **DONE for what a 512-row plane can hold** (`parcel/woven-hpz-wfz-prep`): HPZ 145 tiles, window 0, camY/2, 6 bands (3 ramp ratios at the nearest engine factor); OOZ 117 tiles, 12 bands incl. the reversed sun ripple; WFZ 18 tiles, window at BG row 896, 1:1, cloud rows DRIFT only (Sonic 2's bug, kept); MTZ's record came with `s2_mtz_cpz`. Solo clips `s2_{ooz,wfz,hpz}_solo` build both shapes and `clip_bg_scroll_witness` is exact on every probe (16/16, 16/16, 28/28). **Not done: the BG past the plane window.** The plane holds 512 BG rows and V-scroll clamps at 288, so HPZ's BG stops moving below act camera Y 576 (its BG is 1152 rows) and WFZ's outside camera Y 640..928 (the 83-tile sky, fortress rows included, is 2048 rows); OOZ holds to 1792. Booked WINDOWED-BG-VERTICAL-CLAMP |
 | 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
 | 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **needed for 384 / 288**; without it, 480 across |
 | 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | required |
@@ -576,6 +576,7 @@ numbers.
 | 17 | CRAM line-0 cells (CPZ 168, WFZ 32) | content | S to accept | as v1 |
 | W1 | **Art headroom at the MTZ / CPZ seam:** re-measure with real tunnels once item 9 lands; then trim or add a frame (§A.5) | bake, maybe VRAM | S to measure | required |
 | W2 | Faster BG overwrite (optional lever, §A.2) | `engine/level/bg.emp` | S-M, engine | optional |
+| W3 | **A pit in Hidden Palace's east piece** (found building item 10/11's solo clip, MEASURED from the donor words): donor x 8448..8703 has no art in y 1504..2047, and x 8352..8447 no plane-A landing surface. In the woven act Metropolis west paints those columns above, so `clip_reachability`'s art check passes, but the pit falls to the act's bottom. Needs a floor, a trimmed east piece, or the death plane | content | S | required, the owner's call |
 
 **Total to a first playable woven act (INFERRED):**
 - items 1 to 15 and W1: two L, six M, eight S;
