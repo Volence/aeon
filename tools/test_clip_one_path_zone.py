@@ -108,8 +108,8 @@ def donors(tmp_path_factory):
 
 
 def _plane_b_solid_words(tree):
-    """Plane-B words with any solidity bit, counted straight off the files (the reference
-    zone_has_plane_b is held to)."""
+    """Plane-B words with any solidity bit, counted straight off the files (the retired
+    criterion's input: it no longer decides anything, the rows below show why)."""
     n = 0
     for f in sorted(os.listdir(tree)):
         if f.endswith(".collattrb.bin"):

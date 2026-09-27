@@ -226,9 +226,10 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
   K5  a tunnel's art names a zone some clip of the act uses, and its wall_src/back_src are
       on the 8-px grid inside that zone's crop.
   K6  (at bake, from the collision) each seam is flush or bridgeable by one ramp block,
-      on both planes. A ONE-PATH zone (no plane-B collision anywhere in its tree,
-      `zone_has_plane_b`: Sonic 2's Metropolis) is pasted with its plane A on both planes
-      (`_clip_collision`), so its seams are read on both planes like any other.
+      on both planes. A ONE-PATH zone (no plane switcher that can select path B in its
+      Sonic 2 object layout, `zone_path_b_switchers`: Metropolis, Oil Ocean, Wing Fortress,
+      Hidden Palace) is pasted with its plane A on both planes (`_clip_collision`), so its
+      seams are read on both planes like any other.
   K8  the optional `fill` (below): a `why`, a rect on the 16-px collision block grid inside
       the act, and every clip/corridor edge that meets it on that grid too (one block has
       one collision word, so it cannot be half fill).
@@ -1536,13 +1537,16 @@ def _clip_collision(act, donor_root):
     """(plane_a, plane_b) with the CLIPS only — what a corridor's seams are measured
     against (`_seam_ramps`), before any corridor is written over its own rectangle.
 
-    A ONE-PATH ZONE is pasted with its plane A on BOTH planes (`zone_has_plane_b` is False:
-    Sonic 2's Metropolis). Sonic 2 never puts the player on path B there (no plane switcher
-    in its layout, and an act starts on path A), but a clip act can deliver him on plane B
-    from a neighbour whose own lines select it (Chemical Plant's do), and on the donor's
-    solidity-free plane B he falls forever: MEASURED on the woven act s2_mtz_cpz, 384
-    floorless plane-B columns, every Metropolis column. Carrying plane A there gives him the
-    one path the zone has. Every zone with plane B anywhere keeps its own plane B."""
+    A ONE-PATH ZONE is pasted with its plane A on BOTH planes (`zone_path_b_switchers` is 0:
+    Metropolis, Oil Ocean, Wing Fortress, Hidden Palace). Sonic 2 never puts the player on
+    path B there (no plane switcher that selects it in its layout, and an act starts on path
+    A), but a clip act can deliver him on plane B from a neighbour whose own lines select it
+    (Chemical Plant's and Emerald Hill's do). On Metropolis's solidity-free plane B he fell
+    forever (MEASURED on s2_mtz_cpz: 384 floorless plane-B columns, every Metropolis column);
+    Wing Fortress's plane B has solidity but not the ship's decks, and he fell through the
+    ship (WOVEN-WFZ-PLANE-B: woven (5133, 1389), plane A decks at y 1152 and 1280, plane B
+    none). Carrying plane A there gives him the one path Sonic 2 gives him. A zone whose
+    layout selects path B anywhere keeps its own plane B."""
     import numpy as np
     key = (donor_root, "clip_collision")
     if key in act._memo:
@@ -1555,7 +1559,7 @@ def _clip_collision(act, donor_root):
             zm = _zone_manifest(cl, donor_root)
             d = cl.tree_dir(donor_root)
             pa = section_plane_grid(d, zm, st, "collattr")
-            pb = section_plane_grid(d, zm, st, "collattrb") if zone_has_plane_b(cl, donor_root) \
+            pb = section_plane_grid(d, zm, st, "collattrb") if zone_path_b_switchers(cl) \
                 else pa
             cache[cl.tree_key] = (pa, pb)
         src = cache[cl.tree_key]
@@ -1590,32 +1594,44 @@ def _word_heights(word, hm):
     return h
 
 
-def zone_has_plane_b(clip, donor_root):
-    """True when the clip's ZONE carries plane-B solidity anywhere in its converted tree.
+def zone_path_b_switchers(clip):
+    """How many of the clip's ZONE's plane switchers can put the player on collision path B:
+    Sonic 2's own criterion for a two-path zone (0 = a ONE-PATH zone, pasted with its plane A
+    on both planes by `_clip_collision`).
 
-    MEASURED over the WHOLE zone (every section's `collattrb`), not the clip's crop and not
-    one column: a zone that uses plane B anywhere is a two-path zone and keeps its own plane
-    B; one that does not is pasted with plane A on both (`_clip_collision`). Sonic 2's
-    Metropolis is the case this exists for: s2.asm names
-    `ColP_MTZ` as both its primary and secondary index and its chunk words carry no path-B
-    solidity, so its plane B has a shape in every cell and solidity in none (0 words,
-    MEASURED 2026-09-27). A missing plane file raises (`section_plane_grid`), never False."""
-    zm = _zone_manifest(clip, donor_root)
-    d = clip.tree_dir(donor_root)
-    gw, gh = zm["grid"]["w"], zm["grid"]["h"]
-    mask = collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT
-    for n in range(gw * gh):
-        p = os.path.join(d, f"section_{n}.collattrb.bin")
-        if not os.path.isfile(p):
-            raise ClipManifestError(
-                f"{p} is missing, so whether zone {clip.zone} has a plane-B path cannot be "
-                f"measured. Re-run tools/s2_zone_convert.py convert.")
-        with open(p, "rb") as fh:
-            data = fh.read()
-        for i in range(0, len(data) - 1, 2):
-            if ((data[i] << 8) | data[i + 1]) & mask:
-                return True
-    return False
+    READ from the donor's act-1 object layout with the same readers the layer-line bake uses
+    (tools/s2_layer_lines.py: `obj03_id`, `object_layout_path`, `read_layout`), over the WHOLE
+    zone, not the clip's crop. A final-game Obj03 selects path B when it is not x-flipped
+    (x-flip = LL_KEEP_PATH, priority only) and its subtype has bit 3 or 4 (crossing right/down
+    or left/up puts him on B). The prototype's Obj03 subtype is not read here (its rule is not
+    the final game's, s2_layer_lines L6), so every prototype Obj03 counts.
+
+    MEASURED 2026-09-27 (B-selecting / all Obj03): EHZ 17/19, CPZ 34/60, ARZ 16/30, CNZ 6/6,
+    HTZ 17/18, SCZ 1/1; MCZ, OOZ, MTZ, WFZ 0/0; the prototype's HPZ 0 of 43 records.
+
+    WHY NOT THE TREE'S PLANE-B SOLIDITY (the criterion this replaced, WOVEN-WFZ-PLANE-B): it
+    agreed with Sonic 2 for Metropolis (no plane-B solidity at all) but not for Wing Fortress,
+    whose secondary collision index has solidity but not the ship's decks; Sonic 2 never puts
+    the player on it (0 switchers, and every act starts on path A), so a clip act that
+    delivered him there on plane B dropped him through the ship. An unreadable layout raises
+    (ClipManifestError), never 0."""
+    import s2_layer_lines
+    if clip.donor not in s2_donor.DONORS:
+        raise ClipManifestError(
+            f"clip {clip.id!r} comes from donor {clip.donor!r}, which is not a registered "
+            f"Sonic 2 donor, so whether zone {clip.zone} has a path B cannot be read")
+    try:
+        asm = s2_layer_lines._s2_asm(clip.donor)
+        oid = s2_layer_lines.obj03_id(asm, clip.donor)
+        path = s2_layer_lines.object_layout_path(asm, clip.donor, clip.zone)
+        recs = [r for r in s2_layer_lines.read_layout(path, clip.donor) if r[3] == oid]
+    except (OSError, s2_layer_lines.LayerLineError) as e:
+        raise ClipManifestError(
+            f"zone {clip.zone} ({clip.donor}): its object layout could not be read, so "
+            f"whether it has a path B cannot be decided: {e}") from e
+    if clip.donor != s2_donor.S2_FINAL:
+        return len(recs)
+    return sum(1 for _x, _y, xflip, _o, st in recs if not xflip and st & 0x18)
 
 
 def _clip_at(act, x, y):
@@ -1640,7 +1656,7 @@ def _seam_ramps(act, co, planes, hm, bank_dir):
       * anything else (air on that row, ground in the row above, planes that disagree) is a
         step this corridor cannot bridge in one block, and is REFUSED rather than shipped.
     No neighbour (the act edge, or a VOID column) is nothing to meet.
-    A one-path neighbour (Sonic 2's Metropolis) arrives here with plane A on both planes
+    A one-path neighbour (`zone_path_b_switchers` 0: Metropolis, Wing Fortress, ...) arrives here with plane A on both planes
     (`_clip_collision`), so the two reads agree there by construction; a two-path neighbour
     whose planes disagree at the seam is refused.
     Returns {"left"/"right": None or {"neighbour_surface_y", "shape", "xflip"}}."""
