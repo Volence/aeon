@@ -1,5 +1,5 @@
 {
-  "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
+  "focus": "Booted fresh. Proposing the background-slide fix next so the Sonic 2 act's tunnels can be as short as planned.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -13,8 +13,16 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Nothing running. Next woven pieces wait on the background-slide fix and the vertical joins.",
+  "nextBoundary": "Nothing running. Next: the background slide after a tunnel, then the vertical joins of the woven act.",
   "queue": [
+    {
+      "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
+      "title": "Background slides for a few frames after a tunnel; fixing it lets tunnels shrink to the planned length",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "OJZ-LOOP-COLLISION",
       "title": "Our loop: 4 of 5 ways it lost Sonic are fixed; the last needs the right arc repainted (your call)",
@@ -134,8 +142,8 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: first woven piece landed (Chemical Plant inside Metropolis); next pieces after the debug-crash fix",
-      "state": "doing",
+      "title": "Big Sonic 2 act: Chemical Plant inside Metropolis landed, debug crash fixed; next pieces wait on the background-slide fix",
+      "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -184,7 +192,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your calls: repaint the loop's right arc? Pick the fall camera (~/sonic_hacks/tryout/s3k-fall/). Woven try-out rebuilt with the crash fix.",
-  "atBoundary": false,
-  "updatedAt": "2026-09-27T07:34:13Z"
+  "awaiting": "Go on the background-slide fix? Still yours: repaint the loop's right arc, pick the fall camera, Sonic 2 objects.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-27T08:47:07Z"
 }
