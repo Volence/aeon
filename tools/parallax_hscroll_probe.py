@@ -337,7 +337,8 @@ class Shadow:
 
 
 def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
-    """Step 4b's L, resolved exactly as engine/level/parallax.emp:810-893 resolves it.
+    """Step 4b's L, resolved exactly as engine/level/parallax.emp resolves it (`Parallax_Step4_Fill`, the Step 4b
+    `.cap_anchors_overlay_begin` block).
 
     Returns (L, reason) with L = None meaning "no split this frame".
 
