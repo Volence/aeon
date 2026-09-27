@@ -42799,6 +42799,8 @@ GREEN on the fixed woven DEBUG ROM `2124ce00`: 15 of 15, 1 unmeasured (slid off)
 `tools/keepalive_manifest.toml` rows `balance_witness.py#woven` (the nightly's woven ROM) and
 `balance_witness.py` (canonical, LEDGE class only: OJZ has no WALL position).
 
+**Landing evidence.** `tools/landing_build.sh` exit 0 (`finished=0`, 17:28, load 3.99): pytest 3762 passed; s4.bin crc `1d10d0a0` (master `def3dc2d`), s4.debug.bin `9cfcc114` (master `68c77be8`), both moved by Player_AtLedgeEdge's new body (the code change is the whole delta); woven DEBUG `2124ce00` (was `65eac6c3`, -10 B). Canonical witness row on `9cfcc114`: WALL 0 positions, LEDGE 90 in 10 spots, 8 of 8 graded matched. The canonical row was NOT run red (no master DEBUG ROM of this tree at hand); the woven row carries the red.
+
 Open riders:
 - **WOVEN-FALSE-BALANCE-1 (Balance2):** S3K's farther lean (anim $C, when x -/+ 6 is also over the
   drop, sonic3k.asm:22552) has no ANIM_* and no art script here. Content work.
