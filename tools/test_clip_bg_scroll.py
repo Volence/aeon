@@ -411,7 +411,10 @@ def test_wfz_bands_are_the_segment_array_as_drift_rows(s2asm):
     r0 = __import__("clip_bg_lower").window_top("s2disasm", "WFZ")
     spec = CBS.derive("s2disasm", "WFZ", -256)
     assert spec["window_top"] == r0 == 896
-    assert (spec["v_factor"], spec["v_offset"], spec["v_center"]) == (0, -r0, -256)
+    # 1:1 vertically: plane row = donor camera Y - r0, and donor Y = act Y + 256 (pasted up
+    # 256). scene() needs v_center >= 0, so the fold (see the negative-dy row) carries it.
+    assert spec["v_factor"] == 0 and spec["v_center"] >= 0
+    assert spec["v_offset"] - spec["v_center"] == 256 - r0
     # an independent reading: the three addi.l longs in order are TempArray +8, +$C, +$10,
     # each 16.16 px/frame, i.e. value / 256 in the engine's 1/256 px unit
     adds = [int(v, 16) for v in re.findall(
@@ -511,3 +514,27 @@ def test_the_model_adds_each_bands_drift_accumulator_to_that_band_only(s2asm):
             tops = [b["plane_top"] for b in spec["bands"]]
             band = max(i for i, t in enumerate(tops) if t <= row)
             assert got[line] - base[line] == (37 if band == k else 0), (k, line)
+
+
+@pytest.mark.parametrize("zone,dy", [("WFZ", -256), ("WFZ", -16), ("MTZ", -100), ("CPZ", -448),
+                                     ("OOZ", -300), ("MTZ", 448)])
+def test_a_clip_pasted_up_still_gives_scene_a_world_y_centre(s2asm, zone, dy):
+    """scene() refuses v_center outside 0..32767 (it is a world Y; the header field is u16),
+    and the derivers set it to the paste dy, negative for a clip pasted UP: the first
+    S2CLIP=s2_wfz_solo build failed on exactly that (v_center -256). derive() folds it.
+    The vertical mapping must be the UNFOLDED deriver's, recomputed here with Python floor
+    division (the 68000's asr), at every camera Y the act can hold."""
+    raw_fn = CBS.WINDOWED.get(zone) or CBS.DERIVERS[zone]
+    import clip_bg_lower
+    raw = (raw_fn(s2asm, dy, clip_bg_lower.window_top("s2disasm", zone)) if zone in CBS.WINDOWED
+           else raw_fn(s2asm, dy))
+    spec = CBS.derive("s2disasm", zone, dy)
+    assert 0 <= spec["v_center"] <= 32767
+    if raw["v_factor"] == CBS.LOCKED:
+        pytest.skip(f"{zone}: a locked plane has no vertical mapping to fold")
+    for camy in range(0, 6144, 7):
+        assert CBS.engine_vscroll(spec, camy) == CBS.engine_vscroll(raw, camy), camy
+        got = ((camy - spec["v_center"]) >> spec["v_factor"]) + spec["v_offset"]
+        assert got == ((camy - raw["v_center"]) >> raw["v_factor"]) + raw["v_offset"], camy
+    for b in spec["bands"]:
+        assert CBS.layer_world_y(spec, b["plane_top"]) == CBS.layer_world_y(raw, b["plane_top"])

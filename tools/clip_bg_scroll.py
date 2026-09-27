@@ -1354,11 +1354,26 @@ def derive(donor, zone, paste_dy, r0=None):
         if r0 is None:
             import clip_bg_lower
             r0 = clip_bg_lower.window_top(donor, zone)
-        return fn(text, paste_dy, r0)
+        return _nonneg_center(fn(text, paste_dy, r0))
     if r0:
         raise ClipScrollError(f"{zone}'s transcription has no plane window and was asked for "
                               f"one at row {r0}")
-    return fn(text, paste_dy)
+    return _nonneg_center(fn(text, paste_dy))
+
+
+def _nonneg_center(spec):
+    """scene() takes v_center as a WORLD Y, 0..32767 (scene_dsl.emp refuses anything else and
+    the header field is u16), but the derivers set it to the clip's paste dy, which is
+    NEGATIVE for a clip pasted UP (Wing Fortress's woven deck, dy -256: the first build refused
+    it). The mapping ((camY - v_center) >> v_factor) + v_offset is unchanged when v_center
+    rises by m and v_offset rises by m >> v_factor, EXACTLY, for any m that is a multiple of
+    2^v_factor (an arithmetic shift of an integer minus a multiple of the divisor), so fold
+    the smallest such m. layer_world_y is unchanged by the same identity."""
+    if spec is None or spec["v_factor"] == LOCKED or spec["v_center"] >= 0:
+        return spec
+    step = 1 << spec["v_factor"]
+    m = -(spec["v_center"] // step) * step        # smallest multiple of step >= -v_center
+    return dict(spec, v_center=spec["v_center"] + m, v_offset=spec["v_offset"] + (m >> spec["v_factor"]))
 
 
 def bg_row_at(spec, camy):
