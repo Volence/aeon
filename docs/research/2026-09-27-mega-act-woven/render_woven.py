@@ -145,7 +145,7 @@ def render(spec, out_path):
         if w > h:
             lx, ly = X + (max(w // S, 4) - tw) // 2, Y - 16
         else:
-            lx, ly = X + max(w // S, 4) + 3, Y + max(h // S, 4) // 2 - 7
+            lx, ly = X + max(w // S, 4) + 3, Y + 16
         d.rectangle([lx - 2, ly - 1, lx + tw + 2, ly + 14], fill=(0, 0, 0))
         d.text((lx, ly), label, fill=col, font=fS)
     # section grid + frame

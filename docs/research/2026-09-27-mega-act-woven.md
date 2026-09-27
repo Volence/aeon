@@ -1,0 +1,560 @@
+# The Sonic 2 mega-act, woven: layout v2 and its seams
+
+**Date:** 2026-09-27. **Branch:** `design/mega-act-woven`, base `origin/master` `d1207465`
+(at or after `e989ec7b`, checked with `git merge-base --is-ancestor`).
+**Supersedes:** the LAYOUT of `docs/research/2026-09-27-mega-act-layout.md` (v1). v1's zone
+conversion, collision equivalence and bake-gap findings still stand.
+**Booking:** `docs/DEFERRED_WORK.md`, S2-COMPRESSED-ACT (pointer added there).
+**Status:** a PROPOSAL. No engine file, no tool under `tools/` and no ROM byte changed. No
+emulator was used, not even headless: every runtime number here is quoted from the 09-25
+witnesses, and the report says so each time.
+
+**The picture:** [`2026-09-27-mega-act-woven/mega-act-woven.png`](2026-09-27-mega-act-woven/mega-act-woven.png).
+It is drawn to scale (1 px = 8 world px), and each box holds a render of its donor clip.
+
+![The woven act](2026-09-27-mega-act-woven/mega-act-woven.png)
+
+Every figure below is tagged:
+- **MEASURED:** a command in §E printed it.
+- **INFERRED:** arithmetic on measured numbers, or a reading of the source. The sentence says
+  which.
+- **QUOTED:** measured by an earlier parcel, whose report is named.
+
+---
+
+## 0. The proposal in one screen
+
+- **What the owner asked for.** He overlapped v1's thumbnails into a sketch:
+  - Wing Fortress across the top, reached from several zones;
+  - Emerald Hill on top of Hidden Palace;
+  - Chemical Plant inside Metropolis, with Metropolis continuing on both sides;
+  - Oil Ocean below Chemical Plant and Metropolis;
+  - tunnels "as short as possible".
+- **His clarification (mid-task).** *"we do need the tunnels still ... Maybe some clouds between
+  wing fortress and the others or a tunnel or something ... Just that they're really close."*
+  - So zones still never share a screen, and every meeting point has a connector.
+  - The weaving is in the placement, and the work is the shortest correct connector for each
+    kind of seam.
+- **The act.** 9,072 x 6,464 px of content in a 5 x 4 section grid (20 of 48 sections), seven
+  clips of six zones.
+  - Wing Fortress spans the top.
+  - Emerald Hill is at the left, with Hidden Palace directly under it.
+  - To its right: Metropolis (west half), Chemical Plant, then Metropolis (east half), which
+    is the same maze continuing on the far side.
+  - Oil Ocean sits under Chemical Plant and Metropolis east.
+- **Ten connectors**, each exactly as long as its seam needs:
+
+  | Seam kind | Connectors | Length |
+  |---|---|---|
+  | Horizontal tunnel, both backgrounds already in memory | C6, C7 (Metropolis / Chemical Plant / Metropolis) | 384 px |
+  | Vertical shaft or cloud band, both backgrounds already in memory | C4 (Emerald Hill / Hidden Palace), C1 (Wing Fortress / Emerald Hill) | 288 px |
+  | Vertical, one background loaded in the lane | C8, C9 (down to Oil Ocean) | 464 px |
+  | Vertical, one background loaded in the lane | C2, C3 (up to Wing Fortress) | 528 px |
+  | Horizontal, one background loaded in the lane | C5, C10 (the Emerald Hill / Hidden Palace column to Metropolis) | 624 px |
+
+  - v1 used 832 px across and at least 768 px up or down everywhere.
+- **Checked over every reachable camera position** (`woven.py check`, MEASURED):
+  - 0 screens show two zones;
+  - every crossing has a slack of 0 or more against the background-timing rule;
+  - 4 of 4 controls (break the layout on purpose) turn it red.
+- **Budgets on the real rectangles** (the real clip bake, MEASURED):
+
+  | Budget | Result |
+  |---|---|
+  | Collision | **245 of 255** |
+  | Art, clips only | worst camera window **12 of 12**, 0 of 725,207 over |
+  | Section local maps | at most 773 of 2,047 |
+  | Level data | 306,786 B (clips only) |
+
+  - **Art with the connector art added:** **13 of 12 in 108 windows**, all at the Metropolis /
+    Chemical Plant seam, if the tunnel's 28 tiles take a page of their own (§A.5). That is
+    the one budget this layout does not clear yet.
+- **Music.** All four new Sonic 2 songs are refused by today's importer (MEASURED). Six drum
+  and envelope names have no declared mapping, and Hidden Palace also hits a packer limit
+  (§A.8).
+- **Fastest first woven screen: Chemical Plant inside Metropolis, as a one-row act.** The
+  existing row bake already expresses it (INFERRED from `region_plan`). The one blocker is
+  K6's tunnel-seam check, which refuses every floor at Metropolis's edge (MEASURED). That is a
+  small item (§C).
+
+### What I dropped when the owner clarified, and why
+
+- **Palette merging and recolouring for zones side by side on one screen.** I had not started
+  it. His clarification removed its reason, because no two zones share a screen.
+- **Raster palette and background splits for stacked zones.** A research read was done, and
+  the finding is kept in §A.1 as the reason zones do not share a screen today. It is not a
+  proposal.
+
+---
+
+## A. The seams, measured
+
+### A.1 Why two zones still never share a screen
+
+The sketch first suggested stacked zones on one screen with a raster split. Here is what the
+engine has for that (READ; file references are in the research read):
+
+- **The HBlank effects vocabulary can move a split line with the camera.**
+  - `patchable` fires take world-space lines through `Effects_LatchWorldLines`.
+  - `fx_vscroll_split` changes plane B's vertical scroll from a line down; it ships.
+- **It cannot swap a zone's palette at that line.**
+  - A fire writes at most 3 CRAM words (`RASTER_BURST_MAX_CRAM = 3`, the measured
+    122.9-cycle HBlank window).
+  - A program is 64 words, which is about 6 to 8 fires.
+  - There are 4 patch channels, and `patchable` binds exactly one fire each.
+  - A zone's CRAM lines 1 to 3 are 45 colours, about 16 fires, and there is no second full
+    palette source (variants are derived shift-and-bias transforms, 2 slots).
+- **One background plane, one background at a time.** Nothing streams two layouts into one
+  plane B.
+
+So, as the owner has now asked, **every seam is a connector that hides one zone completely
+before the next appears.** That is the rule the rest of this section prices.
+
+### A.2 The connector rule, and the shortest correct connector for each seam
+
+**What happens at a crossing (QUOTED: `docs/research/2026-09-25-shorter-connector.md` §2
+and §8).** The camera centre crosses a region boundary, and in that frame:
+- the palette snaps (with the `snap` override);
+- the background switches:
+  - if the new zone's background tiles are already in the 376-tile BG arena, only the plane
+    is repainted, by DMA, and the visible rows are right **2 frames** later (QUOTED: measured on 09-25);
+  - if they are not, the arena is overwritten first, one 1,824-B chunk a frame, then repainted.
+
+The camera moves at most 16 px a frame on each axis (`CAM_MAX_X_STEP`, `CAM_MAX_Y_STEP`).
+So a connector must hold the screen entirely inside itself for those frames, on both sides:
+
+    horizontal:  G = 320 + 16 x (T_left + T_right)
+    vertical:    G = 224 + 16 x (T_top  + T_bottom)
+    T = 2 when the zone being entered shares a BG blob with the zone being left,
+        otherwise ceil(blob bytes / 1824) + 3   (overwrite chunks, the 2-frame DMA wipe,
+                                                 one slipped-DMA frame, as Z2 models it)
+
+**Calibration.** At T = 2 a side, the horizontal rule gives 384 px. That is the tunnel
+`crossing_witness.py` MEASURED glitch-free in 12 runs, with 0 frames of slack at the camera
+cap (09-25 §8.4). The check tool (`woven.py`) is calibrated so that this case reads slack 0.
+Its controls show it goes red at 16 px shorter.
+
+**Background tiles per zone (MEASURED, `bg_tiles.py`):**
+
+| Zone | BG tiles | Overwrite chunks | T into it, when its tiles are not in the arena (INFERRED) | Source of the count |
+|---|---|---|---|---|
+| EHZ | 141 | 3 | 6 | `clip_bg_lower.lower`, the bake's own list |
+| CPZ | 237 | 5 | 8 | same |
+| OOZ | 117 | 3 | 6 | same |
+| MTZ | 77 | 2 | 5 | same |
+| WFZ | 83 | 2 | 5 | same dedupe, worst 64-column window. `lower()` refuses WFZ (no horizontal repeat) |
+| HPZ | 145 | 3 | 6 | same dedupe over `HPZ_BG.bin`, the one file `Hpz_Background:` includes. The file name is INFERRED-SOURCE: the loader refuses to guess the prototype's registry |
+
+- **Every pair fits the 376-tile arena except CPZ + HPZ** (382 by sum).
+- EHZ + CPZ is 378 by sum, but they share 2 tiles, so it is 376 exactly (QUOTED).
+- All six zones total 800, so they cannot all be resident at once.
+- **The layout therefore uses three BG blobs.** Zones in one blob are resident together, and
+  a crossing between them costs only the 2-frame repaint:
+
+  | Blob | Zones | Tiles | T into the blob from outside (INFERRED) |
+  |---|---|---|---|
+  | A | EHZ + HPZ + WFZ | 369 | 10 frames |
+  | M | CPZ + MTZ | 314 | 9 frames |
+  | O | OOZ | 117 | 6 frames |
+
+**The shortest connector for each seam kind:**
+
+| Seam | Shortest | Tag | What sets it |
+|---|---|---|---|
+| **Horizontal tunnel, same blob** | **384 px** (C6, C7) | MEASURED glitch-free before B-2 (09-25 §8.4) | The screen width (320), plus 2 frames of repaint a side at 16 px a frame |
+| Same, on today's engine after B-2 | **480 px** | MEASURED (09-25 §8.7) | The background's vertical-scroll ratchet: a 3 to 4 frame slide at the camera cap. SHORT-TUNNEL-VSCROLL-RATCHET, not built. With it, back to 384 |
+| **Vertical shaft or cloud band, same blob** | **288 px** (C1, C4) | INFERRED: the same rule on the 224-px axis. No vertical crossing between clip zones has been flown | The screen height (224), plus 2 x 2 frames |
+| **Horizontal, blob change** | 320 + 16 x (T_a + T_b). **624 px** for A to M (C5, C10) | INFERRED from the MEASURED chunk count and the QUOTED repaint | The arena overwrite of the blob being entered |
+| **Vertical, blob change** | 224 + 16 x (T_a + T_b). **528 px** for A to M (C2, C3), **464 px** for M to O (C8, C9) | INFERRED, as above | As above |
+| **Sealed seam** (the zones meet but nothing crosses) | **96 to 176 px** of neutral fill | MEASURED (`woven.py seal`) | Only the view distance. The camera inside a zone sees at most 160 + 16 across or 112 + 32 down past its own edge (screen half plus deadzone). No background time is needed, because nobody crosses |
+| Zones touching with nothing between | **never**, for these clips | MEASURED | Every clip has reachable air at its edges: Sonic 2 levels run their pits to the bottom. Control `c_hpz_touch`: 6,416 camera positions show both zones |
+
+Sealed separations, MEASURED (the smallest 16-px step with 0 mixed screens):
+
+| Pair | Separation |
+|---|---|
+| EHZ over HPZ | 144 |
+| CPZ over OOZ | 144 |
+| MTZ beside CPZ | 176 |
+| WFZ over EHZ | 96 (the deck's underside is sky nobody stands in) |
+
+**Where two zones touch directly, is a connector needed at all?**
+- **Where the player crosses: yes, always.** The screen must be all connector while the
+  background changes.
+- **Where the player does not cross:** only a thin neutral wall, 96 to 176 px.
+- So "really close" is about 100 to 180 px between sealed edges, and 288 to 624 px where
+  someone crosses.
+
+**The levers that make connectors shorter (INFERRED, none built):**
+
+| Lever | Effect | Cost |
+|---|---|---|
+| The ratchet exemption (SHORT-TUNNEL-VSCROLL-RATCHET, booked) | 480 back to 384 across. It is also needed for any same-blob vertical crossing between zones whose backgrounds scroll at different heights | S-M, engine, graded by `bg_vscroll_rate` |
+| Overwrite 3,648 B a frame instead of 1,824 | Blob-change connectors shrink: A-M 624 to 528 across, 528 to 432 up/down; M-O 464 to 400 | S-M, engine. The VBlank DMA budget has to be measured first. The chunk size was derived to fit it |
+| Smaller backgrounds | CPZ's 237 tiles is the most expensive one. Cropping it lets more zones share a blob | Content, a look call |
+| A bigger BG arena (the VRAM re-cut) | Competes with the owner's 2026-09-07 "we can't have space for 0 objects" ruling | Owner |
+| Region hysteresis (09-25 §8.3) | 32 px | Not built, and it trades in a glitch on reversal. Not recommended |
+
+### A.3 The cloud band (new connector kind)
+
+It works like a tunnel: a neutral strip that fully hides one zone before the next appears. It
+is turned on its side to join Wing Fortress to the zones below it. Its requirements come from
+the tunnel's (QUOTED from `s2_ehz_cpz`'s clips.json note and 09-25 §2.2):
+- **Every pixel is opaque and on CRAM line 0.** Line 0 is the character's line, and no region
+  install writes it. So neither the background nor the backdrop shows through, and the band
+  looks the same under both zones' palettes.
+- **The picture's band is a sample look.** It is Emerald Hill's own background sky and clouds,
+  recoloured onto line 0 by the tunnel's nearest-colour rule, with transparent pixels painted
+  line-0 $0E66 (a mid blue).
+  - Line 0 has white ($0EEE), pale blue ($0ECC), lavender ($0CAA) and mid blue ($0E66), which
+    is enough for clouds (MEASURED from `SonicAndTails.bin`).
+  - The sample is **105 tiles, 2 pages** (MEASURED).
+- **Crossing it:** falling through is free. Going up needs cloud ledges, which are top-solid
+  platforms a jump apart. They stand in for springs until objects exist.
+- **Height:** the vertical rule. 288 px where the blob is shared (over Emerald Hill); 528 px
+  where it is not (over Metropolis and Chemical Plant).
+
+### A.4 Timing check over the whole layout
+
+`woven.py check` (MEASURED) walks every reachable camera centre on an 8-px grid (264,552
+centres).
+
+**How reachability is modelled:**
+- **The player's positions:** plane-A air within jump reach above a floor, or below reachable
+  air (falling), where the rolling ball fits, keeping the connected pieces. This is a column
+  model and over-reaches, which makes the result conservative.
+- **The camera:** within the deadzone of the player (16 across, 32 up and down), clamped to
+  the act.
+- **The regions:** the planned boundaries, balanced by each side's T.
+
+**Result:**
+- **MIXED** (a screen showing two zones): 0.
+- **WRONG** (a zone on screen outside its own region): 0.
+- **18 crossing directions**, every one at slack **+0 px**. The lengths are the rule's
+  minimum, by construction.
+- **VOID** (unpainted cells seen from a lane): 0.
+
+`controls.py` breaks the layout four ways, and all four go red (MEASURED):
+
+| Control | Result |
+|---|---|
+| Chemical Plant 16 px closer | slack -8 px a side |
+| Metropolis out of Chemical Plant's blob | -72 px |
+| Hidden Palace 64 px up | -32 px |
+| Hidden Palace touching Emerald Hill | 6,416 mixed screens |
+
+### A.5 The art window
+
+`tools/clip_act_bake.py bake` on the clips-only draft (`draft_clips.json`, grid 6 x 4, see §C
+item 8), MEASURED:
+- **Worst camera window: 12 of 12 page frames, 0 of 725,207 windows over.** The pool is 2,714
+  tiles in 46 pages.
+- **Where:** the worst windows are at the Metropolis / Chemical Plant seam (camera 4784, 2624).
+  A 640-px tile-cache window across a 384-px tunnel holds the edges of both zones.
+
+**Connector art is not in the manifest.** It has no shaft or cloud kind, and K6 refuses every
+tunnel into MTZ, HPZ or OOZ (§C item 9). So `art_window.py` adds it to the bake's own page
+grid and re-counts with the bake's own counter (MEASURED on that model):
+
+| What is counted | Worst window | Windows over budget |
+|---|---|---|
+| Clips only | 12 | 0 |
+| Plus rock fill / tunnel sheet (28 tiles QUOTED from today's bake), charged as its own page | **13** | **108 of 725,207**, all at the C6 seam |
+| Windows touching the cloud band (2 pages) | 11 (9 clips-only) | 0 |
+
+- **The +1 is an upper bound.** In today's `s2_ehz_cpz` bake the placer packed the same sheet
+  into a shared page (`pages_exclusive: 0`, MEASURED).
+- **Moving Chemical Plant 32 or 64 px right** (a longer C6) left 64 and 14 windows at 13
+  (MEASURED). The global page search moves the tightest seam around; it does not make room.
+- **What would fix it, in order:**
+  1. Bake the real tunnels, which needs K6 fixed (§C item 9), and see whether the placer packs
+     the sheet.
+  2. Trim the clips at that seam.
+  3. One more page frame. That is VRAM the object re-cut ruling also wants.
+
+The design's caveat still stands: 12 of 12 leaves nothing for object art.
+
+### A.6 Collision
+
+**245 of 255 attr entries** (the bake's C2 count, MEASURED). Entries added in bake order:
+
+| Clip | Entries added |
+|---|---|
+| WFZ | 105 |
+| EHZ | 81 |
+| MTZ west | 3 |
+| CPZ | 18 |
+| MTZ east | 15 |
+| HPZ | 7 |
+| OOZ | 16 |
+
+- Wing Fortress is 6,144 px wide here against v1's 4,096, and it costs no extra entries: the
+  union is 245 either way (MEASURED).
+- Splitting Metropolis into two halves costs nothing either.
+- **Connector collision:**
+  - Tunnels and fill use the bank's full block, which is already in the set (QUOTED from v1).
+  - Cloud ledges would be a top-only full block, **+1 entry at most** (INFERRED).
+  - That leaves about 9 spare.
+
+### A.7 Sections, local maps, ROM
+
+- **Sections: 20 of 48** (5 x 4). The bake measurement used 6 x 4, because the inherited OJZ
+  entity pass refuses a section count that is not a multiple of 3 (v1 item 8). The extra
+  column is empty.
+- **Local maps (MEASURED):**
+  - Three sections hold three zones (sections 7, 14 and 15).
+  - The largest map is **773 of 2,047** entries.
+- **Level data, clips only: 306,786 B (MEASURED, v1's `measure_rom.py`):**
+
+  | Part | Bytes |
+  |---|---|
+  | Block stream | 259,198 |
+  | Local maps | 11,640 |
+  | Art pool | 35,948 |
+
+  - v1 calibrated its harness at 160,742 B on today's `s2_ehz_cpz` (QUOTED), so this layout
+    is about +146 KB.
+  - That moves the clip act's own bank anchors (a routine re-derive), well inside the 4 MB map
+    (INFERRED, as in v1).
+- **Not counted:**
+  - the painted neutral fill (a repeated sheet, which S4LZ compresses well, INFERRED);
+  - backgrounds, palettes, regions and songs.
+
+### A.8 Music
+
+`music_probe.py` runs the four songs through the shipped S2 importer (MEASURED). The control
+first: EHZ and CPZ re-convert byte-identical to the committed files.
+
+| Song | Refused because | Size with size-only placeholder mappings |
+|---|---|---|
+| 90 HPZ | `dLowTom`, then a **packer** refusal: `NoteFill on non-FM route 8` | n/a |
+| 8F WFZ | `dMidTimpani` x31, `dVLowTimpani` x38 | 1,501 + 128 B |
+| 84 OOZ | `fTone_0C` (S2 PSG envelope 12 is not imported) | 2,872 + 192 B |
+| 85 MTZ | `dClap`, `dScratch`, `dLowTom` | 2,875 + 192 B |
+
+- The three songs that pack come to 7,760 B together.
+- Bank room for them was not measured.
+- The placeholders are for measuring size only. They are not a proposal for how those drums
+  should sound.
+
+---
+
+## B. The woven layout
+
+**Clips.** The rectangles are v1's where v1 had them. Wing Fortress is widened to span three
+zones, and Metropolis's opening 3,072 px is cut into two halves with Chemical Plant between
+them.
+
+| Clip | Donor source (donor px) | Size | Act position | Route |
+|---|---|---|---|---|
+| Wing Fortress: deck, tail fins, thrusters | `s2disasm` WFZ, x 1024..7167, y 256..1791 | 6144 x 1536 | (1536, 0) | optional (sky) |
+| Emerald Hill: the double loop | `s2disasm` EHZ, x 6144..8703, y 0..1023 | 2560 x 1024 | (0, 1824) | must, the start |
+| Metropolis west: the opening maze, first half | `s2disasm` MTZ, x 0..1535, y 0..2047 | 1536 x 2048 | (3184, 2064) | must |
+| Chemical Plant: the loop cluster | `s2disasm` CPZ, x 7168..9215, y 0..2047 | 2048 x 2048 | (5104, 2064) | must |
+| Metropolis east: the same maze, continued | `s2disasm` MTZ, x 1536..3071, y 0..2047 | 1536 x 2048 | (7536, 2064) | must |
+| Hidden Palace: the great diagonal and lake | `s2-simonwai-disasm` HPZ, x 5632..8191, y 0..2047 | 2560 x 2048 | (0, 3136) | optional |
+| Oil Ocean: the east refinery | `s2disasm` OOZ, x 8192..11263, y 0..1887 | 3072 x 1888 | (5104, 4576) | must, the end |
+
+**Connectors.**
+- Every position above is derived from these lengths by `build_layout.py`; none is typed.
+- The `draft_clips.json` beside this report validates under `clip_manifest.py` (R1-R12).
+- Everything between clips that is not a lane is neutral fill: line 0, solid, rock grey
+  below the sky and clouds within it.
+
+| Id | Kind | Joins | Length | Why that length | How you cross |
+|---|---|---|---|---|---|
+| C1 | cloud band | WFZ / EHZ | 288 | vertical, blob A both sides | cloud ledges up (a spring later); fall down |
+| C2 | cloud band | WFZ / MTZ west | 528 | vertical, A to M | ledges up out of Metropolis's roof; fall down |
+| C3 | cloud band | WFZ / CPZ | 528 | vertical, A to M | drop from the fortress (down only) |
+| C4 | shaft | EHZ / HPZ | 288 | vertical, blob A | fall through Emerald Hill's pit; ledges back up |
+| C5 | tunnel | EHZ / MTZ west | 624 | horizontal, A to M | walk |
+| C6 | tunnel | MTZ west / CPZ | **384** | horizontal, blob M | walk in |
+| C7 | tunnel | CPZ / MTZ east | **384** | horizontal, blob M | walk out the other side |
+| C8 | shaft | CPZ / OOZ | 464 | vertical, M to O | drop through CPZ's one open floor span |
+| C9 | shaft | MTZ east / OOZ | 464 | vertical, M to O | ledges up and down |
+| C10 | tunnel | HPZ / MTZ west | 624 | horizontal, A to M | walk. It uses the gap C5 already set, and that gap is exactly its own rule |
+
+**Mouths are placed on measured open edges** (`woven.py edges`: how far a camera in the clip
+sees past each edge, per 256-px span). For example:
+- C8 sits on Chemical Plant's only open floor span (donor x 7936..8191). Its other seven
+  spans have 292 to 612 px of unreachable ground.
+- Hidden Palace's top edge is open along its whole width.
+- Metropolis west's east edge is open at every row.
+
+The exact floor row of each tunnel is a build-time detail. At Metropolis west's east edge,
+three rows are flush floors (donor y 640, 768 and 1664); K6 refuses them only because plane B
+is empty (MEASURED, §C item 9).
+
+**Routes.** Metropolis is the hub, and Oil Ocean is diagonally across the act from the start.
+- **Main:** Emerald Hill, C5, Metropolis west, C6, **through Chemical Plant**, C7, Metropolis
+  east, C9, Oil Ocean.
+- **Under:** Emerald Hill, C4, Hidden Palace, C10, Metropolis west. This is a second way to
+  Metropolis.
+- **Sky:**
+  - Emerald Hill, C1, Wing Fortress;
+  - Metropolis west, C2, Wing Fortress;
+  - Wing Fortress, C3, a drop into Chemical Plant.
+  - So there are three ways into the sky, and one is a way down into the middle of the
+    Chemical Plant pocket.
+- **Drop:** Chemical Plant, C8, Oil Ocean. This is a shortcut past Metropolis east.
+
+**What was traded, and why:**
+- **Wing Fortress sits 288 px above Emerald Hill, but 528 px above Metropolis and Chemical
+  Plant.** The zones under it are in another BG blob.
+  - Putting Wing Fortress, Metropolis and Chemical Plant in one blob would need 397 tiles
+    against 376 (INFERRED, sum of the MEASURED counts).
+  - Splitting the fortress into two clips at two heights would break the ship.
+- **Metropolis east has only one way in** from the main row (C7), plus C9 from below.
+
+---
+
+## C. What needs building
+
+Sizes: **S** a day or less, **M** a few days, **L** a week or more (INFERRED from reading).
+"Engine" means `.emp`; everything else is Python tooling or content. v1's §6 items keep their
+numbers.
+
+| # | Item | Where | Size | Woven status |
+|---|---|---|---|---|
+| 1 | **2-D region plan.** The regions as rectangles, planned by the balanced-slack rule `woven.py` uses, fill included. Two clips of one zone (MTZ) already chain in the row plan (READ: `region_plan` walks runs of `zone_key`) | `clip_rom_bake.py` `region_plan` | **L** | required |
+| 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | required |
+| 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | required |
+| 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | required |
+| 5 | 2-D reachability | `clip_reachability.py` | M | required |
+| 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | required |
+| 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
+| 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |
+| 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **first** |
+| 10 | Layer lines accept HPZ (L1) and WFZ (L5) | `s2_layer_lines.py` | S | required |
+| 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | required |
+| 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
+| 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **needed for 384 / 288**; without it, 480 across |
+| 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | required |
+| 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | required |
+| 16 | Per-region camera bounds | `camera.emp` | M | optional |
+| 17 | CRAM line-0 cells (CPZ 168, WFZ 32) | content | S to accept | as v1 |
+| W1 | **Art headroom at the MTZ / CPZ seam:** re-measure with real tunnels once item 9 lands; then trim or add a frame (§A.5) | bake, maybe VRAM | S to measure | required |
+| W2 | Faster BG overwrite (optional lever, §A.2) | `engine/level/bg.emp` | S-M, engine | optional |
+
+**Total to a first playable woven act (INFERRED):**
+- items 1 to 15 and W1: two L, six M, eight S;
+- 16 and W2 are optional.
+
+### The fastest first woven screen on the owner's screen
+
+**Chemical Plant inside Metropolis, as a ONE-ROW act:** Metropolis west, a 384 tunnel,
+Chemical Plant, a 384 tunnel, Metropolis east.
+
+- **It needs almost nothing new.**
+  - The row bake's `region_plan` already chains Metropolis, Chemical Plant, Metropolis
+    (READ).
+  - The `s2_ehz_cpz` crossing overrides give snap plus co-resident backgrounds. CPZ + MTZ is
+    314 tiles against 376 (MEASURED sum).
+  - Metropolis's background lowers (77 tiles) and it has no layer lines (MEASURED, v1).
+- **It is blocked by one item, 9, K6 (S).** The probe (`row_probe`, §E) tried every floor
+  row at Metropolis west's east edge, and every one was refused.
+- Then a clips.json, `clip_anchors.py --derive`, and `S2CLIP=<name> ./build.sh`.
+- **What the owner sees:** you run through a pocket of Chemical Plant and come out in the
+  same Metropolis on the far side. It is weaving in one dimension.
+- **Known caveat:** at 384 px, without item 13, the far background slides for 3 to 4 frames
+  at the camera cap (QUOTED 09-25 §8.7). At 480 px it does not.
+- **Estimate:** a day or two (INFERRED).
+
+**Second: Emerald Hill on top of Hidden Palace** (the first vertical seam). It needs:
+- a two-region vertical split (a small first cut of item 1);
+- a drop shaft (the smallest part of item 2);
+- Z2 vertical (part of item 3);
+- items 10 and 11 for HPZ, and item 13;
+- EHZ + HPZ co-resident (286 tiles, MEASURED sum).
+
+About one to two weeks (INFERRED). Everything after that is the full list.
+
+---
+
+## D. The owner's choices
+
+1. **Is this the shape?** Wing Fortress across the top, Emerald Hill over Hidden Palace,
+   Chemical Plant as a pocket inside Metropolis, Oil Ocean under them.
+   *Recommendation: yes.* The clip choices are one line each to change, and the seam rule
+   re-derives every position.
+2. **Which seams get the shortest connectors?** Backgrounds decide it. Zones that share a BG
+   blob get 384 across or 288 up and down; others get 464 to 624. The blobs drawn make the
+   showcase seams the short ones: Chemical Plant in Metropolis, Emerald Hill on Hidden Palace,
+   Wing Fortress over Emerald Hill.
+   *Recommendation: these blobs.*
+3. **The cloud band's look (a look call).** An opaque bank of clouds on the character's
+   palette line, drawn in the picture from Emerald Hill's own cloud art. It has to be opaque;
+   see-through clouds would show the background changing.
+   *Recommendation: accept this sample for the first build*, and repaint later if it reads
+   wrong.
+4. **The rock fill's look.** It is the tunnel's grey, and it is everywhere between zones: 96
+   to 176 px where nothing crosses.
+   *Recommendation: accept it for now.*
+5. **384 with a brief background slide, or 480 with none?** At the camera cap only.
+   *Recommendation: build the ratchet exemption (item 13).* Vertical crossings need it anyway.
+6. **Springs.** Every "ledges" lane is a stand-in for a spring.
+   *Recommendation: cloud ledges and stair ledges now; springs when objects arrive.*
+7. **Music (the owner's ask).** The four songs need drum mappings: timpani (WFZ), low tom (HPZ
+   and MTZ), clap and scratch (MTZ), and one PSG envelope (OOZ). HPZ also needs a converter
+   fix.
+   *Recommendation:* extend the S2CLIP-MUSIC-DRUMS "Sonic 3 drums" ruling to these names,
+   the owner picking the S3K sample for each, as its own sound parcel.
+8. **The art budget is at the limit.** 12 of 12, and 13 in 108 windows if the tunnel art gets
+   its own page.
+   *Recommendation: measure with real tunnels first (after item 9).* Trim the seam clips
+   before asking for a page frame, which is VRAM the objects also want.
+9. **A mixing seam (two zones on one screen)?** Not offered. The owner's clarification rules
+   it out, and §A.1 says the engine would need new raster machinery for it.
+
+---
+
+## E. Reproduce
+
+Scratch goes under `$HOME`. Only `measure_rom.py` touches the repo, and it saves and restores
+`act_grid.emp` itself.
+
+```bash
+export TMPDIR=/home/volence/.cache/aeon-tmp
+D=docs/research/2026-09-27-mega-act-woven
+python3 tools/s2_zone_convert.py convert s2disasm@EHZ s2disasm@CPZ s2disasm@WFZ s2disasm@OOZ \
+    s2disasm@MTZ s2-simonwai-disasm@HPZ            # 6 zones, 0 differing, 0 FAILED
+python3 $D/bg_tiles.py                             # BG tiles per zone, pair sums
+(cd $D && python3 build_layout.py)                 # layout.json from the seam rule
+(cd $D && python3 woven.py check layout.json)      # MIXED 0, WRONG 0, 18 crossings slack +0, PASS
+(cd $D && python3 controls.py)                     # 4 of 4 controls red
+(cd $D && python3 woven.py edges s2disasm/CPZ 7168,0,2048,2048)       # per-edge view reach
+(cd $D && python3 woven.py seal s2disasm/EHZ:6144,0,2560,1024 \
+    s2-simonwai-disasm/HPZ:5632,0,2560,2048 --below)                    # 144 px
+(cd $D && python3 woven.py manifest layout.json --grid 6 4 --out draft_clips.json)
+python3 tools/clip_manifest.py validate $D/draft_clips.json            # OK, 9 W3 warnings
+python3 tools/clip_act_bake.py bake $D/draft_clips.json --out ~/.cache/aeon-tmp/woven/bake
+    # 245 of 255; worst 12 of 12, 0 of 725,207 over
+python3 $D/art_window.py $D/layout.json ~/.cache/aeon-tmp/woven/bake    # 13 in 108 with connector art
+python3 docs/research/2026-09-27-mega-act-layout/measure_rom.py $D/draft_clips.json \
+    --scratch ~/.cache/aeon-tmp/woven/rom --salvador <main checkout>/tools/bin/salvador   # 306,786 B
+python3 docs/research/2026-09-27-mega-act-layout/measure_clips.py union \
+    s2disasm/EHZ:6144,0,2560,1024 s2disasm/CPZ:7168,0,2048,2048 \
+    s2-simonwai-disasm/HPZ:5632,0,2560,2048 s2disasm/MTZ:0,0,1536,2048 \
+    s2disasm/MTZ:1536,0,1536,2048 s2disasm/OOZ:8192,0,3072,1888 s2disasm/WFZ:1024,256,6144,1536  # 245
+python3 $D/music_probe.py                          # 4 refusals; sizes with placeholders
+(cd $D && python3 woven.py render layout.json --out mega-act-woven.png)
+```
+
+The one-row K6 probe (§C, "fastest first woven screen") was a scratch script. It is not
+committed. It built the three-clip row with a 384-px tunnel at each floor row from 512 to
+1776 and ran `clip_act_bake.py bake`: 80 of 80 rows REFUSED by K6 at x = 1535. Of those, 3
+rows (640, 768, 1664) were refused as "planes disagree (16 and 0)" and 77 because there is no
+flush floor on that row (71 with no ground on the row, 6 with ground in the row above).
+
+**Files beside this report:**
+- `woven.py`: the check, edge survey, seal search, manifest and render entry point.
+- `build_layout.py`: builds the layout, deriving positions from the rule.
+- `controls.py`: the four controls.
+- `bg_tiles.py`: background tiles per zone.
+- `art_window.py`: the art window with connector art.
+- `music_probe.py`: the song importer probe.
+- `render_woven.py`: the picture.
+- `layout.json`, `draft_clips.json`: the inputs.
+- `mega-act-woven.png`: the picture.
+
+Measured on 2026-09-27 against base `d1207465`, with the converted trees from this run.

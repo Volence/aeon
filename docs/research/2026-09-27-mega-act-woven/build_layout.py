@@ -154,6 +154,19 @@ def main():
         "scale": 8, "grid": grid, "spawn": [320, ehz_y + 640],
         "bg_tiles": BG_TILES, "blobs": BLOBS,
         "clips": clips, "connectors": con,
+        "notes": [
+            "MAIN ROUTE: Emerald Hill -C5-> Metropolis (west) -C6-> Chemical Plant -C7-> "
+            "Metropolis (east) -C9-> Oil Ocean.   CPZ is a pocket you pass through; MTZ carries "
+            "on at the other side.",
+            "UNDER: Emerald Hill -C4-> Hidden Palace -C10-> Metropolis (west).   SKY: Emerald "
+            "Hill -C1-> Wing Fortress; Metropolis -C2-> Wing Fortress -C3-> drop into Chemical "
+            "Plant.   DROP: Chemical Plant -C8-> Oil Ocean.",
+            "Each lane's length is its seam's minimum: screen (320 across / 224 up-down) + "
+            "16 px x the background frames of both sides (2 when the two zones share a BG blob).",
+            "Checked over every reachable camera (woven.py check): 0 screens show two zones; "
+            "every crossing at slack 0.   Collision 245 / 255.   Art window 12 / 12 on the clips.",
+            "No objects: every 'ledges' lane stands in for a spring until objects exist.",
+        ],
     }
     (HERE / "layout.json").write_text(json.dumps(spec, indent=1) + "\n")
     print(f"act {W} x {H} px -> grid {grid[0]} x {grid[1]} sections")
