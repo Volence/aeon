@@ -242,18 +242,19 @@ def test_an_airborne_pass_over_the_interior_is_not_a_lap():
     assert lap["laps"] == 0 and lap["verdict"] == "unmeasured", lap
 
 
-def test_falling_through_the_floor_or_leaving_over_the_top_is_named_not_passed():
+def test_falling_through_the_floor_or_leaving_over_the_top_fails_named():
     """One lap on the right planes, then the collision loses him: measured 2026-09-26 at
     3..10 px/frame rightward from some phases (angle $24 held past the left arc's foot,
-    through the floor) and at 10 px/frame (thrown right along the crown's underside). NOT
-    MEASURED with the fault named; a wrong LAYER at the same exit still fails."""
+    through the floor) and at 10 px/frame (thrown right along the crown's underside). Both
+    were fixed by LOOP-COLLISION (2026-09-27), so they FAIL with the fault named (they were NOT
+    MEASURED while they were open); a wrong LAYER at the same exit fails too."""
     rows = _lap("right")
     ex = next(r for r in rows if r["x"] >= L.LOOP_SIDES[1])
     for mutate, needle in ((dict(air=1, y=ex["y"] + 380), "FELL THROUGH THE FLOOR"),
                            (dict(air=1, y=414), "LEFT OVER THE TOP")):
         rs = [dict(r, **mutate) if r is ex else r for r in rows]
         lap = L.lap_check(rs, "right", EQUS)
-        assert lap["verdict"] == "unmeasured" and needle in lap["why"], (mutate, lap)
+        assert lap["verdict"] == "fail" and needle in lap["why"], (mutate, lap)
         rs = [dict(r, layer=1, **mutate) if r is ex else r for r in rows]
         assert L.lap_check(rs, "right", EQUS)["verdict"] == "fail"
 
@@ -272,8 +273,8 @@ def test_coming_down_on_the_wrong_plane_fails(direction):
 def test_going_out_through_the_crown_is_not_a_lap():
     """Measured at PHYS_GSP_CAP leftward from some phases, before and after LOOP-EXIT alike:
     the rider climbs the left arc and passes UP through the crown, crossing LOOP_MID_X above
-    it, and ends standing on top of the loop. That crossing is not a lap, and the drive is
-    NOT MEASURED with the crown named, not failed: it is a collision fault, not a layer one."""
+    it, and ends standing on top of the loop. That crossing is not a lap. A collision fault,
+    not a layer one, and fixed by LOOP-COLLISION (2026-09-27): it FAILS with the crown named."""
     top = L.loop_geometry()["top"]
     rows = [r for r in _lap("left") if r["y"] == FLOOR and r["x"] >= LEFT_ARC]
     f = rows[-1]["frame"]
@@ -282,7 +283,7 @@ def test_going_out_through_the_crown_is_not_a_lap():
     rows += [dict(rows[-1], frame=rows[-1]["frame"] + k, x=rows[-1]["x"] + 6 * k)
              for k in range(1, 10)]                              # across the mid, over the top
     lap = L.lap_check(rows, "left", EQUS)
-    assert lap["laps"] == 0 and lap["verdict"] == "unmeasured", lap
+    assert lap["laps"] == 0 and lap["verdict"] == "fail", lap
     assert "THROUGH THE CROWN" in lap["why"]
 
 
@@ -357,8 +358,9 @@ def test_thrown_out_backwards_then_a_clean_retry_is_not_a_double_lap():
     """Measured at 13 and 15 px/frame rightward from some phases after LOOP-EXIT: over the
     crown, then out THROUGH the left arc (grounded on plane A, its own plane), back past the
     near side, and a clean second attempt. The second crown crossing belongs to a new
-    attempt, so the drive is NOT MEASURED with the fault named, never a DOUBLE LAP; two laps
-    before any such exit still are (the old floor lines' defect, above)."""
+    attempt, so the drive FAILS with the fault named (fixed by LOOP-COLLISION, 2026-09-27; it
+    was NOT MEASURED while open), never a DOUBLE LAP; two laps before any such exit still are
+    (the old floor lines' defect, above)."""
     one = _lap("right")
     crown = next(i for i, r in enumerate(one) if r["y"] == TOP and r["x"] < 1130)  # on A now
     out = [dict(one[crown], frame=one[crown]["frame"] + k, x=LEFT_ARC - 8 * k, y=FLOOR)
@@ -366,9 +368,49 @@ def test_thrown_out_backwards_then_a_clean_retry_is_not_a_double_lap():
     retry = [dict(r, frame=out[-1]["frame"] + 1 + i) for i, r in enumerate(_lap("right"))]
     rows = one[:crown + 1] + out + retry
     lap = L.lap_check(rows, "right", EQUS)
-    assert lap["verdict"] == "unmeasured" and "THROWN OUT THROUGH THE LEFT ARC" in lap["why"], lap
+    assert lap["verdict"] == "fail" and "THROWN OUT THROUGH THE LEFT ARC" in lap["why"], lap
+    assert "DOUBLE LAP" not in lap["why"]
     lap2 = L.lap_check(_lap("right", laps=2, table=OLD_TABLE) + out, "right", EQUS)
     assert lap2["verdict"] == "fail" and "DOUBLE LAP" in lap2["why"]
+
+
+def test_coming_off_before_the_crown_is_still_not_measured():
+    """Class b (DEFERRED_WORK LINES-EVERYWHERE item 3) is still open, so it stays a report:
+    climbed above the half height, came off, never reached the far side."""
+    rows = _lap("right")
+    stop = next(i for i, r in enumerate(rows) if r["y"] < 480)
+    lap = L.lap_check(rows[:stop + 3], "right", EQUS)
+    assert lap["verdict"] == "unmeasured" and "came off before riding over the crown" in lap["why"]
+
+
+def test_the_fault_drives_arm_runs_exactly_the_recorded_drives(monkeypatch, capsys):
+    """--fault-drives drives FAULT_DRIVES and nothing else, each at the sweep's frames, and a
+    lap it fails is exit 1."""
+    calls = []
+
+    def res(direction):
+        return {"rows": _lap(direction), "table": LAP_TABLE}
+    _stub(monkeypatch, res, ["--fault-drives"])
+    real = L.drive
+
+    async def spy(*a, **k):
+        calls.append((a[7], a[3], a[6], a[4]))           # direction, gsp, start dx, frames
+        return await real(*a, **k)
+    monkeypatch.setattr(L, "drive", spy)
+    assert L.main() == 0, capsys.readouterr().out
+    assert calls == [(d, g, dx, L.FAULT_FRAMES) for d, g, dx, _c, _w in L.FAULT_DRIVES]
+    assert {c[:1] for _d, _g, _dx, c, _w in L.FAULT_DRIVES} == {"a", "c", "d", "e"}
+
+    def fell(direction):
+        rows = _lap(direction)
+        ex = next(r for r in rows if (r["x"] >= L.LOOP_SIDES[1] if direction == "right"
+                                      else r["x"] <= L.LOOP_SIDES[0]))
+        return {"rows": [dict(r, air=1, y=r["y"] + 380) if r is ex else r for r in rows],
+                "table": LAP_TABLE}
+    _stub(monkeypatch, fell, ["--fault-drives"])
+    rc = L.main()
+    text = capsys.readouterr().out
+    assert rc == 1 and "FELL THROUGH THE FLOOR" in text, text
 
 
 # ---------------------------------------------------------------------------------------

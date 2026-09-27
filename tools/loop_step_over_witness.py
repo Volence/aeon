@@ -78,6 +78,7 @@ Usage:
     loop_step_over_witness.py --rom A.bin --lst A.lst --compare B.bin B.lst   (A/B, per frame)
     loop_step_over_witness.py ... --dir right --gsp 0x900 -v
     loop_step_over_witness.py ... --phase-sweep
+    loop_step_over_witness.py ... --fault-drives       (the drives each fixed collision class showed on)
     loop_step_over_witness.py ... --stand-reverse      (standing/turning at the floor lines)
 """
 
@@ -156,14 +157,18 @@ LAND_FRAMES = 8                       # released -> feet on the ground, before i
 #: exit; one lap and then no exit within the frames; an exit off the floor or moving the wrong
 #: way that is not one of the named faults below; reaching the far side without ever
 #: climbing above the half height (he went under or through the loop).
+#: FAIL, NAMED (collision faults, not layer ones; measured 2026-09-26 as DEFERRED_WORK
+#: LINES-EVERYWHERE item 3 a, c, d, e and FIXED by LOOP-COLLISION, 2026-09-27, so they are
+#: failures again rather than reports): after one lap with the exit on plane A at low
+#: priority, FELL THROUGH THE FLOOR (a) or LEFT OVER THE TOP (e); WENT OUT THROUGH THE CROWN
+#: (c); THROWN OUT THROUGH the arc he was descending, his centre beyond its inner face (d).
 #: DID NOT COMPLETE (NOT MEASURED, printed with the fault named): no lap and no exit; climbed
-#: and came off before riding over the crown; WENT OUT THROUGH THE CROWN; THROWN OUT THROUGH
-#: the arc he was descending (his centre beyond its inner face) after a lap; and, after one lap
-#: with the exit on plane A at low priority, LEFT OVER THE TOP or FELL THROUGH THE FLOOR. Each
-#: is a collision/slope fault with the rider on the plane of the surface he is on, not a layer
-#: fault; all were measured 2026-09-26 (DEFERRED_WORK LINES-EVERYWHERE item 3, a..e), and the
-#: same classes occur on the old lines. Two laps BEFORE any of them is still a DOUBLE LAP. A
-#: run in which no drive was lap-graded is COULD NOT GRADE (exit 2).
+#: and came off before riding over the crown (b, still open: DEFERRED_WORK LINES-EVERYWHERE
+#: item 3). A collision/slope fault with the rider on the plane of the surface he is on, not a
+#: layer fault. Two laps BEFORE any of these is still a DOUBLE LAP. A run in which no drive
+#: was lap-graded is COULD NOT GRADE (exit 2).
+#: THE FAULT DRIVES (--fault-drives, FAULT_DRIVES below) are the drives that showed each fixed
+#: class, so a regression of any of the fixes is red on a default lane.
 #: KNOWN BLIND SPOT, measured: a rider who falls off the crown BEFORE LOOP_MID_X is "came off
 #: before riding over the crown" (NOT MEASURED) even when a missing layer change made him fall.
 #: The old lines' leftward 9 px/frame drive is such a case (grounded on A at (1151, 414), above
@@ -172,6 +177,26 @@ LAND_FRAMES = 8                       # released -> feet on the ground, before i
 #: would pass here, and the line grade above would not see it either.
 LOOP_SIDES = (DRIVES["right"]["x"], DRIVES["left"]["x"])
 LOOP_MID_X = sum(LOOP_SIDES) // 2
+
+#: THE FAULT DRIVES (--fault-drives; LOOP-COLLISION, 2026-09-27). Each is a drive that SHOWED
+#: one of the collision classes the lap check now fails, found by the speed x phase sweep
+#: (--phase-sweep --gsp G --frames 300 for G = $300..$1000, both directions: 224 drives) on
+#: the DEBUG ROM named, and fixed after it. Picked from the sweep, not typed: they are what a
+#: regression of each fix re-breaks. (direction, ground speed, start dx, class, measured on)
+FAULT_DRIVES = (
+    ("right", 0x600, 1, "a: FELL THROUGH THE FLOOR",
+     "origin/master 5d666641 (crc 006022dc); fixed by 73ecdcdb, the angle before the distance"),
+    ("left", 0x1000, 2, "c: WENT OUT THROUGH THE CROWN",
+     "5d666641 (crc 006022dc); fixed by 73ecdcdb"),
+    ("right", 0xA00, 2, "d: THROWN OUT THROUGH THE LEFT ARC",
+     "5d666641 and 73ecdcdb (crc 3b1fa7c8); fixed by 18fda754, the corners' backing"),
+    ("right", 0xA00, 6, "e: LEFT OVER THE TOP",
+     "5d666641 (crc 006022dc); fixed by 73ecdcdb"),
+    ("right", 0xF00, 2, "d: THROWN OUT THROUGH THE LEFT ARC",
+     "18fda754 (crc bf40df95); fixed by 50ae6ef4, AnglePos's $A0 rounding"),
+)
+#: The sweep's frames per drive: the fault drives are graded exactly as they were found.
+FAULT_FRAMES = 300
 
 
 def parse_lst(path, extra_syms=(), extra_equs=()):
@@ -364,7 +389,7 @@ def lap_check(live, direction, equs, geometry=None):
                     % (lap_frames[0], half, wrong["frame"], wrong["x"], wrong["y"],
                        wrong["layer"], down_plane))
     if thrown is not None:
-        return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: THROWN OUT "
+        return dict(out, verdict="fail", why="THROWN OUT "
                     "THROUGH THE %s ARC after the crown (frame %d, centre at (%d, %d), beyond "
                     "its inner face x %d). A collision fault on the arc he was descending, not a "
                     "layer one: he came down it on its own plane (checked)"
@@ -374,7 +399,7 @@ def lap_check(live, direction, equs, geometry=None):
             return dict(out, verdict="fail", why="one lap (frame %s) and never reached x %d, "
                         "the loop's far side" % (lap_frames[0], far))
         if over is not None:
-            return dict(out, verdict="unmeasured", why="DID NOT COMPLETE the loop: WENT OUT "
+            return dict(out, verdict="fail", why="WENT OUT "
                         "THROUGH THE CROWN (frame %d at (%d, %d), above its outer top y %d) and "
                         "never reached x %d. A collision fault, not a layer one: no line can "
                         "hold a rider inside a crown he passes through"
@@ -407,12 +432,12 @@ def lap_check(live, direction, equs, geometry=None):
         return dict(out, verdict="fail", why="one lap, but at the exit (frame %d, x %d): %s"
                     % (exit_row["frame"], exit_row["x"], "; ".join(bad)))
     if exit_row["y"] < half:
-        return dict(out, verdict="unmeasured", why="one lap on the right planes, then LEFT "
+        return dict(out, verdict="fail", why="one lap on the right planes, then LEFT "
                     "OVER THE TOP: reached x %d at frame %d airborne at y %d, above the loop's "
                     "half height. A collision fault at the crown, not a layer one (on plane A, "
                     "low priority)" % (far, exit_row["frame"], exit_row["y"]))
     if exit_row["air"] and exit_row["y"] > y0 + FLOOR_SLACK:
-        return dict(out, verdict="unmeasured", why="one lap on the right planes, then FELL "
+        return dict(out, verdict="fail", why="one lap on the right planes, then FELL "
                     "THROUGH THE FLOOR: reached x %d at frame %d airborne at y %d, %d px below "
                     "the landed height. A collision/slope fault at the %s arc's foot, not a "
                     "layer one (on plane A, low priority)"
@@ -865,6 +890,9 @@ def main():
                     help="at the cap (or --gsp), sweep start-dx over one COLL_CELL_W stride "
                          "in each direction: the sub-cell phase decided a painted mark's "
                          "step-over, so it is the variable a line must be indifferent to")
+    ap.add_argument("--fault-drives", action="store_true",
+                    help="the drives that showed each collision class the lap check fails "
+                         "(FAULT_DRIVES), at the sweep's %d frames" % FAULT_FRAMES)
     ap.add_argument("--stand-reverse", action="store_true",
                     help="instead of the loop drives: stand beside and on the loop's entry and "
                          "exit floor lines, walk over them and turn back (STAND_REVERSE)")
@@ -882,7 +910,15 @@ def main():
               [equs["PHYS_TOP_SPEED"], (equs["COLL_CELL_W"] + 1) << 8, equs["PHYS_GSP_CAP"]])
     dirs = args.dir or ["right", "left"]
     runs = []
-    if args.phase_sweep:
+    if args.fault_drives:
+        print("FAULT DRIVES: %d drive(s), each the one that showed a collision class the lap "
+              "check fails, at %d frames" % (len(FAULT_DRIVES), FAULT_FRAMES))
+        for dr, gsp, dx, cls, where in FAULT_DRIVES:
+            print("  %s gsp $%04X dx%+d  %s  [%s]" % (dr, gsp, dx, cls, where))
+        args.frames = FAULT_FRAMES
+        plan = [(dr, gsp, dx) for dr, gsp, dx, _cls, _where in FAULT_DRIVES
+                if dr in dirs]
+    elif args.phase_sweep:
         cw = equs["COLL_CELL_W"]
         gsp = speeds[-1]
         print("PHASE SWEEP at gsp $%04X (%d px/frame against a %d px cell), start X shifted "
