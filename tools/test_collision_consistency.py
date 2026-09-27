@@ -137,6 +137,28 @@ def test_rule_a_exempts_buried_blocks():
     assert v[0]["row"] == 1
 
 
+def test_rule_a_reads_the_section_above_at_row_zero():
+    """probe_core re-probes one cell up in WORLD space, so row 0's upper neighbour is the
+    section above's last row. A flat run at row 0 under a floor-class row above is BURIED
+    (the woven clip act's 4 false runs, 2026-09-27); under air, or at the act's top edge
+    (above=None), it is exposed and judged exactly as before."""
+    heights, angles, solidity = _tables({1: (FULL, 0xE0, SOLID_ALL)})
+    grid = _grid(4, 10, {(0, c): 1 for c in range(6)})
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[1] * 10)
+    assert v == [], "a run under a solid row in the section above is buried"
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[0] * 10)
+    assert len(v) == 1 and v[0]["row"] == 0, "under AIR above it is exposed (control)"
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP)
+    assert len(v) == 1, "with nothing above (the act's top edge) it is exposed (control)"
+    # the upper row must pass the FLOOR class to bury it, as inside a section
+    heights, angles, solidity = _tables({1: (FULL, 0xE0, SOLID_ALL), 2: (FULL, 0, 2)})
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[2] * 10)
+    assert len(v) == 1, "an LRB-only row above does not bury it"
+
+
 def test_rule_a_ignores_cells_that_fail_the_floor_class():
     """SOLID_LRB-only cells never pass the floor sensor's class mask."""
     heights, angles, solidity = _tables({1: (FULL, 0xE0, 2)})   # SOLID_LRB

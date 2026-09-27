@@ -422,8 +422,15 @@ def is_flat_angle(angle: int) -> bool:
 
 
 def find_flat_run_violations(coll_rows, heights, angles, solidity, solid_top,
-                             run_min=RUN_MIN_COLUMNS):
+                             run_min=RUN_MIN_COLUMNS, above=None):
     """RULE A. coll_rows = [ [attr]*num_cols ] * num_rows for ONE plane.
+
+    `above` is the SAME plane's bottom collision row of the section directly above
+    (None: nothing above, the act's top edge). probe_core's `.full_back` re-probes one
+    cell up in WORLD space, so row 0's upper neighbour is that section's last row, not
+    air. Reading it as air flagged buried full blocks at every section-row boundary as
+    exposed (MEASURED 2026-09-27, the woven clip act s2_mtz_cpz: 4 false runs, section 5
+    row 0, each under a solid cell in section 2's last row).
 
     Returns (violations, stats). A violation is a dict describing one maximal
     horizontal run of floor-exposed full cells, of at least `run_min` columns,
@@ -433,9 +440,14 @@ def find_flat_run_violations(coll_rows, heights, angles, solidity, solid_top,
     num_cols = len(coll_rows[0]) if num_rows else 0
 
     def passes_floor_class(row, col):
-        if row < 0 or row >= num_rows or col < 0 or col >= num_cols:
+        if col < 0 or col >= num_cols or row >= num_rows or row < -1:
             return False
-        a = coll_rows[row][col]
+        if row == -1:
+            if above is None:
+                return False
+            a = above[col]
+        else:
+            a = coll_rows[row][col]
         return a != 0 and bool(solidity[a] & solid_top)
 
     def floor_exposed_full(row, col):
@@ -821,6 +833,16 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
            **{f"cleared_{s}": 0 for s in EXPOSURE_STAGES[:-1]}}
     va, vb = [], []
 
+    # The section grid's width, so RULE A can read the section ABOVE's last row (see
+    # find_flat_run_violations). Read from the tree's own act_grid.emp, as the engine
+    # compiles it; a tree without one has no stacking to read across.
+    grid_path = os.path.join(gen_dir, "act_grid.emp")
+    grid_w = None
+    if os.path.isfile(grid_path):
+        import act_grid
+        grid_w = act_grid.descriptor_grid(grid_path)[0]
+
+    parsed = {}
     for sec, path in sections:
         with open(path, "rb") as f:
             raw = f.read()
@@ -830,13 +852,19 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
                 f"STRIP_BYTE_SIZE={ojz_block_gen.STRIP_BYTE_SIZE} — refusing to "
                 f"guess the strip layout")
         _nt, ca, cb = ojz_block_gen.parse_strips(raw)
+        parsed[sec] = {"A": ca, "B": cb}
+
+    for sec, _path in sections:
+        ca, cb = parsed[sec]["A"], parsed[sec]["B"]
+        up = parsed.get(sec - grid_w) if grid_w and sec >= grid_w else None
         pop["sections"] += 1
         for plane_name, grid in (("A", ca), ("B", cb)):
             pop["planes"] += 1
             pop["cells"] += sum(len(r) for r in grid)
             pop["nonair_cells"] += sum(1 for r in grid for a in r if a)
             ra, sa = find_flat_run_violations(grid, heights, angles, solidity,
-                                              solid_top)
+                                              solid_top,
+                                              above=up[plane_name][-1] if up else None)
             rb, sb = find_exposed_pinhole_violations(
                 grid, heights, solidity, solid_top, lp["SOLID_LRB"],
                 lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
