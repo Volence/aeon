@@ -267,6 +267,22 @@ ROM (crc 2a0f1df3): 20,393 cells wrong over 9 of 9 stops, every one drawn blank 
 screen 191 visible cells. GREEN after Tile_Cache_Init's settle loop. On a canonical ROM it exits 2
 (no clip act, no baked tree named)."""
 
+[wired."clip_bg_scroll_witness.py"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--warp-entry"]
+expect = 0
+timeout = 900
+note = """WOVEN-HPZ-BG-MISALIGNED (2026-09-27). The woven mega-act's backgrounds against Sonic 2: 164
+settled probes (placed through the DEBUG warp mailbox; the old raw Camera_X/Y poke made the tile
+cache walk across the act and starve the BG streamer, a harness artefact), then the ENTRY leg
+(every frame after a warp into each tall layout) and the FLIGHT leg (free flight from Wing
+Fortress through wfz_to_ehz -> ehz_to_hpz and down Hidden Palace), each graded line by line
+against Sonic 2's scroll KIND for the row the line shows. RED on the owner's ROM (crc 2a0f1df3):
+ENTRY 4 of 4 Hidden Palace layouts and FLIGHT 160 of 160 frames, Wing Fortress's cloud-drift
+accumulators added to every later zone's bands. RED on a mutant that clears them only on a warp
+(FLIGHT 161 of 161, ENTRY green): the flight is what grades the crossing. GREEN after the fix.
+Before this row the witness was a manual lane (s2_ehz_cpz, 24 probes, 2026-09-25). On a
+canonical ROM it exits 2 (no clip parallax records)."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 
@@ -536,7 +552,6 @@ it is not a verdict about pagecache_audit_poison."""
 "fm6_foreign_sample_witness.py" = "same shape: carries --build-only and constructs its own ROM."
 
 # -- need the S2CLIP clip ROM, which the keepalive lane does not build ------------------
-"clip_bg_scroll_witness.py" = "needs s4.s2clip.debug.bin / .lst from `S2CLIP=s2_ehz_cpz DEBUG=1 ./build.sh`; the keepalive lane hands tools the canonical {rom}, which carries no OJZ_Clip_Parallax_* records (the witness exits 2 COULD NOT RUN on it by design). Manual lane, S2CLIP-ORIGINAL-BGS B-2: 24 probes exact on the clip DEBUG ROM, 2026-09-25."
 "tunnel_run_witness.py" = "needs a CLIP ROM, not the canonical one: it runs a player through a clip act's corridor (S2CLIP-TUNNEL, 2026-09-25) and reads the corridor out of a clips.json through the converted donor trees, which are gitignored. The canonical s4.debug.bin carries no corridor, and an S2CLIP build is a throwaway shape (minutes of re-bake plus donors), not one emulator boot."
 "clip_music_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player out of the tunnel both ways and asserts one music request at act load and one at each tunnel exit (S2CLIP-REGION-MUSIC step 7). The canonical s4.debug.bin names no song on any row and has no corridor, so a run there has no subject. Manual lane: GREEN on both clip shapes and RED on a no-split mutant, 2026-09-25 (docs/DEFERRED_WORK.md). Its Q1 (no PSG channel sounds the previous song's latch after a load, 2026-09-27) has a wired twin on the canonical DEBUG ROM: psg_song_switch_witness.py."
 "crossing_witness.py" = "needs a CLIP ROM for the same reason as tunnel_run_witness.py: it runs a player through a two-clip act's corridor and times the palette and background switch at the zone crossing (docs/research/2026-09-25-shorter-connector.md). The canonical s4.debug.bin has one zone and no crossing, so a run there has no subject."

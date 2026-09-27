@@ -351,10 +351,14 @@ def step5_shape_check(text: str | None = None) -> None:
     # layout (d0) with the old row's (d4), each defaulted to Act.act_bg_layout.
     m = re.search(r"proc Parallax_CheckBoundary\s*\(\)[^{]*\{(.*?)^\}", txt, re.M | re.S)
     cb = re.sub(r"//[^\n]*", "", m.group(1)) if m else ""
-    rx = (r"movea\.l\s+Region_Current,\s*a1\s+cmpa\.w\s+#0,\s*a1\s+beq\s+\.snap_same\s+"
+    # Since WOVEN-HPZ-BG-MISALIGNED (2026-09-27) the null row and the layout-change arm both
+    # fall into `.new_picture` (the band-drift clear) before `.snap_same`; the null row still
+    # branches PAST the `st`, so the snap predicate this transcribes is unchanged.
+    rx = (r"movea\.l\s+Region_Current,\s*a1\s+cmpa\.w\s+#0,\s*a1\s+beq\s+\.new_picture\s+"
           r".*?move\.l\s+Act\.act_bg_layout\(a2\),\s*d1\s+move\.l\s+Region\.rg_bg_layout\(a0\),"
           r"\s*d0.*?move\.l\s+Region\.rg_bg_layout\(a1\),\s*d4.*?cmp\.l\s+d4,\s*d0\s+beq\s+"
-          r"\.snap_same\s+st\s+Parallax_BG_Snap\s+\.snap_same:\s+move\.l\s+a0,\s*Region_Current")
+          r"\.snap_same\s+st\s+Parallax_BG_Snap\s+\.new_picture:.*?\.snap_same:\s+"
+          r"move\.l\s+a0,\s*Region_Current")
     if not re.search(rx, cb, re.S):
         raise SetupError("Parallax_CheckBoundary no longer sets Parallax_BG_Snap on exactly a "
                          "crossing whose effective layout differs, as snapped_pair() transcribes "

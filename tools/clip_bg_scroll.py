@@ -1803,7 +1803,13 @@ def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0, drift_px=N
     `drift_px` is Parallax_Drift_Acc's PIXEL word per CONFIG BAND INDEX (scene_text emits one
     layer per spec band, in order, so config band k is spec band k). Parallax_Update adds it
     to every band's plane-B target (`add.w (a4), d2`, CAP_BAND_DRIFT), so it is added here to
-    every band; only a band with a drift rate ever has a non-zero accumulator. None = all 0."""
+    every band. A band with no drift rate is non-zero only when an earlier region of the SAME
+    picture drifted in that slot (d-43: the layer keeps its position); Parallax_CheckBoundary
+    clears every slot where the picture changes (WOVEN-HPZ-BG-MISALIGNED, 2026-09-27). Before
+    that clear, Wing Fortress's cloud phase rode on every later zone's bands and this model,
+    reading the live accumulators, agreed with the ROM: it cannot see that class, which is why
+    clip_bg_scroll_witness's ENTRY and FLIGHT legs grade against Sonic 2's KINDS instead.
+    None = all 0."""
     bands = spec["bands"]
     dpx = list(drift_px or []) + [0] * (len(bands) - len(drift_px or []))
     if vscroll is None:

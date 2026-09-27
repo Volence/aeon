@@ -1305,7 +1305,7 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         //    value). That is BG-RATE-PRIME-EXEMPTION, still open, and not this. --
         movea.l Region_Current, a1                  // (Region_Current).w — the row being left
         cmpa.w  #0, a1
-        beq     .snap_same                          // a synchronous prime path: see above
+        beq     .new_picture                        // a synchronous prime path: see above
         movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
         move.l  Act.act_bg_layout(a2), d1           // the act default
         move.l  Region.rg_bg_layout(a0), d0         // the new row's layout
@@ -1319,6 +1319,32 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         cmp.l   d4, d0
         beq     .snap_same
         st      Parallax_BG_Snap                    // (Parallax_BG_Snap).w
+    .new_picture:
+        // -- A NEW PICTURE STARTS ITS BAND DRIFT AT ZERO (WOVEN-HPZ-BG-MISALIGNED, 2026-09-27).
+        //    Parallax_Drift_Acc is kept per CONFIG BAND INDEX and Parallax_Update adds its pixel
+        //    part to EVERY enabled band's plane-B target, whatever that band's own rate. That is
+        //    d-43 ("a drifting background CONTINUES across a boundary") as long as band k is the
+        //    same layer of the same picture on both sides. Across a change of PICTURE it is not:
+        //    band k of the new background is a different layer, and it inherited the old one's
+        //    cloud position as a fixed offset that nothing ever advances or clears. MEASURED on
+        //    s2_woven (crc 2a0f1df3): after Wing Fortress (12 drifting bands) every other zone's
+        //    bands sat hundreds to thousands of px off Sonic 2, each by a different amount, so a
+        //    continuous Hidden Palace waterfall wall broke at every band edge (the owner's
+        //    sighting). So the accumulators clear exactly where the picture changes: on the
+        //    crossing that changes the effective layout (the Parallax_BG_Snap predicate, one
+        //    authority for "a different background") and on a synchronous prime (null previous
+        //    row: boot, where Parallax_Init has already zeroed them, and the DEBUG warp, a
+        //    teleport). A crossing inside one picture keeps them: d-43 holds where it applies.
+        //    Per-frame cost unchanged (the walker's fitted model); the crossing pays the clear.
+    if (Game.SCANLINE_CAPS & CAP_BAND_DRIFT) != 0 {
+    .cap_band_drift_reset_begin:
+        lea     Parallax_Drift_Acc, a1              // (Parallax_Drift_Acc).w — a1 is dead here
+        moveq   #BAND_DRIFT_N * MAX_PARALLAX_BANDS - 1, d0
+    .drift_clear:
+        clr.l   (a1)+
+        dbf     d0, .drift_clear
+    .cap_band_drift_reset_end:
+    }
     .snap_same:
         move.l  a0, Region_Current                  // the observable; engine logic never reads it
 

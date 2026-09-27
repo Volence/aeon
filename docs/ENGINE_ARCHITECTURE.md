@@ -2886,8 +2886,23 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   `demo`, whose capability-clear `Parallax_Update` elides that instruction. sigil's baseline gained
   a per-game family axis (`D1C_DEMO_EXTRA`) in the same paired commit. See
   `docs/DEFERRED_WORK.md`, "Band drift".
+- **THE ACCUMULATORS BELONG TO A PICTURE, AND CLEAR WHERE THE PICTURE CHANGES (2026-09-27,
+  WOVEN-HPZ-BG-MISALIGNED).** `Parallax_Update` adds slot k's pixel part to band k's target
+  WHATEVER band k's own rate (the accumulate is capability-gated, not rate-gated, above), so a
+  slot that drifted keeps moving the band that inherits its index. Inside one picture that is
+  `d-43` ("a drifting background CONTINUES across a boundary"): band k is the same layer on both
+  sides and keeps its position. Across a change of picture it was a bug: in the woven Sonic 2
+  act Wing Fortress's twelve cloud slots rode on every later zone's bands as fixed, per-band
+  offsets, and a continuous Hidden Palace waterfall wall tore at every band edge.
+  `Parallax_CheckBoundary` therefore clears all `BAND_DRIFT_N * MAX_PARALLAX_BANDS` slots
+  (`.cap_band_drift_reset`, the fourth `cap_band_drift_*` span) on exactly the crossings whose
+  effective background LAYOUT differs (the `Parallax_BG_Snap` predicate, one authority for "a
+  different background") and on a synchronous prime (null previous row: boot, DEBUG warp).
+  Per-frame cost unchanged; a picture change pays a 16-long clear. Graded by
+  `tools/clip_bg_scroll_witness.py --warp-entry` (ENTRY and FLIGHT legs, against Sonic 2's
+  scroll KIND per line), wired on the nightly woven ROM.
 - **TWO BUILD GATES, AND NEITHER SUBSTITUTES FOR THE OTHER.** `tools/effects_gates.py`'s
-  `scanline_spans` differential proves the three `cap_band_drift_*` instruction spans are emitted
+  `scanline_spans` differential proves the `cap_band_drift_*` instruction spans are emitted
   for sonic4 and elided for demo (the CODE half); `tools/band_drift_golden.py` reads each band's
   drift tail out of the built ROM and decodes it against the authored rate (the DATA half). A
   walker that faithfully accumulates a rate of zero passes the first and fails the second. Whether
