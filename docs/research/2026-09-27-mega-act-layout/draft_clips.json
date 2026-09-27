@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_mega_act_draft",
+  "name": "MEGA-ACT LAYOUT PROPOSAL (2026-09-27): six Sonic 2 clips in three bands, a DRAFT for measurement only",
+  "note": "NOT AN ACT. A measurement fixture for docs/research/2026-09-27-mega-act-layout.md: the six proposed clip rectangles at their proposed act positions and the two horizontal tunnels (832 and 1024 px, at least the default-rule 832), so tools/clip_act_bake.py can count the collision set, the pool and the camera-window page budget on the real rectangles. The four vertical shafts of the proposal are NOT here: the manifest has no vertical corridor kind (clip_manifest K3/K6 are floor-and-seam rules for a horizontal corridor), which is one of the proposal's unsupported items. tools/clip_rom_bake.py would refuse this manifest at region_plan (stacked clips), which is another. The act grid is 6x4 and not 5x4 because tools/ojz_entity_gen.py (ojz_strip_gen Pass 8, the INHERITED Oracle Jungle objects and rings) refuses a section count that is not a whole number of rows of 3. t3_hpz_mtz is kept although tools/clip_act_bake.py REFUSES it (K6: Hidden Palace has no plane-B floor anywhere, so at its east edge plane A says 16 and plane B says 0); the proposal's numbers were baked from this file with t3 removed, and that refusal is one of its unsupported items.",
+  "act": {
+    "grid_w": 6,
+    "grid_h": 4
+  },
+  "clips": [
+    {
+      "id": "ehz_double_loop",
+      "donor": "s2disasm",
+      "zone": "EHZ",
+      "src_rect": {
+        "x": 6144,
+        "y": 0,
+        "w": 2560,
+        "h": 1024
+      },
+      "dst_rect": {
+        "x": 768,
+        "y": 2240,
+        "w": 2560,
+        "h": 1024
+      },
+      "unaligned_dst_reason": "proposal: EHZ's east-edge floor (donor y 960) meets the T1 tunnel floor at act y 3200; its west edge opens onto the S1 stair shaft at x 0..767"
+    },
+    {
+      "id": "cpz_loop_cluster",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": {
+        "x": 7168,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 4160,
+        "y": 2048,
+        "w": 2048,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "proposal: starts where the 832-px T1 tunnel ends; its floor-edge opening at donor x 8064..9216 is the S2 drop shaft's top mouth"
+    },
+    {
+      "id": "hpz_great_diagonal",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 5632,
+        "y": 0,
+        "w": 2560,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 768,
+        "y": 4224,
+        "w": 2560,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "proposal: HPZ's east-edge floor (donor y 1408) meets the T3 tunnel floor at act y 5632; its west-edge ledge (donor y 1024) is the S1 shaft's bottom mouth"
+    },
+    {
+      "id": "mtz_opening",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 3072,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 4352,
+        "y": 4960,
+        "w": 3072,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "proposal: 1024 px of T3 west of it, 864 px below CPZ; its roof opening at donor x 800..992 sits under CPZ's floor opening (the S2 drop)"
+    },
+    {
+      "id": "ooz_east",
+      "donor": "s2disasm",
+      "zone": "OOZ",
+      "src_rect": {
+        "x": 8192,
+        "y": 0,
+        "w": 3072,
+        "h": 1888
+      },
+      "dst_rect": {
+        "x": 6848,
+        "y": 2304,
+        "w": 3072,
+        "h": 1888
+      },
+      "unaligned_dst_reason": "proposal: 640 px east of CPZ (sealed, no connector); 768 px above MTZ; floor-edge opening at donor x 9216..10880 is the S4 stair shaft's top mouth"
+    },
+    {
+      "id": "wfz_deck_and_fins",
+      "donor": "s2disasm",
+      "zone": "WFZ",
+      "src_rect": {
+        "x": 1024,
+        "y": 256,
+        "w": 4096,
+        "h": 1536
+      },
+      "dst_rect": {
+        "x": 8000,
+        "y": 0,
+        "w": 4096,
+        "h": 1536
+      },
+      "unaligned_dst_reason": "proposal: the sky band, 768 px above OOZ; its west-edge dock (donor floor y 1248) is the S3 stair shaft's top mouth"
+    }
+  ],
+  "corridors": [
+    {
+      "id": "t1_ehz_cpz",
+      "dst_rect": {
+        "x": 3328,
+        "y": 2944,
+        "w": 832,
+        "h": 512
+      },
+      "floor_y": 3200,
+      "tunnel": {
+        "ceiling_y": 3104,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    },
+    {
+      "id": "t3_hpz_mtz",
+      "dst_rect": {
+        "x": 3328,
+        "y": 5376,
+        "w": 1024,
+        "h": 512
+      },
+      "floor_y": 5632,
+      "tunnel": {
+        "ceiling_y": 5536,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    }
+  ]
+}

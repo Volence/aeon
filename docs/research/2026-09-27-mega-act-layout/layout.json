@@ -1,0 +1,204 @@
+{
+ "title": "Proposed Sonic 2 mega-act: six clips in three bands (12,288 x 8,192 px, 6 x 4 sections)",
+ "subtitle": "Each box is drawn to scale and holds a 1/8-scale render of its donor clip (foreground only; magenta = CRAM line 0 cells). Grid lines every 2048 px (one section).",
+ "scale": 8,
+ "grid": [
+  6,
+  4
+ ],
+ "spawn": [
+  1024,
+  2880
+ ],
+ "clips": [
+  {
+   "tree": "s2disasm/EHZ",
+   "src": [
+    6144,
+    0,
+    2560,
+    1024
+   ],
+   "dst": [
+    768,
+    2240
+   ],
+   "label": "1 EMERALD HILL (start)",
+   "what": "the double loop",
+   "route": "must"
+  },
+  {
+   "tree": "s2disasm/CPZ",
+   "src": [
+    7168,
+    0,
+    2048,
+    2048
+   ],
+   "dst": [
+    4160,
+    2048
+   ],
+   "label": "2 CHEMICAL PLANT",
+   "what": "the loop cluster",
+   "route": "must"
+  },
+  {
+   "tree": "s2-simonwai-disasm/HPZ",
+   "src": [
+    5632,
+    0,
+    2560,
+    2048
+   ],
+   "dst": [
+    768,
+    4224
+   ],
+   "label": "3 HIDDEN PALACE (proto)",
+   "what": "the great diagonal + lake",
+   "route": "optional"
+  },
+  {
+   "tree": "s2disasm/MTZ",
+   "src": [
+    0,
+    0,
+    3072,
+    2048
+   ],
+   "dst": [
+    4352,
+    4960
+   ],
+   "label": "4 METROPOLIS",
+   "what": "the opening pipe maze",
+   "route": "must"
+  },
+  {
+   "tree": "s2disasm/OOZ",
+   "src": [
+    8192,
+    0,
+    3072,
+    1888
+   ],
+   "dst": [
+    6848,
+    2304
+   ],
+   "label": "5 OIL OCEAN (end)",
+   "what": "the east refinery",
+   "route": "must"
+  },
+  {
+   "tree": "s2disasm/WFZ",
+   "src": [
+    1024,
+    256,
+    4096,
+    1536
+   ],
+   "dst": [
+    8000,
+    0
+   ],
+   "label": "6 WING FORTRESS (side)",
+   "what": "the deck + tail fins",
+   "route": "optional"
+  }
+ ],
+ "connectors": [
+  {
+   "id": "T1 tunnel 832",
+   "kind": "tunnel",
+   "route": "must",
+   "rect": [
+    3328,
+    2944,
+    832,
+    512
+   ],
+   "label_at": "below"
+  },
+  {
+   "id": "T3 tunnel 1024",
+   "kind": "tunnel",
+   "route": "optional",
+   "rect": [
+    3328,
+    5376,
+    1024,
+    512
+   ],
+   "label_at": "below"
+  },
+  {
+   "id": "S1 stair shaft (up+down)",
+   "kind": "shaft",
+   "route": "optional",
+   "rect": [
+    0,
+    2688,
+    768,
+    2592
+   ],
+   "label_at": "above"
+  },
+  {
+   "id": "S2 drop (down only)",
+   "kind": "shaft",
+   "route": "must",
+   "rect": [
+    5152,
+    4096,
+    192,
+    864
+   ]
+  },
+  {
+   "id": "S4 stair shaft (up+down)",
+   "kind": "shaft",
+   "route": "must",
+   "rect": [
+    7424,
+    4192,
+    832,
+    2528
+   ]
+  },
+  {
+   "id": "S3 stair shaft (up+down)",
+   "kind": "shaft",
+   "route": "optional",
+   "rect": [
+    7168,
+    928,
+    832,
+    1376
+   ],
+   "label_at": "above"
+  }
+ ],
+ "notes": [
+  "MAIN ROUTE (must-pass): 1 Emerald Hill -> T1 -> 2 Chemical Plant -> S2 drop -> 4 Metropolis -> S4 climb -> 5 Oil Ocean.",
+  "SECOND ROUTE: 1 Emerald Hill -> S1 down -> 3 Hidden Palace -> T3 -> 4 Metropolis (skips Chemical Plant). Two routes between 1 and 4.",
+  "LOOP BACK: 4 Metropolis -> T3 -> 3 Hidden Palace -> S1 up -> 1 Emerald Hill. SIDE AREA: 5 Oil Ocean -> S3 climb -> 6 Wing Fortress (dead end, explore).",
+  "SEALED, no connector: Chemical Plant's east edge and Oil Ocean's west edge face each other across a 640-px gap (never on one screen).",
+  "Budgets MEASURED on these rectangles: collision 245 of 255 | art worst window 12 of 12, 0 of 725,207 over | 24 of 48 sections | level data 273,954 B (+113,212 B on today's clip act)."
+ ],
+ "seals": [
+  [
+   6192,
+   2048,
+   16,
+   2048
+  ],
+  [
+   6848,
+   2304,
+   16,
+   1888
+  ]
+ ]
+}

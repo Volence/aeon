@@ -36721,6 +36721,24 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
 - **Known limits to design against (measured on paper, not in game):** `MAX_ACT_SECTIONS` 48 at 2048 px sections (`engine/system/constants.emp`), so six zones' clips share 48 sections; S2 three-zone junctions went over 12 cache frames in 6/24 before the refined page order, 0 after (STITCHED-ACT-PAGE-ORDER above). No stitched act has run in game.
 - **Unholds:** REGIONS-P2-STEP8 is sized against this act once it exists. The REGION-BG-COVER-DEFINITION ruling's "first real crossing" comes from this act.
 - **Zones NAMED (owner, 2026-09-17):** Emerald Hill, Chemical Plant, Hidden Palace, Wing Fortress, Oil Ocean, Metropolis.
+- **2026-09-27: THE ACT IS 2-D NOW, NOT A ROW. Layout PROPOSED, awaiting the owner.** Owner: *"make like a larger level with different parts of our 6 levels planned stitched throughout ... different ways to get to the different parts"* and *"regions can be any boxes anywhere. This is just one big act for now. We don't need objects just yet."* This supersedes the design's one-row recommendation (§4, §9.4). Proposal: `docs/research/2026-09-27-mega-act-layout.md`, picture `docs/research/2026-09-27-mega-act-layout/mega-act-layout.png` (branch `design/s2-mega-act-layout`).
+  - **The layout:** 12,288 x 8,192 px, 6 x 4 sections, three bands.
+    - Sky: Wing Fortress, a side area.
+    - Surface: Emerald Hill (the start), Chemical Plant, Oil Ocean.
+    - Underground: Hidden Palace, Metropolis.
+    - Two routes Emerald Hill -> Metropolis, a loop back, and 832-px tunnels / 768-px-or-more shafts.
+  - **MEASURED on the real rects:** collision 245 of 255; art 12 of 12, 0 of 725,207 windows over; Z1 0 mixed; level data 273,954 B (+113,212 on today's clip act).
+  - **All four remaining zones convert clean**, and all six match Sonic 2's collision rule with 0 differences (whole-zone probe beside the report).
+  - **What blocks a build is the Python bake, not the engine.** Seventeen priced items in the report's §6, among them:
+    - `region_plan` refuses stacked clips (L);
+    - there is no vertical connector kind (L);
+    - Z2 and the music check walk x only (M);
+    - K6 refuses a tunnel into Hidden Palace, which has no plane-B floor (S);
+    - `s2_layer_lines` refuses HPZ (L1) and WFZ (L5, REV-conditional layout) (S);
+    - the clip act does not own its spawn (S);
+    - it inherits OJZ entities, which forces the section count to a multiple of 3 (S).
+  - **The 384-px short tunnel does NOT scale to six zones.** Co-resident backgrounds measured EHZ 141, CPZ 237, OOZ 117, MTZ 77 tiles against a 376-tile arena. WFZ and HPZ lowering refuse.
+  - **The owner's choices are the report's §8.**
 
 ### DESIGN DONE 2026-09-17 — `docs/research/2026-09-17-s2-compressed-act-design.md` (branch `research/s2-compressed-act`)
 
