@@ -35,6 +35,9 @@ use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 // no other — it is per-slot working state, not a global. File-local, like the
 // PBLK_* offsets in player_ground/player_air and for the same reason: a
 // divergent offset shows up as a mismatched instruction byte in the region gate.
+// PBLK_QUADRANT is the floor follow's mode, written by the charge frame's floor
+// maintenance (PState_Spindash .floor).
+const PBLK_QUADRANT = 16
 const PBLK_JUMPBUF = 17
 
 // Bound to the type that OWNS the layout. These file-local displacements used to
@@ -45,6 +48,8 @@ const PBLK_JUMPBUF = 17
 // against config/ram.emp. 16 of the 21 PBLK_* consts across 8 files were unguarded.
 // PlayerBlock's own doc says declaring it a TYPE is what makes the layout invariants
 // structural rather than merely checked; these restore the "checked" half at least.
+ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
+       "PBLK_QUADRANT diverged from PlayerBlock.quadrant (games/sonic4/config/ram.emp)")
 ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
        "PBLK_JUMPBUF diverged from PlayerBlock.jump_buffer (games/sonic4/config/ram.emp)")
 
@@ -112,8 +117,32 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .floor:
         // --- floor maintenance (the classic AnglePos slot, reduced for
         // zero speed: snap window = 0>>8 + 4 = 4, fixed −14 snap-up;
-        // mirrors PState_Ground's floor pair with speed = 0) ---
+        // mirrors PState_Ground's floor pair with speed = 0; S3K's
+        // SonicKnux_Spindash runs the same Player_AnglePos). The mode and the
+        // substituted angle take AnglePos's rounding exactly as Ground_PostMove
+        // does, which says why: $20 follows the floor and $A0 the ceiling ---
+        move.b  angle(a0), d2
+        move.b  d2, d3
+        addi.b  #$20, d2
+        rol.b   #2, d2
+        andi.b  #3, d2                          // plain (angle+$20)>>6
+        andi.b  #$7F, d3
+        cmpi.b  #$20, d3
+        bne     .mode_set
+        subq.b  #1, d2                          // $20 -> floor, $A0 -> ceiling
+.mode_set:
+        move.b  d2, PBLK_QUADRANT(a4)
         jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
+        move.b  angle(a0), d3
+        andi.b  #$7F, d3
+        cmpi.b  #$20, d3
+        bne     .angle_resolved
+        move.b  PBLK_QUADRANT(a4), d3
+        ror.b   #2, d3                          // the mode's cardinal
+        cmp.b   d3, d1
+        bne     .angle_resolved
+        addi.b  #$40, d1                        // S3K substitutes the plain one
+.angle_resolved:
         move.b  d1, angle(a0)                   // angle first, whatever the
                                                 // distance: S3K's order
                                                 // (Ground_PostMove says why)
