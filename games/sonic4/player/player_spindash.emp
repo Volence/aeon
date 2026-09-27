@@ -114,13 +114,15 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // zero speed: snap window = 0>>8 + 4 = 4, fixed −14 snap-up;
         // mirrors PState_Ground's floor pair with speed = 0) ---
         jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
+        move.b  d1, angle(a0)                   // angle first, whatever the
+                                                // distance: S3K's order
+                                                // (Ground_PostMove says why)
         cmpi.w  #-14, d0
         blt     .pinned                         // embedded past the snap-up
-                                                // — classic ignores
+                                                // — classic ignores the SNAP
         cmpi.w  #4, d0
         bgt     .floor_gone
         jbsr    Player_SnapToSurface
-        move.b  d1, angle(a0)
 .pinned:
         rts
 .floor_gone:

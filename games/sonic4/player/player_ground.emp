@@ -430,6 +430,19 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         // between frames" loop fall-through guard; nothing more needed
         // at this site. ---
         jbsr    Player_SensorFloor              // d0 dist, d1 resolved angle
+        // THE ANGLE IS TAKEN BEFORE THE DISTANCE IS JUDGED, whatever the distance
+        // says (LOOP-COLLISION, 2026-09-26): S3K Player_AnglePos runs Player_Angle
+        // ahead of every distance test in all four modes (sonic3k.asm:18809 before
+        // :18813, :18918/:18922, :19006/:19010, :19078/:19082; S.C.E. Find Floor.asm:86),
+        // so an embed deeper than the -14 snap-up and a run-off both still re-aim the
+        // angle. This used to write it only on the snap path. MEASURED on OJZ act 1's
+        // loop (rightward, 3..10 px/frame, 11 of 224 drives): descending the left arc
+        // in wall mode at angle $24, the probe reached the floor below at -17..-28 px,
+        // skipped the snap AND the angle, so the angle stayed $24, the next frame
+        // probed left again, and he walked diagonally through the 16 px floor and out
+        // of the level. With the angle taken, the floor's $0A/$0C is within $20 of $24,
+        // the next frame's quadrant is the floor, and he lands on it.
+        move.b  d1, angle(a0)
         // adaptive snap-down window: min(|speed along probe axis|>>8 + 4,
         // 14) — S2+ rule (research feel-modern §2): Y-probe modes
         // (quadrant 0/2) use x_vel, X-probe wall modes (1/3) use y_vel
@@ -463,9 +476,7 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         jbsr    Player_SnapToSurface            // probe-axis snap per
                                                 // quadrant (helper mirrors
                                                 // the sensor case table;
-                                                // clobbers d0/d2 — d1 angle
-                                                // survives)
-        move.b  d1, angle(a0)
+                                                // clobbers d0/d2)
 .no_snap:
         // fall through — classic order step 9. SEAM GUARD: this
         // fall-through is shared by GROUND and ROLL (both reach it via
