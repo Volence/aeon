@@ -1,0 +1,89 @@
+entity_window_diagonal_witness: base_s4.debug.bin crc32 aaffce16, 1 arm(s)
+  act grid 3x3, 9 real sections, 60 rings, 11 objects; ring buffer 128, dynamic 40, collected slots 9; kick 48 px, follow 86 ticks
+  warp: boot -> (2559,128) -> the boot camera: hop 0 camera (96, 144) -> (2559, 128); destination tracks sections [0, 1, 3, 4]; window objects live before it that the destination still tracks: 6 [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5)]
+    hop 0: 4 ticks checked; window objects live after: 14; object-live-twice violations so far: 24
+  warp: boot -> (2559,128) -> the boot camera: hop 1 camera (2559, 128) -> (96, 144); destination tracks sections [0, 1, 3, 4]; window objects live before it that the destination still tracks: 14 [(0, 0), (0, 0), (0, 1), (0, 1), (0, 2), (0, 2), (0, 3), (0, 3)]
+    hop 1: 4 ticks checked; window objects live after: 20; object-live-twice violations so far: 72
+    80 violation(s), 72 of them a window object live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL hop 0 settle 0 cam (2559, 128): U object (sec 0, #5) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL hop 0 settle 1 cam (2559, 128): U object (sec 0, #5) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL hop 0 settle 2 cam (2559, 128): U object (sec 0, #5) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #0) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #1) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #2) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #3) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #4) live twice
+    FAIL hop 0 settle 3 cam (2559, 128): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 0 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 0 cam (96, 144): M object (sec 0, #6): loaded bit 0 but live
+    FAIL hop 1 settle 0 cam (96, 144): M object (sec 1, #0): loaded bit 0 but live
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 1 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 1 cam (96, 144): M object (sec 0, #6): loaded bit 0 but live
+    FAIL hop 1 settle 1 cam (96, 144): M object (sec 1, #0): loaded bit 0 but live
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 2 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 2 cam (96, 144): M object (sec 0, #6): loaded bit 0 but live
+    FAIL hop 1 settle 2 cam (96, 144): M object (sec 1, #0): loaded bit 0 but live
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #0) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #1) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #2) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #3) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #4) live twice
+    FAIL hop 1 settle 3 cam (96, 144): U object (sec 0, #5) live twice
+    FAIL hop 1 settle 3 cam (96, 144): M object (sec 0, #6): loaded bit 0 but live
+    FAIL hop 1 settle 3 cam (96, 144): M object (sec 1, #0): loaded bit 0 but live
+    -> warp: boot -> (2559,128) -> the boot camera: FAIL
+FAIL: an arm's window broke a check, or the game halted

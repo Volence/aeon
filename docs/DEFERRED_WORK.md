@@ -42331,16 +42331,73 @@ level design. Release builds carry no assert, and the window has always handled 
 (above), so release play was never affected; a DEBUG playtest could have halted.
 
 Open:
-- **SAH-3a: a DEBUG warp duplicates window objects** (measured, `warp_dup_single_hop_d57002c5.txt`):
-  `Debug_Warp_Consume` re-runs `EntityWindow_Init`, which clears every loaded bit but deletes
-  no live object, so an object whose section the destination window still tracks spawns a
-  second time (boot -> camera (2559,128): section 0's objects #0-#5 live twice until section 0
-  leaves the window). Rings are not affected (`RingBuffer_Clear`). DEBUG-only (the warp mailbox,
-  Aurora's play-from-cursor). The witness parks on an object-free window before each warp so
-  its checks measure the slide, not this. Fix belongs to the warp ladder (despawn the window's
-  tagged objects, or keep their loaded bits by identity across the re-init); not done here.
+- **SAH-3a: a DEBUG warp duplicates window objects** CLOSED on `parcel/sah3a-warp-dup`
+  (2026-09-27), see "SAH-3a" below. (Booked from `warp_dup_single_hop_d57002c5.txt`:
+  `Debug_Warp_Consume` re-ran `EntityWindow_Init`, which cleared every loaded bit but deleted
+  no live object, so boot -> camera (2559,128) left section 0's objects #0-#5 live twice.)
 - **SAH-3b: the witness is not in landing_build**, only the keepalive lane (nightly), like
   every emulator-booting instrument; a regression of the assert shows at the next nightly.
+
+### SAH-3a: a DEBUG warp is a fresh entity load; EntityWindow_Init despawns the window's objects (branch `parcel/sah3a-warp-dup`, 2026-09-27)
+
+Base `835614a6`. Evidence: `docs/research/2026-09-26-entity-window-diagonal/sah3a_*`.
+
+**Reproduced, and the booking was right.** On the base DEBUG ROM (`s4.debug.bin` aaffce16),
+the witness with its object-free park removed FAILs "control right only" with exactly the
+booked 24 violations: section 0's objects #0-#5 live twice on each of the 4 settle ticks
+after boot -> (2559,128), gone once section 0 leaves the window. Mechanism, from the source:
+`EntityWindow_Init` clears `Entity_Loaded_Masks`, and the object despawner keys on section
+TRACKING, not on the bits; the destination still tracks section 0, so its live objects
+survive while the fall-through `EntityWindow_Scan` sees clear bits and spawns them again. The
+new warp arms show a second face the booking did not name: a warp chain (boot -> (2559,128) ->
+boot camera) triples section 0's objects (20 window objects live, 72 "live twice") and leaves
+two objects, (0,#6) and (1,#0), live with their loaded bit CLEAR (M), i.e. set up to
+duplicate again when the band reaches them.
+
+**Fix: despawn, not keep-by-identity.** `EntityWindow_Init` now stamps every entry
+`SEC_VOID` (it used to leave 0, a real section id) and runs `EntityWindow_DespawnObjects`
+before it rebuilds: every tagged object's section is untracked, so it is deleted through the
+same path a walked despawn takes (a tagged parent's children cascade in `DeleteObject`), and
+`EntryForSection` matches no entry, so no mask is touched. The destination's objects then
+respawn from ROM on the scan Init falls into. Why this and not keeping the loaded bits by
+identity across the re-init: (1) Init already makes rings and collected/killed memory fresh
+(`RingBuffer_Clear`, `Collected_Init`), so keeping only the live objects would give a warp
+mixed semantics, killed badniks back but live ones mid-behaviour; (2) it makes the warp
+equal to the boot-position override (§4.12b), which a play-from-cursor client can reason
+about, and to the S3K/S.C.E. level-load analogue (S.C.E. `Level.asm` clears `Object_RAM`,
+`Load_Objects_Init` clears `Object_respawn_table` unless a star post set
+`Respawn_table_keep`); (3) the invariant "a loaded bit is set exactly when its object is
+live" is Init's to keep, so it now holds for any caller of Init, not only the warp, with no
+snapshot/migrate machinery that is correct only within one act. It lives in the engine, not
+the warp ladder, for that reason. Untagged objects (children of untagged parents, effects,
+§4.12c debug spawns) are not the window's and survive a warp, as before.
+
+**Verification.** `tools/entity_window_diagonal_witness.py` gains three warp arms (boot ->
+the booked (2559,128); boot -> in place; boot -> (2559,128) -> boot camera), each hop
+non-vacuous by a precondition measured before it (a live window object whose section the
+destination still tracks), each checked W/M/U/L for 4 ticks after the ack. Red on aaffce16
+(`sah3a_warp_red_aaffce16.txt`: the three warp arms FAIL with 24 / 24 / 80 violations, and
+"control right only" FAILs with the booked 24; `sah3a_warp_chain_red_aaffce16_verbose.txt`
+lists the chain's M rows). Green after the fix (`sah3a_warp_green.txt`): 11 arms PASS, 0
+violations, 6 to 8 window objects live after each hop.
+
+**The witness's dodge is gone.** Its crossing arms used to warp twice, parking first on a
+window with no listed objects so the settle checks measured the slide and not this bug
+(`neutral_camera` + "TWO HOPS"). Both are deleted; every crossing arm now warps once straight
+from boot, so its settle ticks also check a warp.
+
+**Release bytes move, release behaviour does not.** The fix is in `EntityWindow_Init`, which
+every shape carries. The only release caller is the boot ladder, where no tagged object is
+live yet, so the added walk returns on `Dynamic_Live_Count` = 0 or skips untagged slots.
+
+**Landing evidence (code commit `56dc17d7`'s tree).** `tools/landing_build.sh` exit 0,
+`finished=0` (pytest `-m "not needs_build"` 3754 passed / 3 skipped / 35 deselected; 34 marked
+tests ran and passed, 1 EXEMPTED, the usual `test_deb2_appendix[demo.bin]`). CRC32 / size,
+base `835614a6` -> this branch: `s4.bin` 86aaa697 829746 -> 580bc557 829768 (+22 B, the
+void-id loop and the despawn call in `EntityWindow_Init`; base measured by a NO_LINT plain
+build of `835614a6` in a scratch worktree); `s4.debug.bin` aaffce16 -> e5febbd2 856731;
+`demo.debug.bin` a6df4e6b 106531 (moves too: demo links `engine.objects.entity_window`).
+Not in any effects-gate scope (no `engine/effects/*`, `bg_anim.emp` or `buffers.emp` touched).
 
 ## STRESSART-BUDGET: the stress bake takes the canonical pin rule and refuses a window over PAGE_FRAMES (SAH-1 B + C); SAH-2 traced (branch `fix/stressart-budget`, 2026-09-26)
 
