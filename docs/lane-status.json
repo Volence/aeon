@@ -1,9 +1,14 @@
 {
-  "focus": "Start-screen fix landed; now fixing Hidden Palace's misaligned background, then one woven ROM rebuild for you.",
+  "focus": "Fixing what you're finding in the woven act: Hidden Palace's background, and an invisible wall in Emerald Hill.",
   "inFlight": [
     {
       "what": "Hidden Palace background misaligned in the woven act: find the cause and fix it",
       "where": "branch fix/woven-hpz-bg",
+      "agent": true
+    },
+    {
+      "what": "Emerald Hill invisible wall and false balance pose: our collision there doesn't match Sonic 2's",
+      "where": "branch fix/woven-false-balance",
       "agent": true
     }
   ],
@@ -33,6 +38,21 @@
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
+    },
+    {
+      "id": "WOVEN-FALSE-BALANCE",
+      "title": "Woven act, Emerald Hill: an invisible wall and a balance pose on flat ground (you found it; collision doesn't match Sonic 2 there)",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "WOVEN-EDITABLE-IN-AURORA",
+      "title": "Make the woven act a level you can touch up in aurora (today every build regenerates it from Sonic 2, so edits wouldn't stick)",
+      "state": "open",
+      "size": "M",
+      "blockedBy": "owner: do you want it made editable?"
     },
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -220,7 +240,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "The woven act with the start-screen fix is ready: s4.woven.debug.bin (crc 65eac6c3). Hidden Palace's background is still being fixed.",
+  "awaiting": "Whether you want the woven act made editable in aurora (today edits wouldn't stick). The start-screen fix is in s4.woven.debug.bin (crc 65eac6c3).",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T19:45:14Z"
+  "updatedAt": "2026-09-27T20:33:28Z"
 }
