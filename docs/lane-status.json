@@ -191,7 +191,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": "Two things: may I clear old folders in /tmp/claude-1000 (it's blocking every lane)? And the fall feel: I recommend C (camera leads ahead in a long fall).",
+  "awaiting": "Fall feel: pick A, B, C or D (I recommend C). Temp folder cleared.",
   "atBoundary": false,
-  "updatedAt": "2026-09-26T23:49:24Z"
+  "updatedAt": "2026-09-27T00:41:38Z"
 }
