@@ -1,14 +1,9 @@
 {
-  "focus": "Making the woven act's tall backgrounds switch on cleanly, and fixing a debug warp that spawns objects twice.",
+  "focus": "Making the woven act's tall backgrounds switch on cleanly when you enter Hidden Palace and Wing Fortress.",
   "inFlight": [
     {
       "what": "Tall backgrounds in the woven act: snap and fast-repaint the background when entering a tall zone, then switch them on",
       "where": "branch parcel/woven-tall-entry",
-      "agent": true
-    },
-    {
-      "what": "Debug warp spawns some objects twice",
-      "where": "branch parcel/sah3a-warp-dup",
       "agent": true
     }
   ],
@@ -29,7 +24,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When both agents return and their work is reviewed and landed (landed one at a time).",
+  "nextBoundary": "When the tall-background entry agent returns and its work is reviewed and landed.",
   "queue": [
     {
       "id": "WOVEN-TALL-ENTRY",
@@ -88,13 +83,6 @@
       "id": "JUMP-SFX-LEVEL",
       "title": "Jump sound: was 10 dB too quiet; fixed to match Sonic 2",
       "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "SAH-3a",
-      "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
-      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -226,5 +214,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T15:37:40Z"
+  "updatedAt": "2026-09-27T16:14:21Z"
 }
