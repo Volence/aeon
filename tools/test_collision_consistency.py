@@ -396,6 +396,35 @@ def test_baseline_rejects_a_malformed_file(tmp_path):
         cc.load_baseline(str(bad))
 
 
+def test_baselines_are_a_union_and_a_clip_baseline_must_say_why(tmp_path):
+    """build.sh passes the tree's baseline and, in an S2CLIP build, the clip act's own
+    (games/sonic4/data/clips/<id>/collision_baseline.json). Mutation: the clip file
+    without `why` is refused; control: with it, both files' entries are exempted."""
+    tree = tmp_path / "tree.json"
+    tree.write_text(json.dumps({"known_violations": [["A", 0, "A", 1, 2, 5, [224]]]}))
+    clip_dir = tmp_path / "clips" / "some_act"
+    clip_dir.mkdir(parents=True)
+    clip = clip_dir / "collision_baseline.json"
+    clip.write_text(json.dumps({"known_violations": [["B", 1, "B", 88, 1600, 16]]}))
+    with pytest.raises(cc.GateError, match="no `why`"):
+        cc.load_baselines([str(tree), str(clip)])
+    clip.write_text(json.dumps({"why": "donor data", "known_violations":
+                                [["B", 1, "B", 88, 1600, 16]]}))
+    got = cc.load_baselines([str(tree), str(clip)])
+    assert got == {("A", 0, "A", 1, 2, 5, (224,)), ("B", 1, "B", 88, 1600, 16)}
+    assert cc.load_baselines([]) == set()
+
+
+def test_every_committed_clip_baseline_parses_and_says_why():
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "games", "sonic4", "data", "clips")
+    found = [os.path.join(root, d, "collision_baseline.json") for d in sorted(os.listdir(root))
+             if os.path.isfile(os.path.join(root, d, "collision_baseline.json"))]
+    assert found, "s2_mtz_cpz carries one; a sweep that finds none measures nothing"
+    for p in found:
+        assert cc.load_baselines([p]), p
+
+
 def test_violation_key_excludes_the_attr_index():
     """The attr-set is content-addressed and renumbers on every bake (the same
     bad cell is $02 in the owner's tree and $0E in this one), so an attr in the

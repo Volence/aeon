@@ -1251,11 +1251,19 @@ fi
 # sonic4 only: games/demo has no collision data, and running it there would be a
 # vacuous pass on another game's tree.
 if [[ "${GAME}" == "sonic4" ]]; then
+    # An S2CLIP build also exempts the clip act's OWN declared donor data, when the clip
+    # carries a collision_baseline.json beside its clips.json (the woven act s2_mtz_cpz,
+    # 2026-09-27: one reachable plane-B pinhole in Sonic 2's Chemical Plant). The file must
+    # say why (the gate refuses one without); the canonical shapes never read it.
+    CC_BASELINES=(--baseline "${TOOLS}/collision_baseline.json")
+    if [[ -n "${S2CLIP:-}" && -f "games/sonic4/data/clips/${S2CLIP}/collision_baseline.json" ]]; then
+        CC_BASELINES+=(--baseline "games/sonic4/data/clips/${S2CLIP}/collision_baseline.json")
+    fi
     # EXIT 2 HERE MEANS: GateError -- it could not read the section data it compares.
     # It prints "COLLISION CONSISTENCY GATE: COULD NOT MEASURE" and never uses the word
     # UNMEASURABLE, so every grep-driven census of this concept misses this gate.
     if ! gate strict "collision_consistency.py" python3 "${TOOLS}/collision_consistency.py" \
-             --baseline "${TOOLS}/collision_baseline.json"; then
+             "${CC_BASELINES[@]}"; then
         echo "Collision data is inconsistent — see above."
         echo "  Held repaint:  python3 tools/repaint_ojz_collision.py   (check mode)"
         exit 1

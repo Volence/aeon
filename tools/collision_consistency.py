@@ -189,6 +189,8 @@ Usage:
         (thresholds are derived from THAT tree's engine/system/constants.emp;
          only the strip LAYOUT constants come from this tree's ojz_block_gen)
     python3 tools/collision_consistency.py --baseline tools/collision_baseline.json
+        (--baseline repeats; the union is exempted. An S2CLIP build adds the clip act's
+         own games/sonic4/data/clips/<id>/collision_baseline.json when it has one.)
 """
 
 import os
@@ -931,6 +933,26 @@ def load_baseline(path):
     return {tuple(map(_hashable, e)) for e in entries}
 
 
+def load_baselines(paths):
+    """The union of several baseline files. build.sh passes the tree's own
+    (tools/collision_baseline.json) and, in an S2CLIP build, the clip act's
+    (`games/sonic4/data/clips/<id>/collision_baseline.json`): FAITHFUL DONOR DATA the
+    gate refuses, declared beside the clip the way its floorless columns are. A clip
+    baseline must say why (`why`, non-empty), because an exemption with no reason
+    cannot be told from a silenced bug."""
+    out = set()
+    for p in paths:
+        out |= load_baseline(p)
+        if os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(p)))) == "clips":
+            import json
+            with open(p, "r", encoding="utf-8") as f:
+                why = json.load(f).get("why")
+            if not (isinstance(why, str) and why.strip()):
+                raise GateError(f"--baseline {p} is a clip act's baseline with no `why`: "
+                                f"say what donor content each entry is and why it ships")
+    return out
+
+
 def _hashable(x):
     return tuple(x) if isinstance(x, list) else x
 
@@ -938,18 +960,19 @@ def _hashable(x):
 def main(argv):
     verbose = "--verbose" in argv or "-v" in argv
     root = None
-    baseline_path = None
+    baseline_paths = []
     for i, a in enumerate(argv):
         if a == "--root" and i + 1 < len(argv):
             root = argv[i + 1]
         elif a.startswith("--root="):
             root = a.split("=", 1)[1]
         elif a == "--baseline" and i + 1 < len(argv):
-            baseline_path = argv[i + 1]
+            baseline_paths.append(argv[i + 1])
         elif a.startswith("--baseline="):
-            baseline_path = a.split("=", 1)[1]
+            baseline_paths.append(a.split("=", 1)[1])
+    baseline_path = " + ".join(baseline_paths)
     try:
-        baseline = load_baseline(baseline_path) if baseline_path else set()
+        baseline = load_baselines(baseline_paths)
         va, vb, pop = check(verbose=verbose, root=root)
     except GateError as exc:
         print("=" * 78)
@@ -989,8 +1012,8 @@ def main(argv):
         if n_known:
             print(f"Collision consistency: {n_known} KNOWN violation(s) exempted "
                   f"by {baseline_path} (rule A {len(known_a)}, rule B "
-                  f"{len(known_b)}) — held repaint, see "
-                  f"tools/repaint_ojz_collision.py")
+                  f"{len(known_b)}) — a held repaint (tools/repaint_ojz_collision.py) "
+                  f"or a clip act's declared donor data (its collision_baseline.json)")
         stale = baseline - seen
         if stale:
             print(f"Collision consistency: {len(stale)} baseline entr(ies) no "
