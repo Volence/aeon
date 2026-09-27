@@ -2728,7 +2728,8 @@ phase all take it from there).
   disagree about which maps have a window. The reason it matters: two zones' scroll mappings can put
   the BG vscroll 87-112 px apart at a zone connector, and the clamp turned that into a 6-7 frame slide
   that was still running when the far zone reached the screen at the camera cap, which is what kept
-  the woven acts' tunnels at 480 px instead of 384. A crossing into a SHORTER tall map still walks
+  the woven acts' tunnels at 480 px instead of 384 (MEASURED after: `s2_ehz_cpz` at 384 went from
+  6 glitch ticks to 0; DEFERRED_WORK SHORT-TUNNEL-VSCROLL-RATCHET). A crossing into a SHORTER tall map still walks
   the scroll down to the new ceiling two rows a frame rather than snapping.
 - **What it costs, stated because it is invisible otherwise:** on a TALL map a DEBUG warp's scroll
   ratchets to its new value at 16 px/frame (the plane itself is still re-primed synchronously); on a
