@@ -5,11 +5,6 @@
       "what": "Stop the debug build crashing when the art cache is full (found in Chemical Plant inside Metropolis)",
       "where": "branch fix/prefetch-full-window",
       "agent": true
-    },
-    {
-      "what": "Fix two tests so Chemical Plant inside Metropolis can land",
-      "where": "branch parcel/woven-mtz-cpz-3",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -145,7 +140,7 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: Chemical Plant inside Metropolis is built and ready to try; landing after a test fix",
+      "title": "Big Sonic 2 act: first woven piece landed (Chemical Plant inside Metropolis); next pieces after the debug-crash fix",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -197,5 +192,5 @@
   ],
   "awaiting": "Reopen the level editor before saving our act (I edited its loop collision). Your calls: repaint the loop's right arc? And the fall camera speed (~/sonic_hacks/tryout/s3k-fall/).",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T05:44:36Z"
+  "updatedAt": "2026-09-27T05:57:41Z"
 }
