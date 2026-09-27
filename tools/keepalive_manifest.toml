@@ -277,7 +277,10 @@ note = """SAH-3 (2026-09-26). Forces two-axis entity-window slides (all four dia
 STRESS_ART halt's own crossing, two single-axis controls) and checks the window every tick
 against the camera and the ROM section lists, plus a poison arm that a 2-section camera jump
 must halt on EntityWindow_Slide's per-axis step assert. Red-first on d57002c5 (the base): the
-five diagonal arms HALT on the old single-axis assert and the poison arm runs on."""
+five diagonal arms HALT on the old single-axis assert and the poison arm runs on.
+SAH-3a (2026-09-27): three warp arms (boot -> (2559,128); in place; out and back) check that a
+DEBUG warp leaves no window object live twice; red on aaffce16 (every warp arm FAIL, 24/24/80
+violations), green once EntityWindow_Init despawns the window's tagged objects."""
 
 [wired."pcc_identity_probe.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]

@@ -1815,7 +1815,12 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         //    re-stamps Current_Act_Ptr, then Section_FillInitial seeds the four
         //    Section_*_Written trackers one cell tight around the NEW camera, then
         //    EntityWindow_Init recentres the 3x3 collected window and falls into
-        //    a scan). Same call, same act pointer, as the init ladder. --
+        //    a scan). Same call, same act pointer, as the init ladder. For the
+        //    ENTITIES that makes the warp a fresh load: EntityWindow_Init clears
+        //    rings, collected/killed memory and loaded bits AND despawns every live
+        //    window-tagged object, so the destination's objects respawn from ROM
+        //    once each (SAH-3a: before that, a still-tracked section's live objects
+        //    spawned a second time). Untagged objects (debug spawns, effects) stay. --
         movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
         jbsr    Section_Init
 

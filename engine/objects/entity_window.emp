@@ -770,6 +770,20 @@ proc EntityWindow_BuildEntries () clobbers(d0-d7, a0-a3) {
 // -----------------------------------------------
 // EntityWindow_Init — set up entity window at level start
 //
+// A FRESH LOAD at the camera, whatever ran before: no entity state survives.
+// Rings (RingBuffer_Clear), collected/killed memory (Collected_Init), the
+// loaded masks, AND every live window-tagged object (despawned below) — the
+// masks and the objects are one fact, so clearing one without the other spawns
+// a tracked section's live objects a second time. At boot there is nothing to
+// despawn; the caller that has something is the DEBUG warp (Debug_Warp_Consume,
+// games/sonic4/test/ojz_scroll_test.emp, which re-runs this through
+// Section_Init), where the old code left section 0's objects live twice
+// (docs/DEFERRED_WORK.md SAH-3a). The warp is the same fresh load the boot-
+// position override performs (ARCH §4.12b), the S3K/S.C.E. level-load analogue
+// (object RAM + respawn table cleared together). Untagged objects (children,
+// effects, debug spawns) are not the window's and are left alone, except a
+// tagged parent's child chain, which DeleteObject cascades.
+//
 // In:  none (reads Camera_X/Y, Current_Act_Ptr —
 //      camera must be positioned before this runs)
 // Out: none
@@ -780,8 +794,8 @@ pub proc EntityWindow_Init () clobbers(d0-d7, a0-a4) falls_into EntityWindow_Sca
         jbsr    Collected_Init
         clr.b   Entity_Window_Active
 
-        // cold boot: loaded masks + scan-state section ids are garbage —
-        // clear everything so InitSection's compare-clear starts clean
+        // loaded masks + scan state: garbage at cold boot, the old window on a
+        // re-init — clear everything so InitSection's compare-clear starts clean
         lea     Entity_Loaded_Masks, a0
         moveq   #(MAX_TRACKED_SECTIONS*ENTITY_LOADED_SLOT_SIZE)/4-1, d0
     .clear_loaded:
@@ -792,6 +806,19 @@ pub proc EntityWindow_Init () clobbers(d0-d7, a0-a4) falls_into EntityWindow_Sca
     .clear_scan:
         clr.b   (a0)+
         dbf     d0, .clear_scan
+
+        // No section tracked: SEC_VOID, not the zero the clear left (0 is a real
+        // section id). DespawnObjects then finds every tagged object's section
+        // untracked and deletes it; EntryForSection matches no entry, so it
+        // touches no mask (all cleared above). The destination's objects respawn
+        // from ROM on the scan this proc falls into.
+        lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
+        moveq   #MAX_TRACKED_SECTIONS-1, d0
+    .void_ids:
+        move.b  #SEC_VOID, (a0)
+        lea     sizeof(EntityScanState)(a0), a0
+        dbf     d0, .void_ids
+        jbsr    EntityWindow_DespawnObjects
         // anchor + origin bases: first BuildEntries overwrites them, but an
         // explicit clear documents that no pre-derivation state survives boot
         clr.w   Entity_Window_Anchor
