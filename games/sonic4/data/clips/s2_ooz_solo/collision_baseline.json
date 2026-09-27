@@ -1,0 +1,12 @@
+{
+  "_comment": "Read by tools/collision_consistency.py as a second --baseline in S2CLIP=s2_ooz_solo builds only (build.sh's collision-consistency block). Keys are violation_key()'s: section-local, so this file must never be passed to a canonical build.",
+  "why": "FAITHFUL SONIC 2 DATA, six RULE B entries: two 16-px pinholes in Oil Ocean's own floor, each on both planes. (1) section 0 rows 58-59, section-local x 384..399 = act (384, 928..959) = OOZ act 1 (8576, 928..959); (2) section 1 row 82, section-local x 640..655 = act (2688, 1312) = OOZ act 1 (10880, 1312). The clip is a byte copy of the donor's collision (paste shift (-8192, 0), a multiple of 16), so the notches are Sonic 2's: a player standing beside one teeters (a false ledge; the floor sensor pair spans 16 px, so nobody falls). Kept as Sonic 2 drew it, the s2_mtz_cpz rule: repainting donor collision is not a clip bake's call. MEASURED 2026-09-27 (branch parcel/woven-hpz-wfz-prep) by collision_consistency.check() on this clip's bake.",
+  "known_violations": [
+    ["B", 0, "A", 58, 384, 16],
+    ["B", 0, "A", 59, 384, 16],
+    ["B", 0, "B", 58, 384, 16],
+    ["B", 0, "B", 59, 384, 16],
+    ["B", 1, "A", 82, 640, 16],
+    ["B", 1, "B", 82, 640, 16]
+  ]
+}

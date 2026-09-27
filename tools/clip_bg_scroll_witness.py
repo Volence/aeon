@@ -50,25 +50,43 @@ SYMS = ["Hscroll_Buffer", "Camera_X", "Camera_Y", "Debug_Scene_Freeze",
         "Parallax_Deform_Phase_BG"]
 HSCROLL_BYTES = CBS.SCREEN_LINES * 4
 SETTLE_MAX = 900
+# Parallax_Drift_Acc: one 16.16 long per band, MAX_PARALLAX_BANDS (engine/structs.emp: 16) of
+# them, [pixels:i16][fraction:u16] (engine/level/parallax.emp's drift banner).
+DRIFT_BANDS = 16
+COHERENT_TRIES = 8
 STABLE_FRAMES = 30
 
 
-def probes(act):
+def probes(act, specs=None):
     """Camera positions per zone: its own x span (camera left edge, clamped so the CENTRE is
-    inside the zone's clip) at a few heights inside its paste. Derived from the manifest."""
+    inside the zone's clip) at a few heights inside its paste. Derived from the manifest.
+
+    Plus, when `specs` is given and the zone's BG scrolls vertically, the camera Y where its
+    plane V-scroll is mid-way between its clamps (engine_vscroll's own [0, max]): without it a
+    windowed zone can be probed only where the clamp holds the plane (Wing Fortress's 1:1 sky
+    moves over camera Y 640..928 of its solo act and the three manifest heights are 0, 523 and
+    1312, all clamped)."""
     out = []
     half_w, half_h = 160, 112
     for c in act.clips:
         x0, y0, w, h = c.dst
         xs = sorted({x0 + 64, x0 + w // 3 + 37, x0 + (2 * w) // 3 + 5, x0 + w - 2 * half_w - 3})
-        ys = sorted({y0, y0 + h // 3 + 11, y0 + h - 2 * half_h})
+        ys = {y0, y0 + h // 3 + 11, y0 + h - 2 * half_h}
+        sp = (specs or {}).get(c.zone_key)
+        if sp is not None and sp["v_factor"] != CBS.LOCKED:
+            top = CBS.engine_vscroll(sp, 0x7FFF)
+            mid = [y for y in range(y0, y0 + h - 2 * half_h + 1)
+                   if CBS.engine_vscroll(sp, y) >= top // 2]
+            if mid and 0 < CBS.engine_vscroll(sp, mid[0]) < top:
+                ys.add(mid[0])
+        ys = sorted(ys)
         for x in xs:
             for y in ys:
                 out.append((c.zone_key, c.zone, c.dst[1] - c.src[1], max(0, x), max(0, y)))
     return out
 
 
-async def _probe(b, sym, camx, camy):
+async def _probe(b, sym, camx, camy, rates=None):
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_X"]), "value": camx << 16,
                                            "width": 4})
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_Y"]), "value": camy << 16,
@@ -96,13 +114,38 @@ async def _probe(b, sym, camx, camy):
             break
     else:
         return None
-    rd = {}
-    for name, ln in (("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4), ("Camera_Y", 4),
-                     ("Parallax_Current_Config", 4), ("Parallax_Current_Vscroll_BG", 2),
-                     ("Parallax_Deform_Phase_BG", 2)):
-        r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
-        rd[name] = bytes.fromhex(r["bytes"])
-    return rd, n + 1
+    reads = [("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4), ("Camera_Y", 4),
+             ("Parallax_Current_Config", 4), ("Parallax_Current_Vscroll_BG", 2),
+             ("Parallax_Deform_Phase_BG", 2)]
+    if "Parallax_Drift_Acc" in sym:
+        reads.append(("Parallax_Drift_Acc", 4 * DRIFT_BANDS))
+    # A DRIFTING scene changes every frame, so a snapshot taken while the frame loop is still
+    # inside Parallax_Update's band loop (a lag frame) is a mix of two frames. MEASURED on
+    # s2_wfz_solo at camera (4101, 0): accumulators [240, 120, 60, 240, 119, 59, 239, ...]
+    # for three rates repeated, i.e. the loop stopped part-way. COHERENT means every band
+    # with the same drift rate holds the same accumulator (they start together at 0 and
+    # advance on the same frames); an incoherent snapshot is re-taken one frame later, up to
+    # COHERENT_TRIES times, and the number of re-takes is reported. A probe that never gets a
+    # coherent snapshot is COULD NOT MEASURE, never a pass.
+    for tries in range(COHERENT_TRIES):
+        rd = {}
+        for name, ln in reads:
+            r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
+            rd[name] = bytes.fromhex(r["bytes"])
+        if _coherent(rd.get("Parallax_Drift_Acc", b""), rates):
+            return rd, n + 1, tries
+        await b.call("emulator/run_frames", {"frames": 1})
+    return None
+
+
+def _coherent(acc, rates):
+    """Every band sharing a non-zero drift rate holds the same 16.16 accumulator."""
+    seen = {}
+    for k, rate in enumerate(rates or []):
+        if rate and 4 * k + 4 <= len(acc):
+            if seen.setdefault(rate, acc[4 * k:4 * k + 4]) != acc[4 * k:4 * k + 4]:
+                return False
+    return True
 
 
 def main():
@@ -117,16 +160,21 @@ def main():
     sym = parse_lst(lst)
     act = CM.load(str(REPO / "games" / "sonic4" / "data" / "clips" / a.clip / "clips.json"))
     zones = {c.zone_key: c for c in act.clips}
-    need = SYMS + [CBS.PARALLAX_LABEL.format(key=k) for k in zones]
+    specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
+    # A drifting band (WFZ's clouds) moves with Parallax_Drift_Acc, not the camera: without
+    # the accumulator the model cannot be compared, so it is REQUIRED when any spec drifts.
+    need = SYMS + [CBS.PARALLAX_LABEL.format(key=k) for k in zones] + (
+        ["Parallax_Drift_Acc"] if any(b.get("drift") for sp in specs.values()
+                                      for b in sp["bands"]) else [])
     missing = [s for s in need if s not in sym]
     if missing:
         print(f"COULD NOT RUN: symbols missing from {a.lst}: {', '.join(missing)}")
         return 2
     with open(CBS.s2_asm_path(zones[min(zones)].donor), errors="replace") as fh:
         text = fh.read()
-    specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
     cfg_of = {sym[CBS.PARALLAX_LABEL.format(key=k)] & 0xFFFFFF: k for k in zones}
-    plan = probes(act)
+    plan = probes(act, specs)
+    rates_of = {k: [b.get("drift") or 0 for b in sp["bands"]] for k, sp in specs.items()}
     results = []
 
     async def run(sock):
@@ -141,7 +189,7 @@ def main():
                                                "value": 1, "width": 1})
         await b.call("emulator/run_frames", {"frames": 2})
         for key, zone, dy, x, y in plan:
-            results.append((key, zone, x, y, await _probe(b, sym, x, y)))
+            results.append((key, zone, x, y, await _probe(b, sym, x, y, rates_of[key])))
         await b.close()
 
     with headless_emulator(rom) as sock:
@@ -150,10 +198,11 @@ def main():
     bad, unmeasured, report = 0, 0, []
     for key, zone, x, y, got in results:
         if got is None:
-            print(f"COULD NOT MEASURE {zone} cam ({x},{y}): never settled in {SETTLE_MAX} frames")
+            print(f"COULD NOT MEASURE {zone} cam ({x},{y}): never settled in {SETTLE_MAX} frames, "
+                  f"or no coherent drift snapshot in {COHERENT_TRIES} re-takes")
             unmeasured += 1
             continue
-        rd, frames = got
+        rd, frames, retakes = got
         camx = int.from_bytes(rd["Camera_X"][:2], "big")
         camy = int.from_bytes(rd["Camera_Y"][:2], "big")
         cfg = int.from_bytes(rd["Parallax_Current_Config"], "big") & 0xFFFFFF
@@ -162,7 +211,12 @@ def main():
         buf = rd["Hscroll_Buffer"]
         fg = [CBS._sx(int.from_bytes(buf[i * 4:i * 4 + 2], "big"), 16) for i in range(224)]
         bg = [CBS._sx(int.from_bytes(buf[i * 4 + 2:i * 4 + 4], "big"), 16) for i in range(224)]
-        line = f"{zone} cam ({camx},{camy}) settled {frames}f vscroll {vs} phase {ph}"
+        acc = rd.get("Parallax_Drift_Acc", b"")
+        dpx = [CBS._sx(int.from_bytes(acc[i * 4:i * 4 + 2], "big"), 16)
+               for i in range(len(acc) // 4)]
+        line = (f"{zone} cam ({camx},{camy}) settled {frames}f vscroll {vs} phase {ph}"
+                + (f" drift px {[d for d in dpx if d]}" if any(dpx) else "")
+                + (f" (re-taken {retakes}x: incoherent drift snapshot)" if retakes else ""))
         if (camx, camy) != (x, y):
             print(f"COULD NOT MEASURE {line}: the camera did not stay at ({x},{y})")
             unmeasured += 1
@@ -174,7 +228,7 @@ def main():
             continue
         spec = specs[key]
         want_vs = CBS.engine_vscroll(spec, camy)
-        model = CBS.engine_bg_words(spec, camx, vscroll=vs, phase_bg=ph)
+        model = CBS.engine_bg_words(spec, camx, vscroll=vs, phase_bg=ph, drift_px=dpx)
         miss = [i for i in range(224) if model[i] != bg[i]]
         fg_miss = [i for i in range(224) if fg[i] != CBS._sx(-camx, 16)]
         ok = not miss and not fg_miss and vs == want_vs

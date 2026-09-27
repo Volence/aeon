@@ -102,7 +102,8 @@ __all__ = [
     "donor_root", "donor_env_var", "donor_role", "donor_dirname",
     "zone_names", "zone_row", "known_zone",
     "Zone", "chunk_tiles", "crop_to_box",
-    "load_zone", "load_art", "load_blocks", "load_chunks", "load_fg_grid",
+    "load_zone", "load_art", "load_blocks", "load_chunks", "load_fg_grid", "load_bg_grid",
+    "proto_layout_paths", "start_position",
     "level_size", "palette_path", "art_sources",
     "collision_inputs", "collision_arrays",
     "nem_decompress", "read_bytes",
@@ -737,27 +738,100 @@ def load_fg_grid(zone: str, donor: str) -> np.ndarray:
     return expand_proto_layout(data, row["layout"])
 
 
+def proto_layout_paths(zone: str, donor: str, act: int = 1) -> tuple[str, str]:
+    """(foreground path, background path) for a PROTOTYPE zone act, through `Off_Level`.
+
+    `Off_Level: zoneOrderedOffsetTable 2,4` holds four words per zone: act 1 FG, act 1 BG,
+    act 2 FG, act 2 BG. The index is `Interleave_Level_Layout`'s own (main.asm): the zone/act
+    word `ror.b #1` then `lsr.w #5` gives zone*8 + act*4 bytes, plus 0 for the foreground or 2
+    for the background, so row zone_id*4 + (act-1)*2 (+1 for BG). Each row names a label whose
+    `binclude` is the file. The FOREGROUND row is cross-checked against the registry's own
+    `layout` name, so a table that has shifted by a row is refused instead of read as another
+    zone's background (HTZ has per-act backgrounds, CNZ_2_BG is 8 bytes: no naming rule works).
+    """
+    if donor != S2_PROTOTYPE:
+        raise SystemExit(f"proto_layout_paths: {donor} is not the prototype donor")
+    row = zone_row(zone, donor)
+    text = _main_asm(donor)
+    m = re.search(r"^Off_Level:\s*zoneOrderedOffsetTable\s+2,\s*4\s*\n(.*?)^\s*zoneTableEnd",
+                  text, re.M | re.S)
+    if not m:
+        raise SystemExit("the prototype's main.asm has no `Off_Level: zoneOrderedOffsetTable 2,4`")
+    labels = re.findall(r"^\s*zoneOffsetTableEntry\.w\s+(\w+)", m.group(1), re.M)
+    i = row["zone_id"] * 4 + (act - 1) * 2
+    if len(labels) < i + 2:
+        raise SystemExit(f"Off_Level has {len(labels)} rows; {zone} act {act} needs row {i + 1}")
+
+    def binclude(label):
+        found = re.findall(rf'^{re.escape(label)}:[^\n]*\n\s*binclude\s+"([^"]+)"', text,
+                           re.M | re.I)
+        if len(found) != 1:
+            raise SystemExit(f"the prototype has {len(found)} `{label}:` binclude(s), not one")
+        return found[0]
+
+    fg, bg = binclude(labels[i]), binclude(labels[i + 1])
+    if fg != f"level/layout/{row['layout']}.bin":
+        raise SystemExit(f"Off_Level row {i} ({labels[i]}) bincludes {fg}, not {zone}'s "
+                         f"registered layout level/layout/{row['layout']}.bin — the table "
+                         f"and the registry disagree")
+    root = donor_root(donor)
+    return os.path.join(root, fg), os.path.join(root, bg)
+
+
+def start_position(zone: str, donor: str, act: int = 1) -> tuple[int, int]:
+    """(x, y) of the player's act start, from the donor's own `StartLocations` table.
+
+    FINAL: the `; <ZONE>` comment row then its `Act N` rows (`zoneTableBinEntry 2,
+    "startpos/<X>.bin"`). PROTOTYPE: row zone_id*2 + act-1 of the table (some rows are inline
+    `zoneTableEntry.w x,y` placeholders; those are read as written).
+    """
+    text = _main_asm(donor)
+    m = re.search(r"^StartLocations:[^\n]*\n(.*?)(?=^\S)", text, re.M | re.S)
+    if not m:
+        raise SystemExit(f"{donor}: no `StartLocations:` table")
+    body = m.group(1).split("\n")
+    rows = [ln for ln in body if re.match(r"^\s*zoneTable(Bin)?Entry", ln)]
+    if donor == S2_FINAL:
+        at = next((k for k, ln in enumerate(body)
+                   if re.match(rf"^\s*;\s*{re.escape(zone)}\s*$", ln)), None)
+        if at is None:
+            raise SystemExit(f"StartLocations has no `; {zone}` row")
+        cand = [ln for ln in body[at + 1:at + 3] if re.search(rf";\s*Act {act}\b", ln)]
+        if len(cand) != 1:
+            raise SystemExit(f"StartLocations' `; {zone}` group has no Act {act} row")
+        line = cand[0]
+    else:
+        k = zone_row(zone, donor)["zone_id"] * 2 + act - 1
+        if len(rows) <= k:
+            raise SystemExit(f"StartLocations has {len(rows)} rows; {zone} act {act} is row {k}")
+        line = rows[k]
+    mb = re.search(r'zoneTableBinEntry\s+2,\s*"([^"]+)"', line)
+    if mb:
+        data = read_bytes(os.path.join(donor_root(donor), mb.group(1)))
+        if len(data) != 4:
+            raise SystemExit(f"{mb.group(1)} is {len(data)} bytes, not one (x, y) word pair")
+        return struct.unpack(">HH", data)
+    mw = re.search(r"zoneTableEntry\.w\s+\$([0-9A-Fa-f]+),\s*\$([0-9A-Fa-f]+)", line)
+    if not mw:
+        raise SystemExit(f"StartLocations row for {zone} act {act} is unreadable: {line.strip()}")
+    return int(mw.group(1), 16), int(mw.group(2), 16)
+
+
 def load_bg_grid(zone: str, donor: str) -> np.ndarray:
-    """The zone's BACKGROUND chunk-id grid, (rows, cols) of uint8. FINAL DONOR ONLY.
+    """The zone's BACKGROUND chunk-id grid, (rows, cols) of uint8.
 
-    The final game interleaves the two planes in one $1000-byte blob, so the
-    background is simply the odd rows — one file, no extra registry.
+    FINAL: the game interleaves the two planes in one $1000-byte blob, so the background is
+    simply the odd rows — one file, no extra registry.
 
-    The PROTOTYPE keeps its background in a SEPARATE file per zone AND act
-    (`GHZ_BG.bin`, but `HTZ_1_BG.bin` / `HTZ_2_BG.bin`, and `CNZ_2_BG.bin` is
-    8 bytes where `CNZ_1_BG.bin` is 2048), and the mapping from zone+act to file
-    is `Off_Level`'s `zoneOffsetTableEntry` rows rather than a naming rule. That is
-    a registry this parcel has no consumer for, so it is REFUSED by name rather
-    than guessed at: `<zone>_BG.bin` is right for five of the ten zones and wrong
-    for the rest, which is exactly the shape of silent-wrong-data this module
-    exists to prevent.
+    PROTOTYPE: its background is a SEPARATE file per zone AND act, named by `Off_Level`'s rows
+    (`proto_layout_paths`), in the prototype's own layout format, expanded exactly as the
+    foreground is (`expand_proto_layout`: a narrow layout repeats across the 128-byte RAM row,
+    as `Interleave_Level_Layout` tiles it). Added 2026-09-27 for Hidden Palace (the woven act),
+    whose background is `HPZ_BG.bin`, 8 x 9 chunks.
     """
     if donor != S2_FINAL:
-        raise SystemExit(
-            f"load_bg_grid: the {donor} donor keeps its background layouts in "
-            f"separate per-zone-AND-act files named by Off_Level, not by a rule. "
-            f"Add that registry (main.asm:35551-35612) before asking for a "
-            f"prototype background — do not guess `<zone>_BG.bin`.")
+        _fg, bg = proto_layout_paths(zone, donor)
+        return expand_proto_layout(read_bytes(bg), os.path.basename(bg))
     row = zone_row(zone, donor)
     layout, _ = ojz_common.kos_decompress(
         read_bytes(os.path.join(donor_root(donor), "level/layout", row["layout"] + ".kos")))

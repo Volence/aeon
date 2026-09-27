@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_wfz_solo",
+  "name": "WOVEN PREP (items 10, 11): Wing Fortress alone, the woven act's own WFZ piece (Sonic 2 WFZ act 1 x 1024..7167, y 256..1791)",
+  "note": "A single-zone proof clip for the woven mega-act (docs/research/2026-09-27-mega-act-woven.md section C items 10 and 11): Wing Fortress's piece of the woven layout, wfz_deck, pasted at the act origin (paste dy -256). What it proves: s2_layer_lines resolves WFZ's revision-dependent object layout (Objects_WFZ_1, REV01) and finds zero Obj03, so zero lines; the background is WFZ's non-repeating sky, lowered from the plane window at y 896 (clip_bg_lower.window_top, holding Sonic 2's own start view), transcribed from SwScrl_WFZ: BG = camera 1:1, the cloud rows ignore the camera and only DRIFT at 128/64/32 per 256 px/frame (Sonic 2's own bug, kept). WHY THIS RECTANGLE (MEASURED 2026-09-27): x 0..1023 of WFZ holds 48 artless columns (x 0..383, the sky the Tornado flies through), which clip_reachability refuses as an interior hole; the woven piece has none. The donor's own start (96, 1228) is on the Tornado, an object, over no ground, so the start is a chosen point.",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 3
+  },
+  "start": {
+    "x": 160,
+    "y": 973,
+    "why": "On Wing Fortress's deck at x 160, surface y 992 (MEASURED from this clip's bake: plane-A SOLID_TOP, 48 px of air above). The donor's own start (96, 1228) is on the Tornado, an object this clip does not carry, and outside this piece."
+  },
+  "unpainted_remainder": {
+    "x_from": 6144,
+    "why": "NOTHING IS UNPAINTED ACROSS: the piece fills the act's whole width. The object stays because the fall declaration lives in it.",
+    "unbounded_fall": {
+      "columns": 768,
+      "donor_bottom_boundary": {
+        "WFZ": 1824,
+        "note": "the LevelSize row for WFZ act 1 is the generic $0720 (1824) one; WFZ's real bounds are steered by its level events. Pasted 256 px up, it would sit at y 1568 here."
+      },
+      "why": "THE ACT HAS NO BOTTOM: every painted column has air below its last landing surface (Sonic 2's terrain interiors are LRB-only). Sonic 2 survives this with a level bottom boundary that kills; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: a floor, a death plane or a bottom boundary drops it, and clip_reachability says so."
+    }
+  },
+  "clips": [
+    {
+      "id": "wfz_deck",
+      "donor": "s2disasm",
+      "zone": "WFZ",
+      "src_rect": {
+        "x": 1024,
+        "y": 256,
+        "w": 6144,
+        "h": 1536
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 6144,
+        "h": 1536
+      }
+    }
+  ]
+}

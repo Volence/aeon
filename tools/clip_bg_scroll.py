@@ -70,8 +70,10 @@ class ClipScrollError(Exception):
 # ---------------------------------------------------------------------------
 
 def s2_asm_path(donor):
+    """The donor's top-level source: s2.asm (final) or main.asm (the prototype, Hidden
+    Palace's only donor)."""
     import s2_donor as sd
-    return os.path.join(sd.donor_root(donor), "s2.asm")
+    return os.path.join(sd.donor_root(donor), "s2.asm" if donor == sd.S2_FINAL else "main.asm")
 
 
 def _lines(text):
@@ -90,7 +92,7 @@ def _span(lines, label, what):
 
 def _fixbugs(lines):
     for ln in lines:
-        m = re.match(r"^fixBugs\s*=\s*(\d+)", ln)
+        m = re.match(r"^fixBugs\s*=\s*(\d+)", ln, re.I)       # the prototype spells it FixBugs
         if m:
             return int(m.group(1))
     raise ClipScrollError("s2.asm declares no `fixBugs = N`; the conditional paths cannot be chosen")
@@ -108,7 +110,7 @@ def _assemble(lines, start, end, fixbugs):
             continue
         m = re.match(r"^if\s+(\w+)$", s)
         if m:
-            if m.group(1) != "fixBugs":
+            if m.group(1).lower() != "fixbugs":
                 raise ClipScrollError(f"s2.asm:{i + 1}: unhandled conditional `{s}`")
             stack.append(bool(fixbugs))
             continue
@@ -129,7 +131,10 @@ def _assemble(lines, start, end, fixbugs):
             out.append((i + 1, label, None, None))
             continue
         parts = s.split(None, 1)
-        out.append((i + 1, label, parts[0].lower(), parts[1].strip() if len(parts) > 1 else ""))
+        args = parts[1].strip() if len(parts) > 1 else ""
+        # the prototype writes some address registers in capitals (`lea (...).w,A1`)
+        args = re.sub(r"\b([AD])([0-7])\b", lambda m_: m_.group(1).lower() + m_.group(2), args)
+        out.append((i + 1, label, parts[0].lower(), args))
     return out
 
 
@@ -145,11 +150,15 @@ def _dc_bytes(lines, label):
     return vals
 
 
+class _Symbolic(ClipScrollError):
+    """An operand that is a named assembler symbol, not a number."""
+
+
 def _num(tok):
     tok = tok.strip()
     expr = re.sub(r"\$([0-9A-Fa-f]+)", lambda m: str(int(m.group(1), 16)), tok)
     if not re.fullmatch(r"[0-9+\-*/() ]+", expr):
-        raise ClipScrollError(f"cannot evaluate `{tok}` as a constant")
+        raise _Symbolic(f"cannot evaluate `{tok}` as a constant")
     return int(eval(expr.replace("/", "//")))          # noqa: S307 — digits and + - * / only
 
 
@@ -166,27 +175,54 @@ def _sx(v, bits):
 
 
 class _Machine:
-    def __init__(self, prog, mem, tables):
+    """A 68000 SUBSET, exactly what the transcribed SwScrl routines use; anything else is
+    refused by name. Extended 2026-09-27 (woven HPZ/WFZ/OOZ prep) with: local `bsr`/`rts` and
+    `addq.l #4,sp` (SwScrl_OOZ's line helpers pop their caller), N and C flags for
+    `bmi`/`bpl`/`bcc`/`bcs`/`bhs`/`blo`, `subi`/`addi`/`adda`, pre-decrement stores, stores
+    into named RAM arrays other than Horiz_Scroll_Buf (`regions`), `lea label(pc)` onto a ROM
+    table, `lea (Name+expr).w`, and two escape hatches that are declared rather than guessed:
+    `stubs` (external scroll-FLAG routines, run as no-ops: they set redraw flags and advance a
+    BG position the caller seeds directly) and `stop_at` (a `bra` into a shared writer that is
+    read by pattern instead of run). A `moveq #<symbol>` POISONS its register: any later read
+    of it before a write raises, so an unevaluated flag number can never reach a value."""
+
+    def __init__(self, prog, mem, tables, stubs=(), stop_at=(), regions=()):
         self.prog = prog
         self.mem = dict(mem)            # "Name" -> value (a word/long cell; +N for bytes)
         self.tables = tables            # "Name" -> list of byte values (ROM data)
+        self.stubs = set(stubs)
+        self.stop_at = set(stop_at)
         self.d = [0] * 8
         self.a = [None] * 8             # (region, byte offset)
-        self.z = False
-        self.buf = {}                   # Horiz_Scroll_Buf byte offset of a WORD -> value
-        self.writer = {}                # same offset -> s2.asm line of the store
-        self.loop_of = {}               # same offset -> s2.asm line of the enclosing dbf
+        self.z = self.n = self.c = False
+        self.poison = {}
+        self.stack = []
+        self.bufs = {"Horiz_Scroll_Buf": {}}
+        for r in regions:
+            self.bufs[r] = {}
+        self.buf = self.bufs["Horiz_Scroll_Buf"]   # byte offset of a WORD -> value
+        self.writer = {}                # (region, offset) -> s2.asm line of the store
+        self.loop_of = {}               # Horiz_Scroll_Buf offset -> s2.asm line of the dbf
+        self.stopped = None             # the stop_at label reached, if any
 
     # -- operands --
     def _mem_ref(self, arg):
         m = re.fullmatch(r"\((\w+)([+-]\d+)?\)\.[wl]", arg)
         return (m.group(1), int(m.group(2) or 0)) if m else None
 
+    def _dreg(self, r, bits=32):
+        """A data register's value; refused if the bits read still hold part of an
+        unevaluated `moveq #symbol` (`poison` maps reg -> {"lo", "hi"} still poisoned)."""
+        bad = self.poison.get(r, set())
+        if bad and (bits == 32 or "lo" in bad):
+            raise ClipScrollError(f"d{r} holds an unevaluated assembler symbol and was read")
+        return self.d[r]
+
     def read(self, arg, bits):
         if arg.startswith("#"):
             return _num(arg[1:]) & ((1 << bits) - 1)
         if re.fullmatch(r"d[0-7]", arg):
-            return self.d[int(arg[1])] & ((1 << bits) - 1)
+            return self._dreg(int(arg[1]), bits) & ((1 << bits) - 1)
         m = re.fullmatch(r"\(a([0-7])\)\+", arg)
         if m:
             reg, off = self.a[int(m.group(1))]
@@ -207,6 +243,16 @@ class _Machine:
             return self.mem[name] & ((1 << bits) - 1)
         raise ClipScrollError(f"unsupported source operand `{arg}`")
 
+    def _store(self, reg, off, bits, val, line, loop):
+        if reg not in self.bufs:
+            raise ClipScrollError(f"store into {reg}, which this model does not collect")
+        words = [(val >> 16) & 0xFFFF, val & 0xFFFF] if bits == 32 else [val]
+        for k, w in enumerate(words):
+            self.bufs[reg][off + 2 * k] = w
+            self.writer[(reg, off + 2 * k)] = line
+            if reg == "Horiz_Scroll_Buf":
+                self.loop_of[off + 2 * k] = loop
+
     def write(self, arg, bits, val, line, loop):
         val &= (1 << bits) - 1
         m = re.fullmatch(r"d([0-7])", arg)
@@ -214,24 +260,35 @@ class _Machine:
             r = int(m.group(1))
             mask = (1 << bits) - 1
             self.d[r] = ((self.d[r] & ~mask) | val) & 0xFFFFFFFF
+            if bits == 32:
+                self.poison.pop(r, None)
+            elif bits == 16 and r in self.poison:
+                self.poison[r].discard("lo")
             return
         m = re.fullmatch(r"\(a([0-7])\)\+", arg)
         if m:
             reg, off = self.a[int(m.group(1))]
-            if reg != "Horiz_Scroll_Buf":
-                raise ClipScrollError(f"store through {arg} into {reg}")
-            words = [(val >> 16) & 0xFFFF, val & 0xFFFF] if bits == 32 else [val]
-            for k, w in enumerate(words):
-                self.buf[off + 2 * k] = w
-                self.writer[off + 2 * k] = line
-                self.loop_of[off + 2 * k] = loop
+            self._store(reg, off, bits, val, line, loop)
             self.a[int(m.group(1))] = (reg, off + bits // 8)
+            return
+        m = re.fullmatch(r"-\(a([0-7])\)", arg)
+        if m:
+            reg, off = self.a[int(m.group(1))]
+            off -= bits // 8
+            self._store(reg, off, bits, val, line, loop)
+            self.a[int(m.group(1))] = (reg, off)
             return
         ref = self._mem_ref(arg)
         if ref and not ref[1]:
             self.mem[ref[0]] = val
             return
         raise ClipScrollError(f"unsupported destination operand `{arg}`")
+
+    def _flags(self, v, bits, carry=False):
+        v &= (1 << bits) - 1
+        self.z = v == 0
+        self.n = bool(v >> (bits - 1))
+        self.c = carry
 
     # -- execution --
     def run(self, max_steps=200000):
@@ -251,37 +308,69 @@ class _Machine:
             ops = _split_args(args)
             nxt = pc + 1
             if base == "rts":
-                return
+                if not self.stack:
+                    return
+                nxt = self.stack.pop()
+            elif base == "addq" and ops[1] == "sp":
+                if _num(ops[0][1:]) != 4 or not self.stack:
+                    raise ClipScrollError(f"s2.asm:{line}: `{op} {args}` is not a caller pop")
+                self.stack.pop()                      # drop the return address
+            elif base == "bsr":
+                tgt = ops[0]
+                if tgt in self.stubs:
+                    pass
+                else:
+                    self.stack.append(nxt)
+                    nxt = self._target(pc, tgt)
             elif base == "tst":
-                self.z = self.read(ops[0], bits) == 0
-            elif base in ("bne", "beq", "bra"):
-                if base == "bra" or (base == "bne") != self.z:
+                v = self.read(ops[0], bits)
+                self._flags(v, bits)
+            elif base in ("bne", "beq", "bra", "bmi", "bpl", "bcc", "bcs", "bhs", "blo"):
+                take = {"bra": True, "bne": not self.z, "beq": self.z, "bmi": self.n,
+                        "bpl": not self.n, "bcc": not self.c, "bhs": not self.c,
+                        "bcs": self.c, "blo": self.c}[base]
+                if take:
+                    if base == "bra" and ops[0] in self.stop_at:
+                        self.stopped = ops[0]
+                        return
                     nxt = self._target(pc, ops[0])
             elif base == "dbf":
                 r = int(ops[0][1])
-                c = (self.d[r] - 1) & 0xFFFF
+                c = (self._dreg(r, 16) - 1) & 0xFFFF
                 self.d[r] = (self.d[r] & 0xFFFF0000) | c
                 if c != 0xFFFF:
                     nxt = self._target(pc, ops[1])
             elif base == "move":
                 v = self.read(ops[0], bits)
                 self.write(ops[1], bits, v, line, loop)
-                self.z = v == 0
+                self._flags(v, bits)
             elif base == "moveq":
-                self.d[int(ops[1][1])] = _sx(_num(ops[0][1:]), 8) & 0xFFFFFFFF
+                r = int(ops[1][1])
+                try:
+                    self.d[r] = _sx(_num(ops[0][1:]), 8) & 0xFFFFFFFF
+                    self.poison.pop(r, None)
+                except _Symbolic:
+                    self.poison[r] = {"lo", "hi"}
             elif base == "lea":
                 self.a[int(ops[1][1])] = self._ea(ops[0])
+            elif base == "adda":
+                r = int(ops[1][1])
+                reg, off = self.a[r]
+                self.a[r] = (reg, off + _sx(self.read(ops[0], bits), bits))
             elif base == "neg":
-                self.write(ops[0], bits, -self.read(ops[0], bits), line, loop)
+                v = -self.read(ops[0], bits)
+                self.write(ops[0], bits, v, line, loop)
+                self._flags(v, bits)
             elif base == "swap":
                 r = int(ops[0][1])
-                self.d[r] = ((self.d[r] << 16) | (self.d[r] >> 16)) & 0xFFFFFFFF
+                self.d[r] = ((self._dreg(r) << 16) | (self.d[r] >> 16)) & 0xFFFFFFFF
             elif base == "ext":
                 r = int(ops[0][1])
                 if bits == 16:
-                    self.write(ops[0], 16, _sx(self.d[r], 8), line, loop)
+                    self.write(ops[0], 16, _sx(self._dreg(r, 16), 8), line, loop)
                 else:
-                    self.d[r] = _sx(self.d[r], 16) & 0xFFFFFFFF
+                    self.d[r] = _sx(self._dreg(r, 16), 16) & 0xFFFFFFFF
+                    self.poison.pop(r, None)
             elif base in ("asr", "asl", "lsr"):
                 n = _num(ops[0][1:])
                 v = self.read(ops[1], bits)
@@ -292,20 +381,26 @@ class _Machine:
                 else:
                     v <<= n
                 self.write(ops[1], bits, v, line, loop)
-            elif base in ("add", "sub", "subq", "addq"):
+                self._flags(v, bits)
+            elif base in ("add", "sub", "subq", "addq", "subi", "addi"):
                 a_ = self.read(ops[0], bits)
                 b_ = self.read(ops[1], bits)
-                v = b_ + a_ if base in ("add", "addq") else b_ - a_
+                if base in ("add", "addq", "addi"):
+                    v = b_ + a_
+                    carry = v >> bits != 0
+                else:
+                    v = b_ - a_
+                    carry = a_ > b_                   # unsigned borrow
                 self.write(ops[1], bits, v, line, loop)
-                self.z = (v & ((1 << bits) - 1)) == 0
+                self._flags(v, bits, carry)
             elif base == "andi":
                 v = self.read(ops[1], bits) & self.read(ops[0], bits)
                 self.write(ops[1], bits, v, line, loop)
-                self.z = v == 0
+                self._flags(v, bits)
             elif base == "divs":
                 src = _sx(self.read(ops[0], 16), 16)
                 r = int(ops[1][1])
-                num = _sx(self.d[r], 32)
+                num = _sx(self._dreg(r), 32)
                 if src == 0:
                     raise ClipScrollError(f"s2.asm:{line}: divide by zero")
                 q = int(num / src)
@@ -322,10 +417,18 @@ class _Machine:
         m = re.fullmatch(r"\((\w+)\)\.[wl]", arg)
         if m:
             return (m.group(1), 0)
+        m = re.fullmatch(r"\((\w+)\+([^)]+)\)\.[wl]", arg)
+        if m:
+            return (m.group(1), _num(m.group(2)))
+        m = re.fullmatch(r"(\w+)\(pc\)", arg)
+        if m:
+            if m.group(1) not in self.tables:
+                raise ClipScrollError(f"lea onto `{m.group(1)}`, a table this model does not hold")
+            return (m.group(1), 0)
         m = re.fullmatch(r"\(a([0-7]),d([0-7])\.w\)", arg)
         if m:
             reg, off = self.a[int(m.group(1))]
-            return (reg, off + _sx(self.d[int(m.group(2))], 16))
+            return (reg, off + _sx(self._dreg(int(m.group(2)), 16), 16))
         raise ClipScrollError(f"unsupported lea operand `{arg}`")
 
     def _target(self, pc, tok):
@@ -737,18 +840,548 @@ def derive_mtz(text, paste_dy):
                            "SwScrl_MTZ store": ln_l}}
 
 
+# ---------------------------------------------------------------------------
+# Shared by the BG-ROW-keyed zones added for the woven act (OOZ, HPZ, WFZ, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# These three key their bands by BACKGROUND ROW (the row of the BG map a screen line shows),
+# the way CPZ does, so a band is a plane-line band. Each raw deriver describes Sonic 2's own
+# background in BG-row space ({row: kind}) and its vertical map (v_factor, and the BG row at
+# donor camera Y 0 as `v_offset`); `_finish_plane` then cuts the 512-line plane window the
+# lowering chose (`clip_bg_lower.window_top`, r0) out of it.
+
+def nearest_factor(r):
+    """(factor, exact) — r encoded exactly when the engine can, else the expressible ratio
+    nearest to it (ties to the smaller). Used ONLY where a Sonic 2 ratio has no 2^-a +- 2^-b
+    form (Hidden Palace's ramp); the spec records every such band and its error."""
+    try:
+        return encode_factor(r), True
+    except ClipScrollError:
+        pass
+    best = None
+    for s1 in range(15):
+        for s2 in [LOCKED] + list(range(s1 + 1, 15)):
+            for op in ((0,) if s2 == LOCKED else (0, 1)):
+                v = factor_value(s1, s2, op)
+                key = (abs(v - r), v)
+                if best is None or key < best[0]:
+                    best = (key, (s1, s2, op))
+    return encode_factor(factor_value(*best[1])), False
+
+
+def _finish_plane(kinds, v_factor, v_offset, r0, lo_seen, what):
+    """Bands over plane lines [.., 512) from {bg_row: kind} for rows r0 .. r0 + 511.
+
+    `kind` is ("flat", ratio), ("ripple", ratio) or ("drift", rate). Rows the
+    source never puts on screen (below `lo_seen`, the lowest BG row any camera Y reaches) take
+    the first seen row's kind: they are never visible, and a band must start the plane. The
+    first band's top is the lowest REACHABLE plane line, max(0, lo_seen - r0): scene_dsl maps a
+    top back to a world Y through v_center, and a line no camera reaches has no world Y."""
+    first_seen = min(k for k in kinds if k >= lo_seen)
+    lo = max(0, lo_seen - r0)
+    rows = []
+    for pl in range(lo, PLANE_LINES):
+        bg = pl + r0
+        k = kinds.get(bg if bg >= lo_seen else first_seen)
+        if k is None:
+            raise ClipScrollError(f"{what}: background row {bg} (plane line {pl}) is inside the "
+                                  f"plane window {r0}..{r0 + PLANE_LINES - 1} and the source "
+                                  f"never scrolls it")
+        rows.append((pl, k))
+    bands = []
+    for pl, k in rows:
+        if bands and bands[-1]["_key"] == k:
+            continue
+        b = {"_key": k, "plane_top": pl, "top": pl, "phase": 0}
+        if k[0] == "drift":
+            b.update(kind="flat", ratio=Fraction(0), drift=k[1])
+        else:
+            b.update(kind=k[0], ratio=k[1])
+        bands.append(b)
+    if len(bands) > MAX_BANDS:
+        raise ClipScrollError(f"{what} needs {len(bands)} bands in its plane window; the engine "
+                              f"holds {MAX_BANDS}")
+    approx = []
+    for k, b in enumerate(bands):
+        b["factor"], exact = nearest_factor(b["ratio"])
+        if not exact:
+            got = factor_value(*b["factor"])
+            approx.append({"plane_top": b["plane_top"], "s2_ratio": b["ratio"], "engine": got})
+            b["s2_ratio"] = b["ratio"]
+            b["ratio"] = got
+        b["engine_end"] = bands[k + 1]["plane_top"] if k + 1 < len(bands) else PLANE_LINES
+        b.pop("_key")
+    return bands, v_offset - r0, approx
+
+
+def _prog_between(lines, label, end_pat, what, fixbugs):
+    """A routine's instructions from `label:` to the first line matching end_pat (inclusive),
+    for sources whose routines hold column-0 `loc_XXXX:` labels (the prototype's)."""
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"^{re.escape(label)}:", ln)), None)
+    if start is None:
+        raise ClipScrollError(f"the donor has no `{label}:` ({what})")
+    end = next((i for i in range(start + 1, len(lines)) if re.search(end_pat, lines[i])), None)
+    if end is None:
+        raise ClipScrollError(f"`{label}:` has no line matching {end_pat!r} ({what})")
+    return _assemble(lines, start + 1, end + 1, fixbugs), start + 1
+
+
+# ---------------------------------------------------------------------------
+# OIL OCEAN — run SwScrl_OOZ
+# ---------------------------------------------------------------------------
+#
+# SwScrl_OOZ writes Horiz_Scroll_Buf BOTTOM UP through local line helpers (`bsr .doLines`, and
+# a helper that pops its caller with `addq.l #4,sp` when the 224 lines run out). It is RUN, at
+# two power-of-two camera X values and at two BG Y values so that every background row from
+# the lowest reachable (InitCam_OOZ's + $50) to the plane's last is on screen in one of them.
+# Each row's word gives its ratio; the ripple rows are the ones whose word moves when the
+# ripple data does; each ripple row's TABLE INDEX is read by running with a ramp table, which
+# is how the sun's direction (bottom up, so the index DEcreases down the screen) is derived.
+
+OOZ_STUBS = ("SetVertiScrollFlagsBG2", "SetHorizVertiScrollFlagsBG")
+
+
+def _ooz_run(prog, tables, camx, bgx, bgy):
+    m = _Machine(prog, {"Camera_X_pos": camx & 0xFFFF, "Camera_BG_X_pos": bgx & 0xFFFF,
+                        "Camera_BG_Y_pos": bgy, "Camera_X_pos_diff": 0, "Camera_Y_pos_diff": 0,
+                        "Vscroll_Factor_BG": 0, "Vint_runcount": 1, "TempArray_LayerDef": 0},
+                 tables, stubs=OOZ_STUBS)
+    m.a[1] = None
+    m.run()
+    out = {}
+    for line in range(SCREEN_LINES):
+        off = line * 4
+        if off not in m.buf or off + 2 not in m.buf:
+            raise ClipScrollError(f"SwScrl_OOZ left screen line {line} unwritten at BG Y {bgy}")
+        if _sx(m.buf[off], 16) != -_sx(camx, 16):
+            raise ClipScrollError(f"SwScrl_OOZ line {line}: the foreground word is not -camX")
+        out[bgy + line] = _sx(m.buf[off + 2], 16)
+    if any(k >= SCREEN_LINES * 4 or k < 0 for k in m.buf):
+        raise ClipScrollError("SwScrl_OOZ wrote outside the 224-line scroll buffer")
+    return out
+
+
+def derive_ooz_raw(text):
+    lines = _lines(text)
+    fb = _fixbugs(lines)
+    s, e = _span(lines, "InitCam_OOZ", "Oil Ocean's camera init")
+    init = "\n".join(lines[s:e])
+    m_i = re.search(r"lsr\.w\s+#(\d+),d0\s*\n\s*addi\.w\s+#\$([0-9A-Fa-f]+),d0\s*\n\s*"
+                    r"move\.w\s+d0,\(Camera_BG_Y_pos\)\.w\s*\n\s*clr\.l\s+\(Camera_BG_X_pos\)\.w",
+                    init)
+    if not m_i:
+        raise ClipScrollError("OOZ: InitCam_OOZ is not `lsr.w #n,d0 / addi.w #$k,d0 / BG_Y / "
+                              "clr.l BG_X`")
+    v_shift, v_add = int(m_i.group(1)), int(m_i.group(2), 16)
+    ln_i = s + init[:m_i.start()].count("\n") + 1
+    s2_, e2 = _span(lines, "SwScrl_OOZ", "Oil Ocean's scroll routine")
+    prog = _assemble(lines, s2_, e2, fb)
+    body = "\n".join(f"{op} {a}" for _l, _lb, op, a in prog if op)
+    m_x = re.search(r"move\.w \(Camera_X_pos_diff\)\.w,(d\d)\next\.l \1\nasl\.l #(\d+),\1\n"
+                    r"add\.l \1,\(Camera_BG_X_pos\)\.w", body)
+    m_y = re.search(r"move\.w \(Camera_Y_pos_diff\)\.w,(d\d)\next\.l \1\nasl\.l #(\d+),\1", body)
+    if not (m_x and m_y):
+        raise ClipScrollError(f"OOZ: SwScrl_OOZ's per-frame BG X / BG Y rates are unreadable at "
+                              f"fixBugs {fb}")
+    x_shift, y_rate = 8 - int(m_x.group(2)), 8 - int(m_y.group(2))
+    if y_rate != v_shift:
+        raise ClipScrollError(f"OOZ: InitCam_OOZ's BG Y shift {v_shift} disagrees with "
+                              f"SwScrl_OOZ's per-frame rate {y_rate}")
+    ripple = _dc_bytes(lines, "SwScrl_RippleData")
+    p, cyc = _ripple_cycle(ripple)
+
+    def runs(tab, camx):
+        out = {}
+        for bgy in (v_add, PLANE_LINES - SCREEN_LINES):
+            out.update(_ooz_run(prog, {"SwScrl_RippleData": [v & 0xFF for v in tab]}, camx,
+                                camx >> x_shift, bgy))
+        return out
+
+    big, half = 8192, 4096
+    zero, sixty4 = runs([0] * len(ripple), big), runs([64] * len(ripple), big)
+    zero_h = runs([0] * len(ripple), half)
+    ramp = runs([i & 0x7F for i in range(len(ripple))], big)
+    kinds = {}
+    for row in sorted(zero):
+        r_big, r_half = Fraction(-zero[row], big), Fraction(-zero_h[row], half)
+        if r_big != r_half:
+            raise ClipScrollError(f"OOZ background row {row}: {r_big} of camX at {big} but "
+                                  f"{r_half} at {half}; not one ratio")
+        if sixty4[row] - zero[row] == 64:
+            idx = ramp[row] - zero[row]
+            kinds[row] = ("ripple", r_big, idx)
+        elif sixty4[row] != zero[row]:
+            raise ClipScrollError(f"OOZ background row {row} moves with the ripple data by "
+                                  f"{sixty4[row] - zero[row]}, not by the entry")
+        else:
+            kinds[row] = ("flat", r_big)
+    # the ripple rows' index must be one straight run (the sun), and its direction is DERIVED
+    rip = sorted(r for r, k in kinds.items() if k[0] == "ripple")
+    if rip:
+        steps = {kinds[b][2] - kinds[a][2] for a, b in zip(rip, rip[1:])}
+        if len(steps) != 1 or steps.pop() not in (1, -1) or rip != list(range(rip[0], rip[-1] + 1)):
+            raise ClipScrollError("OOZ: the ripple rows are not one run reading consecutive entries")
+        direction = kinds[rip[1]][2] - kinds[rip[0]][2] if len(rip) > 1 else 1
+        # S2's entry at BG row r is R[a + direction * r]; `a` is that line's extrapolation to
+        # row 0. The engine reads T[(phase + plane line) & 255] (derive_ooz sets phase).
+        if direction == 1:
+            table = [_sx(cyc[i % p], 8) for i in range(DEFORM_TABLE_LEN)]
+        else:
+            table = [_sx(cyc[(-i) % p], 8) for i in range(DEFORM_TABLE_LEN)]
+        base = kinds[rip[0]][2] - direction * rip[0]
+        for r in rip:
+            kinds[r] = ("ripple", kinds[r][1])
+    else:
+        table, direction, base = None, 0, 0
+    return {"zone": "OOZ", "routine": "SwScrl_OOZ", "kinds": kinds, "v_factor": v_shift,
+            "v_offset": v_add, "lo_seen": v_add, "ripple_phase": base,
+            "ripple_direction": direction, "deform_table": table, "ripple_cycle": p,
+            "x_shift": x_shift,
+            "provenance": {"InitCam_OOZ": ln_i, "SwScrl_OOZ": s2_,
+                           "SwScrl_RippleData": _span(lines, "SwScrl_RippleData", "")[0]}}
+
+
+def derive_ooz(text, paste_dy, r0=0):
+    """Oil Ocean's scene, DERIVED BY RUNNING SwScrl_OOZ (see the block above). Exact ratios
+    (camX/8 empty sky and factory, camX/32 / 64 / 128 cloud rows); the sun's heat haze is the
+    ripple table read backwards, static (the EHZ ripple's standing rule). BG_X starts at 0 in
+    Sonic 2 (InitCam_OOZ clears it) and advances at camX/8: the engine's camX/8 differs from it
+    by a constant horizontal phase, which on a repeating background is invisible."""
+    raw = derive_ooz_raw(text)
+    bands, v_off, approx = _finish_plane(raw["kinds"], raw["v_factor"], raw["v_offset"], r0,
+                                         raw["lo_seen"], "Oil Ocean")
+    # forward (T[k] = R[k]):  T[phase + pl] = R[a + pl + r0]  ->  phase = a + r0
+    # reversed (T[k] = R[-k]): T[phase + pl] = R[a - pl - r0]  ->  phase = r0 - a
+    p = raw["ripple_cycle"]
+    for b in bands:
+        if b["kind"] == "ripple":
+            a = raw["ripple_phase"]
+            b["phase"] = ((a + r0) if raw["ripple_direction"] == 1 else (r0 - a)) % p
+    spec = {"zone": "OOZ", "routine": "SwScrl_OOZ", "v_factor": raw["v_factor"],
+            "v_center": paste_dy, "v_offset": v_off, "bands": bands, "window_top": r0,
+            "approximations": approx, "provenance": raw["provenance"]}
+    if raw["deform_table"] is not None:
+        spec["deform_table"] = raw["deform_table"]
+        spec["ripple_cycle"] = raw["ripple_cycle"]
+        spec["table_label"] = TABLE_LABEL if raw["ripple_direction"] == 1 else TABLE_LABEL + "_Rev"
+    return spec
+
+
+
+# ---------------------------------------------------------------------------
+# HIDDEN PALACE — the PROTOTYPE's Bg_Scroll_HPz, half run and half read
+# ---------------------------------------------------------------------------
+#
+# Hidden Palace's only donor is the Simon Wai prototype, so its scroll is the PROTOTYPE's
+# (main.asm), the one written for this background. Bg_Scroll_HPz builds a table of one BG X
+# word per 16-line BLOCK of the background in TempArray_LayerDef (a top band at camX/2, a
+# four-step ramp down to BG_X, BG_X = camX/4 across the middle, the ramp mirrored, camX/2 at
+# the bottom), then branches to the shared writer loc_6AA8, which puts block (BG row / 16) on
+# every screen line. The TABLE HALF IS RUN (the interpreter, two power-of-two camera X values);
+# the WRITER IS READ by pattern (a computed `jmp` into sixteen unrolled stores is outside the
+# subset): its block height (16 stores, `andi.w #$F`) and the table index (BG_Y & $3F0) >> 3.
+#
+# THE ONE APPROXIMATION, MEASURED BY THE SPEC: the ramp's four ratios are 57/128, 50/128,
+# 43/128 and 36/128 of camX (camX/2 minus 7*camX/128 a step). 36/128 = 1/4 + 1/32 is exact;
+# the other three have no 2^-a +- 2^-b form, so each takes the nearest the engine can decode
+# (`nearest_factor`) and is listed in spec["approximations"] with both ratios.
+
+HPZ_STUBS = ("Scroll_Block2", "Scroll_Block3")
+
+
+def _proto_zone_row(lines, table, zone_id, what):
+    """The label a prototype zoneOrderedOffsetTable row names for zone_id."""
+    s, _e = next(((i + 1, 0) for i, ln in enumerate(lines)
+                  if re.match(rf"^{table}:\s*zoneOrderedOffsetTable\s+2,\s*1", ln)), (None, 0))
+    if s is None:
+        raise ClipScrollError(f"the prototype has no `{table}: zoneOrderedOffsetTable 2,1` ({what})")
+    rows = []
+    for ln in lines[s:]:
+        m = re.match(r"^\s*zoneOffsetTableEntry\.w\s+(\w+)", ln)
+        if m:
+            rows.append(m.group(1))
+        elif re.match(r"^\s*zoneTableEnd", ln):
+            break
+    if len(rows) <= zone_id:
+        raise ClipScrollError(f"{table} has {len(rows)} rows; zone ${zone_id:02X} is past it")
+    return rows[zone_id]
+
+
+def derive_hpz_raw(text, zone_id=None):
+    import s2_donor as sd
+    zone_id = sd.zone_row("HPZ", sd.S2_PROTOTYPE)["zone_id"] if zone_id is None else zone_id
+    lines = _lines(text)
+    fb = _fixbugs(lines)
+    init_label = _proto_zone_row(lines, "InitCam_Index", zone_id, "the camera-init table")
+    scroll_label = _proto_zone_row(lines, "Bg_Scroll_Index", zone_id, "the BG scroll table")
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"^{init_label}:", ln)), None)
+    if start is None:
+        raise ClipScrollError(f"HPZ: no `{init_label}:`")
+    init = "\n".join(lines[start + 1:start + 5])
+    m_i = re.search(r"asr\.w\s+#(\d+),d0\s*\n\s*move\.w\s+d0,\(Camera_BG_Y_pos\)\.w\s*\n\s*"
+                    r"clr\.l\s+\(Camera_BG_X_pos\)\.w", init)
+    if not m_i:
+        raise ClipScrollError(f"HPZ: {init_label} is not `asr.w #n,d0 / BG_Y / clr.l BG_X`")
+    v_shift = int(m_i.group(1))
+    prog, s0 = _prog_between(lines, scroll_label, r"^\s*bra\.w\s+loc_6AA8\b",
+                             "Hidden Palace's BG scroll", fb)
+    body = "\n".join(f"{op} {a}" for _l, _lb, op, a in prog if op)
+    m_r = re.search(r"move\.w \(Camera_X_pos_diff\)\.w,d4\next\.l d4\nasl\.l #(\d+),d4\n"
+                    r"moveq #\d+,d6\nbsr\.w Scroll_Block2\nmove\.w \(Camera_Y_pos_diff\)\.w,d5\n"
+                    r"ext\.l d5\nasl\.l #(\d+),d5\nmoveq #\d+,d6\nbsr\.w Scroll_Block3", body)
+    if not m_r:
+        raise ClipScrollError("HPZ: Bg_Scroll_HPz's per-frame BG X / BG Y rates are unreadable")
+    x_shift, y_rate = 8 - int(m_r.group(1)), 8 - int(m_r.group(2))
+    if y_rate != v_shift:
+        raise ClipScrollError(f"HPZ: {init_label}'s BG Y shift {v_shift} disagrees with the "
+                              f"per-frame rate {y_rate}")
+    m_w = re.search(r"lea \(TempArray_LayerDef\)\.w,a2\nmove\.w \(Camera_BG_Y_pos\)\.w,d0\n"
+                    r"move\.w d0,d2\nandi\.w #\$([0-9A-Fa-f]+),d0\nlsr\.w #(\d+),d0\n"
+                    r"lea \(a2,d0\.w\),a2\nbra\.w loc_6AA8$", body)
+    if not m_w:
+        raise ClipScrollError("HPZ: Bg_Scroll_HPz's hand-off to loc_6AA8 (the table index) is "
+                              "unreadable")
+    index_mask, index_shift = int(m_w.group(1), 16), int(m_w.group(2))
+    # the writer, READ: `andi.w #$F,d2` / `jmp loc_6AC6(pc,d2.w)` / 16 x `move.l d0,(a1)+`
+    ws = next((i for i, ln in enumerate(lines) if re.match(r"^loc_6AA8:", ln)), None)
+    wtxt = "\n".join(lines[ws:ws + 40]) if ws is not None else ""
+    m_j = re.search(r"andi\.w\s+#\$F,d2\s*\n\s*add\.w\s+d2,d2\s*\n\s*move\.w\s+\(a2\)\+,d0\s*\n"
+                    r"\s*jmp\s+loc_6AC6\(pc,d2\.w\)\s*\nloc_6AC4:\s*\n\s*move\.w\s+\(a2\)\+,d0\s*\n"
+                    r"loc_6AC6:\s*\n((?:\s*move\.l\s+d0,\(a1\)\+\s*\n)+)\s*dbf\s+d1,loc_6AC4", wtxt)
+    if not m_j:
+        raise ClipScrollError("HPZ: the shared writer loc_6AA8 is not the 16-line block writer "
+                              "this reads it as")
+    block = m_j.group(1).count("move.l")
+    if block != 16 or (index_mask >> index_shift) << index_shift != index_mask or \
+            (1 << (index_shift + 1)) != block:
+        raise ClipScrollError(f"HPZ: block {block} lines, index mask ${index_mask:X} >> "
+                              f"{index_shift}: the table does not index 2-byte words per block")
+    wrap = (index_mask | (block - 1)) + 1                  # BG rows before the index wraps
+
+    def run(camx):
+        m = _Machine(prog, {"Camera_X_pos": camx & 0xFFFF, "Camera_BG_X_pos": (camx >> x_shift),
+                            "Camera_BG_Y_pos": 0, "Camera_X_pos_diff": 0, "Camera_Y_pos_diff": 0,
+                            "Vscroll_Factor_BG": 0},
+                     {}, stubs=HPZ_STUBS, stop_at=("loc_6AA8",),
+                     regions=("TempArray_LayerDef",))
+        m.run()
+        if m.stopped != "loc_6AA8":
+            raise ClipScrollError("HPZ: Bg_Scroll_HPz did not reach its writer")
+        tab = m.bufs["TempArray_LayerDef"]
+        n = max(tab) // 2 + 1
+        if sorted(tab) != list(range(0, 2 * n, 2)):
+            raise ClipScrollError("HPZ: the block table has holes")
+        return [_sx(tab[2 * k], 16) for k in range(n)]
+
+    big, half = 8192, 4096
+    tb, th = run(big), run(half)
+    kinds = {}
+    for k, (vb, vh) in enumerate(zip(tb, th)):
+        rb, rh = Fraction(-vb, big), Fraction(-vh, half)
+        if rb != rh:
+            raise ClipScrollError(f"HPZ block {k}: {rb} of camX at {big}, {rh} at {half}")
+        for row in range(k * block, (k + 1) * block):
+            kinds[row] = ("flat", rb)
+    return {"zone": "HPZ", "routine": scroll_label, "kinds": kinds, "v_factor": v_shift,
+            "v_offset": 0, "lo_seen": 0, "blocks": len(tb), "block": block, "wrap": wrap,
+            "x_shift": x_shift,
+            "provenance": {init_label: start + 1, scroll_label: s0, "loc_6AA8": ws + 1}}
+
+
+def derive_hpz(text, paste_dy, r0=0):
+    """Hidden Palace's scene (see the block above). Flat bands keyed by BG row; three of the
+    ramp's four ratios approximated to the nearest engine factor, listed in the spec."""
+    raw = derive_hpz_raw(text)
+    if r0 + PLANE_LINES > raw["wrap"]:
+        raise ClipScrollError(f"HPZ: the plane window {r0}..{r0 + PLANE_LINES - 1} passes the "
+                              f"writer's {raw['wrap']}-row index wrap")
+    bands, v_off, approx = _finish_plane(raw["kinds"], raw["v_factor"], raw["v_offset"], r0,
+                                         raw["lo_seen"], "Hidden Palace")
+    return {"zone": "HPZ", "routine": raw["routine"], "v_factor": raw["v_factor"],
+            "v_center": paste_dy, "v_offset": v_off, "bands": bands, "window_top": r0,
+            "approximations": approx, "blocks": raw["blocks"], "block": raw["block"],
+            "provenance": raw["provenance"]}
+
+
+# ---------------------------------------------------------------------------
+# WING FORTRESS — read SwScrl_WFZ, its segment arrays and LevEvents_WFZ
+# ---------------------------------------------------------------------------
+#
+# Wing Fortress has no camera init (InitCam_Index names InitCam_Null1, an rts). Its background
+# position is set by the level events: LevEvents_WFZ_Routine1 copies the camera into
+# Camera_BG_X/Y_pos and zeroes the offsets, and Routine2 (every frame until the camera passes
+# the routine-3 thresholds) hands the camera to ScrollBG, which moves the BG toward
+# camera - offset. So in normal play the background is the camera, 1:1, on both axes.
+#
+# SwScrl_WFZ keys its bands by BACKGROUND ROW through a segment array of (line count, index)
+# pairs, the index picking a TempArray_LayerDef long: 0 and 4 are Camera_BG_X_pos (1:1), and
+# 8 / $C / $10 are three accumulators that `addi.l` adds $8000 / $4000 / $2000 to every frame
+# and that nothing else moves. Sonic 2's own comment calls it a bug ("this tallies only the
+# cloud speeds"): THE CLOUD ROWS IGNORE THE CAMERA and only drift. That is what is transcribed
+# (a factor-0 layer with SceneDrift.Rate), because the brief is Sonic 2's behaviour. Two
+# arrays exist (Transition past camera X $2700, Normal before it); the plane window must read
+# the same index from both, or it is refused.
+
+def _wfz_segments(lines, label, fb):
+    s, e = _span(lines, label, "a WFZ BG segment array")
+    prog = _assemble(lines, s, e, fb)
+    vals = []
+    for _l, _lb, op, args in prog:
+        if op == "dc.b":
+            vals.extend(_num(v) for v in args.split(","))
+        elif op not in (None, "even"):
+            break
+    if len(vals) % 2:
+        raise ClipScrollError(f"{label} holds an odd number of bytes")
+    return list(zip(vals[0::2], vals[1::2]))
+
+
+def derive_wfz_raw(text):
+    lines = _lines(text)
+    fb = _fixbugs(lines)
+    if not re.search(r"^InitCam_Index:[^\n]*\n(?:[^\n]*\n){0,10}?\s*zoneOffsetTableEntry\.w\s+"
+                     r"InitCam_Null1\s*;\s*WFZ", text, re.M):
+        raise ClipScrollError("WFZ: InitCam_Index's WFZ row does not name InitCam_Null1")
+    s1, e1 = _span(lines, "LevEvents_WFZ_Routine1", "WFZ's first level event")
+    r1 = "\n".join(lines[s1:e1])
+    if not re.search(r"move\.l\s+\(Camera_X_pos\)\.w,\(Camera_BG_X_pos\)\.w\s*\n\s*"
+                     r"move\.l\s+\(Camera_Y_pos\)\.w,\(Camera_BG_Y_pos\)\.w", r1) or not \
+            re.search(r"move\.w\s+d0,\(Camera_BG_X_offset\)\.w\s*\n\s*move\.w\s+d0,"
+                      r"\(Camera_BG_Y_offset\)\.w", r1):
+        raise ClipScrollError("WFZ: LevEvents_WFZ_Routine1 does not copy the camera into the BG "
+                              "and zero the BG offsets")
+    s2, e2 = _span(lines, "LevEvents_WFZ_Routine2", "WFZ's normal-play level event")
+    r2 = "\n".join(lines[s2:e2])
+    m_t = re.search(r"cmpi\.w\s+#\$([0-9A-Fa-f]+),\(Camera_X_pos\)\.w\s*\n\s*blo\.s\s+\+\s*\n\s*"
+                    r"cmpi\.w\s+#\$([0-9A-Fa-f]+),\(Camera_Y_pos\)\.w", r2)
+    if not m_t or not re.search(r"move\.w\s+\(Camera_X_pos\)\.w,d0\s*\n\s*move\.w\s+"
+                                r"\(Camera_Y_pos\)\.w,d1\s*\n\s*bra\.w\s+ScrollBG", r2):
+        raise ClipScrollError("WFZ: LevEvents_WFZ_Routine2 is not the camera -> ScrollBG hand-off")
+    s3, e3 = _span(lines, "ScrollBG", "the BG follower")
+    sb = "\n".join(lines[s3:e3])
+    if not re.search(r"sub\.w\s+\(Camera_BG_X_pos\)\.w,d0\s*\n\s*sub\.w\s+\(Camera_BG_X_offset\)"
+                     r"\.w,d0", sb) or not re.search(r"sub\.w\s+\(Camera_BG_Y_pos\)\.w,d1\s*\n\s*"
+                                                   r"sub\.w\s+\(Camera_BG_Y_offset\)\.w,d1", sb):
+        raise ClipScrollError("WFZ: ScrollBG does not move the BG toward camera - offset")
+    s4, e4 = _span(lines, "SwScrl_WFZ", "Wing Fortress's scroll routine")
+    prog = _assemble(lines, s4, e4, fb)
+    body = "\n".join(f"{op} {a}" for _l, _lb, op, a in prog if op)
+    m_l = re.search(r"lea \(TempArray_LayerDef\)\.w,a2\nmove\.l d0,\(a2\)\+\nmove\.l d1,\(a2\)\+\n"
+                    r"addi\.l #\$([0-9A-Fa-f]+),\(a2\)\+\naddi\.l #\$([0-9A-Fa-f]+),\(a2\)\+\n"
+                    r"addi\.l #\$([0-9A-Fa-f]+),\(a2\)\+\n", body)
+    m_d = re.search(r"move\.l \(Camera_BG_X_pos\)\.w,d0\nmove\.l d0,d1\n", body)
+    m_a = re.search(r"lea \(SwScrl_WFZ_Transition_Array\)\.l,a3\ncmpi\.w #\$([0-9A-Fa-f]+),"
+                    r"\(Camera_X_pos\)\.w\nbhs\.s \.got_array\nlea \(SwScrl_WFZ_Normal_Array\)\.l,a3",
+                    body)
+    m_y = re.search(r"move\.w \(Camera_BG_Y_pos\)\.w,d1\nandi\.w #\$([0-9A-Fa-f]+),d1", body)
+    if not (m_l and m_d and m_a and m_y):
+        raise ClipScrollError("WFZ: SwScrl_WFZ's layer longs, array choice or row index are "
+                              "unreadable")
+    drift = {8: int(m_l.group(1), 16), 12: int(m_l.group(2), 16), 16: int(m_l.group(3), 16)}
+    for idx, v in drift.items():
+        if v & 0xFF:
+            raise ClipScrollError(f"WFZ: layer ${idx:X}'s 16.16 rate ${v:X} is not a whole "
+                                  f"multiple of 1/256 px")
+    row_mask = int(m_y.group(1), 16)
+    arrays = {nm: _wfz_segments(lines, f"SwScrl_WFZ_{nm}_Array", fb)
+              for nm in ("Normal", "Transition")}
+
+    def kinds_of(segs):
+        out, row = {}, 0
+        for count, idx in segs:
+            if idx in (0, 4):
+                k = ("flat", Fraction(1))
+            elif idx in drift:
+                k = ("drift", drift[idx] >> 8)
+            else:
+                raise ClipScrollError(f"WFZ: segment index ${idx:X} names no layer long")
+            for r in range(row, row + count):
+                out[r] = k
+            row += count
+        return out
+
+    return {"zone": "WFZ", "routine": "SwScrl_WFZ", "arrays": {k: kinds_of(v) for k, v in
+                                                              arrays.items()},
+            "v_factor": 0, "v_offset": 0, "lo_seen": 0, "row_mask": row_mask,
+            "transition_x": int(m_a.group(1), 16),
+            "routine3_at": (int(m_t.group(1), 16), int(m_t.group(2), 16)),
+            "provenance": {"LevEvents_WFZ_Routine1": s1, "LevEvents_WFZ_Routine2": s2,
+                           "ScrollBG": s3, "SwScrl_WFZ": s4}}
+
+
+def derive_wfz(text, paste_dy, r0=0):
+    """Wing Fortress's scene: v 1:1 (v_factor 0), and per BG row either the camera 1:1 (the
+    static rows) or a factor-0 layer that only DRIFTS (the cloud rows, Sonic 2's own bug). Exact
+    in normal play: until the camera passes LevEvents_WFZ_Routine2's thresholds (the getaway-
+    ship sequence moves the BG offsets), and inside the plane window the lowering chose."""
+    raw = derive_wfz_raw(text)
+    if r0 + PLANE_LINES > raw["row_mask"] + 1:
+        raise ClipScrollError(f"WFZ: the plane window passes SwScrl_WFZ's row mask "
+                              f"${raw['row_mask']:X}")
+    nrm, trn = raw["arrays"]["Normal"], raw["arrays"]["Transition"]
+    for bg in range(r0, r0 + PLANE_LINES):
+        if nrm.get(bg) != trn.get(bg):
+            raise ClipScrollError(f"WFZ: background row {bg} scrolls as {nrm.get(bg)} before "
+                                  f"camera X ${raw['transition_x']:X} and {trn.get(bg)} after; "
+                                  f"one plane window cannot be both")
+    bands, v_off, approx = _finish_plane(nrm, raw["v_factor"], raw["v_offset"], r0,
+                                         raw["lo_seen"], "Wing Fortress")
+    return {"zone": "WFZ", "routine": "SwScrl_WFZ", "v_factor": raw["v_factor"],
+            "v_center": paste_dy, "v_offset": v_off, "bands": bands, "window_top": r0,
+            "approximations": approx, "exact_until": raw["routine3_at"],
+            "provenance": raw["provenance"]}
+
+
 DERIVERS = {"EHZ": lambda text, dy: derive_ehz(text), "CPZ": derive_cpz, "MTZ": derive_mtz}
+#: Zones whose background is lowered through a chosen 512-line WINDOW of a taller map
+#: (clip_bg_lower.window_top): their derivers take the window's top row, r0.
+WINDOWED = {"OOZ": derive_ooz, "HPZ": derive_hpz, "WFZ": derive_wfz}
+#: Which donor each transcription reads: Hidden Palace exists only in the prototype.
+DERIVER_DONOR = {"EHZ": "s2disasm", "CPZ": "s2disasm", "MTZ": "s2disasm", "OOZ": "s2disasm",
+                 "WFZ": "s2disasm", "HPZ": "s2-simonwai-disasm"}
 
 
-def derive(donor, zone, paste_dy):
+def derive(donor, zone, paste_dy, r0=None):
     """The spec for one donor zone, or None when this zone has no transcription (the caller
-    keeps the act default and says so)."""
-    fn = DERIVERS.get(zone)
-    if fn is None:
+    keeps the act default and says so). `r0` is the top BG row of the plane window the
+    lowering uses (default: `clip_bg_lower.window_top`, the rule both halves share)."""
+    fn = DERIVERS.get(zone) or WINDOWED.get(zone)
+    if fn is None or DERIVER_DONOR.get(zone) != donor:
         return None
     with open(s2_asm_path(donor), "r", errors="replace") as fh:
         text = fh.read()
-    return fn(text, paste_dy)
+    if zone in WINDOWED:
+        if r0 is None:
+            import clip_bg_lower
+            r0 = clip_bg_lower.window_top(donor, zone)
+        return _nonneg_center(fn(text, paste_dy, r0))
+    if r0:
+        raise ClipScrollError(f"{zone}'s transcription has no plane window and was asked for "
+                              f"one at row {r0}")
+    return _nonneg_center(fn(text, paste_dy))
+
+
+def _nonneg_center(spec):
+    """scene() takes v_center as a WORLD Y, 0..32767 (scene_dsl.emp refuses anything else and
+    the header field is u16), but the derivers set it to the clip's paste dy, which is
+    NEGATIVE for a clip pasted UP (Wing Fortress's woven deck, dy -256: the first build refused
+    it). The mapping ((camY - v_center) >> v_factor) + v_offset is unchanged when v_center
+    rises by m and v_offset rises by m >> v_factor, EXACTLY, for any m that is a multiple of
+    2^v_factor (an arithmetic shift of an integer minus a multiple of the divisor), so fold
+    the smallest such m. layer_world_y is unchanged by the same identity."""
+    if spec is None or spec["v_factor"] == LOCKED or spec["v_center"] >= 0:
+        return spec
+    step = 1 << spec["v_factor"]
+    m = -(spec["v_center"] // step) * step        # smallest multiple of step >= -v_center
+    return dict(spec, v_center=spec["v_center"] + m, v_offset=spec["v_offset"] + (m >> spec["v_factor"]))
+
+
+def bg_row_at(spec, camy):
+    """The BG map row at the top of the screen for DONOR camera Y `camy` (paste_dy 0, no
+    window), as Sonic 2 computes it. For clip_bg_lower.window_top."""
+    if spec["v_factor"] == LOCKED:
+        return spec["v_offset"]
+    return (camy >> spec["v_factor"]) + spec["v_offset"]
 
 
 # ---------------------------------------------------------------------------
@@ -780,8 +1413,11 @@ def scene_text(spec, scene_name, table_label, transition=0):
             args += ["dsb: 0", f"phase: {b['phase']}"]
         if b["kind"] == "ramp":
             args.append(f"curve: SceneCurve.To({factor_text(b['to_factor'])})")
+        if b.get("drift"):
+            args.append(f"drift: SceneDrift.Rate({b['drift']})")
         rows.append("layer(" + ", ".join(args) + ")")
     rows += ["no_layer()"] * (MAX_BANDS - len(rows))
+    table_label = spec.get("table_label", table_label)
     deform = (f",\n    deform_bg: SceneDeform.Shared({table_label}, 0)" if uses_ripple(spec) else "")
     return (f"pub const {scene_name}: Scene = scene(\n"
             f"    layers: [ " + ",\n              ".join(rows) + " ],\n"
@@ -824,17 +1460,25 @@ def data_block_text(zones, act_span, transition=0):
            "// fires here; lowered by the registry's lowerN; bound to each zone's region preset\n"
            "// through preset(parallax:). Every number below is derived from s2.asm by\n"
            "// tools/clip_bg_scroll.py (EHZ by RUNNING SwScrl_EHZ), never typed.\n"]
-    tables = {tuple(spec["deform_table"]) for _k, spec in zones if uses_ripple(spec)}
-    if len(tables) > 1:
-        raise ClipScrollError("two zones derive DIFFERENT ripple tables; this block emits one")
-    if tables:
-        tab = list(tables.pop())
+    tables = {}
+    for _k, spec in zones:
+        if uses_ripple(spec):
+            lab = spec.get("table_label", TABLE_LABEL)
+            tab = tuple(spec["deform_table"])
+            if tables.setdefault(lab, tab) != tab:
+                raise ClipScrollError(f"two zones derive DIFFERENT ripple tables under one label "
+                                      f"{lab}; this block emits one per label")
+    for lab in sorted(tables, key=lambda x: (x != TABLE_LABEL, x)):
+        tab = list(tables[lab])
         body = ",\n    ".join(", ".join(str(v) for v in tab[i:i + 32]) for i in range(0, 256, 32))
+        rev = ("" if lab == TABLE_LABEL else
+               "// REVERSED (entry k is the cycle's entry -k): Sonic 2 writes this zone's ripple\n"
+               "// rows bottom up, so its index falls down the screen (clip_bg_scroll derive_ooz).\n")
         out.append(
             "// SwScrl_RippleData's cycle, repeated to the engine's 256-entry deform table. SPEED 0\n"
             "// (static): S2 advances it one entry per 8 frames and the engine's phase moves in\n"
-            "// whole entries per frame (booked engine gap).\n"
-            f"pub data {TABLE_LABEL}: [i8; 256] = [\n    {body}\n]\n")
+            "// whole entries per frame (booked engine gap).\n" + rev +
+            f"pub data {lab}: [i8; 256] = [\n    {body}\n]\n")
     names = []
     for key, spec in zones:
         lab = SCENE_LABEL.format(key=key)
@@ -878,6 +1522,10 @@ def band_rows(spec):
     for b in spec["bands"]:
         what = {"flat": f"camX*{b['ratio']}", "ripple": f"camX*{b['ratio']} + ripple (static)",
                 "ramp": f"camX*{b['ratio']} -> camX*{b.get('to_ratio')} (curve)"}[b["kind"]]
+        if b.get("drift"):
+            what += f" + drift {b['drift']}/256 px/frame"
+        if "s2_ratio" in b:
+            what += f" (APPROXIMATES Sonic 2's camX*{b['s2_ratio']})"
         out.append((b["plane_top"], b.get("engine_end"), what, b["factor"],
                     b.get("loops") or b.get("src")))
     return out
@@ -897,14 +1545,20 @@ def engine_vscroll(spec, camy, ceiling=PLANE_LINES - SCREEN_LINES):
     return min(max(v, 0), ceiling)
 
 
-def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
+def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0, drift_px=None):
     """The BG HScroll word the engine's fill writes on each screen line at steady state
     (Parallax_Fill_PerLine's flat, sampled and curve loops). `vscroll` is the BG plane's
     vertical scroll (a locked scene's v_offset when None); `phase_bg` is
     Parallax_Deform_Phase_BG. Bands are keyed by PLANE line: a screen line L shows plane row
     (vscroll + L) mod 512 and takes the band whose top is the last at or above that row. A
-    curve is modelled only on a locked plane (the one place this parcel authors one)."""
+    curve is modelled only on a locked plane (the one place this parcel authors one).
+
+    `drift_px` is Parallax_Drift_Acc's PIXEL word per CONFIG BAND INDEX (scene_text emits one
+    layer per spec band, in order, so config band k is spec band k). Parallax_Update adds it
+    to every band's plane-B target (`add.w (a4), d2`, CAP_BAND_DRIFT), so it is added here to
+    every band; only a band with a drift rate ever has a non-zero accumulator. None = all 0."""
     bands = spec["bands"]
+    dpx = list(drift_px or []) + [0] * (len(bands) - len(drift_px or []))
     if vscroll is None:
         if spec["v_factor"] != LOCKED:
             raise ClipScrollError("an unlocked scene needs the live vscroll")
@@ -916,8 +1570,9 @@ def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
             raise ClipScrollError("a curve on a scrolling plane is not modelled here")
         for line in range(SCREEN_LINES):
             row = (vscroll + line) % PLANE_LINES
-            b = [x for x in bands if x["plane_top"] <= row][-1]
-            v = -engine_factor_scroll(b["factor"], camx)
+            k = [i for i, x in enumerate(bands) if x["plane_top"] <= row][-1]
+            b = bands[k]
+            v = -engine_factor_scroll(b["factor"], camx) + dpx[k]
             if b["kind"] == "ripple":
                 v += tab[(phase_bg + b["phase"] + vscroll + line) & 0xFF]
             out[line] = _sx(v, 16)
@@ -925,7 +1580,7 @@ def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
     for k, b in enumerate(bands):
         top = b["plane_top"]
         end = bands[k + 1]["plane_top"] if k + 1 < len(bands) else SCREEN_LINES
-        base = _sx(-engine_factor_scroll(b["factor"], camx), 16)
+        base = _sx(-engine_factor_scroll(b["factor"], camx) + dpx[k], 16)
         if b["kind"] == "ramp":
             far = _sx(-engine_factor_scroll(b["to_factor"], camx), 16)
             spread = _sx(far - base, 16)

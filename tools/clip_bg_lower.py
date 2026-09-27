@@ -99,31 +99,78 @@ def _load(donor, zone):
     return bg, sd.chunk_tiles(chunks, blocks), art
 
 
-def lower(donor, zone, loader=None):
+#: A Sonic 2 chunk is 128 px: the plane window moves in whole chunk rows.
+CHUNK_PX = 128
+SCREEN_PX = 224
+
+
+def window_top(donor, zone):
+    """The first BG row (px, a multiple of CHUNK_PX) of the 512-px window of a zone's
+    background that the plane holds. ONE RULE, shared with clip_bg_scroll (its derivers take
+    the same r0, so the band tops and v_offset follow the rows actually lowered):
+
+        the LOWEST chunk-aligned window that holds Sonic 2's own act-1 START VIEW
+        (BG rows bg_y .. bg_y + 223 at camera Y = start Y - $60, LevelSizeLoad's rule).
+
+    Every zone clipped before 2026-09-27 (EHZ, CPZ, MTZ) and OOZ and HPZ get 0, i.e. the
+    first 512 rows, exactly as before (MEASURED: their start views end at BG rows 224, 322,
+    362, 505, 390). WING FORTRESS gets 896: its BG scrolls 1:1 with the camera, so its first
+    512 rows are the empty sky above the fortress and its start view (camera Y 1132) is rows
+    1132..1355. A zone with no scroll transcription keeps 0."""
+    import clip_bg_scroll as CBS
+    import s2_donor as sd
+    spec = CBS.derive(donor, zone, 0, r0=0)
+    if spec is None:
+        return 0
+    _x, y = sd.start_position(zone, donor)
+    top = CBS.bg_row_at(spec, max(0, y - 0x60)) + SCREEN_PX - PLANE_ROWS * 8
+    return 0 if top <= 0 else -(-top // CHUNK_PX) * CHUNK_PX
+
+
+def lower(donor, zone, loader=None, r0=None):
     """(words, tiles, info) for one donor zone. `words` are PLANE_COLS x PLANE_ROWS
     editor-local nametable words, ROW-MAJOR; `tiles` are 32-byte 4bpp tiles; local index i
-    in a word is tiles[i]. Pure: reads the donor, writes nothing."""
+    in a word is tiles[i]. Pure: reads the donor, writes nothing.
+
+    `r0` is the window's top BG row in px (default: `window_top`, or 0 for an injected
+    loader). THE PERIOD is measured over the rows the plane holds, not over every painted row
+    of the map: a row the plane never shows cannot make a crop wrong. (Wing Fortress is why:
+    its window's cloud rows repeat every 4 chunks, while the fortress's far-right rows 0-1 and
+    the rows 11-12 feature never do. For every zone lowered before, the two rules give
+    byte-identical output: tools/test_clip_bg_lower.py pins it.)"""
     bg, ct, art = (loader or _load)(donor, zone)
     tpc = ct.shape[1]                                   # tiles per chunk side
+    if r0 is None:
+        r0 = 0 if loader else window_top(donor, zone)
+    if r0 % (tpc * 8):
+        raise ClipBgError(f"{donor}:{zone}: window top {r0} is not a whole chunk row")
+    r0c = r0 // (tpc * 8)
     rows_c = PLANE_ROWS // tpc
+    if r0c + rows_c > bg.shape[0]:
+        raise ClipBgError(f"{donor}:{zone}: the window {r0}..{r0 + PLANE_ROWS * 8 - 1} runs "
+                          f"past the {bg.shape[0] * tpc * 8}-px background")
+    win = bg[r0c:r0c + rows_c]
     painted = [r for r in range(bg.shape[0])
                if any((ct[c] & 0x7FF).any() for c in set(bg[r].tolist()))]
     if not painted:
         raise ClipBgError(f"{donor}:{zone} has no painted background row")
-    nz = [c for c in range(bg.shape[1]) if bg[:max(painted) + 1, c].any()]
+    nz = [c for c in range(win.shape[1]) if win[:, c].any()]
+    if not nz:
+        raise ClipBgError(f"{donor}:{zone}'s window {r0}..{r0 + PLANE_ROWS * 8 - 1} is empty")
     width = max(nz) + 1
     period = next((p for p in range(1, width)
-                   if all((bg[r, :width - p] == bg[r, p:width]).all()
-                          for r in range(max(painted) + 1))), None)
+                   if all((win[r, :width - p] == win[r, p:width]).all()
+                          for r in range(win.shape[0]))), None)
     if period is None:
         raise ClipBgError(f"{donor}:{zone}'s background does not repeat horizontally over "
-                          f"its painted {width} chunk columns")
+                          f"its painted {width} chunk columns in rows {r0}.."
+                          f"{r0 + PLANE_ROWS * 8 - 1}")
     crop_c = PLANE_COLS // tpc
     if period * tpc < PLANE_COLS and PLANE_COLS % (period * tpc):
         raise ClipBgError(f"{donor}:{zone}'s period is {period * tpc} cells, which neither "
                           f"covers nor divides the {PLANE_COLS}-cell plane")
     span_c = period * 2 + crop_c + 1
-    grid = bg[:rows_c, [c % period for c in range(span_c)]]
+    grid = win[:, [c % period for c in range(span_c)]]
     full = ct[grid].transpose(0, 2, 1, 3).reshape(rows_c * tpc, span_c * tpc)
 
     pix_cache = {}
@@ -192,6 +239,7 @@ def lower(donor, zone, loader=None):
         raise ClipBgError(f"{donor}:{zone}: {len(over)} word(s) name a tile past the "
                           f"{len(tiles)}-tile list (first at cell {over[0]})")
     info = {"donor": donor, "zone": zone, "period_cells": period * tpc,
+            "window_top_px": r0,
             "crop_start_chunk": start, "seam_cost_pixels": seam_cost,
             "painted_rows_px": (max(painted) + 1) * tpc * 8, "tiles": len(tiles),
             "line0_cells": line0, "priority_cells": prio,
@@ -224,15 +272,18 @@ def s2_backdrop_register(donor):
     line L, entry C. A clip act installs its donor's CRAM lines 1-3 onto CRAM lines 1-3, so
     the same byte selects the same colour in Aeon. Refuses anything but exactly one write."""
     import s2_donor as sd
-    text = open(os.path.join(sd.donor_root(donor), "s2.asm"), "r", errors="replace").read()
+    # The donor's OWN top-level file (s2.asm final, main.asm prototype): Hidden Palace's
+    # only donor is the prototype, and its `Level:` makes the same single write ($8720).
+    text = sd._main_asm(donor)
+    top = sd._donor(donor)["marker"]
     try:
         start = text.index("\nLevel:")
         end = text.index("\nLevel_LoadPal:", start)
     except ValueError as exc:
-        raise ClipBgError(f"{donor}'s s2.asm has no `Level:` .. `Level_LoadPal:` span") from exc
+        raise ClipBgError(f"{donor}'s {top} has no `Level:` .. `Level_LoadPal:` span") from exc
     m = re.findall(r"move\.w\s+#\$87([0-9A-Fa-f]{2}),\(a6\)", text[start:end])
     if len(m) != 1:
-        raise ClipBgError(f"{donor}'s s2.asm `Level:` sets the backdrop register {len(m)} "
+        raise ClipBgError(f"{donor}'s {top} `Level:` sets the backdrop register {len(m)} "
                           f"times; expected exactly one")
     reg = int(m[0], 16)
     if reg >> 4 == 0:

@@ -311,3 +311,230 @@ def test_sc1_refuses_a_scroll_block_that_is_not_a_fresh_derivation(s2asm, ehz):
     assert wrong != text, "the mutation found nothing to change — re-derive its target"
     with pytest.raises(CRB.ClipRomError, match="fresh derivation"):
         CRB.check_scroll(plan, wrong)
+
+
+# ---- OIL OCEAN, HIDDEN PALACE, WING FORTRESS (woven prep, 2026-09-27) -----------------------
+# Before this, derive() returned None for all three (the act default's scroll) and
+# clip_bg_lower refused WFZ and HPZ outright.
+
+@pytest.fixture(scope="module")
+def protoasm():
+    try:
+        root = S.donor_root(S.S2_PROTOTYPE)
+    except (SystemExit, SuitePathError) as e:
+        pytest.skip(f"the {S.S2_PROTOTYPE} donor could not be resolved, so NOTHING in this row "
+                    f"is checked: {e}")
+    with open(os.path.join(root, "main.asm"), errors="replace") as fh:
+        return fh.read()
+
+
+def _ooz_prog(s2asm):
+    lines = CBS._lines(s2asm)
+    s, e = CBS._span(lines, "SwScrl_OOZ", "")
+    return CBS._assemble(lines, s, e, CBS._fixbugs(lines)), CBS._dc_bytes(lines, "SwScrl_RippleData")
+
+
+def test_ooz_model_reproduces_swscrl_ooz_on_every_line(s2asm):
+    """SwScrl_OOZ RUN at every 16th BG Y it can reach inside the plane and a sweep of camera X,
+    against the engine model of the derived scene: the ripple (sun) lines EXACT, the flat
+    lines within the one pixel of floor the shift order implies (S2 shifts -BG_X, the engine
+    shifts +camX), and exact at camera X multiples of 128 (no shift floors anything there)."""
+    spec = CBS.derive("s2disasm", "OOZ", 0)
+    assert spec["window_top"] == 0 and spec["table_label"] == CBS.TABLE_LABEL + "_Rev"
+    prog, ripple = _ooz_prog(s2asm)
+    tab = {"SwScrl_RippleData": [v & 0xFF for v in ripple]}
+    lo = spec["v_offset"]
+    for bgy in list(range(lo, CBS.PLANE_LINES - CBS.SCREEN_LINES + 1, 16)) + [CBS.PLANE_LINES - CBS.SCREEN_LINES]:
+        for camx in list(range(0, 12288, 331)) + [128 * 37, 128 * 81]:
+            s2 = CBS._ooz_run(prog, tab, camx, camx >> 3, bgy)
+            eng = CBS.engine_bg_words(spec, camx, vscroll=bgy - spec["window_top"])
+            for line in range(CBS.SCREEN_LINES):
+                row = bgy + line
+                b = [x for x in spec["bands"] if x["plane_top"] <= row][-1]
+                d = abs(eng[line] - s2[row])
+                if b["kind"] == "ripple" or camx % 128 == 0:
+                    assert d == 0, (bgy, camx, line, eng[line], s2[row])
+                else:
+                    assert d <= 1, (bgy, camx, line, eng[line], s2[row])
+
+
+def test_ooz_bands_are_its_cloud_rows_and_sun(s2asm):
+    spec = CBS.derive("s2disasm", "OOZ", 0)
+    rows = [(b["plane_top"], b["kind"], b["ratio"]) for b in spec["bands"]]
+    assert rows[0] == (spec["v_offset"], "flat", Fraction(1, 8))       # empty sky, camX/8
+    assert rows[-1][1:] == ("flat", Fraction(1, 8))                     # the factory
+    assert [r for r in rows if r[1] == "ripple"] == [(192, "ripple", 0)]  # the sun, 33 rows
+    assert {r[2] for r in rows if r[1] == "flat"} == {Fraction(1, n) for n in (8, 32, 64, 128)}
+    assert spec["approximations"] == []
+    # the first band's top maps back to world Y v_center: the lowest reachable plane line
+    assert CBS.layer_world_y(spec, spec["bands"][0]["plane_top"]) == spec["v_center"]
+
+
+def test_hpz_table_half_and_writer_cover_its_background(protoasm):
+    """The run table has one entry per 16-line block, and those blocks are the prototype
+    background's painted height exactly (HPZ_BG.bin, via Off_Level)."""
+    raw = CBS.derive_hpz_raw(protoasm)
+    grid = S.load_bg_grid("HPZ", S.S2_PROTOTYPE)
+    assert raw["blocks"] * raw["block"] == grid.shape[0] * 128
+    assert raw["v_factor"] == 1 and raw["x_shift"] == 2
+
+
+def test_hpz_bands_are_its_table_and_the_approximations_are_named(protoasm):
+    raw = CBS.derive_hpz_raw(protoasm)
+    spec = CBS.derive("s2-simonwai-disasm", "HPZ", 0)
+    for b in spec["bands"]:
+        s2 = raw["kinds"][b["plane_top"]][1]
+        got = CBS.factor_value(*b["factor"])
+        if b.get("s2_ratio") is None:
+            assert got == s2
+        else:
+            assert b["s2_ratio"] == s2 and got != s2
+            # nothing the engine can decode is nearer: an independent brute force over every
+            # (s1, s2, op) the decoder accepts
+            everything = {CBS.factor_value(a, c, o) for a in range(15)
+                          for c in [CBS.LOCKED] + list(range(a + 1, 15))
+                          for o in ((0,) if c == CBS.LOCKED else (0, 1))}
+            assert abs(got - s2) == min(abs(v - s2) for v in everything)
+    approx = {a["s2_ratio"] for a in spec["approximations"]}
+    for r in {k[1] for k in raw["kinds"].values()}:
+        try:
+            CBS.encode_factor(r)
+            assert r not in approx
+        except CBS.ClipScrollError:
+            if any(b.get("s2_ratio") == r for b in spec["bands"]):
+                assert r in approx
+    assert {Fraction(57, 128), Fraction(50, 128), Fraction(43, 128)} == approx
+
+
+def test_wfz_bands_are_the_segment_array_as_drift_rows(s2asm):
+    raw = CBS.derive_wfz_raw(s2asm)
+    r0 = __import__("clip_bg_lower").window_top("s2disasm", "WFZ")
+    spec = CBS.derive("s2disasm", "WFZ", -256)
+    assert spec["window_top"] == r0 == 896
+    # 1:1 vertically: plane row = donor camera Y - r0, and donor Y = act Y + 256 (pasted up
+    # 256). scene() needs v_center >= 0, so the fold (see the negative-dy row) carries it.
+    assert spec["v_factor"] == 0 and spec["v_center"] >= 0
+    assert spec["v_offset"] - spec["v_center"] == 256 - r0
+    # an independent reading: the three addi.l longs in order are TempArray +8, +$C, +$10,
+    # each 16.16 px/frame, i.e. value / 256 in the engine's 1/256 px unit
+    adds = [int(v, 16) for v in re.findall(
+        r"addi\.l\t#\$([0-9A-F]+),\(a2\)\+", s2asm[s2asm.index("\nSwScrl_WFZ:"):
+                                                 s2asm.index("\nSwScrl_WFZ_Transition_Array:")])]
+    rate_of = {8: adds[0] // 256, 12: adds[1] // 256, 16: adds[2] // 256}
+    assert sorted(rate_of.values()) == [32, 64, 128]
+    # and the segment array, read again here: (count, index) pairs from BG row 0
+    arr = s2asm[s2asm.index("\nSwScrl_WFZ_Normal_Array:"):]
+    arr = arr[:arr.index("\n; ====")]
+    idx_of, row = {}, 0
+    for n, i in re.findall(r"dc\.b\s+\$?([0-9A-F]+),\s*\$?([0-9A-F]+)", arr.split("if fixBugs")[0]):
+        for r in range(row, row + int(n, 16)):
+            idx_of[r] = int(i, 16)
+        row += int(n, 16)
+    for pl in range(CBS.PLANE_LINES):
+        b = [x for x in spec["bands"] if x["plane_top"] <= pl][-1]
+        i = idx_of[pl + r0]
+        if i in rate_of:
+            assert (b["factor"], b["drift"]) == ((CBS.LOCKED, CBS.LOCKED, 0), rate_of[i])
+        else:
+            assert CBS.factor_value(*b["factor"]) == 1 and not b.get("drift")
+    assert raw["arrays"]["Normal"][r0] == ("drift", rate_of[idx_of[r0]])
+    txt = CBS.scene_text(spec, "X", CBS.TABLE_LABEL)
+    assert txt.count("drift: SceneDrift.Rate(") == len(spec["bands"])
+
+
+@pytest.mark.parametrize("zone,needle,repl,why", [
+    ("OOZ", "\tlsr.w\t#3,d0\n\taddi.w\t#$50,d0", "\tlsr.w\t#2,d0\n\taddi.w\t#$50,d0", "disagrees"),
+    ("WFZ", "\taddi.l\t#$8000,(a2)+", "\taddi.l\t#$8001,(a2)+", "whole"),
+    ("WFZ", "\tmove.l\t(Camera_X_pos).w,(Camera_BG_X_pos).w", "\tclr.l\t(Camera_BG_X_pos).w",
+     "copy the camera"),
+])
+def test_new_readers_refuse_a_source_that_stops_saying_what_they_read(s2asm, zone, needle,
+                                                                       repl, why):
+    fn = {"OOZ": CBS.derive_ooz_raw, "WFZ": CBS.derive_wfz_raw}[zone]
+    fn(s2asm)                                                       # control
+    assert needle in s2asm, f"the mutation's target {needle!r} is gone — re-derive"
+    with pytest.raises(CBS.ClipScrollError, match=why):
+        fn(s2asm.replace(needle, repl, 1))
+
+
+def test_hpz_reader_refuses_a_writer_it_does_not_recognise(protoasm):
+    CBS.derive_hpz_raw(protoasm)                                    # control
+    needle = "\t\tandi.w\t#$F,d2\n\t\tadd.w\td2,d2"
+    assert needle in protoasm
+    with pytest.raises(CBS.ClipScrollError, match="loc_6AA8"):
+        CBS.derive_hpz_raw(protoasm.replace(needle, "\t\tandi.w\t#$7,d2\n\t\tadd.w\td2,d2", 1))
+
+
+def test_every_windowed_zone_keeps_its_start_view_inside_the_plane():
+    import clip_bg_lower as L
+    for donor, zone in (("s2disasm", "OOZ"), ("s2disasm", "WFZ"), ("s2-simonwai-disasm", "HPZ")):
+        try:
+            S.donor_root(donor)
+        except (SystemExit, SuitePathError):
+            pytest.skip(f"{donor} unresolved")
+        raw = CBS.derive(donor, zone, 0, r0=0)
+        _x, y = S.start_position(zone, donor)
+        top = CBS.bg_row_at(raw, max(0, y - 0x60))
+        r0 = L.window_top(donor, zone)
+        assert r0 <= top and top + CBS.SCREEN_LINES <= r0 + CBS.PLANE_LINES, (zone, top, r0)
+    for zone in ("EHZ", "CPZ", "MTZ", "OOZ"):
+        assert L.window_top("s2disasm", zone) == 0
+
+
+def test_data_block_emits_one_table_per_direction(s2asm, ehz):
+    ooz = CBS.derive("s2disasm", "OOZ", 0)
+    txt = CBS.data_block_text([(0, ehz), (1, ooz)], 4096)
+    assert f"pub data {CBS.TABLE_LABEL}: [i8; 256]" in txt
+    assert f"pub data {CBS.TABLE_LABEL}_Rev: [i8; 256]" in txt
+    fwd = [int(v) for v in re.search(rf"pub data {CBS.TABLE_LABEL}: \[i8; 256\] = \[(.*?)\]",
+                                     txt, re.S).group(1).replace("\n", "").split(",")]
+    rev = [int(v) for v in re.search(rf"pub data {CBS.TABLE_LABEL}_Rev: \[i8; 256\] = \[(.*?)\]",
+                                     txt, re.S).group(1).replace("\n", "").split(",")]
+    assert all(rev[k] == fwd[(-k) % 256] for k in range(256))
+    assert f"deform_bg: SceneDeform.Shared({CBS.TABLE_LABEL}_Rev, 0)" in txt
+
+
+def test_the_model_adds_each_bands_drift_accumulator_to_that_band_only(s2asm):
+    """clip_bg_scroll_witness compares the ROM's Hscroll_Buffer with engine_bg_words. For WFZ's
+    clouds that needs Parallax_Drift_Acc: the engine adds the accumulator's pixel word to the
+    band's plane-B target (`add.w (a4), d2`). Band k's lines must move by exactly its own
+    accumulator and no other band's lines may move. Which band a line shows is read here from
+    plane_top directly, not through the model's own lookup."""
+    spec = CBS.derive("s2disasm", "WFZ", -256)
+    vs = CBS.engine_vscroll(spec, 700)
+    base = CBS.engine_bg_words(spec, 1234, vscroll=vs)
+    drifting = [k for k, b in enumerate(spec["bands"]) if b.get("drift")]
+    assert drifting, "WFZ's spec has no drifting band: nothing below is checked"
+    for k in drifting:
+        dpx = [0] * len(spec["bands"])
+        dpx[k] = 37
+        got = CBS.engine_bg_words(spec, 1234, vscroll=vs, drift_px=dpx)
+        for line in range(CBS.SCREEN_LINES):
+            row = (vs + line) % CBS.PLANE_LINES
+            tops = [b["plane_top"] for b in spec["bands"]]
+            band = max(i for i, t in enumerate(tops) if t <= row)
+            assert got[line] - base[line] == (37 if band == k else 0), (k, line)
+
+
+@pytest.mark.parametrize("zone,dy", [("WFZ", -256), ("WFZ", -16), ("MTZ", -100), ("CPZ", -448),
+                                     ("OOZ", -300), ("MTZ", 448)])
+def test_a_clip_pasted_up_still_gives_scene_a_world_y_centre(s2asm, zone, dy):
+    """scene() refuses v_center outside 0..32767 (it is a world Y; the header field is u16),
+    and the derivers set it to the paste dy, negative for a clip pasted UP: the first
+    S2CLIP=s2_wfz_solo build failed on exactly that (v_center -256). derive() folds it.
+    The vertical mapping must be the UNFOLDED deriver's, recomputed here with Python floor
+    division (the 68000's asr), at every camera Y the act can hold."""
+    raw_fn = CBS.WINDOWED.get(zone) or CBS.DERIVERS[zone]
+    import clip_bg_lower
+    raw = (raw_fn(s2asm, dy, clip_bg_lower.window_top("s2disasm", zone)) if zone in CBS.WINDOWED
+           else raw_fn(s2asm, dy))
+    spec = CBS.derive("s2disasm", zone, dy)
+    assert 0 <= spec["v_center"] <= 32767
+    if raw["v_factor"] == CBS.LOCKED:
+        pytest.skip(f"{zone}: a locked plane has no vertical mapping to fold")
+    for camy in range(0, 6144, 7):
+        assert CBS.engine_vscroll(spec, camy) == CBS.engine_vscroll(raw, camy), camy
+        got = ((camy - spec["v_center"]) >> spec["v_factor"]) + spec["v_offset"]
+        assert got == ((camy - raw["v_center"]) >> raw["v_factor"]) + raw["v_offset"], camy
+    for b in spec["bands"]:
+        assert CBS.layer_world_y(spec, b["plane_top"]) == CBS.layer_world_y(raw, b["plane_top"])
