@@ -9,7 +9,7 @@
 module engine.collision_lookup in collision_lookup
 
 use engine.constants.{CTYPE_AIR, TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE}
-use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
+use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, COLL_CELL_H}
 
 // -----------------------------------------------
 // Collision_GetType — look up collision type for a world-space position.
@@ -81,5 +81,45 @@ pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0:
 
     .cgt_air:
         moveq   #CTYPE_AIR, d0
+        rts
+}
+
+// -----------------------------------------------
+// Collision_ResidentBottom — the first world pixel row, below a querying object, whose
+// collision is NOT resident: where the camera-following RAM ring stops knowing the world.
+// Collision_GetType answers AIR past Cache_Bottom_Row (.cgt_air) and reads whatever the
+// ring slot last held for a declared-but-unwritten row, so a probe at or below this row
+// cannot be trusted. An object that can outrun the camera (an uncapped fall, owner ruling
+// FALL-FEEL 2026-09-27) must keep its probes above it; games/sonic4/player/player_air.emp
+// Player_FallLimit is the consumer.
+//
+// "Resident" means WRITTEN, not declared, on both counts the fill leaves open:
+//   * a pending partial row (Cache_Fill_RowResume_Row) below the object cuts the extent to
+//     the row above it — Tile_Cache_Fill commits Cache_Bottom_Row BEFORE filling it;
+//   * collision is copied only on a cell's ODD (cell-completing) row
+//     (TileCache_FillRow), so an even last row has not written its cell yet. Rounding
+//     (last row + 1) down to even gives the first row of the first incomplete cell.
+// A pending row at or above the object is the up-fill's (the pair Tile_Cache_Fill's
+// .v_top_fill orphaned) and is not this object's frontier.
+// In:  d1.w = the querying object's world Y (px)
+// Out: d0.w = frontier, world px (first row NOT resident)
+// Clobbers: d1-d2
+// -----------------------------------------------
+pub proc Collision_ResidentBottom (d1: u16) clobbers(d1-d2) out(d0: u16) {
+        ensure(COLL_CELL_H == 16,
+               "Collision_ResidentBottom rounds a tile row to its collision cell with `andi.w #$FFFE` (two 8 px tile rows per cell) and converts rows to px with `lsl.w #3`; COLL_CELL_H is now {COLL_CELL_H}")
+        move.w  Cache_Bottom_Row, d0
+        move.w  Cache_Fill_RowResume_Row, d2    // $FFFF = none, which the unsigned test drops
+        cmp.w   d0, d2
+        bhi     .filled                          // none pending, or not inside the window
+        lsr.w   #3, d1                           // the querying object's tile row
+        cmp.w   d1, d2
+        bls     .filled                          // pending row at/above it: the up-fill's
+        move.w  d2, d0
+        subq.w  #1, d0                           // written through the row above the pending one
+    .filled:
+        addq.w  #1, d0
+        andi.w  #$FFFE, d0                       // first row of the first unwritten cell
+        lsl.w   #3, d0                           // tile row -> px
         rts
 }

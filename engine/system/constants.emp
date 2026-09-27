@@ -199,22 +199,38 @@ pub const PHYS_AIR_ACCEL        = $18
 pub const PHYS_JUMP_RELEASE_CAP = -$400
 pub const PHYS_SKID_MIN         = $400   // min |gsp| to trigger a skid
 pub const PHYS_JUMP_BUFFER      = 2      // jump-input buffer window (frames)
-// Terminal fall speed — DERIVED, not chosen (owner ruling 2026-08-26, d-18-answered,
-// queue row FALL-CAP-15). The floor probe reads collision CELLS, so the thinnest
-// floor the world can express is one cell; a per-frame Y step of a whole cell can
-// begin the frame flush on a slab's surface and end it below the slab, stepping
-// clean over it. The largest step that can never do that is one pixel short of a
-// cell, in 8.8 fixed point. Flat `$1000` was exactly one cell — one pixel hot — and
-// that was the shipped 1px tunnelling hole this closes. Do not re-type the value:
-// it follows COLLISION_CELL_SHIFT (declared below in the collision section).
-pub const PHYS_FALL_CAP         = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
-// The ruling, executable. Tautological against the derivation directly above and
-// deliberately so: its job is to survive someone re-typing that derivation as a
-// flat literal later. It fires in BOTH directions — a cap raised back to a whole
-// cell, and a COLLISION_CELL_SHIFT lowered under a cap that stayed put — which a
-// check written against a fixed number could not do.
-ensure((PHYS_FALL_CAP >> 8) < (1 << COLLISION_CELL_SHIFT),
-       "PHYS_FALL_CAP must stay STRICTLY below one collision cell: a per-frame fall step of a whole cell can begin flush on the thinnest floor the world can express and end below it, tunnelling through")
+// NO TERMINAL FALL SPEED (owner ruling 2026-09-27, decisions.jsonl FALL-FEEL, chose D:
+// "I'd prefer it be like sonic 3"). S3K's MoveSprite adds gravity and never clamps
+// (skdisasm sonic3k.asm:36035), so neither do we. This SUPERSEDES the cap half of
+// FALL-CAP-15 (d-18-answered, 2026-08-26), which held the fall to 15 px/frame; its
+// SAFETY half stands and moved here: Sonic must never pass through a floor.
+//
+// THE SWEEP STEP — the largest Y move one collision probe may cover. The floor probe
+// reads collision CELLS, so the thinnest floor the world can express is one cell; a
+// move of a whole cell can begin flush on a slab's surface and end below it, stepping
+// clean over it. The largest move that can never do that is one pixel short of a cell.
+// Player_AirMove (games/sonic4/player/player_air.emp) splits any frame whose |y_vel|
+// exceeds this into equal parts no larger than it and probes after each one, so an
+// uncapped fall keeps exactly the thin-floor guarantee the old cap gave. It is a WHOLE
+// number of pixels on purpose: a part of 15.5 px can carry a subpixel into a 16 px
+// integer move. Do not re-type the value: it follows COLLISION_CELL_SHIFT.
+pub const PHYS_SWEEP_STEP       = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
+// The safety rule, executable. It fires in BOTH directions — a step raised to a whole
+// cell, and a COLLISION_CELL_SHIFT lowered under a step that stayed put — and on a step
+// that is not whole pixels.
+ensure((PHYS_SWEEP_STEP >> 8) < (1 << COLLISION_CELL_SHIFT) && (PHYS_SWEEP_STEP & $FF) == 0 && PHYS_SWEEP_STEP > 0,
+       "PHYS_SWEEP_STEP must be a whole number of pixels STRICTLY below one collision cell: a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flush on the thinnest floor the world can express and end below it, tunnelling through")
+// The split is 2^k equal parts, part = y_vel << (8 - k) as a 16.16 delta, which is EXACT
+// (the parts sum to y_vel << 8 to the last subpixel) only while k <= 8. The largest k
+// needed is the one that brings the largest representable |y_vel| ($8000) under the step.
+comptime fn sweep_shift_max() -> int {
+    comptime var k = 0
+    while ($8000 >> k) > PHYS_SWEEP_STEP { k = k + 1 }
+    return k
+}
+pub const PHYS_SWEEP_SHIFT_MAX  = sweep_shift_max()
+ensure(PHYS_SWEEP_SHIFT_MAX >= 1 && PHYS_SWEEP_SHIFT_MAX <= 8,
+       "PHYS_SWEEP_SHIFT_MAX ({PHYS_SWEEP_SHIFT_MAX}) must be 1..8: Player_AirMove forms each part as ext.l(y_vel) << (8 - k), which is exact only for k <= 8")
 pub const PHYS_SLOPE_WALK       = $20    // walking slope-factor magnitude
 pub const PHYS_SLOPE_ROLL_DOWN  = $50    // rolling downhill slope factor
 pub const PHYS_SLOPE_ROLL_UP    = $14    // rolling uphill slope factor
@@ -1098,18 +1114,24 @@ pub const BLOCK_FILL_LEAD_COLS  = TILE_CACHE_MARGIN_H / 2                 // 10
 ensure(BLOCK_DECOMP_SOFT >= 1 && BLOCK_DECOMP_SOFT <= BLOCK_DECOMP_BUDGET,
        "BLOCK_DECOMP_SOFT ({BLOCK_DECOMP_SOFT}) must be 1..BLOCK_DECOMP_BUDGET ({BLOCK_DECOMP_BUDGET}): 0 would stall a partial row or column forever while the lead holds, and above the hard budget the 'soft' tick would be the expensive one")
 ensure(BLOCK_FILL_LEAD_ROWS > CAM_MAX_Y_STEP / 8 && BLOCK_FILL_LEAD_ROWS < TILE_CACHE_MARGIN_V,
-       "BLOCK_FILL_LEAD_ROWS ({BLOCK_FILL_LEAD_ROWS}) must exceed one tick of the camera's vertical step in rows (CAM_MAX_Y_STEP 16 px = 2 rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V ({TILE_CACHE_MARGIN_V}): the fill keeps the lead AT the margin, so a threshold there puts the first tick that owes a row on the hard budget, which is the burst this exists to spread")
+       "BLOCK_FILL_LEAD_ROWS ({BLOCK_FILL_LEAD_ROWS}) must exceed one tick of the camera's largest vertical step in rows (CAM_MAX_Y_STEP {CAM_MAX_Y_STEP} px = {CAM_MAX_Y_STEP / 8} rows; the lead is re-tested every tick, so a deferral can cost at most that before the hard budget returns) and stay below TILE_CACHE_MARGIN_V ({TILE_CACHE_MARGIN_V}): the fill keeps the lead AT the margin, so a threshold there puts the first tick that owes a row on the hard budget, which is the burst this exists to spread")
 ensure(BLOCK_FILL_LEAD_COLS > 16 / 8 && BLOCK_FILL_LEAD_COLS < TILE_CACHE_MARGIN_H,
        "BLOCK_FILL_LEAD_COLS ({BLOCK_FILL_LEAD_COLS}) must exceed one tick of the camera's horizontal step in columns (camera.emp's CAM_MAX_X_STEP, 16 px = 2 columns) and stay below TILE_CACHE_MARGIN_H ({TILE_CACHE_MARGIN_H}), for the same reason as the rows")
-// Rows filled per frame cap. Must be >= CAM_MAX_Y_STEP/8 — build-asserted at the
-// CAM_MAX_Y_STEP definition below. 2 exactly MATCHES the 16 px/frame camera cap
+// Rows filled per frame cap. Must be >= CAM_MAX_Y_STEP/8 IN BOTH DIRECTIONS — build-asserted
+// at the CAM_MAX_Y_STEP definition below. The up-fill works in PAIRS (Cache_Top_Row stays
+// even; Tile_Cache_Fill's .v_top_fill starts a pair only with two rows left), so an odd cap
+// buys nothing upward: 4 is the smallest cap that covers the airborne 24 px/frame step
+// (CAM_AIR_Y_STEP, feel/s3k-fall 2026-09-27) going up as well as down. It is a CAP, not a
+// rate: at a steady 16 px/frame the fill still does two rows a frame and only a frame that
+// owes more (a catch-up, or a 24 px airborne step) uses the rest.
+// HISTORY: 2 was the value until 2026-09-27 and exactly MATCHED the 16 px/frame camera cap
 // (2*8 == 16): the fill keeps up with the worst case but has ZERO catch-up
 // headroom, so a frame the fill misses is only recovered by the 16-row cache
 // margin, never by filling faster. (The 2026-06-10 vertical-streaming plan sized
 // this at 4 for catch-up; the shipped value is 2. Raising it is a budget
 // decision — BLOCK_DECOMP_BUDGET is shared with the column fill — not a
 // comment fix, so the value is left alone here.)
-pub const VFILL_ROWS_PER_FRAME  = 2
+pub const VFILL_ROWS_PER_FRAME  = 4
 pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
 pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
 pub const BLOCKS_PER_SECTION_SHIFT = 4  // lsr #4 = / BLOCKS_PER_SECTION_AXIS
@@ -1153,17 +1175,37 @@ pub const COLLISION_CELL_SHIFT  = 4
 pub const CAM_LOOKAHEAD_THRESHOLD = $0600  // ground speed for pan enable
 pub const CAM_PAN_SPEED = 2                // pixels/frame pan rate
 pub const CAM_PAN_LIMIT = 64               // max pan pixels
-pub const CAM_MAX_Y_STEP = 16              // max camera Y movement px/frame
+// The vertical step cap has two values, by the leader's ST_IN_AIR bit (engine/level/camera.emp
+// .apply_y). AIRBORNE is S3K's MoveCameraY rule, $1800 = 24 px/frame
+// (skdisasm sonic3k.asm:38511, reached from the airborne window test :38458-38463) — owner
+// ruling FALL-FEEL (2026-09-27): falling should feel like Sonic 3, and this is the half of it
+// the eye reads. GROUNDED stays 16 (S2's cap, s2.asm:18190, and ours in every state before
+// that ruling); S3K's own ground rule (6 or 24 by ground speed, :38491-38493) was not asked for.
+// CAM_MAX_Y_STEP is the LARGER of the two: every streaming bound below is sized by it.
+pub const CAM_GROUND_Y_STEP = 16
+pub const CAM_AIR_Y_STEP    = 24
+// Spelled as the airborne cap (not a max() fn) so the tools that evaluate this file's
+// arithmetic can still read it; the ensure keeps the spelling honest.
+pub const CAM_MAX_Y_STEP = CAM_AIR_Y_STEP   // max camera Y movement px/frame, any state
+ensure(CAM_AIR_Y_STEP >= CAM_GROUND_Y_STEP,
+       "CAM_MAX_Y_STEP is spelled as CAM_AIR_Y_STEP ({CAM_AIR_Y_STEP}) because it is the larger cap; the grounded cap ({CAM_GROUND_Y_STEP}) now exceeds it, so every streaming bound sized by CAM_MAX_Y_STEP is too small — respell it")
 
 // The §4.7 streaming contract, as a build guard (conventions §1.6). The vertical
 // tile-cache fill may only advance VFILL_ROWS_PER_FRAME rows (8 px each) per
 // frame; if the camera can outrun that, the cache trails the view and the top/
 // bottom margin drains until the fill visibly lags. Currently at EXACT equality
-// (16 == 2*8, zero slack) — raising CAM_MAX_Y_STEP without raising
+// (16 == 2*8, zero slack, until 2026-09-27) — raising CAM_MAX_Y_STEP without raising
 // VFILL_ROWS_PER_FRAME (or vice versa) is a silent streaming regression, so the
-// relation is asserted rather than left to the comment above.
-ensure(CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME * 8,
-       "camera Y step outruns the vertical tile-cache fill rate (CAM_MAX_Y_STEP > VFILL_ROWS_PER_FRAME*8)")
+// relation is asserted rather than left to the comment above. The second clause is the
+// UPWARD fill, which moves in row pairs (VFILL_ROWS_PER_FRAME's note).
+ensure(CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME * 8 && CAM_MAX_Y_STEP <= (VFILL_ROWS_PER_FRAME / 2) * 2 * 8,
+       "camera Y step ({CAM_MAX_Y_STEP}) outruns the vertical tile-cache fill rate: VFILL_ROWS_PER_FRAME ({VFILL_ROWS_PER_FRAME}) rows down, and only {(VFILL_ROWS_PER_FRAME / 2) * 2} up because the up-fill moves in pairs")
+// The largest step in 8 px tile ROWS: the foreground plane-buffer peak (engine/level/bg.emp
+// FG_PEAK_BYTES) is this many rows. A literal, pinned below, because the tools that evaluate
+// this file's arithmetic (tools/dma_defer_headroom.py) read no `/`.
+pub const CAM_MAX_Y_ROWS = 3
+ensure(CAM_MAX_Y_ROWS * 8 == CAM_MAX_Y_STEP,
+       "CAM_MAX_Y_ROWS ({CAM_MAX_Y_ROWS}) must be CAM_MAX_Y_STEP ({CAM_MAX_Y_STEP}) in whole 8 px tile rows: a step that is not whole rows can touch one more row than it divides into")
 
 // --- Speculation residency guard (streaming fix F2a) -------------------------
 // Placed after the camera block because it is DERIVED from the camera cap, not
@@ -1192,7 +1234,13 @@ ensure(CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME * 8,
 // and it errs toward PERMITTING speculation, which is the safe direction for the
 // single-axis states where the prefetch does all the work. Documented rather than
 // corrected: correcting it needs a divide, and this engine does not divide.
-pub const BLOCK_SPEC_LEAD_TICKS = BLOCK_TILE_SIZE / (CAM_MAX_Y_STEP / 8)  // 16 / 2 = 8
+// SIZED BY THE GROUND STEP, deliberately (feel/s3k-fall, 2026-09-27). Every measurement
+// above (4.13 claims/tick, the Schmitt thresholds) was taken at the 16 px/frame cap. The
+// airborne 24 px cap shortens the true lead floor to 16/3 = 5.3 ticks there, so during a
+// fast fall this 8-tick window OVER-counts the claims that can land and trips the guard
+// earlier: less speculation, never a dead one. That is the conservative side for
+// residency, and it leaves every grounded tick's guard exactly as measured.
+pub const BLOCK_SPEC_LEAD_TICKS = BLOCK_TILE_SIZE / (CAM_GROUND_Y_STEP / 8)  // 16 / 2 = 8
 // The ring is indexed by Logic_Tick & (LEAD-1) — a power of two is not a tuning
 // choice here, it is what makes the index a mask instead of a modulo.
 ensure(BLOCK_SPEC_LEAD_TICKS > 0 && (BLOCK_SPEC_LEAD_TICKS & (BLOCK_SPEC_LEAD_TICKS - 1)) == 0,
@@ -1217,8 +1265,11 @@ ensure(BLOCK_SPEC_REARM < BLOCK_STAGE_SLOTS,
 // early -> edge pop-in. The margin absorbs that skew without perturbing update
 // order (reordering Camera_Update ahead of RunObjects would shift
 // gameplay-visible timing). Must be >= max(CAM_MAX_X_STEP, CAM_MAX_Y_STEP);
-// 32 = 2x the 16 px/frame worst case on both axes.
+// 32 was 2x the 16 px/frame worst case on both axes; since the airborne Y cap became 24
+// (CAM_AIR_Y_STEP, 2026-09-27) it is 1.33x on Y, still >= one step.
 pub const SPRITE_CULL_MARGIN = 32
+ensure(SPRITE_CULL_MARGIN >= CAM_MAX_Y_STEP,
+       "SPRITE_CULL_MARGIN ({SPRITE_CULL_MARGIN}) must cover one frame of the camera's largest vertical step (CAM_MAX_Y_STEP {CAM_MAX_Y_STEP}), or an object within that step of the screen edge culls a frame late or early")
 
 // -----------------------------------------------
 // Entity window scan (§4.9 — camera-driven sliding window).

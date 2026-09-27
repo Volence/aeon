@@ -11,8 +11,8 @@
 
 module engine.camera in camera
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
-use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT, ST_ROLLING}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_GROUND_Y_STEP, CAM_AIR_Y_STEP}
+use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT, ST_ROLLING, ST_IN_AIR}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 use engine.coords.{pixels_to_coord}
@@ -24,7 +24,7 @@ use engine.coords.{pixels_to_coord}
 ensure(SECTION_SIZE_SHIFT > 8 && SECTION_SIZE_SHIFT <= 16, "SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT} breaks camera's 8+rest split-shift spelling — respell the chains")
 
 const CAM_MAX_X_STEP    = 16        // file-local: this file-pair IS the truth
-                                    // (byte-gate-covered), unlike CAM_MAX_Y_STEP
+                                    // (byte-gate-covered), unlike the Y caps
                                     // which is owned by engine.constants (`use`d above).
                                     // max horizontal scroll px/frame (classic S2/CD;
                                     // S3K=24, imperceptible at the 6px/f player top
@@ -32,8 +32,9 @@ const CAM_MAX_X_STEP    = 16        // file-local: this file-pair IS the truth
                                     // springs) so the camera can't outrun
                                     // Section_UpdateColumns.
 
-// CAM_MAX_Y_STEP (max camera Y movement px/frame) comes from the shared
-// engine.constants twin — `use`d above. Its X partner CAM_MAX_X_STEP stays
+// The Y caps (CAM_GROUND_Y_STEP 16, CAM_AIR_Y_STEP 24, by the leader's ST_IN_AIR — see
+// .apply_y) come from engine.constants, which also publishes their maximum,
+// CAM_MAX_Y_STEP, for the streaming bounds. Their X partner CAM_MAX_X_STEP stays
 // file-local (this file-pair IS its truth, byte-gate-covered).
 
 const CAM_X_DEADZONE_INIT = $10     // Camera_Deadzone_Base seed: the classic 16px
@@ -391,7 +392,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
             // the bottom edge, then alternated 16-px catch-up steps with hold frames
             // (Sonic riding the edge, jittering). Once y_vel goes positive the player
             // is falling: release so the descent follows like a walk-off (32-px
-            // deadzone, 16 px/frame) and settles back to the focal point. Short hops
+            // deadzone, the airborne step cap) and settles back to the focal point. Short hops
             // still don't scroll (their descent never exceeds the deadzone).
             tst.w   Sst.y_vel(a0)                       // a0 = leader (unclobbered since .y_track) — falling? (y_vel > 0)
             bgt     .down_ok                            // yes → normal deadzone follow
@@ -411,13 +412,24 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         sub.w   d2, d3
 
     .apply_y:
-        cmpi.w  #CAM_MAX_Y_STEP, d3
+        // -- the step cap, by the leader's air bit (owner ruling FALL-FEEL, 2026-09-27) --
+        //    AIRBORNE: S3K's MoveCameraY, $1800 = 24 px/frame both ways
+        //    (skdisasm sonic3k.asm:38511, from the Status_InAir window :38458-38463).
+        //    GROUNDED: 16, as before. a0 is still the leader (unclobbered since
+        //    .y_track); d2 is dead here (the deadzone is spent).
+        moveq   #CAM_GROUND_Y_STEP, d2
+        btst    #ST_IN_AIR, Sst.status(a0)
+        beq     .y_cap_ready
+        moveq   #CAM_AIR_Y_STEP, d2
+    .y_cap_ready:
+        cmp.w   d2, d3
         ble     .y_step_hi_ok
-        move.w  #CAM_MAX_Y_STEP, d3
+        move.w  d2, d3
     .y_step_hi_ok:
-        cmpi.w  #-CAM_MAX_Y_STEP, d3
+        neg.w   d2
+        cmp.w   d2, d3
         bge     .y_step_lo_ok
-        move.w  #-CAM_MAX_Y_STEP, d3
+        move.w  d2, d3
     .y_step_lo_ok:
         // d3.w = signed clamped step; promote to a 16.16 Coord (see .apply_x).
         // Single-pass like X: cam + step computed in d0, handed to .y_clamp.

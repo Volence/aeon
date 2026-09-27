@@ -57,7 +57,7 @@ module games.sonic4.player_glide in player_glide
 
 use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
-use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT, SOLID_TOP,
+use engine.constants.{PHYS_GRAVITY, ST_XFLIP, ST_ON_OBJECT, SOLID_TOP,
         BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, CHEAT_DEBUG_FLY}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, dist_to_fix}
@@ -118,7 +118,12 @@ pub proc PState_Glide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bne     .on_object
 
         jbsr    Glide_Move                      // accel, turn, x_vel = cos·gsp, parachute, level-top
-        jbsr    ObjectMove                      // move — NO gravity (Glide_Move owns the vertical)
+        // move — NO gravity (Glide_Move owns the vertical). The swept airborne move
+        // (player_air.emp), stopped by Glide_FloorProbe: a glide entered from a long
+        // uncapped fall keeps most of that speed for many frames (the parachute sheds
+        // only GLIDE_PARACHUTE_STEP a frame), so it needs the sweep as much as a fall does
+        moveq   #1, d7
+        jbsr    Air_MoveAs
         jbsr    Glide_Collide                   // d0.b = GLF_* flags; snaps + zeroes on contact
 
         btst    #GLF_INAIR_BIT, d0
@@ -489,6 +494,30 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 }
 
 // -----------------------------------------------
+// Glide_FloorProbe — the glide family's floor probe: ONE centre sensor at the feet
+// (Glide_Collide's header says why it is not the pair), for the swept airborne move
+// (player_air.emp Player_AirMoveSwept), so a fast GLIDE or GLIDEFALL stops on exactly the
+// probe that will land it, and never on the pair's outer sensor, which these states would
+// then refuse to land on, stalling the fall. IT IS A COPY of the probe Glide_Collide makes
+// inline, and must stay one: tools/test_glide_angle_resolution.py anchors on Glide_Collide
+// calling Collision_ProbeDown itself, so the two were not merged. Change both or neither.
+// In:  a0 = player SST
+// Out: d0.w = floor dist (< 0 embedded), d1.b = raw angle (d2.b = attr, not declared: no caller reads it)
+// Clobbers: d0-d6, a1
+// -----------------------------------------------
+pub proc Glide_FloorProbe (a0: *Sst) clobbers(d2-d6/a1) out(d0: i16, d1: u8) {
+        move.w  x_pos(a0), d0                   // centre X (post wall-snap = clear of the wall)
+        moveq   #0, d1
+        move.b  height_pixels(a0), d1
+        lsr.w   #1, d1                           // y_radius
+        add.w   y_pos(a0), d1                   // feet Y = y + y_radius (integer word)
+        moveq   #SOLID_TOP, d6
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbra    Collision_ProbeDown             // d0 = floor dist, d1 = angle, a0 preserved
+}
+
+// -----------------------------------------------
 // PState_GlideFall — the fall after a glide release / wall bail (S3K
 // Knuckles_Fall_From_Glide, :30899). A genuinely different body from the glide: normal
 // air control, gravity AFTER the move, and a landing that is a DEAD STOP — all three
@@ -504,14 +533,18 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 pub proc PState_GlideFall (a0: *Sst) clobbers(d0-d7/a1-a2) {
         btst    #ST_ON_OBJECT, status(a0)
         bne     .dead_stop                      // an object caught us → dead-stop land
-        jbsr    ObjectMove                      // move by the current velocity (no gravity yet)
+        // move by the current velocity (no gravity yet): the swept airborne move
+        // (player_air.emp), stopped by Glide_FloorProbe — the probe this state lands on
+        moveq   #1, d7
+        jbsr    Air_MoveAs
         jbsr    Air_XInput                      // normal air steering (S3K Knux_ChgJumpDir)
-        // gravity AFTER the move (S3K addi #$38), capped like every air fall
+        // gravity AFTER the move (S3K addi #$38, Knuckles_Fall_From_Glide
+        // sonic3k.asm:30903), UNCAPPED as S3K's is (owner ruling FALL-FEEL, 2026-09-27);
+        // only the word's own wrap is refused
         move.w  y_vel(a0), d0
         add.w   #PHYS_GRAVITY, d0
-        cmpi.w  #PHYS_FALL_CAP, d0
-        ble     .grav_ok
-        move.w  #PHYS_FALL_CAP, d0
+        bvc     .grav_ok
+        move.w  #$7FFF, d0                      // saturate, never wrap
 .grav_ok:
         move.w  d0, y_vel(a0)
         jbsr    Glide_Collide                   // d0.b = flags

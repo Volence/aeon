@@ -270,8 +270,8 @@ def _check_row(row: dict, b: dict, who: str) -> list:
     span = b["REGION_MIN_SPAN"]
     if x1 - x0 + 1 < span or y1 - y0 + 1 < span:
         out.append(f"{who}: {x1 - x0 + 1}x{y1 - y0 + 1} px is narrower than "
-                   f"REGION_MIN_SPAN ({span} px) on an axis — the camera moves up to 16 px "
-                   f"a frame and could step over it")
+                   f"REGION_MIN_SPAN ({span} px) on an axis — a camera step (CAM_MAX_Y_STEP, "
+                   f"engine/system/constants.emp) could step over it")
     # THE REACHABLE-EDGE RULES, SPELLED OUT PER SIDE AND NOT "MIRRORED". Both sides assert
     # the same thing over their own crossing PAIR — that both pixels straddling the edge lie
     # in the band — and that produces DIFFERENT expressions, which is what a reflection does.

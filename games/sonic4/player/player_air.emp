@@ -9,7 +9,7 @@ module games.sonic4.player_air in player_air
 
 use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
-use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARANCE, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
+use engine.constants.{PHYS_SWEEP_STEP, PHYS_SWEEP_SHIFT_MAX, COLL_CELL_H, SCREEN_HEIGHT, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARANCE, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
         ST_ROLLING,
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, curl_head_rise,
@@ -22,7 +22,7 @@ use games.sonic4.ram.{PlayerBlock}
 // Game-config constants — sole authority is games.sonic4.constants.
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL, CHEAT_DEBUG_FLY}
 
-// PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS / ST_* / BUTTON_LEFT/RIGHT
+// PHYS_SWEEP_STEP / PHYS_ROLL_START_MIN / PUSH_RADIUS / ST_* / BUTTON_LEFT/RIGHT
 // are consumed from engine.constants via `use engine.constants` above.
 
 // BUTTON_JUMP_MASK / BUTTON_JUMP_MASK_NO_B are IMPORTED from player_common, which
@@ -254,13 +254,21 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    Air_XDrag
 
         // --- 4. integrate, THEN gravity (classic order, research §4:
-        // old y_vel moves you this frame, gravity sets up the next) ---
-        jbsr    ObjectMove
+        // old y_vel moves you this frame, gravity sets up the next).
+        // NO FALL CAP (owner ruling FALL-FEEL, 2026-09-27): S3K's MoveSprite adds $38 and
+        // never clamps (skdisasm sonic3k.asm:36035, from Sonic_MdAir :22354), so neither
+        // does this. Air_Move keeps the thin-floor guarantee the old cap gave, by
+        // sub-stepping a fast frame instead of refusing the speed. The ONE bound left is
+        // the TYPE's: a signed word wraps to -128 px/frame (a launch upward) after
+        // ~37,000 px of free fall, or sooner while Player_FallLimit holds the position
+        // and gravity keeps adding, so the add saturates at $7FFF instead. That is not a
+        // speed anybody reaches in an act; it is the difference between very fast and
+        // suddenly flying up. ---
+        jbsr    Air_Move
         move.w  y_vel(a0), d0
         add.w   PBLK_GRAVITY(a4), d0
-        cmpi.w  #PHYS_FALL_CAP, d0
-        ble     .fall_capped
-        move.w  #PHYS_FALL_CAP, d0
+        bvc     .fall_capped
+        move.w  #$7FFF, d0                      // saturate, never wrap
 .fall_capped:
         // FEEL DEVIATION (spec §2.1): classic non-jump up-velocity cap
         // (y_vel clamped to -$FC0) deliberately REMOVED — PHYS_GSP_CAP
@@ -784,5 +792,255 @@ pub proc Air_CeilingBump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bpl     .clear
         clr.w   y_vel(a0)
 .clear:
+        rts
+}
+
+// ===============================================
+// THE AIRBORNE MOVE — uncapped, swept, and held inside what the engine knows.
+//
+// Owner ruling FALL-FEEL (2026-09-27, chose D): "I'd prefer it be like sonic 3". S3K moves
+// an airborne player by one MoveSprite per frame with no fall limit (skdisasm
+// sonic3k.asm:36035); this file used to clamp y_vel to PHYS_FALL_CAP (15 px/frame) instead,
+// because one probe can only resolve a move shorter than a collision cell (the thinnest
+// floor the world can express). The cap is gone and the probe limit is kept the other way:
+//
+//   * AT OR UNDER PHYS_SWEEP_STEP (every jump, every hop, every fall shorter than ~500 px):
+//     one ObjectMove, exactly as before. The whole cost is one compare.
+//   * OVER IT: the frame's move is split into 2^k equal parts, each no larger than
+//     PHYS_SWEEP_STEP, and the floor (falling) or ceiling (rising) is probed after every
+//     part but the last. The first part that finds a surface this state would land on (or
+//     bump) ENDS the move there, and the state's own collide step resolves it as it
+//     resolves any frame. The parts are exact 16.16 deltas, so a frame that finds nothing
+//     ends on the same subpixel ObjectMove would have reached.
+//   * FALLING, the move may not carry the player past Player_FallLimit: below the camera's
+//     screen, or past the collision the RAM ring has written (Collision_ResidentBottom).
+//     The POSITION waits there and y_vel is left alone, so the landing speed is S3K's and
+//     the arrival is as late as the camera makes it.
+//
+// Why not a longer probe instead (the "three-cell probe", DEFERRED_WORK): the probe reads
+// FORWARD of the feet, and a tunnelling frame is one whose feet ended PAST the floor — a
+// longer forward reach sees nothing there either. It would only help if landing became
+// predictive (land when the next move would enter a floor), which is the sweep again with a
+// fixed reach, and it would still need a second rule above 32 or 48 px/frame. See
+// docs/research/2026-09-27-s3k-fall.md.
+// ===============================================
+
+// Player_AirMoveSwept's stack frame. The offsets are from sp inside this proc; a call from
+// it pushes its return address BELOW them, so they are only ever used at this proc's level.
+const SW_DX    = 0          // .l  x delta per part (16.16)
+const SW_DY    = 4          // .l  y delta per part (16.16)
+const SW_COUNT = 8          // .w  parts left
+const SW_YMAX  = 10         // .w  Player_FallLimit's line ($7FFF rising: none)
+const SW_KIND  = 12         // .w  floor probe: 0 = the landing pair, else the glide centre
+const SW_FRAME = 14
+const SW_STEP2 = PHYS_SWEEP_STEP << 1   // the first split threshold (k = 1)
+const SST_Y_SUB = offsetof(Sst, y_pos) + 2
+ensure((PHYS_SWEEP_STEP << PHYS_SWEEP_SHIFT_MAX) >= $8000 && (PHYS_SWEEP_STEP << PHYS_SWEEP_SHIFT_MAX) <= $FFFF,
+       "Player_AirMoveSwept picks the split by doubling PHYS_SWEEP_STEP in a WORD until it covers |y_vel| (at most $8000); PHYS_SWEEP_STEP << PHYS_SWEEP_SHIFT_MAX must reach $8000 and still fit 16 bits unsigned")
+
+// -----------------------------------------------
+// Air_Move / Air_MoveAs — the airborne move (header above). Air_Move is the air states' and
+// flight's entry (the landing pair decides a stop); PState_Glide and PState_GlideFall enter
+// Air_MoveAs with d7 = 1 (the glide's centre probe decides it, because that is the probe
+// Glide_Collide lands on).
+// In:  a0 = player SST, a4 = the slot's player block; Air_MoveAs also d7.w = probe kind
+// Out: none
+// Clobbers: d0-d7, a1-a2 (the fast path only d0)
+// -----------------------------------------------
+pub proc Air_Move (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Air_MoveAs {
+        moveq   #0, d7                          // the landing pair decides a stop
+        // fall through
+}
+pub proc Air_MoveAs (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        move.w  y_vel(a0), d0
+        abs_w(d0)                               // -$8000 stays $8000: right as unsigned
+        cmpi.w  #PHYS_SWEEP_STEP, d0
+        bhi     .swept
+        jbra    ObjectMove                      // one probe resolves it: as before
+.swept:
+        jbra    Player_AirMoveSwept
+}
+
+// -----------------------------------------------
+// Player_AirMoveSwept — the split move (the header above). Reached only from Air_MoveAs,
+// with |y_vel| > PHYS_SWEEP_STEP.
+// In:  a0 = player SST, a4 = the slot's player block, d7.w = floor probe kind
+// Out: none
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Player_AirMoveSwept (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        suba.w  #SW_FRAME, sp
+        move.w  d7, SW_KIND(sp)
+        // Air sensors never rotate (Air_Collide's rule, which clears this again below us).
+        clr.b   PBLK_QUADRANT(a4)
+        // --- k: the fewest halvings that bring |y_vel| under the step, as the smallest k
+        // with |y_vel| <= PHYS_SWEEP_STEP << k (a part must not EXCEED the step, subpixel
+        // included, or its carry can make a whole cell of integer move) ---
+        move.w  y_vel(a0), d0
+        move.w  d0, d1
+        abs_w(d1)
+        moveq   #1, d2                          // k
+        move.w  #SW_STEP2, d3
+.pick:
+        cmp.w   d3, d1
+        bls     .picked                         // unsigned
+        add.w   d3, d3
+        addq.w  #1, d2
+        bra     .pick
+.picked:
+        moveq   #1, d3
+        lsl.w   d2, d3
+        move.w  d3, SW_COUNT(sp)                // 2^k parts
+        moveq   #8, d3
+        sub.w   d2, d3                          // 8 - k >= 0 (PHYS_SWEEP_SHIFT_MAX ensure)
+        ext.l   d0
+        asl.l   d3, d0                          // y_vel << 8 >> k, exact
+        move.l  d0, SW_DY(sp)
+        move.w  x_vel(a0), d1
+        ext.l   d1
+        asl.l   d3, d1
+        move.l  d1, SW_DX(sp)
+        // --- the line a fall may not pass this frame ---
+        move.w  #$7FFF, d4
+        tst.l   d0
+        bmi     .line_ready                     // rising: no line
+        jbsr    Player_FallLimit                // d4 = the line (never above the start)
+.line_ready:
+        move.w  d4, SW_YMAX(sp)
+.part:
+        // d1 only: d0 carries each probe's answer OUT of its call, so nothing of ours may
+        // be live in it across one
+        move.l  SW_DX(sp), d1
+        add.l   d1, x_pos(a0)
+        move.l  SW_DY(sp), d1
+        add.l   d1, y_pos(a0)
+        move.w  SW_YMAX(sp), d1
+        cmp.w   y_pos(a0), d1
+        blt     .held                           // past the line: the position waits
+        subq.w  #1, SW_COUNT(sp)
+        beq     .done                           // the last part is the collide step's to probe
+        tst.l   SW_DY(sp)
+        bmi     .rising
+        tst.w   SW_KIND(sp)
+        bne     .glide_floor
+        jbsr    Air_SweepFloor                  // d0.w < 0: a floor this frame lands on
+        bra     .probed
+.glide_floor:
+        jbsr    Glide_FloorProbe                // d0.w < 0: Glide_Collide's own landing test
+        bra     .probed
+.rising:
+        jbsr    Air_SweepCeiling                // d0.w < 0: a ceiling every class resolves
+.probed:
+        tst.w   d0
+        bpl     .part
+        // a surface: end the move here; the rest of this frame's X goes with it (the state's
+        // collide step lands or bumps us on this very frame)
+.done:
+        adda.w  #SW_FRAME, sp
+        rts
+.held:
+        move.w  d1, y_pos(a0)
+        clr.w   SST_Y_SUB(a0)
+        // the hold is VERTICAL: the rest of this frame's X still happens
+        move.w  SW_COUNT(sp), d2
+        move.l  SW_DX(sp), d1
+.x_rest:
+        subq.w  #1, d2
+        beq     .done
+        add.l   d1, x_pos(a0)
+        bra     .x_rest
+}
+
+// -----------------------------------------------
+// Air_SweepFloor — does a floor under this part of the move end it? The landing pair
+// (Player_SensorLand, which both air landing routines probe with) embedded AND inside
+// Air_FloorLandBanded's eligibility, dist >= -(y_vel >> 8) - 8. That makes "stop" a subset
+// of "land" for every air class: the banded (down) class tests exactly this, and the flat
+// (horizontal) class tests less. A deeper hit is a wall beside the fall, which the landing
+// refuses, so the sweep must not stop on it either — it would stall the fall a part short
+// on every frame and never land.
+// In:  a0 = player SST, a4 = the slot's player block (quadrant already 0)
+// Out: d0.w = -1 stop here, 0 keep going (written on every path, so the caller's read of
+//      it is this proc's answer and never a sensor's leftover)
+// Clobbers: d1-d7, a1-a2
+// -----------------------------------------------
+proc Air_SweepFloor (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0: i16) {
+        jbsr    Player_SensorLand
+        move.w  d0, d1                          // dist
+        bpl     .go
+        move.w  y_vel(a0), d2                   // falling: >= 0
+        lsr.w   #8, d2
+        addq.w  #8, d2
+        neg.w   d2
+        cmp.w   d2, d1
+        blt     .go                             // deeper than a landing takes: a wall
+        moveq   #-1, d0
+        rts
+.go:
+        moveq   #0, d0
+        rts
+}
+
+// -----------------------------------------------
+// Air_SweepCeiling — does a ceiling over this part of the rise end it? Any embedded hit:
+// every air class resolves a ceiling it is in (Air_Collide's up class and Air_CeilingBump,
+// Glide_Collide through Air_CeilingBump), with no depth rule.
+// In:  a0 = player SST, a4 = the slot's player block (quadrant already 0)
+// Out: d0.w = -1 stop here, 0 keep going
+// Clobbers: d1-d7, a1-a2
+// -----------------------------------------------
+proc Air_SweepCeiling (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0: i16) {
+        jbsr    Player_SensorCeiling
+        tst.w   d0
+        bmi     .stop
+        moveq   #0, d0
+        rts
+.stop:
+        moveq   #-1, d0
+        rts
+}
+
+// -----------------------------------------------
+// Player_FallLimit — the lowest centre Y a falling player may reach this frame.
+//   (1) RESIDENCY (every player object): the floor probe's lowest read is one cell under
+//       the feet (the probe core's forward cell), and it must land above
+//       Collision_ResidentBottom — below that the ring answers AIR or a stale slot, and an
+//       uncapped fall would silently read "nothing here". This is the correctness half.
+//   (2) THE SCREEN (the camera's leader only): the sprite's bottom may not pass the bottom
+//       of the screen the camera showed last frame. S3K's own 24 px/frame camera loses a
+//       Sonic falling faster than that off the bottom edge; this holds him at it instead,
+//       which is the same picture until the moment S3K's would go empty. Skipped when the
+//       camera is parked at Camera_Y_Max — nothing below to scroll to, and a pit must stay
+//       fallable.
+// The line is never ABOVE where the player starts the frame: a hold waits, it never lifts.
+// In:  a0 = player SST
+// Out: d4.w = the line (centre Y)
+// Clobbers: d0-d3
+// -----------------------------------------------
+proc Player_FallLimit (a0: *Sst) clobbers(d0-d3) out(d4: i16) {
+        moveq   #0, d3
+        move.b  height_pixels(a0), d3
+        lsr.w   #1, d3                          // y_radius
+        move.w  y_pos(a0), d1
+        jbsr    Collision_ResidentBottom        // d0 = first row the ring has not written
+        sub.w   d3, d0
+        subi.w  #COLL_CELL_H + 1, d0            // feet + one forward cell stays above it
+        move.w  d0, d4
+        cmpa.w  Camera_Target, a0
+        bne     .floor                          // not the camera's leader: residency only
+        move.l  Camera_Y, d0
+        swap    d0                              // last frame's camera (Camera_Update runs later)
+        cmp.w   Camera_Y_Max, d0
+        bhs     .floor                          // camera parked at its floor: no screen hold
+        addi.w  #SCREEN_HEIGHT, d0
+        sub.w   d3, d0                          // sprite bottom on the screen's bottom edge
+        cmp.w   d4, d0
+        bge     .floor
+        move.w  d0, d4
+.floor:
+        cmp.w   y_pos(a0), d4
+        bge     .done
+        move.w  y_pos(a0), d4                   // already past it: wait where he is
+.done:
         rts
 }

@@ -24,7 +24,7 @@ use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, RF_XFLIP, RF_YFLIP, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
-        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PHYS_GSP_CAP,
+        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_GSP_CAP,
         ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT,
         // layer lines — the level-data layer writer (Player_LayerLines) and its guards
@@ -309,7 +309,7 @@ const SST_y_pos_sub = offsetof(Sst, y_pos) + 2
 pub const BUTTON_JUMP_MASK      = BUTTON_A | BUTTON_B | BUTTON_C
 pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns B
 
-const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
+const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_GROUND_Y_STEP (the airborne 24, CAM_AIR_Y_STEP, is a real fall's)
 
 // -----------------------------------------------
 // GROUND-ANGLE SPRITE TILT — the frame geometry Player_ApplyTilt indexes.
@@ -535,18 +535,23 @@ ensure((PBLK_LLPREV & 1) == 0 && (PBLK_LLCURSOR & 1) == 0,
 // a discontinuity (a teleport, a respawn, act start, a debug warp) that crosses no line.
 //
 // It is the largest displacement one frame of physics can put on each axis, DERIVED from
-// the physics caps so it cannot go stale while a cap moves. X: the ground-speed cap is the
-// only bound on a horizontal step (ObjectMove, engine/objects/core.emp, is one unconditional
-// add). Y: a ground step on a vertical wall decomposes the WHOLE ground speed onto Y, which is
-// above the air fall cap (the ensure below states that). A line is a CROSSING, not a cell, so
-// no step up to this bound can pass one unseen, whatever its length: the step-over a one-cell
-// painted mark suffered above ~8 px/frame (docs/LOOP_CROSSOVER_ENCODING.md §12, superseded)
-// has no analogue here, and tools/loop_step_over_witness.py grades that on the real ROM.
+// what bounds each axis so it cannot go stale. X: the ground-speed cap is the only bound on a
+// horizontal step (ObjectMove, engine/objects/core.emp, is one unconditional add). Y: there is
+// NO fall cap since the owner's FALL-FEEL ruling (2026-09-27, S3K's uncapped fall), so the
+// bound is the velocity WORD itself: y_vel is a signed 8.8 word and every airborne gravity
+// add saturates at $7FFF rather than wrapping (player_air.emp PState_AirShared), so no frame
+// moves more than 128 px on Y. It used to be the ground-speed cap (16), which a fast fall now
+// exceeds on every frame past ~500 px — each such frame would have read as a teleport and
+// crossed no line. A line is a CROSSING, not a cell, so no step up to this bound can pass one
+// unseen, whatever its length: the step-over a one-cell painted mark suffered above ~8
+// px/frame (docs/LOOP_CROSSOVER_ENCODING.md §12, superseded) has no analogue here, and
+// tools/loop_step_over_witness.py grades that on the real ROM. The price of the wider band:
+// a debug warp or respawn that moves under 128 px on Y AND under 16 on X now reads as a step.
 // -----------------------------------------------
 const LL_STEP_MAX_X = PHYS_GSP_CAP >> 8                 // 16 px: the ground-speed cap
-const LL_STEP_MAX_Y = PHYS_GSP_CAP >> 8                 // 16 px: see above
-ensure(LL_STEP_MAX_Y >= (PHYS_FALL_CAP >> 8),
-       "PHYS_FALL_CAP is now {PHYS_FALL_CAP >> 8} px/frame, ABOVE the ground-speed cap LL_STEP_MAX_Y derives from — an ordinary falling frame would read as a discontinuity and cross no layer line. Re-derive LL_STEP_MAX_Y from whichever cap is now the larger")
+const LL_STEP_MAX_Y = $8000 >> 8                        // 128 px: the y_vel word's reach
+ensure(LL_STEP_MAX_Y >= (PHYS_GSP_CAP >> 8),
+       "LL_STEP_MAX_Y ({LL_STEP_MAX_Y}) is below the ground-speed cap ({PHYS_GSP_CAP >> 8} px): a ground step on a vertical wall decomposes the whole ground speed onto Y and would read as a discontinuity")
 
 // -----------------------------------------------
 // LAYER LINES — the facts Player_LayerLines' instructions depend on, at the read site.
@@ -2395,17 +2400,18 @@ pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
 
 // Classic Sonic_LevelBound margins: the player center may approach the left
 // playable edge to 16px and the right edge to 24px (asymmetric in the originals
-// — kept verbatim). Bottom margin: detection slack below the playable bottom;
-// must exceed the per-frame fall cap so a single frame's fall can never
-// overshoot the guard transiently. That bound is the `ensure` below, and it
-// reads PHYS_FALL_CAP itself — the cap's VALUE is not restated here, because a
-// sentence that names it goes stale the moment the constant moves while the
-// `ensure` keeps passing. PHYS_FALL_CAP lives in engine/system/constants.emp,
-// derived there from COLLISION_CELL_SHIFT.
+// — kept verbatim). Bottom margin: detection slack below the playable bottom.
+// It USED to be pinned above the per-frame fall cap by an `ensure`, for a pending
+// down-teleport that could leave the player one frame's fall below the window
+// (46d7e026); that teleport does not exist any more, and since the owner's
+// FALL-FEEL ruling (2026-09-27) there is no fall cap to pin it to either — a fall
+// may step any distance up to the y_vel word's 128 px. Nothing between the move and
+// this guard needs a bound: Player_LevelBound clamps whatever depth it finds, on
+// the same frame, before anything reads the position again. So the pin was
+// deleted rather than re-aimed at a number it no longer protects.
 const PBOUND_LEFT_MARGIN   = 16
 const PBOUND_RIGHT_MARGIN  = 24
 const PBOUND_BOTTOM_MARGIN = 48
-ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must exceed the per-frame fall cap")
 
 // -----------------------------------------------
 // Player_BoundsInit — compute the act-invariant player clamp edges (M3).

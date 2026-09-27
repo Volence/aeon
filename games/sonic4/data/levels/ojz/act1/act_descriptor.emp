@@ -542,13 +542,17 @@ const CENTRE_X_MIN = CAM_SCREEN_HALF_W
 const CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W
 const CENTRE_Y_MIN = CAM_SCREEN_HALF_H
 const CENTRE_Y_MAX = ACT_H - SCREEN_HEIGHT + CAM_SCREEN_HALF_H
-// The minimum span on either axis. The camera moves at most 16 px a frame on each axis, so
-// a rectangle narrower than 17 px could be stepped over; 32 is one doubling of margin.
+// The minimum span on either axis. A rectangle no wider than one camera step could be
+// stepped over. It was 2 x the 16 px step (one doubling of margin); since the airborne Y cap
+// became 24 (CAM_AIR_Y_STEP, feel/s3k-fall 2026-09-27) it is kept at 32 rather than doubled
+// again, because every shipped and clip row is hundreds of px on both axes and the rule is
 // AUTHORING HYGIENE, NOT SAFETY: a stepped-over rectangle costs a missed identity change,
-// never corruption, because the crossing's fast path simply rescans the next frame. Pinned
-// to the Y step, which engine.constants publishes; the X step (camera.emp's CAM_MAX_X_STEP,
-// also 16) is file-local there and cannot be read from here.
-const REGION_MIN_SPAN = 2 * CAM_MAX_Y_STEP
+// never corruption, because the crossing's fast path simply rescans the next frame. The
+// ensure pins what matters, that it still exceeds the largest step; the X step (camera.emp's
+// CAM_MAX_X_STEP, 16) is file-local there and cannot be read from here.
+const REGION_MIN_SPAN = 32
+ensure(REGION_MIN_SPAN > CAM_MAX_Y_STEP,
+       "REGION_MIN_SPAN ({REGION_MIN_SPAN}) must exceed the camera's largest vertical step (CAM_MAX_Y_STEP {CAM_MAX_Y_STEP}): a region no taller than one step can be stepped over")
 
 // THE BACKGROUND PLACEMENT ARGUMENTS (regions part 2 step 1, spec §4.1). `bg_layout` names
 // this region's nametable blob and `bg_span` is that map's HEIGHT in px; both default to 0,
@@ -595,7 +599,7 @@ comptime fn ojz_region(x0: int, x1: int, y0: int, y1: int, effects: Label, paral
     ensure(x1 < ACT_W && y1 < ACT_H,
            "ojz_region(x1: {x1}, y1: {y1}): reaches past the act, whose inclusive maximum is ({ACT_W} - 1, {ACT_H} - 1) — no camera centre can stand there")
     ensure(x1 - x0 + 1 >= REGION_MIN_SPAN && y1 - y0 + 1 >= REGION_MIN_SPAN,
-           "ojz_region(x0: {x0}, x1: {x1}, y0: {y0}, y1: {y1}): narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN} px) on an axis — the camera moves up to 16 px a frame and could step over it")
+           "ojz_region(x0: {x0}, x1: {x1}, y0: {y0}, y1: {y1}): narrower than REGION_MIN_SPAN ({REGION_MIN_SPAN} px) on an axis — the camera moves up to CAM_MAX_Y_STEP ({CAM_MAX_Y_STEP}) px a frame and could step over it")
     ensure(x0 == 0 || (x0 - 1 >= CENTRE_X_MIN && x0 <= CENTRE_X_MAX),
            "ojz_region(x0: {x0}): an interior LEFT edge outside the camera centre's reachable band [{CENTRE_X_MIN}, {CENTRE_X_MAX}] can never be crossed")
     ensure(x1 == ACT_W - 1 || (x1 >= CENTRE_X_MIN && x1 + 1 <= CENTRE_X_MAX),

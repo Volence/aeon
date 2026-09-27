@@ -69,7 +69,7 @@ module engine.bg in bg
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, BG_TILE_CAPACITY, VDP_DATA, VDP_CTRL, PLANE_H_CELLS, PLANE_V_CELLS}
 // Step 6's plane-buffer reservation `ensure` is stated against the buffer's own size.
 use engine.constants.{PLANE_BUFFER_SIZE, DMA_BUDGET_NTSC}
-use engine.constants.{SCREEN_HEIGHT}
+use engine.constants.{SCREEN_HEIGHT, CAM_MAX_Y_ROWS}
 use engine.structs.{Act, Region}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 use engine.z80_bus.{z80_stopped}
@@ -541,13 +541,15 @@ pub const BG_WIPE_FRAMES         = (BG_WIPE_TOTAL_ROWS + BG_WIPE_ROWS_PER_FRAME 
 const BG_ROW_ENTRY_BYTES = 4 + PLANE_H_CELLS*2      // Draw_BG_TileRow      (engine/level/plane_buffer.emp)
 const FG_COL_ENTRY_BYTES = 8 + PLANE_V_CELLS*2      // Draw_TileColumn      (ditto)
 const FG_ROW_ENTRY_BYTES = 4 + PLANE_H_CELLS*2      // Draw_TileRow_FromCache (ditto)
-// The foreground's worst frame: the camera is capped at 16 px on each axis over an 8 px
-// cell, so at most two columns and two rows enter per frame (E1's derivation, re-spelled
-// from the two camera caps rather than quoted as "536").
-const FG_PEAK_BYTES      = 2 * FG_COL_ENTRY_BYTES + 2 * FG_ROW_ENTRY_BYTES
+// The foreground's worst frame: the camera is capped at 16 px on X (camera.emp's
+// CAM_MAX_X_STEP, file-local there, hence the literal 2 columns) and at CAM_MAX_Y_STEP on Y
+// (24 since the airborne cap, feel/s3k-fall 2026-09-27) over an 8 px cell, so at most two
+// columns and CAM_MAX_Y_ROWS rows enter per frame (E1's derivation, re-spelled from the
+// camera caps rather than quoted as a byte count).
+const FG_PEAK_BYTES      = 2 * FG_COL_ENTRY_BYTES + CAM_MAX_Y_ROWS * FG_ROW_ENTRY_BYTES
 const BG_PEAK_BYTES      = (BG_STREAM_MAX_ROWS + BG_WIPE_ROWS_PER_FRAME) * BG_ROW_ENTRY_BYTES
 ensure(FG_PEAK_BYTES + BG_PEAK_BYTES <= PLANE_BUFFER_SIZE - 2,
-       "engine/level/bg.emp: one frame can now ask the plane buffer for {FG_PEAK_BYTES} B of foreground (2 columns at {FG_COL_ENTRY_BYTES} + 2 rows at {FG_ROW_ENTRY_BYTES}) plus {BG_PEAK_BYTES} B of background ({BG_STREAM_MAX_ROWS} streamed + {BG_WIPE_ROWS_PER_FRAME} wiped rows at {BG_ROW_ENTRY_BYTES}), which is more than PLANE_BUFFER_SIZE - 2 = {PLANE_BUFFER_SIZE - 2}. NOTHING CRASHES IF THIS IS WRONG, which is why it is a build error: Draw_BG_TileRow REFUSES past the ceiling and the wipe cursor does not advance, so an over-budget frame shows up only as a wipe that takes longer than BG_WIPE_FRAMES ({BG_WIPE_FRAMES}) — and Draw_TileColumn's release arm drops a FOREGROUND column silently, which is a strip of level that is never redrawn. Lower BG_WIPE_ROWS_PER_FRAME (the wipe just takes more frames) or raise PLANE_BUFFER_SIZE")
+       "engine/level/bg.emp: one frame can now ask the plane buffer for {FG_PEAK_BYTES} B of foreground (2 columns at {FG_COL_ENTRY_BYTES} + {CAM_MAX_Y_ROWS} rows at {FG_ROW_ENTRY_BYTES}) plus {BG_PEAK_BYTES} B of background ({BG_STREAM_MAX_ROWS} streamed + {BG_WIPE_ROWS_PER_FRAME} wiped rows at {BG_ROW_ENTRY_BYTES}), which is more than PLANE_BUFFER_SIZE - 2 = {PLANE_BUFFER_SIZE - 2}. NOTHING CRASHES IF THIS IS WRONG, which is why it is a build error: Draw_BG_TileRow REFUSES past the ceiling and the wipe cursor does not advance, so an over-budget frame shows up only as a wipe that takes longer than BG_WIPE_FRAMES ({BG_WIPE_FRAMES}) — and Draw_TileColumn's release arm drops a FOREGROUND column silently, which is a strip of level that is never redrawn. Lower BG_WIPE_ROWS_PER_FRAME (the wipe just takes more frames) or raise PLANE_BUFFER_SIZE")
 ensure(BG_WIPE_ROWS_PER_FRAME >= 1 && BG_WIPE_ROWS_PER_FRAME <= BG_WIPE_TOTAL_ROWS,
        "engine/level/bg.emp: BG_WIPE_ROWS_PER_FRAME is {BG_WIPE_ROWS_PER_FRAME}, outside 1 .. {BG_WIPE_TOTAL_ROWS}. At 0 an armed wipe never retires its cursor and the plane holds a mix of two backgrounds forever; above the plane's own row count the `subq.b`/`beq` pair below would run the cursor past 0 and wrap it to 255")
 ensure(BG_WIPE_TOTAL_ROWS <= 255,
@@ -580,7 +582,7 @@ ensure(BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX >= BG_VSCROLL_MAX_STEP,
 // page landings are NOT charged either: they are the priority C1 chose, so a heavy streaming frame
 // just delays the chunk. The first derivation charged every Deferrable peak and gave 256 B
 // (27 ticks for a 216-tile blob); rejected for that reason.
-pub const BG_OVERWRITE_CHUNK_BYTES = 1824
+pub const BG_OVERWRITE_CHUNK_BYTES = 1696
 const BG_CRITICAL_PEAK_BYTES = 4 * 32 + 640 + 896 + 128   // pinned to BuildStaticDMA by the test above
 // ---- THE DMA SWEEP's budget (shorter-connector, 2026-09-25) ----
 // A one-plane map is wiped by DMA from ROM (BG_Stream_Update's `.wipe_dma`), one Deferrable
