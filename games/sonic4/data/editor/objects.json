@@ -21,13 +21,6 @@
     "properties": {}
   },
   {
-    "id": "path_swap",
-    "name": "Path Swap",
-    "codeLabel": "ObjDef_PathSwap",
-    "defaultSubtype": 0,
-    "properties": {}
-  },
-  {
     "id": "spring",
     "name": "Spring",
     "codeLabel": "ObjDef_Spring",

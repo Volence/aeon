@@ -107,7 +107,7 @@ order = [
   "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
-  "TestChurnObj", "ObjDef_PathSwap",
+  "TestChurnObj",
   # Scanline-P1 Task 9: `DeformTable_Zero` is still the head of the OJZ parallax block and
   # still the object-bank budget `cursor` below — but the section behind it is now
   # `scene_registry` (data/effects/scene_registry.emp), not the deleted
