@@ -285,8 +285,10 @@ def act_region_count() -> int:
     # 2026-09-17, S2-COMPRESSED-ACT parcel 9). Every conditional row array in this act was a
     # build-shape delta until parcel 9 added `OJZ_WIDE_FILL_ROWS`, whose condition is
     # `ACT_W > OJZ_AUTHORED_ACT_W` — the act being wider than its region document, which is false
-    # in every shipped shape and true for a wide CLIP act. The argument this lint rests on never
-    # mentioned DEBUG: an `array`'s `.len` is never negative, the term is `++`-appended so it
+    # in every shipped shape and true for a wide CLIP act. (That row was deleted 2026-09-27,
+    # CLIP-ACT-TALLER-THAN-DOCUMENT: every added term is a DEBUG delta again, but the widened
+    # condition stays, because the argument below is about the shape, not the condition.)
+    # The argument this lint rests on never mentioned DEBUG: an `array`'s `.len` is never negative, the term is `++`-appended so it
     # renumbers no existing row, and the `else { [] }` branch is what says `base` is reachable.
     # All three still hold. What is NOT relaxed is the SHAPE: an added term this lint cannot see
     # an empty else branch for is still a refusal, because then nothing says `base` is attained
