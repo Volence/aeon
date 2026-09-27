@@ -1,6 +1,12 @@
 {
   "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Make falling feel like Sonic 3: remove the cap, match its camera, keep thin floors solid",
+      "where": "branch feel/s3k-fall",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,10 +30,10 @@
     },
     {
       "id": "OJZ-FEEL",
-      "title": "Our act: lag is in the long diagonal falls; falling is capped by your earlier ruling. Your pick on the fall feel",
-      "state": "blocked",
+      "title": "Falling like Sonic 3 (no cap, Sonic 3's camera), keeping thin floors solid: building",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "owner: fall feel option"
+      "blockedBy": null
     },
     {
       "id": "OJZ-LOOP-DOUBLE-LAP",
@@ -191,7 +197,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": "Fall feel: pick A, B, C or D (I recommend C). Temp folder cleared.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T00:41:38Z"
+  "updatedAt": "2026-09-27T00:48:41Z"
 }
