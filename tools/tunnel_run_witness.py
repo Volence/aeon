@@ -85,7 +85,14 @@ def corridor_geometry(act, cid=None):
     acts these witnesses were written for). The flanking clips are read off the rectangles:
     the clip whose right edge is the nearest at or left of the corridor's left edge, and the
     nearest whose left edge is at or right of its right edge. A woven act (s2_mtz_cpz,
-    2026-09-27) has two corridors and three clips, two of one zone."""
+    2026-09-27) has two corridors and three clips, two of one zone.
+
+    2-D ACTS (s2_woven, 2026-09-27): the flanking clips are clip_manifest.connector_ends',
+    the clips whose rectangles END and START exactly at the corridor's edges AND overlap it
+    in y. The x-only nearest-edge rule above named the wrong clip in a 2-D act: for
+    s2_woven's hpz_to_ooz it picked Chemical Plant (x 5104, 2,000 px above the tunnel) over
+    Oil Ocean (also x 5104), the first of two clips starting at that x. On every 1-D act
+    both rules name the same clips."""
     if cid is None:
         if len(act.corridors) != 1:
             raise SystemExit(f"this act has {len(act.corridors)} corridors "
@@ -97,12 +104,10 @@ def corridor_geometry(act, cid=None):
         if co is None:
             raise SystemExit(f"no corridor {cid!r} in the act "
                              f"({', '.join(c.id for c in act.corridors)})")
-    x0, x1 = co.dst[0], co.dst[0] + co.dst[2]
-    left = [c for c in act.clips if c.dst[0] + c.dst[2] <= x0]
-    right = [c for c in act.clips if c.dst[0] >= x1]
-    if not left or not right:
-        raise SystemExit(f"corridor {co.id!r} has no clip on {'both sides' if not left and not right else 'one side'}")
-    return (co, max(left, key=lambda c: c.dst[0] + c.dst[2]), min(right, key=lambda c: c.dst[0]))
+    _ax, left, right = CM.connector_ends(act, co)
+    if left is None or right is None:
+        raise SystemExit(f"corridor {co.id!r} has no clip on {'both sides' if left is None and right is None else 'one side'}")
+    return (co, left, right)
 
 
 async def place(client, b, syms, x, y, frames=None):

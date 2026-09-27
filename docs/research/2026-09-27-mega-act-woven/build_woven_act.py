@@ -76,11 +76,6 @@ def build(mutant=False):
         ("same_y", "y", "EHZ", "HPZ"), ("same_x", "x", "MTZ", "CPZ"),
         ("AM_y", "y", "WFZ", "MTZ"), ("AM_x", "x", "EHZ", "MTZ"),
         ("MO_y", "y", "CPZ", "OOZ"), ("AO_x", "x", "HPZ", "OOZ"))}
-    if mutant:
-        # THE WITNESS CONTROL, never committed: Oil Ocean 208 px higher, so the drop shafts
-        # into it (C8, C9) are 256 px against the rule's 464 and a DROP must be seen to
-        # glitch (crossing_witness's vertical mode, red first). Hidden Palace rides along.
-        L["MO_y"] = 256
 
     # ---- the CHOICES (each one MEASURED; the reasons go into the note) -----------------
     # Metropolis | Chemical Plant | Metropolis: s2_mtz_cpz's flown rectangles and floors.
@@ -131,6 +126,15 @@ def build(mutant=False):
                dst=(mte_x, mtz_y))
     ooz_y = max(cpz_y + 2048, mtz_y + MTZ_EAST_H) + L["MO_y"]
     ooz = dict(id="ooz_east", zone="OOZ", src=(8192, 0, 3072, OOZ_H), dst=(OOZ_X, ooz_y))
+    if mutant:
+        # THE WITNESS CONTROL, never committed: Metropolis east 128 px TALLER (donor y
+        # 0..1727; its row 1712 is open over C9's lane) with nothing else moved, so C9 is
+        # 336 px against the rule's 464 and its DROP must be seen to glitch
+        # (crossing_witness's vertical mode, red first). C8 keeps its 464: the control.
+        # The taller Metropolis costs collision entries the act does not have (259 of
+        # 255, MEASURED), so the control also drops Wing Fortress and its three cloud
+        # bands (105 entries), which touch neither shaft.
+        mte["src"] = (mte["src"][0], 0, mte["src"][2], MTZ_EAST_H + 128)
     hpz_y = ooz_y + OOZ_FLOOR - HPZ_FLOOR                         # C11's floor
     hpz_e_x1 = OOZ_X - L["AO_x"]                                  # C11 exact
     hpz_sx = HPZ_END - hpz_e_x1                                   # donor x of act x 0
@@ -275,7 +279,7 @@ def main():
     ap.add_argument("--out", default=OUT)
     ap.add_argument("--print", action="store_true")
     ap.add_argument("--mutant-short-drops", action="store_true",
-                    help="THE WITNESS CONTROL (never commit its output): C8/C9 at 256 px, "
+                    help="THE WITNESS CONTROL (never commit its output): C9 at 336 px, "
                          "crossing_margin = report")
     ap.add_argument("--baseline", action="store_true",
                     help="write collision_baseline.json from a KEPT bake of --out instead")
@@ -303,6 +307,9 @@ def main():
     doc = to_manifest(b, note, start)
     if a.mutant_short_drops:
         doc["note"] = "MUTANT WITNESS CONTROL, NOT THE ACT: " + doc["note"]
+        doc["clips"] = [k for k in doc["clips"] if k["zone"] != "WFZ"]
+        doc["shafts"] = [k for k in doc["shafts"] if not k["id"].startswith("wfz_")]
+        doc["crossing_overrides"]["bg_blobs"] = [["EHZ", "HPZ"], ["CPZ", "MTZ"], ["OOZ"]]
         doc["crossing_overrides"]["crossing_margin"] = "report"
     with open(a.out, "w") as fh:
         json.dump(doc, fh, indent=2)
