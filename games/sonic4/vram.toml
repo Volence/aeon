@@ -547,8 +547,9 @@ const = "VRAM_SPRING"
 # `sprite_table`: $B500 + 24*32 = $B800. There is no slack left below the SAT.
 #
 # ⚠ TOPOLOGICALLY THIS IS IN THE WRONG NEIGHBOURHOOD and that is known. Objects
-# live at 896..1023, which is 128 tiles and FULLY SPENT — this map has room for
-# zero further objects without a carve. Owner's ruling 2026-09-07: take these 20
+# live at 896..1023, which was 128 tiles and FULLY SPENT when this was written (the
+# 2026-09-27 VRAM-TIER1 recut freed 22 tiles in it and 32 elsewhere; read the
+# generated map for today's runs). Owner's ruling 2026-09-07: take these 20
 # now (24 since the side sheet), revisit the allocation properly. Booked in
 # docs/DEFERRED_WORK.md.
 

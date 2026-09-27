@@ -28960,6 +28960,8 @@ any other ways we could save VRAM?" The map was re-derived from `vram.toml` and 
   debug tags borrowing `spare_nametable` in DEBUG (13), Tails appendage overlaid on the
   insta-shield window (9, character-exclusive; a sidekick undoes it), solid test art as one tile
   per colour (9), character window 32 -> 29 (3).
+  **LANDED 2026-09-27 as 53, not 62 (`parcel/vram-tier1`; see VRAM-TIER1 just below).** C, D, F,
+  A and G landed; I (the 9 test-art tiles) is BLOCKED for two reasons the audit did not see.
 * **Tier 2, 84 more:** BG `band_reserve` 56 -> 0 (owner dial; **Aurora notice first**),
   waterline H cap 32 (16), charge dust in the accessory window (12, INFERRED, needs RUNTIME-B).
 * **Refuted hypotheses:** `spare_nametable` is not free (the owner declined it on 2026-09-10,
@@ -28974,6 +28976,69 @@ any other ways we could save VRAM?" The map was re-derived from `vram.toml` and 
 * **Sequencing:** ride the Tier-1 recut WITH STEP7/8 so VRAM is carved once. Four runtime tags
   (A/B/C/F) and two stale comments (`ojz_scroll_test.emp:4334-4340` bg_region 448/128;
   `vram.toml` spring "20 tiles") are listed in the report, not fixed.
+
+#### VRAM-TIER1 — the audit's Tier 1, landed as 53 tiles (2026-09-27, `parcel/vram-tier1`)
+
+**Measured from the generated map (`gen_vram_map --game sonic4`), before -> after:** free tiles
+**1 -> 54**; object+character regions **142 -> 118** for the same objects; DEBUG tags 13 -> 0
+(they now borrow `spare_nametable`); waterline strips 48 -> 32; all other categories unchanged,
+2048 covered exactly once. Room for NEW object art is the free figure: +53. The runs are
+scattered: 1432..1447 (16), 1004..1015 (12), 1492..1503 (12), 1020..1023 (4), 1532..1535 (4),
+957..959 (3), 989..991 (3) — the ring window's base (1000, a sigil `-D`) and the marker (1016)
+split the neighbourhood. Demo's map got the waterline 16 back too (free 163 -> 179).
+
+| id | what | tiles | how it is held |
+|---|---|---|---|
+| C | ring window 16 -> 4: one resident frame, `Game.ring_frame` streams each new one | 12 | `engine-tiles:RING_FRAME_TILES` authority; frame-shift and frame-count ensures beside `RingArt_StreamFrame` |
+| D | waterline region 48 -> 32 (the largest power-of-two H inside the 48 sanction is 64) | 16 | engine `WATERLINE_REGION_TILES` derived with two ensures; both games carry `engine-tiles:` |
+| F | the four DEBUG lab tags borrow `spare_nametable`'s top (883..895) | 13 | `gen_vram_map.py`'s new borrow rule: wiring the host (`register`) fails the build naming every borrower |
+| A | `tails_appendage` overlays `insta_shield`'s head | 9 | exclusivity made STRUCTURAL: `InstaShield_Main` retires the flash on `debug_flag`, and the character can only change in free flight |
+| G | `character_window` 32 -> 29, base 960 held | 3 | each character's existing peak ensure against `VRAM_TEST_SONIC_TILES` |
+
+**I — BLOCKED, two independent reasons, neither in the 2026-09-17 audit:**
+1. **The squares (6 tiles):** one tile per colour means four 1x1 pieces per 16x16 object. The
+   DEBUG object-test stress scene (`games/sonic4/test/object_test_state.emp`, the phase-5
+   benchmark) draws its 25 listed objects, their 9 children and 8 emitters as `Map_TestObj`
+   16x16 squares (`test_obj_prolog`, `TestSolid_Init`); the 25 alone at four pieces each are 100
+   against `MAX_VDP_SPRITES` = 80. The scene would stop drawing objects and its benchmark
+   would change meaning. Retires for free when the placeholders do (real badnik art), which is the audit's
+   own "12 when the placeholders retire".
+2. **The marker (3 tiles):** the DEBUG replay fixtures OPEN IN FREE FLIGHT (the marker is on
+   Player_1 until the B tap at tick 1024 / 1259), and `Replay_Hash` hashes Player_1's
+   `art_tile`, `mapping_frame` and `sprite_piece_count` (`engine/system/replay.emp`). A 1-tile
+   marker drawn as four pieces changes `sprite_piece_count` 1 -> 4 on those checkpoints, so both
+   fixtures would desync. The replay net has NO automated runner (`tools/test_replay_fixture.py`
+   checks structure only), so `landing_build.sh` would go green over a broken net. Doing it
+   needs a replay re-stamp with the emulator (`docs/superpowers/plans/2026-08-13-replay-net-restamp.md`).
+   Checked for the parts that DID land: none of C/D/F/G touches a hashed field, and A's flash
+   retirement fires only on entering free flight with a flash live; neither fixture presses A
+   or C in the 15 ticks before any of its B taps (decoded 2026-09-27), so it cannot fire there.
+
+**Found in passing, for the sigil lane (not fixed here):** the contract-closure inout verifier
+treats an `invoke Game.hook` call site as an UNKNOWN callee. With the ring tick inlined in
+`DrawRings` (which threads d5/a4 as `inout`) the build failed `[proc.inout-unverified]
+DrawRings :: inout(d5)` and `inout(a4)` although the hook's declared bound excludes both. Worked
+around by moving the tick into its own proc (`Rings_AnimTick`). `sigil`'s `rings_port` byte gate
+pins `engine/objects/rings.emp`, which changed bytes here and gained a hook invocation and a
+proc: expect it to need a repin (aeon lands alone; this is a heads-up, not a request).
+
+**Runtime tags (no emulator MCP was used; the ring window WAS checked headless):**
+- [RUNTIME-C, done headless] boot + 180 frames, then 96 consecutive frames: VRAM 1000..1003
+  equals the frame `Ring_Anim_Frame` names in 96/96, frames 0..3 all seen (scratch probe over
+  `aether_emulator`, cart verified). Still owed ON SCREEN: rings spinning normally in OJZ, and a
+  forced Deferrable drop showing one stale frame and nothing worse.
+- [RUNTIME-A] in DEBUG, as Sonic: jump, insta-shield, B into free flight inside the flash, then
+  A to cycle to Tails. The flash must vanish the frame free flight starts and the tails must
+  draw clean. Also: Tails flying and turning, tails art intact (the window moved to 928).
+- [RUNTIME-F] the effects lab's four tags (name, raster, BG-anim, preset digit/verdict) still
+  read correctly at their new tiles; `tools/preset_lab_witness.py` now reads the tile from
+  `tools/vram_map.py`.
+
+**Step-8a prerequisites this parcel did NOT do (not Tier 1):** the VDP base-granule check in
+`gen_vram_map.py`, the window footprint derived from regs $11/$12, tying `PLANE_B_CELL_ROWS` to
+`PLANE_V_CELLS`, deriving `scene_dsl.emp`'s 512s, and the 9 tools with a hard-coded plane
+height. The previous agent had drafted tests for the first two (granule, window footprint);
+they were set aside unlanded because they belong to 8a, not to Tier 1.
 
 ### SP-4 — the spring lives in test_solid.emp and wants its own module
 
@@ -36495,7 +36560,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - Churn is not re-measured.
 - **Bears on REGIONS-P2-STEP7 (cache 12 -> 10):** do not cut to 10 x 64-tile frames for stitched S3K content. The measured path to 640 tiles is (1) this order wiring with a build refusal, (2) 32-tile pages, (3) a 56x48 or 64x48 window gated on a runtime hold measurement.
   - **RULED 2026-09-17T13:02:06Z, owner, card FG-CACHE-10-HOW `stay-at-12` (console selection, no words): the cache stays at 12 pages of 64 tiles.** REGIONS-P2-STEP7 (lever 1) is retired. REGIONS-P2-STEP8 (halve the scroll plane) was sized assuming lever 1 happened and must be re-sized before it starts. Re-test a smaller cache only once a real multi-zone act can run in-game.
-  - **RE-SIZED 2026-09-27 (`design/regions-p2-step8`, `docs/research/2026-09-27-regions-p2-step8-resize.md`):** step 8 frees +256 tiles (objects 142 -> 398; +62 audit Tier 1 -> 460). It costs the BG streamer its slack: lead 17 -> 1 row, streamed per-column VSRAM envelope -136..+145 -> -8..+17 px, and only EHZ/CNZ stay one plane among the S2 backgrounds. Six steps (8-T1, 8a-8e), total L. Recommendation: Tier 1 + the guards/band-anchor/tall-default prerequisites now, and the flip on a measured badnik need. Owner card STEP8-RESIZE drafted in §6 of that doc. Still open and silent: `parallax.emp:715` `PLANE_B_CELL_ROWS = 64` is not tied to `PLANE_V_CELLS`.
+  - **RE-SIZED 2026-09-27 (`design/regions-p2-step8`, `docs/research/2026-09-27-regions-p2-step8-resize.md`):** step 8 frees +256 tiles (objects 142 -> 398; +62 audit Tier 1 -> 460). **8-T1 LANDED 2026-09-27 as +53, not +62** (VRAM-TIER1, beside VRAM-SAVINGS-AUDIT: candidate I is blocked on the stress scene's sprite cap and the replay fixtures), so the "with Tier 1" figures in that doc read 9 high. It costs the BG streamer its slack: lead 17 -> 1 row, streamed per-column VSRAM envelope -136..+145 -> -8..+17 px, and only EHZ/CNZ stay one plane among the S2 backgrounds. Six steps (8-T1, 8a-8e), total L. Recommendation: Tier 1 + the guards/band-anchor/tall-default prerequisites now, and the flip on a measured badnik need. Owner card STEP8-RESIZE drafted in §6 of that doc. Still open and silent: `parallax.emp:715` `PLANE_B_CELL_ROWS = 64` is not tied to `PLANE_V_CELLS`.
 - **Incidental findings:**
   - 09's "every window at or under 12" is class-scoped: junction acts' other windows go over 12 (S3K 3,875 in 23 acts, S2 170 in 2).
   - The ROWS ensure at `engine/system/constants.emp:971` is one row short at odd camera rows; not binding today.
