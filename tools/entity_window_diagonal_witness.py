@@ -59,6 +59,17 @@ diagonal on this act finds one live entity there), `plant_rings` writes one ring
 dropped section that has a ring list, the way RingBuffer_Add leaves one, where only the
 section rule can remove it after the kick; see its docstring.
 
+THE WARP ARMS (SAH-3a, 2026-09-27). A DEBUG warp is a fresh load at the destination, so after
+it no window object may be live twice and W/M/U/L must hold from the ack on. The "warp:" arms
+warp (boot -> the booked (2559,128); boot -> in place; boot -> (2559,128) -> back to the boot
+camera) and check SETTLE_TICKS ticks after each hop. Non-vacuity per hop, measured before it: at
+least one window object is live whose section the destination still tracks (the population a
+re-init that clears loaded bits without deleting objects spawns twice); none is UNMEASURABLE.
+Red on aaffce16 (docs/research/2026-09-26-entity-window-diagonal/sah3a_warp_red_aaffce16.txt):
+every warp arm FAILs on "live twice", and the chain also leaves objects live with their loaded
+bit clear (M). The crossing arms warp once, straight from boot: they used to park on an
+object-free window first to dodge exactly this.
+
 A HALT (the loop stops: Section_UpdateColumns not reached within HALT_FRAMES frames) is a
 FAIL, and the raise_error message is recovered and printed.
 
@@ -393,7 +404,12 @@ ARMS = (("diagonal right+down", 1, 1, None), ("diagonal left+down", -1, 1, None)
         ("diagonal right+up", 1, -1, None), ("diagonal left+up", -1, -1, None),
         ("diagonal right+down at the stress halt", 1, 1, (2, 2)),
         ("control right only", 1, 0, None), ("control down only", 0, 1, None),
-        ("poison: a 2-section camera jump must halt on the step assert", 2, 0, "poison"))
+        ("poison: a 2-section camera jump must halt on the step assert", 2, 0, "poison"),
+        # SAH-3a: warps whose destination still tracks a section with live window objects (the
+        # booked boot -> (2559,128); a warp in place; a chain out and back). dx/dy unused.
+        ("warp: boot -> the booked (2559,128)", 0, 0, ("warp", ((2559, 128),))),
+        ("warp: boot -> in place", 0, 0, ("warp", ("boot",))),
+        ("warp: boot -> (2559,128) -> the boot camera", 0, 0, ("warp", ((2559, 128), "boot"))))
 BUTTONS = {1: "right", -1: "left"}, {1: "down", -1: "up"}
 
 
@@ -465,16 +481,6 @@ async def plant_rings(m, act, snap, dropped, pre, post):
     return out
 
 
-def neutral_camera(act, xmax, ymax):
-    """A camera whose window tracks no section with a listed object, or None."""
-    for cy in range(ymax, -1, -ROW):
-        for cx in range(0, xmax + 1, ROW):
-            _, win = act.window(cx, cy)
-            if all(sid is None or not act.objs[sid] for sid, _, _ in win):
-                return cx, cy
-    return None
-
-
 def plan_arm(act, dx, dy, xmax, ymax, lines=None):
     """Pick the crossing for an arm. Every line pair (kx, ky) whose pre- and post-kick cameras
     sit inside the camera clamp is a candidate; void (off-grid) quadrants are allowed, since
@@ -520,6 +526,71 @@ def plan_arm(act, dx, dy, xmax, ymax, lines=None):
     return best
 
 
+async def warp(m, cam):
+    """Warp so the camera lands at `cam`, through the DEBUG warp mailbox (Debug_Warp_Consume).
+    center_camera_on puts the camera at leader - HALF. True once the flag is acked, False if
+    the loop halted; a mailbox that never acks is UNMEASURABLE."""
+    s = m.s
+    await m.wr(s["Warp_Req_X"], cam[0] + HALF_W, 2)
+    await m.wr(s["Warp_Req_Y"], cam[1] + HALF_H, 2)
+    await m.wr(s["Warp_Req_Flag"], 1, 1)
+    for _ in range(8):
+        if not await m.tick():
+            return False
+        if await m.u("Warp_Req_Flag", 1) == 0:
+            return True
+    raise Unmeasurable(f"the warp mailbox never acked (warp to camera {cam})")
+
+
+async def run_warp(m, act, name, hops, caps, labels, rom_image, verbose):
+    """SAH-3a: a warp is a FRESH LOAD at the destination, so no window object may be live twice
+    after it, and W/M/U/L must hold on every tick from the ack on.
+
+    Each hop is a camera, or "boot" for the camera the boot settled at (a warp in place, the
+    play-from-cursor case where the cursor is on screen). NON-VACUITY, per hop, measured before
+    the warp: at least one window object is live whose section the destination window still
+    tracks (derived from the destination camera through Act.window). That is exactly the
+    population the old EntityWindow_Init spawned a second time; a hop without one is
+    UNMEASURABLE, never a pass. Then SETTLE_TICKS ticks, every one checked; the destination
+    camera is required (a clamp or hold that moved it makes the hop UNMEASURABLE)."""
+    boot_cam = await m.cam()
+    fails, dup = [], 0
+    for h, hop in enumerate(hops):
+        cam = boot_cam if hop == "boot" else hop
+        before = await m.snapshot()
+        _, win = act.window(*cam)
+        dest_ids = {sid for sid, _, _ in win if sid is not None}
+        shared = sorted((sec, idx) for _, _, sec, idx in before["objs"] if sec in dest_ids)
+        print(f"  {name}: hop {h} camera {before['cam']} -> {cam}; destination tracks sections "
+              f"{sorted(dest_ids)}; window objects live before it that the destination still "
+              f"tracks: {len(shared)} {shared[:8]}")
+        if not shared:
+            raise Unmeasurable(f"{name}: hop {h} is vacuous: no live window object's section is "
+                               f"tracked at {cam}, so nothing could be spawned twice")
+        if not await warp(m, cam):
+            return await halted(m, name, f"hop {h} warp", labels, rom_image)
+        for t in range(SETTLE_TICKS):
+            if t and not await m.tick():
+                return await halted(m, name, f"hop {h} settle {t}", labels, rom_image)
+            snap = await m.snapshot()
+            if t == 0 and snap["cam"] != cam:
+                raise Unmeasurable(f"{name}: hop {h} landed the camera at {snap['cam']}, not "
+                                   f"{cam} (a warp clamp or a camera hold moved it)")
+            bad, notes, _, _ = check(act, snap, *caps)
+            dup += sum("live twice" in v for v in bad)
+            fails += [f"hop {h} settle {t} cam {snap['cam']}: {v}" for v in bad]
+            for n in notes:
+                print(f"    note: hop {h} settle {t}: {n}")
+        print(f"    hop {h}: {SETTLE_TICKS} ticks checked; window objects live after: "
+              f"{len(snap['objs'])}; object-live-twice violations so far: {dup}")
+    print(f"    {len(fails)} violation(s), {dup} of them a window object live twice")
+    for f in fails[:12 if not verbose else len(fails)]:
+        print(f"    FAIL {f}")
+    if len(fails) > 12 and not verbose:
+        print(f"    ... {len(fails) - 12} more (--verbose prints all)")
+    return 1 if fails else 0
+
+
 async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose):
     s = m.s
     xmax, ymax = await m.u("Camera_X_Max", 2), await m.u("Camera_Y_Max", 2)
@@ -530,36 +601,14 @@ async def run_arm(m, act, name, dx, dy, lines, caps, labels, rom_image, verbose)
     _, kx, ky, (px, py), (qx, qy), dropped, entered, a0, a1 = plan
     print(f"  {name}: lines kx={kx} ky={ky}; camera ({px},{py}) -> ({qx},{qy}); anchor "
           f"{a0} -> {a1}; drops sections {sorted(dropped)}, enters {sorted(entered)}")
-    # TWO HOPS, and the first is not optional. Debug_Warp_Consume re-runs EntityWindow_Init,
-    # which clears every loaded bit but deletes no live object, so an object whose section
-    # the destination window still tracks is spawned a second time (measured on d57002c5:
-    # boot -> (2559,128) left section 0's objects #0-#5 live twice; docs/DEFERRED_WORK.md
-    # SAH-3, the warp finding). That is the warp's defect, not the slide's, so the arm first
-    # parks on a window with NO listed objects (every earlier object's section goes
-    # untracked and despawns), then warps to the crossing.
-    hop = neutral_camera(act, xmax, ymax)
-    if hop is None:
-        raise Unmeasurable(f"{name}: no camera in the act has a window with no listed objects "
-                           f"to park on before the warp (see the TWO HOPS note)")
-    for cam, what in ((hop, "park"), ((px, py), "warp")):
-        # center_camera_on puts the camera at leader - HALF
-        await m.wr(s["Warp_Req_X"], cam[0] + HALF_W, 2)
-        await m.wr(s["Warp_Req_Y"], cam[1] + HALF_H, 2)
-        await m.wr(s["Warp_Req_Flag"], 1, 1)
-        for _ in range(8):
-            if not await m.tick():
-                return await halted(m, name, what, labels, rom_image)
-            if await m.u("Warp_Req_Flag", 1) == 0:
-                break
-        else:
-            raise Unmeasurable(f"{name}: the warp mailbox never acked ({what})")
-        if what == "park":
-            if not await m.tick():
-                return await halted(m, name, what, labels, rom_image)
-            left = (await m.snapshot())["objs"]
-            if left:
-                raise Unmeasurable(f"{name}: {len(left)} window object(s) still live after "
-                                   f"parking at {hop}: {left[:4]}")
+    # ONE HOP, straight from boot. Until SAH-3a (2026-09-27) this parked on a window with no
+    # listed objects first, because Debug_Warp_Consume -> EntityWindow_Init cleared every loaded
+    # bit and deleted no live object, so boot -> (2559,128) left section 0's objects #0-#5 live
+    # twice (d57002c5, docs/DEFERRED_WORK.md SAH-3a). EntityWindow_Init now despawns every
+    # window-tagged object before it rebuilds, so the settle ticks below check the warp itself
+    # (the "warp:" arms check it on purpose, with a non-vacuity precondition).
+    if not await warp(m, (px, py)):
+        return await halted(m, name, "warp", labels, rom_image)
     fails, notes_all = [], []
     pre_live, entered_seen, ticks = set(), set(), 0
 
@@ -724,6 +773,9 @@ async def sweep(sock, rom_image, labels, arms, verbose):
             try:
                 if lines == "poison":
                     rc = await run_poison(m, name, labels, rom_image)
+                elif isinstance(lines, tuple) and lines and lines[0] == "warp":
+                    rc = await run_warp(m, act, name, lines[1], (cap_ring, cap_live),
+                                        labels, rom_image, verbose)
                 else:
                     rc = await run_arm(m, act, name, dx, dy, lines, (cap_ring, cap_live),
                                        labels, rom_image, verbose)
