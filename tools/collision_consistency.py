@@ -189,6 +189,8 @@ Usage:
         (thresholds are derived from THAT tree's engine/system/constants.emp;
          only the strip LAYOUT constants come from this tree's ojz_block_gen)
     python3 tools/collision_consistency.py --baseline tools/collision_baseline.json
+        (--baseline repeats; the union is exempted. An S2CLIP build adds the clip act's
+         own games/sonic4/data/clips/<id>/collision_baseline.json when it has one.)
 """
 
 import os
@@ -422,8 +424,15 @@ def is_flat_angle(angle: int) -> bool:
 
 
 def find_flat_run_violations(coll_rows, heights, angles, solidity, solid_top,
-                             run_min=RUN_MIN_COLUMNS):
+                             run_min=RUN_MIN_COLUMNS, above=None):
     """RULE A. coll_rows = [ [attr]*num_cols ] * num_rows for ONE plane.
+
+    `above` is the SAME plane's bottom collision row of the section directly above
+    (None: nothing above, the act's top edge). probe_core's `.full_back` re-probes one
+    cell up in WORLD space, so row 0's upper neighbour is that section's last row, not
+    air. Reading it as air flagged buried full blocks at every section-row boundary as
+    exposed (MEASURED 2026-09-27, the woven clip act s2_mtz_cpz: 4 false runs, section 5
+    row 0, each under a solid cell in section 2's last row).
 
     Returns (violations, stats). A violation is a dict describing one maximal
     horizontal run of floor-exposed full cells, of at least `run_min` columns,
@@ -433,9 +442,14 @@ def find_flat_run_violations(coll_rows, heights, angles, solidity, solid_top,
     num_cols = len(coll_rows[0]) if num_rows else 0
 
     def passes_floor_class(row, col):
-        if row < 0 or row >= num_rows or col < 0 or col >= num_cols:
+        if col < 0 or col >= num_cols or row >= num_rows or row < -1:
             return False
-        a = coll_rows[row][col]
+        if row == -1:
+            if above is None:
+                return False
+            a = above[col]
+        else:
+            a = coll_rows[row][col]
         return a != 0 and bool(solidity[a] & solid_top)
 
     def floor_exposed_full(row, col):
@@ -821,6 +835,16 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
            **{f"cleared_{s}": 0 for s in EXPOSURE_STAGES[:-1]}}
     va, vb = [], []
 
+    # The section grid's width, so RULE A can read the section ABOVE's last row (see
+    # find_flat_run_violations). Read from the tree's own act_grid.emp, as the engine
+    # compiles it; a tree without one has no stacking to read across.
+    grid_path = os.path.join(gen_dir, "act_grid.emp")
+    grid_w = None
+    if os.path.isfile(grid_path):
+        import act_grid
+        grid_w = act_grid.descriptor_grid(grid_path)[0]
+
+    parsed = {}
     for sec, path in sections:
         with open(path, "rb") as f:
             raw = f.read()
@@ -830,13 +854,19 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
                 f"STRIP_BYTE_SIZE={ojz_block_gen.STRIP_BYTE_SIZE} — refusing to "
                 f"guess the strip layout")
         _nt, ca, cb = ojz_block_gen.parse_strips(raw)
+        parsed[sec] = {"A": ca, "B": cb}
+
+    for sec, _path in sections:
+        ca, cb = parsed[sec]["A"], parsed[sec]["B"]
+        up = parsed.get(sec - grid_w) if grid_w and sec >= grid_w else None
         pop["sections"] += 1
         for plane_name, grid in (("A", ca), ("B", cb)):
             pop["planes"] += 1
             pop["cells"] += sum(len(r) for r in grid)
             pop["nonair_cells"] += sum(1 for r in grid for a in r if a)
             ra, sa = find_flat_run_violations(grid, heights, angles, solidity,
-                                              solid_top)
+                                              solid_top,
+                                              above=up[plane_name][-1] if up else None)
             rb, sb = find_exposed_pinhole_violations(
                 grid, heights, solidity, solid_top, lp["SOLID_LRB"],
                 lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
@@ -903,6 +933,26 @@ def load_baseline(path):
     return {tuple(map(_hashable, e)) for e in entries}
 
 
+def load_baselines(paths):
+    """The union of several baseline files. build.sh passes the tree's own
+    (tools/collision_baseline.json) and, in an S2CLIP build, the clip act's
+    (`games/sonic4/data/clips/<id>/collision_baseline.json`): FAITHFUL DONOR DATA the
+    gate refuses, declared beside the clip the way its floorless columns are. A clip
+    baseline must say why (`why`, non-empty), because an exemption with no reason
+    cannot be told from a silenced bug."""
+    out = set()
+    for p in paths:
+        out |= load_baseline(p)
+        if os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(p)))) == "clips":
+            import json
+            with open(p, "r", encoding="utf-8") as f:
+                why = json.load(f).get("why")
+            if not (isinstance(why, str) and why.strip()):
+                raise GateError(f"--baseline {p} is a clip act's baseline with no `why`: "
+                                f"say what donor content each entry is and why it ships")
+    return out
+
+
 def _hashable(x):
     return tuple(x) if isinstance(x, list) else x
 
@@ -910,18 +960,19 @@ def _hashable(x):
 def main(argv):
     verbose = "--verbose" in argv or "-v" in argv
     root = None
-    baseline_path = None
+    baseline_paths = []
     for i, a in enumerate(argv):
         if a == "--root" and i + 1 < len(argv):
             root = argv[i + 1]
         elif a.startswith("--root="):
             root = a.split("=", 1)[1]
         elif a == "--baseline" and i + 1 < len(argv):
-            baseline_path = argv[i + 1]
+            baseline_paths.append(argv[i + 1])
         elif a.startswith("--baseline="):
-            baseline_path = a.split("=", 1)[1]
+            baseline_paths.append(a.split("=", 1)[1])
+    baseline_path = " + ".join(baseline_paths)
     try:
-        baseline = load_baseline(baseline_path) if baseline_path else set()
+        baseline = load_baselines(baseline_paths)
         va, vb, pop = check(verbose=verbose, root=root)
     except GateError as exc:
         print("=" * 78)
@@ -961,8 +1012,8 @@ def main(argv):
         if n_known:
             print(f"Collision consistency: {n_known} KNOWN violation(s) exempted "
                   f"by {baseline_path} (rule A {len(known_a)}, rule B "
-                  f"{len(known_b)}) — held repaint, see "
-                  f"tools/repaint_ojz_collision.py")
+                  f"{len(known_b)}) — a held repaint (tools/repaint_ojz_collision.py) "
+                  f"or a clip act's declared donor data (its collision_baseline.json)")
         stale = baseline - seen
         if stale:
             print(f"Collision consistency: {len(stale)} baseline entr(ies) no "

@@ -4,7 +4,10 @@ parcel's ground claim rests on.
 Runner: build.sh's pre-build `pytest tools -m "not needs_build"` lane
 (tools/landing_build.sh runs it once, inside the first shape). DONOR-FREE and BUILD-FREE
 by construction — every row builds its own inputs, so these pass on a checkout that has
-never run tools/s2_zone_convert.py and has no games/sonic4/data/donors/ at all. The
+never run tools/s2_zone_convert.py and has no games/sonic4/data/donors/ at all (the two
+`start` rows convert the MTZ and CPZ trees they load into pytest's tmp dir, from the
+read-only s2disasm checkout; an autouse guard makes any row that reaches for the working
+tree's donors fail everywhere). The
 end-to-end half (a real clip act baked out of a real donor tree and linked into a ROM) is
 evidenced by `S2CLIP=s2_ehz_boot ./build.sh`, which no canonical lane runs.
 
@@ -32,6 +35,47 @@ import elect_pool_pages as EPP     # noqa: E402
 
 REPO = os.path.normpath(os.path.join(HERE, ".."))
 TILE = 32
+
+#: The shipped woven manifest the two `start` rows load; its clips name s2disasm MTZ and CPZ.
+MTZ_CPZ = os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz", "clips.json")
+MTZ_CPZ_ZONES = [("s2disasm", "MTZ"), ("s2disasm", "CPZ")]
+
+
+@pytest.fixture(autouse=True, scope="module")
+def no_working_tree_donors():
+    """No row may read the repo's own (gitignored) converted donor trees.
+
+    The guard test_clip_manifest and test_s2_layer_lines carry, for the same incident class:
+    the two `start` rows below shipped with `CM.load(p)` and no `donor_root=`, green in the
+    worktree that had run s2_zone_convert and 2 FAILED rows (R4 "no converted tree") in every
+    fresh landing worktree. Pointing the default at a path that cannot exist makes that
+    mistake fail on EVERY machine."""
+    import clip_manifest as CM
+    real = CM.DEFAULT_DONOR_ROOT
+    CM.DEFAULT_DONOR_ROOT = os.path.join(
+        REPO, "tools", "__no_donor_root_for_tests__", "this-path-must-not-exist")
+    assert not os.path.exists(CM.DEFAULT_DONOR_ROOT)
+    yield
+    CM.DEFAULT_DONOR_ROOT = real
+
+
+@pytest.fixture(scope="module")
+def mtz_cpz_donors(tmp_path_factory):
+    """A converted donor root in pytest's own tmp tree, MADE here from the read-only s2disasm
+    checkout (the converter is deterministic), holding exactly the zones MTZ_CPZ clips, so
+    the rows run on a fresh checkout instead of requiring s2_zone_convert to have been run."""
+    import s2_donor
+    import s2_zone_convert as C
+    from suite_paths import SuitePathError
+    try:
+        s2_donor.donor_root(s2_donor.S2_FINAL)
+    except (SystemExit, SuitePathError) as exc:
+        pytest.skip("the s2disasm donor checkout could not be resolved, so NOTHING in this "
+                    "row is checked: %s" % exc)
+    root = str(tmp_path_factory.mktemp("mtzcpzdonors"))
+    for donor, zone in MTZ_CPZ_ZONES:
+        C.convert_zone(zone, donor, os.path.join(root, donor, zone), quiet=True)
+    return root
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +281,35 @@ def test_z1_counts_windows_that_hold_two_zones_and_the_gap_that_clears_it():
     assert one["mixed"] == 0 and one["donor_zones"] == 1
 
 
+def test_z1_gap_is_between_column_RUNS_when_a_zone_surrounds_another():
+    """A zone split in two with another zone between them (the woven act s2_mtz_cpz:
+    Metropolis west | tunnel | Chemical Plant | tunnel | Metropolis east). The gap is the
+    distance between the nearest columns of two different zones, so it is each tunnel's
+    width, NOT the overlap of Metropolis's outer span with Chemical Plant's (which read
+    -496 cells on that act and refused it though no screen can show both). Both tunnel
+    widths are exercised: the narrower one is the answer, whichever side it is on."""
+    import numpy as np
+    import clip_act_bake as CAB
+    import fg_page_order as FPO
+    cols = FPO.load_budget_constants()["TILE_CACHE_COLS"]
+    for left, right in ((48, 60), (60, 48)):
+        g = np.full((256, 1024), -1, dtype=np.int16)
+        g[:128, 0:192] = 0
+        g[:128, 192:192 + left] = 2                         # corridor, not a zone
+        b0 = 192 + left
+        g[:128, b0:b0 + 256] = 1
+        g[:128, b0 + 256:b0 + 256 + right] = 2
+        g[:128, b0 + 256 + right:b0 + 256 + right + 192] = 0
+        z = CAB.zone_separation(_ZAct(2), g)
+        assert z["min_column_gap_cells"] == min(left, right), (left, right, z)
+        assert z["mixed"] > 0 and min(left, right) < cols    # the cache window still sees both
+    # a column holding both zones (stacked) is no gap at all
+    g = np.full((256, 512), -1, dtype=np.int16)
+    g[:64, 0:200] = 0
+    g[64:128, 100:300] = 1
+    assert CAB.zone_separation(_ZAct(2), g)["min_column_gap_cells"] < 0
+
+
 def test_z1_refuses_at_the_rom_bake_and_admits_a_separated_act():
     """R20 (one clip only) is DELETED: row 7 put the per-cell key on the ROM path. What
     the ROM bake refuses now is a two-zone act a camera can see both halves of."""
@@ -389,6 +462,7 @@ def _tables(tmp_path, entries):
 class _GroundAct:
     section_px = 2048
     id = "ground_fixture_act"
+    raw = {}            # names no `start` (woven item 7): the descriptor's start stands
 
     def __init__(self, clips=()):
         self.clips = list(clips)
@@ -529,6 +603,97 @@ def test_engine_spawn_is_derived_from_the_engine_and_the_clamp_can_bite(tmp_path
     # player lands half a screen INTO the act rather than at start_local
     d, g = desc(0, 0, 0x0010, 0x0010)
     assert CRB.engine_spawn(d, grid_path=g) == (half_w, half_h)
+
+
+# ---- the clip act's own start (woven mega-act item 7, s2_mtz_cpz, 2026-09-27) ----------
+
+_DESCRIPTOR = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                           "act_descriptor.emp")
+
+
+def test_the_descriptor_binds_every_start_field_through_its_chooser_on_the_shipped_literal():
+    """The four start fields go through the clip module's choosers, and the `hand:` each
+    names is what engine_spawn reads for the shipped act: (256, 256), section 0."""
+    import re
+    text = open(_DESCRIPTOR).read()
+    for f in CRB.START_FIELDS:
+        assert re.search(rf"^\s*{f}:\s*ojz_clip_act_{f}\(hand: ", text, re.M), f
+    assert CRB.engine_spawn(_DESCRIPTOR) == (256, 256)
+
+
+def test_the_neutral_module_hands_back_every_start_literal():
+    CRB.check_start({"start": None}, CRB.clip_module_text(None))
+    committed = open(CRB.CLIP_MODULE).read()
+    assert committed == CRB.clip_module_text(None)
+
+
+def test_st1_refuses_a_module_whose_chooser_is_not_the_plans(tmp_path):
+    """Mutation on the emitted text: one chooser returns the wrong section. Control: the
+    unmutated text of the same plan passes."""
+    st = {"x": 96, "y": 1100, "clip": "c", "donor_start": [96, 652]}
+    plan = {"start": st}
+    good = CRB._start_module_text(plan)
+    CRB.check_start(plan, good)
+    fields = CRB.start_fields(st)
+    bad = good.replace(f"    return {fields['start_local_y']}\n", "    return 7\n")
+    assert bad != good
+    with pytest.raises(CRB.ClipRomError, match="ST1 ojz_clip_act_start_local_y"):
+        CRB.check_start(plan, bad)
+    with pytest.raises(CRB.ClipRomError, match="ST1"):
+        CRB.check_start({"start": None}, good)
+
+
+def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path, mtz_cpz_donors):
+    """s2_mtz_cpz starts where Sonic 2 starts Metropolis. The donor's start is read here
+    straight off its startpos file and moved by the clip's own rectangles; the spawn is then
+    the engine's arithmetic over it (the camera clamp bites at x: 96 < half a screen)."""
+    import clip_manifest as CM
+    import s2_donor
+    try:
+        droot = s2_donor.donor_root(s2_donor.S2_FINAL)
+    except BaseException as e:                      # noqa: BLE001 — a skip that SAYS so
+        pytest.skip(f"the s2disasm donor could not be resolved, nothing checked: {e}")
+    act = CM.load(MTZ_CPZ, donor_root=mtz_cpz_donors)
+    act.raw = dict(act.raw, start={"clip": "mtz_west"})
+    clip = next(c for c in act.clips if c.id == act.raw["start"]["clip"])
+    sx, sy = struct.unpack(">HH", open(os.path.join(droot, "startpos",
+                                                    f"{clip.zone}_1.bin"), "rb").read()[:4])
+    st = CRB.act_start(act)
+    assert (st["x"], st["y"]) == (sx - clip.src[0] + clip.dst[0], sy - clip.src[1] + clip.dst[1])
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    src.load_file(os.path.join(REPO, "engine", "system", "constants.emp"))
+    half_w = int(src.get("CAM_SCREEN_HALF_W"))
+    import act_grid
+    g = tmp_path / "grid.emp"
+    act_grid.emit(act.grid_w, act.grid_h, str(g))
+    assert CRB.engine_spawn(_DESCRIPTOR, grid_path=str(g), start=st) == \
+        (max(st["x"], half_w), st["y"])
+    # and an act that names no start keeps the descriptor's
+    act.raw = dict(act.raw)
+    del act.raw["start"]
+    assert CRB.act_start(act) is None
+    act.raw["start"] = {"clip": "nope"}
+    with pytest.raises(CRB.ClipRomError, match="ST0"):
+        CRB.act_start(act)
+
+
+def test_a_start_point_is_the_acts_own_and_must_say_why(mtz_cpz_donors):
+    """The second form (s2_mtz_cpz's): a world point inside a clip or corridor, with a
+    why. Mutations: no why, a point in no rectangle, a non-integer: each refused (ST0)."""
+    import clip_manifest as CM
+    act = CM.load(MTZ_CPZ, donor_root=mtz_cpz_donors)
+    raw = act.raw["start"]
+    st = CRB.act_start(act)
+    assert (st["x"], st["y"], st["clip"]) == (raw["x"], raw["y"], None)
+    assert CRB.start_fields(st)["start_local_x"] == raw["x"] % act.section_px
+    CRB.check_start({"start": st}, CRB._start_module_text({"start": st}))
+    for bad, what in (({"x": raw["x"], "y": raw["y"], "why": ""}, "without a `why`"),
+                      ({"x": 6144 * 2, "y": 0, "why": "w"}, "no clip or corridor"),
+                      ({"x": 1.5, "y": 0, "why": "w"}, "integers")):
+        act.raw = dict(act.raw, start=bad)
+        with pytest.raises(CRB.ClipRomError, match=what):
+            CRB.act_start(act)
 
 
 def test_the_donor_corroboration_window_is_derived_and_both_sides_of_it_bite(tmp_path,

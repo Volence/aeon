@@ -22,6 +22,9 @@ WHERE THE NUMBERS COME FROM — SOURCE, NOT A TABLE IN A PLAN.
     BG_X = camX>>3), cross-checked against SwScrl_CPZ's per-frame `asl.l` rates; the 16-line
     block size (`lsr.w #4`); and the special block number (`cmpi.b #18,d4`) below which rows take
     BG_X, at which they take BG_X + ripple, and above which they take BG2_X.
+  * METROPOLIS is READ the same way (`derive_mtz`): InitCam_Index names InitCam_Std for it
+    (BG_Y = camY>>2, BG_X = camX>>3), cross-checked against SwScrl_MTZ's per-frame rates, and
+    SwScrl_MTZ stores one value on all 224 lines. One flat band, exact.
 
 WHAT THE ENGINE EXPRESSES EXACTLY, AND WHAT IT APPROXIMATES (measured by `compare()`):
   * EHZ flat bands (still sky, camX/64, camX/16, 3camX/32): exact ratios. The engine shifts +camX
@@ -680,7 +683,61 @@ def derive_cpz(text, paste_dy):
                            "SwScrl_CPZ block index": ln_b, "SwScrl_CPZ special block": ln_k}}
 
 
-DERIVERS = {"EHZ": lambda text, dy: derive_ehz(text), "CPZ": derive_cpz}
+# ---------------------------------------------------------------------------
+# METROPOLIS — read SwScrl_MTZ / InitCam_Std (woven first screen s2_mtz_cpz, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# Why it exists: with no transcription Metropolis kept the ACT DEFAULT scroll, and a crossing
+# into it lerped the background back to that config for PARALLAX_TRANS_DEFAULT frames past the
+# tunnel's mouth (crossing_witness, MEASURED on s2_mtz_cpz: 13-16 "mid-lerp" glitch ticks per
+# arrival), because the snap is a property of the SCENE entered and the act default has none.
+
+def derive_mtz(text, paste_dy):
+    """Metropolis's scene: ONE flat band, exact. SwScrl_MTZ ("just a duplicate of
+    SwScrl_Minimal") writes the same BG word to all 224 lines; InitCam_Index names InitCam_Std
+    for MTZ1,2, which sets BG_Y = camY >> 2 and BG_X = camX >> 3, cross-checked against
+    SwScrl_MTZ's per-frame `asl.l` rates the way CPZ's are."""
+    lines = _lines(text)
+
+    def find(pattern, body, what, off, flags=0):
+        m = re.search(pattern, body, flags)
+        if not m:
+            raise ClipScrollError(f"MTZ: {what} not found in s2.asm (pattern {pattern!r})")
+        return m, off + body[:m.start()].count("\n") + 1
+
+    find(r"^InitCam_Index:[^\n]*\n(?:[^\n]*\n){0,8}?\s*zoneOffsetTableEntry\.w\s+InitCam_Std\s*;\s*MTZ1,2",
+         text, "InitCam_Index's MTZ1,2 entry naming InitCam_Std", 0, re.M)
+    s, e = _span(lines, "InitCam_Std", "the standard camera init")
+    init = "\n".join(lines[s:e])
+    m_i, ln_i = find(r"asr\.w\s+#(\d+),d0\s*\n\s*move\.w\s+d0,\(Camera_BG_Y_pos\)\.w\s*\n"
+                     r"\s*asr\.w\s+#(\d+),d1\s*\n\s*move\.w\s+d1,\(Camera_BG_X_pos\)\.w",
+                     init, "InitCam_Std's BG Y / BG X shifts", s)
+    v_shift, x_shift = int(m_i.group(1)), int(m_i.group(2))
+    s2_, e2 = _span(lines, "SwScrl_MTZ", "Metropolis's scroll routine")
+    body = "\n".join(lines[s2_:e2])
+    m_r, ln_r = find(r"move\.w\s+\(Camera_X_pos_diff\)\.w,d4\s*\n\s*ext\.l\s+d4\s*\n\s*asl\.l\s+#(\d+),d4"
+                     r"\s*\n\s*move\.w\s+\(Camera_Y_pos_diff\)\.w,d5\s*\n\s*ext\.l\s+d5\s*\n\s*asl\.l\s+#(\d+),d5"
+                     r"\s*\n\s*bsr\.w\s+SetHorizVertiScrollFlagsBG", body, "SwScrl_MTZ's BG rates", s2_)
+    rates = (8 - int(m_r.group(1)), 8 - int(m_r.group(2)))
+    if rates != (x_shift, v_shift):
+        raise ClipScrollError(f"MTZ: InitCam_Std's shifts (BG X {x_shift}, BG Y {v_shift}) "
+                              f"disagree with SwScrl_MTZ's per-frame rates {rates}")
+    m_l, ln_l = find(r"move\.w\s+#224-1,d1\s*\n\s*move\.w\s+\(Camera_X_pos\)\.w,d0\s*\n\s*neg\.w\s+d0"
+                     r"\s*\n\s*swap\s+d0\s*\n\s*move\.w\s+\(Camera_BG_X_pos\)\.w,d0\s*\n\s*neg\.w\s+d0"
+                     r"\s*\n\s*\n?-\s*move\.l\s+d0,\(a1\)\+\s*\n\s*dbf\s+d1,-", body,
+                     "SwScrl_MTZ's one-value store over all 224 lines", s2_)
+    bands = [{"kind": "flat", "plane_top": 0, "ratio": Fraction(1, 1 << x_shift),
+              "src": [ln_i, ln_l], "phase": 0}]
+    bands[0]["factor"] = encode_factor(bands[0]["ratio"])
+    bands[0]["top"] = 0
+    bands[0]["engine_end"] = PLANE_LINES
+    return {"zone": "MTZ", "routine": "SwScrl_MTZ", "v_factor": v_shift, "v_center": paste_dy,
+            "v_offset": 0, "bands": bands,
+            "provenance": {"InitCam_Std": ln_i, "SwScrl_MTZ rates": ln_r,
+                           "SwScrl_MTZ store": ln_l}}
+
+
+DERIVERS = {"EHZ": lambda text, dy: derive_ehz(text), "CPZ": derive_cpz, "MTZ": derive_mtz}
 
 
 def derive(donor, zone, paste_dy):

@@ -1250,6 +1250,10 @@ from song_packer import NoteFill
 _S2_MUSIC = suite_path("s2disasm", "sound", "music")
 _S2_EHZ = str(_S2_MUSIC / "82 - EHZ.asm")
 _S2_CPZ = str(_S2_MUSIC / "8E - CPZ.asm")
+# Metropolis converts through the declared tables (its drums are readings of the ruling, see
+# test_s2_dac_map_is_the_s3k_drums_ruling) but is NOT embedded: it does not fit the sound
+# bank (woven first screen s2_mtz_cpz, 2026-09-27; docs/DEFERRED_WORK.md S2CLIP-MTZ-SONG-BANK).
+_S2_MTZ = str(_S2_MUSIC / "85 - MTZ.asm")
 
 
 def _s2_song(body_by_label, psg_voice="$00", start="2", tempo="$9E"):
@@ -1705,9 +1709,9 @@ def test_s2_env_body_parser_reads_the_driver():
     assert b[1] == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 0x80]
 
 
-def test_s2_ftone_map_covers_exactly_what_ehz_and_cpz_use():
+def test_s2_ftone_map_covers_exactly_what_ehz_cpz_and_mtz_use():
     used = set()
-    for p in (_S2_EHZ, _S2_CPZ):
+    for p in (_S2_EHZ, _S2_CPZ, _S2_MTZ):
         ftones, _ = _si.s2_mapping_requirements(open(p).readlines())
         used |= set(ftones)
     assert set(_si.S2_FTONE_MAP) == used
@@ -1743,16 +1747,21 @@ def test_s2_dac_map_is_the_s3k_drums_ruling():
     # s3k-drums: each S2 drum the songs play goes to the S3K sample of the same
     # role, named through HCZ2_DAC_REMAP (the S3K-source ids: 1-based dSnareS3=1,
     # dMidTomS3=3, dFloorTomS3=5, dKickS3=6), so the ids are not restated here.
+    # MTZ's readings of the same ruling (docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ): the
+    # low tom on the S3K low tom (dLowTomS3 = 4), the clap and the scratch on the snare
+    # (dSnareS3 = 1), the carried unpitched sample nearest a noise transient.
     s3k = {"dKick": HCZ2_DAC_REMAP[6], "dSnare": HCZ2_DAC_REMAP[1],
-           "dMidTom": HCZ2_DAC_REMAP[3], "dFloorTom": HCZ2_DAC_REMAP[5]}
+           "dMidTom": HCZ2_DAC_REMAP[3], "dFloorTom": HCZ2_DAC_REMAP[5],
+           "dLowTom": HCZ2_DAC_REMAP[4], "dClap": HCZ2_DAC_REMAP[1],
+           "dScratch": HCZ2_DAC_REMAP[1]}
     assert _si.S2_DAC_MAP == s3k
     used = set()
-    for p in (_S2_EHZ, _S2_CPZ):
+    for p in (_S2_EHZ, _S2_CPZ, _S2_MTZ):
         used |= set(_si.s2_mapping_requirements(open(p).readlines())[1])
     assert set(_si.S2_DAC_MAP) == used
 
 
-@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6)])
+@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6), (_S2_MTZ, 6)])
 def test_s2_real_song_converts_through_the_declared_tables(path, nvoices):
     # The module defaults, no fixture: every PsgEnv the song emits is 0 or an
     # imported S2 id, every Dac event an S3K drum, and the ids follow the source's

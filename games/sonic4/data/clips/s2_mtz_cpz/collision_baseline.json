@@ -1,0 +1,7 @@
+{
+  "_comment": "Read by tools/collision_consistency.py as a second --baseline in S2CLIP=s2_mtz_cpz builds only (build.sh's collision-consistency block). Keys are violation_key()'s: section-local, so this file must never be passed to a canonical build.",
+  "why": "FAITHFUL SONIC 2 DATA, one entry. RULE B, a 16-px plane-B pinhole in Chemical Plant: section 1 row 88, section-local x 1600..1615 = act (3648..3663, 1408) = CPZ act 1 (8688..8703, 1408). Chemical Plant's own plane-B floor steps from y 1392 (x 8624..8687) down to y 1408 (x 8704..) with a one-block notch between; the gate finds a reachable standing position (act x 3637, foot 1403, facing right) whose single-point ledge probe sees it, so a player there teeters (a false ledge; the floor sensor pair spans the notch, so nobody falls). Kept as Sonic 2 drew it: repainting donor collision is not a clip bake's call (s2_ehz_cpz's collision is Sonic 2's byte for byte, the same rule). MEASURED 2026-09-27 on the full S2CLIP build (branch parcel/woven-mtz-cpz-2). Delete the entry if the owner rules a clip act may fill such notches.",
+  "known_violations": [
+    ["B", 1, "B", 88, 1600, 16]
+  ]
+}

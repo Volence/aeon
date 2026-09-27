@@ -137,6 +137,28 @@ def test_rule_a_exempts_buried_blocks():
     assert v[0]["row"] == 1
 
 
+def test_rule_a_reads_the_section_above_at_row_zero():
+    """probe_core re-probes one cell up in WORLD space, so row 0's upper neighbour is the
+    section above's last row. A flat run at row 0 under a floor-class row above is BURIED
+    (the woven clip act's 4 false runs, 2026-09-27); under air, or at the act's top edge
+    (above=None), it is exposed and judged exactly as before."""
+    heights, angles, solidity = _tables({1: (FULL, 0xE0, SOLID_ALL)})
+    grid = _grid(4, 10, {(0, c): 1 for c in range(6)})
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[1] * 10)
+    assert v == [], "a run under a solid row in the section above is buried"
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[0] * 10)
+    assert len(v) == 1 and v[0]["row"] == 0, "under AIR above it is exposed (control)"
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP)
+    assert len(v) == 1, "with nothing above (the act's top edge) it is exposed (control)"
+    # the upper row must pass the FLOOR class to bury it, as inside a section
+    heights, angles, solidity = _tables({1: (FULL, 0xE0, SOLID_ALL), 2: (FULL, 0, 2)})
+    v, _ = cc.find_flat_run_violations(grid, heights, angles, solidity, SOLID_TOP,
+                                       above=[2] * 10)
+    assert len(v) == 1, "an LRB-only row above does not bury it"
+
+
 def test_rule_a_ignores_cells_that_fail_the_floor_class():
     """SOLID_LRB-only cells never pass the floor sensor's class mask."""
     heights, angles, solidity = _tables({1: (FULL, 0xE0, 2)})   # SOLID_LRB
@@ -372,6 +394,35 @@ def test_baseline_rejects_a_malformed_file(tmp_path):
     bad.write_text("not json")
     with pytest.raises(cc.GateError):
         cc.load_baseline(str(bad))
+
+
+def test_baselines_are_a_union_and_a_clip_baseline_must_say_why(tmp_path):
+    """build.sh passes the tree's baseline and, in an S2CLIP build, the clip act's own
+    (games/sonic4/data/clips/<id>/collision_baseline.json). Mutation: the clip file
+    without `why` is refused; control: with it, both files' entries are exempted."""
+    tree = tmp_path / "tree.json"
+    tree.write_text(json.dumps({"known_violations": [["A", 0, "A", 1, 2, 5, [224]]]}))
+    clip_dir = tmp_path / "clips" / "some_act"
+    clip_dir.mkdir(parents=True)
+    clip = clip_dir / "collision_baseline.json"
+    clip.write_text(json.dumps({"known_violations": [["B", 1, "B", 88, 1600, 16]]}))
+    with pytest.raises(cc.GateError, match="no `why`"):
+        cc.load_baselines([str(tree), str(clip)])
+    clip.write_text(json.dumps({"why": "donor data", "known_violations":
+                                [["B", 1, "B", 88, 1600, 16]]}))
+    got = cc.load_baselines([str(tree), str(clip)])
+    assert got == {("A", 0, "A", 1, 2, 5, (224,)), ("B", 1, "B", 88, 1600, 16)}
+    assert cc.load_baselines([]) == set()
+
+
+def test_every_committed_clip_baseline_parses_and_says_why():
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "games", "sonic4", "data", "clips")
+    found = [os.path.join(root, d, "collision_baseline.json") for d in sorted(os.listdir(root))
+             if os.path.isfile(os.path.join(root, d, "collision_baseline.json"))]
+    assert found, "s2_mtz_cpz carries one; a sweep that finds none measures nothing"
+    for p in found:
+        assert cc.load_baselines([p]), p
 
 
 def test_violation_key_excludes_the_attr_index():

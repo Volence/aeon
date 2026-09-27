@@ -225,7 +225,10 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
       tunnel's x and w are on the 16-px block grid.
   K5  a tunnel's art names a zone some clip of the act uses, and its wall_src/back_src are
       on the 8-px grid inside that zone's crop.
-  K6  (at bake, from the collision) each seam is flush or bridgeable by one ramp block.
+  K6  (at bake, from the collision) each seam is flush or bridgeable by one ramp block,
+      on both planes. A ONE-PATH zone (no plane-B collision anywhere in its tree,
+      `zone_has_plane_b`: Sonic 2's Metropolis) is pasted with its plane A on both planes
+      (`_clip_collision`), so its seams are read on both planes like any other.
 
 `validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
 row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
@@ -1184,7 +1187,15 @@ def cell_grids(act, donor_root=None):
 
 def _clip_collision(act, donor_root):
     """(plane_a, plane_b) with the CLIPS only — what a corridor's seams are measured
-    against (`_seam_ramps`), before any corridor is written over its own rectangle."""
+    against (`_seam_ramps`), before any corridor is written over its own rectangle.
+
+    A ONE-PATH ZONE is pasted with its plane A on BOTH planes (`zone_has_plane_b` is False:
+    Sonic 2's Metropolis). Sonic 2 never puts the player on path B there (no plane switcher
+    in its layout, and an act starts on path A), but a clip act can deliver him on plane B
+    from a neighbour whose own lines select it (Chemical Plant's do), and on the donor's
+    solidity-free plane B he falls forever: MEASURED on the woven act s2_mtz_cpz, 384
+    floorless plane-B columns, every Metropolis column. Carrying plane A there gives him the
+    one path the zone has. Every zone with plane B anywhere keeps its own plane B."""
     import numpy as np
     key = (donor_root, "clip_collision")
     if key in act._memo:
@@ -1196,8 +1207,10 @@ def _clip_collision(act, donor_root):
         if cl.tree_key not in cache:
             zm = _zone_manifest(cl, donor_root)
             d = cl.tree_dir(donor_root)
-            cache[cl.tree_key] = tuple(
-                section_plane_grid(d, zm, st, s) for s in ("collattr", "collattrb"))
+            pa = section_plane_grid(d, zm, st, "collattr")
+            pb = section_plane_grid(d, zm, st, "collattrb") if zone_has_plane_b(cl, donor_root) \
+                else pa
+            cache[cl.tree_key] = (pa, pb)
         src = cache[cl.tree_key]
         sx, sy, sw, sh = (v // TILE_PX for v in cl.src)
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
@@ -1230,6 +1243,43 @@ def _word_heights(word, hm):
     return h
 
 
+def zone_has_plane_b(clip, donor_root):
+    """True when the clip's ZONE carries plane-B solidity anywhere in its converted tree.
+
+    MEASURED over the WHOLE zone (every section's `collattrb`), not the clip's crop and not
+    one column: a zone that uses plane B anywhere is a two-path zone and keeps its own plane
+    B; one that does not is pasted with plane A on both (`_clip_collision`). Sonic 2's
+    Metropolis is the case this exists for: s2.asm names
+    `ColP_MTZ` as both its primary and secondary index and its chunk words carry no path-B
+    solidity, so its plane B has a shape in every cell and solidity in none (0 words,
+    MEASURED 2026-09-27). A missing plane file raises (`section_plane_grid`), never False."""
+    zm = _zone_manifest(clip, donor_root)
+    d = clip.tree_dir(donor_root)
+    gw, gh = zm["grid"]["w"], zm["grid"]["h"]
+    mask = collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT
+    for n in range(gw * gh):
+        p = os.path.join(d, f"section_{n}.collattrb.bin")
+        if not os.path.isfile(p):
+            raise ClipManifestError(
+                f"{p} is missing, so whether zone {clip.zone} has a plane-B path cannot be "
+                f"measured. Re-run tools/s2_zone_convert.py convert.")
+        with open(p, "rb") as fh:
+            data = fh.read()
+        for i in range(0, len(data) - 1, 2):
+            if ((data[i] << 8) | data[i + 1]) & mask:
+                return True
+    return False
+
+
+def _clip_at(act, x, y):
+    """The clip whose destination rectangle holds world pixel (x, y), or None."""
+    for cl in act.clips:
+        dx, dy, dw, dh = cl.dst
+        if dx <= x < dx + dw and dy <= y < dy + dh:
+            return cl
+    return None
+
+
 def _seam_ramps(act, co, planes, hm, bank_dir):
     """K6 — where a corridor's floor meets a neighbour's ground, and what bridges them.
 
@@ -1243,6 +1293,9 @@ def _seam_ramps(act, co, planes, hm, bank_dir):
       * anything else (air on that row, ground in the row above, planes that disagree) is a
         step this corridor cannot bridge in one block, and is REFUSED rather than shipped.
     No neighbour (the act edge, or a VOID column) is nothing to meet.
+    A one-path neighbour (Sonic 2's Metropolis) arrives here with plane A on both planes
+    (`_clip_collision`), so the two reads agree there by construction; a two-path neighbour
+    whose planes disagree at the seam is refused.
     Returns {"left"/"right": None or {"neighbour_surface_y", "shape", "xflip"}}."""
     n = collision_pipeline.PROFILE_LEN
     act_w = act.cols * TILE_PX

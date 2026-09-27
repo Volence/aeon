@@ -109,6 +109,12 @@ use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_ACT, OJZ_CLIP_REGION_ROWS, ojz_clip
 // shape hands back its `hand` (the act's own table) and carries no rows of its own.
 use games.sonic4.ojz_layer_lines_act1.{OJZ_ACT1_LAYER_LINE_ROWS}
 use games.sonic4.ojz_clip_act_act1.{OJZ_CLIP_LAYER_LINE_ROWS, ojz_clip_act_layer_lines}
+// THE ACT'S START (woven mega-act item 7, 2026-09-27). The four start fields bind through the
+// clip module's choosers: the neutral module hands back each `hand:` literal (the start below,
+// byte for byte), and a clip act that names a `start` returns its own (tools/clip_rom_bake.py
+// act_start: the named clip's Sonic 2 start position, moved into the act).
+use games.sonic4.ojz_clip_act_act1.{ojz_clip_act_start_sec_x, ojz_clip_act_start_local_x,
+                                    ojz_clip_act_start_sec_y, ojz_clip_act_start_local_y}
 use engine.constants.{LL_KEEP_PATH, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_SEG_W,
                       LL_KEY_BEFORE, LL_KEY_AFTER}
 
@@ -228,10 +234,10 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     sec_grid_ptr:        OJZ_Act1_Sections,
     grid_w:              GRID_W,
     grid_h:              GRID_H,
-    start_local_x:       $0100,                          // 256px into section 0
-    start_local_y:       $0100,                          // ground level
-    start_sec_x:         0,
-    start_sec_y:         0,
+    start_local_x:       ojz_clip_act_start_local_x(hand: $0100),   // 256px into section 0
+    start_local_y:       ojz_clip_act_start_local_y(hand: $0100),   // ground level
+    start_sec_x:         ojz_clip_act_start_sec_x(hand: 0),
+    start_sec_y:         ojz_clip_act_start_sec_y(hand: 0),
     act_bg_layout:       OJZ_Act1_BG_Layout,             // §2 A.5 T1 zone-wide BG
     act_bg_tiles:        OJZ_Act1_BG_Tiles,
     // The act default, through the editor binding seam: project.json's act
