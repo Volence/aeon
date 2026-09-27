@@ -212,7 +212,7 @@ ensure((_pal_knux[14] << 8 | _pal_knux[15]) == DUST_GRAY_IDX7,
 //
 // Knuckles shares the single character DPLC window with Sonic and Tails (only one
 // character is resident at a time), so his file-wide peak has to clear the same
-// wall theirs does. Measured 29 tiles into the 32-tile window: the same peak
+// wall theirs does. Measured 29 tiles into the 29-tile window: the same peak
 // Sonic has, and the tightest of the three.
 //
 // ⚠ THE CEILING USED TO BE THE NEIGHBOUR'S BASE (VRAM_TEST_OBJ), under a comment

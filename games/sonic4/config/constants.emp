@@ -29,7 +29,7 @@ use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
 // The generated vram-map block's authority cross-checks reference these engine
 // names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
 use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
-                      VRAM_WATERLINE_STRIPS,
+                      VRAM_WATERLINE_STRIPS, WATERLINE_REGION_TILES,
                       VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state ids
@@ -434,11 +434,9 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // emitted by tools/gen_vram_map.py between the markers. Edit the TOML, then
 // regenerate — never the block. The full map: docs/generated/vram-map-sonic4.md.
 //
-// VRAM_TEST_OBJ (tile 992): test object art (8 tiles) at the end of the
-// character DPLC window (960..991), below the BG shared region base (1024).
-// This address IS the character window's hard wall: tails_data.emp /
-// collision_data.emp `ensure` each character's measured peak DPLC frame stays
-// under it.
+// VRAM_TEST_OBJ (tile 992): test object art (8 tiles), below the BG shared region
+// base (1024). It USED TO BE the character window's wall; since LS-4 each
+// character's data module binds its peak against VRAM_TEST_SONIC_TILES instead.
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
 // a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
 // from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
@@ -448,10 +446,10 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // below the BG region (1024). Must NOT sit inside the act art pool (every pool
 // slot is referenced FG art — see POOL_TILE_CEILING) nor in the ring sprite's
 // 1000-1015 span.
-// VRAM_TEST_SONIC (tile 960): THE character DPLC window — 32 tiles, 960 up to the
-// VRAM_TEST_OBJ wall at 992. Every playable character streams his current frame's
+// VRAM_TEST_SONIC (tile 960): THE character DPLC window — 29 tiles (960..988; 32
+// until 2026-09-27, cut to the cast's peak). Every playable character streams his current frame's
 // art here, so it is sized by the LARGEST peak frame across the cast, not by any
-// one of them (Sonic peaks at 29 tiles, ending 989; Tails at 24). Only one
+// one of them (Sonic peaks at 29 tiles, ending 988; Tails at 24). Only one
 // character is resident at a time, so they share it rather than each taking a
 // window. The peak-vs-wall check is a comptime `ensure` per character data module
 // (collision_data.emp for Sonic, tails_data.emp for Tails), derived from the
@@ -491,8 +489,8 @@ pub const VRAM_RING_SPARKLE       : VramTile = $039C   // ring_sparkle: tiles 92
 pub const VRAM_RING_SPARKLE_TILES         = 4   // ring_sparkle: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_INSTA_SHIELD       : VramTile = $03A0   // insta_shield: tiles 928..956 (29), act, owner games.sonic4.insta_shield
 pub const VRAM_INSTA_SHIELD_TILES         = 29   // insta_shield: DECLARED extent — the ceiling a residency guard binds against
-pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
-pub const VRAM_TEST_SONIC_TILES           = 32   // character_window: DECLARED extent — the ceiling a residency guard binds against
+pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..988 (29), act, owner games.sonic4.player
+pub const VRAM_TEST_SONIC_TILES           = 29   // character_window: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
 pub const VRAM_TEST_OBJ_TILES             = 8   // test_obj: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
@@ -506,6 +504,7 @@ ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL
 ensure(BG_TILE_CAPACITY == 376, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_WATERLINE_STRIPS == $AF00, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/sonic4/vram.toml and regenerate")
+ensure(WATERLINE_REGION_TILES == 32, "vram.toml waterline_strips drifted from engine WATERLINE_REGION_TILES — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/sonic4/vram.toml and regenerate")
@@ -516,7 +515,7 @@ ensure(VRAM_DUST_PUFF + 16 <= $0390, "dust_puff runs into dust_spindash")
 ensure(VRAM_DUST_SPINDASH + 12 <= $039C, "dust_spindash runs into ring_sparkle")
 ensure(VRAM_RING_SPARKLE + 4 <= $03A0, "ring_sparkle runs into insta_shield")
 ensure(VRAM_INSTA_SHIELD + 29 <= $03C0, "insta_shield runs into character_window")
-ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
+ensure(VRAM_TEST_SONIC + 29 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")
 ensure(VRAM_SPRING + 24 <= $05C0, "spring runs into sprite_table")

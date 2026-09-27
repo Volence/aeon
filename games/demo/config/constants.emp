@@ -23,6 +23,7 @@ use engine.constants.{COLLECTED_MASK_BYTES}
 // names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
 use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
                       VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, VRAM_WATERLINE_STRIPS,
+                      WATERLINE_REGION_TILES,
                       VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state id — the demo's single entry state (0/1 are the engine's
@@ -59,6 +60,7 @@ ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL
 ensure(BG_TILE_CAPACITY == 376, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/demo/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_WATERLINE_STRIPS == $AF00, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/demo/vram.toml and regenerate")
+ensure(WATERLINE_REGION_TILES == 32, "vram.toml waterline_strips drifted from engine WATERLINE_REGION_TILES — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/demo/vram.toml and regenerate")
 ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/demo/vram.toml and regenerate")

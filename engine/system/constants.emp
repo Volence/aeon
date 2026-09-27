@@ -686,15 +686,29 @@ pub const PLANE_V_CELLS    = 64
 pub const BG_TILE_BASE_VRAM = $8000              // byte address (slot 1024)
 pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable index remap
 pub const BG_TILE_CAPACITY  = 376
-// The Hydrocity waterline's fixed VRAM run (EFFECTS-W1 item 9d) — the 48 slots directly
-// above the BG arena and directly below the SAT, filled by Waterline_Art_Update's single
-// DMA (engine/level/bg_anim.emp). Byte address, like VRAM_SPRITE_TABLE: slot 1424 * 32.
-// Both games' vram.toml carry `engine-bytebase:VRAM_WATERLINE_STRIPS` against this, so the
-// declaration and the constant cannot drift. See games/sonic4/vram.toml's own region
-// comment for where the 48 came from and why the DERIVED need at today's H is 8 of them.
-pub const VRAM_WATERLINE_STRIPS = BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32   // $B200 (slot 1424)
-ensure(VRAM_WATERLINE_STRIPS + 48 * 32 <= VRAM_SPRITE_TABLE,
-       "the waterline strips ({VRAM_WATERLINE_STRIPS} .. {VRAM_WATERLINE_STRIPS + 48 * 32}) run into the sprite attribute table at {VRAM_SPRITE_TABLE} — the BG arena and the strips together must fit under it, and the strips are what a too-large BG_TILE_CAPACITY now pushes over the edge")
+// The Hydrocity waterline's fixed VRAM run (EFFECTS-W1 item 9d) — directly above the BG
+// arena, filled by Waterline_Art_Update's single DMA (engine/level/bg_anim.emp). Byte
+// address, like VRAM_SPRITE_TABLE. Both games' vram.toml carry
+// `engine-bytebase:VRAM_WATERLINE_STRIPS` against this and
+// `engine-tiles:WATERLINE_REGION_TILES` against the extent below, so neither the
+// declaration's base nor its size can drift from the engine.
+pub const VRAM_WATERLINE_STRIPS = BG_TILE_BASE_VRAM + BG_TILE_CAPACITY * 32   // $AF00 (slot 1400)
+// THE EXTENT IS DERIVED, NOT SANCTIONED (VRAM-TIER1, 2026-09-27). The strips need H/2
+// tiles for a band of height H, and H is `1 << brm_hshift`, so only powers of two can be
+// named (S3K's H = 96 cannot). The owner sanctioned 48 tiles (S3K's 96/2); the largest
+// nameable H whose strips fit 48 is 64, so tiles 32..47 of the old 48 could never be
+// written at ANY height and went back to objects. The two ensures pin "largest power of
+// two within the sanction": raising WATERLINE_H_MAX to 128 would need 64 tiles, which is
+// a new owner decision, not an edit. Today's shipped H is 16 (8 tiles).
+pub const WATERLINE_SANCTION_TILES = 48
+pub const WATERLINE_H_MAX         = 64
+pub const WATERLINE_REGION_TILES  = WATERLINE_H_MAX / 2
+ensure(WATERLINE_REGION_TILES <= WATERLINE_SANCTION_TILES && WATERLINE_REGION_TILES * 2 > WATERLINE_SANCTION_TILES,
+       "WATERLINE_H_MAX = {WATERLINE_H_MAX} is not the largest power-of-two band height whose strips ({WATERLINE_REGION_TILES} tiles) fit the owner's {WATERLINE_SANCTION_TILES}-tile sanction")
+ensure((WATERLINE_H_MAX & (WATERLINE_H_MAX - 1)) == 0,
+       "WATERLINE_H_MAX = {WATERLINE_H_MAX} is not a power of two — brm_hshift can only name 1 << n")
+ensure(VRAM_WATERLINE_STRIPS + WATERLINE_REGION_TILES * 32 <= VRAM_SPRITE_TABLE,
+       "the waterline strips ({VRAM_WATERLINE_STRIPS} .. {VRAM_WATERLINE_STRIPS + WATERLINE_REGION_TILES * 32}) run into the sprite attribute table at {VRAM_SPRITE_TABLE} — the BG arena and the strips together must fit under it, and the strips are what a too-large BG_TILE_CAPACITY now pushes over the edge")
 
 // -----------------------------------------------
 // Controller button masks (complete the d-pad/face-button set above).

@@ -36,8 +36,10 @@ not a coincidence that happens to fit.
 ⚠ AND 48 TILES IS S3K's H, NOT A HEIGHT THIS ENGINE CAN NAME. `tiles = H/2` reaches 48 only
 at H = 96, and `band_remap.brm_hshift` is consumed as `1 << shift`, so 96 has no spelling.
 The booking's "48 tiles (two 16x96 strips)" is S3K's instance of the shape; at the shipped
-H = 16 the derived need is 8 tiles, and the largest expressible height inside the declared
-48-tile region is H = 64 at 32 tiles. `tiles_for_height()` below is the arithmetic.
+H = 16 the derived need is 8 tiles, and the largest expressible height inside the owner's
+48-tile sanction is H = 64 at 32 tiles — which is why the declared region is 32 tiles since
+2026-09-27 (engine WATERLINE_REGION_TILES; the unreachable 16 went back to objects).
+`tiles_for_height()` below is the arithmetic.
 
 THE PIXELS ARE A PLACEHOLDER, AND WHAT IS LOAD-BEARING IS NOT THEM
 =================================================================

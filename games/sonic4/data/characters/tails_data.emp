@@ -107,7 +107,7 @@ ensure(_art_tail.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
 //
 // Body: Tails shares the character DPLC window with Sonic (only one character is
 // resident at a time), so his file-wide peak has to clear the same wall Sonic's
-// does. Measured 24 tiles into a 32-tile window — the slack is real, but the
+// does. Measured 24 tiles into a 29-tile window — the slack is real, but the
 // point of the guard is that a re-exported sheet which grew past it fails the
 // build instead of DMA'ing over whatever follows the window.
 //

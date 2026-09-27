@@ -272,12 +272,21 @@ name = "character_window"
 owner = "games.sonic4.player"
 kind = "window"
 base = 960
-tiles = 32
+tiles = 29
 lifetime = "act"
 const = "VRAM_TEST_SONIC"
 # PINNED, deliberately: the base is baked into the player's art_tile word,
 # which the replay hash covers — MOVING it re-stamps both fixtures. GROWING it
 # is not moving it (spec §4.1): raise `tiles` with the base held.
+# 32 -> 29 on 2026-09-27 (VRAM-TIER1, audit candidate G): 29 is the cast's peak DPLC
+# frame (Sonic 29, Knuckles 29, Tails 24, measured from the DPLC blobs). Each
+# character's data module ensures its own peak <= VRAM_TEST_SONIC_TILES, so a heavier
+# frame fails the build by name and the fix is to raise this number again, base held.
+
+[[free]]
+base = 989
+tiles = 3
+# the character window's unused headroom above the cast's 29-tile peak, 2026-09-27.
 
 [[region]]
 name = "test_obj"
@@ -432,9 +441,16 @@ name = "waterline_strips"
 owner = "engine.bg_anim"
 kind = "window"
 base = 1400
-tiles = 48
+tiles = 32
 lifetime = "act"
-authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
+authority = ["engine-bytebase:VRAM_WATERLINE_STRIPS", "engine-tiles:WATERLINE_REGION_TILES"]
+# 48 -> 32 on 2026-09-27 (VRAM-TIER1, audit candidate D). The 48 below was the owner's
+# SANCTION for S3K's H = 96; 96 cannot be named here (H = 1 << brm_hshift), and the
+# largest nameable H whose strips fit 48 is 64 = 32 tiles, so tiles 32..47 (1432..1447)
+# could never be written at any height. They are [[free]] now. The extent is an engine
+# constant (WATERLINE_REGION_TILES, engine/system/constants.emp) derived as "largest
+# power-of-two H within the sanction", and the authority line pins this `tiles` to it.
+# The prose below is the region's history; its "48" is the sanction, not the extent.
 # ENGINE-OWNED, so the authority is engine-side and not a game `const =` line: the DMA that
 # fills this run is Waterline_Art_Update in engine/level/bg_anim.emp, which cannot see a
 # game constant. Same shape as `sprite_table` and `hscroll_table` above — the engine names
@@ -475,6 +491,11 @@ authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
 # own comment gives at length (docs/BUGS.md TOOL-01) — unowned free space is spent
 # by the next person who needs tiles and does not know what it was for. The address
 # is the thing being reserved.
+
+[[free]]
+base = 1432
+tiles = 16
+# the waterline sanction's unreachable tail (see `waterline_strips` above), 2026-09-27.
 
 [[region]]
 name = "spring"

@@ -6,8 +6,8 @@ use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
-// VRAM_TEST_SONIC — tile 960, the character DPLC window: 32 tiles, 960 up to
-// the VRAM_TEST_OBJ wall at 992 (Sonic's own art peaks at 29). A game-config
+// VRAM_TEST_SONIC — tile 960, the character DPLC window: 29 tiles (960..988),
+// the cast's peak frame (Sonic's own art peaks at 29; vram.toml). A game-config
 // value, imported from games.sonic4.constants below.
 use games.sonic4.constants.{VRAM_TEST_SONIC}
 

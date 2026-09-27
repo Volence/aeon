@@ -16,13 +16,15 @@ Do not edit; edit the TOML and regenerate.
 | 924-927 | ring_sparkle | window | act | games.sonic4.ring_sparkle | VRAM_RING_SPARKLE |  |
 | 928-956 | insta_shield | window | act | games.sonic4.insta_shield | VRAM_INSTA_SHIELD |  |
 | 957-959 | FREE |  |  |  |  |  |
-| 960-991 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
+| 960-988 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
+| 989-991 | FREE |  |  |  |  |  |
 | 992-999 | test_obj | window | mode | games.sonic4.test_objects | VRAM_TEST_OBJ |  |
 | 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
 | 1020-1023 | FREE |  |  |  |  |  |
 | 1024-1399 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 56 (static budget 320) |
-| 1400-1447 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
+| 1400-1431 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS, engine-tiles:WATERLINE_REGION_TILES |  |
+| 1432-1447 | FREE |  |  |  |  |  |
 | 1448-1471 | spring | window | act | games.sonic4.spring | VRAM_SPRING |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
@@ -33,4 +35,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 14 tiles across 4 runs.
+Free: 33 tiles across 6 runs.
