@@ -61,6 +61,8 @@ STABLE_FRAMES = 30
 #: warp to camera + these lands the camera on the request. Read out of
 #: engine/system/constants.emp in main() (never typed); None until then.
 CAM_HALF_W = CAM_HALF_H = None
+#: the player's SST x_pos / y_pos offsets, out of the listing's equates in main()
+SST_POS = None
 WARP_ACK_FRAMES = 120
 
 
@@ -314,6 +316,11 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
                 dpx = [CBS._sx(int.from_bytes(acc[j * 4:j * 4 + 2], "big"), 16)
                        for j in range(len(acc) // 4)]
                 buf = rd["Hscroll_Buffer"]
+                # THE CAMERA X THE BUFFER WAS BUILT FOR, not Camera_X now: while the camera moves
+                # the buffer can be one Camera_Update behind the RAM word (MEASURED in free
+                # flight: every line off by exactly one frame's 16 px). Plane A is hard-locked
+                # to -camX (Parallax_Update's factor_a), so line 0's FG word names it.
+                camx = -CBS._sx(int.from_bytes(buf[0:2], "big"), 16)
                 wrong = []
                 for line in range(CBS.SCREEN_LINES):
                     m = vs + line
@@ -362,6 +369,216 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
     return fails, out
 
 
+
+#: free flight moves the player PLAYER_DEBUG_FLY_SPEED (16) px a frame; a waypoint is reached
+#: within this many px, and a flight that has not reached one in FLY_MAX_FRAMES is COULD NOT RUN
+FLY_TOL = 16
+FLY_MAX_FRAMES = 1500
+
+
+def _fly_route(act, drifting, key):
+    """The connectors from a clip of a DRIFTING zone to a clip of zone `key`, breadth first:
+    a shaft is crossed DOWN only (free flight could climb one; a player drops through it), a
+    corridor either way. Returns [(connector, clip left, clip entered)] or None."""
+    edges = []
+    for co in act.connectors:
+        ax, a, b_ = CM.connector_ends(act, co)
+        if a is None or b_ is None:
+            continue
+        edges.append((co, a, b_))
+        if ax == "x":
+            edges.append((co, b_, a))
+    start = [c for c in act.clips if c.zone_key in drifting]
+    prev = {id(c): None for c in start}
+    todo = list(start)
+    while todo:
+        c = todo.pop(0)
+        if c.zone_key == key:
+            path = []
+            while prev[id(c)] is not None:
+                co, frm = prev[id(c)]
+                path.append((co, frm, c))
+                c = frm
+            return path[::-1]
+        for co, a, b_ in edges:
+            if a is c and id(b_) not in prev:
+                prev[id(b_)] = (co, a)
+                todo.append(b_)
+    return None
+
+
+def _waypoints(co, frm, to):
+    """Player-centre points that carry free flight through one connector: its mouth on the
+    `frm` side, then well past its far mouth inside `to` (clamped into that clip)."""
+    x, y, w, h = co.dst
+    if getattr(co, "axis", "x") == "y":
+        cx = x + w // 2
+        return [(cx, y - 2 * FLY_TOL), (cx, min(y + h + 256, to.dst[1] + to.dst[3] - 128))]
+    cy = y + h // 2
+    if frm.dst[0] < to.dst[0]:
+        return [(x - 2 * FLY_TOL, cy), (min(x + w + 256, to.dst[0] + to.dst[2] - 200), cy)]
+    return [(x + w + 2 * FLY_TOL, cy), (max(x - 256, to.dst[0] + 200), cy)]
+
+
+async def _fly_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rates_of):
+    """THE FLIGHT LEG (`--warp-entry` runs it after the ENTRY leg): the same question asked of
+    a WALKED crossing, with no teleport between the drifting zone and the tall one. Warp into a
+    zone whose bands DRIFT, let it run STABLE_FRAMES * 10 frames so the accumulators move, then
+    fly (DEBUG free flight, held directions, 16 px a frame) through the connectors the route
+    search finds into each tall zone and down to its lowest probe, through every layout of its
+    chain, grading every frame whose camera centre is inside the tall clip exactly as the ENTRY
+    leg grades one: every visible line against Sonic 2's kind for its row (drift rows aside,
+    their phase is the zone's own), the plane rows on frames with no sweep in flight. This is
+    the path WOVEN-HPZ-BG-MISALIGNED is reached by in play: a crossing carried the drift in."""
+    out, fails = [], 0
+    drifting = {k for k, sp in specs.items() if any(bd.get("drift") for bd in sp["bands"])}
+    for key, ch in chains.items():
+        clip = next(c for c in act.clips if c.zone_key == key)
+        if key in drifting:
+            out.append(f"OK   fly {clip.zone}: the zone drifts itself; nothing to inherit")
+            continue
+        route = _fly_route(act, drifting, key)
+        if not route:
+            out.append(f"COULD NOT MEASURE fly {clip.zone}: no route from a drifting zone "
+                       f"({sorted(drifting)}) through the act's connectors")
+            fails += 1
+            continue
+        start = route[0][1]
+        sx = route[0][0].dst[0] + route[0][0].dst[2] // 2
+        sy = start.dst[1] + start.dst[3] // 2
+        if not await _place(b, sym, sx - CAM_HALF_W, sy - CAM_HALF_H, "warp"):
+            out.append(f"COULD NOT MEASURE fly {clip.zone}: the start warp was not acked")
+            fails += 1
+            continue
+        await b.call("emulator/write_memory", {"addr": hex(sym["Debug_Scene_Freeze"]),
+                                               "value": 0, "width": 1})
+        await b.call("emulator/run_frames", {"frames": STABLE_FRAMES * 10})
+        pts = [p for co, frm, to in route for p in _waypoints(co, frm, to)]
+        low = max(p[4] for p in plan if p[0] == key)
+        pts.append((clip.dst[0] + 64 + CAM_HALF_W, low + CAM_HALF_H))
+        res = await _fly_grade(b, sym, rom, pts, key, ch, clip, spec_at, blob_lab)
+        await b.call("emulator/write_memory", {"addr": hex(sym["Debug_Scene_Freeze"]),
+                                               "value": 1, "width": 1})
+        names = " -> ".join(co.id for co, _f, _t in route)
+        if isinstance(res, str):
+            out.append(f"COULD NOT MEASURE fly {clip.zone} via {names}: {res}")
+            fails += 1
+            continue
+        graded, bad, first, layouts = res
+        if not graded:
+            out.append(f"COULD NOT MEASURE fly {clip.zone} via {names}: no frame was graded")
+            fails += 1
+        elif bad:
+            fails += 1
+            out.append(f"FAIL fly {clip.zone} via {names}: {bad} of {graded} frames inside it "
+                       f"show a line Sonic 2 scrolls differently or a wrong plane row "
+                       f"(layouts seen {sorted(layouts)}); first: camera {first[0]}, vscroll "
+                       f"{first[1]}, layout {first[2]}, {first[3]} line(s) {first[4]}, rows "
+                       f"{first[5]}")
+        else:
+            out.append(f"OK   fly {clip.zone} via {names}: {graded} frames inside it exact "
+                       f"(layouts seen {sorted(layouts)})")
+    return fails, out
+
+
+async def _fly_grade(b, sym, rom, pts, key, ch, clip, spec_at, blob_lab):
+    """Fly through `pts` (player centres) in DEBUG free flight, grading every frame whose
+    camera centre is inside `clip`. Returns (graded, bad, first, layouts) or a reason string."""
+    r0 = ch["r0"]
+    _raw, kind_of = CBS._tall_source(clip.donor, clip.zone, 0, ch["v_hi"])
+    base = sym[blob_lab[key]] & 0xFFFFFF
+    blob = rom[base:base + ch["span"] // 8 * PLANE_ROW_BYTES]
+    wild = {t for t in range(ch["span"] // 8)
+            if not any(blob[t * PLANE_ROW_BYTES:(t + 1) * PLANE_ROW_BYTES])}
+    factor_of = {}
+    for sp in ch["specs"]:
+        for bd in sp["bands"]:
+            k = ("drift", bd["drift"]) if bd.get("drift") else \
+                ("flat", bd.get("s2_ratio", bd["ratio"]))
+            factor_of.setdefault(k, bd["factor"])
+    pos = (sym["Player_1"] + SST_POS[0], sym["Player_1"] + SST_POS[1])
+    graded, bad, first, layouts = 0, 0, None, set()
+    x0, y0, w0, h0 = clip.dst
+    held = set()
+
+    async def hold(want):
+        for d in held - want:
+            await b.call("emulator/hold", {"buttons": [d], "down": False})
+        for d in want - held:
+            await b.call("emulator/hold", {"buttons": [d], "down": True})
+        held.clear()
+        held.update(want)
+
+    try:
+        for tx, ty in pts:
+            for _n in range(FLY_MAX_FRAMES):
+                r = await b.call("emulator/read_memory", {"addr": hex(pos[0]), "len": 2})
+                px = int(_hex(r), 16)
+                r = await b.call("emulator/read_memory", {"addr": hex(pos[1]), "len": 2})
+                py = int(_hex(r), 16)
+                if abs(px - tx) <= FLY_TOL and abs(py - ty) <= FLY_TOL:
+                    break
+                want = set()
+                if abs(px - tx) > FLY_TOL:
+                    want.add("right" if tx > px else "left")
+                else:
+                    want.add("down" if ty > py else "up")
+                await hold(want)
+                await b.call("emulator/run_frames", {"frames": 1})
+                rd = {}
+                for name, ln in (("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4),
+                                 ("Camera_Y", 4), ("Parallax_Current_Vscroll_BG", 2),
+                                 ("BG_Wipe_Cursor", 1), ("BG_Wipe_Row", 1)):
+                    rr = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
+                    rd[name] = bytes.fromhex(_hex(rr))
+                camx = int.from_bytes(rd["Camera_X"][:2], "big")
+                camy = int.from_bytes(rd["Camera_Y"][:2], "big")
+                if not (x0 <= camx + CAM_HALF_W < x0 + w0 and y0 <= camy + CAM_HALF_H < y0 + h0):
+                    continue
+                vs = CBS._sx(int.from_bytes(rd["Parallax_Current_Vscroll_BG"], "big"), 16)
+                li, _spec = spec_at(key, camy)
+                layouts.add(li)
+                buf = rd["Hscroll_Buffer"]
+                # THE CAMERA X THE BUFFER WAS BUILT FOR, not Camera_X now: while the camera moves
+                # the buffer can be one Camera_Update behind the RAM word (MEASURED in free
+                # flight: every line off by exactly one frame's 16 px). Plane A is hard-locked
+                # to -camX (Parallax_Update's factor_a), so line 0's FG word names it.
+                camx = -CBS._sx(int.from_bytes(buf[0:2], "big"), 16)
+                wrong = []
+                for line in range(CBS.SCREEN_LINES):
+                    m = vs + line
+                    if not 0 <= m < ch["span"] or (m >> 3) in wild:
+                        continue
+                    kd = kind_of(r0 + m)
+                    if kd is None or kd not in factor_of or kd[0] == "drift":
+                        continue
+                    want_w = CBS._sx(-CBS.engine_factor_scroll(factor_of[kd], camx), 16)
+                    got = CBS._sx(int.from_bytes(buf[line * 4 + 2:line * 4 + 4], "big"), 16)
+                    if want_w != got:
+                        wrong.append(line)
+                rows = []
+                if rd["BG_Wipe_Cursor"][0] == 0 and rd["BG_Wipe_Row"][0] == 0:
+                    pb = b""
+                    for off in range(0, PLANE_BYTES, 4096):
+                        rr = await b.call("emulator/read_vram", {"addr": hex(VRAM_PLANE_B + off),
+                                                                 "len": 4096})
+                        pb += bytes.fromhex(_hex(rr))
+                    rows = [m for m in range(vs >> 3, min((vs + CBS.SCREEN_LINES - 1) >> 3,
+                                                          ch["span"] // 8 - 1) + 1)
+                            if pb[(m & 63) * PLANE_ROW_BYTES:((m & 63) + 1) * PLANE_ROW_BYTES]
+                            != blob[m * PLANE_ROW_BYTES:(m + 1) * PLANE_ROW_BYTES]]
+                graded += 1
+                if wrong or rows:
+                    bad += 1
+                    if first is None:
+                        first = ((camx, camy), vs, li, len(wrong), wrong[:1] + wrong[-1:],
+                                 rows[:4])
+            else:
+                return f"free flight never reached ({tx},{ty}) in {FLY_MAX_FRAMES} frames"
+    finally:
+        await hold(set())
+    return graded, bad, first, layouts
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rom", default="s4.s2clip.debug.bin")
@@ -383,6 +600,10 @@ def main():
     src.load_file(str(REPO / "engine" / "system" / "constants.emp"))
     CAM_HALF_W, CAM_HALF_H = int(src.get("CAM_SCREEN_HALF_W")), int(src.get("CAM_SCREEN_HALF_H"))
     sym = parse_lst(lst)
+    global SST_POS
+    import loop_step_over_witness as LSW
+    _s, equs = LSW.parse_lst(lst)
+    SST_POS = (equs["SST_x_pos"], equs["SST_y_pos"])
     act = CM.load(str(REPO / "games" / "sonic4" / "data" / "clips" / a.clip / "clips.json"))
     zones = {c.zone_key: c for c in act.clips}
     specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
@@ -437,9 +658,14 @@ def main():
             results.append((key, zone, x, y, await _probe(b, sym, x, y, rates_of[key],
                                                           plane=key in chains, how=a.place)))
         if a.warp_entry:
-            entry.extend(await _entry_leg(b, sym, rom_bytes, act, chains, specs, plan, spec_at,
-                                          blob_lab, rates_of) if chains else
-                         (1, ["COULD NOT MEASURE entry: this act has no tall zone"]))
+            if not chains:
+                entry.extend((1, ["COULD NOT MEASURE entry: this act has no tall zone"]))
+            else:
+                f1, l1 = await _entry_leg(b, sym, rom_bytes, act, chains, specs, plan, spec_at,
+                                          blob_lab, rates_of)
+                f2, l2 = await _fly_leg(b, sym, rom_bytes, act, chains, specs, plan, spec_at,
+                                        blob_lab, rates_of)
+                entry.extend((f1 + f2, l1 + l2))
         await b.close()
 
     with aether_emulator(rom, symbols=lst) as sock:
@@ -545,7 +771,7 @@ def main():
         for ln in lines:
             print(ln)
         n_cnm = sum(1 for ln in lines if ln.startswith("COULD NOT"))
-        print(f"clip_bg_scroll_witness ENTRY leg: {len(lines)} warp(s), "
+        print(f"clip_bg_scroll_witness ENTRY + FLIGHT legs: {len(lines)} row(s), "
               f"{entry_fail - n_cnm} FAIL, {n_cnm} could not measure")
         unmeasured += n_cnm
         bad += entry_fail - n_cnm
