@@ -36,6 +36,9 @@ ZONES = {"EHZ": S2, "CPZ": S2, "MTZ": S2, "OOZ": S2, "WFZ": S2, "HPZ": SW}
 #: the report's three background blobs (§A.2; kept, v2.1 "The background groups, re-checked")
 BLOBS = [["EHZ", "HPZ", "WFZ"], ["CPZ", "MTZ"], ["OOZ"]]
 GRID = 16                                   # the collision block (R12, K3, K9)
+#: MEASURED by tools/clip_reachability.py on this act's bake (it fails naming the count when
+#: the layout changes it): Oil Ocean's columns with air under their last landing surface
+UNBOUNDED_FALL_COLUMNS = 374
 
 
 def frames():
@@ -66,13 +69,18 @@ def rect(x, y, w, h):
     return {"x": x, "y": y, "w": w, "h": h}
 
 
-def build():
+def build(mutant=False):
     c = clip_camera.constants()
     fr, blob_bytes = frames()
     L = {k: seam(ax, a, b, fr, c) for k, ax, a, b in (
         ("same_y", "y", "EHZ", "HPZ"), ("same_x", "x", "MTZ", "CPZ"),
         ("AM_y", "y", "WFZ", "MTZ"), ("AM_x", "x", "EHZ", "MTZ"),
         ("MO_y", "y", "CPZ", "OOZ"), ("AO_x", "x", "HPZ", "OOZ"))}
+    if mutant:
+        # THE WITNESS CONTROL, never committed: Oil Ocean 208 px higher, so the drop shafts
+        # into it (C8, C9) are 256 px against the rule's 464 and a DROP must be seen to
+        # glitch (crossing_witness's vertical mode, red first). Hidden Palace rides along.
+        L["MO_y"] = 256
 
     # ---- the CHOICES (each one MEASURED; the reasons go into the note) -----------------
     # Metropolis | Chemical Plant | Metropolis: s2_mtz_cpz's flown rectangles and floors.
@@ -84,7 +92,7 @@ def build():
     # west edge (x 0) 256, 384, 672. 672 is Metropolis's own start floor (Sonic 2 starts the
     # player at (96, 652) on it), so the tunnel delivers him where Sonic 2 would; with it,
     # EHZ 960 is the one row that keeps every other seam short (see the note).
-    EHZ_FLOOR, MTZ_WEST_FLOOR = 960, 672
+    EHZ_FLOOR, MTZ_WEST_FLOOR = 576, 256
     # C11: Hidden Palace's east piece ends at donor x 8336 (its edge column 8335 is flush on
     # the lake bridge at y 1376; 16 px before the W3 pit at 8352), Oil Ocean's west edge
     # (8192) is flush at 576, the ground its piece starts on.
@@ -96,24 +104,33 @@ def build():
     MTZ_EAST_H = 1600           # Metropolis east's bottom 448 px trimmed: C8 and C9 both 464
     OOZ_X = 5104                # under Chemical Plant, as the report; its top span donor
     #                             10752..11007 then meets Metropolis east's open bottom (C9)
+    # ARTLESS ROWS TRIMMED so the act is 3 sections tall (6,144 px): the OJZ region document
+    # a clip act inherits is 3 sections tall, and the descriptor fills only a band to its
+    # RIGHT (OJZ_WIDE_FILL_ROWS), never below it (test_regions_doc pins a taller act as a
+    # refusal). MEASURED: no art and no collision in any of these rows.
+    WFZ_Y0 = 384                # Wing Fortress donor y 256..383 is empty sky
+    CPZ_Y0 = 128                # Chemical Plant donor y 0..127 is empty sky
+    OOZ_H = 1840                # Oil Ocean donor y 1840..1887 carries no art
 
     # ---- positions -----------------------------------------------------------------------
-    wfz = dict(id="wfz_deck", zone="WFZ", src=(1024, 256, 6144, 1536), dst=(1536, 0))
-    wfz_bot = 1536
-    cpz_y = wfz_bot + L["AM_y"]                                   # C3 exact
+    wfz = dict(id="wfz_deck", zone="WFZ", src=(1024, WFZ_Y0, 6144, 1792 - WFZ_Y0), dst=(1536, 0))
+    wfz_bot = 1792 - WFZ_Y0
+    cpz_top = wfz_bot + L["AM_y"]                                 # C3 exact
+    cpz_y = cpz_top - CPZ_Y0                                      # where CPZ's donor y 0 sits
     mtz_y = cpz_y + MTZ_DY
     ehz_y = mtz_y + MTZ_WEST_FLOOR - EHZ_FLOOR                    # C5's floor
     ehz = dict(id="ehz_double_loop", zone="EHZ", src=(6144, 0, 2560, 1024), dst=(0, ehz_y))
     mtw_x = 2560 + L["AM_x"]
     mtw = dict(id="mtz_west", zone="MTZ", src=(0, 0, MTZ_SPLIT, 2048), dst=(mtw_x, mtz_y))
     cpz_x = mtw_x + MTZ_SPLIT + L["same_x"]
-    cpz = dict(id="cpz_loop_cluster", zone="CPZ", src=(CPZ_SRC_X, 0, 9216 - CPZ_SRC_X, 2048),
-               dst=(cpz_x, cpz_y), music="SONG_S2_CPZ")
+    cpz = dict(id="cpz_loop_cluster", zone="CPZ",
+               src=(CPZ_SRC_X, CPZ_Y0, 9216 - CPZ_SRC_X, 2048 - CPZ_Y0),
+               dst=(cpz_x, cpz_top), music="SONG_S2_CPZ")
     mte_x = cpz_x + (9216 - CPZ_SRC_X) + L["same_x"]
     mte = dict(id="mtz_east", zone="MTZ", src=(MTZ_SPLIT, 0, 3072 - MTZ_SPLIT, MTZ_EAST_H),
                dst=(mte_x, mtz_y))
     ooz_y = max(cpz_y + 2048, mtz_y + MTZ_EAST_H) + L["MO_y"]
-    ooz = dict(id="ooz_east", zone="OOZ", src=(8192, 0, 3072, 1888), dst=(OOZ_X, ooz_y))
+    ooz = dict(id="ooz_east", zone="OOZ", src=(8192, 0, 3072, OOZ_H), dst=(OOZ_X, ooz_y))
     hpz_y = ooz_y + OOZ_FLOOR - HPZ_FLOOR                         # C11's floor
     hpz_e_x1 = OOZ_X - L["AO_x"]                                  # C11 exact
     hpz_sx = HPZ_END - hpz_e_x1                                   # donor x of act x 0
@@ -131,7 +148,7 @@ def build():
         return k["dst"][0] + k["src"][2]
 
     lens = {
-        "C1": ehz_y - wfz_bot, "C2": mtz_y - wfz_bot, "C3": cpz_y - wfz_bot,
+        "C1": ehz_y - wfz_bot, "C2": mtz_y - wfz_bot, "C3": cpz_top - wfz_bot,
         "C4": hpz_y - bottom(ehz), "C5": mtw_x - right(ehz),
         "C6": cpz_x - right(mtw), "C7": mte_x - right(cpz),
         "C8": ooz_y - bottom(cpz), "C9": ooz_y - bottom(mte),
@@ -140,7 +157,7 @@ def build():
             "C5": L["AM_x"], "C6": L["same_x"], "C7": L["same_x"], "C8": L["MO_y"],
             "C9": L["MO_y"], "C10": L["AM_y"], "C11": L["AO_x"]}
     for k, v in lens.items():
-        assert v >= mins[k], (k, v, mins[k])
+        assert mutant or v >= mins[k], (k, v, mins[k])
 
     # ---- connectors ------------------------------------------------------------------------
     tunnel_art = {"donor": S2, "zone": "CPZ", "wall_src": rect(768, 784, 32, 32),
@@ -177,7 +194,7 @@ def build():
     shafts = [
         shaft("wfz_to_ehz", 2048, 256, wfz_bot, ehz_y, "cloud", LEDGES),
         shaft("wfz_to_mtz", mtw_x + 800, 192, wfz_bot, mtz_y, "cloud", LEDGES),
-        shaft("wfz_to_cpz", cpz_x + 1024, 256, wfz_bot, cpz_y, "cloud"),
+        shaft("wfz_to_cpz", cpz_x + 1280, 256, wfz_bot, cpz_top, "cloud"),
         shaft("ehz_to_hpz", 704, 256, bottom(ehz), hpz_y, ledges=LEDGES),
         shaft("cpz_to_ooz", cpz_x + 512, 256, bottom(cpz), ooz_y),
         shaft("mtz_to_ooz", mte_x + 16, 96, bottom(mte), ooz_y, ledges={"pitch": 64, "w": 32}),
@@ -187,7 +204,7 @@ def build():
     W = max(right(k) for k in clips)
     H = max(bottom(k) for k in clips)
     gw, gh = -(-W // 2048), -(-H // 2048)
-    return dict(L=L, lens=lens, mins=mins, fr=fr, blob_bytes=blob_bytes, clips=clips,
+    return dict(ooz_y=ooz_y, L=L, lens=lens, mins=mins, fr=fr, blob_bytes=blob_bytes, clips=clips,
                 corridors=corridors, shafts=shafts, grid=(gw, gh), W=W, H=H,
                 hpz_sx=hpz_sx, ehz_y=ehz_y)
 
@@ -215,6 +232,24 @@ def to_manifest(b, note, start):
         "clips": [clip_json(k) for k in b["clips"]],
         "corridors": b["corridors"],
         "shafts": b["shafts"],
+        "unpainted_remainder": {
+            "x_from": gw * 2048, "y_from": gh * 2048,
+            "why": "NOTHING IS UNPAINTED: the fill covers the whole act. The object stays "
+                   "because the fall declaration lives in it.",
+            "unbounded_fall": {
+                "columns": UNBOUNDED_FALL_COLUMNS,
+                "donor_bottom_boundary": {"OOZ": 1664, "note": "Oil Ocean act 1's own "
+                                          "LevelSize bottom (s2_donor.level_size); pasted "
+                                          f"at y {b['ooz_y']}, it would sit at y "
+                                          f"{b['ooz_y'] + 1664} here"},
+                "why": "OIL OCEAN SITS ON THE ACT'S BOTTOM EDGE: its clip runs to y "
+                       f"{gh * 2048} (the act is 3 sections tall, see the note), so under "
+                       "the last landing surface of these Oil Ocean columns there is no fill "
+                       "row left, and Sonic 2's terrain interiors are LRB-only. Sonic 2 "
+                       "survives it with its level bottom boundary, which kills; this engine "
+                       "has no death. MEASURED by clip_reachability on this act's bake; "
+                       "the count IS the check (a floor, a death plane or a bottom "
+                       "boundary drops it)."}},
         "fill": {"rect": rect(0, 0, gw * 2048, gh * 2048),
                  "why": "Everything between the zones is neutral: solid stone on CRAM line 0 "
                         "(the woven report's item 6), so no background shows between zones "
@@ -239,13 +274,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=OUT)
     ap.add_argument("--print", action="store_true")
+    ap.add_argument("--mutant-short-drops", action="store_true",
+                    help="THE WITNESS CONTROL (never commit its output): C8/C9 at 256 px, "
+                         "crossing_margin = report")
     ap.add_argument("--baseline", action="store_true",
                     help="write collision_baseline.json from a KEPT bake of --out instead")
     a = ap.parse_args()
     if a.baseline:
         baseline(a.out, os.path.join(os.path.dirname(a.out), "collision_baseline.json"))
         return 0
-    b = build()
+    b = build(mutant=a.mutant_short_drops)
     print("lengths (derived minimum -> used):")
     for k in b["lens"]:
         print(f"  {k:4s} {b['mins'][k]:5d} -> {b['lens'][k]:5d}")
@@ -256,10 +294,18 @@ def main():
     if a.print:
         return 0
     note = open(os.path.join(HERE, "s2_woven_note.txt")).read().strip()
-    start = json.load(open(os.path.join(HERE, "s2_woven_start.json")))
+    # the start is written RELATIVE to Emerald Hill's clip origin (it moves with the layout)
+    st = json.load(open(os.path.join(HERE, "s2_woven_start.json")))
+    ehz = next(k for k in b["clips"] if k["zone"] == "EHZ")
+    start = {"x": ehz["dst"][0] + st["ehz_dx"], "y": ehz["dst"][1] + st["ehz_dy"],
+             "why": st["why"]}
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
+    doc = to_manifest(b, note, start)
+    if a.mutant_short_drops:
+        doc["note"] = "MUTANT WITNESS CONTROL, NOT THE ACT: " + doc["note"]
+        doc["crossing_overrides"]["crossing_margin"] = "report"
     with open(a.out, "w") as fh:
-        json.dump(to_manifest(b, note, start), fh, indent=2)
+        json.dump(doc, fh, indent=2)
         fh.write("\n")
     print(f"wrote {a.out}")
     return 0
