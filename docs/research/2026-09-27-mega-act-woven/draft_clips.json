@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_mega_act_woven_draft",
+  "name": "WOVEN MEGA-ACT PROPOSAL (2026-09-27), clips only, a DRAFT for measurement",
+  "note": "NOT AN ACT. The woven proposal's clip rectangles at their act positions, with NO connectors: the manifest has no vertical shaft or cloud-band kind, and a connector's art is one corridor sheet (see the report). Written by docs/research/2026-09-27-mega-act-woven/woven.py manifest.",
+  "act": {
+    "grid_w": 6,
+    "grid_h": 4
+  },
+  "clips": [
+    {
+      "id": "wfz_deck",
+      "donor": "s2disasm",
+      "zone": "WFZ",
+      "src_rect": {
+        "x": 1024,
+        "y": 256,
+        "w": 6144,
+        "h": 1536
+      },
+      "dst_rect": {
+        "x": 1536,
+        "y": 0,
+        "w": 6144,
+        "h": 1536
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "ehz_double_loop",
+      "donor": "s2disasm",
+      "zone": "EHZ",
+      "src_rect": {
+        "x": 6144,
+        "y": 0,
+        "w": 2560,
+        "h": 1024
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 1824,
+        "w": 2560,
+        "h": 1024
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "mtz_west",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 1536,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 3184,
+        "y": 2064,
+        "w": 1536,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "cpz_loop_cluster",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": {
+        "x": 7168,
+        "y": 0,
+        "w": 2048,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 5104,
+        "y": 2064,
+        "w": 2048,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "mtz_east",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 1536,
+        "y": 0,
+        "w": 1536,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 7536,
+        "y": 2064,
+        "w": 1536,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "hpz_diagonal",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 5632,
+        "y": 0,
+        "w": 2560,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 3136,
+        "w": 2560,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "ooz_east",
+      "donor": "s2disasm",
+      "zone": "OOZ",
+      "src_rect": {
+        "x": 8192,
+        "y": 0,
+        "w": 3072,
+        "h": 1888
+      },
+      "dst_rect": {
+        "x": 5104,
+        "y": 4576,
+        "w": 3072,
+        "h": 1888
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    }
+  ]
+}
