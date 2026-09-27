@@ -7,11 +7,6 @@
       "agent": true
     },
     {
-      "what": "Redraw the big act with Hidden Palace running under Metropolis, joined to it and to Oil Ocean",
-      "where": "branch design/mega-act-woven-r2",
-      "agent": true
-    },
-    {
       "what": "Build the first woven piece: Chemical Plant inside Metropolis",
       "where": "branch parcel/woven-mtz-cpz",
       "agent": true
@@ -202,5 +197,5 @@
   ],
   "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera speed.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T03:32:08Z"
+  "updatedAt": "2026-09-27T03:36:38Z"
 }
