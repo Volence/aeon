@@ -765,3 +765,34 @@ pub proc PageIn_Flush () clobbers() {
     }
         rts
 }
+
+// -----------------------------------------------
+// PageIn_WaitIdle — spin VSync_Wait until the page-in path is QUIESCENT: the request
+// FIFO empty, no decode in flight or suspended, no landing pending, and the last
+// landing's staging->VRAM DMA drained (PageIn_Staging_Busy, cleared by VInt_Level).
+// On return every page that was queued on entry is PUBLISHED (resident in Page_Table).
+//
+// Two callers, both synchronous loaders that must not go on until their pages are
+// in VRAM: Level_LoadArt's init bulk load, and Tile_Cache_Init's settle loop
+// (WOVEN-BOOT-FG-GARBAGE, 2026-09-27), which demand-loads the pages a window names
+// beyond the bulk-loaded set before its refill.
+//
+// MAIN-LOOP CONTEXT ONLY, below IPL 6 (VSync_Wait's precondition).
+// In:  none   Out: none
+// Clobbers: d0-d2/a0-a3 (VSync_Wait's license; this proc adds nothing).
+// -----------------------------------------------
+pub proc PageIn_WaitIdle () clobbers(d0-d2/a0-a3) {
+    .wait:
+        jbsr    VSync_Wait
+        tst.b   PageIn_Queue_Count
+        bne     .wait
+        tst.b   PageIn_InFlight
+        bne     .wait
+        tst.b   PageIn_Suspended
+        bne     .wait
+        tst.b   PageIn_Land_Pending
+        bne     .wait
+        tst.b   PageIn_Staging_Busy
+        bne     .wait
+        rts
+}

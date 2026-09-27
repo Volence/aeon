@@ -46,6 +46,71 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## WOVEN-BOOT-FG-GARBAGE: the woven act's first screen, and every warp into unloaded art, drew blank foreground cells (FIXED 2026-09-27, `fix/woven-boot-fg`)
+
+**Symptom (owner, 2026-09-27).** Booting `S2CLIP=s2_woven DEBUG=1`, Emerald Hill's foreground at the start
+was shredded; the background was right; leaving and coming back fixed it.
+
+**What it actually was: HOLES, not wrong art.** At frame 180 (woven DEBUG crc `2a0f1df3`, master
+`6557f13f`; the morning's `617448a7` is the same picture) 191 of the visible Plane A cells the bake paints
+were the blank word `$0000`, and `Tile_Cache_Nametable` held `$0000` in the same cells, so the plane was a
+faithful copy of a cache with holes in it. Every missing cell was a tile of pool page 12, and page 12 WAS
+resident by then (frame 1). The "grass in the sky" is the unbroken grass cells beside the holes; the pixel
+the brief quoted, (20,115) tile 641, is the same Plane A cell before and after the camera leaves and
+returns.
+
+**Root cause.** A streaming act (pool > `PAGE_FRAMES_CLAMP`) bulk-loads only pages `[0, PAGE_FRAMES_CLAMP)`
+(`engine/level/load_art.emp`), and the woven start window (Emerald Hill, section 5) also names pages 12
+and 13. `TileCache_FillAll` met them non-resident and took the patch run's miss arm
+(`engine/level/page_cache.emp`, `pc_patch_run_loop`'s `.pw_miss` and the bounded loop's miss): demand
+the page, set `Cache_Art_Stall`, leave the cell untouched, which after FillAll's bulk zero means `$0000`.
+FillAll ignored the stall and has no resume, and the per-frame fill only extends the window's edges, so
+nothing rewrote those cells once the pages landed. MEASURED by stopping at `TileCache_WarmupBelowRow`
+(the instruction after FillAll): `Cache_Art_Stall = 1`, `Dbg_PageCache_Demands = 2`, 2 requests queued,
+`Page_Table` = identity 0..11, `PageCache_Direct_Map = BOUNDED`.
+
+**Wider than the woven boot: every DEBUG warp.** The warp runs the same `Tile_Cache_Init`. On the unfixed
+woven ROM `tools/first_screen_fg_witness.py` found **20,393** wrong cells over 9 of 9 stops (the boot and
+a warp to the centre of each of the 8 clips), all drawn blank; `mtz_west` had 0 of 1,120 visible cells
+right. Built with the base engine files (`6557f13f`) and the same witness: `s2_ehz_cpz` 739 wrong at its
+`cpz_act1` warp (131 visible), `s2_mtz_cpz` 169 wrong (cache only) at its `mtz_east` warp; both boots
+clean. So any witness that placed the player by warp in a streaming clip act could have been standing on
+a screen with holes in it (the placements pin the player while the window streams, but the streamer
+never repaired interior cells).
+
+**Fix (engine).** `Tile_Cache_Init` settles: clear `Cache_Art_Stall`, `TileCache_FillAll`, and while the
+pass stalled, `PageIn_WaitIdle` then fill again, at most `PAGE_FRAMES`+1 passes (DEBUG raises past
+that; release gives up with the old holes rather than hang). `PageIn_WaitIdle` (`engine/level/page_in.emp`)
+is Level_LoadArt's page-in quiescence spin, factored out and now shared by both. Every pass re-demands
+what is still missing, a published demand page is held against eviction until a fill pass sees it,
+and eviction never takes a frame a cache word names, so each pass lands at least one page; a window
+needing more pages than frames halts as the thrash condition in `PageCache_AllocFrame` first.
+ARCH §4.7 ("The init refill SETTLES"), §4.12 step 5, §9.7's bounded-regime paragraph.
+
+**Check.** `tools/first_screen_fg_witness.py` (new): boots, then warps to the centre of every clip, and
+at each stop grades every visible Plane A cell and every cell of the 80x60 tile cache, resolved through
+VRAM, against the bake (`section_N.local.bin` -> `secN_local_map.bin` -> `pool.bin`); COULD NOT RUN if
+the baked tree's page count is not the ROM's. Wired in `tools/keepalive_manifest.toml`; the nightly
+(`tools/nightly_instrument_keepalive.sh`) now builds DEBUG `S2CLIP=s2_woven` as
+`s4.s2clip_woven.debug.*`. RED on the unfixed ROM as above; GREEN after the fix: woven 9 of 9 stops
+(crc `c75d9551` on the 5x3 base; `65eac6c3` after merging the 5x4 `parcel/clip-act-taller`), and every
+clip act that builds: `s2_ehz_boot`, `s2_ehz_cpz`, `s2_hpz_solo`, `s2_mtz_cpz`, `s2_ooz_solo`,
+`s2_wfz_solo`.
+
+**Scope.** Canonical OJZ and the fully resident clip acts (`s2_ehz_boot`, `s2_hpz_solo`, `s2_ooz_solo`,
+`s2_wfz_solo`: `PageCache_Direct_Map` = RESIDENT) cannot stall: the bulk load leaves every page
+resident, so no word ever takes the miss arm (measured 0 demands through the boot FillAll on each).
+The streaming clip acts' boots were clean (0 demands) but their warps were not (above). Not built,
+refused by their own bakes before this change: `s2_two_clip`, `s2_two_clip_pins` (Z1, butted zones)
+and `s2_woven_2d` (ROM layout overlap at `collision_data`/`dac_banks`); not graded.
+
+**Open.** (1) The warp's settle waits run `VSync_Wait` with the display on, so a warp into unloaded art
+shows a few frames of the new camera over the old planes before the synchronous redraw; DEBUG-only,
+not measured, TAGGED for an eyes-on look. (2) The boot now waits for the start window's pages with the
+display off; the extra boot frames were not measured.
+
+---
+
 ## SONIC-SLOPE-COLLISION: landings snapped every steep surface to flat (FIXED 2026-09-26, `research/sonic-slope-collision`); three items OPEN
 
 Owner, on the Sonic 2 clip: *"I can stand on random things or don't just start rolling when I
@@ -36809,7 +36874,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - **Budgets (the real bake, MEASURED):** 15 of 48 sections (5 x 3, 9,248 x 6,144 px); collision **250 of 255**; 2,894 pool tiles in 49 pages, worst camera window **12 of 12** (673 windows at 12, 0 over; the report's "13 in 108 windows with the tunnel sheet" does not happen with real connectors, W1); largest local map 801 of 2,047; SCREEN 413,688 reachable centres MIXED 0 / WRONG 0 / VOID 0, every crossing slack >= 0; art ROM 37.5 KB stored (WARN over the 24 KB soft budget, hard 64).
   - **Lengths (controller ruling 1, the bake's 3-frame wipe):** blob A is **302 tiles / 9 frames**, not the report's 369 / 10 (WFZ's lowered BG is an 18-tile window), so C2/C3/C10 are 512 (not 528), C5 608 (not 624), C11 560 (not 576); C6/C7 416, C8/C9 464, all at the minimum. C1 512, C2 832, C4 560 are longer, forced by the tunnel floors (C1 + C4 = 1,072 whatever C5's floor pair).
   - **FINDING, Hidden Palace's east piece was rock:** v2.1's rows (donor y 1504..2047) are solid rock art end to end with the rock chunks' interior collision grid (floors every 128 px inside it), so a player would walk inside the rock. Recut to donor y 1296..1599 (an air band, the lake bridge flush at 1376, rock under), ending at 8336 before the W3 pit (controller ruling 3). The L's donor window now starts at x 3792 (C11 at its minimum sets it); collision stays 250.
-  - **FINDING, a clip act is at most 3 sections tall today (booked below, CLIP-ACT-TALLER-THAN-DOCUMENT):** the first build (5 x 4) was refused by effects_gen. The act fits 3 by trimming 304 px of artless rows (WFZ y 256..383, CPZ y 0..127, OOZ y 1840..1887); Oil Ocean then ends on the act's bottom edge, 374 columns declared as an unbounded fall. Metropolis east is trimmed to donor y 0..1599 so C8 = C9 = 464 (collision: the two taller cuts measured, +128 and +224 px, need 259 of 255).
+  - **FINDING, a clip act is at most 3 sections tall today (booked below, CLIP-ACT-TALLER-THAN-DOCUMENT; CLOSED 2026-09-27, `s2_woven` is 5 x 4 with a fill row under Oil Ocean):** the first build (5 x 4) was refused by effects_gen. The act fits 3 by trimming 304 px of artless rows (WFZ y 256..383, CPZ y 0..127, OOZ y 1840..1887); Oil Ocean then ends on the act's bottom edge, 374 columns declared as an unbounded fall. Metropolis east is trimmed to donor y 0..1599 so C8 = C9 = 464 (collision: the two taller cuts measured, +128 and +224 px, need 259 of 255).
   - **Tunnel floors (ruling 2):** C6/C7 s2_mtz_cpz's (MTZ 448 below CPZ's donor origin); C5 EHZ 576 into MTZ 256 (the MTZ start floor 672 was the first cut, but after the trims its WFZ->EHZ crossing sat 16 px from WFZ->CPZ's and the region plan refused it); C11 the HPZ bridge 1376 into OOZ 576.
   - **Witnesses (headless, DEBUG crc `617448a7`):** `woven_route_witness.py --route ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz` **GREEN** (presets and CRAM switch at every connector, EHZ's song at boot and CPZ's past mtz_to_cpz, key-ons follow; lag within 16 px 0 / 4 / 2 / 3). `crossing_witness.py --corridor` on all 11 connectors: **0 glitch ticks everywhere** (6 runs a tunnel, 2 drops a shaft); worst slack in frames: C5 1, C6 1, C7 1, C11 7, C1 8, C2 12, C3 2, C4 10, C8 2, C9 2, C10 4. MTZ/CPZ at 416 is clean (the 384 wipe-under-lag tick of WOVEN-MTZ-CPZ-384-WIPE-UNDER-LAG does not appear at the bake's length). `tunnel_run_witness.py`: 23 of 24 runs cross; the one that does not is mtz_to_cpz walked from rest leftward up Chemical Plant's slope, as on s2_mtz_cpz.
   - **Witness additions (rule 8, red first on disk):** crossing_witness drives a shaft (a DROP); woven_route_witness takes `--route`; tunnel_run_witness finds a corridor's clips with `connector_ends` (the x-only rule named Chemical Plant for hpz_to_ooz). Controls: a drop leg over fill RED (exit 1); a 336-px C9 (the generator's `--mutant-short-drops`) 4 glitch ticks, slack -2 (exit 3).
@@ -38192,7 +38257,7 @@ doc's extent paragraph are patched in place where this falsifies them.
   clip to end on a section boundary; measured price +3,386 B of block stream and nothing else).
   `s2_ehz_boot` alone still truncates. The sentence that follows is about a ONE-zone act: A NON-section-aligned
   act extent is the only thing that recovers the truncated 736 px — the parcel-7 idea in its last
-  surviving form, not needed here. And `OJZ_WIDE_FILL_ROWS` is a floor, not a design: a clip act wider than its region
+  surviving form, not needed here. And `OJZ_WIDE_FILL_ROWS` (DELETED 2026-09-27, CLIP-ACT-TALLER-THAN-DOCUMENT: a clip act binds its own table since row 7, and the shipped one is now held to its own act) is a floor, not a design: a clip act wider than its region
   document shows one flat preset past 6,144 px, because `effects_gen` does not run in the S2CLIP
   bake. Per-act region documents are the real answer and are not booked beyond this sentence.
 
@@ -38523,11 +38588,17 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
 - **Nets, base `a39cfe03` vs the fix (headless, deterministic counts):** `pagecache_audit_poison.py` on the fix's canonical DEBUG (crc `09266cc8`): all 12 arms ok, exit 0. `stressart_legs_witness.py`: PASS both legs, 10 and 13 evictions (base identical). `general_regime_witness.py` (DEBUG `s2_ehz_cpz`): PASS both legs, 4 and 5 evictions (base identical). Picture witness (`docs/research/2026-09-27-general-patch-loop/pic_witness.py`, resolved cells): `s2_ehz_cpz` zigzag identical at 28/28 points, `s2_mtz_cpz` zigzag through the full-window band identical at 22/22; `Page_Live_Forced` 0 on both ROMs in both. Lag, `gpl_legs.sh` on `s2_ehz_cpz` DEBUG: fly 0/998, diag 37/1,035, CPZ down 14/1,273, CPZ diag 43/1,306, CPZ band 14/1,046, identical base and fix; the two zigzags 76 and 73, identical; `woven_route_witness.py` on `s2_mtz_cpz` DEBUG GREEN on both, lag near the tunnels 0 and 3 (base) vs 0 and 2 (fix).
 - **Not measured:** the lag of the DEBUG slow drive before the fix (it halts), and whether STRESS_ART's own 12-of-12 windows ever reach this arm (its legs fly at full speed and never did).
 
-## CLIP-ACT-TALLER-THAN-DOCUMENT: a clip act cannot be more than 3 sections tall (OPEN, booked 2026-09-27, `parcel/woven-full-act`)
+## CLIP-ACT-TALLER-THAN-DOCUMENT: a clip act cannot be more than 3 sections tall (CLOSED 2026-09-27, `parcel/clip-act-taller`; booked 2026-09-27, `parcel/woven-full-act`)
 
 - **What:** a clip act inherits OJZ act 1's region document (`games/sonic4/data/editor/ojz/act1/regions.json`, 3 x 3 sections) because the S2CLIP bake does not run effects_gen, and `act_descriptor.emp` covers an act WIDER than the document with one appended row (`OJZ_WIDE_FILL_ROWS`), never a TALLER one. `tools/region_flatten.py` refuses the bottom band by design (`test_regions_doc.py` `test_the_exemption_does_not_cover_a_TALLER_act`).
 - **MEASURED:** the first `S2CLIP=s2_woven ./build.sh` (5 x 4 sections) was refused by effects_gen: "4 rectangle(s) of the 10240x8192 act belong to no region". `s2_woven` now fits 5 x 3 by trimming 304 px of artless rows; that leaves Oil Ocean on the act's bottom edge (374 columns of declared unbounded fall).
 - **Levers:** an `OJZ_TALL_FILL_ROWS` beside the wide one (zero bytes in every shipped shape, as the wide one; region_flatten's exemption and its pinned test move with it), or a clip act that brings its own region document. Either lets the woven act take back a fill row under Oil Ocean.
+- **CLOSED 2026-09-27 (`parcel/clip-act-taller`), by NEITHER lever as booked, and the booking's premise was half wrong.** A clip act does NOT inherit OJZ's region document at runtime: it has bound its own table since S2-COMPRESSED-ACT row 7 (`OJZ_CLIP_REGION_ROWS`, through `ojz_clip_act_regions(hand:)`, checked for exact tiling of the clip act). Lever 2 already existed. What it inherited was the CHECK: the shipped table, assembled and unbound in a clip ROM, was held to the CLIP act's rectangle (the descriptor's coverage ensure, and effects_gen's `region_flatten` in build.sh), and parcel 9 padded it to the right with `OJZ_WIDE_FILL_ROWS`. Lever 1 (a tall twin of that row) would have been a second padding row for a table nothing reads, and it would have kept the loophole the wide row already had: a CANONICAL grid that outgrew its document was silently filled with one flat preset.
+  - **Fix:** the document is checked against the act it was AUTHORED FOR (`OJZ_AUTHORED_ACT_W` x `_H`, read off its rows; the final rows' extents must equal them, so a DEBUG delta cannot reach past them), and a second ensure says that act IS the grid whenever the table is bound (`OJZ_CLIP_ACT == 0`). `OJZ_WIDE_FILL_ROWS` and region_flatten's `WIDE_FILL` exemption are DELETED; region_flatten reads `OJZ_CLIP_ACT` from the generated `clip_act.emp` (the flag the ROM reads) and refuses when it is missing. The DEBUG tall-BG row's bottom is `OJZ_AUTHORED_ACT_H - 1`, not `ACT_H - 1`. **A second instance of the same error, found by the first 5 x 4 build:** the scene registry's `SCENE_ACT_SPAN_Y` (6144) was pinned EQUAL to the grid's span; in a clip ROM it may be at most the grid's (the S2CLIP bake adds no scene to the registry). Every `GRID_H` / `ACT_H` consumer in `games/` and `engine/` was enumerated; those two were the only ones holding OJZ-authored data to the grid.
+  - **Red first (mutations on disk, restored from HEAD with `git show`):** region_flatten's clip branch forced off, 3 FAILED (taller, wider, interior-hole clip rows); forced on for every act, 2 FAILED (canonical wider, canonical taller). sigil direct: canonical grid 3 x 4 fires the new "document tiles 6144 x 6144 and the act is 6144 x 8192" ensure and the scene pin; clip flag 1 with the DEBUG tall row back on `ACT_H - 1` fires "final region rows reach 6144 x 8192"; the same with the row restored fires none of the shipped-table ensures; clip flag 1 on a 3 x 2 grid (shorter) fires the scene pin and "the act is only 6144 x 4096". `test_regions_doc`'s `TestActWiderThanItsDocument` is now `TestClipActLargerThanItsDocument` (8 rows; `test_the_exemption_does_not_cover_a_TALLER_act` is inverted into `test_a_TALLER_clip_act_is_accepted`).
+  - **`s2_woven` is 5 x 4** (`build_woven_act.py`'s `FLOOR_BELOW`: at least one collision block of fill under the lowest clip). Every clip keeps its position; Oil Ocean is y 4304..6143 and y 6144..8191 is solid-stone fill, so its 374 unbounded-fall columns now land (clip_reachability MEASURED 0; the declaration is gone). The 304 px of artless trims stay (they carry nothing; the C5 floor pair was chosen against them). Bake: 20 of 48 sections (was 15), collision 250 of 255, 2,894 pool tiles in 49 pages, 37.5 KB stored, worst window 12 of 12 (673 at 12, 0 over), SCREEN 0 / 0 / 0 over 419,120 reachable centres (was 413,688): the fill row costs sections, not art, collision or pages.
+  - **Witnesses** (`S2CLIP=s2_woven DEBUG=1`, s4.s2clip.debug.bin crc `1dca1202`; master's 5 x 3 control on the same harness `2a0f1df3`, also 0 everywhere): `crossing_witness.py --corridor` on all 11 connectors **0 glitch ticks** (6 runs on each tunnel, 2 on each shaft); `woven_route_witness.py --route ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz` rc 0. Canonical `s4.bin` / `s4.debug.bin` byte-identical to master (see the merge evidence).
+  - **Still open:** a clip act SMALLER than the document on either axis is refused (the per-row rules read the grid's bounds and the camera band folded from them; no bootable clip act needs it, noted at `OJZ_AUTHORED_ACT_W`). **TAGGED for eyes-on:** what the camera shows under Oil Ocean now (it can scroll into the stone row), and whether a player who drops through one of the 374 formerly-unbounded columns onto the fill at y 6144 can get back out (not measured; before, he fell forever).
 
 ## WOVEN-CPZ-POCKET-ROUTE: Chemical Plant in `s2_mtz_cpz` is not yet a run-through route (OPEN, content, the owner's call; booked 2026-09-27)
 

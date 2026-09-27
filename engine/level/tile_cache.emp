@@ -13,7 +13,7 @@ use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_CO
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS}
-use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL}
+use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL, PAGE_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 
@@ -34,6 +34,7 @@ use engine.constants.{SECTION_H_REACH_PX, SECTION_V_REACH_PX}
 // 66 -> 34 on 2026-09-04. This is the SECOND copy of section.emp's stride pin — the two
 // are deliberately independent so either module can be compiled standalone; see that
 // one for why it survives now that no gate tool copies the layout.)
+ensure(PAGE_FRAMES + 1 <= 127, "Tile_Cache_Init's settle loop loads its pass bound with `moveq #PAGE_FRAMES+1` (PAGE_FRAMES = {PAGE_FRAMES})")
 ensure(sizeof(Sec) == 22, "tile_cache's stride pin: sizeof(Sec) moved off 22. The walk spells #sizeof(Sec) so the STRIDE follows automatically; see engine/level/section.emp's twin of this pin for why it is still here — it is the tripwire that makes a Sec change re-ask whether an out-of-assembler reader of the layout has appeared")
 
 // ---- LS-8 family pins: the hand-spelled geometry literals in THIS module ----
@@ -743,7 +744,10 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
 // -----------------------------------------------
 // Tile_Cache_Init — populate cache for initial viewport + margins
-// Called at level init (display off).
+// Called at level init (display off) and by the DEBUG warp (display on). Returns only
+// once every cache word names resident art: its settle loop waits out the demand
+// page-ins its own refill queues (PageIn_WaitIdle -> VSync_Wait), so the caller must
+// be main-loop context below IPL 6.
 // In:  none (reads Camera_X, Camera_Y, Current_Act_Ptr)
 // Out: none
 // Clobbers: d0-d7, a0-a6
@@ -798,7 +802,43 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
 
         jbsr    TileCache_InvalidateStaging
 
+        // SETTLE LOOP (WOVEN-BOOT-FG-GARBAGE, 2026-09-27). FillAll takes the patch run's
+        // miss arm on a word whose page is not resident: it demands the page, sets
+        // Cache_Art_Stall and LEAVES THE CELL at FillAll's zero, and it has no resume
+        // (the per-frame fill only extends the window's edges, so nothing ever rewrites
+        // an interior cell). On a streaming act the bulk load leaves only pages
+        // [0, PAGE_FRAMES_CLAMP) resident, and a window elsewhere names others: the
+        // woven act's start (Emerald Hill, section 5) needs pages 12 and 13 (MEASURED:
+        // 191 visible cells $0000 at frame 180), and every DEBUG warp lands in a window
+        // of pages nobody loaded. So: fill, and while the pass stalled, let the demands
+        // it queued land (PageIn_WaitIdle) and fill again. Every pass re-demands what is
+        // still missing (a full FIFO drops a request, PageCache_Request's contract), a
+        // published demand page is held against eviction until a fill pass sees it, and
+        // eviction never takes a frame a cache word names, so each pass lands at least
+        // one page until the window is whole. A window naming more pages than there are
+        // frames is the thrash condition and halts in PageCache_AllocFrame first; the
+        // pass bound below is the backstop that turns a no-progress loop into a named
+        // failure (DEBUG) instead of a black screen that never ends. Cache_Art_Stall is
+        // left SET across the wait, so PageIn_Process's demand-first gate keeps
+        // speculative prefetch out of the queue while the demands land.
+        moveq   #PAGE_FRAMES+1, d0             // at most one pass per frame, plus the final clean one
+        move.w  d0, -(sp)
+    .settle_pass:
+        clr.w   Cache_Art_Stall                // this pass's own result
         jbsr    TileCache_FillAll
+        tst.w   Cache_Art_Stall
+        beq     .settled                       // every word resolved: the window is whole
+        subq.w  #1, (sp)
+        beq     .settle_exhausted
+        jbsr    PageIn_WaitIdle                // the demands this pass queued are now resident
+        jbra    .settle_pass
+    .settle_exhausted:
+    if DEBUG == 1 {
+        raise_error "Tile_Cache_Init: the refill still stalls after PAGE_FRAMES+1 passes (a demanded page never lands?)"
+    }
+    .settled:
+        addq.l  #2, sp
+        clr.w   Cache_Art_Stall                // settled (or given up): no stall carries into the first fill pass
         jbsr    TileCache_WarmupBelowRow       // cold-start warmup: pre-stage the below-row
     if DEBUG == 1 {
         // P2b Task 6: the first full fill wrote every cache word — audit the

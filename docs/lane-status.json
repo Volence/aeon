@@ -1,14 +1,9 @@
 {
-  "focus": "Fixing the scrambled Emerald Hill foreground you saw at the woven act's start (it clears once you leave and come back).",
+  "focus": "Start-screen fix landed; now fixing Hidden Palace's misaligned background, then one woven ROM rebuild for you.",
   "inFlight": [
     {
-      "what": "Clip levels taller than 3 sections (Oil Ocean off the woven act's bottom edge)",
-      "where": "branch parcel/clip-act-taller",
-      "agent": true
-    },
-    {
-      "what": "Scrambled foreground on the woven act's first screen: find the cause and fix it",
-      "where": "branch fix/woven-boot-fg",
+      "what": "Hidden Palace background misaligned in the woven act: find the cause and fix it",
+      "where": "branch fix/woven-hpz-bg",
       "agent": true
     }
   ],
@@ -29,11 +24,11 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the start-screen fix and the taller-clip agent return and land.",
+  "nextBoundary": "When the Hidden Palace background fix returns and lands; then the woven ROM rebuild.",
   "queue": [
     {
-      "id": "WOVEN-BOOT-FG-GARBAGE",
-      "title": "Woven act: the first screen's Emerald Hill foreground is scrambled until you leave and come back (you saw it; there since this morning)",
+      "id": "WOVEN-HPZ-BG-MISALIGNED",
+      "title": "Woven act: Hidden Palace's background splits into two misaligned halves (you saw it; from today's tall-background change)",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -48,17 +43,17 @@
       "project": "REGIONS"
     },
     {
-      "id": "TELEPORT-BG-STREAM-STARVE",
-      "title": "After a raw camera jump, a tall background can lag behind for a second (test tools only; walking never hits it)",
+      "id": "S2CLIP-MTZ-SONG-BANK",
+      "title": "Metropolis's Sonic 2 song doesn't fit the sound bank, and the other woven zones' songs won't either; needs room for more songs",
       "state": "next",
-      "size": "S",
+      "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
     },
     {
-      "id": "CLIP-ACT-TALLER-THAN-DOCUMENT",
-      "title": "Clip acts can't be more than 3 sections tall, which leaves Oil Ocean sitting on the woven act's bottom edge",
-      "state": "doing",
+      "id": "TELEPORT-BG-STREAM-STARVE",
+      "title": "Folded into the Hidden Palace background fix (likely the same stale-rows cause)",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -225,7 +220,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your look at the woven act can wait for the start-screen fix; everything past the first screen is flyable now (s4.woven.debug.bin, crc 2a0f1df3).",
+  "awaiting": "The woven act with the start-screen fix is ready: s4.woven.debug.bin (crc 65eac6c3). Hidden Palace's background is still being fixed.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T18:37:00Z"
+  "updatedAt": "2026-09-27T19:45:14Z"
 }

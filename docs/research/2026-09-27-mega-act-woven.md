@@ -152,7 +152,7 @@ scenery. It is the owner's call, and a one-line switch either way.
 
 ### What needs building: changes from §C
 
-- **BUILT 2026-09-27 (`parcel/woven-full-act`): `games/sonic4/data/clips/s2_woven`**, the whole act, with every number that moved in its manifest note: the east piece is recut (it was rock, §C W4), the act is 5 x 3 not 5 x 4 (§C W5), same-blob seams are 320 / 416 (the bake's rule). §C W6 has the results.
+- **BUILT 2026-09-27 (`parcel/woven-full-act`): `games/sonic4/data/clips/s2_woven`**, the whole act, with every number that moved in its manifest note: the east piece is recut (it was rock, §C W4), the act was 5 x 3 not 5 x 4 (§C W5; 5 x 4 again since CLIP-ACT-TALLER-THAN-DOCUMENT, with a fill row under Oil Ocean), same-blob seams are 320 / 416 (the bake's rule). §C W6 has the results.
 - **Nothing new.** C10 is now a shaft, and C11 is a tunnel into Oil Ocean; both kinds are
   already on the list:
   - C10 needs item 2's vertical kind;
@@ -579,7 +579,7 @@ numbers.
 | W2 | Faster BG overwrite (optional lever, §A.2) | `engine/level/bg.emp` | S-M, engine | optional |
 | W3 | **A pit in Hidden Palace's east piece** (found building item 10/11's solo clip, MEASURED from the donor words): donor x 8448..8703 has no art in y 1504..2047, and x 8352..8447 no plane-A landing surface. In the woven act Metropolis west paints those columns above, so `clip_reachability`'s art check passes, but the pit falls to the act's bottom. Needs a floor, a trimmed east piece, or the death plane | content | S | **RULED** (controller): stop before the pit; `s2_woven`'s east piece ends at donor x 8336 |
 | W4 | **The v2.1 east piece was rock** (found building the full act, MEASURED): donor y 1504..2047 of x 7248..8351 is solid rock art with the rock chunks' interior collision (floors every 128 px inside it). Recut to donor y 1296..1599: an air band, the lake bridge, rock under | `s2_woven` | S | **DONE** 2026-09-27 (`parcel/woven-full-act`) |
-| W5 | **A clip act is at most 3 sections tall** (the inherited region document; DEFERRED_WORK CLIP-ACT-TALLER-THAN-DOCUMENT). The act was cut to 5 x 3 by trimming 304 px of artless rows | descriptor, `region_flatten` | S-M | open |
+| W5 | **A clip act was at most 3 sections tall** (the shipped region document, unbound in a clip ROM, was held to the clip act's rectangle; DEFERRED_WORK CLIP-ACT-TALLER-THAN-DOCUMENT). The act was cut to 5 x 3 by trimming 304 px of artless rows | descriptor, `region_flatten` | S-M | **DONE** 2026-09-27 (`parcel/clip-act-taller`): the document is held to the act it was authored for, OJZ_WIDE_FILL_ROWS deleted; `s2_woven` is 5 x 4 with the fill under Oil Ocean (the trims stay: artless), 20 sections, every other budget unchanged, 0 glitch ticks on all 11 connectors, route GREEN |
 | W6 | **THE WHOLE ACT, `games/sonic4/data/clips/s2_woven`**, written by `build_woven_act.py` from the bake's rule: bake accepted (15 sections, collision 250 of 255, worst window 12 of 12), both S2CLIP shapes build, the MUST route flown GREEN (`woven_route_witness.py --route`), `crossing_witness.py` 0 glitch ticks on all 11 connectors (drops newly driven) | `s2_woven` | L | **DONE** 2026-09-27 (`parcel/woven-full-act`; DEFERRED_WORK S2-COMPRESSED-ACT has the numbers) |
 
 **Total to a first playable woven act (INFERRED):**

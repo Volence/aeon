@@ -56,7 +56,6 @@ it invented would be a rule the engine does not have.
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 
 try:
@@ -73,6 +72,12 @@ ENGINE_CONSTANTS = "engine/system/constants.emp"
 #: constants for the same reason they are: the FORMULA stays the descriptor's line,
 #: only its leaves are imported, and `GRID_W = OJZ_ACT_GRID_W` made this a leaf.
 ACT_GRID_EMP = "games/sonic4/data/generated/ojz/act1/act_grid.emp"
+#: The GENERATED clip-act module (tools/clip_rom_bake.py; NEUTRAL when committed). Its
+#: `OJZ_CLIP_ACT` is the flag the descriptor's own whole-table ensures read to decide whether
+#: this document's table is the one the Act binds (CLIP-ACT-TALLER-THAN-DOCUMENT): 0 in every
+#: canonical shape, 1 while an S2CLIP bake holds the generated tree, where the act's grid is
+#: the CLIP act's and the Act binds the clip act's own table. Read here from the same line.
+CLIP_ACT_EMP = "games/sonic4/data/generated/ojz/act1/clip_act.emp"
 
 # The bounds `ojz_region()` checks each row against, by the names the descriptor declares
 # them under. Every one is read; none is defaulted. A descriptor that renames one refuses
@@ -233,20 +238,26 @@ def act_bounds(descriptor: str, aeon: Path = AEON) -> dict:
                         f"silently stops running is a check that passes for the wrong "
                         f"reason.")
     out = {n: vals[n] for n in BOUND_NAMES}
-    # THE DESCRIPTOR'S TRAILING FILL ROW, read out of the descriptor the same way its bounds
-    # are (S2-COMPRESSED-ACT parcel 9). `flatten` needs to know whether the ACT's Region table
-    # covers a band the DOCUMENT does not, because since parcel 9 those two can be different
-    # widths: a clip act declares its own grid, `regions.json` is the shipped act's, and
-    # `effects_gen` does not run in the S2CLIP bake. See `flatten`'s coverage step.
-    #
-    # The shape is matched exactly, not approximately: a fill that covered less than the full
-    # height, or started anywhere but where the document stops, would leave a real hole and
-    # must not be read as this one.
-    out["WIDE_FILL"] = re.search(
-        r"^const\s+OJZ_WIDE_FILL_ROWS\s*:\s*array\s*=\s*if\s+ACT_W\s*>\s*OJZ_AUTHORED_ACT_W\s*\{"
-        r"\s*\[\s*ojz_region\(\s*x0:\s*OJZ_AUTHORED_ACT_W\s*,\s*x1:\s*ACT_W\s*-\s*1\s*,"
-        r"\s*y0:\s*0\s*,\s*y1:\s*ACT_H\s*-\s*1\s*,",
-        path.read_text(errors="replace"), re.M) is not None
+    # WHETHER THIS DOCUMENT'S TABLE IS THE ACT'S (CLIP-ACT-TALLER-THAN-DOCUMENT, 2026-09-27).
+    # The S2CLIP bake rewrites act_grid.emp to the clip act's grid and does not run
+    # effects_gen, so in that shape ACT_W x ACT_H is a DIFFERENT act from the one
+    # `regions.json` was authored for, and the ROM binds the clip act's own table instead
+    # (act_descriptor.emp, "THE CLIP ACT'S OWN TABLE"). `flatten`'s coverage step needs to
+    # know which act to hold the document to; it reads the flag the ROM reads, never a stamp
+    # file or an environment variable, so the two cannot disagree about the shape.
+    clip_path = aeon / CLIP_ACT_EMP
+    if not clip_path.is_file():
+        raise RuleError(
+            f"{CLIP_ACT_EMP} does not exist, so whether this act's Region table is the one "
+            f"the Act binds cannot be read. It is GENERATED (python3 tools/clip_rom_bake.py "
+            f"emit-neutral) and committed NEUTRAL; this module does not default the answer.")
+    clip = emp_consts(clip_path).get("OJZ_CLIP_ACT")
+    if clip not in (0, 1):
+        raise RuleError(
+            f"{CLIP_ACT_EMP} declares no foldable `OJZ_CLIP_ACT` of 0 or 1 (read {clip!r}). "
+            f"The descriptor's coverage ensures branch on it; a value this module cannot read "
+            f"would make the coverage rule it applies a guess.")
+    out["CLIP_ACT"] = clip
     return out
 
 
@@ -344,38 +355,36 @@ def flatten(regions, bounds: dict, where: str = "regions.json") -> list:
             f"file means the document was hand-edited or written by something that does not "
             f"cut.")
 
-    holes = uncovered(rects, bounds["ACT_W"], bounds["ACT_H"])
-    if holes and bounds.get("WIDE_FILL"):
-        # THE ACT CAN BE WIDER THAN ITS DOCUMENT, AND THEN THE ROM TABLE IS NOT THIS TABLE
-        # (S2-COMPRESSED-ACT parcel 9). A clip act declares its own grid; `regions.json` is
-        # still the shipped act's, because `effects_gen` does not run inside the S2CLIP bake.
-        # act_descriptor.emp closes the difference with ONE appended row across the whole
-        # remainder, so that area is NOT a place with no identity — it is a place whose
-        # identity is not in this file.
-        #
-        # THE EXEMPTION IS EXACTLY THAT BAND AND NOTHING ELSE. Every hole must lie at or past
-        # where the document's own right edge stops, and together they must tile
-        # [doc_w, ACT_W) x [0, ACT_H) with nothing left over. An interior hole, a hole that is
-        # not full height, a hole left of the document's edge, or a remainder the holes do not
-        # exhaust all fall through to the refusal below unchanged.
+    # WHICH ACT THE DOCUMENT MUST TILE (CLIP-ACT-TALLER-THAN-DOCUMENT, 2026-09-27).
+    # Canonical shapes: THIS act, exactly, with no exemption — the table is the one the Act
+    # binds, so a place outside it is a place with no identity.
+    # A clip act (`CLIP_ACT` 1): the grid is the clip's and the ROM binds the clip act's own
+    # table, so this document is held to the act IT was authored for — the rectangle from
+    # (0, 0) to its own far edges — and the per-row rules above have already refused a row
+    # past the clip act. The same two statements act_descriptor.emp's whole-table ensures
+    # make. (This replaces parcel 9's OJZ_WIDE_FILL_ROWS exemption, which held the document to
+    # the clip act and excused one band to its right; nothing excused a band below it, so a
+    # clip act could not be taller than the document.)
+    if bounds.get("CLIP_ACT") == 1:
         doc_w = max(r["x1"] for r in rows) + 1
-        band = (bounds["ACT_W"] - doc_w) * bounds["ACT_H"]
-        covered = sum(w * h for _x, _y, w, h in holes)
-        trailing = all(x >= doc_w for x, _y, _w, _h in holes)
-        if band > 0 and trailing and covered == band:
-            print(f"region coverage: {where}: the document tiles x 0..{doc_w - 1} and the act "
-                  f"is {bounds['ACT_W']} px wide. The remaining band (x {doc_w}.."
-                  f"{bounds['ACT_W'] - 1}, full height, {band} px2 in {len(holes)} rectangle(s)) "
-                  f"is covered by act_descriptor.emp's OJZ_WIDE_FILL_ROWS, which this checked "
-                  f"is declared and spans exactly it. NOT a hole — and NOT authored either: "
-                  f"that band shows one flat preset.")
-            holes = []
+        doc_h = max(r["y1"] for r in rows) + 1
+        holes = uncovered(rects, doc_w, doc_h)
+        if not holes:
+            print(f"region coverage: {where}: the generated tree holds a CLIP act "
+                  f"({bounds['ACT_W']}x{bounds['ACT_H']}), whose Region table is its own "
+                  f"(OJZ_CLIP_REGION_ROWS). This document is checked against the act it was "
+                  f"authored for, {doc_w}x{doc_h}, which it tiles; it is assembled in the clip "
+                  f"ROM and not bound.")
+        area = f"{doc_w}x{doc_h} act this document was authored for"
+    else:
+        holes = uncovered(rects, bounds["ACT_W"], bounds["ACT_H"])
+        area = f"{bounds['ACT_W']}x{bounds['ACT_H']} act"
     if holes:
         shown = ", ".join(f"x {x}..{x + w - 1} y {y}..{y + h - 1}" for x, y, w, h in holes[:6])
         more = "" if len(holes) <= 6 else f" (and {len(holes) - 6} more)"
         raise RuleError(
-            f"{where}: {len(holes)} rectangle(s) of the {bounds['ACT_W']}x{bounds['ACT_H']} "
-            f"act belong to no region: {shown}{more}. A hole is a place with no identity — "
+            f"{where}: {len(holes)} rectangle(s) of the {area} "
+            f"belong to no region: {shown}{more}. A hole is a place with no identity — "
             f"Region_Resolve would return nothing there and the crossing would keep whatever "
             f"region the camera came from. Give the area to a region; the generator will not "
             f"fill it with a default it was not handed.")

@@ -153,6 +153,19 @@ if ! { python3 tools/s2_zone_convert.py convert s2disasm@MTZ s2disasm@CPZ \
     note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_mtz_cpz build failed at $AT -- the woven clip rows will be COULD NOT RUN; see $STATE/build_s2clip_mtz.log"
     rm -f "$NIGHTLY/s4.s2clip_mtz.debug.bin" "$NIGHTLY/s4.s2clip_mtz.debug.lst"
 fi
+# The WOVEN MEGA-ACT (WOVEN-BOOT-FG-GARBAGE, 2026-09-27), kept under its own name for the same
+# reason; its first-screen witness also reads the baked tree this build writes
+# (games/sonic4/data/clips/s2_woven/baked), which no later clip build touches.
+rm -f "$NIGHTLY/s4.s2clip_woven.debug.bin" "$NIGHTLY/s4.s2clip_woven.debug.lst"
+rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
+if ! { python3 tools/s2_zone_convert.py convert s2disasm@WFZ s2disasm@EHZ s2disasm@MTZ s2disasm@CPZ \
+            s2disasm@OOZ s2-simonwai-disasm@HPZ \
+        && DEBUG=1 S2CLIP=s2_woven ./build.sh \
+        && mv "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip_woven.debug.bin" \
+        && mv "$NIGHTLY/s4.s2clip.debug.lst" "$NIGHTLY/s4.s2clip_woven.debug.lst"; } > "$STATE/build_s2clip_woven.log" 2>&1; then
+    note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_woven build failed at $AT -- the woven mega-act rows will be COULD NOT RUN; see $STATE/build_s2clip_woven.log"
+    rm -f "$NIGHTLY/s4.s2clip_woven.debug.bin" "$NIGHTLY/s4.s2clip_woven.debug.lst"
+fi
 rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
 if ! { python3 tools/s2_zone_convert.py convert s2disasm@EHZ \
         && python3 tools/s2_zone_convert.py convert s2disasm@CPZ \
