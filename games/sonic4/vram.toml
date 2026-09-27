@@ -566,8 +566,9 @@ overlay_with = ["insta_shield"]
 # running flash is the DEBUG cycle, which fires only in free flight, and
 # InstaShield_Main retires the flash the frame free flight starts
 # (games/sonic4/player/player_instashield.emp) — so the exclusivity is structural,
-# not a timing hope. A hand ensure in config/constants.emp keeps this run inside
-# `insta_shield`. ⚠ A SIDEKICK UNDOES THIS: Sonic and a Tails follower on screen
+# not a timing hope. Containment needs no extra guard: overlay_with exempts only
+# `insta_shield`, so a spill into any other region or [[free]] run fails
+# gen_vram_map.py (measured 2026-09-27 at base 920 and 950). ⚠ A SIDEKICK UNDOES THIS: Sonic and a Tails follower on screen
 # together need separate windows again (plus the follower body's own window).
 
 [[free]]

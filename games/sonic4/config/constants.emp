@@ -461,8 +461,9 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // they cannot take turns in the character window above. Since 2026-09-27 it
 // OVERLAYS the head of the insta-shield window (vram.toml says why that is safe:
 // Sonic-only flash, Tails-only tails, and free flight retires the flash). An
-// overlay has no generated wall, so the ensure after the generated block keeps it
-// inside its host.
+// overlay has no generated wall; what keeps it inside its host is gen_vram_map.py
+// itself: overlay_with exempts ONLY insta_shield, so a spill into any neighbour
+// region or [[free]] run fails the generator by name.
 // >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
 // Emitted from games/sonic4/vram.toml — edit THAT, then run:
 //   python3 tools/gen_vram_map.py --game sonic4
@@ -531,8 +532,3 @@ ensure(VRAM_DEBUG_LAB_NAME + 4 <= $0380, "debug_lab_name leaves its host spare_n
 ensure(VRAM_DEBUG_RASTER_TAG >= $0300, "debug_raster_tag leaves its host spare_nametable")
 ensure(VRAM_DEBUG_RASTER_TAG + 4 <= $0380, "debug_raster_tag leaves its host spare_nametable")
 // <<< GENERATED: vram map END >>>
-// The appendage OVERLAYS insta_shield (vram.toml), and gen_vram_map.py emits no wall
-// for an overlay region — so the containment is pinned here, by hand, against both
-// declared extents.
-ensure(VRAM_TAILS_APPENDAGE >= VRAM_INSTA_SHIELD && VRAM_TAILS_APPENDAGE + VRAM_TAILS_APPENDAGE_TILES <= VRAM_INSTA_SHIELD + VRAM_INSTA_SHIELD_TILES,
-       "tails_appendage ({VRAM_TAILS_APPENDAGE}, {VRAM_TAILS_APPENDAGE_TILES} tiles) leaves the insta_shield window it overlays ({VRAM_INSTA_SHIELD}, {VRAM_INSTA_SHIELD_TILES} tiles) — the tails would stream over a neighbour that CAN be live beside Tails")
