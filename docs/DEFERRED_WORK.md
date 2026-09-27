@@ -34600,6 +34600,17 @@ three of the four were booked from reading two lines against each other.
    only if the window rebases into `$D000` or keeps overlaying Plane B. **Settle from `vram.toml`
    plus the window plane's register fold. It decides what step 8 can promise objects**, so it is
    answered before step 8 quotes a number to the owner, not after.
+   - **SETTLED 2026-09-27, `design/regions-p2-step8`: step 8 frees 256 tiles, and the window costs
+     0.** The window is disabled (`boot_data.emp:191-192`, regs `$11`/`$12` = `$00`) and nothing in
+     `engine/` or `games/` writes `$91xx`/`$92xx`/`$83xx` at runtime (grep). So the VDP reads no
+     window byte, and the base can stay at `$F000` inside the freed run under object art, the same
+     way S3K parks its window at `$8000` and S.C.E. at `$C000`. The "384" was cache 128 + planes
+     256 and never counted the window. With the cache at 12 (FG-CACHE-10-HOW `stay-at-12`), step 8
+     promises objects **+256: 142 -> 398** (154 -> 410 counting test art; card cut 152 -> 408).
+     **Rider:** at 64x32 `window_plane` stops overlapping `plane_b`, and `gen_vram_map.py` would
+     charge it a full 128-tile run. Its footprint must come from the `$11`/`$12` fold (rows x 4
+     tiles, 0 today), or the toml edit re-creates this disagreement. The full re-size, the BG
+     costs and the owner card: `docs/research/2026-09-27-regions-p2-step8-resize.md`.
 
 2. **`constants.emp:470` UNDERCOUNTS THE PINNED PAGES — CONFIRMED FIRSTHAND 2026-09-15.** The
    comment reads "4 pinned pages 0/1/8/9"; `games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.json`
@@ -36484,6 +36495,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - Churn is not re-measured.
 - **Bears on REGIONS-P2-STEP7 (cache 12 -> 10):** do not cut to 10 x 64-tile frames for stitched S3K content. The measured path to 640 tiles is (1) this order wiring with a build refusal, (2) 32-tile pages, (3) a 56x48 or 64x48 window gated on a runtime hold measurement.
   - **RULED 2026-09-17T13:02:06Z, owner, card FG-CACHE-10-HOW `stay-at-12` (console selection, no words): the cache stays at 12 pages of 64 tiles.** REGIONS-P2-STEP7 (lever 1) is retired. REGIONS-P2-STEP8 (halve the scroll plane) was sized assuming lever 1 happened and must be re-sized before it starts. Re-test a smaller cache only once a real multi-zone act can run in-game.
+  - **RE-SIZED 2026-09-27 (`design/regions-p2-step8`, `docs/research/2026-09-27-regions-p2-step8-resize.md`):** step 8 frees +256 tiles (objects 142 -> 398; +62 audit Tier 1 -> 460). It costs the BG streamer its slack: lead 17 -> 1 row, streamed per-column VSRAM envelope -136..+145 -> -8..+17 px, and only EHZ/CNZ stay one plane among the S2 backgrounds. Six steps (8-T1, 8a-8e), total L. Recommendation: Tier 1 + the guards/band-anchor/tall-default prerequisites now, and the flip on a measured badnik need. Owner card STEP8-RESIZE drafted in §6 of that doc. Still open and silent: `parallax.emp:715` `PLANE_B_CELL_ROWS = 64` is not tied to `PLANE_V_CELLS`.
 - **Incidental findings:**
   - 09's "every window at or under 12" is class-scoped: junction acts' other windows go over 12 (S3K 3,875 in 23 acts, S2 170 in 2).
   - The ROWS ensure at `engine/system/constants.emp:971` is one row short at odd camera rows; not binding today.
