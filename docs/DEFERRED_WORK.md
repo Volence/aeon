@@ -41174,6 +41174,60 @@ x 1344..1407, all on B, no floor below any of them, y 1109 at x 1347 / 1351). It
         rider runs down-left through the arc's solid and out of the loop, then walks back in.
      e. **Left over the top (1 rightward, 10 px/frame).** Shoved right along the crown's
         underside at y 402 and out over the right arc.
+   - **LOOP-COLLISION (2026-09-27, branch `fix/ojz-loop-collision-2`): a, c, d, e FIXED; b OPEN
+     (7 drives).** The same sweep (224 drives, DEBUG ROMs), NOT MEASURED per class a/b/c/d/e
+     (b counts the three that stopped below the half height), with 0 lap FAILs, 0 faults and 0
+     line disagreements at every step:
+
+     | step | DEBUG crc | a | b | c | d | e | FAIL |
+     |---|---|---|---|---|---|---|---|
+     | origin/master `5d666641` | `006022dc` | 11 | 18 | 6 | 4 | 1 | 0 |
+     | `73ecdcdb` angle before distance | `3b1fa7c8` | 0 | 8 | 0 | 5 | 0 | 0 |
+     | `18fda754` corner backing (data) | `bf40df95` | 0 | 7 | 0 | 1 | 0 | 1 |
+     | `50ae6ef4` AnglePos rounding | `037eff9d` | 0 | 7 | 0 | 0 | 0 | 0 |
+
+     - **a, c, e: the floor follow judged the distance before taking the angle** (`73ecdcdb`).
+       S3K `Player_AnglePos` runs `Player_Angle` ahead of every distance test; ours wrote the
+       angle only on the snap path, so an embed past the -14 snap-up kept a stale angle.
+     - **d, and the two leftward b (left $B00 dx 4/5, the same corner on the way up): the
+       loop's two top corners were HOLLOW** (`18fda754`, data). The corner wedges had nothing
+       behind them; a probe that overshot the surface read air. Art and arcs' lower backing are
+       solid; 52 plane-A cells (x 1024..1087 y 384..447) and 36 plane-B cells (x 1216..1263 y
+       384..447) became full blocks. The commit lists them. One drive went the other way here:
+       right $1000 dx1, one lap on `73ecdcdb`, is b from this step on. It was b on origin/master
+       too; every one of the seven b drives left was b on origin/master, so against the base no
+       drive got worse.
+     - **the last d and a new FAIL: the floor follow's MODE at exactly $A0** (`50ae6ef4`). S3K
+       AnglePos rounds the diagonals $20/$E0 to the floor and $60/$A0 to the ceiling; ours sent
+       $A0 to the right wall (and $20 to the left one), so at the right corner the follow probed
+       right instead of up and left the rider 8 px high across the crown.
+     - **The witness FAILS a, c, d, e now** (`tools/loop_step_over_witness.py`; they were NOT
+       MEASURED while open), and its new `--fault-drives` arm (keepalive row
+       `loop_step_over_witness.py#fault-drives`) drives the five sweep drives that showed them:
+       red on `5d666641`, on `73ecdcdb` and with the rounding reverted on disk; green on the
+       branch.
+     - **b, OPEN — THE OWNER'S CALL (content).** All seven are RIGHTWARD at 14..16 px/frame
+       (right $E00 dx7, $F00 dx 0/1/6/7, $1000 dx 1/7), climbing the RIGHT arc's LOWER quarter.
+       Measured (right $F00 dx0, crc `037eff9d`): the ramp turns into a vertical wall at x
+       ~1240 within ~20 px (y 546..528), while the drawn loop is a circle of radius ~97 centred
+       near (1153, 497): the collision face there is 10..15 px inside the drawn circle (y 546:
+       x 1222 against ~1237; y 528: 1236 against ~1246), about twice the left arc's mirror
+       error (5..7 px). At 15 px/frame the floor pair at $E0 lands its forward sensor inside
+       the wall (-15, past the -14 snap-up), so for four frames nothing snaps, he runs 15..18
+       px inside the arc, and the in-front probe at the exact cardinal $C0 stops him (-21):
+       speed 0, slip, detach. S3K with this geometry does the same (its FindFloor re-probe of a
+       full cell also returns -16 or less, and its snap-up is also -14). The fix is a re-fit of
+       the right arc's lower quarter (plane B, x ~1200..1263, y ~496..559) to the drawn circle,
+       e.g. as the mirror of the left arc about x 1152, which is a paint decision for aurora /
+       the owner, not a defect this parcel could call clear. Not done here.
+     - **Booked, small, not changed:** S3K's in-front probe (`sub_F61C`) rounds `angle∓$40` with
+       AnglePos's rounding; `Ground_Move`'s quadrant table agrees with it at every angle except
+       exactly $E0 (S3K probes up when gsp>0 and down when gsp<0; ours right and left).
+       Unmeasured on any drive.
+     - **Collides with the unmerged `feel/s3k-fall`:** its `tools/thin_floor_witness.py` derives
+       its sub-cell floors from the paint, and `18fda754` thickens the left corner's arc tips
+       (its "x 1066-1071 y 432-526" set) and the right corner's, so its counts move. No textual
+       conflict in the player code (measured with `git diff origin/master...origin/feel/s3k-fall`).
    - **Known blind spot of the witness** (its header says so): a rider who falls off the crown
      BEFORE the midpoint is NOT MEASURED even if a missing layer change made him fall. The old
      lines' leftward 9 px/frame drive is such a case; the old lines still fail on other drives.

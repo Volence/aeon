@@ -1125,8 +1125,8 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
                                                 // frame (physics row + quadrant +
                                                 // jump buffer all ride it)
 
-        // quadrant = (angle+$20)>>6 — first-class derived value; computed from
-        // LAST frame's angle (classic: angle updates at the floor pair)
+        // quadrant = (angle+$20)>>6 from LAST frame's angle; the grounded floor follow
+        // re-rounds $20/$A0 as S3K AnglePos does before its pair (Ground_PostMove: why)
         move.b  angle(a0), d0
         addi.b  #$20, d0
         rol.b   #2, d0

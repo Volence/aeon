@@ -133,7 +133,8 @@ DOUBLE LAP right 6 px/frame (2 laps), right 9 (3), left 6 (3); left 16 DESCENDED
 PLANE. GREEN on the new lines (DEBUG crc f0a35f5a, plain crc f1c2ae37): exit 0, 6 drives
 graded, 24 crossings, 0 disagree, 5 drives one lap and out on A; right 16 px/frame NOT
 MEASURED (stops dead on the right arc at angle $E0 before any lap, the same on both line
-sets: a slope fault)."""
+sets: a slope fault). LOOP-COLLISION (2026-09-27, crc 037eff9d): exit 0, 6 drives, 27
+crossings, 0 disagree, all 6 one lap and out on A (right 16 px/frame now rides it)."""
 
 [wired."loop_step_over_witness.py#no-assert-grounded"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
@@ -160,7 +161,27 @@ with no exit); GREEN on the new lines (crc f0a35f5a) exit 0, 16 drives,
 54 crossings, 0 disagree, 10 one lap and out on A, 6 NOT MEASURED with the fault named (right
 dx 0/1/7 stop dead on the right arc; left dx 2/3/4 go out THROUGH the crown and land on top
 of the loop, identically on the old lines: collision faults, booked in DEFERRED_WORK
-LINES-EVERYWHERE)."""
+LINES-EVERYWHERE). LOOP-COLLISION (2026-09-27): out through the crown is now a FAIL, so this
+arm is RED on origin/master 5d666641 (crc 006022dc): exit 1, left dx 2/3/4. GREEN on the
+branch (crc 037eff9d): exit 0, 16 drives, 74 crossings, 0 disagree, 14 one lap and out on A,
+right dx 1/7 NOT MEASURED (came off the right arc's lower quarter: class b, still open)."""
+
+[wired."loop_step_over_witness.py#fault-drives"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--fault-drives"]
+expect = 0
+timeout = 300
+note = """LOOP-COLLISION (2026-09-27, branch fix/ojz-loop-collision-2). The lap check now FAILS the
+collision classes that were fixed (DEFERRED_WORK LINES-EVERYWHERE item 3: a fell through the
+floor, c out through the crown, d thrown out through the left arc, e left over the top); they
+were NOT MEASURED while open. This arm drives FAULT_DRIVES, the five drives of the 224-drive
+speed x phase sweep that showed them, at the sweep's 300 frames, so a regression of any of the
+three fixes (73ecdcdb angle before distance, 18fda754 corner backing, 50ae6ef4 AnglePos's $A0
+rounding) is red on the default lane. RED on origin/master 5d666641 (DEBUG crc 006022dc): exit
+1, 4 drives failed (a, c, d, e). RED on 73ecdcdb, before the corner backing (crc 3b1fa7c8):
+exit 1, right $A00 dx2 and $F00 dx2 thrown out through the left arc. RED with the $A0
+rounding reverted on disk to 18fda754's player_ground/player_spindash (crc bf40df95):
+exit 1, right $F00 dx2 thrown out through the left arc. GREEN on the branch (crc 037eff9d):
+exit 0, 5 drives, 22 crossings, 0 disagree, all 5 one lap and out on A."""
 
 [wired."loop_step_over_witness.py#stand-reverse"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--stand-reverse"]
