@@ -36065,6 +36065,8 @@ but a successor extending the gate should add it, and the derived expectation is
 
 ## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4; NARROWED 2026-09-27 to maps taller than the plane)
 
+**NARROWED AGAIN 2026-09-27 (WOVEN-TALL-ENTRY, `parcel/woven-tall-entry`):** a CROSSING that changes the effective layout into a tall map now snaps (Parallax_BG_Snap, one frame), because the wipe that follows re-seeds the window from that scroll. A DEBUG warp still ratchets on purpose: its synchronous prime seeds the window from the PRE-snap scroll before Step 5 runs, so Parallax_CheckBoundary never snaps on a null previous row (the warp nulls Region_Current). Exempting the warp too would need the prime to run after Step 5 or re-prime, which is this entry's open question.
+
 **NARROWED 2026-09-27 (SHORT-TUNNEL-VSCROLL-RATCHET, `parcel/ratchet-exemption`):** Step 5 no longer rate-clamps on a map the plane holds whole (`rg_bg_span < BG_TALL_MAP_MIN_SPAN`), so a DEBUG warp there SNAPS the scroll on the consumer's own `Parallax_Update` (bg_vscroll_rate leg X: 177 px in one invocation). What is left is the TALL-map case (leg W: 22 invocations at 16 px on DEBUG OJZ's row 11), where the clamp is real and the question below still stands.
 
 Step 4 added `|new - Parallax_Current_Vscroll_BG| <= BG_VSCROLL_MAX_STEP` (16 px) immediately before
@@ -38532,7 +38534,7 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
 - Entering Chemical Plant from the first tunnel on its middle track (y 1088/1152), a player running east is stopped 262 px in (x 2166 on the 384-px layout, held right at top speed) by the plane-A back of a loop (MEASURED: plane A is solid at x 2160..2230, y 1024..1136 on the 384-px layout; plane B is air there). Sonic 2's last plane switcher before it (CPZ Obj03 at (6536, 1152), outside the clip) puts him on path A; how Sonic 2's own route treats this stretch was not traced (INFERRED: it is entered from elsewhere, with lines and objects the clip does not carry).
 - So the pocket is crossed by PLACEMENT in the drive (`tools/woven_route_witness.py` places the player before each tunnel). Choices: a different pair of tunnel rows (the floor search in the manifest's note; every other pair put a Metropolis end in solid machinery or broke SC0), an authored layer line in the clip, or objects.
 
-## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (booked 2026-09-27, `parcel/woven-hpz-wfz-prep`; SOLO CLIPS CLOSED 2026-09-27 by `parcel/windowed-bg-vclamp`; MULTI-ZONE ACTS (s2_woven) still OPEN, see the 2026-09-27 amendment at the end of this entry)
+## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (booked 2026-09-27, `parcel/woven-hpz-wfz-prep`; SOLO CLIPS CLOSED 2026-09-27 by `parcel/windowed-bg-vclamp`; MULTI-ZONE ACTS: crossings CLOSED 2026-09-27 by `parcel/woven-tall-entry` (s2_woven bakes HPZ and WFZ tall, 0 glitch ticks on all 11 connectors); the woven SCROLL WITNESS is not exact (a teleport-only streamer starvation and a witness sampling race), see the SECOND amendment at the end of this entry)
 
 - **What:** `clip_bg_lower` lowers ONE 512-row window of a zone's BG map into Plane B (`window_top`: the lowest chunk-aligned window holding Sonic 2's own start view), and the engine's BG V-scroll clamps to 0..288 (`VSCROLL_BG_MAX`, the fallback when a region authors no `rg_bg_span`). Past the clamp the background stops moving vertically while Sonic 2's keeps scrolling through rows the plane does not hold.
 - **MEASURED on the solo clips (`clip_bg_scroll.engine_vscroll`):** HPZ (camY/2, BG 1152 rows) is clamped for act camera Y >= 576 of its 2048-px L; WFZ (1:1, window BG rows 896..1407 of a 2048-row map, 18 of the 83 tiles quoted in the woven doc) moves only over camera Y 640..928 of its solo act; OOZ (camY/8 + 80) holds to 1792, nearly its whole 1888.
@@ -38597,6 +38599,60 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
   - **TAGGED for an on-screen look:** fly `S2CLIP=s2_hpz_solo DEBUG=1` down the full height and
     across the three layout switches (camera Y 544, 1056, 1424 at x ~64..2300), and
     `S2CLIP=s2_wfz_solo DEBUG=1` from the sky to the deck. No emulator was driven by eye here.
+  - **2026-09-27 SECOND AMENDMENT: WOVEN HALF CLOSED for crossings (`parcel/woven-tall-entry`, fix (a)).**
+    - **Reproduced first, as booked:** `S2CLIP=s2_woven DEBUG=1` with `TALL_JOINED_ZONES` forced
+      True, crc `cfc3e006`: crossing_witness 29 glitch ticks on hpz_to_ooz (slack -6) and 9 on
+      hpz_to_mtz (slack -9), 0 on the other nine. The per-tick trace matched the booked cause: on
+      the drop into Hidden Palace the scroll slid 16 px a frame through the 7-frame tile overwrite
+      and beyond (MTZ 288 -> HPZ 601 over ~20 frames), and the CPU sweep repainted 4 rows a frame
+      while the scroll ran ahead of it.
+    - **Engine (canonical bytes move):** `Parallax_CheckBoundary` sets `Parallax_BG_Snap` (the
+      free byte of an old pad inside `Parallax_State`, no RAM moves) on a crossing whose
+      effective layout differs, and Step 5 skips the rate clamp for that one store. A NULL
+      previous row never snaps: it happens only on the boot ladder and after the DEBUG warp
+      nulls `Region_Current`, both synchronous primes (first cut snapped a same-row warp 366 px
+      over a window primed for the old scroll; bg_vscroll_rate leg W caught it).
+      `BG_Stream_Update` DMA-sweeps EVERY map (runs cut at the ring wrap and at the held window's
+      seam) and HOLDS the window from the arm until the last run has landed (`BG_Wipe_Row` =
+      `BG_WIPE_LANDING` $FF while the cursor is 0, cleared once `DMA_Deferrable_DestPending`
+      finds no queued Plane B write); the CPU sweep is deleted. `Section_RedrawPlanes` drops any
+      queued Plane B sweep run before its blit. `ensure`: `BG_WIPE_HOLD_FRAMES` (8) x
+      `BG_STREAM_MAX_ROWS` (2) fits the lead on both sides.
+    - **MEASURED after (s2_woven DEBUG, TALL_JOINED_ZONES True):** crossing_witness 0 glitch
+      ticks on all 11 connectors, worst slack +2 (hpz_to_mtz), +7 (hpz_to_ooz);
+      woven_route_witness rc 0. Ablations on the same act: DMA sweep without the snap 29 / 7
+      (hpz_to_ooz / hpz_to_mtz), snap with the CPU sweep 2 / 3, both 0 / 0.
+      Solo clips unchanged: s2_hpz_solo 72/72 exact, s2_wfz_solo 16/16 (clip_bg_scroll_witness).
+    - **STILL OPEN, narrowed: clip_bg_scroll_witness on s2_woven is NOT exact.** 158/164 after
+      (157/164 on the pre-fix `cfc3e006`). Two causes, neither a crossing:
+      (1) THE TELEPORT STARVATION, HALF FIXED. The witness places the camera by a raw
+          `Camera_X/Y` write under `Debug_Scene_Freeze` (not the warp mailbox, which primes
+          synchronously). After such a jump the WIPE no longer starves (it no longer uses
+          `Plane_Buffer`); what still starves is the steady-state STREAMER: at HPZ (64,3792 ..
+          4559) `BG_Plane_Top` sat at 0 for 50+ frames with the cursor 0, the landing marker
+          cleared and the tiles settled while the scroll wanted 1..26, so 5 probes read 7-17
+          visible rows of the old window (pre-fix: 6 HPZ probes, 22-29 rows, plus WFZ (1600,0)).
+          The remaining refusal is Draw_BG_TileRow's plane-buffer-full arm (INFERRED from the
+          state above, not read directly) while the foreground refills after the jump. Not
+          reachable by walking: the camera cap bounds foreground rows (the plane-buffer `ensure`)
+          and crossing_witness reads 0. Options, unpriced: have the witness teleport through the
+          warp mailbox (the real prime path); stream steady-state rows by DMA too (same FIFO as
+          the sweep, so the hold could go, but the Deferrable budget derivation changes); or
+          re-arm a sweep when the window lags the scroll by more than the lead.
+      (2) A WITNESS SAMPLING RACE, not a regression: WFZ (3621,0) read hscroll 138 against a
+          drift accumulator of 139 on 112 lines (one frame's drift), deterministic at the
+          default `--settle 180` and GREEN at `--settle 181` (16/16 WFZ probes). The witness's
+          drift COHERENCE check compares bands with each other, not the buffer with the
+          accumulator, so it cannot see a one-frame skew between them.
+    - **Gates re-derived for the DMA sweep:** GATE BG-WIPE (runs derived per arm; new legs HELD
+      and LANDING; COVERED exact against the held window; red on disk against no-hold (3 legs,
+      incl. FINAL: a stale run over a streamed row), no seam cut (3) and no landing marker (2));
+      bg_vscroll_rate_witness models the snap (`snapped_pair`; on canonical DEBUG OJZ only leg D
+      snaps, by 2 px, so the snap is DISCRIMINATED only by the woven crossing_witness);
+      bg_switch_gate's sweep length is `BG_WIPE_HOLD_FRAMES`.
+    - **TAGGED for an on-screen look:** run `S2CLIP=s2_woven DEBUG=1` left through hpz_to_ooz and
+      down the hpz_to_mtz shaft at speed: the background should arrive already at its Hidden
+      Palace height (no slide) and repaint top-down in ~3 frames behind the tunnel.
 
 ## S2CLIP-ADOPT-SHORT-TUNNEL: the real Sonic 2 act switches to the 384-px connector (CLOSED 2026-09-25, `parcel/s2clip-adopt-short-tunnel`)
 

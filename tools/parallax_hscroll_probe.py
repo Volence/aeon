@@ -357,7 +357,7 @@ def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
         return 0, "L <= 0 -> whole-screen split at line 0"
     found, lo, hi = _patch_band(patch_tab_bytes, ch)
     if found:
-        lo += 1                                  # fire line -> screen line (parallax.emp:858-859)
+        lo += 1                                  # fire line -> screen line (parallax.emp, Parallax_Step4_Fill `.cap_anchors_overlay`)
         hi += 1
         if L > hi:
             return None, f"L {L} past band_hi {hi} — record not emitted, no split"
