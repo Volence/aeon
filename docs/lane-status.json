@@ -1,6 +1,12 @@
 {
-  "focus": "Rebooted fresh; the woven Sonic 2 act waits for your look, and tall-background scrolling is next up.",
-  "inFlight": [],
+  "focus": "Fixing the woven act's tall backgrounds that stop scrolling part-way down (Hidden Palace, Wing Fortress).",
+  "inFlight": [
+    {
+      "what": "Tall clip backgrounds: research whether the existing tall-background streamer covers them, then build the fix",
+      "where": "branch parcel/windowed-bg-vclamp",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,12 +24,12 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "At a boundary, clearable. A fresh session starts the queue's next row; handoff is docs/lane-log.jsonl's last entry plus DEFERRED_WORK.",
+  "nextBoundary": "When the tall-background agent returns and its work is reviewed and landed.",
   "queue": [
     {
       "id": "WINDOWED-BG-VERTICAL-CLAMP",
       "title": "Woven act polish: Hidden Palace and Wing Fortress backgrounds stop scrolling part-way down; let tall backgrounds stream (DEFERRED_WORK has the numbers)",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -205,7 +211,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your look at the woven act (s4.woven.debug.bin, crc 617448a7), and a go to start on tall backgrounds that stop scrolling part-way down.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-27T14:09:54Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-27T14:11:07Z"
 }
