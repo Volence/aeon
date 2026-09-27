@@ -37,9 +37,10 @@ use engine.types.{VramTile}
 // addresses; config/ram.emp is its sole author.
 use games.sonic4.ram.{PlayerBlock}
 
-// Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
-// set = supported, d0=1/Z clear = teetering) — resolves module-to-module to
-// player_sensors.emp (bare link, no extern-proc decl).
+// Player_AtLedgeEdge — player_sensors' idle-balance decision, S3K's rule (returns
+// d0=0/Z set = supported, d0=1/Z clear = teetering, and then turns the player to
+// face the edge) — resolves module-to-module to player_sensors.emp (bare link, no
+// extern-proc decl).
 
 // PlayerState — the state-handler routine type the Player_States table dispatches
 // (PState_Ground/Roll/Spindash/Air/Jump/RollJump/AirBall, surviving player_ground/
@@ -1699,10 +1700,11 @@ pub proc Player_StepFlip (a0: *Sst) clobbers(d0-d1) preserves(a0) {
 }
 
 // -----------------------------------------------
-// Player_Animate — read-only animation classifier. Reads state/status/input and
-// (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
-// speed-scaled hold to d3. Mutates the display transients skid_latch and
-// getup_timer (the get-up one-shot counts down here).
+// Player_Animate — animation classifier. Reads state/status/input and (at rest)
+// the balance probes; writes ONE ANIM_* id to SST_anim and the speed-scaled hold
+// to d3. Mutates the display transients skid_latch and getup_timer (the get-up
+// one-shot counts down here), and, when it picks ANIM_BALANCE, ST_XFLIP: S3K
+// turns a balancing player to face the edge (Player_AtLedgeEdge).
 // Priority: spindash > ball > skid > push > (rest: getup > duck > lookup >
 // balance > idle) > run/walk.
 // In:  a0 = player SST
@@ -1949,7 +1951,8 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         rts
 .not_lookup:
         // (9) balance at a ledge edge — (7)/(8) in the priority table are
-        // run/walk, handled below in .walk_or_run (the moving branch)
+        // run/walk, handled below in .walk_or_run (the moving branch). A
+        // balancing player is also turned to face the edge (S3K).
         jbsr    Player_AtLedgeEdge              // beq = supported
         beq     .idle
         move.b  #ANIM_BALANCE, anim(a0)

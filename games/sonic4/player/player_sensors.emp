@@ -42,7 +42,7 @@
 module games.sonic4.player_sensors in player_sensors
 
 use engine.objects.sst.{Sst, interact_off}
-use engine.constants.{ST_XFLIP, ST_ON_OBJECT, PLAYER_X_RADIUS, SOLID_TOP, SOLID_LRB}
+use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_TOP, SOLID_LRB}
 use engine.coords.{abs_w}
 use games.sonic4.ram.{PlayerBlock}
 
@@ -538,86 +538,122 @@ pub proc Player_SensorWallDir (a0: *Sst) clobbers(d0-d6/a1) {
 }
 
 // -----------------------------------------------
-// Player_AtLedgeEdge — true when the leading foot is over a ledge edge, for
-// the idle balance/teeter animation. Probes the floor one foot-width toward
-// the FACING direction (single downward Collision_ProbeDown call). If that
-// probe finds no nearby ground while the body is still supported (caller gates
-// on grounded-at-rest), the player is teetering.
+// Player_AtLedgeEdge — the idle balance (teeter) decision, with S3K's rule.
+//
+// THE RULE (S3K Sonic_Balance, sonic3k.asm:22535, and S2's identical one,
+// s2.asm:36322 Sonic_Balance / :43674 ChkFloorEdge):
+//   1. only on (near-)flat ground: (angle + $20) & $C0 == 0, the gate both games
+//      pass before the idle block (S2 Obj01_NotRight :36238);
+//   2. the floor under the CENTRE (x_pos, foot Y) is at least BALANCE_DROP_MIN
+//      below the foot (`cmpi.w #$C,d1 / blt` = supported);
+//   3. and one FLOOR SENSOR (x +/- x radius, the pair Player_SensorFloor runs)
+//      found no surface at all: S3K's next_tilt / tilt == 3, the value
+//      Player_AnglePos presets before FindFloor and FindFloor overwrites only
+//      when it finds a block (sonic3k.asm:18752). Right (next_tilt) is asked
+//      first, as S3K does. Here "found nothing" is probe_core's attr = 0.
+// The player is then turned to FACE that edge (S3K `bclr/bset #Status_Facing`
+// at loc_111CE / loc_11228), which is why this routine writes ST_XFLIP.
+//
+// WHY NOT THE OLD RULE (WOVEN-FALSE-BALANCE, 2026-09-27). This used to probe ONE
+// point at x +/- (PLAYER_X_RADIUS+2) toward the facing and call anything more
+// than 8 px down a ledge. That point is not where the player's weight is: in
+// front of a step it lands in the step's own column, under the step, where the
+// donor leaves no collision (the step is solid from the side and above), and
+// Sonic teetered with both feet on flat floor against Emerald Hill's 32-px step
+// at woven (1609, 2829), facing it. S2 and S3K ask the CENTRE, so they cannot.
+// Its window was also wider than theirs (a teeter from 11 px short of the edge),
+// booked as a first estimate, never a ruling (DEFERRED_WORK "Balance threshold").
+//
+// Balance2 (S3K anim $C, the further lean when x -/+ 6 is also over the drop) is
+// NOT here: there is no ANIM_* for it. Booked in DEFERRED_WORK WOVEN-FALSE-BALANCE.
+//
 // In:  a0 = player SST (grounded, at rest — caller gates this)
-// Out: d0 = 0 and Z set (beq) = solidly supported; d0 = 1 and Z clear (bne)
-//      = at an edge. (Z reflects d0 so the caller can branch on beq/bne.)
-// Clobbers: d0-d6, a1 (d6 = the SOLID_TOP class mask on the terrain path)
+// Out: d0 = 0 and Z set (beq) = supported; d0 = 1 and Z clear (bne) = balancing,
+//      ST_XFLIP now facing the edge. (Z reflects d0 so the caller can beq/bne.)
+// Clobbers: d0-d6, a1 (d6 = the SOLID_TOP class mask the probes read)
 // -----------------------------------------------
-const LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2    // just past the support foot
-const LEDGE_NO_GROUND   = 8                     // floor dist beyond this = no ground
-                                                // under the leading foot (TUNE at the
-                                                // visual pass if needed)
+const BALANCE_DROP_MIN = 12                     // S3K/S2 `cmpi.w #$C,d1`: floor under
+                                                // the centre this far down = over the edge
+const BALANCE_FLAT_BIAS = $20                   // S3K/S2 `addi.b #$20 / andi.b #$C0`
 
 pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1) {
+        move.b  angle(a0), d0
+        addi.b  #BALANCE_FLAT_BIAS, d0
+        andi.b  #$C0, d0
+        bne     .supported                       // on a slope: neither game balances
+        moveq   #SOLID_TOP, d6                   // floor class (matches Player_SensorFloor)
         // On a solid object the object IS the floor (Player_SensorFloor's
-        // chokepoint rule) — but this probe bypasses that wrapper and asks
-        // the TERRAIN directly, which finds air under the object and teeters
-        // forever. On a solid, probe the OBJECT's extent instead (classic
-        // balance-on-object): center within its half-width = supported;
-        // past it = fall through to the terrain probe, so a solid resting
-        // flush on the floor still counts the ground beyond its edge.
+        // chokepoint rule), but the probes below ask the TERRAIN, which finds
+        // air under the object. So on a solid, the OBJECT's extent decides
+        // first (classic balance-on-object): centre within its half-width =
+        // supported. Past it, the ground beyond decides, so a solid resting
+        // flush on the floor still counts the floor past its edge.
         btst    #ST_ON_OBJECT, status(a0)
         beq     .terrain
         // the solid that claimed us this pass left its SST address in
-        // SST_interact (TouchResponse lifecycle — cleared at pass start,
-        // set by Touch_Solid's top-contact; can't go stale, no slot scan,
-        // no per-player bit selection)
+        // SST_interact (TouchResponse lifecycle — cleared at pass start, set by
+        // Touch_Solid's top-contact; can't go stale, no slot scan)
         move.w  interact_off()(a0), d0
-        beq     .no_owner                        // 0 = none (defensive)
+        beq     .supported                       // no owner (defensive)
         movea.w d0, a1
-        jbra    .found
-.no_owner:
-        moveq   #0, d0                           // no owner —
-        rts                                      // treat as supported
-.found:
-        // player center relative to the object's center vs its half-width:
-        // the AABB keeps us standing until center passes half-width +
-        // player half-width, so the last stretch before falling teeters —
-        // the classic balance-on-object window.
         move.w  x_pos(a0), d0
         sub.w   Sst.x_pos(a1), d0
-        abs_w(d0)                             // |player center − object center|
+        abs_w(d0)                                // |player centre − object centre|
         moveq   #0, d1
         move.b  Sst.width_pixels(a1), d1
         lsr.w   #1, d1                           // object half-width
         cmp.w   d1, d0
-        bgt     .terrain                         // center past the edge —
-                                                 // check the ground beyond
-        moveq   #0, d0                           // over the object -> Z set
-        rts
+        ble     .supported                       // centre over the object
+        move.w  x_pos(a0), d0
+        jbsr    .foot_probe                      // the ground past the object's edge
+        cmpi.w  #BALANCE_DROP_MIN, d0
+        blt     .supported
+        movea.w interact_off()(a0), a1           // the edge is the side we hang off
+        move.w  x_pos(a0), d0
+        cmp.w   Sst.x_pos(a1), d0
+        bgt     .edge_right
+        jbra    .edge_left
 .terrain:
+        move.w  x_pos(a0), d0
+        jbsr    .foot_probe                      // rule 2: the centre
+        cmpi.w  #BALANCE_DROP_MIN, d0
+        blt     .supported
+        moveq   #0, d0                           // rule 3, right sensor first
+        move.b  width_pixels(a0), d0
+        lsr.w   #1, d0                           // x radius (Player_SensorSurface's)
+        add.w   x_pos(a0), d0
+        jbsr    .foot_probe
+        tst.b   d2                               // attr 0 = found nothing at all
+        beq     .edge_right
+        moveq   #0, d0
+        move.b  width_pixels(a0), d0
+        lsr.w   #1, d0
+        neg.w   d0
+        add.w   x_pos(a0), d0
+        jbsr    .foot_probe
+        tst.b   d2
+        beq     .edge_left
+.supported:
+        moveq   #0, d0                           // supported -> Z set
+        rts
+.edge_right:
+        bclr    #ST_XFLIP, status(a0)            // face the edge (right)
+        moveq   #1, d0                           // balancing -> Z clear
+        rts
+.edge_left:
+        bset    #ST_XFLIP, status(a0)            // face the edge (left)
+        moveq   #1, d0
+        rts
+
+// Collision_ProbeDown at probe X d0.w from the foot (y + y radius), on the
+// player's layer. d6 = SOLID_TOP is live (the probe preserves it).
+// Out: d0.w dist, d2.b attr (0 = nothing found). Clobbers d0-d5, a1.
+.foot_probe:
         moveq   #0, d3
-        move.b  layer(a0), d3                    // layer select for the probe
-        moveq   #SOLID_TOP, d6                   // floor class (matches Player_SensorFloor)
-        // foot Y = y + y_radius
+        move.b  layer(a0), d3
         moveq   #0, d1
         move.b  height_pixels(a0), d1
         lsr.w   #1, d1
         add.w   y_pos(a0), d1                    // high word = integer px
-        // probe X = x offset toward facing
-        move.w  x_pos(a0), d0
-        btst    #ST_XFLIP, status(a0)
-        bne     .face_left
-        addi.w  #LEDGE_PROBE_REACH, d0           // facing right
-        jbra    .single
-.face_left:
-        subi.w  #LEDGE_PROBE_REACH, d0           // facing left
-.single:
-        // Single-point balance probe: call the core directly — the pair
-        // wrapper would run the identical probe twice and compare the
-        // result with itself. d0/d1 (probe point), d3 (layer) and d6
-        // (SOLID_TOP) are already exactly Collision_ProbeDown's inputs.
-        jbsr    Collision_ProbeDown              // d0 = floor distance at the foot
-        cmpi.w  #LEDGE_NO_GROUND, d0
-        bgt     .at_edge
-        moveq   #0, d0                           // supported -> Z set
-        rts
-.at_edge:
-        moveq   #1, d0                           // edge -> Z clear
-        rts
+        jbra    Collision_ProbeDown
 }

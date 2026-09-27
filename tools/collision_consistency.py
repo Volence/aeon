@@ -13,7 +13,9 @@ to every other check in the tree):
   * docs/2026-08-28-ojz-act1-floor-collision-defects.md — 300 floor cells painted
     with S&K base shape 114 X-flipped: a full block MISSING ONE PIXEL COLUMN, so
     the floor has a 1 px hole at every world X = 15 (mod 16). The single-point
-    ledge probe falls into it and Knuckles teeters on flat ground.
+    ledge probe falls into it and Knuckles teeters on flat ground. (That probe
+    was replaced by S3K's centre-plus-sensor rule on 2026-09-27,
+    WOVEN-FALSE-BALANCE; RULE B now models the new rule, see below.)
 
 RULE A (flat-run / angle) and RULE B (pinhole) below are the two checks. Neither
 is a list of known-bad values: both are derived from what the ENGINE does with
@@ -99,13 +101,17 @@ Derivation, from two engine consumers of the same bytes:
     result. A gap in the floor narrower than 18 px can therefore never be under
     both sensors at once: it can never detach a standing player, and nothing
     can ever fall through it.
-  * `Player_AtLedgeEdge` (player_sensors.emp:503) probes a SINGLE point at
-    x +/- LEDGE_PROBE_REACH and calls anything past LEDGE_NO_GROUND a ledge. A
-    1 px gap IS visible to it.
+  * `Player_AtLedgeEdge` (player_sensors.emp) balances when the floor under the
+    CENTRE is at least BALANCE_DROP_MIN below the foot AND one floor sensor
+    (x +/- r) finds no surface at all (S3K's Sonic_Balance rule, since
+    2026-09-27, WOVEN-FALSE-BALANCE; before that it was a single point at
+    x +/- (r+2), which saw a 1 px gap). A gap wide enough to hold the centre
+    and a sensor, and deep enough that the sensor's two-cell probe finds
+    nothing, IS visible to it.
 
 So for every floor gap narrower than 2 * PLAYER_X_RADIUS the two consumers
 disagree about the same data, and the only observable effect is a false ledge —
-the teeter-on-flat-ground the owner reported. A gap that cannot be fallen into
+the teeter-on-flat-ground the owner reported (2026-08-28, under the old probe). A gap that cannot be fallen into
 and cannot be seen is not level design; it is an authoring slip. Gaps at or
 above the pair separation are real ledges and are left alone.
 
@@ -114,7 +120,7 @@ The per-pixel floor line is reconstructed the way the engine reads it:
 pixel, so world X uses column `x & 15` of the attr found at 8 px column `x >> 3`.
 
 A narrow gap in one row is only a CANDIDATE (refined 2026-09-25, S2CLIP-CPZ-
-FURTHER). The harm above needs a standing player whose ledge probe lands in the
+FURTHER). The harm above needs a standing player whose balance rule reads the
 gap, and a one-row scan cannot see whether one can exist: Sonic 2's Chemical
 Plant has 34 such candidates, and every one is the floor of an air pocket
 sealed inside rock, a notch in the underside of a slab, or an air cell with
@@ -123,14 +129,13 @@ can make anyone teeter. So a candidate is a VIOLATION only when some position
 is (1) STANDING, the floor sensor pair reads distance 0; (2) has ROOM, no
 SOLID_LRB pixel in the standing body box; (3) is REACHABLE, its air region (a
 cell is open when EITHER plane leaves it open, since a plane switch can be
-anywhere) is connected to the section edge; and (4) its ledge probe SEES the
-gap and finds no ground within LEDGE_NO_GROUND. The four stages and why every
+anywhere) is connected to the section edge; and (4) its centre is over the
+gap and the balance rule fires there. The four stages and why every
 simplification in them errs toward flagging are spelled out at
 `classify_pinhole`. The collision bytes are never changed by this refinement:
 it is a change to what the gate calls a defect, not to the data.
-LEDGE_PROBE_REACH and LEDGE_NO_GROUND are read from
-games/sonic4/player/player_sensors.emp, PLAYER_Y_RADIUS and SOLID_LRB from
-engine/system/constants.emp.
+BALANCE_DROP_MIN is read from games/sonic4/player/player_sensors.emp,
+PLAYER_X_RADIUS, PLAYER_Y_RADIUS and SOLID_LRB from engine/system/constants.emp.
 
 -----------------------------------------------------------------------------
 WHAT A GREEN RESULT RULES OUT — AND WHAT IT DOES NOT
@@ -138,7 +143,7 @@ WHAT A GREEN RESULT RULES OUT — AND WHAT IT DOES NOT
 Green means: across every committed OJZ act-1 section and BOTH collision planes,
 no floor surface that the engine can actually read claims a slope it does not
 have (Rule A), and no floor has a hole too narrow for the sensor pair to see
-that a reachable standing player's ledge probe reports as a ledge (Rule B).
+that a reachable standing player's balance rule reads as a ledge (Rule B).
 
 Green does NOT mean:
   * that BURIED full blocks are consistent. A full cell with a solid cell above
@@ -218,7 +223,7 @@ def constants_emp_for(root=None):
 
 
 def player_sensors_emp_for(root=None):
-    """Where LEDGE_PROBE_REACH / LEDGE_NO_GROUND live (Player_AtLedgeEdge)."""
+    """Where BALANCE_DROP_MIN lives (Player_AtLedgeEdge)."""
     return os.path.join(root or ROOT, "games", "sonic4", "player",
                         "player_sensors.emp")
 
@@ -328,7 +333,7 @@ def read_emp_const(path: str, name: str) -> int:
 
 def read_emp_const_expr(path: str, name: str, names: dict) -> int:
     """Read `const NAME = <expr>` where <expr> is integers, names from `names`
-    and + - *, e.g. `LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2`. Loud on anything
+    and + - *, e.g. `REACH = PLAYER_X_RADIUS+2`. Loud on anything
     else: an expression this cannot evaluate is a GateError, never a guess."""
     import ast
     try:
@@ -376,8 +381,7 @@ def ledge_params(root=None):
     p = {n: read_emp_const(cpath, n) for n in
          ("SOLID_TOP", "SOLID_LRB", "PLAYER_X_RADIUS", "PLAYER_Y_RADIUS")}
     spath = player_sensors_emp_for(root)
-    p["LEDGE_PROBE_REACH"] = read_emp_const_expr(spath, "LEDGE_PROBE_REACH", p)
-    p["LEDGE_NO_GROUND"] = read_emp_const_expr(spath, "LEDGE_NO_GROUND", p)
+    p["BALANCE_DROP_MIN"] = read_emp_const_expr(spath, "BALANCE_DROP_MIN", p)
     return p
 
 
@@ -568,9 +572,9 @@ def find_pinhole_violations(coll_rows, heights, solidity, solid_top, min_gap_px)
 # notch in the underside of a slab, or from an air cell with solid ground one
 # pixel under it (docs/research/2026-09-25-cpz-floor-gaps.md: all 34 Sonic 2 CPZ
 # candidates are one of those three). RULE B's derivation names exactly one
-# harm: a standing player's single-point ledge probe (`Player_AtLedgeEdge`) lands
-# in the gap and reports a false ledge. A candidate is therefore a violation only
-# when some position satisfies ALL FOUR stages, in this order:
+# harm: a standing player's balance rule (`Player_AtLedgeEdge`) reads the gap as
+# a ledge. A candidate is therefore a violation only when some position
+# satisfies ALL FOUR stages, in this order:
 #
 #   1. STANDING   the floor sensor pair (x -/+ PLAYER_X_RADIUS at the foot,
 #                 `Player_SensorFloor`, closer result wins) reads distance 0, with
@@ -592,10 +596,12 @@ def find_pinhole_violations(coll_rows, heights, solidity, solid_top, min_gap_px)
 #                 are, so every cell is assumed to be a possible switch. Partial and
 #                 sloped cells count as open, and touching the section edge counts
 #                 as open because the neighbour section is not read.
-#   4. SEEN       the single ledge probe at x +/- LEDGE_PROBE_REACH lands on a gap
-#                 pixel, reads the gap's row there (as its primary, or as the one
-#                 forward cell of an empty primary), and returns more than
-#                 LEDGE_NO_GROUND: the exact test `Player_AtLedgeEdge` makes.
+#   4. SEEN       the player's CENTRE is on a gap pixel, the centre probe returns
+#                 at least BALANCE_DROP_MIN, and one floor sensor (x -/+
+#                 PLAYER_X_RADIUS) finds nothing at all (probe_core's `.nothing`,
+#                 32 here): the exact test `Player_AtLedgeEdge` makes (S3K's rule,
+#                 since WOVEN-FALSE-BALANCE 2026-09-27; until then this stage
+#                 modelled the single point at x +/- (r+2), > 8 px).
 #
 # Every relaxation above (top-only cells never block, partial cells are open, the
 # section edge is open, object placement is never credited) finds MORE positions,
@@ -718,52 +724,66 @@ class CollisionPlane:
         return cid == -1 or self._open[cid]
 
 
+def balances(plane, x, foot_y, solid_top, x_radius, drop_min):
+    """`Player_AtLedgeEdge`'s terrain rule at a standing position: None when
+    supported, else the side ("right"/"left") it turns the player to face.
+    Right is asked first, as S3K asks next_tilt first."""
+    if plane.probe_down(x, foot_y, solid_top) < drop_min:
+        return None
+    if plane.probe_down(x + x_radius, foot_y, solid_top) == 32:
+        return "right"
+    if plane.probe_down(x - x_radius, foot_y, solid_top) == 32:
+        return "left"
+    return None
+
+
 def classify_pinhole(plane, v, solid_top, solid_lrb, x_radius, y_radius,
-                     ledge_reach, ledge_no_ground):
+                     drop_min):
     """(stage, witness) for one RULE-B candidate `v` on `plane` (a CollisionPlane).
 
     `stage` is the furthest of EXPOSURE_STAGES any position reached; only
-    "exposed" is a violation. `witness` is (player x, foot y, facing) of the
-    position that reached it, or None when nothing stood at all.
+    "exposed" is a violation. `witness` is (player x, foot y, side) of the
+    position that reached it (side = the edge `balances` turns him to face, None
+    below the last stage), or None when nothing stood at all.
     """
     row = v["row"]
     best, witness = 0, None
-    for probe_x in range(v["x_start"], v["x_end"] + 1):
-        for facing, x in (("right", probe_x - ledge_reach),
-                          ("left", probe_x + ledge_reach)):
-            for foot_y in range((row - 1) * CELL_PX_H, (row + 1) * CELL_PX_H):
-                if min(plane.probe_down(x - x_radius, foot_y, solid_top),
-                       plane.probe_down(x + x_radius, foot_y, solid_top)) != 0:
-                    continue
-                if best < 1:
-                    best, witness = 1, (x, foot_y, facing)
-                if any(plane.pixel_solid(xx, yy, solid_lrb)
-                       for yy in range(foot_y - 2 * y_radius, foot_y)
-                       for xx in range(x - x_radius, x + x_radius + 1)):
-                    continue
-                if best < 2:
-                    best, witness = 2, (x, foot_y, facing)
-                if not plane.open_region(x, foot_y - 1, solid_lrb):
-                    continue
-                if best < 3:
-                    best, witness = 3, (x, foot_y, facing)
-                # SEEN: the gap pixel is the primary (foot in the gap's row), or
-                # the one forward cell of an EMPTY primary (foot in the row above).
-                seen = (foot_y // CELL_PX_H == row
-                        or plane.cell_h(probe_x, foot_y, solid_top) == 0)
-                if seen and plane.probe_down(probe_x, foot_y,
-                                             solid_top) > ledge_no_ground:
-                    return "exposed", (x, foot_y, facing)
+    for x in range(v["x_start"], v["x_end"] + 1):
+        for foot_y in range((row - 1) * CELL_PX_H, (row + 1) * CELL_PX_H):
+            if min(plane.probe_down(x - x_radius, foot_y, solid_top),
+                   plane.probe_down(x + x_radius, foot_y, solid_top)) != 0:
+                continue
+            if best < 1:
+                best, witness = 1, (x, foot_y, None)
+            if any(plane.pixel_solid(xx, yy, solid_lrb)
+                   for yy in range(foot_y - 2 * y_radius, foot_y)
+                   for xx in range(x - x_radius, x + x_radius + 1)):
+                continue
+            if best < 2:
+                best, witness = 2, (x, foot_y, None)
+            if not plane.open_region(x, foot_y - 1, solid_lrb):
+                continue
+            if best < 3:
+                best, witness = 3, (x, foot_y, None)
+            # SEEN: the gap pixel under the centre is the primary (foot in
+            # the gap's row), or the one forward cell of an EMPTY primary
+            # (foot in the row above), and the balance rule fires.
+            seen = (foot_y // CELL_PX_H == row
+                    or plane.cell_h(x, foot_y, solid_top) == 0)
+            side = seen and balances(plane, x, foot_y, solid_top, x_radius,
+                                     drop_min)
+            if side:
+                return "exposed", (x, foot_y, side)
     return EXPOSURE_STAGES[best], witness
 
 
 def find_exposed_pinhole_violations(coll_rows, heights, solidity, solid_top,
-                                    solid_lrb, x_radius, y_radius, ledge_reach,
-                                    ledge_no_ground, other_rows=None):
+                                    solid_lrb, x_radius, y_radius, drop_min,
+                                    other_rows=None):
     """RULE B as the gate applies it: the one-row candidates of
     `find_pinhole_violations` (gap < 2 * x_radius, floor both sides), kept only
-    when `classify_pinhole` finds a reachable standing position whose ledge probe
-    reports a false ledge in them. `other_rows` is the section's other plane,
+    when `classify_pinhole` finds a reachable standing position whose balance
+    rule reads them as a ledge. `other_rows` is the section's other plane,
     read only by the reachability flood; None floods this plane alone (which
     can only call MORE regions sealed, so every real caller passes it).
 
@@ -780,8 +800,7 @@ def find_exposed_pinhole_violations(coll_rows, heights, solidity, solid_top,
     out = []
     for v in cand:
         stage, witness = classify_pinhole(plane, v, solid_top, solid_lrb,
-                                          x_radius, y_radius, ledge_reach,
-                                          ledge_no_ground)
+                                          x_radius, y_radius, drop_min)
         if stage == "exposed":
             v["stand"] = witness
             out.append(v)
@@ -870,7 +889,7 @@ def check(gen_dir=None, verbose=False, out=sys.stdout, root=None):
             rb, sb = find_exposed_pinhole_violations(
                 grid, heights, solidity, solid_top, lp["SOLID_LRB"],
                 lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
-                lp["LEDGE_PROBE_REACH"], lp["LEDGE_NO_GROUND"],
+                lp["BALANCE_DROP_MIN"],
                 other_rows=cb if plane_name == "A" else ca)
             pop["exposed_full_cells"] += sa["exposed_full_cells"]
             pop["exposed_runs"] += sa["exposed_runs"]
@@ -991,7 +1010,7 @@ def main(argv):
     print(f"Collision consistency: RULE B found {pop['candidates']} one-row gap "
           f"candidate(s) and cleared "
           + ", ".join(f"{pop['cleared_' + s]} {s}" for s in EXPOSURE_STAGES[:-1])
-          + " (no reachable standing position whose ledge probe reports a false "
+          + " (no reachable standing position whose balance rule reads a false "
           "ledge in them).")
 
     # Split into exempted (baseline) and new. Only NEW violations fail.
@@ -1054,15 +1073,15 @@ def main(argv):
         print(f"RULE B — {len(vb)} pinhole(s) in the floor.")
         print("  A gap narrower than the floor sensor pair separation cannot be")
         print("  fallen into and cannot detach a standing player, but the")
-        print("  single-point ledge probe DOES see it and reports a false ledge")
+        print("  balance rule (Player_AtLedgeEdge) DOES see it and teeters")
         print("  (docs/2026-08-28-ojz-act1-floor-collision-defects.md).")
         for v in vb[:40]:
             print(f"    sec{v['section']} plane {v['plane']} row {v['row']} "
                   f"(world y={v['world_y']}): {v['gap_px']} px gap at world x "
                   f"{v['x_start']}..{v['x_end']}; attrs "
                   f"{[f'${a:02X}' for a in v['attrs']]}; a player standing at "
-                  f"x={v['stand'][0]} foot y={v['stand'][1]} facing "
-                  f"{v['stand'][2]} teeters on it")
+                  f"x={v['stand'][0]} foot y={v['stand'][1]} teeters "
+                  f"toward the {v['stand'][2]} on it")
         if len(vb) > 40:
             print(f"    ... and {len(vb) - 40} more")
         print("  FIX: repaint the offending cells with an all-16 shape (S&K 255).")
