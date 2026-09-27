@@ -1,30 +1,41 @@
-"""K6 at a zone with NO plane-B collision (woven first screen, s2_mtz_cpz, 2026-09-27).
+"""A ONE-PATH zone in a clip act (woven first screen, s2_mtz_cpz, 2026-09-27).
 
 RUNNER: build.sh's PRE-build tool-suite lane (`pytest tools -m "not needs_build"`), which
 `tools/landing_build.sh` runs once per landing. Nothing here reads a build artifact. Rows
 that need a donor convert their own into pytest's tmp tree and SKIP SAYING SO when the donor
 checkout cannot be resolved (the tools/test_clip_two_zone.py pattern).
 
-THE BLOCKER THIS CLOSES (docs/research/2026-09-27-mega-act-woven.md §C item 9, MEASURED).
-K6 read the neighbour's floor row on BOTH collision planes and refused when they disagreed.
-Sonic 2's Metropolis has one collision path: s2.asm names `ColP_MTZ` as both its primary and
-secondary index, and its chunk words carry no path-B solidity at all, so the converted tree's
-plane B has a shape in every cell and solidity in NONE (0 of 221,276 words, MEASURED by the
-converter's tree). Every flush floor at Metropolis's edge therefore read "heights 16 and 0" and
-was refused, though there is no plane-B seam there to match.
+WHAT A ONE-PATH ZONE IS. Sonic 2's Metropolis has one collision path: s2.asm names `ColP_MTZ`
+as both its primary and secondary index, and its chunk words carry no path-B solidity at all,
+so the converted tree's plane B has a shape in every cell and solidity in NONE (MEASURED:
+0 plane-B solid words; Chemical Plant has 69,120). Sonic 2 never puts the player on path B
+there: Metropolis's object layout has no plane switcher, and an act starts on path A.
 
-THE RULE NOW (`clip_manifest.zone_has_plane_b`, `_seam_ramps`): a neighbour whose ZONE has no
-plane-B solidity anywhere in its whole converted tree is matched on plane A alone. The test is
-the ZONE, not the clip's crop and not the seam column: a zone that uses plane B anywhere is
-held to both planes exactly as before, even where its crop happens to be empty on B.
+WHY IT MATTERS HERE. In a clip act the player can ARRIVE in Metropolis on plane B: Chemical
+Plant's own Obj03 lines put him there (14 of the woven act's 20 layer-line rows select B), and
+nothing in Metropolis puts him back. On the donor's empty plane B he falls forever: MEASURED on
+the first bake of this act, clip_reachability counted 384 floorless plane-B columns, every
+Metropolis column. And K6 refused every flush floor at Metropolis's edge as "planes disagree
+(16 and 0)" (the woven report's MEASURED blocker, docs/research/2026-09-27-mega-act-woven.md
+§C item 9).
+
+THE RULE (`clip_manifest.zone_has_plane_b`, `_clip_collision`): a clip whose ZONE has no
+plane-B solidity anywhere in its whole converted tree is pasted with its plane A on BOTH
+planes. A player on either path then stands on the one path the zone has, which is what
+Sonic 2's path-A-at-act-start gives him there. The test is the ZONE, not the clip's crop: a
+zone that uses plane B anywhere keeps its own plane B, even where its crop is empty on B, and
+K6 then holds its seams to both planes exactly as before. (This replaced a first cut that
+exempted such a zone from K6's plane-B read: the seam passed, and the plane-B player still
+fell at it.)
 
 WHAT IS PINNED:
-  * the real act's two tunnels bake at Metropolis's edges, and what K6 measured there;
   * zone_has_plane_b agrees with a direct count of the tree's plane-B solidity bits;
-  * THE CONTROL THAT IT IS NOT LOOSENED: Metropolis's own tree with ONE plane-B solid word
-    planted far from the seam (a different section) is a zone that has plane B, and K6
-    refuses the same seam again with "disagree" — the exemption is keyed to the zone's
-    measurement and nothing else;
+  * the act's collision carries each Metropolis clip's plane A on plane B, cell for cell, and
+    Chemical Plant's own plane B untouched;
+  * the real act's two tunnels bake at Metropolis's edges on both planes;
+  * THE CONTROL THAT NOTHING WAS LOOSENED: Metropolis's own tree with ONE plane-B solid word
+    planted far from the seam is a zone that has plane B, so it is NOT mirrored and K6 refuses
+    the seam with "disagree";
   * Chemical Plant, which has plane B, is still read on both planes at its own seams.
 """
 
@@ -71,7 +82,7 @@ def no_working_tree_donors():
 
 @pytest.fixture(scope="module")
 def donors(tmp_path_factory):
-    root = str(tmp_path_factory.mktemp("s2k6planeb"))
+    root = str(tmp_path_factory.mktemp("s2onepath"))
     for donor, zone in CASES:
         try:
             S.donor_root(donor)
@@ -94,6 +105,12 @@ def _plane_b_solid_words(tree):
     return n
 
 
+def _tree_planes(cl, root, act):
+    zm = json.load(open(os.path.join(cl.tree_dir(root), "zone.json")))
+    return [CM.section_plane_grid(cl.tree_dir(root), zm, act.section_tiles, s)
+            for s in ("collattr", "collattrb")]
+
+
 def test_zone_has_plane_b_is_the_trees_own_count(donors):
     _need(S.S2_FINAL)
     act = CM.load(MANIFEST, donor_root=donors)
@@ -102,16 +119,40 @@ def test_zone_has_plane_b_is_the_trees_own_count(donors):
         tree = os.path.join(donors, S.S2_FINAL, zone)
         count = _plane_b_solid_words(tree)
         assert CM.zone_has_plane_b(by_zone[zone], donors) == (count > 0), (zone, count)
-    # The premise the exemption rests on, measured rather than assumed:
+    # The premise the rule rests on, measured rather than assumed:
     assert _plane_b_solid_words(os.path.join(donors, S.S2_FINAL, "MTZ")) == 0
     assert _plane_b_solid_words(os.path.join(donors, S.S2_FINAL, "CPZ")) > 0
 
 
-def test_the_real_acts_tunnels_meet_metropolis_on_plane_a(donors):
-    """Before the fix this raised `K6 ... two collision planes disagree at x=1535 ...
-    (heights 16 and 0)` (the report's MEASURED blocker, reproduced 2026-09-27 on this
-    manifest). Each corridor's Metropolis end must now be measured on plane A: flush, or a
-    ramp from plane A's own height."""
+def test_a_one_path_zone_is_pasted_with_its_plane_a_on_both_planes(donors):
+    """Red before the rule: the act's plane B under every Metropolis clip was the donor's
+    solidity-free plane B, so a plane-B player fell through all of Metropolis."""
+    _need(S.S2_FINAL)
+    act = CM.load(MANIFEST, donor_root=donors)
+    pa, pb = CM._clip_collision(act, donors)
+    seen = set()
+    for cl in act.clips:
+        ta, tb = _tree_planes(cl, donors, act)
+        sx, sy, sw, sh = (v // CM.TILE_PX for v in cl.src)
+        dx, dy = cl.dst[0] // CM.TILE_PX, cl.dst[1] // CM.TILE_PX
+        got_a = pa[dy:dy + sh, dx:dx + sw]
+        got_b = pb[dy:dy + sh, dx:dx + sw]
+        assert (got_a == ta[sy:sy + sh, sx:sx + sw]).all(), cl.id
+        want_b = ta if cl.zone == "MTZ" else tb
+        assert (got_b == want_b[sy:sy + sh, sx:sx + sw]).all(), cl.id
+        seen.add(cl.zone)
+    assert seen == {"MTZ", "CPZ"}
+    # and the mirror is not vacuous: CPZ's own planes differ inside its crop
+    cpz = next(cl for cl in act.clips if cl.zone == "CPZ")
+    ta, tb = _tree_planes(cpz, donors, act)
+    sx, sy, sw, sh = (v // CM.TILE_PX for v in cpz.src)
+    assert (ta[sy:sy + sh, sx:sx + sw] != tb[sy:sy + sh, sx:sx + sw]).any()
+
+
+def test_the_real_acts_tunnels_meet_metropolis_on_both_planes(donors):
+    """Before either fix this raised `K6 ... two collision planes disagree at x=1535 ...
+    (heights 16 and 0)` on the draft geometry. Each corridor's Metropolis end is now measured
+    on both planes, and both carry plane A's floor there."""
     _need(S.S2_FINAL)
     act = CM.load(MANIFEST, donor_root=donors)
     CM.collision_grids(act, donors)
@@ -124,23 +165,23 @@ def test_the_real_acts_tunnels_meet_metropolis_on_plane_a(donors):
         for side, x in (("left", co.dst[0] - 1), ("right", co.dst[0] + co.dst[2])):
             cl = CM._clip_at(act, x, co.floor_y)
             assert cl is not None, (co.id, side)
-            ha = CM._word_heights(int(planes[0][co.floor_y // 8, x // 8]), hm)
-            ha = ha[x % n] if ha is not None else 0
+            hs = []
+            for p in planes:
+                h = CM._word_heights(int(p[co.floor_y // 8, x // 8]), hm)
+                hs.append(h[x % n] if h is not None else 0)
+            assert hs[0] == hs[1], (co.id, side, hs)
             if ramps[side] is None:
-                assert ha == n, (co.id, side, ha)
+                assert hs[0] == n, (co.id, side, hs)
             else:
-                assert ramps[side]["neighbour_surface_y"] == co.floor_y + n - ha, (co.id, side)
-            if cl.zone == "MTZ":
-                seen_mtz += 1
-                hb = CM._word_heights(int(planes[1][co.floor_y // 8, x // 8]), hm)
-                assert hb is None, "Metropolis's plane B was expected to carry no floor here"
+                assert ramps[side]["neighbour_surface_y"] == co.floor_y + n - hs[0], (co.id, side)
+            seen_mtz += cl.zone == "MTZ"
     assert seen_mtz == 2, "both tunnels have a Metropolis end"
 
 
-def test_a_zone_with_plane_b_anywhere_is_still_held_to_both_planes(donors, tmp_path):
+def test_a_zone_with_plane_b_anywhere_is_not_mirrored(donors, tmp_path):
     """THE CONTROL. The same act over a Metropolis tree carrying ONE plane-B solid word, in
-    its last section (x 8192.., nowhere near either seam). That zone HAS plane B, so the
-    seam at x=1535 must be refused exactly as before the fix."""
+    its last section (nowhere near either seam). That zone HAS plane B, so it keeps its own
+    (empty) plane B at the seam and K6 refuses it exactly as before the rule."""
     _need(S.S2_FINAL)
     root = str(tmp_path / "donors")
     shutil.copytree(donors, root)

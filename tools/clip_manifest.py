@@ -226,8 +226,9 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
   K5  a tunnel's art names a zone some clip of the act uses, and its wall_src/back_src are
       on the 8-px grid inside that zone's crop.
   K6  (at bake, from the collision) each seam is flush or bridgeable by one ramp block,
-      on both planes; on plane A alone where the neighbour's ZONE has no plane-B
-      collision anywhere (`zone_has_plane_b`: Sonic 2's Metropolis, one path).
+      on both planes. A ONE-PATH zone (no plane-B collision anywhere in its tree,
+      `zone_has_plane_b`: Sonic 2's Metropolis) is pasted with its plane A on both planes
+      (`_clip_collision`), so its seams are read on both planes like any other.
 
 `validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
 row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
@@ -1186,7 +1187,15 @@ def cell_grids(act, donor_root=None):
 
 def _clip_collision(act, donor_root):
     """(plane_a, plane_b) with the CLIPS only — what a corridor's seams are measured
-    against (`_seam_ramps`), before any corridor is written over its own rectangle."""
+    against (`_seam_ramps`), before any corridor is written over its own rectangle.
+
+    A ONE-PATH ZONE is pasted with its plane A on BOTH planes (`zone_has_plane_b` is False:
+    Sonic 2's Metropolis). Sonic 2 never puts the player on path B there (no plane switcher
+    in its layout, and an act starts on path A), but a clip act can deliver him on plane B
+    from a neighbour whose own lines select it (Chemical Plant's do), and on the donor's
+    solidity-free plane B he falls forever: MEASURED on the woven act s2_mtz_cpz, 384
+    floorless plane-B columns, every Metropolis column. Carrying plane A there gives him the
+    one path the zone has. Every zone with plane B anywhere keeps its own plane B."""
     import numpy as np
     key = (donor_root, "clip_collision")
     if key in act._memo:
@@ -1198,8 +1207,10 @@ def _clip_collision(act, donor_root):
         if cl.tree_key not in cache:
             zm = _zone_manifest(cl, donor_root)
             d = cl.tree_dir(donor_root)
-            cache[cl.tree_key] = tuple(
-                section_plane_grid(d, zm, st, s) for s in ("collattr", "collattrb"))
+            pa = section_plane_grid(d, zm, st, "collattr")
+            pb = section_plane_grid(d, zm, st, "collattrb") if zone_has_plane_b(cl, donor_root) \
+                else pa
+            cache[cl.tree_key] = (pa, pb)
         src = cache[cl.tree_key]
         sx, sy, sw, sh = (v // TILE_PX for v in cl.src)
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
@@ -1236,8 +1247,9 @@ def zone_has_plane_b(clip, donor_root):
     """True when the clip's ZONE carries plane-B solidity anywhere in its converted tree.
 
     MEASURED over the WHOLE zone (every section's `collattrb`), not the clip's crop and not
-    one column: a zone that uses plane B anywhere is a two-path zone and K6 holds its seams
-    to both planes. Sonic 2's Metropolis is the case this exists for: s2.asm names
+    one column: a zone that uses plane B anywhere is a two-path zone and keeps its own plane
+    B; one that does not is pasted with plane A on both (`_clip_collision`). Sonic 2's
+    Metropolis is the case this exists for: s2.asm names
     `ColP_MTZ` as both its primary and secondary index and its chunk words carry no path-B
     solidity, so its plane B has a shape in every cell and solidity in none (0 words,
     MEASURED 2026-09-27). A missing plane file raises (`section_plane_grid`), never False."""
@@ -1268,7 +1280,7 @@ def _clip_at(act, x, y):
     return None
 
 
-def _seam_ramps(act, co, planes, hm, bank_dir, plane_b_zone=None):
+def _seam_ramps(act, co, planes, hm, bank_dir):
     """K6 — where a corridor's floor meets a neighbour's ground, and what bridges them.
 
     MEASURED, not declared: for each end, the neighbour pixel column just outside the
@@ -1281,10 +1293,9 @@ def _seam_ramps(act, co, planes, hm, bank_dir, plane_b_zone=None):
       * anything else (air on that row, ground in the row above, planes that disagree) is a
         step this corridor cannot bridge in one block, and is REFUSED rather than shipped.
     No neighbour (the act edge, or a VOID column) is nothing to meet.
-    A neighbour whose ZONE has no plane-B collision anywhere (`zone_has_plane_b`, Sonic 2's
-    Metropolis) has no plane-B seam to match, so it is read on plane A alone. Every other
-    neighbour, including one whose crop happens to be empty on plane B, is read on both.
-    `plane_b_zone` maps a clip id to that measurement (None: measure nothing, read both).
+    A one-path neighbour (Sonic 2's Metropolis) arrives here with plane A on both planes
+    (`_clip_collision`), so the two reads agree there by construction; a two-path neighbour
+    whose planes disagree at the seam is refused.
     Returns {"left"/"right": None or {"neighbour_surface_y", "shape", "xflip"}}."""
     n = collision_pipeline.PROFILE_LEN
     act_w = act.cols * TILE_PX
@@ -1297,12 +1308,8 @@ def _seam_ramps(act, co, planes, hm, bank_dir, plane_b_zone=None):
         col = x // TILE_PX
         if all(int(p[r, col]) == 0 for p in planes for r in range(act.rows)):
             continue
-        read = planes
-        cl = _clip_at(act, x, co.floor_y)
-        if cl is not None and plane_b_zone is not None and not plane_b_zone[cl.id]:
-            read = planes[:1]
         hs = []
-        for p in read:
+        for p in planes:
             above = _word_heights(int(p[fr - 2, col]), hm) if fr >= 2 else None
             if above is not None and above[x % n]:
                 raise ClipManifestError(
@@ -1311,7 +1318,7 @@ def _seam_ramps(act, co, planes, hm, bank_dir, plane_b_zone=None):
                     f"wall to walk into. Raise floor_y or move the corridor.")
             h = _word_heights(int(p[fr, col]), hm)
             hs.append(h[x % n] if h is not None else 0)
-        if len(hs) == 2 and hs[0] != hs[1]:
+        if hs[0] != hs[1]:
             raise ClipManifestError(
                 f"K6 corridor {co.id!r}: its {side} neighbour's two collision planes disagree "
                 f"at x={x} on the floor row (heights {hs[0]} and {hs[1]}); one ramp cannot "
@@ -1356,8 +1363,7 @@ def corridor_collision(act, co, donor_root=None):
     words[floor_row:, :] = full
     if co.tunnel is not None:
         words[:(co.tunnel.ceiling_y - co.dst[1]) // TILE_PX, :] = full
-    plane_b_zone = {cl.id: zone_has_plane_b(cl, donor_root) for cl in act.clips}
-    ramps = _seam_ramps(act, co, _clip_collision(act, donor_root), hm, bank_dir, plane_b_zone)
+    ramps = _seam_ramps(act, co, _clip_collision(act, donor_root), hm, bank_dir)
     per_block = collision_pipeline.PROFILE_LEN // TILE_PX
     for side, r in ramps.items():
         if r is None:
