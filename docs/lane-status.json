@@ -23,8 +23,16 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "At a boundary now: nothing in flight.",
+  "nextBoundary": "At a boundary, clearable. A fresh session starts the queue's next row; handoff is docs/lane-log.jsonl's last entry plus DEFERRED_WORK.",
   "queue": [
+    {
+      "id": "WINDOWED-BG-VERTICAL-CLAMP",
+      "title": "Woven act polish: Hidden Palace and Wing Fortress backgrounds stop scrolling part-way down; let tall backgrounds stream (DEFERRED_WORK has the numbers)",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
@@ -168,7 +176,7 @@
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Object video memory: 53 free tiles landed; halving the plane (256 more) is your call",
-      "state": "next",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
@@ -204,5 +212,5 @@
   ],
   "awaiting": "Your look at the woven Sonic 2 act: open s4.woven.debug.bin (crc 617448a7) in the aeon folder, start at Emerald Hill.",
   "atBoundary": true,
-  "updatedAt": "2026-09-27T14:08:08Z"
+  "updatedAt": "2026-09-27T14:08:26Z"
 }
