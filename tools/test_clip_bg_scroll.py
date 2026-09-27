@@ -201,6 +201,41 @@ def test_cpz_reader_refuses_a_source_that_stops_saying_what_it_reads(s2asm, need
         CBS.derive_cpz(mutated, 256)
 
 
+# ---- METROPOLIS (woven first screen s2_mtz_cpz, 2026-09-27) --------------------------------
+# Red before derive_mtz: derive("MTZ") returned None, the act kept the act-default scroll, and
+# crossing_witness counted 13-16 "mid-lerp" glitch ticks per arrival in Metropolis.
+
+@pytest.mark.parametrize("dy", [0, 448])
+def test_mtz_is_one_flat_band_at_initcam_stds_rates(s2asm, dy):
+    spec = CBS.derive("s2disasm", "MTZ", dy)
+    assert spec is not None and spec["routine"] == "SwScrl_MTZ"
+    m = re.search(r"InitCam_Std:\s*\n\s*asr\.w\s+#(\d+),d0\s*\n\s*move\.w\s+d0,\(Camera_BG_Y_pos\)"
+                  r"\.w\s*\n\s*asr\.w\s+#(\d+),d1", s2asm)
+    v_shift, x_shift = int(m.group(1)), int(m.group(2))
+    assert (spec["v_factor"], spec["v_center"]) == (v_shift, dy)
+    assert [(b["kind"], b["plane_top"], b["ratio"]) for b in spec["bands"]] == \
+        [("flat", 0, Fraction(1, 1 << x_shift))]
+    assert CBS.factor_value(*spec["bands"][0]["factor"]) == Fraction(1, 1 << x_shift)
+
+
+def _mutate_mtz(text, needle, repl):
+    start = text.index("\nSwScrl_MTZ:")
+    end = text.index("\nSwScrl_WFZ:", start)
+    body = text[start:end]
+    assert needle in body, f"the mutation's target {needle!r} is gone from SwScrl_MTZ — re-derive"
+    return text[:start] + body.replace(needle, repl) + text[end:]
+
+
+@pytest.mark.parametrize("needle,repl,why", [
+    ("\tasl.l\t#5,d4", "\tasl.l\t#4,d4", "disagree"),
+    ("\tmove.w\t#224-1,d1", "\tmove.w\t#112-1,d1", "one-value store"),
+])
+def test_mtz_reader_refuses_a_source_that_stops_saying_what_it_reads(s2asm, needle, repl, why):
+    CBS.derive_mtz(s2asm, 448)                                     # control
+    with pytest.raises(CBS.ClipScrollError, match=why):
+        CBS.derive_mtz(_mutate_mtz(s2asm, needle, repl), 448)
+
+
 def test_scene_text_carries_every_derived_layer(s2asm, ehz):
     cpz = CBS.derive_cpz(s2asm, 256)
     for spec in (ehz, cpz):
