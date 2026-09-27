@@ -1,9 +1,9 @@
 {
-  "focus": "Hidden Palace background fixed; now the Emerald Hill invisible wall, and rebuilding the woven ROM for you.",
+  "focus": "Teeter fixed; now fixing the Wing Fortress fall-through (wrong collision layer), then a fresh woven ROM.",
   "inFlight": [
     {
-      "what": "Emerald Hill invisible wall and false balance pose: our collision there doesn't match Sonic 2's",
-      "where": "branch fix/woven-false-balance",
+      "what": "Wing Fortress: Sonic falls through decks when he arrives on the second collision layer",
+      "where": "branch fix/woven-wfz-plane-b",
       "agent": true
     }
   ],
@@ -27,10 +27,10 @@
   "nextBoundary": "When the Hidden Palace background fix returns and lands; then the woven ROM rebuild.",
   "queue": [
     {
-      "id": "WOVEN-FALSE-BALANCE",
-      "title": "Woven act, Emerald Hill: an invisible wall and a balance pose on flat ground (you found it; collision doesn't match Sonic 2 there)",
+      "id": "WOVEN-WFZ-PLANE-B",
+      "title": "Wing Fortress: Sonic falls through decks after arriving on the second collision layer (you found it)",
       "state": "doing",
-      "size": "M",
+      "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -229,5 +229,5 @@
   ],
   "awaiting": "New woven ROM with the Hidden Palace fix: s4.woven.debug.bin (crc 11cfc8e5). Also: do you want the woven act made editable in aurora?",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T21:06:39Z"
+  "updatedAt": "2026-09-27T21:37:32Z"
 }
