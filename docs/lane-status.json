@@ -145,7 +145,7 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: you okayed the woven layout; building Chemical Plant inside Metropolis first",
+      "title": "Big Sonic 2 act: layout agreed (woven, v2.1); building Chemical Plant inside Metropolis first",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -197,5 +197,5 @@
   ],
   "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera speed.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T03:36:38Z"
+  "updatedAt": "2026-09-27T03:44:04Z"
 }
