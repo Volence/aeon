@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_hpz_solo",
+  "name": "WOVEN PREP (items 10, 11): Hidden Palace alone, the woven act's L (prototype HPZ act 1: west x 4688..7247, east x 7248..8351 at y 1504..2047, one paste offset)",
+  "note": "A single-zone proof clip for the woven mega-act (docs/research/2026-09-27-mega-act-woven.md section C items 10 and 11, v2.1's Hidden Palace L): the prototype (Simon Wai) Hidden Palace, the only donor for it. Two clips of one zone with ONE paste offset (-4688, 0), exactly as v2.1 cuts it, so the place they touch is Sonic 2's own geometry. What it proves: s2_layer_lines reads the prototype's Objects_Layout row and finds zero Obj03 (a prototype Obj03 would be refused, rule L6), so zero lines; the background is HPZ's registry-driven BG (145 tiles, plane window 0, period 128 cells), transcribed from the prototype's Bg_Scroll_HPz table half and loc_6AA8 (6 bands, 3 ramp ratios approximated to the nearest engine factor, listed in the spec's approximations). WHY THE EAST PIECE STOPS AT DONOR x 8352 AND NOT v2.1's 9216 (MEASURED 2026-09-27): donor x 8448..8703 inside the east piece's band (y 1504..2047) carries NO art at all, and x 8352..8447 (in this act at 3664..3759, measured with the piece cut at 8448) no plane-A landing surface: a pit at least 352 px wide down to the donor's bottom edge (where it ends east of 8703 was not measured). clip_reachability refuses an interior artless column outright, so a solo act cannot carry it; in the woven act Metropolis west paints those columns above it and the art check passes, but the pit is still a fall to the act's bottom (woven finding, recorded in the design doc). The start is a chosen point: the donor's own start (560, 428) is in HPZ's opening, west of this piece.",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 3
+  },
+  "start": {
+    "x": 224,
+    "y": 1005,
+    "why": "On Hidden Palace's floor at x 224, surface y 1024 (MEASURED from this clip's bake: plane-A SOLID_TOP, 48 px of air above). The donor's own start (560, 428) is in HPZ's opening, outside this piece."
+  },
+  "unpainted_remainder": {
+    "x_from": 3664,
+    "why": "The L is 2560 + 1104 = 3664 px wide (the east piece stops before the pit, see the note); past it is the unused rest of the 6144-px slot.",
+    "unbounded_fall": {
+      "columns": 458,
+      "donor_bottom_boundary": {
+        "HPZ": 1824,
+        "note": "the prototype's LevelSize row for HPZ act 1 is the generic $0720 (1824); paste dy is 0."
+      },
+      "why": "THE ACT HAS NO BOTTOM: every painted column has air below its last landing surface (Sonic 2's terrain interiors are LRB-only). Sonic 2 survives this with a level bottom boundary that kills; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: a floor, a death plane or a bottom boundary drops it, and clip_reachability says so."
+    }
+  },
+  "clips": [
+    {
+      "id": "hpz_west",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 4688,
+        "y": 0,
+        "w": 2560,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 2560,
+        "h": 2048
+      }
+    },
+    {
+      "id": "hpz_east",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 7248,
+        "y": 1504,
+        "w": 1104,
+        "h": 544
+      },
+      "dst_rect": {
+        "x": 2560,
+        "y": 1504,
+        "w": 1104,
+        "h": 544
+      },
+      "unaligned_dst_reason": "v2.1's Hidden Palace L: the east piece is the SAME donor rectangle as the west piece, pasted with the same offset (-4688, 0), so its origin sits at donor y 1504, off the section grid by construction (docs/research/2026-09-27-mega-act-woven.md, v2.1 'What changed')."
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_ooz_solo",
+  "name": "WOVEN PREP (item 11): Oil Ocean alone, the woven act's own OOZ piece (Sonic 2 OOZ act 1 x 8192..11263, y 0..1887)",
+  "note": "A single-zone proof clip for the woven mega-act (docs/research/2026-09-27-mega-act-woven.md section C items 10 and 11): Oil Ocean's piece of the woven layout, ooz_east, pasted at the act origin, so its background (the lowered S2 OOZ plane-B window and the SwScrl_OOZ transcription: 12 BG-row bands, the sun a reversed ripple) and its layer-line result (zero Obj03 in OOZ_1, so zero lines) can be built and witnessed before the woven act exists. WHY THIS RECTANGLE AND NOT OOZ'S OPENING (MEASURED 2026-09-27, the donor's own words): x 0..6143 has 103 columns with NO art at all at x 384..567, 768..895, 1792..1855, 2304..2431, 2560..2879 - Oil Ocean's oil pits, where the oil is drawn on the background and Sonic 2 stands you on it with an object (Obj07) this clip does not carry. clip_reachability refuses an interior artless column outright (no declaration channel), so the opening cannot be a clip. The woven piece has 0 artless columns. The start is a chosen point (the donor's own start, (96, 1708), is 8,000 px west of this piece): on the ground at x 160, surface y 576 (clip_rom_bake ground: 19 px = PLAYER_Y_RADIUS below the spawn).",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 3
+  },
+  "start": {
+    "x": 160,
+    "y": 557,
+    "why": "On Oil Ocean's ground at x 160, surface y 576 (MEASURED from this clip's bake: plane-A SOLID_TOP, 48 px of air above). The donor's own start (96, 1708) lies outside this piece, which is the woven act's, not OOZ's opening (see the note for why the opening cannot be a clip)."
+  },
+  "unpainted_remainder": {
+    "x_from": 3072,
+    "why": "The woven piece is 3072 px wide and the act slot is 6144 (a 3x3 grid, the multiple-of-3 section count the inherited OJZ entity pass still needs, woven item 8). Past x 3072 is the unused half of the slot.",
+    "unbounded_fall": {
+      "columns": 384,
+      "donor_bottom_boundary": 1664,
+      "why": "THE ACT HAS NO BOTTOM: every painted column has air below its last landing surface (Sonic 2's terrain interiors are LRB-only). Sonic 2 survives this with a level bottom boundary that kills; this engine has no death, so a body under the terrain falls forever. THE COUNT IS THE CHECK: a floor, a death plane or a bottom boundary drops it, and clip_reachability says so. 1664 is OOZ act 1's LevelSize bottom (s2_donor.level_size); paste dy is 0."
+    }
+  },
+  "clips": [
+    {
+      "id": "ooz_east",
+      "donor": "s2disasm",
+      "zone": "OOZ",
+      "src_rect": {
+        "x": 8192,
+        "y": 0,
+        "w": 3072,
+        "h": 1888
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 3072,
+        "h": 1888
+      }
+    }
+  ]
+}
