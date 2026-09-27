@@ -1046,10 +1046,11 @@ def background_constants():
     """(overwrite chunk bytes, wipe rows per frame, rows the screen can show) — READ from the
     engine (engine/level/bg.emp and the files its expressions reach), never typed.
 
-    The wipe rate is BG_WIPE_DMA_ROWS: every clip background is ONE plane tall
-    (clip_bg_lower lowers to the plane, rows carry rg_bg_span 0), and since 2026-09-25 a
-    one-plane map is swept by DMA from ROM (BG_Stream_Update's `.wipe_dma`) at that many rows
-    a frame, not by the CPU path's BG_WIPE_ROWS_PER_FRAME."""
+    The wipe rate is BG_WIPE_DMA_ROWS: since 2026-09-25 a one-plane map, and since
+    WOVEN-TALL-ENTRY (2026-09-27) a TALL one too (HPZ, WFZ), is swept by DMA from ROM
+    (BG_Stream_Update's `.wipe_spend`) at that many rows a frame; the CPU sweep's
+    BG_WIPE_ROWS_PER_FRAME is deleted. Entering a tall zone also snaps its BG scroll on the
+    crossing frame (Parallax_BG_Snap), so it adds no term here."""
     from fg_working_set import ConstantSource
     src = ConstantSource()
     for path in ("engine/system/constants.emp", "engine/level/parallax.emp",
@@ -1068,9 +1069,10 @@ def background_switch_frames(plan, consts=None):
     BG_OVERWRITE_CHUNK_BYTES is queued per frame until it has all landed, and the wipe and
     the streamer are SUSPENDED for the whole overwrite (the plane shows the old layout over
     tiles that are being replaced — garbage, if it is on screen). Then the wipe repaints the
-    plane BG_WIPE_ROWS_PER_FRAME rows a frame starting at the top VISIBLE row, so the rows
-    the screen can show are repainted after ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME)
-    frames. A zone whose effective blob is the one the arena already holds (co-resident)
+    plane BG_WIPE_DMA_ROWS rows a frame by DMA starting at the top VISIBLE row, so the rows
+    the screen can show are repainted after ceil(BG_SCREEN_ROWS / BG_WIPE_DMA_ROWS) frames
+    (the CPU sweep, BG_WIPE_ROWS_PER_FRAME = 4, is what the measurement below was taken on;
+    it is deleted). A zone whose effective blob is the one the arena already holds (co-resident)
     pays no overwrite at all.
 
     MODEL = chunks + visible-wipe frames. MEASURED against tools/crossing_witness.py on the
@@ -1229,19 +1231,17 @@ def _lowered_tiles(donor, zone, tall=None):
 #: no faster than it (1:1 at most, for every zone this path takes).
 TALL_X_MARGIN = 512
 
-#: WHETHER A ZONE THAT OTHER ZONES CROSS INTO MAY GO TALL. False, MEASURED, not assumed: on
-#: s2_woven with HPZ and WFZ tall (DEBUG crc cfc3e006) crossing_witness counted 29 glitch ticks
-#: on hpz_to_ooz (leftward, INTO Hidden Palace, slack -6 frames) and 9 on hpz_to_mtz (the drop
-#: into Hidden Palace, slack -9), against 0 on the window path; the other 9 connectors stayed at
-#: 0. Entering a TALL region costs what entering a one-plane region no longer does: Step 5's
-#: rate clamp slides the scroll 16 px a frame from the zone left (OOZ 142 -> HPZ 651 at
-#: hpz_to_ooz: 32 frames) and the tall-map wipe is the CPU sweep, BG_WIPE_ROWS_PER_FRAME rows a
-#: frame, not the DMA one. Neither Z2's crossing model nor the connector lengths derived from
-#: it carry that, so an act with more than one zone keeps every zone WINDOWED until one of the
-#: priced fixes lands (DEFERRED_WORK WINDOWED-BG-VERTICAL-CLAMP: an engine arm that snaps the
-#: scroll and DMA-sweeps a tall window on a layout-changing crossing, or connectors lengthened
-#: by the modelled cost). One-zone acts (the solo clips) have no crossing and go tall.
-TALL_JOINED_ZONES = False
+#: WHETHER A ZONE THAT OTHER ZONES CROSS INTO MAY GO TALL. True since WOVEN-TALL-ENTRY
+#: (2026-09-27). It was False, MEASURED: on s2_woven with HPZ and WFZ tall (DEBUG crc cfc3e006)
+#: crossing_witness counted 29 glitch ticks on hpz_to_ooz (leftward, INTO Hidden Palace, slack
+#: -6 frames) and 9 on hpz_to_mtz (the drop into Hidden Palace, slack -9); the other 9
+#: connectors stayed at 0. Entering a TALL region cost what entering a one-plane region did
+#: not: Step 5's rate clamp slid the scroll 16 px a frame from the zone left, and the tall-map
+#: wipe was the CPU sweep. The engine now snaps the scroll on a crossing that changes the
+#: layout (Parallax_BG_Snap) and DMA-sweeps every map with the window held, and the same
+#: witness reads 0 glitch ticks on all 11 connectors (worst slack +2, hpz_to_mtz). False
+#: keeps a multi-zone act's zones windowed, the pre-fix bake, for an A/B.
+TALL_JOINED_ZONES = True
 
 
 def tall_plans(act, joined=None):

@@ -7,8 +7,13 @@ Until regions part 2 step 6, Plane B was painted once at level init (and again a
 recovery / the DEBUG warp) and CONTINUOUS SCROLLING NEVER REPAINTED IT. Cross into a region
 whose `rg_bg_layout` names a different blob and the plane kept showing the old backdrop,
 for ever, with nothing in the build or in any ROM-side test to say so. Step 6 is the
-repaint: an amortised row sweep, `BG_WIPE_ROWS_PER_FRAME` rows a frame, carried by
-`BG_Stream_Update` and produced through the ordinary `Draw_BG_TileRow`.
+repaint: an amortised row sweep carried by `BG_Stream_Update`. Since WOVEN-TALL-ENTRY
+(2026-09-27) every map is swept by DMA from ROM, one Deferrable entry a frame of up to
+`BG_WIPE_DMA_ROWS` plane rows, each run cut at the ring wrap and at the held window's seam,
+with the window HELD (the steady-state streamer suspended) from the arm until the last run has
+landed. The CPU sweep (`BG_WIPE_ROWS_PER_FRAME` = 4 rows a frame through `Draw_BG_TileRow`),
+which this gate was written against, is deleted; every leg below was re-derived for the DMA one
+and the new HELD / LANDING legs grade the window hold the tall map's DMA sweep rests on.
 
 This gate has to be able to see THREE distinct failures, and each leg below names which:
 
@@ -21,8 +26,7 @@ This gate has to be able to see THREE distinct failures, and each leg below name
   * A WIPE THAT HAPPENS IN THE WRONG ORDER — the design call of step 6 is that the sweep
     starts at the TOP VISIBLE plane row and walks down, so the rows the player is looking at
     are repainted first and the E2 transient (new palette over old art, from frame 0) is
-    cleared in ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) frames instead of lasting the
-    whole sweep.  Leg VISIBLE grades that, and it is red against any order that does not put
+    cleared in the few runs that cover BG_SCREEN_ROWS instead of lasting the whole sweep.  Leg VISIBLE grades that, and it is red against any order that does not put
     the visible span first — including §4.3's own "hidden rows first" and a plain top-down
     walk from plane row 0.
 
@@ -113,6 +117,21 @@ def _const(rel, name):
     return int(m.group(1))
 
 
+def _expr_const(name):
+    """A const whose value is an EXPRESSION, evaluated by the tools' shared .emp constant reader
+    over the files engine/level/bg.emp's expressions reach."""
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    for rel in ("engine/system/constants.emp", "engine/level/parallax.emp", "engine/level/bg.emp"):
+        src.load_file(str(AEON / rel))
+    try:
+        return int(src.get(name))
+    except Exception as e:                      # noqa: BLE001 - any failure is a setup failure
+        raise GateError(f"cannot evaluate `{name}` out of engine/level/bg.emp ({e}). Every "
+                        f"expectation in tools/bg_wipe_gate.py is derived from it, so this is a "
+                        f"SETUP FAILURE and must not be defaulted to a remembered value.") from e
+
+
 class Consts:
     def __init__(self, lst):
         C = "engine/system/constants.emp"
@@ -124,33 +143,29 @@ class Consts:
         self.HALF_H = _const(C, "CAM_SCREEN_HALF_H")
         self.CAM_MAX_Y_STEP = _const(C, "CAM_MAX_Y_STEP")
         self.FLY = _const("games/sonic4/player/player_common.emp", "PLAYER_DEBUG_FLY_SPEED")
-        self.WIPE_ROWS = _const(B, "BG_WIPE_ROWS_PER_FRAME")
+        # THE DMA SWEEP's rate: BG_WIPE_DMA_ROWS = BG_OVERWRITE_CHUNK_BYTES / (PLANE_H_CELLS * 2)
+        # (engine/level/bg.emp). The CPU rate this read until WOVEN-TALL-ENTRY is deleted.
+        self.WIPE_ROWS = _expr_const("BG_WIPE_DMA_ROWS")
+        self.HOLD_FRAMES = _expr_const("BG_WIPE_HOLD_FRAMES")
+        self.LANDING = _expr_const("BG_WIPE_LANDING")
         self.PLANE_B_CELL_ROWS = _const("engine/level/parallax.emp", "PLANE_B_CELL_ROWS")
         self.MAX_STEP_ROWS = _const("engine/level/parallax.emp", "BG_VSCROLL_MAX_STEP_ROWS")
         self.PLANE_B_SPAN = self.PLANE_B_CELL_ROWS * 8
         self.ROW_PX = self.PLANE_B_SPAN // self.PLANE_B_CELL_ROWS
         # engine/level/bg.emp: BG_WIPE_TOTAL_ROWS = PLANE_V_CELLS
         self.WIPE_TOTAL = self.PLANE_V_CELLS
-        # engine/level/bg.emp: BG_WIPE_FRAMES = ceil(TOTAL / ROWS_PER_FRAME)
+        # A sweep's run count is no longer a constant (runs are cut at the ring wrap and the
+        # held window's seam); `sweep_runs` derives it per arm. This is the uncut floor, printed.
         self.WIPE_FRAMES = -(-self.WIPE_TOTAL // self.WIPE_ROWS)
         # engine/level/bg.emp: BG_SCREEN_ROWS / BG_STREAM_SPARE_ROWS / BG_STREAM_LEAD_ROWS
         self.SCREEN_ROWS = self.SCREEN_HEIGHT // self.ROW_PX + 1
         self.SPARE_ROWS = self.PLANE_V_CELLS - self.SCREEN_ROWS
         self.LEAD = self.SPARE_ROWS // 2
-        # THE VISIBLE-SPAN DEADLINE. With the window STATIONARY a sweep that starts at the top
-        # visible row covers all BG_SCREEN_ROWS of it after ceil(SCREEN_ROWS / WIPE_ROWS)
-        # spends, and the arming call is the first spend — so the sample is taken VIS_TICKS
-        # ticks after the arming tick.
-        #
-        # THE WORST-CASE FORM WAS TRIED FIRST AND REJECTED AS VACUOUS, which is worth the
-        # sentence. If the scroll runs downward at the rate clamp's full MAX_STEP_ROWS every
-        # tick, the visible span races under the sweep and the true bound is
-        # ceil(SCREEN_ROWS / (WIPE_ROWS - MAX_STEP_ROWS)) = 15 ticks of a 16-tick sweep —
-        # a deadline the sweep meets by FINISHING, which tests nothing. So the deadline stays
-        # nominal and the drift the run ACTUALLY produced is measured at the sample and
-        # converted into an allowance there (`drift_allowance` below). Derived, not tuned,
-        # and it goes red on an order that puts the visible rows anywhere but first.
-        self.VIS_TICKS = -(-self.SCREEN_ROWS // self.WIPE_ROWS)
+        # THE VISIBLE-SPAN DEADLINE is derived per arm from the runs (`sweep_runs`): the first
+        # spend count whose rows cover BG_SCREEN_ROWS, the arming call being the first spend.
+        # The drift the run ACTUALLY produced is measured at the sample and converted into an
+        # allowance there (`drift_allowance` below). Derived, not tuned, and it goes red on an
+        # order that puts the visible rows anywhere but first.
         self.ROW_BYTES = self.PLANE_H_CELLS * 2
         self.PLANE_BYTES = self.ROW_BYTES * self.PLANE_V_CELLS
 
@@ -159,17 +174,17 @@ class Consts:
         # local to engine/level/bg.emp (BG_WIPE_ROWS_PER_FRAME, BG_WIPE_TOTAL_ROWS) never
         # appears there, so it CANNOT be cross-checked against the artifact this way and
         # pretending otherwise would be the vacuous half of a real check. What covers those
-        # two instead is BEHAVIOURAL and sharper: leg ARM asserts the cursor lands on exactly
-        # WIPE_TOTAL - WIPE_ROWS on the crossing tick and leg RATE asserts the whole
-        # decrement sequence, so a source figure the ROM does not implement goes red with the
-        # measured sequence printed beside the wanted one. Recorded here, and printed on
+        # instead is BEHAVIOURAL and sharper: leg ARM asserts the cursor lands on exactly
+        # WIPE_TOTAL less the first derived run on the crossing tick and leg RATE asserts the
+        # whole decrement sequence, so a source figure the ROM does not implement goes red with
+        # the measured sequence printed beside the wanted one. Recorded here, and printed on
         # every run, so a reader does not take the cross-check below for more than it is.
         txt = Path(lst).read_text(errors="replace")
         self.source_only = []
         for nm, val in (("PLANE_V_CELLS", self.PLANE_V_CELLS),
                         ("SCREEN_HEIGHT", self.SCREEN_HEIGHT),
                         ("CAM_MAX_Y_STEP", self.CAM_MAX_Y_STEP),
-                        ("BG_WIPE_ROWS_PER_FRAME", self.WIPE_ROWS),
+                        ("BG_WIPE_DMA_ROWS", self.WIPE_ROWS),
                         ("BG_WIPE_TOTAL_ROWS", self.WIPE_TOTAL)):
             m = re.search(rf"^EQU\s+{nm}\s*=\s*\$([0-9A-Fa-f]+)\s*$", txt, re.M)
             if m is None:
@@ -198,24 +213,41 @@ class Consts:
                 f"report a green about a slower descent than the game can produce.")
 
 
-    def drift_allowance(self, ticks_after_arm, drift_rows):
+    def drift_allowance(self, rows_drawn, drift_rows):
         """How many VISIBLE plane rows the sweep is allowed to have missed at this sample.
 
-        After `ticks_after_arm` further spends the sweep has drawn WIPE_ROWS * (ticks + 1)
-        rows from the row that was the top visible one at the arm. The visible span has since
-        slid `drift_rows` rows down. Its bottom is therefore drift + SCREEN_ROWS - 1 rows
-        below that start, and the sweep's frontier is WIPE_ROWS * (ticks + 1) - 1 below it,
-        so exactly the excess is allowed to be missing."""
-        frontier = self.WIPE_ROWS * (ticks_after_arm + 1) - 1
+        The sweep has drawn `rows_drawn` rows (the derived runs' sum) from the row that was
+        the top visible one at the arm. The visible span has since slid `drift_rows` rows down.
+        Its bottom is therefore drift + SCREEN_ROWS - 1 rows below that start, and the sweep's
+        frontier is rows_drawn - 1 below it, so exactly the excess is allowed to be missing."""
+        frontier = rows_drawn - 1
         bottom = drift_rows + self.SCREEN_ROWS - 1
         return max(0, bottom - frontier)
 
     def describe(self):
         return (f"plane {self.PLANE_H_CELLS}x{self.PLANE_V_CELLS}, row {self.ROW_BYTES} B; "
-                f"wipe {self.WIPE_ROWS} rows/frame x {self.WIPE_FRAMES} frames = "
-                f"{self.WIPE_TOTAL} rows; screen {self.SCREEN_ROWS} rows, lead {self.LEAD}; "
-                f"visible span covered by tick {self.VIS_TICKS}; fly/camY cap "
-                f"{self.FLY}/{self.CAM_MAX_Y_STEP} px")
+                f"DMA wipe up to {self.WIPE_ROWS} rows/frame, >= {self.WIPE_FRAMES} runs = "
+                f"{self.WIPE_TOTAL} rows, window held <= {self.HOLD_FRAMES} frames, landing "
+                f"marker ${self.LANDING:02X}; screen {self.SCREEN_ROWS} rows, lead {self.LEAD}; "
+                f"fly/camY cap {self.FLY}/{self.CAM_MAX_Y_STEP} px")
+
+    def sweep_runs(self, p0, top):
+        """The DMA sweep's runs from plane row p0 with the window held at `top`, as
+        BG_Stream_Update's `.wipe_spend` cuts them: [(first plane row, rows), ...]. A run stops at
+        the ring's end, at the window's seam (plane row top mod PLANE_V_CELLS, when it lies
+        below p) and at BG_WIPE_DMA_ROWS. Restated from the engine's arithmetic, which is what a
+        gate grading that arithmetic has to do; leg RATE compares it with the cursor the ROM
+        actually ran."""
+        pv, p, left, out = self.PLANE_V_CELLS, p0, self.WIPE_TOTAL, []
+        seam = top % pv
+        while left:
+            n = pv - p
+            if seam > p:
+                n = min(n, seam - p)
+            n = min(n, left, self.WIPE_ROWS)
+            out.append((p, n))
+            p, left = (p + n) % pv, left - n
+        return out
 
     def want_top(self, vscroll, span):
         map_rows = (span // self.ROW_PX) if span else self.PLANE_V_CELLS
@@ -384,36 +416,66 @@ async def walk(rig, button, done, tag, K):
                     f"the route has gone stale against the region table")
 
 
-def check_rate(samples, i_arm, K, tag, fails):
-    """The cursor must fall by exactly BG_WIPE_ROWS_PER_FRAME a tick and reach 0 on the
-    derived tick. A refused row entry shows up here as a short step, which is the only
-    externally visible consequence of the admitted-flag contract."""
+def check_rate(samples, i_arm, runs, K, tag, fails):
+    """The cursor must fall by exactly each derived run a tick and reach 0 on the derived tick.
+    A refused DMA entry shows up here as a step of 0, a run cut in the wrong place as a step of
+    the wrong size."""
     seq = [s["cursor"] for s in samples[i_arm:]]
-    want = []
-    c = K.WIPE_TOTAL - K.WIPE_ROWS      # the arming tick spends its budget in the same call
-    while True:
-        want.append(max(0, c))
-        if c <= 0:
-            break
-        c -= K.WIPE_ROWS
+    want, c = [], K.WIPE_TOTAL
+    for _p, n in runs:                  # the arming tick spends the first run in the same call
+        c -= n
+        want.append(c)
     got = seq[:len(want)]
     if got != want:
         fails.append(f"{tag} RATE: the cursor ran {got} from the arming tick, wanted {want} "
-                     f"(BG_WIPE_TOTAL_ROWS {K.WIPE_TOTAL} retiring {K.WIPE_ROWS} a tick). A "
-                     f"SHORT step is a refused row entry the cursor correctly did not spend; "
-                     f"a LONG one is the cursor running ahead of the producer.")
+                     f"(BG_WIPE_TOTAL_ROWS {K.WIPE_TOTAL} retiring the runs {[n for _p, n in runs]}"
+                     f", each cut at the ring wrap, the held window's seam and "
+                     f"BG_WIPE_DMA_ROWS {K.WIPE_ROWS}). A step of 0 is a refused DMA entry the "
+                     f"cursor correctly did not spend; a LONG one is a run the engine cut wrongly.")
         return None
-    # BG_WIPE_FRAMES counts SPENDS, and the arming call is the first of them — the crossing
-    # tick both arms the cursor and buys its first BG_WIPE_ROWS_PER_FRAME rows in one
-    # BG_Stream_Update call. So the number of FURTHER ticks is one less. Written out because
-    # the first version of this gate compared the two directly and went red on correct code,
-    # at 15 against 16.
-    n = len(want) - 1
-    if n != K.WIPE_FRAMES - 1:
-        fails.append(f"{tag} DONE: the cursor reached 0 {n} ticks after the arming tick; "
-                     f"BG_WIPE_FRAMES is {K.WIPE_FRAMES} spends and the arming tick is the "
-                     f"first, so {K.WIPE_FRAMES - 1} further ticks is the derived answer")
-    return i_arm + n
+    # The arming call is the first spend, so the number of FURTHER ticks is one less.
+    return i_arm + len(runs) - 1
+
+
+def check_held(samples, i_arm, i_done, K, tag, fails):
+    """LEGS HELD + LANDING (WOVEN-TALL-ENTRY). From the arm until the sweep's last run has
+    landed, BG_Plane_Top must not move: every run was computed against it, and a run lands a
+    VBlank (or a slipped one) after it is queued, so a window that moved meanwhile would be
+    overwritten by rows of the old one. The first sample after the last spend must carry the
+    landing marker in BG_Wipe_Row, and the marker must clear (the row byte back to 0) within
+    BG_WIPE_HOLD_FRAMES of the arm, the bound the engine's containment `ensure` is written
+    for. Returns the index of the first sample with the marker cleared, or None."""
+    top = samples[i_arm]["top"]
+    d = samples[i_done]
+    if d["cursor"] != 0 or d["row"] != K.LANDING:
+        fails.append(f"{tag} LANDING: on the tick after the last run was queued the tracker "
+                     f"reads cursor {d['cursor']}, row ${d['row']:02X}; wanted cursor 0 and the "
+                     f"landing marker ${K.LANDING:02X}. Without it the streamer resumes while the "
+                     f"last run may still be queued.")
+        return None
+    i_clear = next((i for i in range(i_done, len(samples)) if samples[i]["row"] != K.LANDING),
+                   None)
+    if i_clear is None:
+        fails.append(f"{tag} LANDING: the landing marker never cleared in the "
+                     f"{len(samples) - i_done} samples after the last run; the streamer is "
+                     f"suspended for good")
+        return None
+    if samples[i_clear]["row"] != 0 or samples[i_clear]["cursor"] != 0:
+        fails.append(f"{tag} LANDING: the marker cleared to row {samples[i_clear]['row']}, "
+                     f"cursor {samples[i_clear]['cursor']}, not to the idle 0/0")
+    if i_clear - i_arm > K.HOLD_FRAMES:
+        fails.append(f"{tag} LANDING: the window was held {i_clear - i_arm} ticks from the arm, "
+                     f"more than BG_WIPE_HOLD_FRAMES = {K.HOLD_FRAMES}, the bound the engine's "
+                     f"containment `ensure` is written for")
+    # Up to the LAST sample still carrying the marker: the call that finds the plane landed
+    # clears the marker and streams in the same breath, which is correct (nothing is queued).
+    moved = [(i, s["top"]) for i, s in enumerate(samples[i_arm:i_clear], start=i_arm)
+             if s["top"] != top]
+    if moved:
+        fails.append(f"{tag} HELD: BG_Plane_Top left {top} while the sweep was in flight or "
+                     f"landing: {moved[:6]}. A DMA run queued against one window lands over "
+                     f"rows the streamer has redrawn for another.")
+    return i_clear
 
 
 async def run_crossing(rig, K, rom, sym, button, start_at, row_from, row_to, eff_from, eff_to,
@@ -463,41 +525,44 @@ async def run_crossing(rig, K, rom, sym, button, start_at, row_from, row_to, eff
                      f"{row_to['index']}'s effective layout is $%06X. The plane was never "
                      f"promised the new picture, so no sweep can deliver it."
                      % (a["layout"], eff_to))
-    want_cursor = K.WIPE_TOTAL - K.WIPE_ROWS
+    # THE START ROW is the design call: the sweep must begin at the top VISIBLE plane row,
+    # and the first run from there (against the window the arm snapped) is derived.
+    vis_top = (a["vscroll"] // K.ROW_PX) % K.PLANE_V_CELLS
+    runs = K.sweep_runs(vis_top, a["top"])
+    want_cursor = K.WIPE_TOTAL - runs[0][1]
     if a["cursor"] != want_cursor:
         fails.append(f"{tag} ARM: on the crossing tick BG_Wipe_Cursor is {a['cursor']}, wanted "
                      f"{want_cursor} (BG_WIPE_TOTAL_ROWS {K.WIPE_TOTAL} less the "
-                     f"{K.WIPE_ROWS} the same call spends). 0 means the wipe never armed and "
-                     f"the plane keeps the old backdrop for ever.")
+                     f"{runs[0][1]}-row first run the same call queues). 0 means the wipe never "
+                     f"armed and the plane keeps the old backdrop for ever.")
         # DO NOT RETURN. A tree with no wipe at all has to reach leg FINAL and go RED there,
         # not stop early: a gate that exits before its strongest leg on the very failure it
         # exists for reports FEWER red legs the more broken the tree is.
         await settle_and_check_final(rig, K, rom, eff_to, eff_from, tag, fails)
         return None, None
-    # THE START ROW is the design call: the sweep must begin at the top VISIBLE plane row.
-    start_row = (a["row"] - K.WIPE_ROWS) % K.PLANE_V_CELLS
-    vis_top = (a["vscroll"] // K.ROW_PX) % K.PLANE_V_CELLS
+    start_row = (a["row"] - runs[0][1]) % K.PLANE_V_CELLS
     if start_row != vis_top:
         fails.append(f"{tag} ARM: the sweep started at plane row {start_row}, but the scroll "
                      f"{a['vscroll']} puts the top VISIBLE plane row at {vis_top}. Step 6's "
                      f"order is 'top visible row, walking down' — a sweep that starts "
                      f"anywhere else holds the new-palette-over-old-art transient on screen "
-                     f"for longer than ceil(BG_SCREEN_ROWS / BG_WIPE_ROWS_PER_FRAME) ticks.")
+                     f"for longer than the runs that cover BG_SCREEN_ROWS.")
+    print(f"  {tag}: derived runs from plane row {vis_top}, window {a['top']}: "
+          f"{[n for _p, n in runs]}")
 
-    # ---- LEG RATE / DONE ----
-    n_needed = K.WIPE_FRAMES + 2
+    # ---- LEG RATE / DONE / HELD / LANDING ----
+    n_needed = K.HOLD_FRAMES + 4
     while len(samples) - i_arm <= n_needed:
         await rig.tick()
         samples.append(await rig.sample(f"{tag}.w{len(samples)}"))
-    i_done = check_rate(samples, i_arm, K, tag, fails)
-    print(fmt(samples[i_arm + K.WIPE_FRAMES]))
-
-    # ---- LEG VISIBLE / COVERED: read the plane back, mid-sweep ----
-    # Re-run the crossing is not possible, so the mid-sweep read is taken on a SECOND pass
-    # through the same route below; here we assert the settled picture.
-    tops = [s["top"] for s in samples[i_arm:i_arm + K.WIPE_FRAMES + 1]]
-    print(f"  {tag}: BG_Plane_Top over the sweep {tops[0]} -> {tops[-1]} "
-          f"({len(set(tops))} distinct)")
+    i_done = check_rate(samples, i_arm, runs, K, tag, fails)
+    if i_done is not None:
+        print(fmt(samples[i_done]))
+        i_clear = check_held(samples, i_arm, i_done, K, tag, fails)
+        if i_clear is not None:
+            print(fmt(samples[i_clear]))
+            print(f"  {tag}: {len(runs)} runs, window held at {a['top']} for {i_clear - i_arm} "
+                  f"ticks (landing marker cleared at tick +{i_clear - i_arm})")
 
     # ---- LEG FINAL ----
     await settle_and_check_final(rig, K, rom, eff_to, eff_from, tag, fails)
@@ -551,28 +616,44 @@ async def run_midsweep(rig, K, rom, button, start_at, row_from, row_to, eff_from
     # tracker bytes and graded against the VDP.
     print(f"  {tag}: second pass armed at cursor {arm['cursor']}")
 
-    for _ in range(K.VIS_TICKS):
+    # THE DEADLINE, derived from this arm's own runs: the first spend count whose rows cover
+    # BG_SCREEN_ROWS. The arming call is the first spend, so the sample is taken one tick fewer
+    # after the arm.
+    vis_top = (arm["vscroll"] // K.ROW_PX) % K.PLANE_V_CELLS
+    runs = K.sweep_runs(vis_top, arm["top"])
+    cum, k_vis = 0, None
+    for k, (_p, n) in enumerate(runs, start=1):
+        cum += n
+        if cum >= K.SCREEN_ROWS:
+            k_vis = k
+            break
+    vis_ticks = k_vis - 1
+    for _ in range(vis_ticks):
         await rig.tick()
     s = await rig.sample(f"{tag}.vis", want_plane=True)
     print(fmt(s))
     if s["cursor"] == 0:
-        raise GateError(f"{tag}: the sweep had already finished {K.VIS_TICKS} ticks after the "
-                        f"arm, so there is no half-redrawn plane to grade. "
-                        f"BG_WIPE_ROWS_PER_FRAME={K.WIPE_ROWS} against "
-                        f"BG_SCREEN_ROWS={K.SCREEN_ROWS}: the deadline and the sweep length "
-                        f"have converged and this leg can no longer fail.")
+        raise GateError(f"{tag}: the sweep had already finished {vis_ticks} ticks after the "
+                        f"arm, so there is no half-redrawn plane to grade. Its runs "
+                        f"{[n for _p, n in runs]} against BG_SCREEN_ROWS={K.SCREEN_ROWS}: the "
+                        f"deadline and the sweep length have converged and this leg can no "
+                        f"longer fail.")
 
     cov = set(covered_rows(s, K))
     # ---- LEG COVERED: the tracker's account against the VDP ----
+    # EXACT since WOVEN-TALL-ENTRY: the window is HELD for the whole sweep (leg HELD), so every
+    # row the tracker claims must hold the new blob's row for THAT window, not merely some row of
+    # the new blob (the looser `classify_blob` this used while the CPU sweep let the window move).
+    if s["top"] != arm["top"]:
+        fails.append(f"{tag} HELD: BG_Plane_Top moved {arm['top']} -> {s['top']} mid-sweep")
     lied = [p for p in sorted(cov)
-            if classify_blob(s["plane"], p, K, rom, eff_to, rows_to,
-                             eff_from, rows_from) != "new"]
+            if classify(s["plane"], p, arm["top"], K, rom, eff_to, eff_from) != "new"]
     if lied:
         fails.append(f"{tag} COVERED: the tracker claims {len(cov)} plane rows drawn "
                      f"(BG_Wipe_Row={s['row']}, cursor={s['cursor']}), but {len(lied)} of them "
-                     f"hold no row of blob $%06X at all: {lied[:8]}. The cursor advanced past "
-                     f"rows the producer refused — the admitted-flag contract is broken."
-                     % eff_to)
+                     f"do not hold blob $%06X's row for the held window {arm['top']}: "
+                     f"{lied[:8]}. The cursor advanced past rows no landed DMA run wrote, or a "
+                     f"run named the wrong map rows." % eff_to)
     else:
         print(f"  {tag} COVERED: all {len(cov)} rows the tracker claims are drawn hold a row "
               f"of blob $%06X" % eff_to)
@@ -583,13 +664,13 @@ async def run_midsweep(rig, K, rom, button, start_at, row_from, row_to, eff_from
     drift = vrow_now - vrow_arm
     vis = [(vrow_now + j) % K.PLANE_V_CELLS for j in range(K.SCREEN_ROWS)]
     missing = [p for p in vis if p not in cov]
-    allowed = K.drift_allowance(K.VIS_TICKS, drift)
+    allowed = K.drift_allowance(cum, drift)
     print(f"  {tag} VISIBLE: {len(missing)} of {K.SCREEN_ROWS} visible plane rows un-swept "
-          f"{K.VIS_TICKS} ticks after the arm; the scroll drifted {drift} row(s) over that "
+          f"{vis_ticks} ticks after the arm; the scroll drifted {drift} row(s) over that "
           f"window, which allows {allowed}")
     if len(missing) > allowed:
         fails.append(f"{tag} VISIBLE: {len(missing)} of the {K.SCREEN_ROWS} plane rows the "
-                     f"screen is showing are still un-swept {K.VIS_TICKS} ticks after the arm "
+                     f"screen is showing are still un-swept {vis_ticks} ticks after the arm "
                      f"and only {allowed} are allowed by the {drift}-row scroll drift over "
                      f"that window: {missing[:8]}. Step 6's order exists so the rows the "
                      f"player is looking at clear the new-palette-over-old-art transient "
@@ -627,7 +708,7 @@ async def run_control(rig, K, rows, eff, start_at, row_from, row_to, button, fai
         raise GateError("CONTROL: booting at %r resolved $%06X, not row %d at $%06X"
                         % (start_at, s0["region"], row_from["index"], row_from["addr"]))
     walked = await walk(rig, button, lambda s: s["region"] == row_to["addr"], "ctl", K)
-    for _ in range(K.WIPE_FRAMES):
+    for _ in range(K.HOLD_FRAMES):
         await rig.tick()
         walked.append(await rig.sample("ctl.after"))
     print(fmt(walked[-1]))

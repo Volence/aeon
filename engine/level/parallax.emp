@@ -761,8 +761,9 @@ ensure(VSCROLL_BG_MAX > 0,
 // it is the plane's own cell height, PLANE_B_SPAN / PLANE_B_CELL_ROWS, so a plane geometry
 // change carries it — and the step is stated in ROWS because rows are the unit the streamer
 // bills in. The spec names 16 px; 2 x 8 is that number with its reason attached. If the
-// budget ever becomes "N rows a frame" from the wipe's side (BG_WIPE_ROWS_PER_FRAME, step 6),
-// this is the constant that should be derived FROM it rather than agreeing with it by hand.
+// budget ever becomes "N rows a frame" from the streamer's side, this is the constant that
+// should be derived FROM it rather than agreeing with it by hand. (The wipe no longer bills
+// plane-buffer rows: it is a DMA sweep since WOVEN-TALL-ENTRY, 2026-09-27.)
 pub const BG_VSCROLL_ROW_PX        = PLANE_B_SPAN / PLANE_B_CELL_ROWS
 pub const BG_VSCROLL_MAX_STEP_ROWS = 2
 pub const BG_VSCROLL_MAX_STEP      = BG_VSCROLL_MAX_STEP_ROWS * BG_VSCROLL_ROW_PX
@@ -1284,6 +1285,41 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         // the 4-byte width on purpose and stays bounded by the struct's end.
         move.l  Region.rg_x0:l(a0), Region_Cur_X0   // x0:x1 — one long per axis, span-major
         move.l  Region.rg_y0:l(a0), Region_Cur_Y0   // y0:y1
+
+        // -- THE BG SNAP (WOVEN-TALL-ENTRY, 2026-09-27): does this crossing change the
+        //    effective background LAYOUT? Each side's is its row's rg_bg_layout, or the act
+        //    default for 0, the same ladder BG_Stream_Update's wipe arm uses. A different layout
+        //    means BG_Stream_Update will repaint the whole plane (after the tile overwrite, if
+        //    the tiles differ too), so Step 5 may store the scroll's target outright this frame:
+        //    see Parallax_BG_Snap there. Read BEFORE Region_Current is overwritten, since the
+        //    old row is the other side. Only SET here; Step 5 clears it every frame.
+        //
+        //    A NULL PREVIOUS ROW NEVER SNAPS, and that is the predicate being exact rather than a
+        //    shortcut. Region_Current is null only before the first resolve (the boot ladder) and
+        //    after the DEBUG warp clears it to force this crossing (Debug_Warp_Consume); both
+        //    paths have just primed Plane B SYNCHRONOUSLY through Section_RedrawPlanes, which
+        //    sets BG_Plane_Layout to this row's layout, so no wipe follows and the window it
+        //    primed is the one the UNSNAPPED scroll selects. Snapping there would leave that
+        //    window behind the scroll by the whole jump (measured on the first cut: a warp inside
+        //    DEBUG OJZ's tall region jumped 366 px in one store over a window primed for the old
+        //    value). That is BG-RATE-PRIME-EXEMPTION, still open, and not this. --
+        movea.l Region_Current, a1                  // (Region_Current).w — the row being left
+        cmpa.w  #0, a1
+        beq     .snap_same                          // a synchronous prime path: see above
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        move.l  Act.act_bg_layout(a2), d1           // the act default
+        move.l  Region.rg_bg_layout(a0), d0         // the new row's layout
+        bne     .snap_new_ok
+        move.l  d1, d0
+    .snap_new_ok:
+        move.l  Region.rg_bg_layout(a1), d4         // the old row's layout
+        bne     .snap_old_ok
+        move.l  d1, d4
+    .snap_old_ok:
+        cmp.l   d4, d0
+        beq     .snap_same
+        st      Parallax_BG_Snap                    // (Parallax_BG_Snap).w
+    .snap_same:
         move.l  a0, Region_Current                  // the observable; engine logic never reads it
 
         // -- the region's SONG (S2CLIP-REGION-MUSIC step 5): RECORD it, never post it here --
@@ -3047,10 +3083,12 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // synchronous Plane B writers retire the cursor with `clr.w BG_Wipe_Cursor` as part
         // of priming. So the flag this site would have to test says "not being rebuilt" on
         // precisely the frame the plane was just rebuilt. Exempting the clamp during a WIPE
-        // would also be the wrong direction — the wipe is already spending
-        // BG_WIPE_ROWS_PER_FRAME row entries, so letting the scroll move faster there adds
-        // streamer rows on top of them. The booking stands, unchanged and now with a reason
-        // rather than a forecast.
+        // would also be the wrong direction — the window is HELD while a sweep runs (since
+        // WOVEN-TALL-ENTRY), so a faster scroll there only eats the lead the hold relies on.
+        // The booking stands. What WOVEN-TALL-ENTRY did add is the ONE frame a crossing
+        // changes the layout, (b1) below: the wipe then re-seeds the window from the scroll,
+        // so there is nothing to outrun. A warp still ratchets (its prime seeds the window
+        // BEFORE this runs; see Parallax_CheckBoundary's null-row rule).
         //
         // ---- (b0) NO WINDOW, NO RATE CLAMP (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27) ----
         //
@@ -3084,8 +3122,26 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // held back 16 px a frame that was the top visible row of a scroll the screen was about
         // to leave, so "visible rows first" repainted the wrong rows first on every crossing
         // whose scroll jumped. Now the scroll it latches is the one the next frames show.
+        //
+        // ---- (b1) NO RATE CLAMP ON THE FRAME A CROSSING CHANGES THE LAYOUT (WOVEN-TALL-ENTRY,
+        //      2026-09-27) ----
+        //
+        // THE CLAMP'S OWN REASON AGAIN, on a tall map this time. What it bounds is the rows the
+        // streamer must draw to follow the scroll. On a crossing that changes the effective
+        // layout (Parallax_CheckBoundary sets Parallax_BG_Snap) there is nothing to follow:
+        // BG_Stream_Update snaps its window to the scroll it reads and repaints every plane
+        // row (after the tile overwrite, while which it draws nothing at all). So the scroll
+        // is stored at its target outright. MEASURED, before: on s2_woven with Hidden Palace
+        // tall, every crossing INTO it slid 16 px a frame from the zone left (OOZ 142 -> HPZ
+        // 651: 32 frames), which crossing_witness counted as 29 glitch ticks on hpz_to_ooz and
+        // 9 on hpz_to_mtz. One frame is enough: from the next the target moves with the camera,
+        // which is what the clamp is sized for. A one-plane map never reached the clamp ((b0)).
+        // S3K does the same at every mid-play background switch it has: the BG camera copy is
+        // recomputed that frame and only the plane redraw is spread (AIZ2, FBZ, HCZ2).
         cmpi.w  #BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT, d3
         blt     .v_store                            // the plane holds the map: no rate to bound
+        tst.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w
+        bne     .v_store                            // the layout changed: the plane is repainted
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
         sub.w   d0, d2                              // d2 = the step this frame wants
         cmp.w   #BG_VSCROLL_MAX_STEP, d2
@@ -3101,6 +3157,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // (`.v_pack_store` was the label here until step 4; the two branches that reached it
         //  stop at `.v_rate`. `.v_store` is the one-plane arm's landing, (b0) above.)
     .v_store:
+        clr.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w — one frame, every arm
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)

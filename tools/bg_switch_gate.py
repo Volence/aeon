@@ -111,6 +111,21 @@ def _const(rel, name):
     return int(v[1:], 16) if v.startswith("$") else int(v)
 
 
+def _expr_const(name):
+    """A const whose value is an EXPRESSION, evaluated by the tools' shared .emp constant reader
+    over the files engine/level/bg.emp's expressions reach."""
+    sys.path.insert(0, str(AEON / "tools"))
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    for rel in ("engine/system/constants.emp", "engine/level/parallax.emp", "engine/level/bg.emp"):
+        src.load_file(str(AEON / rel))
+    try:
+        return int(src.get(name))
+    except Exception as e:                      # noqa: BLE001 - any failure is a setup failure
+        raise GateError(f"cannot evaluate `{name}` out of engine/level/bg.emp ({e}); every "
+                        f"expectation in tools/bg_switch_gate.py is derived from it") from e
+
+
 class Consts:
     def __init__(self):
         C = "engine/system/constants.emp"
@@ -127,8 +142,12 @@ class Consts:
             raise GateError("engine/system/constants.emp declares no VRAM_PLANE_B_BYTES")
         self.CHUNK = _const("engine/level/bg.emp", "BG_OVERWRITE_CHUNK_BYTES")
         self.ARENA_END = self.BG_TILE_BASE_VRAM + self.BG_TILE_CAPACITY * 32
-        self.WIPE_ROWS = _const("engine/level/bg.emp", "BG_WIPE_ROWS_PER_FRAME")
-        self.WIPE_FRAMES = -(-self.PLANE_V_CELLS // self.WIPE_ROWS)
+        # A sweep's length, as the ENGINE bounds it: BG_WIPE_HOLD_FRAMES (engine/level/bg.emp) is
+        # the DMA sweep's worst run count plus its landing frame, the window it holds the
+        # streamer for. It was ceil(PLANE_V_CELLS / BG_WIPE_ROWS_PER_FRAME) = 16 until
+        # WOVEN-TALL-ENTRY (2026-09-27) deleted the CPU sweep that constant rated; this gate's
+        # subject is one plane tall and was already on the DMA sweep.
+        self.WIPE_FRAMES = _expr_const("BG_WIPE_HOLD_FRAMES")
         self.DMA_ENTRY, self.DMA_ENTRY_SIZE = dma_entry_layout()
         # The FIRST free tile in the VRAM map (there was exactly one until the 2026-09-27
         # VRAM-TIER1 recut; there are 54 now), derived from the generated map rather than
