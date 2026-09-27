@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_woven_2d",
+  "name": "THE FIRST 2-D WOVEN ACT: s2_mtz_cpz's row (Metropolis | tunnel | Chemical Plant | tunnel | Metropolis) with Oil Ocean BELOW Chemical Plant, joined by a drop shaft, neutral fill everywhere else, and two background blob groups",
+  "note": "The woven mega-act's \u00a7C bake items (docs/research/2026-09-27-mega-act-woven.md) exercised on one act: a vertical connector (a SHAFT, item 2), neutral FILL (item 6), a 2-D region plan (item 1) with Z2, MUSIC and the SCREEN check on both axes (items 3, 4, 15) and per-region BACKGROUND BLOB GROUPS (item 14: the report's blobs M = {CPZ, MTZ} and O = {OOZ}). WHY THESE RECTANGLES. (1) THE ROW IS s2_mtz_cpz's, unchanged (its note has every measurement: the 480-px tunnels, the 448-px Metropolis lowering, the flush floors). (2) OIL OCEAN (Sonic 2 OOZ act 1, x 8192..9727, y 0..1887, the east refinery's west part) sits 464 px under Chemical Plant. 464 is not typed: the bake's Z2 needs CAM_SCREEN_HALF_H + CAM_MAX_Y_STEP x the frames INTO each side, 112 + 16 x 9 = 256 into Chemical Plant (its group's 314-tile blob is 6 overwrite chunks of 1,824 B, plus the 3-frame wipe) and 112 + 16 x 6 = 208 into Oil Ocean (117 tiles: 3 chunks + 3), which is the report's M-to-O 464 exactly. (3) THE SHAFT is under Chemical Plant's bottom edge at donor x 8192..8447 and over Oil Ocean's top edge at donor x 8448..8703: both mouths are OPEN (K10, MEASURED) and REACHABLE (the camera model: Chemical Plant's whole bottom band is air, the Mega Mack being no collision; Oil Ocean's top 1,152 px are open sky). A drop shaft, no ledges: down only, as the report's C8. (4) Oil Ocean is 1,536 px wide so it faces neither Metropolis half (a zone facing another across void is refused, and one this close to Metropolis east would be on one screen with it). (5) THE FILL is the whole act: every cell no clip, tunnel or shaft covers is solid line-0 stone, so Sonic 2's open bottoms land on it instead of falling out of the act. (6) BLOB GROUPS: Chemical Plant and Metropolis share one background blob (the act default: it holds the start zone), so the tunnels cost only the repaint, as s2_mtz_cpz's co_resident did; Oil Ocean's is its own and is overwritten on the way down. All three together would be 431 tiles against the 376-tile arena. NOT A BUILT ACT YET: no anchors.toml was derived and nothing here has run in the emulator; building it is the next parcel's.",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 3
+  },
+  "start": {
+    "x": 1432,
+    "y": 1066,
+    "why": "ON METROPOLIS'S WALKWAY, 88 px before the first tunnel (feet at the floor, y 1088). Sonic 2's own Metropolis start (96, 652), at (96, 1100) here, cannot reach the tunnels: between it and this walkway is Metropolis's pit (x 1024..1151 has no floor at all, x 1152..1407 none within 1024 px below the walkway, y 1089..2112), which Sonic 2 crosses on objects this clip does not carry. MEASURED 2026-09-27 (tools/tunnel_run_witness.run_up: the walkway is x 1415..1519). The screen exists to show the crossing, so it starts in front of it; the donor start stays checked by clip_rom_bake's ground corroboration."
+  },
+  "clips": [
+    {
+      "id": "mtz_west",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 1520,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 448,
+        "w": 1520,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "y: Metropolis is lowered 448 px so its walkway (y 640, flush at its east edge x 1519) meets the tunnel floor at 1088, which is Chemical Plant's middle track at y 0; see the note's point 1. 448 is a multiple of R12's 16-px collision quantum, so art and collision move together."
+    },
+    {
+      "id": "cpz_loop_cluster",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": {
+        "x": 7040,
+        "y": 0,
+        "w": 2176,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 2000,
+        "y": 0,
+        "w": 2176,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "x: Chemical Plant starts where the first 480-px tunnel ends (2000 = 1520 + 480), not on a section boundary; act section 0 holds Metropolis west, the tunnel and Chemical Plant's first 48 px (W3), section 2 Chemical Plant's last 80 px, the second tunnel and all 1488 px of Metropolis east.",
+      "music": "SONG_S2_CPZ"
+    },
+    {
+      "id": "mtz_east",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 1520,
+        "y": 0,
+        "w": 1488,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 4656,
+        "y": 448,
+        "w": 1488,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "x: Metropolis east starts where the second tunnel ends (4656 = 4176 + 480). y: the same 448-px lowering as Metropolis west (SC0: one paste offset per zone); its west edge x 1520 is flush on the walkway at 640. It names no music: Sonic 2's Metropolis song converts, but does not fit the sound bank (DEFERRED_WORK S2CLIP-MTZ-SONG-BANK), so Metropolis leaves the music alone."
+    },
+    {
+      "id": "ooz_refinery",
+      "donor": "s2disasm",
+      "zone": "OOZ",
+      "src_rect": {
+        "x": 8192,
+        "y": 0,
+        "w": 1536,
+        "h": 1888
+      },
+      "dst_rect": {
+        "x": 2896,
+        "y": 2512,
+        "w": 1536,
+        "h": 1888
+      },
+      "unaligned_dst_reason": "Oil Ocean sits 464 px under Chemical Plant (the note's point 2) and is placed so the shaft's lane meets its open top at donor x 8448 (point 3)."
+    }
+  ],
+  "corridors": [
+    {
+      "id": "mtz_to_cpz",
+      "dst_rect": {
+        "x": 1520,
+        "y": 832,
+        "w": 480,
+        "h": 512
+      },
+      "floor_y": 1088,
+      "tunnel": {
+        "ceiling_y": 992,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    },
+    {
+      "id": "cpz_to_mtz",
+      "dst_rect": {
+        "x": 4176,
+        "y": 832,
+        "w": 480,
+        "h": 512
+      },
+      "floor_y": 1088,
+      "tunnel": {
+        "ceiling_y": 992,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    }
+  ],
+  "shafts": [
+    {
+      "id": "cpz_to_ooz",
+      "dst_rect": {
+        "x": 3152,
+        "y": 2048,
+        "w": 256,
+        "h": 464
+      }
+    }
+  ],
+  "fill": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 6144,
+      "h": 6144
+    },
+    "why": "Everything between the zones is neutral: solid stone on CRAM line 0 (the woven report's item 6), so no background shows between zones and no Sonic 2 pit falls out of the act."
+  },
+  "crossing_overrides": {
+    "palette": "snap",
+    "background": "blobs",
+    "bg_blobs": [
+      [
+        "CPZ",
+        "MTZ"
+      ],
+      [
+        "OOZ"
+      ]
+    ],
+    "zone_separation": "screen",
+    "parallax": "snap",
+    "why": "s2_mtz_cpz's overrides (snap palette, screen-counted Z1, snap parallax: its why has the measurements), with its co_resident background generalised to the woven report's blob groups: {CPZ, MTZ} share one blob (their tunnels only repaint) and OOZ has its own (the shaft pays the overwrite, and is long enough for it: the note's point 2)."
+  }
+}

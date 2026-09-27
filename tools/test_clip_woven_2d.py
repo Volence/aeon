@@ -18,6 +18,14 @@ WHAT IS PINNED, per §C item:
     the two sides' frames differ, Z2 and MUSIC walk a shaft on its own axis and every
     connector of a gap, and the SCREEN check (clip_camera) refuses MIXED, WRONG and short
     crossings — each proven able to fail on a mutated plan or layout;
+  * item 14, BACKGROUND BLOB GROUPS (`crossing_overrides.background = blobs`, `bg_blobs`):
+    BG0 refuses a group list the act cannot honour; the pair frames are the wipe inside a
+    group and the group's overwrite across (derived from the lowered tiles); a group holding
+    the start zone is the act default (its rows name tile blob 0), any other group is ONE
+    blob every member's rows name, embedded once, and BG1 reads it all back;
+  * THE END STATE: games/sonic4/data/clips/s2_woven_2d (s2_mtz_cpz's row with Oil Ocean under
+    Chemical Plant, a shaft, fill, two blob groups) plans, emits and passes Z2, MUSIC, the
+    SCREEN check and BG1 on both axes, its shaft at the slack the rule derives (0);
   * item 6, NEUTRAL FILL (`clips.json` `fill`, clip_manifest K8): every fill cell is the
     stone word on the corridor sheet's zone key and the full solid block on both planes, no
     clip cell changes, an act without a fill has the sheet it always had, K8 refuses by its
@@ -640,3 +648,134 @@ def test_zones_facing_across_void_are_refused_and_fill_seals_them(donors, tmp_pa
     with pytest.raises(CRB.ClipRomError) as exc:
         CRB.check_zone_faces(CM.load(_write(tmp_path, butted), donor_root=donors))
     assert "butted" in str(exc.value) and "along y" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# item 14 — background blob groups, and the end state: s2_woven_2d
+# ---------------------------------------------------------------------------
+
+WOVEN = os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_woven_2d", "clips.json")
+DESCRIPTOR = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
+                          "act_descriptor.emp")
+
+
+def _woven_doc(**ov):
+    doc = json.load(open(WOVEN))
+    doc["crossing_overrides"].update(ov)
+    return doc
+
+
+@pytest.mark.parametrize("ov,needle", [
+    ({"bg_blobs": [["CPZ", "MTZ"]]}, "leaves ['s2disasm/OOZ'] in no group"),
+    ({"bg_blobs": [["CPZ", "MTZ"], ["OOZ", "CPZ"]]}, "a zone's tiles are in ONE blob"),
+    ({"bg_blobs": [["CPZ", "MTZ"], ["HPZ", "OOZ"]]}, "no zone of this act"),
+    ({"bg_blobs": [["CPZ", "MTZ"], []]}, "non-empty lists"),
+])
+def test_bg0_refuses_groups_the_act_cannot_honour(donors, tmp_path, ov, needle):
+    _need(S.S2_FINAL)
+    CRB.blob_groups(CM.load(WOVEN, donor_root=donors))                       # control
+    act = CM.load(_write(tmp_path, _woven_doc(**ov)), donor_root=donors)
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.blob_groups(act)
+    assert str(exc.value).startswith("BG0 ") and needle in str(exc.value), str(exc.value)
+
+
+def test_blobs_and_bg_blobs_go_together(donors, tmp_path):
+    _need(S.S2_FINAL)
+    doc = _woven_doc()
+    doc["crossing_overrides"].pop("bg_blobs")
+    with pytest.raises(CRB.ClipRomError, match="go together"):
+        CRB.crossing_overrides(CM.load(_write(tmp_path, doc, "a.json"), donor_root=donors))
+    doc = _woven_doc(background="co_resident")
+    with pytest.raises(CRB.ClipRomError, match="go together"):
+        CRB.crossing_overrides(CM.load(_write(tmp_path, doc, "b.json"), donor_root=donors))
+
+
+def test_pair_frames_are_the_wipe_inside_a_group_and_the_overwrite_across(donors):
+    """Derived from the engine's constants and each zone's lowered tiles: into a zone of the
+    SAME group only the wipe; into another group its blob's chunks + the wipe; never below
+    the palette's frames."""
+    _need(S.S2_FINAL)
+    import clip_bg_lower as CBL
+    act = CM.load(WOVEN, donor_root=donors)
+    f = CRB.crossing_frames(act)
+    chunk, rows_per_frame, screen_rows = CRB.background_constants()
+    wipe = -(-screen_rows // rows_per_frame)
+    tiles = {c.zone_key: CBL.lower(c.donor, c.zone)[1] for c in act.clips}
+    mtz, cpz, ooz = 0, 1, 2
+    m_union = len(set(tiles[mtz]) | set(tiles[cpz]))
+    assert f["pair"][(mtz, cpz)] == f["pair"][(cpz, mtz)] == max(f["palette"], wipe)
+    assert f["pair"][(ooz, cpz)] == -(-m_union * 32 // chunk) + wipe
+    assert f["pair"][(cpz, ooz)] == -(-len(tiles[ooz]) * 32 // chunk) + wipe
+    # the report's M-to-O shaft length, re-derived: HALF_H x 2 + STEP_Y x (both sides)
+    c = CC.constants()
+    assert 2 * c["CAM_SCREEN_HALF_H"] + c["CAM_MAX_Y_STEP"] * (
+        f["pair"][(ooz, cpz)] + f["pair"][(cpz, ooz)]) == act.shafts[0].dst[3] == 464
+
+
+def _woven_emitted(donors, tmp_path, doc=None):
+    act = CM.load(WOVEN if doc is None else _write(tmp_path, doc), donor_root=donors)
+    gen = tmp_path / "gen"
+    gen.mkdir()
+    data = tmp_path / "entity_data.emp"
+    data.write_text(open(CRB.CLIP_DATA).read())
+    z2, plan = CRB.emit_clip_module(act, donors, path=str(tmp_path / "clip_act.emp"),
+                                    data_path=str(data), gen_dir=str(gen),
+                                    baked_dir=str(tmp_path), log=None)
+    return act, z2, plan, (tmp_path / "clip_act.emp").read_text(), data.read_text(), str(gen)
+
+
+def test_the_woven_2d_act_passes_every_check_on_both_axes(donors, tmp_path):
+    """THE END STATE this parcel ships: the committed 2-D woven manifest plans and emits,
+    and Z2, MUSIC, the SCREEN check, BG1, SC1 and LL1 (all run by emit_clip_module over what
+    it WROTE) pass. The shaft is at slack 0 — the length the rule derives, no longer."""
+    _need(S.S2_FINAL)
+    act, z2, plan, mod, data, gen = _woven_emitted(donors, tmp_path)
+    assert {(r["connector"], r["axis"]) for r in z2} == {
+        ("mtz_to_cpz", "x"), ("cpz_to_mtz", "x"), ("cpz_to_ooz", "y")}
+    assert {(m["connector"], m["axis"]) for m in plan["music"]} == {
+        ("mtz_to_cpz", "x"), ("cpz_to_mtz", "x"), ("cpz_to_ooz", "y")}
+    scr = plan["screen"]
+    assert scr["mixed"] == scr["wrong"] == scr["void"] == 0
+    slack = {(t["from_key"], t["into_key"]): t["slack"] for t in scr["crossings"]}
+    assert slack[(1, 2)] == slack[(2, 1)] == 0 and min(slack.values()) >= 0
+    W = H = 3 * act.section_px
+    _descriptor_rules(plan["rows"], W, H)
+    # the blob groups, read out of the rows: MTZ (the start) and CPZ draw from the act
+    # default's blob (tiles 0); OOZ names its own
+    by_key = {}
+    for r in plan["rows"]:
+        by_key.setdefault(r["key"], set()).add((r.get("bg_layout"), r.get("bg_tiles")))
+    assert by_key[0] == {(None, None)}
+    assert by_key[1] == {("OJZ_Clip_BG_Layout_1", None)}
+    assert by_key[2] == {("OJZ_Clip_BG_Layout_2", "OJZ_Clip_BG_Tiles_2")}
+    assert plan["bg1"]["default"] == "MTZ"
+
+
+def test_a_group_without_the_start_zone_is_one_blob_every_member_names(donors, tmp_path):
+    """bg_blobs [[MTZ], [CPZ, OOZ]]: CPZ + OOZ share ONE blob (owned by the lower zone key,
+    embedded once), both zones' rows name it, BG1 reads it back as their union."""
+    _need(S.S2_FINAL)
+    import clip_bg_lower as CBL
+    act = CM.load(_write(tmp_path, _woven_doc(bg_blobs=[["MTZ"], ["CPZ", "OOZ"]])),
+                  donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    gen = tmp_path / "gen"
+    gen.mkdir()
+    CRB.plan_backgrounds(plan, CRB.engine_spawn(DESCRIPTOR, start=CRB.act_start(act)),
+                         str(gen), str(tmp_path), log=None)
+    zones = {z["key"]: z for z in plan["zones"]}
+    assert zones[1]["bg_tiles_label"] == zones[2]["bg_tiles_label"] == "OJZ_Clip_BG_Tiles_1"
+    assert zones[1]["bg_tiles_owner"] and not zones[2]["bg_tiles_owner"]
+    data = CRB.clip_data_block(plan)
+    assert data.count("pub data OJZ_Clip_BG_Tiles_1 ") == 1
+    assert "OJZ_Clip_BG_Tiles_2" not in data
+    union = len(set(CBL.lower("s2disasm", "CPZ")[1]) | set(CBL.lower("s2disasm", "OOZ")[1]))
+    assert zones[1]["bg_tile_bytes_effective"] == zones[2]["bg_tile_bytes_effective"] \
+        == union * 32
+    CRB.check_backgrounds(plan, CRB.clip_module_text(plan), data, str(gen))
+    # CAN IT FAIL: the group blob on disk replaced by CPZ's own tiles alone
+    (gen / CRB.CLIP_BG_TILES_BIN.format(key=1)).write_bytes(
+        CBL.tiles_blob(CBL.lower("s2disasm", "CPZ")[1]))
+    with pytest.raises(CRB.ClipRomError, match="BG1"):
+        CRB.check_backgrounds(plan, CRB.clip_module_text(plan), data, str(gen))

@@ -888,9 +888,16 @@ def clip_data_block(plan):
         # (align: 2) on the tile blob because it is a DMA SOURCE — BG_Stream_Update's
         # overwrite queues it word-wise and raise_errors on an odd address in DEBUG.
         tiles_line = (f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}] = "
-                      f"embed(\"{z['bg_tiles_embed']}\")\n" if z.get("bg_tiles_label") else
+                      f"embed(\"{z['bg_tiles_embed']}\")\n"
+                      if z.get("bg_tiles_label") and z.get("bg_tiles_owner", True) else
+                      f"// NO tile blob of its own: its tiles are in {z['bg_tiles_label']}, its "
+                      f"background blob group's\n// (crossing_overrides.bg_blobs), so a crossing "
+                      f"inside the group overwrites nothing.\n" if z.get("bg_tiles_label") else
                       "// NO tile blob: PER-CLIP OVERRIDE crossing_overrides.background = "
-                      "co_resident. This zone's\n// tiles are inside the act default's blob "
+                      + ("blobs, and this zone's group holds the start zone. Its"
+                         if (plan.get("overrides") or {}).get("background") == "blobs" else
+                         "co_resident. This zone's")
+                      + "\n// tiles are inside the act default's blob "
                       "(rg_bg_tiles 0), so the crossing overwrites nothing.\n")
         out.append(
             f"// zone key {z['key']}: {z['donor']} {z['zone']}'s own Sonic 2 background "
@@ -968,7 +975,7 @@ SNAP_FRAMES = 1
 #: changes what an act without the key is held to.
 CROSSING_OVERRIDES_KEY = "crossing_overrides"
 CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
-                            "background": ("overwrite", "co_resident"),
+                            "background": ("overwrite", "co_resident", "blobs"),
                             "zone_separation": ("tile_cache", "screen"),
                             "crossing_margin": ("enforce", "report"),
                             "parallax": ("lerp", "snap")}
@@ -984,7 +991,7 @@ def crossing_overrides(act):
         return out
     if not isinstance(raw, dict):
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} must be an object")
-    unknown = sorted(set(raw) - set(CROSSING_OVERRIDE_VALUES) - {"why"})
+    unknown = sorted(set(raw) - set(CROSSING_OVERRIDE_VALUES) - {"why", "bg_blobs"})
     if unknown:
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} carries {unknown}; the keys it may "
                            f"carry are {sorted(CROSSING_OVERRIDE_VALUES)} and `why`")
@@ -998,6 +1005,15 @@ def crossing_overrides(act):
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} without a `why`: an override of how "
                            f"zones cross is the author's decision and has to say why")
     out["why"], out["declared"] = raw["why"], True
+    # BACKGROUND BLOB GROUPS (the woven report's §C item 14): `background = blobs` names the
+    # groups in `bg_blobs`; either without the other is refused (blob_groups resolves them)
+    if (out["background"] == "blobs") != ("bg_blobs" in raw):
+        raise ClipRomError(f"{CROSSING_OVERRIDES_KEY}.background = blobs and "
+                           f"{CROSSING_OVERRIDES_KEY}.bg_blobs go together: the groups are "
+                           f"named in bg_blobs, and bg_blobs means nothing under another "
+                           f"background rule")
+    if "bg_blobs" in raw:
+        out["bg_blobs"] = raw["bg_blobs"]
     return out
 
 
@@ -1108,11 +1124,47 @@ def blob_groups(act):
     """[frozenset of zone keys] — the BACKGROUND BLOBS: zones in one blob have their
     background tiles resident together in the BG arena, so a crossing between them pays no
     tile overwrite. `crossing_overrides.background = co_resident` puts every zone in one
-    blob; without it every zone is its own blob."""
+    blob; `background = blobs` names the groups (`bg_blobs`, the woven report's §C item 14:
+    its blobs A, M, O); without either every zone is its own blob.
+
+    `bg_blobs` is a list of groups, each a list of zone names — "CPZ", or "s2disasm/CPZ"
+    where the act holds one zone name from two donors. BG0 refuses a name the act does not
+    have, an ambiguous one, a zone in two groups or in none, and an empty group."""
+    ov = crossing_overrides(act)
     keys = sorted({c.zone_key for c in act.clips})
-    if crossing_overrides(act)["background"] == "co_resident":
+    if ov["background"] == "co_resident":
         return [frozenset(keys)]
-    return [frozenset([k]) for k in keys]
+    if ov["background"] != "blobs":
+        return [frozenset([k]) for k in keys]
+    raw = ov["bg_blobs"]
+    if not isinstance(raw, list) or not raw or not all(
+            isinstance(g, list) and g and all(isinstance(n, str) for n in g) for g in raw):
+        raise ClipRomError("BG0 crossing_overrides.bg_blobs must be a non-empty list of "
+                           "non-empty lists of zone names")
+    tree = {c.zone_key: c.tree_key for c in act.clips}
+    groups, seen = [], {}
+    for gi, g in enumerate(raw):
+        keys_g = set()
+        for name in g:
+            hits = [k for k, (d, z) in tree.items() if name in (z, f"{d}/{z}")]
+            if len(hits) != 1:
+                raise ClipRomError(
+                    f"BG0 crossing_overrides.bg_blobs[{gi}] names {name!r}, which is "
+                    + ("no zone of this act" if not hits else
+                       f"{len(hits)} zones of this act (write donor/ZONE)")
+                    + f"; the act's zones are {sorted('/'.join(t) for t in tree.values())}")
+            k = hits[0]
+            if k in seen:
+                raise ClipRomError(f"BG0 crossing_overrides.bg_blobs puts {name!r} in groups "
+                                   f"{seen[k]} and {gi}: a zone's tiles are in ONE blob")
+            seen[k] = gi
+            keys_g.add(k)
+        groups.append(frozenset(keys_g))
+    missing = sorted('/'.join(tree[k]) for k in keys if k not in seen)
+    if missing:
+        raise ClipRomError(f"BG0 crossing_overrides.bg_blobs leaves {missing} in no group; "
+                           f"name every zone of the act once")
+    return groups
 
 
 _LOWERED = {}
@@ -1437,7 +1489,7 @@ def region_plan(act, donor_root, act_h_px=None, frames=None, model=None):
         out_cross.append(d)
     return {"act": act.id, "zones": zones, "rows": rows_out,
             "overrides": crossing_overrides(act), "crossings": out_cross,
-            "frames": frames}
+            "frames": frames, "blob_groups": [sorted(g) for g in blob_groups(act)]}
 
 
 _ROW_RE = None
@@ -2077,6 +2129,52 @@ class _ClipDefaultBgAct:
         return _Act(base.zone_id, base.act_id, base.repo)
 
 
+def _union_backgrounds(own, order, what):
+    """{key: (words re-indexed into the union, the union, info with co_resident=True)} and the
+    union — the zones in `order` sharing ONE tile blob. The first zone's tiles keep their own
+    indices; every later zone's tiles not already in it are appended, by clip_bg_lower's
+    CANONICAL form (the least of a tile's four flips), so a word's flip bits stay valid when
+    only its index is rewritten. `what` names the blob in a refusal."""
+    from vram_map import BG_TILE_CAPACITY
+    union, index = [], {}
+    for t in own[order[0]][1]:
+        index.setdefault(t, len(union))
+        union.append(t)
+    out = {}
+    for k in order:
+        words, tiles, info = own[k]
+        remap = []
+        for t in tiles:
+            if t not in index:
+                index[t] = len(union)
+                union.append(t)
+            remap.append(index[t])
+        new = []
+        for i, w in enumerate(words):
+            if w == 0:
+                new.append(0)
+                continue
+            nw = (w & ~0x7FF) | remap[w & 0x7FF]
+            if nw == 0:
+                raise ClipRomError(
+                    f"BG {what}: {info['zone']} cell {i} re-indexes to word $0000, which "
+                    f"inject_editor_bg.rebase_layout keeps as the TRANSPARENT word — this "
+                    f"opaque tile would vanish")
+            # FIDELITY: the union entry the new word names IS the tile the old word named
+            if union[nw & 0x7FF] != tiles[w & 0x7FF]:
+                raise ClipRomError(f"BG {what}: {info['zone']} cell {i} re-indexed to a "
+                                   f"different tile")
+            new.append(nw)
+        out[k] = (new, None, dict(info, co_resident=True))
+    if len(union) > BG_TILE_CAPACITY:
+        raise ClipRomError(
+            f"BG {what}: the zones' backgrounds need {len(union)} tiles together and the "
+            f"arena holds BG_TILE_CAPACITY = {BG_TILE_CAPACITY} (vram.toml bg_region, a hard "
+            f"VRAM boundary). They cannot be co-resident; "
+            + ("drop the override." if what == "co-resident" else "split the group."))
+    return {k: (w, list(union), info) for k, (w, _n, info) in out.items()}, union
+
+
 def co_resident_backgrounds(plan, own, start, log=None):
     """PER-CLIP OVERRIDE crossing_overrides.background = "co_resident": every zone's
     background tiles in ONE blob, the act default's, so a crossing changes only the LAYOUT
@@ -2098,44 +2196,7 @@ def co_resident_backgrounds(plan, own, start, log=None):
     Both numbers are printed."""
     from vram_map import BG_TILE_CAPACITY, BG_STATIC_TILE_BUDGET
     order = [start] + sorted(k for k in own if k != start)
-    union, index = [], {}
-    for t in own[start][1]:
-        index.setdefault(t, len(union))
-        union.append(t)
-    out = {}
-    for k in order:
-        words, tiles, info = own[k]
-        remap = []
-        for t in tiles:
-            if t not in index:
-                index[t] = len(union)
-                union.append(t)
-            remap.append(index[t])
-        new = []
-        for i, w in enumerate(words):
-            if w == 0:
-                new.append(0)
-                continue
-            nw = (w & ~0x7FF) | remap[w & 0x7FF]
-            if nw == 0:
-                raise ClipRomError(
-                    f"BG co-resident: {info['zone']} cell {i} re-indexes to word $0000, which "
-                    f"inject_editor_bg.rebase_layout keeps as the TRANSPARENT word — this "
-                    f"opaque tile would vanish")
-            # FIDELITY: the union entry the new word names IS the tile the old word named
-            if union[nw & 0x7FF] != tiles[w & 0x7FF]:
-                raise ClipRomError(f"BG co-resident: {info['zone']} cell {i} re-indexed to a "
-                                   f"different tile")
-            new.append(nw)
-        out[k] = [new, None, dict(info, co_resident=True)]
-    if len(union) > BG_TILE_CAPACITY:
-        raise ClipRomError(
-            f"BG co-resident: the zones' backgrounds need {len(union)} tiles together and the "
-            f"arena holds BG_TILE_CAPACITY = {BG_TILE_CAPACITY} (vram.toml bg_region, a hard "
-            f"VRAM boundary). They cannot be co-resident; drop the override.")
-    for k in out:
-        out[k][1] = list(union)
-        out[k] = tuple(out[k])
+    out, union = _union_backgrounds(own, order, "co-resident")
     if log:
         log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.background = co_resident — "
             f"{' + '.join(str(len(own[k][1])) for k in order)} tiles of "
@@ -2160,8 +2221,35 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
     lowered, own = {}, {}
     for z in plan["zones"]:
         own[z["key"]] = lower(z["donor"], z["zone"])
+    # BLOB GROUPS (the woven report's §C item 14): every group of two or more zones shares ONE
+    # tile blob — the act default when it holds the start zone (its rows name rg_bg_tiles 0,
+    # as co_resident's do), else one blob named by every member's rows. A crossing between
+    # two zones of one group finds the arena already holding the blob (BG_Stream_Update's
+    # pointer compare) and pays only the repaint; into another group it pays the overwrite.
+    groups = [set(g) for g in plan.get("blob_groups") or []]
+    group_of = {k: g for g in groups for k in g}
+    unions = {}
     if co_resident:
         own = co_resident_backgrounds(plan, own, start, log=log)
+    else:
+        from vram_map import BG_TILE_CAPACITY
+        for g in groups:
+            if len(g) < 2:
+                continue
+            order = ([start] + sorted(g - {start})) if start in g else sorted(g)
+            names = "+".join(own[k][2]["zone"] for k in order)
+            sizes = " + ".join(str(len(own[k][1])) for k in order)
+            sub, union = _union_backgrounds({k: own[k] for k in g}, order,
+                                            f"blob group {names}")
+            own.update(sub)
+            unions[min(g)] = union
+            if log:
+                log(f"clip_rom_bake: BACKGROUND BLOB GROUP {names}: {sizes} tiles share ONE "
+                    f"{len(union)}-tile blob "
+                    + ("(the act default: it holds the start zone)" if start in g else
+                       f"(OJZ_Clip_BG_Tiles_{min(g)})")
+                    + f"; arena {BG_TILE_CAPACITY} tiles")
+    start_shared = co_resident or len(group_of.get(start, ())) > 1
     for z in plan["zones"]:
         words, tiles, info = own[z["key"]]
         lowered[z["key"]] = (words, tiles)
@@ -2177,7 +2265,7 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
                 json.dump(CBL.override_doc(words, tiles), fh)
             import inject_editor_bg as ieb
             ieb.main(_ClipDefaultBgAct(override, gen_dir))
-            if co_resident:
+            if start_shared:
                 # the co-resident blob may reach into the band reserve ONLY because no band
                 # exists to use it: read that back out of what the injector wrote
                 with open(os.path.join(gen_dir, "bg_anim.emp")) as fh:
@@ -2194,14 +2282,27 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
             fh.write(CBL.layout_blob(words))
         z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
                  bg_layout_embed=f"{GEN_REL}/{lay}")
-        if co_resident:
+        if co_resident or (start_shared and z["key"] in group_of.get(start, ())):
             continue                    # its tiles are in the act default's blob
-        til = CLIP_BG_TILES_BIN.format(key=z["key"])
+        owner = min(group_of.get(z["key"], {z["key"]}))
+        til = CLIP_BG_TILES_BIN.format(key=owner)
         blob = CBL.tiles_blob(tiles)
         with open(os.path.join(gen_dir, til), "wb") as fh:
             fh.write(blob)
-        z.update(bg_tiles_label=f"OJZ_Clip_BG_Tiles_{z['key']}",
-                 bg_tiles_embed=f"{GEN_REL}/{til}", bg_tiles_bytes=len(blob))
+        z.update(bg_tiles_label=f"OJZ_Clip_BG_Tiles_{owner}",
+                 bg_tiles_embed=f"{GEN_REL}/{til}", bg_tiles_bytes=len(blob),
+                 bg_tiles_owner=owner == z["key"], bg_tiles_file=til)
+    from vram_map import BG_STATIC_TILE_BUDGET
+    for owner, union in unions.items():
+        if owner not in group_of.get(start, ()) and len(union) > BG_STATIC_TILE_BUDGET:
+            # a region blob past the static budget uses the band reserve too: legal only
+            # while the act has no BgAnim band (read back out of what the injector wrote)
+            with open(os.path.join(gen_dir, "bg_anim.emp")) as fh:
+                if "BgAnim_Table: u16 = 0" not in fh.read():
+                    raise ClipRomError(
+                        f"BG blob group of zone key {owner}: {len(union)} tiles pass the "
+                        f"static budget {BG_STATIC_TILE_BUDGET} and the act default's "
+                        f"bg_anim.emp is not the zero-band stub — refused")
     zones = {z["key"]: z for z in plan["zones"]}
     for r in plan["rows"]:
         r["bg_layout"] = zones[r["key"]].get("bg_layout_label")
@@ -2279,7 +2380,8 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
                                    f"{CLIP_BG_TILES_BIN.format(key=key)} was written for it")
         else:
             files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),
-                     (CLIP_BG_TILES_BIN.format(key=key), CBL.tiles_blob(tiles)))
+                     (z.get("bg_tiles_file") or CLIP_BG_TILES_BIN.format(key=key),
+                      CBL.tiles_blob(tiles)))
         for fname, want in files:
             with open(os.path.join(gen_dir, fname), "rb") as fh:
                 if fh.read() != want:

@@ -570,7 +570,7 @@ numbers.
 | 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | required |
 | 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
 | 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **needed for 384 / 288**; without it, 480 across |
-| 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | required |
+| 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `background = blobs` + `bg_blobs`; exercised by `clips/s2_woven_2d` |
 | 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `tools/clip_camera.py` + `check_screen` (MIXED, WRONG, per-pair slack, VOID) |
 | 16 | Per-region camera bounds | `camera.emp` | M | optional |
 | 17 | CRAM line-0 cells (CPZ 168, WFZ 32) | content | S to accept | as v1 |
