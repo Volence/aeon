@@ -114,13 +114,16 @@ def test_each_switch_lies_where_both_layouts_are_exact(clip):
                             for sp in ch["specs"]}) == 1
 
 
-def test_a_multi_zone_act_stays_windowed_until_crossing_into_a_tall_map_is_modelled():
-    """TALL_JOINED_ZONES (clip_rom_bake): crossing INTO a tall region costs a rate-clamped
-    scroll slide and the CPU wipe, which Z2 and the woven connectors do not carry (measured:
-    29 and 9 glitch ticks on hpz_to_ooz / hpz_to_mtz). So the woven act bakes as before, and
-    the one-zone solo acts go tall."""
-    assert CRB.TALL_JOINED_ZONES is False
-    assert CRB.tall_plans(_act("s2_woven")) == {}
+def test_a_multi_zone_act_goes_tall_once_tall_entry_costs_what_one_plane_entry_does():
+    """TALL_JOINED_ZONES (clip_rom_bake), True since WOVEN-TALL-ENTRY (2026-09-27): crossing
+    INTO a tall region used to cost a rate-clamped scroll slide and the CPU wipe (measured: 29
+    and 9 glitch ticks on hpz_to_ooz / hpz_to_mtz). The engine now snaps the scroll on a
+    layout-changing crossing and DMA-sweeps every map, and crossing_witness reads 0 on all 11
+    woven connectors, so the woven act bakes HPZ and WFZ tall like the solo acts do."""
+    assert CRB.TALL_JOINED_ZONES is True
+    zone_of = {c.zone_key: c.zone for c in _act("s2_woven").clips}
+    assert sorted(zone_of[k] for k in CRB.tall_plans(_act("s2_woven"))) == ["HPZ", "WFZ"]
+    assert CRB.tall_plans(_act("s2_woven"), joined=False) == {}
     assert sorted(len(CRB.tall_plans(_act(c))) for c in ("s2_hpz_solo", "s2_wfz_solo")) == [1, 1]
 
 
