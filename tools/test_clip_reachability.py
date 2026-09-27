@@ -57,6 +57,12 @@ def _geometry():
     return rows, coll_rows, rows * 2 + 2 * coll_rows + pad
 
 
+#: where a fixture tree's painted world ends DOWNWARD: `_write_tree` paints one tile row,
+#: tile row 80 (world y 640), so every row from the next one down is artless (the gate's
+#: check 4, the woven report's §C item 5)
+Y_FROM = 80 * 8 + 8
+
+
 def _write_tree(tmp_path, grid_w, grid_h, painted_to_x, *, floor_attr=1,
                 plane_b_holes=(), art_holes=(), floor_holes=()):
     """A generated tree: `painted_to_x` px of art + floor, the rest air.
@@ -127,7 +133,7 @@ def _run(gen, coll, capsys=None):
 def test_a_complete_act_with_a_matching_declaration_passes(tmp_path, monkeypatch):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "the act is fully painted",
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "the act is fully painted",
                        "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800,
                                           "why": "one floor row, air below it"}})
     assert _run(gen, coll) == 0
@@ -148,7 +154,7 @@ def test_a_declaration_that_reserves_less_than_the_bytes_do_names_missing_conten
         tmp_path, monkeypatch, capsys):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=2048)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 3072, "why": "declared edge"})
+             declared={"x_from": 3072, "y_from": Y_FROM, "why": "declared edge"})
     assert _run(gen, coll) == 1
     err = capsys.readouterr().err
     assert "CONTENT IS MISSING" in err
@@ -159,14 +165,16 @@ def test_a_stale_declaration_fails(tmp_path, monkeypatch, capsys):
     """The other side of the two-sided check: the act grew and the gate stopped asking."""
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 2048, "why": "written when the clip was half this wide"})
+             declared={"x_from": 2048, "y_from": Y_FROM,
+                       "why": "written when the clip was half this wide"})
     assert _run(gen, coll) == 1
     assert "THE DECLARATION IS STALE" in capsys.readouterr().err
 
 
 def test_a_declaration_without_a_why_fails(tmp_path, monkeypatch, capsys):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=2048)
-    _install(monkeypatch, gen, (2, 1), declared={"x_from": 2048, "why": "   "})
+    _install(monkeypatch, gen, (2, 1),
+             declared={"x_from": 2048, "y_from": Y_FROM, "why": "   "})
     assert _run(gen, coll) == 1
     assert 'no "why"' in capsys.readouterr().err
 
@@ -175,7 +183,7 @@ def test_a_column_with_no_floor_on_the_reachable_plane_fails(tmp_path, monkeypat
                                                              capsys):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600,))
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     assert _run(gen, coll) == 1
     err = capsys.readouterr().err
     assert "plane A has NO landing surface in 1 column" in err
@@ -186,7 +194,7 @@ def test_a_hole_inside_the_painted_world_is_not_read_as_an_edge(tmp_path, monkey
                                                                 capsys):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, art_holes=(1600,))
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     assert _run(gen, coll) == 1
     assert "That is a hole, not an edge" in capsys.readouterr().err
 
@@ -213,7 +221,7 @@ def test_plane_b_holes_are_informational_until_a_line_can_select_b(
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096,
                             plane_b_holes=(1600, 1608))
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted",
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted",
                        "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800,
                                           "why": "fixture"}})
     monkeypatch.setattr(CR, "act_layer_line_rows", lambda act: ([_ROW_A, _ROW_KEEP], _C))
@@ -252,7 +260,7 @@ def test_a_layer_line_plan_the_bake_refuses_is_unmeasurable(monkeypatch):
 def test_a_missing_strip_is_unmeasurable(tmp_path, monkeypatch):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     os.remove(gen / "sec1_strips_a.bin")
     with pytest.raises(CR.Unmeasurable) as e:
         _run(gen, coll)
@@ -262,7 +270,7 @@ def test_a_missing_strip_is_unmeasurable(tmp_path, monkeypatch):
 def test_a_short_strip_is_unmeasurable(tmp_path, monkeypatch):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     p = gen / "sec0_strips_a.bin"
     p.write_bytes(p.read_bytes()[:-1])
     with pytest.raises(CR.Unmeasurable) as e:
@@ -274,7 +282,7 @@ def test_the_cli_exits_2_on_unmeasurable(tmp_path, monkeypatch):
     """The exit CODE, not just the exception — `gate strict` grades the number."""
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     os.remove(gen / "sec0_strips_a.bin")
     with pytest.raises(SystemExit) as e:
         CR.main(["check", "fixture/clips.json", "--gen-dir", str(gen),
@@ -306,7 +314,7 @@ def test_a_declared_bound_must_be_an_integer_in_range(tmp_path):
 def test_an_unstamped_tree_is_unmeasurable(tmp_path, monkeypatch):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     os.remove(gen / clip_rom_bake.STAMP_NAME)
     with pytest.raises(CR.Unmeasurable) as e:
         _run(gen, coll)
@@ -319,7 +327,7 @@ def test_a_stamp_from_a_different_clip_act_is_named_as_stale_not_as_geometry(
     "a difference that is a multiple of 8 or 16 is a PASTE SHIFT"."""
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     _install(monkeypatch, gen, (2, 1),
-             declared={"x_from": 4096, "why": "fully painted"})
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "fully painted"})
     stamp = gen / clip_rom_bake.STAMP_NAME
     d = json.loads(stamp.read_text())
     d["act"] = "some_other_clip"
@@ -358,7 +366,8 @@ def test_an_undeclared_unbounded_fall_fails(tmp_path, monkeypatch, capsys):
     baked into a bigger act's slot has none.
     """
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
-    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    _install(monkeypatch, gen, (2, 1),
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "painted"})
     assert _run(gen, coll) == 1
     err = capsys.readouterr().err
     assert "AIR below their LAST landing surface" in err
@@ -370,7 +379,7 @@ def test_the_unbounded_fall_count_is_two_sided(tmp_path, monkeypatch, capsys):
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
     for declared, expect in ((400, "MORE of the act now swallows"), (900, "FEWER")):
         _install(monkeypatch, gen, (2, 1),
-                 declared={"x_from": 4096, "why": "painted",
+                 declared={"x_from": 4096, "y_from": Y_FROM, "why": "painted",
                            "unbounded_fall": {"columns": declared,
                                               "donor_bottom_boundary": 800,
                                               "why": "fixture"}})
@@ -393,7 +402,8 @@ def test_a_floor_at_the_bottom_of_every_column_clears_the_unbounded_fall(tmp_pat
         for lx in range(SECTION_TILES):
             buf[lx * stride + rows * 2 + coll_rows - 1] = 1   # the last collision row
         p.write_bytes(bytes(buf))
-    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    _install(monkeypatch, gen, (2, 1),
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "painted"})
     assert _run(gen, coll) == 0
 
 
@@ -417,7 +427,7 @@ _PIT_WHY = "EHZ's own pit; the donor survives it with a bottom boundary this eng
 
 
 def _pit_declared(cols, runs, plane="A", why=_PIT_WHY):
-    return {"x_from": 4096, "why": "painted",
+    return {"x_from": 4096, "y_from": Y_FROM, "why": "painted",
             "unbounded_fall": {"columns": 512 - cols, "donor_bottom_boundary": 800,
                                "why": "fixture"},
             "floorless_columns": {"why": why,
@@ -445,7 +455,8 @@ def test_the_undeclared_case_is_untouched_and_still_fails(tmp_path, monkeypatch,
     is how a gate gets edited out instead of answered.
     """
     gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096, floor_holes=(1600,))
-    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    _install(monkeypatch, gen, (2, 1),
+             declared={"x_from": 4096, "y_from": Y_FROM, "why": "painted"})
     assert _run(gen, coll) == 1
     err = capsys.readouterr().err
     assert "plane A has NO landing surface in 1 column" in err
@@ -525,3 +536,40 @@ def test_a_malformed_floorless_declaration_is_unmeasurable_never_a_pass(bad, fra
 def test_no_floorless_declaration_parses_to_nothing():
     assert CR._declared_floorless(None) == {}
     assert CR._declared_floorless({"x_from": 4096}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Check 4: where the painted world ends DOWNWARD (the woven report's §C item 5)
+# ---------------------------------------------------------------------------
+
+def test_the_vertical_remainder_is_two_sided(tmp_path, monkeypatch, capsys):
+    """y_from is checked like x_from: the fixture's world ends downward at Y_FROM (derived
+    from `_write_tree`'s one painted tile row); a declaration 8 px short says CONTENT IS
+    MISSING, 8 px long says STALE, and the exact value passes."""
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    base = {"x_from": 4096, "why": "painted",
+            "unbounded_fall": {"columns": 512, "donor_bottom_boundary": 800, "why": "x"}}
+    _install(monkeypatch, gen, (2, 1), declared=dict(base, y_from=Y_FROM))
+    assert _run(gen, coll) == 0
+    _install(monkeypatch, gen, (2, 1), declared=dict(base, y_from=Y_FROM + 8))
+    assert _run(gen, coll) == 1
+    assert "CONTENT IS MISSING" in capsys.readouterr().err
+    _install(monkeypatch, gen, (2, 1), declared=dict(base, y_from=Y_FROM - 8))
+    assert _run(gen, coll) == 1
+    assert "STALE" in capsys.readouterr().err
+
+
+def test_a_declaration_without_y_from_is_unmeasurable(tmp_path, monkeypatch):
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    _install(monkeypatch, gen, (2, 1), declared={"x_from": 4096, "why": "painted"})
+    with pytest.raises(CR.Unmeasurable, match='no "y_from"'):
+        _run(gen, coll)
+
+
+def test_an_undeclared_vertical_void_fails_even_when_the_width_is_painted(tmp_path,
+                                                                          monkeypatch, capsys):
+    gen, coll = _write_tree(tmp_path, 2, 1, painted_to_x=4096)
+    _install(monkeypatch, gen, (2, 1))
+    assert _run(gen, coll) == 1
+    err = capsys.readouterr().err
+    assert f"ends at y={Y_FROM}" in err and '"y_from"' in err

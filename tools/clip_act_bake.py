@@ -119,11 +119,15 @@ PER-CLIP POOL ROWS (2026-09-25, aurora's row-8 ask; design §8 RULED block). `cl
     "per_clip":    [ {"id", "index", "tiles", "tiles_added",
                       "pages_touched", "pages_exclusive"}, ... ]   // one per clips[i]
     "per_corridor": [ same row shape ]                              // one per corridors[i]
+    "per_shaft":    [ same row shape ]          // ONLY when the act has `shafts`
+    "per_fill":     [ same row shape ]          // ONLY when the act has a `fill`: one row,
+                                                // id "fill", sliced by the fill's cell mask
     "per_clip_fields": { field -> its meaning }   // PER_CLIP_POOL_FIELDS, verbatim
 
   tiles            distinct pool tiles the rectangle's cells reference, blank (slot 0) excluded
   tiles_added      of those, the ones no earlier row references (clips in manifest order,
-                   then corridors); sum over all rows + 1 == pool.tiles
+                   then corridors, then shafts, then the fill); sum over all rows + 1 ==
+                   pool.tiles
   pages_touched    pages holding any of its tiles: what must be resident to draw all of it.
                    Shared pages count for every row, so the sum can exceed pool.pages
   pages_exclusive  touched pages no other row touches; sum over rows <= pool.pages
@@ -481,34 +485,45 @@ PER_CLIP_POOL_FIELDS = {
 
 
 def pool_contributions(act, pl):
-    """(per_clip rows, per_corridor rows) — see PER_CLIP_POOL_FIELDS for each field.
+    """{"clip": rows, "corridor": rows, "shaft": rows, "fill": rows} — see
+    PER_CLIP_POOL_FIELDS for each field. "fill" is one row (id "fill", index 0) when the act
+    has a neutral fill, else [].
 
     Reads the placement `place_pool` returned (`canon`, `page_grid`, `slot_of`) and slices
-    it by each rectangle's dst cells; the blank is identified by its SLOT (0), the same
-    rule `_evaluate`'s page grid uses to give it no page."""
+    it by each rectangle's dst cells (the fill by its MASK, `clip_manifest.fill_mask`: it is
+    not a rectangle); the blank is identified by its SLOT (0), the same rule `_evaluate`'s
+    page grid uses to give it no page."""
     canon, pg, slot_of = pl["canon"], pl["page_grid"], pl["slot_of"]
     blank = {int(c) for c in np.flatnonzero(slot_of == 0)}
-    rects = ([("clip", r) for r in act.clips] + [("corridor", r) for r in act.corridors])
-    sets = []
-    for _kind, r in rects:
+
+    def rect_cells(r):
         dx, dy, w, h = (v // clip_manifest.TILE_PX for v in r.dst)
-        tiles = {int(c) for c in np.unique(canon[dy:dy + h, dx:dx + w])} - blank
-        sub_pg = pg[dy:dy + h, dx:dx + w]
+        return canon[dy:dy + h, dx:dx + w], pg[dy:dy + h, dx:dx + w]
+
+    rows_in = ([("clip", r.id, r.index, rect_cells(r)) for r in act.clips]
+               + [("corridor", r.id, r.index, rect_cells(r)) for r in act.corridors]
+               + [("shaft", r.id, r.index, rect_cells(r)) for r in act.shafts])
+    if act.fill is not None:
+        m = clip_manifest.fill_mask(act)
+        rows_in.append(("fill", "fill", 0, (canon[m], pg[m])))
+    sets = []
+    for *_k, (sub_c, sub_pg) in rows_in:
+        tiles = {int(c) for c in np.unique(sub_c)} - blank
         pages = {int(p) for p in np.unique(sub_pg[sub_pg >= 0])}
         sets.append((tiles, pages))
     touch = {}
     for _t, pages in sets:
         for p in pages:
             touch[p] = touch.get(p, 0) + 1
-    seen, clips, corridors = set(), [], []
-    for (kind, r), (tiles, pages) in zip(rects, sets):
-        row = {"id": r.id, "index": r.index,
+    seen, out = set(), {"clip": [], "corridor": [], "shaft": [], "fill": []}
+    for (kind, rid, idx, _cells), (tiles, pages) in zip(rows_in, sets):
+        row = {"id": rid, "index": idx,
                "tiles": len(tiles), "tiles_added": len(tiles - seen),
                "pages_touched": len(pages),
                "pages_exclusive": sum(1 for p in pages if touch[p] == 1)}
         seen |= tiles
-        (clips if kind == "clip" else corridors).append(row)
-    return clips, corridors
+        out[kind].append(row)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +603,8 @@ def emit(act, st, out_dir, donor_root=None):
         r0, c0 = sy * sect, sx * sect
         with open(os.path.join(out_dir, f"section_{s_idx}.zonekey.bin"), "wb") as fh:
             fh.write(zone_id[r0:r0 + sect, c0:c0 + sect].astype(np.int8).tobytes())
-    per_clip, per_corridor = pool_contributions(act, pl)
+    contrib = pool_contributions(act, pl)
+    per_clip, per_corridor = contrib["clip"], contrib["corridor"]
     sheet_files = []
     for i, (d, z, b, zm) in enumerate(st["sheets"]):
         if (d, z) == clip_manifest.CORRIDOR_SHEET:
@@ -633,6 +649,21 @@ def emit(act, st, out_dir, donor_root=None):
         "sections": sec_rows,
         "warnings": act.warnings,
     }
+    # shafts and the fill ONLY when the act HAS them, so an act without either writes the
+    # clipact.json it always wrote, byte for byte
+    if act.shafts:
+        manifest["shafts"] = [sh.as_json() for sh in act.shafts]
+        manifest["pool"]["per_shaft"] = contrib["shaft"]
+    if act.fill is not None:
+        manifest["fill"] = dict(act.fill.as_json(),
+                                cells=int(clip_manifest.fill_mask(act).sum()))
+        manifest["pool"]["per_fill"] = contrib["fill"]
+    if act.shafts or act.fill is not None:
+        manifest["pool"]["per_clip_fields"]["tiles_added"] = (
+            "of `tiles`, those no EARLIER row references; rows are ordered clips (in "
+            "manifest order), then corridors, then shafts, then the fill. sum(tiles_added "
+            "over per_clip, per_corridor, per_shaft and per_fill) + 1 (the blank) == "
+            "pool.tiles")
     with open(os.path.join(out_dir, "clipact.json"), "w") as fh:
         json.dump(manifest, fh, indent=2, sort_keys=True)
         fh.write("\n")

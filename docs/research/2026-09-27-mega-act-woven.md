@@ -557,12 +557,12 @@ numbers.
 
 | # | Item | Where | Size | Woven status |
 |---|---|---|---|---|
-| 1 | **2-D region plan.** The regions as rectangles, planned by the balanced-slack rule `woven.py` uses, fill included. Two clips of one zone (MTZ) already chain in the row plan (READ: `region_plan` walks runs of `zone_key`) | `clip_rom_bake.py` `region_plan` | **L** | required |
-| 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | required |
-| 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | required |
-| 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | required |
-| 5 | 2-D reachability | `clip_reachability.py` | M | required |
-| 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | required |
+| 1 | **2-D region plan.** The regions as rectangles, planned by the balanced-slack rule `woven.py` uses, fill included. Two clips of one zone (MTZ) already chain in the row plan (READ: `region_plan` walks runs of `zone_key`) | `clip_rom_bake.py` `region_plan` | **L** | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): labels + balanced crossings + guillotine rectangles; 1-D acts plan identical rows |
+| 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `shafts`, K7/K9/K10. Crossing them is items 1/3/15 |
+| 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`). NOTE: the bake's Z2 wants 320 / 416 for a same-blob seam, not 288 / 384 (DEFERRED_WORK finding) |
+| 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): every connector, on its own axis |
+| 5 | 2-D reachability | `clip_reachability.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): the downward remainder is checked two-sided (`y_from`) |
+| 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `fill`, clip_manifest K8 |
 | 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
 | 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |
 | 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **first** |
@@ -570,8 +570,8 @@ numbers.
 | 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | required |
 | 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
 | 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **needed for 384 / 288**; without it, 480 across |
-| 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | required |
-| 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | required |
+| 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `background = blobs` + `bg_blobs`; exercised by `clips/s2_woven_2d` |
+| 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `tools/clip_camera.py` + `check_screen` (MIXED, WRONG, per-pair slack, VOID) |
 | 16 | Per-region camera bounds | `camera.emp` | M | optional |
 | 17 | CRAM line-0 cells (CPZ 168, WFZ 32) | content | S to accept | as v1 |
 | W1 | **Art headroom at the MTZ / CPZ seam:** re-measure with real tunnels once item 9 lands; then trim or add a frame (§A.5) | bake, maybe VRAM | S to measure | required |

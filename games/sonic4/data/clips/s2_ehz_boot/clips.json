@@ -10,6 +10,8 @@
   },
   "unpainted_remainder": {
     "x_from": 10240,
+    "y_from": 1024,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4, the woven report's §C item 5): EMERALD HILL paints rows 0..1023; every row from y 1024 to the act's bottom (6144) carries no art in any column. The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "NOTHING IS UNPAINTED ON THE X AXIS. 10240 is the act's own width (grid_w 5 x SECTION_SIZE 2048), so this names the end of the act rather than an edge inside it: the painted foreground runs to the last column the camera can reach, and EDGE_CLAMP stops the camera there. Parcel 6 painted 4096 px of a 6144 px act and parcel 7 measured the consequence — at x=4096 the art and BOTH collision planes stopped dead, top to bottom, because the tile cache carries the nametable and both planes in the same block, and the player walked off the painted world and fell the act's full height. Parcel 8 filled that act instead of shrinking it (the owner's call). Parcel 9 made the ACT'S OWN GRID something a clip can declare (the grid is generated into games/sonic4/data/generated/ojz/act1/act_grid.emp and the descriptor reads it), so the act grew from 3 sections to 5 and the clip grew with it. The declaration is KEPT rather than deleted because it is two-sided: clip_reachability.py refuses if the painted world ends anywhere but exactly x=10240, so if a future re-bake loses a section this says so instead of a report describing it later. THE Y AXIS IS A DIFFERENT STORY and is not fixed by this — see unbounded_fall below.",
     "unbounded_fall": {
       "columns": 1232,

@@ -38,9 +38,12 @@ than hidden — these are the parts of the picture that are NOT Emerald Hill:
     shows its own Sonic 2 background: the start zone's as the act default, every other
     zone's through its region rows, and Oracle Jungle's (with its animation bank) is gone
     from the clip act. See the BACKGROUNDS block. Parallax is still the act default's.
-  * THE OBJECTS AND RINGS. Pass 8 (`ojz_entity_gen`) reads the shipped act's editor
-    objects/rings, so OJZ's entities appear at OJZ's world positions over Emerald
-    Hill geometry. Objects are out of scope for the whole first cut (owner's scope).
+  * THE OBJECTS AND RINGS — NO LONGER (2026-09-27, the woven report's §C item 8). The
+    staged project says `entities: none`, so Pass 8 (`ojz_entity_gen`) emits every
+    section's tables empty at the clip act's own grid. Until then it read the shipped
+    act's editor objects/rings (OJZ's entities at OJZ's world positions over Sonic 2
+    geometry), which also held every clip grid to >= 9 sections in whole rows of 3.
+    Objects are out of scope for the whole first cut (owner's scope).
   * THE EFFECTS PRESETS AND THE REGION TABLE. Both live in the hand-written
     `act_descriptor.emp`, which this does not touch. Nearly every OJZ preset binds
     `OJZ_Palette` — `embed(".../ojz_palette.bin")`, a GENERATED file — so the clip's
@@ -105,6 +108,7 @@ import clip_act_bake            # noqa: E402
 import clip_manifest            # noqa: E402
 import collision_pipeline       # noqa: E402
 import elect_pool_pages         # noqa: E402
+import ojz_entity_gen           # noqa: E402
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN_DIR = os.path.join(REPO, "games", "sonic4", "data", "generated", "ojz", "act1")
@@ -233,7 +237,7 @@ def restore_tree(git="git", log=print):
 # Refusals
 # ---------------------------------------------------------------------------
 
-def check_zone_separation(act, summary):
+def check_zone_separation(act, summary, model=None):
     """Z1 — no camera position holds cells of two donor zones. REPLACES R20.
 
     R20 refused every act with more than one clip, because the ROM path read ONE tileset
@@ -264,13 +268,45 @@ def check_zone_separation(act, summary):
         src.load_file(os.path.join(REPO, "engine/system/constants.emp"))
         need = int(src.get("SCREEN_WIDTH")) // clip_manifest.TILE_PX
         gap = z["min_column_gap_cells"]
+        if model is not None and (gap is None or gap < 0):
+            # BOTH AXES (the woven report's §C item 15). Zones that share columns (stacked)
+            # have no column gap to measure; what the override protects — no screen showing
+            # two zones — is then counted on the SCREEN over every REACHABLE camera centre
+            # (clip_camera: the report's woven.py check, promoted). A sealed seam may be
+            # closer than a screen (the report's §A.2: 96 to 176 px), because no camera
+            # reaches the centres that would see both: those are counted and REPORTED.
+            mixed = int(model.mixed().sum())
+            anywhere = int(model.mixed(everywhere=True).sum())
+            if mixed:
+                import numpy as np
+                ys, xs = np.nonzero(model.mixed())
+                raise ClipRomError(
+                    f"Z1 (zone_separation = screen, per-clip override, both axes) {mixed} "
+                    f"REACHABLE camera centre(s) of {int(model.centres.sum())} show two donor "
+                    f"zones on one screen (first at centre ({int(xs[0]) * 8 + 4}, "
+                    f"{int(ys[0]) * 8 + 4})): the zones are closer than a screen where a "
+                    f"player can put the camera. Lengthen the connector or the neutral fill "
+                    f"between them")
+            return {"window": "screen", "axes": "both", "need_cells": need, "gap_cells": gap,
+                    "reachable_centres": int(model.centres.sum()), "mixed_reachable": 0,
+                    "mixed_unreachable": anywhere,
+                    "tile_cache_windows_mixed": z["mixed"]}
         if gap is None or gap < need:
             raise ClipRomError(
                 f"Z1 (zone_separation = screen, per-clip override) the narrowest gap between two "
                 f"donor zones is {gap} cell(s); a screen is SCREEN_WIDTH / 8 = {need} cells, so "
                 f"one camera position can show both zones")
-        return {"window": "screen", "need_cells": need, "gap_cells": gap,
-                "tile_cache_windows_mixed": z["mixed"]}
+        out = {"window": "screen", "need_cells": need, "gap_cells": gap,
+               "tile_cache_windows_mixed": z["mixed"]}
+        if model is not None:
+            mixed = int(model.mixed().sum())
+            if mixed:
+                raise ClipRomError(
+                    f"Z1 (zone_separation = screen) {mixed} reachable camera centre(s) show two "
+                    f"donor zones on one screen although the column gap is {gap} cells")
+            out.update(axes="both", reachable_centres=int(model.centres.sum()),
+                       mixed_reachable=0, mixed_unreachable=int(model.mixed(True).sum()))
+        return out
     if z["mixed"]:
         f = z["first_mixed"]
         raise ClipRomError(
@@ -432,8 +468,9 @@ def check_tree_is_clean(paths, git="git"):
 # runs over the shipped document (per-row rules, overlap, exact coverage).
 #
 # ⚠ WHAT THE CLIP ACT STILL INHERITS: the shipped act's region TABLE is still assembled
-# (it is unused data in a clip ROM), and the objects and rings are still the shipped act's.
-# The BACKGROUND stopped being inherited on 2026-09-25: see the BACKGROUNDS block.
+# (it is unused data in a clip ROM). The BACKGROUND stopped being inherited on 2026-09-25
+# (see the BACKGROUNDS block) and the OBJECTS AND RINGS on 2026-09-27 (stage_project's
+# `entities: none`).
 
 CLIP_MODULE_REL = GEN_REL + "/clip_act.emp"
 CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
@@ -851,9 +888,16 @@ def clip_data_block(plan):
         # (align: 2) on the tile blob because it is a DMA SOURCE — BG_Stream_Update's
         # overwrite queues it word-wise and raise_errors on an odd address in DEBUG.
         tiles_line = (f"pub data {z['bg_tiles_label']} (align: 2): [u8; {z['bg_tiles_bytes']}] = "
-                      f"embed(\"{z['bg_tiles_embed']}\")\n" if z.get("bg_tiles_label") else
+                      f"embed(\"{z['bg_tiles_embed']}\")\n"
+                      if z.get("bg_tiles_label") and z.get("bg_tiles_owner", True) else
+                      f"// NO tile blob of its own: its tiles are in {z['bg_tiles_label']}, its "
+                      f"background blob group's\n// (crossing_overrides.bg_blobs), so a crossing "
+                      f"inside the group overwrites nothing.\n" if z.get("bg_tiles_label") else
                       "// NO tile blob: PER-CLIP OVERRIDE crossing_overrides.background = "
-                      "co_resident. This zone's\n// tiles are inside the act default's blob "
+                      + ("blobs, and this zone's group holds the start zone. Its"
+                         if (plan.get("overrides") or {}).get("background") == "blobs" else
+                         "co_resident. This zone's")
+                      + "\n// tiles are inside the act default's blob "
                       "(rg_bg_tiles 0), so the crossing overwrites nothing.\n")
         out.append(
             f"// zone key {z['key']}: {z['donor']} {z['zone']}'s own Sonic 2 background "
@@ -931,7 +975,7 @@ SNAP_FRAMES = 1
 #: changes what an act without the key is held to.
 CROSSING_OVERRIDES_KEY = "crossing_overrides"
 CROSSING_OVERRIDE_VALUES = {"palette": ("fade", "snap"),
-                            "background": ("overwrite", "co_resident"),
+                            "background": ("overwrite", "co_resident", "blobs"),
                             "zone_separation": ("tile_cache", "screen"),
                             "crossing_margin": ("enforce", "report"),
                             "parallax": ("lerp", "snap")}
@@ -947,7 +991,7 @@ def crossing_overrides(act):
         return out
     if not isinstance(raw, dict):
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} must be an object")
-    unknown = sorted(set(raw) - set(CROSSING_OVERRIDE_VALUES) - {"why"})
+    unknown = sorted(set(raw) - set(CROSSING_OVERRIDE_VALUES) - {"why", "bg_blobs"})
     if unknown:
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} carries {unknown}; the keys it may "
                            f"carry are {sorted(CROSSING_OVERRIDE_VALUES)} and `why`")
@@ -961,6 +1005,15 @@ def crossing_overrides(act):
         raise ClipRomError(f"{CROSSING_OVERRIDES_KEY} without a `why`: an override of how "
                            f"zones cross is the author's decision and has to say why")
     out["why"], out["declared"] = raw["why"], True
+    # BACKGROUND BLOB GROUPS (the woven report's §C item 14): `background = blobs` names the
+    # groups in `bg_blobs`; either without the other is refused (blob_groups resolves them)
+    if (out["background"] == "blobs") != ("bg_blobs" in raw):
+        raise ClipRomError(f"{CROSSING_OVERRIDES_KEY}.background = blobs and "
+                           f"{CROSSING_OVERRIDES_KEY}.bg_blobs go together: the groups are "
+                           f"named in bg_blobs, and bg_blobs means nothing under another "
+                           f"background rule")
+    if "bg_blobs" in raw:
+        out["bg_blobs"] = raw["bg_blobs"]
     return out
 
 
@@ -1022,22 +1075,319 @@ def background_switch_frames(plan, consts=None):
     return out
 
 
-def region_plan(act, donor_root, act_h_px=None):
-    """The clip act's region rows: one vertical strip per run of same-zone clips, left to
-    right, each crossing at the MIDDLE of the corridor between two zones (rounded down to
-    the 16-px collision grid), full act height. Z2 refuses a layout this cannot express
-    rather than guessing: clips must form a left-to-right chain, and two neighbouring
-    clips of DIFFERENT zones must have a corridor filling the gap between them."""
+# ---------------------------------------------------------------------------
+# THE 2-D REGION PLAN (the woven report's §C item 1, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# WHAT CHANGED, and what did not. Until the woven act the plan was a left-to-right chain of
+# full-height strips, one crossing per corridor at its middle; a stacked layout was REFUSED
+# ("a stacked layout needs a horizontal crossing this bake does not write"). The engine never
+# needed that: a Region is a RECTANGLE (engine/structs.emp), Parallax_CheckBoundary installs
+# the row holding the camera CENTRE on both axes, and the descriptor's checks (rows tile the
+# act, REGION_MIN_SPAN on each axis, interior edges inside the centre's reachable band on each
+# axis) are 2-D already. So the plan now writes rectangles, and a 1-D act's plan is the
+# special case whose rectangles all happen to be full height — MEASURED identical, row for
+# row, on every committed clip act (tools/test_clip_woven_2d.py).
+#
+# HOW, in three steps:
+#   1. LABELS. Every 8-px camera-centre cell that must be in one zone's region says so:
+#        * a clip's own rectangle -> its zone, playing its song ("live");
+#        * a connector (corridor or shaft) joining two zones -> the zone on its side of the
+#          CROSSING, naming no song ("dead": the cut-at-exit dead band, S2CLIP-MUSIC-FEEL);
+#        * a REACHABLE centre (clip_camera) whose screen shows exactly one zone -> that zone,
+#          song unconstrained.
+#      Everything else — the fill, void nobody reaches — is unconstrained.
+#   2. THE CROSSING. Along a connector's axis it sits where the two sides' SLACK balances
+#      (the report's balanced-slack rule, woven.py's): each side needs the screen's half
+#      extent on that axis plus CAM_MAX_{X,Y}_STEP x the frames the crossing INTO that side
+#      takes (crossing_frames: the palette's, or the background's when it is longer), and
+#      the crossing is the midpoint of what is left, rounded down to the 16-px collision
+#      grid. With equal needs on both sides it is the old rule exactly, the connector's
+#      middle rounded down to 16.
+#   3. RECTANGLES. A guillotine split of the whole act: cut the act (then each piece) along
+#      one full-length line until every piece holds one zone and at most one song state.
+#      Among the cuts that leave labels on both sides, it takes the one leaving the fewest
+#      zones, then a connector's own crossing, then one of its mouths, then the fewest song
+#      states, lowest coordinate first. Every cut is on the 8-px cell grid, inside the camera
+#      centre's reachable band and at least REGION_MIN_SPAN from the piece's edges, so each
+#      row passes the descriptor's rules by construction. A piece no legal cut can make pure
+#      is REFUSED by name (a connector too short for its rows is the usual cause).
+# The plan is then only as good as the checks that read it back out of the EMITTED rows:
+# Z2 and MUSIC walk every connector on its own axis, and the SCREEN check (check_screen)
+# holds every reachable centre to what its screen shows.
+
+#: a region edge the plan cuts at a CROSSING is on the collision grid, as it always was
+CROSSING_GRID_PX = 16
+
+
+def blob_groups(act):
+    """[frozenset of zone keys] — the BACKGROUND BLOBS: zones in one blob have their
+    background tiles resident together in the BG arena, so a crossing between them pays no
+    tile overwrite. `crossing_overrides.background = co_resident` puts every zone in one
+    blob; `background = blobs` names the groups (`bg_blobs`, the woven report's §C item 14:
+    its blobs A, M, O); without either every zone is its own blob.
+
+    `bg_blobs` is a list of groups, each a list of zone names — "CPZ", or "s2disasm/CPZ"
+    where the act holds one zone name from two donors. BG0 refuses a name the act does not
+    have, an ambiguous one, a zone in two groups or in none, and an empty group."""
+    ov = crossing_overrides(act)
+    keys = sorted({c.zone_key for c in act.clips})
+    if ov["background"] == "co_resident":
+        return [frozenset(keys)]
+    if ov["background"] != "blobs":
+        return [frozenset([k]) for k in keys]
+    raw = ov["bg_blobs"]
+    if not isinstance(raw, list) or not raw or not all(
+            isinstance(g, list) and g and all(isinstance(n, str) for n in g) for g in raw):
+        raise ClipRomError("BG0 crossing_overrides.bg_blobs must be a non-empty list of "
+                           "non-empty lists of zone names")
+    tree = {c.zone_key: c.tree_key for c in act.clips}
+    groups, seen = [], {}
+    for gi, g in enumerate(raw):
+        keys_g = set()
+        for name in g:
+            hits = [k for k, (d, z) in tree.items() if name in (z, f"{d}/{z}")]
+            if len(hits) != 1:
+                raise ClipRomError(
+                    f"BG0 crossing_overrides.bg_blobs[{gi}] names {name!r}, which is "
+                    + ("no zone of this act" if not hits else
+                       f"{len(hits)} zones of this act (write donor/ZONE)")
+                    + f"; the act's zones are {sorted('/'.join(t) for t in tree.values())}")
+            k = hits[0]
+            if k in seen:
+                raise ClipRomError(f"BG0 crossing_overrides.bg_blobs puts {name!r} in groups "
+                                   f"{seen[k]} and {gi}: a zone's tiles are in ONE blob")
+            seen[k] = gi
+            keys_g.add(k)
+        groups.append(frozenset(keys_g))
+    missing = sorted('/'.join(tree[k]) for k in keys if k not in seen)
+    if missing:
+        raise ClipRomError(f"BG0 crossing_overrides.bg_blobs leaves {missing} in no group; "
+                           f"name every zone of the act once")
+    return groups
+
+
+_LOWERED = {}
+
+
+def _lowered_tiles(donor, zone):
+    """The tile list clip_bg_lower.lower() gives one zone (memoised: it is pure)."""
+    if (donor, zone) not in _LOWERED:
+        import clip_bg_lower as CBL
+        _LOWERED[(donor, zone)] = CBL.lower(donor, zone)[1]
+    return _LOWERED[(donor, zone)]
+
+
+def crossing_frames(act, consts=None, bg_consts=None, tiles_of=None):
+    """{"palette": frames, "wipe": frames, "pair": {(from key, into key): frames}} — how many
+    frames a crossing INTO a zone takes to settle, per pair: the larger of the palette's
+    (SNAP_FRAMES with the snap override, else PAL_FADE_FRAMES) and the background's (the
+    visible-row wipe when both zones share a blob; the blob's overwrite chunks plus the wipe
+    when they do not — background_switch_frames' model, per pair instead of per zone).
+
+    A blob's bytes are its zones' lowered tiles, deduplicated across the blob (the union
+    co_resident_backgrounds builds) x 32. `tiles_of(donor, zone)` is injectable for tests."""
+    fade, _step, _half = consts or crossing_constants()
+    ov = crossing_overrides(act)
+    pal = SNAP_FRAMES if ov["palette"] == "snap" else fade
+    chunk, rows_per_frame, screen_rows = bg_consts or background_constants()
+    wipe = -(-screen_rows // rows_per_frame)
+    tiles_of = tiles_of or _lowered_tiles
+    tree = {c.zone_key: c.tree_key for c in act.clips}
+    groups = blob_groups(act)
+    group_of = {k: g for g in groups for k in g}
+    nbytes = {}
+    for g in groups:
+        union = set()
+        for k in g:
+            union.update(tiles_of(*tree[k]))
+        nbytes[g] = len(union) * 32
+    pair = {}
+    for r in tree:
+        for z in tree:
+            if r == z:
+                continue
+            bg = wipe if group_of[r] == group_of[z] else -(-nbytes[group_of[z]] // chunk) + wipe
+            pair[(r, z)] = max(pal, bg)
+    return {"palette": pal, "wipe": wipe, "pair": pair,
+            "blob_bytes": {tuple(sorted(g)): n for g, n in nbytes.items()}}
+
+
+def connector_crossings(act, frames, cam=None):
+    """Every connector JOINING TWO ZONES, with its balanced crossing — see step 2 above.
+    [{"connector", "id", "axis", "before", "after" (clips), "a" (the before-clip's end = the
+    connector's near edge), "b" (its far edge = the after-clip's start), "c" (the crossing:
+    the first centre coordinate in the after-zone's region), "need_before", "need_after"}].
+    A connector joining one zone to itself, or touching a clip on one side only, is not a
+    crossing and is left out (its cells are labelled by the zone it touches)."""
+    c = cam or _cam_constants()
+    out = []
+    for k in list(getattr(act, "corridors", [])) + list(getattr(act, "shafts", [])):
+        ax, before, after = clip_manifest.connector_ends(act, k)
+        if before is None or after is None or before.zone_key == after.zone_key:
+            continue
+        i = 0 if ax == "x" else 1
+        half = c["CAM_SCREEN_HALF_W"] if ax == "x" else c["CAM_SCREEN_HALF_H"]
+        step = c["CAM_MAX_X_STEP"] if ax == "x" else c["CAM_MAX_Y_STEP"]
+        a, b = k.dst[i], k.dst[i] + k.dst[i + 2]
+        need_b = half + step * frames["pair"][(after.zone_key, before.zone_key)]
+        need_a = half + step * frames["pair"][(before.zone_key, after.zone_key)]
+        at = ((a + b + need_b - need_a) // 2) & ~(CROSSING_GRID_PX - 1)
+        out.append({"connector": k, "id": k.id, "axis": ax, "before": before, "after": after,
+                    "a": a, "b": b, "c": at, "need_before": need_b, "need_after": need_a})
+    return out
+
+
+def _cam_constants():
+    import clip_camera
+    return clip_camera.constants()
+
+
+def _region_bounds():
+    """(REGION_MIN_SPAN, centre band per axis as (min, max)) — the descriptor's own row
+    rules, READ from the constants its expressions reach (act_descriptor.emp: CENTRE_X_MIN =
+    CAM_SCREEN_HALF_W, CENTRE_X_MAX = ACT_W - SCREEN_WIDTH + CAM_SCREEN_HALF_W, the same in y,
+    REGION_MIN_SPAN = 2 x CAM_MAX_Y_STEP)."""
+    c = _cam_constants()
+    return 2 * c["CAM_MAX_Y_STEP"], c["CAM_SCREEN_HALF_W"], c["CAM_SCREEN_HALF_H"]
+
+
+def check_zone_faces(act):
+    """Z2 — two clips of DIFFERENT zones that face each other along an axis (overlapping
+    across it, no clip between) are joined by a connector, or everything between them is
+    painted (fill or connector). A void between two zones shows the background while nobody
+    installs either zone's, and butting them puts both on one screen. Owner ruling
+    S2ACT-SEAM-CORRIDORS: corridors, never butted zones. (The 1-D plan's refusal, "different
+    zones with no corridor filling the gap", generalised to both axes.)"""
+    import numpy as np
+    fill = clip_manifest.fill_mask(act) if getattr(act, "fill", None) is not None else None
+    conns = list(getattr(act, "corridors", [])) + list(getattr(act, "shafts", []))
+    joined = set()
+    for k in conns:
+        _ax, b4, af = clip_manifest.connector_ends(act, k)
+        if b4 is not None and af is not None:
+            joined.add((b4.id, af.id))
+    clips = list(act.clips)
+    for ax in ("x", "y"):
+        i, j = (0, 1) if ax == "x" else (1, 0)
+        for a in clips:
+            for b in clips:
+                if a is b or a.zone_key == b.zone_key:
+                    continue
+                g0, g1 = a.dst[i] + a.dst[i + 2], b.dst[i]
+                p0 = max(a.dst[j], b.dst[j])
+                p1 = min(a.dst[j] + a.dst[j + 2], b.dst[j] + b.dst[j + 2])
+                if g1 < g0 or p1 <= p0:
+                    continue
+                if any(o is not a and o is not b and o.dst[i] < g1 and g0 < o.dst[i] + o.dst[i + 2]
+                       and o.dst[j] < p1 and p0 < o.dst[j] + o.dst[j + 2] for o in clips):
+                    continue
+                if (a.id, b.id) in joined:
+                    continue
+                gap = g1 - g0
+                if gap > 0:
+                    painted = np.zeros((act.rows, act.cols), dtype=bool)
+                    if fill is not None:
+                        painted |= fill
+                    for k in conns:
+                        x, y, w, h = (v // clip_manifest.TILE_PX for v in k.dst)
+                        painted[y:y + h, x:x + w] = True
+                    lo, hi, q0, q1 = (v // clip_manifest.TILE_PX for v in (g0, g1, p0, p1))
+                    sub = painted[lo:hi, q0:q1] if ax == "y" else painted[q0:q1, lo:hi]
+                    if sub.all():
+                        continue
+                raise ClipRomError(
+                    f"Z2 clips {a.id!r} ({'/'.join(a.tree_key)}) and {b.id!r} "
+                    f"({'/'.join(b.tree_key)}) are different zones facing each other along "
+                    f"{ax} with no corridor or shaft joining them and "
+                    + ("nothing between them (butted)" if gap <= 0 else
+                       f"void in the {gap} px between them")
+                    + ". Owner ruling S2ACT-SEAM-CORRIDORS: corridors, never butted zones; "
+                      "a seam nobody crosses is neutral fill (`fill`).")
+
+
+def _guillotine(zl, sl, nzones, declared, min_cells, band, log_name="region plan"):
+    """Split the label grid into pure rectangles (step 3 of the plan). `zl` (rows, cols)
+    int: zone key or -1; `sl` int: -1 unconstrained, 0 dead, 1 live. `declared[axis]` =
+    {cell index: rank} (0 a crossing, 1 a mouth). `band[axis]` = (lo, hi) the legal cut
+    indices. Returns [(c0, c1, r0, r1, zone, song state or -1)] in cell units, half-open,
+    left/top piece first."""
+    import numpy as np
+    rows, cols = zl.shape
+    planes = [(zl == k) for k in range(nzones)] + [(sl == 0), (sl == 1)]
+    pre = []
+    for p in planes:
+        a = np.zeros((rows + 1, cols + 1), dtype=np.int64)
+        np.cumsum(np.cumsum(p, axis=0), axis=1, out=a[1:, 1:])
+        pre.append(a)
+
+    def count(P, c0, c1, r0, r1):
+        return P[r1, c1] - P[r0, c1] - P[r1, c0] + P[r0, c0]
+
+    def solve(c0, c1, r0, r1):
+        present = [count(P, c0, c1, r0, r1) > 0 for P in pre]
+        zs = [k for k in range(nzones) if present[k]]
+        ss = [s for s, on in ((0, present[nzones]), (1, present[nzones + 1])) if on]
+        if len(zs) <= 1 and len(ss) <= 1:
+            if not zs:
+                raise ClipRomError(f"Z2 {log_name}: a piece with no label was cut "
+                                   f"(cells x {c0}..{c1} y {r0}..{r1}) — a planner fault")
+            return [(c0, c1, r0, r1, zs[0], ss[0] if ss else -1)]
+        best = None
+        for axis in (0, 1):
+            lo, hi = (c0, c1) if axis == 0 else (r0, r1)
+            blo, bhi = band[axis]
+            ps = np.arange(max(lo + min_cells, blo), min(hi - min_cells, bhi) + 1)
+            if not len(ps):
+                continue
+            left, right = [], []
+            for P in pre:
+                if axis == 0:
+                    L = P[r1, ps] - P[r0, ps] - P[r1, c0] + P[r0, c0]
+                else:
+                    L = P[ps, c1] - P[ps, c0] - P[r0, c1] + P[r0, c0]
+                tot = count(P, c0, c1, r0, r1)
+                left.append(L > 0)
+                right.append((tot - L) > 0)
+            left, right = np.array(left), np.array(right)
+            nzl, nzr = left[:nzones].sum(axis=0), right[:nzones].sum(axis=0)
+            ok = (nzl > 0) & (nzr > 0)
+            nsl, nsr = left[nzones:].sum(axis=0), right[nzones:].sum(axis=0)
+            for idx in np.flatnonzero(ok):
+                p = int(ps[idx])
+                key = (int(nzl[idx] + nzr[idx]), declared[axis].get(p, 2),
+                       int(nsl[idx] + nsr[idx]), p, axis)
+                if best is None or key < best[0]:
+                    best = (key, axis, p)
+        if best is None:
+            raise ClipRomError(
+                f"Z2 {log_name}: the piece x {c0 * 8}..{c1 * 8 - 1}, y {r0 * 8}..{r1 * 8 - 1} "
+                f"holds zones {zs} (song states {ss}) and no legal cut separates them (every "
+                f"cut must keep REGION_MIN_SPAN on both sides and lie in the camera centre's "
+                f"band). A connector is too short for the rows its crossing needs, or two zones "
+                f"meet with nothing between them")
+        _key, axis, p = best
+        if axis == 0:
+            return solve(c0, p, r0, r1) + solve(p, c1, r0, r1)
+        return solve(c0, c1, r0, p) + solve(c0, c1, p, r1)
+
+    sys.setrecursionlimit(max(10000, sys.getrecursionlimit()))
+    return solve(0, cols, 0, rows)
+
+
+def region_plan(act, donor_root, act_h_px=None, frames=None, model=None):
+    """The clip act's region rows — rectangles, planned in 2-D (the block above). Returns
+    {"act", "zones", "rows", "overrides", "crossings", "frames"}; each row
+    {"x0", "x1", "y0", "y1" (inclusive px), "key", "preset_label", "song", "song_id", "why"}.
+
+    `frames` (crossing_frames) and `model` (clip_camera.CameraModel) are computed from the act
+    when not handed in."""
+    import numpy as np
+    import clip_camera
     sec = act.section_px
     act_w = act.grid_w * sec
     act_h = act_h_px or act.grid_h * sec
-    clips = sorted(act.clips, key=lambda c: c.dst[0])
-    for a, b in zip(clips, clips[1:]):
-        if b.dst[0] < a.dst[0] + a.dst[2]:
-            raise ClipRomError(
-                f"Z2 clips {a.id!r} and {b.id!r} overlap in x. The region plan is a "
-                f"left-to-right chain of full-height strips; a stacked layout needs a "
-                f"horizontal crossing this bake does not write.")
+    check_zone_faces(act)
     zones = []
     for key, (donor, zone) in enumerate(act.zone_table):
         pal = os.path.join(donor_root, donor, zone, "palette.bin")
@@ -1049,68 +1399,97 @@ def region_plan(act, donor_root, act_h_px=None):
                       "palette_words": _palette_words(pal),
                       "palette_label": f"OJZ_Clip_Palette_{key}",
                       "preset_label": f"OJZ_Clip_Preset_{key}"})
-    cuts = []                       # (x of the crossing, left zone, right zone, corridor)
-    for a, b in zip(clips, clips[1:]):
-        if a.zone_key == b.zone_key:
-            continue
-        gap0, gap1 = a.dst[0] + a.dst[2], b.dst[0]
-        corr = [c for c in act.corridors if c.dst[0] <= gap0 and c.dst[0] + c.dst[2] >= gap1]
-        if not corr or gap1 <= gap0:
-            raise ClipRomError(
-                f"Z2 clips {a.id!r} ({'/'.join(a.tree_key)}) and {b.id!r} "
-                f"({'/'.join(b.tree_key)}) are different zones with no corridor filling "
-                f"the {max(0, gap1 - gap0)} px between them. Owner ruling "
-                f"S2ACT-SEAM-CORRIDORS: corridors, never butted zones.")
-        mid = ((gap0 + gap1) // 2) & ~15
-        cuts.append((mid, a.zone_key, b.zone_key, corr[0].id, gap0, gap1))
     music = zone_music(act)
     ids = song_ids() if music else {}
     for z in zones:
         z["music"] = music.get(z["key"])
-    rows, x0 = [], 0
-    order = [clips[0].zone_key] + [c[2] for c in cuts]
-    for i, key in enumerate(order):
-        x1 = (cuts[i][0] - 1) if i < len(cuts) else act_w - 1
-        why = (f"{zones[key]['donor']} {zones[key]['zone']}"
-               + (f", to the middle of corridor {cuts[i][3]}" if i < len(cuts) else
-                  ", to the act's right edge"))
-        base = {"y0": 0, "y1": act_h - 1, "key": key,
-                "preset_label": zones[key]["preset_label"]}
-        song = music.get(key)
-        if not song:
-            rows.append(dict(base, x0=x0, x1=x1, song=None, why=why))
-            x0 = x1 + 1
+    frames = frames or crossing_frames(act)
+    model = model or clip_camera.CameraModel.for_act(act, donor_root)
+    cam = model.c
+    crossings = connector_crossings(act, frames, cam)
+
+    C = clip_manifest.TILE_PX
+    cols, rows = act_w // C, act_h // C
+    zl = np.full((rows, cols), -1, dtype=np.int16)
+    sl = np.full((rows, cols), -1, dtype=np.int8)
+    # (1) reachable centres whose screen shows exactly one zone (song unconstrained)
+    vis = model.visible()[:, :rows, :cols]
+    one = (vis.sum(axis=0) == 1) & model.centres[:rows, :cols]
+    for i, k in enumerate(model.keys):
+        zl[one & vis[i]] = k
+    # (2) connectors: each side of the crossing, the dead band (song 0 for a zone WITH a song)
+    for k in list(act.corridors) + list(getattr(act, "shafts", [])):
+        _ax, b4, af = clip_manifest.connector_ends(act, k)
+        x, y, w, h = (v // C for v in k.dst)
+        if b4 is None and af is None:
             continue
-        # MUSIC (S2CLIP-REGION-MUSIC step 6, owner ruling S2CLIP-MUSIC-FEEL = cut-at-exit):
-        # split the zone's strip at each corridor MOUTH it touches. The mouths are the
-        # corridor's own gap edges, the clip rectangles' x extents region_plan derived the
-        # crossing from (gap0 = the left zone's last px + 1, gap1 = the right zone's first
-        # px), never typed. The corridor-side part names song 0 (leave the music alone),
-        # the outer part the zone's own song, so the song changes where the camera centre
-        # LEAVES the corridor into a zone, and the corridor is a dead band as wide as the
-        # corridor itself: standing on one line cannot flip the song back and forth.
-        lo = cuts[i - 1][5] if i > 0 else x0          # the left corridor's right mouth
-        hi = cuts[i][4] - 1 if i < len(cuts) else x1  # the right corridor's left mouth - 1
-        if not (x0 <= lo <= hi <= x1):
-            raise ClipRomError(
-                f"MUSIC zone {zones[key]['zone']}: its song row would run x {lo}..{hi}, "
-                f"outside its region strip x {x0}..{x1} — a corridor mouth is on the wrong "
-                f"side of the crossing, so the dead band cannot be cut")
-        if lo > x0:
-            rows.append(dict(base, x0=x0, x1=lo - 1, song=None,
-                             why=f"{why}: corridor {cuts[i - 1][3]}'s inner half, no song "
-                                 f"(the music dead band)"))
-        rows.append(dict(base, x0=lo, x1=hi, song=song, song_id=ids[song],
-                         why=f"{why}: plays {song} = {ids[song]} (the corridor mouths bound it)"))
-        if hi < x1:
-            rows.append(dict(base, x0=hi + 1, x1=x1, song=None,
-                             why=f"{why}: corridor {cuts[i][3]}'s inner half, no song "
-                                 f"(the music dead band)"))
-        x0 = x1 + 1
-    return {"act": act.id, "zones": zones, "rows": rows,
-            "overrides": crossing_overrides(act),
-            "crossings": [{"x": c[0], "from_key": c[1], "to_key": c[2], "corridor": c[3],
-                           "gap": [c[4], c[5]]} for c in cuts]}
+        if b4 is None or af is None or b4.zone_key == af.zone_key:
+            z = (b4 or af).zone_key
+            zl[y:y + h, x:x + w] = z
+            sl[y:y + h, x:x + w] = -1
+    for cr in crossings:
+        k = cr["connector"]
+        x, y, w, h = (v // C for v in k.dst)
+        cut = cr["c"] // C
+        for side, clip in (("before", cr["before"]), ("after", cr["after"])):
+            if cr["axis"] == "x":
+                xs = slice(x, cut) if side == "before" else slice(cut, x + w)
+                ys = slice(y, y + h)
+            else:
+                ys = slice(y, cut) if side == "before" else slice(cut, y + h)
+                xs = slice(x, x + w)
+            zl[ys, xs] = clip.zone_key
+            sl[ys, xs] = 0 if music.get(clip.zone_key) else -1
+    # (3) the clips' own rectangles, playing their zone's song
+    for cl in act.clips:
+        x, y, w, h = (v // C for v in cl.dst)
+        zl[y:y + h, x:x + w] = cl.zone_key
+        sl[y:y + h, x:x + w] = 1 if music.get(cl.zone_key) else -1
+
+    declared = ({}, {})
+    for cr in crossings:
+        ax = 0 if cr["axis"] == "x" else 1
+        declared[ax][cr["c"] // C] = 0
+        for m in (cr["a"], cr["b"]):
+            declared[ax].setdefault(m // C, 1)
+    min_span, half_w, half_h = _region_bounds()
+    min_cells = -(-min_span // C)
+    # a cut at cell p makes p*8 a row's x0 (and p*8 - 1 the previous row's x1): the
+    # descriptor wants x0 - 1 >= CENTRE_X_MIN and x0 <= CENTRE_X_MAX
+    band = ((-(-(half_w + 1) // C), (act_w - half_w) // C),
+            (-(-(half_h + 1) // C), (act_h - half_h) // C))
+    pieces = _guillotine(zl, sl, len(zones), declared, min_cells, band)
+
+    rows_out = []
+    for c0, c1, r0, r1, key, state in pieces:
+        z = zones[key]
+        song = music.get(key) if state == 1 else None
+        where = f"x {c0 * C}..{c1 * C - 1}, y {r0 * C}..{r1 * C - 1}"
+        if state == 1 and song:
+            why = f"{z['donor']} {z['zone']}: plays {song} = {ids[song]}"
+        elif state == 0:
+            why = f"{z['donor']} {z['zone']}: a connector's dead band, no song"
+        else:
+            why = f"{z['donor']} {z['zone']}"
+        row = {"x0": c0 * C, "x1": c1 * C - 1, "y0": r0 * C, "y1": r1 * C - 1, "key": key,
+               "preset_label": z["preset_label"], "song": song,
+               "why": f"{why} ({where})"}
+        if song:
+            row["song_id"] = ids[song]
+        rows_out.append(row)
+    out_cross = []
+    for cr in crossings:
+        d = {"connector": cr["id"], "axis": cr["axis"], "at": cr["c"],
+             "from_key": cr["before"].zone_key, "to_key": cr["after"].zone_key,
+             "gap": [cr["a"], cr["b"]], "need": [cr["need_before"], cr["need_after"]]}
+        if cr["axis"] == "x":
+            d.update(x=cr["c"], corridor=cr["id"])
+        else:
+            d.update(y=cr["c"], shaft=cr["id"])
+        out_cross.append(d)
+    return {"act": act.id, "zones": zones, "rows": rows_out,
+            "overrides": crossing_overrides(act), "crossings": out_cross,
+            "frames": frames, "blob_groups": [sorted(g) for g in blob_groups(act)]}
 
 
 _ROW_RE = None
@@ -1152,7 +1531,8 @@ def parse_clip_module_rows(mod_text, data_text):
     return rows, presets
 
 
-def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_frames=None):
+def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_frames=None,
+                            frames=None, cam=None):
     """Z2 — each zone is drawn under its OWN palette, and walking from one zone to the next
     installs the other palette EXACTLY ONCE, where the screen shows only corridor for the
     whole cross-fade. Run over the rows parsed back out of the EMITTED module.
@@ -1189,6 +1569,17 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
     to be true is only that the screen shows no zone cell on the frames it lands. The
     tunnel is drawn on CRAM line 0, which no install writes. An act WITHOUT the override is
     held to the fade exactly as before, and a transition-0 preset there is still refused.
+
+    BOTH AXES, EVERY CONNECTOR (the woven report's §C items 3 and 4, 2026-09-27). The walk is
+    per CONNECTOR joining two zones (clip_manifest.connector_ends), on that connector's own
+    axis: a corridor is walked in x at every 16-px y of its rectangle, a SHAFT in y at every
+    16-px x of its rectangle, with CAM_SCREEN_HALF_H and CAM_MAX_Y_STEP for the vertical one.
+    (Until then it walked each left-to-right neighbour pair through the FIRST corridor
+    covering their gap only, `corr[0]`: a second corridor in one gap was never walked.)
+    `frames` (crossing_frames) gives the background term PER PAIR — the frames INTO a side
+    from the other — where `bg_frames` gave it per zone; either may be given. Rule (a) holds
+    a row to a clip only where they overlap on BOTH axes (a 2-D row plan puts zones side by
+    side in y as well).
     """
     fade, step, half_w = consts or crossing_constants()
     ov = crossing_overrides(act)
@@ -1223,91 +1614,257 @@ def check_palette_crossings(act, mod_text, data_text, consts=None, log=None, bg_
     want = {c.zone_key: f"OJZ_Clip_Preset_{c.zone_key}" for c in act.clips}
     for c in act.clips:
         for r in rows:
-            if r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1] and r[4] != want[c.zone_key]:
+            if (r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1]
+                    and r[2] <= c.dst[1] + c.dst[3] - 1 and c.dst[1] <= r[3]
+                    and r[4] != want[c.zone_key]):
                 raise ClipRomError(
                     f"Z2 clip {c.id!r} ({'/'.join(c.tree_key)}) reaches region x "
-                    f"{r[0]}..{r[1]}, which binds {r[4]} — that zone is drawn in another "
-                    f"zone's colours there")
-    # (b) walk every neighbouring pair of different zones, at every 16-px y the corridor spans
-    clips = sorted(act.clips, key=lambda c: c.dst[0])
+                    f"{r[0]}..{r[1]}, y {r[2]}..{r[3]}, which binds {r[4]} — that zone is "
+                    f"drawn in another zone's colours there")
+    # (b) walk every connector joining two different zones, on its own axis, at every 16 px
+    # across it
+    cam_c = cam or _cam_constants()
     out = []
-    for a, b in zip(clips, clips[1:]):
-        if a.zone_key == b.zone_key:
+    for k in list(getattr(act, "corridors", [])) + list(getattr(act, "shafts", [])):
+        ax, a, b = clip_manifest.connector_ends(act, k)
+        if a is None or b is None or a.zone_key == b.zone_key:
             continue
-        a_right = a.dst[0] + a.dst[2]            # first x past zone a
-        b_left = b.dst[0]
-        corr = [k for k in act.corridors
-                if k.dst[0] <= a_right and k.dst[0] + k.dst[2] >= b_left]
-        ys = range(corr[0].dst[1], corr[0].dst[1] + corr[0].dst[3], 16) if corr else [0]
+        i, j = (0, 1) if ax == "x" else (1, 0)
+        if ax == "x":
+            half, stp = half_w, step
+        else:
+            half, stp = cam_c["CAM_SCREEN_HALF_H"], cam_c["CAM_MAX_Y_STEP"]
+        a_end = a.dst[i] + a.dst[i + 2]          # first px past zone a along the axis
+        b_start = b.dst[i]
+        across = range(k.dst[j], k.dst[j] + k.dst[j + 2], 16)
+        at = (lambda u, v: row_at(u, v)) if ax == "x" else (lambda u, v: row_at(v, u))
+        if frames is not None:
+            bf_a = frames["pair"][(b.zone_key, a.zone_key)]
+            bf_b = frames["pair"][(a.zone_key, b.zone_key)]
+        else:
+            bf_a, bf_b = bgf.get(a.zone_key, 0), bgf.get(b.zone_key, 0)
         reported = False
-        for y in ys:
+        shortfall = None
+        for v in across:
             # a change is a change of PRESET: two rows binding one preset (the MUSIC block's
-            # dead-band split) re-run Effects_InstallPreset on the same record, which installs
-            # nothing new (measured by the crossing witnesses, not assumed here)
+            # dead-band split, or the 2-D plan's extra pieces) re-run Effects_InstallPreset on
+            # the same record, which installs nothing new (measured by the crossing
+            # witnesses, not assumed here)
             changes = []
-            prev = row_at(a_right - 1, y)
-            for x in range(a_right - 1, b_left + 1):
-                r = row_at(x, y)
+            prev = at(a_end - 1, v)
+            for u in range(a_end - 1, b_start + 1):
+                r = at(u, v)
                 if r[4] != prev[4]:
-                    changes.append((x, prev[4], r[4]))
+                    changes.append((u, prev[4], r[4]))
                 prev = r
             pal_changes = [ch for ch in changes if presets[ch[1]][0] != presets[ch[2]][0]]
             if len(changes) != 1 or len(pal_changes) != 1:
                 raise ClipRomError(
-                    f"Z2 walking the camera centre from {a.id!r} to {b.id!r} at y={y} "
-                    f"installs {len(changes)} preset(s) and changes the palette "
-                    f"{len(pal_changes)} time(s), not exactly once: {changes}")
+                    f"Z2 walking the camera centre from {a.id!r} to {b.id!r} along {ax} at "
+                    f"{'y' if ax == 'x' else 'x'}={v} installs {len(changes)} preset(s) and "
+                    f"changes the palette {len(pal_changes)} time(s), not exactly once: "
+                    f"{changes}")
             x_c = changes[0][0]
-            fr_l = max(pal_frames, bgf.get(a.zone_key, 0))
-            fr_r = max(pal_frames, bgf.get(b.zone_key, 0))
-            need_l, need_r = half_w + fr_l * step, half_w + fr_r * step
-            short_l, short_r = need_l - (x_c - a_right), need_r - (b_left - x_c)
+            fr_l = max(pal_frames, bf_a)
+            fr_r = max(pal_frames, bf_b)
+            need_l, need_r = half + fr_l * stp, half + fr_r * stp
+            short_l, short_r = need_l - (x_c - a_end), need_r - (b_start - x_c)
             if (short_l > 0 or short_r > 0) and ov["crossing_margin"] == "report":
                 # PER-CLIP OVERRIDE crossing_overrides.crossing_margin = report: a LIMIT TEST
                 # the owner asked to see glitch. The shortfall is NOT waived silently: it is
                 # printed on every bake and returned, in frames at the camera cap.
                 shortfall = {"left_px": max(0, short_l), "right_px": max(0, short_r),
-                             "left_frames": -(-max(0, short_l) // step),
-                             "right_frames": -(-max(0, short_r) // step)}
+                             "left_frames": -(-max(0, short_l) // stp),
+                             "right_frames": -(-max(0, short_r) // stp)}
                 if log and not reported:
                     reported = True
                     log("clip_rom_bake: " + "!" * 72)
                     log(f"clip_rom_bake: Z2 SHORTFALL, NOT ENFORCED (per-clip override "
-                        f"crossing_margin = report): the crossing at x={x_c} has "
-                        f"{x_c - a_right} px left / {b_left - x_c} px right and the rule needs "
-                        f"{need_l} / {need_r}. Expect up to {shortfall['left_frames']} frame(s) "
-                        f"arriving LEFT and {shortfall['right_frames']} arriving RIGHT, at the "
-                        f"camera cap, where the far zone is on screen before its palette or "
-                        f"background has landed")
+                        f"crossing_margin = report): the crossing at {ax}={x_c} has "
+                        f"{x_c - a_end} px {'left' if ax == 'x' else 'above'} / "
+                        f"{b_start - x_c} px {'right' if ax == 'x' else 'below'} and the rule "
+                        f"needs {need_l} / {need_r}. Expect up to "
+                        f"{shortfall['left_frames']} frame(s) arriving "
+                        f"{'LEFT' if ax == 'x' else 'UP'} and {shortfall['right_frames']} "
+                        f"arriving {'RIGHT' if ax == 'x' else 'DOWN'}, at the camera cap, where "
+                        f"the far zone is on screen before its palette or background has landed")
                     log("clip_rom_bake: " + "!" * 72)
-            elif x_c - need_l < a_right or x_c + need_r > b_left:
+            elif x_c - need_l < a_end or x_c + need_r > b_start:
                 what = "a cross-fade" if want_trans == 1 else "a SNAP (per-clip override)"
                 pal_term = (f"PAL_FADE_FRAMES {fade}" if want_trans == 1
                             else f"SNAP_FRAMES {SNAP_FRAMES}")
+                hname = "CAM_SCREEN_HALF_W" if ax == "x" else "CAM_SCREEN_HALF_H"
+                sname = "CAM_MAX_X_STEP" if ax == "x" else "CAM_MAX_Y_STEP"
+                sides = ("left", "right") if ax == "x" else ("above", "below")
                 raise ClipRomError(
-                    f"Z2 the crossing from {a.id!r} to {b.id!r} is at x={x_c}, but {what} "
-                    f"needs {need_l} px of corridor on the left of it and {need_r} on the "
-                    f"right (CAM_SCREEN_HALF_W {half_w} + CAM_MAX_X_STEP {step} x the larger "
-                    f"of {pal_term} and the background switch into that side's zone, "
-                    f"{bgf.get(a.zone_key, 0)} / {bgf.get(b.zone_key, 0)} frames) and the "
-                    f"corridor runs x {a_right}..{b_left - 1}: {x_c - a_right} px on the "
-                    f"left, {b_left - x_c} on the right")
-        out.append({"from": a.id, "to": b.id, "x": x_c, "margin_needed": max(need_l, need_r),
-                    "shortfall": shortfall if ov["crossing_margin"] == "report" and
-                    (short_l > 0 or short_r > 0) else None,
-                    "margin_needed_left": need_l, "margin_needed_right": need_r,
-                    "palette": "snap" if want_trans == 0 else "fade",
-                    "palette_frames": pal_frames,
-                    "background_frames": [bgf.get(a.zone_key, 0), bgf.get(b.zone_key, 0)],
-                    "margin_left": x_c - a_right, "margin_right": b_left - x_c,
-                    "ys_walked": len(list(ys))})
+                    f"Z2 the crossing from {a.id!r} to {b.id!r} is at {ax}={x_c}, but {what} "
+                    f"needs {need_l} px of {k.id!r} {sides[0]} of it and {need_r} "
+                    f"{sides[1]} ({hname} {half} + {sname} {stp} x the larger of {pal_term} "
+                    f"and the background switch into that side's zone, {bf_a} / {bf_b} "
+                    f"frames) and the connector runs {ax} {a_end}..{b_start - 1}: "
+                    f"{x_c - a_end} px {sides[0]}, {b_start - x_c} {sides[1]}")
+        row = {"from": a.id, "to": b.id, "axis": ax, "connector": k.id,
+               "margin_needed": max(need_l, need_r),
+               "shortfall": shortfall,
+               "palette": "snap" if want_trans == 0 else "fade",
+               "palette_frames": pal_frames,
+               "background_frames": [bf_a, bf_b]}
+        if ax == "x":
+            row.update(x=x_c, margin_needed_left=need_l, margin_needed_right=need_r,
+                       margin_left=x_c - a_end, margin_right=b_start - x_c,
+                       ys_walked=len(across))
+        else:
+            row.update(y=x_c, margin_needed_top=need_l, margin_needed_bottom=need_r,
+                       margin_top=x_c - a_end, margin_bottom=b_start - x_c,
+                       xs_walked=len(across))
+        out.append(row)
         if log:
-            log(f"clip_rom_bake: Z2 {a.id} -> {b.id}: ONE preset install and ONE palette "
-                f"change at x={x_c} on every one of {len(list(ys))} corridor rows; "
-                f"{x_c - a_right} px of corridor left of it and {b_left - x_c} right, "
-                f"{need_l} / {need_r} needed (palette {'SNAP' if want_trans == 0 else 'fade'} "
-                f"{pal_frames} frames, background switch {bgf.get(a.zone_key, 0)} / "
-                f"{bgf.get(b.zone_key, 0)} frames)")
+            log(f"clip_rom_bake: Z2 {a.id} -> {b.id} ({k.id}, axis {ax}): ONE preset install "
+                f"and ONE palette change at {ax}={x_c} on every one of {len(across)} "
+                f"{'rows' if ax == 'x' else 'columns'}; {x_c - a_end} px of connector before "
+                f"it and {b_start - x_c} after, {need_l} / {need_r} needed (palette "
+                f"{'SNAP' if want_trans == 0 else 'fade'} {pal_frames} frames, background "
+                f"switch {bf_a} / {bf_b} frames)")
+    return out
+
+
+def check_screen(act, model, mod_text, data_text, frames, cam=None, log=None):
+    """THE SCREEN CHECK (the woven report's §C item 15; its woven.py check, promoted): over
+    every REACHABLE camera centre (clip_camera), against the region rows parsed back out of
+    what was EMITTED:
+      * MIXED — no screen shows two zones (always refused);
+      * WRONG — no screen shows a zone while its centre is in another zone's region (always
+        refused: that zone would be drawn in the other's palette and background);
+      * SLACK — wherever two neighbouring reachable centres (8 px apart, either axis) sit in
+        regions of different zones, the zone being ENTERED is still off screen by at least
+        CAM_MAX_{X,Y}_STEP x the frames that crossing takes (crossing_frames, per pair): the
+        camera moves at most that far a frame, so the zone cannot appear before its palette
+        and background have landed. The boundary lies between the two cell centres, so the
+        distance there is the entered cell's gap + 4 — the reading under which a connector
+        cut exactly to the rule reads slack 0 (the report's calibration against the 384-px
+        tunnel crossing_witness measured glitch-free). Refused unless the act carries
+        crossing_margin = report, which prints it instead;
+      * VOID — a reachable centre inside a connector whose screen shows an unpainted act cell
+        (no clip, connector or fill): while a crossing replaces the background, a void cell
+        shows it. REPORTED (count and first centre); refused only when the act has a `fill`,
+        whose whole purpose is that nothing between the zones is void.
+    Returns the counts and the per-pair slack table."""
+    import numpy as np
+    cam = cam or model.c
+    rows, _presets = parse_clip_module_rows(mod_text, data_text)
+    C = clip_manifest.TILE_PX
+    R, K = model.centres.shape
+    region = np.full((R, K), -1, dtype=np.int16)
+    cover = np.zeros((R, K), dtype=np.int16)
+    for x0, x1, y0, y1, lab in rows:
+        if x0 % C or (x1 + 1) % C or y0 % C or (y1 + 1) % C:
+            raise ClipRomError(f"SCREEN row x {x0}..{x1}, y {y0}..{y1} is not on the {C}-px "
+                               f"cell grid the model counts on — UNMEASURABLE")
+        k = int(lab.rsplit("_", 1)[1])
+        region[y0 // C:(y1 + 1) // C, x0 // C:(x1 + 1) // C] = k
+        cover[y0 // C:(y1 + 1) // C, x0 // C:(x1 + 1) // C] += 1
+    if (cover != 1).any():
+        raise ClipRomError(f"SCREEN the emitted rows cover {int((cover == 0).sum())} cell(s) "
+                           f"zero times and {int((cover > 1).sum())} more than once; they must "
+                           f"tile the act — UNMEASURABLE")
+    cen = model.centres
+    vis = model.visible()
+    nvis = vis.sum(axis=0)
+    keys = model.keys
+    mixed = cen & (nvis > 1)
+    vis_key = np.full((R, K), -1, dtype=np.int16)
+    for i, k in enumerate(keys):
+        vis_key[vis[i] & (nvis == 1)] = k
+    wrong = cen & (nvis == 1) & (vis_key != region)
+    out = {"reachable_centres": int(cen.sum()), "mixed": int(mixed.sum()),
+           "wrong": int(wrong.sum()), "crossings": [], "void": 0}
+    if mixed.any():
+        ys, xs = np.nonzero(mixed)
+        raise ClipRomError(f"Z1 (screen, both axes) {out['mixed']} reachable camera centre(s) "
+                           f"show two zones on one screen, first at ({xs[0] * C + 4}, "
+                           f"{ys[0] * C + 4})")
+    if wrong.any():
+        ys, xs = np.nonzero(wrong)
+        y, x = int(ys[0]), int(xs[0])
+        raise ClipRomError(
+            f"Z2 (screen, both axes) {out['wrong']} reachable camera centre(s) show one zone "
+            f"from inside ANOTHER zone's region — first at ({x * C + 4}, {y * C + 4}), which "
+            f"shows zone {int(vis_key[y, x])} and installs zone {int(region[y, x])}'s palette "
+            f"and background")
+    table = {}
+    gaps = {k: model.gap(k) for k in keys}
+    for dy, dx, ax in ((0, 1, "x"), (1, 0, "y")):
+        step = cam["CAM_MAX_X_STEP"] if ax == "x" else cam["CAM_MAX_Y_STEP"]
+        a_cen, b_cen = cen[:R - dy, :K - dx], cen[dy:, dx:]
+        a_reg, b_reg = region[:R - dy, :K - dx], region[dy:, dx:]
+        edge = a_cen & b_cen & (a_reg != b_reg)
+        if not edge.any():
+            continue
+        for into_first in (True, False):
+            # entering the FIRST cell's zone from the second, then the other way round
+            reg_in, reg_from = (a_reg, b_reg) if into_first else (b_reg, a_reg)
+            for z in keys:
+                gz = gaps[z][:R - dy, :K - dx] if into_first else gaps[z][dy:, dx:]
+                for r in keys:
+                    if r == z:
+                        continue
+                    m = edge & (reg_in == z) & (reg_from == r)
+                    if not m.any():
+                        continue
+                    s_min = int(gz[m].min()) + C // 2
+                    f = frames["pair"][(r, z)]
+                    slack = s_min - step * f
+                    key = (r, z)
+                    if key not in table or slack < table[key]["slack"]:
+                        table[key] = {"from_key": r, "into_key": z, "frames": f,
+                                      "need_px": step * f, "s_min": s_min, "slack": slack,
+                                      "axis": ax, "pairs": int(m.sum())}
+    out["crossings"] = [table[k] for k in sorted(table)]
+    short = [t for t in out["crossings"] if t["slack"] < 0]
+    ov = crossing_overrides(act)
+    if short and ov["crossing_margin"] != "report":
+        t = short[0]
+        raise ClipRomError(
+            f"Z2 (screen, both axes) crossing into zone {t['into_key']} from zone "
+            f"{t['from_key']} ({t['axis']}): at the region boundary the entered zone is "
+            f"{t['s_min']} px off screen and the crossing needs {t['need_px']} "
+            f"({t['frames']} frames at the camera cap): slack {t['slack']} px. "
+            f"{len(short)} crossing direction(s) short")
+    if short and log:
+        log("clip_rom_bake: SCREEN SHORTFALL, NOT ENFORCED (crossing_margin = report): "
+            + "; ".join(f"{t['from_key']}->{t['into_key']} slack {t['slack']} px"
+                        for t in short))
+    # VOID seen from inside a connector
+    lane = np.zeros((R, K), dtype=bool)
+    for k in list(act.corridors) + list(getattr(act, "shafts", [])):
+        x, y, w, h = (v // C for v in k.dst)
+        lane[y:y + h, x:x + w] = True
+    lc = lane & cen
+    if lc.any():
+        unp = (~model.painted).astype(np.int64)
+        ii = np.zeros((R + 1, K + 1), dtype=np.int64)
+        np.cumsum(np.cumsum(unp, axis=0), axis=1, out=ii[1:, 1:])
+        ys, xs = np.nonzero(lc)
+        hw, hh = cam["CAM_SCREEN_HALF_W"] // C, cam["CAM_SCREEN_HALF_H"] // C
+        x0 = np.clip(xs - hw, 0, K)
+        x1 = np.clip(xs + hw, 0, K)
+        y0 = np.clip(ys - hh, 0, R)
+        y1 = np.clip(ys + hh, 0, R)
+        cnt = ii[y1, x1] - ii[y0, x1] - ii[y1, x0] + ii[y0, x0]
+        out["void"] = int((cnt > 0).sum())
+        if out["void"]:
+            i = int(np.flatnonzero(cnt > 0)[0])
+            out["void_first"] = [int(xs[i]) * C + 4, int(ys[i]) * C + 4]
+            if getattr(act, "fill", None) is not None:
+                raise ClipRomError(
+                    f"VOID {out['void']} reachable camera centre(s) inside a connector show "
+                    f"unpainted act cells (first at {out['void_first']}); this act has a "
+                    f"`fill`, so nothing between its zones may be void — widen the fill")
+    if log:
+        log(f"clip_rom_bake: SCREEN {out['reachable_centres']} reachable centres: MIXED 0, "
+            f"WRONG 0, VOID {out['void']}; crossings "
+            + (", ".join(f"{t['from_key']}->{t['into_key']} ({t['axis']}) slack "
+                         f"{t['slack']:+d} px" for t in out["crossings"]) or "none"))
     return out
 
 
@@ -1390,17 +1947,20 @@ def _song_rows(text, name, what):
 def check_music_crossings(act, mod_text, data_text, spawn=None, log=None):
     """MUSIC — read back out of what was EMITTED (both tables, which must agree):
 
-      * every row covering part of a clip names that clip's `music` (or 0 if it names none),
-        unless the row lies wholly inside a corridor;
-      * every row inside a corridor between two zones names 0 (the dead band);
-      * walking the camera centre right across each corridor, the FIRST row naming a song
-        after the left zone's is at the right mouth (b_left) and names the right zone's song;
-        walking left, the first is at a_right - 1 and names the left zone's. Exactly one
-        song change each way, at the mouth;
+      * every row covering part of a clip (on BOTH axes) names that clip's `music` (or 0 if
+        it names none), unless the row lies wholly inside a connector's span along that
+        connector's axis (its dead band);
+      * every row overlapping a connector between two zones names 0 (the dead band);
+      * walking the camera centre along each such connector's axis, at every 16 px across
+        it, the FIRST row naming a song after the near zone's is at the far mouth and names
+        the far zone's song; walking back, the first is one px before the near mouth and
+        names the near zone's. Exactly one song change each way, at the mouth;
       * the row holding `spawn` (the act's start) names the start zone's song, so the
         act-load rescan requests it.
-    Returns [{from, to, right_x, left_x, dead_band_px, songs}] per corridor. An act whose
-    clips name no music is held to "every row names 0" and returns []."""
+    A corridor is walked in x, a SHAFT in y (the woven report's §C item 3). Returns
+    [{from, to, axis, connector, right_x, left_x (or down_y, up_y), dead_band_px, songs}]
+    per connector. An act whose clips name no music is held to "every row names 0" and
+    returns []."""
     rows = _song_rows(mod_text, "OJZ_CLIP_REGION_ROWS", "the clip module")
     emitted = _song_rows(data_text, "OJZ_Clip_Regions", "the clip data block")
     if rows != emitted:
@@ -1413,59 +1973,86 @@ def check_music_crossings(act, mod_text, data_text, spawn=None, log=None):
             raise ClipRomError(f"MUSIC no clip names music, yet rows name songs: {named}")
         return []
 
-    def song_at(x, y=None):
-        hit = [r for r in rows if r[0] <= x <= r[1] and (y is None or r[2] <= y <= r[3])]
+    def song_at(x, y):
+        hit = [r for r in rows if r[0] <= x <= r[1] and r[2] <= y <= r[3]]
         if len(hit) != 1:
-            raise ClipRomError(f"MUSIC x={x} is in {len(hit)} region rows; they must tile the act")
+            raise ClipRomError(f"MUSIC ({x}, {y}) is in {len(hit)} region rows; they must "
+                               f"tile the act")
         return hit[0][4]
 
-    clips = sorted(act.clips, key=lambda c: c.dst[0])
-    gaps = []
-    for a, b in zip(clips, clips[1:]):
-        if a.zone_key != b.zone_key:
-            gaps.append((a, b, a.dst[0] + a.dst[2], b.dst[0]))
-    in_gap = lambda r: any(g0 <= r[0] and r[1] < g1 for _a, _b, g0, g1 in gaps)  # noqa: E731
-    for c in clips:
+    conns = []
+    for k in list(getattr(act, "corridors", [])) + list(getattr(act, "shafts", [])):
+        ax, a, b = clip_manifest.connector_ends(act, k)
+        if a is not None and b is not None and a.zone_key != b.zone_key:
+            i = 0 if ax == "x" else 1
+            conns.append((k, ax, a, b, a.dst[i] + a.dst[i + 2], b.dst[i]))
+
+    def in_band(r):
+        """wholly inside some connector's span along ITS axis (the 1-D plan's `in_gap`)"""
+        for _k, ax, _a, _b, g0, g1 in conns:
+            lo, hi = (r[0], r[1]) if ax == "x" else (r[2], r[3])
+            if g0 <= lo and hi < g1:
+                return True
+        return False
+
+    for c in act.clips:
         for r in rows:
-            if r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1] and not in_gap(r) \
-                    and r[4] != want[c.zone_key]:
-                raise ClipRomError(f"MUSIC clip {c.id!r} reaches row x {r[0]}..{r[1]}, which "
-                                   f"names {r[4] or 0}, not its own music "
-                                   f"{want[c.zone_key] or 0}")
+            if (r[0] <= c.dst[0] + c.dst[2] - 1 and c.dst[0] <= r[1]
+                    and r[2] <= c.dst[1] + c.dst[3] - 1 and c.dst[1] <= r[3]
+                    and not in_band(r) and r[4] != want[c.zone_key]):
+                raise ClipRomError(f"MUSIC clip {c.id!r} reaches row x {r[0]}..{r[1]}, y "
+                                   f"{r[2]}..{r[3]}, which names {r[4] or 0}, not its own "
+                                   f"music {want[c.zone_key] or 0}")
     out = []
-    for a, b, g0, g1 in gaps:
+    for k, ax, a, b, g0, g1 in conns:
+        kx, ky, kw, kh = k.dst
         for r in rows:
-            if r[1] >= g0 and r[0] < g1 and in_gap(r) and r[4]:
-                raise ClipRomError(f"MUSIC row x {r[0]}..{r[1]} lies inside corridor x "
-                                   f"{g0}..{g1 - 1} and names {r[4]}: the dead band must name 0")
+            if (r[0] < kx + kw and kx <= r[1] and r[2] < ky + kh and ky <= r[3]
+                    and in_band(r) and r[4]):
+                raise ClipRomError(f"MUSIC row x {r[0]}..{r[1]}, y {r[2]}..{r[3]} lies "
+                                   f"inside connector {k.id!r} and names {r[4]}: the dead "
+                                   f"band must name 0")
         # the engine's rule replayed: a row naming a song different from the current one
         # changes it; a 0 row changes nothing (Music_Want only takes non-zero songs)
-        def changes(xs):
-            cur, out_ = song_at(xs[0]), []
-            for x in xs[1:]:
-                s_ = song_at(x)
-                if s_ and s_ != cur:
-                    out_.append((x, s_))
-                    cur = s_
-            return out_
-        right_changes = changes(range(g0 - 1, g1 + 1))
-        left_changes = changes(range(g1, g0 - 2, -1))
-        want_r = [(g1, want[b.zone_key])] if want[b.zone_key] else []
-        want_l = [(g0 - 1, want[a.zone_key])] if want[a.zone_key] else []
-        if right_changes != want_r or left_changes != want_l:
-            raise ClipRomError(
-                f"MUSIC corridor {a.id!r} -> {b.id!r} (x {g0}..{g1 - 1}): walking right the "
-                f"song changes at {right_changes}, the rule is {want_r} (the right mouth); "
-                f"walking left at {left_changes}, the rule is {want_l} (the left mouth)")
-        out.append({"from": a.id, "to": b.id, "right_x": g1, "left_x": g0 - 1,
-                    "dead_band_px": g1 - g0,
-                    "songs": [want[a.zone_key], want[b.zone_key]]})
+        j = 1 if ax == "x" else 0
+        across = range(k.dst[j], k.dst[j] + k.dst[j + 2], 16)
+        pt = (lambda u, v: (u, v)) if ax == "x" else (lambda u, v: (v, u))
+        want_f = [(g1, want[b.zone_key])] if want[b.zone_key] else []
+        want_b = [(g0 - 1, want[a.zone_key])] if want[a.zone_key] else []
+        for v in across:
+            def changes(us):
+                cur, out_ = song_at(*pt(us[0], v)), []
+                for u in us[1:]:
+                    s_ = song_at(*pt(u, v))
+                    if s_ and s_ != cur:
+                        out_.append((u, s_))
+                        cur = s_
+                return out_
+            fwd = changes(range(g0 - 1, g1 + 1))
+            bwd = changes(range(g1, g0 - 2, -1))
+            if fwd != want_f or bwd != want_b:
+                raise ClipRomError(
+                    f"MUSIC connector {k.id!r} {a.id!r} -> {b.id!r} ({ax} {g0}..{g1 - 1}, at "
+                    f"{'y' if ax == 'x' else 'x'}={v}): walking "
+                    f"{'right' if ax == 'x' else 'down'} the song changes at {fwd}, the rule is "
+                    f"{want_f} (the far mouth); walking {'left' if ax == 'x' else 'up'} at "
+                    f"{bwd}, the rule is {want_b} (the near mouth)")
+        row = {"from": a.id, "to": b.id, "axis": ax, "connector": k.id,
+               "dead_band_px": g1 - g0, "songs": [want[a.zone_key], want[b.zone_key]]}
+        if ax == "x":
+            row.update(right_x=g1, left_x=g0 - 1)
+        else:
+            row.update(down_y=g1, up_y=g0 - 1)
+        out.append(row)
         if log:
-            log(f"clip_rom_bake: MUSIC {a.id} -> {b.id}: {want[b.zone_key]} starts where the "
-                f"camera centre reaches x={g1} going right, {want[a.zone_key]} at x={g0 - 1} "
-                f"going left; the corridor x {g0}..{g1 - 1} ({g1 - g0} px) names no song")
+            log(f"clip_rom_bake: MUSIC {a.id} -> {b.id} ({k.id}, axis {ax}): "
+                f"{want[b.zone_key]} starts where the camera centre reaches {ax}={g1} going "
+                f"{'right' if ax == 'x' else 'down'}, {want[a.zone_key]} at {ax}={g0 - 1} "
+                f"going {'left' if ax == 'x' else 'up'}; the connector {ax} {g0}..{g1 - 1} "
+                f"({g1 - g0} px) names no song")
     if spawn is not None:
-        holder = [c for c in act.clips if c.dst[0] <= spawn[0] < c.dst[0] + c.dst[2]]
+        holder = [c for c in act.clips if c.dst[0] <= spawn[0] < c.dst[0] + c.dst[2]
+                  and c.dst[1] <= spawn[1] < c.dst[1] + c.dst[3]]
         if len(holder) == 1 and song_at(spawn[0], spawn[1]) != want[holder[0].zone_key]:
             raise ClipRomError(f"MUSIC the start ({spawn[0]}, {spawn[1]}) is in a row naming "
                                f"{song_at(spawn[0], spawn[1])}, not the start zone's "
@@ -1542,6 +2129,52 @@ class _ClipDefaultBgAct:
         return _Act(base.zone_id, base.act_id, base.repo)
 
 
+def _union_backgrounds(own, order, what):
+    """{key: (words re-indexed into the union, the union, info with co_resident=True)} and the
+    union — the zones in `order` sharing ONE tile blob. The first zone's tiles keep their own
+    indices; every later zone's tiles not already in it are appended, by clip_bg_lower's
+    CANONICAL form (the least of a tile's four flips), so a word's flip bits stay valid when
+    only its index is rewritten. `what` names the blob in a refusal."""
+    from vram_map import BG_TILE_CAPACITY
+    union, index = [], {}
+    for t in own[order[0]][1]:
+        index.setdefault(t, len(union))
+        union.append(t)
+    out = {}
+    for k in order:
+        words, tiles, info = own[k]
+        remap = []
+        for t in tiles:
+            if t not in index:
+                index[t] = len(union)
+                union.append(t)
+            remap.append(index[t])
+        new = []
+        for i, w in enumerate(words):
+            if w == 0:
+                new.append(0)
+                continue
+            nw = (w & ~0x7FF) | remap[w & 0x7FF]
+            if nw == 0:
+                raise ClipRomError(
+                    f"BG {what}: {info['zone']} cell {i} re-indexes to word $0000, which "
+                    f"inject_editor_bg.rebase_layout keeps as the TRANSPARENT word — this "
+                    f"opaque tile would vanish")
+            # FIDELITY: the union entry the new word names IS the tile the old word named
+            if union[nw & 0x7FF] != tiles[w & 0x7FF]:
+                raise ClipRomError(f"BG {what}: {info['zone']} cell {i} re-indexed to a "
+                                   f"different tile")
+            new.append(nw)
+        out[k] = (new, None, dict(info, co_resident=True))
+    if len(union) > BG_TILE_CAPACITY:
+        raise ClipRomError(
+            f"BG {what}: the zones' backgrounds need {len(union)} tiles together and the "
+            f"arena holds BG_TILE_CAPACITY = {BG_TILE_CAPACITY} (vram.toml bg_region, a hard "
+            f"VRAM boundary). They cannot be co-resident; "
+            + ("drop the override." if what == "co-resident" else "split the group."))
+    return {k: (w, list(union), info) for k, (w, _n, info) in out.items()}, union
+
+
 def co_resident_backgrounds(plan, own, start, log=None):
     """PER-CLIP OVERRIDE crossing_overrides.background = "co_resident": every zone's
     background tiles in ONE blob, the act default's, so a crossing changes only the LAYOUT
@@ -1563,44 +2196,7 @@ def co_resident_backgrounds(plan, own, start, log=None):
     Both numbers are printed."""
     from vram_map import BG_TILE_CAPACITY, BG_STATIC_TILE_BUDGET
     order = [start] + sorted(k for k in own if k != start)
-    union, index = [], {}
-    for t in own[start][1]:
-        index.setdefault(t, len(union))
-        union.append(t)
-    out = {}
-    for k in order:
-        words, tiles, info = own[k]
-        remap = []
-        for t in tiles:
-            if t not in index:
-                index[t] = len(union)
-                union.append(t)
-            remap.append(index[t])
-        new = []
-        for i, w in enumerate(words):
-            if w == 0:
-                new.append(0)
-                continue
-            nw = (w & ~0x7FF) | remap[w & 0x7FF]
-            if nw == 0:
-                raise ClipRomError(
-                    f"BG co-resident: {info['zone']} cell {i} re-indexes to word $0000, which "
-                    f"inject_editor_bg.rebase_layout keeps as the TRANSPARENT word — this "
-                    f"opaque tile would vanish")
-            # FIDELITY: the union entry the new word names IS the tile the old word named
-            if union[nw & 0x7FF] != tiles[w & 0x7FF]:
-                raise ClipRomError(f"BG co-resident: {info['zone']} cell {i} re-indexed to a "
-                                   f"different tile")
-            new.append(nw)
-        out[k] = [new, None, dict(info, co_resident=True)]
-    if len(union) > BG_TILE_CAPACITY:
-        raise ClipRomError(
-            f"BG co-resident: the zones' backgrounds need {len(union)} tiles together and the "
-            f"arena holds BG_TILE_CAPACITY = {BG_TILE_CAPACITY} (vram.toml bg_region, a hard "
-            f"VRAM boundary). They cannot be co-resident; drop the override.")
-    for k in out:
-        out[k][1] = list(union)
-        out[k] = tuple(out[k])
+    out, union = _union_backgrounds(own, order, "co-resident")
     if log:
         log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.background = co_resident — "
             f"{' + '.join(str(len(own[k][1])) for k in order)} tiles of "
@@ -1625,8 +2221,35 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
     lowered, own = {}, {}
     for z in plan["zones"]:
         own[z["key"]] = lower(z["donor"], z["zone"])
+    # BLOB GROUPS (the woven report's §C item 14): every group of two or more zones shares ONE
+    # tile blob — the act default when it holds the start zone (its rows name rg_bg_tiles 0,
+    # as co_resident's do), else one blob named by every member's rows. A crossing between
+    # two zones of one group finds the arena already holding the blob (BG_Stream_Update's
+    # pointer compare) and pays only the repaint; into another group it pays the overwrite.
+    groups = [set(g) for g in plan.get("blob_groups") or []]
+    group_of = {k: g for g in groups for k in g}
+    unions = {}
     if co_resident:
         own = co_resident_backgrounds(plan, own, start, log=log)
+    else:
+        from vram_map import BG_TILE_CAPACITY
+        for g in groups:
+            if len(g) < 2:
+                continue
+            order = ([start] + sorted(g - {start})) if start in g else sorted(g)
+            names = "+".join(own[k][2]["zone"] for k in order)
+            sizes = " + ".join(str(len(own[k][1])) for k in order)
+            sub, union = _union_backgrounds({k: own[k] for k in g}, order,
+                                            f"blob group {names}")
+            own.update(sub)
+            unions[min(g)] = union
+            if log:
+                log(f"clip_rom_bake: BACKGROUND BLOB GROUP {names}: {sizes} tiles share ONE "
+                    f"{len(union)}-tile blob "
+                    + ("(the act default: it holds the start zone)" if start in g else
+                       f"(OJZ_Clip_BG_Tiles_{min(g)})")
+                    + f"; arena {BG_TILE_CAPACITY} tiles")
+    start_shared = co_resident or len(group_of.get(start, ())) > 1
     for z in plan["zones"]:
         words, tiles, info = own[z["key"]]
         lowered[z["key"]] = (words, tiles)
@@ -1642,7 +2265,7 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
                 json.dump(CBL.override_doc(words, tiles), fh)
             import inject_editor_bg as ieb
             ieb.main(_ClipDefaultBgAct(override, gen_dir))
-            if co_resident:
+            if start_shared:
                 # the co-resident blob may reach into the band reserve ONLY because no band
                 # exists to use it: read that back out of what the injector wrote
                 with open(os.path.join(gen_dir, "bg_anim.emp")) as fh:
@@ -1659,14 +2282,27 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
             fh.write(CBL.layout_blob(words))
         z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
                  bg_layout_embed=f"{GEN_REL}/{lay}")
-        if co_resident:
+        if co_resident or (start_shared and z["key"] in group_of.get(start, ())):
             continue                    # its tiles are in the act default's blob
-        til = CLIP_BG_TILES_BIN.format(key=z["key"])
+        owner = min(group_of.get(z["key"], {z["key"]}))
+        til = CLIP_BG_TILES_BIN.format(key=owner)
         blob = CBL.tiles_blob(tiles)
         with open(os.path.join(gen_dir, til), "wb") as fh:
             fh.write(blob)
-        z.update(bg_tiles_label=f"OJZ_Clip_BG_Tiles_{z['key']}",
-                 bg_tiles_embed=f"{GEN_REL}/{til}", bg_tiles_bytes=len(blob))
+        z.update(bg_tiles_label=f"OJZ_Clip_BG_Tiles_{owner}",
+                 bg_tiles_embed=f"{GEN_REL}/{til}", bg_tiles_bytes=len(blob),
+                 bg_tiles_owner=owner == z["key"], bg_tiles_file=til)
+    from vram_map import BG_STATIC_TILE_BUDGET
+    for owner, union in unions.items():
+        if owner not in group_of.get(start, ()) and len(union) > BG_STATIC_TILE_BUDGET:
+            # a region blob past the static budget uses the band reserve too: legal only
+            # while the act has no BgAnim band (read back out of what the injector wrote)
+            with open(os.path.join(gen_dir, "bg_anim.emp")) as fh:
+                if "BgAnim_Table: u16 = 0" not in fh.read():
+                    raise ClipRomError(
+                        f"BG blob group of zone key {owner}: {len(union)} tiles pass the "
+                        f"static budget {BG_STATIC_TILE_BUDGET} and the act default's "
+                        f"bg_anim.emp is not the zero-band stub — refused")
     zones = {z["key"]: z for z in plan["zones"]}
     for r in plan["rows"]:
         r["bg_layout"] = zones[r["key"]].get("bg_layout_label")
@@ -1744,7 +2380,8 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
                                    f"{CLIP_BG_TILES_BIN.format(key=key)} was written for it")
         else:
             files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),
-                     (CLIP_BG_TILES_BIN.format(key=key), CBL.tiles_blob(tiles)))
+                     (z.get("bg_tiles_file") or CLIP_BG_TILES_BIN.format(key=key),
+                      CBL.tiles_blob(tiles)))
         for fname, want in files:
             with open(os.path.join(gen_dir, fname), "rb") as fh:
                 if fh.read() != want:
@@ -1831,9 +2468,12 @@ def check_scroll(plan, data_text):
 
 def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log=None,
                      gen_dir=GEN_DIR, baked_dir=None):
-    """Write the clip act's module + append its data, then run Z2 and BG1 over what was
-    WRITTEN."""
-    plan = region_plan(act, donor_root)
+    """Write the clip act's module + append its data, then run Z2, MUSIC, the SCREEN check
+    and BG1 over what was WRITTEN."""
+    import clip_camera
+    frames = crossing_frames(act)
+    model = clip_camera.CameraModel.for_act(act, donor_root)
+    plan = region_plan(act, donor_root, frames=frames, model=model)
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
     plan["start"] = act_start(act)
@@ -1873,8 +2513,23 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
             f"overwrite); Z2 below holds it to the re-derived one. Why: {ov['why']}")
         log("clip_rom_bake: " + "!" * 72)
     bgf = background_switch_frames(plan)
-    z2 = check_palette_crossings(act, mod, data, log=log, bg_frames=bgf)
+    # the frames the plan was CUT with (crossing_frames, from the blob groups and the lowered
+    # tiles) must be the frames the EMITTED blobs take (background_switch_frames reads the
+    # plan's blobs back): a difference means the rows were placed for a background that is
+    # not the one the ROM carries
+    for z, fr in bgf.items():
+        into = [frames["pair"][p_] for p_ in frames["pair"] if p_[1] == z]
+        if not into:
+            continue                    # a one-zone act: nothing crosses into it
+        planned = max(into)
+        if max(fr, frames["palette"]) != planned:
+            raise ClipRomError(
+                f"Z2 zone key {z}: the region plan was cut for {planned} frame(s) into it and "
+                f"the emitted background takes {max(fr, frames['palette'])} — the plan and "
+                f"the blobs disagree")
+    z2 = check_palette_crossings(act, mod, data, log=log, frames=frames, cam=model.c)
     plan["music"] = check_music_crossings(act, mod, data, spawn=spawn, log=log)
+    plan["screen"] = check_screen(act, model, mod, data, frames, log=log)
     plan["st1"] = check_start(plan, mod)
     plan["bg1"] = check_backgrounds(plan, mod, data, gen_dir)
     if log:
@@ -1950,6 +2605,12 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR, sheet_files=None)
                 "bgTiles": rel(os.path.join(REPO, sa["bgTiles"])),
                 "sceneRef": None,
                 "startPosition": dict(sa["startPosition"]),
+                # NO INHERITED ENTITIES (the woven report's §C item 8). Pass 8
+                # (ojz_entity_gen) reads this key: "none" emits every section's object,
+                # type and ring tables empty at THIS grid, instead of the shipped act's
+                # OJZ objects and rings at OJZ's world positions over Sonic 2 geometry —
+                # which also forced every clip grid to >= 9 sections, whole rows of 3.
+                ojz_entity_gen.ENTITIES_KEY: "none",
             }],
         }],
         "objectLibrary": rel(os.path.join(REPO, shipped["objectLibrary"])),
@@ -2014,12 +2675,17 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     log(f"clip_rom_bake: composing {act.id} -> {os.path.relpath(baked_dir, REPO)}")
     _act, _st, summary, _v1, _v2 = clip_act_bake.bake(
         manifest_path, out_dir=baked_dir, donor_root=donor_root, log=log)
-    z1 = check_zone_separation(act, summary)
+    import clip_camera
+    z1 = check_zone_separation(act, summary,
+                               model=clip_camera.CameraModel.for_act(act, donor_root))
     if z1:
         log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.zone_separation = screen — "
             f"Z1 counted on the SCREEN ({z1['need_cells']} cells), not the tile cache: gap "
             f"{z1['gap_cells']} cells; {z1['tile_cache_windows_mixed']} tile-cache window(s) "
-            f"hold both zones (their margin columns are never displayed)")
+            f"hold both zones (their margin columns are never displayed)"
+            + (f"; BOTH AXES: 0 of {z1['reachable_centres']} reachable camera centres show two "
+               f"zones ({z1['mixed_unreachable']} unreachable ones would, REPORTED)"
+               if z1.get("axes") == "both" else ""))
 
     sheet_files = [os.path.join(REPO, z["tileset_file"]) for z in summary["zone_table"]]
     project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir,
@@ -2114,6 +2780,7 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
                     for r in region_plan_["rows"]],
         "music": region_plan_.get("music"),
         "palette_crossings": z2,
+        "screen": region_plan_.get("screen"),
         "backgrounds": {
             "act_default": region_plan_["bg1"]["default"],
             "regions": region_plan_["bg1"]["regions"],
@@ -2138,11 +2805,14 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
                                if z.get("scroll") else "the act default (no transcription)")
                    for z in region_plan_["zones"]},
         "inherited_from_the_shipped_act": [
-            "objects and rings (Pass 8 reads the shipped act's editor entities)",
             "the shipped region table is still ASSEMBLED (unused: act_regions points at "
             "the clip act's own table)",
         ],
     }
+    if act.shafts:
+        report["shafts"] = [sh.as_json() for sh in act.shafts]  # only when there are any
+    if act.fill is not None:
+        report["fill"] = act.fill.as_json()      # only when there is one (byte identity)
     with open(os.path.join(baked_dir, "clip_rom_bake.json"), "w") as fh:
         json.dump(report, fh, indent=2, sort_keys=True)
         fh.write("\n")

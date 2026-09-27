@@ -321,8 +321,42 @@ def emit_section(lines: list[str], sec_idx: int,
     lines.append("")
 
 
-def generate(out_path: str | None = None, sections: int | None = None) -> None:
+#: The act key a staged project uses to say where its entities come from
+#: (S2-COMPRESSED-ACT, the woven report's §C item 8). Absent = "inherit": the act's own
+#: editor JSONs, read through THIS module's project.json — the shipped act's, and every
+#: canonical shape takes that path unchanged. "none" = the act has no entities at all: every
+#: section's three tables are emitted EMPTY and no editor JSON is read.
+ENTITIES_KEY = "entities"
+ENTITIES_VALUES = ("inherit", "none")
+
+
+def entities_policy(project_json: str | None) -> tuple[str, dict | None]:
+    """("inherit" | "none", that project's act) for the project Pass 8 was handed. A
+    project that does not carry the key inherits; any other value is refused by name."""
+    if project_json is None:
+        return "inherit", None
+    with open(project_json, "r") as f:
+        act = json.load(f)["zones"][0]["acts"][0]
+    pol = act.get(ENTITIES_KEY, "inherit")
+    if pol not in ENTITIES_VALUES:
+        raise SystemExit(f"ojz_entity_gen: {project_json} act `{ENTITIES_KEY}` is {pol!r}; "
+                         f"it may be one of {list(ENTITIES_VALUES)}")
+    return pol, act
+
+
+def generate(out_path: str | None = None, sections: int | None = None,
+             project_json: str | None = None) -> None:
     """Emit entity_data.emp. *out_path* overrides the module default.
+
+    *project_json* is the project Pass 8 is baking (ojz_strip_gen's PROJECT_JSON). It is
+    read for ONE key, `entities` (ENTITIES_KEY). A clip act's staged project says "none"
+    (tools/clip_rom_bake.stage_project): the act emits every section's tables EMPTY, at its
+    own grid, and reads no editor JSON. That ends the clip act's inherited OJZ objects and
+    rings (OJZ's entities at OJZ's world positions over Sonic 2 geometry) and with them the
+    two refusals below, which only exist to keep those inherited ids lined up: fewer
+    sections than the shipped act's nine, and a count that is not whole rows of its width
+    (the woven report's §C item 8: a 5 x 4 act was measured as 6 x 4 because of them).
+    Without the key (the shipped project.json, every canonical shape) nothing changes.
 
     *sections* OVERRIDES HOW MANY SECTIONS ARE EMITTED, and nothing else
     (S2-COMPRESSED-ACT parcel 9). The act's grid used to be this module's project.json
@@ -353,10 +387,21 @@ def generate(out_path: str | None = None, sections: int | None = None) -> None:
     reverting a committed bake and turning ~10 sigil port targets red.
     """
     """Generate entity_data.asm from the editor JSONs. Exits nonzero on errors."""
-    cfg = load_act_config()
+    policy, own_act = entities_policy(project_json)
+    if policy == "none":
+        cfg = {"grid_w": int(own_act["gridWidth"]), "grid_h": int(own_act["gridHeight"]),
+               "data_path": None}
+    else:
+        cfg = load_act_config()
     grid_w, grid_h = cfg["grid_w"], cfg["grid_h"]
     num_sections = grid_w * grid_h
-    if sections is not None:
+    if policy == "none":
+        if sections is not None and int(sections) != num_sections:
+            raise SystemExit(
+                f"ojz_entity_gen: asked for {sections} sections but {project_json} declares "
+                f"{grid_w}x{grid_h} = {num_sections}; an act with no entities still emits "
+                f"exactly one empty table set per section of its own grid.")
+    elif sections is not None:
         if int(sections) < num_sections:
             raise SystemExit(
                 f"ojz_entity_gen: asked for {sections} sections but this act's editor "
@@ -381,6 +426,11 @@ def generate(out_path: str | None = None, sections: int | None = None) -> None:
     per_section_types = []
 
     for sec_idx in range(num_sections):
+        if policy == "none":
+            per_section_rings.append([])
+            per_section_objects.append([])
+            per_section_types.append([])
+            continue
         rings_raw = load_section_json(cfg["data_path"], sec_idx, "rings")
         objects_raw = load_section_json(cfg["data_path"], sec_idx, "objects")
         per_section_rings.append(
@@ -412,6 +462,11 @@ def generate(out_path: str | None = None, sections: int | None = None) -> None:
     lines.append("// 3-word record { x, y, flags|(type<<8)|subtype } + a $FFFF list terminator;")
     lines.append("// a ring list is dc.w X,Y pairs + a longword-0 terminator.")
     lines.append("//")
+    if policy == "none":
+        lines.append(f"// ENTITIES: NONE ({os.path.relpath(project_json, REPO_ROOT)} act "
+                     f"`{ENTITIES_KEY}` = \"none\"): every")
+        lines.append("// section's tables are empty and no editor JSON was read.")
+        lines.append("//")
     lines.append("// Stats:")
     lines.append(f"//   grid: {grid_w}x{grid_h} ({num_sections} sections)")
     lines.append(f"//   rings: {total_rings} total "

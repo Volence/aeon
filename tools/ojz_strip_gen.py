@@ -2886,8 +2886,13 @@ def generate(stress_uniquify=0):
     # no objects/rings JSON), so the clip ROM loses OJZ's objects and rings. That inheritance
     # is deliberate and documented in clip_rom_bake.py's header, and silently ending it is
     # not this parcel's business.
+    #
+    # AND THE PROJECT, for its `entities` key only (the woven report's §C item 8): a clip
+    # act's staged project says "none", so it emits empty tables at its own grid instead of
+    # inheriting the shipped act's. The shipped project.json carries no key (inherit).
     ojz_entity_gen.generate(out_path=os.path.join(out_dir, "entity_data.emp"),
-                            sections=act_grid.section_count(PROJECT_JSON))
+                            sections=act_grid.section_count(PROJECT_JSON),
+                            project_json=PROJECT_JSON)
 
     # ---- Pass 9: donor provenance ----
     # The tree above is baked from TWO out-of-repo checkouts, and until this stamp

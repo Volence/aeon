@@ -229,6 +229,74 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
       on both planes. A ONE-PATH zone (no plane-B collision anywhere in its tree,
       `zone_has_plane_b`: Sonic 2's Metropolis) is pasted with its plane A on both planes
       (`_clip_collision`), so its seams are read on both planes like any other.
+  K8  the optional `fill` (below): a `why`, a rect on the 16-px collision block grid inside
+      the act, and every clip/corridor edge that meets it on that grid too (one block has
+      one collision word, so it cannot be half fill).
+
+FILL (the woven report's §C item 6, 2026-09-27). v1's seal walls, generalised: in a woven
+act the zones sit a connector's length apart in BOTH axes, and everything between them that
+is not a connector would otherwise be VOID — no art (the background and backdrop show) and
+no collision (a player who finds a gap falls through the act). Schema, beside `clips`:
+
+    "fill": { "rect": { "x": 0, "y": 0, "w": 9216, "h": 6464 },   // 16-px grid
+              "why": "the woven layout's neutral fill between its clips" }
+
+Every cell inside `rect` that no clip, corridor or shaft covers is FILL:
+  * ART: the open corridor's plain stone course on CRAM LINE 0 (CORRIDOR_PAL_LINE's reason:
+    the one line no region install writes, so the fill looks the same whichever zone's
+    palette is up). One tile, appended to the corridor sheet after every corridor's, so an
+    act without a fill has the sheet it always had. How it LOOKS is the owner's call.
+  * COLLISION: the bank's full solid block, solid on every side, on BOTH planes — the
+    corridor floor's word, so it adds no attr entry an act with a corridor lacks. Solid on
+    purpose: a Sonic 2 clip runs its pits to its bottom edge (the woven report's §A.2), and
+    in a woven act a pit's bottom is now fill, a floor, instead of a fall through the act.
+  * ZONE KEY: the corridor sheet's. Z1 (clip_act_bake.zone_separation) does not count it
+    as a zone, for the corridor's reason.
+In `validate --json` a fill refusal's subject is `{"kind": "fill", "index": 0, "id": null}`.
+
+SHAFTS (the woven report's §C item 2, 2026-09-27): the VERTICAL connector — a corridor
+turned on its side, joining the clip ABOVE it to the clip BELOW it. Schema, beside `clips`:
+
+    "shafts": [
+      { "id": "cpz_to_ooz",                          // region-id pattern, unique (K1's space)
+        "dst_rect": { "x": 5872, "y": 4112, "w": 256, "h": 464 },
+        "lane":   { "x": 5872, "w": 256 },           // OPTIONAL, the open column; default the
+                                                     //   whole rect. Walls fill the rest
+        "ledges": { "pitch": 64, "w": 64 },          // OPTIONAL: a STAIR shaft (or a cloud
+                                                     //   band's cloud ledges)
+        "look":   "rock",                            // OPTIONAL: "rock" (default) or "cloud"
+        "art":    { "donor", "zone", "wall_src", "back_src" } } ]  // OPTIONAL for rock,
+                                                     //   required for a cloud band (K5)
+
+The KINDS the report names are one schema: a DROP shaft is a lane with no ledges (falling
+through is free; nobody climbs it), a STAIR shaft has ledges (the stand-in for a spring until
+objects exist), and a CLOUD BAND is `look: cloud` (§A.3) with cloud ledges.
+
+WHAT A SHAFT PAINTS (`shaft_collision`, `_paint_shaft`), pixel by pixel from its own
+collision like a corridor:
+  * COLLISION: the rect's columns outside the lane are the bank's full solid block (walls);
+    the lane is air; each ledge is one block row of the full block made TOP-SOLID ONLY (stood
+    on from above, jumped through from below), `pitch` px apart from the bottom mouth up,
+    alternately against the lane's left and right side. Top-only solidity is one attr entry
+    more than a corridor act carries (the report's §A.6 "+1 at most").
+  * ART, all on CRAM line 0 (the corridor's reason), and EVERY PIXEL PAINTED so no
+    background shows (the tunnel's rule on its side): walls and ledges from `wall_src` (or
+    the plain stone course), the lane from `back_src` dimmed (or the mortar colour). A CLOUD
+    band draws both undimmed, paints transparent donor pixels the sky (the line-0 colour
+    nearest CLOUD_SKY_WORD, $0E66) and draws no lip. How either LOOKS is the owner's call.
+  K7  a shaft JOINS: its top edge is exactly one clip's bottom edge and its bottom edge
+      exactly one clip's top edge, each overlapping it across (`connector_ends`, found from
+      the geometry). A shaft that meets no clip at a mouth joins nothing and is refused.
+  K9  id and rect like a corridor's (R5/R8/R10, the 16-px block grid on every edge); the lane
+      on that grid, inside the rect and at least a standing player wide (2 x PLAYER_X_RADIUS
+      + 1); a known look; ledges a whole number of block rows apart and NO FURTHER APART THAN
+      THE LEAST STANDING-JUMP RISE over every character (`jump_reach_px`: PHYS_JUMP_FORCE and
+      KNUX_JUMP_FORCE under PHYS_GRAVITY, stepped as the player moves — 85 px today, so 80),
+      and narrower than the lane; a cloud band names its art.
+  K10 (at bake, from the collision) each MOUTH is open across the lane on both planes: the
+      clip above's last block row and the clip below's first carry nothing solid from the
+      side or below. A top-only floor passes (jumped through going up, landed on going down).
+In `validate --json` a shaft's subject is `{"kind": "shaft", ...}`.
 
 `validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
 row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
@@ -243,7 +311,7 @@ on stdout:
                                 //   the few untagged refusals (a top level that is not an
                                 //   object; an engine constant this file cannot read)
           "subjects": [         // WHICH clip(s)/corridor(s). [] = an act-level refusal
-            { "kind": "clip",   // "clip" or "corridor"
+            { "kind": "clip",   // "clip" or "corridor" ("shaft" for K9, "fill" for K8)
               "index": 1,       // position in clips.json's `clips` / `corridors` list
               "id": "cpz_s2" }  // its id, or null when it has none (not an object, no id)
           ],                    // TWO subjects for a pair rule: R10 (overlap), a duplicate
@@ -343,7 +411,9 @@ def subject(kind, index, ident):
 
 
 def _subject_of(obj):
-    return subject("clip" if isinstance(obj, Clip) else "corridor", obj.index, obj.id)
+    kind = ("clip" if isinstance(obj, Clip) else "shaft" if isinstance(obj, Shaft)
+            else "corridor")
+    return subject(kind, obj.index, obj.id)
 
 
 class ClipManifestError(ValueError):
@@ -423,6 +493,10 @@ class Corridor:
 
     __slots__ = ("id", "dst", "floor_y", "index", "tunnel")
 
+    #: The axis a player crosses a corridor along: it joins the clip that ends at its left
+    #: edge to the clip that starts at its right edge (`connector_ends`).
+    axis = "x"
+
     def __init__(self, raw, index):
         self.index = index
         self.id = raw["id"]
@@ -440,6 +514,60 @@ class Corridor:
 
     def __repr__(self):
         return f"<Corridor {self.id} dst={self.dst} floor_y={self.floor_y}>"
+
+
+class Shaft:
+    """One VERTICAL connector (the woven report's §C item 2): a drop shaft, a stair shaft or
+    a cloud band, joining the clip above it to the clip below it. See SHAFTS in the header."""
+
+    __slots__ = ("id", "dst", "index", "lane", "ledges", "look", "art")
+
+    #: A shaft joins the clip above (its top edge) to the clip below (its bottom edge).
+    axis = "y"
+
+    def __init__(self, raw, index):
+        self.index = index
+        self.id = raw["id"]
+        self.dst = tuple(int(raw["dst_rect"][k]) for k in _RECT_KEYS)
+        lane = raw.get("lane") or {"x": self.dst[0], "w": self.dst[2]}
+        #: (x, w) of the open column, world px
+        self.lane = (int(lane["x"]), int(lane["w"]))
+        #: None, or (pitch, w): top-solid ledges up the lane, one every `pitch` px
+        led = raw.get("ledges")
+        self.ledges = None if led is None else (int(led["pitch"]), int(led["w"]))
+        self.look = raw.get("look", "rock")
+        #: None (plain stone) or a CorridorTunnel-shaped art block (donor, zone, wall_src,
+        #: back_src); see _load_shaft
+        self.art = None
+
+    def as_json(self):
+        out = {"id": self.id, "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
+               "lane": {"x": self.lane[0], "w": self.lane[1]}, "look": self.look}
+        if self.ledges is not None:
+            out["ledges"] = {"pitch": self.ledges[0], "w": self.ledges[1]}
+        if self.art is not None:
+            out["art"] = self.art.as_json()["art"]
+        return out
+
+    def __repr__(self):
+        return f"<Shaft {self.id} dst={self.dst} lane={self.lane}>"
+
+
+class Fill:
+    """NEUTRAL FILL (the woven report's §C item 6): solid, line-0 stone in every cell of
+    `rect` that no clip, corridor or shaft covers. See FILL in the header."""
+
+    __slots__ = ("rect", "why")
+
+    def __init__(self, raw):
+        self.rect = tuple(int(raw["rect"][k]) for k in _RECT_KEYS)
+        self.why = raw["why"]
+
+    def as_json(self):
+        return {"rect": dict(zip(_RECT_KEYS, self.rect)), "why": self.why}
+
+    def __repr__(self):
+        return f"<Fill {self.rect}>"
 
 
 #: The corridor sheet's name in the zone table. Not a donor: `tilesets()` synthesises it.
@@ -572,11 +700,12 @@ def donor_pixels(donor_root, donor, zone, rect, section_tiles):
     return out
 
 
-def _recolour_to_line0(pixels, line0, dim=(1, 1)):
+def _recolour_to_line0(pixels, line0, dim=(1, 1), hole=TUNNEL_HOLE_COLOUR):
     """A donor texture onto CRAM line 0: every pixel to its nearest line-0 colour after
-    scaling by `dim`, transparent pixels to TUNNEL_HOLE_COLOUR. Returns (h, w) indices."""
+    scaling by `dim`, transparent pixels to `hole` (TUNNEL_HOLE_COLOUR unless a caller
+    names another index). Returns (h, w) indices."""
     num, den = dim
-    return [[TUNNEL_HOLE_COLOUR if p is None
+    return [[hole if p is None
              else _nearest_line0(tuple(v * num // den for v in p), line0) for p in row]
             for row in pixels]
 
@@ -639,13 +768,17 @@ class ClipAct:
     """A validated clips.json: the act grid, the clips, and the derived zone-key table."""
 
     def __init__(self, path, raw, clips, grid_w, grid_h, constants, warnings,
-                 corridors=()):
+                 corridors=(), fill=None, shafts=()):
         self.path = path
         self.raw = raw
         self.id = raw["id"]
         self.name = raw.get("name") or raw["id"]
         self.clips = clips
         self.corridors = list(corridors)
+        #: the act's VERTICAL connectors (Shaft), in manifest order
+        self.shafts = list(shafts)
+        #: the act's NEUTRAL FILL (a Fill), or None: nothing between the clips is painted
+        self.fill = fill
         self.grid_w = grid_w
         self.grid_h = grid_h
         self.constants = constants
@@ -682,19 +815,33 @@ class ClipAct:
         return out
 
     @property
+    def connectors(self):
+        """Every connector a player crosses between two zones: the corridors (axis x), then
+        the shafts (axis y)."""
+        return list(self.corridors) + list(self.shafts)
+
+    @property
+    def has_sheet(self):
+        """True when the act paints anything that is not a donor clip: a corridor, a shaft
+        or the neutral fill. All of it is drawn from the ONE corridor sheet."""
+        return bool(self.corridors) or bool(self.shafts) or self.fill is not None
+
+    @property
     def corridor_key(self):
         """The corridor sheet's zone key (one past the donor zones), or None."""
-        return len(self.zone_table) if self.corridors else None
+        return len(self.zone_table) if self.has_sheet else None
 
     @property
     def sheet_table(self):
         """Every tileset the act's cells index, by zone key: the donor zones, then the
-        corridor sheet if the act has a corridor."""
-        return self.zone_table + ([CORRIDOR_SHEET] if self.corridors else [])
+        corridor sheet if the act has a corridor or a fill."""
+        return self.zone_table + ([CORRIDOR_SHEET] if self.has_sheet else [])
 
     def summary(self):
         return (f"{self.id}: {len(self.clips)} clip(s), {len(self.zone_table)} zone(s), "
                 f"{len(self.corridors)} corridor(s), "
+                + (f"{len(self.shafts)} shaft(s), " if self.shafts else "")
+                + ("a neutral fill, " if self.fill is not None else "") +
                 f"act grid {self.grid_w}x{self.grid_h} sections "
                 f"({self.cols}x{self.rows} cells)")
 
@@ -737,6 +884,13 @@ def _zone_manifest(clip, donor_root):
         return json.load(fh)
 
 
+def _const(name, path=CONSTANTS_EMP):
+    """One engine constant, READ from source."""
+    src = ConstantSource()
+    src.load_file(path)
+    return src.get(name)
+
+
 def player_clearance_px(path=CONSTANTS_EMP):
     """The least ceiling-to-floor gap a standing player fits in: 2 x PLAYER_Y_RADIUS + 1
     (the body spans y - radius .. y + radius inclusive), READ from engine source."""
@@ -745,11 +899,14 @@ def player_clearance_px(path=CONSTANTS_EMP):
     return 2 * int(src.get("PLAYER_Y_RADIUS")) + 1
 
 
-def _load_tunnel(kid, raw, co, clips, donor_root, here):
-    """K4-K5 — a corridor's optional `tunnel` (see CorridorTunnel)."""
+def _load_tunnel(kid, raw, co, clips, donor_root, here, art_only=False):
+    """K4-K5 — a corridor's optional `tunnel` (see CorridorTunnel). `art_only` validates
+    just the `art` block (K5), for a shaft's art (`_load_shafts`), which has no ceiling."""
     if not isinstance(raw, dict) or "ceiling_y" not in raw or "art" not in raw:
         raise ClipManifestError(
             f"K4 corridor {kid!r}: `tunnel` must be an object with `ceiling_y` and `art`", here)
+    if art_only:
+        return _load_art(kid, "shaft", raw, clips, donor_root, here)
     cy = raw["ceiling_y"]
     if not isinstance(cy, int) or isinstance(cy, bool) or cy % COLL_QUANTUM_PX:
         raise ClipManifestError(
@@ -768,15 +925,22 @@ def _load_tunnel(kid, raw, co, clips, donor_root, here):
                 f"K4 corridor {kid!r}: a tunnel's dst_rect.{k} = {v} must be a multiple of "
                 f"{COLL_QUANTUM_PX}: its mouths are collision blocks and a seam ramp is one "
                 f"(R12's reason — probe_core indexes a profile by world x & 15)", here)
+    return _load_art(kid, "corridor", raw, clips, donor_root, here)
+
+
+def _load_art(kid, noun, raw, clips, donor_root, here):
+    """K5 — a connector's `art` block: a zone some clip of the act uses, and wall_src /
+    back_src on the 8-px grid inside that zone's crop. Returns a CorridorTunnel carrying it."""
     art = raw["art"]
+    at = "tunnel.art" if noun == "corridor" else "art"
     if not isinstance(art, dict) or any(k not in art for k in
                                         ("donor", "zone", "wall_src", "back_src")):
         raise ClipManifestError(
-            f"K5 corridor {kid!r}: tunnel.art needs donor, zone, wall_src and back_src", here)
+            f"K5 {noun} {kid!r}: {at} needs donor, zone, wall_src and back_src", here)
     zones = {c.tree_key for c in clips}
     if (art["donor"], art["zone"]) not in zones:
         raise ClipManifestError(
-            f"K5 corridor {kid!r}: tunnel.art names {art['donor']}@{art['zone']}, which no "
+            f"K5 {noun} {kid!r}: {at} names {art['donor']}@{art['zone']}, which no "
             f"clip of this act uses. The art is a zone of the ACT (its tree is validated by "
             f"R4 through a clip, and the owner's ask was a tunnel in the act's own art).", here)
     zm = None
@@ -786,15 +950,15 @@ def _load_tunnel(kid, raw, co, clips, donor_root, here):
             break
     x0, x1, y0, y1 = (int(v) * TILE_PX for v in zm["extent"]["crop_tiles"])
     for name in ("wall_src", "back_src"):
-        _require_rect(f"corridor {kid!r} tunnel.art.{name}", art[name], here)
+        _require_rect(f"{noun} {kid!r} {at}.{name}", art[name], here)
         r = tuple(int(art[name][k]) for k in _RECT_KEYS)
         if any(v % TILE_PX for v in r):
             raise ClipManifestError(
-                f"K5 corridor {kid!r}: tunnel.art.{name} ({_rect_str(r)}) is not on the "
+                f"K5 {noun} {kid!r}: {at}.{name} ({_rect_str(r)}) is not on the "
                 f"{TILE_PX}-px cell grid", here)
         if r[0] < x0 or r[1] < y0 or r[0] + r[2] > x1 or r[1] + r[3] > y1:
             raise ClipManifestError(
-                f"K5 corridor {kid!r}: tunnel.art.{name} ({_rect_str(r)}) is not inside "
+                f"K5 {noun} {kid!r}: {at}.{name} ({_rect_str(r)}) is not inside "
                 f"{art['donor']}@{art['zone']}'s crop (x {x0}..{x1}, y {y0}..{y1} px)", here)
     return CorridorTunnel(raw)
 
@@ -1088,8 +1252,11 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
             co.tunnel = _load_tunnel(kid, kr["tunnel"], co, clips, donor_root, here)
         corridors.append(co)
 
-    # R10 / K2 — dst overlap, over clips AND corridors
-    placed = list(clips) + corridors
+    shafts = _load_shafts(path, raw, clips, seen_ids, owner, grid_w * sec_px,
+                          grid_h * sec_px, donor_root)
+
+    # R10 / K2 — dst overlap, over clips, corridors AND shafts
+    placed = list(clips) + corridors + shafts
     for i, a in enumerate(placed):
         for b in placed[i + 1:]:
             if (a.dst[0] < b.dst[0] + b.dst[2] and b.dst[0] < a.dst[0] + a.dst[2]
@@ -1121,7 +1288,178 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                   f"the sum of both zones' tiles in it. The bake prints the map size per "
                   f"section and refuses past the cap.", [_subject_of(m) for m in members])
 
-    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors)
+    # K7 — a shaft joins exactly one clip above to exactly one clip below
+    for sh in shafts:
+        _ax, above, below = connector_ends(clips, sh)
+        if above is None or below is None:
+            raise ClipManifestError(
+                f"K7 shaft {sh.id!r} ({_rect_str(sh.dst)}): its "
+                + ("top edge (y " + str(sh.dst[1]) + ") is no clip's bottom edge"
+                   if above is None else
+                   "bottom edge (y " + str(sh.dst[1] + sh.dst[3]) + ") is no clip's top edge")
+                + " across its lane. A shaft is a connector: it JOINS the clip above it to "
+                  "the clip below it, and the region plan crosses between exactly those two",
+                [_subject_of(sh)])
+
+    fill = _load_fill(path, raw, placed, grid_w * sec_px, grid_h * sec_px)
+    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors, fill=fill,
+                   shafts=shafts)
+
+
+#: The line-0 colour a CLOUD band paints its transparent pixels (the sky between clouds),
+#: as a CRAM word; the index is FOUND in the line (`_nearest_line0`), never typed. $0E66 is
+#: the mid blue of art/palettes/SonicAndTails.bin line 0 (the woven report's §A.3 sample).
+#: A LOOK: the owner rules on it.
+CLOUD_SKY_WORD = 0x0E66
+SHAFT_LOOKS = ("rock", "cloud")
+
+
+def jump_reach_px(paths=None):
+    """The LEAST height a standing jump lifts a player, px, over every character's jump force
+    READ from source: the engine's PHYS_JUMP_FORCE (Sonic, Tails) and Knuckles' own
+    KNUX_JUMP_FORCE, under PHYS_GRAVITY, stepped frame by frame the way the player moves
+    (position += velocity, then velocity += gravity, 8.8 fixed point) until the velocity
+    turns. The bound a stair's ledge pitch is held to (K9)."""
+    paths = paths or (CONSTANTS_EMP,
+                      os.path.join(REPO, "games", "sonic4", "player", "knuckles.emp"))
+    src = ConstantSource()
+    for p in paths:
+        src.load_file(p)
+    g = int(src.get("PHYS_GRAVITY"))
+    best = None
+    for name in ("PHYS_JUMP_FORCE", "KNUX_JUMP_FORCE"):
+        v, rise = -int(src.get(name)), 0
+        while v < 0:
+            rise -= v
+            v += g
+        best = rise if best is None else min(best, rise)
+    return best // 256
+
+
+def _load_shafts(path, raw, clips, seen_ids, owner, act_w, act_h, donor_root):
+    """K9 — the optional `shafts` list (see SHAFTS in the header). Ids share the clips' and
+    corridors' namespace (`seen_ids`/`owner`, updated here)."""
+    out = []
+    sh_raw = raw.get("shafts", [])
+    if not isinstance(sh_raw, list):
+        raise ClipManifestError(f"K9 {path}: `shafts` must be a list")
+    for i, sr in enumerate(sh_raw):
+        if not isinstance(sr, dict):
+            raise ClipManifestError(f"K9 {path}: shafts[{i}] is not an object",
+                                    [subject("shaft", i, None)])
+        raw_id = sr.get("id")
+        here = [subject("shaft", i, raw_id if isinstance(raw_id, str) else None)]
+        for k in ("id", "dst_rect"):
+            if k not in sr:
+                raise ClipManifestError(f"K9 {path}: shafts[{i}] is missing {k!r}", here)
+        sid = str(sr["id"])
+        here = [subject("shaft", i, sid)]
+        if not _ID_RE.match(sid):
+            raise ClipManifestError(
+                f"K9 {path}: shaft id {sid!r} does not match {REGION_ID_PATTERN} (K1's reason)",
+                here)
+        if sid in seen_ids:
+            raise ClipManifestError(
+                f"K9 {path}: shaft id {sid!r} is already used by {seen_ids[sid]}; one name is "
+                f"one rectangle", [owner[sid]] + here)
+        seen_ids[sid] = f"shafts[{i}]"
+        owner[sid] = here[0]
+        _require_rect(f"shafts[{i}].dst_rect", sr["dst_rect"], here)
+        for k in ("lane", "ledges"):
+            if k in sr and not (isinstance(sr[k], dict) and all(
+                    isinstance(sr[k].get(f), int) and not isinstance(sr[k].get(f), bool)
+                    for f in (("x", "w") if k == "lane" else ("pitch", "w")))):
+                raise ClipManifestError(
+                    f"K9 {path}: shaft {sid!r}: `{k}` must be an object of integers "
+                    + ("{x, w}" if k == "lane" else "{pitch, w}"), here)
+        sh = Shaft(sr, i)
+        x, y, w, h = sh.dst
+        if any(v % COLL_QUANTUM_PX for v in sh.dst):
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: dst_rect ({_rect_str(sh.dst)}) is not on the "
+                f"{COLL_QUANTUM_PX}-px collision block grid: its walls and ledges are blocks, "
+                f"and its mouths meet the clips' blocks (R12's reason)", here)
+        if x + w > act_w or y + h > act_h:
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: dst_rect ({_rect_str(sh.dst)}) runs past the act "
+                f"({act_w}x{act_h} px)", here)
+        lx, lw = sh.lane
+        if lx % COLL_QUANTUM_PX or lw % COLL_QUANTUM_PX or not (x <= lx and lx + lw <= x + w):
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: lane x {lx} w {lw} must be on the {COLL_QUANTUM_PX}-px "
+                f"block grid and inside the rect's x span {x}..{x + w}", here)
+        need = 2 * int(_const("PLAYER_X_RADIUS")) + 1
+        if lw < need:
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: lane w {lw} is narrower than a standing player "
+                f"(2 x PLAYER_X_RADIUS + 1 = {need} px, engine/system/constants.emp)", here)
+        if sh.look not in SHAFT_LOOKS:
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: look {sh.look!r} is not one of {list(SHAFT_LOOKS)}", here)
+        if sh.ledges is not None:
+            pitch, led_w = sh.ledges
+            reach = jump_reach_px()
+            if pitch % COLL_QUANTUM_PX or not (COLL_QUANTUM_PX <= pitch <= reach):
+                raise ClipManifestError(
+                    f"K9 shaft {sid!r}: ledges.pitch {pitch} must be a whole number of "
+                    f"{COLL_QUANTUM_PX}-px collision rows, at least one, and no more than "
+                    f"{reach} px — the least standing-jump rise over every character "
+                    f"(jump_reach_px: PHYS_JUMP_FORCE and KNUX_JUMP_FORCE under PHYS_GRAVITY), "
+                    f"or a ledge is out of reach of the one below it", here)
+            if led_w % COLL_QUANTUM_PX or not (COLL_QUANTUM_PX <= led_w < lw):
+                raise ClipManifestError(
+                    f"K9 shaft {sid!r}: ledges.w {led_w} must be whole {COLL_QUANTUM_PX}-px "
+                    f"blocks and narrower than the lane ({lw}), or a ledge closes the shaft",
+                    here)
+        if "art" in sr:
+            sh.art = _load_tunnel(sid, {"ceiling_y": 0, "art": sr["art"]}, None, clips,
+                                  donor_root, here, art_only=True)
+        elif sh.look == "cloud":
+            raise ClipManifestError(
+                f"K9 shaft {sid!r}: a cloud band needs `art` (the clouds it is drawn from; the "
+                f"woven report's §A.3 sample is a donor zone's own cloud art)", here)
+        out.append(sh)
+    return out
+
+
+def _load_fill(path, raw, placed, act_w, act_h):
+    """K8 — the act's optional NEUTRAL FILL (see FILL in the header). `placed` is every
+    clip, corridor and shaft already validated; the fill paints around them, never over."""
+    if "fill" not in raw:
+        return None
+    fr = raw["fill"]
+    here = [subject("fill", 0, None)]
+    if not isinstance(fr, dict) or "rect" not in fr:
+        raise ClipManifestError(f"K8 {path}: `fill` must be an object with `rect` and `why`",
+                                here)
+    if not (isinstance(fr.get("why"), str) and fr["why"].strip()):
+        raise ClipManifestError(
+            f"K8 {path}: `fill` has no `why`. Every cell it paints is solid ground nobody "
+            f"authored; the reason it is there is written beside it", here)
+    _require_rect("fill.rect", fr["rect"], here)
+    fill = Fill(fr)
+    x, y, w, h = fill.rect
+    if any(v % COLL_QUANTUM_PX for v in fill.rect):
+        raise ClipManifestError(
+            f"K8 {path}: fill.rect ({_rect_str(fill.rect)}) is not on the {COLL_QUANTUM_PX}-px "
+            f"collision block grid. A fill cell is a full solid BLOCK, and a block half fill "
+            f"and half something else has no one word that is right for both halves", here)
+    if x + w > act_w or y + h > act_h:
+        raise ClipManifestError(
+            f"K8 {path}: fill.rect ({_rect_str(fill.rect)}) runs past the act "
+            f"({act_w}x{act_h} px)", here)
+    for p in placed:
+        px, py, pw, ph = p.dst
+        if not (px < x + w and x < px + pw and py < y + h and y < py + ph):
+            continue
+        for k, v in (("x", px), ("y", py), ("x + w", px + pw), ("y + h", py + ph)):
+            if v % COLL_QUANTUM_PX:
+                raise ClipManifestError(
+                    f"K8 {path}: {p.id!r} meets the fill with its edge {k} = {v}, which is "
+                    f"not on the {COLL_QUANTUM_PX}-px collision block grid: one block would "
+                    f"be half fill and half {p.id!r}, and a block has ONE collision word",
+                    here + [_subject_of(p)])
+    return fill
 
 
 # ---------------------------------------------------------------------------
@@ -1178,10 +1516,19 @@ def cell_grids(act, donor_root=None):
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
         words[dy:dy + sh, dx:dx + sw] = src_words[sy:sy + sh, sx:sx + sw]
         zone_id[dy:dy + sh, dx:dx + sw] = cl.zone_key
-    for co, (cw, _sheet) in zip(act.corridors, corridor_art(act, donor_root)[1]):
+    art = connector_art(act, donor_root)
+    for co, (cw, _sheet) in zip(act.corridors, art["corridors"]):
         dx, dy, w, h = (v // TILE_PX for v in co.dst)
         words[dy:dy + h, dx:dx + w] = cw
         zone_id[dy:dy + h, dx:dx + w] = act.corridor_key
+    for sh, (sw, _none) in zip(act.shafts, art["shafts"]):
+        dx, dy, w, h = (v // TILE_PX for v in sh.dst)
+        words[dy:dy + h, dx:dx + w] = sw
+        zone_id[dy:dy + h, dx:dx + w] = act.corridor_key
+    if act.fill is not None:
+        m = fill_mask(act)
+        words[m] = art["fill_word"]
+        zone_id[m] = act.corridor_key
     return words, zone_id
 
 
@@ -1341,6 +1688,37 @@ def _seam_ramps(act, co, planes, hm, bank_dir):
     return out
 
 
+def connector_ends(act, co):
+    """(axis, clip before, clip after) — the two clips a connector JOINS, found from the
+    geometry rather than declared: along its axis, the clip whose destination rectangle ENDS
+    exactly at the connector's near edge and the one that STARTS exactly at its far edge, each
+    overlapping the connector across the other axis. Either is None where nothing touches that
+    edge (the act's edge, void, or neutral fill): such a connector joins nothing on that side
+    and nobody crosses there. Two clips touching one edge are refused (a connector joins ONE
+    clip on each side; the 2-D region plan and the crossing checks walk exactly that pair).
+
+    A horizontal connector (`axis` "x", every corridor) joins left to right; a vertical one
+    (`axis` "y", every shaft) joins the clip above to the clip below. `act` is a ClipAct or a
+    plain list of clips (the loader's K7 runs before the ClipAct exists)."""
+    clips = act if isinstance(act, list) else act.clips
+    ax = getattr(co, "axis", "x")
+    i, j = (0, 1) if ax == "x" else (1, 0)
+    lo, hi = co.dst[i], co.dst[i] + co.dst[i + 2]
+    p0, p1 = co.dst[j], co.dst[j] + co.dst[j + 2]
+    ends = []
+    for edge, side in ((lo, "before"), (hi, "after")):
+        hits = [c for c in clips
+                if (c.dst[i] + c.dst[i + 2] == edge if side == "before" else c.dst[i] == edge)
+                and c.dst[j] < p1 and p0 < c.dst[j] + c.dst[j + 2]]
+        if len(hits) > 1:
+            raise ClipManifestError(
+                f"K7 connector {co.id!r}: {len(hits)} clips touch its {side} edge "
+                f"({', '.join(repr(c.id) for c in hits)}); a connector joins ONE clip on each "
+                f"side along its axis ({ax})")
+        ends.append(hits[0] if hits else None)
+    return ax, ends[0], ends[1]
+
+
 def corridor_collision(act, co, donor_root=None):
     """One corridor's per-plane collision words, (h, w) cells, and its seam ramps.
 
@@ -1375,12 +1753,106 @@ def corridor_collision(act, co, donor_root=None):
     return words, ramps
 
 
+def shaft_collision(act, sh, donor_root=None):
+    """One shaft's per-plane collision words, (h, w) cells — the same word on both planes.
+
+      * WALLS: every column of the rect outside the lane is the bank's full solid block
+        (`corridor_floor_shape`), solid on every side.
+      * THE LANE is air, so a player falls through it.
+      * LEDGES (optional, a stair shaft or a cloud band's cloud ledges): one block row each,
+        the full block made TOP-SOLID ONLY — stood on from above, jumped through from below —
+        `pitch` px apart from the bottom mouth up, `w` px wide, alternately against the lane's
+        left and right side. The first is one pitch above the bottom mouth, the last the
+        highest that is still a full block row inside the rect.
+    K10 runs here, before anything is written: each mouth must be OPEN across the lane."""
+    import numpy as np
+    donor_root = _root(donor_root)
+    key = (donor_root, "shaft_collision", sh.index)
+    if key in act._memo:
+        return act._memo[key]
+    bank_dir = collision_banks(act, donor_root)
+    shape = corridor_floor_shape(bank_dir)
+    full = shape | (collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT)
+    top = shape | (collision_pipeline.SOL_TOP << collision_pipeline.PLANE_SOL_SHIFT)
+    x0, y0, W, H = sh.dst
+    words = np.full((H // TILE_PX, W // TILE_PX), full, dtype=np.uint16)
+    lx0 = (sh.lane[0] - x0) // TILE_PX
+    lx1 = lx0 + sh.lane[1] // TILE_PX
+    words[:, lx0:lx1] = 0
+    ledges = []
+    if sh.ledges is not None:
+        pitch, lw = sh.ledges
+        k, y = 1, y0 + H - sh.ledges[0]
+        while y >= y0:
+            left = k % 2 == 1
+            c0 = lx0 if left else lx1 - lw // TILE_PX
+            r = (y - y0) // TILE_PX
+            words[r:r + COLL_QUANTUM_PX // TILE_PX, c0:c0 + lw // TILE_PX] = top
+            ledges.append({"y": y, "side": "left" if left else "right"})
+            k, y = k + 1, y - pitch
+    _shaft_mouths(act, sh, _clip_collision(act, donor_root))
+    act._memo[key] = (words, ledges)
+    return words, ledges
+
+
+def _shaft_mouths(act, sh, planes):
+    """K10 — a shaft's two MOUTHS are open, MEASURED in the clips' own collision on both
+    planes: across the lane, the clip above's last collision block row and the clip below's
+    first carry nothing solid from the side or below (SOL_LRB). A TOP-only floor passes: it
+    is jumped through going up and landed on going down, which is what a Sonic 2 platform
+    at a pit's lip is. Anything else caps the shaft, and it is refused with the x it caps."""
+    n = COLL_QUANTUM_PX // TILE_PX
+    x0, y0, W, H = sh.dst
+    lc0, lc1 = sh.lane[0] // TILE_PX, (sh.lane[0] + sh.lane[1]) // TILE_PX
+    for where, row in (("top", (y0 // TILE_PX) - n), ("bottom", (y0 + H) // TILE_PX)):
+        if row < 0 or row >= planes[0].shape[0]:
+            continue
+        for p, plane in enumerate(planes):
+            for cx in range(lc0, lc1):
+                w = int(plane[row, cx])
+                sol = (w >> collision_pipeline.PLANE_SOL_SHIFT) & collision_pipeline.SOL_ALL
+                if (w & collision_pipeline.BLOCK_ID_MASK) and sol & collision_pipeline.SOL_LRB:
+                    raise ClipManifestError(
+                        f"K10 shaft {sh.id!r}: its {where} mouth is CAPPED at x={cx * TILE_PX} "
+                        f"on plane {'AB'[p]}: the clip {'above' if where == 'top' else 'below'}"
+                        f"'s collision block row at y {row * TILE_PX} is solid from the side "
+                        f"or below there (word ${w:04X}). Move the lane onto an open span of "
+                        f"that edge, or narrow it.")
+
+
 def corridor_art(act, donor_root=None):
     """(sheet bytes, [(words, None)] per corridor) — the corridor sheet and every corridor's
-    nametable words, painted PIXEL BY PIXEL FROM THE CORRIDOR'S OWN COLLISION so the art
-    and the ground cannot disagree (a seam ramp is drawn exactly where it is stood on).
+    nametable words. `connector_art` is the whole painter (it also draws the neutral fill
+    into the same sheet); this is its corridor view, kept for the callers that read only
+    corridors."""
+    art = connector_art(act, donor_root)
+    return art["sheet"], art["corridors"]
 
-    Every pixel of the rectangle is one of:
+
+def fill_mask(act):
+    """(rows, cols) bool — the cells the neutral fill paints: inside `fill.rect`, outside
+    every clip, corridor and shaft. All False for an act with no fill."""
+    import numpy as np
+    m = np.zeros((act.rows, act.cols), dtype=bool)
+    if act.fill is None:
+        return m
+    x, y, w, h = (v // TILE_PX for v in act.fill.rect)
+    m[y:y + h, x:x + w] = True
+    for p in list(act.clips) + list(act.corridors) + list(act.shafts):
+        dx, dy, dw, dh = (v // TILE_PX for v in p.dst)
+        m[dy:dy + dh, dx:dx + dw] = False
+    return m
+
+
+def connector_art(act, donor_root=None):
+    """{"sheet": bytes, "corridors": [(words, None)], "fill_word": int or None} — the
+    corridor sheet and everything painted from it: every corridor's nametable words and the
+    one word the neutral fill repeats.
+
+    CORRIDORS are painted PIXEL BY PIXEL FROM THEIR OWN COLLISION so the art and the ground
+    cannot disagree (a seam ramp is drawn exactly where it is stood on).
+
+    Every pixel of a corridor's rectangle is one of:
       * SOLID (its collision covers it, floor or ceiling): the tunnel's `wall_src` texture,
         or for an open corridor the plain stone course (CORRIDOR_COLOURS fill with a mortar
         line every 8 px). The floor's top two pixels are its lip (edge_hi, edge); a
@@ -1390,19 +1862,34 @@ def corridor_art(act, donor_root=None):
       * OPEN, in an open corridor: transparent (index 0), the background shows as before.
     Textures are anchored to the surface they hang from: the floor's to floor_y, the
     ceiling's and back wall's to ceiling_y, and to the corridor's left edge in x.
+
+    SHAFTS are painted from their own collision the same way (`_paint_shaft`), after every
+    corridor. THE FILL is the plain stone course, one tile repeated (every fill cell is solid on both
+    planes, `collision_grids`). Its tile is appended AFTER every corridor's, so an act
+    without a fill has the sheet it always had, byte for byte.
+
     All of it on CORRIDOR_PAL_LINE. Tiles are deduplicated exactly (the act's keyed dedupe
     finds flips later); tile 0 is blank."""
     import numpy as np
     donor_root = _root(donor_root)
-    key = (donor_root, "corridor_art")
+    key = (donor_root, "connector_art")
     if key in act._memo:
         return act._memo[key]
     line0 = _palette_lines(open(LINE0_PALETTE, "rb").read()[:32])[0]
-    hm, _an = _bank(collision_banks(act, donor_root)) if act.corridors else (b"", b"")
+    hm, _an = (_bank(collision_banks(act, donor_root)) if act.corridors or act.shafts
+               else (b"", b""))
     c = CORRIDOR_COLOURS
     stone = np.full((8, 8), c["fill"], dtype=np.uint8)
     stone[7, :] = c["mortar"]
     sheet, index = [bytes(32)], {bytes(32): 0}
+
+    def tile_word(px8):
+        tb = _pack_tile(px8)
+        if tb not in index:
+            index[tb] = len(sheet)
+            sheet.append(tb)
+        return index[tb] | (CORRIDOR_PAL_LINE << 13)
+
     grids = []
     for co in act.corridors:
         cw, _ramps = corridor_collision(act, co, donor_root)
@@ -1451,15 +1938,74 @@ def corridor_art(act, donor_root=None):
         words = np.zeros((H // TILE_PX, W // TILE_PX), dtype=np.uint16)
         for ty in range(H // TILE_PX):
             for tx in range(W // TILE_PX):
-                tb = _pack_tile(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
-                if tb not in index:
-                    index[tb] = len(sheet)
-                    sheet.append(tb)
-                words[ty, tx] = index[tb] | (CORRIDOR_PAL_LINE << 13)
+                words[ty, tx] = tile_word(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
         grids.append((words, None))
-    out = (b"".join(sheet), grids)
+    shaft_grids = []
+    for sh in act.shafts:
+        shaft_grids.append((_paint_shaft(act, sh, donor_root, line0, hm, stone, tile_word),
+                            None))
+    fill_word = tile_word(stone) if act.fill is not None else None
+    out = {"sheet": b"".join(sheet), "corridors": grids, "shafts": shaft_grids,
+           "fill_word": fill_word}
     act._memo[key] = out
     return out
+
+
+def _paint_shaft(act, sh, donor_root, line0, hm, stone, tile_word):
+    """One shaft's nametable words, painted pixel by pixel from its own collision
+    (`shaft_collision`) so the art and the ledges cannot disagree.
+
+      * SOLID (a wall, a ledge): the art's `wall_src`, or the plain stone course when the
+        shaft names no art. A rock ledge's top two pixels are the floor's lip.
+      * OPEN (the lane): the art's `back_src` — dimmed by TUNNEL_BACK_DIM for a rock shaft,
+        as a tunnel's back wall — or, with no art, the mortar colour. Always painted: no
+        background shows through a shaft, the tunnel's rule turned on its side.
+      * A CLOUD band draws both textures undimmed, paints every transparent donor pixel the
+        sky (the line-0 colour nearest CLOUD_SKY_WORD) and draws no lip: a bank of clouds.
+    Textures are anchored to the rect's top-left corner. All on CORRIDOR_PAL_LINE."""
+    import numpy as np
+    cw, _ledges = shaft_collision(act, sh, donor_root)
+    x0, y0, W, H = sh.dst
+    n = collision_pipeline.PROFILE_LEN
+    c = CORRIDOR_COLOURS
+    solid = np.zeros((H, W), dtype=bool)
+    for cy in range(0, H, n):
+        for cx in range(W // TILE_PX):
+            hts = _word_heights(int(cw[cy // TILE_PX, cx]), hm)
+            if hts is None:
+                continue
+            for px in range(TILE_PX):
+                hv = hts[(x0 + cx * TILE_PX + px) % n]
+                for py in range(n):
+                    if collision_pipeline.covers(hv, py):
+                        solid[cy + py, cx * TILE_PX + px] = True
+    cloud = sh.look == "cloud"
+    if sh.art is not None:
+        a = sh.art
+        hole = (_nearest_line0(_genesis_rgb(CLOUD_SKY_WORD), line0) if cloud
+                else TUNNEL_HOLE_COLOUR)
+        wall = np.array(_recolour_to_line0(
+            donor_pixels(donor_root, a.donor, a.zone, a.wall_src, act.section_tiles),
+            line0, hole=hole), dtype=np.uint8)
+        back = np.array(_recolour_to_line0(
+            donor_pixels(donor_root, a.donor, a.zone, a.back_src, act.section_tiles),
+            line0, (1, 1) if cloud else TUNNEL_BACK_DIM, hole=hole), dtype=np.uint8)
+    else:
+        wall = stone
+        back = np.full((8, 8), c["mortar"], dtype=np.uint8)
+    ys, xs = np.mgrid[0:H, 0:W]
+    pix = np.where(solid, wall[ys % wall.shape[0], xs % wall.shape[1]],
+                   back[ys % back.shape[0], xs % back.shape[1]])
+    if not cloud:
+        above_open = np.vstack([np.zeros((1, W), dtype=bool), ~solid[:-1]])
+        lip = solid & above_open
+        pix[lip] = c["edge_hi"]
+        pix[solid & np.vstack([np.zeros((1, W), dtype=bool), lip[:-1]])] = c["edge"]
+    words = np.zeros((H // TILE_PX, W // TILE_PX), dtype=np.uint16)
+    for ty in range(H // TILE_PX):
+        for tx in range(W // TILE_PX):
+            words[ty, tx] = tile_word(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
+    return words
 
 
 def section_plane_grid(tree_dir, manifest, section_tiles, suffix):
@@ -1513,6 +2059,20 @@ def collision_grids(act, donor_root=None):
         dx, dy, w, h = (v // TILE_PX for v in co.dst)
         for p in range(2):
             planes[p][dy:dy + h, dx:dx + w] = cw
+    for sh in act.shafts:
+        sw, _ledges = shaft_collision(act, sh, donor_root)
+        dx, dy, w, h = (v // TILE_PX for v in sh.dst)
+        for p in range(2):
+            planes[p][dy:dy + h, dx:dx + w] = sw
+    if act.fill is not None:
+        # the neutral fill: the bank's full solid block, solid on every side, both planes —
+        # the corridor floor's word (`corridor_floor_shape`), so it adds no attr entry an
+        # act with a corridor does not already carry
+        m = fill_mask(act)
+        full = corridor_floor_shape(collision_banks(act, donor_root)) | (
+            collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT)
+        for p in range(2):
+            planes[p][m] = full
     return planes[0], planes[1]
 
 
@@ -1564,14 +2124,16 @@ def tilesets(act, donor_root=None):
                 f"{zm['tileset']['bytes']} — the converted tree is inconsistent; re-run "
                 f"tools/s2_zone_convert.py convert {donor}@{zone}")
         out.append((donor, zone, blob, zm))
-    if act.corridors:
+    if act.has_sheet:
         import hashlib
-        blob = corridor_art(act, donor_root)[0]
+        blob = connector_art(act, donor_root)["sheet"]
         out.append((CORRIDOR_SHEET[0], CORRIDOR_SHEET[1], blob,
                     {"tileset": {"bytes": len(blob),
                                  "sha256": hashlib.sha256(blob).hexdigest()},
                      "palette": None,
                      "synthesised": "clip_manifest.corridor_art()"}))
+    # (the stand-in's "synthesised" string is carried into clipact.json's zone_table, so it
+    # keeps the name it always had; the painter behind it is connector_art())
     return out
 
 
@@ -1652,6 +2214,13 @@ def _mode_validate(rest):
         print(f"  {cl.id}: src {_rect_str(cl.src)} -> dst {_rect_str(cl.dst)}{note}")
     for co in act.corridors:
         print(f"  corridor {co.id}: dst {_rect_str(co.dst)}, floor y={co.floor_y} "
+              f"(zone key {act.corridor_key}, synthesised)")
+    for sh in act.shafts:
+        print(f"  shaft {sh.id}: dst {_rect_str(sh.dst)}, lane x={sh.lane[0]} w={sh.lane[1]}, "
+              f"{sh.look}" + (f", ledges every {sh.ledges[0]} px" if sh.ledges else "")
+              + f" (zone key {act.corridor_key}, synthesised)")
+    if act.fill is not None:
+        print(f"  fill: {_rect_str(act.fill.rect)}, {int(fill_mask(act).sum())} cell(s) "
               f"(zone key {act.corridor_key}, synthesised)")
     print(f"  {len(act.warnings)} warning(s)")
     return 0
