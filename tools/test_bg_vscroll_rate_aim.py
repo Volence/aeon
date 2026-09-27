@@ -36,10 +36,13 @@ from raster_cost_probe import parse_lst  # noqa: E402
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Derived, not typed: the same resolver the witness uses on the same source.
-K = W.emp_consts(["BG_VSCROLL_MAX_STEP", "VSCROLL_BG_MAX", "SCREEN_HEIGHT",
+K = W.emp_consts(["BG_VSCROLL_MAX_STEP", "VSCROLL_BG_MAX", "SCREEN_HEIGHT", "BG_TALL_MAP_MIN_SPAN",
                   "CAM_SCREEN_HALF_W", "CAM_SCREEN_HALF_H"])
 K["HALF_W"], K["HALF_H"] = K["CAM_SCREEN_HALF_W"], K["CAM_SCREEN_HALF_H"]
 STEP = K["BG_VSCROLL_MAX_STEP"]
+# The shortest map the rate clamp acts on (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27). The clamp
+# fixtures below are TALL-map samples by default, because a one-plane map has no rate clamp.
+TALL = K["BG_TALL_MAP_MIN_SPAN"]
 
 
 def row(i, x0, x1, y0, y1):
@@ -186,7 +189,7 @@ def test_ojz_act1_has_both_locked_rows_and_a_qualifying_row():
         if c["v_factor"] == 15:
             locked.append(r["index"])
         elif rec["verdict"] == "CHOSEN":
-            qualifying.append((r["index"], rec["derived_jump"]))
+            qualifying.append((r["index"], rec["derived_jump"], W.rate_applies(r["bg_span"], K)))
         else:
             rejected.append((r["index"], rec["verdict"]))
 
@@ -200,6 +203,15 @@ def test_ojz_act1_has_both_locked_rows_and_a_qualifying_row():
         "would both be COULD NOT RUN on this ROM, which is a real finding about the act and "
         "not a tool failure — but it means step 4 has no discriminator, so read it before "
         "landing anything.")
+    # SINCE 2026-09-27 THE TWO RATE LEGS NEED DIFFERENT KINDS OF ROW: W a TALL map (the only
+    # kind the rate clamp acts on) and X / S a ONE-PLANE map. Both must exist in the DEBUG act.
+    assert any(q[2] for q in qualifying), (
+        f"no QUALIFYING region row has a map taller than the plane (span >= {TALL}); leg W "
+        f"would be COULD NOT RUN and nothing would test the rate clamp at all. Qualifying: "
+        f"{qualifying}")
+    assert any(not q[2] for q in qualifying), (
+        f"no qualifying ONE-PLANE region row; leg X (the one-plane snap) and leg S would be COULD "
+        f"NOT RUN. Qualifying: {qualifying}")
     # The bob is not modelled by target_scroll; if a shipped config ever authors one, the whole
     # derivation above (and the witness's A3) is wrong rather than merely incomplete.
     assert all(rom[(r["parallax"] or u32(r["effects"] + ep["ep_parallax"]) or act_default)
@@ -262,9 +274,9 @@ def test_patching_rg_bg_span_on_disk_hits_exactly_the_right_two_bytes():
 # ---- the granularity split, from the run that went red ---------------------------------------
 
 def sample(v, cam_y, *, dtick=1, region=0x18AC0, cfg_ptr=0x134E8, v_factor=3, ceiling=288,
-           v_center=512, v_offset=0, tag="t"):
+           v_center=512, v_offset=0, tag="t", span=TALL):
     return {"tag": tag, "v": v, "cam_y": cam_y, "cam_x": 0, "dtick": dtick, "logic_tick": 0,
-            "region": region, "row": 1, "span": 0, "ceiling": ceiling, "trans": 0,
+            "region": region, "row": 1, "span": span, "ceiling": ceiling, "trans": 0,
             "centre": (0, 0), "lag": 0,
             "cfg": {"ptr": cfg_ptr, "v_factor": v_factor, "v_center": v_center,
                     "v_offset": v_offset, "bob": 0}}
@@ -481,3 +493,62 @@ class TestSourceShapeChecksAreLive:
         with pytest.raises(W.SetupError) as e:
             W.step5_shape_check(gutted)
         assert "clamp_model" in str(e.value)
+
+    def test_the_step5_check_refuses_a_proc_without_the_one_plane_arm(self):
+        """The witness models a one-plane map as a SNAP; a proc that clamps every map must be
+        refused, not modelled wrongly (2026-09-27)."""
+        good = open(os.path.join(AEON, "engine/level/parallax.emp")).read()
+        gutted = good.replace("blt     .v_store", "blt     .v_nowhere")
+        assert gutted != good, "the substitution matched nothing — the probe is not probing"
+        with pytest.raises(W.SetupError) as e:
+            W.step5_shape_check(gutted)
+        assert "one-plane arm" in str(e.value)
+
+
+# ---- the one-plane arm (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27) ----------------------------
+
+class TestOnePlaneArm:
+    """Since 2026-09-27 the rate clamp acts only on a map TALLER than the plane. These pin the
+    witness's half of that: the predicate is the streamer's (a span one row past the plane), the
+    model snaps on a one-plane map, and A1 / the bind accounting stop at the one-plane edge while
+    A3 keeps modelling every step."""
+
+    def test_the_predicate_is_one_row_past_the_plane_and_zero_is_one_plane(self):
+        plane = K["VSCROLL_BG_MAX"] + K["SCREEN_HEIGHT"]          # PLANE_B_SPAN, derived
+        assert not W.rate_applies(0, K), "span 0 is the act default: the map IS the plane"
+        assert not W.rate_applies(plane, K)
+        assert TALL > plane and TALL - plane == 8, (TALL, plane)
+        assert W.rate_applies(TALL, K) and not W.rate_applies(TALL - 1, K)
+
+    def test_the_model_snaps_on_a_one_plane_map_and_ratchets_on_a_tall_one(self):
+        assert W.clamp_model(177, 0, 288, STEP, rated=False) == 177
+        assert W.clamp_model(177, 0, 288, STEP, rated=True) == STEP
+        assert W.clamp_model(400, 0, 288, STEP, rated=False) == 288   # position still clamps
+
+    def test_a_one_plane_snap_is_not_an_A1_failure_and_A3_models_it(self):
+        fails = []
+        # camY 1935 under the act default -> target 177, reached in one store on a one-plane map
+        r = W.check_leg(fails, K, "X", [sample(0, 0, span=0), sample(177, 1935, span=0)],
+                        granularity="tick")
+        assert fails == [], fails
+        assert r["unrated_steps"] == 1 and r["worst_unrated_step"] == 177
+        assert r["worst_step"] == 0 and r["ticks_at_the_bound"] == 0
+
+    def test_a_one_plane_RATCHET_is_an_A3_failure(self):
+        """The reverted arm's signature: 16 px on a one-plane map where the model says snap."""
+        fails = []
+        W.check_leg(fails, K, "X", [sample(0, 0, span=0), sample(STEP, 1935, span=0)],
+                    granularity="tick")
+        assert any(f.startswith("A3") for f in fails), fails
+
+    def test_the_same_snap_on_a_tall_map_is_an_A1_failure(self):
+        fails = []
+        W.check_leg(fails, K, "W", [sample(0, 0), sample(177, 1935)], granularity="tick")
+        assert any(f.startswith("A1") for f in fails), fails
+
+    def test_a_sample_that_cannot_say_whether_it_was_rated_is_refused(self):
+        bad = [sample(0, 0), sample(1, 0)]
+        for x in bad:
+            del x["span"]
+        with pytest.raises(W.SetupError):
+            W.check_leg([], K, "?", bad, granularity="tick")
