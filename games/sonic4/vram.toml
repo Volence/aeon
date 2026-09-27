@@ -320,7 +320,7 @@ const = "VRAM_TEST_MARKER"
 base = 1020
 tiles = 4
 # vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
-# `spare_nametable` (see the tag regions just after it). Object art may take it.
+# `spare_nametable` (declared right after that region). Object art may take it.
 
 [[region]]
 name = "bg_region"
@@ -554,16 +554,27 @@ authority = "engine-bytebase:VRAM_SPRITE_TABLE"
 name = "tails_appendage"
 owner = "games.sonic4.tails_appendage"
 kind = "window"
-base = 1492
+base = 928
 tiles = 9
 lifetime = "act"
 const = "VRAM_TAILS_APPENDAGE"
+overlay_with = ["insta_shield"]
+# OVERLAYS the head of `insta_shield` since 2026-09-27 (VRAM-TIER1, audit candidate A;
+# it was 1492..1500, in the gap between the SAT and the HScroll table, now [[free]]).
+# Only Sonic has the insta-shield flash and only Tails has the appendage, so one
+# character on screen never has both live. The one way to swap character under a
+# running flash is the DEBUG cycle, which fires only in free flight, and
+# InstaShield_Main retires the flash the frame free flight starts
+# (games/sonic4/player/player_instashield.emp) — so the exclusivity is structural,
+# not a timing hope. A hand ensure in config/constants.emp keeps this run inside
+# `insta_shield`. ⚠ A SIDEKICK UNDOES THIS: Sonic and a Tails follower on screen
+# together need separate windows again (plus the follower body's own window).
 
 [[free]]
-base = 1501
-tiles = 3
-# vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
-# `spare_nametable` (see the tag regions just after it). Object art may take it.
+base = 1492
+tiles = 12
+# 1492..1500 was `tails_appendage` (now overlaid on `insta_shield`) and 1501..1503
+# `debug_bganim_tag` (now a `spare_nametable` borrow); both vacated 2026-09-27.
 
 [[region]]
 name = "hscroll_table"
@@ -579,7 +590,7 @@ authority = "engine-bytebase:VRAM_HSCROLL_TABLE"
 base = 1532
 tiles = 4
 # vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
-# `spare_nametable` (see the tag regions just after it). Object art may take it.
+# `spare_nametable` (declared right after that region). Object art may take it.
 
 [[region]]
 name = "plane_a"

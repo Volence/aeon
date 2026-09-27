@@ -455,12 +455,14 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // (collision_data.emp for Sonic, tails_data.emp for Tails), derived from the
 // DPLC blob itself. GROW this window in place (raise tiles in the TOML, base
 // held); MOVING the base re-stamps the replay fixtures (art_tile is hashed).
-// VRAM_TAILS_APPENDAGE (tile 1492): the twin-tail appendage's own DPLC window
-// (9 tiles) in the 12-tile gap between the sprite attribute table and the HScroll
-// table. It needs its own window because the appendage is a SECOND simultaneously
-// resident sprite: body + tails are both on screen every frame, so they cannot
-// take turns in the character window above. The generated walls check both
-// neighbours, so relocating either re-checks this allocation.
+// VRAM_TAILS_APPENDAGE: the twin-tail appendage's own DPLC window (9 tiles). It
+// needs a window apart from the character's because the appendage is a SECOND
+// simultaneously resident sprite: body + tails are both on screen every frame, so
+// they cannot take turns in the character window above. Since 2026-09-27 it
+// OVERLAYS the head of the insta-shield window (vram.toml says why that is safe:
+// Sonic-only flash, Tails-only tails, and free flight retires the flash). An
+// overlay has no generated wall, so the ensure after the generated block keeps it
+// inside its host.
 // >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
 // Emitted from games/sonic4/vram.toml — edit THAT, then run:
 //   python3 tools/gen_vram_map.py --game sonic4
@@ -489,6 +491,8 @@ pub const VRAM_RING_SPARKLE       : VramTile = $039C   // ring_sparkle: tiles 92
 pub const VRAM_RING_SPARKLE_TILES         = 4   // ring_sparkle: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_INSTA_SHIELD       : VramTile = $03A0   // insta_shield: tiles 928..956 (29), act, owner games.sonic4.insta_shield
 pub const VRAM_INSTA_SHIELD_TILES         = 29   // insta_shield: DECLARED extent — the ceiling a residency guard binds against
+pub const VRAM_TAILS_APPENDAGE    : VramTile = $03A0   // tails_appendage: tiles 928..936 (9), act, owner games.sonic4.tails_appendage
+pub const VRAM_TAILS_APPENDAGE_TILES      = 9   // tails_appendage: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..988 (29), act, owner games.sonic4.player
 pub const VRAM_TEST_SONIC_TILES           = 29   // character_window: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
@@ -497,8 +501,6 @@ pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 101
 pub const VRAM_TEST_MARKER_TILES          = 4   // test_marker: DECLARED extent — the ceiling a residency guard binds against
 pub const VRAM_SPRING             : VramTile = $05A8   // spring: tiles 1448..1471 (24), act, owner games.sonic4.spring
 pub const VRAM_SPRING_TILES               = 24   // spring: DECLARED extent — the ceiling a residency guard binds against
-pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
-pub const VRAM_TAILS_APPENDAGE_TILES      = 9   // tails_appendage: DECLARED extent — the ceiling a residency guard binds against
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_CAPACITY == 376, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
@@ -519,7 +521,6 @@ ensure(VRAM_TEST_SONIC + 29 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")
 ensure(VRAM_SPRING + 24 <= $05C0, "spring runs into sprite_table")
-ensure(VRAM_TAILS_APPENDAGE + 9 <= $05E0, "tails_appendage runs into hscroll_table")
 // Borrows — each borrower stays inside its register-less host:
 ensure(VRAM_DEBUG_PRESET_READOUT >= $0300, "debug_preset_readout leaves its host spare_nametable")
 ensure(VRAM_DEBUG_PRESET_READOUT + 2 <= $0380, "debug_preset_readout leaves its host spare_nametable")
@@ -530,3 +531,8 @@ ensure(VRAM_DEBUG_LAB_NAME + 4 <= $0380, "debug_lab_name leaves its host spare_n
 ensure(VRAM_DEBUG_RASTER_TAG >= $0300, "debug_raster_tag leaves its host spare_nametable")
 ensure(VRAM_DEBUG_RASTER_TAG + 4 <= $0380, "debug_raster_tag leaves its host spare_nametable")
 // <<< GENERATED: vram map END >>>
+// The appendage OVERLAYS insta_shield (vram.toml), and gen_vram_map.py emits no wall
+// for an overlay region — so the containment is pinned here, by hand, against both
+// declared extents.
+ensure(VRAM_TAILS_APPENDAGE >= VRAM_INSTA_SHIELD && VRAM_TAILS_APPENDAGE + VRAM_TAILS_APPENDAGE_TILES <= VRAM_INSTA_SHIELD + VRAM_INSTA_SHIELD_TILES,
+       "tails_appendage ({VRAM_TAILS_APPENDAGE}, {VRAM_TAILS_APPENDAGE_TILES} tiles) leaves the insta_shield window it overlays ({VRAM_INSTA_SHIELD}, {VRAM_INSTA_SHIELD_TILES} tiles) — the tails would stream over a neighbour that CAN be live beside Tails")

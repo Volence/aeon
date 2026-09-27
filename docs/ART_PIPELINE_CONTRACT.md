@@ -130,6 +130,7 @@ byte address = tile × 32):
 | 912–923 | `$7200`–`$737F` | `dust_spindash` | window | the charge dust's DPLC target |
 | 924–927 | `$7380`–`$73FF` | `ring_sparkle` | window | one 2×2 piece, 4 flip orientations |
 | 928–956 | `$7400`–`$779F` | `insta_shield` | window | **streamed**, 29 = the peak DPLC frame |
+| 928–936 | `$7400`–`$751F` | `tails_appendage` | window | **overlays** `insta_shield`: Sonic's flash and Tails' tails are never live together |
 | **957–959** | `$77A0`–`$77FF` | **FREE** | | **3 free tiles** — object art may take them |
 | 960–988 | `$7800`–`$7B9F` | `character_window` | window | **the player's DPLC target — 29 tiles** (`VRAM_TEST_SONIC`), sized to the cast's peak frame |
 | **989–991** | `$7BA0`–`$7BFF` | **FREE** | | **3 free tiles** — object art may take them |
@@ -142,8 +143,7 @@ byte address = tile × 32):
 | **1432–1447** | `$B300`–`$B4FF` | **FREE** | | **16 free tiles** — object art may take them |
 | 1448–1471 | `$B500`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
 | 1472–1491 | `$B800`–`$BA7F` | `sprite_table` | table | **the sprite attribute table**, reg `$05` |
-| 1492–1500 | `$BA80`–`$BB9F` | `tails_appendage` | window |  |
-| **1501–1503** | `$BBA0`–`$BBFF` | **FREE** | | **3 free tiles** — object art may take them |
+| **1492–1503** | `$BA80`–`$BBFF` | **FREE** | | **12 free tiles** — object art may take them |
 | 1504–1531 | `$BC00`–`$BF7F` | `hscroll_table` | table | **the HScroll table**, reg `$0D`, 896 bytes |
 | **1532–1535** | `$BF80`–`$BFFF` | **FREE** | | **4 free tiles** — object art may take them |
 | 1536–1791 | `$C000`–`$DFFF` | `plane_a` | plane | **Plane A nametable**, reg `$02` |
@@ -221,7 +221,7 @@ gen_vram_map: region 'fg_art_pool': tiles=800 violates quantum 64
 A successful run prints, to stdout:
 
 ```
-gen_vram_map: sonic4 OK — 23 regions, 33 free tiles
+gen_vram_map: sonic4 OK — 23 regions, 42 free tiles
 ```
 
 The **background tile budget** has its own refusal, in the importer rather than the map

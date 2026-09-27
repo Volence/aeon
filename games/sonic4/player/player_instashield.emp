@@ -575,6 +575,21 @@ pub proc InstaShield_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
 pub proc InstaShield_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         movea.w InstaV.player(a0), a1
 
+        // FREE FLIGHT RETIRES THE FLASH (VRAM-TIER1, 2026-09-27), before this call
+        // streams a single tile. `tails_appendage` OVERLAYS this object's VRAM window
+        // (games/sonic4/vram.toml), which is safe only while the two can never be live
+        // together. Only Sonic spawns this flash and only Tails owns the appendage, so
+        // the one way to get both is to change character under a running flash — and
+        // the only character change is Debug_CharacterHotkey, which fires ONLY while
+        // debug_flag is set and runs before RunObjects. Player_DebugEnter sets the flag
+        // inside the player sweep, and this Effect runs after it in the same frame, so
+        // the flash is gone before the earliest frame a cycle can spawn the tails.
+        // A flash on the free-flight marker square means nothing anyway. The attack
+        // ends with it, exactly as the natural end below writes it (compare first, so
+        // a fresh READY is never overwritten).
+        tst.b   PlayerV.debug_flag(a1)
+        bne     .retire
+
         // Position is the player's EXACTLY — the flash is centred on him, and the
         // offsets live in its mappings (S3K: `move.w x_pos(a2),x_pos(a0)`).
         move.l  Sst.x_pos(a1), Sst.x_pos(a0)
@@ -611,6 +626,13 @@ pub proc InstaShield_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
                                                 // enqueue leaves prev_frame stale, so
                                                 // the next frame RETRIES.
         jbra    Draw_Sprite
+
+    .retire:
+        cmpi.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a1)
+        bne     .retire_now
+        move.b  #INSTASHIELD_SPENT, PlayerV.instashield(a1)
+    .retire_now:
+        jbra    DeleteObject                    // preserves a0; d0-d1/a1 are ours to lose
 }
 
 // -----------------------------------------------

@@ -16,6 +16,7 @@ REGIONS = {
     'dust_spindash': {'base': 912, 'tiles': 12, 'lifetime': 'act'},
     'ring_sparkle': {'base': 924, 'tiles': 4, 'lifetime': 'act'},
     'insta_shield': {'base': 928, 'tiles': 29, 'lifetime': 'act'},
+    'tails_appendage': {'base': 928, 'tiles': 9, 'lifetime': 'act'},
     'character_window': {'base': 960, 'tiles': 29, 'lifetime': 'act'},
     'test_obj': {'base': 992, 'tiles': 8, 'lifetime': 'mode'},
     'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
@@ -24,7 +25,6 @@ REGIONS = {
     'waterline_strips': {'base': 1400, 'tiles': 32, 'lifetime': 'act'},
     'spring': {'base': 1448, 'tiles': 24, 'lifetime': 'act'},
     'sprite_table': {'base': 1472, 'tiles': 20, 'lifetime': 'boot'},
-    'tails_appendage': {'base': 1492, 'tiles': 9, 'lifetime': 'act'},
     'hscroll_table': {'base': 1504, 'tiles': 28, 'lifetime': 'boot'},
     'plane_a': {'base': 1536, 'tiles': 256, 'lifetime': 'boot'},
     'plane_b': {'base': 1792, 'tiles': 256, 'lifetime': 'boot'},
@@ -47,4 +47,4 @@ VRAM_TEST_SONIC = 960
 VRAM_TEST_OBJ = 992
 VRAM_TEST_MARKER = 1016
 VRAM_SPRING = 1448
-VRAM_TAILS_APPENDAGE = 1492
+VRAM_TAILS_APPENDAGE = 928

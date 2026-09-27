@@ -14,6 +14,7 @@ Do not edit; edit the TOML and regenerate.
 | 896-911 | dust_puff | window | act | games.sonic4.dust_puff | VRAM_DUST_PUFF |  |
 | 912-923 | dust_spindash | window | act | games.sonic4.dust_spindash | VRAM_DUST_SPINDASH |  |
 | 924-927 | ring_sparkle | window | act | games.sonic4.ring_sparkle | VRAM_RING_SPARKLE |  |
+| 928-936 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE | overlay: insta_shield |
 | 928-956 | insta_shield | window | act | games.sonic4.insta_shield | VRAM_INSTA_SHIELD |  |
 | 957-959 | FREE |  |  |  |  |  |
 | 960-988 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
@@ -27,12 +28,11 @@ Do not edit; edit the TOML and regenerate.
 | 1432-1447 | FREE |  |  |  |  |  |
 | 1448-1471 | spring | window | act | games.sonic4.spring | VRAM_SPRING |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
-| 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
-| 1501-1503 | FREE |  |  |  |  |  |
+| 1492-1503 | FREE |  |  |  |  |  |
 | 1504-1531 | hscroll_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_HSCROLL_TABLE |  |
 | 1532-1535 | FREE |  |  |  |  |  |
 | 1536-1791 | plane_a | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_A |  |
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 33 tiles across 6 runs.
+Free: 42 tiles across 6 runs.

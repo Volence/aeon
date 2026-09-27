@@ -313,7 +313,7 @@ def test_real_sonic4_map_verifies_and_matches_reality(tmp_path):
     for expected in ("pub const VRAM_TEST_SONIC", "$03C0",
                      "pub const VRAM_TEST_OBJ", "$03E0",
                      "pub const VRAM_TEST_MARKER", "$03F8",
-                     "pub const VRAM_TAILS_APPENDAGE", "$05D4"):
+                     "pub const VRAM_TAILS_APPENDAGE", "$03A0"):
         assert expected in emp, expected
 
 
