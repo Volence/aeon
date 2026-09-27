@@ -200,8 +200,15 @@ ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
 // because the `use` edge only runs this way — act_descriptor imports scene_registry for
 // ParallaxConfig_OJZ_Default, so the reverse import would be a cycle. GRID_H and
 // SECTION_SIZE_SHIFT are both in scope here and are the authority.
-ensure(SCENE_ACT_SPAN_Y == (GRID_H << SECTION_SIZE_SHIFT),
-       "scene_registry's SCENE_ACT_SPAN_Y ({SCENE_ACT_SPAN_Y}) drifted from this act's own vertical span (GRID_H {GRID_H} << SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT}) — the world-Y layer-top bound would be checking the wrong act")
+//
+// IN A CLIP ROM THE GRID IS NOT THE ACT THE REGISTRY WAS AUTHORED FOR (CLIP-ACT-TALLER-
+// THAN-DOCUMENT, 2026-09-27; the same split as the region document's, see
+// OJZ_AUTHORED_ACT_W). The S2CLIP bake rewrites act_grid.emp and adds no scene to the
+// registry, so the registry's layer tops are still OJZ act 1's and are still held to OJZ
+// act 1's span. What a clip act owes them is only that they lie inside IT: its span is at
+// least the registry's. The equality is the canonical pin, unchanged in every shipped shape.
+ensure(SCENE_ACT_SPAN_Y == (GRID_H << SECTION_SIZE_SHIFT) || (OJZ_CLIP_ACT == 1 && SCENE_ACT_SPAN_Y <= (GRID_H << SECTION_SIZE_SHIFT)),
+       "scene_registry's SCENE_ACT_SPAN_Y ({SCENE_ACT_SPAN_Y}) drifted from this act's own vertical span (GRID_H {GRID_H} << SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT}) — the world-Y layer-top bound would be checking the wrong act (a clip act, OJZ_CLIP_ACT {OJZ_CLIP_ACT}, may be taller than the registry's act but not shorter)")
 ensure(GRID_W >= 1 && GRID_H >= 1,
        "act grid {GRID_W}x{GRID_H}: a zero axis makes the camera clamp bound negative (extent < screen)")
 ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,
