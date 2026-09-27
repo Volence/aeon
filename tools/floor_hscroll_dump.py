@@ -38,7 +38,7 @@ what the SCREEN showed must read the drawn raster and require source == "raster"
 a reply of source == "stateRender" is a post-hoc render that cannot witness a
 per-line effect at all, and it fails by showing a clean picture.
 
-VRAM_HSCROLL_TABLE is $BC00 (engine/system/constants.emp:403) and the buffer is
+VRAM_HSCROLL_TABLE is $BC00 (engine/system/constants.emp, VRAM_HSCROLL_TABLE) and the buffer is
 896 bytes = 224 lines x 4 (plane A word then plane B word, per the VDP's
 per-line format). The floor is Plane B, so plane B is the column to read; plane A
 is dumped beside it because a mismatch between them is itself diagnostic.
@@ -56,7 +56,7 @@ from aether import BusClient           # noqa: E402
 from aether_instance import (          # noqa: E402
     AetherInstance, SpawnError, WrongServerError, read_bytes, unprefix)
 
-HSCROLL = 0xBC00            # engine/system/constants.emp:403
+HSCROLL = 0xBC00            # engine/system/constants.emp, VRAM_HSCROLL_TABLE
 LINES = 224
 
 

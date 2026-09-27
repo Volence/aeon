@@ -1374,6 +1374,12 @@ pub const LL_KEY_AFTER  = $7FFF
 // only the structs they list) needs nothing new. engine/structs.emp binds all four to
 // `LayerLine` itself with `ensure`s, so a re-laid row fails the build there.
 pub const LL_ROW        = 8           // sizeof(LayerLine)
+// Player_LayerLines' step bound per axis: a move longer than this is a discontinuity (a warp, a
+// respawn) and crosses no line. Derived and argued at the read site
+// (games/sonic4/player/player_common.emp, "THE LAYER LINES' STEP BOUND"); declared here so the
+// listing carries them. Y is the y_vel word's reach since FALL-FEEL (2026-09-27) uncapped the fall.
+pub const LL_STEP_MAX_X = PHYS_GSP_CAP >> 8     // 16 px: the ground-speed cap
+pub const LL_STEP_MAX_Y = $8000 >> 8            // 128 px: the y_vel word's reach
 pub const LL_A_OFF      = 2           // offsetof(LayerLine, ll_a)
 pub const LL_B_OFF      = 4           // offsetof(LayerLine, ll_b)
 pub const LL_FLAGS_OFF  = 6           // offsetof(LayerLine, ll_flags)

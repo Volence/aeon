@@ -30,7 +30,8 @@ use engine.constants.{NUM_PLAYERS,
         // layer lines — the level-data layer writer (Player_LayerLines) and its guards
         LAYER_PATH_A, LAYER_PATH_B, TILE_CACHE_COLL_PLANES,
         LL_KEEP_PATH, LL_GROUNDED, LL_HORIZONTAL, LL_FWD_B, LL_BACK_B, LL_FWD_HI, LL_BACK_HI,
-        LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER, LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF}
+        LL_SEG_W, LL_KEY_BEFORE, LL_KEY_AFTER, LL_ROW, LL_A_OFF, LL_B_OFF, LL_FLAGS_OFF,
+        LL_STEP_MAX_X, LL_STEP_MAX_Y}
 use engine.types.{VramTile}
 
 // PlayerBlock — the per-slot player working block this module's a4 convention
@@ -548,8 +549,11 @@ ensure((PBLK_LLPREV & 1) == 0 && (PBLK_LLCURSOR & 1) == 0,
 // tools/loop_step_over_witness.py grades that on the real ROM. The price of the wider band:
 // a debug warp or respawn that moves under 128 px on Y AND under 16 on X now reads as a step.
 // -----------------------------------------------
-const LL_STEP_MAX_X = PHYS_GSP_CAP >> 8                 // 16 px: the ground-speed cap
-const LL_STEP_MAX_Y = $8000 >> 8                        // 128 px: the y_vel word's reach
+// The two bounds are DECLARED in engine/system/constants.emp beside the other LL_* facts, so
+// the listing carries them (tools/layer_line_gate.py models the routine with them); the
+// derivation and its reasons are here, at the read site.
+ensure(LL_STEP_MAX_X == (PHYS_GSP_CAP >> 8),
+       "LL_STEP_MAX_X ({LL_STEP_MAX_X}) is no longer the ground-speed cap ({PHYS_GSP_CAP >> 8} px), the only bound on a horizontal step")
 ensure(LL_STEP_MAX_Y >= (PHYS_GSP_CAP >> 8),
        "LL_STEP_MAX_Y ({LL_STEP_MAX_Y}) is below the ground-speed cap ({PHYS_GSP_CAP >> 8} px): a ground step on a vertical wall decomposes the whole ground speed onto Y and would read as a discontinuity")
 

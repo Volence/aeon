@@ -65,7 +65,7 @@ The boot register table writes VDP registers `$00`–`$17`. The values that cons
 | `$01` | `$14`, later `$34` then `$74` | display off at boot; `$34` = VInt+DMA+mode 5, display still off (`engine/system/boot.emp:334`); `$74` = display on, set by the game state (`games/sonic4/test/ojz_scroll_test.emp:902`, `games/demo/demo_state.emp:54`). Bit 3 stays 0 → **V28, 224 visible lines**. |
 | `$0A` | `$FF` | HInt counter — raster programs rewrite this per fire (§8) |
 | `$0B` | `$00` at boot | **at runtime the engine writes `%11` (per-line HScroll) unconditionally**, plus bit 2 for per-column VSRAM when the scene attaches a column table — `engine/level/parallax.emp`'s `Parallax_StartTransition` (`.update_mode`) and `Parallax_Update` (after `.config_resolved`) |
-| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp:592`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
+| `$0C` | `VDP_REG_0C_BOOT = $81` (`engine/system/constants.emp`, `VDP_REG_0C_BOOT`) | **H40, 320 px wide**, no interlace, shadow/highlight off |
 | `$0F` | `$02` | autoincrement 2 |
 | `$10` | `$11` | **scroll planes are 64 × 64 cells** (512 × 512 px) |
 | `$11`/`$12` | `$00` | **window plane disabled** |

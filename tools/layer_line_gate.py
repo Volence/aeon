@@ -24,7 +24,8 @@ clip ROM OJZ_Clip_LayerLines too), naming the one the Act binds:
 
 THE MODEL, stated so a reader can check it against s2.asm without reading the executor. Each
 row is a line with its own side flag. A vertical row's side is `x >= key`, a horizontal
-row's `y >= ll_a`. Every frame the player moved by at most the physics cap on both axes, each
+row's `y >= ll_a`. Every frame the player moved by at most the step bound on each axis (LL_STEP_MAX_X, the
+ground-speed cap; LL_STEP_MAX_Y, the y_vel word's 128 px since the fall was uncapped), each
 row (in table order) whose side changed FIRES if the other coordinate is inside [lo, hi) and
 the row is not grounded-only while ST_IN_AIR is set; firing sets the layer (unless LL_KEEP_PATH)
 to B or A from the crossing direction's bit, clears art_tile bit 15 and sets it again if that
@@ -114,7 +115,7 @@ NEED_EQUS = ("SST_x_pos", "SST_y_pos", "SST_layer", "SST_status", "SST_art_tile"
              "LL_KEEP_PATH", "LL_GROUNDED", "LL_HORIZONTAL", "LL_FWD_B", "LL_BACK_B",
              "LL_FWD_HI", "LL_BACK_HI", "LL_SEG_W", "LL_KEY_BEFORE", "LL_KEY_AFTER",
              "ST_IN_AIR", "LAYER_PATH_A", "LAYER_PATH_B", "PHYS_GSP_CAP",
-             "Act_act_layer_lines")
+             "LL_STEP_MAX_X", "LL_STEP_MAX_Y", "Act_act_layer_lines")
 
 SST = 0xFFB000
 BLOCK = 0xFFB100
@@ -391,7 +392,10 @@ def execute(cpu, prog, entry, span, trace, limit=4000):
 
 class Obj03Model:
     def __init__(self, rows, k, step_max):
-        self.rows, self.k, self.step = rows, k, step_max
+        # step_max = (x bound, y bound): the routine's LL_STEP_MAX_X / LL_STEP_MAX_Y, read from
+        # the listing. They differ since FALL-FEEL (2026-09-27): X is the ground-speed cap,
+        # Y the y_vel word's 128 px (an uncapped fall is a step, not a teleport).
+        self.rows, self.k, (self.step_x, self.step_y) = rows, k, step_max
         self.side = None
 
     def _sides(self, x, y):
@@ -408,7 +412,7 @@ class Obj03Model:
         self.at = (x, y)
         if (x, y) == (px, py):
             return layer, art
-        if abs(x - px) > self.step or abs(y - py) > self.step:
+        if abs(x - px) > self.step_x or abs(y - py) > self.step_y:
             self.side = self._sides(x, y)
             kinds["discontinuity"] += 1
             return layer, art
@@ -483,7 +487,7 @@ def synthetic_table(rng, k, x0, x1, y0, y1, n_v, n_h):
     return sorted(rows, key=lambda r: r[0])     # stable: equal keys keep insertion order
 
 
-def walk(rng, x0, x1, y0, y1, n, step):
+def walk(rng, x0, x1, y0, y1, n, step, step_y):
     x, y = rng.randrange(x0, x1), rng.randrange(y0, y1)
     out = [(x, y, False)]
     air = False
@@ -495,6 +499,11 @@ def walk(rng, x0, x1, y0, y1, n, step):
             pass                                                      # standing still
         elif r < 0.12:
             x += rng.choice((-step, step, -step - 1, step + 1))       # both sides of the bound
+        elif r < 0.16:
+            y += rng.choice((-step_y, step_y, -step_y - 1, step_y + 1))  # ... and of the Y one
+        elif r < 0.30:
+            x += rng.randint(-step, step)
+            y += rng.randint(-step_y, step_y)                         # a fast fall or rise
         else:
             x += rng.randint(-step, step)
             y += rng.randint(-step, step)
@@ -560,19 +569,19 @@ class Runner:
 
 def run_walks(runner, e, seed, n_tables, n_steps, fails, kinds, costs, rows_override=None,
               table_addr=TABLE, box=(1000, 1800, 1000, 1500)):
-    step = e["PHYS_GSP_CAP"] >> 8
+    step, step_y = e["LL_STEP_MAX_X"], e["LL_STEP_MAX_Y"]
     in_air_bit = 1 << e["ST_IN_AIR"]
     x0, x1, y0, y1 = box
     for t in range(n_tables):
         rng = random.Random(seed * 1000 + t)
         rows = rows_override if rows_override is not None else \
             synthetic_table(rng, e, x0, x1, y0, y1, rng.randint(3, 25), rng.randint(0, 8))
-        path = walk(rng, x0, x1, y0, y1, n_steps, step)
+        path = walk(rng, x0, x1, y0, y1, n_steps, step, step_y)
         layer, art = rng.choice((0, 1)), rng.randrange(0, 0x10000)
         x, y, air = path[0]
         cpu = runner.fresh(table_addr, None if rows_override is not None else rows,
                            x, y, layer, art, in_air_bit if air else 0)
-        model = Obj03Model(rows, e, step)
+        model = Obj03Model(rows, e, (step, step_y))
         model.seed(x, y)
         for f, (x, y, air) in enumerate(path[1:], 1):
             status = (in_air_bit if air else 0) | (rng.randrange(0, 256) & ~in_air_bit)
