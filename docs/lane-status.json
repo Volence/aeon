@@ -1,11 +1,6 @@
 {
-  "focus": "Fixing what you're finding in the woven act: Hidden Palace's background, and an invisible wall in Emerald Hill.",
+  "focus": "Hidden Palace background fixed; now the Emerald Hill invisible wall, and rebuilding the woven ROM for you.",
   "inFlight": [
-    {
-      "what": "Hidden Palace background misaligned in the woven act: find the cause and fix it",
-      "where": "branch fix/woven-hpz-bg",
-      "agent": true
-    },
     {
       "what": "Emerald Hill invisible wall and false balance pose: our collision there doesn't match Sonic 2's",
       "where": "branch fix/woven-false-balance",
@@ -32,14 +27,6 @@
   "nextBoundary": "When the Hidden Palace background fix returns and lands; then the woven ROM rebuild.",
   "queue": [
     {
-      "id": "WOVEN-HPZ-BG-MISALIGNED",
-      "title": "Woven act: Hidden Palace's background splits into two misaligned halves (you saw it; from today's tall-background change)",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
       "id": "WOVEN-FALSE-BALANCE",
       "title": "Woven act, Emerald Hill: an invisible wall and a balance pose on flat ground (you found it; collision doesn't match Sonic 2 there)",
       "state": "doing",
@@ -55,6 +42,14 @@
       "blockedBy": "owner: do you want it made editable?"
     },
     {
+      "id": "WARP-VSCROLL-PRIME",
+      "title": "After a debug warp into Hidden Palace, the background slides into place for up to 0.7 s; set it directly on a warp",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
       "state": "open",
@@ -67,14 +62,6 @@
       "title": "Metropolis's Sonic 2 song doesn't fit the sound bank, and the other woven zones' songs won't either; needs room for more songs",
       "state": "next",
       "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "TELEPORT-BG-STREAM-STARVE",
-      "title": "Folded into the Hidden Palace background fix (likely the same stale-rows cause)",
-      "state": "open",
-      "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -242,5 +229,5 @@
   ],
   "awaiting": "Whether you want the woven act made editable in aurora (today edits wouldn't stick). The start-screen fix is in s4.woven.debug.bin (crc 65eac6c3).",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T20:33:28Z"
+  "updatedAt": "2026-09-27T21:00:11Z"
 }
