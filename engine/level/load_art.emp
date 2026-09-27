@@ -29,7 +29,7 @@ ensure(PAGE_FRAMES_CLAMP <= 127, "Level_LoadArt caps the bulk load with `moveq #
 // Out: none
 // Clobbers: d0-d2/d5-d7/a0-a4 — own writes (a4 act ptr, d5 page_id, d6 page
 //      count, d7 saved budget) plus the callee licenses folded in: PageIn_Flush
-//      (none), PageIn_Enqueue d2/a0, VSync_Wait d0-d2/a0-a3 (its P2a idle-decode
+//      (none), PageIn_Enqueue d2/a0, VSync_Wait and PageIn_WaitIdle d0-d2/a0-a3 (its P2a idle-decode
 //      slice preserves d3-d4 via PageIn_EnqueueLanding), BG_Init d0-d1/a1-a2.
 //      a4/d5-d7 are the only registers kept live across VSync_Wait, and all sit
 //      OUTSIDE VSync_Wait's d0-d2/a0-a3 set, so no movem is needed. a5-a6/d3-d4
@@ -144,21 +144,11 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
 
         // Drive the streaming path to completion. VSync_Wait runs PageIn_Process
         // each frame (decode slice + landing); the trailing VBlank drains
-        // Critical/Important in the extended display-off blanking. Spin until the
-        // queue is empty AND no decode is in flight/suspended/pending AND the last
-        // landing has drained (Staging_Busy cleared by VInt_Level).
+        // Critical/Important in the extended display-off blanking. PageIn_WaitIdle
+        // spins until the queue is empty AND no decode is in flight/suspended/pending
+        // AND the last landing has drained (Staging_Busy cleared by VInt_Level).
     .drain_wait:
-        jbsr    VSync_Wait
-        tst.b   PageIn_Queue_Count
-        bne     .drain_wait
-        tst.b   PageIn_InFlight
-        bne     .drain_wait
-        tst.b   PageIn_Suspended
-        bne     .drain_wait
-        tst.b   PageIn_Land_Pending
-        bne     .drain_wait
-        tst.b   PageIn_Staging_Busy
-        bne     .drain_wait
+        jbsr    PageIn_WaitIdle
 
         move.w  d7, DMA_Budget_Default              // restore the active-display budget
         clr.b   PageIn_Bulk_Drain                  // bulk drain reached quiescence — prefetch may resume
