@@ -1,0 +1,74 @@
+=== sweep_whole_cell
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const PHYS_SWEEP_STEP       = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
++pub const PHYS_SWEEP_STEP       = (1 << COLLISION_CELL_SHIFT) << 8
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "PHYS_SWEEP_STEP must be a whole number of pixels STRICTLY below one collision cell: a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flush on the thinnest floor the world can express and end below it, tunnelling through", primary: S
+restored, diff lines: 0
+=== sweep_subpixel
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const PHYS_SWEEP_STEP       = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
++pub const PHYS_SWEEP_STEP       = $0F80
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "PHYS_SWEEP_STEP must be a whole number of pixels STRICTLY below one collision cell: a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flush on the thinnest floor the world can express and end below it, tunnelling through", primary: S
+restored, diff lines: 0
+=== cell_shift_lowered
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const COLLISION_CELL_SHIFT  = 4
++pub const COLLISION_CELL_SHIFT  = 3
+build rc=0
+restored, diff lines: 0
+=== vfill_three
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const VFILL_ROWS_PER_FRAME  = 4
++pub const VFILL_ROWS_PER_FRAME  = 3
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "camera Y step (24) outruns the vertical tile-cache fill rate: VFILL_ROWS_PER_FRAME (3) rows down, and only 2 up because the up-fill moves in pairs", primary: Span { source: SourceId(56), start: 83880, end: 84209 } })
+restored, diff lines: 0
+=== max_rows_two
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const CAM_MAX_Y_ROWS = 3
++pub const CAM_MAX_Y_ROWS = 2
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "CAM_MAX_Y_ROWS (2) must be CAM_MAX_Y_STEP (24) in whole 8 px tile rows: a step that is not whole rows can touch one more row than it divides into", primary: Span { source: SourceId(56), start: 84495, end: 84724 } })
+restored, diff lines: 0
+=== air_below_ground
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const CAM_AIR_Y_STEP    = 24
++pub const CAM_AIR_Y_STEP    = 8
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 2 error(s); first: Some(Diagnostic { level: Error, message: "CAM_MAX_Y_STEP is spelled as CAM_AIR_Y_STEP (8) because it is the larger cap; the grounded cap (16) now exceeds it, so every streaming bound sized by CAM_MAX_Y_STEP is too small — respell it", primary: Span { source: SourceId(56), start: 82947, end: 83225 } })
+restored, diff lines: 0
+=== cull_margin
+ engine/system/constants.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-pub const SPRITE_CULL_MARGIN = 32
++pub const SPRITE_CULL_MARGIN = 16
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "SPRITE_CULL_MARGIN (16) must cover one frame of the camera's largest vertical step (CAM_MAX_Y_STEP 24), or an object within that step of the screen edge culls a frame late or early", primary: Span { source: SourceId(56), start: 89243, end: 89510 } })
+restored, diff lines: 0
+=== region_span
+ games/sonic4/data/levels/ojz/act1/act_descriptor.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-const REGION_MIN_SPAN = 32
++const REGION_MIN_SPAN = 24
+build rc=1
+error: native build (sonic4 debug): build_program: 1 error(s);
+  ./games/sonic4/data/levels/ojz/act1/act_descriptor.emp:554:1: [Error] REGION_MIN_SPAN (24) must exceed the camera's largest vertical step (CAM_MAX_Y_STEP 24): a region no taller than one step can be stepped over
+restored, diff lines: 0
+=== ll_step
+ games/sonic4/player/player_common.emp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+-const LL_STEP_MAX_Y = $8000 >> 8                        // 128 px: the y_vel word's reach
++const LL_STEP_MAX_Y = 8                        // 128 px: the y_vel word's reach
+build rc=1
+error: native build (sonic4 debug): build_program: 1 error(s);
+  ./games/sonic4/player/player_common.emp:553:1: [Error] LL_STEP_MAX_Y (8) is below the ground-speed cap (16 px): a ground step on a vertical wall decomposes the whole ground speed onto Y and would read as a discontinuity
+restored, diff lines: 0
+finished=1

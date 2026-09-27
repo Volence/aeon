@@ -1,0 +1,13 @@
+layer_line_gate: provenance FRESH — s4.s2clip.lst + s4.s2clip.bin (DIGEST-ROM crc=c3ed887a size=929655; 336 READ row(s) and the 209-module scan reproduce; assembler 80bcaf72 tree=clean (running binary: tree=clean; tree is reported, not gated); shape not checked: s4.s2clip.bin is not a canonical artifact name and the caller named no shape)
+layer_line_gate [s4.s2clip.lst]: Player_LayerLines $0100F4-$01022D (314 B) EXECUTED against Obj03's rule
+  24000 frames over 60 synthetic tables; fires: Vfwd 316, Vback 323, Hfwd 84, Hback 80, grounded_skip 181, keep_path 100, prio_set 223, prio_clear 232, discontinuity 1146
+  shipped OJZ_Act1_LayerLines: 4 rows, walked around every one (26 fires)
+  shipped OJZ_Clip_LayerLines (the one the Act binds): 46 rows, walked around every one (345 fires)
+  FAIL — 4 disagreement(s) with Obj03's rule:
+    table 0 frame 90 at (12404, 859) airborne: routine layer 1 art $7DAC, model layer 1 art $FDAC
+    table 0 frame 99 at (14805, 1198) airborne: routine layer 0 art $A6B6, model layer 0 art $26B6
+    table 0 frame 62 at (14958, 550) airborne: routine layer 1 art $0A00, model layer 0 art $0A00
+    table 0 frame 93 at (14990, 518): routine layer 0 art $0A00, model layer 1 art $0A00
+Layer-line gate failed — see above (tools/layer_line_gate.py).
+S2CLIP: restoring the committed level tree from git...
+rc=1 secs=300

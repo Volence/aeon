@@ -1,0 +1,52 @@
+uptime:  21:49:21 up 3 days, 10:50,  1 user,  load average: 7.59, 6.94, 6.69
+thin_floor_witness: /home/volence/.cache/aeon-tmp/s3kfall/runs/mut.bin
+  targets: 120 floor columns <= 16 px thick (plane A 112, plane B where it differs 8); 200 thin surfaces excluded (no 55 px of clear air above to start in)
+  thickness histogram: [(16, 120)]
+  vmax over targets: 9.8 .. 16.6 px/frame; 2880 drops (start heights 1..16 px)
+  ... 2000/2880 drops, 96 s
+  137 s; grades: [('DEFLECTED', 65), ('LANDED', 1976), ('LANDED LOW', 1), ('NOT PLACED', 43), ('PASS-THROUGH', 795)]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  16.0 d 16 trace [[573, 6], [589, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  16.2 d 16 trace [[573, 6], [589, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  1 trace [[596, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  2 trace [[595, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  3 trace [[594, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  4 trace [[593, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  5 trace [[592, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  6 trace [[591, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  7 trace [[590, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  24.0 d  8 trace [[589, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  1 trace [[604, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  2 trace [[603, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  3 trace [[602, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  4 trace [[601, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  5 trace [[600, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  6 trace [[599, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  7 trace [[598, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  8 trace [[597, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d  9 trace [[596, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 10 trace [[595, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 11 trace [[594, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 12 trace [[593, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 13 trace [[592, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 14 trace [[591, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 15 trace [[590, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  32.0 d 16 trace [[589, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  1 trace [[620, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  2 trace [[619, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  3 trace [[618, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  4 trace [[617, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  5 trace [[616, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  6 trace [[615, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  7 trace [[614, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  8 trace [[613, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d  9 trace [[612, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d 10 trace [[611, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d 11 trace [[610, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d 12 trace [[609, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d 13 trace [[608, 6]]
+  PASS-THROUGH plane A x   16 top  592 t 16 v  48.0 d 14 trace [[607, 6]]
+  ... 755 more
+  failures by floor thickness: [(16, 795)]
+thin_floor_witness: FAILED: 795 of 2772 graded drops passed through or went unresolved
+finished=1
+rc=1 secs=138

@@ -1,0 +1,6 @@
+leg                    base_rel       cam24_rel   ticks  path-diff vs first
+sec0_left            0 / 900         0 / 900        900  [0]
+spawn_jumprun        0 / 2025        9 / 2034      2025  [1764]
+spawn_right          5 / 2505       15 / 2515      2500  [2347]
+spawn_spin           1 / 1651        9 / 1659      1650  [1072]
+TOTAL                         6              33

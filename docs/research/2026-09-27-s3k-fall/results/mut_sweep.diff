@@ -1,0 +1,7 @@
+diff --git a/games/sonic4/player/player_air.emp b/games/sonic4/player/player_air.emp
+index 5e8152a5..bd3c4f4d 100644
+--- a/games/sonic4/player/player_air.emp
++++ b/games/sonic4/player/player_air.emp
+@@ -857 +857 @@ pub proc Air_MoveAs (a0: *Sst) clobbers(d0-d7/a1-a2) {
+-        cmpi.w  #PHYS_SWEEP_STEP, d0
++        cmpi.w  #$7FFF, d0

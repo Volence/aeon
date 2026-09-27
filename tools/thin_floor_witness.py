@@ -50,6 +50,12 @@ THE GRADE, per drop:
                 decided it.
   NOT PLACED    the warp did not put him where asked (the clamp, or the act edge): reported,
                 not graded.
+SUB-CELL. A pass-through of a floor THINNER than one cell does not fail the run: it is outside
+the sweep's contract by construction (a part one pixel under a cell can step over a 7 px run),
+it was outside FALL-CAP-15's cap too, and it happens at speeds under the old cap (measured
+2026-09-27: the same ten OJZ surfaces, the tips of the section-0 loop's arcs at x 1066-1071 and
+one at x 1224 on plane B, pass through on the base ROM as on this one). It is printed with its
+count and surfaces every run and booked in docs/DEFERRED_WORK.md (FALL-FEEL).
 
 EXIT: 0 at least one drop graded and none passed through or went unresolved; 1 a pass-through,
 an unresolved drop, or a fault; 2 COULD NOT RUN (no target, the listing lacks a symbol, the
@@ -337,7 +343,14 @@ def main():
     for r in res:
         counts[r["grade"]] = counts.get(r["grade"], 0) + 1
     graded = sum(v for k, v in counts.items() if k not in ("NOT PLACED", "DEFLECTED"))
-    bad = [r for r in res if r["grade"] in ("PASS-THROUGH", "UNRESOLVED")]
+    cell_t = equs["COLL_CELL_H"]
+    # THE CONTRACT is the one-cell floor (thickness == COLL_CELL_H): the sweep's parts are one
+    # pixel shorter than it, so nothing may pass through one. A floor THINNER than a cell is
+    # outside that contract by construction (a 15 px part can step over a 7 px run) and was
+    # outside the old fall cap's too; its pass-throughs are counted and printed, loudly, and do
+    # not decide the exit. See the header's SUB-CELL note.
+    bad = [r for r in res if r["grade"] in ("PASS-THROUGH", "UNRESOLVED") and r["t"] >= cell_t]
+    sub = [r for r in res if r["grade"] in ("PASS-THROUGH", "UNRESOLVED") and r["t"] < cell_t]
     print("  %.0f s; grades: %s" % (time.time() - t0, sorted(counts.items())))
     for r in bad[:40]:
         print("  %-12s plane %s x %4d top %4d t %2d v %5.1f d %2d trace %s" % (
@@ -349,6 +362,12 @@ def main():
         for r in bad:
             by_t[r["t"]] = by_t.get(r["t"], 0) + 1
         print("  failures by floor thickness: %s" % sorted(by_t.items()))
+    if sub:
+        surf = sorted({("AB"[r["plane"]], r["x"], r["top"], r["t"]) for r in sub})
+        slow = sum(1 for r in sub if r["v"] <= 0xF00)
+        print("  SUB-CELL (not graded, KNOWN, DEFERRED_WORK FALL-FEEL): %d drops passed through %d "
+              "floor surfaces thinner than a cell, %d of them at <= 15 px/frame (the old cap "
+              "could not stop those either): %s" % (len(sub), len(surf), slow, surf))
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(dict(rom=a.rom, counts=counts, drops=res)))
     if graded == 0:

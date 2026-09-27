@@ -1,0 +1,27 @@
+=== step_whole_cell
+-pub const PHYS_SWEEP_STEP       = (COLL_CELL_H - 1) << 8
++pub const PHYS_SWEEP_STEP       = COLL_CELL_H << 8
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "PHYS_SWEEP_STEP (4096) must be a whole number of pixels STRICTLY below one collision cell (COLL_CELL_H 16 px): a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin fl
+restored from HEAD 6381d0cf, diff lines: 0
+=== step_subpixel
+-pub const PHYS_SWEEP_STEP       = (COLL_CELL_H - 1) << 8
++pub const PHYS_SWEEP_STEP       = $0F80
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "PHYS_SWEEP_STEP (3968) must be a whole number of pixels STRICTLY below one collision cell (COLL_CELL_H 16 px): a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin fl
+restored from HEAD 6381d0cf, diff lines: 0
+=== shift_mismatch
+-pub const COLLISION_CELL_SHIFT  = 4
++pub const COLLISION_CELL_SHIFT  = 3
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 1 error(s); first: Some(Diagnostic { level: Error, message: "COLLISION_CELL_SHIFT (3) no longer names the collision cell the block format gives (COLL_CELL_H 16 px)", primary: Span { source: SourceId(56), start: 82085, end: 82278 } })
+restored from HEAD 6381d0cf, diff lines: 0
+=== literal_step_cell_lowered
+-pub const PHYS_SWEEP_STEP       = (COLL_CELL_H - 1) << 8
++pub const PHYS_SWEEP_STEP       = $0F00
+-pub const COLL_CELL_H           = BLOCK_TILE_SIZE * 8 / BLOCK_COLL_ROWS   // 16 px
++pub const COLL_CELL_H           = 8
+build rc=1
+error: native build (sonic4 debug): ram harvest build_program: 2 error(s); first: Some(Diagnostic { level: Error, message: "PHYS_SWEEP_STEP (3840) must be a whole number of pixels STRICTLY below one collision cell (COLL_CELL_H 8 px): a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flu
+restored from HEAD 6381d0cf, diff lines: 0
+finished=1

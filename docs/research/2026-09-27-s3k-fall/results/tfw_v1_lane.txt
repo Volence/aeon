@@ -1,0 +1,10 @@
+uptime:  21:51:43 up 3 days, 10:52,  1 user,  load average: 6.27, 6.64, 6.61
+thin_floor_witness: /home/volence/.cache/aeon-tmp/s3kfall/runs/v1.bin
+  targets: 120 floor columns <= 16 px thick (plane A 112, plane B where it differs 8); 200 thin surfaces excluded (no 55 px of clear air above to start in)
+  thickness histogram: [(16, 120)]
+  vmax over targets: 9.8 .. 16.6 px/frame; 2880 drops (start heights 1..16 px)
+  ... 2000/2880 drops, 99 s
+  142 s; grades: [('DEFLECTED', 74), ('LANDED', 2772), ('NOT PLACED', 34)]
+thin_floor_witness: OK: 2772 graded drops, 0 passed through
+finished=0
+rc=0 secs=143

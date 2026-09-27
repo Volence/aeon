@@ -5860,7 +5860,50 @@ together or the player will outrun streaming / tunnel through geometry:
 Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
 steep-landing conversion is a different, retained mechanism.
 
-### Fall cap — RULED AND LANDED: the 1px tunnelling hole is CLOSED (§2.1 FEEL DEVIATION) — booked 2026-08-03, ruled + landed 2026-08-27
+### Fall cap — SUPERSEDED 2026-09-27 BY FALL-FEEL (uncapped, swept, S3K camera); was RULED AND LANDED: the 1px tunnelling hole is CLOSED (§2.1 FEEL DEVIATION) — booked 2026-08-03, ruled + landed 2026-08-27
+
+**⚠ SUPERSEDED, 2026-09-27 — owner ruling FALL-FEEL (`docs/decisions.jsonl`, chose D):** *"I'd
+prefer it be like sonic 3 but if we can try to capture that feeling without needing too much
+that'd be great. Unfortunately C drifts too far from sonic games."* The CAP below is gone; its
+SAFETY half (Sonic never passes through a floor) stands and now lives in the move instead.
+Built on `feel/s3k-fall` (research: `docs/research/2026-09-27-s3k-fall.md`):
+- **No fall cap**, as S3K (`sonic3k.asm:36035`; flight `:27638`, glide fall `:30903`). Gravity
+  adds saturate only at the word's $7FFF.
+- **Swept vertical move** (`Air_Move`, `games/sonic4/player/player_air.emp`): at or under
+  `PHYS_SWEEP_STEP` (one pixel under a cell, from `COLL_CELL_H`) one ObjectMove as before;
+  faster, 2^k exact parts no larger than it with a probe after each. This is item 1 of "the real
+  shape is" below. The "three-cell probe" was rejected: the probe reads FORWARD of the feet and a
+  tunnelling frame ends with the feet PAST the floor, so a longer forward reach sees nothing there
+  either; it only helps as predictive landing, which is the sweep with a fixed reach.
+- **S3K's airborne camera step, 24 px/frame** (`CAM_AIR_Y_STEP`, `sonic3k.asm:38511`); grounded 16.
+- **Axis B, answered by a hold, not a faster fill:** `Player_FallLimit` keeps the lowest probe
+  read above `Collision_ResidentBottom` (the first row the ring has WRITTEN) and holds the camera
+  leader's sprite on the bottom edge of the screen. Measured 0 blackout frames on OJZ's and the
+  S2 clip's longest falls. Item 2 below (speed-scaled fill) was therefore not built.
+- `PBOUND_BOTTOM_MARGIN`'s ensure was deleted with its reason (its down-teleport is gone and there
+  is no cap to pin it to); `LL_STEP_MAX_Y` became 128 px (the y_vel word's reach).
+- `TERMINAL_VELOCITY` in `games/sonic4/objects/test_player.emp` is STILL deliberately separate
+  and unchanged (the S2/S.C.E. reference value its header declares; see "One consumer by VALUE"
+  below) — TestPlayer does not use `Air_Move`, so it keeps its own clamp and the 1 px hole.
+- **THE COST IS THE OWNER'S CALL (open):** the third fill row per tick at 24 px/frame makes the
+  long diagonal falls lag: OJZ 16-leg DEBUG set 62 -> 345 lag frames (all in falls out of
+  section 0), release spawn legs 6 -> 33, the S2 clip's diagonal pit fall 12 -> 135 (DEBUG),
+  and 4-5 single-row undrawn ticks at the bottom of the clip's pit. Keeping the camera at 16
+  (the physics still uncapped) measures 176 / 23 instead. Options priced in the research doc.
+- **OPEN — SUB-CELL FLOORS PASS THROUGH, BEFORE AND AFTER (measured, not introduced).** The
+  exhaustive `tools/thin_floor_witness.py` run: 0 pass-throughs on all 2,608 one-cell (16 px)
+  floor columns after, 12,215 on the base ROM (the control); but 10 surfaces THINNER than a cell
+  (1-14 px runs at the section-0 loop's arc tips, x 1066-1071 y 432-526, and x 1224 plane B)
+  pass through on both ROMs (108 / 106 drops), a third of them at 13.8 px/frame, so no cap
+  ever protected them. "The thinnest floor is one cell by construction" does not hold for the
+  current paint. Fix is paint (make the tips a cell deep) or a smaller sweep step for those
+  columns; likely the same family as LINES-EVERYWHERE item 3's falls at the left arc's foot.
+- **FINDING kept:** under FALL-CAP-15's spelling, lowering `COLLISION_CELL_SHIFT` built GREEN (the
+  step followed it and the tautological ensure passed while the probes still read 16 px cells);
+  the shift is now pinned to `COLL_CELL_H`.
+
+**What follows is the 2026-08 record, unedited.**
+
 **RULING (owner, 2026-08-26 — `docs/decisions.jsonl` `d-18-answered`, queue row
 `FALL-CAP-15`).** Terminal fall speed drops one pixel per frame, taking the cheap
 option below. The Axis-A tunnelling hole described in this entry is **gone from the

@@ -1,0 +1,4 @@
+tfw_v1_full: 62880 drops, 58522 graded; contract (one-cell) failures 0; sub-cell pass-throughs 108 (not graded)
+tfw_base_full: 62880 drops, 58658 graded; contract (one-cell) failures 12215; sub-cell pass-throughs 106 (not graded)
+tfw_v1_lane: 2880 drops, 2772 graded; contract (one-cell) failures 0; sub-cell pass-throughs 0 (not graded)
+tfw_mut_lane: 2880 drops, 2772 graded; contract (one-cell) failures 795; sub-cell pass-throughs 0 (not graded)

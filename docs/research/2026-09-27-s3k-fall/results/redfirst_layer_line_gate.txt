@@ -1,0 +1,40 @@
+=== mutation
+-        addi.w  #LL_STEP_MAX_Y, d4
+-        cmpi.w  #LL_STEP_SPAN_Y, d4
++        addi.w  #LL_STEP_MAX_X, d4
++        cmpi.w  #LL_STEP_SPAN_X, d4
+build rc=0
+layer_line_gate [s4.s2clip.lst]: Player_LayerLines $0100F4-$01022D (314 B) EXECUTED against Obj03's rule
+  5565 frames over 60 synthetic tables; fires: Vfwd 59, Vback 57, Hfwd 25, Hback 27, grounded_skip 30, keep_path 37, prio_set 69, prio_clear 58, discontinuity 355
+  shipped OJZ_Act1_LayerLines: 4 rows, walked around every one (11 fires)
+  shipped OJZ_Clip_LayerLines (the one the Act binds): 46 rows, walked around every one (174 fires)
+  FAIL — 37 disagreement(s) with Obj03's rule:
+    table 2 frame 183 at (1535, 1494) airborne: routine layer 1 art $021B, model layer 1 art $821B
+    table 3 frame 84 at (1531, 1465): routine layer 0 art $4928, model layer 1 art $4928
+    table 3 frame 299 at (1098, 1198) airborne: routine layer 0 art $4928, model layer 0 art $C928
+    table 3 frame 346 at (1439, 1170): routine layer 0 art $4928, model layer 0 art $C928
+    table 3 frame 353 at (1471, 1125) airborne: routine layer 0 art $4928, model layer 0 art $C928
+    table 5 frame 14 at (1059, 1288) airborne: routine layer 1 art $6A35, model layer 1 art $EA35
+    table 7 frame 34 at (1650, 1004): routine layer 0 art $A76D, model layer 1 art $276D
+    table 8 frame 326 at (1618, 1454): routine layer 1 art $242C, model layer 1 art $A42C
+    table 10 frame 233 at (1242, 1265): routine layer 1 art $53FB, model layer 1 art $D3FB
+    table 10 frame 236 at (1233, 1243) airborne: routine layer 1 art $53FB, model layer 1 art $D3FB
+    table 10 frame 259 at (1254, 1312): routine layer 1 art $53FB, model layer 1 art $D3FB
+    table 10 frame 314 at (1254, 1317) airborne: routine layer 0 art $53FB, model layer 0 art $D3FB
+    table 12 frame 42 at (1376, 1442): routine layer 0 art $A041, model layer 1 art $A041
+    table 12 frame 72 at (1293, 1105): routine layer 0 art $A041, model layer 0 art $2041
+    table 12 frame 345 at (1585, 1151): routine layer 0 art $2041, model layer 1 art $A041
+    table 13 frame 53 at (1654, 1269) airborne: routine layer 0 art $1914, model layer 1 art $9914
+    table 13 frame 132 at (1642, 1222) airborne: routine layer 1 art $9914, model layer 1 art $1914
+    table 13 frame 223 at (1482, 1322) airborne: routine layer 1 art $9914, model layer 0 art $9914
+    table 13 frame 241 at (1442, 1141): routine layer 1 art $9914, model layer 0 art $1914
+    table 13 frame 287 at (1522, 1336) airborne: routine layer 1 art $1914, model layer 0 art $9914
+gate rc=1
+restored from HEAD aab9a1ec, diff lines: 0
+layer_line_gate [s4.s2clip.lst]: Player_LayerLines $0100F4-$01022D (314 B) EXECUTED against Obj03's rule
+  24000 frames over 60 synthetic tables; fires: Vfwd 232, Vback 239, Hfwd 163, Hback 157, grounded_skip 125, keep_path 148, prio_set 266, prio_clear 265, discontinuity 1615
+  shipped OJZ_Act1_LayerLines: 4 rows, walked around every one (11 fires)
+  shipped OJZ_Clip_LayerLines (the one the Act binds): 46 rows, walked around every one (237 fires)
+  OK
+gate after restore rc=0
+finished=1
