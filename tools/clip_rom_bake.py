@@ -1241,7 +1241,7 @@ TALL_X_MARGIN = 512
 #: priced fixes lands (DEFERRED_WORK WINDOWED-BG-VERTICAL-CLAMP: an engine arm that snaps the
 #: scroll and DMA-sweeps a tall window on a layout-changing crossing, or connectors lengthened
 #: by the modelled cost). One-zone acts (the solo clips) have no crossing and go tall.
-TALL_JOINED_ZONES = False
+TALL_JOINED_ZONES = True
 
 
 def tall_plans(act, joined=None):

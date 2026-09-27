@@ -1284,6 +1284,33 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         // the 4-byte width on purpose and stays bounded by the struct's end.
         move.l  Region.rg_x0:l(a0), Region_Cur_X0   // x0:x1 — one long per axis, span-major
         move.l  Region.rg_y0:l(a0), Region_Cur_Y0   // y0:y1
+
+        // -- THE BG SNAP (WOVEN-TALL-ENTRY, 2026-09-27): does this crossing change the
+        //    effective background LAYOUT? Each side's is its row's rg_bg_layout, or the act
+        //    default for 0 (and for a null previous row: nothing resolved yet), the same
+        //    ladder BG_Stream_Update's wipe arm uses. A different layout means BG_Stream_Update
+        //    will repaint the whole plane (after the tile overwrite, if the tiles differ too),
+        //    so Step 5 may store the scroll's target outright this frame: see Parallax_BG_Snap
+        //    there. Read BEFORE Region_Current is overwritten, since the old row is the other
+        //    side. Only SET here; Step 5 clears it every frame. --
+        movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
+        move.l  Act.act_bg_layout(a2), d1           // the act default
+        move.l  Region.rg_bg_layout(a0), d0         // the new row's layout
+        bne     .snap_new_ok
+        move.l  d1, d0
+    .snap_new_ok:
+        movea.l Region_Current, a1                  // (Region_Current).w — the row being left
+        cmpa.w  #0, a1
+        beq     .snap_old_dflt
+        move.l  Region.rg_bg_layout(a1), d4
+        bne     .snap_old_ok
+    .snap_old_dflt:
+        move.l  d1, d4
+    .snap_old_ok:
+        cmp.l   d4, d0
+        beq     .snap_same
+        st      Parallax_BG_Snap                    // (Parallax_BG_Snap).w
+    .snap_same:
         move.l  a0, Region_Current                  // the observable; engine logic never reads it
 
         // -- the region's SONG (S2CLIP-REGION-MUSIC step 5): RECORD it, never post it here --
@@ -3084,8 +3111,26 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // held back 16 px a frame that was the top visible row of a scroll the screen was about
         // to leave, so "visible rows first" repainted the wrong rows first on every crossing
         // whose scroll jumped. Now the scroll it latches is the one the next frames show.
+        //
+        // ---- (b1) NO RATE CLAMP ON THE FRAME A CROSSING CHANGES THE LAYOUT (WOVEN-TALL-ENTRY,
+        //      2026-09-27) ----
+        //
+        // THE CLAMP'S OWN REASON AGAIN, on a tall map this time. What it bounds is the rows the
+        // streamer must draw to follow the scroll. On a crossing that changes the effective
+        // layout (Parallax_CheckBoundary sets Parallax_BG_Snap) there is nothing to follow:
+        // BG_Stream_Update snaps its window to the scroll it reads and repaints every plane
+        // row (after the tile overwrite, while which it draws nothing at all). So the scroll
+        // is stored at its target outright. MEASURED, before: on s2_woven with Hidden Palace
+        // tall, every crossing INTO it slid 16 px a frame from the zone left (OOZ 142 -> HPZ
+        // 651: 32 frames), which crossing_witness counted as 29 glitch ticks on hpz_to_ooz and
+        // 9 on hpz_to_mtz. One frame is enough: from the next the target moves with the camera,
+        // which is what the clamp is sized for. A one-plane map never reached the clamp ((b0)).
+        // S3K does the same at every mid-play background switch it has: the BG camera copy is
+        // recomputed that frame and only the plane redraw is spread (AIZ2, FBZ, HCZ2).
         cmpi.w  #BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT, d3
         blt     .v_store                            // the plane holds the map: no rate to bound
+        tst.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w
+        bne     .v_store                            // the layout changed: the plane is repainted
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
         sub.w   d0, d2                              // d2 = the step this frame wants
         cmp.w   #BG_VSCROLL_MAX_STEP, d2
@@ -3101,6 +3146,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // (`.v_pack_store` was the label here until step 4; the two branches that reached it
         //  stop at `.v_rate`. `.v_store` is the one-plane arm's landing, (b0) above.)
     .v_store:
+        clr.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w — one frame, every arm
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)

@@ -491,14 +491,19 @@ pub vars upper_ram {
     Parallax_Target_Config:      u32,   // ptr to incoming during transition
     Parallax_Transition_Frames:  u8,    // frames remaining; 0 = stable
     Parallax_Snap_Pending:       u8,    // 1 = next Update writes target_scroll directly to current (skip lerp)
-    // Two bytes that held Parallax_Prev_Sec_X/Y until painted-regions v1 replaced the
-    // section-grid crossing with a region-rectangle one (the region cache lives OUTSIDE
-    // this span, below Parallax_Roles_Swapped, and says why). A PAD rather than a
+    // WOVEN-TALL-ENTRY (2026-09-27): nonzero = the crossing THIS frame changed the effective
+    // background layout, so Parallax_Step5_Vscroll stores the BG scroll's target outright
+    // instead of rate-clamping toward it (the plane is about to be repainted whole, so the
+    // clamp's reason, bounded streamer rows, is moot). Set by Parallax_CheckBoundary, cleared
+    // by Step 5 on every frame. Inside the span, so Parallax_Init's clear resets it per act.
+    Parallax_BG_Snap:            u8,
+    // The second of two bytes that held Parallax_Prev_Sec_X/Y until painted-regions v1
+    // replaced the section-grid crossing with a region-rectangle one (the region cache lives
+    // OUTSIDE this span, below Parallax_Roles_Swapped, and says why). A PAD rather than a
     // deletion, deliberately: this span is a LONGWORD-counted clear pinned to
-    // PARALLAX_STATE_LONGS, and removing two bytes would leave it a non-multiple of four
-    // and shift every field below — a parallax-RAM arithmetic change inside a parcel
-    // about identity scope.
-    pad(2),
+    // PARALLAX_STATE_LONGS, and removing bytes would leave it a non-multiple of four and
+    // shift every field below.
+    pad(1),
     Parallax_Vscroll_Column_Buf: [u8; 80],  // 40 VSRAM entries × 2 bytes
     // Per-frame screen-space band view (Step 4a): the config's plane-space band
     // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
@@ -629,7 +634,10 @@ pub vars upper_ram {
     BG_Plane_Top:           u16,        // map row held at the top of the streamed window
     BG_Wipe_Cursor:         u8,         // rows left in a §4.3 wipe; 0 = none (primed, not swept)
     BG_Wipe_Row:            u8,         // the next PLANE row (0..PLANE_V_CELLS-1) the sweep will
-                                        //   draw; meaningless while the cursor is 0
+                                        //   draw. While the cursor is 0 it is BG_WIPE_LANDING
+                                        //   ($FF) until the sweep's last queued DMA has landed
+                                        //   (the streamer waits on it), else 0
+                                        //   (WOVEN-TALL-ENTRY, engine/level/bg.emp)
     // THE SECOND BYTE WAS `BG_Wipe_Dir` UNTIL STEP 6 LANDED IT, and the rename is the design
     // call of that step rather than a tidy-up. §4.3 asked for "the sweep direction sign, from
     // the crossing axis", which presumes a row sweep has an entry side. It does not: a row

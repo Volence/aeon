@@ -522,19 +522,12 @@ pub const BG_STREAM_LEAD_ROWS  = BG_STREAM_SPARE_ROWS / 2
 // The per-frame row budget, DERIVED from step 4's rate clamp and not tuned.
 pub const BG_STREAM_MAX_ROWS   = BG_VSCROLL_MAX_STEP / BG_STREAM_ROW_PX
 
-// ---- THE CROSSING WIPE's budget (regions part 2, step 6; spec §4.3) ----
-// How many rows the sweep may spend in one frame. E1 (2026-09-16) measured the plane
-// buffer's headroom and picked decision row 1 = 4; the arithmetic is RE-DERIVED below
-// rather than carried, because E1's own total was 536 + 528 = 1064 and it OMITTED the
-// steady-state streamer's share — correctly, at the time, since `Draw_BG_TileColumn` had
-// zero callers and `BG_Stream_Update` did not exist until step 5. It exists now and it
-// runs in the SAME frame as the wipe, so the real worst case is 536 + 264 + 528 = 1328.
-pub const BG_WIPE_ROWS_PER_FRAME = 4
-// The sweep covers every PLANE row exactly once — not every MAP row. See BG_Stream_Update's
-// wipe arm for why that is the invariant that survives the window moving mid-wipe.
+// ---- THE CROSSING WIPE's extent (regions part 2, step 6; spec §4.3) ----
+// The sweep covers every PLANE row exactly once — not every MAP row. Its per-frame rate is
+// BG_WIPE_DMA_ROWS (the DMA sweep's budget, below); the CPU sweep that spent
+// BG_WIPE_ROWS_PER_FRAME = 4 rows a frame through Draw_BG_TileRow was deleted by
+// WOVEN-TALL-ENTRY (2026-09-27), when a tall map moved to the DMA sweep too.
 pub const BG_WIPE_TOTAL_ROWS     = PLANE_V_CELLS
-// Frames a complete sweep takes with no refusals. The gate derives its bound from this.
-pub const BG_WIPE_FRAMES         = (BG_WIPE_TOTAL_ROWS + BG_WIPE_ROWS_PER_FRAME - 1) / BG_WIPE_ROWS_PER_FRAME
 
 // ---- THE PLANE-BUFFER RESERVATION, derived from the producers' OWN reservations ----
 // Each number below is the byte figure the named routine adds to `Plane_Buffer_Ptr` before
@@ -547,11 +540,11 @@ const FG_ROW_ENTRY_BYTES = 4 + PLANE_H_CELLS*2      // Draw_TileRow_FromCache (d
 // cell, so at most two columns and two rows enter per frame (E1's derivation, re-spelled
 // from the two camera caps rather than quoted as "536").
 const FG_PEAK_BYTES      = 2 * FG_COL_ENTRY_BYTES + 2 * FG_ROW_ENTRY_BYTES
-const BG_PEAK_BYTES      = (BG_STREAM_MAX_ROWS + BG_WIPE_ROWS_PER_FRAME) * BG_ROW_ENTRY_BYTES
+// The background's worst frame is the streamer alone: the wipe no longer writes the plane
+// buffer (every map is swept by DMA), and the streamer is suspended while a sweep runs.
+const BG_PEAK_BYTES      = BG_STREAM_MAX_ROWS * BG_ROW_ENTRY_BYTES
 ensure(FG_PEAK_BYTES + BG_PEAK_BYTES <= PLANE_BUFFER_SIZE - 2,
-       "engine/level/bg.emp: one frame can now ask the plane buffer for {FG_PEAK_BYTES} B of foreground (2 columns at {FG_COL_ENTRY_BYTES} + 2 rows at {FG_ROW_ENTRY_BYTES}) plus {BG_PEAK_BYTES} B of background ({BG_STREAM_MAX_ROWS} streamed + {BG_WIPE_ROWS_PER_FRAME} wiped rows at {BG_ROW_ENTRY_BYTES}), which is more than PLANE_BUFFER_SIZE - 2 = {PLANE_BUFFER_SIZE - 2}. NOTHING CRASHES IF THIS IS WRONG, which is why it is a build error: Draw_BG_TileRow REFUSES past the ceiling and the wipe cursor does not advance, so an over-budget frame shows up only as a wipe that takes longer than BG_WIPE_FRAMES ({BG_WIPE_FRAMES}) — and Draw_TileColumn's release arm drops a FOREGROUND column silently, which is a strip of level that is never redrawn. Lower BG_WIPE_ROWS_PER_FRAME (the wipe just takes more frames) or raise PLANE_BUFFER_SIZE")
-ensure(BG_WIPE_ROWS_PER_FRAME >= 1 && BG_WIPE_ROWS_PER_FRAME <= BG_WIPE_TOTAL_ROWS,
-       "engine/level/bg.emp: BG_WIPE_ROWS_PER_FRAME is {BG_WIPE_ROWS_PER_FRAME}, outside 1 .. {BG_WIPE_TOTAL_ROWS}. At 0 an armed wipe never retires its cursor and the plane holds a mix of two backgrounds forever; above the plane's own row count the `subq.b`/`beq` pair below would run the cursor past 0 and wrap it to 255")
+       "engine/level/bg.emp: one frame can now ask the plane buffer for {FG_PEAK_BYTES} B of foreground (2 columns at {FG_COL_ENTRY_BYTES} + 2 rows at {FG_ROW_ENTRY_BYTES}) plus {BG_PEAK_BYTES} B of background ({BG_STREAM_MAX_ROWS} streamed rows at {BG_ROW_ENTRY_BYTES}), which is more than PLANE_BUFFER_SIZE - 2 = {PLANE_BUFFER_SIZE - 2}. NOTHING CRASHES IF THIS IS WRONG, which is why it is a build error: Draw_BG_TileRow REFUSES past the ceiling and the window does not advance, so an over-budget frame shows up only as a background that falls behind its scroll — and Draw_TileColumn's release arm drops a FOREGROUND column silently, which is a strip of level that is never redrawn. Raise PLANE_BUFFER_SIZE or lower BG_VSCROLL_MAX_STEP_ROWS")
 ensure(BG_WIPE_TOTAL_ROWS <= 255,
        "engine/level/bg.emp: BG_Wipe_Cursor (engine/ram.emp) is a BYTE and BG_WIPE_TOTAL_ROWS is {BG_WIPE_TOTAL_ROWS}. `move.b #BG_WIPE_TOTAL_ROWS, BG_Wipe_Cursor` would truncate and the sweep would leave part of the plane holding the old background")
 
@@ -584,17 +577,34 @@ ensure(BG_STREAM_MAX_ROWS * BG_STREAM_ROW_PX >= BG_VSCROLL_MAX_STEP,
 // (27 ticks for a 216-tile blob); rejected for that reason.
 pub const BG_OVERWRITE_CHUNK_BYTES = 1824
 const BG_CRITICAL_PEAK_BYTES = 4 * 32 + 640 + 896 + 128   // pinned to BuildStaticDMA by the test above
-// ---- THE DMA SWEEP's budget (shorter-connector, 2026-09-25) ----
-// A one-plane map is wiped by DMA from ROM (BG_Stream_Update's `.wipe_dma`), one Deferrable
+// ---- THE DMA SWEEP's budget (shorter-connector, 2026-09-25; every map since WOVEN-TALL-ENTRY) ----
+// Every map is wiped by DMA from ROM (BG_Stream_Update's `.wipe_spend`), one Deferrable
 // entry a frame. It takes the OVERWRITE's per-frame size, rounded down to whole rows, because
 // that number is already derived for exactly this seat: a Deferrable entry that must fit a
 // worst NTSC frame after the foreground plane drain and the Critical peak, with the BG
-// streamer contributing nothing (for a one-plane map the window never moves, so the
-// streamer has no row to send). The overwrite and the sweep never share a frame: the
-// overwrite returns before the wipe arm until its last chunk has landed.
+// streamer contributing nothing (it is suspended while a sweep runs, on every map; on a
+// one-plane map it never had a row to send). The overwrite and the sweep never share a
+// frame: the overwrite returns before the wipe arm until its last chunk has landed.
 pub const BG_WIPE_DMA_ROWS = BG_OVERWRITE_CHUNK_BYTES / (PLANE_H_CELLS * 2)
 ensure(BG_WIPE_DMA_ROWS >= 1 && BG_WIPE_DMA_ROWS <= PLANE_V_CELLS,
        "engine/level/bg.emp: BG_WIPE_DMA_ROWS is {BG_WIPE_DMA_ROWS} (BG_OVERWRITE_CHUNK_BYTES {BG_OVERWRITE_CHUNK_BYTES} / a {PLANE_H_CELLS * 2}-byte row). Below 1 the DMA sweep buys nothing and its cursor never retires; above PLANE_V_CELLS the `moveq` clamp would exceed the ring")
+// ---- THE HELD WINDOW (WOVEN-TALL-ENTRY, 2026-09-27) ----
+// While a sweep runs, and until its last entry has landed, BG_Stream_Update does not move the
+// window (a DMA run queued against one window cannot follow another; see `.wipe_spend`). The
+// scroll keeps moving, at most BG_STREAM_MAX_ROWS rows a frame by Step 5's rate clamp, and the
+// screen stays inside the held window while the rows it has moved fit the lead on either side.
+// A sweep with no refusals is at most ceil(64 / BG_WIPE_DMA_ROWS) runs plus one for the ring
+// wrap and one for the window's seam, and the landing check adds one frame at least.
+pub const BG_WIPE_HOLD_FRAMES = (BG_WIPE_TOTAL_ROWS + BG_WIPE_DMA_ROWS - 1) / BG_WIPE_DMA_ROWS + 2 + 1
+ensure(BG_WIPE_HOLD_FRAMES * BG_STREAM_MAX_ROWS <= BG_STREAM_LEAD_ROWS && BG_WIPE_HOLD_FRAMES * BG_STREAM_MAX_ROWS <= BG_STREAM_SPARE_ROWS - BG_STREAM_LEAD_ROWS,
+       "engine/level/bg.emp: a DMA sweep holds the Plane B window for up to BG_WIPE_HOLD_FRAMES = {BG_WIPE_HOLD_FRAMES} frames, over which the BG scroll can move {BG_WIPE_HOLD_FRAMES * BG_STREAM_MAX_ROWS} rows ({BG_STREAM_MAX_ROWS} a frame), more than the {BG_STREAM_LEAD_ROWS} rows of lead above the screen or the {BG_STREAM_SPARE_ROWS - BG_STREAM_LEAD_ROWS} below it. The screen would run off the held window and show rows the plane does not hold until the streamer caught up. WHAT THIS DOES NOT COVER: a sweep whose DMA is REFUSED (queue full, byte cap) holds longer than this; nothing bounds that but the Deferrable queue's own liveness. Raise BG_WIPE_DMA_ROWS (a bigger chunk) or lower BG_VSCROLL_MAX_STEP_ROWS")
+// The row byte's value while the cursor is 0 and the sweep's last runs may still be queued.
+// Not a plane row, so the arm, which always writes a real one, can never be mistaken for it.
+pub const BG_WIPE_LANDING = $FF
+ensure(BG_WIPE_LANDING > PLANE_V_CELLS - 1 && BG_WIPE_LANDING <= 255,
+       "engine/level/bg.emp: BG_WIPE_LANDING ({BG_WIPE_LANDING}) must be a byte no plane row (0..{PLANE_V_CELLS - 1}) can equal: BG_Wipe_Row holds a plane row during a sweep and this marker after one, and `.landing` tells them apart by value")
+ensure(VRAM_PLANE_B_BYTES + BG_LAYOUT_SIZE <= $10000 && VRAM_PLANE_B_BYTES % (PLANE_H_CELLS * 2) == 0,
+       "engine/level/bg.emp: `.landing` asks DMA_Deferrable_DestPending about [VRAM_PLANE_B_BYTES, VRAM_PLANE_B_BYTES + BG_LAYOUT_SIZE - 1) as WORDS, which is Plane B whole only while the plane ends at or below $10000 and every destination the sweep queues (a row start) lies below its last byte")
 ensure(BG_OVERWRITE_CHUNK_BYTES >= 32 && BG_OVERWRITE_CHUNK_BYTES % 32 == 0,
        "engine/level/bg.emp: BG_OVERWRITE_CHUNK_BYTES is {BG_OVERWRITE_CHUNK_BYTES}; an overwrite chunk must be a whole number of tiles (32 B) and at least one, or BG_Stream_Update's `andi.w #$FFFC` length and the offset arithmetic stop landing on tile boundaries")
 ensure(BG_OVERWRITE_CHUNK_BYTES <= DMA_BUDGET_NTSC - FG_PEAK_BYTES - BG_CRITICAL_PEAK_BYTES,
@@ -622,9 +632,10 @@ ensure(BG_STREAM_MAX_ROWS >= 1,
 // In:  nothing. Reads Region_Current (the crossing's cache), that row's
 //      rg_bg_layout and rg_bg_span, Parallax_Current_Vscroll_BG (map space, already
 //      clamped by Parallax_Step5_Vscroll THIS frame), BG_Plane_Layout and BG_Plane_Top.
-// Out: nothing. Appends up to BG_WIPE_ROWS_PER_FRAME + BG_STREAM_MAX_ROWS row entries to
-//      Plane_Buffer. Advances BG_Plane_Top by one per ADMITTED steady-state entry, and
-//      BG_Wipe_Row / BG_Wipe_Cursor by one per ADMITTED wipe entry.
+// Out: nothing. Appends up to BG_STREAM_MAX_ROWS row entries to Plane_Buffer, advancing
+//      BG_Plane_Top by one per ADMITTED entry; or, while a crossing wipe runs, queues one
+//      Deferrable DMA of up to BG_WIPE_DMA_ROWS plane rows, advancing BG_Wipe_Row /
+//      BG_Wipe_Cursor by the rows the queue ACCEPTED, and appends nothing (the window is held).
 //
 // IT ALSO CARRIES THE CROSSING WIPE (step 6, §4.3), which is a second, independent job in
 // one proc and is said here rather than left to be discovered. The wipe arm runs FIRST and
@@ -902,88 +913,96 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         // ---- SPEND ---------------------------------------------------------------
     .wipe_spend:
         tst.b   BG_Wipe_Cursor                      // (BG_Wipe_Cursor).w
-        beq     .stream                             // no sweep in flight — the common case
-        // -- A ONE-PLANE MAP IS SWEPT BY DMA, STRAIGHT FROM ROM (shorter-connector, 2026-09-25).
-        //    d3 = max_top from above: 0 means the map IS the plane (window T = 0), so plane
-        //    row p shows map row p, and a run of rows is ONE contiguous span in both the
-        //    ROW-MAJOR layout blob and the plane's nametable (PLANE_H_CELLS*2 bytes a row in
-        //    each). No Plane_Buffer bytes, no CPU copy: BG_WIPE_DMA_ROWS rows a frame through
-        //    the Deferrable queue, where the per-row CPU path buys BG_WIPE_ROWS_PER_FRAME.
-        //    The measured reason (docs/research/2026-09-25-shorter-connector.md): the visible
-        //    rows' repaint was the term that bounded how short a zone connector can be. A map
-        //    taller than the plane keeps the CPU path below (its map row is a function of the
-        //    moving window, which a DMA run queued now could not follow). --
-        tst.w   d3
-        beq     .wipe_dma
-        moveq   #BG_WIPE_ROWS_PER_FRAME, d4         // rows this frame may buy
-    .wipe_loop:
-        // d1 = the MAP row plane row p is CURRENTLY showing, derived from the LIVE window:
-        //   m = T + ((p - T) mod PLANE_V_CELLS),  the unique m in [T, T+63] with m = p mod 64.
-        // Deriving it instead of storing it is what makes the sweep survive a window that
-        // moves mid-wipe — a FALL, which is the case §4.3 had no answer for. A stored map
-        // row goes stale the moment BG_Plane_Top advances; a stored PLANE row does not,
-        // because a plane row is a physical address and the map row it shows is a function
-        // of the window at the instant of the draw.
+        beq     .landing                            // no sweep in flight — the common case
+        // -- EVERY MAP IS SWEPT BY DMA, STRAIGHT FROM ROM: a one-plane map since the
+        //    shorter-connector parcel (2026-09-25), a TALL one since WOVEN-TALL-ENTRY
+        //    (2026-09-27). One Deferrable entry a frame of up to BG_WIPE_DMA_ROWS rows, no
+        //    Plane_Buffer bytes, no CPU copy, the cursor advancing only when the queue accepts.
+        //
+        //    THE WINDOW IS HELD FOR THE WHOLE SWEEP, and that is what lets a tall map use it.
+        //    Plane row p shows map row m = T + ((p - T) mod PLANE_V_CELLS), T = BG_Plane_Top.
+        //    A run of plane rows whose m are consecutive is one contiguous span in the
+        //    row-major blob AND in the nametable, so it is one transfer. Two things break a
+        //    run: the RING WRAP (plane row 63 -> 0) and the WINDOW'S SEAM (the plane row
+        //    T mod 64, where m falls back from T+63 to T), and a run is cut at whichever comes
+        //    first. On a one-plane map T is 0, the seam IS the wrap, and every run is
+        //    byte-for-byte the one this arm queued before a tall map could reach it.
+        //
+        //    What a DMA run cannot do is follow a window that moves after it is queued: the
+        //    entry lands in a later VBlank (it can slip one, Deferrable's contract) and would
+        //    overwrite a row the streamer had already redrawn for the new window. The CPU
+        //    sweep this replaced derived m per row at the draw for that reason, at
+        //    BG_WIPE_ROWS_PER_FRAME = 4 rows a frame against DMA's 14. So instead the steady
+        //    state is SUSPENDED while the sweep runs and until its last entry has landed
+        //    (`.landing` below): T is the value the arm snapped it to, every run is computed
+        //    against it, and the scroll moving meanwhile is absorbed by the lead
+        //    (BG_WIPE_HOLD_FRAMES `ensure` above). --
         moveq   #0, d0
-        move.b  BG_Wipe_Row, d0                     // (BG_Wipe_Row).w — the plane row, 0..63
-        move.w  BG_Plane_Top, d1                    // (BG_Plane_Top).w — T
-        move.w  d0, d3
-        sub.w   d1, d3
-        andi.w  #PLANE_V_CELLS-1, d3                // (p - T) mod the ring
-        add.w   d3, d1                              // d1 = the map row
-        moveq   #0, d2                              // band X: part 2's bands are WRAP bands
-                                                    //   over a map exactly as wide as the
-                                                    //   plane, anchor structurally 0 — the
-                                                    //   same argument the streamer makes
-        jbsr    Draw_BG_TileRow                     // d0 = 1 admitted, 0 refused; a0 survives
-        tst.w   d0
-        beq     .stream                             // REFUSED: spend nothing, retry next frame.
-                                                    //   The cursor advances on 1 and only on 1
-                                                    //   — that contract is why this producer
-                                                    //   returns anything at all.
-        moveq   #0, d0
-        move.b  BG_Wipe_Row, d0
-        addq.w  #1, d0
-        andi.w  #PLANE_V_CELLS-1, d0                // walk DOWN the plane, wrapping
-        move.b  d0, BG_Wipe_Row                     // (BG_Wipe_Row).w
-        subq.b  #1, BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w
-        beq     .stream                             // the plane now holds the new picture
-        subq.w  #1, d4
-        bne     .wipe_loop
-        jbra    .stream
-    .wipe_dma:
-        // rows = min(cursor, rows to the ring's end, BG_WIPE_DMA_ROWS): one run never wraps
-        // the plane, so it stays one contiguous transfer on both sides. a1 = the effective
-        // layout (still the `.eff_ok` pointer on both the arm and the spend path).
-        moveq   #0, d0
-        move.b  BG_Wipe_Row, d0                     // (BG_Wipe_Row).w — plane row p = map row p
+        move.b  BG_Wipe_Row, d0                     // (BG_Wipe_Row).w — p, 0..63
         moveq   #PLANE_V_CELLS, d5
-        sub.w   d0, d5                              // rows left before the ring wraps
+        sub.w   d0, d5                              // d5 = rows before the ring wraps
+        move.w  BG_Plane_Top, d1                    // (BG_Plane_Top).w — T
+        move.w  d1, d4
+        andi.w  #PLANE_V_CELLS-1, d4                // d4 = the seam's plane row, T mod 64
+        sub.w   d0, d4                              // rows before the seam, if it is below p
+        bls     .dma_seam_ok                        // seam at or above p: the wrap comes first
+        cmp.w   d4, d5
+        bls     .dma_seam_ok
+        move.w  d4, d5
+    .dma_seam_ok:
         moveq   #0, d4
         move.b  BG_Wipe_Cursor, d4                  // (BG_Wipe_Cursor).w — rows left in the sweep
         cmp.w   d4, d5
-        bls     .dma_ring_ok
+        bls     .dma_cursor_ok
         move.w  d4, d5
-    .dma_ring_ok:
+    .dma_cursor_ok:
         cmpi.w  #BG_WIPE_DMA_ROWS, d5
         bls     .dma_rows_ok
         moveq   #BG_WIPE_DMA_ROWS, d5
     .dma_rows_ok:
-        lsl.w   #7, d0                              // p * PLANE_H_CELLS*2 (row stride, both sides)
-        moveq   #0, d1
-        move.w  d0, d1
-        add.l   a1, d1                              // src = layout + p * row stride (ROM, even)
+        // m = T + ((p - T) mod 64): p's map row under the held window. A long offset, so a map
+        // past 256 rows is only the lowerer's refusal (Draw_BG_TileRow's word offset), not
+        // this arm's.
+        move.w  d0, d4
+        sub.w   d1, d4
+        andi.w  #PLANE_V_CELLS-1, d4
+        add.w   d4, d1                              // d1 = m
+        andi.l  #$FFFF, d1
+        lsl.l   #7, d1                              // m * PLANE_H_CELLS*2 (the blob's row stride)
+        add.l   a1, d1                              // src = layout + m * row stride (ROM, even)
+        lsl.w   #7, d0                              // p * PLANE_H_CELLS*2 (the plane's row stride)
         move.w  d0, d2
         addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d2     // dest = Plane B + p * row stride
         move.w  d5, d3
         lsl.w   #7, d3                              // bytes = rows * row stride
         jbsr    QueueDMA_Deferrable                 // carry SET = queue full / byte cap: retry
-        bcs     .stream                             // REFUSED: spend nothing, retry next frame
+        bcs     .done                               // REFUSED: spend nothing; the window stays held
         move.b  BG_Wipe_Row, d0                     // (BG_Wipe_Row).w
         add.b   d5, d0
         andi.b  #PLANE_V_CELLS-1, d0                // walk DOWN the plane, wrapping
         move.b  d0, BG_Wipe_Row                     // (BG_Wipe_Row).w
-        sub.b   d5, BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — 0 = the plane is promised
+        sub.b   d5, BG_Wipe_Cursor                  // (BG_Wipe_Cursor).w — 0 = every row is queued
+        bne     .done                               // rows left: the window stays held
+        move.b  #BG_WIPE_LANDING, BG_Wipe_Row       // (BG_Wipe_Row).w — queued, not yet landed
+        rts
+    .landing:
+        // -- THE LAST RUNS MAY STILL BE QUEUED. With the cursor at 0 the row byte has no row to
+        //    name, so it carries this instead: BG_WIPE_LANDING from the frame the last run was
+        //    queued until no queued Deferrable entry still writes Plane B. The steady state
+        //    waits on it, for the reason at the top of this arm. Every other path leaves 0 here
+        //    (BG_Init, Section_RedrawPlanes and the overwrite arm all `clr.w` the pair), so the
+        //    walk below runs only on the few frames after a sweep. The range stops one byte
+        //    short of the plane's end because the end is $10000, which a word cannot hold; no
+        //    entry starts there, every Plane B destination being a row start. --
+        cmpi.b  #BG_WIPE_LANDING, BG_Wipe_Row       // (BG_Wipe_Row).w
+        bne     .stream
+        move.l  a0, -(sp)
+        move.w  #VRAM_PLANE_B_BYTES & $FFFF, d1
+        move.w  #(VRAM_PLANE_B_BYTES + BG_LAYOUT_SIZE - 1) & $FFFF, d2
+        jbsr    DMA_Deferrable_DestPending          // Z SET = nothing queued writes Plane B
+        movea.l (sp)+, a0                           // movea leaves CCR alone
+        bne     .done                               // a run is still queued: hold one more frame
+        clr.b   BG_Wipe_Row                         // (BG_Wipe_Row).w — landed: resume streaming
     .stream:
         // ================= END OF THE WIPE =================
         // d6 = want_top, computed above the wipe (the arm needs it too).
