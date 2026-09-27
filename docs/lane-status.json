@@ -1,9 +1,9 @@
 {
-  "focus": "Building the woven act of all six Sonic 2 zones: builder, memory savings and slide fix landed; zone prep finishing.",
+  "focus": "Building the woven Sonic 2 act: three of four parts landed; the last is held for a small fix found while landing it.",
   "inFlight": [
     {
-      "what": "Hidden Palace, Wing Fortress, Oil Ocean made ready as clips",
-      "where": "branch parcel/woven-hpz-wfz-prep",
+      "what": "Three-zone prep: merged but held; the new clips need one field the new builder requires",
+      "where": "branch fix/solo-clips-y-from",
       "agent": true
     }
   ],
@@ -24,7 +24,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the three-zone prep lands; then build and fly the woven act.",
+  "nextBoundary": "When the three-zone prep lands with its fix; then build and fly the woven act.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -205,5 +205,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T11:08:09Z"
+  "updatedAt": "2026-09-27T11:30:59Z"
 }
