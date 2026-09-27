@@ -1,6 +1,12 @@
 {
-  "focus": "Building the woven act of all six Sonic 2 zones: all the groundwork has landed; next is assembling the act itself.",
-  "inFlight": [],
+  "focus": "Assembling the woven act of all six Sonic 2 zones, now that all its groundwork has landed.",
+  "inFlight": [
+    {
+      "what": "Assembling the full woven act of all six Sonic 2 zones, then building and flying it",
+      "where": "branch parcel/woven-full-act",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "Now: nothing in flight. Next is assembling and flying the full woven act.",
+  "nextBoundary": "When the woven act builds and flies; then your look at it on screen.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -147,8 +153,8 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: builder, slide fix and all six zones ready; assembling the act next",
-      "state": "next",
+      "title": "Woven act of all six Sonic 2 zones: groundwork landed; assembling and flying the whole act",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -163,7 +169,7 @@
     {
       "id": "REGIONS-P2-STEP8",
       "title": "Object video memory: 53 free tiles landed; halving the plane (256 more) is your call",
-      "state": "open",
+      "state": "next",
       "size": "L",
       "blockedBy": null
     },
@@ -198,6 +204,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": true,
-  "updatedAt": "2026-09-27T12:28:32Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-27T12:29:22Z"
 }
