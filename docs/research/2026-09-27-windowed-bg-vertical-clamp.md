@@ -101,3 +101,18 @@ is exactly what our plane-space band selection cannot say beyond 512 lines.
 Option 1: it is the engine's own streamer, fed the map Sonic 2 itself streams, with the one
 thing the engine cannot say (map-space bands past 512 lines) handled as data on region rows that
 already exist. No engine file changes; canonical ROM bytes do not move.
+
+## 6. Outcome (measured after building option 1)
+
+* **Solo clips: closed.** Sonic 2 agreement over every camera top (screen-top BG row and every
+  visible non-transparent line's band kind): HPZ 578/1825 -> 1825/1825, WFZ 289/1313 ->
+  1313/1313. The ROM: `clip_bg_scroll_witness` exact on every probe (72 HPZ, 16 WFZ) with a new
+  nametable leg that checks each visible map row sits in plane row m & 63.
+* **The woven act: held back, by measurement.** With HPZ and WFZ tall, `crossing_witness` stays at
+  0 glitch ticks on 9 of 11 connectors but counts 29 on hpz_to_ooz and 9 on hpz_to_mtz, both
+  crossings INTO Hidden Palace: the tall region's rate clamp slides the scroll 16 px a frame from
+  the zone left (up to 32 frames) and its wipe is the CPU sweep, costs that option 1's "costs
+  carried" paragraph named and that Z2's model and the woven connectors do not carry. So
+  `clip_rom_bake.TALL_JOINED_ZONES = False`: multi-zone acts stay windowed and s2_woven rebuilds
+  byte-identical. The remaining fixes (an engine arm for tall entry, or connectors lengthened by
+  the modelled cost) are priced in DEFERRED_WORK WINDOWED-BG-VERTICAL-CLAMP's amendment.

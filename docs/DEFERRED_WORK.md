@@ -38532,12 +38532,71 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
 - Entering Chemical Plant from the first tunnel on its middle track (y 1088/1152), a player running east is stopped 262 px in (x 2166 on the 384-px layout, held right at top speed) by the plane-A back of a loop (MEASURED: plane A is solid at x 2160..2230, y 1024..1136 on the 384-px layout; plane B is air there). Sonic 2's last plane switcher before it (CPZ Obj03 at (6536, 1152), outside the clip) puts him on path A; how Sonic 2's own route treats this stretch was not traced (INFERRED: it is entered from elsewhere, with lines and objects the clip does not carry).
 - So the pocket is crossed by PLACEMENT in the drive (`tools/woven_route_witness.py` places the player before each tunnel). Choices: a different pair of tunnel rows (the floor search in the manifest's note; every other pair put a Metropolis end in solid machinery or broke SC0), an authored layer line in the clip, or objects.
 
-## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (OPEN, booked 2026-09-27, `parcel/woven-hpz-wfz-prep`)
+## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (booked 2026-09-27, `parcel/woven-hpz-wfz-prep`; SOLO CLIPS CLOSED 2026-09-27 by `parcel/windowed-bg-vclamp`; MULTI-ZONE ACTS (s2_woven) still OPEN, see the 2026-09-27 amendment at the end of this entry)
 
 - **What:** `clip_bg_lower` lowers ONE 512-row window of a zone's BG map into Plane B (`window_top`: the lowest chunk-aligned window holding Sonic 2's own start view), and the engine's BG V-scroll clamps to 0..288 (`VSCROLL_BG_MAX`, the fallback when a region authors no `rg_bg_span`). Past the clamp the background stops moving vertically while Sonic 2's keeps scrolling through rows the plane does not hold.
 - **MEASURED on the solo clips (`clip_bg_scroll.engine_vscroll`):** HPZ (camY/2, BG 1152 rows) is clamped for act camera Y >= 576 of its 2048-px L; WFZ (1:1, window BG rows 896..1407 of a 2048-row map, 18 of the 83 tiles quoted in the woven doc) moves only over camera Y 640..928 of its solo act; OOZ (camY/8 + 80) holds to 1792, nearly its whole 1888.
 - **Not a witness gap:** `clip_bg_scroll_witness` compares the ROM with the ENGINE model, clamps included, and is exact; the difference is from Sonic 2, and it is by construction.
 - **The seam already exists:** `Region.rg_bg_span` (engine/structs.emp) is the BG map height `Parallax_Step5_Vscroll` clamps against (0 = the plane's own 512); no shipped row authors it and the clip bake does not either. Raising it is only half: the rows past the plane must reach Plane B as the camera moves (READ, not measured: `section.emp` and `bg.emp` also read the field; whether they stream a taller map was not checked here). **Options (unpriced):** author the span plus a taller lowered map and prove the redraw; a second window swapped at a height; or accept the hold for the woven act's pieces.
+- **2026-09-27 AMENDMENT (`parcel/windowed-bg-vclamp`; research doc
+  `docs/research/2026-09-27-windowed-bg-vertical-clamp.md`).**
+  - **The "READ, not measured" line above is answered: the engine DOES stream a taller map.**
+    `rg_bg_span` + a region-owned row-major `rg_bg_layout` is clamped by Parallax_Step5_Vscroll,
+    streamed by `BG_Stream_Update` (engine/level/bg.emp) and primed by `Section_RedrawPlanes`
+    (engine/level/section.emp), all live on the clip ladder. What it does NOT do is key the
+    parallax BANDS in map space (BG-BAND-PLANE-ANCHOR): rows 512 apart share a band.
+  - **Built, bake-side only (no engine file, no canonical byte):** `clip_bg_lower.lower(rows=,
+    x_reach=)` lowers a TALL map; `clip_bg_scroll.tall_extent` / `derive_tall` pick the map's
+    rows and a CHAIN of band layouts, each exact for a stretch of screen tops, the transparent
+    rows treated as free; `clip_rom_bake` emits the blob with `rg_bg_span`, splits the zone's
+    region rows at the chain's switches and names each layout in `rg_parallax` (instant between
+    layouts). Wing Fortress needs ONE layout (12 bands: its cloud rows repeat every 128, rows
+    256..511 are transparent); Hidden Palace FOUR (6/6/6/7 bands, overlaps >= 32 rows). Oil
+    Ocean needs none (its clips reach screen tops 80..288, inside its window). A map over 256
+    rows is refused (`Draw_BG_TileRow`'s `lsl.w #7` / `adda.w` row offset is a signed word).
+  - **MEASURED, against Sonic 2 (`clip_bg_scroll.vertical_coverage`: the engine's screen-top BG
+    row AND every visible non-transparent line's band kind, per camera top), before -> after:**
+    s2_hpz_solo HPZ **578/1825 -> 1825/1825**; s2_wfz_solo WFZ **289/1313 -> 1313/1313**. Rows:
+    `tools/test_clip_tall_bg.py` (red first on disk: the cuts shifted 64 px, 2 red; the map one
+    chunk row short, 3 red).
+  - **MEASURED, the ROM (`clip_bg_scroll_witness.py`, which gained a NAMETABLE leg: every visible
+    map row m must sit in plane row m & 63 byte for byte against the ROM's blob; red first with
+    the plane row off by one, 72/72 FAIL):** `S2CLIP=s2_hpz_solo DEBUG=1` crc `553397ef`: 72/72
+    exact, BG V-scroll 0..912 (was held at 288), layouts 0-3 installed at their cuts;
+    `S2CLIP=s2_wfz_solo DEBUG=1` crc `dc8e95d6`: 16/16 exact, V-scroll 0..1312.
+  - **STILL OPEN: the woven act (any act with more than one zone).** With HPZ and WFZ tall,
+    `S2CLIP=s2_woven DEBUG=1` crc `cfc3e006`, `crossing_witness.py` on all 11 connectors: 9 stay
+    at 0 glitch ticks, but **hpz_to_ooz 29** (leftward INTO Hidden Palace; slack -6 frames) and
+    **hpz_to_mtz 9** (the drop into Hidden Palace; slack -9). Entering a TALL region costs what a
+    one-plane one no longer does: Step 5's rate clamp slides the scroll 16 px a frame from the
+    zone left (OOZ 142 -> HPZ 651 at hpz_to_ooz: 32 frames), and the tall-map wipe is the CPU
+    sweep (`BG_WIPE_ROWS_PER_FRAME` rows a frame), not the DMA one. Z2's crossing model and the
+    connector lengths derived from it carry neither. So `clip_rom_bake.TALL_JOINED_ZONES = False`:
+    a multi-zone act keeps every zone windowed, and **s2_woven rebuilds byte-identical to its
+    landing (DEBUG crc `617448a7`)**. The fixes, priced:
+    (a) ENGINE: on a crossing that changes the layout into a tall region, snap the scroll (the
+        rate clamp's reason, bounded streamer work, is moot while the wipe repaints the whole
+        window) and DMA-sweep the window (runs split at the ring wrap and at the window's source
+        discontinuity), making tall entry cost what one-plane entry costs. Touches
+        parallax.emp and bg.emp: canonical bytes move; NOT done here by the brief's rule;
+    (b) CONTENT: Z2 learns the tall entry cost and the woven connectors into HPZ lengthen by it
+        (hpz_to_ooz needs roughly 200 px more at the camera cap, estimated from the measured
+        slack, not derived); a layout change for the owner;
+    (c) accept the hold in the woven act (today's state).
+    Flipping `TALL_JOINED_ZONES` is one line once (a) or (b) lands; `test_clip_tall_bg.py`
+    already holds the woven chains exact with it forced on.
+  - **Found on the way, recorded not fixed:** after a camera TELEPORT (the scroll witness's hand
+    placement across zones) the tall map's CPU wipe starved: `BG_Wipe_Cursor` held at 64 for
+    40+ frames while `Plane_Buffer` filled with foreground streaming every frame, so the plane
+    kept the previous zone's rows. Seen only under teleports on the woven build; normal
+    crossings advanced 4 rows a frame. Relevant to fix (a).
+  - **Witnesses corrected for tall maps:** `crossing_witness.py` compared plane row p with
+    layout row p (a one-plane assumption) and read a row past a tall map's end; it now compares
+    map row m against plane row m & 63 (red first: the old comparison put back, 42 + 14 false
+    glitch ticks on wfz_to_ehz; 0 without).
+  - **TAGGED for an on-screen look:** fly `S2CLIP=s2_hpz_solo DEBUG=1` down the full height and
+    across the three layout switches (camera Y 544, 1056, 1424 at x ~64..2300), and
+    `S2CLIP=s2_wfz_solo DEBUG=1` from the sky to the deck. No emulator was driven by eye here.
 
 ## S2CLIP-ADOPT-SHORT-TUNNEL: the real Sonic 2 act switches to the 384-px connector (CLOSED 2026-09-25, `parcel/s2clip-adopt-short-tunnel`)
 
