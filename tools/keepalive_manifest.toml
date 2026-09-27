@@ -283,6 +283,26 @@ accumulators added to every later zone's bands. RED on a mutant that clears them
 Before this row the witness was a manual lane (s2_ehz_cpz, 24 probes, 2026-09-25). On a
 canonical ROM it exits 2 (no clip parallax records)."""
 
+[wired."balance_witness.py#woven"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--spot", "1609,2848,left"]
+expect = 0
+timeout = 600
+note = """WOVEN-FALSE-BALANCE (2026-09-27). Derives every standing position of the woven act's plane A
+from the baked tree the same nightly's woven build wrote, and places the player at up to 8 WALL
+spots (supported by S3K's balance rule, facing a solid face where the retired x -/+ 11 probe read
+a ledge) and 8 LEDGE spots (S3K's rule balances): WALL must not teeter, LEDGE must teeter and turn
+to face the edge. The owner's sighting (1609, 2848 feet, facing left) is a named row. RED on the
+unfixed ROM (crc 65eac6c3): 15 of 15 graded spots failed (8 WALL teetered, 7 LEDGE did not).
+GREEN after Player_AtLedgeEdge took S3K's rule (crc 2124ce00): 15 of 15."""
+
+[wired."balance_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 600
+note = """WOVEN-FALSE-BALANCE (2026-09-27), the canonical act: the same derivation from the committed
+generated strips. OJZ has no WALL position (measured), so this row grades the LEDGE class only:
+the canonical teeter still fires where S3K's rule says, facing the edge."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 

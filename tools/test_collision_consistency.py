@@ -220,8 +220,9 @@ def test_rule_b_ignores_gaps_running_off_the_section_edge():
 
 
 # ---------------------------------------------------------------------------
-# RULE B, second stage — only a gap a reachable standing player's ledge probe
-# reports as a ledge is a violation (S2CLIP-CPZ-FURTHER, 2026-09-25).
+# RULE B, second stage — only a gap a reachable standing player's balance rule
+# reads as a ledge is a violation (S2CLIP-CPZ-FURTHER, 2026-09-25; the rule is
+# S3K's centre-plus-sensor one since WOVEN-FALSE-BALANCE, 2026-09-27).
 #
 # Four synthetic scenes, one per class the CPZ research found
 # (docs/research/2026-09-25-cpz-floor-gaps.md). Every scene has the SAME one-row
@@ -245,7 +246,15 @@ def _scene(kind):
     """One 40x16-cell scene holding the row-10 gap. Returns {(row, col): attr}."""
     cells = {}
     if kind == "reachable":
-        # open floor with a 16 px hole: thick ground from row 10 down, air above
+        # open floor with a 16 px hole: a one-cell-thick floor slab (row 10) over
+        # open air, air above. The sensor over the hole finds NOTHING in its two
+        # cells, so the balance rule (centre over the hole) fires.
+        for c in range(B_COLS):
+            cells[(B_FLOOR_ROW, c)] = B_FULL
+    elif kind == "shallow":
+        # the same hole, but thick ground from row 10 down: the sensor over the
+        # hole finds the ground one cell under it, so S3K's rule stays supported
+        # (the old single-point probe teetered here)
         for r in range(B_FLOOR_ROW, B_ROWS):
             for c in range(B_COLS):
                 cells[(r, c)] = B_FULL
@@ -281,8 +290,8 @@ def _exposed(grid):
     lp = cc.ledge_params()
     return cc.find_exposed_pinhole_violations(
         grid, heights, solidity, lp["SOLID_TOP"], lp["SOLID_LRB"],
-        lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"], lp["LEDGE_PROBE_REACH"],
-        lp["LEDGE_NO_GROUND"], other_rows=grid)
+        lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"], lp["BALANCE_DROP_MIN"],
+        other_rows=grid)
 
 
 def _stage(kind):
@@ -298,15 +307,17 @@ def _stage(kind):
     plane = cc.CollisionPlane(grid, heights, solidity, grid)
     return cc.classify_pinhole(plane, cand[0], lp["SOLID_TOP"], lp["SOLID_LRB"],
                                lp["PLAYER_X_RADIUS"], lp["PLAYER_Y_RADIUS"],
-                               lp["LEDGE_PROBE_REACH"], lp["LEDGE_NO_GROUND"])
+                               lp["BALANCE_DROP_MIN"])
 
 
 def test_rule_b_refuses_a_reachable_pinhole():
     """RED-able: open floor, a player walks up to the hole and teeters."""
     stage, witness = _stage("reachable")
     assert stage == "exposed"
-    x, foot_y, _facing = witness
+    x, foot_y, side = witness
     assert foot_y == B_FLOOR_ROW * 16          # standing on the floor's top
+    assert B_GAP_COLS[0] * 8 <= x <= B_GAP_COLS[-1] * 8 + 7   # centre over the hole
+    assert side in ("left", "right")
     v, stats = _exposed(_grid(B_ROWS, B_COLS, _scene("reachable")))
     assert len(v) == 1 and stats["candidates"] == 1
 
@@ -323,8 +334,15 @@ def test_rule_b_allows_an_under_slab_notch():
     assert _exposed(_grid(B_ROWS, B_COLS, _scene("notch")))[0] == []
 
 
+def test_rule_b_allows_a_shallow_hole():
+    """WOVEN-FALSE-BALANCE: the centre is over the hole, but the sensor over it
+    finds the ground a cell down, so S3K's rule does not balance."""
+    assert _stage("shallow")[0] == "ground_within_limit"
+    assert _exposed(_grid(B_ROWS, B_COLS, _scene("shallow")))[0] == []
+
+
 def test_rule_b_allows_a_one_pixel_dip():
-    """The probe finds ground 1 px down, within LEDGE_NO_GROUND: no teeter."""
+    """The centre finds ground 1 px down, under BALANCE_DROP_MIN: no teeter."""
     assert _stage("dip")[0] == "ground_within_limit"
     assert _exposed(_grid(B_ROWS, B_COLS, _scene("dip")))[0] == []
 
@@ -345,14 +363,14 @@ def test_rule_b_refuses_only_the_reachable_one_of_four_side_by_side():
 
 
 def test_rule_b_ledge_thresholds_derive_from_the_source():
-    """LEDGE_PROBE_REACH is `PLAYER_X_RADIUS+2` in player_sensors.emp: it must be
-    EVALUATED from the source, and anything unreadable must be loud."""
+    """BALANCE_DROP_MIN is read out of player_sensors.emp (S3K's `cmpi.w #$C,d1`),
+    never copied here, and anything unreadable must be loud."""
     lp = cc.ledge_params()
-    assert lp["LEDGE_PROBE_REACH"] == lp["PLAYER_X_RADIUS"] + 2 == 11
-    assert lp["LEDGE_NO_GROUND"] == 8
+    assert lp["BALANCE_DROP_MIN"] == 12
+    assert lp["PLAYER_X_RADIUS"] == 9
     assert lp["SOLID_LRB"] == 2 and lp["PLAYER_Y_RADIUS"] == 19
     with pytest.raises(cc.GateError):
-        cc.read_emp_const_expr(cc.player_sensors_emp_for(), "LEDGE_PROBE_REACH", {})
+        cc.read_emp_const_expr(cc.player_sensors_emp_for(), "LEDGE_PROBE_REACH", lp)
     with pytest.raises(cc.GateError):
         cc.read_emp_const_expr(cc.player_sensors_emp_for(), "NO_SUCH_CONSTANT", lp)
 
