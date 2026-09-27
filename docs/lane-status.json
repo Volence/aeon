@@ -5,6 +5,11 @@
       "what": "Make falling feel like Sonic 3: remove the cap, match its camera, keep thin floors solid",
       "where": "branch feel/s3k-fall",
       "agent": true
+    },
+    {
+      "what": "Redesign the big act with zones woven into each other (your sketch), and measure what that costs",
+      "where": "branch design/mega-act-woven",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -140,10 +145,10 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: six zones converted; layout proposal (three bands, two routes) waiting for your reaction",
-      "state": "blocked",
+      "title": "Big Sonic 2 act: redesigning with zones woven into each other, per your sketch",
+      "state": "doing",
       "size": "L",
-      "blockedBy": "owner: react to the layout proposal",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -197,7 +202,7 @@
       "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
-  "awaiting": "Look at the big-act layout picture and tell me what to change.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T01:31:17Z"
+  "updatedAt": "2026-09-27T01:40:05Z"
 }
