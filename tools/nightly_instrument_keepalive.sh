@@ -140,6 +140,19 @@ fi
 # DELETED before the build: a failed build must leave those rows reading NO ROM (each is
 # COULD NOT RUN, loudly) rather than grading yesterday's. A failure here stops nothing
 # else -- the canonical rows above do not read this ROM -- but it is noted.
+# The WOVEN clip (PREFETCH-THRASH-AT-FULL-WINDOW, 2026-09-27) is built FIRST and kept under its
+# own name: both clip shapes write s4.s2clip.debug.*, so the two-zone build below would
+# otherwise overwrite it. Same rule as the two-zone clip: last night's copy is deleted first,
+# so a failed build leaves its rows reading NO ROM (COULD NOT RUN), never yesterday's.
+rm -f "$NIGHTLY/s4.s2clip_mtz.debug.bin" "$NIGHTLY/s4.s2clip_mtz.debug.lst"
+rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
+if ! { python3 tools/s2_zone_convert.py convert s2disasm@MTZ s2disasm@CPZ \
+        && DEBUG=1 S2CLIP=s2_mtz_cpz ./build.sh \
+        && mv "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip_mtz.debug.bin" \
+        && mv "$NIGHTLY/s4.s2clip.debug.lst" "$NIGHTLY/s4.s2clip_mtz.debug.lst"; } > "$STATE/build_s2clip_mtz.log" 2>&1; then
+    note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_mtz_cpz build failed at $AT -- the woven clip rows will be COULD NOT RUN; see $STATE/build_s2clip_mtz.log"
+    rm -f "$NIGHTLY/s4.s2clip_mtz.debug.bin" "$NIGHTLY/s4.s2clip_mtz.debug.lst"
+fi
 rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
 if ! { python3 tools/s2_zone_convert.py convert s2disasm@EHZ \
         && python3 tools/s2_zone_convert.py convert s2disasm@CPZ \

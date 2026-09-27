@@ -234,6 +234,22 @@ HEAD: the row barrier's `or.w` dropped (f272fb44) -> BOTH legs halt, "masks both
 column barrier's dropped (2ebc0b76) -> the diagonal halts, the straight-down leg (no column
 runs) passes. docs/research/2026-09-27-gpl-a3-build.md. On a canonical ROM it exits 2."""
 
+# ---- the WOVEN CLIP ROM: tools/nightly_instrument_keepalive.sh builds DEBUG S2CLIP=s2_mtz_cpz
+# and keeps it as s4.s2clip_mtz.debug.* (both clip shapes write s4.s2clip.debug.*) ----
+
+[wired."prefetch_full_window_witness.py"]
+args = ["--rom", "{repo}/s4.s2clip_mtz.debug.bin", "--lst", "{repo}/s4.s2clip_mtz.debug.lst"]
+expect = 0
+timeout = 600
+note = """PREFETCH-THRASH-AT-FULL-WINDOW (2026-09-27). The woven clip s2_mtz_cpz is the one built
+act whose art window reaches PAGE_FRAMES of PAGE_FRAMES (2,792 windows, Chemical Plant's right
+half), so it is the only subject for a prefetch that finds every frame named. Arm A flies the
+derived full-window row slowly and FAILS on a halt or a residency-invariant break, UNMEASURABLE
+unless a full window was seen and Dbg_PageIn_PfxNoFrame advanced; arm B appends a DEMAND at the
+first full window and FAILS unless it halts on the thrash raise (the demand path keeps its
+halt). Reads the baked tree the same nightly's mtz clip build wrote. Red-first in
+docs/DEFERRED_WORK.md PREFETCH-THRASH-AT-FULL-WINDOW. On a canonical ROM it exits 2."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 
