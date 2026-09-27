@@ -1,12 +1,6 @@
 {
   "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
-  "inFlight": [
-    {
-      "what": "Stop the debug build crashing when the art cache is full (found in Chemical Plant inside Metropolis)",
-      "where": "branch fix/prefetch-full-window",
-      "agent": true
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -19,7 +13,7 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Nothing running. Next: the loop's remaining collision faults, once the temp folder has room.",
+  "nextBoundary": "Nothing running. Next woven pieces wait on the background-slide fix and the vertical joins.",
   "queue": [
     {
       "id": "OJZ-LOOP-COLLISION",
@@ -190,7 +184,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Reopen the level editor before saving our act (I edited its loop collision). Your calls: repaint the loop's right arc? And the fall camera speed (~/sonic_hacks/tryout/s3k-fall/).",
+  "awaiting": "Your calls: repaint the loop's right arc? Pick the fall camera (~/sonic_hacks/tryout/s3k-fall/). Woven try-out rebuilt with the crash fix.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T05:57:41Z"
+  "updatedAt": "2026-09-27T07:34:13Z"
 }
