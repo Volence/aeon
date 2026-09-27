@@ -127,7 +127,7 @@ def window_top(donor, zone):
     return 0 if top <= 0 else -(-top // CHUNK_PX) * CHUNK_PX
 
 
-def lower(donor, zone, loader=None, r0=None):
+def lower(donor, zone, loader=None, r0=None, rows=PLANE_ROWS, x_reach=None):
     """(words, tiles, info) for one donor zone. `words` are PLANE_COLS x PLANE_ROWS
     editor-local nametable words, ROW-MAJOR; `tiles` are 32-byte 4bpp tiles; local index i
     in a word is tiles[i]. Pure: reads the donor, writes nothing.
@@ -137,7 +137,16 @@ def lower(donor, zone, loader=None, r0=None):
     of the map: a row the plane never shows cannot make a crop wrong. (Wing Fortress is why:
     its window's cloud rows repeat every 4 chunks, while the fortress's far-right rows 0-1 and
     the rows 11-12 feature never do. For every zone lowered before, the two rules give
-    byte-identical output: tools/test_clip_bg_lower.py pins it.)"""
+    byte-identical output: tools/test_clip_bg_lower.py pins it.)
+
+    `rows` (WINDOWED-BG-VERTICAL-CLAMP, 2026-09-27) is the map's height in TILE rows, a
+    whole number of chunk rows: PLANE_ROWS (the default) is one plane, exactly as before;
+    more is a TALL map, the row-major blob `Region.rg_bg_layout` names with a `rg_bg_span`
+    and BG_Stream_Update streams through the 64-row plane ring. `x_reach` (px) bounds the
+    chunk columns the PERIOD is measured over to those a clip can bring on screen: Wing
+    Fortress's chunk rows 11-12 repeat every 4 chunks up to column 80 (BG x 10240) and carry
+    a one-off feature past it, which no clip camera reaches. None = every painted column,
+    as before."""
     bg, ct, art = (loader or _load)(donor, zone)
     tpc = ct.shape[1]                                   # tiles per chunk side
     if r0 is None:
@@ -145,9 +154,12 @@ def lower(donor, zone, loader=None, r0=None):
     if r0 % (tpc * 8):
         raise ClipBgError(f"{donor}:{zone}: window top {r0} is not a whole chunk row")
     r0c = r0 // (tpc * 8)
-    rows_c = PLANE_ROWS // tpc
+    if rows % tpc:
+        raise ClipBgError(f"{donor}:{zone}: a map of {rows} tile rows is not a whole number "
+                          f"of {tpc}-tile chunk rows")
+    rows_c = rows // tpc
     if r0c + rows_c > bg.shape[0]:
-        raise ClipBgError(f"{donor}:{zone}: the window {r0}..{r0 + PLANE_ROWS * 8 - 1} runs "
+        raise ClipBgError(f"{donor}:{zone}: the window {r0}..{r0 + rows * 8 - 1} runs "
                           f"past the {bg.shape[0] * tpc * 8}-px background")
     win = bg[r0c:r0c + rows_c]
     painted = [r for r in range(bg.shape[0])
@@ -156,15 +168,17 @@ def lower(donor, zone, loader=None, r0=None):
         raise ClipBgError(f"{donor}:{zone} has no painted background row")
     nz = [c for c in range(win.shape[1]) if win[:, c].any()]
     if not nz:
-        raise ClipBgError(f"{donor}:{zone}'s window {r0}..{r0 + PLANE_ROWS * 8 - 1} is empty")
+        raise ClipBgError(f"{donor}:{zone}'s window {r0}..{r0 + rows * 8 - 1} is empty")
     width = max(nz) + 1
+    if x_reach is not None:
+        width = min(width, -(-x_reach // (tpc * 8)))
     period = next((p for p in range(1, width)
                    if all((win[r, :width - p] == win[r, p:width]).all()
                           for r in range(win.shape[0]))), None)
     if period is None:
         raise ClipBgError(f"{donor}:{zone}'s background does not repeat horizontally over "
                           f"its painted {width} chunk columns in rows {r0}.."
-                          f"{r0 + PLANE_ROWS * 8 - 1}")
+                          f"{r0 + rows * 8 - 1}")
     crop_c = PLANE_COLS // tpc
     if period * tpc < PLANE_COLS and PLANE_COLS % (period * tpc):
         raise ClipBgError(f"{donor}:{zone}'s period is {period * tpc} cells, which neither "
@@ -189,7 +203,7 @@ def lower(donor, zone, loader=None, r0=None):
         """The resolved (line, index) of every pixel of one tile column; index 0 is
         transparent whatever the line, so it resolves to one value."""
         out = []
-        for r in range(PLANE_ROWS):
+        for r in range(rows):
             w = int(full[r, tc])
             line = (w >> 13) & 3
             out.extend((line, v) if v else (0, 0) for row in pixels(w) for v in row)
@@ -201,13 +215,13 @@ def lower(donor, zone, loader=None, r0=None):
         b = column(s * tpc)                              # what the plane wrap puts there
         seams.append((sum(1 for x, y in zip(a, b) if x != y), s))
     seam_cost, start = min(seams)
-    crop = full[:PLANE_ROWS, start * tpc:start * tpc + PLANE_COLS]
+    crop = full[:rows, start * tpc:start * tpc + PLANE_COLS]
 
     index = {}
     tiles = []
     words = []
     line0 = prio = 0
-    for r in range(PLANE_ROWS):
+    for r in range(rows):
         for c in range(PLANE_COLS):
             w = int(crop[r, c])
             px = pixels(w & ~(FLIP_H | FLIP_V))
@@ -239,7 +253,7 @@ def lower(donor, zone, loader=None, r0=None):
         raise ClipBgError(f"{donor}:{zone}: {len(over)} word(s) name a tile past the "
                           f"{len(tiles)}-tile list (first at cell {over[0]})")
     info = {"donor": donor, "zone": zone, "period_cells": period * tpc,
-            "window_top_px": r0,
+            "window_top_px": r0, "rows": rows,
             "crop_start_chunk": start, "seam_cost_pixels": seam_cost,
             "painted_rows_px": (max(painted) + 1) * tpc * 8, "tiles": len(tiles),
             "line0_cells": line0, "priority_cells": prio,
@@ -256,9 +270,20 @@ def override_doc(words, tiles):
 
 
 def layout_blob(words):
-    """The engine's Plane B blob, through the shipped rebase (ROW-MAJOR, 8192 B)."""
+    """The engine's Plane B blob, through the shipped rebase (ROW-MAJOR, 128 B a map row:
+    8192 B for one plane, more for a TALL map). The rebase is per word, so a tall map goes
+    through it one plane at a time, the last plane padded with transparent words and cut
+    back; one plane's bytes are exactly the single call they always were."""
     from inject_editor_bg import rebase_layout
-    return rebase_layout(list(words))
+    words = list(words)
+    n = PLANE_COLS * PLANE_ROWS
+    if len(words) % PLANE_COLS:
+        raise ClipBgError(f"a layout of {len(words)} words is not whole {PLANE_COLS}-cell rows")
+    out = b""
+    for i in range(0, len(words), n):
+        part = words[i:i + n]
+        out += rebase_layout(part + [0] * (n - len(part)))[:len(part) * 2]
+    return out
 
 
 def tiles_blob(tiles):

@@ -57,7 +57,7 @@ COHERENT_TRIES = 8
 STABLE_FRAMES = 30
 
 
-def probes(act, specs=None):
+def probes(act, specs=None, chains=None):
     """Camera positions per zone: its own x span (camera left edge, clamped so the CENTRE is
     inside the zone's clip) at a few heights inside its paste. Derived from the manifest.
 
@@ -79,6 +79,19 @@ def probes(act, specs=None):
                    if CBS.engine_vscroll(sp, y) >= top // 2]
             if mid and 0 < CBS.engine_vscroll(sp, mid[0]) < top:
                 ys.add(mid[0])
+        # a TALL zone's chain: the camera tops either side of every layout switch (the last
+        # top of layout i and the first of i + 1), and the middle of each layout's own
+        # stretch, where they fall inside this clip (WINDOWED-BG-VERTICAL-CLAMP)
+        ch = (chains or {}).get(c.zone_key)
+        if ch:
+            ys.update(y for cut in ch["cuts"] for y in (cut - half_h - 1, cut - half_h)
+                      if y0 <= y <= y0 + h - 2 * half_h)
+            for sp_ in ch["specs"]:
+                a, b_ = sp_["tall"]["valid"]
+                hit = [y for y in range(y0, y0 + h - 2 * half_h + 1)
+                       if CBS.engine_vscroll(sp_, y) + sp_["window_top"] >= (a + b_) // 2]
+                if hit:
+                    ys.add(hit[0])
         ys = sorted(ys)
         for x in xs:
             for y in ys:
@@ -86,7 +99,13 @@ def probes(act, specs=None):
     return out
 
 
-async def _probe(b, sym, camx, camy, rates=None):
+#: engine/system/constants.emp VRAM_PLANE_B_BYTES; a nametable row is 64 cells = 128 bytes.
+VRAM_PLANE_B = 0xE000
+PLANE_ROW_BYTES = 128
+PLANE_BYTES = 64 * PLANE_ROW_BYTES
+
+
+async def _probe(b, sym, camx, camy, rates=None, plane=False):
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_X"]), "value": camx << 16,
                                            "width": 4})
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_Y"]), "value": camy << 16,
@@ -119,6 +138,17 @@ async def _probe(b, sym, camx, camy, rates=None):
              ("Parallax_Deform_Phase_BG", 2)]
     if "Parallax_Drift_Acc" in sym:
         reads.append(("Parallax_Drift_Acc", 4 * DRIFT_BANDS))
+    if plane:
+        # the NAMETABLE leg of a tall zone: the whole Plane B, read from VRAM
+        # (4096 bytes a call, as tools/bg_window_gate.py reads it; a short read is COULD NOT
+        # MEASURE, never a pass)
+        plane_b = b""
+        for off in range(0, PLANE_BYTES, 4096):
+            r = await b.call("emulator/read_vram", {"addr": hex(VRAM_PLANE_B + off), "len": 4096})
+            h = r["bytes"][2:] if r["bytes"].startswith("0x") else r["bytes"]
+            if len(h) != 4096 * 2:
+                return None
+            plane_b += bytes.fromhex(h)
     # A DRIFTING scene changes every frame, so a snapshot taken while the frame loop is still
     # inside Parallax_Update's band loop (a lag frame) is a mix of two frames. MEASURED on
     # s2_wfz_solo at camera (4101, 0): accumulators [240, 120, 60, 240, 119, 59, 239, ...]
@@ -133,6 +163,8 @@ async def _probe(b, sym, camx, camy, rates=None):
             r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
             rd[name] = bytes.fromhex(r["bytes"])
         if _coherent(rd.get("Parallax_Drift_Acc", b""), rates):
+            if plane:
+                rd["PlaneB"] = plane_b
             return rd, n + 1, tries
         await b.call("emulator/run_frames", {"frames": 1})
     return None
@@ -161,9 +193,27 @@ def main():
     act = CM.load(str(REPO / "games" / "sonic4" / "data" / "clips" / a.clip / "clips.json"))
     zones = {c.zone_key: c for c in act.clips}
     specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
+    # A TALL zone (WINDOWED-BG-VERTICAL-CLAMP) carries a CHAIN of band layouts, the region row
+    # under the camera centre naming one; the bake's own tall_chains() re-derives it, and the
+    # probe's expectation is the layout its camera centre selects (count of cuts <= centre).
+    import clip_rom_bake as CRB
+    chains = CRB.tall_chains(act)
+    for k, ch in chains.items():
+        specs[k] = ch["specs"][0]
+
+    def spec_at(key, camy):
+        ch = chains.get(key)
+        if not ch:
+            return 0, specs[key]
+        i = sum(1 for c in ch["cuts"] if c <= camy + CBS.CAM_HALF_H)
+        return i, ch["specs"][i]
     # A drifting band (WFZ's clouds) moves with Parallax_Drift_Acc, not the camera: without
     # the accumulator the model cannot be compared, so it is REQUIRED when any spec drifts.
-    need = SYMS + [CBS.PARALLAX_LABEL.format(key=k) for k in zones] + (
+    labels = {CBS.PARALLAX_LABEL.format(key=k): (k, 0) for k in zones}
+    for k, ch in chains.items():
+        labels.update({CRB.tall_parallax_label(k, i): (k, i) for i in range(len(ch["specs"]))})
+    blob_lab = {k: f"OJZ_Clip_BG_Layout_{k}" for k in chains}
+    need = SYMS + sorted(labels) + sorted(blob_lab.values()) + (
         ["Parallax_Drift_Acc"] if any(b.get("drift") for sp in specs.values()
                                       for b in sp["bands"]) else [])
     missing = [s for s in need if s not in sym]
@@ -172,8 +222,8 @@ def main():
         return 2
     with open(CBS.s2_asm_path(zones[min(zones)].donor), errors="replace") as fh:
         text = fh.read()
-    cfg_of = {sym[CBS.PARALLAX_LABEL.format(key=k)] & 0xFFFFFF: k for k in zones}
-    plan = probes(act, specs)
+    cfg_of = {sym[lab] & 0xFFFFFF: ki for lab, ki in labels.items()}
+    plan = probes(act, specs, chains)
     rates_of = {k: [b.get("drift") or 0 for b in sp["bands"]] for k, sp in specs.items()}
     results = []
 
@@ -189,7 +239,8 @@ def main():
                                                "value": 1, "width": 1})
         await b.call("emulator/run_frames", {"frames": 2})
         for key, zone, dy, x, y in plan:
-            results.append((key, zone, x, y, await _probe(b, sym, x, y, rates_of[key])))
+            results.append((key, zone, x, y, await _probe(b, sym, x, y, rates_of[key],
+                                                          plane=key in chains)))
         await b.close()
 
     with headless_emulator(rom) as sock:
@@ -221,17 +272,39 @@ def main():
             print(f"COULD NOT MEASURE {line}: the camera did not stay at ({x},{y})")
             unmeasured += 1
             continue
-        if cfg_of.get(cfg) != key:
+        idx, spec = spec_at(key, camy)
+        want_lab = CRB.tall_parallax_label(key, idx) if key in chains else \
+            CBS.PARALLAX_LABEL.format(key=key)
+        if cfg_of.get(cfg) != (key, idx):
             print(f"FAIL {line}: Parallax_Current_Config ${cfg:06X} is not "
-                  f"{CBS.PARALLAX_LABEL.format(key=key)} (${sym[CBS.PARALLAX_LABEL.format(key=key)] & 0xFFFFFF:06X})")
+                  f"{want_lab} (${sym[want_lab] & 0xFFFFFF:06X})")
             bad += 1
             continue
-        spec = specs[key]
+        line += f" layout {idx}" if key in chains else ""
         want_vs = CBS.engine_vscroll(spec, camy)
         model = CBS.engine_bg_words(spec, camx, vscroll=vs, phase_bg=ph, drift_px=dpx)
         miss = [i for i in range(224) if model[i] != bg[i]]
         fg_miss = [i for i in range(224) if fg[i] != CBS._sx(-camx, 16)]
         ok = not miss and not fg_miss and vs == want_vs
+        nt_bad = []
+        if key in chains:
+            # THE NAMETABLE (BG-TALL's leg 2, on a clip): every MAP row the screen shows must
+            # sit in plane row (m & 63) byte for byte, the bytes being the blob the ROM names
+            # (read out of the ROM at its listing address, not re-lowered here). Where two map
+            # rows hold identical bytes (Hidden Palace's chunk rows 7-8) this cannot tell them
+            # apart; everywhere else it names the row.
+            span = chains[key]["span"]
+            base = sym[blob_lab[key]] & 0xFFFFFF
+            with open(rom, "rb") as fh:
+                fh.seek(base)
+                blob = fh.read(span // 8 * PLANE_ROW_BYTES)
+            pb = rd["PlaneB"]
+            for m in range(vs >> 3, min((vs + 223) >> 3, span // 8 - 1) + 1):
+                p = (m & 63) * PLANE_ROW_BYTES
+                if pb[p:p + PLANE_ROW_BYTES] != blob[m * PLANE_ROW_BYTES:(m + 1) * PLANE_ROW_BYTES]:
+                    nt_bad.append(m)
+            line += f" plane rows {'OK' if not nt_bad else 'WRONG ' + str(nt_bad[:8])}"
+            ok = ok and not nt_bad
         extra = ""
         if zone == "EHZ" and ok:
             rows, _ = CBS.run_swscrl_ehz(text, camx)

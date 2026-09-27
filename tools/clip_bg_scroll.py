@@ -1385,6 +1385,207 @@ def bg_row_at(spec, camy):
 
 
 # ---------------------------------------------------------------------------
+# TALL MAPS: the whole reachable height, streamed (WINDOWED-BG-VERTICAL-CLAMP, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# A windowed zone (above) lowers ONE 512-line window, and the engine's BG V-scroll then clamps
+# to 0..PLANE_CEILING: past it the background stops moving while Sonic 2's keeps scrolling.
+# The engine already streams a map TALLER than the plane (regions part 2 step 5):
+# `Region.rg_bg_layout` names a row-major blob of any whole number of 64-cell rows,
+# `Region.rg_bg_span` is its height, Parallax_Step5_Vscroll clamps against `span - 224`, and
+# BG_Stream_Update / Section_RedrawPlanes keep the 64-row ring holding the rows the scroll
+# selects (map row m lives in plane row m & 63). So a clip zone whose reachable screen tops
+# do not fit one window gets the whole reachable height as ONE tall map instead. Nothing in
+# the engine changes: this is data for mechanisms that exist.
+#
+# WHAT A TALL MAP DOES NOT GIVE FOR FREE: the parallax BAND tops. Step 4a selects a band by
+# PLANE line (`vscroll & (PLANE_B_SPAN - 1)`, BG-BAND-PLANE-ANCHOR), so on a taller map two
+# map rows 512 lines apart share a band. A zone whose kinds repeat every 512 lines (or whose
+# conflicting rows are TRANSPARENT, which no hscroll can show) needs one band layout; Hidden
+# Palace's do not (its rows 0..127 take camX/2 and rows 512..639 camX/4). So the zone gets a
+# CHAIN of band layouts ("window configs"), each exact for the screen tops it is valid over,
+# bound per REGION ROW (`rg_parallax`) and switched where two neighbours are BOTH exact for
+# every visible line (the crossing is then invisible whichever frame it lands on). Region
+# rows and rg_parallax are existing engine mechanism; the chain is chosen here.
+#
+# The mapping from camera to map row is the windowed one with the window at R0 (the map's
+# first BG row): vscroll = ((camY - v_center) >> v_factor) + v_offset - R0, so every
+# identity the windowed path proves (scene_text's world Y, the v_center fold) carries over.
+
+TALL_RAW = {"HPZ": derive_hpz_raw, "WFZ": derive_wfz_raw}
+#: A Sonic 2 chunk is 128 lines: the map starts and ends on a chunk row.
+CHUNK_LINES = 128
+#: The engine's BG_TALL_MAP_MIN_SPAN (engine/level/parallax.emp): one plane plus one row.
+TALL_MIN_SPAN = PLANE_LINES + 8
+#: VSCROLL_BG_MAX: the act default's ceiling, the one every windowed zone clamps to.
+PLANE_CEILING = PLANE_LINES - SCREEN_LINES
+#: CAM_SCREEN_HALF_H: a region row is keyed by the camera CENTRE.
+CAM_HALF_H = 112
+#: The overlap two chained band layouts should share, in screen-top rows: two frames of
+#: BG_VSCROLL_MAX_STEP (16), so a scroll trailing its camera by up to 16 rows either side of
+#: the switch still shows an exact layout.
+SWITCH_MARGIN = 32
+
+
+def v_bg(raw, paste_dy, camy):
+    """Sonic 2's BG row at the screen top for ACT camera Y `camy` (the zone pasted at dy)."""
+    return ((camy - paste_dy) >> raw["v_factor"]) + raw["v_offset"]
+
+
+def _tall_source(donor, zone, donor_cam_x_max, v_hi):
+    """(raw, kind_of) for a tall-capable zone. kind_of(bg_row) is Sonic 2's kind for that row,
+    read DIRECTLY from the table: both writers index their table from the screen top's row
+    through a mask and then walk it forward, so row r's kind is table[r] for every screen top
+    below the mask's period, which is refused otherwise (Hidden Palace's 1024-row index wrap,
+    Wing Fortress's $7FF row mask)."""
+    with open(s2_asm_path(donor), errors="replace") as fh:
+        text = fh.read()
+    raw = TALL_RAW[zone](text)
+    if zone == "WFZ":
+        if donor_cam_x_max >= raw["transition_x"]:
+            raise ClipScrollError(
+                f"WFZ: a clip camera reaches donor X {donor_cam_x_max}, past SwScrl_WFZ's "
+                f"transition at ${raw['transition_x']:X}, where the Transition array scrolls "
+                f"rows 1408..1791 differently; one band chain cannot be both")
+        table, period = raw["arrays"]["Normal"], raw["row_mask"] + 1
+    else:
+        table, period = raw["kinds"], raw["wrap"]
+    if v_hi >= period:
+        raise ClipScrollError(f"{zone}: a screen top reaches BG row {v_hi}, past the "
+                              f"{period}-row period its scroll table is indexed through")
+    return raw, table.get
+
+
+def tall_extent(donor, zone, paste_dy, cam_lo, cam_hi, map_lines):
+    """The tall map a clip zone needs, or None when its plane window already holds every
+    screen top its clips reach (then nothing changes: the zone keeps the windowed path).
+
+    `cam_lo`/`cam_hi` are the act camera tops (Y) its clips can hold (dst.y .. dst.y + h - 224);
+    `map_lines` is the donor background's height. Returns {"r0" (first BG row, a chunk row),
+    "rows" (tile rows), "v_lo", "v_hi" (screen-top BG rows reached)}. The map runs from the
+    chunk row holding the highest top to the chunk row holding the lowest screen's last line,
+    capped at the donor map (where the engine's own clamp then holds, as Sonic 2's map ends)."""
+    import clip_bg_lower
+    if zone not in TALL_RAW or DERIVER_DONOR.get(zone) != donor:
+        return None
+    with open(s2_asm_path(donor), errors="replace") as fh:
+        raw = TALL_RAW[zone](fh.read())
+    v_lo, v_hi = (max(0, v_bg(raw, paste_dy, c)) for c in (cam_lo, cam_hi))
+    r0 = clip_bg_lower.window_top(donor, zone)
+    if r0 <= v_lo and v_hi <= r0 + PLANE_CEILING:
+        return None
+    top = v_lo // CHUNK_LINES * CHUNK_LINES
+    end = min(map_lines, -(-(v_hi + SCREEN_LINES) // CHUNK_LINES) * CHUNK_LINES)
+    if end - top < TALL_MIN_SPAN:
+        raise ClipScrollError(f"{zone}: screen tops {v_lo}..{v_hi} leave window {r0} yet fit "
+                              f"{end - top} lines, which is not a tall map; a different "
+                              f"window rule is wanted, not this path")
+    return {"r0": top, "rows": (end - top) // 8, "v_lo": v_lo, "v_hi": v_hi}
+
+
+def _runs(ok, lo):
+    """[(start, end)] inclusive runs of True in `ok`, indexed from `lo`."""
+    out, s = [], None
+    for i, v in enumerate(list(ok) + [False]):
+        if v and s is None:
+            s = i
+        elif not v and s is not None:
+            out.append((lo + s, lo + i - 1))
+            s = None
+    return out
+
+
+def derive_tall(donor, zone, paste_dy, ext, words, donor_cam_x_max):
+    """The band chain for one tall zone: {"specs": [spec per window config, top to bottom],
+    "switch_rows": [BG screen-top row where config i hands to i + 1], "overlap": [(a, b)]
+    (the screen tops where both are exact), "cuts": [act camera-CENTRE Y of each switch]}.
+
+    `words` are the tall map's lowered cells (clip_bg_lower.lower(rows=ext["rows"])): a tile
+    row whose 64 cells are all transparent can show no hscroll, so its kind is free."""
+    r0, n = ext["r0"], ext["rows"] * 8
+    raw, kind_of = _tall_source(donor, zone, donor_cam_x_max, ext["v_hi"])
+    cols = len(words) // ext["rows"]
+    wild = {r0 + 8 * t + i for t in range(ext["rows"])
+            if not any(words[t * cols:(t + 1) * cols]) for i in range(8)}
+
+    def K(r):
+        return None if r in wild or not r0 <= r < r0 + n else kind_of(r)
+
+    lo = max(ext["v_lo"], r0)
+    hi = min(ext["v_hi"], r0 + n - SCREEN_LINES)
+    lines = range(lo, hi + SCREEN_LINES)
+    cands = {}
+    for a in range(0, n, 8):
+        C = []
+        for p in range(PLANE_LINES):
+            k = K(r0 + a + ((p - a) % PLANE_LINES))
+            if k is None:                   # free here: take any alias that is not
+                k = next((K(r0 + m) for m in range(p, n, PLANE_LINES)
+                          if K(r0 + m) is not None), None)
+            C.append(k)
+        first = next((k for k in C if k is not None), None)
+        if first is None:
+            raise ClipScrollError(f"{zone}: the tall map has no painted row")
+        for p in range(PLANE_LINES):        # a free line joins the band above it
+            if C[p] is None:
+                C[p] = C[p - 1] if p else first
+        cands.setdefault(tuple(C), a)
+    runs = []
+    for C in cands:
+        pre = [0]
+        for r in lines:
+            k = K(r)
+            pre.append(pre[-1] + (k is not None and C[(r - r0) % PLANE_LINES] != k))
+        ok = [pre[v - lo + SCREEN_LINES] == pre[v - lo] for v in range(lo, hi + 1)]
+        runs += [(s, e, C) for s, e in _runs(ok, lo)]
+    pool = [r for r in runs if r[0] <= lo <= r[1]]
+    if not pool:
+        raise ClipScrollError(f"{zone}: no band layout is exact for screen top {lo}")
+    chain = [max(pool, key=lambda r: r[1])]
+    while chain[-1][1] < hi:
+        cur = chain[-1]
+        pool = [r for r in runs if cur[0] < r[0] <= cur[1] < r[1]]
+        if not pool:
+            raise ClipScrollError(f"{zone}: no band layout is exact past screen top "
+                                  f"{cur[1]} while overlapping the one that ends there")
+        # PREFER an overlap of SWITCH_MARGIN rows (the switch sits in its middle), so a
+        # scroll that trails its camera (Step 5's rate clamp) still meets an exact layout;
+        # take the widest overlap there is when no neighbour offers that much.
+        wide = [r for r in pool if cur[1] - r[0] >= SWITCH_MARGIN] or \
+            [max(pool, key=lambda r: (cur[1] - r[0], r[1]))]
+        chain.append(max(wide, key=lambda r: (r[1], -r[0])))
+    specs, switch, overlap, cuts = [], [], [], []
+    for i, (s, e, C) in enumerate(chain):
+        kinds = {r0 + p: C[p] for p in range(PLANE_LINES)}
+        bands, v_off, approx = _finish_plane(kinds, raw["v_factor"], raw["v_offset"], r0, r0,
+                                             f"{zone} tall config {i}")
+        spec = {"zone": zone, "routine": raw["routine"], "v_factor": raw["v_factor"],
+                "v_center": paste_dy, "v_offset": v_off, "bands": bands, "window_top": r0,
+                "approximations": approx, "provenance": raw["provenance"], "bg_span": n,
+                "tall": {"index": i, "of": len(chain), "valid": (max(s, lo), min(e, hi))}}
+        if len(chain) > 1:
+            spec["transition"] = 1          # a lerp between two band layouts is neither
+        specs.append(_nonneg_center(spec))
+        if i:
+            a, b = chain[i][0], chain[i - 1][1]
+            v = (a + b) // 2
+            overlap.append((a, b))
+            switch.append(v)
+            cuts.append(((v - raw["v_offset"]) << raw["v_factor"]) + paste_dy + CAM_HALF_H)
+    if len(specs) > 1:
+        for k in range(max(len(sp["bands"]) for sp in specs)):
+            rates = {(sp["bands"][k].get("drift") or 0) if k < len(sp["bands"]) else 0
+                     for sp in specs}
+            if len(rates) > 1:
+                raise ClipScrollError(
+                    f"{zone}: band {k} drifts at {sorted(rates)} across the chain's configs; "
+                    f"Parallax_Drift_Acc is kept per band INDEX across a config switch, so the "
+                    f"clouds would jump")
+    return {"specs": specs, "switch_rows": switch, "overlap": overlap, "cuts": cuts,
+            "r0": r0, "rows": ext["rows"], "span": n, "v_lo": lo, "v_hi": hi}
+
+
+# ---------------------------------------------------------------------------
 # emission: scene_dsl text
 # ---------------------------------------------------------------------------
 
@@ -1488,7 +1689,9 @@ def data_block_text(zones, act_span, transition=0):
             f"//   plane line {top:>3}{'' if end is None else f'..{end - 1:<3}'}  {what}"
             for top, end, what, _f, _src in band_rows(spec))
         out.append(f"// zone key {key}: {spec['zone']} ({spec['routine']}; {prov})\n{rows}\n")
-        out.append(scene_text(spec, lab, TABLE_LABEL, transition))
+        # a tall zone's CHAIN of band layouts switches instantly whatever the act says
+        # (derive_tall: a lerp between two layouts is neither); every other spec takes the act's
+        out.append(scene_text(spec, lab, TABLE_LABEL, spec.get("transition", transition)))
     n = len(names)
     tops = sum(len(spec["bands"]) for _k, spec in zones)
     out.append(
@@ -1535,9 +1738,12 @@ def band_rows(spec):
 # the engine model and the comparison (what the parcel measures)
 # ---------------------------------------------------------------------------
 
-def engine_vscroll(spec, camy, ceiling=PLANE_LINES - SCREEN_LINES):
+def engine_vscroll(spec, camy, ceiling=None):
     """Parallax_Step5_Vscroll at steady state: the BG vertical scroll, clamped to
-    [0, ceiling] (VSCROLL_BG_MAX when the region authors no rg_bg_span)."""
+    [0, ceiling]: VSCROLL_BG_MAX when the region authors no rg_bg_span, `span - 224` on a
+    TALL map's rows (the spec carries its `bg_span`, which the bake writes as rg_bg_span)."""
+    if ceiling is None:
+        ceiling = (spec["bg_span"] - SCREEN_LINES) if spec.get("bg_span") else PLANE_CEILING
     if spec["v_factor"] == LOCKED:
         v = spec["v_offset"]
     else:

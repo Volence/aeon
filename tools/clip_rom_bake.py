@@ -530,8 +530,8 @@ def _region_rows_text(plan):
     # BACKGROUNDS block); a row of any other zone names that zone's own blobs.
     return "\n    ".join(
         f"Region{{ rg_x0: {r['x0']}, rg_x1: {r['x1']}, rg_y0: {r['y0']}, rg_y1: {r['y1']}, "
-        f"rg_effects: {r['preset_label']}, rg_parallax: 0, "
-        f"rg_bg_layout: {r.get('bg_layout') or 0}, rg_bg_span: 0, "
+        f"rg_effects: {r['preset_label']}, rg_parallax: {r.get('parallax') or 0}, "
+        f"rg_bg_layout: {r.get('bg_layout') or 0}, rg_bg_span: {r.get('bg_span') or 0}, "
         f"rg_bg_tiles: {r.get('bg_tiles') or 0}, "
         # rg_song: the id of the clip's per-zone `music` on a zone's OUTER row, 0 ("no song
         # named, leave the music alone") on the corridor's inner rows and on every row of a
@@ -791,8 +791,26 @@ def _scroll_transition(plan):
 
 
 def _scroll_zones(plan):
-    """[(zone key, scroll spec)] for every zone the SCROLL block derived one for, in key order."""
-    return [(z["key"], z["scroll"]) for z in plan["zones"] if z.get("scroll")]
+    """[(label key, scroll spec)] for every zone the SCROLL block derived one for, in key order.
+    A TALL zone's chain contributes every layout: config 0 under the zone's key (its preset
+    binds it), config i under "<key>_W<i>" (tall_parallax_label; the split rows name them)."""
+    out = []
+    for z in plan["zones"]:
+        if z.get("scroll_chain"):
+            out += [(z["key"] if i == 0 else f"{z['key']}_W{i}", sp)
+                    for i, sp in enumerate(z["scroll_chain"]["specs"])]
+        elif z.get("scroll"):
+            out.append((z["key"], z["scroll"]))
+    return out
+
+
+def _row_parallax_labels(plan):
+    """The parallax records the region ROWS name (a tall zone's split rows), in first use."""
+    seen = []
+    for r in plan["rows"]:
+        if r.get("parallax") and r["parallax"] not in seen:
+            seen.append(r["parallax"])
+    return seen
 
 
 def clip_module_text(plan=None):
@@ -818,7 +836,8 @@ def clip_module_text(plan=None):
                 "    return hand\n"
                 "}\n\n"
                 + _LAYER_LINES_NEUTRAL + "\n" + _START_NEUTRAL)
-    presets = ", ".join([z["preset_label"] for z in plan["zones"]] + _region_bg_labels(plan))
+    presets = ", ".join([z["preset_label"] for z in plan["zones"]] + _region_bg_labels(plan)
+                        + _row_parallax_labels(plan))
     uses_ll = ", LayerLine" if (plan.get("layer_lines") or {}).get("rows") else ""
     n = len(plan["rows"])
     backdrop = plan.get("backdrop_reg", 0)
@@ -904,8 +923,14 @@ def clip_data_block(plan):
             f"(tools/clip_bg_lower.py): {bg['tiles']} tiles,\n// crop start chunk "
             f"{bg['crop_start_chunk']} of a {bg['period_cells']}-cell period, invented-seam "
             f"cost {bg['seam_cost_pixels']} px. Named by this zone's region rows.\n"
-            f"pub data {z['bg_layout_label']} (align: 2): [u8; BG_LAYOUT_SIZE] = "
-            f"embed(\"{z['bg_layout_embed']}\")\n" + tiles_line)
+            + (f"// TALL: {z['bg_span']} lines of map (rg_bg_span), BG rows "
+               f"{z['tall']['r0']}..{z['tall']['r0'] + z['bg_span'] - 1}, streamed by "
+               f"BG_Stream_Update (WINDOWED-BG-VERTICAL-CLAMP).\n" if z.get("bg_span") else "")
+            + f"pub data {z['bg_layout_label']} (align: 2): "
+            + (f"[u8; {z['bg_layout_bytes']}]" if z.get("bg_span") else "[u8; BG_LAYOUT_SIZE]")
+            + f" = embed(\"{z['bg_layout_embed']}\")\n"
+            + (tiles_line if z.get("bg_role") != "act_default" else
+               "// its tiles are the act default's blob (rg_bg_tiles 0): it IS the start zone.\n"))
     out.append(CLIP_DATA_END + "\n")
     return "".join(out)
 
@@ -1170,12 +1195,89 @@ def blob_groups(act):
 _LOWERED = {}
 
 
-def _lowered_tiles(donor, zone):
-    """The tile list clip_bg_lower.lower() gives one zone (memoised: it is pure)."""
-    if (donor, zone) not in _LOWERED:
-        import clip_bg_lower as CBL
-        _LOWERED[(donor, zone)] = CBL.lower(donor, zone)[1]
-    return _LOWERED[(donor, zone)]
+def lower_zone(donor, zone, tall=None):
+    """clip_bg_lower.lower() for one zone: its one-plane window, or its TALL map when
+    `tall` (tall_plans' entry) says the window cannot hold the screen tops its clips reach."""
+    import clip_bg_lower as CBL
+    if not tall:
+        return CBL.lower(donor, zone)
+    return CBL.lower(donor, zone, r0=tall["r0"], rows=tall["rows"], x_reach=tall["x_reach"])
+
+
+def _lowered_tiles(donor, zone, tall=None):
+    """The tile list lower_zone() gives one zone (memoised: it is pure)."""
+    key = (donor, zone) + ((tall["r0"], tall["rows"], tall["x_reach"]) if tall else ())
+    if key not in _LOWERED:
+        _LOWERED[key] = lower_zone(donor, zone, tall)[1]
+    return _LOWERED[key]
+
+
+# ---------------------------------------------------------------------------
+# TALL BACKGROUNDS (WINDOWED-BG-VERTICAL-CLAMP, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# A zone whose clips reach screen tops its one 512-line window cannot hold (Hidden Palace,
+# Wing Fortress) is lowered as a TALL map instead: every BG row its clips reach, one blob named
+# by its region rows (rg_bg_layout) with its height (rg_bg_span), streamed by the engine's own
+# BG_Stream_Update. Its scroll is a CHAIN of band layouts (clip_bg_scroll.derive_tall), one per
+# stretch of height, and the zone's rows are SPLIT at the chain's switch heights so each row
+# names its layout (rg_parallax). A zone the window holds is untouched, byte for byte.
+# docs/research/2026-09-27-windowed-bg-vertical-clamp.md has the finding and the options.
+
+#: How far past a clip's rightmost camera the period test looks, in BG px: the width of the
+#: plane, which is what Sonic 2's own 64-cell ring can hold ahead of a camera whose BG X moves
+#: no faster than it (1:1 at most, for every zone this path takes).
+TALL_X_MARGIN = 512
+
+
+def tall_plans(act):
+    """{zone key: tall extent} for every zone that needs a tall map (clip_bg_scroll.tall_extent
+    plus the paste dy, the rightmost donor camera X its clips reach and the period test's
+    x_reach). Derived from the manifest alone, so the region plan (crossing frames, from the
+    lowered tiles) and the backgrounds agree on it. A zone pasted at two dys is left to SC0."""
+    import clip_bg_scroll as CBS
+    import s2_donor as sd
+    by = {}
+    for c in act.clips:
+        by.setdefault(c.zone_key, []).append(c)
+    out = {}
+    for key, cl in sorted(by.items()):
+        dys = {c.dst[1] - c.src[1] for c in cl}
+        if len(dys) != 1:
+            continue
+        dy = dys.pop()
+        c = cl[0]
+        lo = min(x.dst[1] for x in cl)
+        hi = max(max(x.dst[1], x.dst[1] + x.dst[3] - CBS.SCREEN_LINES) for x in cl)
+        ext = CBS.tall_extent(c.donor, c.zone, dy, lo, hi,
+                              sd.load_bg_grid(c.zone, c.donor).shape[0] * CBS.CHUNK_LINES)
+        if ext is None:
+            continue
+        cam_x = max(x.src[0] + x.src[2] for x in cl) - 320
+        ext.update(paste_dy=dy, donor_cam_x_max=cam_x, x_reach=cam_x + 320 + TALL_X_MARGIN)
+        out[key] = ext
+    return out
+
+
+def tall_chains(act):
+    """{zone key: clip_bg_scroll.derive_tall(...)} for every tall zone of `act`: what the bake
+    binds and what a witness holds the ROM to. Pure (it re-lowers each tall map)."""
+    import clip_bg_scroll as CBS
+    tree = {c.zone_key: c.tree_key for c in act.clips}
+    out = {}
+    for key, ext in tall_plans(act).items():
+        donor, zone = tree[key]
+        words = lower_zone(donor, zone, ext)[0]
+        out[key] = CBS.derive_tall(donor, zone, ext["paste_dy"], ext, words,
+                                   ext["donor_cam_x_max"])
+    return out
+
+
+def tall_parallax_label(key, i):
+    """The parallax record of config i of zone `key`'s chain: config 0 is the zone's own
+    PARALLAX_LABEL (the one its preset binds), later ones carry a _W<i> suffix."""
+    import clip_bg_scroll as CBS
+    return CBS.PARALLAX_LABEL.format(key=key if i == 0 else f"{key}_W{i}")
 
 
 def crossing_frames(act, consts=None, bg_consts=None, tiles_of=None):
@@ -1192,8 +1294,10 @@ def crossing_frames(act, consts=None, bg_consts=None, tiles_of=None):
     pal = SNAP_FRAMES if ov["palette"] == "snap" else fade
     chunk, rows_per_frame, screen_rows = bg_consts or background_constants()
     wipe = -(-screen_rows // rows_per_frame)
-    tiles_of = tiles_of or _lowered_tiles
     tree = {c.zone_key: c.tree_key for c in act.clips}
+    if tiles_of is None:
+        tall = {tree[k]: t for k, t in tall_plans(act).items()}
+        tiles_of = (lambda donor, zone: _lowered_tiles(donor, zone, tall.get((donor, zone))))
     groups = blob_groups(act)
     group_of = {k: g for g in groups for k in g}
     nbytes = {}
@@ -1487,6 +1591,8 @@ def region_plan(act, donor_root, act_h_px=None, frames=None, model=None):
         else:
             d.update(y=cr["c"], shaft=cr["id"])
         out_cross.append(d)
+    for key, ext in tall_plans(act).items():
+        zones[key]["tall"] = ext
     return {"act": act.id, "zones": zones, "rows": rows_out,
             "overrides": crossing_overrides(act), "crossings": out_cross,
             "frames": frames, "blob_groups": [sorted(g) for g in blob_groups(act)]}
@@ -2215,12 +2321,14 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
     injector and each other zone's blobs into `gen_dir`, and bind them into `plan` (zones
     and rows) for the module and data-block emitters. Returns the default zone's key."""
     import clip_bg_lower as CBL
-    lower = lower or CBL.lower
     start = start_zone_key(plan, spawn)
     co_resident = (plan.get("overrides") or {}).get("background") == "co_resident"
     lowered, own = {}, {}
     for z in plan["zones"]:
-        own[z["key"]] = lower(z["donor"], z["zone"])
+        # a TALL zone (tall_plans) is lowered over its whole reachable height; an injected
+        # `lower` (the tests') sees exactly the call it always did
+        own[z["key"]] = (lower(z["donor"], z["zone"]) if lower else
+                         lower_zone(z["donor"], z["zone"], z.get("tall")))
     # BLOB GROUPS (the woven report's §C item 14): every group of two or more zones shares ONE
     # tile blob — the act default when it holds the start zone (its rows name rg_bg_tiles 0,
     # as co_resident's do), else one blob named by every member's rows. A crossing between
@@ -2259,10 +2367,16 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
             log(f"clip_rom_bake: BG WARNING — {z['donor']}:{z['zone']}'s background draws "
                 f"{info['line0_cells']} cell(s) on CRAM line 0, the character line; kept as "
                 f"the donor has them (TAGGED)")
+        tall = z.get("tall")
+        plane = CBL.PLANE_COLS * CBL.PLANE_ROWS
         if z["key"] == start:
             override = os.path.join(baked_dir, DEFAULT_BG_OVERRIDE)
             with open(override, "w") as fh:
-                json.dump(CBL.override_doc(words, tiles), fh)
+                # the act default is ONE plane by contract (bg.emp's BG_LAYOUT_SIZE ensure:
+                # BG_Init blits it before any camera exists). A TALL start zone hands it the
+                # map's first plane; its rows name the whole map, and Section_RedrawPlanes'
+                # windowed prime replaces the plane before the first visible frame.
+                json.dump(CBL.override_doc(words[:plane], tiles), fh)
             import inject_editor_bg as ieb
             ieb.main(_ClipDefaultBgAct(override, gen_dir))
             if start_shared:
@@ -2275,13 +2389,19 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
                             "zero-band stub, so the band reserve the shared blob uses may "
                             "be claimed by a band — refused")
             z["bg_role"] = "act_default"
-            continue
-        z["bg_role"] = "region"
+            if not tall:
+                continue
+        else:
+            z["bg_role"] = "region"
         lay = CLIP_BG_LAYOUT_BIN.format(key=z["key"])
+        blob = CBL.layout_blob(words)
         with open(os.path.join(gen_dir, lay), "wb") as fh:
-            fh.write(CBL.layout_blob(words))
+            fh.write(blob)
         z.update(bg_layout_label=f"OJZ_Clip_BG_Layout_{z['key']}",
-                 bg_layout_embed=f"{GEN_REL}/{lay}")
+                 bg_layout_embed=f"{GEN_REL}/{lay}", bg_layout_bytes=len(blob),
+                 bg_span=(len(words) // CBL.PLANE_COLS) * 8 if tall else 0)
+        if z["key"] == start:
+            continue                    # its tiles ARE the act default's (rg_bg_tiles 0)
         if co_resident or (start_shared and z["key"] in group_of.get(start, ())):
             continue                    # its tiles are in the act default's blob
         owner = min(group_of.get(z["key"], {z["key"]}))
@@ -2307,6 +2427,7 @@ def plan_backgrounds(plan, spawn, gen_dir, baked_dir, lower=None, backdrop=None,
     for r in plan["rows"]:
         r["bg_layout"] = zones[r["key"]].get("bg_layout_label")
         r["bg_tiles"] = zones[r["key"]].get("bg_tiles_label")
+        r["bg_span"] = zones[r["key"]].get("bg_span") or 0
     plan["bg_default_key"] = start
     plan["backdrop_reg"] = (CBL.s2_backdrop_register(zones[start]["donor"])
                             if backdrop is None else backdrop)
@@ -2345,12 +2466,16 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
             z = zones[r["key"]]
             # co-resident (per-clip override): the rows name their own LAYOUT and tile blob
             # 0, the act default's, which holds every zone's tiles
+            # a TALL start zone's rows name its whole map (the act default is only the map's
+            # first plane, for BG_Init) and the act default's tiles
             want = ((z["bg_layout_label"], z.get("bg_tiles_label") or "0")
-                    if z["key"] != plan["bg_default_key"] else ("0", "0"))
-            if (lay, til) != want or span != "0":
+                    if z.get("bg_layout_label") else ("0", "0"))
+            want_span = str(z.get("bg_span") or 0)
+            if (lay, til) != want or span != want_span:
                 raise ClipRomError(
                     f"BG1 {what}: the row x {r['x0']}..{r['x1']} ({z['zone']}) names "
-                    f"background ({lay}, span {span}, {til}); its zone's own is {want}, span 0")
+                    f"background ({lay}, span {span}, {til}); its zone's own is {want}, "
+                    f"span {want_span}")
     for lab in _region_bg_labels(plan):
         if not re.search(rf"pub data {lab}\b", data_text):
             raise ClipRomError(f"BG1 a region row names {lab} and the data block declares "
@@ -2361,7 +2486,7 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
             # the planned words are RE-INDEXED, so "bytes of a fresh lowering" is not the
             # comparison: every cell must name, through the shared blob, the same tile with
             # the same flip, line and priority bits as a fresh lowering of its own zone
-            fw, ft, _ = CBL.lower(z["donor"], z["zone"])
+            fw, ft, _ = lower_zone(z["donor"], z["zone"], z.get("tall"))
             for i, (a, b) in enumerate(zip(fw, words)):
                 if (a == 0) != (b == 0) or (a & ~0x7FF) != (b & ~0x7FF) or \
                         (a and ft[a & 0x7FF] != tiles[b & 0x7FF]):
@@ -2372,7 +2497,11 @@ def check_backgrounds(plan, mod_text, data_text, gen_dir):
                 raise ClipRomError(f"BG1 {z['zone']}: {len(words)} planned cells against "
                                    f"{len(fw)} lowered")
         if key == plan["bg_default_key"]:
-            files = (("zone_bg.bin", CBL.layout_blob(words)), ("bg_tiles.bin", CBL.tiles_blob(tiles)))
+            plane = CBL.PLANE_COLS * CBL.PLANE_ROWS
+            files = (("zone_bg.bin", CBL.layout_blob(words[:plane])),
+                     ("bg_tiles.bin", CBL.tiles_blob(tiles)))
+            if z.get("bg_span"):            # a TALL start zone: its rows' whole map too
+                files = files + ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),)
         elif not z.get("bg_tiles_label"):          # co-resident: layout only
             files = ((CLIP_BG_LAYOUT_BIN.format(key=key), CBL.layout_blob(words)),)
             if os.path.exists(os.path.join(gen_dir, CLIP_BG_TILES_BIN.format(key=key))):
@@ -2425,6 +2554,24 @@ def plan_scroll(plan, act, log=None, derive=None):
             raise ClipRomError(f"SC0 zone {z['donor']}:{z['zone']} is pasted at {len(dys)} "
                                f"different vertical offsets {dys}; its one region and one "
                                f"scroll record can anchor only one")
+        if z.get("tall") and derive is CBS.derive:
+            # a TALL zone: its chain of band layouts over the map plan_backgrounds lowered
+            # (the transparent rows are read off those words), rows split at its switches
+            ext = z["tall"]
+            chain = CBS.derive_tall(z["donor"], z["zone"], dys[0], ext,
+                                    plan["_bg_lowered"][z["key"]][0], ext["donor_cam_x_max"])
+            z["scroll_chain"] = chain
+            z["scroll"] = chain["specs"][0]
+            z["parallax_label"] = tall_parallax_label(z["key"], 0)
+            if log:
+                log(f"clip_rom_bake: TALL BACKGROUND {z['zone']} — BG rows {chain['r0']}.."
+                    f"{chain['r0'] + chain['span'] - 1} ({chain['span']} lines, rg_bg_span), "
+                    f"screen tops {chain['v_lo']}..{chain['v_hi']}; "
+                    f"{len(chain['specs'])} band layout(s) "
+                    f"{[len(s['bands']) for s in chain['specs']]} switching at screen tops "
+                    f"{chain['switch_rows']} (overlaps {chain['overlap']}), camera-centre Y "
+                    f"{chain['cuts']}")
+            continue
         spec = derive(z["donor"], z["zone"], dys[0])
         z["scroll"] = spec
         if spec is None:
@@ -2433,11 +2580,46 @@ def plan_scroll(plan, act, log=None, derive=None):
                     f"{z['donor']}:{z['zone']}; it scrolls with the act default (TAGGED)")
             continue
         z["parallax_label"] = CBS.PARALLAX_LABEL.format(key=z["key"])
+    split_tall_rows(plan)
     if log:
         log("clip_rom_bake: scroll — " + "; ".join(
             f"{z['zone']} {len(z['scroll']['bands'])} band(s) from {z['scroll']['routine']} "
             f"(v_factor {z['scroll']['v_factor']}, v_center {z['scroll']['v_center']})"
             if z.get("scroll") else f"{z['zone']} act default" for z in plan["zones"]))
+
+
+def split_tall_rows(plan):
+    """Split each row of a zone with a CHAIN of band layouts at the chain's camera-centre cuts
+    (clip_bg_scroll.derive_tall), so each piece names its layout in rg_parallax. A cut at Y
+    makes rows [.., Y-1] and [Y, ..]: Parallax_CheckBoundary installs the row holding the
+    camera centre, and the centre at Y is the first whose screen top is the switch row, where
+    both neighbouring layouts are exact. Every piece keeps REGION_MIN_SPAN (the descriptor
+    refuses less); a cut that would leave less is REFUSED by name rather than moved, because
+    moving it off the overlap would put a layout on screen tops it is not exact for. The cut
+    is inside a row the guillotine already placed inside the camera centre's band, so the
+    band rule holds for the new edge too."""
+    min_span = _region_bounds()[0]
+    zones = {z["key"]: z for z in plan["zones"]}
+    out = []
+    for r in plan["rows"]:
+        chain = zones[r["key"]].get("scroll_chain")
+        if not chain or len(chain["specs"]) == 1:
+            out.append(r)
+            continue
+        cuts = chain["cuts"]
+        edges = [r["y0"]] + [c for c in cuts if r["y0"] < c <= r["y1"]] + [r["y1"] + 1]
+        for a, b in zip(edges, edges[1:]):
+            if b - a < min_span:
+                raise ClipRomError(
+                    f"TALL {zones[r['key']]['zone']}: splitting the row x {r['x0']}..{r['x1']}, "
+                    f"y {r['y0']}..{r['y1']} at the band-layout switches {cuts} leaves y "
+                    f"{a}..{b - 1}, under REGION_MIN_SPAN {min_span}")
+            i = sum(1 for c in cuts if c <= a)
+            piece = dict(r, y0=a, y1=b - 1,
+                         parallax=tall_parallax_label(r["key"], i),
+                         why=f"{r['why']} [tall band layout {i} of {len(cuts) + 1}]")
+            out.append(piece)
+    plan["rows"] = out
 
 
 def check_scroll(plan, data_text):
