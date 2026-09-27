@@ -1,12 +1,6 @@
 {
   "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
-  "inFlight": [
-    {
-      "what": "Make falling feel like Sonic 3: remove the cap, match its camera, keep thin floors solid",
-      "where": "branch feel/s3k-fall",
-      "agent": true
-    }
-  ],
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -30,10 +24,10 @@
     },
     {
       "id": "OJZ-FEEL",
-      "title": "Falling like Sonic 3 (no cap, Sonic 3's camera), keeping thin floors solid: building",
-      "state": "doing",
+      "title": "Sonic 3 fall: built on a branch (no cap, thin floors stay solid); the Sonic 3 camera makes long falls lag, your pick",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "owner: try the fall and pick the camera speed"
     },
     {
       "id": "OJZ-LOOP-DOUBLE-LAP",
@@ -190,7 +184,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Look at the woven layout picture; say go to start building with Chemical Plant inside Metropolis.",
+  "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera (Sonic 3 speed, or ours); and say go on Chemical Plant inside Metropolis.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T02:10:40Z"
+  "updatedAt": "2026-09-27T02:36:00Z"
 }
