@@ -4,7 +4,10 @@ parcel's ground claim rests on.
 Runner: build.sh's pre-build `pytest tools -m "not needs_build"` lane
 (tools/landing_build.sh runs it once, inside the first shape). DONOR-FREE and BUILD-FREE
 by construction — every row builds its own inputs, so these pass on a checkout that has
-never run tools/s2_zone_convert.py and has no games/sonic4/data/donors/ at all. The
+never run tools/s2_zone_convert.py and has no games/sonic4/data/donors/ at all (the two
+`start` rows convert the MTZ and CPZ trees they load into pytest's tmp dir, from the
+read-only s2disasm checkout; an autouse guard makes any row that reaches for the working
+tree's donors fail everywhere). The
 end-to-end half (a real clip act baked out of a real donor tree and linked into a ROM) is
 evidenced by `S2CLIP=s2_ehz_boot ./build.sh`, which no canonical lane runs.
 
@@ -32,6 +35,47 @@ import elect_pool_pages as EPP     # noqa: E402
 
 REPO = os.path.normpath(os.path.join(HERE, ".."))
 TILE = 32
+
+#: The shipped woven manifest the two `start` rows load; its clips name s2disasm MTZ and CPZ.
+MTZ_CPZ = os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz", "clips.json")
+MTZ_CPZ_ZONES = [("s2disasm", "MTZ"), ("s2disasm", "CPZ")]
+
+
+@pytest.fixture(autouse=True, scope="module")
+def no_working_tree_donors():
+    """No row may read the repo's own (gitignored) converted donor trees.
+
+    The guard test_clip_manifest and test_s2_layer_lines carry, for the same incident class:
+    the two `start` rows below shipped with `CM.load(p)` and no `donor_root=`, green in the
+    worktree that had run s2_zone_convert and 2 FAILED rows (R4 "no converted tree") in every
+    fresh landing worktree. Pointing the default at a path that cannot exist makes that
+    mistake fail on EVERY machine."""
+    import clip_manifest as CM
+    real = CM.DEFAULT_DONOR_ROOT
+    CM.DEFAULT_DONOR_ROOT = os.path.join(
+        REPO, "tools", "__no_donor_root_for_tests__", "this-path-must-not-exist")
+    assert not os.path.exists(CM.DEFAULT_DONOR_ROOT)
+    yield
+    CM.DEFAULT_DONOR_ROOT = real
+
+
+@pytest.fixture(scope="module")
+def mtz_cpz_donors(tmp_path_factory):
+    """A converted donor root in pytest's own tmp tree, MADE here from the read-only s2disasm
+    checkout (the converter is deterministic), holding exactly the zones MTZ_CPZ clips, so
+    the rows run on a fresh checkout instead of requiring s2_zone_convert to have been run."""
+    import s2_donor
+    import s2_zone_convert as C
+    from suite_paths import SuitePathError
+    try:
+        s2_donor.donor_root(s2_donor.S2_FINAL)
+    except (SystemExit, SuitePathError) as exc:
+        pytest.skip("the s2disasm donor checkout could not be resolved, so NOTHING in this "
+                    "row is checked: %s" % exc)
+    root = str(tmp_path_factory.mktemp("mtzcpzdonors"))
+    for donor, zone in MTZ_CPZ_ZONES:
+        C.convert_zone(zone, donor, os.path.join(root, donor, zone), quiet=True)
+    return root
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +643,7 @@ def test_st1_refuses_a_module_whose_chooser_is_not_the_plans(tmp_path):
         CRB.check_start({"start": None}, good)
 
 
-def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path):
+def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path, mtz_cpz_donors):
     """s2_mtz_cpz starts where Sonic 2 starts Metropolis. The donor's start is read here
     straight off its startpos file and moved by the clip's own rectangles; the spawn is then
     the engine's arithmetic over it (the camera clamp bites at x: 96 < half a screen)."""
@@ -609,8 +653,7 @@ def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path):
         droot = s2_donor.donor_root(s2_donor.S2_FINAL)
     except BaseException as e:                      # noqa: BLE001 — a skip that SAYS so
         pytest.skip(f"the s2disasm donor could not be resolved, nothing checked: {e}")
-    act = CM.load(os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz",
-                               "clips.json"))
+    act = CM.load(MTZ_CPZ, donor_root=mtz_cpz_donors)
     act.raw = dict(act.raw, start={"clip": "mtz_west"})
     clip = next(c for c in act.clips if c.id == act.raw["start"]["clip"])
     sx, sy = struct.unpack(">HH", open(os.path.join(droot, "startpos",
@@ -635,12 +678,11 @@ def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path):
         CRB.act_start(act)
 
 
-def test_a_start_point_is_the_acts_own_and_must_say_why():
+def test_a_start_point_is_the_acts_own_and_must_say_why(mtz_cpz_donors):
     """The second form (s2_mtz_cpz's): a world point inside a clip or corridor, with a
     why. Mutations: no why, a point in no rectangle, a non-integer: each refused (ST0)."""
     import clip_manifest as CM
-    act = CM.load(os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz",
-                               "clips.json"))
+    act = CM.load(MTZ_CPZ, donor_root=mtz_cpz_donors)
     raw = act.raw["start"]
     st = CRB.act_start(act)
     assert (st["x"], st["y"], st["clip"]) == (raw["x"], raw["y"], None)
