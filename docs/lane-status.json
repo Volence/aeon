@@ -1,6 +1,12 @@
 {
   "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Fix where our loop loses Sonic at some speeds (falling through its floor)",
+      "where": "branch fix/ojz-loop-collision",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
     {
       "id": "OJZ-LOOP-COLLISION",
       "title": "Our loop still loses Sonic at some speeds (worst: falling through the floor at the foot of the left side)",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -186,5 +192,5 @@
   ],
   "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera (Sonic 3 speed, or ours); and say go on Chemical Plant inside Metropolis.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T02:36:00Z"
+  "updatedAt": "2026-09-27T02:49:23Z"
 }
