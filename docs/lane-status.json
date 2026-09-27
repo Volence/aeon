@@ -1,10 +1,15 @@
 {
-  "focus": "Making the woven act's tall backgrounds switch on cleanly when you enter Hidden Palace and Wing Fortress.",
+  "focus": "Tall Sonic 2 backgrounds are in the woven act; now letting clip levels be taller so Oil Ocean isn't on the bottom edge.",
   "inFlight": [
     {
-      "what": "Tall backgrounds in the woven act: snap and fast-repaint the background when entering a tall zone, then switch them on",
-      "where": "branch parcel/woven-tall-entry",
+      "what": "Clip levels taller than 3 sections (Oil Ocean off the woven act's bottom edge)",
+      "where": "branch parcel/clip-act-taller",
       "agent": true
+    },
+    {
+      "what": "Rebuilding the woven act ROM for you with the new backgrounds",
+      "where": "main checkout",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -24,16 +29,8 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the tall-background entry agent returns and its work is reviewed and landed.",
+  "nextBoundary": "When the taller-clip agent returns and lands.",
   "queue": [
-    {
-      "id": "WOVEN-TALL-ENTRY",
-      "title": "Woven act: Hidden Palace and Wing Fortress backgrounds scroll the whole height once entering them no longer glitches",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
@@ -43,9 +40,17 @@
       "project": "REGIONS"
     },
     {
+      "id": "TELEPORT-BG-STREAM-STARVE",
+      "title": "After a raw camera jump, a tall background can lag behind for a second (test tools only; walking never hits it)",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
       "id": "CLIP-ACT-TALLER-THAN-DOCUMENT",
       "title": "Clip acts can't be more than 3 sections tall, which leaves Oil Ocean sitting on the woven act's bottom edge",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -214,5 +219,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T16:14:21Z"
+  "updatedAt": "2026-09-27T17:52:00Z"
 }
