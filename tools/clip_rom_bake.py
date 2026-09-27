@@ -580,15 +580,33 @@ _START_NEUTRAL = (
 def act_start(act):
     """The clip act's own start, or None (the descriptor's shipped start stands).
 
-    `"start": {"clip": <clip id>}` names the clip whose DONOR start the player begins at:
-    Sonic 2's `startpos/<ZONE>_1.bin` (x then y, big-endian words: the player's centre),
-    which must lie inside that clip's source rectangle, moved by the clip's paste offset.
-    Returns {"x", "y", "clip", "donor_start"} in world px."""
-    raw = act.raw.get("start")
+    Two forms. `"start": {"clip": <clip id>}` names the clip whose DONOR start the player
+    begins at: Sonic 2's `startpos/<ZONE>_1.bin` (x then y, big-endian words: the player's
+    centre), which must lie inside that clip's source rectangle, moved by the clip's paste
+    offset. `"start": {"x": X, "y": Y, "why": "..."}` is a world point (the player's centre)
+    chosen by the act, for when the donor's start cannot reach what the act exists to show
+    (s2_mtz_cpz: Sonic 2 crosses the pit between Metropolis's start and the first tunnel on
+    objects the clip does not carry). It must lie inside a clip or corridor rectangle and
+    say why. Returns {"x", "y", "clip", "donor_start"} in world px (clip/donor_start None
+    for the second form)."""
+    raw = getattr(act, "raw", None) or {}
+    raw = raw.get("start")
     if raw is None:
         return None
+    if isinstance(raw, dict) and set(raw) == {"x", "y", "why"}:
+        x, y, why = raw["x"], raw["y"], raw["why"]
+        if not (isinstance(x, int) and isinstance(y, int) and not isinstance(x, bool)
+                and not isinstance(y, bool)):
+            raise ClipRomError(f"ST0 `start` x and y must be integers, not {x!r}, {y!r}")
+        if not (isinstance(why, str) and why.strip()):
+            raise ClipRomError("ST0 `start` names a point without a `why`")
+        rects = [c.dst for c in act.clips] + [co.dst for co in act.corridors]
+        if not any(rx <= x < rx + rw and ry <= y < ry + rh for rx, ry, rw, rh in rects):
+            raise ClipRomError(f"ST0 `start` ({x}, {y}) lies in no clip or corridor rectangle")
+        return {"x": x, "y": y, "clip": None, "donor_start": None, "why": why}
     if not isinstance(raw, dict) or set(raw) != {"clip"}:
-        raise ClipRomError(f"ST0 `start` must be {{\"clip\": <clip id>}}, not {raw!r}")
+        raise ClipRomError(f"ST0 `start` must be {{\"clip\": <clip id>}} or "
+                           f"{{\"x\": X, \"y\": Y, \"why\": ...}}, not {raw!r}")
     clip = next((c for c in act.clips if c.id == raw["clip"]), None)
     if clip is None:
         raise ClipRomError(f"ST0 `start` names clip {raw['clip']!r}, which the act does not have")
@@ -626,8 +644,9 @@ def _start_module_text(plan):
                 + "\n".join(f"pub comptime fn ojz_clip_act_{f}(hand: int) -> int {{\n"
                             f"    return hand\n}}\n" for f in START_FIELDS))
     fields = start_fields(st)
-    return (f"// THE START (woven item 7): clip {st['clip']!r}'s donor start "
-            f"({st['donor_start'][0]}, {st['donor_start'][1]}), at world ({st['x']}, {st['y']}).\n"
+    said = (f"clip {st['clip']!r}'s donor start ({st['donor_start'][0]}, {st['donor_start'][1]})"
+            if st.get("clip") else "the act's own point (its manifest says why)")
+    return (f"// THE START (woven item 7): {said}, at world ({st['x']}, {st['y']}).\n"
             + "\n".join(f"pub comptime fn ojz_clip_act_{f}(hand: int) -> int {{\n"
                         f"    return {fields[f]}\n}}\n" for f in START_FIELDS))
 
@@ -1820,11 +1839,12 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
     plan["start"] = act_start(act)
     spawn = engine_spawn(desc, start=plan["start"])
     if log:
+        st = plan["start"]
         log(f"clip_rom_bake: START — "
-            + (f"clip {plan['start']['clip']!r}'s donor start "
-               f"({plan['start']['donor_start'][0]}, {plan['start']['donor_start'][1]}) at world "
-               f"({plan['start']['x']}, {plan['start']['y']})" if plan["start"] else
-               "the descriptor's shipped start")
+            + ("the descriptor's shipped start" if not st else
+               f"clip {st['clip']!r}'s donor start ({st['donor_start'][0]}, "
+               f"{st['donor_start'][1]}) at world ({st['x']}, {st['y']})" if st.get("clip") else
+               f"the act's own point ({st['x']}, {st['y']}): {st['why']}")
             + f"; the boot state puts the player at {spawn}")
     plan_backgrounds(plan, spawn, gen_dir, baked_dir or gen_dir, log=log)
     plan_scroll(plan, act, log=log)

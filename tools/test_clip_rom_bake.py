@@ -611,6 +611,7 @@ def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path):
         pytest.skip(f"the s2disasm donor could not be resolved, nothing checked: {e}")
     act = CM.load(os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz",
                                "clips.json"))
+    act.raw = dict(act.raw, start={"clip": "mtz_west"})
     clip = next(c for c in act.clips if c.id == act.raw["start"]["clip"])
     sx, sy = struct.unpack(">HH", open(os.path.join(droot, "startpos",
                                                     f"{clip.zone}_1.bin"), "rb").read()[:4])
@@ -632,6 +633,25 @@ def test_a_named_start_is_the_clips_donor_start_moved_into_the_act(tmp_path):
     act.raw["start"] = {"clip": "nope"}
     with pytest.raises(CRB.ClipRomError, match="ST0"):
         CRB.act_start(act)
+
+
+def test_a_start_point_is_the_acts_own_and_must_say_why():
+    """The second form (s2_mtz_cpz's): a world point inside a clip or corridor, with a
+    why. Mutations: no why, a point in no rectangle, a non-integer: each refused (ST0)."""
+    import clip_manifest as CM
+    act = CM.load(os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz",
+                               "clips.json"))
+    raw = act.raw["start"]
+    st = CRB.act_start(act)
+    assert (st["x"], st["y"], st["clip"]) == (raw["x"], raw["y"], None)
+    assert CRB.start_fields(st)["start_local_x"] == raw["x"] % act.section_px
+    CRB.check_start({"start": st}, CRB._start_module_text({"start": st}))
+    for bad, what in (({"x": raw["x"], "y": raw["y"], "why": ""}, "without a `why`"),
+                      ({"x": 6144 * 2, "y": 0, "why": "w"}, "no clip or corridor"),
+                      ({"x": 1.5, "y": 0, "why": "w"}, "integers")):
+        act.raw = dict(act.raw, start=bad)
+        with pytest.raises(CRB.ClipRomError, match=what):
+            CRB.act_start(act)
 
 
 def test_the_donor_corroboration_window_is_derived_and_both_sides_of_it_bite(tmp_path,
